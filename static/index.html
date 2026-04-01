@@ -129,7 +129,7 @@
 
     /* Eisenhower grid */
     .eisenhower-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .eisenhower-cell { border-radius: 12px; padding: 16px; min-height: 160px; }
+    .eisenhower-cell { border-radius: 12px; padding: 16px; min-height: 160px; min-width: 0; overflow: hidden; }
     .eq1 { background: #fef2f2; border: 1px solid #fecaca; }
     .eq2 { background: #F4FAD6; border: 1px solid #CEDE8A; }
     .eq3 { background: #fff7ed; border: 1px solid #fed7aa; }
@@ -2304,7 +2304,7 @@
             ].map(({ key, label, emoji, bg, border }) => {
               const sectionTasks = tasks.filter(t => t.gtd_status === key);
               return (
-                <div key={key} style={{ borderRadius: 12, padding: 16, minHeight: 120, background: bg, border: `1px solid ${border}` }}>
+                <div key={key} style={{ borderRadius: 12, padding: 16, minHeight: 120, minWidth: 0, overflow: "hidden", background: bg, border: `1px solid ${border}` }}>
                   <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>{emoji} {label} ({sectionTasks.length})</div>
                   {sectionTasks.length === 0 ? (
                     <div style={{ fontSize: 13, color: "var(--text-light)", fontStyle: "italic" }}>Kosong</div>
@@ -2332,7 +2332,7 @@
                 {projNames.map(proj => {
                   const projTasks = tasks.filter(t => t.project === proj && t.gtd_status !== "done" && t.gtd_status !== "archived");
                   return (
-                    <div key={proj} style={{ borderRadius: 12, padding: 16, minHeight: 100, background: "#F4FAD6", border: "1px solid #CEDE8A" }}>
+                    <div key={proj} style={{ borderRadius: 12, padding: 16, minHeight: 100, minWidth: 0, overflow: "hidden", background: "#F4FAD6", border: "1px solid #CEDE8A" }}>
                       <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📂 {proj} ({projTasks.length})</div>
                       {projTasks.slice(0, 5).map(t => (
                         <div key={t.id} onClick={() => onTaskClick(t)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
