@@ -1908,25 +1908,24 @@
           />
 
           {/* Task List */}
-          <div className="card focus-task-list" style={{ padding: "16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ marginBottom: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <h3 style={{ fontSize: 16, fontWeight: 700 }}>📋 Task List</h3>
               <span style={{ fontSize: 13, color: "var(--text-light)" }}>{sortedTasks.length} task</span>
             </div>
 
             {loading ? (
-              <div style={{ textAlign: "center", padding: 40, color: "var(--text-light)" }}>Loading...</div>
+              <div className="card" style={{ textAlign: "center", padding: 40, color: "var(--text-light)" }}>Loading...</div>
             ) : sortedTasks.length === 0 ? (
-              <div style={{ textAlign: "center", padding: 48, color: "var(--text-light)" }}>
+              <div className="card" style={{ textAlign: "center", padding: 48, color: "var(--text-light)" }}>
                 <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
                 <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Tidak ada task urgent!</div>
                 <div style={{ fontSize: 14 }}>Semua Q1 dan overdue task sudah selesai.</div>
               </div>
             ) : (
-              <div>
-                {sortedTasks.map((task, idx) => (
-                  <React.Fragment key={task.id}>
-                    {idx > 0 && <div style={{ height: 8, background: "var(--bg-page)", margin: "0 -16px" }} />}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {sortedTasks.map((task) => (
+                  <div key={task.id} style={{ background: "#EDEEE8", borderRadius: 12, border: "1px solid #D8D9D0", padding: "4px 4px 8px 4px" }}>
                     <FocusTaskRow
                       task={task}
                       onClick={onTaskClick}
@@ -1938,7 +1937,7 @@
                     <FocusSubtasks taskId={task.id} />
                     <FocusNotes taskId={task.id} />
                     <FocusAttachments taskId={task.id} />
-                  </React.Fragment>
+                  </div>
                 ))}
               </div>
             )}
