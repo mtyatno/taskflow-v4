@@ -2001,41 +2001,47 @@
               <input className="input" placeholder="🔍 Cari task..." value={fSearch} onChange={e => setFSearch(e.target.value)}
                 style={{ marginBottom: 12, padding: "8px 12px", fontSize: 13 }} />
 
-              {/* Priority */}
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-light)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Priority</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {["P1","P2","P3","P4"].map(p => <FilterChip key={p} label={`${PRI_EMOJI[p]} ${p}`} active={fPriority===p} onClick={() => toggle(setFPriority, fPriority, p)} />)}
+              {/* Dropdowns */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                <div>
+                  <div className="input-label">Priority</div>
+                  <select className="input" value={fPriority} onChange={e => setFPriority(e.target.value)} style={{ padding: "8px 12px", fontSize: 13 }}>
+                    <option value="">Semua Priority</option>
+                    <option value="P1">🔴 P1 Critical</option>
+                    <option value="P2">🟠 P2 High</option>
+                    <option value="P3">🟡 P3 Medium</option>
+                    <option value="P4">🟢 P4 Low</option>
+                  </select>
                 </div>
-              </div>
-
-              {/* Quadrant */}
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-light)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Quadrant</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {["Q1","Q2","Q3","Q4"].map(q => <FilterChip key={q} label={`${QUAD_EMOJI[q]} ${q}`} active={fQuadrant===q} onClick={() => toggle(setFQuadrant, fQuadrant, q)} />)}
+                <div>
+                  <div className="input-label">Quadrant</div>
+                  <select className="input" value={fQuadrant} onChange={e => setFQuadrant(e.target.value)} style={{ padding: "8px 12px", fontSize: 13 }}>
+                    <option value="">Semua Quadrant</option>
+                    <option value="Q1">🔥 Q1 Do</option>
+                    <option value="Q2">📅 Q2 Schedule</option>
+                    <option value="Q3">👋 Q3 Delegate</option>
+                    <option value="Q4">🗑️ Q4 Eliminate</option>
+                  </select>
                 </div>
-              </div>
-
-              {/* Project */}
-              {projList.length > 0 && (
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-light)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Project</div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {projList.map(p => <FilterChip key={p} label={`📁 ${p}`} active={fProject===p} onClick={() => toggle(setFProject, fProject, p)} />)}
+                {projList.length > 0 && (
+                  <div>
+                    <div className="input-label">Project</div>
+                    <select className="input" value={fProject} onChange={e => setFProject(e.target.value)} style={{ padding: "8px 12px", fontSize: 13 }}>
+                      <option value="">Semua Project</option>
+                      {projList.map(p => <option key={p} value={p}>📁 {p}</option>)}
+                    </select>
                   </div>
-                </div>
-              )}
-
-              {/* Context */}
-              {ctxList.length > 0 && (
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-light)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Context</div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {ctxList.map(c => <FilterChip key={c} label={c} active={fContext===c} onClick={() => toggle(setFContext, fContext, c)} />)}
+                )}
+                {ctxList.length > 0 && (
+                  <div>
+                    <div className="input-label">Context</div>
+                    <select className="input" value={fContext} onChange={e => setFContext(e.target.value)} style={{ padding: "8px 12px", fontSize: 13 }}>
+                      <option value="">Semua Context</option>
+                      {ctxList.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {hasFilters && (
                 <div style={{ marginTop: 8 }}>
