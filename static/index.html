@@ -12,8 +12,8 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-primary: #1C1C1E;
-      --bg-secondary: #1C1C1E;
+      --bg-primary: #DDDDD3;
+      --bg-secondary: #DDDDD3;
       --bg-card: #ffffff;
       --bg-page: #FAFAF7;
       --text-primary: #0f172a;
@@ -51,12 +51,14 @@
     .scale-in { animation: scaleIn 0.2s ease-out; }
 
     /* Sidebar */
-    .sidebar { width: var(--sidebar-w); height: 100vh; background: var(--bg-primary); color: white; position: fixed; left: 0; top: 0; z-index: 40; transition: transform 0.3s; display: flex; flex-direction: column; overflow: hidden; }
-    .sidebar-scroll { flex: 1; overflow-y: auto; padding: 8px 0; }
-    .sidebar-link { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #94a3b8; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; border-radius: 8px; margin: 2px 12px; }
-    .sidebar-link:hover { background: rgba(255,255,255,0.06); color: #e2e8f0; }
-    .sidebar-link.active { background: rgba(168,197,0,0.15); color: #B3D800; }
-    .sidebar-section { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: #475569; padding: 16px 20px 6px; font-weight: 600; }
+    .sidebar { width: var(--sidebar-w); height: 100vh; background: var(--bg-primary); color: var(--text-primary); position: fixed; left: 0; top: 0; z-index: 40; transition: transform 0.3s; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid #CCCCC2; }
+    .sidebar.collapsed { transform: translateX(-100%); }
+    .sidebar-scroll { flex: 1; overflow-y: auto; padding: 8px 0; scrollbar-width: none; }
+    .sidebar-scroll::-webkit-scrollbar { display: none; }
+    .sidebar-link { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #4A4A40; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; border-radius: 8px; margin: 2px 12px; }
+    .sidebar-link:hover { background: rgba(0,0,0,0.05); color: #0f172a; }
+    .sidebar-link.active { background: rgba(168,197,0,0.2); color: #6B8000; }
+    .sidebar-section { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: #888880; padding: 16px 20px 6px; font-weight: 600; }
 
     /* Main content */
     .main-content { margin-left: var(--sidebar-w); min-height: 100vh; padding: 28px 36px; }
@@ -677,7 +679,7 @@
     }
 
     // ── Sidebar ─────────────────────────────────────────────────
-    function Sidebar({ page, setPage, summary, user, onLogout, isOpen, onClose, projects, tasks }) {
+    function Sidebar({ page, setPage, summary, user, onLogout, isOpen, onClose, projects, tasks, collapsed, onToggleCollapse }) {
       // Count tasks per project
       const projCounts = {};
       (projects || []).forEach(p => {
@@ -716,10 +718,13 @@
       links.push({ id: "done", icon: "✅", label: "Done", count: summary?.by_status?.done });
 
       return (
-        <div className={`sidebar ${isOpen ? "open" : ""}`}>
-          <div style={{ padding: "20px 20px 8px", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "white" }}>⚡ TaskFlow</div>
-            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>v4 — {user?.display_name || user?.username}</div>
+        <div className={`sidebar ${isOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`}>
+          <div style={{ padding: "16px 20px 8px", borderBottom: "1px solid rgba(0,0,0,0.08)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>⚡ TaskFlow</div>
+              <div style={{ fontSize: 12, color: "#888880", marginTop: 2 }}>v4 — {user?.display_name || user?.username}</div>
+            </div>
+            <button onClick={onToggleCollapse} title="Sembunyikan menu" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, padding: "4px 6px", borderRadius: 6, color: "#888880", lineHeight: 1 }}>✕</button>
           </div>
           <div className="sidebar-scroll">
             {links.map((l, i) =>
@@ -728,11 +733,11 @@
                 : <div key={l.id} className={`sidebar-link ${page === l.id ? "active" : ""}`} onClick={() => { setPage(l.id); onClose?.(); }}>
                     <span>{l.icon}</span>
                     <span style={{ flex: 1 }}>{l.label}</span>
-                    {l.count > 0 && <span style={{ background: "rgba(255,255,255,0.1)", padding: "2px 8px", borderRadius: 4, fontSize: 12 }}>{l.count}</span>}
+                    {l.count > 0 && <span style={{ background: "rgba(0,0,0,0.08)", padding: "2px 8px", borderRadius: 4, fontSize: 12 }}>{l.count}</span>}
                   </div>
             )}
           </div>
-          <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
+          <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(0,0,0,0.08)", flexShrink: 0 }}>
             <div className="sidebar-link" onClick={onLogout} style={{ color: "#ef4444" }}>
               <span>🚪</span> <span>Logout</span>
             </div>
@@ -2377,6 +2382,7 @@
       const [toast, setToast] = useState(null);
       const [loading, setLoading] = useState(false);
       const [sidebarOpen, setSidebarOpen] = useState(false);
+      const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
       const showToast = (message, type = "success") => setToast({ message, type });
 
@@ -2557,9 +2563,9 @@
 
       return (
         <div>
-          <Sidebar page={page} setPage={setPage} summary={summary} user={user} onLogout={logout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} projects={projects} tasks={tasks} />
+          <Sidebar page={page} setPage={setPage} summary={summary} user={user} onLogout={logout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} projects={projects} tasks={tasks} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)} />
 
-          <div className="main-content">
+          <div className="main-content" style={{ marginLeft: sidebarCollapsed ? 0 : "var(--sidebar-w)", transition: "margin-left 0.3s" }}>
             {/* Mobile top bar */}
             <div className="mobile-topbar">
               <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1 }}>☰</button>
@@ -2569,8 +2575,11 @@
 
             {/* Desktop top bar */}
             <div className="desktop-topbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-              <div style={{ fontSize: 13, color: "var(--text-light)" }}>
-                {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} title="Toggle menu" style={{ background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", fontSize: 16, padding: "6px 10px", color: "var(--text-secondary)", lineHeight: 1 }}>☰</button>
+                <div style={{ fontSize: 13, color: "var(--text-light)" }}>
+                  {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                </div>
               </div>
               <button className="btn btn-primary" onClick={() => { setEditTask(null); setShowForm(true); }}>
                 ＋ Tambah Task
