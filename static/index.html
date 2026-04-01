@@ -1926,7 +1926,7 @@
               <div>
                 {sortedTasks.map((task, idx) => (
                   <React.Fragment key={task.id}>
-                    {idx > 0 && <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />}
+                    {idx > 0 && <div style={{ height: 8, background: "var(--bg-page)", margin: "0 -16px" }} />}
                     <FocusTaskRow
                       task={task}
                       onClick={onTaskClick}
