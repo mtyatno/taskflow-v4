@@ -142,6 +142,12 @@
     .task-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
     .task-row:hover { background: #f8fafc; border-color: var(--border); }
     .task-row.focusing { background: linear-gradient(135deg, #fef2f2 0%, #fff7ed 100%); border-color: #fecaca; box-shadow: 0 2px 12px rgba(239,68,68,0.1); }
+    .task-row-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+    .task-row-badges { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
+    @media (max-width: 768px) {
+      .task-row-header { flex-direction: column-reverse; gap: 4px; }
+      .task-row-badges { align-self: flex-start; }
+    }
 
     /* Toast */
     .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 10px; color: white; font-weight: 600; font-size: 14px; z-index: 100; animation: fadeIn 0.3s ease-out; }
@@ -1264,14 +1270,14 @@
             {task.gtd_status === "done" && <span style={{ color: "var(--success)", fontSize: 14 }}>✓</span>}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <div className="task-row-header">
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flex: 1, minWidth: 0 }}>
                 {task.is_focused && <span style={{ fontSize: 14 }} title="Fokus Hari Ini">⭐</span>}
                 <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.5, textDecoration: task.gtd_status === "done" ? "line-through" : "none", color: task.gtd_status === "done" ? "var(--text-light)" : "var(--text-primary)" }}>
                   {task.title}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "center" }}>
+              <div className="task-row-badges">
                 {onToggleFocus && task.gtd_status !== "done" && (
                   <span
                     onClick={e => { e.stopPropagation(); onToggleFocus(task.id); }}
