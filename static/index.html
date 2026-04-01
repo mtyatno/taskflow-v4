@@ -150,8 +150,6 @@
       .task-row-badges { align-self: flex-start; }
       .task-row { background: #FFFFFF; border: 1px solid #CEDE8A; border-radius: 10px; margin-bottom: 6px; }
       .task-row:hover { background: #F4FAD6; }
-      .page-title-header h1 { display: none; }
-      .page-title-header { justify-content: flex-end; margin-bottom: 8px; }
     }
 
     /* Toast */
@@ -2007,7 +2005,7 @@
 
       return (
         <div className="fade-in">
-          <div className="page-title-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h1 style={{ fontSize: 24, fontWeight: 700 }}>{icon} {title}</h1>
             <span style={{ color: "var(--text-light)", fontSize: 14 }}>{filtered.length}{hasFilters ? `/${tasks.length}` : ""} task(s)</span>
           </div>
@@ -2581,7 +2579,7 @@
             {/* Mobile top bar */}
             <div className="mobile-topbar">
               <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1 }}>☰</button>
-              <div style={{ flex: 1, fontWeight: 700, fontSize: 16 }}>{getPageIcon()} {getPageTitle()}</div>
+              <div style={{ flex: 1, fontWeight: 700, fontSize: 16 }}>⚡ TaskFlow</div>
               <button className="btn btn-primary btn-sm" onClick={() => { setEditTask(null); setShowForm(true); }}>＋ Tambah</button>
             </div>
 
