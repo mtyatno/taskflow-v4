@@ -1962,7 +1962,7 @@
     }
 
     // ── Task List view with filters ─────────────────────────────
-    function TaskListView({ tasks, allTasks, title, icon, onTaskClick, onDone, onToggleFocus, loading, projects, contexts, showFilters }) {
+    function TaskListView({ tasks, allTasks, title, icon, onTaskClick, onDone, onToggleFocus, loading, projects, contexts, showFilters, showQuadrant = true }) {
       const [fPriority, setFPriority] = useState("");
       const [fQuadrant, setFQuadrant] = useState("");
       const [fProject, setFProject] = useState("");
@@ -2013,16 +2013,18 @@
                     <option value="P4">🟢 P4 Low</option>
                   </select>
                 </div>
-                <div>
-                  <div className="input-label">Quadrant</div>
-                  <select className="input" value={fQuadrant} onChange={e => setFQuadrant(e.target.value)} style={{ padding: "8px 12px", fontSize: 13 }}>
-                    <option value="">Semua Quadrant</option>
-                    <option value="Q1">🔥 Q1 Do</option>
-                    <option value="Q2">📅 Q2 Schedule</option>
-                    <option value="Q3">👋 Q3 Delegate</option>
-                    <option value="Q4">🗑️ Q4 Eliminate</option>
-                  </select>
-                </div>
+                {showQuadrant && (
+                  <div>
+                    <div className="input-label">Quadrant</div>
+                    <select className="input" value={fQuadrant} onChange={e => setFQuadrant(e.target.value)} style={{ padding: "8px 12px", fontSize: 13 }}>
+                      <option value="">Semua Quadrant</option>
+                      <option value="Q1">🔥 Q1 Do</option>
+                      <option value="Q2">📅 Q2 Schedule</option>
+                      <option value="Q3">👋 Q3 Delegate</option>
+                      <option value="Q4">🗑️ Q4 Eliminate</option>
+                    </select>
+                  </div>
+                )}
                 {projList.length > 0 && (
                   <div>
                     <div className="input-label">Project</div>
@@ -2547,7 +2549,8 @@
             loading={loading}
             projects={projects}
             contexts={contexts}
-            showFilters={page === "all" || page === "done" || page === "inbox" || page === "next" || page === "waiting" || page === "someday" || page.startsWith("proj_")}
+            showFilters={page !== "dashboard" && page !== "today"}
+            showQuadrant={!["q1","q2","q3","q4"].includes(page)}
           />
         );
       };
