@@ -1098,8 +1098,22 @@
     }
 
     // ── Task Detail Modal ───────────────────────────────────────
-    function TaskDetailModal({ task, onClose, onEdit, onDone, onDelete, onRefresh, onToggleFocus }) {
+    function TaskDetailModal({ task, onClose, onEdit, onDone, onDelete, onRefresh, onToggleFocus, projects = [], contexts = [] }) {
       if (!task) return null;
+      const [isEditing, setIsEditing] = useState(false);
+      const [form, setForm] = useState({
+        title: task.title || "",
+        description: task.description || "",
+        priority: task.priority || "P3",
+        gtd_status: task.gtd_status || "inbox",
+        project: task.project || "",
+        context: task.context || "",
+        deadline: task.deadline || "",
+        waiting_for: task.waiting_for || "",
+      });
+      const [saving, setSaving] = useState(false);
+      const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+      const resetForm = () => setForm({ title: task.title || "", description: task.description || "", priority: task.priority || "P3", gtd_status: task.gtd_status || "inbox", project: task.project || "", context: task.context || "", deadline: task.deadline || "", waiting_for: task.waiting_for || "" });
       const [subtasks, setSubtasks] = useState([]);
       const [newSub, setNewSub] = useState("");
       const [adding, setAdding] = useState(false);
@@ -1139,6 +1153,16 @@
         } catch (err) { console.error(err); }
       };
 
+      const handleSave = async () => {
+        setSaving(true);
+        try {
+          await api.put(`/api/tasks/${task.id}`, form);
+          onRefresh?.();
+          onClose();
+        } catch (err) { alert(err.message); }
+        setSaving(false);
+      };
+
       const doneCount = subtasks.filter(s => s.is_done).length;
       const totalSubs = subtasks.length;
       const progress = totalSubs > 0 ? Math.round(doneCount / totalSubs * 100) : 0;
@@ -1147,29 +1171,84 @@
         <div className="modal-overlay" onClick={onClose}>
           <div className="modal-content scale-in" onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 16 }}>
-              <div>
+              <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
                 <div style={{ fontSize: 12, color: "var(--text-light)", marginBottom: 4 }}>#{task.id}</div>
-                <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.3 }}>{task.title}</h2>
+                {isEditing
+                  ? <input className="input" value={form.title} onChange={e => setF("title", e.target.value)} style={{ fontSize: 16, fontWeight: 700, width: "100%" }} />
+                  : <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.3 }}>{task.title}</h2>
+                }
               </div>
               <span onClick={onClose} style={{ cursor: "pointer", fontSize: 20, color: "var(--text-light)" }}>✕</span>
             </div>
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-              <StatusBadge s={task.gtd_status} />
-              <PriBadge p={task.priority} />
-              <QuadBadge q={task.quadrant} />
-            </div>
+            {isEditing ? (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                  <div>
+                    <label className="input-label">Priority</label>
+                    <select className="input" value={form.priority} onChange={e => setF("priority", e.target.value)}>
+                      <option value="P1">🔴 P1 Critical</option>
+                      <option value="P2">🟠 P2 High</option>
+                      <option value="P3">🟡 P3 Medium</option>
+                      <option value="P4">🟢 P4 Low</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="input-label">GTD Status</label>
+                    <select className="input" value={form.gtd_status} onChange={e => setF("gtd_status", e.target.value)}>
+                      <option value="inbox">📥 Inbox</option>
+                      <option value="next">▶️ Next</option>
+                      <option value="waiting">⏳ Waiting</option>
+                      <option value="someday">💭 Someday</option>
+                      <option value="done">✅ Done</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                  <div>
+                    <label className="input-label">Project</label>
+                    <ComboSelect value={form.project} onChange={v => setF("project", v)} options={projects} placeholder="— Project —" icon="📁" />
+                  </div>
+                  <div>
+                    <label className="input-label">Context</label>
+                    <ComboSelect value={form.context} onChange={v => setF("context", v)} options={contexts} placeholder="— Context —" icon="🏷️" />
+                  </div>
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <label className="input-label">Deadline</label>
+                  <input className="input" type="date" value={form.deadline} onChange={e => setF("deadline", e.target.value)} />
+                </div>
+                {form.gtd_status === "waiting" && (
+                  <div style={{ marginBottom: 10 }}>
+                    <label className="input-label">Waiting For</label>
+                    <input className="input" value={form.waiting_for} onChange={e => setF("waiting_for", e.target.value)} placeholder="Menunggu siapa/apa" />
+                  </div>
+                )}
+                <div>
+                  <label className="input-label">Deskripsi</label>
+                  <textarea className="input" value={form.description} onChange={e => setF("description", e.target.value)} rows={3} style={{ resize: "vertical" }} />
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+                  <StatusBadge s={task.gtd_status} />
+                  <PriBadge p={task.priority} />
+                  <QuadBadge q={task.quadrant} />
+                </div>
 
-            {task.description && <div style={{ padding: 12, background: "#f8fafc", borderRadius: 8, fontSize: 14, marginBottom: 14, lineHeight: 1.6 }}>{task.description}</div>}
+                {task.description && <div style={{ padding: 12, background: "#f8fafc", borderRadius: 8, fontSize: 14, marginBottom: 14, lineHeight: 1.6 }}>{task.description}</div>}
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 14, marginBottom: 16 }}>
-              {task.project && <div><span style={{ color: "var(--text-light)" }}>📁 Project:</span> {task.project}</div>}
-              {task.context && <div><span style={{ color: "var(--text-light)" }}>🏷️ Context:</span> {task.context}</div>}
-              {task.deadline && <div><span style={{ color: "var(--text-light)" }}>📅 Deadline:</span> {formatDate(task.deadline)} {task.is_overdue && <span className="overdue-indicator" />}</div>}
-              {task.waiting_for && <div><span style={{ color: "var(--text-light)" }}>⏳ Waiting:</span> {task.waiting_for}</div>}
-              {task.created_at && <div><span style={{ color: "var(--text-light)" }}>🕐 Created:</span> {task.created_at?.split("T")[0]}</div>}
-              {task.completed_at && <div><span style={{ color: "var(--text-light)" }}>✅ Done:</span> {task.completed_at?.split("T")[0]}</div>}
-            </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 14, marginBottom: 16 }}>
+                  {task.project && <div><span style={{ color: "var(--text-light)" }}>📁 Project:</span> {task.project}</div>}
+                  {task.context && <div><span style={{ color: "var(--text-light)" }}>🏷️ Context:</span> {task.context}</div>}
+                  {task.deadline && <div><span style={{ color: "var(--text-light)" }}>📅 Deadline:</span> {formatDate(task.deadline)} {task.is_overdue && <span className="overdue-indicator" />}</div>}
+                  {task.waiting_for && <div><span style={{ color: "var(--text-light)" }}>⏳ Waiting:</span> {task.waiting_for}</div>}
+                  {task.created_at && <div><span style={{ color: "var(--text-light)" }}>🕐 Created:</span> {task.created_at?.split("T")[0]}</div>}
+                  {task.completed_at && <div><span style={{ color: "var(--text-light)" }}>✅ Done:</span> {task.completed_at?.split("T")[0]}</div>}
+                </div>
+              </>
+            )}
 
             {/* Subtasks Section */}
             <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginBottom: 16 }}>
@@ -1249,17 +1328,24 @@
             <ModalNotes taskId={task.id} />
             <ModalAttachments taskId={task.id} />
 
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
-              <button className="btn btn-danger btn-sm" onClick={onDelete}>🗑️ Hapus</button>
-              {task.gtd_status !== "done" && onToggleFocus && (
-                <button className="btn btn-sm" onClick={() => { onToggleFocus(task.id); onClose(); }}
-                  style={{ background: task.is_focused ? "#fef3c7" : "#f8fafc", color: task.is_focused ? "#b45309" : "var(--text-secondary)", border: task.is_focused ? "1px solid #fde68a" : "1px solid var(--border)" }}>
-                  {task.is_focused ? "⭐ Fokus" : "☆ Fokus"}
-                </button>
-              )}
-              <button className="btn btn-secondary btn-sm" onClick={onEdit}>✏️ Edit</button>
-              {task.gtd_status !== "done" && <button className="btn btn-success btn-sm" onClick={onDone}>✅ Done</button>}
-            </div>
+            {isEditing ? (
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setIsEditing(false); resetForm(); }}>Batal</button>
+                <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>{saving ? "Menyimpan..." : "💾 Simpan"}</button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                <button className="btn btn-danger btn-sm" onClick={onDelete}>🗑️ Hapus</button>
+                {task.gtd_status !== "done" && onToggleFocus && (
+                  <button className="btn btn-sm" onClick={() => { onToggleFocus(task.id); onClose(); }}
+                    style={{ background: task.is_focused ? "#fef3c7" : "#f8fafc", color: task.is_focused ? "#b45309" : "var(--text-secondary)", border: task.is_focused ? "1px solid #fde68a" : "1px solid var(--border)" }}>
+                    {task.is_focused ? "⭐ Fokus" : "☆ Fokus"}
+                  </button>
+                )}
+                <button className="btn btn-secondary btn-sm" onClick={() => setIsEditing(true)}>✏️ Edit</button>
+                {task.gtd_status !== "done" && <button className="btn btn-success btn-sm" onClick={onDone}>✅ Done</button>}
+              </div>
+            )}
           </div>
         </div>
       );
@@ -2609,6 +2695,9 @@
               onDone={() => handleDone(selectedTask.id)}
               onDelete={() => handleDelete(selectedTask.id)}
               onToggleFocus={handleToggleFocus}
+              projects={projects}
+              contexts={contexts}
+              onRefresh={fetchAll}
             />
           )}
 

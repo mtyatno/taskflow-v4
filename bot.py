@@ -62,6 +62,7 @@ from models import Task, GTDStatus, Priority, Quadrant
 from repository import TaskRepository
 from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date, format_date
+from nlp import parse_task, format_confirmation
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -207,6 +208,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━━━
 
 <b>➕ Tambah Task</b>
+💬 <b>Ketik bebas</b> — Bot akan mendeteksi otomatis!
+  <i>contoh:</i> <code>Meeting klien besok p2 #freelance</code>
+  <i>contoh:</i> <code>Kirim laporan minggu depan, penting</code>
 /add — Interactive step-by-step
 /quick &lt;judul&gt; — Satu baris langsung jadi
   <i>contoh:</i> <code>/quick Kirim invoice p1 #freelance dl:besok</code>
@@ -1653,6 +1657,39 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.HTML,
         )
 
+    # ── NLP: confirm save ──────────────────────────────────────────────────────
+    elif data == "nlp_yes":
+        parsed = context.user_data.pop("nlp_pending", None)
+        if not parsed:
+            await query.answer("Session expired, coba kirim ulang.")
+            await query.edit_message_text("⏱️ Session habis, silakan ketik ulang task-nya.")
+            return
+        task = Task(
+            title=parsed["title"],
+            priority=Priority.from_str(parsed["priority"]),
+            gtd_status=GTDStatus.from_str(parsed["gtd_status"]),
+            project=parsed.get("project", ""),
+            context=parsed.get("context", ""),
+            deadline=parsed.get("deadline"),
+        )
+        task.quadrant = calculate_quadrant(task)
+        task = repo.add(task, uid(context))
+        await query.answer("✅ Task disimpan!")
+        await query.edit_message_text(
+            f"✅ <b>Task ditambahkan!</b>\n\n{task.format_detail()}",
+            parse_mode=ParseMode.HTML,
+        )
+
+    elif data == "nlp_no":
+        context.user_data.pop("nlp_pending", None)
+        await query.answer("Dibatalkan.")
+        await query.edit_message_text(
+            "❌ Dibatalkan.\n\n"
+            "Ketik ulang dengan lebih spesifik, atau gunakan:\n"
+            "<code>/quick Judul task p1 #project dl:besok</code>",
+            parse_mode=ParseMode.HTML,
+        )
+
 
 # ── File upload handler ────────────────────────────────────────────────────
 
@@ -1770,6 +1807,26 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("✅ Subtask ditambahkan.")
         return
+
+    # ── NLP: free-form task input ──────────────────────────────────────────────
+    parsed = parse_task(text)
+    if parsed["confidence"] > 0:
+        context.user_data["nlp_pending"] = parsed
+        msg = format_confirmation(parsed)
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Simpan", callback_data="nlp_yes"),
+                InlineKeyboardButton("❌ Batal", callback_data="nlp_no"),
+            ]
+        ])
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    else:
+        await update.message.reply_text(
+            "❓ Tidak bisa mendeteksi judul task.\n\n"
+            "Coba ketik kalimat yang lebih jelas, atau gunakan:\n"
+            "<code>/quick Judul task p1 #project dl:besok</code>",
+            parse_mode=ParseMode.HTML,
+        )
 
 
 # ── /note shortcut ─────────────────────────────────────────────────────────
