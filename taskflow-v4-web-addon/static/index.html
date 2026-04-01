@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskFlow V4</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --bg-card: #ffffff;
+      --bg-page: #f1f5f9;
+      --text-primary: #0f172a;
+      --text-secondary: #64748b;
+      --text-light: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --p1: #ef4444; --p2: #f97316; --p3: #eab308; --p4: #22c55e;
+      --q1: #ef4444; --q2: #3b82f6; --q3: #f97316; --q4: #94a3b8;
+      --border: #e2e8f0;
+      --success: #22c55e;
+      --sidebar-w: 260px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg-page); color: var(--text-primary); }
+    code, .mono { font-family: 'JetBrains Mono', monospace; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+    /* Animations */
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+    .fade-in { animation: fadeIn 0.3s ease-out; }
+    .slide-in { animation: slideIn 0.3s ease-out; }
+    .scale-in { animation: scaleIn 0.2s ease-out; }
+
+    /* Sidebar */
+    .sidebar { width: var(--sidebar-w); min-height: 100vh; background: var(--bg-primary); color: white; position: fixed; left: 0; top: 0; z-index: 40; transition: transform 0.3s; }
+    .sidebar-link { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #94a3b8; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; border-radius: 8px; margin: 2px 12px; }
+    .sidebar-link:hover { background: rgba(255,255,255,0.06); color: #e2e8f0; }
+    .sidebar-link.active { background: rgba(59,130,246,0.15); color: #60a5fa; }
+    .sidebar-section { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: #475569; padding: 16px 20px 6px; font-weight: 600; }
+
+    /* Main content */
+    .main-content { margin-left: var(--sidebar-w); min-height: 100vh; padding: 28px 36px; }
+
+    /* Cards */
+    .card { background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border); padding: 20px; }
+    .card-hover { transition: all 0.2s; }
+    .card-hover:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.06); transform: translateY(-1px); }
+
+    /* Stat card */
+    .stat-card { padding: 18px 20px; border-radius: 12px; background: white; border: 1px solid var(--border); }
+    .stat-number { font-size: 28px; font-weight: 700; line-height: 1; }
+    .stat-label { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+
+    /* Badge */
+    .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+
+    /* Priority badges */
+    .badge-p1 { background: #fef2f2; color: #dc2626; }
+    .badge-p2 { background: #fff7ed; color: #ea580c; }
+    .badge-p3 { background: #fefce8; color: #ca8a04; }
+    .badge-p4 { background: #f0fdf4; color: #16a34a; }
+
+    /* Quadrant badges */
+    .badge-q1 { background: #fef2f2; color: #dc2626; }
+    .badge-q2 { background: #eff6ff; color: #2563eb; }
+    .badge-q3 { background: #fff7ed; color: #ea580c; }
+    .badge-q4 { background: #f1f5f9; color: #64748b; }
+
+    /* GTD status badges */
+    .badge-inbox { background: #f1f5f9; color: #475569; }
+    .badge-next { background: #eff6ff; color: #2563eb; }
+    .badge-waiting { background: #fefce8; color: #ca8a04; }
+    .badge-someday { background: #faf5ff; color: #9333ea; }
+    .badge-project { background: #ecfdf5; color: #059669; }
+    .badge-done { background: #f0fdf4; color: #16a34a; }
+
+    /* Button */
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary { background: #f1f5f9; color: #475569; }
+    .btn-secondary:hover { background: #e2e8f0; }
+    .btn-danger { background: #fef2f2; color: #dc2626; }
+    .btn-danger:hover { background: #fee2e2; }
+    .btn-success { background: #f0fdf4; color: #16a34a; }
+    .btn-success:hover { background: #dcfce7; }
+    .btn-sm { padding: 5px 12px; font-size: 13px; }
+
+    /* Input */
+    .input { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; transition: border-color 0.15s; outline: none; background: white; }
+    .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    .input-label { display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+
+    /* Select */
+    select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
+
+    /* Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.5); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 50; }
+    .modal-content { background: white; border-radius: 16px; width: 90%; max-width: 520px; max-height: 90vh; overflow-y: auto; padding: 28px; }
+
+    /* Eisenhower grid */
+    .eisenhower-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .eisenhower-cell { border-radius: 12px; padding: 16px; min-height: 160px; }
+    .eq1 { background: #fef2f2; border: 1px solid #fecaca; }
+    .eq2 { background: #eff6ff; border: 1px solid #bfdbfe; }
+    .eq3 { background: #fff7ed; border: 1px solid #fed7aa; }
+    .eq4 { background: #f8fafc; border: 1px solid #e2e8f0; }
+
+    /* Task row */
+    .task-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
+    .task-row:hover { background: #f8fafc; border-color: var(--border); }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 10px; color: white; font-weight: 600; font-size: 14px; z-index: 100; animation: fadeIn 0.3s ease-out; }
+    .toast-success { background: #22c55e; }
+    .toast-error { background: #ef4444; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); }
+      .main-content { margin-left: 0; padding: 16px; }
+      .eisenhower-grid { grid-template-columns: 1fr; }
+      :root { --sidebar-w: 260px; }
+    }
+
+    /* Overdue pulse */
+    .overdue-indicator { display: inline-block; width: 8px; height: 8px; background: #ef4444; border-radius: 50%; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* Checkbox */
+    .check-btn { width: 22px; height: 22px; border-radius: 6px; border: 2px solid #d1d5db; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0; }
+    .check-btn:hover { border-color: var(--success); background: #f0fdf4; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef, createContext, useContext } = React;
+
+    // ── API helper ──────────────────────────────────────────────
+    const api = {
+      async fetch(url, opts = {}) {
+        const res = await fetch(url, {
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          ...opts,
+        });
+        if (res.status === 401) {
+          window.__logout?.();
+          throw new Error("Unauthorized");
+        }
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Request failed");
+        return data;
+      },
+      get: (url) => api.fetch(url),
+      post: (url, body) => api.fetch(url, { method: "POST", body: JSON.stringify(body) }),
+      put: (url, body) => api.fetch(url, { method: "PUT", body: JSON.stringify(body) }),
+      del: (url) => api.fetch(url, { method: "DELETE" }),
+    };
+
+    // ── Context ─────────────────────────────────────────────────
+    const AppContext = createContext();
+
+    // ── Toast component ─────────────────────────────────────────
+    function Toast({ message, type, onClose }) {
+      useEffect(() => { const t = setTimeout(onClose, 3000); return () => clearTimeout(t); }, []);
+      return <div className={`toast toast-${type}`}>{message}</div>;
+    }
+
+    // ── Priority / Quadrant / Status helpers ────────────────────
+    const PRI_LABELS = { P1: "Critical", P2: "High", P3: "Medium", P4: "Low" };
+    const PRI_EMOJI = { P1: "🔴", P2: "🟠", P3: "🟡", P4: "🟢" };
+    const QUAD_LABELS = { Q1: "Do", Q2: "Schedule", Q3: "Delegate", Q4: "Eliminate" };
+    const QUAD_EMOJI = { Q1: "🔥", Q2: "📅", Q3: "👋", Q4: "🗑️" };
+    const GTD_LABELS = { inbox: "Inbox", next: "Next", waiting: "Waiting", someday: "Someday", project: "Project", done: "Done" };
+    const GTD_EMOJI = { inbox: "📥", next: "▶️", waiting: "⏳", someday: "💭", project: "📁", done: "✅" };
+
+    function PriBadge({ p }) { return <span className={`badge badge-${p.toLowerCase()}`}>{PRI_EMOJI[p]} {p}</span>; }
+    function QuadBadge({ q }) { return <span className={`badge badge-${q.toLowerCase()}`}>{QUAD_EMOJI[q]} {q}</span>; }
+    function StatusBadge({ s }) { return <span className={`badge badge-${s}`}>{GTD_EMOJI[s]} {GTD_LABELS[s]}</span>; }
+
+    function formatDate(d) {
+      if (!d) return "";
+      const parts = d.split("-");
+      if (parts.length === 3 && parts[0].length === 4) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+      return d;
+    }
+
+    // ── Login Page ──────────────────────────────────────────────
+    function LoginPage({ onLogin, onSwitch }) {
+      const [username, setUsername] = useState("");
+      const [password, setPassword] = useState("");
+      const [error, setError] = useState("");
+      const [loading, setLoading] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true); setError("");
+        try {
+          const data = await api.post("/api/auth/login", { username, password });
+          onLogin(data);
+        } catch (err) { setError(err.message); }
+        setLoading(false);
+      };
+
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)" }}>
+          <div className="card scale-in" style={{ width: 400, padding: 36 }}>
+            <div style={{ textAlign: "center", marginBottom: 28 }}>
+              <div style={{ fontSize: 32, fontWeight: 700, color: "var(--bg-primary)" }}>⚡ TaskFlow</div>
+              <div style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>V4 — Login</div>
+            </div>
+            <form onSubmit={handleSubmit}>
+              <label className="input-label">Username</label>
+              <input className="input" value={username} onChange={e => setUsername(e.target.value)} required autoFocus style={{ marginBottom: 14 }} />
+              <label className="input-label">Password</label>
+              <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} required style={{ marginBottom: 6 }} />
+              {error && <div style={{ color: "#ef4444", fontSize: 13, marginTop: 8 }}>{error}</div>}
+              <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: "100%", justifyContent: "center", marginTop: 18, padding: "12px 0" }}>
+                {loading ? "Loading..." : "Login"}
+              </button>
+            </form>
+            <div style={{ textAlign: "center", marginTop: 18, fontSize: 14, color: "var(--text-secondary)" }}>
+              Belum punya akun? <span onClick={onSwitch} style={{ color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Register</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Register Page ───────────────────────────────────────────
+    function RegisterPage({ onLogin, onSwitch }) {
+      const [username, setUsername] = useState("");
+      const [password, setPassword] = useState("");
+      const [displayName, setDisplayName] = useState("");
+      const [error, setError] = useState("");
+      const [loading, setLoading] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true); setError("");
+        try {
+          const data = await api.post("/api/auth/register", { username, password, display_name: displayName });
+          onLogin(data);
+        } catch (err) { setError(err.message); }
+        setLoading(false);
+      };
+
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)" }}>
+          <div className="card scale-in" style={{ width: 400, padding: 36 }}>
+            <div style={{ textAlign: "center", marginBottom: 28 }}>
+              <div style={{ fontSize: 32, fontWeight: 700, color: "var(--bg-primary)" }}>⚡ TaskFlow</div>
+              <div style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>V4 — Register</div>
+            </div>
+            <form onSubmit={handleSubmit}>
+              <label className="input-label">Display Name</label>
+              <input className="input" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Nama tampilan" style={{ marginBottom: 14 }} />
+              <label className="input-label">Username</label>
+              <input className="input" value={username} onChange={e => setUsername(e.target.value)} required style={{ marginBottom: 14 }} />
+              <label className="input-label">Password</label>
+              <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={4} style={{ marginBottom: 6 }} />
+              {error && <div style={{ color: "#ef4444", fontSize: 13, marginTop: 8 }}>{error}</div>}
+              <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: "100%", justifyContent: "center", marginTop: 18, padding: "12px 0" }}>
+                {loading ? "Loading..." : "Register"}
+              </button>
+            </form>
+            <div style={{ textAlign: "center", marginTop: 18, fontSize: 14, color: "var(--text-secondary)" }}>
+              Sudah punya akun? <span onClick={onSwitch} style={{ color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Login</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Sidebar ─────────────────────────────────────────────────
+    function Sidebar({ page, setPage, summary, user, onLogout, isOpen, onClose }) {
+      const links = [
+        { id: "dashboard", icon: "📊", label: "Dashboard" },
+        { id: "today", icon: "☀️", label: "Fokus Hari Ini" },
+        { section: "GTD" },
+        { id: "inbox", icon: "📥", label: "Inbox", count: summary?.by_status?.inbox },
+        { id: "next", icon: "▶️", label: "Next Actions", count: summary?.by_status?.next },
+        { id: "waiting", icon: "⏳", label: "Waiting For", count: summary?.by_status?.waiting },
+        { id: "someday", icon: "💭", label: "Someday", count: summary?.by_status?.someday },
+        { section: "EISENHOWER" },
+        { id: "q1", icon: "🔥", label: "Q1 Do", count: summary?.by_quadrant?.Q1 },
+        { id: "q2", icon: "📅", label: "Q2 Schedule", count: summary?.by_quadrant?.Q2 },
+        { id: "q3", icon: "👋", label: "Q3 Delegate", count: summary?.by_quadrant?.Q3 },
+        { id: "q4", icon: "🗑️", label: "Q4 Eliminate", count: summary?.by_quadrant?.Q4 },
+        { section: "LAINNYA" },
+        { id: "all", icon: "📋", label: "Semua Task" },
+        { id: "overdue", icon: "⚠️", label: "Overdue", count: summary?.overdue },
+        { id: "done", icon: "✅", label: "Done", count: summary?.by_status?.done },
+      ];
+
+      return (
+        <div className={`sidebar ${isOpen ? "open" : ""}`}>
+          <div style={{ padding: "20px 20px 8px", borderBottom: "1px solid rgba(255,255,255,0.06)", marginBottom: 8 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "white" }}>⚡ TaskFlow</div>
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>v4 — {user?.display_name || user?.username}</div>
+          </div>
+          <div style={{ padding: "8px 0", overflowY: "auto", flex: 1 }}>
+            {links.map((l, i) =>
+              l.section
+                ? <div key={i} className="sidebar-section">{l.section}</div>
+                : <div key={l.id} className={`sidebar-link ${page === l.id ? "active" : ""}`} onClick={() => { setPage(l.id); onClose?.(); }}>
+                    <span>{l.icon}</span>
+                    <span style={{ flex: 1 }}>{l.label}</span>
+                    {l.count > 0 && <span style={{ background: "rgba(255,255,255,0.1)", padding: "2px 8px", borderRadius: 4, fontSize: 12 }}>{l.count}</span>}
+                  </div>
+            )}
+          </div>
+          <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="sidebar-link" onClick={onLogout} style={{ color: "#ef4444" }}>
+              <span>🚪</span> <span>Logout</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Task Form Modal ─────────────────────────────────────────
+    function TaskFormModal({ task, onSave, onClose, projects, contexts }) {
+      const isEdit = !!task?.id;
+      const [form, setForm] = useState({
+        title: task?.title || "",
+        description: task?.description || "",
+        priority: task?.priority || "P3",
+        gtd_status: task?.gtd_status || "inbox",
+        project: task?.project || "",
+        context: task?.context || "",
+        deadline: task?.deadline || "",
+        waiting_for: task?.waiting_for || "",
+      });
+      const [loading, setLoading] = useState(false);
+
+      const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+          if (isEdit) {
+            await api.put(`/api/tasks/${task.id}`, form);
+          } else {
+            await api.post("/api/tasks", form);
+          }
+          onSave();
+        } catch (err) { alert(err.message); }
+        setLoading(false);
+      };
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal-content scale-in" onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ fontSize: 20, fontWeight: 700 }}>{isEdit ? "Edit Task" : "Tambah Task"}</h2>
+              <span onClick={onClose} style={{ cursor: "pointer", fontSize: 20, color: "var(--text-light)" }}>✕</span>
+            </div>
+            <form onSubmit={handleSubmit}>
+              <label className="input-label">Judul *</label>
+              <input className="input" value={form.title} onChange={e => set("title", e.target.value)} required style={{ marginBottom: 14 }} />
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                <div>
+                  <label className="input-label">Priority</label>
+                  <select className="input" value={form.priority} onChange={e => set("priority", e.target.value)}>
+                    <option value="P1">🔴 P1 Critical</option>
+                    <option value="P2">🟠 P2 High</option>
+                    <option value="P3">🟡 P3 Medium</option>
+                    <option value="P4">🟢 P4 Low</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">GTD Status</label>
+                  <select className="input" value={form.gtd_status} onChange={e => set("gtd_status", e.target.value)}>
+                    <option value="inbox">📥 Inbox</option>
+                    <option value="next">▶️ Next</option>
+                    <option value="waiting">⏳ Waiting</option>
+                    <option value="someday">💭 Someday</option>
+                    <option value="project">📁 Project</option>
+                    <option value="done">✅ Done</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                <div>
+                  <label className="input-label">Project</label>
+                  <input className="input" value={form.project} onChange={e => set("project", e.target.value)} list="projects-list" placeholder="Nama project" />
+                  <datalist id="projects-list">{projects.map(p => <option key={p} value={p} />)}</datalist>
+                </div>
+                <div>
+                  <label className="input-label">Context</label>
+                  <input className="input" value={form.context} onChange={e => set("context", e.target.value)} list="contexts-list" placeholder="@phone, @computer" />
+                  <datalist id="contexts-list">{contexts.map(c => <option key={c} value={c} />)}</datalist>
+                </div>
+              </div>
+
+              <label className="input-label">Deadline</label>
+              <input className="input" type="date" value={form.deadline} onChange={e => set("deadline", e.target.value)} style={{ marginBottom: 14 }} />
+
+              {form.gtd_status === "waiting" && <>
+                <label className="input-label">Waiting For</label>
+                <input className="input" value={form.waiting_for} onChange={e => set("waiting_for", e.target.value)} placeholder="Menunggu siapa/apa" style={{ marginBottom: 14 }} />
+              </>}
+
+              <label className="input-label">Deskripsi</label>
+              <textarea className="input" value={form.description} onChange={e => set("description", e.target.value)} rows={3} style={{ marginBottom: 20, resize: "vertical" }} />
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button type="button" className="btn btn-secondary" onClick={onClose}>Batal</button>
+                <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? "Saving..." : (isEdit ? "Update" : "Tambah")}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Task Detail Modal ───────────────────────────────────────
+    function TaskDetailModal({ task, onClose, onEdit, onDone, onDelete }) {
+      if (!task) return null;
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal-content scale-in" onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 12, color: "var(--text-light)", marginBottom: 4 }}>#{task.id}</div>
+                <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.3 }}>{task.title}</h2>
+              </div>
+              <span onClick={onClose} style={{ cursor: "pointer", fontSize: 20, color: "var(--text-light)" }}>✕</span>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+              <StatusBadge s={task.gtd_status} />
+              <PriBadge p={task.priority} />
+              <QuadBadge q={task.quadrant} />
+            </div>
+
+            {task.description && <div style={{ padding: 12, background: "#f8fafc", borderRadius: 8, fontSize: 14, marginBottom: 14, lineHeight: 1.6 }}>{task.description}</div>}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 14, marginBottom: 20 }}>
+              {task.project && <div><span style={{ color: "var(--text-light)" }}>📁 Project:</span> {task.project}</div>}
+              {task.context && <div><span style={{ color: "var(--text-light)" }}>🏷️ Context:</span> {task.context}</div>}
+              {task.deadline && <div><span style={{ color: "var(--text-light)" }}>📅 Deadline:</span> {formatDate(task.deadline)} {task.is_overdue && <span className="overdue-indicator" />}</div>}
+              {task.waiting_for && <div><span style={{ color: "var(--text-light)" }}>⏳ Waiting:</span> {task.waiting_for}</div>}
+              {task.created_at && <div><span style={{ color: "var(--text-light)" }}>🕐 Created:</span> {task.created_at?.split("T")[0]}</div>}
+              {task.completed_at && <div><span style={{ color: "var(--text-light)" }}>✅ Done:</span> {task.completed_at?.split("T")[0]}</div>}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+              <button className="btn btn-danger btn-sm" onClick={onDelete}>🗑️ Hapus</button>
+              <button className="btn btn-secondary btn-sm" onClick={onEdit}>✏️ Edit</button>
+              {task.gtd_status !== "done" && <button className="btn btn-success btn-sm" onClick={onDone}>✅ Done</button>}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Task Row ────────────────────────────────────────────────
+    function TaskRow({ task, onClick, onDone }) {
+      return (
+        <div className="task-row fade-in" onClick={() => onClick(task)}>
+          <div className="check-btn" onClick={e => { e.stopPropagation(); onDone(task.id); }} title="Tandai selesai">
+            {task.gtd_status === "done" && <span style={{ color: "var(--success)", fontSize: 14 }}>✓</span>}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: task.gtd_status === "done" ? "line-through" : "none", color: task.gtd_status === "done" ? "var(--text-light)" : "var(--text-primary)" }}>
+              {task.title}
+            </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
+              {task.project && <span style={{ fontSize: 12, color: "var(--text-light)" }}>📁 {task.project}</span>}
+              {task.deadline && <span style={{ fontSize: 12, color: task.is_overdue ? "#ef4444" : "var(--text-light)" }}>
+                📅 {formatDate(task.deadline)} {task.is_overdue && <span className="overdue-indicator" />}
+              </span>}
+              {task.context && <span style={{ fontSize: 12, color: "var(--text-light)" }}>{task.context}</span>}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            <PriBadge p={task.priority} />
+            <QuadBadge q={task.quadrant} />
+          </div>
+        </div>
+      );
+    }
+
+    // ── Task List view ──────────────────────────────────────────
+    function TaskListView({ tasks, title, icon, onTaskClick, onDone, loading }) {
+      return (
+        <div className="fade-in">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 700 }}>{icon} {title}</h1>
+            <span style={{ color: "var(--text-light)", fontSize: 14 }}>{tasks.length} task(s)</span>
+          </div>
+          {loading ? (
+            <div style={{ textAlign: "center", padding: 40, color: "var(--text-light)" }}>Loading...</div>
+          ) : tasks.length === 0 ? (
+            <div className="card" style={{ textAlign: "center", padding: 48, color: "var(--text-light)" }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>🎉</div>
+              <div>Tidak ada task</div>
+            </div>
+          ) : (
+            <div className="card" style={{ padding: 8 }}>
+              {tasks.map(t => <TaskRow key={t.id} task={t} onClick={onTaskClick} onDone={onDone} />)}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Dashboard ───────────────────────────────────────────────
+    function Dashboard({ summary, tasks, onTaskClick, onDone }) {
+      const q1Tasks = tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done");
+      const q2Tasks = tasks.filter(t => t.quadrant === "Q2" && t.gtd_status !== "done");
+      const q3Tasks = tasks.filter(t => t.quadrant === "Q3" && t.gtd_status !== "done");
+      const q4Tasks = tasks.filter(t => t.quadrant === "Q4" && t.gtd_status !== "done");
+
+      const EisenCell = ({ tasks: cellTasks, label, emoji, cls }) => (
+        <div className={`eisenhower-cell ${cls}`}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>{emoji} {label} ({cellTasks.length})</div>
+          {cellTasks.slice(0, 5).map(t => (
+            <div key={t.id} onClick={() => onTaskClick(t)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", display: "flex", gap: 6, alignItems: "center" }}>
+              <PriBadge p={t.priority} />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+            </div>
+          ))}
+          {cellTasks.length > 5 && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 4 }}>+{cellTasks.length - 5} more</div>}
+        </div>
+      );
+
+      return (
+        <div className="fade-in">
+          <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 20 }}>📊 Dashboard</h1>
+
+          {/* Stat cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 24 }}>
+            <div className="stat-card"><div className="stat-number" style={{ color: "var(--accent)" }}>{summary.total_active}</div><div className="stat-label">Active</div></div>
+            <div className="stat-card"><div className="stat-number" style={{ color: "var(--success)" }}>{summary.total_done}</div><div className="stat-label">Done</div></div>
+            <div className="stat-card"><div className="stat-number" style={{ color: "var(--q1)" }}>{summary.by_quadrant?.Q1 || 0}</div><div className="stat-label">Q1 Do</div></div>
+            <div className="stat-card"><div className="stat-number" style={{ color: summary.overdue > 0 ? "#ef4444" : "var(--text-light)" }}>{summary.overdue}</div><div className="stat-label">Overdue</div></div>
+            <div className="stat-card"><div className="stat-number">{summary.by_status?.inbox || 0}</div><div className="stat-label">Inbox</div></div>
+          </div>
+
+          {/* Eisenhower Matrix */}
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>🎯 Eisenhower Matrix</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr", gridTemplateRows: "auto 1fr 1fr", gap: 0, marginBottom: 24 }}>
+            <div />
+            <div style={{ textAlign: "center", fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", padding: "0 0 8px" }}>⬆ URGENT</div>
+            <div style={{ textAlign: "center", fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", padding: "0 0 8px" }}>NOT URGENT</div>
+            <div style={{ writingMode: "vertical-lr", transform: "rotate(180deg)", textAlign: "center", fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", padding: "0 8px 0 0" }}>IMPORTANT ⬆</div>
+            <div style={{ padding: "0 8px 8px 0" }}><EisenCell tasks={q1Tasks} label="Do" emoji="🔥" cls="eq1" /></div>
+            <div style={{ padding: "0 0 8px 0" }}><EisenCell tasks={q2Tasks} label="Schedule" emoji="📅" cls="eq2" /></div>
+            <div style={{ writingMode: "vertical-lr", transform: "rotate(180deg)", textAlign: "center", fontSize: 12, fontWeight: 700, color: "var(--text-light)", padding: "0 8px 0 0" }}>NOT IMP.</div>
+            <div style={{ padding: "0 8px 0 0" }}><EisenCell tasks={q3Tasks} label="Delegate" emoji="👋" cls="eq3" /></div>
+            <div><EisenCell tasks={q4Tasks} label="Eliminate" emoji="🗑️" cls="eq4" /></div>
+          </div>
+
+          {/* GTD Status breakdown */}
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>🔄 GTD Status</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+            {["inbox", "next", "waiting", "someday", "project"].map(s => (
+              <div key={s} className="stat-card" style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 22 }}>{GTD_EMOJI[s]}</div>
+                <div className="stat-number" style={{ fontSize: 22, margin: "4px 0" }}>{summary.by_status?.[s] || 0}</div>
+                <div className="stat-label">{GTD_LABELS[s]}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  MAIN APP
+    // ══════════════════════════════════════════════════════════════
+    function App() {
+      const [user, setUser] = useState(null);
+      const [authPage, setAuthPage] = useState("login");
+      const [page, setPage] = useState("dashboard");
+      const [tasks, setTasks] = useState([]);
+      const [summary, setSummary] = useState({ by_status: {}, by_quadrant: {}, overdue: 0, total_active: 0, total_done: 0 });
+      const [projects, setProjects] = useState([]);
+      const [contexts, setContexts] = useState([]);
+      const [selectedTask, setSelectedTask] = useState(null);
+      const [showForm, setShowForm] = useState(false);
+      const [editTask, setEditTask] = useState(null);
+      const [toast, setToast] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [sidebarOpen, setSidebarOpen] = useState(false);
+
+      const showToast = (message, type = "success") => setToast({ message, type });
+
+      const logout = useCallback(async () => {
+        try { await api.post("/api/auth/logout", {}); } catch (e) {}
+        setUser(null);
+      }, []);
+
+      window.__logout = logout;
+
+      // Check existing session
+      useEffect(() => {
+        api.get("/api/auth/me").then(u => setUser(u)).catch(() => {});
+      }, []);
+
+      // Fetch data
+      const fetchAll = useCallback(async () => {
+        if (!user) return;
+        setLoading(true);
+        try {
+          const [tasksData, summaryData, projData, ctxData] = await Promise.all([
+            api.get("/api/tasks?include_done=true"),
+            api.get("/api/summary"),
+            api.get("/api/projects"),
+            api.get("/api/contexts"),
+          ]);
+          setTasks(tasksData);
+          setSummary(summaryData);
+          setProjects(projData);
+          setContexts(ctxData);
+        } catch (err) { console.error(err); }
+        setLoading(false);
+      }, [user]);
+
+      useEffect(() => { fetchAll(); }, [fetchAll]);
+
+      // Auth handlers
+      const handleLogin = (data) => {
+        setUser({ id: data.user_id, username: data.username, display_name: data.display_name || data.username });
+      };
+
+      if (!user) {
+        return authPage === "login"
+          ? <LoginPage onLogin={handleLogin} onSwitch={() => setAuthPage("register")} />
+          : <RegisterPage onLogin={handleLogin} onSwitch={() => setAuthPage("login")} />;
+      }
+
+      // Task actions
+      const handleDone = async (taskId) => {
+        try {
+          await api.post(`/api/tasks/${taskId}/done`);
+          showToast("Task selesai! ✅");
+          fetchAll();
+          setSelectedTask(null);
+        } catch (err) { showToast(err.message, "error"); }
+      };
+
+      const handleDelete = async (taskId) => {
+        if (!confirm("Hapus task ini?")) return;
+        try {
+          await api.del(`/api/tasks/${taskId}`);
+          showToast("Task dihapus 🗑️");
+          fetchAll();
+          setSelectedTask(null);
+        } catch (err) { showToast(err.message, "error"); }
+      };
+
+      const handleSaved = () => {
+        setShowForm(false);
+        setEditTask(null);
+        showToast(editTask ? "Task diupdate ✅" : "Task ditambahkan ✅");
+        fetchAll();
+      };
+
+      const handleEdit = (task) => {
+        setSelectedTask(null);
+        setEditTask(task);
+        setShowForm(true);
+      };
+
+      // Determine which tasks to show
+      const getFilteredTasks = () => {
+        switch (page) {
+          case "inbox": return tasks.filter(t => t.gtd_status === "inbox");
+          case "next": return tasks.filter(t => t.gtd_status === "next");
+          case "waiting": return tasks.filter(t => t.gtd_status === "waiting");
+          case "someday": return tasks.filter(t => t.gtd_status === "someday");
+          case "q1": return tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done" && t.gtd_status !== "archived");
+          case "q2": return tasks.filter(t => t.quadrant === "Q2" && t.gtd_status !== "done" && t.gtd_status !== "archived");
+          case "q3": return tasks.filter(t => t.quadrant === "Q3" && t.gtd_status !== "done" && t.gtd_status !== "archived");
+          case "q4": return tasks.filter(t => t.quadrant === "Q4" && t.gtd_status !== "done" && t.gtd_status !== "archived");
+          case "overdue": return tasks.filter(t => t.is_overdue);
+          case "done": return tasks.filter(t => t.gtd_status === "done");
+          case "today": return tasks.filter(t => (t.quadrant === "Q1" || t.is_overdue) && t.gtd_status !== "done" && t.gtd_status !== "archived");
+          case "all": return tasks.filter(t => t.gtd_status !== "done" && t.gtd_status !== "archived");
+          default: return tasks.filter(t => t.gtd_status !== "done" && t.gtd_status !== "archived");
+        }
+      };
+
+      const pageTitles = {
+        dashboard: "Dashboard", inbox: "Inbox", next: "Next Actions", waiting: "Waiting For",
+        someday: "Someday / Maybe", q1: "Q1 — Do", q2: "Q2 — Schedule", q3: "Q3 — Delegate",
+        q4: "Q4 — Eliminate", overdue: "Overdue", done: "Done", today: "Fokus Hari Ini", all: "Semua Task"
+      };
+      const pageIcons = {
+        dashboard: "📊", inbox: "📥", next: "▶️", waiting: "⏳", someday: "💭",
+        q1: "🔥", q2: "📅", q3: "👋", q4: "🗑️", overdue: "⚠️", done: "✅", today: "☀️", all: "📋"
+      };
+
+      return (
+        <div>
+          <Sidebar page={page} setPage={setPage} summary={summary} user={user} onLogout={logout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+          <div className="main-content">
+            {/* Mobile header */}
+            <div style={{ display: "none" }} className="mobile-header">
+              <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer" }}>☰</button>
+            </div>
+
+            {/* Top bar */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+              <div style={{ fontSize: 13, color: "var(--text-light)" }}>
+                {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              </div>
+              <button className="btn btn-primary" onClick={() => { setEditTask(null); setShowForm(true); }}>
+                ＋ Tambah Task
+              </button>
+            </div>
+
+            {/* Content */}
+            {page === "dashboard" ? (
+              <Dashboard summary={summary} tasks={tasks} onTaskClick={setSelectedTask} onDone={handleDone} />
+            ) : (
+              <TaskListView
+                tasks={getFilteredTasks()}
+                title={pageTitles[page] || "Tasks"}
+                icon={pageIcons[page] || "📋"}
+                onTaskClick={setSelectedTask}
+                onDone={handleDone}
+                loading={loading}
+              />
+            )}
+          </div>
+
+          {/* Modals */}
+          {selectedTask && (
+            <TaskDetailModal
+              task={selectedTask}
+              onClose={() => setSelectedTask(null)}
+              onEdit={() => handleEdit(selectedTask)}
+              onDone={() => handleDone(selectedTask.id)}
+              onDelete={() => handleDelete(selectedTask.id)}
+            />
+          )}
+
+          {showForm && (
+            <TaskFormModal
+              task={editTask}
+              onSave={handleSaved}
+              onClose={() => { setShowForm(false); setEditTask(null); }}
+              projects={projects}
+              contexts={contexts}
+            />
+          )}
+
+          {/* Toast */}
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+          {/* Mobile overlay */}
+          {sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 30 }} />}
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById("root"));
+  </script>
+</body>
+</html>

@@ -1,0 +1,2609 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskFlow V4</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --bg-card: #ffffff;
+      --bg-page: #f1f5f9;
+      --text-primary: #0f172a;
+      --text-secondary: #64748b;
+      --text-light: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --p1: #ef4444; --p2: #f97316; --p3: #eab308; --p4: #22c55e;
+      --q1: #ef4444; --q2: #3b82f6; --q3: #f97316; --q4: #94a3b8;
+      --border: #e2e8f0;
+      --success: #22c55e;
+      --sidebar-w: 260px;
+      --pomodoro: #ef4444;
+      --pomodoro-light: #fef2f2;
+      --break: #22c55e;
+      --break-light: #f0fdf4;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg-page); color: var(--text-primary); }
+    code, .mono { font-family: 'JetBrains Mono', monospace; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+    /* Animations */
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    @keyframes bounce { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+    .fade-in { animation: fadeIn 0.3s ease-out; }
+    .slide-in { animation: slideIn 0.3s ease-out; }
+    .scale-in { animation: scaleIn 0.2s ease-out; }
+
+    /* Sidebar */
+    .sidebar { width: var(--sidebar-w); height: 100vh; background: var(--bg-primary); color: white; position: fixed; left: 0; top: 0; z-index: 40; transition: transform 0.3s; display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar-scroll { flex: 1; overflow-y: auto; padding: 8px 0; }
+    .sidebar-link { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #94a3b8; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; border-radius: 8px; margin: 2px 12px; }
+    .sidebar-link:hover { background: rgba(255,255,255,0.06); color: #e2e8f0; }
+    .sidebar-link.active { background: rgba(59,130,246,0.15); color: #60a5fa; }
+    .sidebar-section { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: #475569; padding: 16px 20px 6px; font-weight: 600; }
+
+    /* Main content */
+    .main-content { margin-left: var(--sidebar-w); min-height: 100vh; padding: 28px 36px; }
+
+    /* Mobile header */
+    .mobile-topbar { display: none; position: sticky; top: 0; z-index: 30; background: white; border-bottom: 1px solid var(--border); padding: 12px 16px; align-items: center; gap: 12px; }
+
+    /* Cards */
+    .card { background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border); padding: 20px; }
+    .card-hover { transition: all 0.2s; }
+    .card-hover:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.06); transform: translateY(-1px); }
+
+    /* Stat card */
+    .stat-card { padding: 18px 20px; border-radius: 12px; background: white; border: 1px solid var(--border); }
+    .stat-number { font-size: 28px; font-weight: 700; line-height: 1; }
+    .stat-label { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+
+    /* Badge */
+    .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+
+    /* Priority badges */
+    .badge-p1 { background: #fef2f2; color: #dc2626; }
+    .badge-p2 { background: #fff7ed; color: #ea580c; }
+    .badge-p3 { background: #fefce8; color: #ca8a04; }
+    .badge-p4 { background: #f0fdf4; color: #16a34a; }
+
+    /* Quadrant badges */
+    .badge-q1 { background: #fef2f2; color: #dc2626; }
+    .badge-q2 { background: #eff6ff; color: #2563eb; }
+    .badge-q3 { background: #fff7ed; color: #ea580c; }
+    .badge-q4 { background: #f1f5f9; color: #64748b; }
+
+    /* GTD status badges */
+    .badge-inbox { background: #f1f5f9; color: #475569; }
+    .badge-next { background: #eff6ff; color: #2563eb; }
+    .badge-waiting { background: #fefce8; color: #ca8a04; }
+    .badge-someday { background: #faf5ff; color: #9333ea; }
+    .badge-project { background: #ecfdf5; color: #059669; }
+    .badge-done { background: #f0fdf4; color: #16a34a; }
+
+    /* Button */
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary { background: #f1f5f9; color: #475569; }
+    .btn-secondary:hover { background: #e2e8f0; }
+    .btn-danger { background: #fef2f2; color: #dc2626; }
+    .btn-danger:hover { background: #fee2e2; }
+    .btn-success { background: #f0fdf4; color: #16a34a; }
+    .btn-success:hover { background: #dcfce7; }
+    .btn-sm { padding: 5px 12px; font-size: 13px; }
+
+    /* Pomodoro Button */
+    .btn-pomodoro { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; }
+    .btn-pomodoro:hover { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); transform: scale(1.02); }
+    .btn-break { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: white; }
+    .btn-break:hover { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
+
+    /* Input */
+    .input { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; transition: border-color 0.15s; outline: none; background: white; }
+    .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    .input-label { display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+
+    /* Select */
+    select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
+
+    /* Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.5); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 50; }
+    .modal-content { background: white; border-radius: 16px; width: 90%; max-width: 520px; max-height: 90vh; overflow-y: auto; padding: 28px; }
+
+    /* Eisenhower grid */
+    .eisenhower-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .eisenhower-cell { border-radius: 12px; padding: 16px; min-height: 160px; }
+    .eq1 { background: #fef2f2; border: 1px solid #fecaca; }
+    .eq2 { background: #eff6ff; border: 1px solid #bfdbfe; }
+    .eq3 { background: #fff7ed; border: 1px solid #fed7aa; }
+    .eq4 { background: #f8fafc; border: 1px solid #e2e8f0; }
+
+    /* Task row */
+    .task-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
+    .task-row:hover { background: #f8fafc; border-color: var(--border); }
+    .task-row.focusing { background: linear-gradient(135deg, #fef2f2 0%, #fff7ed 100%); border-color: #fecaca; box-shadow: 0 2px 12px rgba(239,68,68,0.1); }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 10px; color: white; font-weight: 600; font-size: 14px; z-index: 100; animation: fadeIn 0.3s ease-out; }
+    .toast-success { background: #22c55e; }
+    .toast-error { background: #ef4444; }
+
+    /* Pomodoro Timer Styles */
+    .pomodoro-container {
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border-radius: 20px;
+      padding: 32px;
+      color: white;
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    .pomodoro-container::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -50%;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle, rgba(239,68,68,0.1) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .pomodoro-timer {
+      position: relative;
+      width: 200px;
+      height: 200px;
+      margin: 0 auto;
+    }
+    .pomodoro-circle {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.05);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .pomodoro-circle svg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform: rotate(-90deg);
+    }
+    .pomodoro-time {
+      font-size: 48px;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: -2px;
+    }
+    .pomodoro-label {
+      font-size: 13px;
+      color: rgba(255,255,255,0.6);
+      margin-top: 4px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .pomodoro-controls {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-top: 24px;
+    }
+    .pomodoro-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      transition: all 0.2s;
+    }
+    .pomodoro-btn:hover { transform: scale(1.1); }
+    .pomodoro-btn-play { background: #ef4444; color: white; }
+    .pomodoro-btn-play.break { background: #22c55e; }
+    .pomodoro-btn-pause { background: #f59e0b; color: white; }
+    .pomodoro-btn-reset { background: rgba(255,255,255,0.1); color: white; }
+    .pomodoro-btn-skip { background: rgba(255,255,255,0.1); color: white; }
+    
+    .pomodoro-stats {
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+    .pomodoro-stat {
+      text-align: center;
+    }
+    .pomodoro-stat-value {
+      font-size: 24px;
+      font-weight: 700;
+    }
+    .pomodoro-stat-label {
+      font-size: 11px;
+      color: rgba(255,255,255,0.5);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 2px;
+    }
+
+    .focus-task-card {
+      background: rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-top: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .focus-task-title {
+      flex: 1;
+      font-size: 15px;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .focus-task-pomodoros {
+      font-size: 14px;
+      color: rgba(255,255,255,0.7);
+    }
+
+    /* Task with focus button */
+    .task-focus-btn {
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: none;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .task-focus-btn.start {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      color: white;
+    }
+    .task-focus-btn.start:hover {
+      transform: scale(1.05);
+      box-shadow: 0 2px 8px rgba(239,68,68,0.3);
+    }
+    .task-focus-btn.active {
+      background: #22c55e;
+      color: white;
+      animation: pulse 2s infinite;
+    }
+
+    /* Pomodoro history */
+    .pomodoro-history {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .pomodoro-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ef4444;
+    }
+    .pomodoro-dot.empty {
+      background: rgba(239,68,68,0.2);
+      border: 1px dashed rgba(239,68,68,0.4);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); }
+      .main-content { margin-left: 0; padding: 16px; padding-top: 8px; }
+      .mobile-topbar { display: flex !important; }
+      .desktop-topbar { display: none !important; }
+      .eisenhower-grid { grid-template-columns: 1fr; }
+      .charts-grid { grid-template-columns: 1fr !important; }
+      .gtd-grid { grid-template-columns: 1fr !important; }
+      .eisen-outer { display: flex; flex-direction: column; gap: 12px; }
+      .eisen-outer > div { display: contents; }
+      .eisen-label-col { display: none !important; }
+      .eisen-header-row { display: none !important; }
+      :root { --sidebar-w: 280px; }
+      
+      /* Pomodoro Mobile Styles */
+      .pomodoro-container { 
+        padding: 16px; 
+        border-radius: 16px;
+        margin-bottom: 16px;
+      }
+      .pomodoro-header { 
+        flex-direction: column !important; 
+        align-items: flex-start !important; 
+        gap: 12px !important;
+        margin-bottom: 16px !important;
+      }
+      .pomodoro-header-title { 
+        font-size: 18px !important; 
+      }
+      .pomodoro-header-subtitle {
+        font-size: 12px !important;
+      }
+      .pomodoro-mode-btns { 
+        width: 100%;
+        justify-content: flex-start !important;
+      }
+      .pomodoro-mode-btn {
+        padding: 5px 12px !important;
+        font-size: 12px !important;
+      }
+      .pomodoro-timer { 
+        width: 140px; 
+        height: 140px; 
+        margin: 8px auto 16px;
+      }
+      .pomodoro-time { 
+        font-size: 32px !important; 
+        letter-spacing: -1px !important;
+      }
+      .pomodoro-label {
+        font-size: 10px !important;
+        letter-spacing: 0.5px !important;
+      }
+      .pomodoro-controls { 
+        margin-top: 16px !important;
+        gap: 10px !important;
+      }
+      .pomodoro-btn {
+        width: 42px !important;
+        height: 42px !important;
+        font-size: 18px !important;
+      }
+      .pomodoro-stats { 
+        flex-wrap: nowrap;
+        gap: 12px;
+        margin-top: 16px !important;
+        padding-top: 16px !important;
+      }
+      .pomodoro-stat-value {
+        font-size: 18px !important;
+      }
+      .pomodoro-stat-label {
+        font-size: 9px !important;
+      }
+      .focus-task-card {
+        padding: 12px !important;
+        margin-top: 12px !important;
+        gap: 8px !important;
+      }
+      .focus-task-card span:first-child {
+        font-size: 16px !important;
+      }
+      .focus-task-title {
+        font-size: 13px !important;
+      }
+      .focus-task-pomodoros {
+        font-size: 12px !important;
+      }
+      .focus-layout { flex-direction: column !important; }
+      .focus-layout > div { width: 100% !important; }
+      
+      /* Task focus button mobile */
+      .task-focus-btn {
+        padding: 5px 10px !important;
+        font-size: 11px !important;
+      }
+      
+      /* Focus page mobile */
+      .focus-page-header {
+        margin-bottom: 12px !important;
+      }
+      .focus-page-title {
+        font-size: 20px !important;
+      }
+      .focus-page-subtitle {
+        font-size: 12px !important;
+        margin-top: 2px !important;
+      }
+      .focus-task-list {
+        padding: 12px !important;
+      }
+      .focus-task-list h3 {
+        font-size: 14px !important;
+      }
+      .focus-tips-card {
+        padding: 12px !important;
+        margin-top: 12px !important;
+      }
+      .focus-tips-card span:first-child {
+        font-size: 20px !important;
+      }
+      .focus-tips-card ul {
+        font-size: 12px !important;
+      }
+    }
+
+    /* Overdue pulse */
+    .overdue-indicator { display: inline-block; width: 8px; height: 8px; background: #ef4444; border-radius: 50%; animation: pulse 1.5s infinite; }
+
+    /* Extra small screens */
+    @media (max-width: 400px) {
+      .pomodoro-container { 
+        padding: 14px; 
+      }
+      .pomodoro-header-title { 
+        font-size: 16px !important; 
+      }
+      .pomodoro-mode-btn {
+        padding: 4px 10px !important;
+        font-size: 11px !important;
+      }
+      .pomodoro-timer { 
+        width: 120px !important; 
+        height: 120px !important; 
+      }
+      .pomodoro-time { 
+        font-size: 28px !important; 
+      }
+      .pomodoro-label {
+        font-size: 9px !important;
+      }
+      .pomodoro-btn {
+        width: 38px !important;
+        height: 38px !important;
+        font-size: 16px !important;
+      }
+      .pomodoro-stat-value {
+        font-size: 16px !important;
+      }
+      .pomodoro-stat-label {
+        font-size: 8px !important;
+      }
+    }
+
+    /* Checkbox */
+    .check-btn { width: 22px; height: 22px; border-radius: 6px; border: 2px solid #d1d5db; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0; }
+    .check-btn:hover { border-color: var(--success); background: #f0fdf4; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef, createContext, useContext } = React;
+
+    // ── Token storage (simple variable + localStorage) ────────
+    let __token = localStorage.getItem("tf_token") || null;
+    const tokenStore = {
+      get: () => __token,
+      set: (t) => { __token = t; try { localStorage.setItem("tf_token", t); } catch(e) {} },
+      clear: () => { __token = null; try { localStorage.removeItem("tf_token"); } catch(e) {} },
+    };
+
+    // ── API helper ──────────────────────────────────────────────
+    const api = {
+      async fetch(url, opts = {}) {
+        const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+        if (__token) headers["Authorization"] = "Bearer " + __token;
+        const res = await fetch(url, { ...opts, headers });
+        if (res.status === 401 && !url.includes("/api/auth/")) {
+          tokenStore.clear();
+          window.__logout?.();
+          throw new Error("Unauthorized");
+        }
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Request failed");
+        return data;
+      },
+      get: (url) => api.fetch(url),
+      post: (url, body) => api.fetch(url, { method: "POST", body: JSON.stringify(body) }),
+      put: (url, body) => api.fetch(url, { method: "PUT", body: JSON.stringify(body) }),
+      del: (url) => api.fetch(url, { method: "DELETE" }),
+    };
+
+    // ── Context ─────────────────────────────────────────────────
+    const AppContext = createContext();
+
+    // ── Toast component ─────────────────────────────────────────
+    function Toast({ message, type, onClose }) {
+      useEffect(() => { const t = setTimeout(onClose, 3000); return () => clearTimeout(t); }, []);
+      return <div className={`toast toast-${type}`}>{message}</div>;
+    }
+
+    // ── Priority / Quadrant / Status helpers ────────────────────
+    const PRI_LABELS = { P1: "Critical", P2: "High", P3: "Medium", P4: "Low" };
+    const PRI_EMOJI = { P1: "🔴", P2: "🟠", P3: "🟡", P4: "🟢" };
+    const QUAD_LABELS = { Q1: "Do", Q2: "Schedule", Q3: "Delegate", Q4: "Eliminate" };
+    const QUAD_EMOJI = { Q1: "🔥", Q2: "📅", Q3: "👋", Q4: "🗑️" };
+    const GTD_LABELS = { inbox: "Inbox", next: "Next", waiting: "Waiting", someday: "Someday", project: "Project", done: "Done" };
+    const GTD_EMOJI = { inbox: "📥", next: "▶️", waiting: "⏳", someday: "💭", project: "📁", done: "✅" };
+
+    function PriBadge({ p }) { return <span className={`badge badge-${p.toLowerCase()}`}>{PRI_EMOJI[p]} {p}</span>; }
+    function QuadBadge({ q }) { return <span className={`badge badge-${q.toLowerCase()}`}>{QUAD_EMOJI[q]} {q}</span>; }
+    function StatusBadge({ s }) { return <span className={`badge badge-${s}`}>{GTD_EMOJI[s]} {GTD_LABELS[s]}</span>; }
+
+    function formatDate(d) {
+      if (!d) return "";
+      const parts = d.split("-");
+      if (parts.length === 3 && parts[0].length === 4) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+      return d;
+    }
+
+    // ── Sound & Notification helpers ─────────────────────────────
+    function playNotificationSound(type = "work") {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      if (type === "work") {
+        // Work done - cheerful ascending tones
+        oscillator.frequency.setValueAtTime(523.25, audioContext.currentTime); // C5
+        oscillator.frequency.setValueAtTime(659.25, audioContext.currentTime + 0.15); // E5
+        oscillator.frequency.setValueAtTime(783.99, audioContext.currentTime + 0.3); // G5
+      } else {
+        // Break done - gentle descending tones
+        oscillator.frequency.setValueAtTime(783.99, audioContext.currentTime); // G5
+        oscillator.frequency.setValueAtTime(659.25, audioContext.currentTime + 0.15); // E5
+        oscillator.frequency.setValueAtTime(523.25, audioContext.currentTime + 0.3); // C5
+      }
+      
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
+    }
+
+    function sendBrowserNotification(title, body) {
+      if (!("Notification" in window)) return;
+      
+      if (Notification.permission === "granted") {
+        new Notification(title, { body, icon: "🍅" });
+      } else if (Notification.permission !== "denied") {
+        Notification.requestPermission().then(permission => {
+          if (permission === "granted") {
+            new Notification(title, { body, icon: "🍅" });
+          }
+        });
+      }
+    }
+
+    // ── Login Page ──────────────────────────────────────────────
+    function LoginPage({ onLogin, onSwitch }) {
+      const [username, setUsername] = useState("");
+      const [password, setPassword] = useState("");
+      const [error, setError] = useState("");
+      const [loading, setLoading] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true); setError("");
+        try {
+          const data = await api.post("/api/auth/login", { username, password });
+          onLogin(data);
+        } catch (err) { setError(err.message); }
+        setLoading(false);
+      };
+
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)" }}>
+          <div className="card scale-in" style={{ width: 400, padding: 36 }}>
+            <div style={{ textAlign: "center", marginBottom: 28 }}>
+              <div style={{ fontSize: 32, fontWeight: 700, color: "var(--bg-primary)" }}>⚡ TaskFlow</div>
+              <div style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>V4 — Login</div>
+            </div>
+            <form onSubmit={handleSubmit}>
+              <label className="input-label">Username</label>
+              <input className="input" value={username} onChange={e => setUsername(e.target.value)} required autoFocus style={{ marginBottom: 14 }} />
+              <label className="input-label">Password</label>
+              <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} required style={{ marginBottom: 6 }} />
+              {error && <div style={{ color: "#ef4444", fontSize: 13, marginTop: 8 }}>{error}</div>}
+              <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: "100%", justifyContent: "center", marginTop: 18, padding: "12px 0" }}>
+                {loading ? "Loading..." : "Login"}
+              </button>
+            </form>
+            <div style={{ textAlign: "center", marginTop: 18, fontSize: 14, color: "var(--text-secondary)" }}>
+              Belum punya akun? <span onClick={onSwitch} style={{ color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Register</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Register Page ───────────────────────────────────────────
+    function RegisterPage({ onLogin, onSwitch }) {
+      const [username, setUsername] = useState("");
+      const [password, setPassword] = useState("");
+      const [displayName, setDisplayName] = useState("");
+      const [error, setError] = useState("");
+      const [loading, setLoading] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true); setError("");
+        try {
+          const data = await api.post("/api/auth/register", { username, password, display_name: displayName });
+          onLogin(data);
+        } catch (err) { setError(err.message); }
+        setLoading(false);
+      };
+
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)" }}>
+          <div className="card scale-in" style={{ width: 400, padding: 36 }}>
+            <div style={{ textAlign: "center", marginBottom: 28 }}>
+              <div style={{ fontSize: 32, fontWeight: 700, color: "var(--bg-primary)" }}>⚡ TaskFlow</div>
+              <div style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>V4 — Register</div>
+            </div>
+            <form onSubmit={handleSubmit}>
+              <label className="input-label">Display Name</label>
+              <input className="input" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Nama tampilan" style={{ marginBottom: 14 }} />
+              <label className="input-label">Username</label>
+              <input className="input" value={username} onChange={e => setUsername(e.target.value)} required style={{ marginBottom: 14 }} />
+              <label className="input-label">Password</label>
+              <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={4} style={{ marginBottom: 6 }} />
+              {error && <div style={{ color: "#ef4444", fontSize: 13, marginTop: 8 }}>{error}</div>}
+              <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: "100%", justifyContent: "center", marginTop: 18, padding: "12px 0" }}>
+                {loading ? "Loading..." : "Register"}
+              </button>
+            </form>
+            <div style={{ textAlign: "center", marginTop: 18, fontSize: 14, color: "var(--text-secondary)" }}>
+              Sudah punya akun? <span onClick={onSwitch} style={{ color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Login</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Sidebar ─────────────────────────────────────────────────
+    function Sidebar({ page, setPage, summary, user, onLogout, isOpen, onClose, projects, tasks }) {
+      // Count tasks per project
+      const projCounts = {};
+      (projects || []).forEach(p => {
+        projCounts[p] = (tasks || []).filter(t => t.project === p && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
+      });
+
+      // Count today's focus tasks
+      const todayCount = (tasks || []).filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused) && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
+
+      const links = [
+        { id: "dashboard", icon: "📊", label: "Dashboard" },
+        { id: "today", icon: "🍅", label: "Fokus Hari Ini", count: todayCount },
+        { section: "GTD" },
+        { id: "inbox", icon: "📥", label: "Inbox", count: summary?.by_status?.inbox },
+        { id: "next", icon: "▶️", label: "Next Actions", count: summary?.by_status?.next },
+        { id: "waiting", icon: "⏳", label: "Waiting For", count: summary?.by_status?.waiting },
+        { id: "someday", icon: "💭", label: "Someday", count: summary?.by_status?.someday },
+        { section: "EISENHOWER" },
+        { id: "q1", icon: "🔥", label: "Q1 Do", count: summary?.by_quadrant?.Q1 },
+        { id: "q2", icon: "📅", label: "Q2 Schedule", count: summary?.by_quadrant?.Q2 },
+        { id: "q3", icon: "👋", label: "Q3 Delegate", count: summary?.by_quadrant?.Q3 },
+        { id: "q4", icon: "🗑️", label: "Q4 Eliminate", count: summary?.by_quadrant?.Q4 },
+      ];
+
+      // Dynamic project links
+      if (projects && projects.length > 0) {
+        links.push({ section: "PROJECTS" });
+        projects.forEach(p => {
+          links.push({ id: `proj_${p}`, icon: "📂", label: p, count: projCounts[p] });
+        });
+      }
+
+      links.push({ section: "LAINNYA" });
+      links.push({ id: "all", icon: "📋", label: "Semua Task" });
+      links.push({ id: "overdue", icon: "⚠️", label: "Overdue", count: summary?.overdue });
+      links.push({ id: "done", icon: "✅", label: "Done", count: summary?.by_status?.done });
+
+      return (
+        <div className={`sidebar ${isOpen ? "open" : ""}`}>
+          <div style={{ padding: "20px 20px 8px", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "white" }}>⚡ TaskFlow</div>
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>v4 — {user?.display_name || user?.username}</div>
+          </div>
+          <div className="sidebar-scroll">
+            {links.map((l, i) =>
+              l.section
+                ? <div key={i} className="sidebar-section">{l.section}</div>
+                : <div key={l.id} className={`sidebar-link ${page === l.id ? "active" : ""}`} onClick={() => { setPage(l.id); onClose?.(); }}>
+                    <span>{l.icon}</span>
+                    <span style={{ flex: 1 }}>{l.label}</span>
+                    {l.count > 0 && <span style={{ background: "rgba(255,255,255,0.1)", padding: "2px 8px", borderRadius: 4, fontSize: 12 }}>{l.count}</span>}
+                  </div>
+            )}
+          </div>
+          <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
+            <div className="sidebar-link" onClick={onLogout} style={{ color: "#ef4444" }}>
+              <span>🚪</span> <span>Logout</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── ComboSelect (dropdown + add new) ───────────────────────
+    function ComboSelect({ value, onChange, options, placeholder, icon }) {
+      const [isNew, setIsNew] = useState(false);
+      const inputRef = useRef(null);
+
+      // If current value is not in options and not empty, show as custom
+      const isCustom = value && !options.includes(value);
+
+      const handleSelect = (e) => {
+        const v = e.target.value;
+        if (v === "__new__") {
+          setIsNew(true);
+          onChange("");
+          setTimeout(() => inputRef.current?.focus(), 50);
+        } else {
+          setIsNew(false);
+          onChange(v);
+        }
+      };
+
+      const handleInputChange = (e) => {
+        onChange(e.target.value);
+      };
+
+      const handleBack = () => {
+        setIsNew(false);
+        onChange("");
+      };
+
+      if (isNew || isCustom) {
+        return (
+          <div style={{ position: "relative" }}>
+            <input
+              ref={inputRef}
+              className="input"
+              value={value}
+              onChange={handleInputChange}
+              placeholder={placeholder}
+              style={{ paddingRight: 36 }}
+            />
+            <span
+              onClick={handleBack}
+              title="Kembali ke daftar"
+              style={{
+                position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                cursor: "pointer", fontSize: 16, color: "var(--text-light)",
+              }}
+            >✕</span>
+          </div>
+        );
+      }
+
+      return (
+        <select className="input" value={value} onChange={handleSelect}>
+          <option value="">{placeholder || "— Pilih —"}</option>
+          {options.map(o => (
+            <option key={o} value={o}>{icon ? `${icon} ` : ""}{o}</option>
+          ))}
+          <option value="__new__">＋ Tambah baru...</option>
+        </select>
+      );
+    }
+
+    // ── Task Form Modal ─────────────────────────────────────────
+    function TaskFormModal({ task, onSave, onClose, projects, contexts }) {
+      const isEdit = !!task?.id;
+      const [form, setForm] = useState({
+        title: task?.title || "",
+        description: task?.description || "",
+        priority: task?.priority || "P3",
+        gtd_status: task?.gtd_status || "inbox",
+        project: task?.project || "",
+        context: task?.context || "",
+        deadline: task?.deadline || "",
+        waiting_for: task?.waiting_for || "",
+      });
+      const [loading, setLoading] = useState(false);
+
+      const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+          if (isEdit) {
+            await api.put(`/api/tasks/${task.id}`, form);
+          } else {
+            await api.post("/api/tasks", form);
+          }
+          onSave();
+        } catch (err) { alert(err.message); }
+        setLoading(false);
+      };
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal-content scale-in" onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ fontSize: 20, fontWeight: 700 }}>{isEdit ? "Edit Task" : "Tambah Task"}</h2>
+              <span onClick={onClose} style={{ cursor: "pointer", fontSize: 20, color: "var(--text-light)" }}>✕</span>
+            </div>
+            <form onSubmit={handleSubmit}>
+              <label className="input-label">Judul *</label>
+              <input className="input" value={form.title} onChange={e => set("title", e.target.value)} required style={{ marginBottom: 14 }} />
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                <div>
+                  <label className="input-label">Priority</label>
+                  <select className="input" value={form.priority} onChange={e => set("priority", e.target.value)}>
+                    <option value="P1">🔴 P1 Critical</option>
+                    <option value="P2">🟠 P2 High</option>
+                    <option value="P3">🟡 P3 Medium</option>
+                    <option value="P4">🟢 P4 Low</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">GTD Status</label>
+                  <select className="input" value={form.gtd_status} onChange={e => set("gtd_status", e.target.value)}>
+                    <option value="inbox">📥 Inbox</option>
+                    <option value="next">▶️ Next</option>
+                    <option value="waiting">⏳ Waiting</option>
+                    <option value="someday">💭 Someday</option>
+                    <option value="done">✅ Done</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                <div>
+                  <label className="input-label">Project</label>
+                  <ComboSelect
+                    value={form.project}
+                    onChange={v => set("project", v)}
+                    options={projects}
+                    placeholder="— Pilih Project —"
+                    icon="📁"
+                  />
+                </div>
+                <div>
+                  <label className="input-label">Context</label>
+                  <ComboSelect
+                    value={form.context}
+                    onChange={v => set("context", v)}
+                    options={contexts}
+                    placeholder="— Pilih Context —"
+                    icon="🏷️"
+                  />
+                </div>
+              </div>
+
+              <label className="input-label">Deadline</label>
+              <input className="input" type="date" value={form.deadline} onChange={e => set("deadline", e.target.value)} style={{ marginBottom: 14 }} />
+
+              {form.gtd_status === "waiting" && <>
+                <label className="input-label">Waiting For</label>
+                <input className="input" value={form.waiting_for} onChange={e => set("waiting_for", e.target.value)} placeholder="Menunggu siapa/apa" style={{ marginBottom: 14 }} />
+              </>}
+
+              <label className="input-label">Deskripsi</label>
+              <textarea className="input" value={form.description} onChange={e => set("description", e.target.value)} rows={3} style={{ marginBottom: 20, resize: "vertical" }} />
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button type="button" className="btn btn-secondary" onClick={onClose}>Batal</button>
+                <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? "Saving..." : (isEdit ? "Update" : "Tambah")}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Modal Attachments Section ──────────────────────────────
+    function ModalAttachments({ taskId }) {
+      const [attachments, setAttachments] = useState([]);
+      const [uploading, setUploading] = useState(false);
+      const fileInputRef = useRef(null);
+
+      useEffect(() => {
+        api.get(`/api/tasks/${taskId}/attachments`)
+          .then(data => setAttachments(data))
+          .catch(() => {});
+      }, [taskId]);
+
+      const handleUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (file.size > 10 * 1024 * 1024) {
+          alert("File terlalu besar. Maks 10MB.");
+          return;
+        }
+        setUploading(true);
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          const token = __token;
+          const res = await fetch(`/api/tasks/${taskId}/attachments`, {
+            method: "POST",
+            headers: token ? { "Authorization": "Bearer " + token } : {},
+            body: formData,
+          });
+          if (!res.ok) throw new Error("Upload failed");
+          const result = await res.json();
+          setAttachments(prev => [result, ...prev]);
+        } catch (err) { alert("Upload gagal: " + err.message); }
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      };
+
+      const handleDelete = async (attId) => {
+        try {
+          await api.del(`/api/attachments/${attId}`);
+          setAttachments(prev => prev.filter(a => a.id !== attId));
+        } catch (err) { console.error(err); }
+      };
+
+      const fmtSize = (b) => {
+        if (b < 1024) return b + "B";
+        if (b < 1024 * 1024) return Math.round(b / 1024) + "KB";
+        return (b / (1024 * 1024)).toFixed(1) + "MB";
+      };
+
+      const isImage = (mime) => mime && mime.startsWith("image/");
+
+      return (
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>
+              📎 Lampiran {attachments.length > 0 && <span style={{ fontWeight: 400, color: "var(--text-light)" }}>({attachments.length})</span>}
+            </div>
+            <label className="btn btn-sm btn-secondary" style={{ fontSize: 12, cursor: "pointer" }}>
+              {uploading ? "Uploading..." : "＋ Upload"}
+              <input ref={fileInputRef} type="file" onChange={handleUpload} style={{ display: "none" }} disabled={uploading} />
+            </label>
+          </div>
+
+          {attachments.map(a => (
+            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #f1f5f9" }}>
+              <span style={{ fontSize: 20 }}>{isImage(a.mime_type) ? "🖼️" : "📄"}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <a href={`/api/attachments/${a.id}/download`} target="_blank" rel="noopener"
+                  style={{ fontSize: 13, fontWeight: 500, color: "var(--accent)", textDecoration: "none", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {a.original_name}
+                </a>
+                <div style={{ fontSize: 11, color: "var(--text-light)" }}>{fmtSize(a.file_size)}</div>
+              </div>
+              <span onClick={() => handleDelete(a.id)} style={{ cursor: "pointer", fontSize: 14, color: "var(--text-light)" }} title="Hapus">✕</span>
+            </div>
+          ))}
+
+          {attachments.length === 0 && !uploading && (
+            <div style={{ fontSize: 13, color: "var(--text-light)", fontStyle: "italic" }}>Belum ada lampiran</div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Modal Notes Section ─────────────────────────────────────
+    function ModalNotes({ taskId }) {
+      const [notes, setNotes] = useState([]);
+      const [newNote, setNewNote] = useState("");
+      const [expanded, setExpanded] = useState(false);
+
+      useEffect(() => {
+        api.get(`/api/tasks/${taskId}/notes`)
+          .then(data => setNotes(data))
+          .catch(() => {});
+      }, [taskId]);
+
+      const handleAdd = async () => {
+        if (!newNote.trim()) return;
+        try {
+          const result = await api.post(`/api/tasks/${taskId}/notes`, { content: newNote.trim() });
+          setNotes(prev => [result, ...prev]);
+          setNewNote("");
+        } catch (err) { console.error(err); }
+      };
+
+      const handleDelete = async (noteId) => {
+        try {
+          await api.del(`/api/notes/${noteId}`);
+          setNotes(prev => prev.filter(n => n.id !== noteId));
+        } catch (err) { console.error(err); }
+      };
+
+      const formatTime = (dt) => {
+        if (!dt) return "";
+        const parts = dt.split("T");
+        if (parts.length < 2) return "";
+        const d = parts[0].split("-").reverse().join("/");
+        const t = parts[1].substring(0, 5);
+        return `${d} ${t}`;
+      };
+
+      const shown = expanded ? notes : notes.slice(0, 3);
+
+      return (
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
+            📓 Catatan {notes.length > 0 && <span style={{ fontWeight: 400, color: "var(--text-light)" }}>({notes.length})</span>}
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <input
+              className="input"
+              value={newNote}
+              onChange={e => setNewNote(e.target.value)}
+              placeholder="Tulis catatan..."
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAdd(); } }}
+              style={{ flex: 1, padding: "8px 10px", fontSize: 13 }}
+            />
+            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={!newNote.trim()}>Simpan</button>
+          </div>
+
+          {shown.map(n => (
+            <div key={n.id} style={{ padding: "8px 0", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: "var(--text-light)", marginBottom: 2 }}>{formatTime(n.created_at)}</div>
+                <div style={{ fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{n.content}</div>
+              </div>
+              <span onClick={() => handleDelete(n.id)} style={{ cursor: "pointer", fontSize: 14, color: "var(--text-light)", padding: "0 4px" }} title="Hapus">✕</span>
+            </div>
+          ))}
+
+          {notes.length > 3 && !expanded && (
+            <div onClick={() => setExpanded(true)} style={{ fontSize: 13, color: "var(--accent)", cursor: "pointer", marginTop: 6, fontWeight: 500 }}>
+              Lihat {notes.length - 3} catatan lagi...
+            </div>
+          )}
+          {expanded && notes.length > 3 && (
+            <div onClick={() => setExpanded(false)} style={{ fontSize: 13, color: "var(--accent)", cursor: "pointer", marginTop: 6, fontWeight: 500 }}>
+              Sembunyikan
+            </div>
+          )}
+
+          {notes.length === 0 && (
+            <div style={{ fontSize: 13, color: "var(--text-light)", fontStyle: "italic" }}>Belum ada catatan</div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Task Detail Modal ───────────────────────────────────────
+    function TaskDetailModal({ task, onClose, onEdit, onDone, onDelete, onRefresh, onToggleFocus }) {
+      if (!task) return null;
+      const [subtasks, setSubtasks] = useState([]);
+      const [newSub, setNewSub] = useState("");
+      const [adding, setAdding] = useState(false);
+      const [loadingSubs, setLoadingSubs] = useState(true);
+
+      // Fetch subtasks
+      useEffect(() => {
+        if (task?.id) {
+          setLoadingSubs(true);
+          api.get(`/api/tasks/${task.id}/subtasks`)
+            .then(data => { setSubtasks(data); setLoadingSubs(false); })
+            .catch(() => setLoadingSubs(false));
+        }
+      }, [task?.id]);
+
+      const handleToggle = async (subId) => {
+        try {
+          const result = await api.post(`/api/subtasks/${subId}/toggle`);
+          setSubtasks(prev => prev.map(s => s.id === subId ? result : s));
+        } catch (err) { console.error(err); }
+      };
+
+      const handleAddSub = async () => {
+        if (!newSub.trim()) return;
+        try {
+          const result = await api.post(`/api/tasks/${task.id}/subtasks`, { title: newSub.trim() });
+          setSubtasks(prev => [...prev, result]);
+          setNewSub("");
+          setAdding(false);
+        } catch (err) { console.error(err); }
+      };
+
+      const handleDeleteSub = async (subId) => {
+        try {
+          await api.del(`/api/subtasks/${subId}`);
+          setSubtasks(prev => prev.filter(s => s.id !== subId));
+        } catch (err) { console.error(err); }
+      };
+
+      const doneCount = subtasks.filter(s => s.is_done).length;
+      const totalSubs = subtasks.length;
+      const progress = totalSubs > 0 ? Math.round(doneCount / totalSubs * 100) : 0;
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal-content scale-in" onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 12, color: "var(--text-light)", marginBottom: 4 }}>#{task.id}</div>
+                <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.3 }}>{task.title}</h2>
+              </div>
+              <span onClick={onClose} style={{ cursor: "pointer", fontSize: 20, color: "var(--text-light)" }}>✕</span>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+              <StatusBadge s={task.gtd_status} />
+              <PriBadge p={task.priority} />
+              <QuadBadge q={task.quadrant} />
+            </div>
+
+            {task.description && <div style={{ padding: 12, background: "#f8fafc", borderRadius: 8, fontSize: 14, marginBottom: 14, lineHeight: 1.6 }}>{task.description}</div>}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 14, marginBottom: 16 }}>
+              {task.project && <div><span style={{ color: "var(--text-light)" }}>📁 Project:</span> {task.project}</div>}
+              {task.context && <div><span style={{ color: "var(--text-light)" }}>🏷️ Context:</span> {task.context}</div>}
+              {task.deadline && <div><span style={{ color: "var(--text-light)" }}>📅 Deadline:</span> {formatDate(task.deadline)} {task.is_overdue && <span className="overdue-indicator" />}</div>}
+              {task.waiting_for && <div><span style={{ color: "var(--text-light)" }}>⏳ Waiting:</span> {task.waiting_for}</div>}
+              {task.created_at && <div><span style={{ color: "var(--text-light)" }}>🕐 Created:</span> {task.created_at?.split("T")[0]}</div>}
+              {task.completed_at && <div><span style={{ color: "var(--text-light)" }}>✅ Done:</span> {task.completed_at?.split("T")[0]}</div>}
+            </div>
+
+            {/* Subtasks Section */}
+            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>
+                  📝 Subtasks {totalSubs > 0 && <span style={{ fontWeight: 400, color: "var(--text-light)" }}>{doneCount}/{totalSubs}</span>}
+                </div>
+                {!adding && (
+                  <button className="btn btn-sm btn-secondary" onClick={() => setAdding(true)} style={{ fontSize: 12 }}>＋ Tambah</button>
+                )}
+              </div>
+
+              {/* Progress bar */}
+              {totalSubs > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ height: 6, background: "#e2e8f0", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${progress}%`, background: progress === 100 ? "var(--success)" : "var(--accent)", borderRadius: 3, transition: "width 0.3s" }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Subtask list */}
+              {loadingSubs ? (
+                <div style={{ fontSize: 13, color: "var(--text-light)", padding: "8px 0" }}>Loading...</div>
+              ) : (
+                subtasks.map(s => (
+                  <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid #f1f5f9" }}>
+                    <div
+                      onClick={() => handleToggle(s.id)}
+                      style={{
+                        width: 20, height: 20, borderRadius: 4, flexShrink: 0, cursor: "pointer",
+                        border: s.is_done ? "2px solid var(--success)" : "2px solid #d1d5db",
+                        background: s.is_done ? "var(--success)" : "transparent",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      {s.is_done && <span style={{ color: "white", fontSize: 12, lineHeight: 1 }}>✓</span>}
+                    </div>
+                    <span style={{
+                      flex: 1, fontSize: 14, lineHeight: 1.4,
+                      textDecoration: s.is_done ? "line-through" : "none",
+                      color: s.is_done ? "var(--text-light)" : "var(--text-primary)",
+                    }}>{s.title}</span>
+                    <span
+                      onClick={() => handleDeleteSub(s.id)}
+                      style={{ cursor: "pointer", fontSize: 14, color: "var(--text-light)", padding: "0 4px" }}
+                      title="Hapus subtask"
+                    >✕</span>
+                  </div>
+                ))
+              )}
+
+              {/* Add subtask input */}
+              {adding && (
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <input
+                    className="input"
+                    value={newSub}
+                    onChange={e => setNewSub(e.target.value)}
+                    placeholder="Judul subtask..."
+                    autoFocus
+                    onKeyDown={e => { if (e.key === "Enter") handleAddSub(); if (e.key === "Escape") { setAdding(false); setNewSub(""); } }}
+                    style={{ flex: 1, padding: "6px 10px", fontSize: 13 }}
+                  />
+                  <button className="btn btn-primary btn-sm" onClick={handleAddSub} style={{ fontSize: 12 }}>Tambah</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => { setAdding(false); setNewSub(""); }} style={{ fontSize: 12 }}>Batal</button>
+                </div>
+              )}
+
+              {!loadingSubs && totalSubs === 0 && !adding && (
+                <div style={{ fontSize: 13, color: "var(--text-light)", fontStyle: "italic", padding: "4px 0" }}>Belum ada subtask</div>
+              )}
+            </div>
+
+            {/* Notes Section */}
+            <ModalNotes taskId={task.id} />
+            <ModalAttachments taskId={task.id} />
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+              <button className="btn btn-danger btn-sm" onClick={onDelete}>🗑️ Hapus</button>
+              {task.gtd_status !== "done" && onToggleFocus && (
+                <button className="btn btn-sm" onClick={() => { onToggleFocus(task.id); onClose(); }}
+                  style={{ background: task.is_focused ? "#fef3c7" : "#f8fafc", color: task.is_focused ? "#b45309" : "var(--text-secondary)", border: task.is_focused ? "1px solid #fde68a" : "1px solid var(--border)" }}>
+                  {task.is_focused ? "⭐ Fokus" : "☆ Fokus"}
+                </button>
+              )}
+              <button className="btn btn-secondary btn-sm" onClick={onEdit}>✏️ Edit</button>
+              {task.gtd_status !== "done" && <button className="btn btn-success btn-sm" onClick={onDone}>✅ Done</button>}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Task Row ────────────────────────────────────────────────
+    function TaskRow({ task, onClick, onDone, onToggleFocus }) {
+      return (
+        <div className="task-row fade-in" onClick={() => onClick(task)}>
+          <div className="check-btn" onClick={e => { e.stopPropagation(); onDone(task.id); }} title="Tandai selesai">
+            {task.gtd_status === "done" && <span style={{ color: "var(--success)", fontSize: 14 }}>✓</span>}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {task.is_focused && <span style={{ fontSize: 14 }} title="Fokus Hari Ini">⭐</span>}
+                <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.5, textDecoration: task.gtd_status === "done" ? "line-through" : "none", color: task.gtd_status === "done" ? "var(--text-light)" : "var(--text-primary)" }}>
+                  {task.title}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "center" }}>
+                {onToggleFocus && task.gtd_status !== "done" && (
+                  <span
+                    onClick={e => { e.stopPropagation(); onToggleFocus(task.id); }}
+                    style={{ cursor: "pointer", fontSize: 16, opacity: task.is_focused ? 1 : 0.3, transition: "opacity 0.15s" }}
+                    title={task.is_focused ? "Hapus dari Fokus" : "Tambah ke Fokus Hari Ini"}
+                  >{task.is_focused ? "⭐" : "☆"}</span>
+                )}
+                <PriBadge p={task.priority} />
+                <QuadBadge q={task.quadrant} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
+              {task.project && <span style={{ fontSize: 12, color: "var(--text-light)" }}>📁 {task.project}</span>}
+              {task.context && <span style={{ fontSize: 12, color: "var(--text-light)" }}>{task.context}</span>}
+              {task.deadline && <span style={{ fontSize: 12, color: task.is_overdue ? "#ef4444" : "var(--text-light)" }}>
+                📅 {formatDate(task.deadline)} {task.is_overdue && <span className="overdue-indicator" />}
+              </span>}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Task Row with Focus Button (for Today page) ─────────────
+    function FocusTaskRow({ task, onClick, onDone, onStartFocus, isFocusing, pomodoroCount }) {
+      return (
+        <div className={`task-row fade-in ${isFocusing ? 'focusing' : ''}`} onClick={() => onClick(task)}>
+          <div className="check-btn" onClick={e => { e.stopPropagation(); onDone(task.id); }} title="Tandai selesai">
+            {task.gtd_status === "done" && <span style={{ color: "var(--success)", fontSize: 14 }}>✓</span>}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.5 }}>
+                {task.title}
+              </div>
+              <div style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "center" }}>
+                {pomodoroCount > 0 && (
+                  <span style={{ fontSize: 12, marginRight: 4 }}>
+                    {'🍅'.repeat(Math.min(pomodoroCount, 5))}
+                    {pomodoroCount > 5 && <span style={{ color: 'var(--text-light)', fontSize: 11 }}>+{pomodoroCount - 5}</span>}
+                  </span>
+                )}
+                <PriBadge p={task.priority} />
+                <QuadBadge q={task.quadrant} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
+              {task.project && <span style={{ fontSize: 12, color: "var(--text-light)" }}>📁 {task.project}</span>}
+              {task.context && <span style={{ fontSize: 12, color: "var(--text-light)" }}>{task.context}</span>}
+              {task.deadline && <span style={{ fontSize: 12, color: task.is_overdue ? "#ef4444" : "var(--text-light)" }}>
+                📅 {formatDate(task.deadline)} {task.is_overdue && <span className="overdue-indicator" />}
+              </span>}
+            </div>
+          </div>
+          <button 
+            className={`task-focus-btn ${isFocusing ? 'active' : 'start'}`}
+            onClick={e => { e.stopPropagation(); onStartFocus(task); }}
+          >
+            {isFocusing ? '🍅 Fokus...' : '▶ Focus'}
+          </button>
+        </div>
+      );
+    }
+
+    // ── Filter Chip ────────────────────────────────────────────
+    function FilterChip({ label, active, onClick }) {
+      return (
+        <span onClick={onClick} style={{
+          display: "inline-flex", alignItems: "center", padding: "4px 12px", borderRadius: 20,
+          fontSize: 13, fontWeight: 500, cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap",
+          background: active ? "var(--accent)" : "#f1f5f9",
+          color: active ? "white" : "var(--text-secondary)",
+          border: active ? "1px solid var(--accent)" : "1px solid var(--border)",
+        }}>{label}</span>
+      );
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  POMODORO TIMER COMPONENT
+    // ══════════════════════════════════════════════════════════════
+    function PomodoroTimer({ focusTask, onComplete, taskPomodoros, setTaskPomodoros }) {
+      // Timer states
+      const [mode, setMode] = useState("work"); // work, shortBreak, longBreak
+      const [timeLeft, setTimeLeft] = useState(25 * 60); // seconds
+      const [isRunning, setIsRunning] = useState(false);
+      const [sessionCount, setSessionCount] = useState(0);
+      const [totalFocusTime, setTotalFocusTime] = useState(0); // in seconds
+      const intervalRef = useRef(null);
+
+      // Timer durations
+      const DURATIONS = {
+        work: 25 * 60,
+        shortBreak: 5 * 60,
+        longBreak: 15 * 60,
+      };
+
+      // Request notification permission on mount
+      useEffect(() => {
+        if ("Notification" in window && Notification.permission === "default") {
+          Notification.requestPermission();
+        }
+      }, []);
+
+      // Timer logic
+      useEffect(() => {
+        if (isRunning && timeLeft > 0) {
+          intervalRef.current = setInterval(() => {
+            setTimeLeft(t => t - 1);
+            if (mode === "work") {
+              setTotalFocusTime(t => t + 1);
+            }
+          }, 1000);
+        } else if (timeLeft === 0) {
+          handleTimerComplete();
+        }
+        
+        return () => clearInterval(intervalRef.current);
+      }, [isRunning, timeLeft]);
+
+      const handleTimerComplete = () => {
+        setIsRunning(false);
+        clearInterval(intervalRef.current);
+        
+        if (mode === "work") {
+          // Work session completed
+          const newSessionCount = sessionCount + 1;
+          setSessionCount(newSessionCount);
+          
+          // Update pomodoro count for the focused task
+          if (focusTask) {
+            setTaskPomodoros(prev => ({
+              ...prev,
+              [focusTask.id]: (prev[focusTask.id] || 0) + 1
+            }));
+          }
+          
+          playNotificationSound("work");
+          sendBrowserNotification("🍅 Pomodoro Selesai!", "Saatnya istirahat sebentar.");
+          
+          // Determine next break type
+          if (newSessionCount % 4 === 0) {
+            setMode("longBreak");
+            setTimeLeft(DURATIONS.longBreak);
+          } else {
+            setMode("shortBreak");
+            setTimeLeft(DURATIONS.shortBreak);
+          }
+          
+          onComplete?.("work");
+        } else {
+          // Break completed
+          playNotificationSound("break");
+          sendBrowserNotification("☕ Istirahat Selesai!", "Siap untuk fokus lagi?");
+          setMode("work");
+          setTimeLeft(DURATIONS.work);
+          onComplete?.("break");
+        }
+      };
+
+      const startTimer = () => setIsRunning(true);
+      const pauseTimer = () => setIsRunning(false);
+      const resetTimer = () => {
+        setIsRunning(false);
+        setTimeLeft(DURATIONS[mode]);
+      };
+      const skipTimer = () => {
+        setIsRunning(false);
+        if (mode === "work") {
+          // Skip to break
+          if ((sessionCount + 1) % 4 === 0) {
+            setMode("longBreak");
+            setTimeLeft(DURATIONS.longBreak);
+          } else {
+            setMode("shortBreak");
+            setTimeLeft(DURATIONS.shortBreak);
+          }
+        } else {
+          // Skip break, go to work
+          setMode("work");
+          setTimeLeft(DURATIONS.work);
+        }
+      };
+
+      // Format time
+      const minutes = Math.floor(timeLeft / 60);
+      const seconds = timeLeft % 60;
+      const timeDisplay = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+      
+      // Progress calculation
+      const totalTime = DURATIONS[mode];
+      const progress = ((totalTime - timeLeft) / totalTime) * 100;
+      const circumference = 2 * Math.PI * 90;
+      const strokeDashoffset = circumference - (progress / 100) * circumference;
+
+      // Colors based on mode
+      const isBreak = mode !== "work";
+      const primaryColor = isBreak ? "#22c55e" : "#ef4444";
+      const labelText = mode === "work" ? "FOKUS" : mode === "shortBreak" ? "ISTIRAHAT" : "ISTIRAHAT PANJANG";
+
+      // Format total focus time
+      const formatFocusTime = (secs) => {
+        const hrs = Math.floor(secs / 3600);
+        const mins = Math.floor((secs % 3600) / 60);
+        if (hrs > 0) return `${hrs}j ${mins}m`;
+        return `${mins}m`;
+      };
+
+      return (
+        <div className="pomodoro-container scale-in">
+          <div className="pomodoro-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, position: "relative", zIndex: 1 }}>
+            <div>
+              <h2 className="pomodoro-header-title" style={{ fontSize: 22, fontWeight: 700 }}>🍅 Pomodoro Timer</h2>
+              <p className="pomodoro-header-subtitle" style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginTop: 4 }}>
+                {isBreak ? "Istirahat sebentar..." : "Fokus pada satu task"}
+              </p>
+            </div>
+            <div className="pomodoro-mode-btns" style={{ display: "flex", gap: 8 }}>
+              <span 
+                className="pomodoro-mode-btn"
+                onClick={() => { setMode("work"); setTimeLeft(DURATIONS.work); setIsRunning(false); }}
+                style={{ 
+                  padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                  background: mode === "work" ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.1)",
+                  color: mode === "work" ? "#fca5a5" : "rgba(255,255,255,0.6)"
+                }}
+              >Work</span>
+              <span 
+                className="pomodoro-mode-btn"
+                onClick={() => { setMode("shortBreak"); setTimeLeft(DURATIONS.shortBreak); setIsRunning(false); }}
+                style={{ 
+                  padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                  background: mode === "shortBreak" ? "rgba(34,197,94,0.2)" : "rgba(255,255,255,0.1)",
+                  color: mode === "shortBreak" ? "#86efac" : "rgba(255,255,255,0.6)"
+                }}
+              >Short</span>
+              <span 
+                className="pomodoro-mode-btn"
+                onClick={() => { setMode("longBreak"); setTimeLeft(DURATIONS.longBreak); setIsRunning(false); }}
+                style={{ 
+                  padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                  background: mode === "longBreak" ? "rgba(34,197,94,0.2)" : "rgba(255,255,255,0.1)",
+                  color: mode === "longBreak" ? "#86efac" : "rgba(255,255,255,0.6)"
+                }}
+              >Long</span>
+            </div>
+          </div>
+
+          <div className="pomodoro-timer">
+            <div className="pomodoro-circle">
+              <svg viewBox="0 0 200 200" style={{ width: "100%", height: "100%" }}>
+                {/* Background circle */}
+                <circle
+                  cx="100" cy="100" r="90"
+                  fill="none"
+                  stroke="rgba(255,255,255,0.1)"
+                  strokeWidth="8"
+                />
+                {/* Progress circle */}
+                <circle
+                  cx="100" cy="100" r="90"
+                  fill="none"
+                  stroke={primaryColor}
+                  strokeWidth="8"
+                  strokeLinecap="round"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={strokeDashoffset}
+                  style={{ transition: "stroke-dashoffset 0.5s ease" }}
+                />
+              </svg>
+              <div className="pomodoro-time" style={{ color: primaryColor }}>{timeDisplay}</div>
+              <div className="pomodoro-label">{labelText}</div>
+            </div>
+          </div>
+
+          <div className="pomodoro-controls">
+            {!isRunning ? (
+              <button className={`pomodoro-btn pomodoro-btn-play ${isBreak ? 'break' : ''}`} onClick={startTimer} title="Start">
+                ▶
+              </button>
+            ) : (
+              <button className="pomodoro-btn pomodoro-btn-pause" onClick={pauseTimer} title="Pause">
+                ⏸
+              </button>
+            )}
+            <button className="pomodoro-btn pomodoro-btn-reset" onClick={resetTimer} title="Reset">
+              ↺
+            </button>
+            <button className="pomodoro-btn pomodoro-btn-skip" onClick={skipTimer} title="Skip">
+              ⏭
+            </button>
+          </div>
+
+          {/* Focus Task Card */}
+          {focusTask && (
+            <div className="focus-task-card">
+              <span style={{ fontSize: 20 }}>🎯</span>
+              <div className="focus-task-title">{focusTask.title}</div>
+              <div className="focus-task-pomodoros">
+                🍅 {taskPomodoros[focusTask.id] || 0}
+              </div>
+            </div>
+          )}
+
+          {/* Daily Stats */}
+          <div className="pomodoro-stats">
+            <div className="pomodoro-stat">
+              <div className="pomodoro-stat-value" style={{ color: "#ef4444" }}>{sessionCount}</div>
+              <div className="pomodoro-stat-label">Pomodoro</div>
+            </div>
+            <div className="pomodoro-stat">
+              <div className="pomodoro-stat-value" style={{ color: "#22c55e" }}>{formatFocusTime(totalFocusTime)}</div>
+              <div className="pomodoro-stat-label">Waktu Fokus</div>
+            </div>
+            <div className="pomodoro-stat">
+              <div className="pomodoro-stat-value" style={{ color: "#3b82f6" }}>{Math.floor(sessionCount / 4)}</div>
+              <div className="pomodoro-stat-label">Set Lengkap</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Inline Subtask Checklist (for Focus page) ──────────────
+    function FocusSubtasks({ taskId }) {
+      const [subtasks, setSubtasks] = useState([]);
+      const [newSub, setNewSub] = useState("");
+      const [adding, setAdding] = useState(false);
+
+      const fetchSubs = useCallback(() => {
+        api.get(`/api/tasks/${taskId}/subtasks`)
+          .then(data => setSubtasks(data))
+          .catch(() => {});
+      }, [taskId]);
+
+      useEffect(() => { fetchSubs(); }, [fetchSubs]);
+
+      // Auto-refresh every 15 seconds
+      useEffect(() => {
+        const interval = setInterval(fetchSubs, 15000);
+        return () => clearInterval(interval);
+      }, [fetchSubs]);
+
+      const handleToggle = async (subId) => {
+        try {
+          const result = await api.post(`/api/subtasks/${subId}/toggle`);
+          setSubtasks(prev => prev.map(s => s.id === subId ? result : s));
+        } catch (err) { console.error(err); }
+      };
+
+      const handleAdd = async () => {
+        if (!newSub.trim()) return;
+        try {
+          const result = await api.post(`/api/tasks/${taskId}/subtasks`, { title: newSub.trim() });
+          setSubtasks(prev => [...prev, result]);
+          setNewSub("");
+        } catch (err) { console.error(err); }
+      };
+
+      const doneCount = subtasks.filter(s => s.is_done).length;
+      const total = subtasks.length;
+
+      return (
+        <div style={{ padding: "8px 16px 12px 52px", background: "rgba(239,68,68,0.03)", borderBottom: "1px solid var(--border)" }} className="fade-in">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+              📝 Subtasks {total > 0 && `${doneCount}/${total}`}
+            </span>
+            {!adding && (
+              <span onClick={() => setAdding(true)} style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>＋ Tambah</span>
+            )}
+          </div>
+
+          {total > 0 && (
+            <div style={{ height: 4, background: "#e2e8f0", borderRadius: 2, marginBottom: 6, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${total > 0 ? doneCount/total*100 : 0}%`, background: doneCount === total ? "var(--success)" : "var(--accent)", borderRadius: 2, transition: "width 0.3s" }} />
+            </div>
+          )}
+
+          {subtasks.map(s => (
+            <div key={s.id} onClick={() => handleToggle(s.id)} style={{
+              display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer",
+            }}>
+              <div style={{
+                width: 16, height: 16, borderRadius: 3, flexShrink: 0,
+                border: s.is_done ? "2px solid var(--success)" : "2px solid #d1d5db",
+                background: s.is_done ? "var(--success)" : "transparent",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                {s.is_done && <span style={{ color: "white", fontSize: 10 }}>✓</span>}
+              </div>
+              <span style={{
+                fontSize: 13,
+                textDecoration: s.is_done ? "line-through" : "none",
+                color: s.is_done ? "var(--text-light)" : "var(--text-primary)",
+              }}>{s.title}</span>
+            </div>
+          ))}
+
+          {adding && (
+            <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+              <input
+                className="input"
+                value={newSub}
+                onChange={e => setNewSub(e.target.value)}
+                placeholder="Subtask baru..."
+                autoFocus
+                onKeyDown={e => { if (e.key === "Enter") handleAdd(); if (e.key === "Escape") { setAdding(false); setNewSub(""); } }}
+                style={{ flex: 1, padding: "4px 8px", fontSize: 12 }}
+              />
+              <button className="btn btn-primary btn-sm" onClick={handleAdd} style={{ fontSize: 11, padding: "4px 10px" }}>OK</button>
+            </div>
+          )}
+
+          {total === 0 && !adding && (
+            <div style={{ fontSize: 12, color: "var(--text-light)", fontStyle: "italic" }}>Belum ada subtask — klik + untuk menambah</div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Inline Notes (for Focus page and Task Detail) ──────────
+    function FocusNotes({ taskId }) {
+      const [notes, setNotes] = useState([]);
+      const [newNote, setNewNote] = useState("");
+      const [expanded, setExpanded] = useState(false);
+
+      const fetchNotes = useCallback(() => {
+        api.get(`/api/tasks/${taskId}/notes`)
+          .then(data => setNotes(data))
+          .catch(() => {});
+      }, [taskId]);
+
+      useEffect(() => { fetchNotes(); }, [fetchNotes]);
+
+      // Auto-refresh every 15 seconds
+      useEffect(() => {
+        const interval = setInterval(fetchNotes, 15000);
+        return () => clearInterval(interval);
+      }, [fetchNotes]);
+
+      const handleAdd = async () => {
+        if (!newNote.trim()) return;
+        try {
+          const result = await api.post(`/api/tasks/${taskId}/notes`, { content: newNote.trim() });
+          setNotes(prev => [result, ...prev]);
+          setNewNote("");
+        } catch (err) { console.error(err); }
+      };
+
+      const handleDelete = async (noteId) => {
+        try {
+          await api.del(`/api/notes/${noteId}`);
+          setNotes(prev => prev.filter(n => n.id !== noteId));
+        } catch (err) { console.error(err); }
+      };
+
+      const formatTime = (dt) => {
+        if (!dt) return "";
+        const parts = dt.split("T");
+        if (parts.length < 2) return "";
+        const date = parts[0].split("-").reverse().join("-");
+        const time = parts[1].substring(0, 5);
+        return `${date} ${time}`;
+      };
+
+      const shown = expanded ? notes : notes.slice(0, 3);
+
+      return (
+        <div style={{ padding: "8px 16px 12px 52px", background: "rgba(59,130,246,0.03)", borderBottom: "1px solid var(--border)" }} className="fade-in">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+              📓 Catatan {notes.length > 0 && `(${notes.length})`}
+            </span>
+          </div>
+
+          {/* Add note input */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <input
+              className="input"
+              value={newNote}
+              onChange={e => setNewNote(e.target.value)}
+              placeholder="Tulis catatan..."
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAdd(); } }}
+              style={{ flex: 1, padding: "6px 10px", fontSize: 12 }}
+            />
+            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={!newNote.trim()} style={{ fontSize: 11, padding: "4px 10px" }}>Simpan</button>
+          </div>
+
+          {/* Notes list */}
+          {shown.map(n => (
+            <div key={n.id} style={{ padding: "6px 0", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: "var(--text-light)" }}>{formatTime(n.created_at)}</div>
+                <div style={{ fontSize: 13, lineHeight: 1.5, color: "var(--text-primary)", whiteSpace: "pre-wrap" }}>{n.content}</div>
+              </div>
+              <span onClick={() => handleDelete(n.id)} style={{ cursor: "pointer", fontSize: 12, color: "var(--text-light)", padding: "0 2px", flexShrink: 0 }} title="Hapus">✕</span>
+            </div>
+          ))}
+
+          {notes.length > 3 && !expanded && (
+            <div onClick={() => setExpanded(true)} style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", marginTop: 4 }}>
+              Lihat {notes.length - 3} catatan lagi...
+            </div>
+          )}
+          {expanded && notes.length > 3 && (
+            <div onClick={() => setExpanded(false)} style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", marginTop: 4 }}>
+              Sembunyikan
+            </div>
+          )}
+
+          {notes.length === 0 && (
+            <div style={{ fontSize: 12, color: "var(--text-light)", fontStyle: "italic" }}>Belum ada catatan</div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Inline Attachments (for Focus page) ────────────────────
+    function FocusAttachments({ taskId }) {
+      const [attachments, setAttachments] = useState([]);
+      const [uploading, setUploading] = useState(false);
+      const fileRef = useRef(null);
+
+      const fetchAtts = useCallback(() => {
+        api.get(`/api/tasks/${taskId}/attachments`)
+          .then(data => setAttachments(data))
+          .catch(() => {});
+      }, [taskId]);
+
+      useEffect(() => { fetchAtts(); }, [fetchAtts]);
+      useEffect(() => {
+        const interval = setInterval(fetchAtts, 15000);
+        return () => clearInterval(interval);
+      }, [fetchAtts]);
+
+      const handleUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (file.size > 10 * 1024 * 1024) { alert("Maks 10MB"); return; }
+        setUploading(true);
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          const res = await fetch(`/api/tasks/${taskId}/attachments`, {
+            method: "POST",
+            headers: __token ? { "Authorization": "Bearer " + __token } : {},
+            body: formData,
+          });
+          if (res.ok) {
+            const result = await res.json();
+            setAttachments(prev => [result, ...prev]);
+          }
+        } catch (err) { console.error(err); }
+        setUploading(false);
+        if (fileRef.current) fileRef.current.value = "";
+      };
+
+      const fmtSize = (b) => b < 1024 ? b+"B" : b < 1024*1024 ? Math.round(b/1024)+"KB" : (b/(1024*1024)).toFixed(1)+"MB";
+
+      return (
+        <div style={{ padding: "6px 16px 10px 52px", background: "rgba(139,92,246,0.03)", borderBottom: "1px solid var(--border)" }} className="fade-in">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+              📎 Lampiran {attachments.length > 0 && `(${attachments.length})`}
+            </span>
+            <label style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>
+              {uploading ? "Uploading..." : "＋ Upload"}
+              <input ref={fileRef} type="file" onChange={handleUpload} style={{ display: "none" }} disabled={uploading} />
+            </label>
+          </div>
+          {attachments.map(a => (
+            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0" }}>
+              <span style={{ fontSize: 14 }}>{a.mime_type?.startsWith("image/") ? "🖼️" : "📄"}</span>
+              <a href={`/api/attachments/${a.id}/download`} target="_blank" rel="noopener"
+                style={{ fontSize: 12, color: "var(--accent)", textDecoration: "none", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {a.original_name}
+              </a>
+              <span style={{ fontSize: 11, color: "var(--text-light)" }}>{fmtSize(a.file_size)}</span>
+            </div>
+          ))}
+          {attachments.length === 0 && !uploading && (
+            <div style={{ fontSize: 12, color: "var(--text-light)", fontStyle: "italic" }}>Belum ada lampiran</div>
+          )}
+        </div>
+      );
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  TODAY FOCUS VIEW (Overhauled with Pomodoro)
+    // ══════════════════════════════════════════════════════════════
+    function TodayFocusView({ tasks, onTaskClick, onDone, loading }) {
+      const [focusTask, setFocusTask] = useState(null);
+      const [taskPomodoros, setTaskPomodoros] = useState({});
+
+      // Filter today's tasks (Q1 or overdue, not done)
+      const todayTasks = tasks.filter(t => 
+        (t.quadrant === "Q1" || t.is_overdue || t.is_focused) && 
+        t.gtd_status !== "done" && 
+        t.gtd_status !== "archived"
+      );
+
+      // Sort by priority then deadline
+      const sortedTasks = [...todayTasks].sort((a, b) => {
+        // Overdue first
+        if (a.is_overdue && !b.is_overdue) return -1;
+        if (!a.is_overdue && b.is_overdue) return 1;
+        // Then by priority
+        const priOrder = { P1: 1, P2: 2, P3: 3, P4: 4 };
+        return priOrder[a.priority] - priOrder[b.priority];
+      });
+
+      const handleStartFocus = (task) => {
+        setFocusTask(focusTask?.id === task.id ? null : task);
+      };
+
+      const handlePomodoroComplete = (type) => {
+        // Optional: additional logic when pomodoro completes
+      };
+
+      const totalPomodoros = Object.values(taskPomodoros).reduce((a, b) => a + b, 0);
+
+      return (
+        <div className="fade-in">
+          {/* Header */}
+          <div className="focus-page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <div>
+              <h1 className="focus-page-title" style={{ fontSize: 24, fontWeight: 700 }}>🍅 Fokus Hari Ini</h1>
+              <p className="focus-page-subtitle" style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>
+                {sortedTasks.length} task urgent • {totalPomodoros} pomodoro hari ini
+              </p>
+            </div>
+          </div>
+
+          {/* Pomodoro Timer */}
+          <PomodoroTimer 
+            focusTask={focusTask}
+            onComplete={handlePomodoroComplete}
+            taskPomodoros={taskPomodoros}
+            setTaskPomodoros={setTaskPomodoros}
+          />
+
+          {/* Task List */}
+          <div className="card focus-task-list" style={{ padding: "16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700 }}>📋 Task List</h3>
+              <span style={{ fontSize: 13, color: "var(--text-light)" }}>{sortedTasks.length} task</span>
+            </div>
+
+            {loading ? (
+              <div style={{ textAlign: "center", padding: 40, color: "var(--text-light)" }}>Loading...</div>
+            ) : sortedTasks.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 48, color: "var(--text-light)" }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+                <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Tidak ada task urgent!</div>
+                <div style={{ fontSize: 14 }}>Semua Q1 dan overdue task sudah selesai.</div>
+              </div>
+            ) : (
+              <div>
+                {sortedTasks.map(task => (
+                  <React.Fragment key={task.id}>
+                    <FocusTaskRow
+                      task={task}
+                      onClick={onTaskClick}
+                      onDone={onDone}
+                      onStartFocus={handleStartFocus}
+                      isFocusing={focusTask?.id === task.id}
+                      pomodoroCount={taskPomodoros[task.id] || 0}
+                    />
+                    <FocusSubtasks taskId={task.id} />
+                    <FocusNotes taskId={task.id} />
+                    <FocusAttachments taskId={task.id} />
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Tips - Hidden on very small screens */}
+          <div className="card focus-tips-card" style={{ marginTop: 16, padding: 16, background: "linear-gradient(135deg, #fef3c7 0%, #fef9c3 100%)", border: "1px solid #fde68a" }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <span style={{ fontSize: 24 }}>💡</span>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>Tips Pomodoro</div>
+                <ul style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0, paddingLeft: 16 }}>
+                  <li>Fokus pada satu task selama 25 menit tanpa gangguan</li>
+                  <li>Setelah 4 pomodoro, ambil istirahat panjang 15 menit</li>
+                  <li>Klik "▶ Focus" pada task untuk memulai tracking</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Task List view with filters ─────────────────────────────
+    function TaskListView({ tasks, allTasks, title, icon, onTaskClick, onDone, onToggleFocus, loading, projects, contexts, showFilters }) {
+      const [fPriority, setFPriority] = useState("");
+      const [fQuadrant, setFQuadrant] = useState("");
+      const [fProject, setFProject] = useState("");
+      const [fContext, setFContext] = useState("");
+      const [fSearch, setFSearch] = useState("");
+
+      const toggle = (setter, current, val) => setter(current === val ? "" : val);
+
+      let filtered = tasks;
+      if (fPriority) filtered = filtered.filter(t => t.priority === fPriority);
+      if (fQuadrant) filtered = filtered.filter(t => t.quadrant === fQuadrant);
+      if (fProject) filtered = filtered.filter(t => t.project === fProject);
+      if (fContext) filtered = filtered.filter(t => t.context === fContext);
+      if (fSearch) {
+        const q = fSearch.toLowerCase();
+        filtered = filtered.filter(t => t.title.toLowerCase().includes(q) || (t.description || "").toLowerCase().includes(q));
+      }
+
+      const hasFilters = fPriority || fQuadrant || fProject || fContext || fSearch;
+      const clearAll = () => { setFPriority(""); setFQuadrant(""); setFProject(""); setFContext(""); setFSearch(""); };
+
+      // Derive projects/contexts from allTasks if not provided
+      const projList = projects && projects.length > 0 ? projects : [...new Set(allTasks?.filter(t => t.project).map(t => t.project) || [])];
+      const ctxList = contexts && contexts.length > 0 ? contexts : [...new Set(allTasks?.filter(t => t.context).map(t => t.context) || [])];
+
+      return (
+        <div className="fade-in">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 700 }}>{icon} {title}</h1>
+            <span style={{ color: "var(--text-light)", fontSize: 14 }}>{filtered.length}{hasFilters ? `/${tasks.length}` : ""} task(s)</span>
+          </div>
+
+          {showFilters !== false && (
+            <div className="card" style={{ padding: "14px 16px", marginBottom: 16 }}>
+              {/* Search */}
+              <input className="input" placeholder="🔍 Cari task..." value={fSearch} onChange={e => setFSearch(e.target.value)}
+                style={{ marginBottom: 12, padding: "8px 12px", fontSize: 13 }} />
+
+              {/* Priority */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-light)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Priority</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {["P1","P2","P3","P4"].map(p => <FilterChip key={p} label={`${PRI_EMOJI[p]} ${p}`} active={fPriority===p} onClick={() => toggle(setFPriority, fPriority, p)} />)}
+                </div>
+              </div>
+
+              {/* Quadrant */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-light)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Quadrant</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {["Q1","Q2","Q3","Q4"].map(q => <FilterChip key={q} label={`${QUAD_EMOJI[q]} ${q}`} active={fQuadrant===q} onClick={() => toggle(setFQuadrant, fQuadrant, q)} />)}
+                </div>
+              </div>
+
+              {/* Project */}
+              {projList.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-light)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Project</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {projList.map(p => <FilterChip key={p} label={`📁 ${p}`} active={fProject===p} onClick={() => toggle(setFProject, fProject, p)} />)}
+                  </div>
+                </div>
+              )}
+
+              {/* Context */}
+              {ctxList.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-light)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Context</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {ctxList.map(c => <FilterChip key={c} label={c} active={fContext===c} onClick={() => toggle(setFContext, fContext, c)} />)}
+                  </div>
+                </div>
+              )}
+
+              {hasFilters && (
+                <div style={{ marginTop: 8 }}>
+                  <span onClick={clearAll} style={{ fontSize: 13, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>✕ Hapus semua filter</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {loading ? (
+            <div style={{ textAlign: "center", padding: 40, color: "var(--text-light)" }}>Loading...</div>
+          ) : filtered.length === 0 ? (
+            <div className="card" style={{ textAlign: "center", padding: 48, color: "var(--text-light)" }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>{hasFilters ? "🔍" : "🎉"}</div>
+              <div>{hasFilters ? "Tidak ada task yang cocok dengan filter" : "Tidak ada task"}</div>
+            </div>
+          ) : (
+            <div className="card" style={{ padding: 8 }}>
+              {filtered.map(t => <TaskRow key={t.id} task={t} onClick={onTaskClick} onDone={onDone} onToggleFocus={onToggleFocus} />)}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Chart: Productivity Trend (Line) ────────────────────────
+    function ProductivityChart({ tasks }) {
+      const canvasRef = useRef(null);
+      const chartRef = useRef(null);
+
+      useEffect(() => {
+        if (!canvasRef.current) return;
+
+        // Calculate completed tasks per day for last 7 days
+        const days = [];
+        const counts = [];
+        const created = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const ds = d.toISOString().split("T")[0];
+          days.push(d.toLocaleDateString("id-ID", { weekday: "short", day: "numeric" }));
+          counts.push(tasks.filter(t => t.completed_at && t.completed_at.startsWith(ds)).length);
+          created.push(tasks.filter(t => t.created_at && t.created_at.startsWith(ds)).length);
+        }
+
+        if (chartRef.current) chartRef.current.destroy();
+
+        chartRef.current = new Chart(canvasRef.current, {
+          type: "line",
+          data: {
+            labels: days,
+            datasets: [
+              {
+                label: "Selesai",
+                data: counts,
+                borderColor: "#22c55e",
+                backgroundColor: "rgba(34,197,94,0.1)",
+                fill: true,
+                tension: 0.4,
+                pointRadius: 4,
+                pointBackgroundColor: "#22c55e",
+              },
+              {
+                label: "Dibuat",
+                data: created,
+                borderColor: "#3b82f6",
+                backgroundColor: "rgba(59,130,246,0.05)",
+                fill: true,
+                tension: 0.4,
+                pointRadius: 4,
+                pointBackgroundColor: "#3b82f6",
+                borderDash: [4, 4],
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: "bottom", labels: { boxWidth: 12, padding: 16, font: { size: 11, family: "DM Sans" } } },
+            },
+            scales: {
+              y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 } }, grid: { color: "rgba(0,0,0,0.04)" } },
+              x: { ticks: { font: { size: 11 } }, grid: { display: false } },
+            },
+          },
+        });
+
+        return () => { if (chartRef.current) chartRef.current.destroy(); };
+      }, [tasks]);
+
+      return <div style={{ height: 200 }}><canvas ref={canvasRef} /></div>;
+    }
+
+    // ── Chart: Completion Donut ───────────────────────────────────
+    function CompletionDonut({ summary }) {
+      const canvasRef = useRef(null);
+      const chartRef = useRef(null);
+
+      useEffect(() => {
+        if (!canvasRef.current) return;
+
+        const done = summary.total_done || 0;
+        const active = (summary.total_active || 0) - (summary.overdue || 0);
+        const overdue = summary.overdue || 0;
+
+        if (chartRef.current) chartRef.current.destroy();
+
+        chartRef.current = new Chart(canvasRef.current, {
+          type: "doughnut",
+          data: {
+            labels: ["Done", "Active", "Overdue"],
+            datasets: [{
+              data: [done, Math.max(active, 0), overdue],
+              backgroundColor: ["#22c55e", "#3b82f6", "#ef4444"],
+              borderWidth: 0,
+              hoverOffset: 6,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: "65%",
+            plugins: {
+              legend: { position: "bottom", labels: { boxWidth: 10, padding: 12, font: { size: 11, family: "DM Sans" } } },
+            },
+          },
+        });
+
+        return () => { if (chartRef.current) chartRef.current.destroy(); };
+      }, [summary]);
+
+      const total = (summary.total_active || 0) + (summary.total_done || 0);
+      const pct = total > 0 ? Math.round((summary.total_done || 0) / total * 100) : 0;
+
+      return (
+        <div style={{ position: "relative", height: 200 }}>
+          <canvas ref={canvasRef} />
+          <div style={{ position: "absolute", top: "42%", left: "50%", transform: "translate(-50%, -50%)", textAlign: "center" }}>
+            <div style={{ fontSize: 24, fontWeight: 700, color: "var(--text-primary)" }}>{pct}%</div>
+            <div style={{ fontSize: 11, color: "var(--text-light)" }}>selesai</div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Chart: GTD Status Bar ─────────────────────────────────────
+    function StatusBarChart({ summary }) {
+      const canvasRef = useRef(null);
+      const chartRef = useRef(null);
+
+      useEffect(() => {
+        if (!canvasRef.current) return;
+
+        const statuses = ["inbox", "next", "waiting", "someday", "done"];
+        const labels = ["Inbox", "Next", "Wait", "Later", "Done"];
+        const colors = ["#94a3b8", "#3b82f6", "#eab308", "#a855f7", "#22c55e"];
+        const data = statuses.map(s => summary.by_status?.[s] || 0);
+
+        if (chartRef.current) chartRef.current.destroy();
+
+        chartRef.current = new Chart(canvasRef.current, {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [{
+              data,
+              backgroundColor: colors,
+              borderRadius: 6,
+              barThickness: 24,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 } }, grid: { color: "rgba(0,0,0,0.04)" } },
+              x: { ticks: { font: { size: 11 } }, grid: { display: false } },
+            },
+          },
+        });
+
+        return () => { if (chartRef.current) chartRef.current.destroy(); };
+      }, [summary]);
+
+      return <div style={{ height: 200 }}><canvas ref={canvasRef} /></div>;
+    }
+
+    // ── Dashboard ───────────────────────────────────────────────
+    function Dashboard({ summary, tasks, onTaskClick, onDone }) {
+      const q1Tasks = tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done");
+      const q2Tasks = tasks.filter(t => t.quadrant === "Q2" && t.gtd_status !== "done");
+      const q3Tasks = tasks.filter(t => t.quadrant === "Q3" && t.gtd_status !== "done");
+      const q4Tasks = tasks.filter(t => t.quadrant === "Q4" && t.gtd_status !== "done");
+
+      const EisenCell = ({ tasks: cellTasks, label, emoji, cls }) => (
+        <div className={`eisenhower-cell ${cls}`}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>{emoji} {label} ({cellTasks.length})</div>
+          {cellTasks.slice(0, 5).map(t => (
+            <div key={t.id} onClick={() => onTaskClick(t)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", display: "flex", gap: 6, alignItems: "center" }}>
+              <PriBadge p={t.priority} />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+            </div>
+          ))}
+          {cellTasks.length > 5 && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 4 }}>+{cellTasks.length - 5} more</div>}
+        </div>
+      );
+
+      return (
+        <div className="fade-in">
+          <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 20 }}>📊 Dashboard</h1>
+
+          {/* Stat cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 24 }}>
+            <div className="stat-card"><div className="stat-number" style={{ color: "var(--accent)" }}>{summary.total_active}</div><div className="stat-label">Active</div></div>
+            <div className="stat-card"><div className="stat-number" style={{ color: "var(--success)" }}>{summary.total_done}</div><div className="stat-label">Done</div></div>
+            <div className="stat-card"><div className="stat-number" style={{ color: "var(--q1)" }}>{summary.by_quadrant?.Q1 || 0}</div><div className="stat-label">Q1 Do</div></div>
+            <div className="stat-card"><div className="stat-number" style={{ color: summary.overdue > 0 ? "#ef4444" : "var(--text-light)" }}>{summary.overdue}</div><div className="stat-label">Overdue</div></div>
+            <div className="stat-card"><div className="stat-number">{summary.by_status?.inbox || 0}</div><div className="stat-label">Inbox</div></div>
+          </div>
+
+          {/* Analytics Charts */}
+          <div className="charts-grid" style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
+            {/* A. Productivity Trend - Line Chart */}
+            <div className="card" style={{ padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>📈 Productivity Trend <span style={{ fontWeight: 400, color: "var(--text-light)", fontSize: 12 }}>7 hari terakhir</span></div>
+              <ProductivityChart tasks={tasks} />
+            </div>
+
+            {/* B. Completion Ratio - Donut */}
+            <div className="card" style={{ padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>🎯 Completion</div>
+              <CompletionDonut summary={summary} />
+            </div>
+
+            {/* C. Task by Status - Bar */}
+            <div className="card" style={{ padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>📋 GTD Status</div>
+              <StatusBarChart summary={summary} />
+            </div>
+          </div>
+
+          {/* Eisenhower Matrix */}
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>🎯 Eisenhower Matrix</h2>
+          <div className="eisen-header-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
+            <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Urgent + Important</div>
+            <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Important</div>
+          </div>
+          <div className="gtd-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
+            <EisenCell tasks={q1Tasks} label="Do" emoji="🔥" cls="eq1" />
+            <EisenCell tasks={q2Tasks} label="Schedule" emoji="📅" cls="eq2" />
+            <EisenCell tasks={q3Tasks} label="Delegate" emoji="👋" cls="eq3" />
+            <EisenCell tasks={q4Tasks} label="Eliminate" emoji="🗑️" cls="eq4" />
+          </div>
+
+          {/* GTD Status breakdown */}
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>🔄 GTD Status</h2>
+          <div className="gtd-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {[
+              { key: "inbox", label: "Inbox", emoji: "📥", bg: "#f8fafc", border: "#e2e8f0" },
+              { key: "next", label: "Next Actions", emoji: "▶️", bg: "#eff6ff", border: "#bfdbfe" },
+              { key: "waiting", label: "Waiting For", emoji: "⏳", bg: "#fefce8", border: "#fde68a" },
+              { key: "someday", label: "Someday", emoji: "💭", bg: "#faf5ff", border: "#e9d5ff" },
+            ].map(({ key, label, emoji, bg, border }) => {
+              const sectionTasks = tasks.filter(t => t.gtd_status === key);
+              return (
+                <div key={key} style={{ borderRadius: 12, padding: 16, minHeight: 120, background: bg, border: `1px solid ${border}` }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>{emoji} {label} ({sectionTasks.length})</div>
+                  {sectionTasks.length === 0 ? (
+                    <div style={{ fontSize: 13, color: "var(--text-light)", fontStyle: "italic" }}>Kosong</div>
+                  ) : (
+                    sectionTasks.slice(0, 5).map(t => (
+                      <div key={t.id} onClick={() => onTaskClick(t)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", display: "flex", gap: 6, alignItems: "center" }}>
+                        <PriBadge p={t.priority} />
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                      </div>
+                    ))
+                  )}
+                  {sectionTasks.length > 5 && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 4 }}>+{sectionTasks.length - 5} more</div>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Active Projects */}
+          {(() => {
+            const projNames = [...new Set(tasks.filter(t => t.project && t.gtd_status !== "done" && t.gtd_status !== "archived").map(t => t.project))];
+            if (projNames.length === 0) return null;
+            return (<>
+              <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12, marginTop: 24 }}>📁 Active Projects</h2>
+              <div className="gtd-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {projNames.map(proj => {
+                  const projTasks = tasks.filter(t => t.project === proj && t.gtd_status !== "done" && t.gtd_status !== "archived");
+                  return (
+                    <div key={proj} style={{ borderRadius: 12, padding: 16, minHeight: 100, background: "#ecfdf5", border: "1px solid #a7f3d0" }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📂 {proj} ({projTasks.length})</div>
+                      {projTasks.slice(0, 5).map(t => (
+                        <div key={t.id} onClick={() => onTaskClick(t)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", display: "flex", gap: 6, alignItems: "center" }}>
+                          <PriBadge p={t.priority} />
+                          <StatusBadge s={t.gtd_status} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                        </div>
+                      ))}
+                      {projTasks.length > 5 && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 4 }}>+{projTasks.length - 5} more</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </>);
+          })()}
+        </div>
+      );
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  MAIN APP
+    // ══════════════════════════════════════════════════════════════
+    function App() {
+      const [user, setUser] = useState(null);
+      const [authPage, setAuthPage] = useState("login");
+      const [page, setPage] = useState("dashboard");
+      const [tasks, setTasks] = useState([]);
+      const [summary, setSummary] = useState({ by_status: {}, by_quadrant: {}, overdue: 0, total_active: 0, total_done: 0 });
+      const [projects, setProjects] = useState([]);
+      const [contexts, setContexts] = useState([]);
+      const [selectedTask, setSelectedTask] = useState(null);
+      const [showForm, setShowForm] = useState(false);
+      const [editTask, setEditTask] = useState(null);
+      const [toast, setToast] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [sidebarOpen, setSidebarOpen] = useState(false);
+
+      const showToast = (message, type = "success") => setToast({ message, type });
+
+      const logout = useCallback(async () => {
+        if (!tokenStore.get()) return;
+        try { await api.post("/api/auth/logout", {}); } catch (e) {}
+        tokenStore.clear();
+        setUser(null);
+      }, []);
+
+      window.__logout = logout;
+
+      // Check existing session on mount
+      const [authChecked, setAuthChecked] = useState(!tokenStore.get());
+      useEffect(() => {
+        if (tokenStore.get()) {
+          api.get("/api/auth/me")
+            .then(u => { setUser(u); setAuthChecked(true); })
+            .catch(() => { tokenStore.clear(); setAuthChecked(true); });
+        }
+      }, []);
+
+      // Fetch data
+      const initialLoad = useRef(true);
+      const fetchAll = useCallback(async () => {
+        if (!user) return;
+        if (initialLoad.current) setLoading(true);
+        try {
+          const [tasksData, summaryData, projData, ctxData] = await Promise.all([
+            api.get("/api/tasks?include_done=true"),
+            api.get("/api/summary"),
+            api.get("/api/projects"),
+            api.get("/api/contexts"),
+          ]);
+          setTasks(tasksData);
+          setSummary(summaryData);
+          setProjects(projData);
+          setContexts(ctxData);
+        } catch (err) { console.error(err); }
+        if (initialLoad.current) { setLoading(false); initialLoad.current = false; }
+      }, [user]);
+
+      useEffect(() => { fetchAll(); }, [fetchAll]);
+
+      // Auto-refresh every 30 seconds
+      useEffect(() => {
+        if (!user) return;
+        const interval = setInterval(fetchAll, 30000);
+        return () => clearInterval(interval);
+      }, [user, fetchAll]);
+
+      // Auth handlers
+      const handleLogin = (data) => {
+        tokenStore.set(data.token);
+        setUser({ id: data.user_id, username: data.username, display_name: data.display_name || data.username });
+        setAuthChecked(true);
+      };
+
+      if (!authChecked) {
+        return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)", color: "white", fontSize: 18 }}>Loading...</div>;
+      }
+
+      if (!user) {
+        return authPage === "login"
+          ? <LoginPage onLogin={handleLogin} onSwitch={() => setAuthPage("register")} />
+          : <RegisterPage onLogin={handleLogin} onSwitch={() => setAuthPage("login")} />;
+      }
+
+      // Task actions
+      const handleDone = async (taskId) => {
+        try {
+          await api.post(`/api/tasks/${taskId}/done`);
+          showToast("Task selesai! ✅");
+          fetchAll();
+          setSelectedTask(null);
+        } catch (err) { showToast(err.message, "error"); }
+      };
+
+      const handleDelete = async (taskId) => {
+        if (!confirm("Hapus task ini?")) return;
+        try {
+          await api.del(`/api/tasks/${taskId}`);
+          showToast("Task dihapus 🗑️");
+          fetchAll();
+          setSelectedTask(null);
+        } catch (err) { showToast(err.message, "error"); }
+      };
+
+      const handleToggleFocus = async (taskId) => {
+        try {
+          const result = await api.post(`/api/tasks/${taskId}/focus`);
+          showToast(result.is_focused ? "⭐ Ditambahkan ke Fokus" : "☆ Dihapus dari Fokus");
+          fetchAll();
+        } catch (err) { showToast(err.message, "error"); }
+      };
+
+      const handleSaved = () => {
+        setShowForm(false);
+        setEditTask(null);
+        showToast(editTask ? "Task diupdate ✅" : "Task ditambahkan ✅");
+        fetchAll();
+      };
+
+      const handleEdit = (task) => {
+        setSelectedTask(null);
+        setEditTask(task);
+        setShowForm(true);
+      };
+
+      // Determine which tasks to show
+      const getFilteredTasks = () => {
+        if (page.startsWith("proj_")) {
+          const projName = page.slice(5);
+          return tasks.filter(t => t.project === projName && t.gtd_status !== "done" && t.gtd_status !== "archived");
+        }
+        switch (page) {
+          case "inbox": return tasks.filter(t => t.gtd_status === "inbox");
+          case "next": return tasks.filter(t => t.gtd_status === "next");
+          case "waiting": return tasks.filter(t => t.gtd_status === "waiting");
+          case "someday": return tasks.filter(t => t.gtd_status === "someday");
+          case "q1": return tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done" && t.gtd_status !== "archived");
+          case "q2": return tasks.filter(t => t.quadrant === "Q2" && t.gtd_status !== "done" && t.gtd_status !== "archived");
+          case "q3": return tasks.filter(t => t.quadrant === "Q3" && t.gtd_status !== "done" && t.gtd_status !== "archived");
+          case "q4": return tasks.filter(t => t.quadrant === "Q4" && t.gtd_status !== "done" && t.gtd_status !== "archived");
+          case "overdue": return tasks.filter(t => t.is_overdue);
+          case "done": return tasks.filter(t => t.gtd_status === "done");
+          case "today": return tasks.filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused) && t.gtd_status !== "done" && t.gtd_status !== "archived");
+          case "all": return tasks.filter(t => t.gtd_status !== "done" && t.gtd_status !== "archived");
+          default: return tasks.filter(t => t.gtd_status !== "done" && t.gtd_status !== "archived");
+        }
+      };
+
+      const getPageTitle = () => {
+        if (page.startsWith("proj_")) return page.slice(5);
+        const titles = {
+          dashboard: "Dashboard", inbox: "Inbox", next: "Next Actions", waiting: "Waiting For",
+          someday: "Someday / Maybe", q1: "Q1 — Do", q2: "Q2 — Schedule", q3: "Q3 — Delegate",
+          q4: "Q4 — Eliminate", overdue: "Overdue", done: "Done", today: "Fokus Hari Ini", all: "Semua Task"
+        };
+        return titles[page] || "Tasks";
+      };
+      const getPageIcon = () => {
+        if (page.startsWith("proj_")) return "📂";
+        const icons = {
+          dashboard: "📊", inbox: "📥", next: "▶️", waiting: "⏳", someday: "💭",
+          q1: "🔥", q2: "📅", q3: "👋", q4: "🗑️", overdue: "⚠️", done: "✅", today: "🍅", all: "📋"
+        };
+        return icons[page] || "📋";
+      };
+
+      // Render content based on page
+      const renderContent = () => {
+        if (page === "dashboard") {
+          return <Dashboard summary={summary} tasks={tasks} onTaskClick={setSelectedTask} onDone={handleDone} />;
+        }
+        
+        if (page === "today") {
+          return <TodayFocusView tasks={tasks} onTaskClick={setSelectedTask} onDone={handleDone} loading={loading} />;
+        }
+
+        return (
+          <TaskListView
+            tasks={getFilteredTasks()}
+            allTasks={tasks}
+            title={getPageTitle()}
+            icon={getPageIcon()}
+            onTaskClick={setSelectedTask}
+            onDone={handleDone}
+            onToggleFocus={handleToggleFocus}
+            loading={loading}
+            projects={projects}
+            contexts={contexts}
+            showFilters={page === "all" || page === "done" || page === "inbox" || page === "next" || page === "waiting" || page === "someday" || page.startsWith("proj_")}
+          />
+        );
+      };
+
+      return (
+        <div>
+          <Sidebar page={page} setPage={setPage} summary={summary} user={user} onLogout={logout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} projects={projects} tasks={tasks} />
+
+          <div className="main-content">
+            {/* Mobile top bar */}
+            <div className="mobile-topbar">
+              <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1 }}>☰</button>
+              <div style={{ flex: 1, fontWeight: 700, fontSize: 16 }}>⚡ TaskFlow</div>
+              <button className="btn btn-primary btn-sm" onClick={() => { setEditTask(null); setShowForm(true); }}>＋ Tambah</button>
+            </div>
+
+            {/* Desktop top bar */}
+            <div className="desktop-topbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+              <div style={{ fontSize: 13, color: "var(--text-light)" }}>
+                {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              </div>
+              <button className="btn btn-primary" onClick={() => { setEditTask(null); setShowForm(true); }}>
+                ＋ Tambah Task
+              </button>
+            </div>
+
+            {/* Content */}
+            {renderContent()}
+          </div>
+
+          {/* Modals */}
+          {selectedTask && (
+            <TaskDetailModal
+              task={selectedTask}
+              onClose={() => setSelectedTask(null)}
+              onEdit={() => handleEdit(selectedTask)}
+              onDone={() => handleDone(selectedTask.id)}
+              onDelete={() => handleDelete(selectedTask.id)}
+              onToggleFocus={handleToggleFocus}
+            />
+          )}
+
+          {showForm && (
+            <TaskFormModal
+              task={editTask}
+              onSave={handleSaved}
+              onClose={() => { setShowForm(false); setEditTask(null); }}
+              projects={projects}
+              contexts={contexts}
+            />
+          )}
+
+          {/* Toast */}
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+          {/* Mobile overlay */}
+          {sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 30 }} />}
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById("root"));
+  </script>
+</body>
+</html>
