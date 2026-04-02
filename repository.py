@@ -122,6 +122,16 @@ class TaskRepository:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_task_attachments_task_id ON task_attachments(task_id)")
 
+            # Magic login tokens table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS magic_tokens (
+                    token       TEXT PRIMARY KEY,
+                    user_id     INTEGER NOT NULL,
+                    expires_at  TEXT NOT NULL,
+                    used        INTEGER DEFAULT 0
+                )
+            """)
+
     # ── Row to Task mapping ────────────────────────────────────────────────
 
     @staticmethod
@@ -557,3 +567,35 @@ class TaskRepository:
         with self._connect() as conn:
             row = conn.execute("SELECT COUNT(*) as cnt FROM task_attachments WHERE task_id = ?", (task_id,)).fetchone()
             return row["cnt"] or 0
+
+    # ── Magic login tokens ─────────────────────────────────────────────────
+
+    def create_magic_token(self, user_id: int, expire_minutes: int = 5) -> str:
+        """Generate a one-time login token valid for `expire_minutes` minutes."""
+        from datetime import timedelta
+        token = secrets.token_urlsafe(32)
+        expires_at = (datetime.now() + timedelta(minutes=expire_minutes)).isoformat()
+        with self._connect() as conn:
+            # Hapus token lama milik user yang belum dipakai
+            conn.execute("DELETE FROM magic_tokens WHERE user_id = ? AND used = 0", (user_id,))
+            conn.execute(
+                "INSERT INTO magic_tokens (token, user_id, expires_at, used) VALUES (?, ?, ?, 0)",
+                (token, user_id, expires_at),
+            )
+        return token
+
+    def consume_magic_token(self, token: str) -> Optional[int]:
+        """Validate and consume token. Returns user_id or None if invalid/expired/used."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT user_id, expires_at, used FROM magic_tokens WHERE token = ?",
+                (token,),
+            ).fetchone()
+            if not row:
+                return None
+            if row["used"]:
+                return None
+            if datetime.fromisoformat(row["expires_at"]) < datetime.now():
+                return None
+            conn.execute("UPDATE magic_tokens SET used = 1 WHERE token = ?", (token,))
+            return row["user_id"]

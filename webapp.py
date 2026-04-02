@@ -28,6 +28,7 @@ from config import DB_PATH, EISENHOWER_INTERVAL_MINUTES, UPLOAD_DIR, MAX_FILE_SI
 from models import Task, GTDStatus, Priority, Quadrant
 from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date
+from repository import TaskRepository
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("WEB_SECRET_KEY", secrets.token_hex(32))
@@ -224,6 +225,30 @@ async def get_me(user=Depends(get_current_user)):
 async def logout(response: Response):
     response.delete_cookie("token")
     return {"ok": True}
+
+
+@app.get("/auth/magic")
+async def magic_login(token: str):
+    """One-time login link dari Telegram bot. Token valid 5 menit, sekali pakai."""
+    from fastapi.responses import RedirectResponse, HTMLResponse as _HTML
+    repo = TaskRepository(DB_PATH)
+    user_id = repo.consume_magic_token(token)
+    if not user_id:
+        return _HTML("""
+            <html><body style="font-family:sans-serif;text-align:center;padding:60px">
+            <h2>⚠️ Link Tidak Valid</h2>
+            <p>Link sudah digunakan atau sudah expired (5 menit).</p>
+            <p>Kirim <code>/webapp</code> di Telegram untuk mendapatkan link baru.</p>
+            </body></html>
+        """, status_code=400)
+    with get_db() as conn:
+        row = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not row:
+        return _HTML("<html><body>User tidak ditemukan.</body></html>", status_code=400)
+    jwt_token = create_token(user_id, row["username"])
+    response = RedirectResponse(url="/", status_code=302)
+    response.set_cookie("token", jwt_token, httponly=True, max_age=JWT_EXPIRE_HOURS * 3600, samesite="lax")
+    return response
 
 
 # ── Task CRUD routes ──────────────────────────────────────────────────────────

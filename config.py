@@ -36,3 +36,6 @@ WEEKLY_REVIEW_MINUTE = int(os.getenv("WEEKLY_REVIEW_MINUTE", "0"))
 # File attachments
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", str(Path(__file__).parent / "uploads"))
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE_MB", "10")) * 1024 * 1024  # Default 10MB
+
+# Webapp URL (untuk magic login link)
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://todo.yatno.web.id")

@@ -56,7 +56,7 @@ from config import (
     TELEGRAM_BOT_TOKEN, ALLOWED_USER_IDS, EISENHOWER_INTERVAL_MINUTES,
     TIMEZONE, DAILY_SUMMARY_HOUR, DAILY_SUMMARY_MINUTE,
     WEEKLY_REVIEW_DAY, WEEKLY_REVIEW_HOUR, WEEKLY_REVIEW_MINUTE,
-    UPLOAD_DIR, MAX_FILE_SIZE,
+    UPLOAD_DIR, MAX_FILE_SIZE, WEBAPP_URL,
 )
 from models import Task, GTDStatus, Priority, Quadrant
 from repository import TaskRepository
@@ -307,6 +307,22 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Username atau password salah.")
     except ValueError as e:
         await update.message.reply_text(f"❌ {e}")
+
+
+# ── /webapp (one-time magic login link) ───────────────────────────────────────
+
+@authorized
+async def cmd_webapp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    token = repo.create_magic_token(uid(context), expire_minutes=5)
+    link = f"{WEBAPP_URL}/auth/magic?token={token}"
+    await update.message.reply_text(
+        f"🌐 <b>Login ke TaskFlow WebApp</b>\n\n"
+        f'<a href="{link}">👉 Klik di sini untuk masuk</a>\n\n'
+        f"⚠️ Link hanya bisa digunakan <b>sekali</b> dan expired dalam <b>5 menit</b>.\n"
+        f"Kirim /webapp lagi jika butuh link baru.",
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
 
 
 # ── /claim (assign orphan tasks) ──────────────────────────────────────────────
@@ -2123,6 +2139,7 @@ def main():
     app.add_handler(CommandHandler("review", cmd_review))
 
     app.add_handler(CommandHandler("link", cmd_link))
+    app.add_handler(CommandHandler("webapp", cmd_webapp))
     app.add_handler(CommandHandler("claim", cmd_claim))
     app.add_handler(CommandHandler("sub", cmd_sub))
     app.add_handler(CommandHandler("note", cmd_note))
@@ -2192,6 +2209,7 @@ def main():
             BotCommand("sub", "Tambah subtask"),
             BotCommand("note", "Tambah catatan"),
             BotCommand("link", "Sync dengan akun web"),
+            BotCommand("webapp", "Login ke webapp (link sekali pakai)"),
         ]
         await application.bot.set_my_commands(commands)
 
