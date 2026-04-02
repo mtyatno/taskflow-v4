@@ -62,7 +62,7 @@ from models import Task, GTDStatus, Priority, Quadrant
 from repository import TaskRepository
 from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date, format_date
-from nlp import parse_task, format_confirmation
+from nlp import parse_task, format_confirmation, parse_query
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -1783,6 +1783,75 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 
+# ── NLP Query handler ─────────────────────────────────────────────────────
+
+async def _handle_nlp_query(update: Update, context: ContextTypes.DEFAULT_TYPE, query: dict):
+    """Proses view query dari NLP dan kirim daftar task."""
+    u = uid(context)
+    view = query["view"]
+    value = query.get("value", "")
+
+    if view == "today":
+        overdue = repo.list_overdue(u)
+        q1 = repo.list_by_quadrant(Quadrant.Q1, u)
+        seen = set()
+        tasks = []
+        for t in overdue + q1:
+            if t.id not in seen:
+                tasks.append(t)
+                seen.add(t.id)
+        title = "🎯 <b>FOKUS HARI INI</b>"
+
+    elif view == "overdue":
+        tasks = repo.list_overdue(u)
+        title = "⚠️ <b>TASK OVERDUE</b>"
+
+    elif view == "gtd":
+        status_map = {
+            "inbox": GTDStatus.INBOX, "next": GTDStatus.NEXT,
+            "waiting": GTDStatus.WAITING, "someday": GTDStatus.SOMEDAY,
+            "done": GTDStatus.DONE,
+        }
+        gtd_icons = {
+            "inbox": "📥", "next": "▶️", "waiting": "⏳",
+            "someday": "💭", "done": "✅",
+        }
+        status = status_map.get(value, GTDStatus.INBOX)
+        tasks = repo.list_by_status(status, u)
+        title = f"{gtd_icons.get(value, '📋')} <b>{value.upper()}</b>"
+
+    elif view == "quadrant":
+        quad_map = {"Q1": Quadrant.Q1, "Q2": Quadrant.Q2, "Q3": Quadrant.Q3, "Q4": Quadrant.Q4}
+        quad_labels = {
+            "Q1": "🔥 Q1 — Do First",
+            "Q2": "📅 Q2 — Schedule",
+            "Q3": "👋 Q3 — Delegate",
+            "Q4": "🗑 Q4 — Drop",
+        }
+        tasks = repo.list_by_quadrant(quad_map.get(value, Quadrant.Q1), u)
+        title = f"<b>{quad_labels.get(value, value)}</b>"
+
+    elif view == "priority":
+        tasks = repo.list_filtered(priority=value, user_id=u)
+        pri_icons = {"P1": "🔴", "P2": "🟠", "P3": "🟡", "P4": "🟢"}
+        title = f"{pri_icons.get(value, '')} <b>Priority {value}</b>"
+
+    elif view == "project":
+        tasks = repo.list_by_project(value, u)
+        title = f"📁 <b>Project: {value}</b>"
+
+    elif view == "context":
+        tasks = repo.list_filtered(context=f"@{value}", user_id=u)
+        title = f"🏷️ <b>Context: @{value}</b>"
+
+    else:  # all
+        tasks = repo.list_active(u)
+        title = "📋 <b>SEMUA TASK AKTIF</b>"
+
+    text = format_task_list(tasks, title)
+    await send_long(update, text)
+
+
 # ── Text input handler (subtask + notes) ──────────────────────────────────
 
 @authorized
@@ -1822,6 +1891,12 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=markup)
         else:
             await update.message.reply_text("✅ Subtask ditambahkan.")
+        return
+
+    # ── NLP: query intent (lihat task) ────────────────────────────────────────
+    query = parse_query(text)
+    if query:
+        await _handle_nlp_query(update, context, query)
         return
 
     # ── NLP: free-form task input ──────────────────────────────────────────────

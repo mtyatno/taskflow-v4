@@ -336,3 +336,81 @@ def format_confirmation(parsed: dict) -> str:
 
     lines += ["", "<i>Simpan task ini?</i>"]
     return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  QUERY INTENT — deteksi apakah user ingin MELIHAT task
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Kata-kata yang menandakan user ingin melihat/mencari task
+_VIEW_TRIGGERS = {
+    "lihat", "tampilkan", "show", "cek", "check", "kasih lihat", "kasih tau",
+    "ada apa", "ada berapa", "apa saja", "mana aja", "mana saja",
+    "list", "daftar", "rekap", "rangkum", "summary",
+    "remind", "ingatkan", "pengingat",
+    "task ku", "taskku", "tugasku", "tugasnya",
+    "yang ada", "yang belum", "yang sudah", "yang mana",
+    "berapa task", "berapa tugas", "gimana task",
+}
+
+# Mapping kata kunci → view type
+_VIEW_RULES: list[tuple[list[str], str, str]] = [
+    # (keywords, view_type, value)
+    (["hari ini", "today", "fokus hari ini", "fokus sekarang"], "today", ""),
+    (["overdue", "terlambat", "lewat deadline", "telat", "melewati deadline", "kedaluwarsa"], "overdue", ""),
+    (["inbox", "masuk baru", "belum diproses"], "gtd", "inbox"),
+    (["waiting", "ditunggu", "nunggu", "menunggu", "wait"], "gtd", "waiting"),
+    (["someday", "kapan kapan", "nanti nanti", "mungkin nanti"], "gtd", "someday"),
+    (["next", "selanjutnya", "akan dikerjakan", "next action"], "gtd", "next"),
+    (["selesai", "done", "sudah selesai", "yang sudah done"], "gtd", "done"),
+    (["urgent", "mendesak", "kritis", "darurat", "q1", "do first", "paling penting"], "quadrant", "Q1"),
+    (["q2", "jadwalkan", "plan", "schedule", "rencanakan"], "quadrant", "Q2"),
+    (["q3", "delegasi", "delegate"], "quadrant", "Q3"),
+    (["q4", "drop", "buang", "tidak penting"], "quadrant", "Q4"),
+    (["p1", "priority 1", "prioritas 1"], "priority", "P1"),
+    (["p2", "priority 2", "prioritas 2"], "priority", "P2"),
+    (["p3", "priority 3", "prioritas 3"], "priority", "P3"),
+    (["p4", "priority 4", "prioritas 4"], "priority", "P4"),
+    (["semua", "all", "seluruh", "keseluruhan"], "all", ""),
+]
+
+
+def parse_query(text: str) -> Optional[dict]:
+    """
+    Deteksi apakah teks adalah query untuk MELIHAT task.
+
+    Return dict {view, value} jika view intent, atau None jika bukan.
+
+    view values:
+      "today", "overdue", "all",
+      "gtd"      → value: inbox/next/waiting/someday/done
+      "quadrant" → value: Q1/Q2/Q3/Q4
+      "priority" → value: P1/P2/P3/P4
+      "project"  → value: nama project
+      "context"  → value: nama context
+    """
+    norm = _norm(text.strip())
+
+    # Cek apakah ada trigger kata view
+    has_trigger = any(t in norm for t in _VIEW_TRIGGERS)
+
+    # Juga trigger jika kalimat diawali kata tanya
+    question_start = re.match(r'^(apa|mana|gimana|bagaimana|ada|berapa|show|list|cek|lihat)\b', norm)
+    if not has_trigger and not question_start:
+        return None
+
+    # Cek #project atau @context eksplisit
+    m = re.search(r'#(\w+)', norm)
+    if m:
+        return {"view": "project", "value": m.group(1)}
+    m = re.search(r'@(\w+)', norm)
+    if m:
+        return {"view": "context", "value": m.group(1)}
+
+    # Cocokkan rule satu per satu
+    for keywords, view_type, value in _VIEW_RULES:
+        if any(kw in norm for kw in keywords):
+            return {"view": view_type, "value": value}
+
+    # Default: tampilkan semua task aktif
+    return {"view": "all", "value": ""}
