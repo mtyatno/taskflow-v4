@@ -2025,8 +2025,14 @@
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {sortedTasks.map((task) => (
-                  <div key={task.id} style={{ background: "#EDEEE8", borderRadius: 12, border: "1px solid #D8D9D0", padding: "4px 4px 8px 4px" }}>
+                {sortedTasks.map((task) => {
+                  const cardStyle = task.is_overdue
+                    ? { background: "#FFF5F5", border: "1px solid #FECACA" }
+                    : task.is_focused
+                    ? { background: "#FFFBEB", border: "1px solid #FDE68A" }
+                    : { background: "#FFFFFF", border: "1px solid #CEDE8A" };
+                  return (
+                  <div key={task.id} style={{ ...cardStyle, borderRadius: 12, padding: "4px 4px 8px 4px" }}>
                     <FocusTaskRow
                       task={task}
                       onClick={onTaskClick}
@@ -2039,7 +2045,8 @@
                     <FocusNotes taskId={task.id} />
                     <FocusAttachments taskId={task.id} />
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
