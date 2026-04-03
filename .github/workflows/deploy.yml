@@ -18,5 +18,3 @@ jobs:
             cd /home/yatno/todo-system/taskflow-v4
             git pull origin main
             venv/bin/pip install -r requirements.txt
-            sudo systemctl restart taskflow
-            sudo systemctl restart taskflow-web
