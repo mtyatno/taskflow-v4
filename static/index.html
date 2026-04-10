@@ -689,6 +689,133 @@
     }
 
     // ── Sidebar ─────────────────────────────────────────────────
+    // ── MentionInput ──────────────────────────────────────────────────────────
+    // Drop-in replacement for <input> or <textarea> with @mention autocomplete.
+    // Props: value, onChange(e), collaborators, as ("input"|"textarea"), ...rest
+    function MentionInput({ value, onChange, collaborators = [], as: Tag = "input", style, ...rest }) {
+      const [mentionState, setMentionState] = useState(null); // { atPos, query }
+      const [filtered, setFiltered] = useState([]);
+      const [highlighted, setHighlighted] = useState(0);
+      const inputRef = useRef();
+      const dropRef = useRef();
+
+      const handleChange = (e) => {
+        onChange(e);
+        const val = e.target.value;
+        const cursor = e.target.selectionStart;
+        const before = val.slice(0, cursor);
+        const atMatch = before.match(/@([\w]*)$/);
+        if (atMatch && collaborators.length > 0) {
+          const q = atMatch[1].toLowerCase();
+          const atPos = cursor - atMatch[0].length;
+          const results = collaborators.filter(u =>
+            u.username.toLowerCase().startsWith(q) ||
+            (u.display_name || "").toLowerCase().startsWith(q) ||
+            (q.length >= 2 && (
+              u.username.toLowerCase().includes(q) ||
+              (u.display_name || "").toLowerCase().includes(q)
+            ))
+          ).slice(0, 6);
+          if (results.length > 0) {
+            setMentionState({ atPos, query: q });
+            setFiltered(results);
+            setHighlighted(0);
+            return;
+          }
+        }
+        setMentionState(null);
+        setFiltered([]);
+      };
+
+      const applyMention = (user) => {
+        if (!mentionState || !inputRef.current) return;
+        const cursor = inputRef.current.selectionStart;
+        const val = inputRef.current.value;
+        const before = val.slice(0, mentionState.atPos);
+        const after = val.slice(cursor);
+        const inserted = `@${user.username} `;
+        const newVal = before + inserted + after;
+        // Synthesize a change event so controlled input updates correctly
+        const nativeInput = inputRef.current;
+        const nativeSetter = Object.getOwnPropertyDescriptor(
+          Tag === "textarea" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
+          "value"
+        )?.set;
+        if (nativeSetter) nativeSetter.call(nativeInput, newVal);
+        nativeInput.dispatchEvent(new Event("input", { bubbles: true }));
+        const newCursor = before.length + inserted.length;
+        requestAnimationFrame(() => {
+          nativeInput.focus();
+          nativeInput.setSelectionRange(newCursor, newCursor);
+        });
+        setMentionState(null);
+        setFiltered([]);
+      };
+
+      const handleKeyDown = (e) => {
+        if (filtered.length === 0) { rest.onKeyDown?.(e); return; }
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setHighlighted(h => (h + 1) % filtered.length);
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setHighlighted(h => (h - 1 + filtered.length) % filtered.length);
+        } else if (e.key === "Enter" || e.key === "Tab") {
+          if (filtered[highlighted]) { e.preventDefault(); applyMention(filtered[highlighted]); }
+          else rest.onKeyDown?.(e);
+        } else if (e.key === "Escape") {
+          setMentionState(null); setFiltered([]);
+        } else {
+          rest.onKeyDown?.(e);
+        }
+      };
+
+      const handleBlur = (e) => {
+        // Delay to allow mousedown on dropdown to fire first
+        setTimeout(() => { setMentionState(null); setFiltered([]); }, 150);
+        rest.onBlur?.(e);
+      };
+
+      return (
+        <div style={{ position: "relative", ...( Tag === "textarea" ? {} : { display: "block" }) }}>
+          <Tag
+            ref={inputRef}
+            value={value}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            onBlur={handleBlur}
+            style={style}
+            {...Object.fromEntries(Object.entries(rest).filter(([k]) => !["onKeyDown","onBlur"].includes(k)))}
+          />
+          {filtered.length > 0 && (
+            <div ref={dropRef} style={{
+              position: "absolute", top: "100%", left: 0, zIndex: 400,
+              background: "white", border: "1px solid var(--border)", borderRadius: 8,
+              boxShadow: "0 4px 16px rgba(0,0,0,0.13)", overflow: "hidden", minWidth: 200, maxWidth: 280,
+            }}>
+              {filtered.map((u, i) => (
+                <div
+                  key={u.id}
+                  onMouseDown={(e) => { e.preventDefault(); applyMention(u); }}
+                  style={{
+                    padding: "8px 14px", cursor: "pointer", fontSize: 13,
+                    background: i === highlighted ? "#f0fdf4" : "white",
+                    borderBottom: i < filtered.length - 1 ? "1px solid #f1f5f9" : "none",
+                    display: "flex", alignItems: "center", gap: 8,
+                  }}
+                >
+                  <span style={{ fontWeight: 600, color: "var(--accent)" }}>@{u.username}</span>
+                  {u.display_name && u.display_name !== u.username && (
+                    <span style={{ color: "var(--text-light)", fontSize: 12 }}>{u.display_name}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ── JoinListModal ──────────────────────────────────────────────────────────
     function JoinListModal({ code, onClose, onJoined }) {
       const [preview, setPreview] = useState(null);
@@ -1191,7 +1318,7 @@
     }
 
     // ── Task Form Modal ─────────────────────────────────────────
-    function TaskFormModal({ task, onSave, onClose, projects, contexts, sharedLists }) {
+    function TaskFormModal({ task, onSave, onClose, projects, contexts, sharedLists, collaborators = [] }) {
       const isEdit = !!task?.id;
       const [form, setForm] = useState({
         title: task?.title || "",
@@ -1299,7 +1426,7 @@
               </>}
 
               <label className="input-label">Deskripsi</label>
-              <textarea className="input" value={form.description} onChange={e => set("description", e.target.value)} rows={3} style={{ marginBottom: 20, resize: "vertical" }} />
+              <MentionInput as="textarea" collaborators={collaborators} className="input" value={form.description} onChange={e => set("description", e.target.value)} rows={3} style={{ marginBottom: 20, resize: "vertical" }} />
 
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                 <button type="button" className="btn btn-secondary" onClick={onClose}>Batal</button>
@@ -1397,7 +1524,7 @@
     }
 
     // ── Modal Notes Section ─────────────────────────────────────
-    function ModalNotes({ taskId }) {
+    function ModalNotes({ taskId, collaborators = [] }) {
       const [notes, setNotes] = useState([]);
       const [newNote, setNewNote] = useState("");
       const [expanded, setExpanded] = useState(false);
@@ -1442,7 +1569,8 @@
           </div>
 
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <input
+            <MentionInput
+              collaborators={collaborators}
               className="input"
               value={newNote}
               onChange={e => setNewNote(e.target.value)}
@@ -1485,7 +1613,7 @@
     }
 
     // ── Task Detail Modal ───────────────────────────────────────
-    function TaskDetailModal({ task, onClose, onEdit, onDone, onDelete, onRefresh, onToggleFocus, projects = [], contexts = [] }) {
+    function TaskDetailModal({ task, onClose, onEdit, onDone, onDelete, onRefresh, onToggleFocus, projects = [], contexts = [], collaborators = [] }) {
       if (!task) return null;
       const [isEditing, setIsEditing] = useState(false);
       const [form, setForm] = useState({
@@ -1613,7 +1741,7 @@
                 )}
                 <div>
                   <label className="input-label">Deskripsi</label>
-                  <textarea className="input" value={form.description} onChange={e => setF("description", e.target.value)} rows={3} style={{ resize: "vertical" }} />
+                  <MentionInput as="textarea" collaborators={collaborators} className="input" value={form.description} onChange={e => setF("description", e.target.value)} rows={3} style={{ resize: "vertical" }} />
                 </div>
               </div>
             ) : (
@@ -1692,7 +1820,8 @@
               {/* Add subtask input */}
               {adding && (
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                  <input
+                  <MentionInput
+                    collaborators={collaborators}
                     className="input"
                     value={newSub}
                     onChange={e => setNewSub(e.target.value)}
@@ -1712,7 +1841,7 @@
             </div>
 
             {/* Notes Section */}
-            <ModalNotes taskId={task.id} />
+            <ModalNotes taskId={task.id} collaborators={collaborators} />
             <ModalAttachments taskId={task.id} />
 
             {isEditing ? (
@@ -2868,6 +2997,7 @@
       const [projects, setProjects] = useState([]);
       const [contexts, setContexts] = useState([]);
       const [sharedLists, setSharedLists] = useState([]);
+      const [collaborators, setCollaborators] = useState([]);
       const [selectedTask, setSelectedTask] = useState(null);
       const [showForm, setShowForm] = useState(false);
       const [editTask, setEditTask] = useState(null);
@@ -2921,18 +3051,20 @@
         if (!user) return;
         if (initialLoad.current) setLoading(true);
         try {
-          const [tasksData, summaryData, projData, ctxData, listsData] = await Promise.all([
+          const [tasksData, summaryData, projData, ctxData, listsData, collabData] = await Promise.all([
             api.get("/api/tasks?include_done=true"),
             api.get("/api/summary"),
             api.get("/api/projects"),
             api.get("/api/contexts"),
             api.get("/api/lists"),
+            api.get("/api/collaborators"),
           ]);
           setTasks(tasksData);
           setSummary(summaryData);
           setProjects(projData);
           setContexts(ctxData);
           setSharedLists(listsData);
+          setCollaborators(collabData);
         } catch (err) { console.error(err); }
         if (initialLoad.current) { setLoading(false); initialLoad.current = false; }
       }, [user]);
@@ -3205,6 +3337,7 @@
               projects={projects}
               contexts={contexts}
               onRefresh={fetchAll}
+              collaborators={collaborators}
             />
           )}
 
@@ -3216,6 +3349,7 @@
               projects={projects}
               contexts={contexts}
               sharedLists={sharedLists}
+              collaborators={collaborators}
             />
           )}
 
