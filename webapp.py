@@ -400,7 +400,8 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, req.list_id, uid,
-            f"➕ <b>{actor}</b> menambahkan task <b>{req.title}</b> ke shared list."
+            f"➕ <b>{actor}</b> menambahkan task <b>{req.title}</b> ke shared list.",
+            task_id=row["id"]
         )
     return task_row_to_dict(row)
 
@@ -463,7 +464,8 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, existing["list_id"], uid,
-            f"✏️ <b>{actor}</b> memperbarui task <b>{existing['title']}</b>."
+            f"✏️ <b>{actor}</b> memperbarui task <b>{existing['title']}</b>.",
+            task_id=task_id
         )
     return task_row_to_dict(row)
 
@@ -484,7 +486,8 @@ async def mark_done(task_id: int, background_tasks: BackgroundTasks, user=Depend
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, row["list_id"], uid,
-            f"✅ <b>{actor}</b> menyelesaikan task <b>{row['title']}</b>."
+            f"✅ <b>{actor}</b> menyelesaikan task <b>{row['title']}</b>.",
+            task_id=task_id
         )
     return task_row_to_dict(updated_row)
 
@@ -623,7 +626,8 @@ async def create_subtask(task_id: int, req: SubtaskCreate, background_tasks: Bac
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, row["list_id"], uid,
-            f"📝 <b>{actor}</b> menambah subtask di task <b>{row['title']}</b>."
+            f"📝 <b>{actor}</b> menambah subtask di task <b>{row['title']}</b>.",
+            task_id=task_id
         )
     return result
 
@@ -675,7 +679,8 @@ async def create_note(task_id: int, req: NoteCreate, background_tasks: Backgroun
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, row["list_id"], uid,
-            f"💬 <b>{actor}</b> menambahkan komentar di task <b>{row['title']}</b>:\n{req.content[:100]}"
+            f"💬 <b>{actor}</b> menambahkan komentar di task <b>{row['title']}</b>:\n{req.content[:100]}",
+            task_id=task_id
         )
     return note
 
@@ -727,7 +732,8 @@ async def upload_attachment(task_id: int, background_tasks: BackgroundTasks, fil
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, task_row["list_id"], uid,
-            f"📎 <b>{actor}</b> mengunggah file <b>{original_name}</b> di task <b>{task_row['title']}</b>."
+            f"📎 <b>{actor}</b> mengunggah file <b>{original_name}</b> di task <b>{task_row['title']}</b>.",
+            task_id=task_id
         )
     return result
 
