@@ -3114,6 +3114,14 @@
         }
       };
 
+      const openTaskById = async (taskId) => {
+        setShowNotifPanel(false);
+        try {
+          const task = await api.get(`/api/tasks/${taskId}`);
+          setSelectedTask(task);
+        } catch (e) { showToast("Task tidak ditemukan", "error"); }
+      };
+
       // Close notif panel on outside click
       useEffect(() => {
         if (!showNotifPanel) return;
@@ -3311,10 +3319,22 @@
                       {notifications.length === 0 ? (
                         <div style={{ padding: 20, textAlign: "center", color: "var(--text-light)", fontSize: 13 }}>Belum ada notifikasi</div>
                       ) : notifications.map(n => (
-                        <div key={n.id} style={{ padding: "10px 16px", borderBottom: "1px solid #f1f5f9", background: n.is_read ? "white" : "#f0fdf4" }}>
+                        <div key={n.id}
+                          onClick={n.task_id ? () => openTaskById(n.task_id) : undefined}
+                          style={{
+                            padding: "10px 16px", borderBottom: "1px solid #f1f5f9",
+                            background: n.is_read ? "white" : "#f0fdf4",
+                            cursor: n.task_id ? "pointer" : "default",
+                          }}
+                          onMouseEnter={n.task_id ? e => e.currentTarget.style.background = "#e0f2fe" : undefined}
+                          onMouseLeave={n.task_id ? e => e.currentTarget.style.background = n.is_read ? "white" : "#f0fdf4" : undefined}
+                        >
                           <div style={{ fontSize: 13, lineHeight: 1.5 }}>{n.message}</div>
-                          <div style={{ fontSize: 11, color: "var(--text-light)", marginTop: 3 }}>
-                            {new Date(n.created_at).toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 3 }}>
+                            <span style={{ fontSize: 11, color: "var(--text-light)" }}>
+                              {new Date(n.created_at).toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                            {n.task_id && <span style={{ fontSize: 10, color: "#3b82f6", fontWeight: 600 }}>Buka task →</span>}
                           </div>
                         </div>
                       ))}
