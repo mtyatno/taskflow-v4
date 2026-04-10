@@ -1409,6 +1409,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ <b>Task #{task.id} selesai!</b>\n\n{task.format_detail()}",
                 parse_mode=ParseMode.HTML,
             )
+            if task.list_id:
+                actor = update.effective_user.full_name or update.effective_user.username
+                asyncio.create_task(_notify_list_members(
+                    context.bot, task.list_id, uid(context),
+                    f"✅ <b>{actor}</b> menyelesaikan task <b>{task.title}</b>."
+                ))
         else:
             await query.answer("Task not found")
 
@@ -1427,6 +1433,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🔄 Task #{task.id} → <b>{new_status.value}</b>\n\n{task.format_detail()}",
                 parse_mode=ParseMode.HTML,
             )
+            if task.list_id:
+                actor = update.effective_user.full_name or update.effective_user.username
+                asyncio.create_task(_notify_list_members(
+                    context.bot, task.list_id, uid(context),
+                    f"✏️ <b>{actor}</b> memindahkan task <b>{task.title}</b> → {new_status.value}."
+                ))
 
     # ── Process inbox ──
     elif data.startswith("proc_"):
@@ -1705,6 +1717,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "<code>/quick Judul task p1 #project dl:besok</code>",
             parse_mode=ParseMode.HTML,
         )
+
+    # ── Delete shared list confirmation ──
+    elif data.startswith("dlist_confirm_"):
+        list_id = int(data.replace("dlist_confirm_", ""))
+        deleted = repo.delete_shared_list(list_id, uid(context))
+        await query.answer("🗑️ List dihapus" if deleted else "❌ Gagal")
+        if deleted:
+            await query.edit_message_text("🗑️ Shared list berhasil dihapus.")
+        else:
+            await query.edit_message_text("❌ Gagal menghapus list.")
+
+    elif data == "dlist_cancel":
+        await query.answer("Cancelled")
+        await query.edit_message_text("❌ Batal.")
 
 
 # ── File upload handler ────────────────────────────────────────────────────
@@ -2105,6 +2131,251 @@ def _build_weekly_review(user_id: int) -> str:
     return "\n".join(lines)
 
 
+# ── Shared List helpers ────────────────────────────────────────────────────────
+
+async def _notify_list_members(bot, list_id: int, actor_user_id: int, message: str):
+    """Send Telegram message to all members of a shared list except actor."""
+    tg_ids = repo.get_list_member_telegram_ids(list_id, actor_user_id)
+    for tg_id in tg_ids:
+        try:
+            await bot.send_message(chat_id=tg_id, text=message, parse_mode=ParseMode.HTML)
+        except Exception as e:
+            logger.warning(f"Notif gagal ke {tg_id}: {e}")
+
+
+# ── /mylist ────────────────────────────────────────────────────────────────────
+
+@authorized
+async def cmd_mylist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tampilkan semua shared list milik/anggota user."""
+    lists = repo.get_lists_for_user(uid(context))
+    if not lists:
+        await update.message.reply_text(
+            "📋 Belum ada shared list.\n\n"
+            "Buat dengan: <code>/createlist &lt;nama list&gt;</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    lines = ["📋 <b>Shared Lists kamu:</b>\n"]
+    for l in lists:
+        role_icon = "👑" if l["role"] == "owner" else "👥"
+        mc = l["member_count"]
+        lines.append(f"{role_icon} <b>{l['name']}</b> (ID: {l['id']})")
+        lines.append(f"   {mc} anggota · role: {l['role']}")
+        lines.append("")
+
+    lines.append("Gunakan /createlist, /invite, /leavelist")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+# ── /createlist ────────────────────────────────────────────────────────────────
+
+@authorized
+async def cmd_createlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Buat shared list baru: /createlist <nama>"""
+    if not context.args:
+        await update.message.reply_text(
+            "💡 Usage: <code>/createlist &lt;nama list&gt;</code>\n"
+            "Contoh: <code>/createlist Tim Marketing</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    name = " ".join(context.args).strip()
+    if not name:
+        await update.message.reply_text("❌ Nama list tidak boleh kosong.")
+        return
+
+    lst = repo.create_shared_list(name, uid(context))
+    await update.message.reply_text(
+        f"✅ <b>Shared list dibuat:</b> {lst['name']}\n"
+        f"ID: <code>{lst['id']}</code>\n\n"
+        f"Undang anggota dengan:\n<code>/invite {lst['id']} @username</code>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ── /invite ────────────────────────────────────────────────────────────────────
+
+@authorized
+async def cmd_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Undang user ke shared list: /invite <list_id> @username"""
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "💡 Usage: <code>/invite &lt;list_id&gt; @username</code>\n"
+            "Contoh: <code>/invite 3 @budi</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    arg_id = context.args[0]
+    if not arg_id.isdigit():
+        await update.message.reply_text("❌ list_id harus angka.")
+        return
+    list_id = int(arg_id)
+
+    raw_username = context.args[1].lstrip("@")
+
+    # Check list exists and user is owner
+    lst = repo.get_shared_list(list_id)
+    if not lst:
+        await update.message.reply_text("❌ List tidak ditemukan.")
+        return
+    if lst["owner_id"] != uid(context):
+        await update.message.reply_text("❌ Hanya owner yang bisa mengundang anggota.")
+        return
+
+    # Find target user by username or display_name
+    target = repo.get_user_by_username(raw_username)
+    if not target:
+        # Try tg_ auto-generated username
+        target = repo.get_user_by_username(f"tg_{raw_username}")
+    if not target:
+        # Try display_name
+        target = repo.get_user_by_display_name(raw_username)
+    if not target:
+        await update.message.reply_text(
+            f"❌ User <b>{raw_username}</b> tidak ditemukan di TaskFlow.\n"
+            f"Pastikan mereka sudah pernah menggunakan bot ini.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if target["id"] == uid(context):
+        await update.message.reply_text("❌ Tidak bisa mengundang diri sendiri.")
+        return
+
+    if repo.is_list_member_or_owner(list_id, target["id"]):
+        await update.message.reply_text(
+            f"ℹ️ <b>{target['display_name']}</b> sudah menjadi anggota list ini.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    repo.add_list_member(list_id, target["id"])
+
+    # Notify target via Telegram if they have telegram_id
+    if target.get("telegram_id"):
+        inviter_name = update.effective_user.full_name or update.effective_user.username
+        try:
+            await context.bot.send_message(
+                chat_id=target["telegram_id"],
+                text=f"👥 <b>{inviter_name}</b> mengundangmu ke shared list <b>{lst['name']}</b>!\n"
+                     f"Kamu sekarang bisa melihat dan mengerjakan task di list ini.\n\n"
+                     f"Lihat di: /mylist",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as e:
+            logger.warning(f"Gagal notif ke {target['telegram_id']}: {e}")
+
+    await update.message.reply_text(
+        f"✅ <b>{target['display_name']}</b> berhasil ditambahkan ke list <b>{lst['name']}</b>!",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ── /kickmember ────────────────────────────────────────────────────────────────
+
+@authorized
+async def cmd_kickmember(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Hapus anggota dari list: /kickmember <list_id> <username>"""
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "💡 Usage: <code>/kickmember &lt;list_id&gt; &lt;username&gt;</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    list_id = int(context.args[0]) if context.args[0].isdigit() else None
+    if not list_id:
+        await update.message.reply_text("❌ list_id harus angka.")
+        return
+
+    lst = repo.get_shared_list(list_id)
+    if not lst or lst["owner_id"] != uid(context):
+        await update.message.reply_text("❌ List tidak ditemukan atau kamu bukan owner.")
+        return
+
+    raw_username = context.args[1].lstrip("@")
+    target = repo.get_user_by_username(raw_username) or repo.get_user_by_display_name(raw_username)
+    if not target:
+        await update.message.reply_text(f"❌ User <b>{raw_username}</b> tidak ditemukan.", parse_mode=ParseMode.HTML)
+        return
+
+    removed = repo.remove_list_member(list_id, target["id"])
+    if removed:
+        await update.message.reply_text(
+            f"✅ <b>{target['display_name']}</b> telah dihapus dari list <b>{lst['name']}</b>.",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text("ℹ️ User tersebut bukan anggota list ini.")
+
+
+# ── /leavelist ─────────────────────────────────────────────────────────────────
+
+@authorized
+async def cmd_leavelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Keluar dari shared list: /leavelist <list_id>"""
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_text(
+            "💡 Usage: <code>/leavelist &lt;list_id&gt;</code>\n"
+            "Gunakan /mylist untuk melihat ID list.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    list_id = int(context.args[0])
+    lst = repo.get_shared_list(list_id)
+    if not lst:
+        await update.message.reply_text("❌ List tidak ditemukan.")
+        return
+
+    if lst["owner_id"] == uid(context):
+        await update.message.reply_text(
+            "❌ Kamu adalah owner list ini. Gunakan /deletelist untuk menghapusnya.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    removed = repo.remove_list_member(list_id, uid(context))
+    if removed:
+        await update.message.reply_text(f"✅ Kamu keluar dari list <b>{lst['name']}</b>.", parse_mode=ParseMode.HTML)
+    else:
+        await update.message.reply_text("ℹ️ Kamu bukan anggota list ini.")
+
+
+# ── /deletelist ────────────────────────────────────────────────────────────────
+
+@authorized
+async def cmd_deletelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Hapus shared list (owner only): /deletelist <list_id>"""
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_text(
+            "💡 Usage: <code>/deletelist &lt;list_id&gt;</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    list_id = int(context.args[0])
+    lst = repo.get_shared_list(list_id)
+    if not lst or lst["owner_id"] != uid(context):
+        await update.message.reply_text("❌ List tidak ditemukan atau kamu bukan owner.")
+        return
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Ya, hapus", callback_data=f"dlist_confirm_{list_id}"),
+        InlineKeyboardButton("❌ Batal", callback_data="dlist_cancel"),
+    ]])
+    await update.message.reply_text(
+        f"⚠️ Hapus shared list <b>{lst['name']}</b>?\n"
+        f"Semua task di list ini akan ikut terhapus.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
+    )
+
+
 async def daily_summary_job(context: ContextTypes.DEFAULT_TYPE):
     """Send daily summary to all Telegram users."""
     logger.info("Running daily summary job...")
@@ -2219,6 +2490,14 @@ def main():
     app.add_handler(CommandHandler("sub", cmd_sub))
     app.add_handler(CommandHandler("note", cmd_note))
 
+    # Shared list commands
+    app.add_handler(CommandHandler("mylist", cmd_mylist))
+    app.add_handler(CommandHandler("createlist", cmd_createlist))
+    app.add_handler(CommandHandler("invite", cmd_invite))
+    app.add_handler(CommandHandler("kickmember", cmd_kickmember))
+    app.add_handler(CommandHandler("leavelist", cmd_leavelist))
+    app.add_handler(CommandHandler("deletelist", cmd_deletelist))
+
     # General callback handler (for inline buttons)
     app.add_handler(CallbackQueryHandler(handle_callback))
 
@@ -2285,6 +2564,11 @@ def main():
             BotCommand("note", "Tambah catatan"),
             BotCommand("link", "Sync dengan akun web"),
             BotCommand("webapp", "Login ke webapp (link sekali pakai)"),
+            BotCommand("mylist", "Lihat semua shared list"),
+            BotCommand("createlist", "Buat shared list baru"),
+            BotCommand("invite", "Undang anggota ke list"),
+            BotCommand("leavelist", "Keluar dari shared list"),
+            BotCommand("deletelist", "Hapus shared list (owner)"),
         ]
         await application.bot.set_my_commands(commands)
 

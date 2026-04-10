@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional
 from contextlib import contextmanager
 
-from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, UploadFile, File as FastAPIFile
+from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, UploadFile, File as FastAPIFile, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel, Field
@@ -25,6 +25,9 @@ import jwt
 import uvicorn
 
 from config import DB_PATH, EISENHOWER_INTERVAL_MINUTES, UPLOAD_DIR, MAX_FILE_SIZE
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+_tg_bot = None  # Initialized at startup if token available
 from models import Task, GTDStatus, Priority, Quadrant
 from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date
@@ -133,6 +136,7 @@ class TaskCreate(BaseModel):
     deadline: Optional[str] = None
     gtd_status: str = "inbox"
     waiting_for: str = ""
+    list_id: Optional[int] = None
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
@@ -143,6 +147,15 @@ class TaskUpdate(BaseModel):
     deadline: Optional[str] = None
     gtd_status: Optional[str] = None
     waiting_for: Optional[str] = None
+
+class SharedListCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+class InviteUserReq(BaseModel):
+    username: str
+
+class JoinListReq(BaseModel):
+    code: str
 
 
 # ── Row → dict helper ─────────────────────────────────────────────────────────
@@ -166,6 +179,43 @@ def task_row_to_dict(row) -> dict:
     return d
 
 
+# ── Access control helpers ────────────────────────────────────────────────────
+
+def _can_access_task(conn, task_id: int, user_id: int, write: bool = False):
+    """
+    Returns task row if user can access it. Raises 404/403 otherwise.
+    write=True means mutations (edit/done/delete) — list members can write,
+    but only task owner or list owner can delete (caller handles that distinction).
+    """
+    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if row["user_id"] == user_id:
+        return row
+    list_id = row["list_id"]
+    if list_id:
+        repo = TaskRepository(DB_PATH)
+        if repo.is_list_member_or_owner(list_id, user_id):
+            return row
+    raise HTTPException(status_code=403, detail="Not authorized")
+
+
+async def _notify_members_bg(list_id: int, actor_user_id: int, message: str):
+    """Send Telegram notification to all list members except the actor."""
+    if not _tg_bot or not list_id:
+        return
+    try:
+        repo = TaskRepository(DB_PATH)
+        tg_ids = repo.get_list_member_telegram_ids(list_id, actor_user_id)
+        for tg_id in tg_ids:
+            try:
+                await _tg_bot.send_message(chat_id=tg_id, text=message, parse_mode="HTML")
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  APP
 # ══════════════════════════════════════════════════════════════════════════════
@@ -175,8 +225,15 @@ app = FastAPI(title="TaskFlow V4", docs_url="/api/docs")
 
 @app.on_event("startup")
 async def startup():
+    global _tg_bot
     migrate_db()
     os.makedirs(UPLOAD_DIR, exist_ok=True)
+    if TELEGRAM_BOT_TOKEN:
+        try:
+            from telegram import Bot as TelegramBot
+            _tg_bot = TelegramBot(token=TELEGRAM_BOT_TOKEN)
+        except Exception:
+            pass
 
 
 # ── Auth routes ────────────────────────────────────────────────────────────────
@@ -263,8 +320,16 @@ async def list_tasks(
     include_done: bool = False,
     user=Depends(get_current_user),
 ):
-    clauses = ["user_id = ?"]
-    params = [user["sub"]]
+    uid = user["sub"]
+    # Include personal tasks AND tasks in shared lists where user is owner/member
+    access_clause = (
+        "user_id = ? OR list_id IN ("
+        "  SELECT id FROM shared_lists WHERE owner_id = ?"
+        "  UNION SELECT list_id FROM list_members WHERE user_id = ?"
+        ")"
+    )
+    clauses = [f"({access_clause})"]
+    params = [uid, uid, uid]
 
     if status:
         clauses.append("gtd_status = ?")
@@ -294,7 +359,14 @@ async def list_tasks(
 
 
 @app.post("/api/tasks")
-async def create_task(req: TaskCreate, user=Depends(get_current_user)):
+async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
+    uid = user["sub"]
+    # Validate shared list access if list_id provided
+    if req.list_id:
+        repo = TaskRepository(DB_PATH)
+        if not repo.is_list_member_or_owner(req.list_id, uid):
+            raise HTTPException(status_code=403, detail="Not a member of this list")
+
     now = datetime.now().isoformat()
     deadline = None
     if req.deadline:
@@ -302,7 +374,6 @@ async def create_task(req: TaskCreate, user=Depends(get_current_user)):
         if d:
             deadline = d.isoformat()
 
-    # Calculate quadrant
     task_obj = Task(
         title=req.title,
         priority=Priority.from_str(req.priority),
@@ -314,30 +385,34 @@ async def create_task(req: TaskCreate, user=Depends(get_current_user)):
         cur = conn.execute(
             """INSERT INTO tasks
                (title, description, gtd_status, priority, quadrant,
-                project, context, deadline, waiting_for, user_id, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                project, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (req.title, req.description, req.gtd_status, req.priority.upper(), quadrant,
-             req.project, req.context, deadline, req.waiting_for, user["sub"], now, now),
+             req.project, req.context, deadline, req.waiting_for, uid, req.list_id, now, now),
         )
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (cur.lastrowid,)).fetchone()
+
+    if req.list_id:
+        actor = user.get("username", f"user#{uid}")
+        background_tasks.add_task(
+            _notify_members_bg, req.list_id, uid,
+            f"➕ <b>{actor}</b> menambahkan task <b>{req.title}</b> ke shared list."
+        )
     return task_row_to_dict(row)
 
 
 @app.get("/api/tasks/{task_id}")
 async def get_task(task_id: int, user=Depends(get_current_user)):
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM tasks WHERE id = ? AND user_id = ?", (task_id, user["sub"])).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Task not found")
+        row = _can_access_task(conn, task_id, user["sub"])
     return task_row_to_dict(row)
 
 
 @app.put("/api/tasks/{task_id}")
-async def update_task(task_id: int, req: TaskUpdate, user=Depends(get_current_user)):
+async def update_task(task_id: int, req: TaskUpdate, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
+    uid = user["sub"]
     with get_db() as conn:
-        existing = conn.execute("SELECT * FROM tasks WHERE id = ? AND user_id = ?", (task_id, user["sub"])).fetchone()
-        if not existing:
-            raise HTTPException(status_code=404, detail="Task not found")
+        existing = _can_access_task(conn, task_id, uid, write=True)
 
         updates = {}
         if req.title is not None:
@@ -368,7 +443,6 @@ async def update_task(task_id: int, req: TaskUpdate, user=Depends(get_current_us
 
         updates["updated_at"] = datetime.now().isoformat()
 
-        # Recalculate quadrant
         pri = updates.get("priority", existing["priority"])
         dl_str = updates.get("deadline", existing["deadline"])
         dl = date.fromisoformat(dl_str) if dl_str else None
@@ -376,45 +450,68 @@ async def update_task(task_id: int, req: TaskUpdate, user=Depends(get_current_us
         updates["quadrant"] = calculate_quadrant(task_obj).value
 
         set_clause = ", ".join(f"{k} = ?" for k in updates)
-        values = list(updates.values()) + [task_id, user["sub"]]
-        conn.execute(f"UPDATE tasks SET {set_clause} WHERE id = ? AND user_id = ?", values)
+        values = list(updates.values()) + [task_id]
+        conn.execute(f"UPDATE tasks SET {set_clause} WHERE id = ?", values)
 
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+
+    if existing["list_id"]:
+        actor = user.get("username", f"user#{uid}")
+        background_tasks.add_task(
+            _notify_members_bg, existing["list_id"], uid,
+            f"✏️ <b>{actor}</b> memperbarui task <b>{existing['title']}</b>."
+        )
     return task_row_to_dict(row)
 
 
 @app.post("/api/tasks/{task_id}/done")
-async def mark_done(task_id: int, user=Depends(get_current_user)):
+async def mark_done(task_id: int, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
+    uid = user["sub"]
     now = datetime.now().isoformat()
     with get_db() as conn:
-        cur = conn.execute(
-            "UPDATE tasks SET gtd_status='done', completed_at=?, updated_at=? WHERE id=? AND user_id=?",
-            (now, now, task_id, user["sub"]),
+        row = _can_access_task(conn, task_id, uid, write=True)
+        conn.execute(
+            "UPDATE tasks SET gtd_status='done', completed_at=?, updated_at=? WHERE id=?",
+            (now, now, task_id),
         )
-        if cur.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Task not found")
-        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    return task_row_to_dict(row)
+        updated_row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+
+    if row["list_id"]:
+        actor = user.get("username", f"user#{uid}")
+        background_tasks.add_task(
+            _notify_members_bg, row["list_id"], uid,
+            f"✅ <b>{actor}</b> menyelesaikan task <b>{row['title']}</b>."
+        )
+    return task_row_to_dict(updated_row)
 
 
 @app.post("/api/tasks/{task_id}/focus")
 async def toggle_focus(task_id: int, user=Depends(get_current_user)):
-    from repository import TaskRepository
-    repo = TaskRepository(DB_PATH)
-    new_val = repo.toggle_focus(task_id, user["sub"])
+    uid = user["sub"]
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM tasks WHERE id = ? AND user_id = ?", (task_id, user["sub"])).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Task not found")
-    return task_row_to_dict(row)
+        row = _can_access_task(conn, task_id, uid)
+    repo = TaskRepository(DB_PATH)
+    # For shared tasks, toggle by task_id only (no user_id restriction)
+    with get_db() as conn:
+        r = conn.execute("SELECT is_focused FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        new_val = 0 if r["is_focused"] else 1
+        conn.execute("UPDATE tasks SET is_focused = ?, updated_at = ? WHERE id = ?",
+                     (new_val, datetime.now().isoformat(), task_id))
+        updated = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    return task_row_to_dict(updated)
 
 
 @app.delete("/api/tasks/{task_id}")
 async def delete_task(task_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
     with get_db() as conn:
-        cur = conn.execute("DELETE FROM tasks WHERE id = ? AND user_id = ?", (task_id, user["sub"]))
-        if cur.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Task not found")
+        row = _can_access_task(conn, task_id, uid)
+        # Only task owner or list owner can delete
+        if row["user_id"] != uid and row["list_id"]:
+            repo = TaskRepository(DB_PATH)
+            if not repo.is_list_owner(row["list_id"], uid):
+                raise HTTPException(status_code=403, detail="Hanya task owner atau list owner yang bisa menghapus")
+        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
     return {"ok": True, "id": task_id}
 
 
@@ -506,37 +603,34 @@ class SubtaskCreate(BaseModel):
 
 @app.get("/api/tasks/{task_id}/subtasks")
 async def get_subtasks(task_id: int, user=Depends(get_current_user)):
-    # Verify task belongs to user
     with get_db() as conn:
-        task = conn.execute("SELECT id FROM tasks WHERE id = ? AND user_id = ?", (task_id, user["sub"])).fetchone()
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
-    from repository import TaskRepository
+        _can_access_task(conn, task_id, user["sub"])
     repo = TaskRepository(DB_PATH)
     return repo.get_subtasks(task_id)
 
 @app.post("/api/tasks/{task_id}/subtasks")
-async def create_subtask(task_id: int, req: SubtaskCreate, user=Depends(get_current_user)):
+async def create_subtask(task_id: int, req: SubtaskCreate, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
+    uid = user["sub"]
     with get_db() as conn:
-        task = conn.execute("SELECT id FROM tasks WHERE id = ? AND user_id = ?", (task_id, user["sub"])).fetchone()
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
-    from repository import TaskRepository
+        row = _can_access_task(conn, task_id, uid, write=True)
     repo = TaskRepository(DB_PATH)
-    return repo.add_subtask(task_id, req.title)
+    result = repo.add_subtask(task_id, req.title)
+    if row["list_id"]:
+        actor = user.get("username", f"user#{uid}")
+        background_tasks.add_task(
+            _notify_members_bg, row["list_id"], uid,
+            f"📝 <b>{actor}</b> menambah subtask di task <b>{row['title']}</b>."
+        )
+    return result
 
 @app.post("/api/subtasks/{subtask_id}/toggle")
 async def toggle_subtask(subtask_id: int, user=Depends(get_current_user)):
-    from repository import TaskRepository
     repo = TaskRepository(DB_PATH)
-    # Verify ownership via task
     with get_db() as conn:
         sub = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
         if not sub:
             raise HTTPException(status_code=404, detail="Subtask not found")
-        task = conn.execute("SELECT id FROM tasks WHERE id = ? AND user_id = ?", (sub["task_id"], user["sub"])).fetchone()
-        if not task:
-            raise HTTPException(status_code=404, detail="Not authorized")
+        _can_access_task(conn, sub["task_id"], user["sub"])
     result = repo.toggle_subtask(subtask_id)
     if not result:
         raise HTTPException(status_code=404, detail="Subtask not found")
@@ -544,15 +638,12 @@ async def toggle_subtask(subtask_id: int, user=Depends(get_current_user)):
 
 @app.delete("/api/subtasks/{subtask_id}")
 async def delete_subtask(subtask_id: int, user=Depends(get_current_user)):
-    from repository import TaskRepository
     repo = TaskRepository(DB_PATH)
     with get_db() as conn:
         sub = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
         if not sub:
             raise HTTPException(status_code=404, detail="Subtask not found")
-        task = conn.execute("SELECT id FROM tasks WHERE id = ? AND user_id = ?", (sub["task_id"], user["sub"])).fetchone()
-        if not task:
-            raise HTTPException(status_code=404, detail="Not authorized")
+        _can_access_task(conn, sub["task_id"], user["sub"], write=True)
     repo.delete_subtask(subtask_id)
     return {"ok": True}
 
@@ -565,34 +656,33 @@ class NoteCreate(BaseModel):
 @app.get("/api/tasks/{task_id}/notes")
 async def get_notes(task_id: int, user=Depends(get_current_user)):
     with get_db() as conn:
-        task = conn.execute("SELECT id FROM tasks WHERE id = ? AND user_id = ?", (task_id, user["sub"])).fetchone()
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
-    from repository import TaskRepository
+        _can_access_task(conn, task_id, user["sub"])
     repo = TaskRepository(DB_PATH)
-    return repo.get_notes(task_id)
+    return repo.get_notes_with_author(task_id)
 
 @app.post("/api/tasks/{task_id}/notes")
-async def create_note(task_id: int, req: NoteCreate, user=Depends(get_current_user)):
+async def create_note(task_id: int, req: NoteCreate, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
+    uid = user["sub"]
     with get_db() as conn:
-        task = conn.execute("SELECT id FROM tasks WHERE id = ? AND user_id = ?", (task_id, user["sub"])).fetchone()
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
-    from repository import TaskRepository
+        row = _can_access_task(conn, task_id, uid, write=True)
     repo = TaskRepository(DB_PATH)
-    return repo.add_note(task_id, req.content)
+    note = repo.add_note_with_author(task_id, req.content, uid)
+    if row["list_id"]:
+        actor = user.get("username", f"user#{uid}")
+        background_tasks.add_task(
+            _notify_members_bg, row["list_id"], uid,
+            f"💬 <b>{actor}</b> menambahkan komentar di task <b>{row['title']}</b>:\n{req.content[:100]}"
+        )
+    return note
 
 @app.delete("/api/notes/{note_id}")
 async def delete_note(note_id: int, user=Depends(get_current_user)):
-    from repository import TaskRepository
     repo = TaskRepository(DB_PATH)
     with get_db() as conn:
         note = conn.execute("SELECT task_id FROM task_notes WHERE id = ?", (note_id,)).fetchone()
         if not note:
             raise HTTPException(status_code=404, detail="Note not found")
-        task = conn.execute("SELECT id FROM tasks WHERE id = ? AND user_id = ?", (note["task_id"], user["sub"])).fetchone()
-        if not task:
-            raise HTTPException(status_code=404, detail="Not authorized")
+        _can_access_task(conn, note["task_id"], user["sub"], write=True)
     repo.delete_note(note_id)
     return {"ok": True}
 
@@ -602,26 +692,21 @@ async def delete_note(note_id: int, user=Depends(get_current_user)):
 @app.get("/api/tasks/{task_id}/attachments")
 async def get_attachments(task_id: int, user=Depends(get_current_user)):
     with get_db() as conn:
-        task = conn.execute("SELECT id FROM tasks WHERE id = ? AND user_id = ?", (task_id, user["sub"])).fetchone()
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
-    from repository import TaskRepository
+        _can_access_task(conn, task_id, user["sub"])
     repo = TaskRepository(DB_PATH)
     return repo.get_attachments(task_id)
 
 @app.post("/api/tasks/{task_id}/attachments")
-async def upload_attachment(task_id: int, file: UploadFile = FastAPIFile(...), user=Depends(get_current_user)):
+async def upload_attachment(task_id: int, background_tasks: BackgroundTasks, file: UploadFile = FastAPIFile(...), user=Depends(get_current_user)):
+    uid = user["sub"]
     with get_db() as conn:
-        task = conn.execute("SELECT id FROM tasks WHERE id = ? AND user_id = ?", (task_id, user["sub"])).fetchone()
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
+        task_row = _can_access_task(conn, task_id, uid, write=True)
 
     # Read file
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail=f"File terlalu besar. Maks {MAX_FILE_SIZE // (1024*1024)}MB")
 
-    # Save to disk
     original_name = file.filename or "file"
     ext = Path(original_name).suffix or ""
     stored_name = f"{uuid.uuid4().hex}{ext}"
@@ -632,24 +717,26 @@ async def upload_attachment(task_id: int, file: UploadFile = FastAPIFile(...), u
 
     mime_type = file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
 
-    from repository import TaskRepository
     repo = TaskRepository(DB_PATH)
-    return repo.add_attachment(task_id, stored_name, original_name, len(content), mime_type)
+    result = repo.add_attachment(task_id, stored_name, original_name, len(content), mime_type)
+    if task_row["list_id"]:
+        actor = user.get("username", f"user#{uid}")
+        background_tasks.add_task(
+            _notify_members_bg, task_row["list_id"], uid,
+            f"📎 <b>{actor}</b> mengunggah file <b>{original_name}</b> di task <b>{task_row['title']}</b>."
+        )
+    return result
 
 @app.delete("/api/attachments/{attachment_id}")
 async def delete_attachment(attachment_id: int, user=Depends(get_current_user)):
-    from repository import TaskRepository
     repo = TaskRepository(DB_PATH)
     with get_db() as conn:
         att = conn.execute("SELECT task_id, filename FROM task_attachments WHERE id = ?", (attachment_id,)).fetchone()
         if not att:
             raise HTTPException(status_code=404, detail="Attachment not found")
-        task = conn.execute("SELECT id FROM tasks WHERE id = ? AND user_id = ?", (att["task_id"], user["sub"])).fetchone()
-        if not task:
-            raise HTTPException(status_code=404, detail="Not authorized")
+        _can_access_task(conn, att["task_id"], user["sub"], write=True)
     info = repo.delete_attachment(attachment_id)
     if info:
-        # Remove file from disk
         filepath = os.path.join(UPLOAD_DIR, info["filename"])
         if os.path.exists(filepath):
             os.unlink(filepath)
@@ -661,15 +748,137 @@ async def download_attachment(attachment_id: int, user=Depends(get_current_user)
         att = conn.execute("SELECT * FROM task_attachments WHERE id = ?", (attachment_id,)).fetchone()
         if not att:
             raise HTTPException(status_code=404, detail="Attachment not found")
-        task = conn.execute("SELECT id FROM tasks WHERE id = ? AND user_id = ?", (att["task_id"], user["sub"])).fetchone()
-        if not task:
-            raise HTTPException(status_code=404, detail="Not authorized")
+        _can_access_task(conn, att["task_id"], user["sub"])
 
     filepath = os.path.join(UPLOAD_DIR, att["filename"])
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="File not found on disk")
 
     return FileResponse(filepath, filename=att["original_name"], media_type=att["mime_type"])
+
+
+# ── Shared Lists API ──────────────────────────────────────────────────────────
+
+@app.get("/api/lists")
+async def get_lists(user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    return repo.get_lists_for_user(user["sub"])
+
+
+@app.post("/api/lists")
+async def create_list(req: SharedListCreate, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    return repo.create_shared_list(req.name, user["sub"])
+
+
+@app.get("/api/lists/{list_id}")
+async def get_list(list_id: int, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    lst = repo.get_shared_list(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+    if not repo.is_list_member_or_owner(list_id, user["sub"]):
+        raise HTTPException(status_code=403, detail="Not a member of this list")
+    members = repo.get_list_members(list_id)
+    # Include owner info
+    with get_db() as conn:
+        owner = conn.execute(
+            "SELECT id, username, display_name FROM users WHERE id = ?", (lst["owner_id"],)
+        ).fetchone()
+    return {**lst, "members": members, "owner": dict(owner) if owner else None}
+
+
+@app.delete("/api/lists/{list_id}")
+async def delete_list(list_id: int, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    deleted = repo.delete_shared_list(list_id, user["sub"])
+    if not deleted:
+        raise HTTPException(status_code=404, detail="List not found or not owner")
+    return {"ok": True}
+
+
+@app.delete("/api/lists/{list_id}/leave")
+async def leave_list(list_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    lst = repo.get_shared_list(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+    if lst["owner_id"] == uid:
+        raise HTTPException(status_code=400, detail="Owner tidak bisa leave — gunakan delete list")
+    removed = repo.remove_list_member(list_id, uid)
+    if not removed:
+        raise HTTPException(status_code=400, detail="Kamu bukan anggota list ini")
+    return {"ok": True}
+
+
+@app.delete("/api/lists/{list_id}/members/{member_id}")
+async def remove_member(list_id: int, member_id: int, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_owner(list_id, user["sub"]):
+        raise HTTPException(status_code=403, detail="Hanya owner yang bisa menghapus anggota")
+    removed = repo.remove_list_member(list_id, member_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return {"ok": True}
+
+
+@app.post("/api/lists/{list_id}/invite")
+async def invite_to_list(list_id: int, req: InviteUserReq, user=Depends(get_current_user)):
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Hanya owner yang bisa mengundang anggota")
+
+    # Find user by username
+    target = repo.get_user_by_username(req.username)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"User '{req.username}' tidak ditemukan")
+    if target["id"] == uid:
+        raise HTTPException(status_code=400, detail="Tidak bisa mengundang diri sendiri")
+
+    lst = repo.get_shared_list(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+
+    if repo.is_list_member_or_owner(list_id, target["id"]):
+        raise HTTPException(status_code=400, detail=f"User '{req.username}' sudah menjadi anggota")
+
+    added = repo.add_list_member(list_id, target["id"])
+    # Notify via Telegram if user has telegram_id
+    if added and target.get("telegram_id") and _tg_bot:
+        try:
+            inviter = user.get("username", f"user#{uid}")
+            import asyncio
+            asyncio.create_task(
+                _tg_bot.send_message(
+                    chat_id=target["telegram_id"],
+                    text=f"👥 <b>{inviter}</b> mengundangmu ke shared list <b>{lst['name']}</b>!\n"
+                         f"Kamu sekarang bisa melihat dan mengedit task di list ini.",
+                    parse_mode="HTML"
+                )
+            )
+        except Exception:
+            pass
+    return {
+        "ok": True,
+        "added_user": {"id": target["id"], "username": target["username"], "display_name": target["display_name"]}
+    }
+
+
+@app.get("/api/lists/{list_id}/tasks")
+async def get_list_tasks(list_id: int, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_member_or_owner(list_id, user["sub"]):
+        raise HTTPException(status_code=403, detail="Not a member of this list")
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM tasks WHERE list_id = ?
+               AND gtd_status NOT IN ('done','archived')
+               ORDER BY priority, deadline""",
+            (list_id,),
+        ).fetchall()
+    return [task_row_to_dict(r) for r in rows]
 
 
 # ── Serve SPA ──────────────────────────────────────────────────────────────────

@@ -132,6 +132,51 @@ class TaskRepository:
                 )
             """)
 
+            # ── Shared lists ──────────────────────────────────────────────────
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS shared_lists (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name        TEXT NOT NULL,
+                    owner_id    INTEGER NOT NULL,
+                    created_at  TEXT NOT NULL,
+                    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_shared_lists_owner ON shared_lists(owner_id)")
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS list_members (
+                    list_id     INTEGER NOT NULL,
+                    user_id     INTEGER NOT NULL,
+                    joined_at   TEXT NOT NULL,
+                    PRIMARY KEY (list_id, user_id),
+                    FOREIGN KEY (list_id) REFERENCES shared_lists(id) ON DELETE CASCADE,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_list_members_user ON list_members(user_id)")
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS list_invites (
+                    code        TEXT PRIMARY KEY,
+                    list_id     INTEGER NOT NULL,
+                    created_by  INTEGER NOT NULL,
+                    expires_at  TEXT NOT NULL,
+                    used        INTEGER DEFAULT 0,
+                    FOREIGN KEY (list_id) REFERENCES shared_lists(id) ON DELETE CASCADE
+                )
+            """)
+
+            # Migrate: add list_id to tasks if missing
+            cols = [row["name"] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+            if "list_id" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN list_id INTEGER DEFAULT NULL")
+
+            # Migrate: add author_id to task_notes if missing
+            note_cols = [row["name"] for row in conn.execute("PRAGMA table_info(task_notes)").fetchall()]
+            if "author_id" not in note_cols:
+                conn.execute("ALTER TABLE task_notes ADD COLUMN author_id INTEGER DEFAULT NULL")
+
     # ── Row to Task mapping ────────────────────────────────────────────────
 
     @staticmethod
@@ -141,6 +186,7 @@ class TaskRepository:
         def parse_d(val):
             return date.fromisoformat(val) if val else None
 
+        keys = row.keys()
         return Task(
             id=row["id"],
             title=row["title"],
@@ -152,6 +198,8 @@ class TaskRepository:
             context=row["context"] or "",
             deadline=parse_d(row["deadline"]),
             waiting_for=row["waiting_for"] or "",
+            is_focused=bool(row["is_focused"]) if "is_focused" in keys else False,
+            list_id=row["list_id"] if "list_id" in keys else None,
             created_at=parse_dt(row["created_at"]),
             updated_at=parse_dt(row["updated_at"]),
             completed_at=parse_dt(row["completed_at"]),
@@ -228,19 +276,19 @@ class TaskRepository:
 
     # ── CRUD ───────────────────────────────────────────────────────────────
 
-    def add(self, task: Task, user_id: Optional[int] = None) -> Task:
+    def add(self, task: Task, user_id: Optional[int] = None, list_id: Optional[int] = None) -> Task:
         now = datetime.now().isoformat()
         with self._connect() as conn:
             cur = conn.execute(
                 """INSERT INTO tasks
                    (title, description, gtd_status, priority, quadrant,
-                    project, context, deadline, waiting_for, user_id, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    project, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     task.title, task.description, task.gtd_status.value, task.priority.value,
                     task.quadrant.value, task.project, task.context,
                     task.deadline.isoformat() if task.deadline else None,
-                    task.waiting_for, user_id, now, now,
+                    task.waiting_for, user_id, list_id, now, now,
                 ),
             )
             task.id = cur.lastrowid
@@ -567,6 +615,241 @@ class TaskRepository:
         with self._connect() as conn:
             row = conn.execute("SELECT COUNT(*) as cnt FROM task_attachments WHERE task_id = ?", (task_id,)).fetchone()
             return row["cnt"] or 0
+
+    # ── Shared Lists ──────────────────────────────────────────────────────
+
+    def create_shared_list(self, name: str, owner_id: int) -> dict:
+        now = datetime.now().isoformat()
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO shared_lists (name, owner_id, created_at) VALUES (?,?,?)",
+                (name, owner_id, now),
+            )
+            return {"id": cur.lastrowid, "name": name, "owner_id": owner_id, "created_at": now, "role": "owner"}
+
+    def get_shared_list(self, list_id: int) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM shared_lists WHERE id = ?", (list_id,)).fetchone()
+            return dict(row) if row else None
+
+    def rename_shared_list(self, list_id: int, owner_id: int, name: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE shared_lists SET name = ? WHERE id = ? AND owner_id = ?",
+                (name, list_id, owner_id),
+            )
+            return cur.rowcount > 0
+
+    def delete_shared_list(self, list_id: int, owner_id: int) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
+            )
+            return cur.rowcount > 0
+
+    def get_lists_for_user(self, user_id: int) -> list[dict]:
+        """All lists where user is owner OR member, with role and member_count."""
+        with self._connect() as conn:
+            owned = conn.execute(
+                "SELECT id, name, owner_id, created_at FROM shared_lists WHERE owner_id = ?",
+                (user_id,),
+            ).fetchall()
+            membered = conn.execute(
+                """SELECT sl.id, sl.name, sl.owner_id, sl.created_at
+                   FROM shared_lists sl
+                   JOIN list_members lm ON lm.list_id = sl.id
+                   WHERE lm.user_id = ?""",
+                (user_id,),
+            ).fetchall()
+            result = []
+            for r in owned:
+                cnt = conn.execute(
+                    "SELECT COUNT(*) as c FROM list_members WHERE list_id = ?", (r["id"],)
+                ).fetchone()["c"]
+                result.append({**dict(r), "role": "owner", "member_count": cnt})
+            for r in membered:
+                cnt = conn.execute(
+                    "SELECT COUNT(*) as c FROM list_members WHERE list_id = ?", (r["id"],)
+                ).fetchone()["c"]
+                result.append({**dict(r), "role": "member", "member_count": cnt})
+            return result
+
+    def add_list_member(self, list_id: int, user_id: int) -> bool:
+        now = datetime.now().isoformat()
+        with self._connect() as conn:
+            try:
+                conn.execute(
+                    "INSERT INTO list_members (list_id, user_id, joined_at) VALUES (?,?,?)",
+                    (list_id, user_id, now),
+                )
+                return True
+            except sqlite3.IntegrityError:
+                return False  # already a member
+
+    def remove_list_member(self, list_id: int, user_id: int) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM list_members WHERE list_id = ? AND user_id = ?", (list_id, user_id)
+            )
+            return cur.rowcount > 0
+
+    def get_list_members(self, list_id: int) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT u.id, u.username, u.display_name, u.telegram_id, lm.joined_at
+                   FROM list_members lm
+                   JOIN users u ON u.id = lm.user_id
+                   WHERE lm.list_id = ?
+                   ORDER BY lm.joined_at""",
+                (list_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def is_list_member_or_owner(self, list_id: int, user_id: int) -> bool:
+        with self._connect() as conn:
+            owner = conn.execute(
+                "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, user_id)
+            ).fetchone()
+            if owner:
+                return True
+            member = conn.execute(
+                "SELECT 1 FROM list_members WHERE list_id = ? AND user_id = ?", (list_id, user_id)
+            ).fetchone()
+            return bool(member)
+
+    def is_list_owner(self, list_id: int, user_id: int) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, user_id)
+            ).fetchone()
+            return bool(row)
+
+    def get_user_by_username(self, username: str) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+            return dict(row) if row else None
+
+    def get_user_by_display_name(self, display_name: str) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE display_name = ? LIMIT 1", (display_name,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_user_by_id(self, user_id: int) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            return dict(row) if row else None
+
+    # ── List Invites ───────────────────────────────────────────────────────
+
+    def create_list_invite(self, list_id: int, created_by: int, expire_hours: int = 48) -> str:
+        from datetime import timedelta
+        code = secrets.token_urlsafe(16)
+        expires_at = (datetime.now() + timedelta(hours=expire_hours)).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO list_invites (code, list_id, created_by, expires_at, used) VALUES (?,?,?,?,0)",
+                (code, list_id, created_by, expires_at),
+            )
+        return code
+
+    def consume_list_invite(self, code: str) -> Optional[int]:
+        """Returns list_id if valid, else None."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT list_id, expires_at, used FROM list_invites WHERE code = ?", (code,)
+            ).fetchone()
+            if not row or row["used"]:
+                return None
+            if datetime.fromisoformat(row["expires_at"]) < datetime.now():
+                return None
+            conn.execute("UPDATE list_invites SET used = 1 WHERE code = ?", (code,))
+            return row["list_id"]
+
+    # ── Shared-list task queries ───────────────────────────────────────────
+
+    def get_tasks_in_list(self, list_id: int) -> list[Task]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM tasks WHERE list_id = ?
+                   AND gtd_status NOT IN ('done','archived')
+                   ORDER BY priority, deadline""",
+                (list_id,),
+            ).fetchall()
+            return [self._row_to_task(r) for r in rows]
+
+    def get_task_row(self, task_id: int) -> Optional[sqlite3.Row]:
+        """Return raw sqlite3.Row for a task (used for authorization checks)."""
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+
+    def add_to_list(self, task: Task, user_id: int, list_id: int) -> Task:
+        """Add a task directly to a shared list."""
+        now = datetime.now().isoformat()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """INSERT INTO tasks
+                   (title, description, gtd_status, priority, quadrant,
+                    project, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    task.title, task.description, task.gtd_status.value, task.priority.value,
+                    task.quadrant.value, task.project, task.context,
+                    task.deadline.isoformat() if task.deadline else None,
+                    task.waiting_for, user_id, list_id, now, now,
+                ),
+            )
+            task.id = cur.lastrowid
+            task.created_at = datetime.fromisoformat(now)
+            task.updated_at = datetime.fromisoformat(now)
+        return task
+
+    def get_list_member_telegram_ids(self, list_id: int, exclude_user_id: int) -> list[int]:
+        """Returns telegram_ids of all members (owner + members) except exclude_user_id."""
+        with self._connect() as conn:
+            owner_rows = conn.execute(
+                """SELECT u.telegram_id FROM shared_lists sl
+                   JOIN users u ON u.id = sl.owner_id
+                   WHERE sl.id = ? AND sl.owner_id != ?""",
+                (list_id, exclude_user_id),
+            ).fetchall()
+            member_rows = conn.execute(
+                """SELECT u.telegram_id FROM list_members lm
+                   JOIN users u ON u.id = lm.user_id
+                   WHERE lm.list_id = ? AND lm.user_id != ?""",
+                (list_id, exclude_user_id),
+            ).fetchall()
+            ids = []
+            for r in owner_rows + member_rows:
+                if r["telegram_id"]:
+                    ids.append(r["telegram_id"])
+            return ids
+
+    # ── Notes with author ──────────────────────────────────────────────────
+
+    def add_note_with_author(self, task_id: int, content: str, author_id: Optional[int] = None) -> dict:
+        now = datetime.now().isoformat()
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO task_notes (task_id, content, created_at, author_id) VALUES (?,?,?,?)",
+                (task_id, content, now, author_id),
+            )
+            return {"id": cur.lastrowid, "task_id": task_id, "content": content,
+                    "created_at": now, "author_id": author_id, "author_name": None}
+
+    def get_notes_with_author(self, task_id: int) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT tn.id, tn.task_id, tn.content, tn.created_at, tn.author_id,
+                          u.display_name AS author_name
+                   FROM task_notes tn
+                   LEFT JOIN users u ON u.id = tn.author_id
+                   WHERE tn.task_id = ?
+                   ORDER BY tn.created_at DESC""",
+                (task_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     # ── Magic login tokens ─────────────────────────────────────────────────
 
