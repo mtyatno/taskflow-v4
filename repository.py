@@ -167,6 +167,21 @@ class TaskRepository:
                 )
             """)
 
+            # Notifications table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id     INTEGER NOT NULL,
+                    message     TEXT NOT NULL,
+                    is_read     INTEGER DEFAULT 0,
+                    list_id     INTEGER DEFAULT NULL,
+                    task_id     INTEGER DEFAULT NULL,
+                    created_at  TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, is_read, created_at)")
+
             # Migrate: add list_id to tasks if missing
             cols = [row["name"] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()]
             if "list_id" not in cols:
@@ -850,6 +865,75 @@ class TaskRepository:
                 (task_id,),
             ).fetchall()
             return [dict(r) for r in rows]
+
+    # ── Notifications ─────────────────────────────────────────────────────
+
+    def add_notification(self, user_id: int, message: str,
+                         list_id: Optional[int] = None, task_id: Optional[int] = None) -> dict:
+        now = datetime.now().isoformat()
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, created_at) "
+                "VALUES (?,?,0,?,?,?)",
+                (user_id, message, list_id, task_id, now),
+            )
+            return {"id": cur.lastrowid, "user_id": user_id, "message": message,
+                    "is_read": False, "list_id": list_id, "task_id": task_id, "created_at": now}
+
+    def notify_list_members(self, list_id: int, actor_user_id: int,
+                            message: str, task_id: Optional[int] = None):
+        """Write notification records for all list members except the actor."""
+        with self._connect() as conn:
+            owner = conn.execute(
+                "SELECT owner_id FROM shared_lists WHERE id = ?", (list_id,)
+            ).fetchone()
+            members = conn.execute(
+                "SELECT user_id FROM list_members WHERE list_id = ?", (list_id,)
+            ).fetchall()
+            recipients = set()
+            if owner:
+                recipients.add(owner["owner_id"])
+            for r in members:
+                recipients.add(r["user_id"])
+            recipients.discard(actor_user_id)
+
+            now = datetime.now().isoformat()
+            for uid in recipients:
+                conn.execute(
+                    "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, created_at) "
+                    "VALUES (?,?,0,?,?,?)",
+                    (uid, message, list_id, task_id, now),
+                )
+
+    def get_notifications(self, user_id: int, limit: int = 30) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM notifications WHERE user_id = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_unread_count(self, user_id: int) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND is_read = 0",
+                (user_id,),
+            ).fetchone()
+            return row["cnt"] or 0
+
+    def mark_notifications_read(self, user_id: int, notif_ids: Optional[list[int]] = None):
+        with self._connect() as conn:
+            if notif_ids:
+                placeholders = ",".join("?" * len(notif_ids))
+                conn.execute(
+                    f"UPDATE notifications SET is_read = 1 WHERE user_id = ? AND id IN ({placeholders})",
+                    [user_id] + notif_ids,
+                )
+            else:
+                conn.execute(
+                    "UPDATE notifications SET is_read = 1 WHERE user_id = ?", (user_id,)
+                )
 
     # ── Magic login tokens ─────────────────────────────────────────────────
 

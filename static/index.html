@@ -2875,6 +2875,9 @@
       const [loading, setLoading] = useState(false);
       const [sidebarOpen, setSidebarOpen] = useState(false);
       const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+      const [unreadCount, setUnreadCount] = useState(0);
+      const [notifications, setNotifications] = useState([]);
+      const [showNotifPanel, setShowNotifPanel] = useState(false);
 
       const showToast = (message, type = "success") => setToast({ message, type });
 
@@ -2942,6 +2945,45 @@
         const interval = setInterval(fetchAll, 30000);
         return () => clearInterval(interval);
       }, [user, fetchAll]);
+
+      // Notification polling every 15 seconds
+      const fetchUnread = useCallback(async () => {
+        if (!user) return;
+        try {
+          const data = await api.get("/api/notifications/count");
+          setUnreadCount(data.unread || 0);
+        } catch (e) {}
+      }, [user]);
+
+      useEffect(() => {
+        if (!user) return;
+        fetchUnread();
+        const interval = setInterval(fetchUnread, 15000);
+        return () => clearInterval(interval);
+      }, [user, fetchUnread]);
+
+      const handleOpenNotif = async () => {
+        const willOpen = !showNotifPanel;
+        setShowNotifPanel(willOpen);
+        if (willOpen) {
+          try {
+            const data = await api.get("/api/notifications");
+            setNotifications(data);
+            await api.post("/api/notifications/read", {});
+            setUnreadCount(0);
+          } catch (e) {}
+        }
+      };
+
+      // Close notif panel on outside click
+      useEffect(() => {
+        if (!showNotifPanel) return;
+        const handler = (e) => {
+          if (!e.target.closest("[data-notif-panel]")) setShowNotifPanel(false);
+        };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+      }, [showNotifPanel]);
 
       // Auth handlers
       const handleLogin = (data) => {
@@ -3093,6 +3135,10 @@
             <div className="mobile-topbar">
               <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1 }}>☰</button>
               <div style={{ flex: 1, fontWeight: 700, fontSize: 16 }}>⚡ TaskFlow</div>
+              <button onClick={handleOpenNotif} style={{ position: "relative", background: "none", border: "none", fontSize: 20, cursor: "pointer", padding: "0 8px 0 0", lineHeight: 1 }}>
+                🔔
+                {unreadCount > 0 && <span style={{ position: "absolute", top: -2, right: 4, background: "#ef4444", color: "white", borderRadius: "50%", fontSize: 9, fontWeight: 700, minWidth: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 2px" }}>{unreadCount > 9 ? "9+" : unreadCount}</span>}
+              </button>
               <button className="btn btn-primary btn-sm" onClick={() => { setEditTask(null); setShowForm(true); }}>＋ Tambah</button>
             </div>
 
@@ -3104,9 +3150,43 @@
                   {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
                 </div>
               </div>
-              <button className="btn btn-primary" onClick={() => { setEditTask(null); setShowForm(true); }}>
-                ＋ Tambah Task
-              </button>
+              <div data-notif-panel style={{ display: "flex", alignItems: "center", gap: 10, position: "relative" }}>
+                {/* Notification Bell */}
+                <button onClick={handleOpenNotif} title="Notifikasi" data-notif-panel style={{ position: "relative", background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", fontSize: 18, padding: "5px 10px", color: "var(--text-secondary)", lineHeight: 1 }}>
+                  🔔
+                  {unreadCount > 0 && (
+                    <span style={{ position: "absolute", top: -4, right: -4, background: "#ef4444", color: "white", borderRadius: "50%", fontSize: 10, fontWeight: 700, minWidth: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Notification Panel */}
+                {showNotifPanel && (
+                  <div data-notif-panel style={{ position: "absolute", top: 44, right: 0, width: 340, background: "white", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", border: "1px solid var(--border)", zIndex: 200, overflow: "hidden" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>🔔 Notifikasi</div>
+                      <span onClick={() => setShowNotifPanel(false)} style={{ cursor: "pointer", color: "var(--text-light)", fontSize: 16 }}>✕</span>
+                    </div>
+                    <div style={{ maxHeight: 360, overflowY: "auto" }}>
+                      {notifications.length === 0 ? (
+                        <div style={{ padding: 20, textAlign: "center", color: "var(--text-light)", fontSize: 13 }}>Belum ada notifikasi</div>
+                      ) : notifications.map(n => (
+                        <div key={n.id} style={{ padding: "10px 16px", borderBottom: "1px solid #f1f5f9", background: n.is_read ? "white" : "#f0fdf4" }}>
+                          <div style={{ fontSize: 13, lineHeight: 1.5 }}>{n.message}</div>
+                          <div style={{ fontSize: 11, color: "var(--text-light)", marginTop: 3 }}>
+                            {new Date(n.created_at).toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button className="btn btn-primary" onClick={() => { setEditTask(null); setShowForm(true); }}>
+                  ＋ Tambah Task
+                </button>
+              </div>
             </div>
 
             {/* Content */}

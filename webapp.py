@@ -200,18 +200,22 @@ def _can_access_task(conn, task_id: int, user_id: int, write: bool = False):
     raise HTTPException(status_code=403, detail="Not authorized")
 
 
-async def _notify_members_bg(list_id: int, actor_user_id: int, message: str):
-    """Send Telegram notification to all list members except the actor."""
-    if not _tg_bot or not list_id:
+async def _notify_members_bg(list_id: int, actor_user_id: int, message: str, task_id: Optional[int] = None):
+    """Write in-app notifications + send Telegram to all list members except the actor."""
+    if not list_id:
         return
     try:
         repo = TaskRepository(DB_PATH)
-        tg_ids = repo.get_list_member_telegram_ids(list_id, actor_user_id)
-        for tg_id in tg_ids:
-            try:
-                await _tg_bot.send_message(chat_id=tg_id, text=message, parse_mode="HTML")
-            except Exception:
-                pass
+        # In-app notification (always)
+        repo.notify_list_members(list_id, actor_user_id, message, task_id=task_id)
+        # Telegram (if bot available)
+        if _tg_bot:
+            tg_ids = repo.get_list_member_telegram_ids(list_id, actor_user_id)
+            for tg_id in tg_ids:
+                try:
+                    await _tg_bot.send_message(chat_id=tg_id, text=message, parse_mode="HTML")
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -755,6 +759,27 @@ async def download_attachment(attachment_id: int, user=Depends(get_current_user)
         raise HTTPException(status_code=404, detail="File not found on disk")
 
     return FileResponse(filepath, filename=att["original_name"], media_type=att["mime_type"])
+
+
+# ── Notifications API ─────────────────────────────────────────────────────────
+
+@app.get("/api/notifications")
+async def get_notifications(user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    return repo.get_notifications(user["sub"], limit=30)
+
+
+@app.get("/api/notifications/count")
+async def get_unread_count(user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    return {"unread": repo.get_unread_count(user["sub"])}
+
+
+@app.post("/api/notifications/read")
+async def mark_read(user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    repo.mark_notifications_read(user["sub"])
+    return {"ok": True}
 
 
 # ── Shared Lists API ──────────────────────────────────────────────────────────
