@@ -3329,7 +3329,7 @@
                           onMouseEnter={n.task_id ? e => e.currentTarget.style.background = "#e0f2fe" : undefined}
                           onMouseLeave={n.task_id ? e => e.currentTarget.style.background = n.is_read ? "white" : "#f0fdf4" : undefined}
                         >
-                          <div style={{ fontSize: 13, lineHeight: 1.5 }}>{n.message}</div>
+                          <div style={{ fontSize: 13, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: n.message }} />
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 3 }}>
                             <span style={{ fontSize: 11, color: "var(--text-light)" }}>
                               {new Date(n.created_at).toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
