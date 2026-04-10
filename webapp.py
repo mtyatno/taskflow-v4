@@ -761,6 +761,41 @@ async def download_attachment(attachment_id: int, user=Depends(get_current_user)
     return FileResponse(filepath, filename=att["original_name"], media_type=att["mime_type"])
 
 
+# ── Collaborators (mention autocomplete) ──────────────────────────────────────
+
+@app.get("/api/collaborators")
+async def get_collaborators(user=Depends(get_current_user)):
+    """All unique users across all shared lists the current user is in, excluding self."""
+    uid = user["sub"]
+    with get_db() as conn:
+        list_rows = conn.execute(
+            "SELECT id FROM shared_lists WHERE owner_id = ? "
+            "UNION SELECT list_id FROM list_members WHERE user_id = ?",
+            (uid, uid),
+        ).fetchall()
+        list_ids = [r["id"] for r in list_rows]
+        if not list_ids:
+            return []
+        ph = ",".join("?" * len(list_ids))
+        owners = conn.execute(
+            f"SELECT DISTINCT u.id, u.username, u.display_name FROM shared_lists sl "
+            f"JOIN users u ON u.id = sl.owner_id WHERE sl.id IN ({ph}) AND u.id != ?",
+            list_ids + [uid],
+        ).fetchall()
+        members = conn.execute(
+            f"SELECT DISTINCT u.id, u.username, u.display_name FROM list_members lm "
+            f"JOIN users u ON u.id = lm.user_id WHERE lm.list_id IN ({ph}) AND u.id != ?",
+            list_ids + [uid],
+        ).fetchall()
+    seen = set()
+    result = []
+    for r in owners + members:
+        if r["id"] not in seen:
+            seen.add(r["id"])
+            result.append(dict(r))
+    return result
+
+
 # ── Notifications API ─────────────────────────────────────────────────────────
 
 @app.get("/api/notifications")
@@ -986,6 +1021,13 @@ async def serve_spa():
     if index.exists():
         return HTMLResponse(index.read_text(encoding="utf-8"))
     return HTMLResponse("<h1>TaskFlow V4</h1><p>Static files not found.</p>")
+
+
+@app.get("/sw.js")
+async def serve_sw():
+    sw = STATIC_DIR / "sw.js"
+    return FileResponse(str(sw), media_type="application/javascript",
+                        headers={"Service-Worker-Allowed": "/"})
 
 
 # Mount static files
