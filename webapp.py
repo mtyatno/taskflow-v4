@@ -771,6 +771,58 @@ async def create_list(req: SharedListCreate, user=Depends(get_current_user)):
     return repo.create_shared_list(req.name, user["sub"])
 
 
+# IMPORTANT: /api/lists/join must be defined before /api/lists/{list_id}
+@app.post("/api/lists/join")
+async def join_list_by_code(req: JoinListReq, user=Depends(get_current_user)):
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    list_id = repo.consume_list_invite(req.code)
+    if not list_id:
+        raise HTTPException(status_code=400, detail="Kode tidak valid, sudah digunakan, atau kadaluarsa.")
+    lst = repo.get_shared_list(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List tidak ditemukan.")
+    if lst["owner_id"] == uid:
+        raise HTTPException(status_code=400, detail="Kamu adalah owner list ini.")
+    if repo.is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=400, detail="Kamu sudah menjadi anggota list ini.")
+    repo.add_list_member(list_id, uid)
+    # Notify owner
+    with get_db() as conn:
+        owner = conn.execute(
+            "SELECT telegram_id FROM users WHERE id = ?", (lst["owner_id"],)
+        ).fetchone()
+    if owner and owner["telegram_id"] and _tg_bot:
+        try:
+            import asyncio
+            joiner = user.get("username", f"user#{uid}")
+            asyncio.create_task(_tg_bot.send_message(
+                chat_id=owner["telegram_id"],
+                text=f"👥 <b>{joiner}</b> bergabung ke shared list <b>{lst['name']}</b>.",
+                parse_mode="HTML",
+            ))
+        except Exception:
+            pass
+    return {"ok": True, "list_id": list_id, "list_name": lst["name"]}
+
+
+@app.get("/api/lists/preview/{code}")
+async def preview_invite_code(code: str, user=Depends(get_current_user)):
+    """Preview list info from an invite code without consuming it."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT li.list_id, li.expires_at, li.used, sl.name FROM list_invites li "
+            "JOIN shared_lists sl ON sl.id = li.list_id WHERE li.code = ?",
+            (code,),
+        ).fetchone()
+    if not row or row["used"]:
+        raise HTTPException(status_code=400, detail="Kode tidak valid atau sudah digunakan.")
+    from datetime import datetime as _dt
+    if _dt.fromisoformat(row["expires_at"]) < _dt.now():
+        raise HTTPException(status_code=400, detail="Kode sudah kadaluarsa.")
+    return {"list_id": row["list_id"], "list_name": row["name"], "expires_at": row["expires_at"]}
+
+
 @app.get("/api/lists/{list_id}")
 async def get_list(list_id: int, user=Depends(get_current_user)):
     repo = TaskRepository(DB_PATH)
@@ -866,6 +918,19 @@ async def invite_to_list(list_id: int, req: InviteUserReq, user=Depends(get_curr
     }
 
 
+@app.post("/api/lists/{list_id}/generate-link")
+async def generate_invite_link(list_id: int, user=Depends(get_current_user)):
+    """Generate a one-use invite link (48h) for sharing via URL."""
+    from config import WEBAPP_URL
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Hanya owner yang bisa membuat invite link.")
+    code = repo.create_list_invite(list_id, uid, expire_hours=48)
+    join_url = f"{WEBAPP_URL}/join?code={code}"
+    return {"code": code, "join_url": join_url, "expires_in_hours": 48}
+
+
 @app.get("/api/lists/{list_id}/tasks")
 async def get_list_tasks(list_id: int, user=Depends(get_current_user)):
     repo = TaskRepository(DB_PATH)
@@ -882,6 +947,13 @@ async def get_list_tasks(list_id: int, user=Depends(get_current_user)):
 
 
 # ── Serve SPA ──────────────────────────────────────────────────────────────────
+
+@app.get("/join")
+async def join_redirect(code: str = ""):
+    """Redirect invite link to SPA with code in hash."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=f"/?join={code}", status_code=302)
+
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_spa():

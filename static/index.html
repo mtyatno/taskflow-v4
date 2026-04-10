@@ -689,6 +689,90 @@
     }
 
     // ── Sidebar ─────────────────────────────────────────────────
+    // ── JoinListModal ──────────────────────────────────────────────────────────
+    function JoinListModal({ code, onClose, onJoined }) {
+      const [preview, setPreview] = useState(null);
+      const [error, setError] = useState("");
+      const [joining, setJoining] = useState(false);
+      const [manualCode, setManualCode] = useState(code || "");
+
+      // Auto-preview if code was passed via URL
+      useEffect(() => {
+        if (code) loadPreview(code);
+      }, []);
+
+      const loadPreview = async (c) => {
+        setError("");
+        setPreview(null);
+        if (!c.trim()) return;
+        try {
+          const data = await api.get(`/api/lists/preview/${c.trim()}`);
+          setPreview(data);
+        } catch (err) {
+          setError(err.message || "Kode tidak valid atau kadaluarsa.");
+        }
+      };
+
+      const handleJoin = async () => {
+        const c = (preview ? manualCode || code : manualCode).trim();
+        if (!c) return;
+        setJoining(true);
+        try {
+          const data = await api.post("/api/lists/join", { code: c });
+          onJoined(data.list_name);
+        } catch (err) {
+          setError(err.message || "Gagal bergabung.");
+          setJoining(false);
+        }
+      };
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal-content scale-in" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700 }}>👥 Bergabung ke Shared List</h2>
+              <span onClick={onClose} style={{ cursor: "pointer", fontSize: 20, color: "var(--text-light)" }}>✕</span>
+            </div>
+
+            {preview ? (
+              <div>
+                <div style={{ background: "var(--bg-primary)", borderRadius: 10, padding: 16, marginBottom: 16, textAlign: "center" }}>
+                  <div style={{ fontSize: 24, marginBottom: 6 }}>📋</div>
+                  <div style={{ fontWeight: 700, fontSize: 16 }}>{preview.list_name}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 4 }}>
+                    Link berlaku hingga {new Date(preview.expires_at).toLocaleString("id-ID")}
+                  </div>
+                </div>
+                <button className="btn btn-primary" style={{ width: "100%", padding: "10px" }} onClick={handleJoin} disabled={joining}>
+                  {joining ? "Bergabung..." : "✅ Gabung ke List Ini"}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <label className="input-label">Masukkan kode invite</label>
+                <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                  <input
+                    className="input"
+                    value={manualCode}
+                    onChange={e => setManualCode(e.target.value)}
+                    placeholder="Paste kode invite di sini..."
+                    style={{ flex: 1 }}
+                    onKeyDown={e => { if (e.key === "Enter") loadPreview(manualCode); }}
+                    autoFocus
+                  />
+                  <button className="btn btn-primary" onClick={() => loadPreview(manualCode)}>Cek</button>
+                </div>
+                {error && <div style={{ color: "#ef4444", fontSize: 13, marginBottom: 8 }}>❌ {error}</div>}
+                <div style={{ fontSize: 12, color: "var(--text-light)" }}>Minta link invite dari owner shared list.</div>
+              </div>
+            )}
+
+            {error && preview && <div style={{ color: "#ef4444", fontSize: 13, marginTop: 8 }}>❌ {error}</div>}
+          </div>
+        </div>
+      );
+    }
+
     // ── SharedListsManager ─────────────────────────────────────────────────────
     function SharedListsManager({ sharedLists, onRefresh, showToast }) {
       const [newName, setNewName] = useState("");
@@ -697,6 +781,13 @@
       const [invitingListId, setInvitingListId] = useState(null);
       const [expandedList, setExpandedList] = useState(null);
       const [members, setMembers] = useState({});
+      const [generatedLinks, setGeneratedLinks] = useState({});
+      const [generatingFor, setGeneratingFor] = useState(null);
+      const [showJoinForm, setShowJoinForm] = useState(false);
+      const [joinCode, setJoinCode] = useState("");
+      const [joinPreview, setJoinPreview] = useState(null);
+      const [joinError, setJoinError] = useState("");
+      const [joining, setJoining] = useState(false);
 
       const loadMembers = async (listId) => {
         if (members[listId]) return;
@@ -710,6 +801,43 @@
         if (expandedList === listId) { setExpandedList(null); return; }
         setExpandedList(listId);
         loadMembers(listId);
+      };
+
+      const handleGenerateLink = async (listId) => {
+        setGeneratingFor(listId);
+        try {
+          const data = await api.post(`/api/lists/${listId}/generate-link`, {});
+          setGeneratedLinks(prev => ({ ...prev, [listId]: data.join_url }));
+        } catch (err) { showToast(err.message, "error"); }
+        setGeneratingFor(null);
+      };
+
+      const copyLink = (url) => {
+        navigator.clipboard.writeText(url).then(() => showToast("Link disalin ✅")).catch(() => showToast("Gagal menyalin", "error"));
+      };
+
+      const handleCheckCode = async () => {
+        setJoinError("");
+        setJoinPreview(null);
+        if (!joinCode.trim()) return;
+        try {
+          const data = await api.get(`/api/lists/preview/${joinCode.trim()}`);
+          setJoinPreview(data);
+        } catch (err) { setJoinError(err.message || "Kode tidak valid."); }
+      };
+
+      const handleJoinByCode = async () => {
+        if (!joinPreview) return;
+        setJoining(true);
+        try {
+          await api.post("/api/lists/join", { code: joinCode.trim() });
+          showToast(`Berhasil bergabung ke "${joinPreview.list_name}" ✅`);
+          setShowJoinForm(false);
+          setJoinCode("");
+          setJoinPreview(null);
+          onRefresh();
+        } catch (err) { setJoinError(err.message || "Gagal bergabung."); }
+        setJoining(false);
       };
 
       const handleCreate = async (e) => {
@@ -771,6 +899,46 @@
       return (
         <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 0 40px" }}>
           <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 20 }}>⚙️ Kelola Shared List</h2>
+
+          {/* Join via code */}
+          <div style={{ background: "var(--bg-primary)", borderRadius: 12, padding: 16, marginBottom: 16, border: "1px solid var(--border)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>🔗 Gabung ke List Orang Lain</div>
+              <button className="btn btn-secondary btn-sm" onClick={() => { setShowJoinForm(!showJoinForm); setJoinPreview(null); setJoinError(""); }}>
+                {showJoinForm ? "Tutup" : "Masukkan Kode"}
+              </button>
+            </div>
+            {showJoinForm && (
+              <div style={{ marginTop: 12 }}>
+                {!joinPreview ? (
+                  <>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                      <input className="input" value={joinCode} onChange={e => setJoinCode(e.target.value)} placeholder="Paste kode invite..." style={{ flex: 1 }}
+                        onKeyDown={e => { if (e.key === "Enter") handleCheckCode(); }} autoFocus />
+                      <button className="btn btn-primary" onClick={handleCheckCode}>Cek</button>
+                    </div>
+                    {joinError && <div style={{ color: "#ef4444", fontSize: 13 }}>❌ {joinError}</div>}
+                  </>
+                ) : (
+                  <div>
+                    <div style={{ background: "white", borderRadius: 8, padding: 12, marginBottom: 10, border: "1px solid var(--border)" }}>
+                      <div style={{ fontWeight: 600 }}>📋 {joinPreview.list_name}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 2 }}>
+                        Berlaku hingga {new Date(joinPreview.expires_at).toLocaleString("id-ID")}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button className="btn btn-primary btn-sm" onClick={handleJoinByCode} disabled={joining}>
+                        {joining ? "..." : "✅ Gabung"}
+                      </button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => { setJoinPreview(null); setJoinCode(""); }}>Batal</button>
+                    </div>
+                    {joinError && <div style={{ color: "#ef4444", fontSize: 13, marginTop: 6 }}>❌ {joinError}</div>}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Create new list */}
           <div style={{ background: "var(--bg-primary)", borderRadius: 12, padding: 16, marginBottom: 24, border: "1px solid var(--border)" }}>
@@ -845,9 +1013,25 @@
                           <button className="btn btn-secondary btn-sm" onClick={() => setInvitingListId(null)}>Batal</button>
                         </div>
                       ) : (
-                        <button className="btn btn-secondary btn-sm" onClick={() => { setInvitingListId(l.id); setInviteUsername(""); }}>
-                          ＋ Undang User
-                        </button>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button className="btn btn-secondary btn-sm" onClick={() => { setInvitingListId(l.id); setInviteUsername(""); }}>
+                            ＋ Undang via Username
+                          </button>
+                          <button className="btn btn-secondary btn-sm" onClick={() => handleGenerateLink(l.id)} disabled={generatingFor === l.id}>
+                            {generatingFor === l.id ? "..." : "🔗 Generate Invite Link"}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Show generated link */}
+                      {generatedLinks[l.id] && (
+                        <div style={{ marginTop: 10, background: "white", borderRadius: 8, padding: 10, border: "1px solid var(--border)" }}>
+                          <div style={{ fontSize: 12, color: "var(--text-light)", marginBottom: 6 }}>Link berlaku 48 jam, sekali pakai:</div>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <input readOnly value={generatedLinks[l.id]} style={{ flex: 1, fontSize: 11, padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 6, background: "#f8f8f8", color: "var(--text-secondary)" }} onClick={e => e.target.select()} />
+                            <button className="btn btn-primary btn-sm" onClick={() => copyLink(generatedLinks[l.id])}>Salin</button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   )}
@@ -2713,6 +2897,21 @@
         }
       }, []);
 
+      // Handle ?join=<code> invite link from URL
+      const [pendingJoinCode, setPendingJoinCode] = useState(() => {
+        const params = new URLSearchParams(window.location.search);
+        return params.get("join") || "";
+      });
+      const [joinModal, setJoinModal] = useState(false);
+
+      useEffect(() => {
+        if (user && pendingJoinCode) {
+          setJoinModal(true);
+          // Clean URL
+          window.history.replaceState({}, "", "/");
+        }
+      }, [user, pendingJoinCode]);
+
       // Fetch data
       const initialLoad = useRef(true);
       const fetchAll = useCallback(async () => {
@@ -2942,6 +3141,21 @@
 
           {/* Toast */}
           {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+          {/* Join invite modal */}
+          {joinModal && (
+            <JoinListModal
+              code={pendingJoinCode}
+              onClose={() => { setJoinModal(false); setPendingJoinCode(""); }}
+              onJoined={(listName) => {
+                setJoinModal(false);
+                setPendingJoinCode("");
+                showToast(`Berhasil bergabung ke "${listName}" ✅`);
+                fetchAll();
+                setPage("manage_lists");
+              }}
+            />
+          )}
 
           {/* Mobile overlay */}
           {sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 30 }} />}
