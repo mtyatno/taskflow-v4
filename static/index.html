@@ -3057,7 +3057,7 @@
         if (!user) return;
         if (initialLoad.current) setLoading(true);
         try {
-          const [tasksData, summaryData, projData, ctxData, listsData, collabData] = await Promise.all([
+          const results = await Promise.allSettled([
             api.get("/api/tasks?include_done=true"),
             api.get("/api/summary"),
             api.get("/api/projects"),
@@ -3065,12 +3065,13 @@
             api.get("/api/lists"),
             api.get("/api/collaborators"),
           ]);
-          setTasks(tasksData);
-          setSummary(summaryData);
-          setProjects(projData);
-          setContexts(ctxData);
-          setSharedLists(listsData);
-          setCollaborators(collabData);
+          const [tasksR, summaryR, projR, ctxR, listsR, collabR] = results;
+          if (tasksR.status === "fulfilled")   setTasks(tasksR.value);
+          if (summaryR.status === "fulfilled") setSummary(summaryR.value);
+          if (projR.status === "fulfilled")    setProjects(projR.value);
+          if (ctxR.status === "fulfilled")     setContexts(ctxR.value);
+          if (listsR.status === "fulfilled")   setSharedLists(listsR.value);
+          if (collabR.status === "fulfilled")  setCollaborators(collabR.value);
         } catch (err) { console.error(err); }
         if (initialLoad.current) { setLoading(false); initialLoad.current = false; }
       }, [user]);

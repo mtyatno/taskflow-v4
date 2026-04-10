@@ -1,14 +1,12 @@
 const CACHE = "taskflow-v1";
 const STATIC = [
   "/",
-  "/static/index.html",
   "/static/vendor/react.production.min.js",
   "/static/vendor/react-dom.production.min.js",
   "/static/vendor/babel.min.js",
   "/static/vendor/chart.umd.min.js",
   "/static/vendor/tailwind.min.css",
   "/static/manifest.json",
-  "/static/logo.png",
 ];
 
 self.addEventListener("install", e => {
