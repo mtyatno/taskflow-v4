@@ -1351,6 +1351,7 @@
         waiting_for: task?.waiting_for || "",
         list_id: task?.list_id || null,
         assigned_to: task?.assigned_to || null,
+        progress: task?.progress || 0,
       });
       const [loading, setLoading] = useState(false);
 
@@ -1457,6 +1458,21 @@
                 <label className="input-label">Waiting For</label>
                 <input className="input" value={form.waiting_for} onChange={e => set("waiting_for", e.target.value)} placeholder="Menunggu siapa/apa" style={{ marginBottom: 14 }} />
               </>}
+
+              {isEdit && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <label className="input-label" style={{ marginBottom: 0 }}>Progress</label>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: form.progress === 100 ? "#22c55e" : "var(--accent)" }}>{form.progress}%</span>
+                  </div>
+                  <input type="range" min="0" max="100" step="5" value={form.progress}
+                    onChange={e => set("progress", parseInt(e.target.value))}
+                    style={{ width: "100%", accentColor: form.progress === 100 ? "#22c55e" : "var(--accent)" }} />
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--text-light)", marginTop: 2 }}>
+                    <span>0%</span><span>50%</span><span>100%</span>
+                  </div>
+                </div>
+              )}
 
               <label className="input-label">Deskripsi</label>
               <MentionInput as="textarea" collaborators={collaborators} className="input" value={form.description} onChange={e => set("description", e.target.value)} rows={3} style={{ marginBottom: 20, resize: "vertical" }} />
