@@ -7,6 +7,8 @@ const STATIC = [
   "/static/vendor/chart.umd.min.js",
   "/static/vendor/tailwind.min.css",
   "/static/manifest.json",
+  "/static/icon-192.png",
+  "/static/icon-512.png",
 ];
 
 self.addEventListener("install", e => {
