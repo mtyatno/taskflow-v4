@@ -92,6 +92,7 @@ class Task:
     is_focused: bool = False
     list_id: Optional[int] = None
     assigned_to: Optional[int] = None
+    progress: int = 0
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

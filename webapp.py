@@ -149,6 +149,7 @@ class TaskUpdate(BaseModel):
     gtd_status: Optional[str] = None
     waiting_for: Optional[str] = None
     assigned_to: Optional[int] = None
+    progress: Optional[int] = None
 
 class SharedListCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
@@ -459,6 +460,8 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
                 updates["deadline"] = d.isoformat() if d else None
         if req.assigned_to is not None:
             updates["assigned_to"] = req.assigned_to if req.assigned_to != 0 else None
+        if req.progress is not None:
+            updates["progress"] = max(0, min(100, req.progress))
 
         if not updates:
             raise HTTPException(status_code=400, detail="No fields to update")

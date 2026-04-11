@@ -188,6 +188,8 @@ class TaskRepository:
                 conn.execute("ALTER TABLE tasks ADD COLUMN list_id INTEGER DEFAULT NULL")
             if "assigned_to" not in cols:
                 conn.execute("ALTER TABLE tasks ADD COLUMN assigned_to INTEGER DEFAULT NULL")
+            if "progress" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN progress INTEGER DEFAULT 0")
 
             # Migrate: add author_id and client_id to task_notes if missing
             note_cols = [row["name"] for row in conn.execute("PRAGMA table_info(task_notes)").fetchall()]
@@ -227,6 +229,7 @@ class TaskRepository:
             is_focused=bool(row["is_focused"]) if "is_focused" in keys else False,
             list_id=row["list_id"] if "list_id" in keys else None,
             assigned_to=row["assigned_to"] if "assigned_to" in keys else None,
+            progress=int(row["progress"]) if "progress" in keys and row["progress"] is not None else 0,
             created_at=parse_dt(row["created_at"]),
             updated_at=parse_dt(row["updated_at"]),
             completed_at=parse_dt(row["completed_at"]),

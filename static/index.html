@@ -1664,7 +1664,7 @@
       });
       const [saving, setSaving] = useState(false);
       const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
-      const resetForm = () => setForm({ title: task.title || "", description: task.description || "", priority: task.priority || "P3", gtd_status: task.gtd_status || "inbox", project: task.project || "", context: task.context || "", deadline: task.deadline || "", waiting_for: task.waiting_for || "", assigned_to: task.assigned_to || null });
+      const resetForm = () => setForm({ title: task.title || "", description: task.description || "", priority: task.priority || "P3", gtd_status: task.gtd_status || "inbox", project: task.project || "", context: task.context || "", deadline: task.deadline || "", waiting_for: task.waiting_for || "", assigned_to: task.assigned_to || null, progress: task.progress || 0 });
       const [subtasks, setSubtasks] = useState([]);
       const [newSub, setNewSub] = useState("");
       const [adding, setAdding] = useState(false);
@@ -1791,6 +1791,18 @@
                     </select>
                   </div>
                 )}
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <label className="input-label" style={{ marginBottom: 0 }}>Progress</label>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: form.progress === 100 ? "#22c55e" : "var(--accent)" }}>{form.progress || 0}%</span>
+                  </div>
+                  <input type="range" min="0" max="100" step="5" value={form.progress || 0}
+                    onChange={e => setF("progress", parseInt(e.target.value))}
+                    style={{ width: "100%", accentColor: form.progress === 100 ? "#22c55e" : "var(--accent)" }} />
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--text-light)", marginTop: 2 }}>
+                    <span>0%</span><span>50%</span><span>100%</span>
+                  </div>
+                </div>
                 <div>
                   <label className="input-label">Deskripsi</label>
                   <MentionInput as="textarea" collaborators={collaborators} className="input" value={form.description} onChange={e => setF("description", e.target.value)} rows={3} style={{ resize: "vertical" }} />
@@ -1813,6 +1825,18 @@
                   {task.waiting_for && <div><span style={{ color: "var(--text-light)" }}>⏳ Waiting:</span> {task.waiting_for}</div>}
                   {task.assigned_to && <div><span style={{ color: "var(--text-light)" }}>👤 Assigned:</span> <b>{task.assigned_to_name || "?"}</b></div>}
                   {task.created_at && <div><span style={{ color: "var(--text-light)" }}>🕐 Created:</span> {task.created_at?.split("T")[0]}</div>}
+                </div>
+                {/* Progress bar */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)" }}>Progress</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: task.progress === 100 ? "#22c55e" : "var(--accent)" }}>{task.progress || 0}%</span>
+                  </div>
+                  <div style={{ height: 8, background: "#e2e8f0", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${task.progress || 0}%`, background: task.progress === 100 ? "#22c55e" : "var(--accent)", borderRadius: 4, transition: "width 0.4s" }} />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 14, marginBottom: 16 }}>
                   {task.completed_at && <div><span style={{ color: "var(--text-light)" }}>✅ Done:</span> {task.completed_at?.split("T")[0]}</div>}
                 </div>
               </>
@@ -1956,6 +1980,14 @@
                 📅 {formatDate(task.deadline)} {task.is_overdue && <span className="overdue-indicator" />}
               </span>}
             </div>
+            {task.progress > 0 && (
+              <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ flex: 1, height: 4, background: "#e2e8f0", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${task.progress}%`, background: task.progress === 100 ? "#22c55e" : "var(--accent)", borderRadius: 2, transition: "width 0.3s" }} />
+                </div>
+                <span style={{ fontSize: 11, color: "var(--text-light)", minWidth: 28, textAlign: "right" }}>{task.progress}%</span>
+              </div>
+            )}
           </div>
         </div>
       );
