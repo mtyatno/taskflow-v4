@@ -482,8 +482,8 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
 
     if existing["list_id"]:
         actor = user.get("username", f"user#{uid}")
-        new_assignee = updates.get("assigned_to", existing.get("assigned_to"))
-        old_assignee = existing.get("assigned_to")
+        new_assignee = updates.get("assigned_to", existing["assigned_to"])
+        old_assignee = existing["assigned_to"]
         if "assigned_to" in updates and new_assignee != old_assignee and new_assignee:
             # Notify the newly assigned user directly
             background_tasks.add_task(
