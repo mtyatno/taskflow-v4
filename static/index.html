@@ -1192,6 +1192,9 @@
     }
 
     function Sidebar({ page, setPage, summary, user, onLogout, isOpen, onClose, projects, tasks, collapsed, onToggleCollapse, sharedLists }) {
+      const [hiddenSections, setHiddenSections] = useState({});
+      const toggleSection = (name) => setHiddenSections(s => ({ ...s, [name]: !s[name] }));
+
       // Count tasks per project
       const projCounts = {};
       (projects || []).forEach(p => {
@@ -1245,6 +1248,32 @@
       links.push({ id: "overdue", icon: "⚠️", label: "Overdue", count: summary?.overdue });
       links.push({ id: "done", icon: "✅", label: "Done", count: summary?.by_status?.done });
 
+      // Render: track current section to know which links to hide
+      let currentSection = null;
+      const items = [];
+      links.forEach((l, i) => {
+        if (l.section) {
+          currentSection = l.section;
+          const isHidden = hiddenSections[currentSection];
+          items.push(
+            <div key={`sec-${i}`} className="sidebar-section" onClick={() => toggleSection(currentSection)}
+              style={{ cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", userSelect: "none" }}>
+              <span>{l.section}</span>
+              <span style={{ fontSize: 10, opacity: 0.6, marginRight: 4 }}>{isHidden ? "▶" : "▼"}</span>
+            </div>
+          );
+        } else if (!hiddenSections[currentSection]) {
+          items.push(
+            <div key={l.id} className={`sidebar-link ${page === l.id ? "active" : ""}`} onClick={() => { setPage(l.id); onClose?.(); }}>
+              <span>{l.icon}</span>
+              <span style={{ flex: 1 }}>{l.label}</span>
+              {l.badge === "shared" && <span style={{ fontSize: 10, background: "var(--accent)", color: "white", padding: "1px 5px", borderRadius: 3, marginRight: 4 }}>shared</span>}
+              {l.count > 0 && <span style={{ background: "rgba(0,0,0,0.08)", padding: "2px 8px", borderRadius: 4, fontSize: 12 }}>{l.count}</span>}
+            </div>
+          );
+        }
+      });
+
       return (
         <div className={`sidebar ${isOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`}>
           <div style={{ padding: "16px 20px 8px", borderBottom: "1px solid rgba(0,0,0,0.08)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1255,16 +1284,7 @@
             <button onClick={onToggleCollapse} title="Sembunyikan menu" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, padding: "4px 6px", borderRadius: 6, color: "#888880", lineHeight: 1 }}>✕</button>
           </div>
           <div className="sidebar-scroll">
-            {links.map((l, i) =>
-              l.section
-                ? <div key={i} className="sidebar-section">{l.section}</div>
-                : <div key={l.id} className={`sidebar-link ${page === l.id ? "active" : ""}`} onClick={() => { setPage(l.id); onClose?.(); }}>
-                    <span>{l.icon}</span>
-                    <span style={{ flex: 1 }}>{l.label}</span>
-                    {l.badge === "shared" && <span style={{ fontSize: 10, background: "var(--accent)", color: "white", padding: "1px 5px", borderRadius: 3, marginRight: 4 }}>shared</span>}
-                    {l.count > 0 && <span style={{ background: "rgba(0,0,0,0.08)", padding: "2px 8px", borderRadius: 4, fontSize: 12 }}>{l.count}</span>}
-                  </div>
-            )}
+            {items}
           </div>
           <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(0,0,0,0.08)", flexShrink: 0 }}>
             <div className="sidebar-link" onClick={onLogout} style={{ color: "#ef4444" }}>
