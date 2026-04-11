@@ -1253,12 +1253,13 @@
       const items = [];
       links.forEach((l, i) => {
         if (l.section) {
-          currentSection = l.section;
-          const isHidden = hiddenSections[currentSection];
+          const sName = l.section;
+          currentSection = sName;
+          const isHidden = hiddenSections[sName];
           items.push(
-            <div key={`sec-${i}`} className="sidebar-section" onClick={() => toggleSection(currentSection)}
+            <div key={`sec-${i}`} className="sidebar-section" onClick={() => toggleSection(sName)}
               style={{ cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", userSelect: "none" }}>
-              <span>{l.section}</span>
+              <span>{sName}</span>
               <span style={{ fontSize: 10, opacity: 0.6, marginRight: 4 }}>{isHidden ? "▶" : "▼"}</span>
             </div>
           );
