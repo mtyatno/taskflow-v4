@@ -1336,6 +1336,7 @@
         deadline: task?.deadline || "",
         waiting_for: task?.waiting_for || "",
         list_id: task?.list_id || null,
+        assigned_to: task?.assigned_to || null,
       });
       const [loading, setLoading] = useState(false);
 
@@ -1418,6 +1419,18 @@
                     <option value="">— Personal (tidak di-share) —</option>
                     {sharedLists.map(l => (
                       <option key={l.id} value={l.id}>{l.role === "owner" ? "📋" : "👥"} {l.name}</option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              {form.list_id && collaborators.length > 0 && (
+                <>
+                  <label className="input-label">Assign ke</label>
+                  <select className="input" value={form.assigned_to || ""} onChange={e => set("assigned_to", e.target.value ? parseInt(e.target.value) : null)} style={{ marginBottom: 14 }}>
+                    <option value="">— Tidak ada —</option>
+                    {collaborators.map(u => (
+                      <option key={u.id} value={u.id}>{u.display_name || u.username} (@{u.username})</option>
                     ))}
                   </select>
                 </>
@@ -1634,7 +1647,7 @@
       });
       const [saving, setSaving] = useState(false);
       const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
-      const resetForm = () => setForm({ title: task.title || "", description: task.description || "", priority: task.priority || "P3", gtd_status: task.gtd_status || "inbox", project: task.project || "", context: task.context || "", deadline: task.deadline || "", waiting_for: task.waiting_for || "" });
+      const resetForm = () => setForm({ title: task.title || "", description: task.description || "", priority: task.priority || "P3", gtd_status: task.gtd_status || "inbox", project: task.project || "", context: task.context || "", deadline: task.deadline || "", waiting_for: task.waiting_for || "", assigned_to: task.assigned_to || null });
       const [subtasks, setSubtasks] = useState([]);
       const [newSub, setNewSub] = useState("");
       const [adding, setAdding] = useState(false);
@@ -1745,6 +1758,17 @@
                     <input className="input" value={form.waiting_for} onChange={e => setF("waiting_for", e.target.value)} placeholder="Menunggu siapa/apa" />
                   </div>
                 )}
+                {task.list_id && collaborators.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <label className="input-label">Assign ke</label>
+                    <select className="input" value={form.assigned_to || ""} onChange={e => setF("assigned_to", e.target.value ? parseInt(e.target.value) : null)}>
+                      <option value="">— Tidak ada —</option>
+                      {collaborators.map(u => (
+                        <option key={u.id} value={u.id}>{u.display_name || u.username} (@{u.username})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="input-label">Deskripsi</label>
                   <MentionInput as="textarea" collaborators={collaborators} className="input" value={form.description} onChange={e => setF("description", e.target.value)} rows={3} style={{ resize: "vertical" }} />
@@ -1765,6 +1789,7 @@
                   {task.context && <div><span style={{ color: "var(--text-light)" }}>🏷️ Context:</span> {task.context}</div>}
                   {task.deadline && <div><span style={{ color: "var(--text-light)" }}>📅 Deadline:</span> {formatDate(task.deadline)} {task.is_overdue && <span className="overdue-indicator" />}</div>}
                   {task.waiting_for && <div><span style={{ color: "var(--text-light)" }}>⏳ Waiting:</span> {task.waiting_for}</div>}
+                  {task.assigned_to && <div><span style={{ color: "var(--text-light)" }}>👤 Assigned:</span> <b>{task.assigned_to_name || "?"}</b></div>}
                   {task.created_at && <div><span style={{ color: "var(--text-light)" }}>🕐 Created:</span> {task.created_at?.split("T")[0]}</div>}
                   {task.completed_at && <div><span style={{ color: "var(--text-light)" }}>✅ Done:</span> {task.completed_at?.split("T")[0]}</div>}
                 </div>
@@ -1902,6 +1927,7 @@
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
               {task.list_id && <span style={{ fontSize: 11, background: "var(--accent)", color: "white", padding: "1px 5px", borderRadius: 3 }}>👥 shared</span>}
+              {task.assigned_to && <span style={{ fontSize: 11, background: "#dbeafe", color: "#1d4ed8", padding: "1px 6px", borderRadius: 3, fontWeight: 600 }}>👤 {task.assigned_to_name || "?"}</span>}
               {task.project && <span style={{ fontSize: 12, color: "var(--text-light)" }}>📁 {task.project}</span>}
               {task.context && <span style={{ fontSize: 12, color: "var(--text-light)" }}>{task.context}</span>}
               {task.deadline && <span style={{ fontSize: 12, color: task.is_overdue ? "#ef4444" : "var(--text-light)" }}>
@@ -2593,11 +2619,12 @@
     }
 
     // ── Task List view with filters ─────────────────────────────
-    function TaskListView({ tasks, allTasks, title, icon, onTaskClick, onDone, onToggleFocus, loading, projects, contexts, showFilters, showQuadrant = true }) {
+    function TaskListView({ tasks, allTasks, title, icon, onTaskClick, onDone, onToggleFocus, loading, projects, contexts, showFilters, showQuadrant = true, collaborators = [] }) {
       const [fPriority, setFPriority] = useState("");
       const [fQuadrant, setFQuadrant] = useState("");
       const [fProject, setFProject] = useState("");
       const [fContext, setFContext] = useState("");
+      const [fAssignee, setFAssignee] = useState("");
       const [fSearch, setFSearch] = useState("");
 
       const toggle = (setter, current, val) => setter(current === val ? "" : val);
@@ -2607,13 +2634,14 @@
       if (fQuadrant) filtered = filtered.filter(t => t.quadrant === fQuadrant);
       if (fProject) filtered = filtered.filter(t => t.project === fProject);
       if (fContext) filtered = filtered.filter(t => t.context === fContext);
+      if (fAssignee) filtered = filtered.filter(t => t.assigned_to === parseInt(fAssignee));
       if (fSearch) {
         const q = fSearch.toLowerCase();
         filtered = filtered.filter(t => t.title.toLowerCase().includes(q) || (t.description || "").toLowerCase().includes(q));
       }
 
-      const hasFilters = fPriority || fQuadrant || fProject || fContext || fSearch;
-      const clearAll = () => { setFPriority(""); setFQuadrant(""); setFProject(""); setFContext(""); setFSearch(""); };
+      const hasFilters = fPriority || fQuadrant || fProject || fContext || fAssignee || fSearch;
+      const clearAll = () => { setFPriority(""); setFQuadrant(""); setFProject(""); setFContext(""); setFAssignee(""); setFSearch(""); };
 
       // Derive projects/contexts from allTasks if not provided
       const projList = projects && projects.length > 0 ? projects : [...new Set(allTasks?.filter(t => t.project).map(t => t.project) || [])];
@@ -2671,6 +2699,15 @@
                     <select className="input" value={fContext} onChange={e => setFContext(e.target.value)} style={{ padding: "8px 12px", fontSize: 13 }}>
                       <option value="">Semua Context</option>
                       {ctxList.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                )}
+                {collaborators.length > 0 && (
+                  <div>
+                    <div className="input-label">Assignee</div>
+                    <select className="input" value={fAssignee} onChange={e => setFAssignee(e.target.value)} style={{ padding: "8px 12px", fontSize: 13 }}>
+                      <option value="">Semua Member</option>
+                      {collaborators.map(u => <option key={u.id} value={u.id}>👤 {u.display_name || u.username}</option>)}
                     </select>
                   </div>
                 )}
@@ -3269,6 +3306,7 @@
             contexts={contexts}
             showFilters={page !== "dashboard" && page !== "today"}
             showQuadrant={!["q1","q2","q3","q4"].includes(page)}
+            collaborators={page.startsWith("slist_") ? collaborators : []}
           />
         );
       };

@@ -182,10 +182,12 @@ class TaskRepository:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, is_read, created_at)")
 
-            # Migrate: add list_id to tasks if missing
+            # Migrate: add list_id and assigned_to to tasks if missing
             cols = [row["name"] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()]
             if "list_id" not in cols:
                 conn.execute("ALTER TABLE tasks ADD COLUMN list_id INTEGER DEFAULT NULL")
+            if "assigned_to" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN assigned_to INTEGER DEFAULT NULL")
 
             # Migrate: add author_id to task_notes if missing
             note_cols = [row["name"] for row in conn.execute("PRAGMA table_info(task_notes)").fetchall()]
@@ -215,6 +217,7 @@ class TaskRepository:
             waiting_for=row["waiting_for"] or "",
             is_focused=bool(row["is_focused"]) if "is_focused" in keys else False,
             list_id=row["list_id"] if "list_id" in keys else None,
+            assigned_to=row["assigned_to"] if "assigned_to" in keys else None,
             created_at=parse_dt(row["created_at"]),
             updated_at=parse_dt(row["updated_at"]),
             completed_at=parse_dt(row["completed_at"]),

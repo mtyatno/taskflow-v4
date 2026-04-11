@@ -91,6 +91,7 @@ class Task:
     waiting_for: str = ""       # Who/what are we waiting for
     is_focused: bool = False
     list_id: Optional[int] = None
+    assigned_to: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

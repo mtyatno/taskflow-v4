@@ -137,6 +137,7 @@ class TaskCreate(BaseModel):
     gtd_status: str = "inbox"
     waiting_for: str = ""
     list_id: Optional[int] = None
+    assigned_to: Optional[int] = None
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
@@ -147,6 +148,7 @@ class TaskUpdate(BaseModel):
     deadline: Optional[str] = None
     gtd_status: Optional[str] = None
     waiting_for: Optional[str] = None
+    assigned_to: Optional[int] = None
 
 class SharedListCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
@@ -160,7 +162,7 @@ class JoinListReq(BaseModel):
 
 # ── Row → dict helper ─────────────────────────────────────────────────────────
 
-def task_row_to_dict(row) -> dict:
+def task_row_to_dict(row, conn=None) -> dict:
     d = dict(row)
     # Compute extra fields
     dl = d.get("deadline")
@@ -176,6 +178,19 @@ def task_row_to_dict(row) -> dict:
     d["is_overdue"] = is_overdue
     d["days_until_deadline"] = days_left
     d["is_focused"] = bool(d.get("is_focused", 0))
+    # Resolve assigned_to display name
+    assigned_id = d.get("assigned_to")
+    if assigned_id:
+        def _fetch_name(c):
+            u = c.execute("SELECT username, display_name FROM users WHERE id = ?", (assigned_id,)).fetchone()
+            return (u["display_name"] or u["username"]) if u else None
+        if conn:
+            d["assigned_to_name"] = _fetch_name(conn)
+        else:
+            with get_db() as c:
+                d["assigned_to_name"] = _fetch_name(c)
+    else:
+        d["assigned_to_name"] = None
     return d
 
 
@@ -389,10 +404,10 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
         cur = conn.execute(
             """INSERT INTO tasks
                (title, description, gtd_status, priority, quadrant,
-                project, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                project, context, deadline, waiting_for, user_id, list_id, assigned_to, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (req.title, req.description, req.gtd_status, req.priority.upper(), quadrant,
-             req.project, req.context, deadline, req.waiting_for, uid, req.list_id, now, now),
+             req.project, req.context, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, now, now),
         )
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (cur.lastrowid,)).fetchone()
 
@@ -442,6 +457,8 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
             else:
                 d = parse_date(req.deadline)
                 updates["deadline"] = d.isoformat() if d else None
+        if req.assigned_to is not None:
+            updates["assigned_to"] = req.assigned_to if req.assigned_to != 0 else None
 
         if not updates:
             raise HTTPException(status_code=400, detail="No fields to update")
@@ -462,11 +479,21 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
 
     if existing["list_id"]:
         actor = user.get("username", f"user#{uid}")
-        background_tasks.add_task(
-            _notify_members_bg, existing["list_id"], uid,
-            f"✏️ <b>{actor}</b> memperbarui task <b>{existing['title']}</b>.",
-            task_id=task_id
-        )
+        new_assignee = updates.get("assigned_to", existing.get("assigned_to"))
+        old_assignee = existing.get("assigned_to")
+        if "assigned_to" in updates and new_assignee != old_assignee and new_assignee:
+            # Notify the newly assigned user directly
+            background_tasks.add_task(
+                _notify_members_bg, existing["list_id"], uid,
+                f"📌 <b>{actor}</b> menugaskan task <b>{existing['title']}</b> kepadamu.",
+                task_id=task_id
+            )
+        else:
+            background_tasks.add_task(
+                _notify_members_bg, existing["list_id"], uid,
+                f"✏️ <b>{actor}</b> memperbarui task <b>{existing['title']}</b>.",
+                task_id=task_id
+            )
     return task_row_to_dict(row)
 
 
