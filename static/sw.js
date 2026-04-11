@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v1";
+const CACHE = "taskflow-v2";
 const STATIC = [
   "/",
   "/static/vendor/react.production.min.js",
@@ -13,7 +13,10 @@ const STATIC = [
 
 self.addEventListener("install", e => {
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(STATIC)).then(() => self.skipWaiting())
+    caches.open(CACHE).then(cache =>
+      // allSettled: SW tetap install walau ada file yang gagal di-cache
+      Promise.allSettled(STATIC.map(url => cache.add(url)))
+    ).then(() => self.skipWaiting())
   );
 });
 
@@ -28,7 +31,7 @@ self.addEventListener("activate", e => {
 self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
 
-  // API calls: network-first, fallback to nothing (let app handle error)
+  // API calls: network-first, fallback ke error json
   if (url.pathname.startsWith("/api/")) {
     e.respondWith(
       fetch(e.request).catch(() => new Response(
@@ -49,7 +52,7 @@ self.addEventListener("fetch", e => {
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }
         return res;
-      });
+      }).catch(() => cached || new Response("Offline", { status: 503 }));
     })
   );
 });
