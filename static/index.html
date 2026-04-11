@@ -1378,6 +1378,17 @@
       const [loading, setLoading] = useState(false);
 
       const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+      const [listMembers, setListMembers] = useState([]);
+
+      useEffect(() => {
+        if (form.list_id) {
+          api.get(`/api/lists/${form.list_id}/members`)
+            .then(setListMembers)
+            .catch(() => setListMembers([]));
+        } else {
+          setListMembers([]);
+        }
+      }, [form.list_id]);
 
       const handleSubmit = async (e) => {
         e.preventDefault();
@@ -1461,13 +1472,15 @@
                 </>
               )}
 
-              {form.list_id && collaborators.length > 0 && (
+              {form.list_id && (
                 <>
                   <label className="input-label">Assign ke</label>
                   <select className="input" value={form.assigned_to || ""} onChange={e => set("assigned_to", e.target.value ? parseInt(e.target.value) : null)} style={{ marginBottom: 14 }}>
                     <option value="">— Tidak ada —</option>
-                    {collaborators.map(u => (
-                      <option key={u.id} value={u.id}>{u.display_name || u.username} (@{u.username})</option>
+                    {listMembers.map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.display_name || u.username} {u.is_self ? "(Saya)" : `(@${u.username})`}
+                      </option>
                     ))}
                   </select>
                 </>
@@ -1692,6 +1705,7 @@
     function TaskDetailModal({ task, onClose, onEdit, onDone, onDelete, onRefresh, onToggleFocus, projects = [], contexts = [], collaborators = [] }) {
       if (!task) return null;
       const [isEditing, setIsEditing] = useState(false);
+      const [listMembers, setListMembers] = useState([]);
       const [form, setForm] = useState({
         title: task.title || "",
         description: task.description || "",
@@ -1713,6 +1727,15 @@
       const [addingSub, setAddingSub] = useState(false);
       const [loadingSubs, setLoadingSubs] = useState(true);
       const subClientId = useRef(genId());
+
+      // Fetch list members for assignee dropdown when entering edit mode
+      useEffect(() => {
+        if (isEditing && task?.list_id) {
+          api.get(`/api/lists/${task.list_id}/members`)
+            .then(setListMembers)
+            .catch(() => setListMembers([]));
+        }
+      }, [isEditing, task?.list_id]);
 
       // Fetch subtasks
       useEffect(() => {
@@ -1822,13 +1845,15 @@
                     <input className="input" value={form.waiting_for} onChange={e => setF("waiting_for", e.target.value)} placeholder="Menunggu siapa/apa" />
                   </div>
                 )}
-                {task.list_id && collaborators.length > 0 && (
+                {task.list_id && (
                   <div style={{ marginBottom: 10 }}>
                     <label className="input-label">Assign ke</label>
                     <select className="input" value={form.assigned_to || ""} onChange={e => setF("assigned_to", e.target.value ? parseInt(e.target.value) : null)}>
                       <option value="">— Tidak ada —</option>
-                      {collaborators.map(u => (
-                        <option key={u.id} value={u.id}>{u.display_name || u.username} (@{u.username})</option>
+                      {listMembers.map(u => (
+                        <option key={u.id} value={u.id}>
+                          {u.display_name || u.username} {u.is_self ? "(Saya)" : `(@${u.username})`}
+                        </option>
                       ))}
                     </select>
                   </div>

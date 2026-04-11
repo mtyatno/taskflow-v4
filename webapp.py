@@ -938,6 +938,37 @@ async def get_list(list_id: int, user=Depends(get_current_user)):
     return {**lst, "members": members, "owner": dict(owner) if owner else None}
 
 
+@app.get("/api/lists/{list_id}/members")
+async def get_list_members_for_assign(list_id: int, user=Depends(get_current_user)):
+    """Members of a specific list for assignee dropdown — includes self, owner, and members."""
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Not a member of this list")
+    with get_db() as conn:
+        self_row = conn.execute(
+            "SELECT id, username, display_name FROM users WHERE id = ?", (uid,)
+        ).fetchone()
+        owner_row = conn.execute(
+            "SELECT u.id, u.username, u.display_name FROM shared_lists sl "
+            "JOIN users u ON u.id = sl.owner_id WHERE sl.id = ?", (list_id,)
+        ).fetchone()
+        member_rows = conn.execute(
+            "SELECT u.id, u.username, u.display_name FROM list_members lm "
+            "JOIN users u ON u.id = lm.user_id WHERE lm.list_id = ? ORDER BY lm.joined_at",
+            (list_id,)
+        ).fetchall()
+    seen = set()
+    result = []
+    for row in ([self_row, owner_row] + list(member_rows)):
+        if row and row["id"] not in seen:
+            seen.add(row["id"])
+            d = dict(row)
+            d["is_self"] = (row["id"] == uid)
+            result.append(d)
+    return result
+
+
 @app.delete("/api/lists/{list_id}")
 async def delete_list(list_id: int, user=Depends(get_current_user)):
     repo = TaskRepository(DB_PATH)
