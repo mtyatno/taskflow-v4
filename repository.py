@@ -189,10 +189,19 @@ class TaskRepository:
             if "assigned_to" not in cols:
                 conn.execute("ALTER TABLE tasks ADD COLUMN assigned_to INTEGER DEFAULT NULL")
 
-            # Migrate: add author_id to task_notes if missing
+            # Migrate: add author_id and client_id to task_notes if missing
             note_cols = [row["name"] for row in conn.execute("PRAGMA table_info(task_notes)").fetchall()]
             if "author_id" not in note_cols:
                 conn.execute("ALTER TABLE task_notes ADD COLUMN author_id INTEGER DEFAULT NULL")
+            if "client_id" not in note_cols:
+                conn.execute("ALTER TABLE task_notes ADD COLUMN client_id TEXT DEFAULT NULL")
+
+            # Migrate: add client_id to subtasks if missing
+            sub_cols = [row["name"] for row in conn.execute("PRAGMA table_info(subtasks)").fetchall()]
+            if "client_id" not in sub_cols:
+                conn.execute("ALTER TABLE subtasks ADD COLUMN client_id TEXT DEFAULT NULL")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_subtasks_client_id ON subtasks(client_id) WHERE client_id IS NOT NULL")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_client_id ON task_notes(client_id) WHERE client_id IS NOT NULL")
 
     # ── Row to Task mapping ────────────────────────────────────────────────
 
@@ -497,18 +506,24 @@ class TaskRepository:
 
     # ── Subtask CRUD ───────────────────────────────────────────────────────
 
-    def add_subtask(self, task_id: int, title: str) -> dict:
+    def add_subtask(self, task_id: int, title: str, client_id: Optional[str] = None) -> dict:
         now = datetime.now().isoformat()
         with self._connect() as conn:
-            # Get next sort order
+            # Idempotency: return existing if same client_id
+            if client_id:
+                existing = conn.execute(
+                    "SELECT * FROM subtasks WHERE client_id = ?", (client_id,)
+                ).fetchone()
+                if existing:
+                    return dict(existing)
             row = conn.execute(
                 "SELECT COALESCE(MAX(sort_order), -1) + 1 as next_order FROM subtasks WHERE task_id = ?",
                 (task_id,),
             ).fetchone()
             order = row["next_order"]
             cur = conn.execute(
-                "INSERT INTO subtasks (task_id, title, is_done, sort_order, created_at) VALUES (?,?,0,?,?)",
-                (task_id, title, order, now),
+                "INSERT INTO subtasks (task_id, title, is_done, sort_order, created_at, client_id) VALUES (?,?,0,?,?,?)",
+                (task_id, title, order, now, client_id),
             )
             return {"id": cur.lastrowid, "task_id": task_id, "title": title, "is_done": False, "sort_order": order}
 
@@ -846,15 +861,22 @@ class TaskRepository:
 
     # ── Notes with author ──────────────────────────────────────────────────
 
-    def add_note_with_author(self, task_id: int, content: str, author_id: Optional[int] = None) -> dict:
+    def add_note_with_author(self, task_id: int, content: str, author_id: Optional[int] = None, client_id: Optional[str] = None) -> dict:
         now = datetime.now().isoformat()
         with self._connect() as conn:
+            # Idempotency: return existing if same client_id
+            if client_id:
+                existing = conn.execute(
+                    "SELECT * FROM task_notes WHERE client_id = ?", (client_id,)
+                ).fetchone()
+                if existing:
+                    return dict(existing)
             cur = conn.execute(
-                "INSERT INTO task_notes (task_id, content, created_at, author_id) VALUES (?,?,?,?)",
-                (task_id, content, now, author_id),
+                "INSERT INTO task_notes (task_id, content, created_at, author_id, client_id) VALUES (?,?,?,?,?)",
+                (task_id, content, now, author_id, client_id),
             )
             return {"id": cur.lastrowid, "task_id": task_id, "content": content,
-                    "created_at": now, "author_id": author_id, "author_name": None}
+                    "created_at": now, "author_id": author_id, "author_name": None, "client_id": client_id}
 
     def get_notes_with_author(self, task_id: int) -> list[dict]:
         with self._connect() as conn:

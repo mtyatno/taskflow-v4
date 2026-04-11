@@ -517,19 +517,31 @@
     };
 
     // ── API helper ──────────────────────────────────────────────
+    const genId = () => (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
+
     const api = {
       async fetch(url, opts = {}) {
         const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
         if (__token) headers["Authorization"] = "Bearer " + __token;
-        const res = await fetch(url, { ...opts, headers });
-        if (res.status === 401 && !url.includes("/api/auth/")) {
-          tokenStore.clear();
-          window.__logout?.();
-          throw new Error("Unauthorized");
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15000);
+        try {
+          const res = await fetch(url, { ...opts, headers, signal: controller.signal });
+          clearTimeout(timer);
+          if (res.status === 401 && !url.includes("/api/auth/")) {
+            tokenStore.clear();
+            window.__logout?.();
+            throw new Error("Unauthorized");
+          }
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Request failed");
+          return data;
+        } catch (err) {
+          clearTimeout(timer);
+          if (err.name === "AbortError") throw new Error("Request timeout — coba lagi");
+          throw err;
         }
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Request failed");
-        return data;
       },
       get: (url) => api.fetch(url),
       post: (url, body) => api.fetch(url, { method: "POST", body: JSON.stringify(body) }),
@@ -1547,6 +1559,8 @@
       const [notes, setNotes] = useState([]);
       const [newNote, setNewNote] = useState("");
       const [expanded, setExpanded] = useState(false);
+      const [submitting, setSubmitting] = useState(false);
+      const noteClientId = useRef(genId());
 
       useEffect(() => {
         api.get(`/api/tasks/${taskId}/notes`)
@@ -1555,12 +1569,15 @@
       }, [taskId]);
 
       const handleAdd = async () => {
-        if (!newNote.trim()) return;
+        if (!newNote.trim() || submitting) return;
+        setSubmitting(true);
         try {
-          const result = await api.post(`/api/tasks/${taskId}/notes`, { content: newNote.trim() });
+          const result = await api.post(`/api/tasks/${taskId}/notes`, { content: newNote.trim(), client_id: noteClientId.current });
           setNotes(prev => [result, ...prev]);
           setNewNote("");
+          noteClientId.current = genId(); // reset hanya saat berhasil
         } catch (err) { console.error(err); }
+        finally { setSubmitting(false); }
       };
 
       const handleDelete = async (noteId) => {
@@ -1597,7 +1614,7 @@
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAdd(); } }}
               style={{ flex: 1, padding: "8px 10px", fontSize: 13 }}
             />
-            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={!newNote.trim()}>Simpan</button>
+            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={!newNote.trim() || submitting}>{submitting ? "..." : "Simpan"}</button>
           </div>
 
           {shown.map(n => (
@@ -1651,7 +1668,9 @@
       const [subtasks, setSubtasks] = useState([]);
       const [newSub, setNewSub] = useState("");
       const [adding, setAdding] = useState(false);
+      const [addingSub, setAddingSub] = useState(false);
       const [loadingSubs, setLoadingSubs] = useState(true);
+      const subClientId = useRef(genId());
 
       // Fetch subtasks
       useEffect(() => {
@@ -1671,13 +1690,16 @@
       };
 
       const handleAddSub = async () => {
-        if (!newSub.trim()) return;
+        if (!newSub.trim() || addingSub) return;
+        setAddingSub(true);
         try {
-          const result = await api.post(`/api/tasks/${task.id}/subtasks`, { title: newSub.trim() });
+          const result = await api.post(`/api/tasks/${task.id}/subtasks`, { title: newSub.trim(), client_id: subClientId.current });
           setSubtasks(prev => [...prev, result]);
           setNewSub("");
           setAdding(false);
+          subClientId.current = genId();
         } catch (err) { console.error(err); }
+        finally { setAddingSub(false); }
       };
 
       const handleDeleteSub = async (subId) => {
@@ -1861,8 +1883,8 @@
                     onKeyDown={e => { if (e.key === "Enter") handleAddSub(); if (e.key === "Escape") { setAdding(false); setNewSub(""); } }}
                     style={{ flex: 1, padding: "6px 10px", fontSize: 13 }}
                   />
-                  <button className="btn btn-primary btn-sm" onClick={handleAddSub} style={{ fontSize: 12 }}>Tambah</button>
-                  <button className="btn btn-secondary btn-sm" onClick={() => { setAdding(false); setNewSub(""); }} style={{ fontSize: 12 }}>Batal</button>
+                  <button className="btn btn-primary btn-sm" onClick={handleAddSub} disabled={addingSub || !newSub.trim()} style={{ fontSize: 12 }}>{addingSub ? "..." : "Tambah"}</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => { setAdding(false); setNewSub(""); }} disabled={addingSub} style={{ fontSize: 12 }}>Batal</button>
                 </div>
               )}
 
@@ -2243,6 +2265,8 @@
       const [subtasks, setSubtasks] = useState([]);
       const [newSub, setNewSub] = useState("");
       const [adding, setAdding] = useState(false);
+      const [submitting, setSubmitting] = useState(false);
+      const clientId = useRef(genId());
 
       const fetchSubs = useCallback(() => {
         api.get(`/api/tasks/${taskId}/subtasks`)
@@ -2266,12 +2290,15 @@
       };
 
       const handleAdd = async () => {
-        if (!newSub.trim()) return;
+        if (!newSub.trim() || submitting) return;
+        setSubmitting(true);
         try {
-          const result = await api.post(`/api/tasks/${taskId}/subtasks`, { title: newSub.trim() });
+          const result = await api.post(`/api/tasks/${taskId}/subtasks`, { title: newSub.trim(), client_id: clientId.current });
           setSubtasks(prev => [...prev, result]);
           setNewSub("");
+          clientId.current = genId();
         } catch (err) { console.error(err); }
+        finally { setSubmitting(false); }
       };
 
       const doneCount = subtasks.filter(s => s.is_done).length;
@@ -2325,7 +2352,7 @@
                 onKeyDown={e => { if (e.key === "Enter") handleAdd(); if (e.key === "Escape") { setAdding(false); setNewSub(""); } }}
                 style={{ flex: 1, padding: "4px 8px", fontSize: 12 }}
               />
-              <button className="btn btn-primary btn-sm" onClick={handleAdd} style={{ fontSize: 11, padding: "4px 10px" }}>OK</button>
+              <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={submitting || !newSub.trim()} style={{ fontSize: 11, padding: "4px 10px" }}>{submitting ? "..." : "OK"}</button>
             </div>
           )}
 
@@ -2341,6 +2368,8 @@
       const [notes, setNotes] = useState([]);
       const [newNote, setNewNote] = useState("");
       const [expanded, setExpanded] = useState(false);
+      const [submitting, setSubmitting] = useState(false);
+      const clientId = useRef(genId());
 
       const fetchNotes = useCallback(() => {
         api.get(`/api/tasks/${taskId}/notes`)
@@ -2357,12 +2386,15 @@
       }, [fetchNotes]);
 
       const handleAdd = async () => {
-        if (!newNote.trim()) return;
+        if (!newNote.trim() || submitting) return;
+        setSubmitting(true);
         try {
-          const result = await api.post(`/api/tasks/${taskId}/notes`, { content: newNote.trim() });
+          const result = await api.post(`/api/tasks/${taskId}/notes`, { content: newNote.trim(), client_id: clientId.current });
           setNotes(prev => [result, ...prev]);
           setNewNote("");
+          clientId.current = genId();
         } catch (err) { console.error(err); }
+        finally { setSubmitting(false); }
       };
 
       const handleDelete = async (noteId) => {
@@ -2401,7 +2433,7 @@
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAdd(); } }}
               style={{ flex: 1, padding: "6px 10px", fontSize: 12 }}
             />
-            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={!newNote.trim()} style={{ fontSize: 11, padding: "4px 10px" }}>Simpan</button>
+            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={!newNote.trim() || submitting} style={{ fontSize: 11, padding: "4px 10px" }}>{submitting ? "..." : "Simpan"}</button>
           </div>
 
           {/* Notes list */}

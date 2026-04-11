@@ -634,6 +634,7 @@ async def recalculate_eisenhower(user=Depends(get_current_user)):
 
 class SubtaskCreate(BaseModel):
     title: str = Field(min_length=1)
+    client_id: Optional[str] = None
 
 @app.get("/api/tasks/{task_id}/subtasks")
 async def get_subtasks(task_id: int, user=Depends(get_current_user)):
@@ -648,7 +649,7 @@ async def create_subtask(task_id: int, req: SubtaskCreate, background_tasks: Bac
     with get_db() as conn:
         row = _can_access_task(conn, task_id, uid, write=True)
     repo = TaskRepository(DB_PATH)
-    result = repo.add_subtask(task_id, req.title)
+    result = repo.add_subtask(task_id, req.title, client_id=req.client_id)
     if row["list_id"]:
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
@@ -687,6 +688,7 @@ async def delete_subtask(subtask_id: int, user=Depends(get_current_user)):
 
 class NoteCreate(BaseModel):
     content: str = Field(min_length=1)
+    client_id: Optional[str] = None
 
 @app.get("/api/tasks/{task_id}/notes")
 async def get_notes(task_id: int, user=Depends(get_current_user)):
@@ -701,7 +703,7 @@ async def create_note(task_id: int, req: NoteCreate, background_tasks: Backgroun
     with get_db() as conn:
         row = _can_access_task(conn, task_id, uid, write=True)
     repo = TaskRepository(DB_PATH)
-    note = repo.add_note_with_author(task_id, req.content, uid)
+    note = repo.add_note_with_author(task_id, req.content, uid, client_id=req.client_id)
     if row["list_id"]:
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
