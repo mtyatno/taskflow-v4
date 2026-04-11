@@ -1036,6 +1036,12 @@ async def serve_sw():
                         headers={"Service-Worker-Allowed": "/"})
 
 
+@app.get("/manifest.json")
+async def serve_manifest():
+    mf = STATIC_DIR / "manifest.json"
+    return FileResponse(str(mf), media_type="application/manifest+json")
+
+
 # Mount static files
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
