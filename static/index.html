@@ -1663,6 +1663,8 @@
         context: task.context || "",
         deadline: task.deadline || "",
         waiting_for: task.waiting_for || "",
+        assigned_to: task.assigned_to || null,
+        progress: task.progress || 0,
       });
       const [saving, setSaving] = useState(false);
       const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
