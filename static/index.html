@@ -1377,6 +1377,9 @@
         progress: task?.progress || 0,
       });
       const [loading, setLoading] = useState(false);
+      const [pendingSubtasks, setPendingSubtasks] = useState([]);
+      const [pendingSubTitle, setPendingSubTitle] = useState("");
+      const [pendingSubGtd, setPendingSubGtd] = useState("inbox");
 
       const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
       const [listMembers, setListMembers] = useState([]);
@@ -1398,7 +1401,11 @@
           if (isEdit) {
             await api.put(`/api/tasks/${task.id}`, form);
           } else {
-            await api.post("/api/tasks", form);
+            const newTask = await api.post("/api/tasks", form);
+            // Create pending subtasks
+            for (const sub of pendingSubtasks) {
+              await api.post("/api/tasks", { title: sub.title, gtd_status: sub.gtd, parent_id: newTask.id });
+            }
           }
           onSave();
         } catch (err) { alert(err.message); }
@@ -1511,7 +1518,39 @@
               )}
 
               <label className="input-label">Deskripsi</label>
-              <MentionInput as="textarea" collaborators={collaborators} className="input" value={form.description} onChange={e => set("description", e.target.value)} rows={3} style={{ marginBottom: 20, resize: "vertical" }} />
+              <MentionInput as="textarea" collaborators={collaborators} className="input" value={form.description} onChange={e => set("description", e.target.value)} rows={3} style={{ marginBottom: 16, resize: "vertical" }} />
+
+              {/* Subtask section */}
+              {!isEdit && (
+                <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginBottom: 16 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>📌 Subtask
+                    {pendingSubtasks.length > 0 && <span style={{ fontWeight: 400, color: "var(--text-light)", fontSize: 13 }}> ({pendingSubtasks.length})</span>}
+                  </div>
+                  {pendingSubtasks.map((s, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 6, background: "#f8fafc", border: "1px solid var(--border)", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>
+                      <StatusBadge s={s.gtd} />
+                      <span onClick={() => setPendingSubtasks(p => p.filter((_, j) => j !== i))}
+                        style={{ cursor: "pointer", fontSize: 13, color: "var(--text-light)", padding: "0 2px" }}>✕</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                    <input className="input" value={pendingSubTitle} onChange={e => setPendingSubTitle(e.target.value)}
+                      placeholder="Judul subtask..."
+                      onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); if (pendingSubTitle.trim()) { setPendingSubtasks(p => [...p, { title: pendingSubTitle.trim(), gtd: pendingSubGtd }]); setPendingSubTitle(""); } } }}
+                      style={{ flex: 1, padding: "5px 8px", fontSize: 13 }} />
+                    <select className="input" value={pendingSubGtd} onChange={e => setPendingSubGtd(e.target.value)}
+                      style={{ width: 100, padding: "5px 6px", fontSize: 12 }}>
+                      <option value="inbox">📥 Inbox</option>
+                      <option value="next">▶️ Next</option>
+                      <option value="waiting">⏳ Waiting</option>
+                      <option value="someday">💭 Someday</option>
+                    </select>
+                    <button type="button" className="btn btn-secondary btn-sm" style={{ fontSize: 12 }}
+                      onClick={() => { if (pendingSubTitle.trim()) { setPendingSubtasks(p => [...p, { title: pendingSubTitle.trim(), gtd: pendingSubGtd }]); setPendingSubTitle(""); } }}>＋</button>
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                 <button type="button" className="btn btn-secondary" onClick={onClose}>Batal</button>
@@ -1703,7 +1742,7 @@
     }
 
     // ── Task Detail Modal ───────────────────────────────────────
-    function TaskDetailModal({ task, onClose, onEdit, onDone, onDelete, onRefresh, onToggleFocus, projects = [], contexts = [], collaborators = [] }) {
+    function TaskDetailModal({ task, onClose, onEdit, onDone, onDelete, onRefresh, onToggleFocus, onOpenTask, projects = [], contexts = [], collaborators = [] }) {
       if (!task) return null;
       const [isEditing, setIsEditing] = useState(false);
       const [listMembers, setListMembers] = useState([]);
@@ -1728,6 +1767,11 @@
       const [addingSub, setAddingSub] = useState(false);
       const [loadingSubs, setLoadingSubs] = useState(true);
       const subClientId = useRef(genId());
+      // Child tasks (subtasks as full tasks)
+      const [childTasks, setChildTasks] = useState([]);
+      const [newChildTitle, setNewChildTitle] = useState("");
+      const [newChildGtd, setNewChildGtd] = useState("inbox");
+      const [addingChild, setAddingChild] = useState(false);
 
       // Fetch list members for assignee dropdown when entering edit mode
       useEffect(() => {
@@ -1738,7 +1782,7 @@
         }
       }, [isEditing, task?.list_id]);
 
-      // Fetch subtasks
+      // Fetch subtasks (checklist)
       useEffect(() => {
         if (task?.id) {
           setLoadingSubs(true);
@@ -1747,6 +1791,16 @@
             .catch(() => setLoadingSubs(false));
         }
       }, [task?.id]);
+
+      // Fetch child tasks (full tasks with parent_id)
+      const fetchChildTasks = () => {
+        if (task?.id) {
+          api.get(`/api/tasks/${task.id}/child-tasks`)
+            .then(setChildTasks)
+            .catch(() => setChildTasks([]));
+        }
+      };
+      useEffect(() => { fetchChildTasks(); }, [task?.id]);
 
       const handleToggle = async (subId) => {
         try {
@@ -1773,6 +1827,18 @@
           await api.del(`/api/subtasks/${subId}`);
           setSubtasks(prev => prev.filter(s => s.id !== subId));
         } catch (err) { console.error(err); }
+      };
+
+      const handleAddChildTask = async () => {
+        if (!newChildTitle.trim() || addingChild) return;
+        setAddingChild(true);
+        try {
+          await api.post("/api/tasks", { title: newChildTitle.trim(), gtd_status: newChildGtd, parent_id: task.id });
+          setNewChildTitle("");
+          setNewChildGtd("inbox");
+          fetchChildTasks();
+        } catch (err) { console.error(err); }
+        finally { setAddingChild(false); }
       };
 
       const handleSave = async () => {
@@ -1802,6 +1868,13 @@
               </div>
               <span onClick={onClose} style={{ cursor: "pointer", fontSize: 20, color: "var(--text-light)" }}>✕</span>
             </div>
+
+            {/* Parent task banner */}
+            {task.parent_id && (
+              <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "7px 12px", marginBottom: 14, fontSize: 13, color: "#1d4ed8" }}>
+                ↳ Subtask dari: <b>#{task.parent_id}</b> {task.parent_title && `— ${task.parent_title}`}
+              </div>
+            )}
 
             {isEditing ? (
               <div style={{ marginBottom: 16 }}>
@@ -1912,11 +1985,50 @@
               </>
             )}
 
-            {/* Subtasks Section */}
+            {/* Child Tasks (Subtask) Section */}
+            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>📌 Subtask
+                {childTasks.length > 0 && <span style={{ fontWeight: 400, color: "var(--text-light)", fontSize: 13 }}> ({childTasks.length})</span>}
+              </div>
+              {childTasks.map(ct => {
+                const priColor = { P1: "#fee2e2", P2: "#ffedd5", P3: "#fef9c3", P4: "#dcfce7" };
+                return (
+                  <div key={ct.id} onClick={() => { onOpenTask ? onOpenTask(ct) : onClose(); }}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 6, marginBottom: 4, cursor: "pointer",
+                      background: priColor[ct.priority] || "#f8fafc", border: "1px solid #e2e8f0", transition: "opacity 0.15s" }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = "0.75"}
+                    onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+                    <PriBadge p={ct.priority} />
+                    <span style={{ flex: 1, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      textDecoration: ct.gtd_status === "done" ? "line-through" : "none",
+                      color: ct.gtd_status === "done" ? "var(--text-light)" : "var(--text-primary)" }}>{ct.title}</span>
+                    <StatusBadge s={ct.gtd_status} />
+                  </div>
+                );
+              })}
+              {/* Quick-add child task */}
+              <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                <input className="input" value={newChildTitle} onChange={e => setNewChildTitle(e.target.value)}
+                  placeholder="Judul subtask baru..."
+                  onKeyDown={e => { if (e.key === "Enter") handleAddChildTask(); }}
+                  style={{ flex: 1, padding: "5px 8px", fontSize: 13 }} />
+                <select className="input" value={newChildGtd} onChange={e => setNewChildGtd(e.target.value)}
+                  style={{ width: 100, padding: "5px 6px", fontSize: 12 }}>
+                  <option value="inbox">📥 Inbox</option>
+                  <option value="next">▶️ Next</option>
+                  <option value="waiting">⏳ Waiting</option>
+                  <option value="someday">💭 Someday</option>
+                </select>
+                <button className="btn btn-primary btn-sm" onClick={handleAddChildTask} disabled={addingChild || !newChildTitle.trim()}
+                  style={{ fontSize: 12, whiteSpace: "nowrap" }}>{addingChild ? "..." : "＋"}</button>
+              </div>
+            </div>
+
+            {/* Checklist Section (simple is_done items) */}
             <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginBottom: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>
-                  📝 Subtasks {totalSubs > 0 && <span style={{ fontWeight: 400, color: "var(--text-light)" }}>{doneCount}/{totalSubs}</span>}
+                  ✅ Checklist {totalSubs > 0 && <span style={{ fontWeight: 400, color: "var(--text-light)" }}>{doneCount}/{totalSubs}</span>}
                 </div>
                 {!adding && (
                   <button className="btn btn-sm btn-secondary" onClick={() => setAdding(true)} style={{ fontSize: 12 }}>＋ Tambah</button>
@@ -1983,7 +2095,7 @@
               )}
 
               {!loadingSubs && totalSubs === 0 && !adding && (
-                <div style={{ fontSize: 13, color: "var(--text-light)", fontStyle: "italic", padding: "4px 0" }}>Belum ada subtask</div>
+                <div style={{ fontSize: 13, color: "var(--text-light)", fontStyle: "italic", padding: "4px 0" }}>Belum ada checklist</div>
               )}
             </div>
 
@@ -2042,6 +2154,7 @@
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
+              {task.parent_id && <span style={{ fontSize: 11, color: "var(--text-light)" }}>↳ sub #{task.parent_id}</span>}
               {task.list_id && <span style={{ fontSize: 11, background: "var(--accent)", color: "white", padding: "1px 5px", borderRadius: 3 }}>👥 shared</span>}
               {task.assigned_to && <span style={{ fontSize: 11, background: "#dbeafe", color: "#1d4ed8", padding: "1px 6px", borderRadius: 3, fontWeight: 600 }}>👤 {task.assigned_to_name || "?"}</span>}
               {task.project && <span style={{ fontSize: 12, color: "var(--text-light)" }}>📁 {task.project}</span>}
@@ -3374,6 +3487,7 @@
       const [editTask, setEditTask] = useState(null);
       const [toast, setToast] = useState(null);
       const [loading, setLoading] = useState(false);
+      const [doneConfirm, setDoneConfirm] = useState(null); // { taskId, count, children }
       const [sidebarOpen, setSidebarOpen] = useState(false);
       const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
       const [unreadCount, setUnreadCount] = useState(0);
@@ -3516,6 +3630,36 @@
 
       // Task actions
       const handleDone = async (taskId) => {
+        try {
+          // Check for pending child tasks
+          const children = await api.get(`/api/tasks/${taskId}/child-tasks`);
+          const pending = children.filter(c => c.gtd_status !== "done" && c.gtd_status !== "archived");
+          if (pending.length > 0) {
+            setDoneConfirm({ taskId, count: pending.length, children: pending });
+            return;
+          }
+          await api.post(`/api/tasks/${taskId}/done`);
+          showToast("Task selesai! ✅");
+          fetchAll();
+          setSelectedTask(null);
+        } catch (err) { showToast(err.message, "error"); }
+      };
+
+      const handleDoneAll = async ({ taskId, children }) => {
+        setDoneConfirm(null);
+        try {
+          for (const c of children) {
+            await api.post(`/api/tasks/${c.id}/done`);
+          }
+          await api.post(`/api/tasks/${taskId}/done`);
+          showToast("Task & semua subtask selesai! ✅");
+          fetchAll();
+          setSelectedTask(null);
+        } catch (err) { showToast(err.message, "error"); }
+      };
+
+      const handleDoneParentOnly = async (taskId) => {
+        setDoneConfirm(null);
         try {
           await api.post(`/api/tasks/${taskId}/done`);
           showToast("Task selesai! ✅");
@@ -3728,6 +3872,7 @@
               task={selectedTask}
               onClose={() => setSelectedTask(null)}
               onEdit={() => handleEdit(selectedTask)}
+              onOpenTask={(t) => { setSelectedTask(null); setTimeout(() => setSelectedTask(t), 20); }}
               onDone={() => handleDone(selectedTask.id)}
               onDelete={() => handleDelete(selectedTask.id)}
               onToggleFocus={handleToggleFocus}
@@ -3748,6 +3893,23 @@
               sharedLists={sharedLists}
               collaborators={collaborators}
             />
+          )}
+
+          {/* Done confirm dialog */}
+          {doneConfirm && (
+            <div className="modal-overlay" onClick={() => setDoneConfirm(null)}>
+              <div className="modal-content scale-in" style={{ maxWidth: 360 }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>⚠️ Ada subtask belum selesai</div>
+                <div style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 16 }}>
+                  Ada <b>{doneConfirm.count}</b> subtask yang belum done. Tandai semua subtask sekaligus?
+                </div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setDoneConfirm(null)}>Batal</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => handleDoneParentOnly(doneConfirm.taskId)}>Parent saja</button>
+                  <button className="btn btn-success btn-sm" onClick={() => handleDoneAll(doneConfirm)}>✅ Done semua</button>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Toast */}

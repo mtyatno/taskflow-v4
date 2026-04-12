@@ -190,6 +190,8 @@ class TaskRepository:
                 conn.execute("ALTER TABLE tasks ADD COLUMN assigned_to INTEGER DEFAULT NULL")
             if "progress" not in cols:
                 conn.execute("ALTER TABLE tasks ADD COLUMN progress INTEGER DEFAULT 0")
+            if "parent_id" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN parent_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL")
 
             # Migrate: add author_id and client_id to task_notes if missing
             note_cols = [row["name"] for row in conn.execute("PRAGMA table_info(task_notes)").fetchall()]
@@ -553,6 +555,15 @@ class TaskRepository:
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM subtasks WHERE id = ?", (subtask_id,))
             return cur.rowcount > 0
+
+    def get_child_tasks(self, parent_id: int) -> list[dict]:
+        """Return all tasks that are children of parent_id."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM tasks WHERE parent_id = ? ORDER BY priority, created_at",
+                (parent_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def get_subtask_progress(self, task_id: int) -> tuple[int, int]:
         """Returns (done_count, total_count)."""

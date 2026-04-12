@@ -138,6 +138,7 @@ class TaskCreate(BaseModel):
     waiting_for: str = ""
     list_id: Optional[int] = None
     assigned_to: Optional[int] = None
+    parent_id: Optional[int] = None
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
@@ -192,6 +193,19 @@ def task_row_to_dict(row, conn=None) -> dict:
                 d["assigned_to_name"] = _fetch_name(c)
     else:
         d["assigned_to_name"] = None
+    # Resolve parent task title
+    parent_id = d.get("parent_id")
+    if parent_id:
+        def _fetch_parent(c):
+            pt = c.execute("SELECT title FROM tasks WHERE id = ?", (parent_id,)).fetchone()
+            return pt["title"] if pt else None
+        if conn:
+            d["parent_title"] = _fetch_parent(conn)
+        else:
+            with get_db() as c:
+                d["parent_title"] = _fetch_parent(c)
+    else:
+        d["parent_title"] = None
     return d
 
 
@@ -381,6 +395,22 @@ async def list_tasks(
 @app.post("/api/tasks")
 async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
     uid = user["sub"]
+
+    # Resolve parent task — inherit fields if not provided
+    parent_id = req.parent_id
+    if parent_id:
+        with get_db() as conn:
+            parent_row = conn.execute("SELECT * FROM tasks WHERE id = ?", (parent_id,)).fetchone()
+        if not parent_row:
+            raise HTTPException(status_code=404, detail="Parent task not found")
+        # Inherit from parent if not explicitly provided
+        if not req.list_id and parent_row["list_id"]:
+            req.list_id = parent_row["list_id"]
+        if not req.project and parent_row["project"]:
+            req.project = parent_row["project"]
+        if not req.context and parent_row["context"]:
+            req.context = parent_row["context"]
+
     # Validate shared list access if list_id provided
     if req.list_id:
         repo = TaskRepository(DB_PATH)
@@ -405,10 +435,10 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
         cur = conn.execute(
             """INSERT INTO tasks
                (title, description, gtd_status, priority, quadrant,
-                project, context, deadline, waiting_for, user_id, list_id, assigned_to, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                project, context, deadline, waiting_for, user_id, list_id, assigned_to, parent_id, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (req.title, req.description, req.gtd_status, req.priority.upper(), quadrant,
-             req.project, req.context, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, now, now),
+             req.project, req.context, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, parent_id, now, now),
         )
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (cur.lastrowid,)).fetchone()
 
@@ -520,6 +550,18 @@ async def mark_done(task_id: int, background_tasks: BackgroundTasks, user=Depend
             task_id=task_id
         )
     return task_row_to_dict(updated_row)
+
+
+@app.get("/api/tasks/{task_id}/child-tasks")
+async def get_child_tasks(task_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _can_access_task(conn, task_id, uid)
+        rows = conn.execute(
+            "SELECT * FROM tasks WHERE parent_id = ? ORDER BY priority, created_at",
+            (task_id,),
+        ).fetchall()
+    return [task_row_to_dict(r) for r in rows]
 
 
 @app.post("/api/tasks/{task_id}/focus")
