@@ -564,7 +564,7 @@
     // ── Priority / Quadrant / Status helpers ────────────────────
     const PRI_LABELS = { P1: "Critical", P2: "High", P3: "Medium", P4: "Low" };
     const PRI_EMOJI = { P1: "🔴", P2: "🟠", P3: "🟡", P4: "🟢" };
-    const QUAD_LABELS = { Q1: "Do", Q2: "Schedule", Q3: "Delegate", Q4: "Eliminate" };
+    const QUAD_LABELS = { Q1: "Lakukan", Q2: "Rencanakan", Q3: "Delegasikan", Q4: "Singkirkan" };
     const QUAD_EMOJI = { Q1: "🔥", Q2: "📅", Q3: "👋", Q4: "🗑️" };
     const GTD_LABELS = { inbox: "Inbox", next: "Next", waiting: "Waiting", someday: "Someday", project: "Project", done: "Done" };
     const GTD_EMOJI = { inbox: "📥", next: "▶️", waiting: "⏳", someday: "💭", project: "📁", done: "✅" };
@@ -1214,10 +1214,10 @@
         { id: "waiting", icon: "⏳", label: "Waiting For", count: summary?.by_status?.waiting },
         { id: "someday", icon: "💭", label: "Someday", count: summary?.by_status?.someday },
         { section: "EISENHOWER" },
-        { id: "q1", icon: "🔥", label: "Q1 Do", count: summary?.by_quadrant?.Q1 },
-        { id: "q2", icon: "📅", label: "Q2 Schedule", count: summary?.by_quadrant?.Q2 },
-        { id: "q3", icon: "👋", label: "Q3 Delegate", count: summary?.by_quadrant?.Q3 },
-        { id: "q4", icon: "🗑️", label: "Q4 Eliminate", count: summary?.by_quadrant?.Q4 },
+        { id: "q1", icon: "🔥", label: "Q1 Lakukan", count: summary?.by_quadrant?.Q1 },
+        { id: "q2", icon: "📅", label: "Q2 Rencanakan", count: summary?.by_quadrant?.Q2 },
+        { id: "q3", icon: "👋", label: "Q3 Delegasikan", count: summary?.by_quadrant?.Q3 },
+        { id: "q4", icon: "🗑️", label: "Q4 Singkirkan", count: summary?.by_quadrant?.Q4 },
       ];
 
       // Dynamic project links
@@ -3347,10 +3347,10 @@
       const openModal = (title, cellTasks) => setDashModal({ title, tasks: cellTasks });
 
       const eisenTooltip = {
-        Do:       "Q1 – Mendesak & Penting. Kerjakan sekarang. Ini deadline ketat, krisis, atau task kritis.",
-        Schedule: "Q2 – Penting tapi tidak mendesak. Jadwalkan kapan akan dikerjakan. Investasi jangka panjang.",
-        Delegate: "Q3 – Mendesak tapi tidak sepenting Q1. Delegasikan ke orang lain jika bisa.",
-        Eliminate:"Q4 – Tidak mendesak, tidak penting. Pertimbangkan untuk dihapus atau diabaikan.",
+        Lakukan:     "Q1 – Mendesak & Penting. Kerjakan sekarang juga. Deadline ketat, krisis, atau task kritis (P1/P2, deadline ≤ 7 hari).",
+        Rencanakan:  "Q2 – Penting tapi belum mendesak. Tentukan kapan akan dikerjakan. Berisi task P1/P2 dengan deadline jauh atau tanpa deadline.",
+        Delegasikan: "Q3 – Mendesak tapi tidak terlalu penting. Serahkan ke orang lain jika bisa (P3/P4, deadline dekat).",
+        Singkirkan:  "Q4 – Tidak mendesak, tidak penting. Hapus atau abaikan. Jangan habiskan energi di sini.",
       };
 
       const EisenCell = ({ tasks: cellTasks, label, emoji, cls }) => (
@@ -3414,14 +3414,14 @@
           {/* Eisenhower Matrix */}
           <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>🎯 Eisenhower Matrix</h2>
           <div className="eisen-header-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
-            <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Urgent + Important</div>
-            <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Important</div>
+            <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Mendesak + Penting</div>
+            <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Penting</div>
           </div>
           <div className="gtd-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
-            <EisenCell tasks={q1Tasks} label="Do" emoji="🔥" cls="eq1" />
-            <EisenCell tasks={q2Tasks} label="Schedule" emoji="📅" cls="eq2" />
-            <EisenCell tasks={q3Tasks} label="Delegate" emoji="👋" cls="eq3" />
-            <EisenCell tasks={q4Tasks} label="Eliminate" emoji="🗑️" cls="eq4" />
+            <EisenCell tasks={q1Tasks} label="Lakukan" emoji="🔥" cls="eq1" />
+            <EisenCell tasks={q2Tasks} label="Rencanakan" emoji="📅" cls="eq2" />
+            <EisenCell tasks={q3Tasks} label="Delegasikan" emoji="👋" cls="eq3" />
+            <EisenCell tasks={q4Tasks} label="Singkirkan" emoji="🗑️" cls="eq4" />
           </div>
 
           {/* GTD Status breakdown */}
