@@ -3048,18 +3048,21 @@
       const monthName = new Date(year, month, 1).toLocaleDateString("id-ID", { month: "long", year: "numeric" });
 
       // Tasks with deadline in this month
+      // Parse YYYY-MM-DD without timezone shift
+      const parseDeadline = (s) => { const [y, m, d] = s.split("-").map(Number); return { y, m: m - 1, d }; };
+
       const tasksWithDeadline = tasks.filter(t => {
         if (!t.deadline) return false;
-        const d = new Date(t.deadline);
-        return d.getFullYear() === year && d.getMonth() === month;
+        const { y, m } = parseDeadline(t.deadline);
+        return y === year && m === month;
       });
 
       // Group by day-of-month
       const byDay = {};
       tasksWithDeadline.forEach(t => {
-        const day = new Date(t.deadline).getDate();
-        if (!byDay[day]) byDay[day] = [];
-        byDay[day].push(t);
+        const { d } = parseDeadline(t.deadline);
+        if (!byDay[d]) byDay[d] = [];
+        byDay[d].push(t);
       });
 
       // Build calendar grid
@@ -3116,7 +3119,7 @@
                   const dayTasks = day ? (byDay[day] || []) : [];
                   return (
                     <div key={di} style={{
-                      minHeight: 72, borderRadius: 6, padding: "4px 6px",
+                      height: 90, overflow: "hidden", borderRadius: 6, padding: "4px 6px",
                       background: isToday ? "#eff6ff" : day ? "var(--surface)" : "transparent",
                       border: isToday ? "2px solid var(--accent)" : "1px solid var(--border)",
                       borderColor: day ? undefined : "transparent",
