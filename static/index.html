@@ -3169,31 +3169,39 @@
             ))}
           </div>
 
-          {/* Selected day task list */}
+          {/* Selected day modal popup */}
           {selectedDay && (
-            <div className="card" style={{ marginTop: 16, padding: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>📅 {selectedDateLabel}</div>
-                <span style={{ fontSize: 13, color: "var(--text-light)" }}>{selectedTasks.length} task</span>
-              </div>
-              {selectedTasks.map(t => {
-                const c = chipColor(t);
-                return (
-                  <div key={t.id} onClick={() => onTaskClick(t)}
-                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, marginBottom: 6, cursor: "pointer",
-                      background: c.bg, border: `1px solid ${c.color}20`, transition: "opacity 0.15s" }}
-                    onMouseEnter={e => e.currentTarget.style.opacity = "0.8"}
-                    onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: c.color, minWidth: 28 }}>{t.priority}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)", textDecoration: t.gtd_status === "done" ? "line-through" : "none",
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
-                      {t.project && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 1 }}>📁 {t.project}</div>}
-                    </div>
-                    <StatusBadge s={t.gtd_status} />
+            <div className="modal-overlay" onClick={() => setSelectedDay(null)}>
+              <div className="modal-content scale-in" style={{ maxWidth: 480, width: "90%", maxHeight: "80vh", overflowY: "hidden", display: "flex", flexDirection: "column" }}
+                onClick={e => e.stopPropagation()}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 16 }}>📅 {selectedDateLabel}</div>
+                    <div style={{ fontSize: 13, color: "var(--text-light)", marginTop: 2 }}>{selectedTasks.length} task</div>
                   </div>
-                );
-              })}
+                  <button className="btn btn-secondary btn-sm" onClick={() => setSelectedDay(null)}>✕</button>
+                </div>
+                <div style={{ overflowY: "auto", flex: 1 }}>
+                  {selectedTasks.map(t => {
+                    const c = chipColor(t);
+                    return (
+                      <div key={t.id} onClick={() => { setSelectedDay(null); onTaskClick(t); }}
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, marginBottom: 6, cursor: "pointer",
+                          background: c.bg, border: `1px solid ${c.color}20`, transition: "opacity 0.15s" }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = "0.8"}
+                        onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: c.color, minWidth: 28 }}>{t.priority}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)", textDecoration: t.gtd_status === "done" ? "line-through" : "none",
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
+                          {t.project && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 1 }}>📁 {t.project}</div>}
+                        </div>
+                        <StatusBadge s={t.gtd_status} />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
 
