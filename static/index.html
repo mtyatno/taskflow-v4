@@ -3342,6 +3342,9 @@
       const q2Tasks = tasks.filter(t => t.quadrant === "Q2" && t.gtd_status !== "done");
       const q3Tasks = tasks.filter(t => t.quadrant === "Q3" && t.gtd_status !== "done");
       const q4Tasks = tasks.filter(t => t.quadrant === "Q4" && t.gtd_status !== "done");
+      const [dashModal, setDashModal] = useState(null); // { title, tasks }
+
+      const openModal = (title, cellTasks) => setDashModal({ title, tasks: cellTasks });
 
       const eisenTooltip = {
         Do:       "Q1 – Mendesak & Penting. Kerjakan sekarang. Ini deadline ketat, krisis, atau task kritis.",
@@ -3352,14 +3355,25 @@
 
       const EisenCell = ({ tasks: cellTasks, label, emoji, cls }) => (
         <div className={`eisenhower-cell ${cls}`}>
-          <div title={eisenTooltip[label]} style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, cursor: "help" }}>{emoji} {label} ({cellTasks.length})</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div title={eisenTooltip[label]} style={{ fontWeight: 700, fontSize: 14, cursor: "help" }}>{emoji} {label} ({cellTasks.length})</div>
+            {cellTasks.length > 5 && (
+              <span onClick={() => openModal(`${emoji} ${label}`, cellTasks)}
+                style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Lihat semua →</span>
+            )}
+          </div>
           {cellTasks.slice(0, 5).map(t => (
             <div key={t.id} onClick={() => onTaskClick(t)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
               <PriBadge p={t.priority} />
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{t.title}</span>
             </div>
           ))}
-          {cellTasks.length > 5 && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 4 }}>+{cellTasks.length - 5} more</div>}
+          {cellTasks.length > 5 && (
+            <div onClick={() => openModal(`${emoji} ${label}`, cellTasks)}
+              style={{ fontSize: 12, color: "var(--accent)", marginTop: 6, cursor: "pointer", fontWeight: 600 }}>
+              +{cellTasks.length - 5} lagi →
+            </div>
+          )}
         </div>
       );
 
@@ -3422,7 +3436,13 @@
               const sectionTasks = tasks.filter(t => t.gtd_status === key);
               return (
                 <div key={key} style={{ borderRadius: 12, padding: 16, minHeight: 120, minWidth: 0, overflow: "hidden", background: bg, border: `1px solid ${border}` }}>
-                  <div title={tip} style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, cursor: "help" }}>{emoji} {label} ({sectionTasks.length})</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div title={tip} style={{ fontWeight: 700, fontSize: 14, cursor: "help" }}>{emoji} {label} ({sectionTasks.length})</div>
+                    {sectionTasks.length > 5 && (
+                      <span onClick={() => openModal(`${emoji} ${label}`, sectionTasks)}
+                        style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Lihat semua →</span>
+                    )}
+                  </div>
                   {sectionTasks.length === 0 ? (
                     <div style={{ fontSize: 13, color: "var(--text-light)", fontStyle: "italic" }}>Kosong</div>
                   ) : (
@@ -3433,11 +3453,48 @@
                       </div>
                     ))
                   )}
-                  {sectionTasks.length > 5 && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 4 }}>+{sectionTasks.length - 5} more</div>}
+                  {sectionTasks.length > 5 && (
+                    <div onClick={() => openModal(`${emoji} ${label}`, sectionTasks)}
+                      style={{ fontSize: 12, color: "var(--accent)", marginTop: 6, cursor: "pointer", fontWeight: 600 }}>
+                      +{sectionTasks.length - 5} lagi →
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
+
+          {/* Dashboard cell modal */}
+          {dashModal && (
+            <div className="modal-overlay" onClick={() => setDashModal(null)}>
+              <div className="modal-content scale-in" style={{ maxWidth: 480, width: "90%", maxHeight: "80vh", overflowY: "hidden", display: "flex", flexDirection: "column" }}
+                onClick={e => e.stopPropagation()}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 16 }}>{dashModal.title}</div>
+                    <div style={{ fontSize: 13, color: "var(--text-light)", marginTop: 2 }}>{dashModal.tasks.length} task</div>
+                  </div>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setDashModal(null)}>✕</button>
+                </div>
+                <div style={{ overflowY: "auto", flex: 1 }}>
+                  {dashModal.tasks.map(t => (
+                    <div key={t.id} onClick={() => { setDashModal(null); onTaskClick(t); }}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, marginBottom: 6, cursor: "pointer",
+                        background: "var(--surface)", border: "1px solid var(--border)", transition: "opacity 0.15s" }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = "0.75"}
+                      onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+                      <PriBadge p={t.priority} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
+                        {t.project && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 1 }}>📁 {t.project}</div>}
+                      </div>
+                      <StatusBadge s={t.gtd_status} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Active Projects */}
           {(() => {
@@ -3450,7 +3507,13 @@
                   const projTasks = tasks.filter(t => t.project === proj && t.gtd_status !== "done" && t.gtd_status !== "archived");
                   return (
                     <div key={proj} style={{ borderRadius: 12, padding: 16, minHeight: 100, minWidth: 0, overflow: "hidden", background: "#F4FAD6", border: "1px solid #CEDE8A" }}>
-                      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📂 {proj} ({projTasks.length})</div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>📂 {proj} ({projTasks.length})</div>
+                        {projTasks.length > 5 && (
+                          <span onClick={() => openModal(`📂 ${proj}`, projTasks)}
+                            style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Lihat semua →</span>
+                        )}
+                      </div>
                       {projTasks.slice(0, 5).map(t => (
                         <div key={t.id} onClick={() => onTaskClick(t)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
                           <PriBadge p={t.priority} />
@@ -3458,7 +3521,12 @@
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{t.title}</span>
                         </div>
                       ))}
-                      {projTasks.length > 5 && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 4 }}>+{projTasks.length - 5} more</div>}
+                      {projTasks.length > 5 && (
+                        <div onClick={() => openModal(`📂 ${proj}`, projTasks)}
+                          style={{ fontSize: 12, color: "var(--accent)", marginTop: 6, cursor: "pointer", fontWeight: 600 }}>
+                          +{projTasks.length - 5} lagi →
+                        </div>
+                      )}
                     </div>
                   );
                 })}
