@@ -44,6 +44,14 @@ def parse_date(text: str) -> Optional[date]:
     if m:
         return date.today() + timedelta(weeks=int(m.group(1)))
 
+    # ISO format YYYY-MM-DD (from HTML date input — must handle before dateparser)
+    iso_m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", text)
+    if iso_m:
+        try:
+            return date(int(iso_m.group(1)), int(iso_m.group(2)), int(iso_m.group(3)))
+        except ValueError:
+            pass
+
     # Try dateparser with DMY order (Indonesian style)
     result = dateparser.parse(
         text,
