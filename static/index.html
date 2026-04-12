@@ -3230,9 +3230,16 @@
       const q3Tasks = tasks.filter(t => t.quadrant === "Q3" && t.gtd_status !== "done");
       const q4Tasks = tasks.filter(t => t.quadrant === "Q4" && t.gtd_status !== "done");
 
+      const eisenTooltip = {
+        Do:       "Q1 – Mendesak & Penting. Kerjakan sekarang. Ini deadline ketat, krisis, atau task kritis.",
+        Schedule: "Q2 – Penting tapi tidak mendesak. Jadwalkan kapan akan dikerjakan. Investasi jangka panjang.",
+        Delegate: "Q3 – Mendesak tapi tidak sepenting Q1. Delegasikan ke orang lain jika bisa.",
+        Eliminate:"Q4 – Tidak mendesak, tidak penting. Pertimbangkan untuk dihapus atau diabaikan.",
+      };
+
       const EisenCell = ({ tasks: cellTasks, label, emoji, cls }) => (
         <div className={`eisenhower-cell ${cls}`}>
-          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>{emoji} {label} ({cellTasks.length})</div>
+          <div title={eisenTooltip[label]} style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, cursor: "help" }}>{emoji} {label} ({cellTasks.length})</div>
           {cellTasks.slice(0, 5).map(t => (
             <div key={t.id} onClick={() => onTaskClick(t)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
               <PriBadge p={t.priority} />
@@ -3294,15 +3301,15 @@
           <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>🔄 GTD Status</h2>
           <div className="gtd-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             {[
-              { key: "inbox", label: "Inbox", emoji: "📥", bg: "#FAFAF7", border: "#E8E8E0" },
-              { key: "next", label: "Next Actions", emoji: "▶️", bg: "#F4FAD6", border: "#CEDE8A" },
-              { key: "waiting", label: "Waiting For", emoji: "⏳", bg: "#fefce8", border: "#fde68a" },
-              { key: "someday", label: "Someday", emoji: "💭", bg: "#faf5ff", border: "#e9d5ff" },
-            ].map(({ key, label, emoji, bg, border }) => {
+              { key: "inbox",   label: "Inbox",        emoji: "📥", bg: "#FAFAF7", border: "#E8E8E0", tip: "Semua task baru masuk ke sini. Belum diputuskan mau diapakan." },
+              { key: "next",    label: "Next Actions", emoji: "▶️", bg: "#F4FAD6", border: "#CEDE8A", tip: "Task yang sudah siap dikerjakan. Lakukan satu per satu saat ada waktu." },
+              { key: "waiting", label: "Waiting For",  emoji: "⏳", bg: "#fefce8", border: "#fde68a", tip: "Menunggu orang lain atau sesuatu sebelum bisa dilanjutkan." },
+              { key: "someday", label: "Someday",      emoji: "💭", bg: "#faf5ff", border: "#e9d5ff", tip: "Ide atau rencana yang menarik tapi belum waktunya dikerjakan sekarang." },
+            ].map(({ key, label, emoji, bg, border, tip }) => {
               const sectionTasks = tasks.filter(t => t.gtd_status === key);
               return (
                 <div key={key} style={{ borderRadius: 12, padding: 16, minHeight: 120, minWidth: 0, overflow: "hidden", background: bg, border: `1px solid ${border}` }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>{emoji} {label} ({sectionTasks.length})</div>
+                  <div title={tip} style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, cursor: "help" }}>{emoji} {label} ({sectionTasks.length})</div>
                   {sectionTasks.length === 0 ? (
                     <div style={{ fontSize: 13, color: "var(--text-light)", fontStyle: "italic" }}>Kosong</div>
                   ) : (
