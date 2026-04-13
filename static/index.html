@@ -3784,6 +3784,16 @@
         };
       }, [processQueue, updateQueueSize]);
 
+      // Trigger processQueue saat isOnline berubah false → true
+      // (cover kasus DNS putus: window.online tidak fire, tapi fetchAll mendeteksi kembali online)
+      const prevIsOnline = useRef(isOnline);
+      useEffect(() => {
+        if (!prevIsOnline.current && isOnline) {
+          processQueue();
+        }
+        prevIsOnline.current = isOnline;
+      }, [isOnline, processQueue]);
+
       // Notification polling every 15 seconds
       const fetchUnread = useCallback(async () => {
         if (!user) return;
