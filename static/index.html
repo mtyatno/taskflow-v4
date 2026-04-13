@@ -3663,6 +3663,7 @@
 
       // Fetch data
       const initialLoad = useRef(true);
+      const isSyncing = useRef(false);
       const fetchAll = useCallback(async () => {
         if (!user) return;
         if (initialLoad.current) setLoading(true);
@@ -3713,10 +3714,12 @@
 
       useEffect(() => { fetchAll(); }, [fetchAll]);
 
-      // Auto-refresh every 30 seconds
+      // Auto-refresh every 30 seconds (skip saat sedang sync queue)
       useEffect(() => {
         if (!user) return;
-        const interval = setInterval(fetchAll, 30000);
+        const interval = setInterval(() => {
+          if (!isSyncing.current) fetchAll();
+        }, 30000);
         return () => clearInterval(interval);
       }, [user, fetchAll]);
 
@@ -3727,9 +3730,10 @@
       }, []);
 
       const processQueue = useCallback(async () => {
-        if (!navigator.onLine) return;
+        if (!navigator.onLine || isSyncing.current) return;
         const q = await OfflineDB.queueGetAll();
         if (!q.length) return;
+        isSyncing.current = true;
         const tempIdMap = {};
         for (const item of q) {
           try {
@@ -3748,6 +3752,7 @@
             break; // stop on error, retry next online event
           }
         }
+        isSyncing.current = false;
         setQueueSize(0);
         fetchAll();
       }, [fetchAll]);
