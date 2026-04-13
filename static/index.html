@@ -3053,17 +3053,18 @@
       useEffect(() => {
         if (!canvasRef.current) return;
 
-        // Calculate completed tasks per day for last 7 days
+        // 4 minggu terakhir — group per minggu
         const days = [];
         const counts = [];
         const created = [];
-        for (let i = 6; i >= 0; i--) {
-          const d = new Date();
-          d.setDate(d.getDate() - i);
-          const ds = d.toISOString().split("T")[0];
-          days.push(d.toLocaleDateString("id-ID", { weekday: "short", day: "numeric" }));
-          counts.push(tasks.filter(t => t.completed_at && t.completed_at.startsWith(ds)).length);
-          created.push(tasks.filter(t => t.created_at && t.created_at.startsWith(ds)).length);
+        for (let w = 3; w >= 0; w--) {
+          const end = new Date(); end.setDate(end.getDate() - w * 7);
+          const start = new Date(end); start.setDate(start.getDate() - 6);
+          const startStr = start.toISOString().split("T")[0];
+          const endStr   = end.toISOString().split("T")[0];
+          days.push(w === 0 ? "Minggu ini" : `${w} mgg lalu`);
+          counts.push(tasks.filter(t => t.completed_at && t.completed_at.slice(0,10) >= startStr && t.completed_at.slice(0,10) <= endStr).length);
+          created.push(tasks.filter(t => t.created_at  && t.created_at.slice(0,10)  >= startStr && t.created_at.slice(0,10)  <= endStr).length);
         }
 
         if (chartRef.current) chartRef.current.destroy();
@@ -3175,9 +3176,9 @@
       useEffect(() => {
         if (!canvasRef.current) return;
 
-        const statuses = ["inbox", "next", "waiting", "someday", "done"];
-        const labels = ["Inbox", "Next", "Wait", "Later", "Done"];
-        const colors = ["#94a3b8", "#A8C500", "#eab308", "#a855f7", "#22c55e"];
+        const statuses = ["inbox", "next", "waiting", "someday"];
+        const labels = ["Inbox", "Next", "Waiting", "Someday"];
+        const colors = ["#94a3b8", "#A8C500", "#eab308", "#a855f7"];
         const data = statuses.map(s => summary.by_status?.[s] || 0);
 
         if (chartRef.current) chartRef.current.destroy();
@@ -3445,7 +3446,7 @@
           {/* Stat cards */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 24 }}>
             <div className="stat-card"><div className="stat-number" style={{ color: "var(--accent)" }}>{summary.total_active}</div><div className="stat-label">Active</div></div>
-            <div className="stat-card"><div className="stat-number" style={{ color: "var(--success)" }}>{summary.total_done}</div><div className="stat-label">Done</div></div>
+            <div className="stat-card"><div className="stat-number" style={{ color: "var(--success)" }}>{summary.done_last_7_days ?? 0}</div><div className="stat-label">Done (7 hari)</div></div>
             <div className="stat-card"><div className="stat-number" style={{ color: "var(--q1)" }}>{summary.by_quadrant?.Q1 || 0}</div><div className="stat-label">Q1 Do</div></div>
             <div className="stat-card"><div className="stat-number" style={{ color: summary.overdue > 0 ? "#ef4444" : "var(--text-light)" }}>{summary.overdue}</div><div className="stat-label">Overdue</div></div>
             <div className="stat-card"><div className="stat-number">{summary.by_status?.inbox || 0}</div><div className="stat-label">Inbox</div></div>

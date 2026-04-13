@@ -619,12 +619,19 @@ async def get_summary(user=Depends(get_current_user)):
         total_active = sum(v for k, v in by_status.items() if k not in ("done", "archived"))
         total_done = by_status.get("done", 0)
 
+        cutoff_7d = (date.today() - timedelta(days=7)).isoformat()
+        done_last_7_days = conn.execute(
+            "SELECT COUNT(*) as cnt FROM tasks WHERE user_id=? AND gtd_status='done' AND completed_at >= ?",
+            (uid, cutoff_7d),
+        ).fetchone()["cnt"]
+
     return {
         "by_status": by_status,
         "by_quadrant": by_quad,
         "overdue": overdue_count,
         "total_active": total_active,
         "total_done": total_done,
+        "done_last_7_days": done_last_7_days,
         "date": date.today().isoformat(),
     }
 
