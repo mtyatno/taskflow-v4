@@ -3692,20 +3692,37 @@
         if (allFailed) setIsOnline(false);
         else if (results.some(r => r.status === "fulfilled")) setIsOnline(true);
 
-        // Merge pending offline-created tasks
+        // Saat offline: apply pending queue mutations di atas data cache
         if (results[0].status !== "fulfilled") {
           const q = await OfflineDB.queueGetAll();
-          const pending = q.filter(i => i.method === "POST" && i.url === "/api/tasks" && i.tempId);
-          if (pending.length) {
+          if (q.length) {
             setTasks(prev => {
-              const existing = new Set(prev.map(t => String(t.id)));
-              const extra = pending.filter(i => !existing.has(i.tempId)).map(i => ({
-                ...i.body, id: i.tempId, _pending: true, quadrant: "Q4",
-                is_overdue: false, is_focused: false, days_until_deadline: null,
-                assigned_to_name: null, parent_title: null,
-                created_at: new Date(i.createdAt).toISOString(),
-              }));
-              return [...prev, ...extra];
+              let tasks = [...prev];
+              for (const item of q) {
+                // PUT /api/tasks/:id — edit task
+                const putMatch = item.method === "PUT" && item.url.match(/^\/api\/tasks\/(\d+)$/);
+                if (putMatch) {
+                  const id = parseInt(putMatch[1]);
+                  tasks = tasks.map(t => t.id === id ? { ...t, ...item.body, _pending: true } : t);
+                }
+                // POST /api/tasks/:id/done
+                const doneMatch = item.method === "POST" && item.url.match(/^\/api\/tasks\/(\d+)\/done$/);
+                if (doneMatch) {
+                  const id = parseInt(doneMatch[1]);
+                  tasks = tasks.map(t => t.id === id ? { ...t, gtd_status: "done", _pending: true } : t);
+                }
+                // POST /api/tasks (new task)
+                if (item.method === "POST" && item.url === "/api/tasks" && item.tempId) {
+                  const exists = tasks.some(t => String(t.id) === item.tempId);
+                  if (!exists) tasks.push({
+                    ...item.body, id: item.tempId, _pending: true, quadrant: "Q4",
+                    is_overdue: false, is_focused: false, days_until_deadline: null,
+                    assigned_to_name: null, parent_title: null,
+                    created_at: new Date(item.createdAt || Date.now()).toISOString(),
+                  });
+                }
+              }
+              return tasks;
             });
           }
         }
