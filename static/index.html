@@ -3642,7 +3642,19 @@
         if (tokenStore.get()) {
           api.get("/api/auth/me")
             .then(u => { setUser(u); setAuthChecked(true); })
-            .catch(() => { tokenStore.clear(); setAuthChecked(true); });
+            .catch(err => {
+              // Offline: jangan hapus token, pakai username dari token payload
+              if (isOfflineErr(err) || err?.message === "OFFLINE") {
+                try {
+                  const payload = JSON.parse(atob(tokenStore.get().split(".")[1]));
+                  setUser({ id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
+                } catch (_) {}
+                setAuthChecked(true);
+              } else {
+                tokenStore.clear();
+                setAuthChecked(true);
+              }
+            });
         }
       }, []);
 
