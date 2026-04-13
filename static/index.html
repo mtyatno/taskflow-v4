@@ -581,7 +581,11 @@
       put: (url, body) => api.fetch(url, { method: "PUT", body: JSON.stringify(body) }),
       del: (url) => api.fetch(url, { method: "DELETE" }),
     };
-    const isOfflineErr = (err) => !navigator.onLine || err?.message === "OFFLINE";
+    const isOfflineErr = (err) =>
+      !navigator.onLine ||
+      err?.message === "OFFLINE" ||
+      err instanceof TypeError ||
+      /failed to fetch|networkerror|name_not_resolved/i.test(err?.message || "");
 
     // ── Context ─────────────────────────────────────────────────
     const AppContext = createContext();
@@ -3682,6 +3686,11 @@
             if (cached) setter(cached);
           }
         }
+        // Detect offline: jika semua call gagal, set isOnline = false
+        const allFailed = results.every(r => r.status === "rejected");
+        if (allFailed) setIsOnline(false);
+        else if (results.some(r => r.status === "fulfilled")) setIsOnline(true);
+
         // Merge pending offline-created tasks
         if (results[0].status !== "fulfilled") {
           const q = await OfflineDB.queueGetAll();
