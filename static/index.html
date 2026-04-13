@@ -75,14 +75,14 @@
     .mobile-topbar { display: none; position: sticky; top: 0; z-index: 30; background: white; border-bottom: 1px solid var(--border); padding: 12px 16px; align-items: center; gap: 12px; }
 
     /* Cards */
-    .card { background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border); padding: 20px; min-width: 0; overflow: hidden; }
+    .card { background: var(--bg-card); border-radius: 14px; border: 1px solid rgba(0,0,0,0.06); padding: 20px; min-width: 0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 8px -2px rgba(0,0,0,0.03); }
     .card-hover { transition: all 0.2s; }
-    .card-hover:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.06); transform: translateY(-1px); }
+    .card-hover:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.08); transform: translateY(-1px); }
 
     /* Stat card */
-    .stat-card { padding: 18px 20px; border-radius: 12px; background: white; border: 1px solid var(--border); }
-    .stat-number { font-size: 28px; font-weight: 700; line-height: 1; }
-    .stat-label { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+    .stat-card { padding: 20px 22px; border-radius: 14px; background: white; border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 8px -2px rgba(0,0,0,0.04); position: relative; overflow: hidden; }
+    .stat-number { font-size: 30px; font-weight: 700; line-height: 1; }
+    .stat-label { font-size: 12px; color: var(--text-secondary); margin-top: 5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
 
     /* Badge */
     .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; }
@@ -140,11 +140,11 @@
 
     /* Eisenhower grid */
     .eisenhower-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .eisenhower-cell { border-radius: 12px; padding: 16px; min-height: 160px; min-width: 0; overflow: hidden; }
-    .eq1 { background: #fef2f2; border: 1px solid #fecaca; }
-    .eq2 { background: #F4FAD6; border: 1px solid #CEDE8A; }
-    .eq3 { background: #fff7ed; border: 1px solid #fed7aa; }
-    .eq4 { background: #FAFAF7; border: 1px solid #E8E8E0; }
+    .eisenhower-cell { border-radius: 12px; padding: 16px; min-height: 160px; min-width: 0; overflow: hidden; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.06); }
+    .eq1 { border-top: 3px solid #ef4444; }
+    .eq2 { border-top: 3px solid #A8C500; }
+    .eq3 { border-top: 3px solid #f97316; }
+    .eq4 { border-top: 3px solid #94a3b8; }
 
     /* Task row */
     .task-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
@@ -3069,6 +3069,14 @@
 
         if (chartRef.current) chartRef.current.destroy();
 
+        const ctx = canvasRef.current.getContext("2d");
+        const gradGreen = ctx.createLinearGradient(0, 0, 0, 180);
+        gradGreen.addColorStop(0, "rgba(34,197,94,0.28)");
+        gradGreen.addColorStop(1, "rgba(34,197,94,0)");
+        const gradYellow = ctx.createLinearGradient(0, 0, 0, 180);
+        gradYellow.addColorStop(0, "rgba(168,197,0,0.12)");
+        gradYellow.addColorStop(1, "rgba(168,197,0,0)");
+
         chartRef.current = new Chart(canvasRef.current, {
           type: "line",
           data: {
@@ -3078,22 +3086,26 @@
                 label: "Selesai",
                 data: counts,
                 borderColor: "#22c55e",
-                backgroundColor: "rgba(34,197,94,0.1)",
+                borderWidth: 2.5,
+                backgroundColor: gradGreen,
                 fill: true,
-                tension: 0.4,
+                tension: 0.5,
                 pointRadius: 4,
                 pointBackgroundColor: "#22c55e",
+                pointBorderColor: "#fff",
+                pointBorderWidth: 1.5,
               },
               {
                 label: "Dibuat",
                 data: created,
                 borderColor: "#A8C500",
-                backgroundColor: "rgba(168,197,0,0.05)",
+                borderWidth: 1.5,
+                backgroundColor: gradYellow,
                 fill: true,
-                tension: 0.4,
-                pointRadius: 4,
+                tension: 0.5,
+                pointRadius: 3,
                 pointBackgroundColor: "#A8C500",
-                borderDash: [4, 4],
+                borderDash: [5, 4],
               },
             ],
           },
@@ -3178,7 +3190,7 @@
 
         const statuses = ["inbox", "next", "waiting", "someday"];
         const labels = ["Inbox", "Next", "Waiting", "Someday"];
-        const colors = ["#94a3b8", "#A8C500", "#eab308", "#a855f7"];
+        const colors = ["#3b82f6", "#f97316", "#eab308", "#94a3b8"];
         const data = statuses.map(s => summary.by_status?.[s] || 0);
 
         if (chartRef.current) chartRef.current.destroy();
@@ -3190,8 +3202,8 @@
             datasets: [{
               data,
               backgroundColor: colors,
-              borderRadius: 6,
-              barThickness: 24,
+              borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 0, bottomRight: 0 },
+              barThickness: 18,
             }],
           },
           options: {
@@ -3424,6 +3436,12 @@
                 style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Lihat semua →</span>
             )}
           </div>
+          {cellTasks.length === 0 && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 0", opacity: 0.35 }}>
+              <div style={{ fontSize: 22, marginBottom: 6 }}>🎉</div>
+              <div style={{ fontSize: 12, color: "var(--text-light)", textAlign: "center" }}>Belum ada task</div>
+            </div>
+          )}
           {cellTasks.slice(0, 5).map(t => (
             <div key={t.id} onClick={() => onTaskClick(t)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
               <PriBadge p={t.priority} />
@@ -3449,13 +3467,22 @@
             const inboxCount   = active.filter(t => t.gtd_status === "inbox").length;
             const q1Count      = active.filter(t => t.quadrant === "Q1").length;
             const overdueCount = active.filter(t => t.is_overdue).length;
+            const kpis = [
+              { value: active.length,              label: "Active",      color: "var(--accent)",  icon: "⚡" },
+              { value: summary.done_last_7_days??0, label: "Done 7 hari", color: "var(--success)", icon: "✅" },
+              { value: q1Count,                    label: "Q1 Lakukan",  color: "var(--q1)",      icon: "🔥" },
+              { value: overdueCount,               label: "Overdue",     color: overdueCount > 0 ? "#ef4444" : "var(--text-light)", icon: "⚠️" },
+              { value: inboxCount,                 label: "Inbox",       color: "var(--text-primary)", icon: "📥" },
+            ];
             return (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 24 }}>
-                <div className="stat-card"><div className="stat-number" style={{ color: "var(--accent)" }}>{active.length}</div><div className="stat-label">Active</div></div>
-                <div className="stat-card"><div className="stat-number" style={{ color: "var(--success)" }}>{summary.done_last_7_days ?? 0}</div><div className="stat-label">Done (7 hari)</div></div>
-                <div className="stat-card"><div className="stat-number" style={{ color: "var(--q1)" }}>{q1Count}</div><div className="stat-label">Q1 Lakukan</div></div>
-                <div className="stat-card"><div className="stat-number" style={{ color: overdueCount > 0 ? "#ef4444" : "var(--text-light)" }}>{overdueCount}</div><div className="stat-label">Overdue</div></div>
-                <div className="stat-card"><div className="stat-number">{inboxCount}</div><div className="stat-label">Inbox</div></div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 28 }}>
+                {kpis.map(k => (
+                  <div key={k.label} className="stat-card">
+                    <div style={{ position: "absolute", right: 14, top: 12, fontSize: 26, opacity: 0.07, lineHeight: 1 }}>{k.icon}</div>
+                    <div className="stat-number" style={{ color: k.color }}>{k.value}</div>
+                    <div className="stat-label">{k.label}</div>
+                  </div>
+                ))}
               </div>
             );
           })()}
