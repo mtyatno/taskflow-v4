@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v2";
+const CACHE = "taskflow-v3";
 const STATIC = [
   "/",
   "/static/vendor/react.production.min.js",
@@ -13,29 +13,52 @@ const STATIC = [
 
 self.addEventListener("install", e => {
   e.waitUntil(
-    caches.open(CACHE).then(cache =>
-      // allSettled: SW tetap install walau ada file yang gagal di-cache
-      Promise.allSettled(STATIC.map(url => cache.add(url)))
-    ).then(() => self.skipWaiting())
+    caches.open(CACHE)
+      .then(cache => Promise.allSettled(STATIC.map(url => cache.add(url))))
+      .then(() => self.skipWaiting())
   );
 });
 
 self.addEventListener("activate", e => {
   e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
 self.addEventListener("fetch", e => {
-  const url = new URL(e.request.url);
+  const { request } = e;
+  const url = new URL(request.url);
 
-  // API calls: network-first, fallback ke error json
+  // GET /api/*: network-first, cache fallback (untuk offline reading)
+  if (request.method === "GET" && url.pathname.startsWith("/api/")) {
+    e.respondWith(
+      fetch(request.clone())
+        .then(res => {
+          if (res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE).then(c => c.put(request, clone));
+          }
+          return res;
+        })
+        .catch(() =>
+          caches.match(request).then(cached =>
+            cached || new Response(
+              JSON.stringify({ detail: "OFFLINE" }),
+              { status: 503, headers: { "Content-Type": "application/json" } }
+            )
+          )
+        )
+    );
+    return;
+  }
+
+  // Mutasi API (POST/PUT/DELETE): network only, return 503 saat offline
   if (url.pathname.startsWith("/api/")) {
     e.respondWith(
-      fetch(e.request).catch(() => new Response(
-        JSON.stringify({ detail: "Offline — tidak ada koneksi" }),
+      fetch(request).catch(() => new Response(
+        JSON.stringify({ detail: "OFFLINE" }),
         { status: 503, headers: { "Content-Type": "application/json" } }
       ))
     );
@@ -44,12 +67,12 @@ self.addEventListener("fetch", e => {
 
   // Static assets: cache-first
   e.respondWith(
-    caches.match(e.request).then(cached => {
+    caches.match(request).then(cached => {
       if (cached) return cached;
-      return fetch(e.request).then(res => {
+      return fetch(request).then(res => {
         if (res.ok) {
           const clone = res.clone();
-          caches.open(CACHE).then(c => c.put(e.request, clone));
+          caches.open(CACHE).then(c => c.put(request, clone));
         }
         return res;
       }).catch(() => cached || new Response("Offline", { status: 503 }));

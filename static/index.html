@@ -517,6 +517,36 @@
       clear: () => { __token = null; try { localStorage.removeItem("tf_token"); } catch(e) {} },
     };
 
+    // ── Offline — IndexedDB ─────────────────────────────────────
+    const OfflineDB = (() => {
+      const NAME = "taskflow-offline", VER = 1;
+      let _db = null;
+      const open = () => new Promise((res, rej) => {
+        if (_db) return res(_db);
+        const req = indexedDB.open(NAME, VER);
+        req.onupgradeneeded = e => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains("cache")) db.createObjectStore("cache");
+          if (!db.objectStoreNames.contains("queue")) db.createObjectStore("queue", { keyPath: "qid", autoIncrement: true });
+        };
+        req.onsuccess = e => { _db = e.target.result; res(_db); };
+        req.onerror = rej;
+      });
+      const tr = (store, mode, fn) => open().then(db => new Promise((res, rej) => {
+        const r = fn(db.transaction(store, mode).objectStore(store));
+        r.onsuccess = () => res(r.result);
+        r.onerror = rej;
+      })).catch(() => null);
+      return {
+        cacheGet:  (k)    => tr("cache", "readonly",  s => s.get(k)),
+        cacheSet:  (k, v) => tr("cache", "readwrite", s => s.put(v, k)),
+        queueAdd:  (v)    => tr("queue", "readwrite", s => s.add({ ...v, createdAt: Date.now() })),
+        queueGetAll: ()   => open().then(db => new Promise((res, rej) => { const r = db.transaction("queue","readonly").objectStore("queue").getAll(); r.onsuccess = () => res(r.result||[]); r.onerror = rej; })).catch(() => []),
+        queueDel:  (id)   => tr("queue", "readwrite", s => s.delete(id)),
+        queueClear: ()    => tr("queue", "readwrite", s => s.clear()),
+      };
+    })();
+
     // ── API helper ──────────────────────────────────────────────
     const genId = () => (typeof crypto !== "undefined" && crypto.randomUUID)
       ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -551,6 +581,7 @@
       put: (url, body) => api.fetch(url, { method: "PUT", body: JSON.stringify(body) }),
       del: (url) => api.fetch(url, { method: "DELETE" }),
     };
+    const isOfflineErr = (err) => !navigator.onLine || err?.message === "OFFLINE";
 
     // ── Context ─────────────────────────────────────────────────
     const AppContext = createContext();
@@ -1361,7 +1392,7 @@
     }
 
     // ── Task Form Modal ─────────────────────────────────────────
-    function TaskFormModal({ task, onSave, onClose, projects, contexts, sharedLists, collaborators = [] }) {
+    function TaskFormModal({ task, onSave, onOfflineSave, onClose, projects, contexts, sharedLists, collaborators = [] }) {
       const isEdit = !!task?.id;
       const [form, setForm] = useState({
         title: task?.title || "",
@@ -1400,15 +1431,32 @@
         try {
           if (isEdit) {
             await api.put(`/api/tasks/${task.id}`, form);
+            onSave();
           } else {
             const newTask = await api.post("/api/tasks", form);
-            // Create pending subtasks
             for (const sub of pendingSubtasks) {
               await api.post("/api/tasks", { title: sub.title, gtd_status: sub.gtd, parent_id: newTask.id });
             }
+            onSave();
           }
-          onSave();
-        } catch (err) { alert(err.message); }
+        } catch (err) {
+          if (isOfflineErr(err) && !isEdit && onOfflineSave) {
+            const tempId = `tmp_${Date.now()}`;
+            await OfflineDB.queueAdd({ method: "POST", url: "/api/tasks", body: form, tempId, createdAt: Date.now() });
+            for (const sub of pendingSubtasks) {
+              await OfflineDB.queueAdd({ method: "POST", url: "/api/tasks", body: { title: sub.title, gtd_status: sub.gtd, parent_id: tempId }, tempId: null, createdAt: Date.now() });
+            }
+            const tempTask = {
+              ...form, id: tempId, _pending: true, quadrant: "Q4",
+              is_overdue: false, is_focused: false, days_until_deadline: null,
+              assigned_to_name: null, parent_title: null,
+              created_at: new Date().toISOString(),
+            };
+            onOfflineSave(tempTask);
+          } else {
+            alert(err.message);
+          }
+        }
         setLoading(false);
       };
 
@@ -1742,7 +1790,7 @@
     }
 
     // ── Task Detail Modal ───────────────────────────────────────
-    function TaskDetailModal({ task, onClose, onEdit, onDone, onDelete, onRefresh, onToggleFocus, onOpenTask, projects = [], contexts = [], collaborators = [] }) {
+    function TaskDetailModal({ task, onClose, onEdit, onDone, onDelete, onRefresh, onOfflineEdit, onToggleFocus, onOpenTask, projects = [], contexts = [], collaborators = [] }) {
       if (!task) return null;
       const [isEditing, setIsEditing] = useState(false);
       const [listMembers, setListMembers] = useState([]);
@@ -1847,7 +1895,15 @@
           await api.put(`/api/tasks/${task.id}`, form);
           onRefresh?.();
           onClose();
-        } catch (err) { alert(err.message); }
+        } catch (err) {
+          if (isOfflineErr(err) && onOfflineEdit) {
+            await OfflineDB.queueAdd({ method: "PUT", url: `/api/tasks/${task.id}`, body: form });
+            onOfflineEdit(task.id, form);
+            onClose();
+          } else {
+            alert(err.message);
+          }
+        }
         setSaving(false);
       };
 
@@ -2154,6 +2210,7 @@
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
+              {task._pending && <span style={{ fontSize: 10, background: "#fef3c7", color: "#d97706", padding: "1px 5px", borderRadius: 3, fontWeight: 600 }}>⏳ pending</span>}
               {task.parent_id && <span style={{ fontSize: 11, color: "var(--text-light)" }}>↳ sub #{task.parent_id}</span>}
               {task.list_id && <span style={{ fontSize: 11, background: "var(--accent)", color: "white", padding: "1px 5px", borderRadius: 3 }}>👥 shared</span>}
               {task.assigned_to && <span style={{ fontSize: 11, background: "#dbeafe", color: "#1d4ed8", padding: "1px 6px", borderRadius: 3, fontWeight: 600 }}>👤 {task.assigned_to_name || "?"}</span>}
@@ -3556,6 +3613,8 @@
       const [toast, setToast] = useState(null);
       const [loading, setLoading] = useState(false);
       const [doneConfirm, setDoneConfirm] = useState(null); // { taskId, count, children }
+      const [isOnline, setIsOnline] = useState(navigator.onLine);
+      const [queueSize, setQueueSize] = useState(0);
       const [sidebarOpen, setSidebarOpen] = useState(false);
       const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
       const [unreadCount, setUnreadCount] = useState(0);
@@ -3603,23 +3662,43 @@
       const fetchAll = useCallback(async () => {
         if (!user) return;
         if (initialLoad.current) setLoading(true);
-        try {
-          const results = await Promise.allSettled([
-            api.get("/api/tasks?include_done=true"),
-            api.get("/api/summary"),
-            api.get("/api/projects"),
-            api.get("/api/contexts"),
-            api.get("/api/lists"),
-            api.get("/api/collaborators"),
-          ]);
-          const [tasksR, summaryR, projR, ctxR, listsR, collabR] = results;
-          if (tasksR.status === "fulfilled")   setTasks(tasksR.value);
-          if (summaryR.status === "fulfilled") setSummary(summaryR.value);
-          if (projR.status === "fulfilled")    setProjects(projR.value);
-          if (ctxR.status === "fulfilled")     setContexts(ctxR.value);
-          if (listsR.status === "fulfilled")   setSharedLists(listsR.value);
-          if (collabR.status === "fulfilled")  setCollaborators(collabR.value);
-        } catch (err) { console.error(err); }
+        const calls = [
+          ["/api/tasks?include_done=true", setTasks,        "tasks"],
+          ["/api/summary",                 setSummary,       "summary"],
+          ["/api/projects",                setProjects,      "projects"],
+          ["/api/contexts",                setContexts,      "contexts"],
+          ["/api/lists",                   setSharedLists,   "lists"],
+          ["/api/collaborators",           setCollaborators, null],
+        ];
+        const results = await Promise.allSettled(calls.map(([url]) => api.get(url)));
+        for (let i = 0; i < calls.length; i++) {
+          const [, setter, cacheKey] = calls[i];
+          const r = results[i];
+          if (r.status === "fulfilled") {
+            setter(r.value);
+            if (cacheKey) OfflineDB.cacheSet(cacheKey, r.value);
+          } else if (cacheKey) {
+            const cached = await OfflineDB.cacheGet(cacheKey);
+            if (cached) setter(cached);
+          }
+        }
+        // Merge pending offline-created tasks
+        if (results[0].status !== "fulfilled") {
+          const q = await OfflineDB.queueGetAll();
+          const pending = q.filter(i => i.method === "POST" && i.url === "/api/tasks" && i.tempId);
+          if (pending.length) {
+            setTasks(prev => {
+              const existing = new Set(prev.map(t => String(t.id)));
+              const extra = pending.filter(i => !existing.has(i.tempId)).map(i => ({
+                ...i.body, id: i.tempId, _pending: true, quadrant: "Q4",
+                is_overdue: false, is_focused: false, days_until_deadline: null,
+                assigned_to_name: null, parent_title: null,
+                created_at: new Date(i.createdAt).toISOString(),
+              }));
+              return [...prev, ...extra];
+            });
+          }
+        }
         if (initialLoad.current) { setLoading(false); initialLoad.current = false; }
       }, [user]);
 
@@ -3631,6 +3710,65 @@
         const interval = setInterval(fetchAll, 30000);
         return () => clearInterval(interval);
       }, [user, fetchAll]);
+
+      // ── Offline helpers ───────────────────────────────────────────
+      const updateQueueSize = useCallback(async () => {
+        const q = await OfflineDB.queueGetAll();
+        setQueueSize(q.length);
+      }, []);
+
+      const processQueue = useCallback(async () => {
+        if (!navigator.onLine) return;
+        const q = await OfflineDB.queueGetAll();
+        if (!q.length) return;
+        const tempIdMap = {};
+        for (const item of q) {
+          try {
+            let url = item.url;
+            let body = item.body ? { ...item.body } : undefined;
+            if (body?.parent_id && tempIdMap[String(body.parent_id)]) {
+              body.parent_id = tempIdMap[String(body.parent_id)];
+            }
+            let result;
+            if (item.method === "POST")   result = await api.post(url, body);
+            else if (item.method === "PUT")    result = await api.put(url, body);
+            else if (item.method === "DELETE") result = await api.del(url);
+            if (item.tempId && result?.id) tempIdMap[item.tempId] = result.id;
+            await OfflineDB.queueDel(item.qid);
+          } catch (err) {
+            break; // stop on error, retry next online event
+          }
+        }
+        setQueueSize(0);
+        fetchAll();
+      }, [fetchAll]);
+
+      const handleOfflineSave = useCallback(async (tempTask) => {
+        setTasks(prev => [...prev, tempTask]);
+        await updateQueueSize();
+        showToast("Tersimpan offline, akan sync saat online 📶");
+        setShowForm(false);
+        setEditTask(null);
+      }, [updateQueueSize]);
+
+      const handleOfflineEdit = useCallback(async (taskId, updatedFields) => {
+        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updatedFields, _pending: true } : t));
+        await updateQueueSize();
+        showToast("Edit tersimpan offline, akan sync saat online 📶");
+      }, [updateQueueSize]);
+
+      // Online / offline events
+      useEffect(() => {
+        const onOnline  = () => { setIsOnline(true);  processQueue(); };
+        const onOffline = () => setIsOnline(false);
+        window.addEventListener("online",  onOnline);
+        window.addEventListener("offline", onOffline);
+        updateQueueSize();
+        return () => {
+          window.removeEventListener("online",  onOnline);
+          window.removeEventListener("offline", onOffline);
+        };
+      }, [processQueue, updateQueueSize]);
 
       // Notification polling every 15 seconds
       const fetchUnread = useCallback(async () => {
@@ -3700,7 +3838,8 @@
       const handleDone = async (taskId) => {
         try {
           // Check for pending child tasks
-          const children = await api.get(`/api/tasks/${taskId}/child-tasks`);
+          let children = [];
+          try { children = await api.get(`/api/tasks/${taskId}/child-tasks`); } catch (_) {}
           const pending = children.filter(c => c.gtd_status !== "done" && c.gtd_status !== "archived");
           if (pending.length > 0) {
             setDoneConfirm({ taskId, count: pending.length, children: pending });
@@ -3710,20 +3849,35 @@
           showToast("Task selesai! ✅");
           fetchAll();
           setSelectedTask(null);
-        } catch (err) { showToast(err.message, "error"); }
+        } catch (err) {
+          if (isOfflineErr(err)) {
+            await OfflineDB.queueAdd({ method: "POST", url: `/api/tasks/${taskId}/done`, body: {} });
+            setTasks(prev => prev.map(t => t.id === taskId ? { ...t, gtd_status: "done", _pending: true } : t));
+            await updateQueueSize();
+            showToast("Offline — akan sync saat online 📶");
+            setSelectedTask(null);
+          } else { showToast(err.message, "error"); }
+        }
       };
 
       const handleDoneAll = async ({ taskId, children }) => {
         setDoneConfirm(null);
         try {
-          for (const c of children) {
-            await api.post(`/api/tasks/${c.id}/done`);
-          }
+          for (const c of children) { await api.post(`/api/tasks/${c.id}/done`); }
           await api.post(`/api/tasks/${taskId}/done`);
           showToast("Task & semua subtask selesai! ✅");
           fetchAll();
           setSelectedTask(null);
-        } catch (err) { showToast(err.message, "error"); }
+        } catch (err) {
+          if (isOfflineErr(err)) {
+            const allIds = [...children.map(c => c.id), taskId];
+            for (const id of allIds) await OfflineDB.queueAdd({ method: "POST", url: `/api/tasks/${id}/done`, body: {} });
+            setTasks(prev => prev.map(t => allIds.includes(t.id) ? { ...t, gtd_status: "done", _pending: true } : t));
+            await updateQueueSize();
+            showToast("Offline — akan sync saat online 📶");
+            setSelectedTask(null);
+          } else { showToast(err.message, "error"); }
+        }
       };
 
       const handleDoneParentOnly = async (taskId) => {
@@ -3733,7 +3887,14 @@
           showToast("Task selesai! ✅");
           fetchAll();
           setSelectedTask(null);
-        } catch (err) { showToast(err.message, "error"); }
+        } catch (err) {
+          if (isOfflineErr(err)) {
+            await OfflineDB.queueAdd({ method: "POST", url: `/api/tasks/${taskId}/done`, body: {} });
+            setTasks(prev => prev.map(t => t.id === taskId ? { ...t, gtd_status: "done", _pending: true } : t));
+            await updateQueueSize();
+            showToast("Offline — akan sync saat online 📶");
+            setSelectedTask(null);
+          } else { showToast(err.message, "error"); }
       };
 
       const handleDelete = async (taskId) => {
@@ -3860,6 +4021,20 @@
           <Sidebar page={page} setPage={setPage} summary={summary} user={user} onLogout={logout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} projects={projects} tasks={tasks} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)} sharedLists={sharedLists} />
 
           <div className={`main-content ${sidebarCollapsed ? "" : "sidebar-visible"}`}>
+            {/* Offline banner */}
+            {!isOnline && (
+              <div style={{ background: "#fef3c7", borderBottom: "1px solid #fcd34d", padding: "6px 16px", fontSize: 13, color: "#92400e", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>📡</span>
+                <span style={{ flex: 1 }}>Mode offline — data dari cache. {queueSize > 0 ? `${queueSize} perubahan menunggu sync.` : ""}</span>
+              </div>
+            )}
+            {isOnline && queueSize > 0 && (
+              <div style={{ background: "#ecfdf5", borderBottom: "1px solid #6ee7b7", padding: "6px 16px", fontSize: 13, color: "#065f46", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>🔄</span>
+                <span>Menyinkronkan {queueSize} perubahan...</span>
+              </div>
+            )}
+
             {/* Mobile top bar */}
             <div className="mobile-topbar">
               <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1 }}>☰</button>
@@ -3947,6 +4122,7 @@
               projects={projects}
               contexts={contexts}
               onRefresh={fetchAll}
+              onOfflineEdit={handleOfflineEdit}
               collaborators={collaborators}
             />
           )}
@@ -3955,6 +4131,7 @@
             <TaskFormModal
               task={editTask}
               onSave={handleSaved}
+              onOfflineSave={handleOfflineSave}
               onClose={() => { setShowForm(false); setEditTask(null); }}
               projects={projects}
               contexts={contexts}
