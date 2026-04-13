@@ -3778,6 +3778,7 @@
         window.addEventListener("online",  onOnline);
         window.addEventListener("offline", onOffline);
         updateQueueSize();
+        if (navigator.onLine) processQueue();
         return () => {
           window.removeEventListener("online",  onOnline);
           window.removeEventListener("offline", onOffline);
