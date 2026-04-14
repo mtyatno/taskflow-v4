@@ -99,10 +99,10 @@
     .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; }
 
     /* Priority badges */
-    .badge-p1 { background: #fef2f2; color: #dc2626; }
-    .badge-p2 { background: #fff7ed; color: #ea580c; }
+    .badge-p1 { background: #fef2f2; color: #dc2626; box-shadow: 0 0 0 1px rgba(220,38,38,0.2); font-weight: 700; }
+    .badge-p2 { background: #fff7ed; color: #ea580c; box-shadow: 0 0 0 1px rgba(234,88,12,0.2); font-weight: 700; }
     .badge-p3 { background: #fefce8; color: #ca8a04; }
-    .badge-p4 { background: #f0fdf4; color: #16a34a; }
+    .badge-p4 { background: #f0fdf4; color: #64748b; }
 
     /* Quadrant badges */
     .badge-q1 { background: #fef2f2; color: #dc2626; }
@@ -151,7 +151,8 @@
 
     /* Eisenhower grid */
     .eisenhower-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .eisenhower-cell { border-radius: 12px; padding: 16px; min-height: 160px; min-width: 0; overflow: hidden; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.06); }
+    .eisenhower-cell { border-radius: 12px; padding: 16px 20px; min-height: 160px; min-width: 0; overflow: hidden; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.06); transition: transform 0.18s, box-shadow 0.18s; }
+    .eisenhower-cell:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.09); }
     .eq1 { border-top: 3px solid #ef4444; }
     .eq2 { border-top: 3px solid #A8C500; }
     .eq3 { border-top: 3px solid #f97316; }
@@ -617,7 +618,15 @@
     const GTD_LABELS = { inbox: "Inbox", next: "Next", waiting: "Waiting", someday: "Someday", project: "Project", done: "Done" };
     const GTD_EMOJI = { inbox: "📥", next: "▶️", waiting: "⏳", someday: "💭", project: "📁", done: "✅" };
 
-    function PriBadge({ p }) { return <span className={`badge badge-${p.toLowerCase()}`}>{PRI_EMOJI[p]} {p}</span>; }
+    const PRI_DOT = { P1: "#ef4444", P2: "#f97316", P3: "#eab308", P4: "#94a3b8" };
+    function PriBadge({ p }) {
+      return (
+        <span className={`badge badge-${p.toLowerCase()}`} style={{ gap: 4 }}>
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: PRI_DOT[p], display: "inline-block", flexShrink: 0 }} />
+          {p}
+        </span>
+      );
+    }
     function QuadBadge({ q }) { return <span className={`badge badge-${q.toLowerCase()}`}>{QUAD_EMOJI[q]} {q}</span>; }
     function StatusBadge({ s }) { return <span className={`badge badge-${s}`}>{GTD_EMOJI[s]} {GTD_LABELS[s]}</span>; }
 
@@ -2950,7 +2959,8 @@
 
       const toggle = (setter, current, val) => setter(current === val ? "" : val);
 
-      let filtered = tasks;
+      const PRI_ORDER = { P1: 0, P2: 1, P3: 2, P4: 3 };
+      let filtered = [...tasks].sort((a, b) => (PRI_ORDER[a.priority] ?? 9) - (PRI_ORDER[b.priority] ?? 9));
       if (fPriority) filtered = filtered.filter(t => t.priority === fPriority);
       if (fQuadrant) filtered = filtered.filter(t => t.quadrant === fQuadrant);
       if (fProject) filtered = filtered.filter(t => t.project === fProject);
@@ -3424,11 +3434,12 @@
     }
 
     // ── Dashboard ───────────────────────────────────────────────
+    const SORT_PRI = (a, b) => ({ P1:0,P2:1,P3:2,P4:3 }[a.priority]??9) - ({ P1:0,P2:1,P3:2,P4:3 }[b.priority]??9);
     function Dashboard({ summary, tasks, onTaskClick, onDone }) {
-      const q1Tasks = tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done");
-      const q2Tasks = tasks.filter(t => t.quadrant === "Q2" && t.gtd_status !== "done");
-      const q3Tasks = tasks.filter(t => t.quadrant === "Q3" && t.gtd_status !== "done");
-      const q4Tasks = tasks.filter(t => t.quadrant === "Q4" && t.gtd_status !== "done");
+      const q1Tasks = tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done").sort(SORT_PRI);
+      const q2Tasks = tasks.filter(t => t.quadrant === "Q2" && t.gtd_status !== "done").sort(SORT_PRI);
+      const q3Tasks = tasks.filter(t => t.quadrant === "Q3" && t.gtd_status !== "done").sort(SORT_PRI);
+      const q4Tasks = tasks.filter(t => t.quadrant === "Q4" && t.gtd_status !== "done").sort(SORT_PRI);
       const [dashModal, setDashModal] = useState(null); // { title, tasks }
 
       const openModal = (title, cellTasks) => setDashModal({ title, tasks: cellTasks });
@@ -3544,7 +3555,7 @@
               { key: "waiting", label: "Waiting For",  emoji: "⏳", accent: "#eab308", fullWidth: false, tip: "Menunggu orang lain atau sesuatu sebelum bisa dilanjutkan." },
               { key: "someday", label: "Someday",      emoji: "💭", accent: "#94a3b8", fullWidth: false, tip: "Ide atau rencana yang menarik tapi belum waktunya dikerjakan sekarang." },
             ].map(({ key, label, emoji, accent, fullWidth, tip }) => {
-              const sectionTasks = tasks.filter(t => t.gtd_status === key);
+              const sectionTasks = tasks.filter(t => t.gtd_status === key).sort(SORT_PRI);
               const shadow = fullWidth && sectionTasks.length > 0
                 ? "0 2px 8px rgba(249,115,22,0.12), 0 8px 24px rgba(0,0,0,0.07)"
                 : "0 1px 4px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.04)";
