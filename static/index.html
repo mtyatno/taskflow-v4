@@ -59,7 +59,7 @@
     .scale-in { animation: scaleIn 0.2s ease-out; }
 
     /* Section title */
-    .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-secondary); margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+    .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-secondary); margin-bottom: 16px; margin-top: 0; display: flex; align-items: center; gap: 10px; }
     .section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
     /* FAB */
@@ -3501,7 +3501,7 @@
           })()}
 
           {/* Analytics Charts */}
-          <div className="section-title">📊 Analytics</div>
+          <h2 className="section-title">📊 Analytics</h2>
           <div className="charts-grid" style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 16, marginBottom: 32 }}>
             {/* A. Productivity Trend - Line Chart */}
             <div className="card" style={{ padding: 18 }}>
@@ -3523,7 +3523,7 @@
           </div>
 
           {/* Eisenhower Matrix */}
-          <div className="section-title" style={{ marginTop: 8 }}>🎯 Eisenhower Matrix</div>
+          <h2 className="section-title" style={{ marginTop: 8 }}>🎯 Eisenhower Matrix</h2>
           <div className="eisen-header-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 6 }}>
             <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.8px" }}>Mendesak + Penting</div>
             <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.8px" }}>Penting</div>
@@ -3536,7 +3536,7 @@
           </div>
 
           {/* GTD Status breakdown */}
-          <div className="section-title">🔄 GTD Status</div>
+          <h2 className="section-title">🔄 GTD Status</h2>
           <div className="gtd-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             {[
               { key: "inbox",   label: "Inbox",        emoji: "📥", accent: "#3b82f6", fullWidth: false, tip: "Semua task baru masuk ke sini. Belum diputuskan mau diapakan." },
