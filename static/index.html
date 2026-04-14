@@ -53,9 +53,19 @@
     @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
     @keyframes bounce { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+    @keyframes checkPop { 0% { transform: scale(0); opacity: 0; } 60% { transform: scale(1.3); } 100% { transform: scale(1); opacity: 1; } }
     .fade-in { animation: fadeIn 0.3s ease-out; }
     .slide-in { animation: slideIn 0.3s ease-out; }
     .scale-in { animation: scaleIn 0.2s ease-out; }
+
+    /* Section title */
+    .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-secondary); margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+    .section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+    /* FAB */
+    .fab { position: fixed; bottom: 28px; right: 28px; z-index: 50; width: 52px; height: 52px; border-radius: 50%; background: var(--accent); color: white; border: none; font-size: 26px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.18); transition: all 0.2s; display: flex; align-items: center; justify-content: center; line-height: 1; }
+    .fab:hover { background: var(--accent-hover); transform: scale(1.1); box-shadow: 0 6px 24px rgba(0,0,0,0.25); }
+    @media (min-width: 769px) { .fab { display: none; } }
 
     /* Sidebar */
     .sidebar { width: var(--sidebar-w); height: 100vh; background: var(--bg-primary); color: var(--text-primary); position: fixed; left: 0; top: 0; z-index: 40; transition: transform 0.3s; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid #DDDDD5; }
@@ -80,7 +90,8 @@
     .card-hover:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.08); transform: translateY(-1px); }
 
     /* Stat card */
-    .stat-card { padding: 20px 22px; border-radius: 14px; background: white; border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 8px -2px rgba(0,0,0,0.04); position: relative; overflow: hidden; }
+    .stat-card { padding: 20px 22px; border-radius: 14px; background: white; border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 8px -2px rgba(0,0,0,0.04); position: relative; overflow: hidden; transition: transform 0.18s, box-shadow 0.18s; cursor: default; }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.1); }
     .stat-number { font-size: 30px; font-weight: 700; line-height: 1; }
     .stat-label { font-size: 12px; color: var(--text-secondary); margin-top: 5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
 
@@ -500,7 +511,9 @@
 
     /* Checkbox */
     .check-btn { width: 22px; height: 22px; border-radius: 6px; border: 2px solid #d1d5db; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0; }
-    .check-btn:hover { border-color: var(--success); background: #f0fdf4; }
+    .check-btn:hover { border-color: var(--success); background: #f0fdf4; transform: scale(1.1); }
+    .check-btn:active { transform: scale(0.92); }
+    .check-btn .check-icon { animation: checkPop 0.3s ease-out; }
   </style>
 </head>
 <body>
@@ -2191,7 +2204,7 @@
       return (
         <div className="task-row fade-in" onClick={() => onClick(task)}>
           <div className="check-btn" onClick={e => { e.stopPropagation(); onDone(task.id); }} title="Tandai selesai">
-            {task.gtd_status === "done" && <span style={{ color: "var(--success)", fontSize: 14 }}>✓</span>}
+            {task.gtd_status === "done" && <span className="check-icon" style={{ color: "var(--success)", fontSize: 14 }}>✓</span>}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="task-row-header">
@@ -2242,7 +2255,7 @@
       return (
         <div className={`task-row fade-in ${isFocusing ? 'focusing' : ''}`} onClick={() => onClick(task)}>
           <div className="check-btn" onClick={e => { e.stopPropagation(); onDone(task.id); }} title="Tandai selesai">
-            {task.gtd_status === "done" && <span style={{ color: "var(--success)", fontSize: 14 }}>✓</span>}
+            {task.gtd_status === "done" && <span className="check-icon" style={{ color: "var(--success)", fontSize: 14 }}>✓</span>}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -3468,17 +3481,17 @@
             const q1Count      = active.filter(t => t.quadrant === "Q1").length;
             const overdueCount = active.filter(t => t.is_overdue).length;
             const kpis = [
-              { value: active.length,              label: "Active",      color: "var(--accent)",  icon: "⚡" },
-              { value: summary.done_last_7_days??0, label: "Done 7 hari", color: "var(--success)", icon: "✅" },
-              { value: q1Count,                    label: "Q1 Lakukan",  color: "var(--q1)",      icon: "🔥" },
-              { value: overdueCount,               label: "Overdue",     color: overdueCount > 0 ? "#ef4444" : "var(--text-light)", icon: "⚠️" },
-              { value: inboxCount,                 label: "Inbox",       color: "var(--text-primary)", icon: "📥" },
+              { value: active.length,              label: "Active",      color: "var(--accent)",  icon: "⚡", bg: null },
+              { value: summary.done_last_7_days??0, label: "Done 7 hari", color: "#16a34a",        icon: "✅", bg: null },
+              { value: q1Count,                    label: "Q1 Lakukan",  color: "var(--q1)",      icon: "🔥", bg: null },
+              { value: overdueCount,               label: "Overdue",     color: overdueCount > 0 ? "#dc2626" : "var(--text-light)", icon: "⚠️", bg: overdueCount > 0 ? "#fef2f2" : null },
+              { value: inboxCount,                 label: "Inbox",       color: "#2563eb",         icon: "📥", bg: null },
             ];
             return (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 28 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 32 }}>
                 {kpis.map(k => (
-                  <div key={k.label} className="stat-card">
-                    <div style={{ position: "absolute", right: 14, top: 12, fontSize: 26, opacity: 0.07, lineHeight: 1 }}>{k.icon}</div>
+                  <div key={k.label} className="stat-card" style={k.bg ? { background: k.bg } : {}}>
+                    <div style={{ position: "absolute", right: 14, top: 12, fontSize: 28, opacity: 0.07, lineHeight: 1 }}>{k.icon}</div>
                     <div className="stat-number" style={{ color: k.color }}>{k.value}</div>
                     <div className="stat-label">{k.label}</div>
                   </div>
@@ -3488,10 +3501,11 @@
           })()}
 
           {/* Analytics Charts */}
-          <div className="charts-grid" style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
+          <div className="section-title">📊 Analytics</div>
+          <div className="charts-grid" style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 16, marginBottom: 32 }}>
             {/* A. Productivity Trend - Line Chart */}
-            <div className="card" style={{ padding: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>📈 Productivity Trend <span style={{ fontWeight: 400, color: "var(--text-light)", fontSize: 12 }}>7 hari terakhir</span></div>
+            <div className="card" style={{ padding: 18 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14, display: "flex", alignItems: "baseline", gap: 8 }}>📈 Productivity Trend <span style={{ fontWeight: 400, color: "var(--text-light)", fontSize: 11 }}>4 minggu terakhir</span></div>
               <ProductivityChart tasks={tasks} />
             </div>
 
@@ -3509,12 +3523,12 @@
           </div>
 
           {/* Eisenhower Matrix */}
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>🎯 Eisenhower Matrix</h2>
-          <div className="eisen-header-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
-            <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Mendesak + Penting</div>
-            <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Penting</div>
+          <div className="section-title" style={{ marginTop: 8 }}>🎯 Eisenhower Matrix</div>
+          <div className="eisen-header-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 6 }}>
+            <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.8px" }}>Mendesak + Penting</div>
+            <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.8px" }}>Penting</div>
           </div>
-          <div className="gtd-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
+          <div className="eisenhower-grid" style={{ gap: 16, marginBottom: 32 }}>
             <EisenCell tasks={q1Tasks} label="Lakukan" emoji="🔥" cls="eq1" />
             <EisenCell tasks={q2Tasks} label="Rencanakan" emoji="📅" cls="eq2" />
             <EisenCell tasks={q3Tasks} label="Delegasikan" emoji="👋" cls="eq3" />
@@ -3522,17 +3536,20 @@
           </div>
 
           {/* GTD Status breakdown */}
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>🔄 GTD Status</h2>
-          <div className="gtd-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="section-title">🔄 GTD Status</div>
+          <div className="gtd-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             {[
-              { key: "inbox",   label: "Inbox",        emoji: "📥", accent: "#3b82f6", tip: "Semua task baru masuk ke sini. Belum diputuskan mau diapakan." },
-              { key: "next",    label: "Next Actions", emoji: "▶️", accent: "#f97316", tip: "Task yang sudah siap dikerjakan. Lakukan satu per satu saat ada waktu." },
-              { key: "waiting", label: "Waiting For",  emoji: "⏳", accent: "#eab308", tip: "Menunggu orang lain atau sesuatu sebelum bisa dilanjutkan." },
-              { key: "someday", label: "Someday",      emoji: "💭", accent: "#94a3b8", tip: "Ide atau rencana yang menarik tapi belum waktunya dikerjakan sekarang." },
-            ].map(({ key, label, emoji, accent, tip }) => {
+              { key: "inbox",   label: "Inbox",        emoji: "📥", accent: "#3b82f6", fullWidth: false, tip: "Semua task baru masuk ke sini. Belum diputuskan mau diapakan." },
+              { key: "next",    label: "Next Actions", emoji: "▶️", accent: "#f97316", fullWidth: true,  tip: "Task yang sudah siap dikerjakan. Lakukan satu per satu saat ada waktu." },
+              { key: "waiting", label: "Waiting For",  emoji: "⏳", accent: "#eab308", fullWidth: false, tip: "Menunggu orang lain atau sesuatu sebelum bisa dilanjutkan." },
+              { key: "someday", label: "Someday",      emoji: "💭", accent: "#94a3b8", fullWidth: false, tip: "Ide atau rencana yang menarik tapi belum waktunya dikerjakan sekarang." },
+            ].map(({ key, label, emoji, accent, fullWidth, tip }) => {
               const sectionTasks = tasks.filter(t => t.gtd_status === key);
+              const shadow = fullWidth && sectionTasks.length > 0
+                ? "0 2px 8px rgba(249,115,22,0.12), 0 8px 24px rgba(0,0,0,0.07)"
+                : "0 1px 4px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.04)";
               return (
-                <div key={key} style={{ borderRadius: 12, padding: 16, minHeight: 120, minWidth: 0, overflow: "hidden", background: "#fff", border: "1px solid rgba(0,0,0,0.06)", borderTop: `3px solid ${accent}`, boxShadow: "0 1px 4px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.04)" }}>
+                <div key={key} style={{ borderRadius: 12, padding: fullWidth ? "16px 20px" : 16, minHeight: 120, minWidth: 0, overflow: "hidden", background: "#fff", border: "1px solid rgba(0,0,0,0.06)", borderTop: `3px solid ${accent}`, boxShadow: shadow, gridColumn: fullWidth ? "1 / -1" : undefined }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                     <div title={tip} style={{ fontWeight: 700, fontSize: 14, cursor: "help" }}>{emoji} {label} ({sectionTasks.length})</div>
                     {sectionTasks.length > 5 && (
@@ -4268,6 +4285,9 @@
               }}
             />
           )}
+
+          {/* FAB — mobile floating add button */}
+          <button className="fab" onClick={() => { setEditTask(null); setShowForm(true); }} title="Tambah Task Baru">＋</button>
 
           {/* Mobile overlay */}
           {sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 30 }} />}
