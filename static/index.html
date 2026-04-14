@@ -3515,19 +3515,19 @@
           <h2 className="section-title">📊 Analytics</h2>
           <div className="charts-grid" style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 16, marginBottom: 32 }}>
             {/* A. Productivity Trend - Line Chart */}
-            <div className="card" style={{ padding: 18 }}>
+            <div className="card card-hover" style={{ padding: 18 }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14, display: "flex", alignItems: "baseline", gap: 8 }}>📈 Productivity Trend <span style={{ fontWeight: 400, color: "var(--text-light)", fontSize: 11 }}>4 minggu terakhir</span></div>
               <ProductivityChart tasks={tasks} />
             </div>
 
             {/* B. Completion Ratio - Donut */}
-            <div className="card" style={{ padding: 16 }}>
+            <div className="card card-hover" style={{ padding: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>🎯 Completion</div>
               <CompletionDonut summary={summary} />
             </div>
 
             {/* C. Task by Status - Bar */}
-            <div className="card" style={{ padding: 16 }}>
+            <div className="card card-hover" style={{ padding: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>📋 GTD Status</div>
               <StatusBarChart summary={summary} />
             </div>
