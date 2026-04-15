@@ -76,6 +76,10 @@ def migrate_db():
         if "user_id" not in cols:
             conn.execute("ALTER TABLE tasks ADD COLUMN user_id INTEGER DEFAULT NULL")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id)")
+        # Check if users has email
+        ucols = [row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "email" not in ucols:
+            conn.execute("ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''")
 
 
 # ── Password hashing (no external deps) ───────────────────────────────────────
@@ -138,6 +142,17 @@ class LoginReq(BaseModel):
     username: str
     password: str
 
+class ChangeUsernameReq(BaseModel):
+    new_username: str = Field(min_length=3, max_length=50)
+    current_password: str
+
+class ChangePasswordReq(BaseModel):
+    old_password: str
+    new_password: str = Field(min_length=4, max_length=100)
+
+class ChangeEmailReq(BaseModel):
+    email: str = Field(max_length=100)
+
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1)
     description: str = ""
@@ -195,27 +210,29 @@ async def startup():
 
 @app.post("/api/auth/register")
 async def register(req: RegisterReq, response: Response):
+    username = req.username.strip()
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM users WHERE username = ?", (req.username,)).fetchone()
+        existing = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
         if existing:
             raise HTTPException(status_code=400, detail="Username sudah digunakan")
 
         now = datetime.now().isoformat()
         cur = conn.execute(
             "INSERT INTO users (username, password_hash, display_name, created_at) VALUES (?,?,?,?)",
-            (req.username, hash_password(req.password), req.display_name or req.username, now),
+            (username, hash_password(req.password), req.display_name.strip() or username, now),
         )
         user_id = cur.lastrowid
 
-    token = create_token(user_id, req.username)
+    token = create_token(user_id, username)
     response.set_cookie("token", token, httponly=True, samesite="lax", max_age=JWT_EXPIRE_HOURS * 3600)
-    return {"user_id": user_id, "username": req.username, "token": token}
+    return {"user_id": user_id, "username": username, "token": token}
 
 
 @app.post("/api/auth/login")
 async def login(req: LoginReq, response: Response):
+    username = req.username.strip()
     with get_db() as conn:
-        user = conn.execute("SELECT * FROM users WHERE username = ?", (req.username,)).fetchone()
+        user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         if not user or not verify_password(req.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Username atau password salah")
 
@@ -227,7 +244,7 @@ async def login(req: LoginReq, response: Response):
 @app.get("/api/auth/me")
 async def get_me(user=Depends(get_current_user)):
     with get_db() as conn:
-        row = conn.execute("SELECT id, username, display_name, created_at FROM users WHERE id = ?", (user["sub"],)).fetchone()
+        row = conn.execute("SELECT id, username, display_name, email, created_at FROM users WHERE id = ?", (user["sub"],)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
     return dict(row)
@@ -236,6 +253,39 @@ async def get_me(user=Depends(get_current_user)):
 @app.post("/api/auth/logout")
 async def logout(response: Response):
     response.delete_cookie("token")
+    return {"ok": True}
+
+
+@app.patch("/api/auth/profile/username")
+async def change_username(req: ChangeUsernameReq, response: Response, user=Depends(get_current_user)):
+    new_username = req.new_username.strip()
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user["sub"],)).fetchone()
+        if not row or not verify_password(req.current_password, row["password_hash"]):
+            raise HTTPException(status_code=401, detail="Password salah")
+        existing = conn.execute("SELECT id FROM users WHERE username = ? AND id != ?", (new_username, user["sub"])).fetchone()
+        if existing:
+            raise HTTPException(status_code=400, detail="Username sudah digunakan")
+        conn.execute("UPDATE users SET username = ? WHERE id = ?", (new_username, user["sub"]))
+    token = create_token(user["sub"], new_username)
+    response.set_cookie("token", token, httponly=True, samesite="lax", max_age=JWT_EXPIRE_HOURS * 3600)
+    return {"username": new_username, "token": token}
+
+
+@app.patch("/api/auth/profile/password")
+async def change_password(req: ChangePasswordReq, user=Depends(get_current_user)):
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user["sub"],)).fetchone()
+        if not row or not verify_password(req.old_password, row["password_hash"]):
+            raise HTTPException(status_code=401, detail="Password lama salah")
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hash_password(req.new_password), user["sub"]))
+    return {"ok": True}
+
+
+@app.patch("/api/auth/profile/email")
+async def change_email(req: ChangeEmailReq, user=Depends(get_current_user)):
+    with get_db() as conn:
+        conn.execute("UPDATE users SET email = ? WHERE id = ?", (req.email.strip(), user["sub"]))
     return {"ok": True}
 
 

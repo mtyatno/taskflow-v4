@@ -170,6 +170,7 @@
       get: (url) => api.fetch(url),
       post: (url, body) => api.fetch(url, { method: "POST", body: JSON.stringify(body) }),
       put: (url, body) => api.fetch(url, { method: "PUT", body: JSON.stringify(body) }),
+      patch: (url, body) => api.fetch(url, { method: "PATCH", body: JSON.stringify(body) }),
       del: (url) => api.fetch(url, { method: "DELETE" }),
     };
 
@@ -307,6 +308,8 @@
         { id: "all", icon: "📋", label: "Semua Task" },
         { id: "overdue", icon: "⚠️", label: "Overdue", count: summary?.overdue },
         { id: "done", icon: "✅", label: "Done", count: summary?.by_status?.done },
+        { section: "AKUN" },
+        { id: "settings", icon: "⚙️", label: "Pengaturan" },
       ];
 
       return (
@@ -588,6 +591,103 @@
       );
     }
 
+    // ── Settings Page ───────────────────────────────────────────
+    function SettingsPage({ user, onUsernameChange, showToast }) {
+      const [unForm, setUnForm] = useState({ new_username: "", current_password: "" });
+      const [pwForm, setPwForm] = useState({ old_password: "", new_password: "", confirm: "" });
+      const [emForm, setEmForm] = useState({ email: user?.email || "" });
+      const [loading, setLoading] = useState({ username: false, password: false, email: false });
+
+      const setL = (k, v) => setLoading(l => ({ ...l, [k]: v }));
+
+      const handleUsername = async (e) => {
+        e.preventDefault();
+        setL("username", true);
+        try {
+          const data = await api.patch("/api/auth/profile/username", unForm);
+          onUsernameChange({ ...user, username: data.username, display_name: data.username });
+          showToast("Username berhasil diubah ✅");
+          setUnForm({ new_username: "", current_password: "" });
+        } catch (err) { showToast(err.message, "error"); }
+        setL("username", false);
+      };
+
+      const handlePassword = async (e) => {
+        e.preventDefault();
+        if (pwForm.new_password !== pwForm.confirm) {
+          showToast("Password baru tidak cocok", "error"); return;
+        }
+        setL("password", true);
+        try {
+          await api.patch("/api/auth/profile/password", { old_password: pwForm.old_password, new_password: pwForm.new_password });
+          showToast("Password berhasil diubah ✅");
+          setPwForm({ old_password: "", new_password: "", confirm: "" });
+        } catch (err) { showToast(err.message, "error"); }
+        setL("password", false);
+      };
+
+      const handleEmail = async (e) => {
+        e.preventDefault();
+        setL("email", true);
+        try {
+          await api.patch("/api/auth/profile/email", { email: emForm.email });
+          showToast("Email berhasil disimpan ✅");
+        } catch (err) { showToast(err.message, "error"); }
+        setL("email", false);
+      };
+
+      const Field = ({ label, type = "text", value, onChange, placeholder }) => (
+        <div style={{ marginBottom: 16 }}>
+          <label className="input-label">{label}</label>
+          <input className="input" type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder || ""} />
+        </div>
+      );
+
+      return (
+        <div className="fade-in" style={{ maxWidth: 520 }}>
+          <div style={{ marginBottom: 28 }}>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>Login sebagai <strong>{user?.username}</strong>{user?.email ? ` · ${user.email}` : ""}</div>
+          </div>
+
+          {/* Ganti Username */}
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Ganti Username</div>
+            <form onSubmit={handleUsername}>
+              <Field label="Username Baru" value={unForm.new_username} onChange={v => setUnForm(f => ({ ...f, new_username: v }))} placeholder="min. 3 karakter" />
+              <Field label="Password Saat Ini" type="password" value={unForm.current_password} onChange={v => setUnForm(f => ({ ...f, current_password: v }))} placeholder="Konfirmasi password" />
+              <button className="btn btn-primary" type="submit" disabled={loading.username}>
+                {loading.username ? "Menyimpan..." : "Simpan Username"}
+              </button>
+            </form>
+          </div>
+
+          {/* Ganti Password */}
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Ganti Password</div>
+            <form onSubmit={handlePassword}>
+              <Field label="Password Lama" type="password" value={pwForm.old_password} onChange={v => setPwForm(f => ({ ...f, old_password: v }))} />
+              <Field label="Password Baru" type="password" value={pwForm.new_password} onChange={v => setPwForm(f => ({ ...f, new_password: v }))} placeholder="min. 4 karakter" />
+              <Field label="Konfirmasi Password Baru" type="password" value={pwForm.confirm} onChange={v => setPwForm(f => ({ ...f, confirm: v }))} />
+              <button className="btn btn-primary" type="submit" disabled={loading.password}>
+                {loading.password ? "Menyimpan..." : "Simpan Password"}
+              </button>
+            </form>
+          </div>
+
+          {/* Ganti Email */}
+          <div className="card">
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Email</div>
+            <form onSubmit={handleEmail}>
+              <Field label="Alamat Email" type="email" value={emForm.email} onChange={v => setEmForm({ email: v })} placeholder="contoh@email.com" />
+              <button className="btn btn-primary" type="submit" disabled={loading.email}>
+                {loading.email ? "Menyimpan..." : "Simpan Email"}
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
     // ══════════════════════════════════════════════════════════════
     //  MAIN APP
     // ══════════════════════════════════════════════════════════════
@@ -707,11 +807,13 @@
       const pageTitles = {
         dashboard: "Dashboard", inbox: "Inbox", next: "Next Actions", waiting: "Waiting For",
         someday: "Someday / Maybe", q1: "Q1 — Do", q2: "Q2 — Schedule", q3: "Q3 — Delegate",
-        q4: "Q4 — Eliminate", overdue: "Overdue", done: "Done", today: "Fokus Hari Ini", all: "Semua Task"
+        q4: "Q4 — Eliminate", overdue: "Overdue", done: "Done", today: "Fokus Hari Ini", all: "Semua Task",
+        settings: "Pengaturan"
       };
       const pageIcons = {
         dashboard: "📊", inbox: "📥", next: "▶️", waiting: "⏳", someday: "💭",
-        q1: "🔥", q2: "📅", q3: "👋", q4: "🗑️", overdue: "⚠️", done: "✅", today: "☀️", all: "📋"
+        q1: "🔥", q2: "📅", q3: "👋", q4: "🗑️", overdue: "⚠️", done: "✅", today: "☀️", all: "📋",
+        settings: "⚙️"
       };
 
       return (
@@ -735,7 +837,9 @@
             </div>
 
             {/* Content */}
-            {page === "dashboard" ? (
+            {page === "settings" ? (
+              <SettingsPage user={user} onUsernameChange={(u) => setUser(u)} showToast={showToast} />
+            ) : page === "dashboard" ? (
               <Dashboard summary={summary} tasks={tasks} onTaskClick={setSelectedTask} onDone={handleDone} />
             ) : (
               <TaskListView
