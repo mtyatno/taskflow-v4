@@ -153,10 +153,10 @@
     .eisenhower-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .eisenhower-cell { border-radius: 12px; padding: 16px 20px; min-height: 160px; min-width: 0; overflow: hidden; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.06); transition: transform 0.18s, box-shadow 0.18s; }
     .eisenhower-cell:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.09); }
-    .eq1 { border-top: 3px solid #ef4444; }
-    .eq2 { border-top: 3px solid #A8C500; }
-    .eq3 { border-top: 3px solid #f97316; }
-    .eq4 { border-top: 3px solid #94a3b8; }
+    .eq1 { border-top: 4px solid #ef4444; }
+    .eq2 { border-top: 4px solid #A8C500; }
+    .eq3 { border-top: 4px solid #f97316; }
+    .eq4 { border-top: 4px solid #94a3b8; }
 
     /* Task row */
     .task-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
@@ -521,7 +521,7 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useCallback, useRef, createContext, useContext } = React;
+    const { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext } = React;
 
     // ── Token storage (simple variable + localStorage) ────────
     let __token = localStorage.getItem("tf_token") || null;
@@ -3073,22 +3073,33 @@
       const canvasRef = useRef(null);
       const chartRef = useRef(null);
 
-      useEffect(() => {
-        if (!canvasRef.current) return;
-
-        // 4 minggu terakhir — group per minggu
-        const days = [];
-        const counts = [];
-        const created = [];
+      const weekData = useMemo(() => {
+        const result = [];
         for (let w = 3; w >= 0; w--) {
           const end = new Date(); end.setDate(end.getDate() - w * 7);
           const start = new Date(end); start.setDate(start.getDate() - 6);
           const startStr = start.toISOString().split("T")[0];
           const endStr   = end.toISOString().split("T")[0];
-          days.push(w === 0 ? "Minggu ini" : `${w} mgg lalu`);
-          counts.push(tasks.filter(t => t.completed_at && t.completed_at.slice(0,10) >= startStr && t.completed_at.slice(0,10) <= endStr).length);
-          created.push(tasks.filter(t => t.created_at  && t.created_at.slice(0,10)  >= startStr && t.created_at.slice(0,10)  <= endStr).length);
+          result.push({
+            label:   w === 0 ? "Minggu ini" : `${w} mgg lalu`,
+            done:    tasks.filter(t => t.completed_at && t.completed_at.slice(0,10) >= startStr && t.completed_at.slice(0,10) <= endStr).length,
+            created: tasks.filter(t => t.created_at   && t.created_at.slice(0,10)   >= startStr && t.created_at.slice(0,10)   <= endStr).length,
+          });
         }
+        return result;
+      }, [tasks]);
+
+      const thisWeek = weekData[3]?.done || 0;
+      const lastWeek = weekData[2]?.done || 0;
+      const growth   = lastWeek > 0 ? Math.round((thisWeek - lastWeek) / lastWeek * 100) : thisWeek > 0 ? 100 : 0;
+      const growthPositive = growth >= 0;
+
+      useEffect(() => {
+        if (!canvasRef.current) return;
+
+        const days    = weekData.map(w => w.label);
+        const counts  = weekData.map(w => w.done);
+        const created = weekData.map(w => w.created);
 
         if (chartRef.current) chartRef.current.destroy();
 
@@ -3146,9 +3157,25 @@
         });
 
         return () => { if (chartRef.current) chartRef.current.destroy(); };
-      }, [tasks]);
+      }, [weekData]);
 
-      return <div style={{ height: 200 }}><canvas ref={canvasRef} /></div>;
+      return (
+        <div>
+          {(lastWeek > 0 || thisWeek > 0) && (
+            <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: growthPositive ? "#16a34a" : "#dc2626",
+                background: growthPositive ? "#f0fdf4" : "#fef2f2",
+                padding: "2px 9px", borderRadius: 20 }}>
+                {growth > 0 ? "+" : ""}{growth}%
+              </span>
+              <span style={{ fontSize: 11, color: "var(--text-light)" }}>
+                {growthPositive ? "naik" : "turun"} dari minggu lalu
+              </span>
+            </div>
+          )}
+          <div style={{ height: 186 }}><canvas ref={canvasRef} /></div>
+        </div>
+      );
     }
 
     // ── Chart: Completion Donut ───────────────────────────────────
@@ -3181,7 +3208,23 @@
             maintainAspectRatio: false,
             cutout: "65%",
             plugins: {
-              legend: { position: "bottom", labels: { boxWidth: 10, padding: 12, font: { size: 11, family: "DM Sans" } } },
+              legend: {
+                position: "bottom",
+                labels: {
+                  boxWidth: 10, padding: 12, font: { size: 11, family: "DM Sans" },
+                  generateLabels: (chart) => {
+                    const ds = chart.data.datasets[0];
+                    const total = ds.data.reduce((a, b) => a + b, 0);
+                    return chart.data.labels.map((label, i) => ({
+                      text: `${label} (${total > 0 ? Math.round(ds.data[i] / total * 100) : 0}%)`,
+                      fillStyle: ds.backgroundColor[i],
+                      strokeStyle: ds.backgroundColor[i],
+                      lineWidth: 0, index: i,
+                      hidden: !chart.getDataVisibility(i),
+                    }));
+                  },
+                },
+              },
             },
           },
         });
@@ -3466,8 +3509,8 @@
               <div style={{ fontSize: 12, color: "var(--text-light)", textAlign: "center" }}>Belum ada task</div>
             </div>
           )}
-          {cellTasks.slice(0, 5).map(t => (
-            <div key={t.id} onClick={() => onTaskClick(t)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
+          {cellTasks.slice(0, 5).map((t, i) => (
+            <div key={t.id} onClick={() => onTaskClick(t)} style={{ fontSize: 13, padding: "6px 0", cursor: "pointer", display: "flex", gap: 6, alignItems: "center", minWidth: 0, borderTop: i > 0 ? "1px solid var(--border)" : "none" }}>
               <PriBadge p={t.priority} />
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{t.title}</span>
             </div>
@@ -3505,83 +3548,98 @@
               if (!a.is_overdue && b.is_overdue) return 1;
               return SORT_PRI(a, b);
             });
-            const total   = allToday.length;
-            const doneN   = doneToday.length;
-            const pct     = total > 0 ? Math.round(doneN / total * 100) : 0;
-            const allDone = doneN === total;
+            // Show done tasks on top (max 2), then pending (max 5 total visible)
+            const visibleDone    = doneToday.slice(0, 2);
+            const maxPending     = Math.max(0, 5 - visibleDone.length);
+            const visiblePending = pendingToday.slice(0, maxPending);
+            const shown          = visibleDone.length + visiblePending.length;
+            const total          = allToday.length;
+            const doneN          = doneToday.length;
+            const pct            = total > 0 ? Math.round(doneN / total * 100) : 0;
+            const allDone        = doneN === total;
+
+            const TaskRow = ({ t, isDone }) => (
+              <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
+                {/* Priority badge */}
+                <PriBadge p={t.priority} />
+                {/* Title */}
+                <span onClick={() => onTaskClick(t)}
+                  style={{ flex: 1, fontSize: 13, fontWeight: 500, cursor: "pointer",
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    color: isDone ? "var(--text-light)" : t.is_overdue ? "#dc2626" : "var(--text-primary)",
+                    textDecoration: isDone ? "line-through" : "none" }}>
+                  {t.title}
+                </span>
+                {/* Date tag */}
+                {t.deadline && !isDone && (
+                  <span style={{ fontSize: 11, flexShrink: 0,
+                    color: t.is_overdue ? "#dc2626" : "var(--text-light)",
+                    background: t.is_overdue ? "#fef2f2" : "#f1f5f9",
+                    padding: "2px 6px", borderRadius: 4, fontWeight: t.is_overdue ? 600 : 400 }}>
+                    {fmtDate(t.deadline)}
+                  </span>
+                )}
+                {/* Checkbox / done indicator */}
+                {isDone ? (
+                  <span style={{ width: 20, height: 20, borderRadius: "50%", background: "#22c55e", flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "white", fontWeight: 700 }}>✓</span>
+                ) : (
+                  <span
+                    onClick={e => { e.stopPropagation(); onDone(t); }}
+                    title="Tandai selesai"
+                    style={{ width: 20, height: 20, borderRadius: "50%", border: "2px solid #cbd5e1", flexShrink: 0,
+                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                      background: "white", transition: "all 0.15s" }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "#22c55e"; e.currentTarget.style.background = "#f0fdf4"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "#cbd5e1"; e.currentTarget.style.background = "white"; }}
+                  />
+                )}
+              </div>
+            );
+
             return (
-              <div className="card" style={{ marginBottom: 28, padding: "18px 22px", borderLeft: "3px solid var(--accent)" }}>
-                {/* Header */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+              <div className="card" style={{ marginBottom: 28, padding: "18px 22px" }}>
+                {/* Header row */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                   <div>
                     <div style={{ fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}>
-                      ⚡ Priority Hari Ini
+                      🔴 Prioritas Hari Ini
                     </div>
-                    <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 2 }}>
-                      <span style={{ fontWeight: 700, color: allDone ? "#16a34a" : "var(--text-primary)" }}>{doneN} / {total}</span> selesai
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+                      Fokus selesaikan hal penting terlebih dahulu.
                     </div>
                   </div>
-                  <span onClick={() => onNav("today")} style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap", marginTop: 2 }}>Lihat semua →</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                      <b style={{ color: allDone ? "#16a34a" : "var(--text-primary)" }}>{doneN} / {total}</b> selesai
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: allDone ? "#16a34a" : "var(--accent)",
+                      background: allDone ? "#f0fdf4" : "#F4FAD6",
+                      padding: "2px 8px", borderRadius: 20 }}>{pct}%</span>
+                    <span onClick={() => onNav("today")} style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Lihat semua →</span>
+                  </div>
                 </div>
 
-                {/* Progress bar */}
-                <div style={{ height: 5, borderRadius: 3, background: "var(--border)", marginBottom: 14, overflow: "hidden" }}>
-                  <div style={{ height: "100%", borderRadius: 3, background: allDone ? "#22c55e" : "var(--accent)", width: `${pct}%`, transition: "width 0.5s ease" }} />
+                {/* Progress bar — full width */}
+                <div style={{ height: 8, borderRadius: 99, background: "var(--border)", overflow: "hidden", marginBottom: 12 }}>
+                  <div style={{ height: "100%", borderRadius: 99, background: allDone ? "#22c55e" : "var(--accent)", width: `${pct}%`, transition: "width 0.5s ease" }} />
                 </div>
 
                 {/* All done state */}
                 {pendingToday.length === 0 && (
-                  <div style={{ textAlign: "center", padding: "10px 0", color: "#16a34a", fontSize: 14, fontWeight: 600 }}>
+                  <div style={{ textAlign: "center", padding: "12px 0", color: "#16a34a", fontSize: 14, fontWeight: 600 }}>
                     🎉 Semua task hari ini sudah selesai!
                   </div>
                 )}
 
-                {/* Task list */}
-                {pendingToday.slice(0, 5).map((t, i) => (
-                  <div key={t.id}
-                    style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 0",
-                      borderBottom: i < Math.min(pendingToday.length, 5) - 1 ? "1px solid var(--border)" : "none" }}>
-                    {/* Checkbox circle */}
-                    <span
-                      onClick={e => { e.stopPropagation(); onDone(t); }}
-                      title="Tandai selesai"
-                      style={{ width: 18, height: 18, borderRadius: "50%", border: "2px solid #cbd5e1", flexShrink: 0,
-                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                        background: "white", transition: "all 0.15s" }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = "#22c55e"; e.currentTarget.style.background = "#f0fdf4"; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = "#cbd5e1"; e.currentTarget.style.background = "white"; }}
-                    />
-                    {/* Priority dot */}
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: PRI_DOT[t.priority] || "#94a3b8", flexShrink: 0 }} />
-                    {/* Title */}
-                    <span onClick={() => onTaskClick(t)}
-                      style={{ flex: 1, fontSize: 13, fontWeight: 500, cursor: "pointer",
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                        color: t.is_overdue ? "#dc2626" : "var(--text-primary)" }}>
-                      {t.title}
-                    </span>
-                    {/* Tags */}
-                    <div style={{ display: "flex", gap: 5, flexShrink: 0, alignItems: "center" }}>
-                      {t.deadline && (
-                        <span style={{ fontSize: 11, color: t.is_overdue ? "#dc2626" : "var(--text-light)",
-                          background: t.is_overdue ? "#fef2f2" : "#f1f5f9",
-                          padding: "2px 6px", borderRadius: 4, fontWeight: t.is_overdue ? 600 : 400 }}>
-                          {fmtDate(t.deadline)}
-                        </span>
-                      )}
-                      {t.project && (
-                        <span style={{ fontSize: 11, color: "#059669", background: "#ecfdf5", padding: "2px 6px", borderRadius: 4, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {t.project}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                {/* Task rows */}
+                {visibleDone.map(t => <TaskRow key={t.id} t={t} isDone={true} />)}
+                {visiblePending.map(t => <TaskRow key={t.id} t={t} isDone={false} />)}
 
-                {pendingToday.length > 5 && (
+                {total > shown && (
                   <div onClick={() => onNav("today")}
-                    style={{ fontSize: 12, color: "var(--accent)", marginTop: 10, cursor: "pointer", fontWeight: 600, textAlign: "right" }}>
-                    +{pendingToday.length - 5} task lagi →
+                    style={{ fontSize: 12, color: "var(--accent)", marginTop: 8, cursor: "pointer", fontWeight: 600, textAlign: "right" }}>
+                    +{total - shown} task lagi →
                   </div>
                 )}
               </div>
@@ -3654,7 +3712,7 @@
           <div className="gtd-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             {[
               { key: "inbox",   label: "Inbox",        emoji: "📥", accent: "#3b82f6", fullWidth: false, tip: "Semua task baru masuk ke sini. Belum diputuskan mau diapakan." },
-              { key: "next",    label: "Next Actions", emoji: "▶️", accent: "#f97316", fullWidth: true,  tip: "Task yang sudah siap dikerjakan. Lakukan satu per satu saat ada waktu." },
+              { key: "next",    label: "Next Actions", emoji: "▶️", accent: "#f97316", fullWidth: false, tip: "Task yang sudah siap dikerjakan. Lakukan satu per satu saat ada waktu." },
               { key: "waiting", label: "Waiting For",  emoji: "⏳", accent: "#eab308", fullWidth: false, tip: "Menunggu orang lain atau sesuatu sebelum bisa dilanjutkan." },
               { key: "someday", label: "Someday",      emoji: "💭", accent: "#94a3b8", fullWidth: false, tip: "Ide atau rencana yang menarik tapi belum waktunya dikerjakan sekarang." },
             ].map(({ key, label, emoji, accent, fullWidth, tip }) => {
@@ -3679,8 +3737,8 @@
                       <div style={{ fontSize: 12, color: "var(--text-light)" }}>Belum ada task</div>
                     </div>
                   ) : (
-                    sectionTasks.slice(0, 5).map(t => (
-                      <div key={t.id} onClick={() => onTaskClick(t)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
+                    sectionTasks.slice(0, 5).map((t, i) => (
+                      <div key={t.id} onClick={() => onTaskClick(t)} style={{ fontSize: 13, padding: "6px 0", cursor: "pointer", display: "flex", gap: 6, alignItems: "center", minWidth: 0, borderTop: i > 0 ? "1px solid var(--border)" : "none" }}>
                         <PriBadge p={t.priority} />
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{t.title}</span>
                       </div>
