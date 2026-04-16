@@ -925,7 +925,7 @@
                   onMouseDown={(e) => { e.preventDefault(); applyMention(u); }}
                   style={{
                     padding: "8px 14px", cursor: "pointer", fontSize: 13,
-                    background: i === highlighted ? "#f0fdf4" : "white",
+                    background: i === highlighted ? "#f0fdf4" : "var(--bg-card)",
                     borderBottom: i < filtered.length - 1 ? "1px solid #f1f5f9" : "none",
                     display: "flex", alignItems: "center", gap: 8,
                   }}
@@ -2131,7 +2131,7 @@
                 return (
                   <div key={ct.id} onClick={() => { onOpenTask ? onOpenTask(ct) : onClose(); }}
                     style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 6, marginBottom: 4, cursor: "pointer",
-                      background: priColor[ct.priority] || "#f8fafc", border: "1px solid var(--border)", transition: "opacity 0.15s" }}
+                      background: priColor[ct.priority] || "var(--bg-page)", border: "1px solid var(--border)", transition: "opacity 0.15s" }}
                     onMouseEnter={e => e.currentTarget.style.opacity = "0.75"}
                     onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
                     <PriBadge p={ct.priority} />
@@ -3645,7 +3645,7 @@
                       cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
                       background: "var(--bg-card)", transition: "all 0.15s" }}
                     onMouseEnter={e => { e.currentTarget.style.borderColor = "#22c55e"; e.currentTarget.style.background = "#f0fdf4"; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = "#cbd5e1"; e.currentTarget.style.background = "white"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "#cbd5e1"; e.currentTarget.style.background = "var(--bg-card)"; }}
                   />
                 )}
               </div>
@@ -4536,11 +4536,11 @@
                           onClick={n.task_id ? () => openTaskById(n.task_id) : undefined}
                           style={{
                             padding: "10px 16px", borderBottom: "1px solid #f1f5f9",
-                            background: n.is_read ? "white" : "#f0fdf4",
+                            background: n.is_read ? "var(--bg-card)" : "#f0fdf4",
                             cursor: n.task_id ? "pointer" : "default",
                           }}
                           onMouseEnter={n.task_id ? e => e.currentTarget.style.background = "#e0f2fe" : undefined}
-                          onMouseLeave={n.task_id ? e => e.currentTarget.style.background = n.is_read ? "white" : "#f0fdf4" : undefined}
+                          onMouseLeave={n.task_id ? e => e.currentTarget.style.background = n.is_read ? "var(--bg-card)" : "#f0fdf4" : undefined}
                         >
                           <div style={{ fontSize: 13, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: n.message }} />
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 3 }}>
