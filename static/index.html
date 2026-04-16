@@ -193,8 +193,13 @@
 
     /* Task row */
     .task-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
-    .task-row:hover { background: #f8fafc; border-color: var(--border); }
+    .task-row:hover { background: var(--bg-primary); border-color: var(--border); }
     .task-row.focusing { background: linear-gradient(135deg, #fef2f2 0%, #fff7ed 100%); border-color: #fecaca; box-shadow: 0 2px 12px rgba(239,68,68,0.1); }
+    [data-theme="dark"] .task-row.focusing { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.3); }
+    [data-theme="dark"] .focus-card-overdue { background: rgba(239,68,68,0.1) !important; border-color: rgba(239,68,68,0.3) !important; }
+    [data-theme="dark"] .focus-card-focused { background: rgba(245,158,11,0.1) !important; border-color: rgba(245,158,11,0.3) !important; }
+    [data-theme="dark"] .focus-card-normal { background: var(--bg-card) !important; border-color: var(--border) !important; }
+    [data-theme="dark"] .focus-tips-card { background: rgba(245,158,11,0.08) !important; border-color: rgba(245,158,11,0.25) !important; }
     .task-row-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
     .task-row-badges { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
     @media (max-width: 768px) {
@@ -2974,13 +2979,14 @@
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {sortedTasks.map((task) => {
+                  const cardClass = task.is_overdue ? "focus-card-overdue" : task.is_focused ? "focus-card-focused" : "focus-card-normal";
                   const cardStyle = task.is_overdue
                     ? { background: "#FFF5F5", border: "1px solid #FECACA" }
                     : task.is_focused
                     ? { background: "#FFFBEB", border: "1px solid #FDE68A" }
                     : { background: "#FFFFFF", border: "1px solid #CEDE8A" };
                   return (
-                  <div key={task.id} style={{ ...cardStyle, borderRadius: 12, padding: "4px 4px 8px 4px" }}>
+                  <div key={task.id} className={cardClass} style={{ ...cardStyle, borderRadius: 12, padding: "4px 4px 8px 4px" }}>
                     <FocusTaskRow
                       task={task}
                       onClick={onTaskClick}
