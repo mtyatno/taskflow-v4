@@ -11,15 +11,16 @@ TaskFlow V4 mendukung shared lists dengan multi-user (owner + members). User ing
 
 ## Keputusan Desain
 
-| Aspek | Keputusan |
-|---|---|
-| Scope | Per shared list — hanya anggota/owner list |
-| Real-time | SSE (Server-Sent Events) via `sse-starlette` |
-| Persistensi | Permanen di SQLite — history tidak terhapus antar session |
-| Pagination | 50 pesan terakhir saat buka, tombol "Load lebih lama" untuk +50 sebelumnya |
-| Layout | WhatsApp-style: panel list (kiri) + panel chat (kanan) |
-| Task attach | Tombol 📌 di toolbar → popup search task atau buat task baru |
-| Lokasi menu | Sidebar, tepat di bawah "Fokus Hari Ini" |
+| Aspek       | Keputusan                                                                  |
+| ----------- | -------------------------------------------------------------------------- |
+| Scope       | Per shared list — hanya anggota/owner list                                 |
+| Real-time   | SSE (Server-Sent Events) via `sse-starlette`                               |
+| Persistensi | Permanen di SQLite — history tidak terhapus antar session                  |
+| Pagination  | 50 pesan terakhir saat buka, tombol "Load lebih lama" untuk +50 sebelumnya |
+| Layout      | WhatsApp-style: panel list (kiri) + panel chat (kanan)                     |
+| Task attach | Tombol 📌 di toolbar → popup search task atau buat task baru               |
+| Lokasi menu | Sidebar, tepat di bawah "Fokus Hari Ini"                                   |
+| Mention     | `@username` autocomplete → notifikasi ke user yang di-mention              |
 
 ---
 
@@ -46,23 +47,43 @@ CREATE INDEX IF NOT EXISTS idx_messages_list ON messages(list_id, created_at);
 ## Backend — Endpoint Baru
 
 ### `GET /api/lists/{list_id}/messages`
+
 - Query params: `limit=50`, `before_id` (untuk pagination "load lebih lama")
 - Auth: hanya member/owner list
 - Response: array pesan, urut ascending, beserta `username` dan `display_name` sender, dan task info jika ada `task_id`
 
 ### `POST /api/lists/{list_id}/messages`
+
 - Body: `{ content: str, task_id?: int, msg_type?: str }`
+
 - Auth: hanya member/owner list
+
 - Simpan ke DB → broadcast ke semua SSE subscriber list ini
+
+- **Mention processing**: parse `@username` dari `content` menggunakan regex `@(\w+)`. Untuk setiap username yang cocok dengan member list, buat 1 row di tabel `notifications` (yang sudah ada):
+  
+  ```python
+  "💬 {sender} menyebut kamu di diskusi '{list_name}'"
+  ```
+  
+  Field `list_id` diisi agar notifikasi bisa link ke list yang benar.
+
 - Response: pesan yang baru dibuat (format sama dengan GET)
 
+### `GET /api/lists/{list_id}/members/usernames`
+
+- Auth: hanya member/owner list
+- Response: `[{ username, display_name }]` — dipakai frontend untuk autocomplete `@mention`
+
 ### `GET /api/lists/{list_id}/messages/stream`
+
 - SSE endpoint — koneksi persistent
 - Auth: hanya member/owner list
 - Saat ada pesan baru di list ini, push event `data: {message JSON}`
 - Client reconnect otomatis (SSE native browser behavior)
 
 ### SSE Broadcast Mechanism
+
 ```python
 # In-memory, module-level
 chat_subscribers: dict[int, set[asyncio.Queue]] = defaultdict(set)
@@ -87,17 +108,21 @@ finally:
 ## Frontend — Komponen Baru
 
 ### Sidebar
+
 ```js
 { id: "chat", icon: "💬", label: "Diskusi" }
 // Disisipkan setelah { id: "today", ... }
 ```
 
 ### `ChatPage({ user, showToast })`
+
 Layout dua panel:
+
 - **Kiri** (`ChatListPanel`): daftar shared lists yang user ikuti (owner atau member). Klik list → buka `ChatRoom` untuk list tersebut.
 - **Kanan** (`ChatRoom`): area chat untuk list yang dipilih. Jika belum ada list yang dipilih, tampilkan placeholder.
 
 ### `ChatRoom({ list, user, showToast })`
+
 - Mount: load 50 pesan terakhir via `GET /api/lists/{id}/messages`
 - Mount: buka SSE ke `GET /api/lists/{id}/messages/stream`, append pesan baru ke state
 - Unmount: tutup SSE connection
@@ -105,30 +130,46 @@ Layout dua panel:
 - Tombol "Load lebih lama" di atas jika ada pesan sebelumnya (`before_id` pagination)
 
 ### Render pesan
+
 - Pesan dari user sendiri: bubble kanan, background hijau muda (`#dcfce7`)
 - Pesan dari orang lain: bubble kiri, background abu (`#f1f5f9`) + avatar + nama
 - Pesan dengan task (`msg_type: 'task_attach'` atau `'task_create'`): tampilkan `TaskMiniCard` di dalam bubble (background kuning, judul task, priority, deadline)
 
 ### `TaskMiniCard({ task })`
+
 Kartu kecil inline dalam chat:
+
 ```
 📌 [Judul Task]
 P1 · Deadline: 20 Apr · Q1
 ```
+
 Klik → buka task detail modal (gunakan `onTaskClick` yang sudah ada di app).
 
 ### Input Toolbar
+
 ```
 [ input text (flex 1) ] [ 📌 ] [ Kirim ]
 ```
 
+### Mention (`@username`)
+
+- Saat user mengetik `@` di input, fetch `GET /api/lists/{id}/members/usernames` (sekali per ChatRoom mount, disimpan di state) lalu tampilkan dropdown autocomplete
+- Filter dropdown saat user melanjutkan mengetik (mis. `@an` → hanya tampilkan yang match)
+- Klik nama di dropdown → sisipkan `@username` ke input, tutup dropdown
+- Render bubble: `@username` ditampilkan sebagai `<span style="color:var(--accent);fontWeight:600">@username</span>`
+- Bubble yang mengandung mention untuk user yang sedang login diberi highlight tipis: `background: rgba(168,197,0,0.08)`
+
 ### `TaskAttachPopup`
+
 Muncul saat tombol 📌 diklik, di atas input:
+
 - Search box → filter tasks dari list yang aktif (fetch dari `/api/lists/{list_id}/tasks`)
 - List hasil pencarian — klik task → attach ke pesan yang akan dikirim
 - Tombol `+ Buat Task Baru` → buka `TaskFormModal` (komponen yang sudah ada), saat task berhasil dibuat, task otomatis ter-attach ke pesan
 
 ### Mengirim pesan dengan task
+
 1. User klik 📌 → pilih/buat task → task terpilih muncul sebagai preview di input
 2. User ketik teks (opsional) + klik Kirim
 3. `POST /api/lists/{id}/messages` dengan `{ content, task_id, msg_type: 'task_attach' | 'task_create' }`
@@ -136,11 +177,13 @@ Muncul saat tombol 📌 diklik, di atas input:
 ---
 
 ## Dark Mode
+
 Semua komponen chat menggunakan CSS variables (`--bg-card`, `--bg-primary`, `--text-primary`, `--border`) — tidak ada hardcoded color. Bubble sendiri pakai `var(--accent)` versi transparan jika perlu.
 
 ---
 
 ## Out of Scope (V1)
+
 - Reactions / emoji reaction
 - Reply/thread per pesan
 - Edit / hapus pesan
