@@ -1470,7 +1470,10 @@
             onSave();
           }
         } catch (err) {
-          if (isOfflineErr(err) && !isEdit && onOfflineSave) {
+          if (isOfflineErr(err) && isEdit && onOfflineSave) {
+            await OfflineDB.queueAdd({ method: "PUT", url: `/api/tasks/${task.id}`, body: form });
+            onOfflineSave({ ...task, ...form, _pending: true });
+          } else if (isOfflineErr(err) && !isEdit && onOfflineSave) {
             const tempId = `tmp_${Date.now()}`;
             await OfflineDB.queueAdd({ method: "POST", url: "/api/tasks", body: form, tempId, createdAt: Date.now() });
             for (const sub of pendingSubtasks) {
@@ -4116,7 +4119,11 @@
       }, [fetchAll]);
 
       const handleOfflineSave = useCallback(async (tempTask) => {
-        setTasks(prev => [...prev, tempTask]);
+        const isEdit = !String(tempTask.id).startsWith("tmp_");
+        setTasks(prev => isEdit
+          ? prev.map(t => t.id === tempTask.id ? tempTask : t)
+          : [...prev, tempTask]
+        );
         await updateQueueSize();
         showToast("Tersimpan offline, akan sync saat online 📶");
         setShowForm(false);
