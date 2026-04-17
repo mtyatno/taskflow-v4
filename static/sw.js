@@ -1,6 +1,6 @@
-const CACHE = "taskflow-v3";
+const CACHE = "taskflow-v4";
 const STATIC = [
-  "/",
+  // "/" sengaja tidak di-cache — selalu fetch dari network agar update langsung terlihat
   "/static/vendor/react.production.min.js",
   "/static/vendor/react-dom.production.min.js",
   "/static/vendor/babel.min.js",
@@ -30,6 +30,19 @@ self.addEventListener("activate", e => {
 self.addEventListener("fetch", e => {
   const { request } = e;
   const url = new URL(request.url);
+
+  // HTML root ("/") — network-first, tidak di-cache
+  // Agar update index.html langsung aktif tanpa perlu clear cache manual
+  if (url.pathname === "/" && request.method === "GET") {
+    e.respondWith(
+      fetch(request).catch(() =>
+        caches.match(request).then(cached =>
+          cached || new Response("Offline", { status: 503 })
+        )
+      )
+    );
+    return;
+  }
 
   // GET /api/*: network-first, cache fallback (untuk offline reading)
   if (request.method === "GET" && url.pathname.startsWith("/api/")) {
