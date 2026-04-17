@@ -3993,10 +3993,189 @@
       );
     }
 
-    function ChatRoom({ list, user, onTaskClick, showToast }) {
+    function renderMessageContent(content, currentUsername) {
+      const parts = content.split(/(@\w+)/g);
+      return parts.map((part, i) => {
+        if (/^@\w+$/.test(part)) {
+          const isMe = part === `@${currentUsername}`;
+          return (
+            <span key={i} style={{
+              color: "var(--accent)", fontWeight: 600,
+              background: isMe ? "rgba(168,197,0,0.2)" : "transparent",
+              borderRadius: 3, padding: isMe ? "0 2px" : 0,
+            }}>{part}</span>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      });
+    }
+
+    function TaskMiniCard({ task, onClick }) {
+      if (!task?.task_title) return null;
       return (
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-light)" }}>
-          <div>💬 Chat untuk <b>{list.name}</b> — coming soon (Task 8)</div>
+        <div className="chat-task-card" onClick={() => onClick && onClick(task)}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", marginBottom: 3 }}>📌 TASK</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>{task.task_title}</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {task.task_priority && <span style={{ fontSize: 11, background: "var(--bg-primary)", color: "var(--text-secondary)", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>{task.task_priority}</span>}
+            {task.task_quadrant && <span style={{ fontSize: 11, color: "var(--text-light)" }}>{task.task_quadrant}</span>}
+            {task.task_deadline && <span style={{ fontSize: 11, color: "var(--text-light)" }}>📅 {task.task_deadline}</span>}
+          </div>
+        </div>
+      );
+    }
+
+    function ChatRoom({ list, user, onTaskClick, showToast }) {
+      const [messages, setMessages] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [hasMore, setHasMore] = useState(false);
+      const [loadingMore, setLoadingMore] = useState(false);
+      const messagesEndRef = useRef(null);
+      const esRef = useRef(null);
+
+      const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      };
+
+      // Load initial messages
+      useEffect(() => {
+        setLoading(true);
+        setMessages([]);
+        api.get(`/api/lists/${list.id}/messages?limit=50`)
+          .then(msgs => {
+            setMessages(msgs);
+            setHasMore(msgs.length === 50);
+            setLoading(false);
+            setTimeout(scrollToBottom, 50);
+          })
+          .catch(err => { showToast(err.message, "error"); setLoading(false); });
+      }, [list.id]);
+
+      // SSE subscription
+      useEffect(() => {
+        const es = new EventSource(`/api/lists/${list.id}/messages/stream`);
+        esRef.current = es;
+        es.onmessage = (e) => {
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === "ping") return;
+            setMessages(prev => [...prev, msg]);
+            setTimeout(scrollToBottom, 30);
+          } catch (_) {}
+        };
+        es.onerror = () => {};
+        return () => { es.close(); };
+      }, [list.id]);
+
+      // Load older messages
+      const loadMore = async () => {
+        if (!messages.length || loadingMore) return;
+        setLoadingMore(true);
+        try {
+          const older = await api.get(`/api/lists/${list.id}/messages?limit=50&before_id=${messages[0].id}`);
+          setMessages(prev => [...older, ...prev]);
+          setHasMore(older.length === 50);
+        } catch (err) { showToast(err.message, "error"); }
+        finally { setLoadingMore(false); }
+      };
+
+      const formatTime = (iso) => {
+        const d = new Date(iso);
+        return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+      };
+      const formatDate = (iso) => {
+        const d = new Date(iso);
+        return d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+      };
+
+      // Group messages by date
+      let lastDate = null;
+
+      return (
+        <div className="chat-room" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          {/* Header */}
+          <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", fontWeight: 600, fontSize: 15, color: "var(--text-primary)", flexShrink: 0 }}>
+            💬 {list.name}
+            <span style={{ fontSize: 12, fontWeight: 400, color: "var(--text-light)", marginLeft: 8 }}>{list.role === "owner" ? "Owner" : "Member"}</span>
+          </div>
+
+          {/* Messages */}
+          <div className="chat-messages">
+            {hasMore && (
+              <div style={{ textAlign: "center", marginBottom: 8 }}>
+                <button className="btn btn-secondary btn-sm" onClick={loadMore} disabled={loadingMore}>
+                  {loadingMore ? "Memuat..." : "⬆ Load lebih lama"}
+                </button>
+              </div>
+            )}
+            {loading && <div style={{ textAlign: "center", color: "var(--text-light)", padding: 20 }}>Memuat pesan...</div>}
+            {!loading && messages.length === 0 && (
+              <div style={{ textAlign: "center", color: "var(--text-light)", padding: 40 }}>
+                <div style={{ fontSize: 36, marginBottom: 8 }}>💬</div>
+                Belum ada pesan. Mulai diskusi!
+              </div>
+            )}
+            {messages.map((msg) => {
+              const isSelf = msg.user_id === user.id;
+              const msgDate = msg.created_at?.split("T")[0];
+              const showDate = msgDate !== lastDate;
+              lastDate = msgDate;
+              const isMentioned = msg.content?.includes(`@${user.username}`);
+              return (
+                <React.Fragment key={msg.id}>
+                  {showDate && (
+                    <div style={{ textAlign: "center", fontSize: 11, color: "var(--text-light)", margin: "8px 0" }}>
+                      {formatDate(msg.created_at)}
+                    </div>
+                  )}
+                  <div className={`chat-bubble-wrap${isSelf ? " self" : ""}`}>
+                    {!isSelf && (
+                      <div className="chat-avatar">
+                        {(msg.display_name || msg.username || "?")[0].toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      {!isSelf && <div className="chat-sender">{msg.display_name || msg.username}</div>}
+                      <div className={`chat-bubble${isSelf ? " self" : ""}${isMentioned && !isSelf ? " mentioned" : ""}`}>
+                        {renderMessageContent(msg.content, user.username)}
+                        {msg.task_id && (
+                          <TaskMiniCard task={msg} onClick={() => onTaskClick && onTaskClick({ id: msg.task_id, title: msg.task_title, priority: msg.task_priority, deadline: msg.task_deadline, quadrant: msg.task_quadrant })} />
+                        )}
+                      </div>
+                      <div className="chat-time" style={{ textAlign: isSelf ? "right" : "left" }}>
+                        {formatTime(msg.created_at)}
+                      </div>
+                    </div>
+                  </div>
+                </React.Fragment>
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input bar — Task 9 will replace this stub */}
+          <ChatInputBar list={list} user={user} onSent={(msg) => { setMessages(prev => [...prev, msg]); setTimeout(scrollToBottom, 30); }} showToast={showToast} onTaskClick={onTaskClick} />
+        </div>
+      );
+    }
+
+    function ChatInputBar({ list, user, onSent, showToast, onTaskClick }) {
+      const [text, setText] = useState("");
+      const handleSend = async () => {
+        if (!text.trim()) return;
+        try {
+          const msg = await api.post(`/api/lists/${list.id}/messages`, { content: text.trim(), msg_type: "text" });
+          setText("");
+          onSent(msg);
+        } catch (err) { showToast(err.message, "error"); }
+      };
+      return (
+        <div className="chat-input-bar">
+          <textarea className="chat-input" rows={1} placeholder="Ketik pesan... (@ untuk mention)" value={text}
+            onChange={e => setText(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+          />
+          <button className="btn btn-primary btn-sm" onClick={handleSend} disabled={!text.trim()}>Kirim</button>
         </div>
       );
     }
