@@ -4059,7 +4059,7 @@
           try {
             const msg = JSON.parse(e.data);
             if (msg.type === "ping") return;
-            setMessages(prev => [...prev, msg]);
+            setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
             setTimeout(scrollToBottom, 30);
           } catch (_) {}
         };
