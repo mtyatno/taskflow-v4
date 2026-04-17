@@ -1270,6 +1270,32 @@ async def post_message(list_id: int, req: MessageCreate, user=Depends(get_curren
     return msg_dict
 
 
+@app.get("/api/lists/{list_id}/messages/stream")
+async def chat_stream(list_id: int, request: Request, user=Depends(get_current_user)):
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Not a member of this list")
+
+    async def event_generator():
+        q: asyncio.Queue = asyncio.Queue()
+        chat_subscribers[list_id].add(q)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=20.0)
+                    yield {"data": json.dumps(msg)}
+                except asyncio.TimeoutError:
+                    # Keepalive ping agar koneksi tidak timeout
+                    yield {"data": json.dumps({"type": "ping"})}
+        finally:
+            chat_subscribers[list_id].discard(q)
+
+    return EventSourceResponse(event_generator())
+
+
 # ── Serve SPA ──────────────────────────────────────────────────────────────────
 
 @app.get("/join")
