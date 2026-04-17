@@ -4278,7 +4278,7 @@
       );
     }
 
-    function ChatInputBar({ list, user, onSent, showToast, onTaskClick }) {
+    function ChatInputBar({ list, user, onSent, showToast, onTaskClick, replyTo, onClearReply }) {
       const [text, setText] = useState("");
       const [sending, setSending] = useState(false);
       const [showAttach, setShowAttach] = useState(false);
@@ -4329,11 +4329,13 @@
             content: text.trim() || (attachedTask ? `📌 ${attachedTask.title}` : ""),
             task_id: attachedTask?.id || null,
             msg_type: attachedTask ? "task_attach" : "text",
+            reply_to_id: replyTo?.id || null,
           };
           const msg = await api.post(`/api/lists/${list.id}/messages`, payload);
           setText("");
           setAttachedTask(null);
           setMentionQuery(null);
+          onClearReply();
           onSent(msg);
         } catch (err) { showToast(err.message, "error"); }
         finally { setSending(false); }
@@ -4352,6 +4354,15 @@
 
       return (
         <div className="chat-input-bar">
+          {replyTo && (
+            <div className="chat-reply-preview">
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="preview-sender">↩ {replyTo.display_name || replyTo.username}</div>
+                <div className="preview-text">{replyTo.content}</div>
+              </div>
+              <button className="preview-close" onClick={onClearReply} title="Batal reply">✕</button>
+            </div>
+          )}
           {/* @mention dropdown */}
           {mentionSuggestions.length > 0 && (
             <div className="chat-mention-dropdown">
