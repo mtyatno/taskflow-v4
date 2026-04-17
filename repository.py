@@ -182,6 +182,23 @@ class TaskRepository:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, is_read, created_at)")
 
+            # Chat messages table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    list_id     INTEGER NOT NULL,
+                    user_id     INTEGER NOT NULL,
+                    content     TEXT NOT NULL,
+                    task_id     INTEGER DEFAULT NULL,
+                    msg_type    TEXT NOT NULL DEFAULT 'text',
+                    created_at  TEXT NOT NULL,
+                    FOREIGN KEY (list_id) REFERENCES shared_lists(id) ON DELETE CASCADE,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_list ON messages(list_id, created_at)")
+
             # Migrate: add list_id and assigned_to to tasks if missing
             cols = [row["name"] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()]
             if "list_id" not in cols:
