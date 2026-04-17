@@ -1315,7 +1315,14 @@ async def join_redirect(code: str = ""):
 async def serve_spa():
     index = STATIC_DIR / "index.html"
     if index.exists():
-        return HTMLResponse(index.read_text(encoding="utf-8"))
+        return HTMLResponse(
+            index.read_text(encoding="utf-8"),
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
     return HTMLResponse("<h1>TaskFlow V4</h1><p>Static files not found.</p>")
 
 
