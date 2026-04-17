@@ -174,10 +174,6 @@ class MessageCreate(BaseModel):
     task_id: Optional[int] = None
     msg_type: str = "text"
 
-def msg_row_to_dict(row: sqlite3.Row) -> dict:
-    d = dict(row)
-    return d
-
 
 # ── Row → dict helper ─────────────────────────────────────────────────────────
 
