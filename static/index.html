@@ -4159,23 +4159,191 @@
       );
     }
 
+    function TaskAttachPopup({ list, onSelect, onCreateNew, onClose }) {
+      const [listTasks, setListTasks] = useState([]);
+      const [query, setQuery] = useState("");
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        api.get(`/api/lists/${list.id}/tasks`)
+          .then(tasks => { setListTasks(tasks); setLoading(false); })
+          .catch(() => setLoading(false));
+      }, [list.id]);
+
+      const filtered = listTasks.filter(t =>
+        !query || t.title.toLowerCase().includes(query.toLowerCase())
+      );
+
+      return (
+        <div className="chat-attach-popup">
+          <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)", display: "flex", gap: 8, alignItems: "center" }}>
+            <input className="chat-input" style={{ padding: "5px 8px", fontSize: 13, borderRadius: 6 }}
+              placeholder="Cari task..." value={query} onChange={e => setQuery(e.target.value)} autoFocus />
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "var(--text-light)" }}>✕</button>
+          </div>
+          <div style={{ maxHeight: 200, overflowY: "auto" }}>
+            <div className="chat-attach-item" style={{ color: "var(--accent)", fontWeight: 600 }} onClick={onCreateNew}>
+              ➕ Buat Task Baru
+            </div>
+            {loading && <div style={{ padding: 12, color: "var(--text-light)", fontSize: 13 }}>Memuat...</div>}
+            {!loading && filtered.length === 0 && <div style={{ padding: 12, color: "var(--text-light)", fontSize: 13 }}>Tidak ada task</div>}
+            {filtered.map(t => (
+              <div key={t.id} className="chat-attach-item" onClick={() => onSelect(t)}>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{t.title}</div>
+                <div style={{ fontSize: 11, color: "var(--text-light)" }}>{t.priority} · {t.quadrant}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     function ChatInputBar({ list, user, onSent, showToast, onTaskClick }) {
       const [text, setText] = useState("");
+      const [sending, setSending] = useState(false);
+      const [showAttach, setShowAttach] = useState(false);
+      const [attachedTask, setAttachedTask] = useState(null);
+      const [showTaskForm, setShowTaskForm] = useState(false);
+      const [members, setMembers] = useState([]);
+      const [mentionQuery, setMentionQuery] = useState(null); // null = off, string = query
+      const textareaRef = useRef(null);
+
+      // Load members for @mention autocomplete once
+      useEffect(() => {
+        api.get(`/api/lists/${list.id}/members/usernames`)
+          .then(setMembers)
+          .catch(() => {});
+      }, [list.id]);
+
+      const mentionSuggestions = mentionQuery !== null
+        ? members.filter(m =>
+            m.username !== user.username &&
+            m.username.toLowerCase().startsWith(mentionQuery.toLowerCase())
+          )
+        : [];
+
+      const handleTextChange = (e) => {
+        const val = e.target.value;
+        setText(val);
+        // Detect @mention trigger
+        const match = val.match(/@(\w*)$/);
+        if (match) {
+          setMentionQuery(match[1]);
+        } else {
+          setMentionQuery(null);
+        }
+      };
+
+      const insertMention = (username) => {
+        const newVal = text.replace(/@(\w*)$/, `@${username} `);
+        setText(newVal);
+        setMentionQuery(null);
+        textareaRef.current?.focus();
+      };
+
       const handleSend = async () => {
-        if (!text.trim()) return;
+        if (!text.trim() && !attachedTask) return;
+        setSending(true);
         try {
-          const msg = await api.post(`/api/lists/${list.id}/messages`, { content: text.trim(), msg_type: "text" });
+          const payload = {
+            content: text.trim() || (attachedTask ? `📌 ${attachedTask.title}` : ""),
+            task_id: attachedTask?.id || null,
+            msg_type: attachedTask ? "task_attach" : "text",
+          };
+          const msg = await api.post(`/api/lists/${list.id}/messages`, payload);
           setText("");
+          setAttachedTask(null);
+          setMentionQuery(null);
           onSent(msg);
         } catch (err) { showToast(err.message, "error"); }
+        finally { setSending(false); }
       };
+
+      const handleKeyDown = (e) => {
+        if (mentionSuggestions.length > 0 && e.key === "Escape") {
+          setMentionQuery(null);
+          return;
+        }
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          handleSend();
+        }
+      };
+
       return (
         <div className="chat-input-bar">
-          <textarea className="chat-input" rows={1} placeholder="Ketik pesan... (@ untuk mention)" value={text}
-            onChange={e => setText(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+          {/* @mention dropdown */}
+          {mentionSuggestions.length > 0 && (
+            <div className="chat-mention-dropdown">
+              {mentionSuggestions.map(m => (
+                <div key={m.username} className="chat-mention-item" onClick={() => insertMention(m.username)}>
+                  <span style={{ fontWeight: 600 }}>@{m.username}</span>
+                  {m.display_name && m.display_name !== m.username && (
+                    <span style={{ color: "var(--text-light)", marginLeft: 6, fontSize: 12 }}>{m.display_name}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Task attach popup */}
+          {showAttach && (
+            <TaskAttachPopup
+              list={list}
+              onSelect={(task) => { setAttachedTask(task); setShowAttach(false); }}
+              onCreateNew={() => { setShowAttach(false); setShowTaskForm(true); }}
+              onClose={() => setShowAttach(false)}
+            />
+          )}
+
+          {/* Task form modal for creating new task */}
+          {showTaskForm && (
+            <TaskFormModal
+              task={null}
+              onSave={async (form) => {
+                try {
+                  const newTask = await api.post("/api/tasks", { ...form, list_id: list.id });
+                  setAttachedTask(newTask);
+                  setShowTaskForm(false);
+                } catch (err) { showToast(err.message, "error"); }
+              }}
+              onOfflineSave={() => setShowTaskForm(false)}
+              onClose={() => setShowTaskForm(false)}
+              sharedLists={[list]}
+              collaborators={[]}
+              projects={[]}
+              contexts={[]}
+            />
+          )}
+
+          {/* Attached task preview */}
+          {attachedTask && (
+            <div style={{ position: "absolute", bottom: 64, left: 12, background: "var(--bg-card)", border: "1px solid var(--accent)", borderRadius: 8, padding: "6px 10px", display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+              <span style={{ color: "var(--accent)" }}>📌</span>
+              <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{attachedTask.title}</span>
+              <button onClick={() => setAttachedTask(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-light)", fontSize: 14, padding: "0 2px" }}>✕</button>
+            </div>
+          )}
+
+          <textarea
+            ref={textareaRef}
+            className="chat-input"
+            rows={1}
+            placeholder="Ketik pesan... (Shift+Enter untuk baris baru, @ untuk mention)"
+            value={text}
+            onChange={handleTextChange}
+            onKeyDown={handleKeyDown}
+            style={{ marginBottom: attachedTask ? 36 : 0 }}
           />
-          <button className="btn btn-primary btn-sm" onClick={handleSend} disabled={!text.trim()}>Kirim</button>
+          <button
+            title="Attach atau buat task"
+            onClick={() => setShowAttach(v => !v)}
+            style={{ background: showAttach ? "var(--accent)" : "var(--bg-primary)", color: showAttach ? "white" : "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>
+            📌
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={handleSend} disabled={sending || (!text.trim() && !attachedTask)} style={{ flexShrink: 0 }}>
+            {sending ? "..." : "Kirim"}
+          </button>
         </div>
       );
     }
