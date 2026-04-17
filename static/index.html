@@ -4461,8 +4461,8 @@
             style={{ background: showAttach ? "var(--accent)" : "var(--bg-primary)", color: showAttach ? "white" : "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>
             📌
           </button>
-          <button className="btn btn-primary btn-sm" onClick={handleSend} disabled={sending || (!text.trim() && !attachedTask)} style={{ flexShrink: 0 }}>
-            {sending ? "..." : "Kirim"}
+          <button className="chat-send-btn" onClick={handleSend} disabled={sending || (!text.trim() && !attachedTask)} title="Kirim">
+            {sending ? "·" : "➤"}
           </button>
         </div>
       );
