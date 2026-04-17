@@ -12,6 +12,10 @@ import secrets
 import sqlite3
 import uuid
 import mimetypes
+import asyncio
+import json
+import re
+from collections import defaultdict
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional
@@ -20,6 +24,7 @@ from contextlib import contextmanager
 from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, UploadFile, File as FastAPIFile, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
+from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel, Field
 import jwt
 import uvicorn
@@ -40,6 +45,9 @@ JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "72"))
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# ── Chat SSE broadcast bus ─────────────────────────────────────────────────────
+chat_subscribers: dict[int, set[asyncio.Queue]] = defaultdict(set)
 
 # ── Database helpers ───────────────────────────────────────────────────────────
 
@@ -161,6 +169,10 @@ class InviteUserReq(BaseModel):
 class JoinListReq(BaseModel):
     code: str
 
+class MessageCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
+    task_id: Optional[int] = None
+    msg_type: str = "text"
 
 # ── Row → dict helper ─────────────────────────────────────────────────────────
 
