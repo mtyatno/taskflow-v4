@@ -4086,6 +4086,8 @@
       const [loading, setLoading] = useState(true);
       const [hasMore, setHasMore] = useState(false);
       const [loadingMore, setLoadingMore] = useState(false);
+      const [replyTo, setReplyTo] = useState(null);
+      // replyTo shape: { id, content, username, display_name } | null
       const messagesEndRef = useRef(null);
       const esRef = useRef(null);
 
@@ -4188,6 +4190,11 @@
                     </div>
                   )}
                   <div className={`chat-bubble-wrap${isSelf ? " self" : ""}`}>
+                    <button
+                      className="chat-reply-btn"
+                      onClick={e => { e.stopPropagation(); setReplyTo({ id: msg.id, content: msg.content, username: msg.username, display_name: msg.display_name }); }}
+                      title="Reply"
+                    >↩</button>
                     {!isSelf && (
                       <div className="chat-avatar">
                         {(msg.display_name || msg.username || "?")[0].toUpperCase()}
@@ -4196,6 +4203,12 @@
                     <div>
                       {!isSelf && <div className="chat-sender">{msg.display_name || msg.username}</div>}
                       <div className={`chat-bubble${isSelf ? " self" : ""}${isMentioned && !isSelf ? " mentioned" : ""}`}>
+                        {msg.reply_to_id && msg.reply_to_content && (
+                          <div className="chat-quote-block">
+                            <div className="quote-sender">{msg.reply_to_display_name || msg.reply_to_username}</div>
+                            <div className="quote-text">{msg.reply_to_content}</div>
+                          </div>
+                        )}
                         {renderMessageContent(msg.content, user.username)}
                         {msg.task_id && (
                           <TaskMiniCard task={msg} onClick={() => onTaskClick && onTaskClick({ id: msg.task_id, title: msg.task_title, priority: msg.task_priority, deadline: msg.task_deadline, quadrant: msg.task_quadrant })} />
@@ -4213,7 +4226,15 @@
           </div>
 
           {/* Input bar — Task 9 will replace this stub */}
-          <ChatInputBar list={list} user={user} onSent={(msg) => { setMessages(prev => [...prev, msg]); setTimeout(scrollToBottom, 30); }} showToast={showToast} onTaskClick={onTaskClick} />
+          <ChatInputBar
+            list={list}
+            user={user}
+            onSent={(msg) => { setMessages(prev => [...prev, msg]); setTimeout(scrollToBottom, 30); }}
+            showToast={showToast}
+            onTaskClick={onTaskClick}
+            replyTo={replyTo}
+            onClearReply={() => setReplyTo(null)}
+          />
         </div>
       );
     }
