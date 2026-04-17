@@ -191,6 +191,36 @@
     .chat-mention-dropdown { position: absolute; bottom: 64px; left: 12px; width: 200px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.1); z-index: 21; overflow: hidden; }
     .chat-mention-item { padding: 8px 12px; cursor: pointer; font-size: 13px; color: var(--text-primary); }
     .chat-mention-item:hover { background: var(--bg-primary); }
+    /* ── Chat Reply ── */
+    .chat-bubble-wrap { position: relative; }
+    .chat-reply-btn {
+      position: absolute; top: 0;
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: 50%;
+      width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+      font-size: 13px; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      opacity: 0; transition: opacity 0.15s; z-index: 2; color: var(--text-secondary);
+    }
+    .chat-bubble-wrap:hover .chat-reply-btn { opacity: 1; }
+    .chat-bubble-wrap:not(.self) .chat-reply-btn { right: -34px; }
+    .chat-bubble-wrap.self .chat-reply-btn { left: -34px; }
+    .chat-quote-block {
+      border-left: 3px solid var(--accent); border-radius: 4px;
+      background: rgba(0,0,0,0.07); padding: 4px 8px; margin-bottom: 6px; font-size: 12px;
+    }
+    [data-theme="dark"] .chat-quote-block { background: rgba(255,255,255,0.07); }
+    .chat-quote-block .quote-sender { font-weight: 700; color: var(--accent); margin-bottom: 2px; font-size: 11px; }
+    .chat-quote-block .quote-text {
+      color: var(--text-secondary); overflow: hidden;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    }
+    .chat-reply-preview {
+      border-left: 3px solid var(--accent); border-top: 1px solid var(--border);
+      padding: 6px 12px; display: flex; align-items: flex-start; gap: 8px;
+      font-size: 12px; background: var(--bg-primary);
+    }
+    .chat-reply-preview .preview-sender { font-weight: 700; color: var(--accent); font-size: 11px; }
+    .chat-reply-preview .preview-text { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+    .chat-reply-preview .preview-close { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--text-light); font-size: 18px; padding: 0; flex-shrink: 0; line-height: 1; }
     @media (max-width: 768px) {
       /* Mobile: full-screen toggle — list OR chat, not side by side */
       .chat-layout { height: calc(100vh - 112px); position: relative; }
@@ -203,6 +233,8 @@
       .chat-input-bar { padding: 8px 10px; gap: 6px; }
       .chat-input { font-size: 13px; padding: 7px 10px; min-width: 0; }
       .chat-input-bar .btn { padding: 7px 12px; font-size: 12px; }
+      .chat-reply-btn { opacity: 0.5; position: static; width: 22px; height: 22px; font-size: 11px; }
+      .chat-bubble-wrap:not(.self) { flex-wrap: wrap; }
     }
 
     /* Pomodoro Button */
