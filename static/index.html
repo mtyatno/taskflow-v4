@@ -162,6 +162,40 @@
     .btn-success { background: #f0fdf4; color: #16a34a; }
     .btn-success:hover { background: #dcfce7; }
     .btn-sm { padding: 5px 12px; font-size: 13px; }
+    /* ── Chat ── */
+    .chat-layout { display: flex; height: calc(100vh - 64px); overflow: hidden; }
+    .chat-list-panel { width: 220px; flex-shrink: 0; border-right: 1px solid var(--border); overflow-y: auto; background: var(--bg-primary); }
+    .chat-list-item { padding: 12px 14px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.15s; }
+    .chat-list-item:hover { background: var(--bg-card); }
+    .chat-list-item.active { background: var(--bg-card); border-left: 3px solid var(--accent); }
+    .chat-room { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-card); }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+    .chat-bubble-wrap { display: flex; gap: 8px; align-items: flex-start; }
+    .chat-bubble-wrap.self { flex-direction: row-reverse; }
+    .chat-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+    .chat-bubble { max-width: 70%; padding: 8px 12px; border-radius: 0 12px 12px 12px; font-size: 14px; line-height: 1.5; background: var(--bg-primary); color: var(--text-primary); }
+    .chat-bubble.self { border-radius: 12px 0 12px 12px; background: #dcfce7; }
+    [data-theme="dark"] .chat-bubble.self { background: rgba(168,197,0,0.18); }
+    .chat-bubble.mentioned { background: rgba(168,197,0,0.1); }
+    .chat-sender { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 3px; }
+    .chat-time { font-size: 10px; color: var(--text-light); margin-top: 3px; }
+    .chat-task-card { margin-top: 6px; background: var(--bg-card); border: 1px solid #fde68a; border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+    [data-theme="dark"] .chat-task-card { border-color: rgba(253,230,138,0.3); background: rgba(253,230,138,0.05); }
+    .chat-task-card:hover { border-color: var(--accent); }
+    .chat-input-bar { padding: 10px 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-end; background: var(--bg-card); position: relative; }
+    .chat-input { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; font-size: 14px; font-family: inherit; outline: none; background: var(--bg-primary); color: var(--text-primary); max-height: 120px; overflow-y: auto; }
+    .chat-input:focus { border-color: var(--accent); }
+    .chat-attach-popup { position: absolute; bottom: 64px; left: 12px; width: 280px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 20; overflow: hidden; }
+    .chat-attach-item { padding: 10px 14px; cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--border); color: var(--text-primary); }
+    .chat-attach-item:hover { background: var(--bg-primary); }
+    .chat-mention-dropdown { position: absolute; bottom: 64px; left: 12px; width: 200px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.1); z-index: 21; overflow: hidden; }
+    .chat-mention-item { padding: 8px 12px; cursor: pointer; font-size: 13px; color: var(--text-primary); }
+    .chat-mention-item:hover { background: var(--bg-primary); }
+    @media (max-width: 768px) {
+      .chat-layout { height: calc(100vh - 112px); }
+      .chat-list-panel { width: 160px; }
+      .chat-bubble { max-width: 85%; font-size: 13px; }
+    }
 
     /* Pomodoro Button */
     .btn-pomodoro { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; }
@@ -1333,6 +1367,7 @@
         { id: "dashboard", icon: "📊", label: "Dashboard" },
         { id: "calendar", icon: "🗓️", label: "Kalender" },
         { id: "today", icon: "🍅", label: "Fokus Hari Ini", count: todayCount },
+        { id: "chat", icon: "💬", label: "Diskusi" },
         { section: "GTD" },
         { id: "inbox", icon: "📥", label: "Inbox", count: summary?.by_status?.inbox },
         { id: "next", icon: "▶️", label: "Next Actions", count: summary?.by_status?.next },
@@ -4463,6 +4498,9 @@
         
         if (page === "today") {
           return <TodayFocusView tasks={tasks} onTaskClick={setSelectedTask} onDone={handleDone} loading={loading} />;
+        }
+        if (page === "chat") {
+          return <ChatPage user={user} sharedLists={sharedLists} onTaskClick={setSelectedTask} showToast={showToast} />;
         }
 
         if (page === "manage_lists") {
