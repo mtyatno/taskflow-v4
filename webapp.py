@@ -1202,6 +1202,74 @@ async def get_list_member_usernames(list_id: int, user=Depends(get_current_user)
     return result
 
 
+@app.post("/api/lists/{list_id}/messages")
+async def post_message(list_id: int, req: MessageCreate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Not a member of this list")
+    now = datetime.now().isoformat()
+    with get_db() as conn:
+        # Validate task_id belongs to this list (if provided)
+        if req.task_id:
+            task_row = conn.execute(
+                "SELECT id FROM tasks WHERE id = ? AND list_id = ?", (req.task_id, list_id)
+            ).fetchone()
+            if not task_row:
+                raise HTTPException(status_code=400, detail="Task tidak ditemukan di list ini")
+        # Save message
+        cur = conn.execute(
+            "INSERT INTO messages (list_id, user_id, content, task_id, msg_type, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (list_id, uid, req.content, req.task_id, req.msg_type, now),
+        )
+        msg_id = cur.lastrowid
+        # Fetch with joined data for broadcast
+        row = conn.execute(
+            """SELECT m.id, m.list_id, m.user_id, m.content, m.task_id, m.msg_type, m.created_at,
+                      u.username, u.display_name,
+                      t.title as task_title, t.priority as task_priority,
+                      t.deadline as task_deadline, t.quadrant as task_quadrant
+               FROM messages m
+               JOIN users u ON u.id = m.user_id
+               LEFT JOIN tasks t ON t.id = m.task_id
+               WHERE m.id = ?""",
+            (msg_id,),
+        ).fetchone()
+        msg_dict = dict(row)
+        # Process @mentions
+        mentions = set(re.findall(r'@(\w+)', req.content))
+        if mentions:
+            list_row = conn.execute(
+                "SELECT name FROM shared_lists WHERE id = ?", (list_id,)
+            ).fetchone()
+            list_name = list_row["name"] if list_row else f"List #{list_id}"
+            sender_username = user["username"]
+            for username in mentions:
+                if username == sender_username:
+                    continue
+                mentioned = conn.execute(
+                    "SELECT u.id FROM users u "
+                    "WHERE u.username = ? AND ("
+                    "  u.id IN (SELECT owner_id FROM shared_lists WHERE id = ?) "
+                    "  OR u.id IN (SELECT user_id FROM list_members WHERE list_id = ?)"
+                    ")",
+                    (username, list_id, list_id),
+                ).fetchone()
+                if mentioned:
+                    conn.execute(
+                        "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, created_at) "
+                        "VALUES (?,?,0,?,NULL,?)",
+                        (mentioned["id"],
+                         f"💬 {sender_username} menyebut kamu di diskusi '{list_name}'",
+                         list_id, now),
+                    )
+    # Broadcast to all SSE subscribers of this list
+    for q in list(chat_subscribers.get(list_id, set())):
+        await q.put(msg_dict)
+    return msg_dict
+
+
 # ── Serve SPA ──────────────────────────────────────────────────────────────────
 
 @app.get("/join")
