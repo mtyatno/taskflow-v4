@@ -174,6 +174,11 @@ class MessageCreate(BaseModel):
     task_id: Optional[int] = None
     msg_type: str = "text"
 
+def msg_row_to_dict(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    return d
+
+
 # ── Row → dict helper ─────────────────────────────────────────────────────────
 
 def task_row_to_dict(row, conn=None) -> dict:
@@ -1134,6 +1139,71 @@ async def get_list_tasks(list_id: int, user=Depends(get_current_user)):
             (list_id,),
         ).fetchall()
     return [task_row_to_dict(r) for r in rows]
+
+
+# ── Chat API ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/lists/{list_id}/messages")
+async def get_messages(list_id: int, limit: int = 50, before_id: Optional[int] = None, user=Depends(get_current_user)):
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Not a member of this list")
+    with get_db() as conn:
+        if before_id:
+            rows = conn.execute(
+                """SELECT m.id, m.list_id, m.user_id, m.content, m.task_id, m.msg_type, m.created_at,
+                          u.username, u.display_name,
+                          t.title as task_title, t.priority as task_priority,
+                          t.deadline as task_deadline, t.quadrant as task_quadrant
+                   FROM messages m
+                   JOIN users u ON u.id = m.user_id
+                   LEFT JOIN tasks t ON t.id = m.task_id
+                   WHERE m.list_id = ? AND m.id < ?
+                   ORDER BY m.created_at DESC LIMIT ?""",
+                (list_id, before_id, limit),
+            ).fetchall()
+            rows = list(reversed(rows))
+        else:
+            rows = conn.execute(
+                """SELECT m.id, m.list_id, m.user_id, m.content, m.task_id, m.msg_type, m.created_at,
+                          u.username, u.display_name,
+                          t.title as task_title, t.priority as task_priority,
+                          t.deadline as task_deadline, t.quadrant as task_quadrant
+                   FROM messages m
+                   JOIN users u ON u.id = m.user_id
+                   LEFT JOIN tasks t ON t.id = m.task_id
+                   WHERE m.list_id = ?
+                   ORDER BY m.created_at DESC LIMIT ?""",
+                (list_id, limit),
+            ).fetchall()
+            rows = list(reversed(rows))
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/lists/{list_id}/members/usernames")
+async def get_list_member_usernames(list_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Not a member of this list")
+    with get_db() as conn:
+        owner_row = conn.execute(
+            "SELECT u.id, u.username, u.display_name FROM shared_lists sl "
+            "JOIN users u ON u.id = sl.owner_id WHERE sl.id = ?", (list_id,)
+        ).fetchone()
+        member_rows = conn.execute(
+            "SELECT u.id, u.username, u.display_name FROM list_members lm "
+            "JOIN users u ON u.id = lm.user_id WHERE lm.list_id = ? ORDER BY lm.joined_at",
+            (list_id,)
+        ).fetchall()
+    seen = set()
+    result = []
+    for row in ([owner_row] + list(member_rows)):
+        if row and row["id"] not in seen:
+            seen.add(row["id"])
+            result.append({"username": row["username"], "display_name": row["display_name"]})
+    return result
 
 
 # ── Serve SPA ──────────────────────────────────────────────────────────────────
