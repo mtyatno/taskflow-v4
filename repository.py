@@ -199,6 +199,11 @@ class TaskRepository:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_list ON messages(list_id, created_at)")
 
+            # Reply/quote migration
+            cols_msg = [r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
+            if "reply_to_id" not in cols_msg:
+                conn.execute("ALTER TABLE messages ADD COLUMN reply_to_id INTEGER DEFAULT NULL REFERENCES messages(id) ON DELETE SET NULL")
+
             # Migrate: add list_id and assigned_to to tasks if missing
             cols = [row["name"] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()]
             if "list_id" not in cols:
