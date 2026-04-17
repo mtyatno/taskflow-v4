@@ -31,15 +31,24 @@ self.addEventListener("fetch", e => {
   const { request } = e;
   const url = new URL(request.url);
 
-  // HTML root ("/") — network-first, tidak di-cache
-  // Agar update index.html langsung aktif tanpa perlu clear cache manual
+  // HTML root ("/") — network-first + update cache
+  // Saat online: selalu fetch terbaru dari server dan simpan ke cache
+  // Saat offline: serve dari cache yang tersimpan terakhir kali online
   if (url.pathname === "/" && request.method === "GET") {
     e.respondWith(
-      fetch(request).catch(() =>
-        caches.match(request).then(cached =>
-          cached || new Response("Offline", { status: 503 })
+      fetch(request)
+        .then(res => {
+          if (res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE).then(c => c.put(request, clone));
+          }
+          return res;
+        })
+        .catch(() =>
+          caches.match(request).then(cached =>
+            cached || new Response("Offline — buka kembali saat terhubung ke internet", { status: 503 })
+          )
         )
-      )
     );
     return;
   }
