@@ -193,8 +193,11 @@
     .chat-mention-item:hover { background: var(--bg-primary); }
     @media (max-width: 768px) {
       .chat-layout { height: calc(100vh - 112px); }
-      .chat-list-panel { width: 160px; }
+      .chat-list-panel { width: 140px; }
       .chat-bubble { max-width: 85%; font-size: 13px; }
+      .chat-input-bar { padding: 8px 10px; gap: 6px; }
+      .chat-input { font-size: 13px; padding: 7px 10px; min-width: 0; }
+      .chat-input-bar .btn { padding: 7px 12px; font-size: 12px; }
     }
 
     /* Pomodoro Button */
@@ -5125,8 +5128,10 @@
             />
           )}
 
-          {/* FAB — mobile floating add button */}
-          <button className="fab" onClick={() => { setEditTask(null); setShowForm(true); }} title="Tambah Task Baru">＋</button>
+          {/* FAB — mobile floating add button (hidden on chat page) */}
+          {page !== "chat" && (
+            <button className="fab" onClick={() => { setEditTask(null); setShowForm(true); }} title="Tambah Task Baru">＋</button>
+          )}
 
           {/* Mobile overlay */}
           {sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 30 }} />}
