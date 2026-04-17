@@ -4487,6 +4487,15 @@
         try { await api.post("/api/auth/logout", {}); } catch (e) {}
         tokenStore.clear();
         setUser(null);
+        setTasks([]);
+        setSharedLists([]);
+        setProjects([]);
+        setContexts([]);
+        setCollaborators([]);
+        setNotifications([]);
+        setUnreadCount(0);
+        setSummary({ by_status: {}, by_quadrant: {}, overdue: 0, total_active: 0, total_done: 0 });
+        setPage("dashboard");
       }, []);
 
       window.__logout = logout;
