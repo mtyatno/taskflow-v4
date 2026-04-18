@@ -1589,6 +1589,17 @@
     }
 
     // ── Task Form Modal ─────────────────────────────────────────
+    function computeOfflineQuadrant(priority, deadline_date) {
+      const isImportant = priority === "P1" || priority === "P2";
+      const isUrgent = deadline_date
+        ? (new Date(deadline_date) - new Date()) / 86400000 <= 3
+        : false;
+      if (isImportant && isUrgent)  return "Q1";
+      if (isImportant && !isUrgent) return "Q2";
+      if (!isImportant && isUrgent) return "Q3";
+      return "Q4";
+    }
+
     function TaskFormModal({ task, onSave, onOfflineSave, onClose, projects, contexts, sharedLists, collaborators = [] }) {
       const isEdit = !!task?.id;
       const [form, setForm] = useState({
@@ -1647,7 +1658,8 @@
               await OfflineDB.queueAdd({ method: "POST", url: "/api/tasks", body: { title: sub.title, gtd_status: sub.gtd, parent_id: tempId }, tempId: null, createdAt: Date.now() });
             }
             const tempTask = {
-              ...form, id: tempId, _pending: true, quadrant: "Q4",
+              ...form, id: tempId, _pending: true,
+              quadrant: computeOfflineQuadrant(form.priority, form.deadline_date),
               is_overdue: false, is_focused: false, days_until_deadline: null,
               assigned_to_name: null, parent_title: null,
               created_at: new Date().toISOString(),
