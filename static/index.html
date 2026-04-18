@@ -1428,21 +1428,41 @@
       // Count today's focus tasks
       const todayCount = (tasks || []).filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused) && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
 
+      // Pending offline tasks — merge ke sidebar counts
+      const pendingByStatus = React.useMemo(() =>
+        (tasks || []).filter(t => t._pending).reduce((acc, t) => {
+          const s = t.gtd_status || "inbox";
+          acc[s] = (acc[s] || 0) + 1;
+          return acc;
+        }, {}),
+        [tasks]
+      );
+      const pendingByQuadrant = React.useMemo(() =>
+        (tasks || []).filter(t => t._pending).reduce((acc, t) => {
+          const q = t.quadrant || "Q4";
+          acc[q] = (acc[q] || 0) + 1;
+          return acc;
+        }, {}),
+        [tasks]
+      );
+      const sc = (status) => (summary?.by_status?.[status] || 0) + (pendingByStatus[status] || 0);
+      const qc = (q) => (summary?.by_quadrant?.[q] || 0) + (pendingByQuadrant[q] || 0);
+
       const links = [
         { id: "dashboard", icon: "📊", label: "Dashboard" },
         { id: "calendar", icon: "🗓️", label: "Kalender" },
         { id: "today", icon: "🍅", label: "Fokus Hari Ini", count: todayCount },
         { id: "chat", icon: "💬", label: "Diskusi" },
         { section: "GTD" },
-        { id: "inbox", icon: "📥", label: "Inbox", count: summary?.by_status?.inbox },
-        { id: "next", icon: "▶️", label: "Next Actions", count: summary?.by_status?.next },
-        { id: "waiting", icon: "⏳", label: "Waiting For", count: summary?.by_status?.waiting },
-        { id: "someday", icon: "💭", label: "Someday", count: summary?.by_status?.someday },
+        { id: "inbox", icon: "📥", label: "Inbox", count: sc("inbox") },
+        { id: "next", icon: "▶️", label: "Next Actions", count: sc("next") },
+        { id: "waiting", icon: "⏳", label: "Waiting For", count: sc("waiting") },
+        { id: "someday", icon: "💭", label: "Someday", count: sc("someday") },
         { section: "EISENHOWER" },
-        { id: "q1", icon: "🔥", label: "Q1 Lakukan", count: summary?.by_quadrant?.Q1 },
-        { id: "q2", icon: "📅", label: "Q2 Rencanakan", count: summary?.by_quadrant?.Q2 },
-        { id: "q3", icon: "👋", label: "Q3 Delegasikan", count: summary?.by_quadrant?.Q3 },
-        { id: "q4", icon: "🗑️", label: "Q4 Singkirkan", count: summary?.by_quadrant?.Q4 },
+        { id: "q1", icon: "🔥", label: "Q1 Lakukan", count: qc("Q1") },
+        { id: "q2", icon: "📅", label: "Q2 Rencanakan", count: qc("Q2") },
+        { id: "q3", icon: "👋", label: "Q3 Delegasikan", count: qc("Q3") },
+        { id: "q4", icon: "🗑️", label: "Q4 Singkirkan", count: qc("Q4") },
       ];
 
       // Dynamic project links
