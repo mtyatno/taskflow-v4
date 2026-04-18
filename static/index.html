@@ -4715,13 +4715,13 @@
             if (cached) setter(cached);
           }
         }
-        // Detect offline: jika semua call gagal, set isOnline = false
-        const allFailed = results.every(r => r.status === "rejected");
-        if (allFailed) setIsOnline(false);
-        else if (results.some(r => r.status === "fulfilled")) setIsOnline(true);
+        // Deteksi online berdasarkan navigator.onLine — lebih reliable dari API call result
+        // karena SW bisa serve cached API response (HTTP 200) walaupun sebenarnya offline
+        setIsOnline(navigator.onLine);
 
         // Saat offline: apply pending queue mutations di atas data cache
-        if (results[0].status !== "fulfilled") {
+        // Cek navigator.onLine (bukan results[0].status) agar tidak ter-bypass oleh SW cache
+        if (!navigator.onLine) {
           const q = await OfflineDB.queueGetAll();
           if (q.length) {
             setTasks(prev => {
@@ -4743,7 +4743,8 @@
                 if (item.method === "POST" && item.url === "/api/tasks" && item.tempId) {
                   const exists = tasks.some(t => String(t.id) === item.tempId);
                   if (!exists) tasks.push({
-                    ...item.body, id: item.tempId, _pending: true, quadrant: "Q4",
+                    ...item.body, id: item.tempId, _pending: true,
+                    quadrant: computeOfflineQuadrant(item.body.priority, item.body.deadline_date),
                     is_overdue: false, is_focused: false, days_until_deadline: null,
                     assigned_to_name: null, parent_title: null,
                     created_at: new Date(item.createdAt || Date.now()).toISOString(),
