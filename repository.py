@@ -199,6 +199,33 @@ class TaskRepository:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_list ON messages(list_id, created_at)")
 
+            # Habits tables
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS habits (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    title           TEXT NOT NULL,
+                    phase           TEXT NOT NULL DEFAULT 'pagi' CHECK(phase IN ('pagi','siang','malam')),
+                    micro_target    TEXT DEFAULT '',
+                    frequency       TEXT DEFAULT '["mon","tue","wed","thu","fri","sat","sun"]',
+                    identity_pillar TEXT DEFAULT '',
+                    created_at      TEXT DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_habits_user ON habits(user_id)")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS habit_logs (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    habit_id    INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+                    date        TEXT NOT NULL,
+                    status      TEXT NOT NULL CHECK(status IN ('done','skipped','missed')),
+                    skip_reason TEXT DEFAULT '',
+                    created_at  TEXT DEFAULT (datetime('now')),
+                    UNIQUE(habit_id, date)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_habit_logs_habit ON habit_logs(habit_id, date)")
+
             # Reply/quote migration
             cols_msg = [r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
             if "reply_to_id" not in cols_msg:
