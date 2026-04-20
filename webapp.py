@@ -21,6 +21,13 @@ from pathlib import Path
 from typing import Optional
 from contextlib import contextmanager
 
+import pytz as _pytz
+_TZ_JKT = _pytz.timezone("Asia/Jakarta")
+
+def _today_jkt() -> date:
+    """Return today's date in Jakarta timezone (UTC+7)."""
+    return datetime.now(_TZ_JKT).date()
+
 from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, UploadFile, File as FastAPIFile, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
@@ -1425,11 +1432,11 @@ async def delete_habit(habit_id: int, user=Depends(get_current_user)):
 @app.get("/api/habits/today")
 async def get_habits_today(user=Depends(get_current_user)):
     uid = user["sub"]
-    today = date.today().isoformat()
-    from datetime import timedelta
+    _t = _today_jkt()
+    today = _t.isoformat()
     # Senin minggu ini s/d Minggu (7 hari, index 0=Sen ... 6=Min)
-    today_dow = date.today().weekday()  # 0=Mon ... 6=Sun
-    week_dates = [(date.today() - timedelta(days=today_dow - i)).isoformat() for i in range(7)]
+    today_dow = _t.weekday()  # 0=Mon ... 6=Sun
+    week_dates = [(_t - timedelta(days=today_dow - i)).isoformat() for i in range(7)]
 
     with get_db() as conn:
         habits = conn.execute(
@@ -1453,7 +1460,7 @@ async def get_habits_today(user=Depends(get_current_user)):
             week_log = [log_map.get(d, None) for d in week_dates]
             # Streak: hitung dari hari ini ke belakang
             streak = 0
-            check_date = date.today()
+            check_date = _today_jkt()
             while True:
                 log = conn.execute(
                     "SELECT status FROM habit_logs WHERE habit_id = ? AND date = ?",
@@ -1485,7 +1492,7 @@ async def get_habits_today(user=Depends(get_current_user)):
 @app.get("/api/habits/monthly")
 async def get_habits_monthly(user=Depends(get_current_user)):
     uid = user["sub"]
-    today = date.today()
+    today = _today_jkt()
     year, month = today.year, today.month
     import calendar as cal_mod
     days_in_month = cal_mod.monthrange(year, month)[1]
@@ -1514,7 +1521,7 @@ async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_cu
     uid = user["sub"]
     if req.status not in ("done", "skipped"):
         raise HTTPException(status_code=400, detail="status harus done atau skipped")
-    log_date = req.date if req.date else date.today().isoformat()
+    log_date = req.date if req.date else _today_jkt().isoformat()
     with get_db() as conn:
         row = conn.execute("SELECT id FROM habits WHERE id = ? AND user_id = ?", (habit_id, uid)).fetchone()
         if not row:
