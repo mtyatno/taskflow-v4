@@ -1820,7 +1820,14 @@
                   <label className="input-label">Micro Target <span style={{ color: "var(--text-light)", fontWeight: 400 }}>(opsional)</span></label>
                   <input className="input" value={habitForm.micro_target} onChange={e => setHabit("micro_target", e.target.value)} style={{ marginBottom: 14 }} placeholder="5 menit, 2 halaman, 10 push-up..." />
 
-                  <label className="input-label">Frekuensi</label>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <label className="input-label" style={{ margin: 0 }}>Frekuensi</label>
+                    <button type="button"
+                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "var(--accent)", padding: "2px 4px" }}
+                      onClick={() => setHabitForm(f => ({ ...f, frequency: f.frequency.length === DAYS.length ? [] : DAYS.map(d => d.key) }))}>
+                      {habitForm.frequency.length === DAYS.length ? "Hapus Semua" : "Pilih Semua"}
+                    </button>
+                  </div>
                   <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
                     {DAYS.map(d => (
                       <button key={d.key} type="button" onClick={() => toggleDay(d.key)} style={{
@@ -4920,7 +4927,14 @@
               </select>
               <label className="input-label">Micro Target <span style={{ fontWeight: 400, color: "var(--text-light)" }}>(opsional)</span></label>
               <input className="input" value={form.micro_target} onChange={e => set("micro_target", e.target.value)} placeholder="5 menit, 2 halaman..." style={{ marginBottom: 14 }} />
-              <label className="input-label">Frekuensi</label>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <label className="input-label" style={{ margin: 0 }}>Frekuensi</label>
+                <button type="button"
+                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "var(--accent)", padding: "2px 4px" }}
+                  onClick={() => set("frequency", form.frequency.length === DAYS.length ? [] : [...DAYS])}>
+                  {form.frequency.length === DAYS.length ? "Hapus Semua" : "Pilih Semua"}
+                </button>
+              </div>
               <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
                 {DAYS.map((d, i) => (
                   <button key={d} type="button"
