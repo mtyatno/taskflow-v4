@@ -652,6 +652,29 @@
     .check-btn:hover { border-color: var(--success); background: #f0fdf4; transform: scale(1.1); }
     .check-btn:active { transform: scale(0.92); }
     .check-btn .check-icon { animation: checkPop 0.3s ease-out; }
+
+    /* ── Habit Tracker ── */
+    .habit-phase-header { font-weight: 700; font-size: 12px; letter-spacing: 0.05em; padding: 6px 10px; }
+    .habit-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .habit-table th { text-align: center; padding: 6px 4px; color: var(--text-secondary); font-weight: 600; font-size: 11px; border-bottom: 1px solid var(--border); }
+    .habit-table th:first-child { text-align: left; padding-left: 10px; }
+    .habit-table td { padding: 8px 4px; border-bottom: 1px solid var(--border); text-align: center; vertical-align: middle; }
+    .habit-table td:first-child { text-align: left; padding-left: 10px; }
+    .habit-table tr.habit-row { cursor: pointer; transition: background 0.12s; }
+    .habit-table tr.habit-row:hover { background: rgba(168,197,0,0.07); }
+    .habit-table td.today-col { background: rgba(168,197,0,0.08); font-weight: 700; border-left: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+    .habit-phase-group-pagi { background: rgba(168,197,0,0.06); }
+    .habit-phase-group-siang { background: rgba(250,204,21,0.06); }
+    .habit-phase-group-malam { background: rgba(129,140,248,0.06); }
+    .habit-card { background: var(--bg-card); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; cursor: pointer; border: 1px solid var(--border); transition: box-shadow 0.15s, transform 0.15s; }
+    .habit-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-1px); }
+    .habit-week-dots { display: flex; gap: 4px; margin-top: 8px; }
+    .habit-week-dot { width: 18px; height: 18px; border-radius: 4px; background: var(--bg-primary); border: 1px solid var(--border); }
+    .habit-week-dot.done { background: var(--accent); border-color: var(--accent); }
+    .habit-week-dot.skipped { background: #facc15; border-color: #facc15; }
+    .habit-week-dot.missed { background: #ef4444; border-color: #ef4444; opacity: 0.5; }
+    .habit-checkin-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .habit-checkin-modal-box { background: var(--bg-card); border-radius: 16px; padding: 24px; width: 300px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }
   </style>
 </head>
 <body>
@@ -4682,6 +4705,265 @@
               </button>
             </form>
           </div>
+        </div>
+      );
+    }
+
+    // ── Habit Tracker Components ───────────────────────────────────
+
+    function HabitCheckinModal({ habit, onClose, onCheckin }) {
+      const [skipReason, setSkipReason] = useState("");
+      const [showSkipInput, setShowSkipInput] = useState(false);
+      const [loading, setLoading] = useState(false);
+
+      const submit = async (status) => {
+        setLoading(true);
+        await onCheckin(habit.id, status, status === "skipped" ? skipReason : "");
+        setLoading(false);
+        onClose();
+      };
+
+      return (
+        <div className="habit-checkin-modal" onClick={onClose}>
+          <div className="habit-checkin-modal-box" onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{habit.title}</div>
+            {habit.micro_target && (
+              <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>🎯 {habit.micro_target}</div>
+            )}
+            <div style={{ fontSize: 12, color: "var(--text-light)", marginBottom: 20 }}>
+              {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long" })}
+            </div>
+
+            {habit.today_status ? (
+              <div style={{ textAlign: "center", padding: "12px 0" }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>{habit.today_status === "done" ? "✅" : "⏭️"}</div>
+                <div style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+                  Sudah {habit.today_status === "done" ? "selesai" : "di-skip"} hari ini
+                </div>
+                {habit.skip_reason && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 4 }}>"{habit.skip_reason}"</div>}
+                <button className="btn" style={{ marginTop: 16 }} onClick={onClose}>Tutup</button>
+              </div>
+            ) : (
+              <div>
+                {!showSkipInput ? (
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button className="btn btn-primary" style={{ flex: 1, padding: "10px 0", fontSize: 15 }} disabled={loading}
+                      onClick={() => submit("done")}>
+                      ✓ Done
+                    </button>
+                    <button className="btn" style={{ flex: 1, padding: "10px 0", fontSize: 15, background: "var(--bg-primary)" }} disabled={loading}
+                      onClick={() => setShowSkipInput(true)}>
+                      ↷ Skip
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="input-label">Alasan skip <span style={{ fontWeight: 400, color: "var(--text-light)" }}>(opsional)</span></label>
+                    <input className="input" value={skipReason} onChange={e => setSkipReason(e.target.value)}
+                      placeholder="Alasan singkat..." style={{ marginBottom: 12 }} autoFocus />
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button className="btn" style={{ flex: 1 }} onClick={() => setShowSkipInput(false)}>Kembali</button>
+                      <button className="btn btn-primary" style={{ flex: 1, background: "#facc15", color: "#000" }} disabled={loading}
+                        onClick={() => submit("skipped")}>
+                        ↷ Skip
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function HabitPage({ user, showToast }) {
+      const [habits, setHabits] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [checkinTarget, setCheckinTarget] = useState(null);
+      const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 768);
+
+      useEffect(() => {
+        const onResize = () => setIsDesktop(window.innerWidth >= 768);
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+      }, []);
+
+      const fetchHabits = async () => {
+        try {
+          const data = await api.get("/api/habits/today");
+          setHabits(data);
+          OfflineDB.cacheSet("habits_today", data);
+        } catch (err) {
+          const cached = await OfflineDB.cacheGet("habits_today");
+          if (cached) {
+            const q = await OfflineDB.queueGetAll();
+            let list = [...cached];
+            for (const item of q) {
+              const checkinMatch = item.method === "POST" && item.url.match(/^\/api\/habits\/(\d+)\/checkin$/);
+              if (checkinMatch) {
+                const hid = parseInt(checkinMatch[1]);
+                list = list.map(h => h.id === hid ? { ...h, today_status: item.body.status, skip_reason: item.body.skip_reason || "" } : h);
+              }
+              if (item.method === "POST" && item.url === "/api/habits" && item.tempId) {
+                const exists = list.some(h => String(h.id) === item.tempId);
+                if (!exists) list.push({
+                  ...item.body, id: item.tempId, _pending: true,
+                  today_status: null, skip_reason: "", streak: 0,
+                  week_log: [null,null,null,null,null,null,null],
+                });
+              }
+            }
+            setHabits(list);
+          }
+        }
+        setLoading(false);
+      };
+
+      useEffect(() => { fetchHabits(); }, []);
+
+      const handleCheckin = async (habitId, status, skipReason) => {
+        const today = new Date().toISOString().split("T")[0];
+        try {
+          await api.post(`/api/habits/${habitId}/checkin`, { status, skip_reason: skipReason, date: today });
+        } catch (err) {
+          if (isOfflineErr(err)) {
+            await OfflineDB.queueAdd({ method: "POST", url: `/api/habits/${habitId}/checkin`, body: { status, skip_reason: skipReason, date: today } });
+            showToast("Tersimpan offline, akan sync saat online 📶");
+          } else {
+            showToast(err.message, "error");
+            return;
+          }
+        }
+        setHabits(prev => prev.map(h => h.id === habitId ? { ...h, today_status: status, skip_reason: skipReason } : h));
+        if (status === "done") showToast("✅ Habit selesai!");
+        else showToast("⏭️ Di-skip");
+      };
+
+      const PHASE_LABEL = { pagi: "☀️ PAGI", siang: "🌤️ SIANG", malam: "🌙 MALAM" };
+      const PHASE_COLOR = { pagi: "var(--accent)", siang: "#facc15", malam: "#818cf8" };
+      const DAY_LABELS = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
+      const todayDow = (new Date().getDay() + 6) % 7;
+
+      const quoteHabit = habits.find(h => h.identity_pillar);
+      const quote = quoteHabit?.identity_pillar || "Jadikan hari ini lebih baik dari kemarin.";
+
+      const phases = ["pagi","siang","malam"];
+      const grouped = phases.reduce((acc, p) => { acc[p] = habits.filter(h => h.phase === p); return acc; }, {});
+
+      const renderDesktop = () => (
+        <div style={{ overflowX: "auto" }}>
+          <table className="habit-table">
+            <thead>
+              <tr>
+                <th style={{ minWidth: 180 }}>Habit</th>
+                {DAY_LABELS.map((d, i) => (
+                  <th key={d} style={{ minWidth: 36, color: i === todayDow ? "var(--accent)" : undefined, fontWeight: i === todayDow ? 700 : 600 }}>{d}</th>
+                ))}
+                <th>🔥</th>
+              </tr>
+            </thead>
+            <tbody>
+              {phases.map(phase => {
+                const phaseHabits = grouped[phase];
+                if (!phaseHabits.length) return null;
+                return (
+                  <React.Fragment key={phase}>
+                    <tr className={`habit-phase-group-${phase}`}>
+                      <td colSpan={DAY_LABELS.length + 2} className="habit-phase-header" style={{ color: PHASE_COLOR[phase] }}>
+                        {PHASE_LABEL[phase]}
+                      </td>
+                    </tr>
+                    {phaseHabits.map(h => (
+                      <tr key={h.id} className="habit-row" onClick={() => setCheckinTarget(h)}>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>{h.title}{h._pending && <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>⏳</span>}</div>
+                          {h.micro_target && <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{h.micro_target}</div>}
+                        </td>
+                        {(h.week_log || []).map((s, i) => (
+                          <td key={i} className={i === todayDow ? "today-col" : ""}>
+                            {s === "done" ? <span style={{ color: "var(--accent)" }}>✓</span>
+                            : s === "skipped" ? <span style={{ color: "#facc15" }}>~</span>
+                            : <span style={{ color: "var(--border)" }}>–</span>}
+                          </td>
+                        ))}
+                        <td style={{ color: "var(--accent)", fontWeight: 700 }}>{h.streak > 0 ? `🔥${h.streak}` : "–"}</td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      );
+
+      const renderMobile = () => (
+        <div>
+          {phases.map(phase => {
+            const phaseHabits = grouped[phase];
+            if (!phaseHabits.length) return null;
+            return (
+              <div key={phase} style={{ marginBottom: 24 }}>
+                <div className="habit-phase-header" style={{ color: PHASE_COLOR[phase], marginBottom: 8, fontSize: 13 }}>
+                  {PHASE_LABEL[phase]}
+                </div>
+                {phaseHabits.map(h => (
+                  <div key={h.id} className="habit-card" onClick={() => setCheckinTarget(h)}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 15 }}>
+                          {h.today_status === "done" ? "✅ " : h.today_status === "skipped" ? "⏭️ " : ""}{h.title}
+                          {h._pending && <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>⏳</span>}
+                        </div>
+                        {h.micro_target && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{h.micro_target}</div>}
+                      </div>
+                      {h.streak > 0 && <div style={{ color: "var(--accent)", fontWeight: 700, fontSize: 13 }}>🔥 {h.streak}</div>}
+                    </div>
+                    <div className="habit-week-dots">
+                      {(h.week_log || []).map((s, i) => (
+                        <div key={i} className={`habit-week-dot${s === "done" ? " done" : s === "skipped" ? " skipped" : s === "missed" ? " missed" : ""}`}
+                          title={DAY_LABELS[i]}
+                          style={{ outline: i === todayDow ? "2px solid var(--accent)" : "none", outlineOffset: 1 }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      );
+
+      if (loading) return <div style={{ padding: 40, textAlign: "center", color: "var(--text-secondary)" }}>Memuat habits...</div>;
+
+      return (
+        <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 16px" }}>
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>
+              {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            </div>
+            <div style={{ fontSize: 15, color: "var(--text-secondary)", fontStyle: "italic" }}>"{quote}"</div>
+          </div>
+
+          {habits.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-secondary)" }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🌱</div>
+              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Belum ada habit</div>
+              <div style={{ fontSize: 13 }}>Klik "+ Tambah Task" lalu pilih tab Habit untuk mulai.</div>
+            </div>
+          ) : (
+            isDesktop ? renderDesktop() : renderMobile()
+          )}
+
+          {checkinTarget && (
+            <HabitCheckinModal
+              habit={checkinTarget}
+              onClose={() => setCheckinTarget(null)}
+              onCheckin={handleCheckin}
+            />
+          )}
         </div>
       );
     }
