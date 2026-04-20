@@ -4439,7 +4439,7 @@
                         )}
                         {renderMessageContent(msg.content, user.username)}
                         {msg.task_id && (
-                          <TaskMiniCard task={msg} onClick={() => onTaskClick && onTaskClick({ id: msg.task_id, title: msg.task_title, priority: msg.task_priority, deadline: msg.task_deadline, quadrant: msg.task_quadrant })} />
+                          <TaskMiniCard task={msg} onClick={() => onTaskClick && onTaskClick({ id: msg.task_id, title: msg.task_title, priority: msg.task_priority, deadline: msg.task_deadline, quadrant: msg.task_quadrant, gtd_status: msg.task_status })} />
                         )}
                         <button
                           className="chat-reply-btn"
