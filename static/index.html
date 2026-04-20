@@ -4890,7 +4890,7 @@
                       <tr key={h.id} className="habit-row" onClick={() => setCheckinTarget(h)}>
                         <td>
                           <div style={{ fontWeight: 600 }}>{h.title}{h._pending && <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>⏳</span>}</div>
-                          {h.micro_target && <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{h.micro_target}</div>}
+                          {h.micro_target && <div style={{ fontSize: 12, color: "var(--accent)", marginTop: 2 }}>🎯 {h.micro_target}</div>}
                         </td>
                         {(h.week_log || []).map((s, i) => (
                           <td key={i} className={i === todayDow ? "today-col" : ""}>
@@ -4928,7 +4928,7 @@
                           {h.today_status === "done" ? "✅ " : h.today_status === "skipped" ? "⏭️ " : ""}{h.title}
                           {h._pending && <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>⏳</span>}
                         </div>
-                        {h.micro_target && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{h.micro_target}</div>}
+                        {h.micro_target && <div style={{ fontSize: 12, color: "var(--accent)", marginTop: 2 }}>🎯 {h.micro_target}</div>}
                       </div>
                       {h.streak > 0 && <div style={{ color: "var(--accent)", fontWeight: 700, fontSize: 13 }}>🔥 {h.streak}</div>}
                     </div>
