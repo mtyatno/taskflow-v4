@@ -1172,6 +1172,7 @@ async def get_messages(list_id: int, limit: int = 50, before_id: Optional[int] =
                    u.username, u.display_name,
                    t.title as task_title, t.priority as task_priority,
                    t.deadline as task_deadline, t.quadrant as task_quadrant,
+                   t.gtd_status as task_status,
                    ru.username as reply_to_username,
                    ru.display_name as reply_to_display_name,
                    rm.content as reply_to_content
@@ -1250,6 +1251,7 @@ async def post_message(list_id: int, req: MessageCreate, user=Depends(get_curren
                       u.username, u.display_name,
                       t.title as task_title, t.priority as task_priority,
                       t.deadline as task_deadline, t.quadrant as task_quadrant,
+                      t.gtd_status as task_status,
                       ru.username as reply_to_username,
                       ru.display_name as reply_to_display_name,
                       rm.content as reply_to_content

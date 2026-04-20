@@ -190,8 +190,8 @@
     .chat-avatar { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 13px; font-weight: 700; flex-shrink: 0; }
     .chat-bubble { max-width: 72%; padding: 10px 14px; border-radius: 6px 16px 16px 16px; font-size: 14px; line-height: 1.55; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border); }
     [data-theme="dark"] .chat-bubble { background: #2a2a2a; border-color: #383838; }
-    .chat-bubble.self { border-radius: 16px 6px 16px 16px; background: var(--accent); color: #192800; border-color: transparent; }
-    [data-theme="dark"] .chat-bubble.self { color: #fff; }
+    .chat-bubble.self { border-radius: 16px 6px 16px 16px; background: #3a5800; color: #fff; border-color: transparent; }
+    [data-theme="dark"] .chat-bubble.self { background: #4a7000; color: #fff; }
     .chat-bubble.mentioned { background: rgba(168,197,0,0.12); border-color: rgba(168,197,0,0.3); }
     .chat-sender { font-size: 11px; font-weight: 700; color: var(--text-secondary); margin-bottom: 4px; }
     .chat-time { font-size: 10px; color: var(--text-light); margin-top: 4px; }
@@ -229,9 +229,10 @@
       color: var(--text-secondary); overflow: hidden;
       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     }
-    .chat-bubble.self .chat-quote-block { background: rgba(0,0,0,0.15); border-left-color: rgba(255,255,255,0.6); cursor: pointer; }
-    .chat-bubble.self .chat-quote-block .quote-sender { color: rgba(255,255,255,0.9); }
+    .chat-bubble.self .chat-quote-block { background: rgba(0,0,0,0.2); border-left-color: rgba(255,255,255,0.5); cursor: pointer; }
+    .chat-bubble.self .chat-quote-block .quote-sender { color: rgba(255,255,255,0.95); }
     .chat-bubble.self .chat-quote-block .quote-text { color: rgba(255,255,255,0.75); }
+    .chat-bubble.self .chat-reply-btn { background: rgba(255,255,255,0.18); color: #fff; }
     .chat-quote-block { cursor: pointer; }
     .chat-quote-block:hover { opacity: 0.82; }
     /* ── Chat Header (Gradient) ── */
@@ -4281,10 +4282,15 @@
 
     function TaskMiniCard({ task, onClick }) {
       if (!task?.task_title) return null;
+      const isDone = task.task_status === "done";
       return (
-        <div className="chat-task-card" onClick={() => onClick && onClick(task)}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", marginBottom: 3 }}>📌 TASK</div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>{task.task_title}</div>
+        <div className="chat-task-card" onClick={() => onClick && onClick(task)}
+          style={ isDone ? { opacity: 0.75 } : undefined }>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", marginBottom: 3, display: "flex", alignItems: "center", gap: 6 }}>
+            📌 TASK
+            {isDone && <span style={{ background: "#22c55e", color: "#fff", borderRadius: 4, padding: "1px 6px", fontWeight: 700 }}>✓ DONE</span>}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4, textDecoration: isDone ? "line-through" : "none" }}>{task.task_title}</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {task.task_priority && <span style={{ fontSize: 11, background: "var(--bg-primary)", color: "var(--text-secondary)", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>{task.task_priority}</span>}
             {task.task_quadrant && <span style={{ fontSize: 11, color: "var(--text-light)" }}>{task.task_quadrant}</span>}
