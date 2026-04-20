@@ -169,7 +169,8 @@
     /* ── Chat ── */
     .chat-layout { display: flex; height: calc(100vh - 64px); overflow: hidden; }
     /* Chat list panel */
-    .chat-list-panel { width: 240px; flex-shrink: 0; border-right: 1px solid var(--border); overflow-y: auto; background: var(--bg-primary); }
+    .chat-list-panel { width: 240px; flex-shrink: 0; border-right: 1px solid var(--border); overflow-y: auto; background: var(--bg-primary); transition: width 0.25s ease, opacity 0.25s ease; }
+    .chat-list-panel.collapsed { width: 0; opacity: 0; overflow: hidden; border-right: none; }
     .chat-list-item { padding: 12px 14px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.15s; display: flex; align-items: center; gap: 10px; }
     .chat-list-item:hover { background: var(--bg-card); }
     .chat-list-item.active { background: rgba(168,197,0,0.10); border-left: 3px solid var(--accent); }
@@ -4238,15 +4239,18 @@
 
     function ChatPage({ user, sharedLists, onTaskClick, showToast }) {
       const [selectedList, setSelectedList] = useState(null);
+      const [panelCollapsed, setPanelCollapsed] = useState(false);
 
       return (
         <div className={`chat-layout${selectedList ? " has-selection" : ""}`}>
-          <div className="chat-list-panel">
+          <div className={`chat-list-panel${panelCollapsed ? " collapsed" : ""}`}>
             <ChatListPanel lists={sharedLists} selectedId={selectedList?.id} onSelect={setSelectedList} />
           </div>
           <div className="chat-room">
             {selectedList ? (
-              <ChatRoom key={selectedList.id} list={selectedList} user={user} onTaskClick={onTaskClick} showToast={showToast} onBack={() => setSelectedList(null)} />
+              <ChatRoom key={selectedList.id} list={selectedList} user={user} onTaskClick={onTaskClick} showToast={showToast}
+                onBack={() => setSelectedList(null)}
+                panelCollapsed={panelCollapsed} onTogglePanel={() => setPanelCollapsed(p => !p)} />
             ) : (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-light)", flexDirection: "column", gap: 8 }}>
                 <div style={{ fontSize: 40 }}>💬</div>
@@ -4290,7 +4294,7 @@
       );
     }
 
-    function ChatRoom({ list, user, onTaskClick, showToast, onBack }) {
+    function ChatRoom({ list, user, onTaskClick, showToast, onBack, panelCollapsed, onTogglePanel }) {
       const [messages, setMessages] = useState([]);
       const [loading, setLoading] = useState(true);
       const [hasMore, setHasMore] = useState(false);
@@ -4370,6 +4374,12 @@
               <div className="header-name">{list.name}</div>
               <div className="header-meta">{list.role === "owner" ? "Owner" : "Member"}</div>
             </div>
+            {onTogglePanel && (
+              <button onClick={onTogglePanel} title={panelCollapsed ? "Tampilkan daftar" : "Sembunyikan daftar"}
+                style={{ background: "none", border: "1px solid var(--border)", cursor: "pointer", color: "var(--text-secondary)", fontSize: 14, padding: "5px 8px", borderRadius: 8, lineHeight: 1, transition: "all 0.15s" }}>
+                {panelCollapsed ? "▶" : "◀"}
+              </button>
+            )}
             <button style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", fontSize: 20, padding: "4px 6px", borderRadius: 8, lineHeight: 1 }} title="Opsi">⋯</button>
           </div>
 
@@ -5106,8 +5116,8 @@
       const handleEdit = async (habitId, data) => {
         try {
           await api.post(`/api/habits/${habitId}/update`, data);
-          setHabits(prev => prev.map(h => h.id === habitId ? { ...h, ...data } : h));
           showToast("Habit diperbarui");
+          fetchHabits(); // refresh dari server agar fase & data lain akurat
         } catch (err) {
           showToast(err.message, "error");
         }
