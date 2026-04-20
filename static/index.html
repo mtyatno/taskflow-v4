@@ -4026,23 +4026,20 @@
             return (
               <div className="card" style={{ marginBottom: 28, padding: "18px 22px" }}>
                 {/* Header row */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                     <div style={{ fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}>
                       🔴 Prioritas Hari Ini
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
-                      Fokus selesaikan hal penting terlebih dahulu.
-                    </div>
+                    <span onClick={() => onNav("today")} style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 600, flexShrink: 0 }}>Lihat semua →</span>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
                       <b style={{ color: allDone ? "#16a34a" : "var(--text-primary)" }}>{doneN} / {total}</b> selesai
                     </span>
                     <span style={{ fontSize: 12, fontWeight: 700, color: allDone ? "#16a34a" : "var(--accent)",
                       background: allDone ? "#f0fdf4" : "#F4FAD6",
                       padding: "2px 8px", borderRadius: 20 }}>{pct}%</span>
-                    <span onClick={() => onNav("today")} style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Lihat semua →</span>
                   </div>
                 </div>
 
