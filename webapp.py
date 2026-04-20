@@ -163,6 +163,18 @@ class TaskUpdate(BaseModel):
 class SharedListCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
+class HabitCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    phase: str = "pagi"
+    micro_target: str = ""
+    frequency: list = ["mon","tue","wed","thu","fri","sat","sun"]
+    identity_pillar: str = ""
+
+class HabitCheckinReq(BaseModel):
+    status: str
+    skip_reason: str = ""
+    date: str = ""
+
 class InviteUserReq(BaseModel):
     username: str
 
@@ -1342,6 +1354,125 @@ async def serve_manifest():
 # Mount static files
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+# ── Habits ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/habits")
+async def get_habits(user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM habits WHERE user_id = ? ORDER BY phase, id",
+            (uid,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/habits")
+async def create_habit(req: HabitCreate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    if req.phase not in ("pagi", "siang", "malam"):
+        raise HTTPException(status_code=400, detail="phase harus pagi/siang/malam")
+    freq_json = json.dumps(req.frequency)
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO habits (user_id, title, phase, micro_target, frequency, identity_pillar)
+               VALUES (?,?,?,?,?,?)""",
+            (uid, req.title, req.phase, req.micro_target, freq_json, req.identity_pillar)
+        )
+        row = conn.execute("SELECT * FROM habits WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return dict(row)
+
+
+@app.delete("/api/habits/{habit_id}")
+async def delete_habit(habit_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM habits WHERE id = ? AND user_id = ?", (habit_id, uid)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Habit tidak ditemukan")
+        conn.execute("DELETE FROM habits WHERE id = ?", (habit_id,))
+    return {"ok": True}
+
+
+@app.get("/api/habits/today")
+async def get_habits_today(user=Depends(get_current_user)):
+    uid = user["sub"]
+    today = date.today().isoformat()
+    from datetime import timedelta
+    # Senin minggu ini s/d Minggu (7 hari, index 0=Sen ... 6=Min)
+    today_dow = date.today().weekday()  # 0=Mon ... 6=Sun
+    week_dates = [(date.today() - timedelta(days=today_dow - i)).isoformat() for i in range(7)]
+
+    with get_db() as conn:
+        habits = conn.execute(
+            "SELECT * FROM habits WHERE user_id = ? ORDER BY phase, id", (uid,)
+        ).fetchall()
+
+        result = []
+        for h in habits:
+            hid = h["id"]
+            today_log = conn.execute(
+                "SELECT status, skip_reason FROM habit_logs WHERE habit_id = ? AND date = ?",
+                (hid, today)
+            ).fetchone()
+            logs = conn.execute(
+                "SELECT date, status FROM habit_logs WHERE habit_id = ? AND date IN ({})".format(
+                    ",".join("?" * len(week_dates))
+                ),
+                [hid] + week_dates
+            ).fetchall()
+            log_map = {l["date"]: l["status"] for l in logs}
+            week_log = [log_map.get(d, None) for d in week_dates]
+            # Streak: hitung dari hari ini ke belakang
+            streak = 0
+            check_date = date.today()
+            while True:
+                log = conn.execute(
+                    "SELECT status FROM habit_logs WHERE habit_id = ? AND date = ?",
+                    (hid, check_date.isoformat())
+                ).fetchone()
+                if log and log["status"] == "done":
+                    streak += 1
+                    check_date -= timedelta(days=1)
+                elif log and log["status"] == "skipped":
+                    check_date -= timedelta(days=1)
+                else:
+                    break
+
+            result.append({
+                "id": hid,
+                "title": h["title"],
+                "phase": h["phase"],
+                "micro_target": h["micro_target"],
+                "frequency": json.loads(h["frequency"]) if h["frequency"] else [],
+                "identity_pillar": h["identity_pillar"],
+                "today_status": today_log["status"] if today_log else None,
+                "skip_reason": today_log["skip_reason"] if today_log else "",
+                "streak": streak,
+                "week_log": week_log,
+            })
+    return result
+
+
+@app.post("/api/habits/{habit_id}/checkin")
+async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_current_user)):
+    uid = user["sub"]
+    if req.status not in ("done", "skipped"):
+        raise HTTPException(status_code=400, detail="status harus done atau skipped")
+    log_date = req.date if req.date else date.today().isoformat()
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM habits WHERE id = ? AND user_id = ?", (habit_id, uid)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Habit tidak ditemukan")
+        conn.execute(
+            """INSERT INTO habit_logs (habit_id, date, status, skip_reason)
+               VALUES (?,?,?,?)
+               ON CONFLICT(habit_id, date) DO UPDATE SET status=excluded.status, skip_reason=excluded.skip_reason""",
+            (habit_id, log_date, req.status, req.skip_reason)
+        )
+    return {"ok": True, "habit_id": habit_id, "date": log_date, "status": req.status}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
