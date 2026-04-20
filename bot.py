@@ -1889,6 +1889,10 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("waiting_note_for", None)
         return
 
+    # Check if this is a habit skip reason
+    if await _handle_skip_reason(update, context):
+        return
+
     # Check if waiting for note input
     note_task_id = context.user_data.get("waiting_note_for")
     if note_task_id:
@@ -2003,6 +2007,271 @@ async def cmd_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📝 Subtasks: {done_count}/{len(subtasks)}",
         parse_mode=ParseMode.HTML,
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  HABIT TRACKER
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _habit_checkin_keyboard(habit_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Selesai", callback_data=f"habit_done_{habit_id}"),
+        InlineKeyboardButton("⏭️ Skip",    callback_data=f"habit_skip_{habit_id}"),
+    ]])
+
+
+def _send_phase_habits(habits: list[dict], header: str) -> list[str]:
+    """Build list of (text, keyboard) tuples — one message per habit."""
+    messages = [header]
+    return habits  # caller uses this list to send individually
+
+
+async def _send_habit_checkins(bot, telegram_id: int, habits: list[dict], header: str):
+    """Send header + one inline-keyboard message per habit."""
+    await bot.send_message(chat_id=telegram_id, text=header, parse_mode=ParseMode.HTML)
+    for h in habits:
+        streak = repo.get_habit_streak(h["id"])
+        streak_txt = f"  🔥 {streak} hari" if streak > 0 else ""
+        micro = f"\n<i>{h['micro_target']}</i>" if h.get("micro_target") else ""
+        text = f"🔁 <b>{h['title']}</b>{micro}{streak_txt}"
+        await bot.send_message(
+            chat_id=telegram_id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=_habit_checkin_keyboard(h["id"]),
+        )
+
+
+# ── /habittoday ────────────────────────────────────────────────────────────────
+
+@authorized
+async def cmd_habittoday(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show all pending habits for today with check-in buttons."""
+    u = uid(context)
+    from datetime import date
+    today = date.today().strftime("%Y-%m-%d")
+
+    all_pending = []
+    phase_labels = {"pagi": "☀️ Pagi", "siang": "⚡ Siang", "malam": "🌙 Malam"}
+    lines = ["🔁 <b>Habit Hari Ini</b> — belum selesai:\n"]
+
+    for phase in ["pagi", "siang", "malam"]:
+        pending = repo.get_habits_pending_today(u, phase)
+        if pending:
+            lines.append(f"<b>{phase_labels[phase]}</b>")
+            for h in pending:
+                lines.append(f"  · {h['title']}")
+                all_pending.append(h)
+            lines.append("")
+
+    if not all_pending:
+        await update.message.reply_text(
+            "🎉 Semua habit hari ini sudah selesai!\n\nGunakan /streak untuk cek progress.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+    for h in all_pending:
+        streak = repo.get_habit_streak(h["id"])
+        streak_txt = f"  🔥 {streak} hari" if streak > 0 else ""
+        micro = f"\n<i>{h['micro_target']}</i>" if h.get("micro_target") else ""
+        text = f"🔁 <b>{h['title']}</b>{micro}{streak_txt}"
+        await update.message.reply_text(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=_habit_checkin_keyboard(h["id"]),
+        )
+
+
+# ── /streak ────────────────────────────────────────────────────────────────────
+
+@authorized
+async def cmd_streak(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show top habit streaks."""
+    u = uid(context)
+    habits = repo.get_habits_for_user(u)
+    if not habits:
+        await update.message.reply_text(
+            "Belum ada habit. Tambahkan habit di webapp dulu.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    streaks = []
+    for h in habits:
+        s = repo.get_habit_streak(h["id"])
+        streaks.append((s, h["title"], h["phase"]))
+    streaks.sort(reverse=True)
+
+    phase_icon = {"pagi": "☀️", "siang": "⚡", "malam": "🌙"}
+    lines = ["🔥 <b>Habit Streak Aktif</b>\n"]
+    for i, (s, title, phase) in enumerate(streaks):
+        icon = phase_icon.get(phase, "🔁")
+        bar = "🟩" * min(s, 7) + "⬜" * max(0, 7 - s)
+        lines.append(f"{i+1}. {icon} <b>{title}</b>")
+        lines.append(f"   {bar}  {s} hari")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+# ── Habit callback handler (done / skip) ──────────────────────────────────────
+
+@authorized_callback
+async def handle_habit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    u = uid(context)
+    from datetime import date
+    today = date.today().strftime("%Y-%m-%d")
+
+    if data.startswith("habit_done_"):
+        habit_id = int(data.replace("habit_done_", ""))
+        with repo._connect() as conn:
+            h = conn.execute(
+                "SELECT * FROM habits WHERE id = ? AND user_id = ?", (habit_id, u)
+            ).fetchone()
+        if not h:
+            await query.answer("Habit tidak ditemukan.")
+            return
+        repo.upsert_habit_log(habit_id, today, "done")
+        streak = repo.get_habit_streak(habit_id)
+        await query.answer("✅ Done!")
+        await query.edit_message_text(
+            f"✅ <b>{h['title']}</b> selesai!\n🔥 Streak: {streak} hari",
+            parse_mode=ParseMode.HTML,
+        )
+
+    elif data.startswith("habit_skip_"):
+        habit_id = int(data.replace("habit_skip_", ""))
+        with repo._connect() as conn:
+            h = conn.execute(
+                "SELECT * FROM habits WHERE id = ? AND user_id = ?", (habit_id, u)
+            ).fetchone()
+        if not h:
+            await query.answer("Habit tidak ditemukan.")
+            return
+        repo.upsert_habit_log(habit_id, today, "skipped")
+        context.user_data[f"skip_reason_habit_{habit_id}"] = query.message.message_id
+        await query.answer("⏭️ Di-skip")
+        await query.edit_message_text(
+            f"⏭️ <b>{h['title']}</b> di-skip.\n\n"
+            f"Balas pesan ini dengan alasan singkat (opsional), atau abaikan.",
+            parse_mode=ParseMode.HTML,
+        )
+
+
+# ── Skip reason text handler ───────────────────────────────────────────────────
+
+async def _handle_skip_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Check if incoming text is a skip reason. Returns True if handled."""
+    from datetime import date
+    today = date.today().strftime("%Y-%m-%d")
+    text = update.message.text.strip()
+
+    for key in list(context.user_data.keys()):
+        if key.startswith("skip_reason_habit_"):
+            habit_id = int(key.replace("skip_reason_habit_", ""))
+            context.user_data.pop(key)
+            repo.upsert_habit_log(habit_id, today, "skipped", skip_reason=text)
+            await update.message.reply_text(
+                f"📝 Alasan skip disimpan: <i>{text}</i>",
+                parse_mode=ParseMode.HTML,
+            )
+            return True
+    return False
+
+
+# ── Scheduled: phase reminders ─────────────────────────────────────────────────
+
+async def habit_phase_job(context: ContextTypes.DEFAULT_TYPE):
+    """Send check-in reminders for a specific phase. Phase passed via context.job.data."""
+    phase = context.job.data
+    phase_headers = {
+        "pagi":  "☀️ <b>Selamat pagi!</b> Waktunya memulai mesin.",
+        "siang": "⚡ <b>Jeda sebentar.</b> Waktunya reset.",
+        "malam": "🌙 <b>Waktunya transisi istirahat.</b>",
+    }
+    header = phase_headers.get(phase, f"🔁 Fase {phase}")
+    users = _get_telegram_users()
+    for user in users:
+        try:
+            habits = repo.get_habits_pending_today(user["id"], phase)
+            if not habits:
+                continue
+            await _send_habit_checkins(context.bot, user["telegram_id"], habits, header)
+        except Exception as e:
+            logger.error(f"Habit phase reminder error for {user['telegram_id']}: {e}")
+
+
+# ── Scheduled: daily wrap-up (21:45) ──────────────────────────────────────────
+
+async def habit_wrapup_job(context: ContextTypes.DEFAULT_TYPE):
+    """Send daily habit completion summary."""
+    users = _get_telegram_users()
+    for user in users:
+        try:
+            summary = repo.get_today_habit_summary(user["id"])
+            total_done = sum(v[0] for v in summary.values())
+            total_all  = sum(v[1] for v in summary.values())
+            if total_all == 0:
+                continue
+            lines = [
+                "📊 <b>Ringkasan Habit Hari Ini</b>\n",
+                f"☀️ Pagi:  {summary['pagi'][0]}/{summary['pagi'][1]}",
+                f"⚡ Siang: {summary['siang'][0]}/{summary['siang'][1]}",
+                f"🌙 Malam: {summary['malam'][0]}/{summary['malam'][1]}",
+                f"\n<b>Total: {total_done}/{total_all}</b>",
+            ]
+            if total_done == total_all:
+                lines.append("🏆 Sempurna! Semua habit selesai hari ini.")
+            elif total_done >= total_all * 0.7:
+                lines.append("💪 Bagus! Hampir semua selesai.")
+            else:
+                lines.append("💡 Besok lebih baik. /habittoday untuk cek habit.")
+            await context.bot.send_message(
+                chat_id=user["telegram_id"],
+                text="\n".join(lines),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as e:
+            logger.error(f"Habit wrapup error for {user['telegram_id']}: {e}")
+
+
+# ── Scheduled: weekly heatmap (Minggu 20:00) ──────────────────────────────────
+
+async def habit_weekly_heatmap_job(context: ContextTypes.DEFAULT_TYPE):
+    """Send weekly habit heatmap."""
+    users = _get_telegram_users()
+    for user in users:
+        try:
+            habits = repo.get_habits_for_user(user["id"])
+            if not habits:
+                continue
+            lines = ["📅 <b>Habit Minggu Ini</b>\n"]
+            for h in habits:
+                week_log = repo.get_habit_week_log(h["id"])
+                dots = []
+                done_count = 0
+                for status in week_log:
+                    if status == "done":
+                        dots.append("🟩"); done_count += 1
+                    elif status == "skipped":
+                        dots.append("🟨")
+                    elif status == "missed":
+                        dots.append("🟥")
+                    else:
+                        dots.append("⬜")
+                total_scheduled = sum(1 for s in week_log if s is not None)
+                pct = round(done_count / total_scheduled * 100) if total_scheduled else 0
+                lines.append(f"🔁 <b>{h['title']}</b>")
+                lines.append(f"   {''.join(dots)}  ({pct}%)")
+            await context.bot.send_message(
+                chat_id=user["telegram_id"],
+                text="\n".join(lines),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as e:
+            logger.error(f"Habit heatmap error for {user['telegram_id']}: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2490,6 +2759,11 @@ def main():
     app.add_handler(CommandHandler("sub", cmd_sub))
     app.add_handler(CommandHandler("note", cmd_note))
 
+    # Habit commands
+    app.add_handler(CommandHandler("habittoday", cmd_habittoday))
+    app.add_handler(CommandHandler("streak", cmd_streak))
+    app.add_handler(CallbackQueryHandler(handle_habit_callback, pattern=r"^habit_(done|skip)_\d+$"))
+
     # Shared list commands
     app.add_handler(CommandHandler("mylist", cmd_mylist))
     app.add_handler(CommandHandler("createlist", cmd_createlist))
@@ -2534,6 +2808,39 @@ def main():
         name="weekly_review",
     )
 
+    # ── Schedule habit phase reminders (WIB = UTC+7) ──
+    job_queue.run_daily(
+        habit_phase_job,
+        time=dtime(hour=5, minute=30, tzinfo=tz),
+        name="habit_pagi",
+        data="pagi",
+    )
+    job_queue.run_daily(
+        habit_phase_job,
+        time=dtime(hour=12, minute=0, tzinfo=tz),
+        name="habit_siang",
+        data="siang",
+    )
+    job_queue.run_daily(
+        habit_phase_job,
+        time=dtime(hour=21, minute=0, tzinfo=tz),
+        name="habit_malam",
+        data="malam",
+    )
+    # ── Daily wrap-up 21:45 ──
+    job_queue.run_daily(
+        habit_wrapup_job,
+        time=dtime(hour=21, minute=45, tzinfo=tz),
+        name="habit_wrapup",
+    )
+    # ── Weekly heatmap — Minggu 20:00 ──
+    job_queue.run_daily(
+        habit_weekly_heatmap_job,
+        time=dtime(hour=20, minute=0, tzinfo=tz),
+        days=(6,),  # 6 = Minggu
+        name="habit_heatmap",
+    )
+
     # ── Set bot commands ──
     async def post_init(application):
         commands = [
@@ -2564,6 +2871,8 @@ def main():
             BotCommand("note", "Tambah catatan"),
             BotCommand("link", "Sync dengan akun web"),
             BotCommand("webapp", "Login ke webapp (link sekali pakai)"),
+            BotCommand("habittoday", "Check-in habit hari ini"),
+            BotCommand("streak", "Lihat streak habit aktif"),
             BotCommand("mylist", "Lihat semua shared list"),
             BotCommand("createlist", "Buat shared list baru"),
             BotCommand("invite", "Undang anggota ke list"),

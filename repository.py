@@ -1054,3 +1054,149 @@ class TaskRepository:
                 return None
             conn.execute("UPDATE magic_tokens SET used = 1 WHERE token = ?", (token,))
             return row["user_id"]
+
+    # ── Habit methods ──────────────────────────────────────────────────────────
+
+    def get_habits_by_phase(self, user_id: int, phase: str) -> list[dict]:
+        """Get all habits for a user filtered by phase."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM habits WHERE user_id = ? AND phase = ? ORDER BY created_at",
+                (user_id, phase),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_habits_for_user(self, user_id: int) -> list[dict]:
+        """Get all habits for a user."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM habits WHERE user_id = ? ORDER BY phase, created_at",
+                (user_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_habit_log_today(self, habit_id: int, date_str: str) -> Optional[dict]:
+        """Get today's log for a habit. date_str = YYYY-MM-DD."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM habit_logs WHERE habit_id = ? AND date = ?",
+                (habit_id, date_str),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def upsert_habit_log(self, habit_id: int, date_str: str, status: str, skip_reason: str = "") -> dict:
+        """Insert or update a habit log for a given date."""
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO habit_logs (habit_id, date, status, skip_reason, created_at)
+                   VALUES (?, ?, ?, ?, datetime('now'))
+                   ON CONFLICT(habit_id, date) DO UPDATE SET status=excluded.status, skip_reason=excluded.skip_reason""",
+                (habit_id, date_str, status, skip_reason),
+            )
+            row = conn.execute(
+                "SELECT * FROM habit_logs WHERE habit_id = ? AND date = ?",
+                (habit_id, date_str),
+            ).fetchone()
+            return dict(row)
+
+    def get_habit_streak(self, habit_id: int) -> int:
+        """Calculate current consecutive 'done' streak (days ending today or yesterday)."""
+        import json as _json
+        with self._connect() as conn:
+            habit = conn.execute("SELECT frequency FROM habits WHERE id = ?", (habit_id,)).fetchone()
+            if not habit:
+                return 0
+            try:
+                freq = _json.loads(habit["frequency"])
+            except Exception:
+                freq = ["mon","tue","wed","thu","fri","sat","sun"]
+
+            day_map = {0:"mon",1:"tue",2:"wed",3:"thu",4:"fri",5:"sat",6:"sun"}
+            rows = conn.execute(
+                "SELECT date, status FROM habit_logs WHERE habit_id = ? AND status='done' ORDER BY date DESC",
+                (habit_id,),
+            ).fetchall()
+            done_dates = {r["date"] for r in rows}
+
+        from datetime import date, timedelta
+        streak = 0
+        check = date.today()
+        # Allow today to be pending (streak still counts from yesterday)
+        today_str = check.strftime("%Y-%m-%d")
+        if today_str not in done_dates:
+            check -= timedelta(days=1)
+
+        for _ in range(365):
+            dow = day_map[check.weekday()]
+            d_str = check.strftime("%Y-%m-%d")
+            if dow not in freq:
+                check -= timedelta(days=1)
+                continue
+            if d_str in done_dates:
+                streak += 1
+                check -= timedelta(days=1)
+            else:
+                break
+        return streak
+
+    def get_habit_week_log(self, habit_id: int) -> list[str]:
+        """Return list of 7 statuses Mon–Sun for current week."""
+        from datetime import date, timedelta
+        today = date.today()
+        monday = today - timedelta(days=today.weekday())
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT date, status FROM habit_logs WHERE habit_id = ? AND date >= ? AND date <= ?",
+                (habit_id, monday.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")),
+            ).fetchall()
+        log_map = {r["date"]: r["status"] for r in rows}
+        result = []
+        for i in range(7):
+            d = monday + timedelta(days=i)
+            d_str = d.strftime("%Y-%m-%d")
+            if d > today:
+                result.append(None)
+            else:
+                result.append(log_map.get(d_str, "missed"))
+        return result
+
+    def get_habits_pending_today(self, user_id: int, phase: str) -> list[dict]:
+        """Get habits for a phase that have NOT been checked in today."""
+        from datetime import date
+        today = date.today().strftime("%Y-%m-%d")
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT h.* FROM habits h
+                   WHERE h.user_id = ? AND h.phase = ?
+                   AND h.id NOT IN (
+                       SELECT habit_id FROM habit_logs
+                       WHERE date = ? AND status IN ('done','skipped')
+                   )
+                   ORDER BY h.created_at""",
+                (user_id, phase, today),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_today_habit_summary(self, user_id: int) -> dict:
+        """Return done/total counts per phase for today."""
+        from datetime import date
+        today = date.today().strftime("%Y-%m-%d")
+        with self._connect() as conn:
+            habits = conn.execute(
+                "SELECT id, phase FROM habits WHERE user_id = ?", (user_id,)
+            ).fetchall()
+            logs = conn.execute(
+                "SELECT habit_id, status FROM habit_logs WHERE date = ? AND habit_id IN "
+                "(SELECT id FROM habits WHERE user_id = ?)",
+                (today, user_id),
+            ).fetchall()
+        log_map = {r["habit_id"]: r["status"] for r in logs}
+        summary = {"pagi": [0,0], "siang": [0,0], "malam": [0,0]}
+        for h in habits:
+            phase = h["phase"]
+            if phase not in summary:
+                continue
+            summary[phase][1] += 1
+            if log_map.get(h["id"]) == "done":
+                summary[phase][0] += 1
+        return summary  # {"pagi": [done, total], ...}
