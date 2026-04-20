@@ -4857,7 +4857,10 @@
       const DAY_LABELS = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
       const todayDow = (new Date().getDay() + 6) % 7;
 
-      const quoteHabit = habits.find(h => h.identity_pillar);
+      const currentHour = new Date().getHours();
+      const currentPhase = currentHour < 9 ? "pagi" : currentHour < 17 ? "siang" : "malam";
+      const quoteHabit = habits.find(h => h.phase === currentPhase && h.identity_pillar)
+        || habits.find(h => h.identity_pillar);
       const quote = quoteHabit?.identity_pillar || "Jadikan hari ini lebih baik dari kemarin.";
 
       const phases = ["pagi","siang","malam"];
