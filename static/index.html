@@ -4774,10 +4774,77 @@
       );
     }
 
+    function HabitEditModal({ habit, onClose, onSave }) {
+      const DAYS = ["mon","tue","wed","thu","fri","sat","sun"];
+      const DAY_ID = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
+      const parseFreq = (f) => { try { return Array.isArray(f) ? f : JSON.parse(f); } catch { return DAYS; } };
+      const [form, setForm] = useState({
+        title: habit.title || "",
+        phase: habit.phase || "pagi",
+        micro_target: habit.micro_target || "",
+        identity_pillar: habit.identity_pillar || "",
+        frequency: parseFreq(habit.frequency),
+      });
+      const [loading, setLoading] = useState(false);
+      const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+      const toggleDay = (d) => set("frequency", form.frequency.includes(d) ? form.frequency.filter(x => x !== d) : [...form.frequency, d]);
+
+      const handleSave = async () => {
+        if (!form.title.trim()) return;
+        setLoading(true);
+        await onSave(habit.id, { ...form, title: form.title.trim(), frequency: form.frequency.length ? form.frequency : DAYS });
+        setLoading(false);
+        onClose();
+      };
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal-content scale-in" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Edit Habit</div>
+              <button className="modal-close" onClick={onClose}>✕</button>
+            </div>
+            <div className="modal-body">
+              <label className="input-label">Nama Habit</label>
+              <input className="input" value={form.title} onChange={e => set("title", e.target.value)} style={{ marginBottom: 14 }} autoFocus />
+              <label className="input-label">Fase</label>
+              <select className="input" value={form.phase} onChange={e => set("phase", e.target.value)} style={{ marginBottom: 14 }}>
+                <option value="pagi">Pagi (04:00–09:00)</option>
+                <option value="siang">Siang (09:00–17:00)</option>
+                <option value="malam">Malam (17:00–22:00)</option>
+              </select>
+              <label className="input-label">Micro Target <span style={{ fontWeight: 400, color: "var(--text-light)" }}>(opsional)</span></label>
+              <input className="input" value={form.micro_target} onChange={e => set("micro_target", e.target.value)} placeholder="5 menit, 2 halaman..." style={{ marginBottom: 14 }} />
+              <label className="input-label">Frekuensi</label>
+              <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+                {DAYS.map((d, i) => (
+                  <button key={d} type="button"
+                    style={{ padding: "4px 10px", borderRadius: 6, border: "1.5px solid", fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.15s",
+                      borderColor: form.frequency.includes(d) ? "var(--accent)" : "var(--border)",
+                      background: form.frequency.includes(d) ? "rgba(168,197,0,0.12)" : "transparent",
+                      color: form.frequency.includes(d) ? "var(--accent)" : "var(--text-secondary)" }}
+                    onClick={() => toggleDay(d)}>{DAY_ID[i]}</button>
+                ))}
+              </div>
+              <label className="input-label">Identity Pillar <span style={{ fontWeight: 400, color: "var(--text-light)" }}>(opsional)</span></label>
+              <input className="input" value={form.identity_pillar} onChange={e => set("identity_pillar", e.target.value)} placeholder="Saya adalah orang yang..." style={{ marginBottom: 20 }} />
+              <div style={{ display: "flex", gap: 10 }}>
+                <button className="btn" style={{ flex: 1 }} onClick={onClose}>Batal</button>
+                <button className="btn btn-primary" style={{ flex: 2 }} disabled={loading || !form.title.trim()} onClick={handleSave}>
+                  {loading ? "Menyimpan..." : "Simpan"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     function HabitPage({ user, showToast }) {
       const [habits, setHabits] = useState([]);
       const [loading, setLoading] = useState(true);
       const [checkinTarget, setCheckinTarget] = useState(null);
+      const [editTarget, setEditTarget] = useState(null);
       const [monthlyData, setMonthlyData] = useState(null);
       const chartRef = useRef(null);
       const chartInstanceRef = useRef(null);
@@ -4917,6 +4984,27 @@
         else showToast("⏭️ Di-skip");
       };
 
+      const handleEdit = async (habitId, data) => {
+        try {
+          await api.patch(`/api/habits/${habitId}`, data);
+          setHabits(prev => prev.map(h => h.id === habitId ? { ...h, ...data } : h));
+          showToast("Habit diperbarui");
+        } catch (err) {
+          showToast(err.message, "error");
+        }
+      };
+
+      const handleDelete = async (habitId) => {
+        if (!window.confirm("Hapus habit ini? Semua log akan ikut terhapus.")) return;
+        try {
+          await api.del(`/api/habits/${habitId}`);
+          setHabits(prev => prev.filter(h => h.id !== habitId));
+          showToast("Habit dihapus");
+        } catch (err) {
+          showToast(err.message, "error");
+        }
+      };
+
       const currentHour = new Date().getHours();
       const currentPhase = currentHour < 9 ? "pagi" : currentHour < 17 ? "siang" : "malam";
       const quoteHabit = habits.find(h => h.phase === currentPhase && h.identity_pillar)
@@ -4925,48 +5013,70 @@
 
       const grouped = phases.reduce((acc, p) => { acc[p] = habits.filter(h => h.phase === p); return acc; }, {});
 
-      const HabitCard = ({ h }) => (
-        <div className="habit-card fade-in" onClick={() => setCheckinTarget(h)}>
-          <div className="habit-card-inner">
-            {/* Info */}
-            <div className="habit-card-info">
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: h.micro_target ? 3 : 0 }}>
-                {h.title}
-                {h._pending && <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>⏳</span>}
+      const HabitCard = ({ h }) => {
+        const [menuOpen, setMenuOpen] = useState(false);
+        return (
+          <div className="habit-card fade-in" style={{ position: "relative" }} onClick={() => { if (!menuOpen) setCheckinTarget(h); }}>
+            <div className="habit-card-inner">
+              {/* Info */}
+              <div className="habit-card-info">
+                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: h.micro_target ? 3 : 0 }}>
+                  {h.title}
+                  {h._pending && <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>⏳</span>}
+                </div>
+                {h.micro_target && (
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>🎯 {h.micro_target}</div>
+                )}
               </div>
-              {h.micro_target && (
-                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>🎯 {h.micro_target}</div>
+
+              {/* Weekly grid */}
+              <div className="habit-card-grid">
+                {DAY_LABELS.map((d, i) => {
+                  const s = (h.week_log || [])[i];
+                  const isToday = i === todayDow;
+                  const cls = s === "done" ? "done" : s === "skipped" ? "skipped" : s === "missed" ? "missed" : "";
+                  return (
+                    <div key={i} className="habit-week-col">
+                      <div className={`habit-week-label${isToday ? " today" : ""}`}>{d}</div>
+                      <div className={`habit-week-box${cls ? " " + cls : ""}`}
+                        style={isToday && !cls ? { borderColor: "#818cf8", borderWidth: 2 } : {}}>
+                        {s === "done" ? "✓" : ""}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Streak */}
+              <div className="habit-streak">
+                <span style={{ fontSize: 16 }}>🔥</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: h.streak > 0 ? "var(--accent)" : "var(--text-light)" }}>
+                  {h.streak || 0}
+                </span>
+              </div>
+
+              {/* ⋮ Menu */}
+              {!h._pending && (
+                <div style={{ position: "relative", marginLeft: 6 }} onClick={e => e.stopPropagation()}>
+                  <button
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", fontSize: 18, padding: "2px 6px", borderRadius: 6, lineHeight: 1 }}
+                    onClick={() => setMenuOpen(p => !p)}
+                  >⋮</button>
+                  {menuOpen && (
+                    <div style={{ position: "absolute", right: 0, top: "100%", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.15)", zIndex: 50, minWidth: 130, overflow: "hidden" }}
+                      onMouseLeave={() => setMenuOpen(false)}>
+                      <button style={{ display: "block", width: "100%", padding: "10px 16px", background: "none", border: "none", textAlign: "left", cursor: "pointer", fontSize: 13, color: "var(--text-primary)" }}
+                        onClick={() => { setMenuOpen(false); setEditTarget(h); }}>✏️ Edit</button>
+                      <button style={{ display: "block", width: "100%", padding: "10px 16px", background: "none", border: "none", textAlign: "left", cursor: "pointer", fontSize: 13, color: "#ef4444" }}
+                        onClick={() => { setMenuOpen(false); handleDelete(h.id); }}>🗑️ Hapus</button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
-
-            {/* Weekly grid */}
-            <div className="habit-card-grid">
-              {DAY_LABELS.map((d, i) => {
-                const s = (h.week_log || [])[i];
-                const isToday = i === todayDow;
-                const cls = s === "done" ? "done" : s === "skipped" ? "skipped" : s === "missed" ? "missed" : "";
-                return (
-                  <div key={i} className="habit-week-col">
-                    <div className={`habit-week-label${isToday ? " today" : ""}`}>{d}</div>
-                    <div className={`habit-week-box${cls ? " " + cls : ""}`}
-                      style={isToday && !cls ? { borderColor: "#818cf8", borderWidth: 2 } : {}}>
-                      {s === "done" ? "✓" : ""}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Streak */}
-            <div className="habit-streak">
-              <span style={{ fontSize: 16 }}>🔥</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: h.streak > 0 ? "var(--accent)" : "var(--text-light)" }}>
-                {h.streak || 0}
-              </span>
-            </div>
           </div>
-        </div>
-      );
+        );
+      };
 
       if (loading) return <div style={{ padding: 40, textAlign: "center", color: "var(--text-secondary)" }}>Memuat habits...</div>;
 
@@ -5042,6 +5152,13 @@
               habit={checkinTarget}
               onClose={() => setCheckinTarget(null)}
               onCheckin={handleCheckin}
+            />
+          )}
+          {editTarget && (
+            <HabitEditModal
+              habit={editTarget}
+              onClose={() => setEditTarget(null)}
+              onSave={handleEdit}
             />
           )}
         </div>

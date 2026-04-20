@@ -170,6 +170,13 @@ class HabitCreate(BaseModel):
     frequency: list = ["mon","tue","wed","thu","fri","sat","sun"]
     identity_pillar: str = ""
 
+class HabitUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    phase: str = "pagi"
+    micro_target: str = ""
+    frequency: list = ["mon","tue","wed","thu","fri","sat","sun"]
+    identity_pillar: str = ""
+
 class HabitCheckinReq(BaseModel):
     status: str
     skip_reason: str = ""
@@ -1383,6 +1390,23 @@ async def create_habit(req: HabitCreate, user=Depends(get_current_user)):
         )
         row = conn.execute("SELECT * FROM habits WHERE id = ?", (cur.lastrowid,)).fetchone()
     return dict(row)
+
+
+@app.patch("/api/habits/{habit_id}")
+async def update_habit(habit_id: int, req: HabitUpdate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    if req.phase not in ("pagi", "siang", "malam"):
+        raise HTTPException(status_code=400, detail="phase tidak valid")
+    import json as _json
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM habits WHERE id = ? AND user_id = ?", (habit_id, uid)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Habit tidak ditemukan")
+        conn.execute(
+            "UPDATE habits SET title=?, phase=?, micro_target=?, frequency=?, identity_pillar=? WHERE id=?",
+            (req.title, req.phase, req.micro_target, _json.dumps(req.frequency), req.identity_pillar, habit_id)
+        )
+    return {"ok": True, "id": habit_id}
 
 
 @app.delete("/api/habits/{habit_id}")
