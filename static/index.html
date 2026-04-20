@@ -1702,12 +1702,14 @@
           if (!habitForm.title.trim()) { alert("Nama habit wajib diisi"); setLoading(false); return; }
           try {
             await api.post("/api/habits", habitForm);
+            window.dispatchEvent(new CustomEvent("habitSaved"));
             onSave();
           } catch (err) {
             if (isOfflineErr(err) && onOfflineSave) {
               const tempId = `tmp_habit_${Date.now()}`;
               await OfflineDB.queueAdd({ method: "POST", url: "/api/habits", body: habitForm, tempId, createdAt: Date.now() });
               onOfflineSave({ ...habitForm, id: tempId, _pending: true, _type: "habit" });
+              window.dispatchEvent(new CustomEvent("habitSaved"));
             } else {
               alert(err.message);
             }
@@ -4820,7 +4822,12 @@
         setLoading(false);
       };
 
-      useEffect(() => { fetchHabits(); }, []);
+      useEffect(() => {
+        fetchHabits();
+        const handler = () => fetchHabits();
+        window.addEventListener("habitSaved", handler);
+        return () => window.removeEventListener("habitSaved", handler);
+      }, []);
 
       const handleCheckin = async (habitId, status, skipReason) => {
         const today = new Date().toISOString().split("T")[0];
@@ -4835,7 +4842,12 @@
             return;
           }
         }
-        setHabits(prev => prev.map(h => h.id === habitId ? { ...h, today_status: status, skip_reason: skipReason } : h));
+        setHabits(prev => prev.map(h => {
+          if (h.id !== habitId) return h;
+          const newWeekLog = [...(h.week_log || [null,null,null,null,null,null,null])];
+          newWeekLog[todayDow] = status;
+          return { ...h, today_status: status, skip_reason: skipReason, week_log: newWeekLog };
+        }));
         if (status === "done") showToast("✅ Habit selesai!");
         else showToast("⏭️ Di-skip");
       };
