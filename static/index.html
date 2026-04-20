@@ -3654,6 +3654,7 @@
       const [year, setYear] = useState(today.getFullYear());
       const [month, setMonth] = useState(today.getMonth());
       const [selectedDay, setSelectedDay] = useState(null);
+      const isMobile = window.innerWidth < 640;
 
       const prevMonth = () => {
         setSelectedDay(null);
@@ -3693,10 +3694,15 @@
       const dayNames = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
 
       const chipColor = (t) => {
-        if (t.gtd_status === "done") return { bg: "#dcfce7", color: "#15803d" };
-        if (t.is_overdue) return { bg: "#fee2e2", color: "#b91c1c" };
-        const map = { P1: { bg: "#fee2e2", color: "#b91c1c" }, P2: { bg: "#ffedd5", color: "#c2410c" }, P3: { bg: "#fef9c3", color: "#854d0e" }, P4: { bg: "#dcfce7", color: "#15803d" } };
-        return map[t.priority] || { bg: "#f1f5f9", color: "#475569" };
+        if (t.gtd_status === "done") return { bg: "#dcfce7", color: "#15803d", dot: "#22c55e" };
+        if (t.is_overdue) return { bg: "#fee2e2", color: "#b91c1c", dot: "#ef4444" };
+        const map = {
+          P1: { bg: "#fee2e2", color: "#b91c1c", dot: "#ef4444" },
+          P2: { bg: "#ffedd5", color: "#c2410c", dot: "#f97316" },
+          P3: { bg: "#fef9c3", color: "#854d0e", dot: "#eab308" },
+          P4: { bg: "#dcfce7", color: "#15803d", dot: "#22c55e" },
+        };
+        return map[t.priority] || { bg: "#f1f5f9", color: "#475569", dot: "#94a3b8" };
       };
 
       const totalWithDeadline = tasks.filter(t => t.deadline && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
@@ -3705,51 +3711,118 @@
         ? new Date(year, month, selectedDay).toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
         : null;
 
+      // Shared task list renderer (used both in inline panel and desktop modal)
+      const TaskListItems = ({ items, onSelect }) => items.map(t => {
+        const c = chipColor(t);
+        return (
+          <div key={t.id} onClick={() => onSelect(t)}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, marginBottom: 7, cursor: "pointer",
+              background: "var(--bg-card)", border: "1px solid var(--border)", borderLeft: `3px solid ${c.dot}`, transition: "opacity 0.15s",
+              opacity: t.gtd_status === "done" ? 0.65 : 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)",
+                textDecoration: t.gtd_status === "done" ? "line-through" : "none",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>{t.title}</div>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: c.color, background: c.bg, padding: "1px 6px", borderRadius: 4 }}>{t.priority}</span>
+                {t.quadrant && <span style={{ fontSize: 11, color: "var(--text-light)", background: "var(--bg-primary)", padding: "1px 6px", borderRadius: 4 }}>{t.quadrant}</span>}
+                {t.gtd_status === "done" && <span style={{ fontSize: 11, color: "#15803d", background: "#dcfce7", padding: "1px 6px", borderRadius: 4, fontWeight: 700 }}>✓ Done</span>}
+                {t.project && <span style={{ fontSize: 11, color: "var(--text-light)" }}>📁 {t.project}</span>}
+              </div>
+            </div>
+            <span style={{ fontSize: 16, color: "var(--text-light)", flexShrink: 0 }}>›</span>
+          </div>
+        );
+      });
+
       return (
         <div className="fade-in">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h1 style={{ fontSize: 24, fontWeight: 700 }}>🗓️ Kalender</h1>
-            <span style={{ fontSize: 13, color: "var(--text-light)" }}>{totalWithDeadline} task punya deadline</span>
+            <span style={{ fontSize: 13, color: "var(--text-light)" }}>{totalWithDeadline} task deadline</span>
           </div>
 
           {/* Month navigation */}
-          <div className="card" style={{ padding: "12px 16px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div className="card" style={{ padding: "10px 16px", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <button className="btn btn-secondary btn-sm" onClick={prevMonth}>‹ Prev</button>
             <span style={{ fontWeight: 700, fontSize: 16 }}>{monthName}</span>
             <button className="btn btn-secondary btn-sm" onClick={nextMonth}>Next ›</button>
           </div>
 
           {/* Calendar grid */}
-          <div className="card" style={{ padding: 12 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
+          <div className="card" style={{ padding: isMobile ? 8 : 12 }}>
+            {/* Day name headers */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: isMobile ? 2 : 4, marginBottom: 4 }}>
               {dayNames.map(d => (
-                <div key={d} style={{ textAlign: "center", fontSize: 12, fontWeight: 700, color: "var(--text-light)", padding: "4px 0" }}>{d}</div>
+                <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--text-light)", padding: "3px 0" }}>{d}</div>
               ))}
             </div>
+
+            {/* Weeks */}
             {Array.from({ length: cells.length / 7 }, (_, wi) => (
-              <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
+              <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: isMobile ? 2 : 4, marginBottom: isMobile ? 2 : 4 }}>
                 {cells.slice(wi * 7, wi * 7 + 7).map((day, di) => {
                   const isToday = day === todayDay;
                   const isSelected = day === selectedDay;
                   const dayTasks = day ? (byDay[day] || []) : [];
                   const hasMore = dayTasks.length > 2;
+
+                  if (isMobile) {
+                    // ── Mobile: compact dot view ──
+                    const dots = dayTasks.slice(0, 5);
+                    return (
+                      <div key={di}
+                        onClick={() => day && setSelectedDay(isSelected ? null : day)}
+                        style={{
+                          borderRadius: 8, padding: "5px 2px 4px",
+                          display: "flex", flexDirection: "column", alignItems: "center",
+                          cursor: day ? "pointer" : "default",
+                          background: isSelected ? "rgba(168,197,0,0.15)" : day ? "var(--bg-primary)" : "transparent",
+                          border: isSelected ? "1.5px solid var(--accent)" : isToday ? "1.5px solid var(--accent)" : "1.5px solid transparent",
+                          transition: "background 0.15s", position: "relative", minHeight: 44,
+                        }}>
+                        {day && (
+                          <>
+                            <span style={{ fontSize: 12, fontWeight: isToday ? 800 : 500, lineHeight: 1,
+                              color: isToday || isSelected ? "var(--accent)" : "var(--text-secondary)", marginBottom: 4 }}>{day}</span>
+                            {dayTasks.length > 0 && (
+                              <>
+                                <div style={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: "center" }}>
+                                  {dots.map((t, i) => (
+                                    <span key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: chipColor(t).dot, flexShrink: 0 }} />
+                                  ))}
+                                </div>
+                                {dayTasks.length > 0 && (
+                                  <span style={{ position: "absolute", top: 2, right: 3, fontSize: 9, fontWeight: 700,
+                                    background: isSelected ? "var(--accent)" : "var(--accent)", color: "#111",
+                                    borderRadius: 5, padding: "0 3px", lineHeight: "14px" }}>{dayTasks.length}</span>
+                                )}
+                              </>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // ── Desktop: chip text view ──
                   return (
                     <div key={di}
                       onClick={() => day && setSelectedDay(isSelected ? null : day)}
                       style={{
                         height: 80, overflow: "hidden", borderRadius: 6, padding: "4px 6px",
                         cursor: day ? "pointer" : "default",
-                        background: isSelected ? "#dbeafe" : isToday ? "#eff6ff" : day ? "var(--surface)" : "transparent",
-                        border: isSelected ? "2px solid #2563eb" : isToday ? "2px solid var(--accent)" : "1px solid var(--border)",
+                        background: isSelected ? "rgba(168,197,0,0.12)" : isToday ? "rgba(168,197,0,0.06)" : day ? "var(--surface)" : "transparent",
+                        border: isSelected ? "2px solid var(--accent)" : isToday ? "2px solid var(--accent)" : "1px solid var(--border)",
                         borderColor: day ? undefined : "transparent",
                         transition: "background 0.15s",
                       }}>
                       {day && (
                         <>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
-                            <span style={{ fontSize: 12, fontWeight: isToday ? 800 : 500, color: isSelected ? "#1d4ed8" : isToday ? "var(--accent)" : "var(--text-secondary)" }}>{day}</span>
+                            <span style={{ fontSize: 12, fontWeight: isToday ? 800 : 500, color: isSelected || isToday ? "var(--accent)" : "var(--text-secondary)" }}>{day}</span>
                             {dayTasks.length > 0 && (
-                              <span style={{ fontSize: 10, fontWeight: 700, background: isSelected ? "#2563eb" : "var(--accent)", color: "white", borderRadius: 8, padding: "1px 5px", minWidth: 16, textAlign: "center" }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, background: "var(--accent)", color: "#111", borderRadius: 8, padding: "1px 5px", minWidth: 16, textAlign: "center" }}>
                                 {dayTasks.length}
                               </span>
                             )}
@@ -3762,16 +3835,10 @@
                                   background: c.bg, color: c.color, fontWeight: 500,
                                   whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                                   textDecoration: t.gtd_status === "done" ? "line-through" : "none" }}
-                                title={t.title}>
-                                {t.title}
-                              </div>
+                                title={t.title}>{t.title}</div>
                             );
                           })}
-                          {hasMore && (
-                            <div style={{ fontSize: 10, color: "var(--accent)", fontWeight: 600, marginTop: 1 }}>
-                              +{dayTasks.length - 2} lagi →
-                            </div>
-                          )}
+                          {hasMore && <div style={{ fontSize: 10, color: "var(--accent)", fontWeight: 600, marginTop: 1 }}>+{dayTasks.length - 2} lagi</div>}
                         </>
                       )}
                     </div>
@@ -3781,8 +3848,40 @@
             ))}
           </div>
 
-          {/* Selected day modal popup */}
-          {selectedDay && (
+          {/* Legend */}
+          <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap", fontSize: 11, color: "var(--text-light)" }}>
+            {[
+              { dot: "#ef4444", label: "P1 / Overdue" },
+              { dot: "#f97316", label: "P2" },
+              { dot: "#eab308", label: "P3" },
+              { dot: "#22c55e", label: "Done" },
+            ].map(l => (
+              <span key={l.label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: l.dot, display: "inline-block", flexShrink: 0 }} />
+                {l.label}
+              </span>
+            ))}
+          </div>
+
+          {/* Mobile: inline day panel */}
+          {isMobile && selectedDay && (
+            <div className="fade-in" style={{ marginTop: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>📅 {selectedDateLabel}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-light)", marginTop: 1 }}>{selectedTasks.length} task</div>
+                </div>
+                <button onClick={() => setSelectedDay(null)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "var(--text-light)", padding: 4 }}>✕</button>
+              </div>
+              {selectedTasks.length === 0
+                ? <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-light)", fontSize: 13 }}>Tidak ada task</div>
+                : <TaskListItems items={selectedTasks} onSelect={t => { setSelectedDay(null); onTaskClick(t); }} />
+              }
+            </div>
+          )}
+
+          {/* Desktop: modal popup */}
+          {!isMobile && selectedDay && (
             <div className="modal-overlay" onClick={() => setSelectedDay(null)}>
               <div className="modal-content scale-in" style={{ maxWidth: 480, width: "90%", maxHeight: "80vh", overflowY: "hidden", display: "flex", flexDirection: "column" }}
                 onClick={e => e.stopPropagation()}>
@@ -3794,44 +3893,11 @@
                   <button className="btn btn-secondary btn-sm" onClick={() => setSelectedDay(null)}>✕</button>
                 </div>
                 <div style={{ overflowY: "auto", flex: 1 }}>
-                  {selectedTasks.map(t => {
-                    const c = chipColor(t);
-                    return (
-                      <div key={t.id} onClick={() => { setSelectedDay(null); onTaskClick(t); }}
-                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, marginBottom: 6, cursor: "pointer",
-                          background: "var(--bg-primary)", border: "1px solid var(--border)",
-                          borderLeft: `3px solid ${c.color}`, transition: "background 0.15s" }}
-                        onMouseEnter={e => e.currentTarget.style.background = "var(--bg-card)"}
-                        onMouseLeave={e => e.currentTarget.style.background = "var(--bg-primary)"}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: c.color, minWidth: 24 }}>{t.priority}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)", textDecoration: t.gtd_status === "done" ? "line-through" : "none",
-                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
-                          {t.project && <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 1 }}>📁 {t.project}</div>}
-                        </div>
-                        <StatusBadge s={t.gtd_status} />
-                      </div>
-                    );
-                  })}
+                  <TaskListItems items={selectedTasks} onSelect={t => { setSelectedDay(null); onTaskClick(t); }} />
                 </div>
               </div>
             </div>
           )}
-
-          {/* Legend */}
-          <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap", fontSize: 12, color: "var(--text-light)" }}>
-            {[
-              { bg: "#fee2e2", color: "#b91c1c", label: "P1 / Overdue" },
-              { bg: "#ffedd5", color: "#c2410c", label: "P2" },
-              { bg: "#fef9c3", color: "#854d0e", label: "P3" },
-              { bg: "#dcfce7", color: "#15803d", label: "P4 / Done" },
-            ].map(l => (
-              <span key={l.label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 2, background: l.bg, border: `1px solid ${l.color}`, display: "inline-block" }} />
-                {l.label}
-              </span>
-            ))}
-          </div>
         </div>
       );
     }
