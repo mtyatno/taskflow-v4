@@ -1784,9 +1784,9 @@
 
                   <label className="input-label">Fase</label>
                   <select className="input" value={habitForm.phase} onChange={e => setHabit("phase", e.target.value)} style={{ marginBottom: 14 }}>
-                    <option value="pagi">☀️ Pagi (05:30–06:15)</option>
-                    <option value="siang">🌤️ Siang (06:15–18:30)</option>
-                    <option value="malam">🌙 Malam (18:30–22:00)</option>
+                    <option value="pagi">☀️ Pagi (04:00–09:00)</option>
+                    <option value="siang">🌤️ Siang (09:00–17:00)</option>
+                    <option value="malam">🌙 Malam (17:00–22:00)</option>
                   </select>
 
                   <label className="input-label">Micro Target <span style={{ color: "var(--text-light)", fontWeight: 400 }}>(opsional)</span></label>
@@ -4852,7 +4852,7 @@
         else showToast("⏭️ Di-skip");
       };
 
-      const PHASE_LABEL = { pagi: "☀️ PAGI", siang: "🌤️ SIANG", malam: "🌙 MALAM" };
+      const PHASE_LABEL = { pagi: "☀️ PAGI (04:00 – 09:00)", siang: "🌤️ SIANG (09:00 – 17:00)", malam: "🌙 MALAM (17:00 – 22:00)" };
       const PHASE_COLOR = { pagi: "var(--accent)", siang: "#facc15", malam: "#818cf8" };
       const DAY_LABELS = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
       const todayDow = (new Date().getDay() + 6) % 7;
