@@ -5177,6 +5177,7 @@
         }));
         if (status === "done") showToast("✅ Habit selesai!");
         else showToast("⏭️ Di-skip");
+        fetchMonthly();
       };
 
       const handleEdit = async (habitId, data) => {
