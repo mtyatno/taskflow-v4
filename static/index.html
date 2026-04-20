@@ -4775,6 +4775,75 @@
       );
     }
 
+    function HabitCard({ h, DAY_LABELS, todayDow, onCheckin, onEdit, onDelete }) {
+      const [menuOpen, setMenuOpen] = useState(false);
+      const closeMenu = () => setMenuOpen(false);
+      return (
+        <div className="habit-card fade-in" style={{ position: "relative", zIndex: menuOpen ? 10 : "auto" }}
+          onClick={() => { if (!menuOpen) onCheckin(h); }}>
+          {/* Backdrop untuk tutup menu saat klik di luar */}
+          {menuOpen && (
+            <div style={{ position: "fixed", inset: 0, zIndex: 9 }} onClick={e => { e.stopPropagation(); closeMenu(); }} />
+          )}
+          <div className="habit-card-inner">
+            {/* Info */}
+            <div className="habit-card-info">
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: h.micro_target ? 3 : 0 }}>
+                {h.title}
+                {h._pending && <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>⏳</span>}
+              </div>
+              {h.micro_target && (
+                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>🎯 {h.micro_target}</div>
+              )}
+            </div>
+
+            {/* Weekly grid */}
+            <div className="habit-card-grid">
+              {DAY_LABELS.map((d, i) => {
+                const s = (h.week_log || [])[i];
+                const isToday = i === todayDow;
+                const cls = s === "done" ? "done" : s === "skipped" ? "skipped" : s === "missed" ? "missed" : "";
+                return (
+                  <div key={i} className="habit-week-col">
+                    <div className={`habit-week-label${isToday ? " today" : ""}`}>{d}</div>
+                    <div className={`habit-week-box${cls ? " " + cls : ""}`}
+                      style={isToday && !cls ? { borderColor: "#818cf8", borderWidth: 2 } : {}}>
+                      {s === "done" ? "✓" : ""}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Streak */}
+            <div className="habit-streak">
+              <span style={{ fontSize: 16 }}>🔥</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: h.streak > 0 ? "var(--accent)" : "var(--text-light)" }}>
+                {h.streak || 0}
+              </span>
+            </div>
+
+            {/* ⋮ Menu */}
+            {!h._pending && (
+              <div style={{ position: "relative", zIndex: 10, marginLeft: 6 }} onClick={e => e.stopPropagation()}>
+                <button
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", fontSize: 18, padding: "2px 6px", borderRadius: 6, lineHeight: 1 }}
+                  onClick={() => setMenuOpen(p => !p)}>⋮</button>
+                {menuOpen && (
+                  <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", zIndex: 20, minWidth: 130, overflow: "hidden" }}>
+                    <button style={{ display: "block", width: "100%", padding: "10px 16px", background: "none", border: "none", textAlign: "left", cursor: "pointer", fontSize: 13, color: "var(--text-primary)" }}
+                      onClick={() => { closeMenu(); onEdit(h); }}>✏️ Edit</button>
+                    <button style={{ display: "block", width: "100%", padding: "10px 16px", background: "none", border: "none", textAlign: "left", cursor: "pointer", fontSize: 13, color: "#ef4444" }}
+                      onClick={() => { closeMenu(); onDelete(h.id); }}>🗑️ Hapus</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     function HabitEditModal({ habit, onClose, onSave }) {
       const DAYS = ["mon","tue","wed","thu","fri","sat","sun"];
       const DAY_ID = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
@@ -5014,70 +5083,8 @@
 
       const grouped = phases.reduce((acc, p) => { acc[p] = habits.filter(h => h.phase === p); return acc; }, {});
 
-      const HabitCard = ({ h }) => {
-        const [menuOpen, setMenuOpen] = useState(false);
-        return (
-          <div className="habit-card fade-in" style={{ position: "relative" }} onClick={() => { if (!menuOpen) setCheckinTarget(h); }}>
-            <div className="habit-card-inner">
-              {/* Info */}
-              <div className="habit-card-info">
-                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: h.micro_target ? 3 : 0 }}>
-                  {h.title}
-                  {h._pending && <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>⏳</span>}
-                </div>
-                {h.micro_target && (
-                  <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>🎯 {h.micro_target}</div>
-                )}
-              </div>
-
-              {/* Weekly grid */}
-              <div className="habit-card-grid">
-                {DAY_LABELS.map((d, i) => {
-                  const s = (h.week_log || [])[i];
-                  const isToday = i === todayDow;
-                  const cls = s === "done" ? "done" : s === "skipped" ? "skipped" : s === "missed" ? "missed" : "";
-                  return (
-                    <div key={i} className="habit-week-col">
-                      <div className={`habit-week-label${isToday ? " today" : ""}`}>{d}</div>
-                      <div className={`habit-week-box${cls ? " " + cls : ""}`}
-                        style={isToday && !cls ? { borderColor: "#818cf8", borderWidth: 2 } : {}}>
-                        {s === "done" ? "✓" : ""}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Streak */}
-              <div className="habit-streak">
-                <span style={{ fontSize: 16 }}>🔥</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: h.streak > 0 ? "var(--accent)" : "var(--text-light)" }}>
-                  {h.streak || 0}
-                </span>
-              </div>
-
-              {/* ⋮ Menu */}
-              {!h._pending && (
-                <div style={{ position: "relative", marginLeft: 6 }} onClick={e => e.stopPropagation()}>
-                  <button
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", fontSize: 18, padding: "2px 6px", borderRadius: 6, lineHeight: 1 }}
-                    onClick={() => setMenuOpen(p => !p)}
-                  >⋮</button>
-                  {menuOpen && (
-                    <div style={{ position: "absolute", right: 0, top: "100%", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.15)", zIndex: 50, minWidth: 130, overflow: "hidden" }}
-                      onMouseLeave={() => setMenuOpen(false)}>
-                      <button style={{ display: "block", width: "100%", padding: "10px 16px", background: "none", border: "none", textAlign: "left", cursor: "pointer", fontSize: 13, color: "var(--text-primary)" }}
-                        onClick={() => { setMenuOpen(false); setEditTarget(h); }}>✏️ Edit</button>
-                      <button style={{ display: "block", width: "100%", padding: "10px 16px", background: "none", border: "none", textAlign: "left", cursor: "pointer", fontSize: 13, color: "#ef4444" }}
-                        onClick={() => { setMenuOpen(false); handleDelete(h.id); }}>🗑️ Hapus</button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      };
+      // HabitCard dipanggil dengan props eksplisit agar stable component identity
+      const habitCardProps = { DAY_LABELS, todayDow, onCheckin: setCheckinTarget, onEdit: setEditTarget, onDelete: handleDelete };
 
       if (loading) return <div style={{ padding: 40, textAlign: "center", color: "var(--text-secondary)" }}>Memuat habits...</div>;
 
@@ -5142,7 +5149,7 @@
                       <div style={{ height: "100%", width: `${pct}%`, borderRadius: 4, background: PHASE_COLOR[phase], transition: "width 0.4s ease" }} />
                     </div>
                   </div>
-                  {phaseHabits.map(h => <HabitCard key={h.id} h={h} />)}
+                  {phaseHabits.map(h => <HabitCard key={h.id} h={h} {...habitCardProps} />)}
                 </div>
               );
             })
