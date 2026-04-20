@@ -1392,7 +1392,7 @@ async def create_habit(req: HabitCreate, user=Depends(get_current_user)):
     return dict(row)
 
 
-@app.patch("/api/habits/{habit_id}")
+@app.post("/api/habits/{habit_id}/update")
 async def update_habit(habit_id: int, req: HabitUpdate, user=Depends(get_current_user)):
     uid = user["sub"]
     if req.phase not in ("pagi", "siang", "malam"):

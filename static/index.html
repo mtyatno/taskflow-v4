@@ -5060,7 +5060,7 @@
 
       const handleEdit = async (habitId, data) => {
         try {
-          await api.patch(`/api/habits/${habitId}`, data);
+          await api.post(`/api/habits/${habitId}/update`, data);
           setHabits(prev => prev.map(h => h.id === habitId ? { ...h, ...data } : h));
           showToast("Habit diperbarui");
         } catch (err) {
