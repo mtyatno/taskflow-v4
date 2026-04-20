@@ -40,6 +40,12 @@ from pathlib import Path
 
 import pytz
 
+_TZ_JKT = pytz.timezone("Asia/Jakarta")
+
+def _today_jkt():
+    """Return today's date in Jakarta timezone (UTC+7)."""
+    return datetime.now(_TZ_JKT).date()
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -2048,8 +2054,7 @@ async def _send_habit_checkins(bot, telegram_id: int, habits: list[dict], header
 async def cmd_habittoday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show all pending habits for today with check-in buttons."""
     u = uid(context)
-    from datetime import date
-    today = date.today().strftime("%Y-%m-%d")
+    today = _today_jkt().strftime("%Y-%m-%d")
 
     all_pending = []
     phase_labels = {"pagi": "☀️ Pagi", "siang": "⚡ Siang", "malam": "🌙 Malam"}
@@ -2121,8 +2126,7 @@ async def handle_habit_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     data = query.data
     u = uid(context)
-    from datetime import date
-    today = date.today().strftime("%Y-%m-%d")
+    today = _today_jkt().strftime("%Y-%m-%d")
 
     if data.startswith("habit_done_"):
         habit_id = int(data.replace("habit_done_", ""))
@@ -2164,8 +2168,7 @@ async def handle_habit_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def _handle_skip_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Check if incoming text is a skip reason. Returns True if handled."""
-    from datetime import date
-    today = date.today().strftime("%Y-%m-%d")
+    today = _today_jkt().strftime("%Y-%m-%d")
     text = update.message.text.strip()
 
     for key in list(context.user_data.keys()):
@@ -2321,7 +2324,7 @@ def _build_daily_summary(user_id: int) -> str:
 
     lines = [
         f"☀️ <b>Selamat Pagi!</b>",
-        f"📅 {date.today().strftime('%A, %d %B %Y')}\n",
+        f"📅 {_today_jkt().strftime('%A, %d %B %Y')}\n",
     ]
 
     if focus:
@@ -2359,7 +2362,7 @@ def _build_weekly_review(user_id: int) -> str:
 
     lines = [
         f"📝 <b>Weekly Review</b>",
-        f"📅 {date.today().strftime('%A, %d %B %Y')}\n",
+        f"📅 {_today_jkt().strftime('%A, %d %B %Y')}\n",
     ]
 
     # Alerts

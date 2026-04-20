@@ -11,6 +11,13 @@ from datetime import datetime, date
 from typing import Optional
 from contextlib import contextmanager
 
+import pytz as _pytz
+_TZ_JKT = _pytz.timezone("Asia/Jakarta")
+
+def _today_jkt() -> date:
+    """Return today's date in Jakarta timezone (UTC+7)."""
+    return datetime.now(_TZ_JKT).date()
+
 from models import Task, GTDStatus, Priority, Quadrant
 from config import DB_PATH
 
@@ -1118,9 +1125,9 @@ class TaskRepository:
             ).fetchall()
             done_dates = {r["date"] for r in rows}
 
-        from datetime import date, timedelta
+        from datetime import timedelta
         streak = 0
-        check = date.today()
+        check = _today_jkt()
         # Allow today to be pending (streak still counts from yesterday)
         today_str = check.strftime("%Y-%m-%d")
         if today_str not in done_dates:
@@ -1141,8 +1148,8 @@ class TaskRepository:
 
     def get_habit_week_log(self, habit_id: int) -> list[str]:
         """Return list of 7 statuses Mon–Sun for current week."""
-        from datetime import date, timedelta
-        today = date.today()
+        from datetime import timedelta
+        today = _today_jkt()
         monday = today - timedelta(days=today.weekday())
         with self._connect() as conn:
             rows = conn.execute(
@@ -1162,8 +1169,7 @@ class TaskRepository:
 
     def get_habits_pending_today(self, user_id: int, phase: str) -> list[dict]:
         """Get habits for a phase that have NOT been checked in today."""
-        from datetime import date
-        today = date.today().strftime("%Y-%m-%d")
+        today = _today_jkt().strftime("%Y-%m-%d")
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT h.* FROM habits h
@@ -1179,8 +1185,7 @@ class TaskRepository:
 
     def get_today_habit_summary(self, user_id: int) -> dict:
         """Return done/total counts per phase for today."""
-        from datetime import date
-        today = date.today().strftime("%Y-%m-%d")
+        today = _today_jkt().strftime("%Y-%m-%d")
         with self._connect() as conn:
             habits = conn.execute(
                 "SELECT id, phase FROM habits WHERE user_id = ?", (user_id,)
