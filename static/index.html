@@ -1643,6 +1643,23 @@
 
       const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
       const [listMembers, setListMembers] = useState([]);
+      const [mode, setMode] = useState("task");
+      const [habitForm, setHabitForm] = useState({
+        title: "", phase: "pagi", micro_target: "",
+        frequency: ["mon","tue","wed","thu","fri","sat","sun"],
+        identity_pillar: "",
+      });
+      const setHabit = (k, v) => setHabitForm(f => ({ ...f, [k]: v }));
+      const DAYS = [
+        { key: "mon", label: "Sen" }, { key: "tue", label: "Sel" },
+        { key: "wed", label: "Rab" }, { key: "thu", label: "Kam" },
+        { key: "fri", label: "Jum" }, { key: "sat", label: "Sab" },
+        { key: "sun", label: "Min" },
+      ];
+      const toggleDay = (key) => setHabitForm(f => ({
+        ...f,
+        frequency: f.frequency.includes(key) ? f.frequency.filter(d => d !== key) : [...f.frequency, key]
+      }));
 
       useEffect(() => {
         if (form.list_id) {
@@ -1657,6 +1674,25 @@
       const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
+        // ── Habit mode ────────────────────────────────────────────
+        if (mode === "habit") {
+          if (!habitForm.title.trim()) { alert("Nama habit wajib diisi"); setLoading(false); return; }
+          try {
+            await api.post("/api/habits", habitForm);
+            onSave();
+          } catch (err) {
+            if (isOfflineErr(err) && onOfflineSave) {
+              const tempId = `tmp_habit_${Date.now()}`;
+              await OfflineDB.queueAdd({ method: "POST", url: "/api/habits", body: habitForm, tempId, createdAt: Date.now() });
+              onOfflineSave({ ...habitForm, id: tempId, _pending: true, _type: "habit" });
+            } else {
+              alert(err.message);
+            }
+          }
+          setLoading(false);
+          return;
+        }
+        // ── Task mode ─────────────────────────────────────────────
         try {
           if (isEdit) {
             await api.put(`/api/tasks/${task.id}`, form);
@@ -1701,6 +1737,60 @@
               <span onClick={onClose} style={{ cursor: "pointer", fontSize: 20, color: "var(--text-light)" }}>✕</span>
             </div>
             <form onSubmit={handleSubmit}>
+              {/* Mode toggle — hanya saat tambah baru */}
+              {!isEdit && (
+                <div style={{ display: "flex", background: "var(--bg-primary)", borderRadius: 8, padding: 3, marginBottom: 18, gap: 3 }}>
+                  {[["task","✓ Task"],["habit","🔁 Habit"]].map(([m, label]) => (
+                    <button key={m} type="button" onClick={() => setMode(m)} style={{
+                      flex: 1, padding: "7px 0", borderRadius: 6, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 13,
+                      background: mode === m ? "var(--accent)" : "transparent",
+                      color: mode === m ? "#fff" : "var(--text-secondary)",
+                      transition: "all 0.15s",
+                    }}>{label}</button>
+                  ))}
+                </div>
+              )}
+
+              {/* ── Habit Form ── */}
+              {mode === "habit" && (
+                <div>
+                  <label className="input-label">Nama Habit *</label>
+                  <input className="input" value={habitForm.title} onChange={e => setHabit("title", e.target.value)} required style={{ marginBottom: 14 }} placeholder="Meditasi, Olahraga, Baca..." />
+
+                  <label className="input-label">Fase</label>
+                  <select className="input" value={habitForm.phase} onChange={e => setHabit("phase", e.target.value)} style={{ marginBottom: 14 }}>
+                    <option value="pagi">☀️ Pagi (05:30–06:15)</option>
+                    <option value="siang">🌤️ Siang (06:15–18:30)</option>
+                    <option value="malam">🌙 Malam (18:30–22:00)</option>
+                  </select>
+
+                  <label className="input-label">Micro Target <span style={{ color: "var(--text-light)", fontWeight: 400 }}>(opsional)</span></label>
+                  <input className="input" value={habitForm.micro_target} onChange={e => setHabit("micro_target", e.target.value)} style={{ marginBottom: 14 }} placeholder="5 menit, 2 halaman, 10 push-up..." />
+
+                  <label className="input-label">Frekuensi</label>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+                    {DAYS.map(d => (
+                      <button key={d.key} type="button" onClick={() => toggleDay(d.key)} style={{
+                        padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border)", cursor: "pointer", fontSize: 12,
+                        background: habitForm.frequency.includes(d.key) ? "var(--accent)" : "var(--bg-primary)",
+                        color: habitForm.frequency.includes(d.key) ? "#fff" : "var(--text-secondary)",
+                        fontWeight: habitForm.frequency.includes(d.key) ? 600 : 400,
+                      }}>{d.label}</button>
+                    ))}
+                  </div>
+
+                  <label className="input-label">Identity Pillar <span style={{ color: "var(--text-light)", fontWeight: 400 }}>(opsional)</span></label>
+                  <input className="input" value={habitForm.identity_pillar} onChange={e => setHabit("identity_pillar", e.target.value)} style={{ marginBottom: 14 }} placeholder="Saya adalah orang yang..." />
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
+                    <button type="button" className="btn" onClick={onClose}>Batal</button>
+                    <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? "..." : "Tambah Habit"}</button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Task Form ── */}
+              {mode === "task" && <div>
               <label className="input-label">Judul *</label>
               <input className="input" value={form.title} onChange={e => set("title", e.target.value)} required style={{ marginBottom: 14 }} />
 
@@ -1837,6 +1927,7 @@
                 <button type="button" className="btn btn-secondary" onClick={onClose}>Batal</button>
                 <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? "Saving..." : (isEdit ? "Update" : "Tambah")}</button>
               </div>
+              </div>}
             </form>
           </div>
         </div>
