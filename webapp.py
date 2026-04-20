@@ -1456,6 +1456,33 @@ async def get_habits_today(user=Depends(get_current_user)):
     return result
 
 
+@app.get("/api/habits/monthly")
+async def get_habits_monthly(user=Depends(get_current_user)):
+    uid = user["sub"]
+    today = date.today()
+    year, month = today.year, today.month
+    import calendar as cal_mod
+    days_in_month = cal_mod.monthrange(year, month)[1]
+    month_start = f"{year}-{month:02d}-01"
+    month_end = f"{year}-{month:02d}-{days_in_month:02d}"
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT CAST(strftime('%d', hl.date) AS INTEGER) as day, COUNT(*) as done_count
+               FROM habit_logs hl
+               JOIN habits h ON h.id = hl.habit_id
+               WHERE h.user_id = ? AND hl.status = 'done'
+                 AND hl.date >= ? AND hl.date <= ?
+               GROUP BY hl.date ORDER BY hl.date""",
+            (uid, month_start, month_end)
+        ).fetchall()
+    done_by_day = {r["day"]: r["done_count"] for r in rows}
+    today_day = today.day
+    result = [{"day": d, "done": done_by_day.get(d, 0)} for d in range(1, days_in_month + 1)]
+    days_with_data = [r for r in result if r["day"] <= today_day]
+    avg = round(sum(r["done"] for r in days_with_data) / max(len(days_with_data), 1), 1) if days_with_data else 0
+    return {"days": result, "avg": avg, "today_day": today_day, "days_in_month": days_in_month}
+
+
 @app.post("/api/habits/{habit_id}/checkin")
 async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_current_user)):
     uid = user["sub"]
