@@ -722,6 +722,23 @@
     .note-modal-title-input { font-size: 17px; font-weight: 700; background: none; border: none; outline: none; color: var(--text-primary); width: 100%; border-bottom: 1.5px solid var(--border); padding-bottom: 8px; }
     .note-modal-content-input { font-size: 14px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 12px; color: var(--text-primary); width: 100%; resize: vertical; min-height: 120px; outline: none; font-family: inherit; line-height: 1.6; }
     .note-modal-section-label { font-size: 11px; font-weight: 700; color: var(--text-secondary); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px; }
+    .note-toolbar { display: flex; gap: 3px; flex-wrap: wrap; margin-bottom: 6px; }
+    .note-toolbar button { background: none; border: 1px solid var(--border); border-radius: 5px; color: var(--text-secondary); font-size: 12px; font-weight: 700; cursor: pointer; padding: 3px 8px; line-height: 1.4; transition: all 0.1s; font-family: inherit; }
+    .note-toolbar button:hover { background: var(--bg-primary); color: var(--text-primary); border-color: var(--accent); }
+    .note-toolbar .sep { width: 1px; background: var(--border); margin: 2px 3px; align-self: stretch; }
+    .note-rendered { font-size: 14px; line-height: 1.75; color: var(--text-primary); }
+    .note-rendered h1 { font-size: 20px; font-weight: 800; margin: 10px 0 6px; }
+    .note-rendered h2 { font-size: 16px; font-weight: 700; margin: 8px 0 4px; }
+    .note-rendered h3 { font-size: 14px; font-weight: 700; margin: 6px 0 3px; color: var(--text-secondary); }
+    .note-rendered ul { margin: 4px 0 4px 18px; padding: 0; }
+    .note-rendered li { margin-bottom: 3px; }
+    .note-rendered .check-item { display: flex; align-items: flex-start; gap: 7px; margin-bottom: 4px; list-style: none; margin-left: 0; }
+    .note-rendered .check-item input[type=checkbox] { margin-top: 3px; accent-color: var(--accent); cursor: default; flex-shrink: 0; }
+    .note-rendered .check-item.done span { text-decoration: line-through; color: var(--text-light); }
+    .note-rendered strong { font-weight: 700; }
+    .note-rendered em { font-style: italic; color: var(--text-secondary); }
+    .note-rendered hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+    .note-rendered blockquote { border-left: 3px solid var(--accent); padding-left: 10px; color: var(--text-secondary); margin: 6px 0; font-style: italic; }
   </style>
 </head>
 <body>
@@ -4308,7 +4325,7 @@
               {recentNotes.map(n => (
                 <div key={n.id} className="note-card" onClick={() => onNav("notes")}>
                   <div className="note-card-title">{n.title || n.content.slice(0, 60)}</div>
-                  {n.title && <div className="note-card-preview">{n.content}</div>}
+                  {n.title && <div className="note-card-preview" dangerouslySetInnerHTML={{ __html: n.content.slice(0,200) }} />}
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
                     {(n.tags || []).map(tag => <span key={tag} className="note-tag">#{tag}</span>)}
                     <span style={{ fontSize: 11, color: "var(--text-light)", marginLeft: "auto" }}>
@@ -4904,6 +4921,103 @@
 
     // ── Notes / Scratchpad ────────────────────────────────────────
 
+    function renderMarkdown(text) {
+      if (!text) return "";
+      const lines = text.split("\n");
+      let html = "";
+      let inUl = false;
+      const closeUl = () => { if (inUl) { html += "</ul>"; inUl = false; } };
+      const escape = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const inline = (s) => escape(s)
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*(.+?)\*/g, "<em>$1</em>")
+        .replace(/`(.+?)`/g, "<code style='background:var(--bg-primary);border-radius:3px;padding:1px 5px;font-size:0.9em'>$1</code>");
+
+      for (let raw of lines) {
+        const line = raw;
+        // Checklist
+        if (/^- \[x\] /i.test(line)) {
+          closeUl();
+          html += `<div class="check-item done"><input type="checkbox" checked disabled/><span>${inline(line.replace(/^- \[x\] /i,""))}</span></div>`;
+        } else if (/^- \[ \] /.test(line)) {
+          closeUl();
+          html += `<div class="check-item"><input type="checkbox" disabled/><span>${inline(line.replace(/^- \[ \] /,""))}</span></div>`;
+        // Bullet
+        } else if (/^- /.test(line)) {
+          if (!inUl) { html += "<ul>"; inUl = true; }
+          html += `<li>${inline(line.replace(/^- /,""))}</li>`;
+        // H1/H2/H3
+        } else if (/^### /.test(line)) {
+          closeUl(); html += `<h3>${inline(line.replace(/^### /,""))}</h3>`;
+        } else if (/^## /.test(line)) {
+          closeUl(); html += `<h2>${inline(line.replace(/^## /,""))}</h2>`;
+        } else if (/^# /.test(line)) {
+          closeUl(); html += `<h1>${inline(line.replace(/^# /,""))}</h1>`;
+        // Blockquote
+        } else if (/^> /.test(line)) {
+          closeUl(); html += `<blockquote>${inline(line.replace(/^> /,""))}</blockquote>`;
+        // HR
+        } else if (/^---+$/.test(line.trim())) {
+          closeUl(); html += "<hr/>";
+        // Empty line
+        } else if (line.trim() === "") {
+          closeUl(); html += "<br/>";
+        } else {
+          closeUl(); html += `<p style="margin:2px 0">${inline(line)}</p>`;
+        }
+      }
+      closeUl();
+      return html;
+    }
+
+    function NoteToolbar({ textareaRef, value, onChange }) {
+      const insert = (before, after = "", placeholder = "") => {
+        const el = textareaRef.current;
+        if (!el) return;
+        const start = el.selectionStart, end = el.selectionEnd;
+        const selected = value.slice(start, end) || placeholder;
+        const newVal = value.slice(0, start) + before + selected + after + value.slice(end);
+        onChange(newVal);
+        setTimeout(() => {
+          el.focus();
+          el.setSelectionRange(start + before.length, start + before.length + selected.length);
+        }, 0);
+      };
+
+      const insertLinePrefix = (prefix) => {
+        const el = textareaRef.current;
+        if (!el) return;
+        const start = el.selectionStart;
+        const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+        const lineEnd = value.indexOf("\n", start);
+        const end = lineEnd === -1 ? value.length : lineEnd;
+        const line = value.slice(lineStart, end);
+        // Toggle: if already has prefix, remove it
+        const newLine = line.startsWith(prefix) ? line.slice(prefix.length) : prefix + line;
+        const newVal = value.slice(0, lineStart) + newLine + value.slice(end);
+        onChange(newVal);
+        setTimeout(() => { el.focus(); el.setSelectionRange(lineStart + prefix.length, lineStart + prefix.length); }, 0);
+      };
+
+      return (
+        <div className="note-toolbar">
+          <button onClick={() => insertLinePrefix("# ")} title="Heading 1">H1</button>
+          <button onClick={() => insertLinePrefix("## ")} title="Heading 2">H2</button>
+          <button onClick={() => insertLinePrefix("### ")} title="Heading 3">H3</button>
+          <div className="sep"/>
+          <button onClick={() => insert("**", "**", "bold")} title="Bold"><b>B</b></button>
+          <button onClick={() => insert("*", "*", "italic")} title="Italic"><i>I</i></button>
+          <button onClick={() => insert("`", "`", "code")} title="Inline code">{"<>"}</button>
+          <div className="sep"/>
+          <button onClick={() => insertLinePrefix("- ")} title="Bullet list">• List</button>
+          <button onClick={() => insertLinePrefix("- [ ] ")} title="Checklist">☐ Check</button>
+          <button onClick={() => insertLinePrefix("> ")} title="Blockquote">❝ Quote</button>
+          <div className="sep"/>
+          <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const newVal = value.slice(0,s) + "\n---\n" + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+5,s+5); },0); }} title="Divider">─ ─</button>
+        </div>
+      );
+    }
+
     function NoteModal({ note, tasks, onClose, onSave, onDelete }) {
       const [title, setTitle]         = useState(note?.title || "");
       const [content, setContent]     = useState(note?.content || "");
@@ -4915,6 +5029,8 @@
       const [saving, setSaving]       = useState(false);
       const [expanded, setExpanded]   = useState(false);
       const [focus, setFocus]         = useState(false);
+      const [preview, setPreview]     = useState(false);
+      const textareaRef               = useRef(null);
 
       const linkedTask    = tasks.find(t => t.id === linkedTaskId);
       const filteredTasks = tasks.filter(t =>
@@ -4951,13 +5067,32 @@
           />
 
           {/* Content */}
-          <textarea
-            className="note-modal-content-input"
-            placeholder="Tulis isi catatan..."
-            value={content}
-            onChange={e => setContent(e.target.value)}
-            style={{ minHeight: expanded ? "calc(100vh - 340px)" : 120, fontSize: expanded ? 15 : 14, resize: expanded ? "none" : "vertical" }}
-          />
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <NoteToolbar textareaRef={textareaRef} value={content} onChange={setContent} />
+              <button onClick={() => setPreview(p => !p)}
+                style={{ background: "none", border: "1px solid var(--border)", borderRadius: 5, fontSize: 11, fontWeight: 600,
+                  color: preview ? "var(--accent)" : "var(--text-secondary)", cursor: "pointer", padding: "3px 8px", flexShrink: 0, marginLeft: 6 }}>
+                {preview ? "✏ Edit" : "👁 Preview"}
+              </button>
+            </div>
+            {preview ? (
+              <div className="note-rendered note-modal-content-input"
+                style={{ minHeight: expanded ? "calc(100vh - 380px)" : 120, cursor: "text", overflowY: "auto" }}
+                onClick={() => setPreview(false)}
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(content) || '<span style="color:var(--text-light)">Klik untuk edit...</span>' }}
+              />
+            ) : (
+              <textarea
+                ref={textareaRef}
+                className="note-modal-content-input"
+                placeholder="Tulis isi catatan... (# H1, ## H2, - bullet, - [ ] checklist)"
+                value={content}
+                onChange={e => setContent(e.target.value)}
+                style={{ minHeight: expanded ? "calc(100vh - 380px)" : 120, fontSize: expanded ? 15 : 14, resize: expanded ? "none" : "vertical" }}
+              />
+            )}
+          </div>
 
           {/* Tags — hidden in focus mode */}
           {!focus && (
@@ -5230,7 +5365,7 @@
                   <div className="note-card-title">{n.title || n.content.slice(0, 60)}</div>
                   <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{fmtDate(n.updated_at)}</span>
                 </div>
-                {n.title && <div className="note-card-preview">{n.content}</div>}
+                {n.title && <div className="note-card-preview" dangerouslySetInnerHTML={{ __html: n.content.slice(0,200) }} />}
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
                   {(n.tags || []).map(tag => (
                     <span key={tag} className="note-tag"
