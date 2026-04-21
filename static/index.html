@@ -5077,6 +5077,7 @@
 
       // Handle [[  autocomplete in textarea
       const handleContentKeyDown = (e) => {
+        // Wikilink dropdown navigation
         if (wikiDropdown) {
           if (e.key === "ArrowDown") { e.preventDefault(); setWikiDropdown(d => ({ ...d, activeIdx: Math.min(d.activeIdx + 1, d.items.length - 1) })); return; }
           if (e.key === "ArrowUp")   { e.preventDefault(); setWikiDropdown(d => ({ ...d, activeIdx: Math.max(d.activeIdx - 1, 0) })); return; }
@@ -5086,6 +5087,39 @@
             return;
           }
           if (e.key === "Escape") { setWikiDropdown(null); return; }
+        }
+
+        // Auto-continue list on Enter
+        if (e.key === "Enter") {
+          const el = textareaRef.current;
+          if (!el) return;
+          const pos = el.selectionStart;
+          const val = el.value;
+          const lineStart = val.lastIndexOf("\n", pos - 1) + 1;
+          const line = val.slice(lineStart, pos);
+
+          // Detect prefix: checklist done, checklist empty, checklist, bullet
+          let prefix = null;
+          if (/^- \[x\] /i.test(line)) prefix = "- [ ] ";       // after done item → new empty check
+          else if (/^- \[ \] $/.test(line)) prefix = null;       // empty checklist → exit (handled below)
+          else if (/^- \[ \] /.test(line)) prefix = "- [ ] ";
+          else if (/^- $/.test(line)) prefix = null;              // empty bullet → exit
+          else if (/^- /.test(line)) prefix = "- ";
+
+          if (prefix !== null) {
+            e.preventDefault();
+            const newVal = val.slice(0, pos) + "\n" + prefix + val.slice(pos);
+            setContent(newVal);
+            const newPos = pos + 1 + prefix.length;
+            setTimeout(() => { el.focus(); el.setSelectionRange(newPos, newPos); }, 0);
+          } else if (/^- (\[ \] )?$/.test(line)) {
+            // Empty list item → remove prefix, exit list mode
+            e.preventDefault();
+            const newVal = val.slice(0, lineStart) + "\n" + val.slice(pos);
+            setContent(newVal);
+            const newPos = lineStart + 1;
+            setTimeout(() => { el.focus(); el.setSelectionRange(newPos, newPos); }, 0);
+          }
         }
       };
 
