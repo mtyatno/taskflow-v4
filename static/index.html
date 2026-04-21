@@ -3956,14 +3956,29 @@
       const handleScratch = async (e) => {
         if (e.key !== "Enter" || !scratchInput.trim()) return;
         const text = scratchInput.trim();
+        const body = { title: text.slice(0, 80), content: text, tags: [] };
         try {
-          await api.post("/api/scratchpad", { title: text.slice(0, 80), content: text, tags: [] });
+          await api.post("/api/scratchpad", body);
           setScratchInput("");
           const data = await api.get("/api/scratchpad/recent");
           setRecentNotes(data);
+          await OfflineDB.cacheSet("scratchpad_notes", data);
           window.dispatchEvent(new CustomEvent("noteSaved"));
           showToast("📝 Catatan disimpan");
-        } catch (err) { showToast(err.message || "Gagal menyimpan catatan", "error"); }
+        } catch (err) {
+          if (isOfflineErr(err)) {
+            const now = new Date().toISOString();
+            const tempId = `tmp_note_${Date.now()}`;
+            const newNote = { id: tempId, ...body, created_at: now, updated_at: now, _pending: true };
+            const cached = await OfflineDB.cacheGet("scratchpad_notes") || [];
+            const updated = [newNote, ...cached];
+            await OfflineDB.cacheSet("scratchpad_notes", updated);
+            await OfflineDB.queueAdd({ method: "POST", url: "/api/scratchpad", body, tempId });
+            setScratchInput("");
+            setRecentNotes(updated.slice(0, 5));
+            showToast("📶 Tersimpan offline, akan sync saat online");
+          } else { showToast(err.message || "Gagal menyimpan catatan", "error"); }
+        }
       };
 
       const openModal = (title, cellTasks) => setDashModal({ title, tasks: cellTasks });
@@ -5236,9 +5251,19 @@
       const fetchNotes = async (query = "") => {
         try {
           const data = await api.get(`/api/scratchpad${query ? `?q=${encodeURIComponent(query)}` : ""}`);
+          await OfflineDB.cacheSet("scratchpad_notes", data);
           setAllNotes(data);
           setNotes(data);
-        } catch (e) { console.error(e); }
+        } catch (e) {
+          // offline — load from cache
+          const cached = await OfflineDB.cacheGet("scratchpad_notes") || [];
+          const filtered = query ? cached.filter(n =>
+            n.title?.toLowerCase().includes(query.toLowerCase()) ||
+            n.content?.toLowerCase().includes(query.toLowerCase())
+          ) : cached;
+          setAllNotes(cached);
+          setNotes(filtered);
+        }
         setLoading(false);
       };
 
@@ -5275,6 +5300,7 @@
       const openEdit = (n) => { setSelected(n); setShowModal(true); };
 
       const handleSave = async (data) => {
+        const now = new Date().toISOString();
         try {
           if (selected?.id) {
             await api.put(`/api/scratchpad/${selected.id}`, data);
@@ -5284,9 +5310,27 @@
             showToast("✅ Catatan dibuat");
           }
           await fetchNotes(q);
-          if (activeTag) setNotes(prev => allNotes.filter(n => (n.tags || []).includes(activeTag)));
           window.dispatchEvent(new CustomEvent("noteSaved"));
-        } catch (e) { showToast(e.message, "error"); }
+        } catch (e) {
+          if (isOfflineErr(e)) {
+            // update cache optimistically
+            const cached = await OfflineDB.cacheGet("scratchpad_notes") || [];
+            let updated;
+            if (selected?.id) {
+              updated = cached.map(n => n.id === selected.id ? { ...n, ...data, tags: data.tags||[], updated_at: now } : n);
+              await OfflineDB.queueAdd({ method: "PUT", url: `/api/scratchpad/${selected.id}`, body: data });
+            } else {
+              const tempId = `tmp_note_${Date.now()}`;
+              const newNote = { id: tempId, ...data, tags: data.tags||[], created_at: now, updated_at: now, _pending: true };
+              updated = [newNote, ...cached];
+              await OfflineDB.queueAdd({ method: "POST", url: "/api/scratchpad", body: data, tempId });
+            }
+            await OfflineDB.cacheSet("scratchpad_notes", updated);
+            setAllNotes(updated);
+            setNotes(updated);
+            showToast("📶 Tersimpan offline, akan sync saat online");
+          } else { showToast(e.message, "error"); }
+        }
       };
 
       const handleDelete = async (id) => {
@@ -5295,7 +5339,19 @@
           showToast("🗑 Catatan dihapus");
           fetchNotes(q);
           setActiveTag(null);
-        } catch (e) { showToast(e.message, "error"); }
+        } catch (e) {
+          if (isOfflineErr(e)) {
+            // remove from cache optimistically
+            const cached = await OfflineDB.cacheGet("scratchpad_notes") || [];
+            const updated = cached.filter(n => n.id !== id);
+            await OfflineDB.cacheSet("scratchpad_notes", updated);
+            setAllNotes(updated); setNotes(updated);
+            if (!String(id).startsWith("tmp_")) {
+              await OfflineDB.queueAdd({ method: "DELETE", url: `/api/scratchpad/${id}`, body: {} });
+            }
+            showToast("📶 Dihapus offline, akan sync saat online");
+          } else { showToast(e.message, "error"); }
+        }
       };
 
       const fmtDate = (s) => {
