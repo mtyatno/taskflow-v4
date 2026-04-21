@@ -82,6 +82,18 @@
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
 
+    /* Modern dark scrollbar for note modal */
+    .note-modal-box { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+    .note-modal-box::-webkit-scrollbar { width: 4px; }
+    .note-modal-box::-webkit-scrollbar-track { background: transparent; }
+    .note-modal-box::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 4px; }
+    .note-modal-box::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+    .note-modal-content-input { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+    .note-modal-content-input::-webkit-scrollbar { width: 4px; }
+    .note-modal-content-input::-webkit-scrollbar-track { background: transparent; }
+    .note-modal-content-input::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 4px; }
+    .note-modal-content-input::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+
     /* Animations */
     @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes slideIn { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
@@ -5278,7 +5290,7 @@
                   <PriBadge p={t.priority} />
                   <span style={{ flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                   <button
-                    onClick={() => { onTaskClick && onTaskClick(t); }}
+                    onClick={() => { onClose(); setTimeout(() => onTaskClick && onTaskClick(t), 60); }}
                     style={{ background: "none", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11, fontWeight: 600, color: "var(--accent)", cursor: "pointer", padding: "2px 8px", flexShrink: 0 }}>
                     Buka
                   </button>
@@ -5370,7 +5382,7 @@
                 {expanded ? "⊡ Compact" : "⤢ Expand"}
               </button>
             )}
-            <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
+            <button onClick={() => { if (note?.id) saveOnly().catch(() => {}); onClose(); }} style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
           </div>
         </div>
       );
@@ -5605,11 +5617,11 @@
                       #{tag}
                     </span>
                   ))}
-                  {n.linked_task_title && (
-                    <span style={{ fontSize: 11, color: "var(--text-secondary)", background: "var(--bg-primary)", borderRadius: 6, padding: "2px 8px" }}>
-                      📌 {n.linked_task_title}
+                  {(n.linked_tasks || []).map(t => (
+                    <span key={t.id} style={{ fontSize: 11, color: "var(--text-secondary)", background: "var(--bg-primary)", borderRadius: 6, padding: "2px 8px" }}>
+                      📌 {t.title}
                     </span>
-                  )}
+                  ))}
                 </div>
               </div>
             ))
