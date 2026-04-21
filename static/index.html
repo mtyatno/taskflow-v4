@@ -738,7 +738,7 @@
     .wikilink { color: var(--accent); font-weight: 600; cursor: pointer; border-bottom: 1px dashed var(--accent); transition: opacity 0.15s; }
     .wikilink:hover { opacity: 0.75; }
     .wikilink-broken { color: var(--text-light); border-bottom: 1px dashed var(--text-light); cursor: default; font-style: italic; }
-    .wiki-autocomplete { position: absolute; background: var(--bg-card); border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.22); z-index: 2000; min-width: 200px; max-width: 320px; overflow: hidden; }
+    .wiki-autocomplete { position: fixed; background: var(--bg-card); border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.22); z-index: 2000; min-width: 200px; max-width: 320px; overflow: hidden; }
     .wiki-autocomplete-item { padding: 8px 14px; font-size: 13px; cursor: pointer; color: var(--text-primary); transition: background 0.1s; }
     .wiki-autocomplete-item:hover, .wiki-autocomplete-item.active { background: rgba(168,197,0,0.15); color: var(--accent); font-weight: 600; }
     .backlink-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; background: var(--bg-primary); margin-bottom: 5px; cursor: pointer; font-size: 13px; transition: opacity 0.15s; }
@@ -5151,11 +5151,13 @@
         if (!match) { setWikiDropdown(null); return; }
         const query = match[1].toLowerCase();
         const items = noteTitles.filter(n => n.title.toLowerCase().includes(query) && n.title !== title).slice(0, 6);
-        // Position dropdown below cursor — approximate
-        const lines = before.split("\n");
-        const lineHeight = 22;
-        const top = (lines.length) * lineHeight + 8;
-        setWikiDropdown({ top, query, items, activeIdx: 0 });
+        // Use fixed positioning relative to viewport so modal overflow-y doesn't clip
+        const rect = el.getBoundingClientRect();
+        const lh = parseFloat(getComputedStyle(el).lineHeight) || 22;
+        const linesBefore = before.split("\n").length;
+        const rawTop = rect.top + linesBefore * lh;
+        const top = rawTop + 260 > window.innerHeight ? rect.top - 4 : rawTop + 4;
+        setWikiDropdown({ top, left: rect.left + 8, query, items, activeIdx: 0 });
       };
 
       const insertWikilink = (t) => {
@@ -5193,9 +5195,14 @@
       };
       const removeTag = (t) => setTags(prev => prev.filter(x => x !== t));
 
+      // ref so async closures (✕ button) always see latest ids
+      const linkedTaskIdsRef = useRef(linkedTaskIds);
+      useEffect(() => { linkedTaskIdsRef.current = linkedTaskIds; }, [linkedTaskIds]);
+
       const saveOnly = async () => {
+        const ids = linkedTaskIdsRef.current;
         setSaving(true);
-        await onSave({ title, content, tags, linked_task_ids: linkedTaskIds, linked_task_id: linkedTaskIds[0] || null });
+        await onSave({ title, content, tags, linked_task_ids: ids, linked_task_id: ids[0] || null });
         setSaving(false);
       };
 
@@ -5244,7 +5251,7 @@
             {/* Wikilink autocomplete dropdown */}
             {wikiDropdown && wikiDropdown.items.length > 0 && (
               <div ref={wikiDropdownRef} className="wiki-autocomplete"
-                style={{ top: wikiDropdown.top, left: 12 }}>
+                style={{ position: "fixed", top: wikiDropdown.top, left: wikiDropdown.left }}>
                 {wikiDropdown.items.map((n, i) => (
                   <div key={n.id} className={`wiki-autocomplete-item${i === wikiDropdown.activeIdx ? " active" : ""}`}
                     onMouseDown={e => { e.preventDefault(); insertWikilink(n.title); }}>
@@ -5382,7 +5389,7 @@
                 {expanded ? "⊡ Compact" : "⤢ Expand"}
               </button>
             )}
-            <button onClick={() => { if (note?.id) saveOnly().catch(() => {}); onClose(); }} style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
+            <button onClick={async () => { if (note?.id) { try { await saveOnly(); } catch {} } onClose(); }} style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
           </div>
         </div>
       );
