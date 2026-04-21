@@ -263,6 +263,21 @@ class TaskRepository:
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_subtasks_client_id ON subtasks(client_id) WHERE client_id IS NOT NULL")
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_client_id ON task_notes(client_id) WHERE client_id IS NOT NULL")
 
+            # Scratchpad notes
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS scratchpad_notes (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    title       TEXT    NOT NULL DEFAULT '',
+                    content     TEXT    NOT NULL DEFAULT '',
+                    tags        TEXT    NOT NULL DEFAULT '[]',
+                    linked_task_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL,
+                    created_at  TEXT    DEFAULT (datetime('now')),
+                    updated_at  TEXT    DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_scratchpad_user ON scratchpad_notes(user_id, updated_at)")
+
     # ── Row to Task mapping ────────────────────────────────────────────────
 
     @staticmethod
