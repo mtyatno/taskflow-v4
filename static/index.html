@@ -1788,7 +1788,8 @@
         if (mode === "note") {
           if (!noteForm.content.trim() && !noteForm.title.trim()) { alert("Isi catatan tidak boleh kosong"); setLoading(false); return; }
           try {
-            await api.post("/api/scratchpad", { title: noteForm.title, content: noteForm.content, tags: noteForm.tags, linked_task_ids: [], linked_task_id: null });
+            const autoTags = [...new Set((noteForm.content.match(/(?:^|\s)#([a-zA-ZÀ-ɏ0-9_]+)/g) || []).map(t => t.trim().replace(/^#/, "")))];
+            await api.post("/api/scratchpad", { title: noteForm.title, content: noteForm.content, tags: autoTags, linked_task_ids: [], linked_task_id: null });
             window.dispatchEvent(new CustomEvent("noteSaved"));
             onSave();
           } catch (err) { alert(err.message); }
@@ -1920,20 +1921,31 @@
               )}
 
               {/* ── Note Form ── */}
-              {mode === "note" && (
-                <div>
-                  <label className="input-label">Judul <span style={{ color: "var(--text-light)", fontWeight: 400 }}>(opsional)</span></label>
-                  <input className="input" value={noteForm.title} onChange={e => setNote("title", e.target.value)} placeholder="Judul catatan..." style={{ marginBottom: 14 }} />
-                  <label className="input-label">Isi Catatan *</label>
-                  <textarea className="input" value={noteForm.content} onChange={e => setNote("content", e.target.value)}
-                    rows={6} placeholder={"Tulis catatan...\n# Heading  - bullet  - [ ] checklist"}
-                    style={{ marginBottom: 14, resize: "vertical", fontFamily: "inherit", lineHeight: 1.6 }} />
-                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                    <button type="button" className="btn btn-secondary" onClick={onClose}>Batal</button>
-                    <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? "Menyimpan..." : "Simpan Note"}</button>
+              {mode === "note" && (() => {
+                const detectedTags = [...new Set((noteForm.content.match(/(?:^|\s)#([a-zA-ZÀ-ɏ0-9_]+)/g) || []).map(t => t.trim().replace(/^#/, "")))];
+                return (
+                  <div>
+                    <label className="input-label">Judul <span style={{ color: "var(--text-light)", fontWeight: 400 }}>(opsional)</span></label>
+                    <input className="input" value={noteForm.title} onChange={e => setNote("title", e.target.value)} placeholder="Judul catatan..." style={{ marginBottom: 14 }} />
+                    <label className="input-label">Isi Catatan *</label>
+                    <textarea className="input" value={noteForm.content} onChange={e => setNote("content", e.target.value)}
+                      rows={6} placeholder={"Tulis catatan...\n\nGunakan #tag untuk menambahkan tag otomatis\n# Heading  - bullet  - [ ] checklist"}
+                      style={{ marginBottom: 6, resize: "vertical", fontFamily: "inherit", lineHeight: 1.6 }} />
+                    {detectedTags.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14, alignItems: "center" }}>
+                        <span style={{ fontSize: 11, color: "var(--text-light)" }}>Tag terdeteksi:</span>
+                        {detectedTags.map(t => (
+                          <span key={t} style={{ fontSize: 11, fontWeight: 600, background: "rgba(168,197,0,0.15)", color: "var(--accent)", borderRadius: 6, padding: "2px 8px" }}>#{t}</span>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                      <button type="button" className="btn btn-secondary" onClick={onClose}>Batal</button>
+                      <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? "Menyimpan..." : "Simpan Note"}</button>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* ── Task Form ── */}
               {mode === "task" && <div>
