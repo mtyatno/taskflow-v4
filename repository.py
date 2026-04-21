@@ -278,6 +278,11 @@ class TaskRepository:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_scratchpad_user ON scratchpad_notes(user_id, updated_at)")
 
+            # Migrate: add linked_to to scratchpad_notes if missing
+            sp_cols = [r["name"] for r in conn.execute("PRAGMA table_info(scratchpad_notes)").fetchall()]
+            if "linked_to" not in sp_cols:
+                conn.execute("ALTER TABLE scratchpad_notes ADD COLUMN linked_to TEXT NOT NULL DEFAULT '[]'")
+
     # ── Row to Task mapping ────────────────────────────────────────────────
 
     @staticmethod

@@ -723,6 +723,14 @@
     .note-modal-content-input { font-size: 14px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 12px; color: var(--text-primary); width: 100%; resize: vertical; min-height: 120px; outline: none; font-family: inherit; line-height: 1.6; }
     .note-modal-section-label { font-size: 11px; font-weight: 700; color: var(--text-secondary); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px; }
     .note-toolbar { display: flex; gap: 3px; flex-wrap: wrap; margin-bottom: 6px; }
+    .wikilink { color: var(--accent); font-weight: 600; cursor: pointer; border-bottom: 1px dashed var(--accent); transition: opacity 0.15s; }
+    .wikilink:hover { opacity: 0.75; }
+    .wikilink-broken { color: var(--text-light); border-bottom: 1px dashed var(--text-light); cursor: default; font-style: italic; }
+    .wiki-autocomplete { position: absolute; background: var(--bg-card); border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.22); z-index: 2000; min-width: 200px; max-width: 320px; overflow: hidden; }
+    .wiki-autocomplete-item { padding: 8px 14px; font-size: 13px; cursor: pointer; color: var(--text-primary); transition: background 0.1s; }
+    .wiki-autocomplete-item:hover, .wiki-autocomplete-item.active { background: rgba(168,197,0,0.15); color: var(--accent); font-weight: 600; }
+    .backlink-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; background: var(--bg-primary); margin-bottom: 5px; cursor: pointer; font-size: 13px; transition: opacity 0.15s; }
+    .backlink-item:hover { opacity: 0.75; }
     .note-toolbar button { background: none; border: 1px solid var(--border); border-radius: 5px; color: var(--text-secondary); font-size: 12px; font-weight: 700; cursor: pointer; padding: 3px 8px; line-height: 1.4; transition: all 0.1s; font-family: inherit; }
     .note-toolbar button:hover { background: var(--bg-primary); color: var(--text-primary); border-color: var(--accent); }
     .note-toolbar .sep { width: 1px; background: var(--border); margin: 2px 3px; align-self: stretch; }
@@ -4936,17 +4944,24 @@
 
     // ── Notes / Scratchpad ────────────────────────────────────────
 
-    function renderMarkdown(text) {
+    function renderMarkdown(text, noteTitles = []) {
       if (!text) return "";
       const lines = text.split("\n");
       let html = "";
       let inUl = false;
       const closeUl = () => { if (inUl) { html += "</ul>"; inUl = false; } };
       const escape = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const titleSet = new Set(noteTitles.map(t => t.toLowerCase()));
       const inline = (s) => escape(s)
         .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
         .replace(/\*(.+?)\*/g, "<em>$1</em>")
-        .replace(/`(.+?)`/g, "<code style='background:var(--bg-primary);border-radius:3px;padding:1px 5px;font-size:0.9em'>$1</code>");
+        .replace(/`(.+?)`/g, "<code style='background:var(--bg-primary);border-radius:3px;padding:1px 5px;font-size:0.9em'>$1</code>")
+        .replace(/\[\[([^\[\]]+)\]\]/g, (_, title) => {
+          const exists = titleSet.has(title.toLowerCase());
+          return exists
+            ? `<span class="wikilink" data-wiki-title="${title}">${title}</span>`
+            : `<span class="wikilink-broken" title="Note tidak ditemukan">[[${title}]]</span>`;
+        });
 
       for (let raw of lines) {
         const line = raw;
@@ -5047,6 +5062,72 @@
       const [preview, setPreview]     = useState(false);
       const textareaRef               = useRef(null);
 
+      // Wikilink autocomplete
+      const [wikiDropdown, setWikiDropdown] = useState(null); // { top, left, query, items, activeIdx }
+      const [noteTitles, setNoteTitles]     = useState([]);
+      const [backlinks, setBacklinks]       = useState([]);
+      const wikiDropdownRef = useRef(null);
+
+      useEffect(() => {
+        api.get("/api/scratchpad/titles").then(setNoteTitles).catch(() => {});
+        if (note?.id) {
+          api.get(`/api/scratchpad/${note.id}/backlinks`).then(setBacklinks).catch(() => {});
+        }
+      }, []);
+
+      // Handle [[  autocomplete in textarea
+      const handleContentKeyDown = (e) => {
+        if (wikiDropdown) {
+          if (e.key === "ArrowDown") { e.preventDefault(); setWikiDropdown(d => ({ ...d, activeIdx: Math.min(d.activeIdx + 1, d.items.length - 1) })); return; }
+          if (e.key === "ArrowUp")   { e.preventDefault(); setWikiDropdown(d => ({ ...d, activeIdx: Math.max(d.activeIdx - 1, 0) })); return; }
+          if (e.key === "Enter" || e.key === "Tab") {
+            e.preventDefault();
+            if (wikiDropdown.items[wikiDropdown.activeIdx]) insertWikilink(wikiDropdown.items[wikiDropdown.activeIdx].title);
+            return;
+          }
+          if (e.key === "Escape") { setWikiDropdown(null); return; }
+        }
+      };
+
+      const handleContentChange = (val) => {
+        setContent(val);
+        const el = textareaRef.current;
+        if (!el) return;
+        const pos = el.selectionStart;
+        const before = val.slice(0, pos);
+        const match = before.match(/\[\[([^\]]*)$/);
+        if (!match) { setWikiDropdown(null); return; }
+        const query = match[1].toLowerCase();
+        const items = noteTitles.filter(n => n.title.toLowerCase().includes(query) && n.title !== title).slice(0, 6);
+        // Position dropdown below cursor — approximate
+        const lines = before.split("\n");
+        const lineHeight = 22;
+        const top = (lines.length) * lineHeight + 8;
+        setWikiDropdown({ top, query, items, activeIdx: 0 });
+      };
+
+      const insertWikilink = (t) => {
+        const el = textareaRef.current;
+        if (!el) return;
+        const pos = el.selectionStart;
+        const before = content.slice(0, pos);
+        const after  = content.slice(pos);
+        const replaced = before.replace(/\[\[([^\]]*)$/, `[[${t}]]`);
+        setContent(replaced + after);
+        setWikiDropdown(null);
+        setTimeout(() => { el.focus(); el.setSelectionRange(replaced.length, replaced.length); }, 0);
+      };
+
+      // Click wikilink in preview
+      const handlePreviewClick = (e) => {
+        const el = e.target.closest("[data-wiki-title]");
+        if (el) {
+          const t = el.getAttribute("data-wiki-title");
+          const found = noteTitles.find(n => n.title.toLowerCase() === t.toLowerCase());
+          if (found) { /* parent NotesPage doesn't exist here — we dispatch event */ window.dispatchEvent(new CustomEvent("openNote", { detail: found.id })); }
+        } else { setPreview(false); }
+      };
+
       const linkedTask    = tasks.find(t => t.id === linkedTaskId);
       const filteredTasks = tasks.filter(t =>
         t.gtd_status !== "done" && t.gtd_status !== "archived" &&
@@ -5082,9 +5163,9 @@
           />
 
           {/* Content */}
-          <div>
+          <div style={{ position: "relative" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-              <NoteToolbar textareaRef={textareaRef} value={content} onChange={setContent} />
+              <NoteToolbar textareaRef={textareaRef} value={content} onChange={handleContentChange} />
               <button onClick={() => setPreview(p => !p)}
                 style={{ background: "none", border: "1px solid var(--border)", borderRadius: 5, fontSize: 11, fontWeight: 600,
                   color: preview ? "var(--accent)" : "var(--text-secondary)", cursor: "pointer", padding: "3px 8px", flexShrink: 0, marginLeft: 6 }}>
@@ -5094,18 +5175,31 @@
             {preview ? (
               <div className="note-rendered note-modal-content-input"
                 style={{ minHeight: expanded ? "calc(100vh - 380px)" : 120, cursor: "text", overflowY: "auto" }}
-                onClick={() => setPreview(false)}
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(content) || '<span style="color:var(--text-light)">Klik untuk edit...</span>' }}
+                onClick={handlePreviewClick}
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(content, noteTitles.map(n => n.title)) || '<span style="color:var(--text-light)">Klik untuk edit...</span>' }}
               />
             ) : (
               <textarea
                 ref={textareaRef}
                 className="note-modal-content-input"
-                placeholder="Tulis isi catatan... (# H1, ## H2, - bullet, - [ ] checklist)"
+                placeholder={"Tulis isi catatan...\n# H1  ## H2  - bullet  - [ ] checklist  [[Link Note]]"}
                 value={content}
-                onChange={e => setContent(e.target.value)}
+                onChange={e => handleContentChange(e.target.value)}
+                onKeyDown={handleContentKeyDown}
                 style={{ minHeight: expanded ? "calc(100vh - 380px)" : 120, fontSize: expanded ? 15 : 14, resize: expanded ? "none" : "vertical" }}
               />
+            )}
+            {/* Wikilink autocomplete dropdown */}
+            {wikiDropdown && wikiDropdown.items.length > 0 && (
+              <div ref={wikiDropdownRef} className="wiki-autocomplete"
+                style={{ top: wikiDropdown.top, left: 12 }}>
+                {wikiDropdown.items.map((n, i) => (
+                  <div key={n.id} className={`wiki-autocomplete-item${i === wikiDropdown.activeIdx ? " active" : ""}`}
+                    onMouseDown={e => { e.preventDefault(); insertWikilink(n.title); }}>
+                    [[{n.title}]]
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
@@ -5172,6 +5266,21 @@
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Backlinks — hidden in focus mode */}
+          {!focus && backlinks.length > 0 && (
+            <div>
+              <div className="note-modal-section-label">🔗 Disebutkan di ({backlinks.length})</div>
+              {backlinks.map(bl => (
+                <div key={bl.id} className="backlink-item"
+                  onClick={() => window.dispatchEvent(new CustomEvent("openNote", { detail: bl.id }))}>
+                  <span style={{ fontSize: 15 }}>📝</span>
+                  <span style={{ flex: 1, fontWeight: 600 }}>{bl.title || "(tanpa judul)"}</span>
+                  <span style={{ fontSize: 11, color: "var(--text-light)" }}>{bl.updated_at?.slice(0,10)}</span>
+                </div>
+              ))}
             </div>
           )}
 
@@ -5274,6 +5383,22 @@
         window.addEventListener("noteSaved", handler);
         return () => window.removeEventListener("noteSaved", handler);
       }, [q]);
+
+      // Open a specific note by ID (from wikilink / backlink click)
+      useEffect(() => {
+        const handler = async (e) => {
+          const id = e.detail;
+          const cached = allNotes.find(n => n.id === id);
+          if (cached) { setSelected(cached); setShowModal(true); return; }
+          try {
+            const all = await api.get("/api/scratchpad");
+            const found = all.find(n => n.id === id);
+            if (found) { setAllNotes(all); setNotes(all); setSelected(found); setShowModal(true); }
+          } catch {}
+        };
+        window.addEventListener("openNote", handler);
+        return () => window.removeEventListener("openNote", handler);
+      }, [allNotes]);
 
       const handleSearch = (val) => {
         setQ(val);

@@ -1551,11 +1551,28 @@ async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_cu
 
 def _scratchpad_row(row) -> dict:
     d = dict(row)
-    try:
-        d["tags"] = json.loads(d.get("tags") or "[]")
-    except Exception:
-        d["tags"] = []
+    try: d["tags"] = json.loads(d.get("tags") or "[]")
+    except Exception: d["tags"] = []
+    try: d["linked_to"] = json.loads(d.get("linked_to") or "[]")
+    except Exception: d["linked_to"] = []
     return d
+
+def _parse_wikilinks(content: str) -> list[str]:
+    """Extract [[Title]] references from note content."""
+    import re as _re
+    return list(dict.fromkeys(_re.findall(r"\[\[([^\[\]]+)\]\]", content)))
+
+def _resolve_linked_to(titles: list[str], user_id: int, conn) -> list[int]:
+    """Resolve note titles to IDs for the given user."""
+    if not titles:
+        return []
+    placeholders = ",".join("?" * len(titles))
+    rows = conn.execute(
+        f"SELECT id, title FROM scratchpad_notes WHERE user_id = ? AND title IN ({placeholders})",
+        [user_id] + titles,
+    ).fetchall()
+    title_map = {r["title"].strip().lower(): r["id"] for r in rows}
+    return [title_map[t.strip().lower()] for t in titles if t.strip().lower() in title_map]
 
 @app.get("/api/scratchpad")
 async def list_scratchpad(q: str = "", user=Depends(get_current_user)):
@@ -1596,20 +1613,24 @@ async def recent_scratchpad(user=Depends(get_current_user)):
         ).fetchall()
     return [_scratchpad_row(r) for r in rows]
 
+_NOTE_SELECT = """SELECT s.*, t.title as linked_task_title
+                  FROM scratchpad_notes s
+                  LEFT JOIN tasks t ON t.id = s.linked_task_id
+                  WHERE s.id = ?"""
+
 @app.post("/api/scratchpad")
 async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user)):
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
     with get_db() as conn:
+        titles = _parse_wikilinks(req.content)
+        linked_ids = _resolve_linked_to(titles, uid, conn)
         cur = conn.execute(
-            """INSERT INTO scratchpad_notes (user_id, title, content, tags, linked_task_id, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?)""",
-            (uid, req.title, req.content, json.dumps(req.tags), req.linked_task_id, now, now)
+            """INSERT INTO scratchpad_notes (user_id, title, content, tags, linked_task_id, linked_to, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (uid, req.title, req.content, json.dumps(req.tags), req.linked_task_id, json.dumps(linked_ids), now, now)
         )
-        row = conn.execute(
-            "SELECT s.*, t.title as linked_task_title FROM scratchpad_notes s LEFT JOIN tasks t ON t.id = s.linked_task_id WHERE s.id = ?",
-            (cur.lastrowid,)
-        ).fetchone()
+        row = conn.execute(_NOTE_SELECT, (cur.lastrowid,)).fetchone()
     return _scratchpad_row(row)
 
 @app.put("/api/scratchpad/{note_id}")
@@ -1617,28 +1638,54 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
     with get_db() as conn:
-        row = conn.execute("SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone()
-        if not row:
+        if not conn.execute("SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone():
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        titles = _parse_wikilinks(req.content)
+        linked_ids = _resolve_linked_to(titles, uid, conn)
         conn.execute(
-            "UPDATE scratchpad_notes SET title=?, content=?, tags=?, linked_task_id=?, updated_at=? WHERE id=?",
-            (req.title, req.content, json.dumps(req.tags), req.linked_task_id, now, note_id)
+            "UPDATE scratchpad_notes SET title=?, content=?, tags=?, linked_task_id=?, linked_to=?, updated_at=? WHERE id=?",
+            (req.title, req.content, json.dumps(req.tags), req.linked_task_id, json.dumps(linked_ids), now, note_id)
         )
-        updated = conn.execute(
-            "SELECT s.*, t.title as linked_task_title FROM scratchpad_notes s LEFT JOIN tasks t ON t.id = s.linked_task_id WHERE s.id = ?",
-            (note_id,)
-        ).fetchone()
+        updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
     return _scratchpad_row(updated)
 
 @app.delete("/api/scratchpad/{note_id}")
 async def delete_scratchpad(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        row = conn.execute("SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone()
-        if not row:
+        if not conn.execute("SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone():
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
         conn.execute("DELETE FROM scratchpad_notes WHERE id = ?", (note_id,))
     return {"ok": True}
+
+@app.get("/api/scratchpad/{note_id}/backlinks")
+async def get_backlinks(note_id: int, user=Depends(get_current_user)):
+    """Return all notes whose linked_to contains this note_id."""
+    uid = user["sub"]
+    with get_db() as conn:
+        if not conn.execute("SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone():
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        rows = conn.execute(
+            """SELECT id, title, updated_at FROM scratchpad_notes
+               WHERE user_id = ? AND id != ?
+               AND json_type(linked_to) = 'array'
+               AND EXISTS (
+                   SELECT 1 FROM json_each(linked_to) WHERE value = ?
+               )""",
+            (uid, note_id, note_id)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+@app.get("/api/scratchpad/titles")
+async def get_note_titles(user=Depends(get_current_user)):
+    """Return all note id+title pairs for autocomplete."""
+    uid = user["sub"]
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, title FROM scratchpad_notes WHERE user_id = ? AND title != '' ORDER BY updated_at DESC",
+            (uid,)
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
