@@ -5195,14 +5195,9 @@
       };
       const removeTag = (t) => setTags(prev => prev.filter(x => x !== t));
 
-      // ref so async closures (✕ button) always see latest ids
-      const linkedTaskIdsRef = useRef(linkedTaskIds);
-      useEffect(() => { linkedTaskIdsRef.current = linkedTaskIds; }, [linkedTaskIds]);
-
       const saveOnly = async () => {
-        const ids = linkedTaskIdsRef.current;
         setSaving(true);
-        await onSave({ title, content, tags, linked_task_ids: ids, linked_task_id: ids[0] || null });
+        await onSave({ title, content, tags, linked_task_ids: linkedTaskIds, linked_task_id: linkedTaskIds[0] || null });
         setSaving(false);
       };
 
@@ -5249,15 +5244,19 @@
               />
             )}
             {/* Wikilink autocomplete dropdown */}
-            {wikiDropdown && wikiDropdown.items.length > 0 && (
+            {wikiDropdown && (
               <div ref={wikiDropdownRef} className="wiki-autocomplete"
                 style={{ position: "fixed", top: wikiDropdown.top, left: wikiDropdown.left }}>
-                {wikiDropdown.items.map((n, i) => (
+                {wikiDropdown.items.length > 0 ? wikiDropdown.items.map((n, i) => (
                   <div key={n.id} className={`wiki-autocomplete-item${i === wikiDropdown.activeIdx ? " active" : ""}`}
                     onMouseDown={e => { e.preventDefault(); insertWikilink(n.title); }}>
                     [[{n.title}]]
                   </div>
-                ))}
+                )) : (
+                  <div className="wiki-autocomplete-item" style={{ color: "var(--text-light)", cursor: "default", fontStyle: "italic" }}>
+                    {noteTitles.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan"}
+                  </div>
+                )}
               </div>
             )}
           </div>

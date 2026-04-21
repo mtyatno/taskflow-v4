@@ -1559,6 +1559,9 @@ def _scratchpad_row(row, conn=None) -> dict:
     except Exception: d["linked_to"] = []
     try: d["linked_task_ids"] = json.loads(d.get("linked_task_ids") or "[]")
     except Exception: d["linked_task_ids"] = []
+    # Fallback: migrate single linked_task_id into the list if list is empty
+    if not d["linked_task_ids"] and d.get("linked_task_id"):
+        d["linked_task_ids"] = [d["linked_task_id"]]
     # Fetch linked task details
     if conn and d["linked_task_ids"]:
         ids = d["linked_task_ids"]
@@ -1622,6 +1625,17 @@ async def recent_scratchpad(user=Depends(get_current_user)):
 
 _NOTE_SELECT = "SELECT * FROM scratchpad_notes WHERE id = ?"
 
+@app.get("/api/scratchpad/titles")
+async def get_note_titles(user=Depends(get_current_user)):
+    """Return all note id+title pairs for autocomplete."""
+    uid = user["sub"]
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, title FROM scratchpad_notes WHERE user_id = ? AND title != '' ORDER BY updated_at DESC",
+            (uid,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
 @app.post("/api/scratchpad")
 async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user)):
     uid = user["sub"]
@@ -1684,17 +1698,6 @@ async def get_backlinks(note_id: int, user=Depends(get_current_user)):
                    SELECT 1 FROM json_each(linked_to) WHERE value = ?
                )""",
             (uid, note_id, note_id)
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-@app.get("/api/scratchpad/titles")
-async def get_note_titles(user=Depends(get_current_user)):
-    """Return all note id+title pairs for autocomplete."""
-    uid = user["sub"]
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT id, title FROM scratchpad_notes WHERE user_id = ? AND title != '' ORDER BY updated_at DESC",
-            (uid,)
         ).fetchall()
     return [dict(r) for r in rows]
 
