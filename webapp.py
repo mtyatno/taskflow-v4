@@ -197,12 +197,14 @@ class ScratchpadCreate(BaseModel):
     content: str = ""
     tags: list[str] = []
     linked_task_id: Optional[int] = None
+    linked_task_ids: list[int] = []
 
 class ScratchpadUpdate(BaseModel):
     title: str = ""
     content: str = ""
     tags: list[str] = []
     linked_task_id: Optional[int] = None
+    linked_task_ids: list[int] = []
 
 class JoinListReq(BaseModel):
     code: str
@@ -1549,12 +1551,27 @@ async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_cu
 
 # ── Scratchpad Notes ──────────────────────────────────────────────────────────
 
-def _scratchpad_row(row) -> dict:
+def _scratchpad_row(row, conn=None) -> dict:
     d = dict(row)
     try: d["tags"] = json.loads(d.get("tags") or "[]")
     except Exception: d["tags"] = []
     try: d["linked_to"] = json.loads(d.get("linked_to") or "[]")
     except Exception: d["linked_to"] = []
+    try: d["linked_task_ids"] = json.loads(d.get("linked_task_ids") or "[]")
+    except Exception: d["linked_task_ids"] = []
+    # Fetch linked task details
+    if conn and d["linked_task_ids"]:
+        ids = d["linked_task_ids"]
+        ph = ",".join("?" * len(ids))
+        tasks = conn.execute(
+            f"SELECT id, title, priority, gtd_status FROM tasks WHERE id IN ({ph})", ids
+        ).fetchall()
+        d["linked_tasks"] = [dict(t) for t in tasks]
+    else:
+        d["linked_tasks"] = []
+    # Backward compat: keep linked_task_title for single-link
+    if not d.get("linked_task_title") and d["linked_tasks"]:
+        d["linked_task_title"] = d["linked_tasks"][0]["title"]
     return d
 
 def _parse_wikilinks(content: str) -> list[str]:
@@ -1581,73 +1598,67 @@ async def list_scratchpad(q: str = "", user=Depends(get_current_user)):
         if q:
             pattern = f"%{q}%"
             rows = conn.execute(
-                """SELECT s.*, t.title as linked_task_title
-                   FROM scratchpad_notes s
-                   LEFT JOIN tasks t ON t.id = s.linked_task_id
+                """SELECT s.* FROM scratchpad_notes s
                    WHERE s.user_id = ? AND (s.title LIKE ? OR s.content LIKE ? OR s.tags LIKE ?)
                    ORDER BY s.updated_at DESC""",
                 (uid, pattern, pattern, pattern)
             ).fetchall()
         else:
             rows = conn.execute(
-                """SELECT s.*, t.title as linked_task_title
-                   FROM scratchpad_notes s
-                   LEFT JOIN tasks t ON t.id = s.linked_task_id
-                   WHERE s.user_id = ?
-                   ORDER BY s.updated_at DESC""",
+                "SELECT * FROM scratchpad_notes WHERE user_id = ? ORDER BY updated_at DESC",
                 (uid,)
             ).fetchall()
-    return [_scratchpad_row(r) for r in rows]
+        return [_scratchpad_row(r, conn) for r in rows]
 
 @app.get("/api/scratchpad/recent")
 async def recent_scratchpad(user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
         rows = conn.execute(
-            """SELECT s.*, t.title as linked_task_title
-               FROM scratchpad_notes s
-               LEFT JOIN tasks t ON t.id = s.linked_task_id
-               WHERE s.user_id = ?
-               ORDER BY s.updated_at DESC LIMIT 5""",
+            "SELECT * FROM scratchpad_notes WHERE user_id = ? ORDER BY updated_at DESC LIMIT 5",
             (uid,)
         ).fetchall()
-    return [_scratchpad_row(r) for r in rows]
+        return [_scratchpad_row(r, conn) for r in rows]
 
-_NOTE_SELECT = """SELECT s.*, t.title as linked_task_title
-                  FROM scratchpad_notes s
-                  LEFT JOIN tasks t ON t.id = s.linked_task_id
-                  WHERE s.id = ?"""
+_NOTE_SELECT = "SELECT * FROM scratchpad_notes WHERE id = ?"
 
 @app.post("/api/scratchpad")
 async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user)):
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
+    # Merge linked_task_id (legacy) into linked_task_ids
+    task_ids = list(dict.fromkeys(req.linked_task_ids + ([req.linked_task_id] if req.linked_task_id else [])))
     with get_db() as conn:
         titles = _parse_wikilinks(req.content)
         linked_ids = _resolve_linked_to(titles, uid, conn)
         cur = conn.execute(
-            """INSERT INTO scratchpad_notes (user_id, title, content, tags, linked_task_id, linked_to, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?)""",
-            (uid, req.title, req.content, json.dumps(req.tags), req.linked_task_id, json.dumps(linked_ids), now, now)
+            """INSERT INTO scratchpad_notes (user_id, title, content, tags, linked_task_id, linked_task_ids, linked_to, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (uid, req.title, req.content, json.dumps(req.tags),
+             task_ids[0] if task_ids else None, json.dumps(task_ids),
+             json.dumps(linked_ids), now, now)
         )
         row = conn.execute(_NOTE_SELECT, (cur.lastrowid,)).fetchone()
-    return _scratchpad_row(row)
+        return _scratchpad_row(row, conn)
 
 @app.put("/api/scratchpad/{note_id}")
 async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(get_current_user)):
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
+    task_ids = list(dict.fromkeys(req.linked_task_ids + ([req.linked_task_id] if req.linked_task_id else [])))
     with get_db() as conn:
         if not conn.execute("SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone():
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
         titles = _parse_wikilinks(req.content)
         linked_ids = _resolve_linked_to(titles, uid, conn)
         conn.execute(
-            "UPDATE scratchpad_notes SET title=?, content=?, tags=?, linked_task_id=?, linked_to=?, updated_at=? WHERE id=?",
-            (req.title, req.content, json.dumps(req.tags), req.linked_task_id, json.dumps(linked_ids), now, note_id)
+            "UPDATE scratchpad_notes SET title=?, content=?, tags=?, linked_task_id=?, linked_task_ids=?, linked_to=?, updated_at=? WHERE id=?",
+            (req.title, req.content, json.dumps(req.tags),
+             task_ids[0] if task_ids else None, json.dumps(task_ids),
+             json.dumps(linked_ids), now, note_id)
         )
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
-    return _scratchpad_row(updated)
+        return _scratchpad_row(updated, conn)
 
 @app.delete("/api/scratchpad/{note_id}")
 async def delete_scratchpad(note_id: int, user=Depends(get_current_user)):

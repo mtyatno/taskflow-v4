@@ -5048,13 +5048,19 @@
       );
     }
 
-    function NoteModal({ note, tasks, onClose, onSave, onDelete }) {
+    function NoteModal({ note, tasks, onClose, onSave, onDelete, onTaskClick }) {
       const [title, setTitle]         = useState(note?.title || "");
       const [content, setContent]     = useState(note?.content || "");
       const [tagInput, setTagInput]   = useState("");
       const [tags, setTags]           = useState(note?.tags || []);
-      const [linkedTaskId, setLinkedTaskId] = useState(note?.linked_task_id || null);
-      const [taskSearch, setTaskSearch]     = useState("");
+      // Multi-task linking
+      const initTaskIds = () => {
+        if (note?.linked_task_ids?.length) return note.linked_task_ids;
+        if (note?.linked_task_id) return [note.linked_task_id];
+        return [];
+      };
+      const [linkedTaskIds, setLinkedTaskIds] = useState(initTaskIds);
+      const [taskSearch, setTaskSearch]       = useState("");
       const [showTaskSearch, setShowTaskSearch] = useState(false);
       const [saving, setSaving]       = useState(false);
       const [expanded, setExpanded]   = useState(false);
@@ -5162,7 +5168,7 @@
         } else { setPreview(false); }
       };
 
-      const linkedTask    = tasks.find(t => t.id === linkedTaskId);
+      const linkedTasks   = tasks.filter(t => linkedTaskIds.includes(t.id));
       const filteredTasks = tasks.filter(t =>
         t.gtd_status !== "done" && t.gtd_status !== "archived" &&
         t.title.toLowerCase().includes(taskSearch.toLowerCase())
@@ -5177,7 +5183,7 @@
 
       const saveOnly = async () => {
         setSaving(true);
-        await onSave({ title, content, tags, linked_task_id: linkedTaskId });
+        await onSave({ title, content, tags, linked_task_ids: linkedTaskIds, linked_task_id: linkedTaskIds[0] || null });
         setSaving(false);
       };
 
@@ -5264,39 +5270,49 @@
           {/* Link ke Task — hidden in focus mode */}
           {!focus && (
             <div>
-              <div className="note-modal-section-label">Di-link ke Task</div>
-              {linkedTask ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-primary)", borderRadius: 8, padding: "8px 12px" }}>
-                  <PriBadge p={linkedTask.priority} />
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{linkedTask.title}</span>
-                  <button onClick={() => setLinkedTaskId(null)} style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16 }}>✕</button>
-                </div>
-              ) : (
-                <div>
-                  <button className="btn btn-secondary btn-sm" onClick={() => setShowTaskSearch(s => !s)}>
-                    + Tambah Link Task
+              <div className="note-modal-section-label">Di-link ke Task ({linkedTaskIds.length})</div>
+
+              {/* List linked tasks */}
+              {linkedTasks.map(t => (
+                <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-primary)", borderRadius: 8, padding: "8px 12px", marginBottom: 6 }}>
+                  <PriBadge p={t.priority} />
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                  <button
+                    onClick={() => { onTaskClick && onTaskClick(t); }}
+                    style={{ background: "none", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11, fontWeight: 600, color: "var(--accent)", cursor: "pointer", padding: "2px 8px", flexShrink: 0 }}>
+                    Buka
                   </button>
-                  {showTaskSearch && (
-                    <div style={{ marginTop: 8 }}>
-                      <input
-                        className="input" style={{ width: "100%", padding: "7px 10px", fontSize: 13, marginBottom: 6 }}
-                        placeholder="Cari task..."
-                        value={taskSearch}
-                        onChange={e => setTaskSearch(e.target.value)}
-                        autoFocus
-                      />
-                      {filteredTasks.map(t => (
-                        <div key={t.id} onClick={() => { setLinkedTaskId(t.id); setShowTaskSearch(false); setTaskSearch(""); }}
-                          style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13,
-                            background: "var(--bg-primary)", marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}
-                          onMouseEnter={e => e.currentTarget.style.opacity = "0.75"}
-                          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-                          <PriBadge p={t.priority} />
-                          {t.title}
-                        </div>
-                      ))}
-                      {filteredTasks.length === 0 && <div style={{ fontSize: 12, color: "var(--text-light)", padding: "6px 10px" }}>Tidak ada task ditemukan</div>}
+                  <button onClick={() => setLinkedTaskIds(ids => ids.filter(id => id !== t.id))}
+                    style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>✕</button>
+                </div>
+              ))}
+
+              {/* Add link search */}
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowTaskSearch(s => !s)}>
+                + Tambah Link Task
+              </button>
+              {showTaskSearch && (
+                <div style={{ marginTop: 8 }}>
+                  <input
+                    className="input" style={{ width: "100%", padding: "7px 10px", fontSize: 13, marginBottom: 6 }}
+                    placeholder="Cari task..."
+                    value={taskSearch}
+                    onChange={e => setTaskSearch(e.target.value)}
+                    autoFocus
+                  />
+                  {filteredTasks.filter(t => !linkedTaskIds.includes(t.id)).map(t => (
+                    <div key={t.id}
+                      onClick={() => { setLinkedTaskIds(ids => [...ids, t.id]); setShowTaskSearch(false); setTaskSearch(""); }}
+                      style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13,
+                        background: "var(--bg-primary)", marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = "0.75"}
+                      onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+                      <PriBadge p={t.priority} />
+                      {t.title}
                     </div>
+                  ))}
+                  {filteredTasks.filter(t => !linkedTaskIds.includes(t.id)).length === 0 && (
+                    <div style={{ fontSize: 12, color: "var(--text-light)", padding: "6px 10px" }}>Tidak ada task ditemukan</div>
                   )}
                 </div>
               )}
@@ -5382,7 +5398,7 @@
       );
     }
 
-    function NotesPage({ tasks, showToast }) {
+    function NotesPage({ tasks, showToast, onTaskClick }) {
       const [notes, setNotes]         = useState([]);
       const [allNotes, setAllNotes]   = useState([]);
       const [loading, setLoading]     = useState(true);
@@ -5607,6 +5623,7 @@
               onClose={() => { setShowModal(false); setSelected(null); }}
               onSave={handleSave}
               onDelete={handleDelete}
+              onTaskClick={onTaskClick}
             />
           )}
         </div>
@@ -6553,7 +6570,7 @@
         }
 
         if (page === "notes") {
-          return <NotesPage tasks={tasks} showToast={showToast} />;
+          return <NotesPage tasks={tasks} showToast={showToast} onTaskClick={setSelectedTask} />;
         }
 
         if (page === "settings") {

@@ -278,10 +278,17 @@ class TaskRepository:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_scratchpad_user ON scratchpad_notes(user_id, updated_at)")
 
-            # Migrate: add linked_to to scratchpad_notes if missing
+            # Migrate: add linked_to and linked_task_ids to scratchpad_notes if missing
             sp_cols = [r["name"] for r in conn.execute("PRAGMA table_info(scratchpad_notes)").fetchall()]
             if "linked_to" not in sp_cols:
                 conn.execute("ALTER TABLE scratchpad_notes ADD COLUMN linked_to TEXT NOT NULL DEFAULT '[]'")
+            if "linked_task_ids" not in sp_cols:
+                # Migrate existing linked_task_id → linked_task_ids array
+                conn.execute("ALTER TABLE scratchpad_notes ADD COLUMN linked_task_ids TEXT NOT NULL DEFAULT '[]'")
+                conn.execute("""
+                    UPDATE scratchpad_notes SET linked_task_ids = json_array(linked_task_id)
+                    WHERE linked_task_id IS NOT NULL AND linked_task_id != ''
+                """)
 
     # ── Row to Task mapping ────────────────────────────────────────────────
 
