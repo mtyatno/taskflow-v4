@@ -3920,7 +3920,7 @@
 
     // ── Dashboard ───────────────────────────────────────────────
     const SORT_PRI = (a, b) => ({ P1:0,P2:1,P3:2,P4:3 }[a.priority]??9) - ({ P1:0,P2:1,P3:2,P4:3 }[b.priority]??9);
-    function Dashboard({ summary, tasks, onTaskClick, onDone, onNav }) {
+    function Dashboard({ summary, tasks, onTaskClick, onDone, onNav, showToast }) {
       const q1Tasks = tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done").sort(SORT_PRI);
       const q2Tasks = tasks.filter(t => t.quadrant === "Q2" && t.gtd_status !== "done").sort(SORT_PRI);
       const q3Tasks = tasks.filter(t => t.quadrant === "Q3" && t.gtd_status !== "done").sort(SORT_PRI);
@@ -3939,13 +3939,14 @@
       const handleScratch = async (e) => {
         if (e.key !== "Enter" || !scratchInput.trim()) return;
         const text = scratchInput.trim();
-        setScratchInput("");
         try {
           await api.post("/api/scratchpad", { title: text.slice(0, 80), content: text, tags: [] });
+          setScratchInput("");
           const data = await api.get("/api/scratchpad/recent");
           setRecentNotes(data);
           window.dispatchEvent(new CustomEvent("noteSaved"));
-        } catch (err) { console.error(err); }
+          showToast("📝 Catatan disimpan");
+        } catch (err) { showToast(err.message || "Gagal menyimpan catatan", "error"); }
       };
 
       const openModal = (title, cellTasks) => setDashModal({ title, tasks: cellTasks });
@@ -6107,7 +6108,7 @@
         }
 
         if (page === "dashboard") {
-          return <Dashboard summary={summary} tasks={tasks} onTaskClick={setSelectedTask} onDone={handleDone} onNav={setPage} />;
+          return <Dashboard summary={summary} tasks={tasks} onTaskClick={setSelectedTask} onDone={handleDone} onNav={setPage} showToast={showToast} />;
         }
         
         if (page === "today") {
