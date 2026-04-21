@@ -4905,16 +4905,17 @@
     // ── Notes / Scratchpad ────────────────────────────────────────
 
     function NoteModal({ note, tasks, onClose, onSave, onDelete }) {
-      const [title, setTitle]   = useState(note?.title || "");
-      const [content, setContent] = useState(note?.content || "");
-      const [tagInput, setTagInput] = useState("");
-      const [tags, setTags]     = useState(note?.tags || []);
+      const [title, setTitle]         = useState(note?.title || "");
+      const [content, setContent]     = useState(note?.content || "");
+      const [tagInput, setTagInput]   = useState("");
+      const [tags, setTags]           = useState(note?.tags || []);
       const [linkedTaskId, setLinkedTaskId] = useState(note?.linked_task_id || null);
-      const [taskSearch, setTaskSearch] = useState("");
+      const [taskSearch, setTaskSearch]     = useState("");
       const [showTaskSearch, setShowTaskSearch] = useState(false);
-      const [saving, setSaving] = useState(false);
+      const [saving, setSaving]       = useState(false);
+      const [expanded, setExpanded]   = useState(false);
 
-      const linkedTask = tasks.find(t => t.id === linkedTaskId);
+      const linkedTask    = tasks.find(t => t.id === linkedTaskId);
       const filteredTasks = tasks.filter(t =>
         t.gtd_status !== "done" && t.gtd_status !== "archived" &&
         t.title.toLowerCase().includes(taskSearch.toLowerCase())
@@ -4934,110 +4935,142 @@
         onClose();
       };
 
+      // ── Shared inner content ──────────────────────────────────────
+      const inner = (
+        <>
+          {/* Title */}
+          <input
+            className="note-modal-title-input"
+            placeholder="Judul catatan..."
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            autoFocus={!expanded}
+            style={{ fontSize: expanded ? 22 : undefined }}
+          />
+
+          {/* Content */}
+          <textarea
+            className="note-modal-content-input"
+            placeholder="Tulis isi catatan..."
+            value={content}
+            onChange={e => setContent(e.target.value)}
+            style={{ minHeight: expanded ? "calc(100vh - 340px)" : 120, fontSize: expanded ? 15 : 14, resize: expanded ? "none" : "vertical" }}
+          />
+
+          {/* Tags */}
+          <div>
+            <div className="note-modal-section-label">Tags</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              {tags.map(t => (
+                <span key={t} className="note-tag" style={{ cursor: "pointer" }} onClick={() => removeTag(t)}>
+                  #{t} ✕
+                </span>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                className="input" style={{ flex: 1, padding: "6px 10px", fontSize: 13 }}
+                placeholder="#tag baru..."
+                value={tagInput}
+                onChange={e => setTagInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(); } }}
+              />
+              <button className="btn btn-secondary btn-sm" onClick={addTag}>+ Tag</button>
+            </div>
+          </div>
+
+          {/* Link ke Task */}
+          <div>
+            <div className="note-modal-section-label">Di-link ke Task</div>
+            {linkedTask ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-primary)", borderRadius: 8, padding: "8px 12px" }}>
+                <PriBadge p={linkedTask.priority} />
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{linkedTask.title}</span>
+                <button onClick={() => setLinkedTaskId(null)} style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16 }}>✕</button>
+              </div>
+            ) : (
+              <div>
+                <button className="btn btn-secondary btn-sm" onClick={() => setShowTaskSearch(s => !s)}>
+                  + Tambah Link Task
+                </button>
+                {showTaskSearch && (
+                  <div style={{ marginTop: 8 }}>
+                    <input
+                      className="input" style={{ width: "100%", padding: "7px 10px", fontSize: 13, marginBottom: 6 }}
+                      placeholder="Cari task..."
+                      value={taskSearch}
+                      onChange={e => setTaskSearch(e.target.value)}
+                      autoFocus
+                    />
+                    {filteredTasks.map(t => (
+                      <div key={t.id} onClick={() => { setLinkedTaskId(t.id); setShowTaskSearch(false); setTaskSearch(""); }}
+                        style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13,
+                          background: "var(--bg-primary)", marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = "0.75"}
+                        onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+                        <PriBadge p={t.priority} />
+                        {t.title}
+                      </div>
+                    ))}
+                    {filteredTasks.length === 0 && <div style={{ fontSize: 12, color: "var(--text-light)", padding: "6px 10px" }}>Tidak ada task ditemukan</div>}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+            <button className="btn btn-secondary btn-sm" onClick={onClose}>Batal</button>
+            <button className="btn btn-sm" style={{ background: "var(--accent)", color: "#111", fontWeight: 700 }}
+              onClick={handleSave} disabled={saving}>
+              {saving ? "Menyimpan..." : "Simpan"}
+            </button>
+          </div>
+        </>
+      );
+
+      // ── Header (shared) ───────────────────────────────────────────
+      const header = (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexShrink: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--accent)" }}>⚡ Catatan</div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {note?.id && (
+              <button onClick={() => { onDelete(note.id); onClose(); }}
+                style={{ background: "none", border: "none", color: "#ef4444", fontSize: 13, cursor: "pointer", padding: "2px 6px" }}>
+                🗑 Hapus
+              </button>
+            )}
+            <button
+              onClick={() => setExpanded(e => !e)}
+              title={expanded ? "Compact" : "Expand"}
+              style={{ background: "none", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-secondary)",
+                fontSize: 13, cursor: "pointer", padding: "3px 8px", lineHeight: 1.4 }}>
+              {expanded ? "⊡ Compact" : "⤢ Expand"}
+            </button>
+            <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
+          </div>
+        </div>
+      );
+
+      // ── Expanded: full-screen panel ───────────────────────────────
+      if (expanded) {
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "var(--bg-page)", zIndex: 1000, display: "flex", flexDirection: "column", padding: "24px 32px", overflowY: "auto" }}>
+            {header}
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, flex: 1 }}>
+              {inner}
+            </div>
+          </div>
+        );
+      }
+
+      // ── Compact: modal ────────────────────────────────────────────
       return (
         <div className="note-modal-overlay" onClick={onClose}>
           <div className="note-modal-box" onClick={e => e.stopPropagation()}>
-            {/* Header */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--accent)" }}>⚡ Catatan</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                {note?.id && (
-                  <button onClick={() => { onDelete(note.id); onClose(); }}
-                    style={{ background: "none", border: "none", color: "#ef4444", fontSize: 13, cursor: "pointer", padding: "2px 6px" }}>
-                    🗑 Hapus
-                  </button>
-                )}
-                <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
-              </div>
-            </div>
-
-            {/* Title */}
-            <input
-              className="note-modal-title-input"
-              placeholder="Judul catatan..."
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              autoFocus
-            />
-
-            {/* Content */}
-            <textarea
-              className="note-modal-content-input"
-              placeholder="Tulis isi catatan..."
-              value={content}
-              onChange={e => setContent(e.target.value)}
-            />
-
-            {/* Tags */}
-            <div>
-              <div className="note-modal-section-label">Tags</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-                {tags.map(t => (
-                  <span key={t} className="note-tag" style={{ cursor: "pointer" }} onClick={() => removeTag(t)}>
-                    #{t} ✕
-                  </span>
-                ))}
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <input
-                  className="input" style={{ flex: 1, padding: "6px 10px", fontSize: 13 }}
-                  placeholder="#tag baru..."
-                  value={tagInput}
-                  onChange={e => setTagInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(); } }}
-                />
-                <button className="btn btn-secondary btn-sm" onClick={addTag}>+ Tag</button>
-              </div>
-            </div>
-
-            {/* Link ke Task */}
-            <div>
-              <div className="note-modal-section-label">Di-link ke Task</div>
-              {linkedTask ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-primary)", borderRadius: 8, padding: "8px 12px" }}>
-                  <PriBadge p={linkedTask.priority} />
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{linkedTask.title}</span>
-                  <button onClick={() => setLinkedTaskId(null)} style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16 }}>✕</button>
-                </div>
-              ) : (
-                <div>
-                  <button className="btn btn-secondary btn-sm" onClick={() => setShowTaskSearch(s => !s)}>
-                    + Tambah Link Task
-                  </button>
-                  {showTaskSearch && (
-                    <div style={{ marginTop: 8 }}>
-                      <input
-                        className="input" style={{ width: "100%", padding: "7px 10px", fontSize: 13, marginBottom: 6 }}
-                        placeholder="Cari task..."
-                        value={taskSearch}
-                        onChange={e => setTaskSearch(e.target.value)}
-                        autoFocus
-                      />
-                      {filteredTasks.map(t => (
-                        <div key={t.id} onClick={() => { setLinkedTaskId(t.id); setShowTaskSearch(false); setTaskSearch(""); }}
-                          style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13,
-                            background: "var(--bg-primary)", marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}
-                          onMouseEnter={e => e.currentTarget.style.opacity = "0.75"}
-                          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-                          <PriBadge p={t.priority} />
-                          {t.title}
-                        </div>
-                      ))}
-                      {filteredTasks.length === 0 && <div style={{ fontSize: 12, color: "var(--text-light)", padding: "6px 10px" }}>Tidak ada task ditemukan</div>}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
-              <button className="btn btn-secondary btn-sm" onClick={onClose}>Batal</button>
-              <button className="btn btn-sm" style={{ background: "var(--accent)", color: "#111", fontWeight: 700 }}
-                onClick={handleSave} disabled={saving}>
-                {saving ? "Menyimpan..." : "Simpan"}
-              </button>
-            </div>
+            {header}
+            {inner}
           </div>
         </div>
       );
