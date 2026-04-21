@@ -5078,14 +5078,17 @@
 
     function NotesPage({ tasks, showToast }) {
       const [notes, setNotes]         = useState([]);
+      const [allNotes, setAllNotes]   = useState([]);
       const [loading, setLoading]     = useState(true);
       const [q, setQ]                 = useState("");
-      const [selected, setSelected]   = useState(null); // note obj or {} for new
+      const [activeTag, setActiveTag] = useState(null);
+      const [selected, setSelected]   = useState(null);
       const [showModal, setShowModal] = useState(false);
 
       const fetchNotes = async (query = "") => {
         try {
           const data = await api.get(`/api/scratchpad${query ? `?q=${encodeURIComponent(query)}` : ""}`);
+          setAllNotes(data);
           setNotes(data);
         } catch (e) { console.error(e); }
         setLoading(false);
@@ -5099,7 +5102,26 @@
         return () => window.removeEventListener("noteSaved", handler);
       }, [q]);
 
-      const handleSearch = (val) => { setQ(val); fetchNotes(val); };
+      const handleSearch = (val) => {
+        setQ(val);
+        setActiveTag(null);
+        fetchNotes(val);
+      };
+
+      const handleTagFilter = (tag) => {
+        if (activeTag === tag) {
+          // toggle off
+          setActiveTag(null);
+          setNotes(allNotes);
+        } else {
+          setActiveTag(tag);
+          setNotes(allNotes.filter(n => (n.tags || []).includes(tag)));
+        }
+        setQ("");
+      };
+
+      // collect all unique tags from all notes
+      const allTags = [...new Set(allNotes.flatMap(n => n.tags || []))].sort();
 
       const openNew = () => { setSelected({}); setShowModal(true); };
       const openEdit = (n) => { setSelected(n); setShowModal(true); };
@@ -5113,7 +5135,8 @@
             await api.post("/api/scratchpad", data);
             showToast("✅ Catatan dibuat");
           }
-          fetchNotes(q);
+          await fetchNotes(q);
+          if (activeTag) setNotes(prev => allNotes.filter(n => (n.tags || []).includes(activeTag)));
           window.dispatchEvent(new CustomEvent("noteSaved"));
         } catch (e) { showToast(e.message, "error"); }
       };
@@ -5123,6 +5146,7 @@
           await api.del(`/api/scratchpad/${id}`);
           showToast("🗑 Catatan dihapus");
           fetchNotes(q);
+          setActiveTag(null);
         } catch (e) { showToast(e.message, "error"); }
       };
 
@@ -5134,7 +5158,7 @@
 
       return (
         <div className="fade-in">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h1 style={{ fontSize: 22, fontWeight: 700 }}>📝 Notes</h1>
             <button className="btn btn-sm" style={{ background: "var(--accent)", color: "#111", fontWeight: 700 }} onClick={openNew}>
               + Catatan Baru
@@ -5142,7 +5166,7 @@
           </div>
 
           {/* Search */}
-          <div className="scratchpad-bar" style={{ marginBottom: 20 }}>
+          <div className="scratchpad-bar" style={{ marginBottom: 12 }}>
             <span style={{ fontSize: 15, color: "var(--text-secondary)" }}>🔍</span>
             <input
               value={q}
@@ -5152,12 +5176,39 @@
             {q && <button onClick={() => handleSearch("")} style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16 }}>✕</button>}
           </div>
 
+          {/* Tag filter bar */}
+          {allTags.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
+              {allTags.map(tag => (
+                <span
+                  key={tag}
+                  onClick={() => handleTagFilter(tag)}
+                  className="note-tag"
+                  style={{
+                    cursor: "pointer",
+                    background: activeTag === tag ? "var(--accent)" : "rgba(168,197,0,0.12)",
+                    color: activeTag === tag ? "#111" : "var(--accent)",
+                    fontWeight: activeTag === tag ? 700 : 600,
+                    transition: "all 0.15s",
+                  }}>
+                  #{tag}
+                </span>
+              ))}
+              {activeTag && (
+                <span onClick={() => handleTagFilter(activeTag)}
+                  style={{ fontSize: 11, color: "var(--text-secondary)", cursor: "pointer", padding: "2px 6px", alignSelf: "center" }}>
+                  ✕ reset
+                </span>
+              )}
+            </div>
+          )}
+
           {/* List */}
           {loading ? (
             <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40 }}>Memuat...</div>
           ) : notes.length === 0 ? (
             <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40 }}>
-              {q ? "Tidak ada catatan yang cocok." : "Belum ada catatan. Tulis sesuatu!"}
+              {activeTag ? `Tidak ada catatan dengan tag #${activeTag}` : q ? "Tidak ada catatan yang cocok." : "Belum ada catatan. Tulis sesuatu!"}
             </div>
           ) : (
             notes.map(n => (
@@ -5168,7 +5219,13 @@
                 </div>
                 {n.title && <div className="note-card-preview">{n.content}</div>}
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
-                  {(n.tags || []).map(tag => <span key={tag} className="note-tag">#{tag}</span>)}
+                  {(n.tags || []).map(tag => (
+                    <span key={tag} className="note-tag"
+                      style={{ cursor: "pointer", background: activeTag === tag ? "var(--accent)" : undefined, color: activeTag === tag ? "#111" : undefined }}
+                      onClick={e => { e.stopPropagation(); handleTagFilter(tag); }}>
+                      #{tag}
+                    </span>
+                  ))}
                   {n.linked_task_title && (
                     <span style={{ fontSize: 11, color: "var(--text-secondary)", background: "var(--bg-primary)", borderRadius: 6, padding: "2px 8px" }}>
                       📌 {n.linked_task_title}
