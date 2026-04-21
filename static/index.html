@@ -1748,6 +1748,8 @@
       const [pendingSubtasks, setPendingSubtasks] = useState([]);
       const [pendingSubTitle, setPendingSubTitle] = useState("");
       const [pendingSubGtd, setPendingSubGtd] = useState("inbox");
+      const [noteForm, setNoteForm] = useState({ title: "", content: "", tags: [] });
+      const setNote = (k, v) => setNoteForm(f => ({ ...f, [k]: v }));
 
       const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
       const [listMembers, setListMembers] = useState([]);
@@ -1782,6 +1784,17 @@
       const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
+        // ── Note mode ────────────────────────────────────────────
+        if (mode === "note") {
+          if (!noteForm.content.trim() && !noteForm.title.trim()) { alert("Isi catatan tidak boleh kosong"); setLoading(false); return; }
+          try {
+            await api.post("/api/scratchpad", { title: noteForm.title, content: noteForm.content, tags: noteForm.tags, linked_task_ids: [], linked_task_id: null });
+            window.dispatchEvent(new CustomEvent("noteSaved"));
+            onSave();
+          } catch (err) { alert(err.message); }
+          setLoading(false);
+          return;
+        }
         // ── Habit mode ────────────────────────────────────────────
         if (mode === "habit") {
           if (!habitForm.title.trim()) { alert("Nama habit wajib diisi"); setLoading(false); return; }
@@ -1850,7 +1863,7 @@
               {/* Mode toggle — hanya saat tambah baru */}
               {!isEdit && (
                 <div style={{ display: "flex", background: "var(--bg-primary)", borderRadius: 8, padding: 3, marginBottom: 18, gap: 3 }}>
-                  {[["task","✓ Task"],["habit","🔁 Habit"]].map(([m, label]) => (
+                  {[["task","✓ Task"],["habit","🔁 Habit"],["note","📝 Note"]].map(([m, label]) => (
                     <button key={m} type="button" onClick={() => setMode(m)} style={{
                       flex: 1, padding: "7px 0", borderRadius: 6, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 13,
                       background: mode === m ? "var(--accent)" : "transparent",
@@ -1902,6 +1915,22 @@
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
                     <button type="button" className="btn" onClick={onClose}>Batal</button>
                     <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? "..." : "Tambah Habit"}</button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Note Form ── */}
+              {mode === "note" && (
+                <div>
+                  <label className="input-label">Judul <span style={{ color: "var(--text-light)", fontWeight: 400 }}>(opsional)</span></label>
+                  <input className="input" value={noteForm.title} onChange={e => setNote("title", e.target.value)} placeholder="Judul catatan..." style={{ marginBottom: 14 }} />
+                  <label className="input-label">Isi Catatan *</label>
+                  <textarea className="input" value={noteForm.content} onChange={e => setNote("content", e.target.value)}
+                    rows={6} placeholder={"Tulis catatan...\n# Heading  - bullet  - [ ] checklist"}
+                    style={{ marginBottom: 14, resize: "vertical", fontFamily: "inherit", lineHeight: 1.6 }} />
+                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                    <button type="button" className="btn btn-secondary" onClick={onClose}>Batal</button>
+                    <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? "Menyimpan..." : "Simpan Note"}</button>
                   </div>
                 </div>
               )}
@@ -5555,11 +5584,8 @@
 
       return (
         <div className="fade-in">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ marginBottom: 16 }}>
             <h1 style={{ fontSize: 22, fontWeight: 700 }}>📝 Notes</h1>
-            <button className="btn btn-sm" style={{ background: "var(--accent)", color: "#111", fontWeight: 700 }} onClick={openNew}>
-              + Catatan Baru
-            </button>
           </div>
 
           {/* Search */}
