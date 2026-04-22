@@ -5152,7 +5152,6 @@
     function NoteModal({ note, tasks, onClose, onSave, onDelete, onTaskClick }) {
       const [title, setTitle]         = useState(note?.title || "");
       const [content, setContent]     = useState(note?.content || "");
-      const [tagInput, setTagInput]   = useState("");
       const [tags, setTags]           = useState(note?.tags || []);
       // Multi-task linking
       const initTaskIds = () => {
@@ -5232,6 +5231,13 @@
 
       const handleContentChange = (val) => {
         setContent(val);
+        
+        // Auto-extract tags: find words starting with #
+        const extracted = [...new Set((val.match(/#(\w+)/g) || []).map(t => t.slice(1)))];
+        if (JSON.stringify(extracted) !== JSON.stringify(tags)) {
+          setTags(extracted);
+        }
+
         const el = textareaRef.current;
         if (!el) return;
         const pos = el.selectionStart;
@@ -5350,26 +5356,15 @@
             )}
           </div>
 
-          {/* Tags — hidden in focus mode */}
-          {!focus && (
-            <div>
-              <div className="note-modal-section-label">Tags</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {/* Tags — auto-extracted from content */}
+          {!focus && tags.length > 0 && (
+            <div style={{ marginBottom: 4 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {tags.map(t => (
-                  <span key={t} className="note-tag" style={{ cursor: "pointer" }} onClick={() => removeTag(t)}>
-                    #{t} ✕
+                  <span key={t} className="note-tag" style={{ cursor: "default", opacity: 0.8, fontSize: 11 }}>
+                    #{t}
                   </span>
                 ))}
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <input
-                  className="input" style={{ flex: 1, padding: "6px 10px", fontSize: 13 }}
-                  placeholder="#tag baru..."
-                  value={tagInput}
-                  onChange={e => setTagInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(); } }}
-                />
-                <button className="btn btn-secondary btn-sm" onClick={addTag}>+ Tag</button>
               </div>
             </div>
           )}
