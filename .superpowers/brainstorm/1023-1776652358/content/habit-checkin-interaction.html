@@ -1,0 +1,102 @@
+<h2>Habit Check-in — Pendekatan Interaksi</h2>
+<p class="subtitle">Bagaimana user melakukan Done / Skip pada setiap habit?</p>
+
+<div class="cards">
+
+  <!-- A: Inline buttons -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#1a1a1a;padding:14px;border-radius:8px;font-size:10px;color:#ccc">
+        <table style="width:100%;border-collapse:collapse">
+          <tr style="border-bottom:1px solid #2a2a2a">
+            <td style="padding:7px 6px;color:#fff;width:35%">🧘 Meditasi</td>
+            <td style="text-align:center;color:#A8C500">✓</td><td style="text-align:center;color:#555">–</td>
+            <td style="text-align:center;color:#A8C500">✓</td><td style="text-align:center;color:#A8C500">✓</td>
+            <td style="text-align:center;background:#1f2a0a;font-weight:700;color:#A8C500">✓</td>
+            <td style="text-align:center;color:#A8C500;padding:4px">🔥5</td>
+            <td style="text-align:right;padding:4px;white-space:nowrap">
+              <span style="background:#A8C500;color:#000;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:600">✓ Done</span>
+              <span style="background:#333;color:#aaa;padding:2px 8px;border-radius:4px;font-size:9px;margin-left:3px">↷ Skip</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:7px 6px;color:#fff">📖 Baca</td>
+            <td style="text-align:center;color:#555">–</td><td style="text-align:center;color:#A8C500">✓</td>
+            <td style="text-align:center;color:#A8C500">✓</td><td style="text-align:center;color:#555">–</td>
+            <td style="text-align:center;background:#1f2a0a;color:#888">–</td>
+            <td style="text-align:center;color:#A8C500;padding:4px">🔥3</td>
+            <td style="text-align:right;padding:4px;white-space:nowrap">
+              <span style="background:#A8C500;color:#000;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:600">✓ Done</span>
+              <span style="background:#333;color:#aaa;padding:2px 8px;border-radius:4px;font-size:9px;margin-left:3px">↷ Skip</span>
+            </td>
+          </tr>
+        </table>
+        <div style="margin-top:8px;font-size:8px;color:#555;font-style:italic">Klik Done → langsung selesai. Klik Skip → muncul input alasan (inline, di bawah baris)</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Inline Buttons (tabel)</h3>
+      <p>Tombol Done + Skip langsung di baris tabel. Skip membuka input alasan <em>di bawah baris itu</em> (expand, bukan modal). Cepat, tidak keluar dari konteks.</p>
+    </div>
+  </div>
+
+  <!-- B: Modal -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#1a1a1a;padding:14px;border-radius:8px;font-size:10px;color:#ccc;position:relative">
+        <table style="width:100%;border-collapse:collapse;opacity:0.4">
+          <tr>
+            <td style="padding:7px 6px;color:#fff">🧘 Meditasi</td>
+            <td style="text-align:center;color:#A8C500">✓</td><td style="text-align:center;color:#555">–</td>
+            <td style="text-align:center;color:#A8C500">✓</td><td style="text-align:center;color:#A8C500">✓</td>
+            <td style="text-align:center;color:#888">–</td>
+            <td style="text-align:center;color:#A8C500">🔥5</td>
+          </tr>
+        </table>
+        <!-- Modal overlay -->
+        <div style="position:absolute;top:10px;left:50%;transform:translateX(-50%);background:#252525;border:1px solid #A8C500;border-radius:10px;padding:12px 16px;width:180px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.5)">
+          <div style="color:#fff;font-weight:700;margin-bottom:4px;font-size:11px">🧘 Meditasi</div>
+          <div style="color:#888;font-size:9px;margin-bottom:10px">Minggu, 20 Apr</div>
+          <div style="display:flex;gap:6px;margin-bottom:8px">
+            <button style="flex:1;background:#A8C500;color:#000;border:none;border-radius:6px;padding:6px;font-size:10px;font-weight:700;cursor:pointer">✓ Done</button>
+            <button style="flex:1;background:#333;color:#ccc;border:none;border-radius:6px;padding:6px;font-size:10px;cursor:pointer">↷ Skip</button>
+          </div>
+          <div style="background:#1a1a1a;border-radius:6px;padding:4px 6px;font-size:8px;color:#666;text-align:left">Alasan skip... (opsional)</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Modal per Habit</h3>
+      <p>Klik habit → modal kecil muncul (nama, tanggal, tombol Done/Skip + input alasan). Lebih dramatis, cocok untuk mobile. Perlu extra klik.</p>
+    </div>
+  </div>
+
+  <!-- C: Popover -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#1a1a1a;padding:14px;border-radius:8px;font-size:10px;color:#ccc;position:relative">
+        <table style="width:100%;border-collapse:collapse">
+          <tr style="border-bottom:1px solid #2a2a2a">
+            <td style="padding:7px 6px;color:#fff;cursor:pointer">🧘 Meditasi <span style="color:#555;font-size:8px">← hover/tap</span></td>
+            <td style="text-align:center;color:#A8C500">✓</td><td style="text-align:center;color:#555">–</td>
+            <td style="text-align:center;color:#A8C500">✓</td><td style="text-align:center;color:#A8C500">✓</td>
+            <td style="text-align:center;background:#1f2a0a;color:#888">–</td>
+            <td style="text-align:center;color:#A8C500">🔥5</td>
+          </tr>
+        </table>
+        <!-- Popover -->
+        <div style="position:absolute;top:34px;left:10px;background:#2a2a2a;border:1px solid #444;border-radius:8px;padding:8px 10px;display:flex;gap:6px;align-items:center;box-shadow:0 4px 12px rgba(0,0,0,0.4);z-index:10">
+          <span style="color:#fff;font-size:9px">Hari ini:</span>
+          <span style="background:#A8C500;color:#000;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:600;cursor:pointer">✓ Done</span>
+          <span style="background:#333;color:#aaa;padding:2px 8px;border-radius:4px;font-size:9px;cursor:pointer">↷ Skip</span>
+          <div style="position:absolute;top:-5px;left:20px;width:8px;height:8px;background:#2a2a2a;border-left:1px solid #444;border-top:1px solid #444;transform:rotate(45deg)"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Popover (tooltip interaktif)</h3>
+      <p>Hover atau tap nama habit → muncul popover kecil dengan Done/Skip tepat di bawahnya. Tidak mengganggu layout tabel, terasa ringan dan kontekstual.</p>
+    </div>
+  </div>
+
+</div>

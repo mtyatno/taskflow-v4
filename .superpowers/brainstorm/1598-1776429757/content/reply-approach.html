@@ -1,0 +1,124 @@
+<h2>UI Pattern — Reply / Quote Pesan</h2>
+<p class="subtitle">Bagaimana user men-trigger reply dan tampilan quote di bubble?</p>
+
+<div class="cards">
+
+  <!-- Option A: Hover button WhatsApp style -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:12px;background:#f8fafc;border-radius:8px;">
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:11px;">
+        <!-- Incoming bubble dengan hover reply button -->
+        <div style="display:flex;gap:6px;align-items:flex-start;position:relative;">
+          <div style="width:22px;height:22px;border-radius:50%;background:#A8C500;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700;flex-shrink:0;">A</div>
+          <div style="max-width:70%;">
+            <div style="font-size:10px;font-weight:600;color:#0f172a;margin-bottom:2px;">Andi</div>
+            <div style="background:#f1f5f9;border-radius:0 8px 8px 8px;padding:6px 8px;color:#0f172a;position:relative;">
+              Gimana progress task laporan?
+              <!-- Reply button muncul saat hover -->
+              <span style="position:absolute;right:-28px;top:4px;background:#e2e8f0;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;">↩</span>
+            </div>
+          </div>
+        </div>
+        <!-- Self bubble dengan quote -->
+        <div style="display:flex;gap:6px;align-items:flex-start;flex-direction:row-reverse;">
+          <div style="max-width:70%;align-items:flex-end;display:flex;flex-direction:column;">
+            <div style="background:#dcfce7;border-radius:8px 0 8px 8px;padding:6px 8px;color:#0f172a;">
+              <div style="background:rgba(0,0,0,0.07);border-left:3px solid #A8C500;border-radius:3px;padding:4px 6px;margin-bottom:4px;font-size:10px;">
+                <span style="color:#A8C500;font-weight:700;">Andi</span><br/>
+                Gimana progress task laporan?
+              </div>
+              Sudah 80%, selesai besok!
+            </div>
+          </div>
+        </div>
+        <!-- Input bar dengan reply preview -->
+        <div style="margin-top:4px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:white;">
+          <div style="background:#f0fdf4;border-left:3px solid #A8C500;padding:4px 8px;font-size:10px;display:flex;justify-content:space-between;align-items:center;">
+            <div><span style="color:#A8C500;font-weight:700;">↩ Andi</span><br/><span style="color:#64748b;">Gimana progress task laporan?</span></div>
+            <span style="color:#94a3b8;cursor:pointer;font-size:12px;">✕</span>
+          </div>
+          <div style="display:flex;gap:4px;padding:4px;">
+            <div style="flex:1;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:10px;color:#94a3b8;">Ketik pesan...</div>
+            <button style="background:#A8C500;color:white;border:none;padding:3px 8px;border-radius:4px;font-size:10px;">Kirim</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Hover/Tap → Reply Button (↩)</h3>
+      <p>Tombol ↩ muncul saat hover (desktop) atau long-press (mobile). Quote preview muncul di atas input, bisa di-dismiss. Bubble reply berisi blok quote di atas teks.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Swipe kanan (mobile) / tombol selalu visible -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:12px;background:#f8fafc;border-radius:8px;">
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:11px;">
+        <!-- Bubble dengan tombol reply selalu visible -->
+        <div style="display:flex;gap:6px;align-items:flex-start;">
+          <div style="width:22px;height:22px;border-radius:50%;background:#A8C500;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700;flex-shrink:0;">A</div>
+          <div style="max-width:75%;display:flex;align-items:flex-end;gap:4px;">
+            <div>
+              <div style="font-size:10px;font-weight:600;color:#0f172a;margin-bottom:2px;">Andi</div>
+              <div style="background:#f1f5f9;border-radius:0 8px 8px 8px;padding:6px 8px;color:#0f172a;">Gimana progress task laporan?</div>
+              <div style="font-size:9px;color:#94a3b8;margin-top:2px;">10:30</div>
+            </div>
+            <!-- Tombol reply selalu visible di kanan bubble -->
+            <button style="background:#e2e8f0;border:none;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;flex-shrink:0;margin-bottom:14px;">↩</button>
+          </div>
+        </div>
+        <!-- Self bubble tanpa quote -->
+        <div style="display:flex;gap:6px;align-items:flex-start;flex-direction:row-reverse;">
+          <div style="max-width:75%;display:flex;align-items:flex-end;gap:4px;flex-direction:row-reverse;">
+            <div style="background:#dcfce7;border-radius:8px 0 8px 8px;padding:6px 8px;color:#0f172a;">
+              <div style="background:rgba(0,0,0,0.07);border-left:3px solid #A8C500;border-radius:3px;padding:3px 6px;margin-bottom:3px;font-size:10px;">
+                <span style="color:#A8C500;font-weight:600;">Andi</span><br/>Gimana progress task laporan?
+              </div>
+              Sudah 80%!
+            </div>
+            <button style="background:#d1fae5;border:none;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;flex-shrink:0;margin-bottom:14px;">↩</button>
+          </div>
+        </div>
+        <div style="text-align:center;font-size:9px;color:#94a3b8;font-style:italic;">Tombol ↩ selalu terlihat di samping tiap bubble</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Tombol ↩ Selalu Visible</h3>
+      <p>Tidak perlu hover. Tombol reply selalu muncul di samping bubble. Lebih accessible di mobile. Tapi lebih ramai secara visual.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Context menu (long press / right click) -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:12px;background:#f8fafc;border-radius:8px;">
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:11px;">
+        <!-- Bubble normal -->
+        <div style="display:flex;gap:6px;align-items:flex-start;">
+          <div style="width:22px;height:22px;border-radius:50%;background:#A8C500;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700;flex-shrink:0;">A</div>
+          <div>
+            <div style="font-size:10px;font-weight:600;color:#0f172a;margin-bottom:2px;">Andi</div>
+            <div style="background:#f1f5f9;border-radius:0 8px 8px 8px;padding:6px 8px;color:#0f172a;">Gimana progress task laporan?</div>
+          </div>
+        </div>
+        <!-- Context menu popup -->
+        <div style="margin-left:28px;background:white;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.15);overflow:hidden;width:120px;">
+          <div style="padding:7px 12px;font-size:10px;display:flex;gap:6px;align-items:center;border-bottom:1px solid #f1f5f9;cursor:pointer;background:#f0fdf4;">
+            <span>↩</span> <span style="font-weight:600;color:#0f172a;">Reply</span>
+          </div>
+          <div style="padding:7px 12px;font-size:10px;display:flex;gap:6px;align-items:center;border-bottom:1px solid #f1f5f9;cursor:pointer;">
+            <span>📋</span> <span style="color:#0f172a;">Copy</span>
+          </div>
+          <div style="padding:7px 12px;font-size:10px;display:flex;gap:6px;align-items:center;cursor:pointer;">
+            <span>✕</span> <span style="color:#ef4444;">Hapus</span>
+          </div>
+        </div>
+        <div style="text-align:center;font-size:9px;color:#94a3b8;font-style:italic;">Muncul saat long-press (mobile) / klik kanan (desktop)</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Context Menu (Long-Press / Klik Kanan)</h3>
+      <p>Long-press bubble → popup menu dengan pilihan: Reply, Copy, (hapus jika milik sendiri). Bersih secara visual. Tapi lebih banyak step untuk user.</p>
+    </div>
+  </div>
+
+</div>

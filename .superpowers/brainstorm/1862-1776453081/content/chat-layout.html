@@ -1,0 +1,206 @@
+<h2>Layout & Gaya Chat — Pilih Arah Desain</h2>
+<p class="subtitle">Tiga arah berbeda untuk chat page. Mana yang paling cocok dengan vibe TaskFlow?</p>
+
+<div class="cards">
+
+  <!-- Option A: Card-Embedded -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:0;overflow:hidden;border-radius:8px;background:#EEEEE6;">
+      <!-- Simulated app frame -->
+      <div style="display:flex;height:280px;font-size:11px;">
+        <!-- Sidebar -->
+        <div style="width:44px;background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:8px;">
+          <div style="width:28px;height:28px;border-radius:8px;background:#A8C500;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:700;">T</div>
+          <div style="width:28px;height:28px;border-radius:6px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:12px;">🏠</div>
+          <div style="width:28px;height:28px;border-radius:6px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:12px;">✅</div>
+          <div style="width:28px;height:28px;border-radius:6px;background:rgba(168,197,0,0.2);display:flex;align-items:center;justify-content:center;font-size:12px;">💬</div>
+        </div>
+        <!-- Main content area with padding -->
+        <div style="flex:1;padding:12px;overflow:hidden;background:#EEEEE6;">
+          <!-- Page title -->
+          <div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:10px;">Diskusi</div>
+          <!-- Card wrapper — integrated look -->
+          <div style="background:#fff;border-radius:12px;border:1px solid rgba(0,0,0,0.06);box-shadow:0 1px 3px rgba(0,0,0,0.04);display:flex;height:220px;overflow:hidden;">
+            <!-- List panel inside card -->
+            <div style="width:110px;border-right:1px solid #e2e8f0;background:#f8fafc;">
+              <div style="padding:8px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#94a3b8;">Shared Lists</div>
+              <div style="padding:6px 8px;background:rgba(168,197,0,0.12);border-left:3px solid #A8C500;font-size:10px;font-weight:600;color:#0f172a;">📋 Tim Design</div>
+              <div style="padding:6px 8px;font-size:10px;color:#64748b;">📋 Backend Dev</div>
+              <div style="padding:6px 8px;font-size:10px;color:#64748b;">📋 Marketing</div>
+            </div>
+            <!-- Chat room inside card -->
+            <div style="flex:1;display:flex;flex-direction:column;background:#fff;">
+              <!-- Chat header inside card -->
+              <div style="padding:8px 10px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:6px;">
+                <span style="font-size:11px;font-weight:700;color:#0f172a;">Tim Design</span>
+                <span style="font-size:9px;color:#94a3b8;margin-left:auto;">3 anggota</span>
+              </div>
+              <!-- Messages -->
+              <div style="flex:1;padding:8px;display:flex;flex-direction:column;gap:6px;overflow:hidden;">
+                <div style="display:flex;gap:5px;align-items:flex-end;">
+                  <div style="width:18px;height:18px;border-radius:50%;background:#A8C500;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-size:8px;font-weight:700;">A</div>
+                  <div style="background:#f1f5f9;border-radius:0 8px 8px 8px;padding:5px 7px;font-size:10px;color:#0f172a;max-width:65%;">Gimana progress UI?</div>
+                </div>
+                <div style="display:flex;gap:5px;align-items:flex-end;flex-direction:row-reverse;">
+                  <div style="background:#dcfce7;border-radius:8px 0 8px 8px;padding:5px 7px;font-size:10px;color:#0f172a;max-width:65%;">Sudah 80%!</div>
+                </div>
+              </div>
+              <!-- Input -->
+              <div style="padding:6px 8px;border-top:1px solid #e2e8f0;display:flex;gap:5px;">
+                <div style="flex:1;border:1px solid #e2e8f0;border-radius:6px;padding:4px 7px;font-size:10px;color:#94a3b8;background:#f8fafc;">Tulis pesan...</div>
+                <div style="background:#A8C500;border-radius:6px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;">➤</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Card-Embedded (Integrated)</h3>
+      <p>Chat dibungkus dalam card seperti page lain. Ada page title, padding halaman, border radius. Menyatu dengan sistem desain app. Terasa konsisten.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Modern Full-Bleed Messenger -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:0;overflow:hidden;border-radius:8px;background:#f8fafc;">
+      <div style="display:flex;height:280px;font-size:11px;">
+        <!-- Sidebar -->
+        <div style="width:44px;background:#1e293b;display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:8px;">
+          <div style="width:28px;height:28px;border-radius:8px;background:#A8C500;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:700;">T</div>
+          <div style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;opacity:0.5;">🏠</div>
+          <div style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;opacity:0.5;">✅</div>
+          <div style="width:28px;height:28px;border-radius:6px;background:rgba(168,197,0,0.3);display:flex;align-items:center;justify-content:center;font-size:12px;">💬</div>
+        </div>
+        <!-- Chat full-bleed dengan visual upgrade -->
+        <div style="flex:1;display:flex;overflow:hidden;">
+          <!-- List panel modern -->
+          <div style="width:130px;background:#1e293b;display:flex;flex-direction:column;">
+            <div style="padding:10px 10px 6px;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.8px;">Diskusi</div>
+            <div style="padding:6px 8px;background:rgba(168,197,0,0.15);border-radius:6px;margin:2px 6px;display:flex;align-items:center;gap:5px;">
+              <div style="width:8px;height:8px;border-radius:50%;background:#A8C500;"></div>
+              <span style="font-size:10px;font-weight:600;color:#e2e8f0;">Tim Design</span>
+            </div>
+            <div style="padding:6px 8px;border-radius:6px;margin:2px 6px;display:flex;align-items:center;gap:5px;opacity:0.5;">
+              <div style="width:8px;height:8px;border-radius:50%;background:#475569;"></div>
+              <span style="font-size:10px;color:#94a3b8;">Backend Dev</span>
+            </div>
+          </div>
+          <!-- Chat room modern -->
+          <div style="flex:1;display:flex;flex-direction:column;background:#f8fafc;">
+            <!-- Header modern dengan gradient -->
+            <div style="padding:8px 12px;background:linear-gradient(135deg,#A8C500,#95AD00);display:flex;align-items:center;gap:8px;">
+              <div style="width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,0.3);display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:700;">T</div>
+              <div>
+                <div style="font-size:11px;font-weight:700;color:white;">Tim Design</div>
+                <div style="font-size:9px;color:rgba(255,255,255,0.8);">3 anggota aktif</div>
+              </div>
+            </div>
+            <!-- Messages di background bertekstur subtle -->
+            <div style="flex:1;padding:10px;display:flex;flex-direction:column;gap:8px;background:linear-gradient(180deg,#f8fafc,#f1f5f9);overflow:hidden;">
+              <div style="display:flex;gap:6px;align-items:flex-end;">
+                <div style="width:22px;height:22px;border-radius:50%;background:#A8C500;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700;">A</div>
+                <div>
+                  <div style="background:white;border-radius:4px 12px 12px 12px;padding:6px 9px;font-size:10px;color:#0f172a;box-shadow:0 1px 3px rgba(0,0,0,0.08);">Gimana progress UI?</div>
+                  <div style="font-size:8px;color:#94a3b8;margin-top:2px;margin-left:4px;">10:30</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;align-items:flex-end;flex-direction:row-reverse;">
+                <div>
+                  <div style="background:linear-gradient(135deg,#A8C500,#95AD00);border-radius:12px 4px 12px 12px;padding:6px 9px;font-size:10px;color:white;box-shadow:0 1px 3px rgba(168,197,0,0.3);">Sudah 80%! 🎉</div>
+                  <div style="font-size:8px;color:#94a3b8;margin-top:2px;text-align:right;margin-right:4px;">10:32 ✓✓</div>
+                </div>
+              </div>
+            </div>
+            <!-- Input frosted -->
+            <div style="padding:8px;background:rgba(255,255,255,0.9);backdrop-filter:blur(8px);border-top:1px solid rgba(0,0,0,0.06);display:flex;gap:6px;align-items:center;">
+              <div style="flex:1;border:1px solid #e2e8f0;border-radius:20px;padding:5px 10px;font-size:10px;color:#94a3b8;background:#f8fafc;">Tulis pesan...</div>
+              <div style="background:linear-gradient(135deg,#A8C500,#95AD00);border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;box-shadow:0 2px 6px rgba(168,197,0,0.4);">➤</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Modern Messenger</h3>
+      <p>Full-bleed seperti sekarang, tapi visual upgrade besar: dark sidebar, gradient header, bubble dengan shadow, input pill-style. Terasa modern seperti Slack/Discord tapi dengan warna brand.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Discussion Thread -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:0;overflow:hidden;border-radius:8px;background:#EEEEE6;">
+      <div style="display:flex;height:280px;font-size:11px;">
+        <!-- Sidebar -->
+        <div style="width:44px;background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:8px;">
+          <div style="width:28px;height:28px;border-radius:8px;background:#A8C500;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:700;">T</div>
+          <div style="width:28px;height:28px;border-radius:6px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:12px;">🏠</div>
+          <div style="width:28px;height:28px;border-radius:6px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:12px;">✅</div>
+          <div style="width:28px;height:28px;border-radius:6px;background:rgba(168,197,0,0.2);display:flex;align-items:center;justify-content:center;font-size:12px;">💬</div>
+        </div>
+        <!-- Main: 2-col layout dalam page -->
+        <div style="flex:1;padding:12px;background:#EEEEE6;display:flex;flex-direction:column;gap:8px;overflow:hidden;">
+          <div style="font-size:13px;font-weight:700;color:#0f172a;">Diskusi</div>
+          <div style="display:flex;gap:8px;flex:1;overflow:hidden;">
+            <!-- List cards -->
+            <div style="width:130px;display:flex;flex-direction:column;gap:5px;">
+              <div style="background:#A8C500;border-radius:10px;padding:8px 10px;cursor:pointer;box-shadow:0 2px 6px rgba(168,197,0,0.25);">
+                <div style="font-size:10px;font-weight:700;color:white;">Tim Design</div>
+                <div style="font-size:9px;color:rgba(255,255,255,0.8);margin-top:2px;">Sudah 80%! 🎉</div>
+                <div style="font-size:8px;color:rgba(255,255,255,0.6);margin-top:2px;">baru saja</div>
+              </div>
+              <div style="background:#fff;border-radius:10px;padding:8px 10px;cursor:pointer;border:1px solid rgba(0,0,0,0.06);">
+                <div style="font-size:10px;font-weight:600;color:#0f172a;">Backend Dev</div>
+                <div style="font-size:9px;color:#94a3b8;margin-top:2px;">Meeting besok...</div>
+                <div style="font-size:8px;color:#cbd5e1;margin-top:2px;">2j lalu</div>
+              </div>
+              <div style="background:#fff;border-radius:10px;padding:8px 10px;cursor:pointer;border:1px solid rgba(0,0,0,0.06);opacity:0.7;">
+                <div style="font-size:10px;font-weight:600;color:#0f172a;">Marketing</div>
+                <div style="font-size:9px;color:#94a3b8;margin-top:2px;">Oke siap!</div>
+                <div style="font-size:8px;color:#cbd5e1;margin-top:2px;">kemarin</div>
+              </div>
+            </div>
+            <!-- Thread view (card, no bubble left/right, thread style) -->
+            <div style="flex:1;background:#fff;border-radius:12px;border:1px solid rgba(0,0,0,0.06);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+              <div style="padding:7px 10px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:5px;">
+                <span style="font-size:11px;font-weight:700;color:#0f172a;">Tim Design</span>
+                <span style="font-size:9px;color:#94a3b8;margin-left:auto;">3 anggota</span>
+              </div>
+              <div style="flex:1;padding:8px;display:flex;flex-direction:column;gap:5px;overflow:hidden;">
+                <div style="display:flex;gap:6px;">
+                  <div style="width:20px;height:20px;border-radius:50%;background:#A8C500;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-size:8px;font-weight:700;">A</div>
+                  <div style="flex:1;">
+                    <div style="display:flex;align-items:baseline;gap:5px;margin-bottom:2px;">
+                      <span style="font-size:10px;font-weight:700;color:#0f172a;">Andi</span>
+                      <span style="font-size:8px;color:#cbd5e1;">10:30</span>
+                    </div>
+                    <div style="font-size:10px;color:#374151;line-height:1.4;">Gimana progress UI?</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px;">
+                  <div style="width:20px;height:20px;border-radius:50%;background:#6366f1;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-size:8px;font-weight:700;">Y</div>
+                  <div style="flex:1;">
+                    <div style="display:flex;align-items:baseline;gap:5px;margin-bottom:2px;">
+                      <span style="font-size:10px;font-weight:700;color:#0f172a;">Yatno</span>
+                      <span style="font-size:8px;color:#cbd5e1;">10:32</span>
+                    </div>
+                    <div style="font-size:10px;color:#374151;line-height:1.4;">Sudah 80%! Selesai besok. 🎉</div>
+                  </div>
+                </div>
+              </div>
+              <div style="padding:6px 8px;border-top:1px solid #f1f5f9;display:flex;gap:5px;">
+                <div style="flex:1;border:1px solid #e2e8f0;border-radius:6px;padding:4px 7px;font-size:10px;color:#94a3b8;">Balas...</div>
+                <div style="background:#A8C500;border-radius:6px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;">➤</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Discussion Thread (Slack-style)</h3>
+      <p>List kiri berupa preview cards dengan pesan terakhir. Chat kanan gaya thread — avatar di kiri semua, nama di atas pesan. Tidak ada bubble kiri/kanan, lebih seperti Slack/Linear discussion.</p>
+    </div>
+  </div>
+
+</div>

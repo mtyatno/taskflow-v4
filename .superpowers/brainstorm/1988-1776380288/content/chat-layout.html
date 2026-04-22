@@ -1,0 +1,109 @@
+<h2>Layout Halaman Chat</h2>
+<p class="subtitle">Chat ada di page sendiri (menu kiri), bagaimana tampilannya?</p>
+
+<div class="cards">
+
+  <!-- Option A: Full-page, pilih list di kiri -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:12px;background:#f8fafc;border-radius:8px;">
+      <div style="display:flex;height:260px;gap:0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;font-size:11px;">
+        <!-- List selector sidebar -->
+        <div style="width:140px;background:#EEEEE6;border-right:1px solid #E8E8E0;display:flex;flex-direction:column;">
+          <div style="padding:10px 8px;font-weight:700;font-size:10px;color:#94a3b8;letter-spacing:0.05em;">DISKUSI</div>
+          <div style="padding:6px 8px;background:#fff;border-left:3px solid #A8C500;font-weight:600;color:#0f172a;font-size:11px;">📋 Tim Alpha</div>
+          <div style="padding:6px 8px;color:#64748b;font-size:11px;">📋 Project Beta</div>
+          <div style="padding:6px 8px;color:#64748b;font-size:11px;">📋 Marketing</div>
+        </div>
+        <!-- Chat area -->
+        <div style="flex:1;display:flex;flex-direction:column;background:#fff;">
+          <div style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-weight:600;font-size:12px;">💬 Tim Alpha</div>
+          <div style="flex:1;padding:10px 12px;display:flex;flex-direction:column;gap:8px;overflow:hidden;">
+            <div style="display:flex;gap:6px;align-items:flex-start;">
+              <div style="width:22px;height:22px;border-radius:50%;background:#A8C500;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700;">A</div>
+              <div>
+                <div style="font-size:10px;font-weight:600;color:#0f172a;margin-bottom:2px;">Andi <span style="font-weight:400;color:#94a3b8;">10:30</span></div>
+                <div style="background:#f1f5f9;border-radius:0 8px 8px 8px;padding:5px 8px;font-size:11px;color:#0f172a;">Gimana progress task laporan?</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:6px;align-items:flex-start;flex-direction:row-reverse;">
+              <div style="width:22px;height:22px;border-radius:50%;background:#6366f1;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700;">Y</div>
+              <div style="align-items:flex-end;display:flex;flex-direction:column;">
+                <div style="font-size:10px;font-weight:600;color:#0f172a;margin-bottom:2px;text-align:right;">Kamu <span style="font-weight:400;color:#94a3b8;">10:32</span></div>
+                <div style="background:#dcfce7;border-radius:8px 0 8px 8px;padding:5px 8px;font-size:11px;color:#0f172a;">Sudah 60%, lagi di-review</div>
+              </div>
+            </div>
+            <!-- Task card in chat -->
+            <div style="display:flex;gap:6px;align-items:flex-start;">
+              <div style="width:22px;height:22px;border-radius:50%;background:#A8C500;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700;">A</div>
+              <div>
+                <div style="font-size:10px;font-weight:600;color:#0f172a;margin-bottom:2px;">Andi <span style="font-weight:400;color:#94a3b8;">10:33</span></div>
+                <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:0 8px 8px 8px;padding:5px 8px;font-size:10px;color:#0f172a;">
+                  📌 <b>Task:</b> Laporan Keuangan Q1<br>
+                  <span style="color:#64748b;">P1 · Deadline: 20 Apr</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="padding:8px 10px;border-top:1px solid #e2e8f0;display:flex;gap:6px;">
+            <input style="flex:1;border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;font-size:11px;outline:none;" placeholder="Ketik pesan..." readonly />
+            <button style="background:#A8C500;color:white;border:none;padding:5px 10px;border-radius:6px;font-size:11px;font-weight:600;">Kirim</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Full Page + Panel Kiri</h3>
+      <p>Pilih list di sidebar kiri, chat di kanan. Mirip WhatsApp Web / Telegram.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Full-page, list selector di atas (tabs) -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:12px;background:#f8fafc;border-radius:8px;">
+      <div style="display:flex;flex-direction:column;height:260px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;font-size:11px;background:#fff;">
+        <div style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-weight:600;font-size:12px;">💬 Diskusi</div>
+        <!-- Tabs -->
+        <div style="display:flex;gap:0;border-bottom:1px solid #e2e8f0;overflow-x:auto;">
+          <div style="padding:6px 12px;border-bottom:2px solid #A8C500;font-weight:600;font-size:11px;color:#0f172a;white-space:nowrap;">📋 Tim Alpha</div>
+          <div style="padding:6px 12px;border-bottom:2px solid transparent;font-size:11px;color:#64748b;white-space:nowrap;">📋 Project Beta</div>
+          <div style="padding:6px 12px;border-bottom:2px solid transparent;font-size:11px;color:#64748b;white-space:nowrap;">📋 Marketing</div>
+        </div>
+        <!-- Chat -->
+        <div style="flex:1;padding:10px 12px;display:flex;flex-direction:column;gap:8px;overflow:hidden;">
+          <div style="display:flex;gap:6px;align-items:flex-start;">
+            <div style="width:22px;height:22px;border-radius:50%;background:#A8C500;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700;">A</div>
+            <div>
+              <div style="font-size:10px;font-weight:600;color:#0f172a;margin-bottom:2px;">Andi <span style="font-weight:400;color:#94a3b8;">10:30</span></div>
+              <div style="background:#f1f5f9;border-radius:0 8px 8px 8px;padding:5px 8px;font-size:11px;">Gimana progress task laporan?</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:flex-start;flex-direction:row-reverse;">
+            <div style="width:22px;height:22px;border-radius:50%;background:#6366f1;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700;">Y</div>
+            <div style="align-items:flex-end;display:flex;flex-direction:column;">
+              <div style="font-size:10px;font-weight:600;color:#0f172a;margin-bottom:2px;text-align:right;">Kamu <span style="font-weight:400;color:#94a3b8;">10:32</span></div>
+              <div style="background:#dcfce7;border-radius:8px 0 8px 8px;padding:5px 8px;font-size:11px;">Sudah 60%, lagi di-review</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:flex-start;flex-direction:row-reverse;">
+            <div style="width:22px;height:22px;border-radius:50%;background:#6366f1;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700;">Y</div>
+            <div style="align-items:flex-end;display:flex;flex-direction:column;">
+              <div style="font-size:10px;font-weight:600;color:#0f172a;margin-bottom:2px;text-align:right;">Kamu <span style="font-weight:400;color:#94a3b8;">10:33</span></div>
+              <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px 0 8px 8px;padding:5px 8px;font-size:10px;">
+                📌 <b>Task:</b> Laporan Keuangan Q1 · P1 · 20 Apr
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="padding:8px 10px;border-top:1px solid #e2e8f0;display:flex;gap:6px;">
+          <input style="flex:1;border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;font-size:11px;" placeholder="Ketik pesan..." readonly />
+          <button style="background:#A8C500;color:white;border:none;padding:5px 10px;border-radius:6px;font-size:11px;font-weight:600;">Kirim</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Full Page + Tabs Atas</h3>
+      <p>List ditampilkan sebagai tab horizontal di bagian atas. Lebih compact, cocok jika list sedikit.</p>
+    </div>
+  </div>
+
+</div>

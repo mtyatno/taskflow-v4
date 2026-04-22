@@ -1,4 +1,5 @@
 # Dark Mode — Design Spec
+
 **Date:** 2026-04-16  
 **Status:** Approved
 
@@ -10,29 +11,29 @@ TaskFlow V4 saat ini hanya memiliki light theme (Cloud Dancer + Sunny Lime). Use
 
 ## Keputusan Desain
 
-| Aspek | Keputusan |
-|---|---|
-| Palette | Charcoal Dark |
-| Toggle style | Toggle Switch (☀️/🌙) |
+| Aspek         | Keputusan                                     |
+| ------------- | --------------------------------------------- |
+| Palette       | Charcoal Dark                                 |
+| Toggle style  | Toggle Switch (☀️/🌙)                         |
 | Lokasi toggle | Top bar kanan, sebelum tombol "+ Tambah Task" |
-| Persistensi | `localStorage` key `tf_theme` |
+| Persistensi   | `localStorage` key `tf_theme`                 |
 
 ---
 
 ## Palette Charcoal Dark
 
-| Variable | Light | Dark |
-|---|---|---|
-| `--bg-page` | `#FAFAF7` | `#171717` |
-| `--bg-primary` | `#EEEEE6` | `#262626` |
-| `--bg-secondary` | `#EEEEE6` | `#262626` |
-| `--bg-card` | `#ffffff` | `#262626` |
-| `--text-primary` | `#0f172a` | `#e5e5e5` |
-| `--text-secondary` | `#64748b` | `#a3a3a3` |
-| `--text-light` | `#94a3b8` | `#737373` |
-| `--border` | `#E8E8E0` | `#404040` |
-| `--accent` | `#A8C500` | `#A8C500` *(tetap)* |
-| `--accent-hover` | `#95AD00` | `#95AD00` *(tetap)* |
+| Variable           | Light     | Dark                |
+| ------------------ | --------- | ------------------- |
+| `--bg-page`        | `#FAFAF7` | `#171717`           |
+| `--bg-primary`     | `#EEEEE6` | `#262626`           |
+| `--bg-secondary`   | `#EEEEE6` | `#262626`           |
+| `--bg-card`        | `#ffffff` | `#262626`           |
+| `--text-primary`   | `#0f172a` | `#e5e5e5`           |
+| `--text-secondary` | `#64748b` | `#a3a3a3`           |
+| `--text-light`     | `#94a3b8` | `#737373`           |
+| `--border`         | `#E8E8E0` | `#404040`           |
+| `--accent`         | `#A8C500` | `#A8C500` *(tetap)* |
+| `--accent-hover`   | `#95AD00` | `#95AD00` *(tetap)* |
 
 Badge warna (P1/P2/Q1/dll) dan accent lime **tidak berubah** — kontras dengan dark background justru bagus.
 

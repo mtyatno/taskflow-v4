@@ -759,6 +759,54 @@
     .note-rendered em { font-style: italic; color: var(--text-secondary); }
     .note-rendered hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
     .note-rendered blockquote { border-left: 3px solid var(--accent); padding-left: 10px; color: var(--text-secondary); margin: 6px 0; font-style: italic; }
+
+    /* Mobile Notes Modal */
+    @media (max-width: 768px) {
+      .note-modal-overlay { padding: 0; }
+      .note-modal-box { 
+        width: 100% !important; 
+        height: 100% !important; 
+        max-height: 100vh !important; 
+        border-radius: 0; 
+        border: none;
+        padding: 16px;
+        gap: 12px;
+      }
+      .note-toolbar { 
+        flex-wrap: nowrap; 
+        overflow-x: auto; 
+        padding-bottom: 4px;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+      .note-toolbar::-webkit-scrollbar { display: none; }
+      .note-toolbar button { flex-shrink: 0; }
+      .note-modal-title-input { font-size: 19px; }
+      .note-modal-content-input { font-size: 15px; flex-grow: 1; }
+      
+      /* Fixed footer for mobile */
+      .note-mobile-footer {
+        position: sticky;
+        bottom: -16px; /* align with box padding */
+        margin: 0 -16px -16px;
+        padding: 12px 16px;
+        background: var(--bg-card);
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        z-index: 10;
+      }
+      .note-modal-scroll-area {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        flex: 1;
+        overflow-y: auto;
+        margin: 0 -4px;
+        padding: 0 4px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -5395,7 +5443,7 @@
 
           {/* Actions — hidden in focus mode */}
           {!focus && (
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+            <div className="note-mobile-footer" style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
               <button className="btn btn-secondary btn-sm" onClick={onClose}>Batal</button>
               <button className="btn btn-sm" style={{ background: "var(--accent)", color: "#111", fontWeight: 700 }}
                 onClick={handleSave} disabled={saving}>
@@ -5449,9 +5497,11 @@
       // ── Compact: modal ────────────────────────────────────────────
       return (
         <div className="note-modal-overlay" onClick={onClose}>
-          <div className="note-modal-box" onClick={e => e.stopPropagation()}>
+          <div className="note-modal-box" style={{ display: "flex", flexDirection: "column", maxHeight: "90vh" }} onClick={e => e.stopPropagation()}>
             {header}
-            {inner}
+            <div className="note-modal-scroll-area">
+              {inner}
+            </div>
           </div>
         </div>
       );
