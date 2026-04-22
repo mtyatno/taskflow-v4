@@ -5283,13 +5283,6 @@
         t.title.toLowerCase().includes(taskSearch.toLowerCase())
       ).slice(0, 8);
 
-      const addTag = () => {
-        const t = tagInput.trim().replace(/^#/, "");
-        if (t && !tags.includes(t)) setTags(prev => [...prev, t]);
-        setTagInput("");
-      };
-      const removeTag = (t) => setTags(prev => prev.filter(x => x !== t));
-
       const saveOnly = async () => {
         setSaving(true);
         await onSave({ title, content, tags, linked_task_ids: linkedTaskIds, linked_task_id: linkedTaskIds[0] || null });
