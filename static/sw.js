@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v5-mobile-fix";
+const CACHE = "taskflow-v5-final-fix";
 const STATIC = [
   // "/" sengaja tidak di-cache — selalu fetch dari network agar update langsung terlihat
   "/static/vendor/react.production.min.js",
@@ -10,6 +10,10 @@ const STATIC = [
   "/static/icon-192.png",
   "/static/icon-512.png",
 ];
+
+self.addEventListener("message", e => {
+  if (e.data === "SKIP_WAITING") self.skipWaiting();
+});
 
 self.addEventListener("install", e => {
   e.waitUntil(
@@ -30,6 +34,9 @@ self.addEventListener("activate", e => {
 self.addEventListener("fetch", e => {
   const { request } = e;
   const url = new URL(request.url);
+
+  // Hanya proses skema http/https untuk menghindari error pada ekstensi browser
+  if (!url.protocol.startsWith("http")) return;
 
   // HTML root ("/") — network-first + update cache
   // Saat online: selalu fetch terbaru dari server dan simpan ke cache
