@@ -5551,22 +5551,33 @@
         return () => window.removeEventListener("openNote", handler);
       }, [allNotes]);
 
+      const applyFilters = (query, tag, base) => {
+        let result = base;
+        if (tag) result = result.filter(n => (n.tags || []).includes(tag));
+        if (query) result = result.filter(n =>
+          n.title?.toLowerCase().includes(query.toLowerCase()) ||
+          n.content?.toLowerCase().includes(query.toLowerCase())
+        );
+        return result;
+      };
+
       const handleSearch = (val) => {
         setQ(val);
-        setActiveTag(null);
-        fetchNotes(val);
+        if (activeTag) {
+          setNotes(applyFilters(val, activeTag, allNotes));
+        } else {
+          fetchNotes(val);
+        }
       };
 
       const handleTagFilter = (tag) => {
         if (activeTag === tag) {
-          // toggle off
           setActiveTag(null);
-          setNotes(allNotes);
+          setNotes(q ? applyFilters(q, null, allNotes) : allNotes);
         } else {
           setActiveTag(tag);
-          setNotes(allNotes.filter(n => (n.tags || []).includes(tag)));
+          setNotes(applyFilters(q, tag, allNotes));
         }
-        setQ("");
       };
 
       // collect all unique tags from all notes
