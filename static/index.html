@@ -5629,7 +5629,7 @@
       const fmtDate = (s) => {
         if (!s) return "";
         const d = new Date(s);
-        return d.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+        return d.toLocaleString("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
       };
 
       return (
