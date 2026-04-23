@@ -1880,7 +1880,7 @@
             for (const sub of pendingSubtasks) {
               await api.post("/api/tasks", { title: sub.title, gtd_status: sub.gtd, parent_id: newTask.id });
             }
-            onSave();
+            onSave(newTask);
           }
         } catch (err) {
           if (isOfflineErr(err) && isEdit && onOfflineSave) {
@@ -4907,12 +4907,9 @@
           {showTaskForm && (
             <TaskFormModal
               task={null}
-              onSave={async (form) => {
-                try {
-                  const newTask = await api.post("/api/tasks", { ...form, list_id: list.id });
-                  setAttachedTask(newTask);
-                  setShowTaskForm(false);
-                } catch (err) { showToast(err.message, "error"); }
+              onSave={(newTask) => {
+                if (newTask) setAttachedTask(newTask);
+                setShowTaskForm(false);
               }}
               onOfflineSave={() => setShowTaskForm(false)}
               onClose={() => setShowTaskForm(false)}
