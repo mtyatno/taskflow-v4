@@ -137,7 +137,8 @@ if not DRY_RUN:
     print(f"  Ditambahkan: {count} notes")
 
 # ── 5. Merge Scratchpad Notes ───────────────────────────────────────────────
-if not DRY_RUN:
+has_scratchpad = src_cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='scratchpad_notes'").fetchone()
+if not DRY_RUN and has_scratchpad:
     print("\n=== SCRATCHPAD NOTES ===")
     count = 0
     for n in src_cur.execute("SELECT * FROM scratchpad_notes").fetchall():
@@ -156,7 +157,8 @@ if not DRY_RUN:
     print(f"  Ditambahkan: {count} scratchpad notes")
 
 # ── 6. Merge Habits ─────────────────────────────────────────────────────────
-if not DRY_RUN:
+has_habits = src_cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='habits'").fetchone()
+if not DRY_RUN and has_habits:
     print("\n=== HABITS ===")
     habit_id_map = {}
     count = 0
