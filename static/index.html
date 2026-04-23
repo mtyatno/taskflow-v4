@@ -181,7 +181,8 @@
     .btn-success:hover { background: #dcfce7; }
     .btn-sm { padding: 5px 12px; font-size: 13px; }
     /* ── Chat ── */
-    .chat-layout { display: flex; height: calc(100vh - 64px); overflow: hidden; padding: 16px; gap: 12px; background: var(--bg-page); }
+    .main-content.no-padding { padding: 0; }
+    .chat-layout { display: flex; height: 100vh; overflow: hidden; padding: 16px; gap: 12px; background: var(--bg-page); }
     /* Chat list panel */
     .chat-list-panel { width: 240px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 16px; overflow-y: auto; background: var(--bg-card); transition: width 0.25s ease; }
     .chat-list-panel.collapsed { width: 60px; overflow: hidden; }
@@ -6716,7 +6717,7 @@
         <div>
           <Sidebar page={page} setPage={setPage} summary={summary} user={user} onLogout={logout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} projects={projects} tasks={tasks} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)} sharedLists={sharedLists} />
 
-          <div className={`main-content ${sidebarCollapsed ? "" : "sidebar-visible"}`}>
+          <div className={`main-content ${sidebarCollapsed ? "" : "sidebar-visible"}${page === "chat" ? " no-padding" : ""}`}>
             {/* Offline banner */}
             {!isOnline && (
               <div style={{ background: "#fef3c7", borderBottom: "1px solid #fcd34d", padding: "6px 16px", fontSize: 13, color: "#92400e", display: "flex", alignItems: "center", gap: 8 }}>
