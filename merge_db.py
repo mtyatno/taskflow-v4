@@ -199,6 +199,72 @@ if not DRY_RUN and has_habits:
     dst.commit()
     print(f"  Ditambahkan: {count} habit logs")
 
+# ── 7. Merge Shared Lists ───────────────────────────────────────────────────
+has_shared = src_cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='shared_lists'").fetchone()
+if not DRY_RUN and has_shared:
+    print("\n=== SHARED LISTS ===")
+    list_id_map = {}
+    count = 0
+    for sl in src_cur.execute("SELECT * FROM shared_lists").fetchall():
+        new_owner_id = user_id_map.get(sl["owner_id"])
+        if not new_owner_id or isinstance(new_owner_id, str):
+            continue
+        dup = dst_cur.execute(
+            "SELECT id FROM shared_lists WHERE owner_id=? AND name=?", (new_owner_id, sl["name"])
+        ).fetchone()
+        if dup:
+            list_id_map[sl["id"]] = dup["id"]
+            print(f"  SKIP  list '{sl['name']}' (sudah ada)")
+            continue
+        dst_cur.execute("""
+            INSERT INTO shared_lists (name, owner_id, created_at) VALUES (?, ?, ?)
+        """, (sl["name"], new_owner_id, sl["created_at"]))
+        list_id_map[sl["id"]] = dst_cur.lastrowid
+        count += 1
+        print(f"  ADD   list '{sl['name']}'")
+    dst.commit()
+    print(f"  Ditambahkan: {count} shared lists")
+
+    # List members
+    count = 0
+    for m in src_cur.execute("SELECT * FROM list_members").fetchall():
+        new_list_id = list_id_map.get(m["list_id"])
+        new_user_id = user_id_map.get(m["user_id"])
+        if not new_list_id or not new_user_id or isinstance(new_user_id, str):
+            continue
+        try:
+            dst_cur.execute("""
+                INSERT OR IGNORE INTO list_members (list_id, user_id, joined_at) VALUES (?, ?, ?)
+            """, (new_list_id, new_user_id, m["joined_at"]))
+            count += 1
+        except Exception:
+            pass
+    dst.commit()
+    print(f"  Ditambahkan: {count} list members")
+
+    # Messages
+    has_messages = src_cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").fetchone()
+    if has_messages:
+        count = 0
+        msg_id_map = {}
+        for msg in src_cur.execute("SELECT * FROM messages ORDER BY id").fetchall():
+            new_list_id = list_id_map.get(msg["list_id"])
+            new_user_id = user_id_map.get(msg["user_id"])
+            if not new_list_id or not new_user_id or isinstance(new_user_id, str):
+                continue
+            new_task_id = task_id_map.get(msg["task_id"]) if msg["task_id"] else None
+            new_reply_to = msg_id_map.get(msg["reply_to_id"]) if msg["reply_to_id"] else None
+            dst_cur.execute("""
+                INSERT INTO messages (list_id, user_id, content, task_id, msg_type, created_at, reply_to_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (new_list_id, new_user_id, msg["content"],
+                  new_task_id if isinstance(new_task_id, int) else None,
+                  msg["msg_type"], msg["created_at"], new_reply_to))
+            msg_id_map[msg["id"]] = dst_cur.lastrowid
+            count += 1
+        dst.commit()
+        print(f"  Ditambahkan: {count} messages")
+
 src.close()
 dst.close()
 
