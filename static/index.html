@@ -6307,7 +6307,23 @@
       const isSyncing = useRef(false);
       const fetchAll = useCallback(async () => {
         if (!user) return;
-        if (initialLoad.current) setLoading(true);
+        const cacheEntries = [
+          [setTasks,       "tasks"],
+          [setSummary,     "summary"],
+          [setProjects,    "projects"],
+          [setContexts,    "contexts"],
+          [setSharedLists, "lists"],
+        ];
+        if (initialLoad.current) {
+          // Tampilkan cache dulu agar tidak blank saat reload
+          let hasCache = false;
+          for (const [setter, key] of cacheEntries) {
+            const cached = await OfflineDB.cacheGet(key);
+            if (cached) { setter(cached); hasCache = true; }
+          }
+          if (hasCache) { setLoading(false); initialLoad.current = false; }
+          else setLoading(true);
+        }
         const calls = [
           ["/api/tasks?include_done=true", setTasks,        "tasks"],
           ["/api/summary",                 setSummary,       "summary"],
@@ -6447,6 +6463,15 @@
           window.removeEventListener("offline", onOffline);
         };
       }, [processQueue, updateQueueSize]);
+
+      // Background refresh saat kembali ke foreground (tanpa loading spinner)
+      useEffect(() => {
+        const onVisible = () => {
+          if (document.visibilityState === "visible" && navigator.onLine) fetchAll();
+        };
+        document.addEventListener("visibilitychange", onVisible);
+        return () => document.removeEventListener("visibilitychange", onVisible);
+      }, [fetchAll]);
 
       // Trigger processQueue saat isOnline berubah false → true
       // (cover kasus DNS putus: window.online tidak fire, tapi fetchAll mendeteksi kembali online)
