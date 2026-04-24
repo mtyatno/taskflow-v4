@@ -5251,6 +5251,7 @@
 
       useEffect(() => {
         api.get("/api/tags?entity_type=note").then(data => setExistingTags(data || [])).catch(() => {});
+        return () => setTagDropdown(null);
       }, []);
 
       // Handle [[  autocomplete in textarea
