@@ -1804,7 +1804,10 @@ async def update_tag(tag_id: int, req: TagUpdate, user=Depends(get_current_user)
             name = req.name.strip().lower()
             if not name:
                 raise HTTPException(status_code=400, detail="Nama tag tidak boleh kosong")
-            conn.execute("UPDATE tags SET name = ? WHERE id = ?", (name, tag_id))
+            try:
+                conn.execute("UPDATE tags SET name = ? WHERE id = ?", (name, tag_id))
+            except sqlite3.IntegrityError:
+                raise HTTPException(status_code=409, detail="Tag dengan nama ini sudah ada")
         if req.color is not None:
             conn.execute("UPDATE tags SET color = ? WHERE id = ?", (req.color, tag_id))
         conn.commit()
