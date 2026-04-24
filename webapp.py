@@ -1742,6 +1742,62 @@ async def get_backlinks(note_id: int, user=Depends(get_current_user)):
     return [dict(r) for r in rows]
 
 
+@app.get("/api/tags")
+async def list_tags(entity_type: str = "", user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        if entity_type:
+            rows = conn.execute("""
+                SELECT DISTINCT t.id, t.name, t.color, COUNT(et.entity_id) as count
+                FROM tags t
+                JOIN entity_tags et ON t.id = et.tag_id
+                WHERE t.user_id = ? AND et.entity_type = ?
+                GROUP BY t.id ORDER BY count DESC, t.name ASC
+            """, (uid, entity_type)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT t.id, t.name, t.color, COUNT(et.entity_id) as count
+                FROM tags t
+                LEFT JOIN entity_tags et ON t.id = et.tag_id
+                WHERE t.user_id = ?
+                GROUP BY t.id ORDER BY count DESC, t.name ASC
+            """, (uid,)).fetchall()
+        return [dict(r) for r in rows]
+
+class TagUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+
+@app.patch("/api/tags/{tag_id}")
+async def update_tag(tag_id: int, req: TagUpdate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        tag = conn.execute("SELECT id FROM tags WHERE id = ? AND user_id = ?", (tag_id, uid)).fetchone()
+        if not tag:
+            raise HTTPException(status_code=404, detail="Tag tidak ditemukan")
+        if req.name is not None:
+            name = req.name.strip().lower()
+            if not name:
+                raise HTTPException(status_code=400, detail="Nama tag tidak boleh kosong")
+            conn.execute("UPDATE tags SET name = ? WHERE id = ?", (name, tag_id))
+        if req.color is not None:
+            conn.execute("UPDATE tags SET color = ? WHERE id = ?", (req.color, tag_id))
+        conn.commit()
+        return dict(conn.execute("SELECT * FROM tags WHERE id = ?", (tag_id,)).fetchone())
+
+@app.delete("/api/tags/{tag_id}")
+async def delete_tag(tag_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        tag = conn.execute("SELECT id FROM tags WHERE id = ? AND user_id = ?", (tag_id, uid)).fetchone()
+        if not tag:
+            raise HTTPException(status_code=404, detail="Tag tidak ditemukan")
+        conn.execute("DELETE FROM entity_tags WHERE tag_id = ?", (tag_id,))
+        conn.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+        conn.commit()
+    return {"ok": True}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 
 import urllib.request as _urllib_req
