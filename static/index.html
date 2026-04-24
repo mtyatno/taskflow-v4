@@ -1799,6 +1799,9 @@
         assigned_to: task?.assigned_to || null,
         progress: task?.progress || 0,
       });
+      const titleInputRef = React.useRef(null);
+      const [titleTagDropdown, setTitleTagDropdown] = useState(null);
+      const [titleExistingTags, setTitleExistingTags] = useState([]);
       const [loading, setLoading] = useState(false);
       const [pendingSubtasks, setPendingSubtasks] = useState([]);
       const [pendingSubTitle, setPendingSubTitle] = useState("");
@@ -1826,6 +1829,37 @@
         frequency: f.frequency.includes(key) ? f.frequency.filter(d => d !== key) : [...f.frequency, key]
       }));
 
+      const handleTitleChange = (val) => {
+        set("title", val);
+        const el = titleInputRef.current;
+        const tagMatch = val.slice(0, el?.selectionStart ?? val.length).match(/#([a-zA-Z0-9_À-ɏ]*)$/);
+        if (tagMatch) {
+          const query = tagMatch[1].toLowerCase();
+          const items = titleExistingTags.filter(t => t.name.startsWith(query)).slice(0, 6);
+          if (items.length > 0 && el) {
+            const rect = el.getBoundingClientRect();
+            setTitleTagDropdown({ items, top: rect.bottom + 4, left: rect.left });
+          } else {
+            setTitleTagDropdown(null);
+          }
+        } else {
+          setTitleTagDropdown(null);
+        }
+      };
+
+      const insertTitleTag = (tagName) => {
+        const el = titleInputRef.current;
+        if (!el) return;
+        const pos = el.selectionStart;
+        const before = form.title.slice(0, pos);
+        const after = form.title.slice(pos);
+        const newBefore = before.replace(/#([a-zA-Z0-9_À-ɏ]*)$/, `#${tagName} `);
+        const newVal = newBefore + after;
+        set("title", newVal);
+        setTitleTagDropdown(null);
+        setTimeout(() => { el.selectionStart = el.selectionEnd = newBefore.length; el.focus(); }, 0);
+      };
+
       useEffect(() => {
         if (form.list_id) {
           api.get(`/api/lists/${form.list_id}/members`)
@@ -1835,6 +1869,11 @@
           setListMembers([]);
         }
       }, [form.list_id]);
+
+      useEffect(() => {
+        api.get("/api/tags").then(data => setTitleExistingTags(data || [])).catch(() => {});
+        return () => setTitleTagDropdown(null);
+      }, []);
 
       const handleSubmit = async (e) => {
         e.preventDefault();
@@ -2005,7 +2044,38 @@
               {/* ── Task Form ── */}
               {mode === "task" && <div>
               <label className="input-label">Judul *</label>
-              <input className="input" value={form.title} onChange={e => set("title", e.target.value)} required style={{ marginBottom: 14 }} />
+              <div style={{ position: "relative", marginBottom: 14 }}>
+                <input
+                  ref={titleInputRef}
+                  className="input"
+                  value={form.title}
+                  onChange={e => handleTitleChange(e.target.value)}
+                  onKeyDown={e => {
+                    if (titleTagDropdown) {
+                      if (e.key === "Escape") { setTitleTagDropdown(null); return; }
+                      if (e.key === "Enter" || e.key === "Tab") {
+                        e.preventDefault();
+                        if (titleTagDropdown.items[0]) insertTitleTag(titleTagDropdown.items[0].name);
+                        return;
+                      }
+                    }
+                  }}
+                  required
+                  style={{ width: "100%" }}
+                  placeholder="Judul task... atau tambahkan #tag"
+                />
+                {titleTagDropdown && titleTagDropdown.items.length > 0 && (
+                  <div className="wiki-autocomplete" style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1050 }}>
+                    {titleTagDropdown.items.map((t, i) => (
+                      <div key={t.id} className={`wiki-autocomplete-item${i === 0 ? " active" : ""}`}
+                        onMouseDown={e => { e.preventDefault(); insertTitleTag(t.name); }}>
+                        <span style={{ color: "var(--accent)", fontWeight: 700 }}>#</span>{t.name}
+                        <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>{t.count}×</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
                 <div>
