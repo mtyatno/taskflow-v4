@@ -74,10 +74,50 @@ def get_db():
         conn.close()
 
 
+def _upsert_tags_for_note(conn, note_id: int, user_id: int, tag_names: list):
+    """Upsert tags and entity_tags relations for one note. Tags are normalized lowercase+trim."""
+    from datetime import datetime as _dt
+    now = _dt.utcnow().isoformat()
+    for raw in tag_names:
+        name = raw.strip().lower()
+        if not name:
+            continue
+        conn.execute(
+            "INSERT OR IGNORE INTO tags (user_id, name, created_at) VALUES (?, ?, ?)",
+            (user_id, name, now)
+        )
+        tag_row = conn.execute(
+            "SELECT id FROM tags WHERE user_id = ? AND name = ?", (user_id, name)
+        ).fetchone()
+        if tag_row:
+            conn.execute(
+                "INSERT OR IGNORE INTO entity_tags (tag_id, user_id, entity_type, entity_id, created_at) VALUES (?, ?, 'note', ?, ?)",
+                (tag_row["id"], user_id, note_id, now)
+            )
+
+
 def migrate_db():
     """Ensure all tables exist via repository init."""
     from repository import TaskRepository
     TaskRepository(DB_PATH)
+
+    # Migrate scratchpad_notes.tags (JSON array) → tags + entity_tags
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        migrated = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tags'").fetchone()
+        if migrated:
+            notes = conn.execute("SELECT id, user_id, tags FROM scratchpad_notes WHERE tags IS NOT NULL AND tags != '[]'").fetchall()
+            for note in notes:
+                try:
+                    tag_names = json.loads(note["tags"] or "[]")
+                    if tag_names:
+                        _upsert_tags_for_note(conn, note["id"], note["user_id"], tag_names)
+                except Exception:
+                    pass
+            conn.commit()
+    finally:
+        conn.close()
 
 
 # ── Password hashing (no external deps) ───────────────────────────────────────
