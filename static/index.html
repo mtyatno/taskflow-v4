@@ -4418,7 +4418,7 @@
                 {projNames.map(proj => {
                   const projTasks = tasks.filter(t => t.project === proj && t.gtd_status !== "done" && t.gtd_status !== "archived");
                   return (
-                    <div key={proj} style={{ borderRadius: 12, padding: 16, minHeight: 100, minWidth: 0, overflow: "hidden", background: "#F4FAD6", border: "1px solid #CEDE8A" }}>
+                    <div key={proj} style={{ borderRadius: 12, padding: 16, minHeight: 100, minWidth: 0, overflow: "hidden", background: "var(--bg-card)", border: "1px solid var(--border)" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                         <div style={{ fontWeight: 700, fontSize: 14 }}>📂 {proj} ({projTasks.length})</div>
                         {projTasks.length > 5 && (
