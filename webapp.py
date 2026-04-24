@@ -468,6 +468,7 @@ async def list_tasks(
     project: Optional[str] = None,
     context: Optional[str] = None,
     include_done: bool = False,
+    tag: str = "",
     user=Depends(get_current_user),
 ):
     uid = user["sub"]
@@ -499,6 +500,14 @@ async def list_tasks(
     if context:
         clauses.append("context = ?")
         params.append(context)
+    if tag:
+        tag_norm = tag.strip().lower()
+        clauses.append(
+            "id IN (SELECT et.entity_id FROM entity_tags et "
+            "JOIN tags t ON t.id = et.tag_id "
+            "WHERE et.entity_type = 'task' AND t.user_id = ? AND t.name = ?)"
+        )
+        params.extend([uid, tag_norm])
 
     where = " AND ".join(clauses)
     sql = f"SELECT * FROM tasks WHERE {where} ORDER BY priority, deadline"
@@ -584,6 +593,39 @@ async def get_task(task_id: int, user=Depends(get_current_user)):
     with get_db() as conn:
         row = _can_access_task(conn, task_id, user["sub"])
     return task_row_to_dict(row)
+
+
+@app.get("/api/tasks/{task_id}/tags")
+async def get_task_tags(task_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _can_access_task(conn, task_id, uid)
+        rows = conn.execute("""
+            SELECT t.id, t.name, t.color
+            FROM tags t
+            JOIN entity_tags et ON t.id = et.tag_id
+            WHERE et.entity_type = 'task' AND et.entity_id = ? AND t.user_id = ?
+            ORDER BY t.name ASC
+        """, (task_id, uid)).fetchall()
+        return [dict(r) for r in rows]
+
+
+@app.delete("/api/tasks/{task_id}/tags/{tag_name}")
+async def remove_task_tag(task_id: int, tag_name: str, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _can_access_task(conn, task_id, uid, write=True)
+        tag = conn.execute(
+            "SELECT id FROM tags WHERE user_id = ? AND name = ?",
+            (uid, tag_name.strip().lower())
+        ).fetchone()
+        if tag:
+            conn.execute(
+                "DELETE FROM entity_tags WHERE tag_id = ? AND entity_type = 'task' AND entity_id = ?",
+                (tag["id"], task_id)
+            )
+            conn.commit()
+    return {"ok": True}
 
 
 @app.put("/api/tasks/{task_id}")
