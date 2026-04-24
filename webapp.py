@@ -96,6 +96,28 @@ def _upsert_tags_for_note(conn, note_id: int, user_id: int, tag_names: list):
             )
 
 
+def _upsert_tags_for_entity(conn, entity_id: int, user_id: int, entity_type: str, tag_names: list):
+    """Upsert tags and entity_tags for any entity type. Tags normalized lowercase+trim."""
+    from datetime import datetime as _dt
+    now = _dt.utcnow().isoformat()
+    for raw in tag_names:
+        name = raw.strip().lower()
+        if not name:
+            continue
+        conn.execute(
+            "INSERT OR IGNORE INTO tags (user_id, name, created_at) VALUES (?, ?, ?)",
+            (user_id, name, now)
+        )
+        tag_row = conn.execute(
+            "SELECT id FROM tags WHERE user_id = ? AND name = ?", (user_id, name)
+        ).fetchone()
+        if tag_row:
+            conn.execute(
+                "INSERT OR IGNORE INTO entity_tags (tag_id, user_id, entity_type, entity_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                (tag_row["id"], user_id, entity_type, entity_id, now)
+            )
+
+
 def migrate_db():
     """Ensure all tables exist via repository init."""
     from repository import TaskRepository
@@ -490,6 +512,11 @@ async def list_tasks(
 async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
     uid = user["sub"]
 
+    # Extract and strip #tags from title
+    _tag_re = re.compile(r'#([a-zA-Z0-9_À-ɏ]+)')
+    task_tags = [m.lower() for m in _tag_re.findall(req.title)]
+    req.title = _tag_re.sub('', req.title).strip()
+
     # Resolve parent task — inherit fields if not provided
     parent_id = req.parent_id
     if parent_id:
@@ -534,7 +561,11 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
             (req.title, req.description, req.gtd_status, req.priority.upper(), quadrant,
              req.project, req.context, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, parent_id, now, now),
         )
-        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (cur.lastrowid,)).fetchone()
+        task_id = cur.lastrowid
+        if task_tags:
+            _upsert_tags_for_entity(conn, task_id, uid, 'task', task_tags)
+            conn.commit()
+        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
 
     if req.list_id:
         actor = user.get("username", f"user#{uid}")
@@ -556,6 +587,15 @@ async def get_task(task_id: int, user=Depends(get_current_user)):
 @app.put("/api/tasks/{task_id}")
 async def update_task(task_id: int, req: TaskUpdate, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
     uid = user["sub"]
+
+    _tag_re = re.compile(r'#([a-zA-Z0-9_À-ɏ]+)')
+    task_tags = None
+    if req.title is not None:
+        task_tags = [m.lower() for m in _tag_re.findall(req.title)]
+        req.title = _tag_re.sub('', req.title).strip()
+        if not req.title:
+            raise HTTPException(status_code=400, detail="Judul tidak boleh kosong setelah strip tag")
+
     with get_db() as conn:
         existing = _can_access_task(conn, task_id, uid, write=True)
 
@@ -601,6 +641,12 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         values = list(updates.values()) + [task_id]
         conn.execute(f"UPDATE tasks SET {set_clause} WHERE id = ?", values)
+
+        if task_tags is not None:
+            conn.execute("DELETE FROM entity_tags WHERE entity_type='task' AND entity_id=? AND user_id=?", (task_id, uid))
+            if task_tags:
+                _upsert_tags_for_entity(conn, task_id, uid, 'task', task_tags)
+            conn.commit()
 
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
 
