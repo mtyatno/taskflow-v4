@@ -5622,8 +5622,19 @@
       const [loading, setLoading]     = useState(true);
       const [q, setQ]                 = useState("");
       const [activeTag, setActiveTag] = useState(null);
+      const [tagList, setTagList] = useState([]);
       const [selected, setSelected]   = useState(null);
       const [showModal, setShowModal] = useState(false);
+
+      useEffect(() => {
+        api.get("/api/tags?entity_type=note").then(data => setTagList(data || [])).catch(() => {});
+      }, []);
+
+      useEffect(() => {
+        const handler = () => api.get("/api/tags?entity_type=note").then(data => setTagList(data || [])).catch(() => {});
+        window.addEventListener("noteSaved", handler);
+        return () => window.removeEventListener("noteSaved", handler);
+      }, []);
 
       const fetchNotes = async (query = "") => {
         try {
@@ -5697,8 +5708,7 @@
         }
       };
 
-      // collect all unique tags from all notes
-      const allTags = [...new Set(allNotes.flatMap(n => n.tags || []))].sort();
+      const allTags = tagList.map(t => t.name);
 
       const openNew = () => { setSelected({}); setShowModal(true); };
       const openEdit = (n) => { setSelected(n); setShowModal(true); };
