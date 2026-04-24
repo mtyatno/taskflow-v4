@@ -1532,6 +1532,11 @@ async def get_habits(user=Depends(get_current_user)):
 @app.post("/api/habits")
 async def create_habit(req: HabitCreate, user=Depends(get_current_user)):
     uid = user["sub"]
+    _tag_re = re.compile(r'#([a-zA-Z0-9_À-ɏ]+)')
+    habit_tags = [m.lower() for m in _tag_re.findall(req.title)]
+    req.title = _tag_re.sub('', req.title).strip()
+    if not req.title:
+        raise HTTPException(status_code=400, detail="Nama habit tidak boleh kosong setelah strip tag")
     if req.phase not in ("pagi", "siang", "malam"):
         raise HTTPException(status_code=400, detail="phase harus pagi/siang/malam")
     freq_json = json.dumps(req.frequency)
@@ -1541,13 +1546,22 @@ async def create_habit(req: HabitCreate, user=Depends(get_current_user)):
                VALUES (?,?,?,?,?,?)""",
             (uid, req.title, req.phase, req.micro_target, freq_json, req.identity_pillar)
         )
-        row = conn.execute("SELECT * FROM habits WHERE id = ?", (cur.lastrowid,)).fetchone()
+        habit_id = cur.lastrowid
+        if habit_tags:
+            _upsert_tags_for_entity(conn, habit_id, uid, 'habit', habit_tags)
+            conn.commit()
+        row = conn.execute("SELECT * FROM habits WHERE id = ?", (habit_id,)).fetchone()
     return dict(row)
 
 
 @app.post("/api/habits/{habit_id}/update")
 async def update_habit(habit_id: int, req: HabitUpdate, user=Depends(get_current_user)):
     uid = user["sub"]
+    _tag_re = re.compile(r'#([a-zA-Z0-9_À-ɏ]+)')
+    habit_tags = [m.lower() for m in _tag_re.findall(req.title)]
+    req.title = _tag_re.sub('', req.title).strip()
+    if not req.title:
+        raise HTTPException(status_code=400, detail="Nama habit tidak boleh kosong setelah strip tag")
     if req.phase not in ("pagi", "siang", "malam"):
         raise HTTPException(status_code=400, detail="phase tidak valid")
     import json as _json
@@ -1559,7 +1573,48 @@ async def update_habit(habit_id: int, req: HabitUpdate, user=Depends(get_current
             "UPDATE habits SET title=?, phase=?, micro_target=?, frequency=?, identity_pillar=? WHERE id=?",
             (req.title, req.phase, req.micro_target, _json.dumps(req.frequency), req.identity_pillar, habit_id)
         )
+        conn.execute("DELETE FROM entity_tags WHERE entity_type='habit' AND entity_id=? AND user_id=?", (habit_id, uid))
+        if habit_tags:
+            _upsert_tags_for_entity(conn, habit_id, uid, 'habit', habit_tags)
+        conn.commit()
     return {"ok": True, "id": habit_id}
+
+
+@app.get("/api/habits/{habit_id}/tags")
+async def get_habit_tags(habit_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM habits WHERE id = ? AND user_id = ?", (habit_id, uid)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Habit tidak ditemukan")
+        rows = conn.execute("""
+            SELECT t.id, t.name, t.color
+            FROM tags t
+            JOIN entity_tags et ON t.id = et.tag_id
+            WHERE et.entity_type = 'habit' AND et.entity_id = ? AND t.user_id = ?
+            ORDER BY t.name ASC
+        """, (habit_id, uid)).fetchall()
+        return [dict(r) for r in rows]
+
+
+@app.delete("/api/habits/{habit_id}/tags/{tag_name}")
+async def remove_habit_tag(habit_id: int, tag_name: str, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM habits WHERE id = ? AND user_id = ?", (habit_id, uid)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Habit tidak ditemukan")
+        tag = conn.execute(
+            "SELECT id FROM tags WHERE user_id = ? AND name = ?",
+            (uid, tag_name.strip().lower())
+        ).fetchone()
+        if tag:
+            conn.execute(
+                "DELETE FROM entity_tags WHERE tag_id = ? AND entity_type = 'habit' AND entity_id = ?",
+                (tag["id"], habit_id)
+            )
+            conn.commit()
+    return {"ok": True}
 
 
 @app.delete("/api/habits/{habit_id}")
