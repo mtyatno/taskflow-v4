@@ -1519,13 +1519,23 @@ if STATIC_DIR.exists():
 # ── Habits ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/habits")
-async def get_habits(user=Depends(get_current_user)):
+async def get_habits(tag: str = "", user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM habits WHERE user_id = ? ORDER BY phase, id",
-            (uid,)
-        ).fetchall()
+        if tag:
+            tag_norm = tag.strip().lower()
+            rows = conn.execute("""
+                SELECT * FROM habits WHERE user_id = ?
+                AND id IN (SELECT et.entity_id FROM entity_tags et
+                           JOIN tags t ON t.id = et.tag_id
+                           WHERE et.entity_type = 'habit' AND t.user_id = ? AND t.name = ?)
+                ORDER BY phase, id
+            """, (uid, uid, tag_norm)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM habits WHERE user_id = ? ORDER BY phase, id",
+                (uid,)
+            ).fetchall()
     return [dict(r) for r in rows]
 
 

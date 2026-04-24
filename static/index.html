@@ -1802,6 +1802,9 @@
       const titleInputRef = React.useRef(null);
       const [titleTagDropdown, setTitleTagDropdown] = useState(null);
       const [titleExistingTags, setTitleExistingTags] = useState([]);
+      const habitTitleInputRef = React.useRef(null);
+      const [habitTitleTagDropdown, setHabitTitleTagDropdown] = useState(null);
+      const [habitExistingTags, setHabitExistingTags] = useState([]);
       const [loading, setLoading] = useState(false);
       const [pendingSubtasks, setPendingSubtasks] = useState([]);
       const [pendingSubTitle, setPendingSubTitle] = useState("");
@@ -1874,6 +1877,39 @@
         api.get("/api/tags").then(data => setTitleExistingTags(data || [])).catch(() => {});
         return () => setTitleTagDropdown(null);
       }, []);
+
+      useEffect(() => {
+        if (mode === "habit") {
+          api.get("/api/tags?entity_type=habit").then(data => setHabitExistingTags(data || [])).catch(() => {});
+        }
+        return () => setHabitTitleTagDropdown(null);
+      }, [mode]);
+
+      const handleHabitTitleChange = (val) => {
+        setHabit("title", val);
+        const el = habitTitleInputRef.current;
+        const tagMatch = val.match(/#([a-zA-Z0-9_À-ɏ]*)$/);
+        if (tagMatch) {
+          const query = tagMatch[1].toLowerCase();
+          const items = habitExistingTags.filter(t => t.name.startsWith(query)).slice(0, 6);
+          if (items.length > 0 && el) {
+            const rect = el.getBoundingClientRect();
+            setHabitTitleTagDropdown({ items, top: rect.bottom + 4, left: rect.left });
+          } else { setHabitTitleTagDropdown(null); }
+        } else { setHabitTitleTagDropdown(null); }
+      };
+
+      const insertHabitTitleTag = (tagName) => {
+        const el = habitTitleInputRef.current;
+        if (!el) return;
+        const pos = el.selectionStart;
+        const before = habitForm.title.slice(0, pos);
+        const after = habitForm.title.slice(pos);
+        const newBefore = before.replace(/#([a-zA-Z0-9_À-ɏ]*)$/, `#${tagName} `);
+        setHabit("title", newBefore + after);
+        setHabitTitleTagDropdown(null);
+        setTimeout(() => { el.selectionStart = el.selectionEnd = newBefore.length; el.focus(); }, 0);
+      };
 
       const handleSubmit = async (e) => {
         e.preventDefault();
@@ -1973,7 +2009,38 @@
               {mode === "habit" && (
                 <div>
                   <label className="input-label">Nama Habit *</label>
-                  <input className="input" value={habitForm.title} onChange={e => setHabit("title", e.target.value)} required style={{ marginBottom: 14 }} placeholder="Meditasi, Olahraga, Baca..." />
+                  <div style={{ position: "relative", marginBottom: 14 }}>
+                    <input
+                      ref={habitTitleInputRef}
+                      className="input"
+                      value={habitForm.title}
+                      onChange={e => handleHabitTitleChange(e.target.value)}
+                      onKeyDown={e => {
+                        if (habitTitleTagDropdown) {
+                          if (e.key === "Escape") { setHabitTitleTagDropdown(null); return; }
+                          if (e.key === "Enter" || e.key === "Tab") {
+                            e.preventDefault();
+                            if (habitTitleTagDropdown.items[0]) insertHabitTitleTag(habitTitleTagDropdown.items[0].name);
+                            return;
+                          }
+                        }
+                      }}
+                      required
+                      style={{ width: "100%" }}
+                      placeholder="Meditasi, Olahraga, Baca... atau tambahkan #tag"
+                    />
+                    {habitTitleTagDropdown && habitTitleTagDropdown.items.length > 0 && (
+                      <div className="wiki-autocomplete" style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1050 }}>
+                        {habitTitleTagDropdown.items.map((t, i) => (
+                          <div key={t.id} className={`wiki-autocomplete-item${i === 0 ? " active" : ""}`}
+                            onMouseDown={e => { e.preventDefault(); insertHabitTitleTag(t.name); }}>
+                            <span style={{ color: "var(--accent)", fontWeight: 700 }}>#</span>{t.name}
+                            <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>{t.count}×</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
                   <label className="input-label">Fase</label>
                   <select className="input" value={habitForm.phase} onChange={e => setHabit("phase", e.target.value)} style={{ marginBottom: 14 }}>
@@ -6097,9 +6164,18 @@
       );
     }
 
-    function HabitCard({ h, DAY_LABELS, todayDow, onCheckin, onEdit, onDelete }) {
+    function HabitCard({ h, DAY_LABELS, todayDow, onCheckin, onEdit, onDelete, onTagClick, onTagRemove }) {
       const [menuOpen, setMenuOpen] = useState(false);
       const closeMenu = () => setMenuOpen(false);
+      const [habitTags, setHabitTags] = useState([]);
+      const [tagsExpanded, setTagsExpanded] = useState(false);
+
+      useEffect(() => {
+        if (h?.id && !String(h.id).startsWith("tmp_")) {
+          api.get(`/api/habits/${h.id}/tags`).then(data => setHabitTags(data || [])).catch(() => {});
+        }
+      }, [h?.id]);
+
       return (
         <div className="habit-card fade-in" style={{ position: "relative", zIndex: menuOpen ? 10 : "auto" }}
           onClick={() => { if (!menuOpen) onCheckin(h); }}>
@@ -6116,6 +6192,40 @@
               </div>
               {h.micro_target && (
                 <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>🎯 {h.micro_target}</div>
+              )}
+              {habitTags.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4, alignItems: "center" }} onClick={e => e.stopPropagation()}>
+                  {(tagsExpanded ? habitTags : habitTags.slice(0, 3)).map(tag => (
+                    <span
+                      key={tag.id}
+                      title="Klik untuk lihat semua habit dengan tag ini"
+                      onClick={() => onTagClick && onTagClick(tag.name)}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 3,
+                        background: "rgba(168,197,0,0.10)", color: "var(--accent)",
+                        border: "1px solid rgba(168,197,0,0.25)", borderRadius: 999,
+                        fontSize: 10, fontWeight: 600, padding: "1px 7px 1px 5px",
+                        cursor: "pointer", userSelect: "none"
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = "rgba(168,197,0,0.22)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "rgba(168,197,0,0.10)"}
+                    >
+                      <span style={{ opacity: 0.7 }}>#</span>{tag.name}
+                      <span
+                        onClick={e => { e.stopPropagation(); if (onTagRemove) { onTagRemove(h.id, tag.name); setHabitTags(prev => prev.filter(t => t.name !== tag.name)); }}}
+                        style={{ marginLeft: 2, opacity: 0.5, fontWeight: 400, fontSize: 12, lineHeight: 1, cursor: "pointer" }}
+                        onMouseEnter={e => { e.stopPropagation(); e.currentTarget.style.opacity = "1"; }}
+                        onMouseLeave={e => { e.stopPropagation(); e.currentTarget.style.opacity = "0.5"; }}
+                      >×</span>
+                    </span>
+                  ))}
+                  {habitTags.length > 3 && (
+                    <span
+                      onClick={() => setTagsExpanded(e => !e)}
+                      style={{ fontSize: 10, color: "var(--text-light)", cursor: "pointer", padding: "1px 5px", borderRadius: 999, border: "1px solid var(--border)" }}
+                    >{tagsExpanded ? "‹" : `+${habitTags.length - 3}`}</span>
+                  )}
+                </div>
               )}
             </div>
 
@@ -6181,6 +6291,41 @@
       const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
       const toggleDay = (d) => set("frequency", form.frequency.includes(d) ? form.frequency.filter(x => x !== d) : [...form.frequency, d]);
 
+      const habitEditInputRef = React.useRef(null);
+      const [editTagDropdown, setEditTagDropdown] = useState(null);
+      const [editExistingTags, setEditExistingTags] = useState([]);
+
+      useEffect(() => {
+        api.get("/api/tags?entity_type=habit").then(data => setEditExistingTags(data || [])).catch(() => {});
+        return () => setEditTagDropdown(null);
+      }, []);
+
+      const handleEditTitleChange = (val) => {
+        set("title", val);
+        const el = habitEditInputRef.current;
+        const tagMatch = val.match(/#([a-zA-Z0-9_À-ɏ]*)$/);
+        if (tagMatch) {
+          const query = tagMatch[1].toLowerCase();
+          const items = editExistingTags.filter(t => t.name.startsWith(query)).slice(0, 6);
+          if (items.length > 0 && el) {
+            const rect = el.getBoundingClientRect();
+            setEditTagDropdown({ items, top: rect.bottom + 4, left: rect.left });
+          } else { setEditTagDropdown(null); }
+        } else { setEditTagDropdown(null); }
+      };
+
+      const insertEditTag = (tagName) => {
+        const el = habitEditInputRef.current;
+        if (!el) return;
+        const pos = el.selectionStart;
+        const before = form.title.slice(0, pos);
+        const after = form.title.slice(pos);
+        const newBefore = before.replace(/#([a-zA-Z0-9_À-ɏ]*)$/, `#${tagName} `);
+        set("title", newBefore + after);
+        setEditTagDropdown(null);
+        setTimeout(() => { el.selectionStart = el.selectionEnd = newBefore.length; el.focus(); }, 0);
+      };
+
       const handleSave = async () => {
         if (!form.title.trim()) return;
         setLoading(true);
@@ -6198,7 +6343,37 @@
             </div>
             <div className="modal-body">
               <label className="input-label">Nama Habit</label>
-              <input className="input" value={form.title} onChange={e => set("title", e.target.value)} style={{ marginBottom: 14 }} autoFocus />
+              <div style={{ position: "relative", marginBottom: 14 }}>
+                <input
+                  ref={habitEditInputRef}
+                  className="input"
+                  value={form.title}
+                  onChange={e => handleEditTitleChange(e.target.value)}
+                  onKeyDown={e => {
+                    if (editTagDropdown) {
+                      if (e.key === "Escape") { setEditTagDropdown(null); return; }
+                      if (e.key === "Enter" || e.key === "Tab") {
+                        e.preventDefault();
+                        if (editTagDropdown.items[0]) insertEditTag(editTagDropdown.items[0].name);
+                        return;
+                      }
+                    }
+                  }}
+                  style={{ width: "100%" }}
+                  autoFocus
+                />
+                {editTagDropdown && editTagDropdown.items.length > 0 && (
+                  <div className="wiki-autocomplete" style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1050 }}>
+                    {editTagDropdown.items.map((t, i) => (
+                      <div key={t.id} className={`wiki-autocomplete-item${i === 0 ? " active" : ""}`}
+                        onMouseDown={e => { e.preventDefault(); insertEditTag(t.name); }}>
+                        <span style={{ color: "var(--accent)", fontWeight: 700 }}>#</span>{t.name}
+                        <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>{t.count}×</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               <label className="input-label">Fase</label>
               <select className="input" value={form.phase} onChange={e => set("phase", e.target.value)} style={{ marginBottom: 14 }}>
                 <option value="pagi">Pagi (04:00–09:00)</option>
@@ -6414,8 +6589,22 @@
 
       const grouped = phases.reduce((acc, p) => { acc[p] = habits.filter(h => h.phase === p); return acc; }, {});
 
+      const [habitTagModal, setHabitTagModal] = useState(null);
+
+      const handleTagClick = async (tagName) => {
+        try {
+          const filtered = await api.get(`/api/habits?tag=${encodeURIComponent(tagName)}`);
+          setHabitTagModal({ tagName, habits: filtered || [] });
+        } catch { setHabitTagModal({ tagName, habits: [] }); }
+      };
+
+      const handleTagRemove = async (habitId, tagName) => {
+        try { await api.del(`/api/habits/${habitId}/tags/${encodeURIComponent(tagName)}`); }
+        catch (err) { console.error(err); }
+      };
+
       // HabitCard dipanggil dengan props eksplisit agar stable component identity
-      const habitCardProps = { DAY_LABELS, todayDow, onCheckin: setCheckinTarget, onEdit: setEditTarget, onDelete: handleDelete };
+      const habitCardProps = { DAY_LABELS, todayDow, onCheckin: setCheckinTarget, onEdit: setEditTarget, onDelete: handleDelete, onTagClick: handleTagClick, onTagRemove: handleTagRemove };
 
       if (loading) return <div style={{ padding: 40, textAlign: "center", color: "var(--text-secondary)" }}>Memuat habits...</div>;
 
@@ -6499,6 +6688,29 @@
               onClose={() => setEditTarget(null)}
               onSave={handleEdit}
             />
+          )}
+          {habitTagModal && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}
+              onClick={() => setHabitTagModal(null)}>
+              <div style={{ background: "var(--bg-card)", borderRadius: 16, padding: 24, minWidth: 280, maxWidth: 400, maxHeight: "70vh", overflowY: "auto" }}
+                onClick={e => e.stopPropagation()}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>
+                    Habit dengan tag <span style={{ color: "var(--accent)" }}>#{habitTagModal.tagName}</span>
+                  </span>
+                  <button onClick={() => setHabitTagModal(null)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-light)" }}>×</button>
+                </div>
+                {habitTagModal.habits.length === 0
+                  ? <div style={{ color: "var(--text-light)", fontSize: 13 }}>Tidak ada habit dengan tag ini.</div>
+                  : habitTagModal.habits.map(h => (
+                    <div key={h.id} style={{ background: "var(--bg-primary)", borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13 }}>
+                      <div style={{ fontWeight: 600 }}>{h.title}</div>
+                      {h.micro_target && <div style={{ fontSize: 11, color: "var(--text-light)", marginTop: 2 }}>🎯 {h.micro_target}</div>}
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
           )}
         </div>
       );
