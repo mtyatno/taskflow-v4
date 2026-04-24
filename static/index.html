@@ -3812,12 +3812,15 @@
           const cached = localStorage.getItem(cacheKey);
           if (cached) { setHolidays(prev => ({ ...prev, ...JSON.parse(cached) })); return; }
         } catch {}
-        fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/ID`)
+        fetch(`https://use.api.co.id/holidays/indonesia/?year=${year}&page=1`, {
+          headers: { "x-api-co-id": "v66wqUTF8Y11V3ME31fHIuPaEWfuc22JkELVQtyVsc1rlJxcdK" }
+        })
           .then(r => r.json())
-          .then(data => {
+          .then(res => {
             const map = {};
-            (Array.isArray(data) ? data : []).forEach(h => {
-              map[h.date] = h.localName || h.name;
+            (res.data || []).forEach(h => {
+              if (h.is_holiday || h.is_joint_holiday)
+                map[h.date] = h.name + (h.is_joint_holiday && !h.is_holiday ? " (Cuti Bersama)" : "");
             });
             try { localStorage.setItem(cacheKey, JSON.stringify(map)); } catch {}
             setHolidays(prev => ({ ...prev, ...map }));
