@@ -5320,7 +5320,7 @@
             </div>
             {preview ? (
               <div className="note-rendered note-modal-content-input"
-                style={{ minHeight: expanded ? "calc(100vh - 380px)" : 120, cursor: "text", overflowY: "auto" }}
+                style={{ minHeight: expanded ? (focus ? "calc(100vh - 180px)" : "calc(100vh - 320px)") : 120, cursor: "text", overflowY: "auto" }}
                 onClick={handlePreviewClick}
                 dangerouslySetInnerHTML={{ __html: renderMarkdown(content, noteTitles.map(n => n.title)) || '<span style="color:var(--text-light)">Klik untuk edit...</span>' }}
               />
@@ -5332,7 +5332,7 @@
                 value={content}
                 onChange={e => handleContentChange(e.target.value)}
                 onKeyDown={handleContentKeyDown}
-                style={{ minHeight: expanded ? "calc(100vh - 380px)" : 120, fontSize: expanded ? 15 : 14, resize: expanded ? "none" : "vertical" }}
+                style={{ minHeight: expanded ? (focus ? "calc(100vh - 180px)" : "calc(100vh - 320px)") : 120, fontSize: expanded ? 16 : 14, resize: expanded ? "none" : "vertical" }}
               />
             )}
             {/* Wikilink autocomplete dropdown */}
