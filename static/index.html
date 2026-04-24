@@ -1805,6 +1805,9 @@
       const habitTitleInputRef = React.useRef(null);
       const [habitTitleTagDropdown, setHabitTitleTagDropdown] = useState(null);
       const [habitExistingTags, setHabitExistingTags] = useState([]);
+      const noteContentRef = React.useRef(null);
+      const [noteTagDropdown, setNoteTagDropdown] = useState(null);
+      const [noteExistingTags, setNoteExistingTags] = useState([]);
       const [loading, setLoading] = useState(false);
       const [pendingSubtasks, setPendingSubtasks] = useState([]);
       const [pendingSubTitle, setPendingSubTitle] = useState("");
@@ -1885,6 +1888,13 @@
         return () => setHabitTitleTagDropdown(null);
       }, [mode]);
 
+      useEffect(() => {
+        if (mode === "note") {
+          api.get("/api/tags?entity_type=note").then(data => setNoteExistingTags(data || [])).catch(() => {});
+        }
+        return () => setNoteTagDropdown(null);
+      }, [mode]);
+
       const handleHabitTitleChange = (val) => {
         setHabit("title", val);
         const el = habitTitleInputRef.current;
@@ -1908,6 +1918,36 @@
         const newBefore = before.replace(/#([a-zA-Z0-9_À-ɏ]*)$/, `#${tagName} `);
         setHabit("title", newBefore + after);
         setHabitTitleTagDropdown(null);
+        setTimeout(() => { el.selectionStart = el.selectionEnd = newBefore.length; el.focus(); }, 0);
+      };
+
+      const handleNoteContentChange = (val) => {
+        setNote("content", val);
+        const el = noteContentRef.current;
+        const pos = el?.selectionStart ?? val.length;
+        const before = val.slice(0, pos);
+        const tagMatch = before.match(/#([a-zA-Z0-9_À-ɏ]*)$/);
+        if (tagMatch) {
+          const query = tagMatch[1].toLowerCase();
+          const currentTags = [...new Set((val.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(t => t.slice(1).toLowerCase()))];
+          const items = noteExistingTags.filter(t => t.name.startsWith(query) && !currentTags.includes(t.name)).slice(0, 6);
+          if (items.length > 0 && el) {
+            const rect = el.getBoundingClientRect();
+            setNoteTagDropdown({ items, top: rect.top + 20, left: rect.left + 8 });
+          } else { setNoteTagDropdown(null); }
+        } else { setNoteTagDropdown(null); }
+      };
+
+      const insertNoteTag = (tagName) => {
+        const el = noteContentRef.current;
+        if (!el) return;
+        const pos = el.selectionStart;
+        const before = noteForm.content.slice(0, pos);
+        const after = noteForm.content.slice(pos);
+        const newBefore = before.replace(/#([a-zA-Z0-9_À-ɏ]*)$/, `#${tagName} `);
+        const newVal = newBefore + after;
+        setNote("content", newVal);
+        setNoteTagDropdown(null);
         setTimeout(() => { el.selectionStart = el.selectionEnd = newBefore.length; el.focus(); }, 0);
       };
 
@@ -2083,15 +2123,44 @@
 
               {/* ── Note Form ── */}
               {mode === "note" && (() => {
-                const detectedTags = [...new Set((noteForm.content.match(/(?:^|\s)#([a-zA-ZÀ-ɏ0-9_]+)/g) || []).map(t => t.trim().replace(/^#/, "")))];
+                const detectedTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(t => t.slice(1).toLowerCase().trim()))].filter(Boolean);
                 return (
                   <div>
                     <label className="input-label">Judul <span style={{ color: "var(--text-light)", fontWeight: 400 }}>(opsional)</span></label>
                     <input className="input" value={noteForm.title} onChange={e => setNote("title", e.target.value)} placeholder="Judul catatan..." style={{ marginBottom: 14 }} />
                     <label className="input-label">Isi Catatan *</label>
-                    <textarea className="input" value={noteForm.content} onChange={e => setNote("content", e.target.value)}
-                      rows={6} placeholder={"Tulis catatan...\n\nGunakan #tag untuk menambahkan tag otomatis\n# Heading  - bullet  - [ ] checklist"}
-                      style={{ marginBottom: 6, resize: "vertical", fontFamily: "inherit", lineHeight: 1.6 }} />
+                    <div style={{ position: "relative" }}>
+                      <textarea
+                        ref={noteContentRef}
+                        className="input"
+                        value={noteForm.content}
+                        onChange={e => handleNoteContentChange(e.target.value)}
+                        onKeyDown={e => {
+                          if (noteTagDropdown) {
+                            if (e.key === "Escape") { setNoteTagDropdown(null); return; }
+                            if (e.key === "Enter" || e.key === "Tab") {
+                              e.preventDefault();
+                              if (noteTagDropdown.items[0]) insertNoteTag(noteTagDropdown.items[0].name);
+                              return;
+                            }
+                          }
+                        }}
+                        rows={6}
+                        placeholder={"Tulis catatan...\n\nGunakan #tag untuk menambahkan tag otomatis\n# Heading  - bullet  - [ ] checklist"}
+                        style={{ marginBottom: 6, resize: "vertical", fontFamily: "inherit", lineHeight: 1.6, width: "100%" }}
+                      />
+                      {noteTagDropdown && noteTagDropdown.items.length > 0 && (
+                        <div className="wiki-autocomplete" style={{ position: "fixed", top: noteTagDropdown.top, left: noteTagDropdown.left, zIndex: 1050 }}>
+                          {noteTagDropdown.items.map((t, i) => (
+                            <div key={t.id} className={`wiki-autocomplete-item${i === 0 ? " active" : ""}`}
+                              onMouseDown={e => { e.preventDefault(); insertNoteTag(t.name); }}>
+                              <span style={{ color: "var(--accent)", fontWeight: 700 }}>#</span>{t.name}
+                              <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>{t.count}×</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     {detectedTags.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14, alignItems: "center" }}>
                         <span style={{ fontSize: 11, color: "var(--text-light)" }}>Tag terdeteksi:</span>
