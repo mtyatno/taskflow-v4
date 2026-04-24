@@ -1593,12 +1593,22 @@ async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_cu
 
 def _scratchpad_row(row, conn=None) -> dict:
     d = dict(row)
-    try: d["tags"] = json.loads(d.get("tags") or "[]")
-    except Exception: d["tags"] = []
-    try: d["linked_to"] = json.loads(d.get("linked_to") or "[]")
-    except Exception: d["linked_to"] = []
+    # Read tags from entity_tags (not from old JSON column)
+    if conn and d.get("id"):
+        tag_rows = conn.execute("""
+            SELECT t.name FROM tags t
+            JOIN entity_tags et ON t.id = et.tag_id
+            WHERE et.entity_type = 'note' AND et.entity_id = ?
+            ORDER BY t.name ASC
+        """, (d["id"],)).fetchall()
+        d["tags"] = [r["name"] for r in tag_rows]
+    else:
+        try: d["tags"] = json.loads(d.get("tags") or "[]")
+        except Exception: d["tags"] = []
     try: d["linked_task_ids"] = json.loads(d.get("linked_task_ids") or "[]")
     except Exception: d["linked_task_ids"] = []
+    try: d["linked_to"] = json.loads(d.get("linked_to") or "[]")
+    except Exception: d["linked_to"] = []
     # Fallback: migrate single linked_task_id into the list if list is empty
     if not d["linked_task_ids"] and d.get("linked_task_id"):
         d["linked_task_ids"] = [d["linked_task_id"]]
@@ -1635,17 +1645,24 @@ def _resolve_linked_to(titles: list[str], user_id: int, conn) -> list[int]:
     return [title_map[t.strip().lower()] for t in titles if t.strip().lower() in title_map]
 
 @app.get("/api/scratchpad")
-async def list_scratchpad(q: str = "", user=Depends(get_current_user)):
+async def list_scratchpad(q: str = "", tag: str = "", user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        if q:
-            pattern = f"%{q}%"
-            rows = conn.execute(
-                """SELECT s.* FROM scratchpad_notes s
-                   WHERE s.user_id = ? AND (s.title LIKE ? OR s.content LIKE ? OR s.tags LIKE ?)
-                   ORDER BY s.updated_at DESC""",
-                (uid, pattern, pattern, pattern)
-            ).fetchall()
+        if tag:
+            tag_norm = tag.strip().lower()
+            rows = conn.execute("""
+                SELECT s.* FROM scratchpad_notes s
+                JOIN entity_tags et ON et.entity_id = s.id AND et.entity_type = 'note'
+                JOIN tags t ON t.id = et.tag_id
+                WHERE s.user_id = ? AND t.name = ?
+                ORDER BY s.updated_at DESC
+            """, (uid, tag_norm)).fetchall()
+        elif q:
+            rows = conn.execute("""
+                SELECT s.* FROM scratchpad_notes s
+                WHERE s.user_id = ? AND (s.title LIKE ? OR s.content LIKE ?)
+                ORDER BY s.updated_at DESC
+            """, (uid, f"%{q}%", f"%{q}%")).fetchall()
         else:
             rows = conn.execute(
                 "SELECT * FROM scratchpad_notes WHERE user_id = ? ORDER BY updated_at DESC",
@@ -1679,38 +1696,40 @@ async def get_note_titles(user=Depends(get_current_user)):
 @app.post("/api/scratchpad")
 async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user)):
     uid = user["sub"]
-    now = datetime.now(_TZ_JKT).isoformat()
-    # Merge linked_task_id (legacy) into linked_task_ids
-    task_ids = list(dict.fromkeys(req.linked_task_ids + ([req.linked_task_id] if req.linked_task_id else [])))
+    now = datetime.utcnow().isoformat()
+    tag_names = [t.strip().lower() for t in req.tags if t.strip()]
     with get_db() as conn:
-        titles = _parse_wikilinks(req.content)
-        linked_ids = _resolve_linked_to(titles, uid, conn)
-        cur = conn.execute(
+        conn.execute(
             """INSERT INTO scratchpad_notes (user_id, title, content, tags, linked_task_id, linked_task_ids, linked_to, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
-            (uid, req.title, req.content, json.dumps(req.tags),
-             task_ids[0] if task_ids else None, json.dumps(task_ids),
-             json.dumps(linked_ids), now, now)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (uid, req.title, req.content, "[]",
+             req.linked_task_id, json.dumps(req.linked_task_ids),
+             json.dumps([]), now, now)
         )
-        row = conn.execute(_NOTE_SELECT, (cur.lastrowid,)).fetchone()
+        note_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        _upsert_tags_for_note(conn, note_id, uid, tag_names)
+        conn.commit()
+        row = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row(row, conn)
 
 @app.put("/api/scratchpad/{note_id}")
 async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(get_current_user)):
     uid = user["sub"]
-    now = datetime.now(_TZ_JKT).isoformat()
-    task_ids = list(dict.fromkeys(req.linked_task_ids + ([req.linked_task_id] if req.linked_task_id else [])))
+    now = datetime.utcnow().isoformat()
+    tag_names = [t.strip().lower() for t in req.tags if t.strip()]
     with get_db() as conn:
         if not conn.execute("SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone():
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
-        titles = _parse_wikilinks(req.content)
-        linked_ids = _resolve_linked_to(titles, uid, conn)
         conn.execute(
             "UPDATE scratchpad_notes SET title=?, content=?, tags=?, linked_task_id=?, linked_task_ids=?, linked_to=?, updated_at=? WHERE id=?",
-            (req.title, req.content, json.dumps(req.tags),
-             task_ids[0] if task_ids else None, json.dumps(task_ids),
-             json.dumps(linked_ids), now, note_id)
+            (req.title, req.content, "[]",
+             req.linked_task_id, json.dumps(req.linked_task_ids),
+             json.dumps(getattr(req, 'linked_to', [])), now, note_id)
         )
+        # Delete old tag relations, upsert new ones
+        conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=? AND user_id=?", (note_id, uid))
+        _upsert_tags_for_note(conn, note_id, uid, tag_names)
+        conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row(updated, conn)
 
