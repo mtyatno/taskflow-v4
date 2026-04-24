@@ -5394,7 +5394,7 @@
         if (!el) return;
         const pos = el.selectionStart;
         const before = val.slice(0, pos);
-        const tagMatch = val.match(/#([a-zA-Z0-9_À-ɏ]*)$/);
+        const tagMatch = before.match(/#([a-zA-Z0-9_À-ɏ]*)$/);
         if (tagMatch) {
           const query = tagMatch[1].toLowerCase();
           const items = existingTags.filter(t => t.name.startsWith(query) && !extracted.includes(t.name)).slice(0, 6);
