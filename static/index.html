@@ -3812,12 +3812,12 @@
           const cached = localStorage.getItem(cacheKey);
           if (cached) { setHolidays(prev => ({ ...prev, ...JSON.parse(cached) })); return; }
         } catch {}
-        fetch(`https://api-harilibur.vercel.app/api?year=${year}`)
+        fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/ID`)
           .then(r => r.json())
           .then(data => {
             const map = {};
             (Array.isArray(data) ? data : []).forEach(h => {
-              if (h.is_national_holiday !== false) map[h.holiday_date] = h.holiday_name;
+              map[h.date] = h.localName || h.name;
             });
             try { localStorage.setItem(cacheKey, JSON.stringify(map)); } catch {}
             setHolidays(prev => ({ ...prev, ...map }));
