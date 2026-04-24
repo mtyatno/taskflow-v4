@@ -1843,7 +1843,7 @@
         if (mode === "note") {
           if (!noteForm.content.trim() && !noteForm.title.trim()) { alert("Isi catatan tidak boleh kosong"); setLoading(false); return; }
           try {
-            const autoTags = [...new Set((noteForm.content.match(/(?:^|\s)#([a-zA-ZÀ-ɏ0-9_]+)/g) || []).map(t => t.trim().replace(/^#/, "")))];
+            const autoTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(t => t.slice(1).toLowerCase().trim()))].filter(Boolean);
             await api.post("/api/scratchpad", { title: noteForm.title, content: noteForm.content, tags: autoTags, linked_task_ids: [], linked_task_id: null });
             window.dispatchEvent(new CustomEvent("noteSaved"));
             onSave();
@@ -5299,7 +5299,7 @@
         setContent(val);
         
         // Auto-extract tags: find words starting with #
-        const extracted = [...new Set((val.match(/#(\w+)/g) || []).map(t => t.slice(1)))];
+        const extracted = [...new Set((val.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(t => t.slice(1).toLowerCase().trim()))].filter(Boolean);
         if (JSON.stringify(extracted) !== JSON.stringify(tags)) {
           setTags(extracted);
         }
