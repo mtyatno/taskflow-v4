@@ -3803,7 +3803,27 @@
       const [year, setYear] = useState(today.getFullYear());
       const [month, setMonth] = useState(today.getMonth());
       const [selectedDay, setSelectedDay] = useState(null);
+      const [holidays, setHolidays] = useState({});  // { "YYYY-MM-DD": "Nama Libur" }
       const isMobile = window.innerWidth < 640;
+
+      useEffect(() => {
+        const cacheKey = `hl_${year}`;
+        try {
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) { setHolidays(prev => ({ ...prev, ...JSON.parse(cached) })); return; }
+        } catch {}
+        fetch(`https://api-harilibur.vercel.app/api?year=${year}`)
+          .then(r => r.json())
+          .then(data => {
+            const map = {};
+            (Array.isArray(data) ? data : []).forEach(h => {
+              if (h.is_national_holiday !== false) map[h.holiday_date] = h.holiday_name;
+            });
+            try { localStorage.setItem(cacheKey, JSON.stringify(map)); } catch {}
+            setHolidays(prev => ({ ...prev, ...map }));
+          })
+          .catch(() => {});
+      }, [year]);
 
       const prevMonth = () => {
         setSelectedDay(null);
@@ -3859,6 +3879,8 @@
       const selectedDateLabel = selectedDay
         ? new Date(year, month, selectedDay).toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
         : null;
+      const selectedDateStr = selectedDay ? `${year}-${String(month+1).padStart(2,"0")}-${String(selectedDay).padStart(2,"0")}` : null;
+      const selectedHoliday = selectedDateStr ? holidays[selectedDateStr] : null;
 
       // Shared task list renderer (used both in inline panel and desktop modal)
       const TaskListItems = ({ items, onSelect }) => items.map(t => {
@@ -3915,6 +3937,10 @@
                   const isSelected = day === selectedDay;
                   const dayTasks = day ? (byDay[day] || []) : [];
                   const hasMore = dayTasks.length > 2;
+                  const dateStr = day ? `${year}-${String(month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}` : null;
+                  const holidayName = dateStr ? holidays[dateStr] : null;
+                  const isWeekend = day ? [0,6].includes(new Date(year, month, day).getDay()) : false;
+                  const isWorkdayHoliday = !!holidayName && !isWeekend;
 
                   if (isMobile) {
                     // ── Mobile: compact dot view ──
@@ -3926,14 +3952,15 @@
                           borderRadius: 8, padding: "5px 2px 4px",
                           display: "flex", flexDirection: "column", alignItems: "center",
                           cursor: day ? "pointer" : "default",
-                          background: isSelected ? "rgba(168,197,0,0.15)" : day ? "var(--bg-primary)" : "transparent",
-                          border: isSelected ? "1.5px solid var(--accent)" : isToday ? "1.5px solid var(--accent)" : "1.5px solid transparent",
+                          background: isSelected ? "rgba(168,197,0,0.15)" : isWorkdayHoliday ? "rgba(239,68,68,0.08)" : day ? "var(--bg-primary)" : "transparent",
+                          border: isSelected ? "1.5px solid var(--accent)" : isToday ? "1.5px solid var(--accent)" : isWorkdayHoliday ? "1.5px solid rgba(239,68,68,0.35)" : "1.5px solid transparent",
                           transition: "background 0.15s", position: "relative", minHeight: 44,
                         }}>
                         {day && (
                           <>
                             <span style={{ fontSize: 12, fontWeight: isToday ? 800 : 500, lineHeight: 1,
-                              color: isToday || isSelected ? "var(--accent)" : "var(--text-secondary)", marginBottom: 4 }}>{day}</span>
+                              color: isToday || isSelected ? "var(--accent)" : isWorkdayHoliday ? "#ef4444" : "var(--text-secondary)", marginBottom: 4 }}>{day}</span>
+                            {holidayName && <span style={{ fontSize: 7, lineHeight: 1, color: "#ef4444", fontWeight: 700, textAlign: "center", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "0 2px" }}>🔴</span>}
                             {dayTasks.length > 0 && (
                               <>
                                 <div style={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: "center" }}>
@@ -3961,20 +3988,23 @@
                       style={{
                         height: 80, overflow: "hidden", borderRadius: 6, padding: "4px 6px",
                         cursor: day ? "pointer" : "default",
-                        background: isSelected ? "rgba(168,197,0,0.12)" : isToday ? "rgba(168,197,0,0.06)" : day ? "var(--surface)" : "transparent",
-                        border: isSelected ? "2px solid var(--accent)" : isToday ? "2px solid var(--accent)" : "1px solid var(--border)",
+                        background: isSelected ? "rgba(168,197,0,0.12)" : isWorkdayHoliday ? "rgba(239,68,68,0.06)" : isToday ? "rgba(168,197,0,0.06)" : day ? "var(--surface)" : "transparent",
+                        border: isSelected ? "2px solid var(--accent)" : isWorkdayHoliday ? "1.5px solid rgba(239,68,68,0.4)" : isToday ? "2px solid var(--accent)" : "1px solid var(--border)",
                         borderColor: day ? undefined : "transparent",
                         transition: "background 0.15s",
                       }}>
                       {day && (
                         <>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
-                            <span style={{ fontSize: 12, fontWeight: isToday ? 800 : 500, color: isSelected || isToday ? "var(--accent)" : "var(--text-secondary)" }}>{day}</span>
-                            {dayTasks.length > 0 && (
-                              <span style={{ fontSize: 10, fontWeight: 700, background: "var(--accent)", color: "#111", borderRadius: 8, padding: "1px 5px", minWidth: 16, textAlign: "center" }}>
-                                {dayTasks.length}
-                              </span>
-                            )}
+                            <span style={{ fontSize: 12, fontWeight: isToday ? 800 : 500, color: isSelected || isToday ? "var(--accent)" : isWorkdayHoliday ? "#ef4444" : "var(--text-secondary)" }}>{day}</span>
+                            <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+                              {holidayName && <span style={{ fontSize: 9, color: "#ef4444" }}>🔴</span>}
+                              {dayTasks.length > 0 && (
+                                <span style={{ fontSize: 10, fontWeight: 700, background: "var(--accent)", color: "#111", borderRadius: 8, padding: "1px 5px", minWidth: 16, textAlign: "center" }}>
+                                  {dayTasks.length}
+                                </span>
+                              )}
+                            </div>
                           </div>
                           {dayTasks.slice(0, 2).map(t => {
                             const c = chipColor(t);
@@ -4010,7 +4040,38 @@
                 {l.label}
               </span>
             ))}
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#ef4444", display: "inline-block", flexShrink: 0 }} />
+              Hari Libur Nasional
+            </span>
           </div>
+
+          {/* Holiday list bulan ini */}
+          {(() => {
+            const monthHolidays = Object.entries(holidays)
+              .filter(([d]) => { const [y,m] = d.split("-").map(Number); return y === year && m === month+1; })
+              .sort(([a],[b]) => a.localeCompare(b));
+            if (!monthHolidays.length) return null;
+            return (
+              <div style={{ marginTop: 10, padding: "10px 14px", background: "var(--bg-card)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", marginBottom: 6 }}>🔴 Hari Libur Nasional — {new Date(year, month, 1).toLocaleDateString("id-ID", { month: "long", year: "numeric" })}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {monthHolidays.map(([date, name]) => {
+                    const d = new Date(date);
+                    const dayLabel = d.toLocaleDateString("id-ID", { weekday: "short", day: "numeric" });
+                    const isWd = ![0,6].includes(d.getDay());
+                    return (
+                      <div key={date} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                        <span style={{ color: isWd ? "#ef4444" : "var(--text-light)", fontWeight: 600, minWidth: 56 }}>{dayLabel}</span>
+                        <span style={{ color: "var(--text-primary)" }}>{name}</span>
+                        {isWd && <span style={{ fontSize: 10, background: "rgba(239,68,68,0.1)", color: "#ef4444", borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>Hari Kerja</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Mobile: inline day panel */}
           {isMobile && selectedDay && (
@@ -4018,6 +4079,7 @@
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>📅 {selectedDateLabel}</div>
+                  {selectedHoliday && <div style={{ fontSize: 11, color: "#ef4444", fontWeight: 600, marginTop: 2 }}>🔴 {selectedHoliday}</div>}
                   <div style={{ fontSize: 11, color: "var(--text-light)", marginTop: 1 }}>{selectedTasks.length} task</div>
                 </div>
                 <button onClick={() => setSelectedDay(null)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "var(--text-light)", padding: 4 }}>✕</button>
@@ -4037,6 +4099,7 @@
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 16 }}>📅 {selectedDateLabel}</div>
+                    {selectedHoliday && <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 600, marginTop: 3 }}>🔴 {selectedHoliday}</div>}
                     <div style={{ fontSize: 13, color: "var(--text-light)", marginTop: 2 }}>{selectedTasks.length} task</div>
                   </div>
                   <button className="btn btn-secondary btn-sm" onClick={() => setSelectedDay(null)}>✕</button>
