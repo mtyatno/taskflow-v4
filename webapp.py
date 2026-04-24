@@ -516,6 +516,8 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
     _tag_re = re.compile(r'#([a-zA-Z0-9_À-ɏ]+)')
     task_tags = [m.lower() for m in _tag_re.findall(req.title)]
     req.title = _tag_re.sub('', req.title).strip()
+    if not req.title:
+        raise HTTPException(status_code=400, detail="Judul tidak boleh kosong setelah strip tag")
 
     # Resolve parent task — inherit fields if not provided
     parent_id = req.parent_id
