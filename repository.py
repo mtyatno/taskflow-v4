@@ -290,6 +290,50 @@ class TaskRepository:
                     WHERE linked_task_id IS NOT NULL AND linked_task_id != ''
                 """)
 
+            # Universal tag system
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS tags (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    name       TEXT NOT NULL,
+                    color      TEXT DEFAULT NULL,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(user_id, name)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS entity_tags (
+                    tag_id      INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                    user_id     INTEGER NOT NULL,
+                    entity_type TEXT NOT NULL CHECK(entity_type IN ('note','task','habit','goal','message')),
+                    entity_id   INTEGER NOT NULL,
+                    created_at  TEXT DEFAULT (datetime('now')),
+                    PRIMARY KEY (tag_id, entity_type, entity_id)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_entity_tags_lookup   ON entity_tags(entity_type, entity_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_entity_tags_tag      ON entity_tags(tag_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_entity_tags_user     ON entity_tags(user_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_entity_tags_tag_user ON entity_tags(tag_id, user_id)")
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS trg_delete_task_tags
+                AFTER DELETE ON tasks FOR EACH ROW BEGIN
+                    DELETE FROM entity_tags WHERE entity_type='task' AND entity_id=OLD.id AND user_id=OLD.user_id;
+                END
+            """)
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS trg_delete_note_tags
+                AFTER DELETE ON scratchpad_notes FOR EACH ROW BEGIN
+                    DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=OLD.id AND user_id=OLD.user_id;
+                END
+            """)
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS trg_delete_habit_tags
+                AFTER DELETE ON habits FOR EACH ROW BEGIN
+                    DELETE FROM entity_tags WHERE entity_type='habit' AND entity_id=OLD.id AND user_id=OLD.user_id;
+                END
+            """)
+
     # ── Row to Task mapping ────────────────────────────────────────────────
 
     @staticmethod
