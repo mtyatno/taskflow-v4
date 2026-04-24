@@ -5239,6 +5239,8 @@
       const [noteTitles, setNoteTitles]     = useState([]);
       const [backlinks, setBacklinks]       = useState([]);
       const wikiDropdownRef = useRef(null);
+      const [tagDropdown, setTagDropdown] = useState(null);
+      const [existingTags, setExistingTags] = useState([]);
 
       useEffect(() => {
         api.get("/api/scratchpad/titles").then(setNoteTitles).catch(() => {});
@@ -5247,8 +5249,21 @@
         }
       }, []);
 
+      useEffect(() => {
+        api.get("/api/tags?entity_type=note").then(data => setExistingTags(data || [])).catch(() => {});
+      }, []);
+
       // Handle [[  autocomplete in textarea
       const handleContentKeyDown = (e) => {
+        // Tag dropdown navigation
+        if (tagDropdown) {
+          if (e.key === "Escape") { setTagDropdown(null); return; }
+          if (e.key === "Enter" || e.key === "Tab") {
+            e.preventDefault();
+            if (tagDropdown.items[0]) insertTag(tagDropdown.items[0].name);
+            return;
+          }
+        }
         // Wikilink dropdown navigation
         if (wikiDropdown) {
           if (e.key === "ArrowDown") { e.preventDefault(); setWikiDropdown(d => ({ ...d, activeIdx: Math.min(d.activeIdx + 1, d.items.length - 1) })); return; }
@@ -5308,6 +5323,20 @@
         if (!el) return;
         const pos = el.selectionStart;
         const before = val.slice(0, pos);
+        const tagMatch = val.slice(0, el?.selectionStart ?? val.length).match(/#([a-zA-Z0-9_À-ɏ]*)$/);
+        if (tagMatch) {
+          const query = tagMatch[1].toLowerCase();
+          const items = existingTags.filter(t => t.name.startsWith(query) && !extracted.includes(t.name)).slice(0, 6);
+          if (items.length > 0 && el) {
+            const rect = el.getBoundingClientRect();
+            setTagDropdown({ query, items, top: rect.top + 20, left: rect.left + 8 });
+          } else {
+            setTagDropdown(null);
+          }
+        } else {
+          setTagDropdown(null);
+        }
+
         const match = before.match(/\[\[([^\]]*)$/);
         if (!match) { setWikiDropdown(null); return; }
         const query = match[1].toLowerCase();
@@ -5331,6 +5360,19 @@
         setContent(replaced + after);
         setWikiDropdown(null);
         setTimeout(() => { el.focus(); el.setSelectionRange(replaced.length, replaced.length); }, 0);
+      };
+
+      const insertTag = (tagName) => {
+        const el = textareaRef.current;
+        if (!el) return;
+        const pos = el.selectionStart;
+        const before = content.slice(0, pos);
+        const after = content.slice(pos);
+        const newBefore = before.replace(/#([a-zA-Z0-9_À-ɏ]*)$/, `#${tagName} `);
+        const newVal = newBefore + after;
+        handleContentChange(newVal);
+        setTagDropdown(null);
+        setTimeout(() => { el.selectionStart = el.selectionEnd = newBefore.length; el.focus(); }, 0);
       };
 
       // Click wikilink in preview
@@ -5411,6 +5453,18 @@
                     {noteTitles.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan"}
                   </div>
                 )}
+              </div>
+            )}
+            {/* Tag autocomplete dropdown */}
+            {tagDropdown && tagDropdown.items.length > 0 && (
+              <div className="wiki-autocomplete" style={{ position: "fixed", top: tagDropdown.top, left: tagDropdown.left, zIndex: 1050 }}>
+                {tagDropdown.items.map((t, i) => (
+                  <div key={t.id} className={`wiki-autocomplete-item${i === 0 ? " active" : ""}`}
+                    onMouseDown={e => { e.preventDefault(); insertTag(t.name); }}>
+                    <span style={{ color: "var(--accent)", fontWeight: 700 }}>#</span>{t.name}
+                    <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>{t.count}×</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
