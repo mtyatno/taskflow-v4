@@ -1704,6 +1704,27 @@ async def get_backlinks(note_id: int, user=Depends(get_current_user)):
 
 # ══════════════════════════════════════════════════════════════════════════════
 
+import urllib.request as _urllib_req
+
+HOLIDAY_API_KEY = "v66wqUTF8Y11V3ME31fHIuPaEWfuc22JkELVQtyVsc1rlJxcdK"
+
+@app.get("/api/holidays")
+async def get_holidays(year: int, user=Depends(get_current_user)):
+    url = f"https://use.api.co.id/holidays/indonesia/?year={year}&page=1"
+    req = _urllib_req.Request(url, headers={"x-api-co-id": HOLIDAY_API_KEY})
+    try:
+        with _urllib_req.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read())
+        holidays = [
+            {"date": h["date"], "name": h["name"], "is_joint": h["is_joint_holiday"]}
+            for h in data.get("data", [])
+            if h.get("is_holiday") or h.get("is_joint_holiday")
+        ]
+        return {"data": holidays}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gagal ambil data libur: {e}")
+
+
 if __name__ == "__main__":
     migrate_db()
     uvicorn.run("webapp:app", host="0.0.0.0", port=WEB_PORT, reload=False)
