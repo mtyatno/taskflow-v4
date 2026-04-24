@@ -1696,15 +1696,18 @@ async def get_note_titles(user=Depends(get_current_user)):
 @app.post("/api/scratchpad")
 async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user)):
     uid = user["sub"]
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(_TZ_JKT).isoformat()
     tag_names = [t.strip().lower() for t in req.tags if t.strip()]
+    task_ids = list(dict.fromkeys(req.linked_task_ids + ([req.linked_task_id] if req.linked_task_id else [])))
     with get_db() as conn:
+        titles = _parse_wikilinks(req.content)
+        linked_ids = _resolve_linked_to(titles, uid, conn)
         conn.execute(
             """INSERT INTO scratchpad_notes (user_id, title, content, tags, linked_task_id, linked_task_ids, linked_to, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (uid, req.title, req.content, "[]",
-             req.linked_task_id, json.dumps(req.linked_task_ids),
-             json.dumps([]), now, now)
+             task_ids[0] if task_ids else None, json.dumps(task_ids),
+             json.dumps(linked_ids), now, now)
         )
         note_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         _upsert_tags_for_note(conn, note_id, uid, tag_names)
@@ -1715,16 +1718,19 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
 @app.put("/api/scratchpad/{note_id}")
 async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(get_current_user)):
     uid = user["sub"]
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(_TZ_JKT).isoformat()
     tag_names = [t.strip().lower() for t in req.tags if t.strip()]
+    task_ids = list(dict.fromkeys(req.linked_task_ids + ([req.linked_task_id] if req.linked_task_id else [])))
     with get_db() as conn:
         if not conn.execute("SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone():
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        titles = _parse_wikilinks(req.content)
+        linked_ids = _resolve_linked_to(titles, uid, conn)
         conn.execute(
             "UPDATE scratchpad_notes SET title=?, content=?, tags=?, linked_task_id=?, linked_task_ids=?, linked_to=?, updated_at=? WHERE id=?",
             (req.title, req.content, "[]",
-             req.linked_task_id, json.dumps(req.linked_task_ids),
-             json.dumps(getattr(req, 'linked_to', [])), now, note_id)
+             task_ids[0] if task_ids else None, json.dumps(task_ids),
+             json.dumps(linked_ids), now, note_id)
         )
         # Delete old tag relations, upsert new ones
         conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=? AND user_id=?", (note_id, uid))
