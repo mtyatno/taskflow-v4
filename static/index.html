@@ -7245,7 +7245,11 @@
 
       const handleSearchNoteClick = (note) => {
         setPage("notes");
-        setTimeout(() => window.dispatchEvent(new CustomEvent("openNote", { detail: note.id })), 100);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            window.dispatchEvent(new CustomEvent("openNote", { detail: note.id }));
+          });
+        });
       };
 
       const openTaskById = async (taskId) => {
@@ -7524,9 +7528,9 @@
                   {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
                 </div>
               </div>
+              <button onClick={() => setShowSearch(true)} title="Cari (Ctrl+K)" style={{ background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", fontSize: 18, padding: "5px 10px", color: "var(--text-secondary)", lineHeight: 1 }}>🔍</button>
               <div data-notif-panel style={{ display: "flex", alignItems: "center", gap: 10, position: "relative" }}>
                 {/* Notification Bell */}
-                <button onClick={() => setShowSearch(true)} title="Cari (Ctrl+K)" style={{ background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", fontSize: 18, padding: "5px 10px", color: "var(--text-secondary)", lineHeight: 1 }}>🔍</button>
                 <button onClick={handleOpenNotif} title="Notifikasi" data-notif-panel style={{ position: "relative", background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", fontSize: 18, padding: "5px 10px", color: "var(--text-secondary)", lineHeight: 1 }}>
                   🔔
                   {unreadCount > 0 && (
