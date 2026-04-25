@@ -5958,6 +5958,8 @@
         return d.toLocaleString("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
       };
 
+      const titleStrings = useMemo(() => noteTitles.map(n => n.title), [noteTitles]);
+
       return (
         <div>
           {/* Nav trail — only when navigated through wikilinks */}
@@ -6010,7 +6012,7 @@
             style={{ lineHeight: 1.75 }}
             onClick={handlePreviewClick}
             dangerouslySetInnerHTML={{
-              __html: renderMarkdown(note.content || "", noteTitles.map(n => n.title)) ||
+              __html: renderMarkdown(note.content || "", titleStrings) ||
                 '<span style="color:var(--text-light);font-style:italic">Catatan kosong.</span>'
             }}
           />
@@ -6118,10 +6120,11 @@
       }, []);
 
       useEffect(() => {
-        if (panelNote?.id) {
-          const fresh = allNotes.find(n => n.id === panelNote.id);
-          if (fresh) setPanelNote(fresh);
-        }
+        setPanelNote(prev => {
+          if (!prev?.id) return prev;
+          const fresh = allNotes.find(n => n.id === prev.id);
+          return fresh || prev;
+        });
       }, [allNotes]);
 
       useEffect(() => {
