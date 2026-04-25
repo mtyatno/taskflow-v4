@@ -6957,6 +6957,7 @@
       const [loading, setLoading] = useState(false);
       const [doneConfirm, setDoneConfirm] = useState(null); // { taskId, count, children }
       const [isOnline, setIsOnline] = useState(navigator.onLine);
+      const [showSearch, setShowSearch] = useState(false);
       const [queueSize, setQueueSize] = useState(0);
       const [sidebarOpen, setSidebarOpen] = useState(false);
       const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -7192,6 +7193,17 @@
         return () => document.removeEventListener("visibilitychange", onVisible);
       }, [fetchAll]);
 
+      useEffect(() => {
+        const handler = (e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+            e.preventDefault();
+            setShowSearch(s => !s);
+          }
+        };
+        document.addEventListener("keydown", handler);
+        return () => document.removeEventListener("keydown", handler);
+      }, []);
+
       // Trigger processQueue saat isOnline berubah false → true
       // (cover kasus DNS putus: window.online tidak fire, tapi fetchAll mendeteksi kembali online)
       const prevIsOnline = useRef(isOnline);
@@ -7229,6 +7241,11 @@
             setUnreadCount(0);
           } catch (e) {}
         }
+      };
+
+      const handleSearchNoteClick = (note) => {
+        setPage("notes");
+        setTimeout(() => window.dispatchEvent(new CustomEvent("openNote", { detail: note.id })), 100);
       };
 
       const openTaskById = async (taskId) => {
@@ -7491,6 +7508,7 @@
             <div className="mobile-topbar">
               <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1 }}>☰</button>
               <div style={{ flex: 1, fontWeight: 700, fontSize: 16 }}>⚡ TaskFlow</div>
+              <button onClick={() => setShowSearch(true)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", padding: "0 4px", lineHeight: 1, color: "var(--text-secondary)" }} title="Cari (Ctrl+K)">🔍</button>
               <button onClick={handleOpenNotif} style={{ position: "relative", background: "none", border: "none", fontSize: 20, cursor: "pointer", padding: "0 8px 0 0", lineHeight: 1 }}>
                 🔔
                 {unreadCount > 0 && <span style={{ position: "absolute", top: -2, right: 4, background: "#ef4444", color: "white", borderRadius: "50%", fontSize: 9, fontWeight: 700, minWidth: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 2px" }}>{unreadCount > 9 ? "9+" : unreadCount}</span>}
@@ -7508,6 +7526,7 @@
               </div>
               <div data-notif-panel style={{ display: "flex", alignItems: "center", gap: 10, position: "relative" }}>
                 {/* Notification Bell */}
+                <button onClick={() => setShowSearch(true)} title="Cari (Ctrl+K)" style={{ background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", fontSize: 18, padding: "5px 10px", color: "var(--text-secondary)", lineHeight: 1 }}>🔍</button>
                 <button onClick={handleOpenNotif} title="Notifikasi" data-notif-panel style={{ position: "relative", background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", fontSize: 18, padding: "5px 10px", color: "var(--text-secondary)", lineHeight: 1 }}>
                   🔔
                   {unreadCount > 0 && (
@@ -7608,6 +7627,14 @@
                 </div>
               </div>
             </div>
+          )}
+
+          {showSearch && (
+            <SearchModal
+              onClose={() => setShowSearch(false)}
+              onTaskClick={(task) => { setShowSearch(false); openTaskById(task.id); }}
+              onNoteClick={handleSearchNoteClick}
+            />
           )}
 
           {/* Toast */}
