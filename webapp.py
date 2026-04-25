@@ -1981,6 +1981,66 @@ async def delete_tag(tag_id: int, user=Depends(get_current_user)):
     return {"ok": True}
 
 
+@app.get("/api/search")
+async def global_search(q: str = "", user=Depends(get_current_user)):
+    q = q.strip()
+    if len(q) < 2:
+        raise HTTPException(status_code=400, detail="Query minimal 2 karakter")
+    uid = user["sub"]
+    like = f"%{q}%"
+    with get_db() as conn:
+        # Tags
+        tag_rows = conn.execute("""
+            SELECT t.id, t.name, COUNT(et.entity_id) as count
+            FROM tags t
+            LEFT JOIN entity_tags et ON t.id = et.tag_id
+            WHERE t.user_id = ? AND t.name LIKE ?
+            GROUP BY t.id ORDER BY count DESC, t.name ASC
+            LIMIT 5
+        """, (uid, like)).fetchall()
+
+        # Tasks (exclude done/archived)
+        access_clause = (
+            "user_id = ? OR list_id IN ("
+            "  SELECT id FROM shared_lists WHERE owner_id = ?"
+            "  UNION SELECT list_id FROM list_members WHERE user_id = ?"
+            ")"
+        )
+        task_rows = conn.execute(f"""
+            SELECT id, title, priority, gtd_status, deadline, quadrant
+            FROM tasks
+            WHERE ({access_clause})
+              AND gtd_status NOT IN ('done','archived')
+              AND (title LIKE ? OR description LIKE ?)
+            ORDER BY priority, deadline
+            LIMIT 8
+        """, (uid, uid, uid, like, like)).fetchall()
+
+        # Notes
+        note_rows = conn.execute("""
+            SELECT id, title, content, updated_at
+            FROM scratchpad_notes
+            WHERE user_id = ? AND (title LIKE ? OR content LIKE ?)
+            ORDER BY updated_at DESC
+            LIMIT 8
+        """, (uid, like, like)).fetchall()
+
+    def snippet(text, length=80):
+        if not text:
+            return ""
+        text = text.strip()
+        return text[:length] + ("…" if len(text) > length else "")
+
+    return {
+        "tags": [dict(r) for r in tag_rows],
+        "tasks": [dict(r) for r in task_rows],
+        "notes": [
+            {**dict(r), "content": snippet(r["content"])}
+            for r in note_rows
+        ],
+    }
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 
 import urllib.request as _urllib_req
