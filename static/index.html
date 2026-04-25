@@ -5949,7 +5949,7 @@
       );
     }
 
-    function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onNavigate, onTrailClick }) {
+    function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onPin, onNavigate, onTrailClick }) {
       const handlePreviewClick = (e) => {
         const el = e.target.closest("[data-wiki-title]");
         if (!el) return;
@@ -5994,6 +5994,10 @@
           <div className="notes-panel-header">
             <div className="notes-panel-title">{note.title || "(tanpa judul)"}</div>
             <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{fmtDate(note.updated_at)}</span>
+            <button onClick={() => onPin(note.id)} title={note.pinned ? "Unpin" : "Pin"}
+              style={{ background: note.pinned ? "rgba(168,197,0,0.15)" : "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: note.pinned ? "var(--accent)" : "var(--text-light)", cursor: "pointer", padding: "4px 10px", flexShrink: 0 }}>
+              📌
+            </button>
             <button onClick={onEdit}
               style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "var(--accent)", cursor: "pointer", padding: "4px 10px", flexShrink: 0 }}>
               ✏ Edit
@@ -6097,16 +6101,18 @@
 
       // Static version (no closure dep) used inside async fetchNotes
       const applyFiltersStatic = (query, tags, base) => {
+        const pinned = base.filter(n => n.pinned);
+        const unpinned = base.filter(n => !n.pinned);
         const syntaxTags = [...query.matchAll(/\btag:(\S+)/gi)].map(m => m[1].toLowerCase());
         const cleanQuery = query.replace(/\btag:\S+/gi, "").trim();
         const allTags = [...new Set([...tags, ...syntaxTags])];
-        let result = base;
+        let result = unpinned;
         for (const tag of allTags) result = result.filter(n => (n.tags || []).map(t => t.toLowerCase()).includes(tag));
         if (cleanQuery) result = result.filter(n =>
           n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) ||
           n.content?.toLowerCase().includes(cleanQuery.toLowerCase())
         );
-        return result;
+        return [...pinned, ...result];
       };
 
       const fetchNotes = async (filterQ = "", filterTags = []) => {
@@ -6181,9 +6187,11 @@
       };
 
       const applyFilters = (query, tags, base) => {
+        const pinned = base.filter(n => n.pinned);
+        const unpinned = base.filter(n => !n.pinned);
         const { cleanQuery, syntaxTags } = parseQuery(query);
         const allActiveTags = [...new Set([...tags, ...syntaxTags])];
-        let result = base;
+        let result = unpinned;
         for (const tag of allActiveTags) {
           result = result.filter(n => (n.tags || []).map(t => t.toLowerCase()).includes(tag));
         }
@@ -6191,7 +6199,7 @@
           n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) ||
           n.content?.toLowerCase().includes(cleanQuery.toLowerCase())
         );
-        return result;
+        return [...pinned, ...result];
       };
 
       const handleSearch = (val) => {
@@ -6273,7 +6281,18 @@
         return d.toLocaleString("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
       };
 
+      const handlePin = async (id) => {
+        try {
+          const updated = await api.patch(`/api/scratchpad/${id}/pin`, {});
+          const refresh = allNotes.map(n => n.id === id ? updated : n);
+          setAllNotes(refresh);
+          setNotes(applyFilters(q, activeTags, refresh));
+        } catch (e) { showToast(e.message, "error"); }
+      };
+
       const sortedNotes = [...notes].sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
         if (sortBy === "alpha") return (a.title || "").localeCompare(b.title || "");
         if (sortBy === "created") return new Date(a.created_at) - new Date(b.created_at);
         if (sortBy === "links") return ((b.linked_to || []).length) - ((a.linked_to || []).length);
@@ -6370,7 +6389,10 @@
                         onClick={() => { setPanelNote(n); setNavTrail([n]); }}
                         style={{ borderColor: isSelected ? "var(--accent)" : undefined, background: isSelected ? "rgba(168,197,0,0.06)" : undefined }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                          <div className="note-card-title">{n.title || n.content.slice(0, 60)}</div>
+                          <div className="note-card-title">
+                            {n.pinned && <span style={{ fontSize: 11, marginRight: 4, opacity: 0.8 }}>📌</span>}
+                            {n.title || n.content.slice(0, 60)}
+                          </div>
                           <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{fmtDate(n.updated_at)}</span>
                         </div>
                         {n.title && <div className="note-card-preview" dangerouslySetInnerHTML={{ __html: n.content.slice(0, 200) }} />}
@@ -6419,6 +6441,7 @@
                   onEdit={() => openEdit(panelNote)}
                   onClose={() => { setPanelNote(null); setNavTrail([]); }}
                   onDelete={(id) => { handleDelete(id); setPanelNote(null); setNavTrail([]); }}
+                  onPin={(id) => handlePin(id)}
                   onNavigate={(n) => { setPanelNote(n); setNavTrail(t => [...t.slice(-7), n]); }}
                   onTrailClick={(n) => {
                     const idx = navTrail.findIndex(x => x.id === n.id);

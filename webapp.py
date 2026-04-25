@@ -123,6 +123,17 @@ def migrate_db():
     from repository import TaskRepository
     TaskRepository(DB_PATH)
 
+    # Migrate scratchpad_notes.pinned column
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(scratchpad_notes)").fetchall()]
+        if "pinned" not in cols:
+            conn.execute("ALTER TABLE scratchpad_notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+    finally:
+        conn.close()
+
     # Migrate scratchpad_notes.tags (JSON array) → tags + entity_tags
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -1764,6 +1775,7 @@ def _scratchpad_row(row, conn=None) -> dict:
     except Exception: d["linked_task_ids"] = []
     try: d["linked_to"] = json.loads(d.get("linked_to") or "[]")
     except Exception: d["linked_to"] = []
+    d["pinned"] = bool(d.get("pinned", 0))
     # Fallback: migrate single linked_task_id into the list if list is empty
     if not d["linked_task_ids"] and d.get("linked_task_id"):
         d["linked_task_ids"] = [d["linked_task_id"]]
@@ -1902,6 +1914,18 @@ async def delete_scratchpad(note_id: int, user=Depends(get_current_user)):
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
         conn.execute("DELETE FROM scratchpad_notes WHERE id = ?", (note_id,))
     return {"ok": True}
+
+@app.patch("/api/scratchpad/{note_id}/pin")
+async def toggle_pin_scratchpad(note_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute("SELECT id, pinned FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        new_pinned = 0 if row["pinned"] else 1
+        conn.execute("UPDATE scratchpad_notes SET pinned = ? WHERE id = ?", (new_pinned, note_id))
+        updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
+        return _scratchpad_row(updated, conn)
 
 @app.get("/api/scratchpad/{note_id}/backlinks")
 async def get_backlinks(note_id: int, user=Depends(get_current_user)):
