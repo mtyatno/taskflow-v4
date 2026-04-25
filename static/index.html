@@ -131,6 +131,7 @@
     /* Main content */
     .main-content { margin-left: 0; min-height: 100vh; padding: 28px 36px; transition: margin-left 0.3s; }
     .main-content.sidebar-visible { margin-left: var(--sidebar-w); }
+    .desktop-topbar { position: sticky; top: 0; z-index: 30; background: var(--bg-page); margin: -28px -36px 0; padding: 20px 36px 16px; border-bottom: 1px solid var(--border); }
 
     /* Mobile header */
     .mobile-topbar { display: none; position: sticky; top: 0; z-index: 30; background: white; border-bottom: 1px solid var(--border); padding: 12px 16px; align-items: center; gap: 12px; }
@@ -7521,7 +7522,7 @@
             </div>
 
             {/* Desktop top bar */}
-            <div className="desktop-topbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+            <div className="desktop-topbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} title="Toggle menu" style={{ background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", fontSize: 16, padding: "6px 10px", color: "var(--text-secondary)", lineHeight: 1 }}>☰</button>
                 <div style={{ fontSize: 13, color: "var(--text-light)" }}>
