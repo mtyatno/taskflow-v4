@@ -6011,7 +6011,7 @@
           .map(s => s.slice(2, -2).trim().toLowerCase());
         const outs = allNotes.filter(n => n.id !== panelNote.id && wikiTitles.includes((n.title || "").toLowerCase()));
         setPanelOutlinks(outs);
-      }, [panelNote?.id]);
+      }, [panelNote?.id, allNotes]);
 
       useEffect(() => {
         const handler = () => fetchNotes(q, activeTags);
@@ -6147,6 +6147,13 @@
         return new Date(b.updated_at) - new Date(a.updated_at);
       });
 
+      const inCountMap = {};
+      allNotes.forEach(m => {
+        (m.linked_to || []).forEach(id => {
+          inCountMap[id] = (inCountMap[id] || 0) + 1;
+        });
+      });
+
       return (
         <div className="fade-in">
           <div className="notes-layout">
@@ -6227,7 +6234,7 @@
                 ) : (
                   sortedNotes.map(n => {
                     const outCount = (n.linked_to || []).length;
-                    const inCount = allNotes.filter(m => m.id !== n.id && (m.linked_to || []).includes(n.id)).length;
+                    const inCount = inCountMap[n.id] || 0;
                     const isSelected = panelNote?.id === n.id;
                     return (
                       <div key={n.id} className="note-card"
