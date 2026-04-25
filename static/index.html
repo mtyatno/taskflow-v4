@@ -1883,7 +1883,7 @@
 
       useEffect(() => {
         if (mode === "habit") {
-          api.get("/api/tags?entity_type=habit").then(data => setHabitExistingTags(data || [])).catch(() => {});
+          api.get("/api/tags").then(data => setHabitExistingTags(data || [])).catch(() => {});
         }
         return () => setHabitTitleTagDropdown(null);
       }, [mode]);
@@ -6365,7 +6365,7 @@
       const [editExistingTags, setEditExistingTags] = useState([]);
 
       useEffect(() => {
-        api.get("/api/tags?entity_type=habit").then(data => setEditExistingTags(data || [])).catch(() => {});
+        api.get("/api/tags").then(data => setEditExistingTags(data || [])).catch(() => {});
         return () => setEditTagDropdown(null);
       }, []);
 
