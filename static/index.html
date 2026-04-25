@@ -6860,7 +6860,7 @@
                   </div>
                   {results.tags.map(tag => (
                     <div key={tag.id}
-                      onClick={() => { onClose(); window.dispatchEvent(new CustomEvent("searchTag", { detail: tag.name })); }}
+                      onClick={() => { window.dispatchEvent(new CustomEvent("searchTag", { detail: tag.name })); onClose(); }}
                       style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
                       onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}
