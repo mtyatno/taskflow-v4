@@ -5943,6 +5943,119 @@
       );
     }
 
+    function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onNavigate, onTrailClick }) {
+      const handlePreviewClick = (e) => {
+        const el = e.target.closest("[data-wiki-title]");
+        if (!el) return;
+        const t = el.getAttribute("data-wiki-title");
+        const found = allNotes.find(n => (n.title || "").toLowerCase() === t.toLowerCase());
+        if (found) onNavigate(found);
+      };
+
+      const fmtDate = (s) => {
+        if (!s) return "";
+        const d = new Date(s);
+        return d.toLocaleString("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+      };
+
+      return (
+        <div>
+          {/* Nav trail — only when navigated through wikilinks */}
+          {navTrail.length > 1 && (
+            <div className="notes-nav-trail">
+              {navTrail.map((n, i) => (
+                <React.Fragment key={n.id}>
+                  {i > 0 && <span style={{ opacity: 0.4 }}>›</span>}
+                  <span
+                    className="notes-nav-crumb"
+                    style={{
+                      fontWeight: i === navTrail.length - 1 ? 700 : 400,
+                      color: i === navTrail.length - 1 ? "var(--text-secondary)" : undefined,
+                      cursor: i === navTrail.length - 1 ? "default" : "pointer",
+                    }}
+                    onClick={() => { if (i < navTrail.length - 1) onTrailClick(n); }}
+                  >
+                    {n.title || "(tanpa judul)"}
+                  </span>
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+
+          {/* Header */}
+          <div className="notes-panel-header">
+            <div className="notes-panel-title">{note.title || "(tanpa judul)"}</div>
+            <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{fmtDate(note.updated_at)}</span>
+            <button onClick={onEdit}
+              style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "var(--accent)", cursor: "pointer", padding: "4px 10px", flexShrink: 0 }}>
+              ✏ Edit
+            </button>
+            <button onClick={onClose}
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-light)", padding: 0, lineHeight: 1, flexShrink: 0 }}>
+              ✕
+            </button>
+          </div>
+
+          {/* Tags */}
+          {(note.tags || []).length > 0 && (
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+              {(note.tags || []).map(t => (
+                <span key={t} className="note-tag" style={{ fontSize: 11 }}>#{t}</span>
+              ))}
+            </div>
+          )}
+
+          {/* Rendered content */}
+          <div className="note-rendered"
+            style={{ lineHeight: 1.75 }}
+            onClick={handlePreviewClick}
+            dangerouslySetInnerHTML={{
+              __html: renderMarkdown(note.content || "", noteTitles.map(n => n.title)) ||
+                '<span style="color:var(--text-light);font-style:italic">Catatan kosong.</span>'
+            }}
+          />
+
+          {/* Outgoing links */}
+          {outlinks.length > 0 && (
+            <div>
+              <div className="notes-section-label">🔗 Links keluar ({outlinks.length})</div>
+              {outlinks.map(n => (
+                <div key={n.id} className="notes-link-item" onClick={() => onNavigate(n)}>
+                  <span style={{ fontSize: 15 }}>📝</span>
+                  <span style={{ flex: 1, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {n.title || "(tanpa judul)"}
+                  </span>
+                  <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{n.updated_at?.slice(0, 10)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Backlinks */}
+          {backlinks.length > 0 && (
+            <div>
+              <div className="notes-section-label">← Backlinks ({backlinks.length})</div>
+              {backlinks.map(n => (
+                <div key={n.id} className="notes-link-item" onClick={() => onNavigate(n)}>
+                  <span style={{ fontSize: 15 }}>📝</span>
+                  <span style={{ flex: 1, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {n.title || "(tanpa judul)"}
+                  </span>
+                  <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{n.updated_at?.slice(0, 10)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {outlinks.length === 0 && backlinks.length === 0 && (
+            <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 24, textAlign: "center" }}>
+              Catatan ini belum terhubung ke catatan lain.
+            </div>
+          )}
+        </div>
+      );
+    }
+
     function NotesPage({ tasks, showToast, onTaskClick }) {
       const [notes, setNotes]         = useState([]);
       const [allNotes, setAllNotes]   = useState([]);
@@ -6003,6 +6116,13 @@
       useEffect(() => {
         api.get("/api/scratchpad/titles").then(setNoteTitles).catch(() => {});
       }, []);
+
+      useEffect(() => {
+        if (panelNote?.id) {
+          const fresh = allNotes.find(n => n.id === panelNote.id);
+          if (fresh) setPanelNote(fresh);
+        }
+      }, [allNotes]);
 
       useEffect(() => {
         if (!panelNote?.id) { setPanelBacklinks([]); setPanelOutlinks([]); return; }
