@@ -6791,13 +6791,14 @@
       const [loading, setLoading] = useState(false);
       const inputRef = React.useRef(null);
       const debounceRef = React.useRef(null);
+      const generationRef = React.useRef(0);
 
       useEffect(() => {
         inputRef.current?.focus();
         const onKey = (e) => { if (e.key === "Escape") onClose(); };
         document.addEventListener("keydown", onKey);
         return () => document.removeEventListener("keydown", onKey);
-      }, []);
+      }, [onClose]);
 
       const search = (val) => {
         setQuery(val);
@@ -6805,9 +6806,10 @@
         if (val.trim().length < 2) { setResults(null); return; }
         debounceRef.current = setTimeout(() => {
           setLoading(true);
+          const gen = ++generationRef.current;
           api.get(`/api/search?q=${encodeURIComponent(val.trim())}`)
-            .then(data => { setResults(data); setLoading(false); })
-            .catch(() => { setResults(null); setLoading(false); });
+            .then(data => { if (gen === generationRef.current) { setResults(data); setLoading(false); } })
+            .catch(() => { if (gen === generationRef.current) { setResults(null); setLoading(false); } });
         }, 300);
       };
 
