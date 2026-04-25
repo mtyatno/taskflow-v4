@@ -5928,7 +5928,7 @@
       const [allNotes, setAllNotes]   = useState([]);
       const [loading, setLoading]     = useState(true);
       const [q, setQ]                 = useState("");
-      const [activeTag, setActiveTag] = useState(null);
+      const [activeTags, setActiveTags] = useState([]);
       const [tagList, setTagList] = useState([]);
       const [selected, setSelected]   = useState(null);
       const [showModal, setShowModal] = useState(false);
@@ -5943,21 +5943,30 @@
         return () => window.removeEventListener("noteSaved", handler);
       }, []);
 
-      const fetchNotes = async (query = "") => {
+      // Static version (no closure dep) used inside async fetchNotes
+      const applyFiltersStatic = (query, tags, base) => {
+        const syntaxTags = [...query.matchAll(/\btag:(\S+)/gi)].map(m => m[1].toLowerCase());
+        const cleanQuery = query.replace(/\btag:\S+/gi, "").trim();
+        const allTags = [...new Set([...tags, ...syntaxTags])];
+        let result = base;
+        for (const tag of allTags) result = result.filter(n => (n.tags || []).map(t => t.toLowerCase()).includes(tag));
+        if (cleanQuery) result = result.filter(n =>
+          n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) ||
+          n.content?.toLowerCase().includes(cleanQuery.toLowerCase())
+        );
+        return result;
+      };
+
+      const fetchNotes = async (filterQ = "", filterTags = []) => {
         try {
-          const data = await api.get(`/api/scratchpad${query ? `?q=${encodeURIComponent(query)}` : ""}`);
+          const data = await api.get("/api/scratchpad");
           await OfflineDB.cacheSet("scratchpad_notes", data);
           setAllNotes(data);
-          setNotes(data);
+          setNotes(filterQ || filterTags.length ? applyFiltersStatic(filterQ, filterTags, data) : data);
         } catch (e) {
-          // offline — load from cache
           const cached = await OfflineDB.cacheGet("scratchpad_notes") || [];
-          const filtered = query ? cached.filter(n =>
-            n.title?.toLowerCase().includes(query.toLowerCase()) ||
-            n.content?.toLowerCase().includes(query.toLowerCase())
-          ) : cached;
           setAllNotes(cached);
-          setNotes(filtered);
+          setNotes(filterQ || filterTags.length ? applyFiltersStatic(filterQ, filterTags, cached) : cached);
         }
         setLoading(false);
       };
@@ -5965,10 +5974,10 @@
       useEffect(() => { fetchNotes(); }, []);
 
       useEffect(() => {
-        const handler = () => fetchNotes(q);
+        const handler = () => fetchNotes(q, activeTags);
         window.addEventListener("noteSaved", handler);
         return () => window.removeEventListener("noteSaved", handler);
-      }, [q]);
+      }, [q, activeTags]);
 
       // Open a specific note by ID (from wikilink / backlink click)
       useEffect(() => {
@@ -5986,33 +5995,38 @@
         return () => window.removeEventListener("openNote", handler);
       }, [allNotes]);
 
-      const applyFilters = (query, tag, base) => {
+      // Parse tag: syntax from query, return { cleanQuery, syntaxTags }
+      const parseQuery = (query) => {
+        const syntaxTags = [...query.matchAll(/\btag:(\S+)/gi)].map(m => m[1].toLowerCase());
+        const cleanQuery = query.replace(/\btag:\S+/gi, "").trim();
+        return { cleanQuery, syntaxTags };
+      };
+
+      const applyFilters = (query, tags, base) => {
+        const { cleanQuery, syntaxTags } = parseQuery(query);
+        const allActiveTags = [...new Set([...tags, ...syntaxTags])];
         let result = base;
-        if (tag) result = result.filter(n => (n.tags || []).includes(tag));
-        if (query) result = result.filter(n =>
-          n.title?.toLowerCase().includes(query.toLowerCase()) ||
-          n.content?.toLowerCase().includes(query.toLowerCase())
+        for (const tag of allActiveTags) {
+          result = result.filter(n => (n.tags || []).map(t => t.toLowerCase()).includes(tag));
+        }
+        if (cleanQuery) result = result.filter(n =>
+          n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) ||
+          n.content?.toLowerCase().includes(cleanQuery.toLowerCase())
         );
         return result;
       };
 
       const handleSearch = (val) => {
         setQ(val);
-        if (activeTag) {
-          setNotes(applyFilters(val, activeTag, allNotes));
-        } else {
-          fetchNotes(val);
-        }
+        setNotes(applyFilters(val, activeTags, allNotes));
       };
 
       const handleTagFilter = (tag) => {
-        if (activeTag === tag) {
-          setActiveTag(null);
-          setNotes(q ? applyFilters(q, null, allNotes) : allNotes);
-        } else {
-          setActiveTag(tag);
-          setNotes(applyFilters(q, tag, allNotes));
-        }
+        const next = activeTags.includes(tag)
+          ? activeTags.filter(t => t !== tag)
+          : [...activeTags, tag];
+        setActiveTags(next);
+        setNotes(applyFilters(q, next, allNotes));
       };
 
       const allTags = tagList.map(t => t.name);
@@ -6030,7 +6044,7 @@
             await api.post("/api/scratchpad", data);
             showToast("✅ Catatan dibuat");
           }
-          await fetchNotes(q);
+          await fetchNotes(q, activeTags);
           window.dispatchEvent(new CustomEvent("noteSaved"));
         } catch (e) {
           if (isOfflineErr(e)) {
@@ -6058,8 +6072,8 @@
         try {
           await api.del(`/api/scratchpad/${id}`);
           showToast("🗑 Catatan dihapus");
-          fetchNotes(q);
-          setActiveTag(null);
+          fetchNotes(q, activeTags);
+          setActiveTags([]);
         } catch (e) {
           if (isOfflineErr(e)) {
             // remove from cache optimistically
@@ -6088,38 +6102,41 @@
           </div>
 
           {/* Search */}
-          <div className="scratchpad-bar" style={{ marginBottom: 12 }}>
+          <div className="scratchpad-bar" style={{ marginBottom: 8 }}>
             <span style={{ fontSize: 15, color: "var(--text-secondary)" }}>🔍</span>
             <input
               value={q}
               onChange={e => handleSearch(e.target.value)}
-              placeholder="Cari catatan..."
+              placeholder="Cari catatan... atau ketik tag:nama"
             />
-            {q && <button onClick={() => handleSearch("")} style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16 }}>✕</button>}
+            {q && <button onClick={() => { setQ(""); setNotes(applyFilters("", activeTags, allNotes)); }} style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16 }}>✕</button>}
           </div>
 
           {/* Tag filter bar */}
           {allTags.length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
-              {allTags.map(tag => (
-                <span
-                  key={tag}
-                  onClick={() => handleTagFilter(tag)}
-                  className="note-tag"
-                  style={{
-                    cursor: "pointer",
-                    background: activeTag === tag ? "var(--accent)" : "rgba(168,197,0,0.12)",
-                    color: activeTag === tag ? "#111" : "var(--accent)",
-                    fontWeight: activeTag === tag ? 700 : 600,
-                    transition: "all 0.15s",
-                  }}>
-                  #{tag}
-                </span>
-              ))}
-              {activeTag && (
-                <span onClick={() => handleTagFilter(activeTag)}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
+              {allTags.map(tag => {
+                const isActive = activeTags.includes(tag) || parseQuery(q).syntaxTags.includes(tag);
+                return (
+                  <span
+                    key={tag}
+                    onClick={() => handleTagFilter(tag)}
+                    className="note-tag"
+                    style={{
+                      cursor: "pointer",
+                      background: isActive ? "var(--accent)" : "rgba(168,197,0,0.12)",
+                      color: isActive ? "#111" : "var(--accent)",
+                      fontWeight: isActive ? 700 : 600,
+                      transition: "all 0.15s",
+                    }}>
+                    #{tag}
+                  </span>
+                );
+              })}
+              {(activeTags.length > 0) && (
+                <span onClick={() => { setActiveTags([]); setNotes(applyFilters(q, [], allNotes)); }}
                   style={{ fontSize: 11, color: "var(--text-secondary)", cursor: "pointer", padding: "2px 6px", alignSelf: "center" }}>
-                  ✕ reset
+                  ✕ reset tag
                 </span>
               )}
             </div>
@@ -6130,7 +6147,7 @@
             <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40 }}>Memuat...</div>
           ) : notes.length === 0 ? (
             <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40 }}>
-              {activeTag ? `Tidak ada catatan dengan tag #${activeTag}` : q ? "Tidak ada catatan yang cocok." : "Belum ada catatan. Tulis sesuatu!"}
+              {activeTags.length > 0 ? `Tidak ada catatan dengan tag ${activeTags.map(t=>"#"+t).join(" + ")}` : q ? "Tidak ada catatan yang cocok." : "Belum ada catatan. Tulis sesuatu!"}
             </div>
           ) : (
             notes.map(n => (
@@ -6143,7 +6160,7 @@
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
                   {(n.tags || []).map(tag => (
                     <span key={tag} className="note-tag"
-                      style={{ cursor: "pointer", background: activeTag === tag ? "var(--accent)" : undefined, color: activeTag === tag ? "#111" : undefined }}
+                      style={{ cursor: "pointer", background: activeTags.includes(tag) ? "var(--accent)" : undefined, color: activeTags.includes(tag) ? "#111" : undefined }}
                       onClick={e => { e.stopPropagation(); handleTagFilter(tag); }}>
                       #{tag}
                     </span>
