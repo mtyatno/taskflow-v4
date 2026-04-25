@@ -1905,20 +1905,37 @@ async def delete_scratchpad(note_id: int, user=Depends(get_current_user)):
 
 @app.get("/api/scratchpad/{note_id}/backlinks")
 async def get_backlinks(note_id: int, user=Depends(get_current_user)):
-    """Return all notes whose linked_to contains this note_id."""
+    """Return all notes that link to this note — via linked_to column OR [[Title]] content scan."""
     uid = user["sub"]
     with get_db() as conn:
-        if not conn.execute("SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone():
+        target = conn.execute(
+            "SELECT id, title FROM scratchpad_notes WHERE id = ? AND user_id = ?",
+            (note_id, uid)
+        ).fetchone()
+        if not target:
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
-        rows = conn.execute(
-            """SELECT id, title, updated_at FROM scratchpad_notes
-               WHERE user_id = ? AND id != ?
-               AND json_type(linked_to) = 'array'
-               AND EXISTS (
-                   SELECT 1 FROM json_each(linked_to) WHERE value = ?
-               )""",
-            (uid, note_id, note_id)
-        ).fetchall()
+        title = (target["title"] or "").strip()
+        if title:
+            rows = conn.execute(
+                """SELECT DISTINCT id, title, updated_at FROM scratchpad_notes
+                   WHERE user_id = ? AND id != ?
+                   AND (
+                       (json_type(linked_to) = 'array'
+                        AND EXISTS (SELECT 1 FROM json_each(linked_to) WHERE value = ?))
+                       OR content LIKE ?
+                   )
+                   ORDER BY updated_at DESC""",
+                (uid, note_id, note_id, f"%[[{title}]]%")
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT id, title, updated_at FROM scratchpad_notes
+                   WHERE user_id = ? AND id != ?
+                   AND json_type(linked_to) = 'array'
+                   AND EXISTS (SELECT 1 FROM json_each(linked_to) WHERE value = ?)
+                   ORDER BY updated_at DESC""",
+                (uid, note_id, note_id)
+            ).fetchall()
     return [dict(r) for r in rows]
 
 
