@@ -726,6 +726,26 @@
     .scratchpad-bar { display: flex; align-items: center; gap: 10px; background: var(--bg-card); border: 1.5px solid var(--border); border-radius: 12px; padding: 10px 16px; margin-bottom: 18px; }
     .scratchpad-bar input { flex: 1; background: none; border: none; outline: none; font-size: 14px; color: var(--text-primary); }
     .scratchpad-bar input::placeholder { color: var(--text-light); }
+    .notes-layout { display: flex; gap: 0; height: calc(100vh - 120px); min-height: 400px; }
+    .notes-left { width: 340px; min-width: 260px; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); padding-right: 0; }
+    .notes-left-inner { flex: 1; overflow-y: auto; padding: 0 12px 16px 0; }
+    .notes-right { flex: 1; overflow-y: auto; padding: 0 0 16px 20px; min-width: 0; }
+    .notes-panel-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-light); gap: 12px; }
+    .notes-panel-header { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; flex-shrink: 0; }
+    .notes-panel-title { font-size: 18px; font-weight: 700; color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .notes-nav-trail { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 11px; color: var(--text-light); margin-bottom: 12px; }
+    .notes-nav-crumb { cursor: pointer; color: var(--accent); }
+    .notes-nav-crumb:hover { text-decoration: underline; }
+    .notes-section-label { font-size: 11px; font-weight: 700; color: var(--text-light); text-transform: uppercase; letter-spacing: 0.8px; margin: 16px 0 8px; }
+    .notes-link-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text-primary); }
+    .notes-link-item:hover { background: var(--bg-primary); }
+    .note-conn { font-size: 10px; color: var(--text-light); margin-left: auto; flex-shrink: 0; white-space: nowrap; }
+    @media (max-width: 767px) {
+      .notes-layout { display: block; height: auto; }
+      .notes-left { width: 100%; border-right: none; overflow: visible; }
+      .notes-left-inner { overflow: visible; padding: 0; }
+      .notes-right { display: none; }
+    }
     .note-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 8px; cursor: pointer; transition: box-shadow 0.15s, border-color 0.15s; }
     .note-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); border-color: var(--accent); }
     .note-card-title { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -5932,6 +5952,13 @@
       const [tagList, setTagList] = useState([]);
       const [selected, setSelected]   = useState(null);
       const [showModal, setShowModal] = useState(false);
+      const [panelNote, setPanelNote]           = useState(null);
+      const [panelBacklinks, setPanelBacklinks] = useState([]);
+      const [panelOutlinks, setPanelOutlinks]   = useState([]);
+      const [navTrail, setNavTrail]             = useState([]);
+      const [noteTitles, setNoteTitles]         = useState([]);
+      const [tagsOpen, setTagsOpen]             = useState(true);
+      const [sortBy, setSortBy]                 = useState("updated");
 
       useEffect(() => {
         api.get("/api/tags?entity_type=note").then(data => setTagList(data || [])).catch(() => {});
@@ -5974,6 +6001,19 @@
       useEffect(() => { fetchNotes(); }, []);
 
       useEffect(() => {
+        api.get("/api/scratchpad/titles").then(setNoteTitles).catch(() => {});
+      }, []);
+
+      useEffect(() => {
+        if (!panelNote?.id) { setPanelBacklinks([]); setPanelOutlinks([]); return; }
+        api.get(`/api/scratchpad/${panelNote.id}/backlinks`).then(setPanelBacklinks).catch(() => {});
+        const wikiTitles = [...new Set((panelNote.content || "").match(/\[\[([^\[\]]+)\]\]/g) || [])]
+          .map(s => s.slice(2, -2).trim().toLowerCase());
+        const outs = allNotes.filter(n => n.id !== panelNote.id && wikiTitles.includes((n.title || "").toLowerCase()));
+        setPanelOutlinks(outs);
+      }, [panelNote?.id]);
+
+      useEffect(() => {
         const handler = () => fetchNotes(q, activeTags);
         window.addEventListener("noteSaved", handler);
         return () => window.removeEventListener("noteSaved", handler);
@@ -5983,13 +6023,18 @@
       useEffect(() => {
         const handler = async (e) => {
           const id = e.detail;
-          const cached = allNotes.find(n => n.id === id);
-          if (cached) { setSelected(cached); setShowModal(true); return; }
-          try {
-            const all = await api.get("/api/scratchpad");
-            const found = all.find(n => n.id === id);
-            if (found) { setAllNotes(all); setNotes(all); setSelected(found); setShowModal(true); }
-          } catch {}
+          let note = allNotes.find(n => n.id === id);
+          if (!note) {
+            try {
+              const all = await api.get("/api/scratchpad");
+              setAllNotes(all); setNotes(all);
+              note = all.find(n => n.id === id);
+            } catch {}
+          }
+          if (note) {
+            setPanelNote(note);
+            setNavTrail(t => [...t.slice(-7), note]);
+          }
         };
         window.addEventListener("openNote", handler);
         return () => window.removeEventListener("openNote", handler);
@@ -6095,87 +6140,161 @@
         return d.toLocaleString("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
       };
 
+      const sortedNotes = [...notes].sort((a, b) => {
+        if (sortBy === "alpha") return (a.title || "").localeCompare(b.title || "");
+        if (sortBy === "created") return new Date(a.created_at) - new Date(b.created_at);
+        if (sortBy === "links") return ((b.linked_to || []).length) - ((a.linked_to || []).length);
+        return new Date(b.updated_at) - new Date(a.updated_at);
+      });
+
       return (
         <div className="fade-in">
-          <div style={{ marginBottom: 16 }}>
-            <h1 style={{ fontSize: 22, fontWeight: 700 }}>📝 Notes</h1>
-          </div>
+          <div className="notes-layout">
 
-          {/* Search */}
-          <div className="scratchpad-bar" style={{ marginBottom: 8 }}>
-            <span style={{ fontSize: 15, color: "var(--text-secondary)" }}>🔍</span>
-            <input
-              value={q}
-              onChange={e => handleSearch(e.target.value)}
-              placeholder="Cari catatan... atau ketik tag:nama"
-            />
-            {q && <button onClick={() => { setQ(""); setNotes(applyFilters("", activeTags, allNotes)); }} style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16 }}>✕</button>}
-          </div>
+            {/* ── LEFT PANEL ── */}
+            <div className="notes-left">
+              {/* Header */}
+              <div className="notes-panel-header">
+                <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, flex: 1 }}>📝 Notes</h1>
+                <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+                  style={{ fontSize: 11, border: "1px solid var(--border)", borderRadius: 6, padding: "3px 6px", background: "var(--bg-primary)", color: "var(--text-secondary)", cursor: "pointer" }}>
+                  <option value="updated">Terbaru</option>
+                  <option value="created">Terlama</option>
+                  <option value="alpha">A–Z</option>
+                  <option value="links">Terbanyak link</option>
+                </select>
+                <button onClick={openNew}
+                  style={{ background: "var(--accent)", color: "#111", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 14, cursor: "pointer", padding: "5px 12px", flexShrink: 0, lineHeight: 1 }}>
+                  ＋
+                </button>
+              </div>
 
-          {/* Tag filter bar */}
-          {allTags.length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
-              {allTags.map(tag => {
-                const isActive = activeTags.includes(tag) || parseQuery(q).syntaxTags.includes(tag);
-                return (
-                  <span
-                    key={tag}
-                    onClick={() => handleTagFilter(tag)}
-                    className="note-tag"
-                    style={{
-                      cursor: "pointer",
-                      background: isActive ? "var(--accent)" : "rgba(168,197,0,0.12)",
-                      color: isActive ? "#111" : "var(--accent)",
-                      fontWeight: isActive ? 700 : 600,
-                      transition: "all 0.15s",
-                    }}>
-                    #{tag}
-                  </span>
-                );
-              })}
-              {(activeTags.length > 0) && (
-                <span onClick={() => { setActiveTags([]); setNotes(applyFilters(q, [], allNotes)); }}
-                  style={{ fontSize: 11, color: "var(--text-secondary)", cursor: "pointer", padding: "2px 6px", alignSelf: "center" }}>
-                  ✕ reset tag
-                </span>
+              {/* Search */}
+              <div className="scratchpad-bar" style={{ marginBottom: 8, marginRight: 0 }}>
+                <span style={{ fontSize: 15, color: "var(--text-secondary)" }}>🔍</span>
+                <input
+                  value={q}
+                  onChange={e => handleSearch(e.target.value)}
+                  placeholder="Cari catatan... atau ketik tag:nama"
+                />
+                {q && <button onClick={() => { setQ(""); setNotes(applyFilters("", activeTags, allNotes)); }}
+                  style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16 }}>✕</button>}
+              </div>
+
+              {/* Tag filter bar */}
+              {allTags.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.8px" }}>Tags</span>
+                    <button onClick={() => setTagsOpen(o => !o)}
+                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "var(--text-light)", padding: 0, lineHeight: 1 }}>
+                      {tagsOpen ? "▲" : "▼"}
+                    </button>
+                    {activeTags.length > 0 && (
+                      <span onClick={() => { setActiveTags([]); setNotes(applyFilters(q, [], allNotes)); }}
+                        style={{ fontSize: 11, color: "var(--text-secondary)", cursor: "pointer", padding: "1px 5px", marginLeft: "auto" }}>
+                        ✕ reset
+                      </span>
+                    )}
+                  </div>
+                  {tagsOpen && (
+                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                      {allTags.map(tag => {
+                        const isActive = activeTags.includes(tag) || parseQuery(q).syntaxTags.includes(tag);
+                        return (
+                          <span key={tag} onClick={() => handleTagFilter(tag)} className="note-tag"
+                            style={{ cursor: "pointer", fontSize: 11, background: isActive ? "var(--accent)" : "rgba(168,197,0,0.12)", color: isActive ? "#111" : "var(--accent)", fontWeight: isActive ? 700 : 600, transition: "all 0.15s" }}>
+                            #{tag}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Note list */}
+              <div className="notes-left-inner">
+                {loading ? (
+                  <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40 }}>Memuat...</div>
+                ) : sortedNotes.length === 0 ? (
+                  <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40, fontSize: 13 }}>
+                    {activeTags.length > 0
+                      ? `Tidak ada catatan dengan tag ${activeTags.map(t => "#" + t).join(" + ")}`
+                      : q ? "Tidak ada catatan yang cocok."
+                      : "Belum ada catatan. Tulis sesuatu!"}
+                  </div>
+                ) : (
+                  sortedNotes.map(n => {
+                    const outCount = (n.linked_to || []).length;
+                    const inCount = allNotes.filter(m => m.id !== n.id && (m.linked_to || []).includes(n.id)).length;
+                    const isSelected = panelNote?.id === n.id;
+                    return (
+                      <div key={n.id} className="note-card"
+                        onClick={() => { setPanelNote(n); setNavTrail([n]); }}
+                        style={{ borderColor: isSelected ? "var(--accent)" : undefined, background: isSelected ? "rgba(168,197,0,0.06)" : undefined }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div className="note-card-title">{n.title || n.content.slice(0, 60)}</div>
+                          <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{fmtDate(n.updated_at)}</span>
+                        </div>
+                        {n.title && <div className="note-card-preview" dangerouslySetInnerHTML={{ __html: n.content.slice(0, 200) }} />}
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>
+                          {(n.tags || []).map(tag => (
+                            <span key={tag} className="note-tag"
+                              style={{ cursor: "pointer", fontSize: 11, background: activeTags.includes(tag) ? "var(--accent)" : undefined, color: activeTags.includes(tag) ? "#111" : undefined }}
+                              onClick={e => { e.stopPropagation(); handleTagFilter(tag); }}>
+                              #{tag}
+                            </span>
+                          ))}
+                          {(n.linked_tasks || []).map(t => (
+                            <span key={t.id} style={{ fontSize: 11, color: "var(--text-secondary)", background: "var(--bg-primary)", borderRadius: 6, padding: "2px 8px" }}>
+                              📌 {t.title}
+                            </span>
+                          ))}
+                          {(outCount > 0 || inCount > 0) && (
+                            <span className="note-conn">
+                              {outCount > 0 && `🔗${outCount}`}{outCount > 0 && inCount > 0 && " "}{inCount > 0 && `←${inCount}`}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* ── RIGHT PANEL ── */}
+            <div className="notes-right">
+              {!panelNote ? (
+                <div className="notes-panel-empty">
+                  <span style={{ fontSize: 40, opacity: 0.3 }}>📝</span>
+                  <span style={{ fontSize: 13 }}>Pilih catatan untuk membaca</span>
+                  <button onClick={openNew} className="btn btn-secondary btn-sm">＋ Catatan Baru</button>
+                </div>
+              ) : (
+                <NotePanel
+                  note={panelNote}
+                  allNotes={allNotes}
+                  noteTitles={noteTitles}
+                  backlinks={panelBacklinks}
+                  outlinks={panelOutlinks}
+                  navTrail={navTrail}
+                  onEdit={() => openEdit(panelNote)}
+                  onClose={() => { setPanelNote(null); setNavTrail([]); }}
+                  onNavigate={(n) => { setPanelNote(n); setNavTrail(t => [...t.slice(-7), n]); }}
+                  onTrailClick={(n) => {
+                    const idx = navTrail.findIndex(x => x.id === n.id);
+                    setPanelNote(n);
+                    setNavTrail(idx >= 0 ? navTrail.slice(0, idx + 1) : navTrail);
+                  }}
+                />
               )}
             </div>
-          )}
 
-          {/* List */}
-          {loading ? (
-            <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40 }}>Memuat...</div>
-          ) : notes.length === 0 ? (
-            <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40 }}>
-              {activeTags.length > 0 ? `Tidak ada catatan dengan tag ${activeTags.map(t=>"#"+t).join(" + ")}` : q ? "Tidak ada catatan yang cocok." : "Belum ada catatan. Tulis sesuatu!"}
-            </div>
-          ) : (
-            notes.map(n => (
-              <div key={n.id} className="note-card" onClick={() => openEdit(n)}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                  <div className="note-card-title">{n.title || n.content.slice(0, 60)}</div>
-                  <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{fmtDate(n.updated_at)}</span>
-                </div>
-                {n.title && <div className="note-card-preview" dangerouslySetInnerHTML={{ __html: n.content.slice(0,200) }} />}
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
-                  {(n.tags || []).map(tag => (
-                    <span key={tag} className="note-tag"
-                      style={{ cursor: "pointer", background: activeTags.includes(tag) ? "var(--accent)" : undefined, color: activeTags.includes(tag) ? "#111" : undefined }}
-                      onClick={e => { e.stopPropagation(); handleTagFilter(tag); }}>
-                      #{tag}
-                    </span>
-                  ))}
-                  {(n.linked_tasks || []).map(t => (
-                    <span key={t.id} style={{ fontSize: 11, color: "var(--text-secondary)", background: "var(--bg-primary)", borderRadius: 6, padding: "2px 8px" }}>
-                      📌 {t.title}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))
-          )}
+          </div>
 
-          {/* Modal */}
+          {/* Modal — edit only */}
           {showModal && (
             <NoteModal
               key={selected?.id}
