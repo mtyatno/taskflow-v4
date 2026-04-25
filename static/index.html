@@ -6161,6 +6161,7 @@
           {/* Modal */}
           {showModal && (
             <NoteModal
+              key={selected?.id}
               note={selected}
               tasks={tasks}
               onClose={() => { setShowModal(false); setSelected(null); }}
