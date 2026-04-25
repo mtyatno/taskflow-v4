@@ -7528,7 +7528,11 @@
                   {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
                 </div>
               </div>
-              <button onClick={() => setShowSearch(true)} title="Cari (Ctrl+K)" style={{ background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", fontSize: 18, padding: "5px 10px", color: "var(--text-secondary)", lineHeight: 1 }}>🔍</button>
+              <div onClick={() => setShowSearch(true)} title="Cari (Ctrl+K)" style={{ display: "flex", alignItems: "center", gap: 7, border: "1px solid var(--border)", borderRadius: 8, cursor: "text", padding: "6px 12px", color: "var(--text-light)", fontSize: 13, background: "var(--bg-primary)", minWidth: 180, userSelect: "none" }}>
+                <span style={{ fontSize: 14, lineHeight: 1 }}>🔍</span>
+                <span>Cari ...</span>
+                <span style={{ marginLeft: "auto", fontSize: 11, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 5px", color: "var(--text-light)" }}>Ctrl K</span>
+              </div>
               <div data-notif-panel style={{ display: "flex", alignItems: "center", gap: 10, position: "relative" }}>
                 {/* Notification Bell */}
                 <button onClick={handleOpenNotif} title="Notifikasi" data-notif-panel style={{ position: "relative", background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", fontSize: 18, padding: "5px 10px", color: "var(--text-secondary)", lineHeight: 1 }}>
