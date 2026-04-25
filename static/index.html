@@ -5949,7 +5949,7 @@
       );
     }
 
-    function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onNavigate, onTrailClick }) {
+    function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onNavigate, onTrailClick }) {
       const handlePreviewClick = (e) => {
         const el = e.target.closest("[data-wiki-title]");
         if (!el) return;
@@ -5997,6 +5997,10 @@
             <button onClick={onEdit}
               style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "var(--accent)", cursor: "pointer", padding: "4px 10px", flexShrink: 0 }}>
               ✏ Edit
+            </button>
+            <button onClick={() => { if (window.confirm("Hapus catatan ini?")) onDelete(note.id); }}
+              style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "#ef4444", cursor: "pointer", padding: "4px 10px", flexShrink: 0 }}>
+              🗑
             </button>
             <button onClick={onClose}
               style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-light)", padding: 0, lineHeight: 1, flexShrink: 0 }}>
@@ -6414,6 +6418,7 @@
                   navTrail={navTrail}
                   onEdit={() => openEdit(panelNote)}
                   onClose={() => { setPanelNote(null); setNavTrail([]); }}
+                  onDelete={(id) => { handleDelete(id); setPanelNote(null); setNavTrail([]); }}
                   onNavigate={(n) => { setPanelNote(n); setNavTrail(t => [...t.slice(-7), n]); }}
                   onTrailClick={(n) => {
                     const idx = navTrail.findIndex(x => x.id === n.id);
