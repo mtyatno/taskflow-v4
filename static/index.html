@@ -6785,6 +6785,145 @@
       );
     }
 
+    function SearchModal({ onClose, onTaskClick, onNoteClick }) {
+      const [query, setQuery] = useState("");
+      const [results, setResults] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const inputRef = React.useRef(null);
+      const debounceRef = React.useRef(null);
+
+      useEffect(() => {
+        inputRef.current?.focus();
+        const onKey = (e) => { if (e.key === "Escape") onClose(); };
+        document.addEventListener("keydown", onKey);
+        return () => document.removeEventListener("keydown", onKey);
+      }, []);
+
+      const search = (val) => {
+        setQuery(val);
+        clearTimeout(debounceRef.current);
+        if (val.trim().length < 2) { setResults(null); return; }
+        debounceRef.current = setTimeout(() => {
+          setLoading(true);
+          api.get(`/api/search?q=${encodeURIComponent(val.trim())}`)
+            .then(data => { setResults(data); setLoading(false); })
+            .catch(() => { setResults(null); setLoading(false); });
+        }, 300);
+      };
+
+      const PRI_COLOR = { P1: "#ef4444", P2: "#f97316", P3: "#eab308", P4: "#22c55e" };
+      const hasResults = results && (results.tags.length > 0 || results.tasks.length > 0 || results.notes.length > 0);
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "var(--bg-card)", borderRadius: 16, width: "90%", maxWidth: 580,
+            boxShadow: "0 20px 60px rgba(0,0,0,0.25)", overflow: "hidden",
+            marginTop: "8vh", alignSelf: "flex-start",
+          }}>
+            {/* Search input */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
+              <span style={{ fontSize: 18, color: "var(--text-light)" }}>🔍</span>
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={e => search(e.target.value)}
+                placeholder="Cari task, catatan, atau tag…"
+                style={{
+                  flex: 1, border: "none", outline: "none", fontSize: 15,
+                  background: "transparent", color: "var(--text-primary)", fontFamily: "inherit",
+                }}
+              />
+              {loading && <span style={{ fontSize: 12, color: "var(--text-light)" }}>…</span>}
+              <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-light)", padding: 0, lineHeight: 1 }}>✕</button>
+            </div>
+
+            {/* Results */}
+            <div style={{ maxHeight: "60vh", overflowY: "auto", padding: query.trim().length >= 2 ? "8px 0" : "20px 16px" }}>
+              {query.trim().length < 2 && (
+                <div style={{ color: "var(--text-light)", fontSize: 13, textAlign: "center" }}>
+                  Ketik minimal 2 karakter untuk mulai mencari
+                </div>
+              )}
+
+              {query.trim().length >= 2 && !loading && results && !hasResults && (
+                <div style={{ color: "var(--text-light)", fontSize: 13, textAlign: "center", padding: "20px 16px" }}>
+                  Tidak ditemukan hasil untuk "<b>{query}</b>"
+                </div>
+              )}
+
+              {/* Tags */}
+              {results && results.tags && results.tags.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, padding: "6px 16px 4px" }}>
+                    🏷️ Tags
+                  </div>
+                  {results.tags.map(tag => (
+                    <div key={tag.id}
+                      onClick={() => { onClose(); window.dispatchEvent(new CustomEvent("searchTag", { detail: tag.name })); }}
+                      style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+                      onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    >
+                      <span style={{ color: "var(--accent)", fontWeight: 700, fontSize: 14 }}>#{tag.name}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-light)", marginLeft: "auto" }}>{tag.count} item</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Tasks */}
+              {results && results.tasks && results.tasks.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, padding: "6px 16px 4px" }}>
+                    📋 Tasks
+                  </div>
+                  {results.tasks.map(task => (
+                    <div key={task.id}
+                      onClick={() => { onClose(); onTaskClick(task); }}
+                      style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+                      onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    >
+                      <span style={{ fontSize: 11, fontWeight: 700, color: PRI_COLOR[task.priority] || "var(--text-light)", background: "var(--bg-primary)", borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>{task.priority || "—"}</span>
+                      <span style={{ fontSize: 14, color: "var(--text-primary)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</span>
+                      {task.deadline && <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{task.deadline}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Notes */}
+              {results && results.notes && results.notes.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, padding: "6px 16px 4px" }}>
+                    📝 Notes
+                  </div>
+                  {results.notes.map(note => (
+                    <div key={note.id}
+                      onClick={() => { onClose(); onNoteClick(note); }}
+                      style={{ padding: "8px 16px", cursor: "pointer" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    >
+                      <div style={{ fontSize: 14, color: "var(--text-primary)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {note.title || "(tanpa judul)"}
+                      </div>
+                      {note.content && (
+                        <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {note.content}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // ══════════════════════════════════════════════════════════════
     //  MAIN APP
     // ══════════════════════════════════════════════════════════════
