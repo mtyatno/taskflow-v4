@@ -5600,11 +5600,16 @@
         }
         // Wikilink dropdown navigation
         if (wikiDropdown) {
-          if (e.key === "ArrowDown") { e.preventDefault(); setWikiDropdown(d => ({ ...d, activeIdx: Math.min(d.activeIdx + 1, d.items.length - 1) })); return; }
+          const totalItems = wikiDropdown.items.length + (wikiDropdown.canCreate ? 1 : 0);
+          if (e.key === "ArrowDown") { e.preventDefault(); setWikiDropdown(d => ({ ...d, activeIdx: Math.min(d.activeIdx + 1, totalItems - 1) })); return; }
           if (e.key === "ArrowUp")   { e.preventDefault(); setWikiDropdown(d => ({ ...d, activeIdx: Math.max(d.activeIdx - 1, 0) })); return; }
           if (e.key === "Enter" || e.key === "Tab") {
             e.preventDefault();
-            if (wikiDropdown.items[wikiDropdown.activeIdx]) insertWikilink(wikiDropdown.items[wikiDropdown.activeIdx].title);
+            if (wikiDropdown.activeIdx < wikiDropdown.items.length) {
+              insertWikilink(wikiDropdown.items[wikiDropdown.activeIdx].title);
+            } else if (wikiDropdown.canCreate) {
+              createNewNote(wikiDropdown.query.trim());
+            }
             return;
           }
           if (e.key === "Escape") { setWikiDropdown(null); return; }
@@ -5673,15 +5678,18 @@
 
         const match = before.match(/\[\[([^\]]*)$/);
         if (!match) { setWikiDropdown(null); return; }
-        const query = match[1].toLowerCase();
-        const items = noteTitles.filter(n => n.title.toLowerCase().includes(query) && n.title !== title).slice(0, 6);
+        const query = match[1];
+        const queryLow = query.toLowerCase();
+        const items = noteTitles.filter(n => n.title.toLowerCase().includes(queryLow) && n.title !== title).slice(0, 6);
+        const exactMatch = noteTitles.some(n => n.title.toLowerCase() === queryLow);
+        const canCreate = query.trim().length > 0 && !exactMatch;
         // Use fixed positioning relative to viewport so modal overflow-y doesn't clip
         const rect = el.getBoundingClientRect();
         const lh = parseFloat(getComputedStyle(el).lineHeight) || 22;
         const linesBefore = before.split("\n").length;
         const rawTop = rect.top + linesBefore * lh;
         const top = rawTop + 260 > window.innerHeight ? rect.top - 4 : rawTop + 4;
-        setWikiDropdown({ top, left: rect.left + 8, query, items, activeIdx: 0 });
+        setWikiDropdown({ top, left: rect.left + 8, query, items, activeIdx: 0, canCreate });
       };
 
       const insertWikilink = (t) => {
@@ -5694,6 +5702,32 @@
         setContent(replaced + after);
         setWikiDropdown(null);
         setTimeout(() => { el.focus(); el.setSelectionRange(replaced.length, replaced.length); }, 0);
+      };
+
+      const createNewNote = async (newTitle) => {
+        setWikiDropdown(null);
+        const body = { title: newTitle, content: "", tags: [], linked_task_ids: [], linked_task_id: null };
+        if (!navigator.onLine) {
+          const tempId = `tmp_note_${Date.now()}`;
+          const now = new Date().toISOString();
+          try {
+            await OfflineDB.queueAdd({ method: "POST", url: "/api/scratchpad", body, tempId });
+            const cached = await OfflineDB.cacheGet("scratchpad_notes") || [];
+            await OfflineDB.cacheSet("scratchpad_notes", [{ id: tempId, ...body, created_at: now, updated_at: now, _pending: true }, ...cached]);
+          } catch (_) {}
+          setNoteTitles(prev => [{ id: tempId, title: newTitle }, ...prev]);
+          window.dispatchEvent(new Event("noteSaved"));
+          insertWikilink(newTitle);
+          return;
+        }
+        try {
+          const created = await api.post("/api/scratchpad", body);
+          setNoteTitles(prev => [{ id: created.id, title: created.title }, ...prev]);
+          window.dispatchEvent(new Event("noteSaved"));
+          insertWikilink(newTitle);
+        } catch (_) {
+          insertWikilink(newTitle);
+        }
       };
 
       const insertTag = (tagName) => {
@@ -5777,14 +5811,23 @@
             {wikiDropdown && (
               <div ref={wikiDropdownRef} className="wiki-autocomplete"
                 style={{ position: "fixed", top: wikiDropdown.top, left: wikiDropdown.left }}>
-                {wikiDropdown.items.length > 0 ? wikiDropdown.items.map((n, i) => (
+                {wikiDropdown.items.map((n, i) => (
                   <div key={n.id} className={`wiki-autocomplete-item${i === wikiDropdown.activeIdx ? " active" : ""}`}
                     onMouseDown={e => { e.preventDefault(); insertWikilink(n.title); }}>
                     [[{n.title}]]
                   </div>
-                )) : (
+                ))}
+                {wikiDropdown.canCreate && (
+                  <div
+                    className={`wiki-autocomplete-item${wikiDropdown.activeIdx === wikiDropdown.items.length ? " active" : ""}`}
+                    style={{ borderTop: wikiDropdown.items.length > 0 ? "1px solid var(--border)" : undefined, color: "var(--accent)", fontWeight: 600 }}
+                    onMouseDown={e => { e.preventDefault(); createNewNote(wikiDropdown.query.trim()); }}>
+                    ✨ Buat note "{wikiDropdown.query.trim()}"
+                  </div>
+                )}
+                {!wikiDropdown.canCreate && wikiDropdown.items.length === 0 && (
                   <div className="wiki-autocomplete-item" style={{ color: "var(--text-light)", cursor: "default", fontStyle: "italic" }}>
-                    {noteTitles.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan"}
+                    Belum ada catatan bertajuk
                   </div>
                 )}
               </div>
