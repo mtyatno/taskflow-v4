@@ -1959,7 +1959,7 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
     access_clause, access_params = _note_access_clause(uid)
     with get_db() as conn:
         existing = conn.execute(f"""
-            SELECT id, user_id FROM scratchpad_notes
+            SELECT id, user_id, list_id FROM scratchpad_notes
             WHERE id = ? AND {access_clause}
         """, [note_id] + access_params).fetchone()
         if not existing:
@@ -1967,9 +1967,7 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
         titles = _parse_wikilinks(req.content)
         linked_ids = _resolve_linked_to(titles, uid, conn)
         # list_id: only owner can change it; members cannot move the note to another list
-        new_list_id = req.list_id if existing["user_id"] == uid else conn.execute(
-            "SELECT list_id FROM scratchpad_notes WHERE id = ?", (note_id,)
-        ).fetchone()["list_id"]
+        new_list_id = req.list_id if existing["user_id"] == uid else existing["list_id"]
         conn.execute(
             """UPDATE scratchpad_notes
                SET title=?, content=?, tags=?, linked_task_id=?, linked_task_ids=?,
