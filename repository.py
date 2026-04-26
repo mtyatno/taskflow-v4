@@ -304,6 +304,7 @@ class TaskRepository:
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_note_pins_user ON note_pins(user_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_note_pins_note ON note_pins(note_id)")
             if "pinned" in sp_cols:
                 conn.execute("""
                     INSERT OR IGNORE INTO note_pins (user_id, note_id)
