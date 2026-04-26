@@ -6077,6 +6077,7 @@
       };
 
       const titleStrings = useMemo(() => noteTitles.map(n => n.title), [noteTitles]);
+      const tocItems = useMemo(() => extractHeadings(note.content || ""), [note.content]);
 
       useEffect(() => {
         if (openDropdownIdx === null) return;
@@ -6086,7 +6087,8 @@
       }, [openDropdownIdx]);
 
       return (
-        <div>
+        <div style={{ display: "flex", gap: 0 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           {/* Interactive breadcrumb trail */}
           {navTrail.length > 0 && (
             <div className="notes-nav-trail" style={{ flexWrap: "wrap", alignItems: "center", marginBottom: 14 }} data-crumb-dropdown>
@@ -6222,6 +6224,12 @@
               Catatan ini belum terhubung ke catatan lain.
             </div>
           )}
+        </div>
+        {tocItems.length >= 2 && (
+          <div style={{ position: "sticky", top: 0, alignSelf: "flex-start" }}>
+            <NoteToc items={tocItems} />
+          </div>
+        )}
         </div>
       );
     }
