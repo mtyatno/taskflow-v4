@@ -6533,7 +6533,7 @@
               {note.linked_tasks.map(t => (
                 <div key={t.id}
                   className="notes-link-item"
-                  onClick={() => onTaskClick?.(t.id)}
+                  onClick={() => onTaskClick?.(t)}
                   style={{ opacity: t.gtd_status === "done" ? 0.5 : 1 }}>
                   <span style={{ fontSize: 13 }}>{t.gtd_status === "done" ? "✅" : "⬜"}</span>
                   <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
