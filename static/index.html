@@ -6307,7 +6307,7 @@
       );
     }
 
-    function NotesPage({ tasks, showToast, onTaskClick }) {
+    function NotesPage({ tasks, showToast, onTaskClick, user, sharedLists = [] }) {
       const [notes, setNotes]         = useState([]);
       const [allNotes, setAllNotes]   = useState([]);
       const [loading, setLoading]     = useState(true);
@@ -6650,6 +6650,7 @@
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                           <div className="note-card-title">
                             {n.pinned && <span style={{ fontSize: 11, marginRight: 4, opacity: 0.8 }}>📌</span>}
+                            {n.list_id && <span className="note-shared-badge" style={{ marginRight: 4 }}>👥</span>}
                             {n.title || n.content.slice(0, 60)}
                           </div>
                           <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{fmtDate(n.updated_at)}</span>
@@ -6694,6 +6695,8 @@
                   note={panelNote}
                   allNotes={allNotes}
                   noteTitles={noteTitles}
+                  sharedLists={sharedLists}
+                  currentUserId={user?.id}
                   backlinks={panelBacklinks}
                   outlinks={panelOutlinks}
                   navTrail={navTrail}
@@ -6728,6 +6731,8 @@
               onDelete={handleDelete}
               onTaskClick={onTaskClick}
               showToast={showToast}
+              sharedLists={sharedLists}
+              currentUserId={user?.id}
             />
           )}
         </div>
