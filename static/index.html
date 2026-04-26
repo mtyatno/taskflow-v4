@@ -5448,6 +5448,7 @@
       if (!text) return "";
       const lines = text.split("\n");
       let html = "";
+      let hIdx = 0;
       let inUl = false;
       const closeUl = () => { if (inUl) { html += "</ul>"; inUl = false; } };
       const escape = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -5476,13 +5477,19 @@
         } else if (/^- /.test(line)) {
           if (!inUl) { html += "<ul>"; inUl = true; }
           html += `<li>${inline(line.replace(/^- /,""))}</li>`;
-        // H1/H2/H3
+        // H1-H6 with scroll IDs
+        } else if (/^###### /.test(line)) {
+          closeUl(); html += `<h6 id="note-h-${hIdx++}">${inline(line.replace(/^###### /,""))}</h6>`;
+        } else if (/^##### /.test(line)) {
+          closeUl(); html += `<h5 id="note-h-${hIdx++}">${inline(line.replace(/^##### /,""))}</h5>`;
+        } else if (/^#### /.test(line)) {
+          closeUl(); html += `<h4 id="note-h-${hIdx++}">${inline(line.replace(/^#### /,""))}</h4>`;
         } else if (/^### /.test(line)) {
-          closeUl(); html += `<h3>${inline(line.replace(/^### /,""))}</h3>`;
+          closeUl(); html += `<h3 id="note-h-${hIdx++}">${inline(line.replace(/^### /,""))}</h3>`;
         } else if (/^## /.test(line)) {
-          closeUl(); html += `<h2>${inline(line.replace(/^## /,""))}</h2>`;
+          closeUl(); html += `<h2 id="note-h-${hIdx++}">${inline(line.replace(/^## /,""))}</h2>`;
         } else if (/^# /.test(line)) {
-          closeUl(); html += `<h1>${inline(line.replace(/^# /,""))}</h1>`;
+          closeUl(); html += `<h1 id="note-h-${hIdx++}">${inline(line.replace(/^# /,""))}</h1>`;
         // Blockquote
         } else if (/^> /.test(line)) {
           closeUl(); html += `<blockquote>${inline(line.replace(/^> /,""))}</blockquote>`;
