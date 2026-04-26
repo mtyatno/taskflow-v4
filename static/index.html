@@ -5477,7 +5477,7 @@
         } else if (/^- /.test(line)) {
           if (!inUl) { html += "<ul>"; inUl = true; }
           html += `<li>${inline(line.replace(/^- /,""))}</li>`;
-        // H1-H6 with scroll IDs
+        // H1-H6 with scroll IDs — ORDER IS LOAD-BEARING: longer patterns must precede shorter ones
         } else if (/^###### /.test(line)) {
           closeUl(); html += `<h6 id="note-h-${hIdx++}">${inline(line.replace(/^###### /,""))}</h6>`;
         } else if (/^##### /.test(line)) {
