@@ -6117,8 +6117,26 @@
       );
     }
 
-    function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onPin, onNavigate, onNavigateFrom, onTrailClick }) {
+    function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onPin, onNavigate, onNavigateFrom, onTrailClick, sharedLists = [], currentUserId }) {
       const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
+
+      const [shareOpen, setShareOpen] = React.useState(false);
+      const shareRef = React.useRef(null);
+
+      React.useEffect(() => {
+        if (!shareOpen) return;
+        const close = (e) => { if (shareRef.current && !shareRef.current.contains(e.target)) setShareOpen(false); };
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
+      }, [shareOpen]);
+
+      const handleShare = async (listId) => {
+        setShareOpen(false);
+        try {
+          await api.patch(`/api/scratchpad/${note.id}/share`, { list_id: listId });
+          window.dispatchEvent(new CustomEvent("noteSaved"));
+        } catch (e) { /* silent — note still works */ }
+      };
 
       const handlePreviewClick = (e) => {
         const el = e.target.closest("[data-wiki-title]");
@@ -6217,8 +6235,53 @@
 
           {/* Header */}
           <div className="notes-panel-header">
-            <div className="notes-panel-title">{note.title || "(tanpa judul)"}</div>
-            <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{fmtDate(note.updated_at)}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="notes-panel-title" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                {note.list_id && <span className="note-shared-badge">👥 Bersama</span>}
+                {note.title || "(tanpa judul)"}
+              </div>
+              {note.last_editor_username && note.last_edited_by !== note.user_id && (
+                <div style={{ fontSize: 11, color: "var(--text-light)", marginTop: 2 }}>
+                  Diedit oleh <b>{note.last_editor_display_name || note.last_editor_username}</b> · {fmtDate(note.updated_at)}
+                </div>
+              )}
+              {(!note.last_editor_username || note.last_edited_by === note.user_id) && (
+                <div style={{ fontSize: 11, color: "var(--text-light)", marginTop: 2 }}>{fmtDate(note.updated_at)}</div>
+              )}
+            </div>
+            {/* Share button — only for owner */}
+            {note.user_id === currentUserId && sharedLists.length > 0 && (
+              <div ref={shareRef} style={{ position: "relative", flexShrink: 0 }}>
+                <button onClick={() => setShareOpen(o => !o)}
+                  title={note.list_id ? "Atur berbagi" : "Bagikan ke list"}
+                  style={{ background: note.list_id ? "rgba(168,197,0,0.12)" : "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: note.list_id ? "var(--accent)" : "var(--text-light)", cursor: "pointer", padding: "4px 8px", flexShrink: 0 }}>
+                  👥
+                </button>
+                {shareOpen && (
+                  <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 300, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", minWidth: 180, padding: "4px 0" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, padding: "6px 14px 4px" }}>Bagikan ke List</div>
+                    {sharedLists.map(l => (
+                      <div key={l.id}
+                        onMouseDown={e => { e.preventDefault(); handleShare(l.id); }}
+                        style={{ padding: "7px 14px", fontSize: 13, cursor: "pointer", color: note.list_id === l.id ? "var(--accent)" : "var(--text-primary)", fontWeight: note.list_id === l.id ? 700 : 400 }}
+                        onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        {note.list_id === l.id ? "✓ " : ""}{l.name}
+                      </div>
+                    ))}
+                    {note.list_id && (
+                      <div
+                        onMouseDown={e => { e.preventDefault(); handleShare(null); }}
+                        style={{ padding: "7px 14px", fontSize: 13, cursor: "pointer", color: "#ef4444", borderTop: "1px solid var(--border)" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        Batal berbagi
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <button onClick={() => onPin(note.id)} title={note.pinned ? "Unpin" : "Pin"}
               style={{ background: note.pinned ? "rgba(168,197,0,0.15)" : "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: note.pinned ? "var(--accent)" : "var(--text-light)", cursor: "pointer", padding: "4px 10px", flexShrink: 0 }}>
               📌
