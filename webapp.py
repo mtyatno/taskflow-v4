@@ -281,6 +281,9 @@ class ScratchpadUpdate(BaseModel):
     linked_task_ids: list[int] = []
     list_id: Optional[int] = None
 
+class NoteShareReq(BaseModel):
+    list_id: Optional[int] = None  # None = unshare
+
 class JoinListReq(BaseModel):
     code: str
 
@@ -1987,10 +1990,34 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
 async def delete_scratchpad(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        if not conn.execute("SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone():
-            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        if not conn.execute(
+            "SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)
+        ).fetchone():
+            raise HTTPException(status_code=403, detail="Hanya pemilik yang bisa menghapus catatan ini")
         conn.execute("DELETE FROM scratchpad_notes WHERE id = ?", (note_id,))
+        conn.commit()
     return {"ok": True}
+
+@app.patch("/api/scratchpad/{note_id}/share")
+async def share_scratchpad(note_id: int, req: NoteShareReq, user=Depends(get_current_user)):
+    """Toggle sharing of a note to a list. Only the note owner can share/unshare."""
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=403, detail="Hanya pemilik catatan yang bisa berbagi")
+        if req.list_id is not None:
+            repo = TaskRepository(DB_PATH)
+            if not repo.is_list_member_or_owner(req.list_id, uid):
+                raise HTTPException(status_code=403, detail="Kamu bukan anggota list ini")
+        conn.execute(
+            "UPDATE scratchpad_notes SET list_id = ? WHERE id = ?", (req.list_id, note_id)
+        )
+        conn.commit()
+        updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
+        return _scratchpad_row(updated, conn, uid)
 
 @app.patch("/api/scratchpad/{note_id}/pin")
 async def toggle_pin_scratchpad(note_id: int, user=Depends(get_current_user)):
