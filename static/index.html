@@ -8006,7 +8006,7 @@
         }
 
         if (page === "notes") {
-          return <NotesPage tasks={tasks} showToast={showToast} onTaskClick={setSelectedTask} />;
+          return <NotesPage tasks={tasks} showToast={showToast} onTaskClick={setSelectedTask} user={user} sharedLists={sharedLists} />;
         }
 
         if (page === "settings") {
