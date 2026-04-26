@@ -5590,7 +5590,7 @@
           borderLeft: "1px solid var(--border)",
           paddingLeft: 10,
           overflowY: "auto",
-          maxHeight: "100%",
+          maxHeight: "60vh",
           scrollbarWidth: "thin",
           scrollbarColor: "var(--border) transparent",
         }}>
@@ -5910,7 +5910,7 @@
               </div>
             )}
           </div>
-          {tocItems.length >= 2 && <NoteToc items={tocItems} />}
+          {preview && tocItems.length >= 2 && <NoteToc items={tocItems} />}
           </div>
 
           {/* Tags — auto-extracted from content */}
