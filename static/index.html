@@ -1010,7 +1010,7 @@
         </span>
       );
     }
-    function QuadBadge({ q }) { return <span className={`badge badge-${q.toLowerCase()}`}>{QUAD_EMOJI[q]} {q}</span>; }
+    function QuadBadge({ q }) { if (!q) return null; return <span className={`badge badge-${q.toLowerCase()}`}>{QUAD_EMOJI[q]} {q}</span>; }
     function StatusBadge({ s }) { return <span className={`badge badge-${s}`}>{GTD_EMOJI[s]} {GTD_LABELS[s]}</span>; }
 
     function formatDate(d) {
@@ -6533,7 +6533,7 @@
               {note.linked_tasks.map(t => (
                 <div key={t.id}
                   className="notes-link-item"
-                  onClick={() => onTaskClick?.(t)}
+                  onClick={async () => { try { const full = await api.get(`/api/tasks/${t.id}`); onTaskClick?.(full); } catch(e) {} }}
                   style={{ opacity: t.gtd_status === "done" ? 0.5 : 1 }}>
                   <span style={{ fontSize: 13 }}>{t.gtd_status === "done" ? "✅" : "⬜"}</span>
                   <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
