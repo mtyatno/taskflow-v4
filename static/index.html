@@ -6971,15 +6971,21 @@
                   onClose={() => { setPanelNote(null); setNavTrail([]); }}
                   onDelete={(id) => { handleDelete(id); setPanelNote(null); setNavTrail([]); }}
                   onPin={(id) => handlePin(id)}
-                  onNavigate={(n) => { setPanelNote(n); setNavTrail(t => [...t.slice(-7), n]); }}
+                  onNavigate={async (n) => {
+                    const full = allNotes.find(x => x.id === n.id) || await api.get(`/api/scratchpad/${n.id}`).catch(() => n);
+                    setPanelNote(full);
+                    setNavTrail(t => [...t.slice(-7), full]);
+                  }}
                   onTrailClick={(n) => {
                     const idx = navTrail.findIndex(x => x.id === n.id);
-                    setPanelNote(n);
+                    const full = allNotes.find(x => x.id === n.id) || n;
+                    setPanelNote(full);
                     setNavTrail(idx >= 0 ? navTrail.slice(0, idx + 1) : navTrail);
                   }}
                   onNavigateFrom={(child, parentIdx) => {
-                    setPanelNote(child);
-                    setNavTrail(t => t.slice(0, parentIdx + 1).concat([child]));
+                    const full = allNotes.find(x => x.id === child.id) || child;
+                    setPanelNote(full);
+                    setNavTrail(t => t.slice(0, parentIdx + 1).concat([full]));
                   }}
                 />
               )}
