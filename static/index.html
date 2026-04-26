@@ -5681,6 +5681,7 @@
       const [saving, setSaving]       = useState(false);
       const isDirtyRef                = useRef(false);
       const autosaveTimerRef          = useRef(null);
+      const lastKnownAtRef            = useRef(note?.updated_at ?? null);
       const [conflictBanner, setConflictBanner] = useState(null);
       const [expanded, setExpanded]   = useState(false);
       const [focus, setFocus]         = useState(false);
@@ -5746,18 +5747,19 @@
             const fresh = await api.get(`/api/scratchpad/${note.id}`);
             if (!fresh?.updated_at) return;
             const serverTime = new Date(fresh.updated_at).getTime();
-            const localTime  = new Date(note.updated_at).getTime();
+            const localTime  = new Date(lastKnownAtRef.current || note?.updated_at).getTime();
             if (serverTime <= localTime) return;
             // Ada versi lebih baru dari server
             if (!isDirtyRef.current) {
               // User tidak sedang mengetik — update silent
               setContent(fresh.content || "");
               setTitle(fresh.title || "");
+              lastKnownAtRef.current = fresh.updated_at;
               setConflictBanner(null);
             } else {
               // User sedang mengetik — tampilkan banner
               const editorName = fresh.last_editor_display_name || fresh.last_editor_username || "Pengguna lain";
-              setConflictBanner({ editor: editorName, content: fresh.content, title: fresh.title });
+              setConflictBanner({ editor: editorName, content: fresh.content, title: fresh.title, tags: fresh.tags || [], linked_task_ids: fresh.linked_task_ids || [], updated_at: fresh.updated_at });
             }
           } catch (_) { /* ignore poll errors */ }
         }, 5000);
@@ -5980,6 +5982,9 @@
                 onClick={() => {
                   setContent(conflictBanner.content || "");
                   setTitle(conflictBanner.title || "");
+                  setTags(conflictBanner.tags || []);
+                  setLinkedTaskIds(conflictBanner.linked_task_ids || []);
+                  lastKnownAtRef.current = conflictBanner.updated_at || lastKnownAtRef.current;
                   isDirtyRef.current = false;
                   setConflictBanner(null);
                 }}
