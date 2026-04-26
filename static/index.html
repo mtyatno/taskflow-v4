@@ -5681,6 +5681,7 @@
       const [saving, setSaving]       = useState(false);
       const isDirtyRef                = useRef(false);
       const autosaveTimerRef          = useRef(null);
+      const [conflictBanner, setConflictBanner] = useState(null);
       const [expanded, setExpanded]   = useState(false);
       const [focus, setFocus]         = useState(false);
       const [preview, setPreview]     = useState(false);
@@ -5735,6 +5736,33 @@
         }, 2500);
         return () => clearTimeout(autosaveTimerRef.current);
       }, [title, content, tags, linkedTaskIds]);
+
+      // Polling: setiap 5 detik untuk shared notes saja
+      useEffect(() => {
+        if (!note?.id || !note?.list_id) return;
+        const interval = setInterval(async () => {
+          if (!navigator.onLine) return;
+          try {
+            const fresh = await api.get(`/api/scratchpad/${note.id}`);
+            if (!fresh?.updated_at) return;
+            const serverTime = new Date(fresh.updated_at).getTime();
+            const localTime  = new Date(note.updated_at).getTime();
+            if (serverTime <= localTime) return;
+            // Ada versi lebih baru dari server
+            if (!isDirtyRef.current) {
+              // User tidak sedang mengetik — update silent
+              setContent(fresh.content || "");
+              setTitle(fresh.title || "");
+              setConflictBanner(null);
+            } else {
+              // User sedang mengetik — tampilkan banner
+              const editorName = fresh.last_editor_display_name || fresh.last_editor_username || "Pengguna lain";
+              setConflictBanner({ editor: editorName, content: fresh.content, title: fresh.title });
+            }
+          } catch (_) { /* ignore poll errors */ }
+        }, 5000);
+        return () => clearInterval(interval);
+      }, [note?.id, note?.list_id]);
 
       useEffect(() => {
         api.get("/api/scratchpad/titles").then(setNoteTitles).catch(() => {});
@@ -5941,6 +5969,30 @@
             autoFocus={!expanded}
             style={{ fontSize: expanded ? 22 : undefined }}
           />
+
+          {/* Conflict banner */}
+          {conflictBanner && (
+            <div style={{ background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+              <span style={{ flex: 1, color: "#92400e" }}>
+                ✏️ <b>{conflictBanner.editor}</b> baru saja menyimpan perubahan.
+              </span>
+              <button
+                onClick={() => {
+                  setContent(conflictBanner.content || "");
+                  setTitle(conflictBanner.title || "");
+                  isDirtyRef.current = false;
+                  setConflictBanner(null);
+                }}
+                style={{ background: "#f59e0b", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, color: "#fff", cursor: "pointer", padding: "3px 8px", flexShrink: 0 }}>
+                Muat perubahan
+              </button>
+              <button
+                onClick={() => setConflictBanner(null)}
+                style={{ background: "none", border: "none", fontSize: 14, cursor: "pointer", color: "#92400e", padding: "0 2px" }}>
+                ✕
+              </button>
+            </div>
+          )}
 
           {/* Content + ToC */}
           <div style={{ display: "flex", gap: 0, alignItems: "flex-start", marginTop: 12 }}>
