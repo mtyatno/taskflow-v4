@@ -6300,18 +6300,16 @@
 
       // Static version (no closure dep) used inside async fetchNotes
       const applyFiltersStatic = (query, tags, base) => {
-        const pinned = base.filter(n => n.pinned);
-        const unpinned = base.filter(n => !n.pinned);
         const syntaxTags = [...query.matchAll(/\btag:(\S+)/gi)].map(m => m[1].toLowerCase());
         const cleanQuery = query.replace(/\btag:\S+/gi, "").trim();
         const allTags = [...new Set([...tags, ...syntaxTags])];
-        let result = unpinned;
+        let result = base;
         for (const tag of allTags) result = result.filter(n => (n.tags || []).map(t => t.toLowerCase()).includes(tag));
         if (cleanQuery) result = result.filter(n =>
           n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) ||
           n.content?.toLowerCase().includes(cleanQuery.toLowerCase())
         );
-        return [...pinned, ...result];
+        return result;
       };
 
       const fetchNotes = async (filterQ = "", filterTags = []) => {
@@ -6490,8 +6488,6 @@
       };
 
       const sortedNotes = [...notes].sort((a, b) => {
-        if (a.pinned && !b.pinned) return -1;
-        if (!a.pinned && b.pinned) return 1;
         if (sortBy === "alpha") return (a.title || "").localeCompare(b.title || "");
         if (sortBy === "created") return new Date(a.created_at) - new Date(b.created_at);
         if (sortBy === "links") return ((b.linked_to || []).length) - ((a.linked_to || []).length);
