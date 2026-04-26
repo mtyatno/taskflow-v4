@@ -5548,7 +5548,7 @@
       );
     }
 
-    function NoteModal({ note, tasks, onClose, onSave, onDelete, onTaskClick }) {
+    function NoteModal({ note, tasks, onClose, onSave, onDelete, onTaskClick, showToast }) {
       const [title, setTitle]         = useState(note?.title || "");
       const [content, setContent]     = useState(note?.content || "");
       const [tags, setTags]           = useState(note?.tags || []);
@@ -5724,7 +5724,7 @@
             window.dispatchEvent(new CustomEvent("noteSaved"));
             insertWikilink(newTitle);
           } else {
-            insertWikilink(newTitle);
+            showToast(err.message || "Gagal membuat catatan", "error");
           }
         }
       };
@@ -6554,6 +6554,7 @@
               onSave={handleSave}
               onDelete={handleDelete}
               onTaskClick={onTaskClick}
+              showToast={showToast}
             />
           )}
         </div>
