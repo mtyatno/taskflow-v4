@@ -2043,37 +2043,37 @@ async def toggle_pin_scratchpad(note_id: int, user=Depends(get_current_user)):
 
 @app.get("/api/scratchpad/{note_id}/backlinks")
 async def get_backlinks(note_id: int, user=Depends(get_current_user)):
-    """Return all notes that link to this note — via linked_to column OR [[Title]] content scan."""
+    """Return all accessible notes that link to this note."""
     uid = user["sub"]
+    access_clause, access_params = _note_access_clause(uid)
     with get_db() as conn:
-        target = conn.execute(
-            "SELECT id, title FROM scratchpad_notes WHERE id = ? AND user_id = ?",
-            (note_id, uid)
-        ).fetchone()
+        target = conn.execute(f"""
+            SELECT id, title FROM scratchpad_notes
+            WHERE id = ? AND {access_clause}
+        """, [note_id] + access_params).fetchone()
         if not target:
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
         title = (target["title"] or "").strip()
+        ac2, ap2 = _note_access_clause(uid)
         if title:
-            rows = conn.execute(
-                """SELECT DISTINCT id, title, updated_at FROM scratchpad_notes
-                   WHERE user_id = ? AND id != ?
-                   AND (
-                       (json_type(linked_to) = 'array'
-                        AND EXISTS (SELECT 1 FROM json_each(linked_to) WHERE value = ?))
-                       OR content LIKE ?
-                   )
-                   ORDER BY updated_at DESC""",
-                (uid, note_id, note_id, f"%[[{title}]]%")
-            ).fetchall()
+            rows = conn.execute(f"""
+                SELECT DISTINCT id, title, updated_at FROM scratchpad_notes
+                WHERE {ac2} AND id != ?
+                  AND (
+                      (json_type(linked_to) = 'array'
+                       AND EXISTS (SELECT 1 FROM json_each(linked_to) WHERE value = ?))
+                      OR content LIKE ?
+                  )
+                ORDER BY updated_at DESC
+            """, ap2 + [note_id, note_id, f"%[[{title}]]%"]).fetchall()
         else:
-            rows = conn.execute(
-                """SELECT id, title, updated_at FROM scratchpad_notes
-                   WHERE user_id = ? AND id != ?
-                   AND json_type(linked_to) = 'array'
-                   AND EXISTS (SELECT 1 FROM json_each(linked_to) WHERE value = ?)
-                   ORDER BY updated_at DESC""",
-                (uid, note_id, note_id)
-            ).fetchall()
+            rows = conn.execute(f"""
+                SELECT id, title, updated_at FROM scratchpad_notes
+                WHERE {ac2} AND id != ?
+                  AND json_type(linked_to) = 'array'
+                  AND EXISTS (SELECT 1 FROM json_each(linked_to) WHERE value = ?)
+                ORDER BY updated_at DESC
+            """, ap2 + [note_id, note_id]).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -2171,14 +2171,15 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
             LIMIT 8
         """, (uid, uid, uid, like, like)).fetchall()
 
-        # Notes
-        note_rows = conn.execute("""
+        # Notes (personal + shared)
+        note_ac, note_ap = _note_access_clause(uid)
+        note_rows = conn.execute(f"""
             SELECT id, title, content, updated_at
             FROM scratchpad_notes
-            WHERE user_id = ? AND (title LIKE ? OR content LIKE ?)
+            WHERE {note_ac} AND (title LIKE ? OR content LIKE ?)
             ORDER BY updated_at DESC
             LIMIT 8
-        """, (uid, like, like)).fetchall()
+        """, note_ap + [like, like]).fetchall()
 
     def snippet(text, length=80):
         if not text:
