@@ -5485,7 +5485,8 @@
         .replace(/\*(.+?)\*/g, "<em>$1</em>")
         .replace(/`(.+?)`/g, "<code style='background:var(--bg-primary);border-radius:3px;padding:1px 5px;font-size:0.9em'>$1</code>")
         .replace(/\[\[([^\[\]]+)\]\]/g, (_, title) => {
-          const exists = titleSet.has(title.toLowerCase());
+          const rawTitle = title.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+          const exists = titleSet.has(rawTitle.toLowerCase());
           return exists
             ? `<span class="wikilink" data-wiki-title="${title}">${title}</span>`
             : `<span class="wikilink-broken" title="Note tidak ditemukan">[[${title}]]</span>`;
