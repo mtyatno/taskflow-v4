@@ -5949,7 +5949,9 @@
       );
     }
 
-    function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onPin, onNavigate, onTrailClick }) {
+    function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onPin, onNavigate, onNavigateFrom, onTrailClick }) {
+      const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
+
       const handlePreviewClick = (e) => {
         const el = e.target.closest("[data-wiki-title]");
         if (!el) return;
@@ -5966,27 +5968,69 @@
 
       const titleStrings = useMemo(() => noteTitles.map(n => n.title), [noteTitles]);
 
+      useEffect(() => {
+        if (openDropdownIdx === null) return;
+        const handler = (e) => { if (!e.target.closest("[data-crumb-dropdown]")) setOpenDropdownIdx(null); };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+      }, [openDropdownIdx]);
+
       return (
         <div>
-          {/* Nav trail — only when navigated through wikilinks */}
-          {navTrail.length > 1 && (
-            <div className="notes-nav-trail">
-              {navTrail.map((n, i) => (
-                <React.Fragment key={n.id}>
-                  {i > 0 && <span style={{ opacity: 0.4 }}>›</span>}
-                  <span
-                    className="notes-nav-crumb"
-                    style={{
-                      fontWeight: i === navTrail.length - 1 ? 700 : 400,
-                      color: i === navTrail.length - 1 ? "var(--text-secondary)" : undefined,
-                      cursor: i === navTrail.length - 1 ? "default" : "pointer",
-                    }}
-                    onClick={() => { if (i < navTrail.length - 1) onTrailClick(n); }}
-                  >
-                    {n.title || "(tanpa judul)"}
-                  </span>
-                </React.Fragment>
-              ))}
+          {/* Interactive breadcrumb trail */}
+          {navTrail.length > 0 && (
+            <div className="notes-nav-trail" style={{ flexWrap: "wrap", alignItems: "center", marginBottom: 14 }} data-crumb-dropdown>
+              {navTrail.map((n, i) => {
+                const isActive = i === navTrail.length - 1;
+                const children = (n.linked_to || []).map(id => allNotes.find(m => m.id === id)).filter(Boolean);
+                return (
+                  <React.Fragment key={n.id}>
+                    {i > 0 && <span style={{ opacity: 0.35, margin: "0 4px", fontSize: 12 }}>›</span>}
+                    <span style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 2 }}>
+                      <span
+                        className={isActive ? "" : "notes-nav-crumb"}
+                        style={{ fontWeight: isActive ? 700 : 400, color: isActive ? "var(--text-primary)" : undefined, cursor: isActive ? "default" : "pointer", fontSize: 12 }}
+                        onClick={() => { if (!isActive) { onTrailClick(n); setOpenDropdownIdx(null); } }}
+                      >
+                        {n.title || "(tanpa judul)"}
+                      </span>
+                      {children.length > 0 && (
+                        <span
+                          onClick={(e) => { e.stopPropagation(); setOpenDropdownIdx(openDropdownIdx === i ? null : i); }}
+                          style={{ cursor: "pointer", fontSize: 9, color: "var(--text-light)", padding: "1px 3px", borderRadius: 3, lineHeight: 1, userSelect: "none", background: openDropdownIdx === i ? "var(--bg-primary)" : undefined }}
+                        >▼</span>
+                      )}
+                      {openDropdownIdx === i && (
+                        <div style={{
+                          position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 300,
+                          background: "var(--bg-card)", border: "1px solid var(--border)",
+                          borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+                          minWidth: 220, maxWidth: 320, maxHeight: 260, overflowY: "auto", padding: "6px 0",
+                        }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 0.8, padding: "4px 14px 6px" }}>
+                            {n.title || "(tanpa judul)"}
+                          </div>
+                          {children.map(child => {
+                            const isCurrent = child.id === note.id;
+                            return (
+                              <div key={child.id}
+                                onClick={() => { setOpenDropdownIdx(null); onNavigateFrom(child, i); }}
+                                style={{ padding: "8px 14px", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", gap: 8, background: isCurrent ? "rgba(168,197,0,0.08)" : undefined, color: isCurrent ? "var(--accent)" : "var(--text-primary)" }}
+                                onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = "var(--bg-primary)"; }}
+                                onMouseLeave={e => { if (!isCurrent) e.currentTarget.style.background = isCurrent ? "rgba(168,197,0,0.08)" : "transparent"; }}
+                              >
+                                {child.pinned && <span style={{ fontSize: 10 }}>📌</span>}
+                                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{child.title || "(tanpa judul)"}</span>
+                                {isCurrent && <span style={{ fontSize: 11, flexShrink: 0, fontWeight: 700 }}>✓</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </span>
+                  </React.Fragment>
+                );
+              })}
             </div>
           )}
 
@@ -6447,6 +6491,10 @@
                     const idx = navTrail.findIndex(x => x.id === n.id);
                     setPanelNote(n);
                     setNavTrail(idx >= 0 ? navTrail.slice(0, idx + 1) : navTrail);
+                  }}
+                  onNavigateFrom={(child, parentIdx) => {
+                    setPanelNote(child);
+                    setNavTrail(t => t.slice(0, parentIdx + 1).concat([child]));
                   }}
                 />
               )}
