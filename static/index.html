@@ -785,6 +785,7 @@
     .note-toc-item { display: block; font-size: 11px; color: var(--text-secondary); cursor: pointer; padding: 3px 6px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; transition: background 0.1s, color 0.1s; }
     .note-toc-item:hover { background: var(--bg-primary); color: var(--text-primary); }
     .note-toc-item.active { color: var(--accent); font-weight: 700; }
+    .note-toc-panel::-webkit-scrollbar { display: none; }
     .wiki-autocomplete { position: fixed; background: var(--bg-card); border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.22); z-index: 2000; min-width: 200px; max-width: 320px; overflow: hidden; }
     .wiki-autocomplete-item { padding: 8px 14px; font-size: 13px; cursor: pointer; color: var(--text-primary); transition: background 0.1s; }
     .wiki-autocomplete-item:hover, .wiki-autocomplete-item.active { background: rgba(168,197,0,0.15); color: var(--accent); font-weight: 600; }
@@ -5601,14 +5602,13 @@
       };
 
       return (
-        <div style={{
+        <div className="note-toc-panel" style={{
           width: 160, flexShrink: 0,
           borderLeft: "1px solid var(--border)",
           paddingLeft: 10,
           overflowY: "auto",
           maxHeight: "60vh",
-          scrollbarWidth: "thin",
-          scrollbarColor: "var(--border) transparent",
+          scrollbarWidth: "none",
         }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6, paddingLeft: 6 }}>
             Isi
@@ -6183,7 +6183,7 @@
             </button>
             <button onClick={handlePrint} title="Cetak / Simpan PDF"
               style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "var(--text-light)", cursor: "pointer", padding: "4px 10px", flexShrink: 0 }}>
-              🖨
+              PDF
             </button>
             <button onClick={onEdit}
               style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "var(--accent)", cursor: "pointer", padding: "4px 10px", flexShrink: 0 }}>
@@ -6257,7 +6257,7 @@
           )}
         </div>
         {tocItems.length >= 2 && (
-          <div className="note-toc-sticky" style={{ position: "sticky", top: 0, alignSelf: "flex-start" }}>
+          <div className="note-toc-sticky" style={{ position: "sticky", top: 0, alignSelf: "flex-start", marginTop: 54, marginLeft: 4 }}>
             <NoteToc items={tocItems} />
           </div>
         )}
