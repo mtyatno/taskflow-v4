@@ -5565,14 +5565,18 @@
       const headings = [];
       let idx = 0;
       for (const line of content.split("\n")) {
-        const m = line.match(/^(#{1,6}) (.+)/);
-        if (m) headings.push({ level: m[1].length, text: m[2].trim(), idx: idx++ });
+        const m = line.match(/^(#{1,6}) (.*)/);
+        if (m) {
+          if (m[2].trim()) headings.push({ level: m[1].length, text: m[2].trim(), idx: idx++ });
+          else idx++; // empty heading: count it to stay in sync with renderMarkdown hIdx
+        }
       }
       return headings;
     }
 
     function NoteToc({ items }) {
       const [activeIdx, setActiveIdx] = React.useState(null);
+      React.useEffect(() => { setActiveIdx(null); }, [items]);
 
       const handleClick = (item) => {
         setActiveIdx(item.idx);
