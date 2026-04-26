@@ -2022,14 +2022,24 @@ async def share_scratchpad(note_id: int, req: NoteShareReq, user=Depends(get_cur
 @app.patch("/api/scratchpad/{note_id}/pin")
 async def toggle_pin_scratchpad(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
+    access_clause, access_params = _note_access_clause(uid)
     with get_db() as conn:
-        row = conn.execute("SELECT id, pinned FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone()
+        row = conn.execute(f"""
+            SELECT id FROM scratchpad_notes
+            WHERE id = ? AND {access_clause}
+        """, [note_id] + access_params).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
-        new_pinned = 0 if row["pinned"] else 1
-        conn.execute("UPDATE scratchpad_notes SET pinned = ? WHERE id = ?", (new_pinned, note_id))
+        existing_pin = conn.execute(
+            "SELECT 1 FROM note_pins WHERE user_id = ? AND note_id = ?", (uid, note_id)
+        ).fetchone()
+        if existing_pin:
+            conn.execute("DELETE FROM note_pins WHERE user_id = ? AND note_id = ?", (uid, note_id))
+        else:
+            conn.execute("INSERT OR IGNORE INTO note_pins (user_id, note_id) VALUES (?, ?)", (uid, note_id))
+        conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
-        return _scratchpad_row(updated, conn)
+        return _scratchpad_row(updated, conn, uid)
 
 @app.get("/api/scratchpad/{note_id}/backlinks")
 async def get_backlinks(note_id: int, user=Depends(get_current_user)):
