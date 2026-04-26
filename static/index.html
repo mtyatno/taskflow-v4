@@ -5636,6 +5636,7 @@
       const [noteTitles, setNoteTitles]     = useState([]);
       const [backlinks, setBacklinks]       = useState([]);
       const wikiDropdownRef = useRef(null);
+      const tocItems = React.useMemo(() => extractHeadings(content), [content]);
       const [tagDropdown, setTagDropdown] = useState(null);
       const [existingTags, setExistingTags] = useState([]);
 
@@ -5843,8 +5844,9 @@
             style={{ fontSize: expanded ? 22 : undefined }}
           />
 
-          {/* Content */}
-          <div style={{ position: "relative" }}>
+          {/* Content + ToC */}
+          <div style={{ display: "flex", gap: 0, alignItems: "flex-start" }}>
+          <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
               <NoteToolbar textareaRef={textareaRef} value={content} onChange={handleContentChange} />
               <button onClick={() => setPreview(p => !p)}
@@ -5907,6 +5909,8 @@
                 ))}
               </div>
             )}
+          </div>
+          {tocItems.length >= 2 && <NoteToc items={tocItems} />}
           </div>
 
           {/* Tags — auto-extracted from content */}
