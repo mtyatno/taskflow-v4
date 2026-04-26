@@ -766,6 +766,9 @@
     .wikilink { color: var(--accent); font-weight: 600; cursor: pointer; border-bottom: 1px dashed var(--accent); transition: opacity 0.15s; }
     .wikilink:hover { opacity: 0.75; }
     .wikilink-broken { color: var(--text-light); border-bottom: 1px dashed var(--text-light); cursor: default; font-style: italic; }
+    .note-toc-item { display: block; font-size: 11px; color: var(--text-secondary); cursor: pointer; padding: 3px 6px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; transition: background 0.1s, color 0.1s; }
+    .note-toc-item:hover { background: var(--bg-primary); color: var(--text-primary); }
+    .note-toc-item.active { color: var(--accent); font-weight: 700; }
     .wiki-autocomplete { position: fixed; background: var(--bg-card); border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.22); z-index: 2000; min-width: 200px; max-width: 320px; overflow: hidden; }
     .wiki-autocomplete-item { padding: 8px 14px; font-size: 13px; cursor: pointer; color: var(--text-primary); transition: background 0.1s; }
     .wiki-autocomplete-item:hover, .wiki-autocomplete-item.active { background: rgba(168,197,0,0.15); color: var(--accent); font-weight: 600; }
@@ -5554,6 +5557,53 @@
           <button onClick={() => insertLinePrefix("> ")} title="Blockquote">❝ Quote</button>
           <div className="sep"/>
           <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const newVal = value.slice(0,s) + "\n---\n" + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+5,s+5); },0); }} title="Divider">─ ─</button>
+        </div>
+      );
+    }
+
+    function extractHeadings(content) {
+      const headings = [];
+      let idx = 0;
+      for (const line of content.split("\n")) {
+        const m = line.match(/^(#{1,6}) (.+)/);
+        if (m) headings.push({ level: m[1].length, text: m[2].trim(), idx: idx++ });
+      }
+      return headings;
+    }
+
+    function NoteToc({ items }) {
+      const [activeIdx, setActiveIdx] = React.useState(null);
+
+      const handleClick = (item) => {
+        setActiveIdx(item.idx);
+        const el = document.getElementById(`note-h-${item.idx}`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      };
+
+      return (
+        <div style={{
+          width: 160, flexShrink: 0,
+          borderLeft: "1px solid var(--border)",
+          paddingLeft: 10,
+          overflowY: "auto",
+          maxHeight: "100%",
+          scrollbarWidth: "thin",
+          scrollbarColor: "var(--border) transparent",
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6, paddingLeft: 6 }}>
+            Isi
+          </div>
+          {items.map(item => (
+            <span
+              key={item.idx}
+              className={`note-toc-item${activeIdx === item.idx ? " active" : ""}`}
+              style={{ paddingLeft: 6 + (item.level - 1) * 10 }}
+              onClick={() => handleClick(item)}
+              title={item.text}
+            >
+              {item.text}
+            </span>
+          ))}
         </div>
       );
     }
