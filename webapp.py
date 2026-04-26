@@ -1840,10 +1840,13 @@ def _resolve_linked_to(titles: list[str], user_id: int, conn) -> list[int]:
     title_map = {r["title"].strip().lower(): r["id"] for r in rows}
     return [title_map[t.strip().lower()] for t in titles if t.strip().lower() in title_map]
 
-def _note_access_clause(uid: int) -> tuple[str, list]:
-    """SQL WHERE fragment + params: notes owned by uid OR shared via list membership."""
+def _note_access_clause(uid: int, prefix: str = "") -> tuple[str, list]:
+    """SQL WHERE fragment + params: notes owned by uid OR shared via list membership.
+    Use prefix='s' when scratchpad_notes is aliased as 's' in the query.
+    """
+    p = f"{prefix}." if prefix else ""
     clause = (
-        "(user_id = ? OR list_id IN ("
+        f"({p}user_id = ? OR {p}list_id IN ("
         "  SELECT id FROM shared_lists WHERE owner_id = ?"
         "  UNION SELECT list_id FROM list_members WHERE user_id = ?"
         "))"
@@ -1853,7 +1856,7 @@ def _note_access_clause(uid: int) -> tuple[str, list]:
 @app.get("/api/scratchpad")
 async def list_scratchpad(q: str = "", tag: str = "", user=Depends(get_current_user)):
     uid = user["sub"]
-    access_clause, access_params = _note_access_clause(uid)
+    access_clause, access_params = _note_access_clause(uid, prefix="s")
     with get_db() as conn:
         if tag:
             tag_norm = tag.strip().lower()
@@ -1861,21 +1864,21 @@ async def list_scratchpad(q: str = "", tag: str = "", user=Depends(get_current_u
                 SELECT s.* FROM scratchpad_notes s
                 JOIN entity_tags et ON et.entity_id = s.id AND et.entity_type = 'note'
                 JOIN tags t ON t.id = et.tag_id
-                WHERE ({access_clause.replace('user_id', 's.user_id').replace('list_id', 's.list_id')})
+                WHERE ({access_clause})
                   AND t.name = ?
                 ORDER BY s.updated_at DESC
             """, access_params + [tag_norm]).fetchall()
         elif q:
             rows = conn.execute(f"""
                 SELECT s.* FROM scratchpad_notes s
-                WHERE ({access_clause.replace('user_id', 's.user_id').replace('list_id', 's.list_id')})
+                WHERE ({access_clause})
                   AND (s.title LIKE ? OR s.content LIKE ?)
                 ORDER BY s.updated_at DESC
             """, access_params + [f"%{q}%", f"%{q}%"]).fetchall()
         else:
             rows = conn.execute(f"""
                 SELECT s.* FROM scratchpad_notes s
-                WHERE {access_clause.replace('user_id', 's.user_id').replace('list_id', 's.list_id')}
+                WHERE {access_clause}
                 ORDER BY s.updated_at DESC
             """, access_params).fetchall()
         return [_scratchpad_row(r, conn, uid) for r in rows]
@@ -1898,14 +1901,14 @@ _NOTE_SELECT = "SELECT * FROM scratchpad_notes WHERE id = ?"
 async def get_note_titles(user=Depends(get_current_user)):
     """Return all accessible note id+title pairs for wikilink autocomplete."""
     uid = user["sub"]
-    access_clause, access_params = _note_access_clause(uid)
+    access_clause, access_params = _note_access_clause(uid, prefix="s")
     with get_db() as conn:
         rows = conn.execute(f"""
             SELECT s.id, s.title, s.user_id, s.list_id,
                    u.username AS owner_username, u.display_name AS owner_display_name
             FROM scratchpad_notes s
             LEFT JOIN users u ON u.id = s.user_id
-            WHERE {access_clause.replace('user_id', 's.user_id').replace('list_id', 's.list_id')}
+            WHERE {access_clause}
               AND s.title != ''
             ORDER BY s.updated_at DESC
         """, access_params).fetchall()
