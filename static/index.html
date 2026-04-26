@@ -6282,7 +6282,7 @@
       );
     }
 
-    function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onPin, onNavigate, onNavigateFrom, onTrailClick, sharedLists = [], currentUserId }) {
+    function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onPin, onNavigate, onNavigateFrom, onTrailClick, sharedLists = [], currentUserId, onTaskClick }) {
       const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
 
       const [shareOpen, setShareOpen] = React.useState(false);
@@ -6523,6 +6523,29 @@
           {outlinks.length === 0 && backlinks.length === 0 && (
             <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 24, textAlign: "center" }}>
               Catatan ini belum terhubung ke catatan lain.
+            </div>
+          )}
+
+          {/* Linked Tasks */}
+          {(note.linked_tasks || []).length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div className="notes-section-label">☑ Tasks terkait ({note.linked_tasks.length})</div>
+              {note.linked_tasks.map(t => (
+                <div key={t.id}
+                  className="notes-link-item"
+                  onClick={() => onTaskClick?.(t.id)}
+                  style={{ opacity: t.gtd_status === "done" ? 0.5 : 1 }}>
+                  <span style={{ fontSize: 13 }}>{t.gtd_status === "done" ? "✅" : "⬜"}</span>
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    textDecoration: t.gtd_status === "done" ? "line-through" : "none" }}>
+                    {t.title}
+                  </span>
+                  {t.priority && t.priority !== "P3" && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: t.priority === "P1" ? "#ef4444" : t.priority === "P2" ? "#f59e0b" : "var(--text-light)",
+                      flexShrink: 0 }}>{t.priority}</span>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -6928,6 +6951,7 @@
                   backlinks={panelBacklinks}
                   outlinks={panelOutlinks}
                   navTrail={navTrail}
+                  onTaskClick={onTaskClick}
                   onEdit={() => openEdit(panelNote)}
                   onClose={() => { setPanelNote(null); setNavTrail([]); }}
                   onDelete={(id) => { handleDelete(id); setPanelNote(null); setNavTrail([]); }}
