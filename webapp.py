@@ -1850,50 +1850,62 @@ def _note_access_clause(uid: int) -> tuple[str, list]:
 @app.get("/api/scratchpad")
 async def list_scratchpad(q: str = "", tag: str = "", user=Depends(get_current_user)):
     uid = user["sub"]
+    access_clause, access_params = _note_access_clause(uid)
     with get_db() as conn:
         if tag:
             tag_norm = tag.strip().lower()
-            rows = conn.execute("""
+            rows = conn.execute(f"""
                 SELECT s.* FROM scratchpad_notes s
                 JOIN entity_tags et ON et.entity_id = s.id AND et.entity_type = 'note'
                 JOIN tags t ON t.id = et.tag_id
-                WHERE s.user_id = ? AND t.name = ?
+                WHERE ({access_clause.replace('user_id', 's.user_id').replace('list_id', 's.list_id')})
+                  AND t.name = ?
                 ORDER BY s.updated_at DESC
-            """, (uid, tag_norm)).fetchall()
+            """, access_params + [tag_norm]).fetchall()
         elif q:
-            rows = conn.execute("""
+            rows = conn.execute(f"""
                 SELECT s.* FROM scratchpad_notes s
-                WHERE s.user_id = ? AND (s.title LIKE ? OR s.content LIKE ?)
+                WHERE ({access_clause.replace('user_id', 's.user_id').replace('list_id', 's.list_id')})
+                  AND (s.title LIKE ? OR s.content LIKE ?)
                 ORDER BY s.updated_at DESC
-            """, (uid, f"%{q}%", f"%{q}%")).fetchall()
+            """, access_params + [f"%{q}%", f"%{q}%"]).fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM scratchpad_notes WHERE user_id = ? ORDER BY updated_at DESC",
-                (uid,)
-            ).fetchall()
-        return [_scratchpad_row(r, conn) for r in rows]
+            rows = conn.execute(f"""
+                SELECT s.* FROM scratchpad_notes s
+                WHERE {access_clause.replace('user_id', 's.user_id').replace('list_id', 's.list_id')}
+                ORDER BY s.updated_at DESC
+            """, access_params).fetchall()
+        return [_scratchpad_row(r, conn, uid) for r in rows]
 
 @app.get("/api/scratchpad/recent")
 async def recent_scratchpad(user=Depends(get_current_user)):
     uid = user["sub"]
+    access_clause, access_params = _note_access_clause(uid)
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM scratchpad_notes WHERE user_id = ? ORDER BY updated_at DESC LIMIT 5",
-            (uid,)
-        ).fetchall()
-        return [_scratchpad_row(r, conn) for r in rows]
+        rows = conn.execute(f"""
+            SELECT * FROM scratchpad_notes
+            WHERE {access_clause}
+            ORDER BY updated_at DESC LIMIT 5
+        """, access_params).fetchall()
+        return [_scratchpad_row(r, conn, uid) for r in rows]
 
 _NOTE_SELECT = "SELECT * FROM scratchpad_notes WHERE id = ?"
 
 @app.get("/api/scratchpad/titles")
 async def get_note_titles(user=Depends(get_current_user)):
-    """Return all note id+title pairs for autocomplete."""
+    """Return all accessible note id+title pairs for wikilink autocomplete."""
     uid = user["sub"]
+    access_clause, access_params = _note_access_clause(uid)
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT id, title FROM scratchpad_notes WHERE user_id = ? AND title != '' ORDER BY updated_at DESC",
-            (uid,)
-        ).fetchall()
+        rows = conn.execute(f"""
+            SELECT s.id, s.title, s.user_id, s.list_id,
+                   u.username AS owner_username, u.display_name AS owner_display_name
+            FROM scratchpad_notes s
+            LEFT JOIN users u ON u.id = s.user_id
+            WHERE {access_clause.replace('user_id', 's.user_id').replace('list_id', 's.list_id')}
+              AND s.title != ''
+            ORDER BY s.updated_at DESC
+        """, access_params).fetchall()
     return [dict(r) for r in rows]
 
 @app.post("/api/scratchpad")
