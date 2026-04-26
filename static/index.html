@@ -730,6 +730,11 @@
     .notes-left { width: 340px; min-width: 260px; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); padding-right: 0; }
     .notes-left-inner { flex: 1; overflow-y: auto; padding: 0 16px 16px 0; scrollbar-width: none; }
     .notes-left-inner::-webkit-scrollbar { display: none; }
+    .pinned-list-expanded { max-height: 160px; overflow-y: auto; scrollbar-width: none; }
+    .pinned-list-expanded::-webkit-scrollbar { display: none; }
+    .pinned-note-item { display: block; font-size: 13px; color: var(--text-secondary); cursor: pointer; padding: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.5; transition: color 0.1s; }
+    .pinned-note-item:hover { color: var(--text-primary); }
+    .pinned-note-item.active { color: var(--accent); font-weight: 700; }
     .notes-right { flex: 1; overflow-y: auto; padding: 0 0 16px 24px; min-width: 0; scrollbar-width: none; }
     .notes-right::-webkit-scrollbar { display: none; }
     .notes-panel-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-light); gap: 12px; }
@@ -6281,6 +6286,7 @@
       const [noteTitles, setNoteTitles]         = useState([]);
       const [tagsOpen, setTagsOpen]             = useState(true);
       const [sortBy, setSortBy]                 = useState("updated");
+      const [pinnedExpanded, setPinnedExpanded] = useState(false);
 
       useEffect(() => {
         api.get("/api/tags?entity_type=note").then(data => setTagList(data || [])).catch(() => {});
@@ -6550,6 +6556,35 @@
 
             {/* ── LEFT PANEL ── */}
             <div className="notes-left">
+              {/* Pinned notes */}
+              {(() => {
+                const pinned = allNotes.filter(n => n.pinned);
+                if (pinned.length === 0) return null;
+                const visible = pinnedExpanded ? pinned : pinned.slice(0, 3);
+                const hasMore = pinned.length > 3;
+                return (
+                  <div style={{ flexShrink: 0, paddingRight: 16, marginBottom: 10, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>📌 Disematkan</div>
+                    <div className={pinnedExpanded ? "pinned-list-expanded" : ""}>
+                      {visible.map(n => (
+                        <span key={n.id}
+                          className={`pinned-note-item${panelNote?.id === n.id ? " active" : ""}`}
+                          onClick={() => { setPanelNote(n); setNavTrail([n]); }}
+                          title={n.title || "(tanpa judul)"}>
+                          {n.title || n.content.slice(0, 50) || "(tanpa judul)"}
+                        </span>
+                      ))}
+                    </div>
+                    {hasMore && (
+                      <span onClick={() => setPinnedExpanded(e => !e)}
+                        style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", marginTop: 2, display: "inline-block" }}>
+                        {pinnedExpanded ? "Sembunyikan ▲" : `+${pinned.length - 3} lainnya ▼`}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Sort dropdown */}
               <div style={{ marginBottom: 8, flexShrink: 0, paddingRight: 16 }}>
                 <select value={sortBy} onChange={e => setSortBy(e.target.value)}
