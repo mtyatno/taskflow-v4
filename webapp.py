@@ -1778,7 +1778,7 @@ def _scratchpad_row(row, conn=None, uid=None) -> dict:
     except Exception: d["linked_to"] = []
 
     # Per-user pinning from note_pins table
-    if conn and uid and d.get("id"):
+    if conn and uid is not None and d.get("id"):
         pin_row = conn.execute(
             "SELECT 1 FROM note_pins WHERE user_id = ? AND note_id = ?", (uid, d["id"])
         ).fetchone()
