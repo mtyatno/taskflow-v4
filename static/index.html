@@ -5679,10 +5679,11 @@
         const match = before.match(/\[\[([^\]]*)$/);
         if (!match) { setWikiDropdown(null); return; }
         const query = match[1];
-        const queryLow = query.toLowerCase();
+        const queryTrimmed = query.trim();
+        const queryLow = queryTrimmed.toLowerCase();
         const items = noteTitles.filter(n => n.title.toLowerCase().includes(queryLow) && n.title !== title).slice(0, 6);
         const exactMatch = noteTitles.some(n => n.title.toLowerCase() === queryLow);
-        const canCreate = query.trim().length > 0 && !exactMatch;
+        const canCreate = queryTrimmed.length > 0 && !exactMatch;
         // Use fixed positioning relative to viewport so modal overflow-y doesn't clip
         const rect = el.getBoundingClientRect();
         const lh = parseFloat(getComputedStyle(el).lineHeight) || 22;
@@ -5707,26 +5708,24 @@
       const createNewNote = async (newTitle) => {
         setWikiDropdown(null);
         const body = { title: newTitle, content: "", tags: [], linked_task_ids: [], linked_task_id: null };
-        if (!navigator.onLine) {
-          const tempId = `tmp_note_${Date.now()}`;
-          const now = new Date().toISOString();
-          try {
-            await OfflineDB.queueAdd({ method: "POST", url: "/api/scratchpad", body, tempId });
-            const cached = await OfflineDB.cacheGet("scratchpad_notes") || [];
-            await OfflineDB.cacheSet("scratchpad_notes", [{ id: tempId, ...body, created_at: now, updated_at: now, _pending: true }, ...cached]);
-          } catch (_) {}
-          setNoteTitles(prev => [{ id: tempId, title: newTitle }, ...prev]);
-          window.dispatchEvent(new Event("noteSaved"));
-          insertWikilink(newTitle);
-          return;
-        }
         try {
           const created = await api.post("/api/scratchpad", body);
           setNoteTitles(prev => [{ id: created.id, title: created.title }, ...prev]);
-          window.dispatchEvent(new Event("noteSaved"));
+          window.dispatchEvent(new CustomEvent("noteSaved"));
           insertWikilink(newTitle);
-        } catch (_) {
-          insertWikilink(newTitle);
+        } catch (err) {
+          if (isOfflineErr(err)) {
+            const tempId = `tmp_note_${Date.now()}`;
+            const now = new Date().toISOString();
+            const cached = await OfflineDB.cacheGet("scratchpad_notes") || [];
+            await OfflineDB.cacheSet("scratchpad_notes", [{ id: tempId, ...body, created_at: now, updated_at: now, _pending: true }, ...cached]);
+            await OfflineDB.queueAdd({ method: "POST", url: "/api/scratchpad", body, tempId });
+            setNoteTitles(prev => [{ id: tempId, title: newTitle }, ...prev]);
+            window.dispatchEvent(new CustomEvent("noteSaved"));
+            insertWikilink(newTitle);
+          } else {
+            insertWikilink(newTitle);
+          }
         }
       };
 
@@ -5827,7 +5826,7 @@
                 )}
                 {!wikiDropdown.canCreate && wikiDropdown.items.length === 0 && (
                   <div className="wiki-autocomplete-item" style={{ color: "var(--text-light)", cursor: "default", fontStyle: "italic" }}>
-                    Belum ada catatan bertajuk
+                    {noteTitles.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan"}
                   </div>
                 )}
               </div>
