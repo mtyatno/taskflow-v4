@@ -271,6 +271,7 @@ class ScratchpadCreate(BaseModel):
     tags: list[str] = []
     linked_task_id: Optional[int] = None
     linked_task_ids: list[int] = []
+    list_id: Optional[int] = None
 
 class ScratchpadUpdate(BaseModel):
     title: str = ""
@@ -278,6 +279,7 @@ class ScratchpadUpdate(BaseModel):
     tags: list[str] = []
     linked_task_id: Optional[int] = None
     linked_task_ids: list[int] = []
+    list_id: Optional[int] = None
 
 class JoinListReq(BaseModel):
     code: str
@@ -1757,9 +1759,8 @@ async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_cu
 
 # ── Scratchpad Notes ──────────────────────────────────────────────────────────
 
-def _scratchpad_row(row, conn=None) -> dict:
+def _scratchpad_row(row, conn=None, uid=None) -> dict:
     d = dict(row)
-    # Read tags from entity_tags (not from old JSON column)
     if conn and d.get("id"):
         tag_rows = conn.execute("""
             SELECT t.name FROM tags t
@@ -1775,11 +1776,36 @@ def _scratchpad_row(row, conn=None) -> dict:
     except Exception: d["linked_task_ids"] = []
     try: d["linked_to"] = json.loads(d.get("linked_to") or "[]")
     except Exception: d["linked_to"] = []
-    d["pinned"] = bool(d.get("pinned", 0))
-    # Fallback: migrate single linked_task_id into the list if list is empty
+
+    # Per-user pinning from note_pins table
+    if conn and uid and d.get("id"):
+        pin_row = conn.execute(
+            "SELECT 1 FROM note_pins WHERE user_id = ? AND note_id = ?", (uid, d["id"])
+        ).fetchone()
+        d["pinned"] = bool(pin_row)
+    else:
+        d["pinned"] = bool(d.get("pinned", 0))
+
+    # Owner info
+    if conn and d.get("user_id"):
+        owner = conn.execute(
+            "SELECT username, display_name FROM users WHERE id = ?", (d["user_id"],)
+        ).fetchone()
+        if owner:
+            d["owner_username"] = owner["username"]
+            d["owner_display_name"] = owner["display_name"]
+
+    # Last editor info
+    if conn and d.get("last_edited_by") and d["last_edited_by"] != d.get("user_id"):
+        editor = conn.execute(
+            "SELECT username, display_name FROM users WHERE id = ?", (d["last_edited_by"],)
+        ).fetchone()
+        if editor:
+            d["last_editor_username"] = editor["username"]
+            d["last_editor_display_name"] = editor["display_name"]
+
     if not d["linked_task_ids"] and d.get("linked_task_id"):
         d["linked_task_ids"] = [d["linked_task_id"]]
-    # Fetch linked task details
     if conn and d["linked_task_ids"]:
         ids = d["linked_task_ids"]
         ph = ",".join("?" * len(ids))
@@ -1789,7 +1815,6 @@ def _scratchpad_row(row, conn=None) -> dict:
         d["linked_tasks"] = [dict(t) for t in tasks]
     else:
         d["linked_tasks"] = []
-    # Backward compat: keep linked_task_title for single-link
     if not d.get("linked_task_title") and d["linked_tasks"]:
         d["linked_task_title"] = d["linked_tasks"][0]["title"]
     return d
@@ -1800,16 +1825,27 @@ def _parse_wikilinks(content: str) -> list[str]:
     return list(dict.fromkeys(_re.findall(r"\[\[([^\[\]]+)\]\]", content)))
 
 def _resolve_linked_to(titles: list[str], user_id: int, conn) -> list[int]:
-    """Resolve note titles to IDs for the given user."""
+    """Resolve note titles to IDs — searches personal and shared notes accessible by user."""
     if not titles:
         return []
     placeholders = ",".join("?" * len(titles))
+    access_clause, access_params = _note_access_clause(user_id)
     rows = conn.execute(
-        f"SELECT id, title FROM scratchpad_notes WHERE user_id = ? AND title IN ({placeholders})",
-        [user_id] + titles,
+        f"SELECT id, title FROM scratchpad_notes WHERE {access_clause} AND title IN ({placeholders})",
+        access_params + titles,
     ).fetchall()
     title_map = {r["title"].strip().lower(): r["id"] for r in rows}
     return [title_map[t.strip().lower()] for t in titles if t.strip().lower() in title_map]
+
+def _note_access_clause(uid: int) -> tuple[str, list]:
+    """SQL WHERE fragment + params: notes owned by uid OR shared via list membership."""
+    clause = (
+        "(user_id = ? OR list_id IN ("
+        "  SELECT id FROM shared_lists WHERE owner_id = ?"
+        "  UNION SELECT list_id FROM list_members WHERE user_id = ?"
+        "))"
+    )
+    return clause, [uid, uid, uid]
 
 @app.get("/api/scratchpad")
 async def list_scratchpad(q: str = "", tag: str = "", user=Depends(get_current_user)):
