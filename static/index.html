@@ -6384,11 +6384,9 @@
       };
 
       const applyFilters = (query, tags, base) => {
-        const pinned = base.filter(n => n.pinned);
-        const unpinned = base.filter(n => !n.pinned);
         const { cleanQuery, syntaxTags } = parseQuery(query);
         const allActiveTags = [...new Set([...tags, ...syntaxTags])];
-        let result = unpinned;
+        let result = base;
         for (const tag of allActiveTags) {
           result = result.filter(n => (n.tags || []).map(t => t.toLowerCase()).includes(tag));
         }
@@ -6396,7 +6394,7 @@
           n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) ||
           n.content?.toLowerCase().includes(cleanQuery.toLowerCase())
         );
-        return [...pinned, ...result];
+        return result;
       };
 
       const handleSearch = (val) => {
