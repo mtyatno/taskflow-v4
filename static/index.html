@@ -18,6 +18,7 @@
   <script src="/static/vendor/react-dom.production.min.js"></script>
   <script src="/static/vendor/babel.min.js"></script>
   <script src="/static/vendor/chart.umd.min.js"></script>
+  <script src="/static/vendor/marked.min.js"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
   <style>
     :root {
@@ -806,7 +807,7 @@
     .note-rendered h1 { font-size: 20px; font-weight: 800; margin: 10px 0 6px; }
     .note-rendered h2 { font-size: 16px; font-weight: 700; margin: 8px 0 4px; }
     .note-rendered h3 { font-size: 14px; font-weight: 700; margin: 6px 0 3px; color: var(--text-secondary); }
-    .note-rendered ul { margin: 4px 0 4px 18px; padding: 0; }
+    .note-rendered ul, .note-rendered ol { margin: 4px 0 4px 18px; padding: 0; }
     .note-rendered li { margin-bottom: 3px; }
     .note-rendered .check-item { display: flex; align-items: flex-start; gap: 7px; margin-bottom: 4px; list-style: none; margin-left: 0; }
     .note-rendered .check-item input[type=checkbox] { margin-top: 3px; accent-color: var(--accent); cursor: default; flex-shrink: 0; }
@@ -5473,67 +5474,45 @@
 
     // ── Notes / Scratchpad ────────────────────────────────────────
 
-    function renderMarkdown(text, noteTitles = []) {
-      if (!text) return "";
-      const lines = text.split("\n");
-      let html = "";
-      let hIdx = 0;
-      let inUl = false;
-      const closeUl = () => { if (inUl) { html += "</ul>"; inUl = false; } };
-      const escape = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      const titleSet = new Set(noteTitles.map(t => t.toLowerCase()));
-      const inline = (s) => escape(s)
-        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-        .replace(/\*(.+?)\*/g, "<em>$1</em>")
-        .replace(/`(.+?)`/g, "<code style='background:var(--bg-primary);border-radius:3px;padding:1px 5px;font-size:0.9em'>$1</code>")
-        .replace(/\[\[([^\[\]]+)\]\]/g, (_, title) => {
-          const rawTitle = title.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
-          const exists = titleSet.has(rawTitle.toLowerCase());
-          return exists
-            ? `<span class="wikilink" data-wiki-title="${title}">${title}</span>`
-            : `<span class="wikilink-broken" title="Note tidak ditemukan">[[${title}]]</span>`;
-        });
-
-      for (let raw of lines) {
-        const line = raw;
-        // Checklist
-        if (/^- \[x\] /i.test(line)) {
-          closeUl();
-          html += `<div class="check-item done"><input type="checkbox" checked disabled/><span>${inline(line.replace(/^- \[x\] /i,""))}</span></div>`;
-        } else if (/^- \[ \] /.test(line)) {
-          closeUl();
-          html += `<div class="check-item"><input type="checkbox" disabled/><span>${inline(line.replace(/^- \[ \] /,""))}</span></div>`;
-        // Bullet
-        } else if (/^- /.test(line)) {
-          if (!inUl) { html += "<ul>"; inUl = true; }
-          html += `<li>${inline(line.replace(/^- /,""))}</li>`;
-        // H1-H6 with scroll IDs — ORDER IS LOAD-BEARING: longer patterns must precede shorter ones
-        } else if (/^###### /.test(line)) {
-          closeUl(); html += `<h6 id="note-h-${hIdx++}">${inline(line.replace(/^###### /,""))}</h6>`;
-        } else if (/^##### /.test(line)) {
-          closeUl(); html += `<h5 id="note-h-${hIdx++}">${inline(line.replace(/^##### /,""))}</h5>`;
-        } else if (/^#### /.test(line)) {
-          closeUl(); html += `<h4 id="note-h-${hIdx++}">${inline(line.replace(/^#### /,""))}</h4>`;
-        } else if (/^### /.test(line)) {
-          closeUl(); html += `<h3 id="note-h-${hIdx++}">${inline(line.replace(/^### /,""))}</h3>`;
-        } else if (/^## /.test(line)) {
-          closeUl(); html += `<h2 id="note-h-${hIdx++}">${inline(line.replace(/^## /,""))}</h2>`;
-        } else if (/^# /.test(line)) {
-          closeUl(); html += `<h1 id="note-h-${hIdx++}">${inline(line.replace(/^# /,""))}</h1>`;
-        // Blockquote
-        } else if (/^> /.test(line)) {
-          closeUl(); html += `<blockquote>${inline(line.replace(/^> /,""))}</blockquote>`;
-        // HR
-        } else if (/^---+$/.test(line.trim())) {
-          closeUl(); html += "<hr/>";
-        // Empty line
-        } else if (line.trim() === "") {
-          closeUl(); html += "<br/>";
-        } else {
-          closeUl(); html += `<p style="margin:2px 0">${inline(line)}</p>`;
+    let _markedHIdx = 0;
+    marked.use({
+      gfm: true,
+      renderer: {
+        heading({ tokens, depth }) {
+          const text = this.parser.parseInline(tokens);
+          return `<h${depth} id="note-h-${_markedHIdx++}">${text}</h${depth}>\n`;
+        },
+        listitem(item) {
+          if (item.task) {
+            const cls = item.checked ? "check-item done" : "check-item";
+            const chk = `<input type="checkbox" disabled${item.checked ? " checked" : ""}/>`;
+            const body = (item.text || "").replace(/^\[[ xX]\] /, "");
+            return `<div class="${cls}">${chk}<span>${body}</span></div>\n`;
+          }
+          return false;
         }
       }
-      closeUl();
+    });
+
+    function renderMarkdown(text, noteTitles = []) {
+      if (!text) return "";
+      _markedHIdx = 0;
+      const titleSet = new Set(noteTitles.map(t => t.toLowerCase()));
+      const wikiMap = {};
+      let wi = 0;
+      const processed = text.replace(/\[\[([^\[\]]+)\]\]/g, (_, title) => {
+        const key = `WKLN${wi++}WKLNEND`;
+        const exists = titleSet.has(title.toLowerCase());
+        const esc = title.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        wikiMap[key] = exists
+          ? `<span class="wikilink" data-wiki-title="${esc}">${esc}</span>`
+          : `<span class="wikilink-broken" title="Note tidak ditemukan">[[${esc}]]</span>`;
+        return key;
+      });
+      let html = marked.parse(processed);
+      for (const [k, v] of Object.entries(wikiMap)) {
+        html = html.split(k).join(v);
+      }
       return html;
     }
 

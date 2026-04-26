@@ -1,10 +1,11 @@
-const CACHE = "taskflow-v5-final-fix";
+const CACHE = "taskflow-v5-marked";
 const STATIC = [
   // "/" sengaja tidak di-cache — selalu fetch dari network agar update langsung terlihat
   "/static/vendor/react.production.min.js",
   "/static/vendor/react-dom.production.min.js",
   "/static/vendor/babel.min.js",
   "/static/vendor/chart.umd.min.js",
+  "/static/vendor/marked.min.js",
   "/static/vendor/tailwind.min.css",
   "/manifest.json",
   "/static/icon-192.png",
