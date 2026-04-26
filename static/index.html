@@ -747,6 +747,9 @@
       .notes-left { width: 100%; border-right: none; overflow: visible; }
       .notes-left-inner { overflow: visible; padding: 0; }
       .notes-right { display: none; }
+      .notes-layout.note-open .notes-left { display: none; }
+      .notes-layout.note-open .notes-right { display: block; overflow-y: auto; padding: 0 0 24px 0; height: calc(100vh - 120px); }
+      .note-toc-sticky { display: none; }
     }
     .note-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 8px; cursor: pointer; transition: box-shadow 0.15s, border-color 0.15s; }
     .note-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); border-color: var(--accent); }
@@ -6222,7 +6225,7 @@
           )}
         </div>
         {tocItems.length >= 2 && (
-          <div style={{ position: "sticky", top: 0, alignSelf: "flex-start" }}>
+          <div className="note-toc-sticky" style={{ position: "sticky", top: 0, alignSelf: "flex-start" }}>
             <NoteToc items={tocItems} />
           </div>
         )}
@@ -6511,7 +6514,7 @@
             </div>
           )}
 
-          <div className="notes-layout">
+          <div className={`notes-layout${panelNote ? " note-open" : ""}`}>
 
             {/* ── LEFT PANEL ── */}
             <div className="notes-left">
