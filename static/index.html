@@ -6643,6 +6643,18 @@
         return () => window.removeEventListener("noteSaved", handler);
       }, [q, activeTags]);
 
+      useEffect(() => {
+        const handler = async () => {
+          if (!panelNote?.id) return;
+          try {
+            const updated = await api.get(`/api/scratchpad/${panelNote.id}`);
+            setPanelNote(updated);
+          } catch {}
+        };
+        window.addEventListener("taskUpdated", handler);
+        return () => window.removeEventListener("taskUpdated", handler);
+      }, [panelNote?.id]);
+
       // Open a specific note by ID (from wikilink / backlink click)
       useEffect(() => {
         const handler = async (e) => {
@@ -8120,6 +8132,7 @@
           await api.post(`/api/tasks/${taskId}/done`);
           showToast("Task selesai! ✅");
           fetchAll();
+          window.dispatchEvent(new CustomEvent("taskUpdated", { detail: { taskId } }));
           setSelectedTask(null);
         } catch (err) {
           if (isOfflineErr(err)) {
