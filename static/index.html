@@ -5666,7 +5666,7 @@
       );
     }
 
-    function NoteModal({ note, tasks, onClose, onSave, onDelete, onTaskClick, showToast, sharedLists = [], currentUserId }) {
+    function NoteModal({ note, tasks, onClose, onSave, onDelete, onTaskClick, showToast, sharedLists = [], currentUserId, noteTitles: noteTitlesProp = [] }) {
       const [title, setTitle]         = useState(note?.title || "");
       const [content, setContent]     = useState(note?.content || "");
       const [tags, setTags]           = useState(note?.tags || []);
@@ -5713,7 +5713,7 @@
 
       // Wikilink autocomplete
       const [wikiDropdown, setWikiDropdown] = useState(null); // { top, left, query, items, activeIdx }
-      const [noteTitles, setNoteTitles]     = useState([]);
+      const [noteTitles, setNoteTitles]     = useState(noteTitlesProp);
       const [backlinks, setBacklinks]       = useState([]);
       const wikiDropdownRef = useRef(null);
       const tocItems = React.useMemo(() => extractHeadings(content), [content]);
@@ -5770,7 +5770,9 @@
       }, [note?.id, note?.list_id]);
 
       useEffect(() => {
-        api.get("/api/scratchpad/titles").then(setNoteTitles).catch(() => {});
+        if (noteTitlesProp.length === 0) {
+          api.get("/api/scratchpad/titles").then(setNoteTitles).catch(() => {});
+        }
         if (note?.id) {
           api.get(`/api/scratchpad/${note.id}/backlinks`).then(setBacklinks).catch(() => {});
         }
@@ -6998,6 +7000,7 @@
               showToast={showToast}
               sharedLists={sharedLists}
               currentUserId={user?.id}
+              noteTitles={noteTitles}
             />
           )}
         </div>
