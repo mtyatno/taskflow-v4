@@ -5679,6 +5679,8 @@
       const [taskSearch, setTaskSearch]       = useState("");
       const [showTaskSearch, setShowTaskSearch] = useState(false);
       const [saving, setSaving]       = useState(false);
+      const isDirtyRef                = useRef(false);
+      const autosaveTimerRef          = useRef(null);
       const [expanded, setExpanded]   = useState(false);
       const [focus, setFocus]         = useState(false);
       const [preview, setPreview]     = useState(false);
@@ -5712,6 +5714,27 @@
       const tocItems = React.useMemo(() => extractHeadings(content), [content]);
       const [tagDropdown, setTagDropdown] = useState(null);
       const [existingTags, setExistingTags] = useState([]);
+
+      // Autosave: debounced 2.5s setelah perubahan, hanya untuk note yang sudah ada
+      useEffect(() => {
+        if (!note?.id) return;
+        isDirtyRef.current = true;
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = setTimeout(async () => {
+          if (!navigator.onLine) return;
+          try {
+            await api.put(`/api/scratchpad/${note.id}`, {
+              title, content, tags,
+              linked_task_ids: linkedTaskIds,
+              linked_task_id: linkedTaskIds[0] || null,
+            });
+            isDirtyRef.current = false;
+          } catch (e) {
+            if (!isOfflineErr(e)) console.warn("Autosave failed:", e.message);
+          }
+        }, 2500);
+        return () => clearTimeout(autosaveTimerRef.current);
+      }, [title, content, tags, linkedTaskIds]);
 
       useEffect(() => {
         api.get("/api/scratchpad/titles").then(setNoteTitles).catch(() => {});
@@ -5898,7 +5921,9 @@
 
       const saveOnly = async () => {
         setSaving(true);
+        clearTimeout(autosaveTimerRef.current);
         await onSave({ title, content, tags, linked_task_ids: linkedTaskIds, linked_task_id: linkedTaskIds[0] || null });
+        isDirtyRef.current = false;
         setSaving(false);
       };
 
