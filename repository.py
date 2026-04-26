@@ -290,6 +290,26 @@ class TaskRepository:
                     WHERE linked_task_id IS NOT NULL AND linked_task_id != ''
                 """)
 
+            if "list_id" not in sp_cols:
+                conn.execute("ALTER TABLE scratchpad_notes ADD COLUMN list_id INTEGER DEFAULT NULL REFERENCES shared_lists(id) ON DELETE SET NULL")
+            if "last_edited_by" not in sp_cols:
+                conn.execute("ALTER TABLE scratchpad_notes ADD COLUMN last_edited_by INTEGER DEFAULT NULL REFERENCES users(id) ON DELETE SET NULL")
+                conn.execute("UPDATE scratchpad_notes SET last_edited_by = user_id WHERE last_edited_by IS NULL")
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS note_pins (
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    note_id INTEGER NOT NULL REFERENCES scratchpad_notes(id) ON DELETE CASCADE,
+                    PRIMARY KEY (user_id, note_id)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_note_pins_user ON note_pins(user_id)")
+            if "pinned" in sp_cols:
+                conn.execute("""
+                    INSERT OR IGNORE INTO note_pins (user_id, note_id)
+                    SELECT user_id, id FROM scratchpad_notes WHERE pinned = 1
+                """)
+
             # Universal tag system
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS tags (
