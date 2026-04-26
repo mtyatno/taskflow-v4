@@ -5665,7 +5665,7 @@
       );
     }
 
-    function NoteModal({ note, tasks, onClose, onSave, onDelete, onTaskClick, showToast }) {
+    function NoteModal({ note, tasks, onClose, onSave, onDelete, onTaskClick, showToast, sharedLists = [], currentUserId }) {
       const [title, setTitle]         = useState(note?.title || "");
       const [content, setContent]     = useState(note?.content || "");
       const [tags, setTags]           = useState(note?.tags || []);
@@ -5683,6 +5683,26 @@
       const [focus, setFocus]         = useState(false);
       const [preview, setPreview]     = useState(false);
       const textareaRef               = useRef(null);
+
+      // Share dropdown
+      const [shareOpen, setShareOpen] = useState(false);
+      const shareRef = useRef(null);
+      useEffect(() => {
+        if (!shareOpen) return;
+        const close = (e) => { if (shareRef.current && !shareRef.current.contains(e.target)) setShareOpen(false); };
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
+      }, [shareOpen]);
+      const [noteListId, setNoteListId] = useState(note?.list_id ?? null);
+      const handleModalShare = async (listId) => {
+        setShareOpen(false);
+        if (!note?.id) return;
+        try {
+          const updated = await api.patch(`/api/scratchpad/${note.id}/share`, { list_id: listId });
+          setNoteListId(updated.list_id ?? null);
+          window.dispatchEvent(new CustomEvent("noteSaved"));
+        } catch (e) { /* silent */ }
+      };
 
       // Wikilink autocomplete
       const [wikiDropdown, setWikiDropdown] = useState(null); // { top, left, query, items, activeIdx }
@@ -6086,6 +6106,38 @@
                 style={{ ...btnStyle, color: "var(--text-secondary)" }}>
                 {expanded ? "⊡ Compact" : "⤢ Expand"}
               </button>
+            )}
+            {note?.id && note.user_id === currentUserId && sharedLists.length > 0 && (
+              <div ref={shareRef} style={{ position: "relative", flexShrink: 0 }}>
+                <button onClick={() => setShareOpen(o => !o)}
+                  title={noteListId ? "Atur berbagi" : "Bagikan ke list"}
+                  style={{ background: noteListId ? "rgba(168,197,0,0.12)" : "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: noteListId ? "var(--accent)" : "var(--text-light)", cursor: "pointer", padding: "4px 8px" }}>
+                  👥
+                </button>
+                {shareOpen && (
+                  <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 300, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", minWidth: 180, padding: "4px 0" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, padding: "6px 14px 4px" }}>Bagikan ke List</div>
+                    {sharedLists.map(l => (
+                      <div key={l.id}
+                        onMouseDown={e => { e.preventDefault(); handleModalShare(l.id); }}
+                        style={{ padding: "7px 14px", fontSize: 13, cursor: "pointer", color: noteListId === l.id ? "var(--accent)" : "var(--text-primary)", fontWeight: noteListId === l.id ? 700 : 400 }}
+                        onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        {noteListId === l.id ? "✓ " : ""}{l.name}
+                      </div>
+                    ))}
+                    {noteListId && (
+                      <div
+                        onMouseDown={e => { e.preventDefault(); handleModalShare(null); }}
+                        style={{ padding: "7px 14px", fontSize: 13, cursor: "pointer", color: "#ef4444", borderTop: "1px solid var(--border)" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        Batal berbagi
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
             <button onClick={async () => { if (note?.id) { try { await saveOnly(); } catch {} } onClose(); }} style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
           </div>
