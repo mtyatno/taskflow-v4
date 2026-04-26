@@ -4970,6 +4970,7 @@
     }
 
     function renderMessageContent(content, currentUsername) {
+      if (!content) return null;
       const parts = content.split(/(@\w+)/g);
       return parts.map((part, i) => {
         if (/^@\w+$/.test(part)) {
@@ -5168,7 +5169,7 @@
           <ChatInputBar
             list={list}
             user={user}
-            onSent={(msg) => { setMessages(prev => [...prev, msg]); setTimeout(scrollToBottom, 30); }}
+            onSent={(msg) => { setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]); setTimeout(scrollToBottom, 30); }}
             showToast={showToast}
             onTaskClick={onTaskClick}
             replyTo={replyTo}
