@@ -5676,8 +5676,10 @@
         return [];
       };
       const [linkedTaskIds, setLinkedTaskIds] = useState(initTaskIds);
+      const [localNewTasks, setLocalNewTasks] = useState([]);
       const [taskSearch, setTaskSearch]       = useState("");
       const [showTaskSearch, setShowTaskSearch] = useState(false);
+      const [creatingTask, setCreatingTask]   = useState(false);
       const [saving, setSaving]       = useState(false);
       const isDirtyRef                = useRef(false);
       const autosaveTimerRef          = useRef(null);
@@ -5943,8 +5945,9 @@
         } else { setPreview(false); }
       };
 
-      const linkedTasks   = tasks.filter(t => linkedTaskIds.includes(t.id));
-      const filteredTasks = tasks.filter(t =>
+      const allKnownTasks = [...tasks, ...localNewTasks.filter(t => !tasks.find(x => x.id === t.id))];
+      const linkedTasks   = allKnownTasks.filter(t => linkedTaskIds.includes(t.id));
+      const filteredTasks = allKnownTasks.filter(t =>
         t.gtd_status !== "done" && t.gtd_status !== "archived" &&
         t.title.toLowerCase().includes(taskSearch.toLowerCase())
       ).slice(0, 8);
@@ -5958,6 +5961,22 @@
       };
 
       const handleSave = async () => { await saveOnly(); onClose(); };
+
+      const createAndLinkTask = async () => {
+        const newTitle = taskSearch.trim() || "Task baru";
+        setCreatingTask(true);
+        try {
+          const created = await api.post("/api/tasks", { title: newTitle });
+          setLocalNewTasks(prev => [...prev, created]);
+          setLinkedTaskIds(ids => [...ids, created.id]);
+          setShowTaskSearch(false);
+          setTaskSearch("");
+        } catch (e) {
+          // silent — user can retry
+        } finally {
+          setCreatingTask(false);
+        }
+      };
 
       // ── Shared inner content ──────────────────────────────────────
       const inner = (
@@ -6130,8 +6149,20 @@
                       {t.title}
                     </div>
                   ))}
-                  {filteredTasks.filter(t => !linkedTaskIds.includes(t.id)).length === 0 && (
+                  {filteredTasks.filter(t => !linkedTaskIds.includes(t.id)).length === 0 && !taskSearch.trim() && (
                     <div style={{ fontSize: 12, color: "var(--text-light)", padding: "6px 10px" }}>Tidak ada task ditemukan</div>
+                  )}
+                  {taskSearch.trim() && (
+                    <div
+                      onClick={creatingTask ? undefined : createAndLinkTask}
+                      style={{ padding: "8px 10px", borderRadius: 8, cursor: creatingTask ? "default" : "pointer", fontSize: 13,
+                        background: "var(--bg-primary)", marginTop: 4, display: "flex", alignItems: "center", gap: 8,
+                        opacity: creatingTask ? 0.6 : 1, borderTop: "1px solid var(--border)" }}
+                      onMouseEnter={e => { if (!creatingTask) e.currentTarget.style.opacity = "0.75"; }}
+                      onMouseLeave={e => e.currentTarget.style.opacity = creatingTask ? "0.6" : "1"}>
+                      <span style={{ fontSize: 15 }}>＋</span>
+                      <span>{creatingTask ? "Membuat..." : `Buat task baru: "${taskSearch.trim()}"`}</span>
+                    </div>
                   )}
                 </div>
               )}
