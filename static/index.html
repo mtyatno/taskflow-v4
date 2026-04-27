@@ -2070,6 +2070,248 @@
     const slugifyGoal = (name) =>
       name.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "");
 
+    function GoalTab({ onSave, onClose }) {
+      const [step, setStep] = React.useState("category");
+      const [selectedCategory, setSelectedCategory] = React.useState(null);
+      const [selectedTemplate, setSelectedTemplate] = React.useState(null);
+      const [goalName, setGoalName] = React.useState("");
+      const [checkedHabits, setCheckedHabits] = React.useState([]);
+      const [checkedTasks, setCheckedTasks] = React.useState([]);
+      const [loading, setLoading] = React.useState(false);
+
+      const selectCategory = (cat) => {
+        setSelectedCategory(cat);
+        setStep("template");
+      };
+
+      const selectTemplate = (tpl) => {
+        setSelectedTemplate(tpl);
+        setCheckedHabits(tpl.habits.map((_, i) => i));
+        setCheckedTasks(tpl.tasks.map((_, i) => i));
+        setGoalName("");
+        setStep("confirm");
+      };
+
+      const toggleHabit = (i) => setCheckedHabits(prev =>
+        prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]
+      );
+      const toggleTask = (i) => setCheckedTasks(prev =>
+        prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]
+      );
+
+      const freqLabel = (freq) => {
+        if (freq.length === 7) return "setiap hari";
+        const map = { mon:"Sen", tue:"Sel", wed:"Rab", thu:"Kam", fri:"Jum", sat:"Sab", sun:"Min" };
+        return freq.map(d => map[d] || d).join(", ");
+      };
+
+      const handleCreate = async () => {
+        if (!goalName.trim()) { alert("Nama goal wajib diisi"); return; }
+        const slug = slugifyGoal(goalName);
+        setLoading(true);
+        try {
+          for (const i of checkedHabits) {
+            const h = selectedTemplate.habits[i];
+            const title = h.title.replace("{slug}", slug);
+            await api.post("/api/habits", {
+              title,
+              phase: "pagi",
+              micro_target: "",
+              frequency: h.frequency,
+              identity_pillar: "",
+            });
+          }
+          for (const i of checkedTasks) {
+            const t = selectedTemplate.tasks[i];
+            const title = t.title.replace("{slug}", slug);
+            await api.post("/api/tasks", {
+              title,
+              gtd_status: t.gtd_status,
+              priority: "P3",
+              description: "",
+              project: "",
+              context: "",
+              deadline: "",
+              waiting_for: "",
+              list_id: null,
+              assigned_to: null,
+              progress: 0,
+            });
+          }
+          window.dispatchEvent(new CustomEvent("habitSaved"));
+          window.dispatchEvent(new CustomEvent("taskSaved"));
+          onSave();
+        } catch (err) {
+          alert("Gagal membuat goal: " + err.message);
+        }
+        setLoading(false);
+      };
+
+      if (step === "category") {
+        return (
+          <div>
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 14 }}>
+              Pilih kategori goalmu:
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {GOAL_TEMPLATES.map(cat => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => selectCategory(cat)}
+                  style={{
+                    padding: "14px 10px",
+                    borderRadius: 10,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-primary)",
+                    cursor: "pointer",
+                    textAlign: "center",
+                    transition: "all 0.15s",
+                  }}
+                  onMouseOver={e => e.currentTarget.style.borderColor = "var(--accent)"}
+                  onMouseOut={e => e.currentTarget.style.borderColor = "var(--border)"}
+                >
+                  <div style={{ fontSize: 24, marginBottom: 4 }}>{cat.icon}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{cat.label}</div>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+              <button type="button" className="btn" onClick={onClose}>Batal</button>
+            </div>
+          </div>
+        );
+      }
+
+      if (step === "template") {
+        return (
+          <div>
+            <button
+              type="button"
+              onClick={() => setStep("category")}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent)", fontWeight: 600, fontSize: 13, padding: "0 0 12px 0", display: "flex", alignItems: "center", gap: 4 }}
+            >
+              ← {selectedCategory.label}
+            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {selectedCategory.templates.map(tpl => (
+                <button
+                  key={tpl.id}
+                  type="button"
+                  onClick={() => selectTemplate(tpl)}
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: 10,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-primary)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    transition: "all 0.15s",
+                  }}
+                  onMouseOver={e => e.currentTarget.style.borderColor = "var(--accent)"}
+                  onMouseOut={e => e.currentTarget.style.borderColor = "var(--border)"}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", marginBottom: 3 }}>{tpl.label}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 5 }}>{tpl.desc}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-light)" }}>
+                    {tpl.habits.length} habit · {tpl.tasks.length} task
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+              <button type="button" className="btn" onClick={onClose}>Batal</button>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div>
+          <button
+            type="button"
+            onClick={() => setStep("template")}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent)", fontWeight: 600, fontSize: 13, padding: "0 0 12px 0", display: "flex", alignItems: "center", gap: 4 }}
+          >
+            ← {selectedTemplate.label}
+          </button>
+
+          <label className="input-label">Nama Goal *</label>
+          <input
+            className="input"
+            value={goalName}
+            onChange={e => setGoalName(e.target.value)}
+            placeholder="contoh: Hidup Sehat 2026"
+            style={{ marginBottom: 16 }}
+            autoFocus
+          />
+
+          {selectedTemplate.habits.length > 0 && (
+            <>
+              <label className="input-label">Habits yang akan dibuat</label>
+              <div style={{ marginBottom: 14 }}>
+                {selectedTemplate.habits.map((h, i) => (
+                  <label key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", cursor: "pointer", fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={checkedHabits.includes(i)}
+                      onChange={() => toggleHabit(i)}
+                      style={{ accentColor: "var(--accent)" }}
+                    />
+                    <span style={{ color: "var(--text-primary)" }}>
+                      {h.title.replace(" #goal-{slug}", "")}
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text-light)", marginLeft: "auto" }}>
+                      {freqLabel(h.frequency)}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+
+          {selectedTemplate.tasks.length > 0 && (
+            <>
+              <label className="input-label">Tasks yang akan dibuat</label>
+              <div style={{ marginBottom: 16 }}>
+                {selectedTemplate.tasks.map((t, i) => (
+                  <label key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", cursor: "pointer", fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={checkedTasks.includes(i)}
+                      onChange={() => toggleTask(i)}
+                      style={{ accentColor: "var(--accent)" }}
+                    />
+                    <span style={{ color: "var(--text-primary)" }}>
+                      {t.title.replace(" #goal-{slug}", "")}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+
+          {goalName.trim() && (
+            <div style={{ fontSize: 11, color: "var(--text-light)", marginBottom: 14 }}>
+              Tag otomatis: <code style={{ background: "var(--bg-primary)", padding: "1px 5px", borderRadius: 4 }}>#goal-{slugifyGoal(goalName)}</code>
+            </div>
+          )}
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <button type="button" className="btn" onClick={onClose}>Batal</button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleCreate}
+              disabled={loading || !goalName.trim() || (checkedHabits.length + checkedTasks.length === 0)}
+            >
+              {loading ? "Membuat..." : "Buat Goal"}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     function TaskFormModal({ task, onSave, onOfflineSave, onClose, projects, contexts, sharedLists, collaborators = [] }) {
       const isEdit = !!task?.id;
       const [form, setForm] = useState({
