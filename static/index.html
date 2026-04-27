@@ -743,7 +743,7 @@
     .notes-panel-header { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; flex-shrink: 0; flex-wrap: wrap; }
     .notes-panel-title { font-size: 18px; font-weight: 700; color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     @media (max-width: 640px) {
-      .notes-panel-header > div:first-child { width: 100%; flex: none; }
+      .notes-panel-header > div:first-child { width: 100% !important; flex: 0 0 100% !important; }
     }
     .notes-nav-trail { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 11px; color: var(--text-light); margin-bottom: 12px; }
     .notes-nav-crumb { cursor: pointer; color: var(--accent); }
