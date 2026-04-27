@@ -11,6 +11,7 @@ load_dotenv(ENV_PATH)
 
 # Telegram Bot
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")
 ALLOWED_USER_IDS = [
     int(uid.strip())
     for uid in os.getenv("ALLOWED_USER_IDS", "").split(",")

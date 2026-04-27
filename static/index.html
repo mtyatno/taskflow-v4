@@ -5394,6 +5394,10 @@
       const [pwForm, setPwForm] = useState({ old_password: "", new_password: "", confirm: "" });
       const [emForm, setEmForm] = useState({ email: user?.email || "" });
       const [loading, setLoading] = useState({ username: false, password: false, email: false });
+      const [tgLinked, setTgLinked] = useState(user?.telegram_linked ?? false);
+      const [tgToken, setTgToken] = useState(null);
+      const [tgBotUsername, setTgBotUsername] = useState("");
+      const [tgLoading, setTgLoading] = useState(false);
 
       const setL = (k, v) => setLoading(l => ({ ...l, [k]: v }));
 
@@ -5433,6 +5437,19 @@
         setL("email", false);
       };
 
+      const handleGenerateTgToken = async () => {
+        setTgLoading(true);
+        try {
+          const data = await api.post("/api/auth/telegram-link-token", {});
+          setTgToken(data.token);
+          setTgBotUsername(data.bot_username || "");
+        } catch(err) {
+          if (err.message?.includes("sudah terhubung")) { setTgLinked(true); }
+          showToast(err.message, "error");
+        }
+        setTgLoading(false);
+      };
+
       const Field = ({ label, type = "text", value, onChange, placeholder }) => (
         <div style={{ marginBottom: 16 }}>
           <label className="input-label">{label}</label>
@@ -5469,7 +5486,7 @@
             </form>
           </div>
 
-          <div className="card">
+          <div className="card" style={{ marginBottom: 20 }}>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Email</div>
             <form onSubmit={handleEmail}>
               <Field label="Alamat Email" type="email" value={emForm.email} onChange={v => setEmForm({ email: v })} placeholder="contoh@email.com" />
@@ -5477,6 +5494,40 @@
                 {loading.email ? "Menyimpan..." : "Simpan Email"}
               </button>
             </form>
+          </div>
+
+          <div className="card">
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Telegram</div>
+            {tgLinked ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+                <span style={{ fontSize: 22 }}>✅</span>
+                <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>Akun sudah terhubung ke Telegram</span>
+              </div>
+            ) : (
+              <div>
+                <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 14 }}>
+                  Hubungkan akun ke Telegram agar bisa pakai bot untuk mengelola task.
+                </div>
+                {!tgToken ? (
+                  <button className="btn btn-primary" onClick={handleGenerateTgToken} disabled={tgLoading}>
+                    {tgLoading ? "Membuat kode..." : "🔗 Generate Kode"}
+                  </button>
+                ) : (
+                  <div>
+                    <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 10 }}>
+                      Buka bot Telegram{tgBotUsername ? <> <b>@{tgBotUsername}</b></> : ""}, lalu kirim pesan berikut:
+                    </div>
+                    <div style={{ background: "var(--bg-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", fontFamily: "monospace", fontSize: 16, letterSpacing: 2, color: "var(--accent)", marginBottom: 10, userSelect: "all" }}>
+                      /link {tgToken}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-light)" }}>Kode berlaku 10 menit. Setelah terkirim ke bot, refresh halaman ini.</div>
+                    <button className="btn" style={{ marginTop: 10, fontSize: 12 }} onClick={handleGenerateTgToken} disabled={tgLoading}>
+                      🔄 Generate ulang
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       );

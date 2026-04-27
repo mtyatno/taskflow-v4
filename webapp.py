@@ -36,7 +36,7 @@ from pydantic import BaseModel, Field
 import jwt
 import uvicorn
 
-from config import DB_PATH, EISENHOWER_INTERVAL_MINUTES, UPLOAD_DIR, MAX_FILE_SIZE
+from config import DB_PATH, EISENHOWER_INTERVAL_MINUTES, UPLOAD_DIR, MAX_FILE_SIZE, TELEGRAM_BOT_USERNAME
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 _tg_bot = None  # Initialized at startup if token available
@@ -122,6 +122,21 @@ def migrate_db():
     """Ensure all tables exist via repository init."""
     from repository import TaskRepository
     TaskRepository(DB_PATH)
+
+    # Ensure telegram_link_tokens table exists
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS telegram_link_tokens (
+                token     TEXT PRIMARY KEY,
+                user_id   INTEGER NOT NULL,
+                expires_at TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
 
     # Migrate scratchpad_notes.pinned column
     conn = sqlite3.connect(DB_PATH)
@@ -438,10 +453,28 @@ async def login(req: LoginReq, response: Response):
 @app.get("/api/auth/me")
 async def get_me(user=Depends(get_current_user)):
     with get_db() as conn:
-        row = conn.execute("SELECT id, username, display_name, created_at FROM users WHERE id = ?", (user["sub"],)).fetchone()
+        row = conn.execute("SELECT id, username, display_name, created_at, telegram_id FROM users WHERE id = ?", (user["sub"],)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
-    return dict(row)
+    result = dict(row)
+    result["telegram_linked"] = bool(result.pop("telegram_id"))
+    return result
+
+
+@app.post("/api/auth/telegram-link-token")
+async def generate_telegram_link_token(user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute("SELECT telegram_id FROM users WHERE id = ?", (uid,)).fetchone()
+        if row and row["telegram_id"]:
+            raise HTTPException(status_code=400, detail="Akun sudah terhubung ke Telegram")
+        token = secrets.token_hex(3).upper()
+        expires_at = (datetime.now(_TZ_JKT) + timedelta(minutes=10)).isoformat()
+        conn.execute("DELETE FROM telegram_link_tokens WHERE user_id = ?", (uid,))
+        conn.execute("INSERT INTO telegram_link_tokens (token, user_id, expires_at) VALUES (?,?,?)",
+                     (token, uid, expires_at))
+        conn.commit()
+    return {"token": token, "expires_in_minutes": 10, "bot_username": TELEGRAM_BOT_USERNAME}
 
 
 @app.post("/api/auth/logout")

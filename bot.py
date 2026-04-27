@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, date, time as dtime
 from pathlib import Path
@@ -296,9 +297,59 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         return
 
+    tg_id = update.effective_user.id
+
+    # Token-based link (dari settings webapp)
+    if len(context.args) == 1 and re.match(r'^[0-9A-F]{6}$', context.args[0].upper()):
+        import sqlite3 as _sq
+        token = context.args[0].upper()
+        db_path = repo._db_path
+        conn = _sq.connect(db_path)
+        conn.row_factory = _sq.Row
+        try:
+            row = conn.execute(
+                "SELECT user_id, expires_at FROM telegram_link_tokens WHERE token = ?", (token,)
+            ).fetchone()
+            if not row:
+                await update.message.reply_text("❌ Kode tidak valid. Generate kode baru dari Settings webapp.")
+                return
+            from datetime import datetime as _dt
+            if _dt.fromisoformat(row["expires_at"]) < _dt.now():
+                await update.message.reply_text("❌ Kode sudah expired. Generate kode baru dari Settings webapp.")
+                conn.execute("DELETE FROM telegram_link_tokens WHERE token = ?", (token,))
+                conn.commit()
+                return
+            user_row = conn.execute("SELECT username, telegram_id FROM users WHERE id = ?", (row["user_id"],)).fetchone()
+            if not user_row:
+                await update.message.reply_text("❌ Akun tidak ditemukan.")
+                return
+            if user_row["telegram_id"] and user_row["telegram_id"] != tg_id:
+                await update.message.reply_text("❌ Akun ini sudah terhubung ke Telegram lain.")
+                return
+            conn.execute("UPDATE users SET telegram_id = ? WHERE id = ?", (tg_id, row["user_id"]))
+            conn.execute("DELETE FROM telegram_link_tokens WHERE token = ?", (token,))
+            conn.commit()
+            context.user_data["db_user_id"] = row["user_id"]
+            await update.message.reply_text(
+                f"✅ Berhasil! Telegram terhubung ke akun <b>{user_row['username']}</b>. 🎉\n"
+                "Task dari Telegram dan Web sekarang sync!",
+                parse_mode=ParseMode.HTML,
+            )
+        finally:
+            conn.close()
+        return
+
+    # Username + password link (cara lama)
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Gunakan kode dari Settings webapp, atau:\n"
+            "<code>/link username_web password_web</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
     username = context.args[0]
     password = context.args[1]
-    tg_id = update.effective_user.id
 
     try:
         linked_user_id = repo.link_telegram_to_web_user(tg_id, username, password)
