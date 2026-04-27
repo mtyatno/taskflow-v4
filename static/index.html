@@ -740,10 +740,13 @@
     .notes-right { flex: 1; overflow-y: auto; padding: 0 0 16px 24px; min-width: 0; scrollbar-width: none; }
     .notes-right::-webkit-scrollbar { display: none; }
     .notes-panel-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-light); gap: 12px; }
-    .notes-panel-header { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; flex-shrink: 0; flex-wrap: wrap; }
-    .notes-panel-title { font-size: 18px; font-weight: 700; color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .notes-panel-header { display: flex; align-items: flex-start; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; flex-shrink: 0; flex-wrap: wrap; }
+    .notes-panel-meta { flex: 1; min-width: 0; }
+    .notes-panel-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .notes-panel-title { font-size: 18px; font-weight: 700; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     @media (max-width: 640px) {
-      .notes-panel-header > div:first-child { width: 100% !important; flex: 0 0 100% !important; }
+      .notes-panel-meta { width: 100%; }
+      .notes-panel-actions { width: 100%; }
     }
     .notes-nav-trail { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 11px; color: var(--text-light); margin-bottom: 12px; }
     .notes-nav-crumb { cursor: pointer; color: var(--accent); }
@@ -6391,7 +6394,7 @@
 
           {/* Header */}
           <div className="notes-panel-header">
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="notes-panel-meta">
               <div className="notes-panel-title" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                 {note.list_id && <span className="note-shared-badge">👥 Bersama</span>}
                 {note.title || "(tanpa judul)"}
@@ -6405,59 +6408,61 @@
                 <div style={{ fontSize: 11, color: "var(--text-light)", marginTop: 2 }}>{fmtDate(note.updated_at)}</div>
               )}
             </div>
-            {/* Share button — only for owner */}
-            {note.user_id === currentUserId && sharedLists.length > 0 && (
-              <div ref={shareRef} style={{ position: "relative", flexShrink: 0 }}>
-                <button onClick={() => setShareOpen(o => !o)}
-                  title={note.list_id ? "Atur berbagi" : "Bagikan ke list"}
-                  style={{ background: note.list_id ? "rgba(168,197,0,0.12)" : "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: note.list_id ? "var(--accent)" : "var(--text-light)", cursor: "pointer", padding: "4px 8px", flexShrink: 0 }}>
-                  👥
-                </button>
-                {shareOpen && (
-                  <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 300, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", minWidth: 180, padding: "4px 0" }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, padding: "6px 14px 4px" }}>Bagikan ke List</div>
-                    {sharedLists.map(l => (
-                      <div key={l.id}
-                        onMouseDown={e => { e.preventDefault(); handleShare(l.id); }}
-                        style={{ padding: "7px 14px", fontSize: 13, cursor: "pointer", color: note.list_id === l.id ? "var(--accent)" : "var(--text-primary)", fontWeight: note.list_id === l.id ? 700 : 400 }}
-                        onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
-                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                        {note.list_id === l.id ? "✓ " : ""}{l.name}
-                      </div>
-                    ))}
-                    {note.list_id && (
-                      <div
-                        onMouseDown={e => { e.preventDefault(); handleShare(null); }}
-                        style={{ padding: "7px 14px", fontSize: 13, cursor: "pointer", color: "#ef4444", borderTop: "1px solid var(--border)" }}
-                        onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
-                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                        Batal berbagi
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-            <button onClick={() => onPin(note.id)} title={note.pinned ? "Unpin" : "Pin"}
-              style={{ background: note.pinned ? "rgba(168,197,0,0.15)" : "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: note.pinned ? "var(--accent)" : "var(--text-light)", cursor: "pointer", padding: "4px 10px", flexShrink: 0 }}>
-              📌
-            </button>
-            <button onClick={handlePrint} title="Cetak / Simpan PDF"
-              style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "var(--text-light)", cursor: "pointer", padding: "4px 10px", flexShrink: 0 }}>
-              PDF
-            </button>
-            <button onClick={onEdit}
-              style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "var(--accent)", cursor: "pointer", padding: "4px 10px", flexShrink: 0 }}>
-              ✏ Edit
-            </button>
-            <button onClick={() => { if (window.confirm("Hapus catatan ini?")) onDelete(note.id); }}
-              style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "#ef4444", cursor: "pointer", padding: "4px 10px", flexShrink: 0 }}>
-              🗑
-            </button>
-            <button onClick={onClose}
-              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-light)", padding: 0, lineHeight: 1, flexShrink: 0 }}>
-              ✕
-            </button>
+            <div className="notes-panel-actions">
+              {/* Share button — only for owner */}
+              {note.user_id === currentUserId && sharedLists.length > 0 && (
+                <div ref={shareRef} style={{ position: "relative" }}>
+                  <button onClick={() => setShareOpen(o => !o)}
+                    title={note.list_id ? "Atur berbagi" : "Bagikan ke list"}
+                    style={{ background: note.list_id ? "rgba(168,197,0,0.12)" : "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: note.list_id ? "var(--accent)" : "var(--text-light)", cursor: "pointer", padding: "4px 8px" }}>
+                    👥
+                  </button>
+                  {shareOpen && (
+                    <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 300, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", minWidth: 180, padding: "4px 0" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, padding: "6px 14px 4px" }}>Bagikan ke List</div>
+                      {sharedLists.map(l => (
+                        <div key={l.id}
+                          onMouseDown={e => { e.preventDefault(); handleShare(l.id); }}
+                          style={{ padding: "7px 14px", fontSize: 13, cursor: "pointer", color: note.list_id === l.id ? "var(--accent)" : "var(--text-primary)", fontWeight: note.list_id === l.id ? 700 : 400 }}
+                          onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
+                          onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                          {note.list_id === l.id ? "✓ " : ""}{l.name}
+                        </div>
+                      ))}
+                      {note.list_id && (
+                        <div
+                          onMouseDown={e => { e.preventDefault(); handleShare(null); }}
+                          style={{ padding: "7px 14px", fontSize: 13, cursor: "pointer", color: "#ef4444", borderTop: "1px solid var(--border)" }}
+                          onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
+                          onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                          Batal berbagi
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              <button onClick={() => onPin(note.id)} title={note.pinned ? "Unpin" : "Pin"}
+                style={{ background: note.pinned ? "rgba(168,197,0,0.15)" : "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: note.pinned ? "var(--accent)" : "var(--text-light)", cursor: "pointer", padding: "4px 10px" }}>
+                📌
+              </button>
+              <button onClick={handlePrint} title="Cetak / Simpan PDF"
+                style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "var(--text-light)", cursor: "pointer", padding: "4px 10px" }}>
+                PDF
+              </button>
+              <button onClick={onEdit}
+                style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "var(--accent)", cursor: "pointer", padding: "4px 10px" }}>
+                ✏ Edit
+              </button>
+              <button onClick={() => { if (window.confirm("Hapus catatan ini?")) onDelete(note.id); }}
+                style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "#ef4444", cursor: "pointer", padding: "4px 10px" }}>
+                🗑
+              </button>
+              <button onClick={onClose}
+                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-light)", padding: 0, lineHeight: 1 }}>
+                ✕
+              </button>
+            </div>
           </div>
 
           {/* Tags */}
