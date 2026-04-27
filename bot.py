@@ -187,7 +187,7 @@ async def send_long(update: Update, text: str, **kwargs):
 
 @authorized
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = """⚡ <b>TaskFlow V4</b>
+    text = f"""⚡ <b>TaskFlow V4</b>
 <i>GTD + Eisenhower + Priority + Pomodoro</i>
 
 Selamat datang! TaskFlow membantu mengelola task dengan:
@@ -202,7 +202,7 @@ Selamat datang! TaskFlow membantu mengelola task dengan:
 📓 Catatan / log kerja
 📎 Lampiran file &amp; gambar
 📁 Project &amp; context grouping
-🌐 Web app: <b>todo.yatno.web.id</b>
+🌐 Web app: <b>{WEBAPP_URL.replace("https://", "").replace("http://", "")}</b>
 
 Ketik /help untuk daftar command lengkap."""
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
@@ -210,7 +210,7 @@ Ketik /help untuk daftar command lengkap."""
 
 @authorized
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = """━━━━━━━━━━━━━━━━━━━━
+    text = f"""━━━━━━━━━━━━━━━━━━━━
   ⚡ <b>TASKFLOW V4 — HELP</b>
 ━━━━━━━━━━━━━━━━━━━━
 
@@ -261,7 +261,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 <b>🔗 Sync &amp; Web App</b>
 /link &lt;user&gt; &lt;pass&gt; — Hubungkan ke akun web
 /link — Cek status koneksi
-🌐 Web: <b>todo.yatno.web.id</b>
+🌐 Web: <b>{WEBAPP_URL.replace("https://", "").replace("http://", "")}</b>
 <i>Task, subtask, catatan, lampiran sync otomatis!</i>
 
 <b>⏰ Notifikasi Otomatis</b>
