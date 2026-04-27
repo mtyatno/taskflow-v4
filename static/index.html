@@ -740,8 +740,11 @@
     .notes-right { flex: 1; overflow-y: auto; padding: 0 0 16px 24px; min-width: 0; scrollbar-width: none; }
     .notes-right::-webkit-scrollbar { display: none; }
     .notes-panel-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-light); gap: 12px; }
-    .notes-panel-header { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; flex-shrink: 0; }
+    .notes-panel-header { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; flex-shrink: 0; flex-wrap: wrap; }
     .notes-panel-title { font-size: 18px; font-weight: 700; color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    @media (max-width: 640px) {
+      .notes-panel-header > div:first-child { width: 100%; flex: none; }
+    }
     .notes-nav-trail { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 11px; color: var(--text-light); margin-bottom: 12px; }
     .notes-nav-crumb { cursor: pointer; color: var(--accent); }
     .notes-nav-crumb:hover { text-decoration: underline; }
