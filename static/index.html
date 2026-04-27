@@ -2562,7 +2562,7 @@
               {/* Mode toggle — hanya saat tambah baru */}
               {!isEdit && (
                 <div style={{ display: "flex", background: "var(--bg-primary)", borderRadius: 8, padding: 3, marginBottom: 18, gap: 3 }}>
-                  {[["task","✓ Task"],["habit","🔁 Habit"],["note","📝 Note"]].map(([m, label]) => (
+                  {[["task","✓ Task"],["habit","🔁 Habit"],["note","📝 Note"],["goal","🎯 Goal"]].map(([m, label]) => (
                     <button key={m} type="button" onClick={() => setMode(m)} style={{
                       flex: 1, padding: "7px 0", borderRadius: 6, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 13,
                       background: mode === m ? "var(--accent)" : "transparent",
@@ -2704,6 +2704,11 @@
                   </div>
                 );
               })()}
+
+              {/* ── Goal Tab ── */}
+              {mode === "goal" && (
+                <GoalTab onSave={onSave} onClose={onClose} />
+              )}
 
               {/* ── Task Form ── */}
               {mode === "task" && <div>
