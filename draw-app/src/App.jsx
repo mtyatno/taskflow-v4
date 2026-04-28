@@ -36,7 +36,7 @@ export default function App() {
         const snapshot = JSON.stringify(editor.store.getSnapshot())
         window.parent.postMessage({ type: 'change', data: snapshot }, '*')
       }, 1000)
-    })
+    }, { scope: 'document' })
   }
 
   return (
