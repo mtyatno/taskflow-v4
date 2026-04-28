@@ -32,7 +32,7 @@ from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, 
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from sse_starlette.sse import EventSourceResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 import jwt
 import uvicorn
 
@@ -281,7 +281,16 @@ class InviteUserReq(BaseModel):
     username: str
 
 class DrawingUpsert(BaseModel):
-    data_json: str
+    data_json: str = Field(max_length=5_000_000)
+
+    @field_validator("data_json")
+    @classmethod
+    def must_be_valid_json(cls, v: str) -> str:
+        try:
+            json.loads(v)
+        except ValueError:
+            raise ValueError("data_json must be valid JSON")
+        return v
 
 class ScratchpadCreate(BaseModel):
     title: str = ""
@@ -1953,10 +1962,11 @@ async def get_note_titles(user=Depends(get_current_user)):
 @app.get("/api/drawings/{note_id}")
 async def get_drawing(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
+    access_clause, access_params = _note_access_clause(uid)
     with get_db() as conn:
         note = conn.execute(
-            "SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?",
-            (note_id, uid)
+            f"SELECT id, user_id FROM scratchpad_notes WHERE id = ? AND {access_clause}",
+            [note_id] + access_params
         ).fetchone()
         if not note:
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
@@ -1973,13 +1983,16 @@ async def get_drawing(note_id: int, user=Depends(get_current_user)):
 async def upsert_drawing(note_id: int, req: DrawingUpsert, user=Depends(get_current_user)):
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
+    access_clause, access_params = _note_access_clause(uid)
     with get_db() as conn:
         note = conn.execute(
-            "SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?",
-            (note_id, uid)
+            f"SELECT id, user_id FROM scratchpad_notes WHERE id = ? AND {access_clause}",
+            [note_id] + access_params
         ).fetchone()
         if not note:
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        if note["user_id"] != uid:
+            raise HTTPException(status_code=403, detail="Hanya pemilik note yang bisa mengedit drawing")
         conn.execute(
             """INSERT INTO drawings (note_id, user_id, data_json, updated_at)
                VALUES (?, ?, ?, ?)
@@ -1988,7 +2001,6 @@ async def upsert_drawing(note_id: int, req: DrawingUpsert, user=Depends(get_curr
                  updated_at = excluded.updated_at""",
             (note_id, uid, req.data_json, now)
         )
-        conn.commit()
         return {"updated_at": now}
 
 
