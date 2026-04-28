@@ -1890,7 +1890,7 @@
     function GoalTab({ onSave, onClose }) {
       const [step, setStep] = React.useState("category");
       const [selectedCategory, setSelectedCategory] = React.useState(null);
-      const [selectedTemplate, setSelectedTemplate] = React.useState(null);
+      const [selectedSubcategory, setSelectedSubcategory] = React.useState(null);
       const [goalName, setGoalName] = React.useState("");
       const [checkedHabits, setCheckedHabits] = React.useState([]);
       const [checkedTasks, setCheckedTasks] = React.useState([]);
@@ -1898,13 +1898,16 @@
 
       const selectCategory = (cat) => {
         setSelectedCategory(cat);
-        setStep("template");
+        setStep("subcategory");
       };
 
-      const selectTemplate = (tpl) => {
-        setSelectedTemplate(tpl);
-        setCheckedHabits(tpl.habits.map((_, i) => i));
-        setCheckedTasks(tpl.tasks.map((_, i) => i));
+      const selectSubcategory = (sub) => {
+        const items = HABIT_DATABANK.filter(x => x.kategori === selectedCategory.label && x.subkategori === sub);
+        const habits = items.filter(x => x.type === "habit");
+        const tasks = items.filter(x => x.type === "task");
+        setSelectedSubcategory(sub);
+        setCheckedHabits(habits.map((_, i) => i));
+        setCheckedTasks(tasks.map((_, i) => i));
         setGoalName("");
         setStep("confirm");
       };
@@ -1925,26 +1928,27 @@
       const handleCreate = async () => {
         if (!goalName.trim()) { alert("Nama goal wajib diisi"); return; }
         const slug = slugifyGoal(goalName);
+        const items = HABIT_DATABANK.filter(x => x.kategori === selectedCategory.label && x.subkategori === selectedSubcategory);
+        const habits = items.filter(x => x.type === "habit");
+        const tasks = items.filter(x => x.type === "task");
         setLoading(true);
         try {
           for (const i of checkedHabits) {
-            const h = selectedTemplate.habits[i];
-            const title = h.title.replace("{slug}", slug);
+            const h = habits[i];
             await api.post("/api/habits", {
-              title,
+              title: `${h.item} #goal-${slug}`,
               phase: "pagi",
               micro_target: "",
-              frequency: h.frequency,
+              frequency: FREQ_MAP[h.frequency] || FREQ_MAP.daily,
               identity_pillar: "",
             });
           }
           for (const i of checkedTasks) {
-            const t = selectedTemplate.tasks[i];
-            const title = t.title.replace("{slug}", slug);
+            const t = tasks[i];
             await api.post("/api/tasks", {
-              title,
-              gtd_status: t.gtd_status,
-              priority: "P3",
+              title: `${t.item} #goal-${slug}`,
+              gtd_status: "next",
+              priority: PRIORITY_MAP[t.priority] || "P3",
               description: "",
               project: "",
               context: "",
