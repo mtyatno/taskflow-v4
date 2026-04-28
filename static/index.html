@@ -6642,6 +6642,12 @@
     function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onPin, onNavigate, onNavigateFrom, onTrailClick, sharedLists = [], currentUserId, onTaskClick }) {
       const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
 
+      const iframeRef = React.useRef(null);
+      const [drawFullscreen, setDrawFullscreen] = React.useState(false);
+      const [syncStatus, setSyncStatus] = React.useState('saved');
+      const [iframeReady, setIframeReady] = React.useState(false);
+      const [pendingDrawData, setPendingDrawData] = React.useState(null);
+
       const [shareOpen, setShareOpen] = React.useState(false);
       const shareRef = React.useRef(null);
 
@@ -6651,6 +6657,56 @@
         document.addEventListener("mousedown", close);
         return () => document.removeEventListener("mousedown", close);
       }, [shareOpen]);
+
+      React.useEffect(() => {
+        if (!note) return;
+        setDrawFullscreen(false);
+        setIframeReady(false);
+        setPendingDrawData(null);
+        setSyncStatus('saved');
+
+        api.get(`/api/drawings/${note.id}`)
+          .then(data => setPendingDrawData(data.data_json))
+          .catch(() => {});
+
+        const handler = (e) => {
+          if (e.data?.type === 'ready') {
+            setIframeReady(true);
+          }
+          if (e.data?.type === 'change' && e.data.data) {
+            if (!navigator.onLine) {
+              setSyncStatus('offline');
+              return;
+            }
+            setSyncStatus('saving');
+            api.put(`/api/drawings/${note.id}`, { data_json: e.data.data })
+              .then(() => setSyncStatus('saved'))
+              .catch(() => setSyncStatus('offline'));
+          }
+        };
+        window.addEventListener('message', handler);
+
+        const onlineHandler = () => {
+          if (iframeRef.current) {
+            iframeRef.current.contentWindow.postMessage({ type: 'requestSnapshot' }, '*');
+          }
+        };
+        window.addEventListener('online', onlineHandler);
+
+        return () => {
+          window.removeEventListener('message', handler);
+          window.removeEventListener('online', onlineHandler);
+        };
+      }, [note?.id]);
+
+      React.useEffect(() => {
+        if (iframeReady && pendingDrawData && iframeRef.current) {
+          iframeRef.current.contentWindow.postMessage(
+            { type: 'load', data: pendingDrawData },
+            '*'
+          );
+        }
+      }, [iframeReady, pendingDrawData]);
 
       const handleShare = async (listId) => {
         setShareOpen(false);
@@ -6907,6 +6963,48 @@
               ))}
             </div>
           )}
+        {/* Canvas — drawing section */}
+        <div style={drawFullscreen ? {
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column'
+        } : { marginTop: 24 }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: drawFullscreen ? '10px 16px' : '0 0 8px 0',
+            borderBottom: drawFullscreen ? '1px solid var(--border)' : 'none',
+          }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Canvas</span>
+            <button
+              type="button"
+              onClick={() => setDrawFullscreen(f => !f)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}
+            >
+              {drawFullscreen ? '✕ Tutup' : '⤢ Expand'}
+            </button>
+          </div>
+          <div style={{
+            flex: drawFullscreen ? 1 : undefined,
+            height: drawFullscreen ? undefined : 360,
+            border: '1px solid var(--border)',
+            borderRadius: drawFullscreen ? 0 : 8,
+            overflow: 'hidden',
+          }}>
+            <iframe
+              ref={iframeRef}
+              src={`/static/vendor/tldraw/index.html?noteId=${note.id}`}
+              style={{ width: '100%', height: '100%', border: 'none' }}
+              title="Drawing canvas"
+            />
+          </div>
+          {!drawFullscreen && (
+            <div style={{
+              fontSize: 11, marginTop: 4,
+              color: syncStatus === 'saved' ? '#27ae60' : syncStatus === 'offline' ? '#f39c12' : 'var(--text-light)'
+            }}>
+              {syncStatus === 'saved' ? 'Tersimpan' : syncStatus === 'saving' ? 'Menyimpan...' : 'Offline — tersimpan lokal'}
+            </div>
+          )}
+        </div>
         </div>
         {tocItems.length >= 2 && (
           <div className="note-toc-sticky" style={{ position: "sticky", top: 0, alignSelf: "flex-start", marginTop: 54, marginLeft: 4 }}>
