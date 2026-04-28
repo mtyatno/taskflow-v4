@@ -11,6 +11,7 @@ export default function App() {
     window.parent.postMessage({ type: 'ready' }, '*')
 
     const handler = (e) => {
+      if (e.origin !== window.location.origin) return;
       if (e.data?.type === 'load' && editorRef.current && e.data.data) {
         try {
           const snapshot = JSON.parse(e.data.data)

@@ -6670,6 +6670,7 @@
           .catch(() => {});
 
         const handler = (e) => {
+          if (e.origin !== window.location.origin) return;
           if (e.data?.type === 'ready') {
             setIframeReady(true);
           }
@@ -6963,6 +6964,7 @@
               ))}
             </div>
           )}
+        {note && (<>
         {/* Canvas — drawing section */}
         <div style={drawFullscreen ? {
           position: 'fixed', inset: 0, zIndex: 9999,
@@ -7006,6 +7008,7 @@
           )}
         </div>
         </div>
+        </>)}
         {tocItems.length >= 2 && (
           <div className="note-toc-sticky" style={{ position: "sticky", top: 0, alignSelf: "flex-start", marginTop: 54, marginLeft: 4 }}>
             <NoteToc items={tocItems} />
