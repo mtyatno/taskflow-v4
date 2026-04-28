@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v5-goal-system";
+const CACHE = "taskflow-v6-draw";
 const STATIC = [
   // "/" sengaja tidak di-cache — selalu fetch dari network agar update langsung terlihat
   "/static/vendor/react.production.min.js",
@@ -38,6 +38,22 @@ self.addEventListener("fetch", e => {
 
   // Hanya proses skema http/https untuk menghindari error pada ekstensi browser
   if (!url.protocol.startsWith("http")) return;
+
+  // tldraw static files — cache-first
+  if (url.pathname.startsWith('/static/vendor/tldraw/')) {
+    e.respondWith(
+      caches.match(request).then(cached => {
+        if (cached) return cached
+        return fetch(request).then(res => {
+          if (res.ok) {
+            caches.open(CACHE).then(c => c.put(request, res.clone()))
+          }
+          return res
+        }).catch(() => cached || new Response('Offline', { status: 503 }))
+      })
+    )
+    return
+  }
 
   // HTML root ("/") — network-first + update cache
   // Saat online: selalu fetch terbaru dari server dan simpan ke cache
