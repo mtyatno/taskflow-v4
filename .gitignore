@@ -5,6 +5,8 @@ __pycache__/
 *.log
 .venv/
 dist/
+draw-app/node_modules/
+static/vendor/tldraw/
 
 # Database
 *.db
