@@ -2047,14 +2047,20 @@
         );
       }
 
+      const subcatItems = selectedSubcategory
+        ? HABIT_DATABANK.filter(x => x.kategori === selectedCategory.label && x.subkategori === selectedSubcategory)
+        : [];
+      const subcatHabits = subcatItems.filter(x => x.type === "habit");
+      const subcatTasks  = subcatItems.filter(x => x.type === "task");
+
       return (
         <div>
           <button
             type="button"
-            onClick={() => setStep("template")}
+            onClick={() => setStep("subcategory")}
             style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent)", fontWeight: 600, fontSize: 13, padding: "0 0 12px 0", display: "flex", alignItems: "center", gap: 4 }}
           >
-            ← {selectedTemplate.label}
+            ← {selectedSubcategory}
           </button>
 
           <label className="input-label">Nama Goal *</label>
@@ -2062,28 +2068,37 @@
             className="input"
             value={goalName}
             onChange={e => setGoalName(e.target.value)}
-            placeholder="contoh: Hidup Sehat 2026"
+            placeholder="contoh: Karir Impian 2026"
             style={{ marginBottom: 16 }}
             autoFocus
           />
 
-          {selectedTemplate.habits.length > 0 && (
+          {subcatHabits.length > 0 && (
             <>
-              <label className="input-label">Habits yang akan dibuat</label>
-              <div style={{ marginBottom: 14 }}>
-                {selectedTemplate.habits.map((h, i) => (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <label className="input-label" style={{ marginBottom: 0 }}>Habits</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" style={{ fontSize: 11, color: "var(--accent)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                    onClick={() => setCheckedHabits(subcatHabits.map((_, i) => i))}>Pilih Semua</button>
+                  <button type="button" style={{ fontSize: 11, color: "var(--text-secondary)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                    onClick={() => setCheckedHabits([])}>Hapus Semua</button>
+                </div>
+              </div>
+              <div style={{ marginBottom: 14, maxHeight: 180, overflowY: "auto" }}>
+                {subcatHabits.map((h, i) => (
                   <label key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", cursor: "pointer", fontSize: 13 }}>
                     <input
                       type="checkbox"
                       checked={checkedHabits.includes(i)}
                       onChange={() => toggleHabit(i)}
-                      style={{ accentColor: "var(--accent)" }}
+                      style={{ accentColor: "var(--accent)", flexShrink: 0 }}
                     />
-                    <span style={{ color: "var(--text-primary)" }}>
-                      {h.title.replace(" #goal-{slug}", "")}
+                    <span style={{ color: "var(--text-primary)", flex: 1 }}>{h.item}</span>
+                    <span style={{ fontSize: 10, color: "var(--text-light)", background: "var(--bg-primary)", padding: "1px 5px", borderRadius: 4, flexShrink: 0 }}>
+                      {h.frequency === "daily" ? "harian" : "bulanan"}
                     </span>
-                    <span style={{ fontSize: 11, color: "var(--text-light)", marginLeft: "auto" }}>
-                      {freqLabel(h.frequency)}
+                    <span style={{ fontSize: 10, color: h.priority === "high" ? "#e74c3c" : h.priority === "medium" ? "#f39c12" : "var(--text-light)", background: "var(--bg-primary)", padding: "1px 5px", borderRadius: 4, flexShrink: 0 }}>
+                      {h.priority}
                     </span>
                   </label>
                 ))}
@@ -2091,20 +2106,29 @@
             </>
           )}
 
-          {selectedTemplate.tasks.length > 0 && (
+          {subcatTasks.length > 0 && (
             <>
-              <label className="input-label">Tasks yang akan dibuat</label>
-              <div style={{ marginBottom: 16 }}>
-                {selectedTemplate.tasks.map((t, i) => (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <label className="input-label" style={{ marginBottom: 0 }}>Tasks</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" style={{ fontSize: 11, color: "var(--accent)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                    onClick={() => setCheckedTasks(subcatTasks.map((_, i) => i))}>Pilih Semua</button>
+                  <button type="button" style={{ fontSize: 11, color: "var(--text-secondary)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                    onClick={() => setCheckedTasks([])}>Hapus Semua</button>
+                </div>
+              </div>
+              <div style={{ marginBottom: 16, maxHeight: 180, overflowY: "auto" }}>
+                {subcatTasks.map((t, i) => (
                   <label key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", cursor: "pointer", fontSize: 13 }}>
                     <input
                       type="checkbox"
                       checked={checkedTasks.includes(i)}
                       onChange={() => toggleTask(i)}
-                      style={{ accentColor: "var(--accent)" }}
+                      style={{ accentColor: "var(--accent)", flexShrink: 0 }}
                     />
-                    <span style={{ color: "var(--text-primary)" }}>
-                      {t.title.replace(" #goal-{slug}", "")}
+                    <span style={{ color: "var(--text-primary)", flex: 1 }}>{t.item}</span>
+                    <span style={{ fontSize: 10, color: t.priority === "high" ? "#e74c3c" : t.priority === "medium" ? "#f39c12" : "var(--text-light)", background: "var(--bg-primary)", padding: "1px 5px", borderRadius: 4, flexShrink: 0 }}>
+                      {t.priority}
                     </span>
                   </label>
                 ))}
