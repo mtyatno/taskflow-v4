@@ -305,6 +305,19 @@ class TaskRepository:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_note_pins_user ON note_pins(user_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_note_pins_note ON note_pins(note_id)")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS drawings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    note_id INTEGER NOT NULL UNIQUE,
+                    user_id INTEGER NOT NULL,
+                    data_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (note_id) REFERENCES scratchpad_notes(id) ON DELETE CASCADE
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_drawings_note ON drawings(note_id)"
+            )
             if "pinned" in sp_cols:
                 conn.execute("""
                     INSERT OR IGNORE INTO note_pins (user_id, note_id)
