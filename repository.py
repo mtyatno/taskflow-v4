@@ -309,7 +309,7 @@ class TaskRepository:
                 CREATE TABLE IF NOT EXISTS drawings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     note_id INTEGER NOT NULL UNIQUE,
-                    user_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                     data_json TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (note_id) REFERENCES scratchpad_notes(id) ON DELETE CASCADE
