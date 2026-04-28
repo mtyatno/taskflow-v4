@@ -280,6 +280,9 @@ class HabitCheckinReq(BaseModel):
 class InviteUserReq(BaseModel):
     username: str
 
+class DrawingUpsert(BaseModel):
+    data_json: str
+
 class ScratchpadCreate(BaseModel):
     title: str = ""
     content: str = ""
@@ -1946,6 +1949,48 @@ async def get_note_titles(user=Depends(get_current_user)):
             ORDER BY s.updated_at DESC
         """, access_params).fetchall()
     return [dict(r) for r in rows]
+
+@app.get("/api/drawings/{note_id}")
+async def get_drawing(note_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        note = conn.execute(
+            "SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?",
+            (note_id, uid)
+        ).fetchone()
+        if not note:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        row = conn.execute(
+            "SELECT data_json, updated_at FROM drawings WHERE note_id = ?",
+            (note_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Drawing belum ada")
+        return {"data_json": row["data_json"], "updated_at": row["updated_at"]}
+
+
+@app.put("/api/drawings/{note_id}")
+async def upsert_drawing(note_id: int, req: DrawingUpsert, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        note = conn.execute(
+            "SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?",
+            (note_id, uid)
+        ).fetchone()
+        if not note:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        conn.execute(
+            """INSERT INTO drawings (note_id, user_id, data_json, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(note_id) DO UPDATE SET
+                 data_json = excluded.data_json,
+                 updated_at = excluded.updated_at""",
+            (note_id, uid, req.data_json, now)
+        )
+        conn.commit()
+        return {"updated_at": now}
+
 
 @app.get("/api/scratchpad/{note_id}")
 async def get_scratchpad_note(note_id: int, user=Depends(get_current_user)):
