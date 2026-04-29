@@ -30,7 +30,10 @@ def _today_jkt() -> date:
 
 from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, UploadFile, File as FastAPIFile, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+import io
+import zipfile
+import csv
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel, Field, field_validator
 import jwt
@@ -2073,6 +2076,124 @@ async def toggle_admin(target_id: int, user=Depends(get_admin_user)):
         new_val = 0 if row["is_admin"] else 1
         conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (new_val, target_id))
     return {"id": target_id, "is_admin": new_val}
+
+@app.get("/api/export/download")
+async def export_user_data(user=Depends(get_current_user)):
+    uid = user["sub"]
+    today = datetime.now(_TZ_JKT).strftime("%Y-%m-%d")
+
+    def _sanitize(title: str, note_id: int) -> str:
+        name = re.sub(r'[/\\:*?"<>|]', '-', (title or "").strip())
+        return name or f"untitled-{note_id}"
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+
+        # ── Notes ──────────────────────────────────────────────────
+        with get_db() as conn:
+            notes = conn.execute(
+                """SELECT n.id, n.title, n.content, n.created_at, n.updated_at,
+                          GROUP_CONCAT(t.name) AS tag_names
+                   FROM scratchpad_notes n
+                   LEFT JOIN entity_tags et ON et.entity_type='note' AND et.entity_id=n.id
+                   LEFT JOIN tags t ON t.id=et.tag_id
+                   WHERE n.user_id=?
+                   GROUP BY n.id ORDER BY n.id""",
+                (uid,)
+            ).fetchall()
+
+        used: dict[str, int] = {}
+        for note in notes:
+            base = _sanitize(note["title"], note["id"])
+            if base in used:
+                used[base] += 1
+                fname = f"{base} ({used[base]}).md"
+            else:
+                used[base] = 0
+                fname = f"{base}.md"
+
+            tags = [t.strip() for t in (note["tag_names"] or "").split(",") if t.strip()]
+            tag_str = ", ".join(tags)
+            frontmatter = (
+                f"---\ntags: [{tag_str}]\n"
+                f"created_at: {note['created_at']}\n"
+                f"updated_at: {note['updated_at']}\n---\n\n"
+            )
+            content = frontmatter + (note["content"] or "")
+            zf.writestr(f"notes/{fname}", content.encode("utf-8"))
+
+        # ── Tasks ──────────────────────────────────────────────────
+        with get_db() as conn:
+            tasks_rows = conn.execute(
+                "SELECT * FROM tasks WHERE user_id=? ORDER BY id", (uid,)
+            ).fetchall()
+            tasks_list = []
+            for t in tasks_rows:
+                td = dict(t)
+                subs = conn.execute(
+                    "SELECT title, is_done FROM subtasks WHERE task_id=? ORDER BY sort_order",
+                    (t["id"],)
+                ).fetchall()
+                notes_rows = conn.execute(
+                    "SELECT content FROM task_notes WHERE task_id=? ORDER BY id",
+                    (t["id"],)
+                ).fetchall()
+                td["subtasks"] = [{"title": s["title"], "done": bool(s["is_done"])} for s in subs]
+                td["notes"] = [n["content"] for n in notes_rows]
+                tasks_list.append(td)
+
+        zf.writestr(
+            "tasks.json",
+            json.dumps(tasks_list, ensure_ascii=False, indent=2).encode("utf-8")
+        )
+
+        csv_buf = io.StringIO()
+        w = csv.writer(csv_buf)
+        task_cols = ["id", "title", "description", "gtd_status", "priority", "quadrant",
+                     "project", "context", "deadline", "waiting_for", "created_at", "completed_at"]
+        w.writerow(task_cols)
+        for t in tasks_list:
+            w.writerow([t.get(c, "") or "" for c in task_cols])
+        zf.writestr("tasks.csv", csv_buf.getvalue().encode("utf-8"))
+
+        # ── Habits ─────────────────────────────────────────────────
+        with get_db() as conn:
+            habits_rows = conn.execute(
+                "SELECT * FROM habits WHERE user_id=? ORDER BY id", (uid,)
+            ).fetchall()
+            habits_list = []
+            for h in habits_rows:
+                hd = dict(h)
+                logs = conn.execute(
+                    "SELECT date, status, skip_reason FROM habit_logs WHERE habit_id=? ORDER BY date DESC",
+                    (h["id"],)
+                ).fetchall()
+                hd["logs"] = [dict(l) for l in logs]
+                habits_list.append(hd)
+
+        zf.writestr(
+            "habits.json",
+            json.dumps(habits_list, ensure_ascii=False, indent=2).encode("utf-8")
+        )
+
+        csv_buf2 = io.StringIO()
+        w2 = csv.writer(csv_buf2)
+        w2.writerow(["habit_title", "phase", "micro_target", "date", "status", "skip_reason"])
+        for h in habits_list:
+            for log in h["logs"]:
+                w2.writerow([
+                    h.get("title", ""), h.get("phase", ""), h.get("micro_target", "") or "",
+                    log["date"], log["status"], log.get("skip_reason", "") or ""
+                ])
+        zf.writestr("habits.csv", csv_buf2.getvalue().encode("utf-8"))
+
+    buf.seek(0)
+    filename = f"taskflow-export-{today}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 @app.get("/api/drawings/{note_id}")
 async def get_drawing(note_id: int, user=Depends(get_current_user)):
