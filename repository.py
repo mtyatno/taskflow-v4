@@ -368,6 +368,29 @@ class TaskRepository:
                 END
             """)
 
+            # Migrate: add is_admin to users if missing
+            user_cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+            if "is_admin" not in user_cols:
+                conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+
+            # Habit templates databank
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS habit_templates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kategori TEXT NOT NULL,
+                    subkategori TEXT NOT NULL,
+                    type TEXT NOT NULL CHECK(type IN ('habit','task')),
+                    item TEXT NOT NULL,
+                    frequency TEXT NOT NULL CHECK(frequency IN ('daily','monthly')),
+                    priority TEXT NOT NULL CHECK(priority IN ('low','medium','high')),
+                    difficulty TEXT NOT NULL CHECK(difficulty IN ('easy','medium','hard')),
+                    tags TEXT NOT NULL DEFAULT '[]'
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_habit_templates_kat ON habit_templates(kategori, subkategori)"
+            )
+
     # ── Row to Task mapping ────────────────────────────────────────────────
 
     @staticmethod
