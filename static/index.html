@@ -6962,8 +6962,7 @@
               ))}
             </div>
           )}
-        {note && (<>
-        {/* Canvas — drawing section */}
+        {note && (
         <div style={drawFullscreen ? {
           position: 'fixed', inset: 0, zIndex: 9999,
           background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column'
@@ -7005,8 +7004,8 @@
             </div>
           )}
         </div>
+        )}
         </div>
-        </>)}
         {tocItems.length >= 2 && (
           <div className="note-toc-sticky" style={{ position: "sticky", top: 0, alignSelf: "flex-start", marginTop: 54, marginLeft: 4 }}>
             <NoteToc items={tocItems} />
