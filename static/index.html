@@ -5796,8 +5796,33 @@
       const [tgToken, setTgToken] = useState(null);
       const [tgBotUsername, setTgBotUsername] = useState("");
       const [tgLoading, setTgLoading] = useState(false);
+      const [downloading, setDownloading] = React.useState(false);
 
       const setL = (k, v) => setLoading(l => ({ ...l, [k]: v }));
+
+      const handleExport = async () => {
+        setDownloading(true);
+        try {
+          const res = await fetch('/api/export/download', {
+            headers: typeof __token !== 'undefined' && __token ? { Authorization: 'Bearer ' + __token } : {}
+          });
+          if (!res.ok) throw new Error('Gagal');
+          const blob = await res.blob();
+          const today = new Date().toISOString().slice(0, 10);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'taskflow-export-' + today + '.zip';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          showToast('Gagal export data', 'error');
+        } finally {
+          setDownloading(false);
+        }
+      };
 
       const handleUsername = async (e) => {
         e.preventDefault();
@@ -5927,6 +5952,15 @@
               </div>
             )}
           </div>
+        <div style={{ marginTop: 32, paddingTop: 24, borderTop: '1px solid var(--border)' }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Backup & Export</h3>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
+            Download semua datamu: notes (Markdown, kompatibel Obsidian), tasks, dan habits.
+          </p>
+          <button className="btn btn-primary" onClick={handleExport} disabled={downloading} style={{ minWidth: 190 }}>
+            {downloading ? 'Menyiapkan...' : '⬇ Download Backup (.zip)'}
+          </button>
+        </div>
         </div>
       );
     }
