@@ -17,4 +17,7 @@ jobs:
           script: |
             cd /home/yatno/todo-system/taskflow-v4
             git pull origin main
+            cd draw-app && npm install --prefer-offline && npx vite build && cd ..
             venv/bin/pip install -r requirements.txt
+            sudo systemctl restart taskflow
+            sudo systemctl status taskflow --no-pager
