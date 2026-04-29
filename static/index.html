@@ -8460,6 +8460,242 @@
     // ══════════════════════════════════════════════════════════════
     //  MAIN APP
     // ══════════════════════════════════════════════════════════════
+    function AdminTemplateModal({ item, kategories, allSubkategories, onSave, onClose }) {
+      const [form, setForm] = React.useState({
+        kategori: item?.kategori || '',
+        subkategori: item?.subkategori || '',
+        type: item?.type || 'habit',
+        item: item?.item || '',
+        frequency: item?.frequency || 'daily',
+        priority: item?.priority || 'medium',
+        difficulty: item?.difficulty || 'medium',
+        tags: item?.tags ? (Array.isArray(item.tags) ? item.tags.join(', ') : item.tags) : '',
+      });
+      const [saving, setSaving] = React.useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setSaving(true);
+        await onSave({
+          ...form,
+          tags: form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+        });
+        setSaving(false);
+      };
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal-content scale-in" onClick={e => e.stopPropagation()} style={{ maxWidth: 500 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>{item ? 'Edit Item' : 'Tambah Item'}</h3>
+            <form onSubmit={handleSubmit}>
+              <datalist id="admin-kategori">{kategories.map(k => <option key={k} value={k} />)}</datalist>
+              <datalist id="admin-subkategori">{allSubkategories.map(s => <option key={s} value={s} />)}</datalist>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div>
+                  <label className="input-label">Kategori *</label>
+                  <input className="input" list="admin-kategori" value={form.kategori} onChange={e => setForm(f => ({...f, kategori: e.target.value}))} required />
+                </div>
+                <div>
+                  <label className="input-label">Subkategori *</label>
+                  <input className="input" list="admin-subkategori" value={form.subkategori} onChange={e => setForm(f => ({...f, subkategori: e.target.value}))} required />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div>
+                  <label className="input-label">Type *</label>
+                  <select className="input" value={form.type} onChange={e => setForm(f => ({...f, type: e.target.value}))}>
+                    <option value="habit">habit</option>
+                    <option value="task">task</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Frequency *</label>
+                  <select className="input" value={form.frequency} onChange={e => setForm(f => ({...f, frequency: e.target.value}))}>
+                    <option value="daily">daily</option>
+                    <option value="monthly">monthly</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Priority *</label>
+                  <select className="input" value={form.priority} onChange={e => setForm(f => ({...f, priority: e.target.value}))}>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label className="input-label">Difficulty *</label>
+                <select className="input" value={form.difficulty} onChange={e => setForm(f => ({...f, difficulty: e.target.value}))}>
+                  <option value="easy">easy</option>
+                  <option value="medium">medium</option>
+                  <option value="hard">hard</option>
+                </select>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label className="input-label">Item *</label>
+                <textarea className="input" value={form.item} onChange={e => setForm(f => ({...f, item: e.target.value}))} rows={3} required />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label className="input-label">Tags (comma-separated)</label>
+                <input className="input" value={form.tags} onChange={e => setForm(f => ({...f, tags: e.target.value}))} placeholder="e.g. olahraga, kesehatan" />
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button type="button" className="btn btn-secondary" onClick={onClose}>Batal</button>
+                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    function AdminPage({ user, showToast }) {
+      const PAGE_SIZE = 50;
+      const [templates, setTemplates] = React.useState([]);
+      const [loadingT, setLoadingT] = React.useState(true);
+      const [filterKat, setFilterKat] = React.useState('');
+      const [filterSub, setFilterSub] = React.useState('');
+      const [page, setPage] = React.useState(1);
+      const [showModal, setShowModal] = React.useState(false);
+      const [editItem, setEditItem] = React.useState(null);
+      const [users, setUsers] = React.useState([]);
+
+      React.useEffect(() => {
+        api.get('/api/habit-templates').then(d => { setTemplates(d); setLoadingT(false); }).catch(() => setLoadingT(false));
+        api.get('/api/admin/users').then(setUsers).catch(() => {});
+      }, []);
+
+      const kategories = [...new Set(templates.map(t => t.kategori))].sort();
+      const subkategories = [...new Set(templates.filter(t => !filterKat || t.kategori === filterKat).map(t => t.subkategori))].sort();
+      const filtered = templates.filter(t => (!filterKat || t.kategori === filterKat) && (!filterSub || t.subkategori === filterSub));
+      const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+      const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+      const handleDelete = async (id) => {
+        if (!window.confirm('Hapus item ini?')) return;
+        try {
+          await api.del(`/api/habit-templates/${id}`);
+          setTemplates(prev => prev.filter(t => t.id !== id));
+          showToast('Item dihapus');
+        } catch (e) { showToast(e.message || 'Gagal menghapus', 'error'); }
+      };
+
+      const handleSave = async (data) => {
+        try {
+          if (editItem) {
+            const updated = await api.put(`/api/habit-templates/${editItem.id}`, data);
+            setTemplates(prev => prev.map(t => t.id === editItem.id ? updated : t));
+            showToast('Item diupdate');
+          } else {
+            const created = await api.post('/api/habit-templates', data);
+            setTemplates(prev => [...prev, created]);
+            showToast('Item ditambah');
+          }
+          setShowModal(false);
+          setEditItem(null);
+        } catch (e) { showToast(e.message || 'Gagal menyimpan', 'error'); }
+      };
+
+      const handleToggleAdmin = async (uid) => {
+        try {
+          const updated = await api.put(`/api/admin/users/${uid}/toggle-admin`, {});
+          setUsers(prev => prev.map(u => u.id === uid ? {...u, is_admin: updated.is_admin} : u));
+        } catch (e) { showToast(e.message || 'Gagal', 'error'); }
+      };
+
+      return (
+        <div className="fade-in" style={{ padding: '0 0 40px' }}>
+          <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 20 }}>Admin — Habit Templates</h2>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+            <select className="input" style={{ width: 'auto' }} value={filterKat} onChange={e => { setFilterKat(e.target.value); setFilterSub(''); setPage(1); }}>
+              <option value="">Semua Kategori</option>
+              {kategories.map(k => <option key={k} value={k}>{k}</option>)}
+            </select>
+            <select className="input" style={{ width: 'auto' }} value={filterSub} onChange={e => { setFilterSub(e.target.value); setPage(1); }}>
+              <option value="">Semua Subkategori</option>
+              {subkategories.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <button className="btn btn-primary" onClick={() => { setEditItem(null); setShowModal(true); }}>+ Tambah Item</button>
+            <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--text-secondary)' }}>{filtered.length} item</span>
+          </div>
+          {loadingT ? (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-light)' }}>Memuat...</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-primary)', borderBottom: '2px solid var(--border)' }}>
+                    {['Kategori','Subkategori','Type','Item','Freq','Pri','Aksi'].map(h => (
+                      <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Aksi' ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {paged.map(t => (
+                    <tr key={t.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '7px 12px', whiteSpace: 'nowrap' }}>{t.kategori}</td>
+                      <td style={{ padding: '7px 12px', whiteSpace: 'nowrap' }}>{t.subkategori}</td>
+                      <td style={{ padding: '7px 12px' }}>
+                        <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: t.type === 'habit' ? 'rgba(168,197,0,0.15)' : 'rgba(100,149,237,0.15)', color: t.type === 'habit' ? 'var(--accent)' : '#6495ed' }}>{t.type}</span>
+                      </td>
+                      <td style={{ padding: '7px 12px', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.item}</td>
+                      <td style={{ padding: '7px 12px', fontSize: 11, whiteSpace: 'nowrap' }}>{t.frequency}</td>
+                      <td style={{ padding: '7px 12px', fontSize: 11, whiteSpace: 'nowrap' }}>{t.priority}</td>
+                      <td style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button onClick={() => { setEditItem(t); setShowModal(true); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, marginRight: 4 }}>&#9999;&#65039;</button>
+                        <button onClick={() => handleDelete(t.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 15 }}>&#128465;&#65039;</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16, alignItems: 'center' }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}>Prev</button>
+              <span style={{ fontSize: 13 }}>{page} / {totalPages}</span>
+              <button className="btn btn-secondary btn-sm" onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page === totalPages}>Next</button>
+            </div>
+          )}
+          {showModal && (
+            <AdminTemplateModal
+              item={editItem}
+              kategories={kategories}
+              allSubkategories={[...new Set(templates.map(t => t.subkategori))].sort()}
+              onSave={handleSave}
+              onClose={() => { setShowModal(false); setEditItem(null); }}
+            />
+          )}
+          <div style={{ marginTop: 40 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>User Management</h3>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: 'var(--bg-primary)', borderBottom: '2px solid var(--border)' }}>
+                  <th style={{ padding: '8px 12px', textAlign: 'left' }}>Username</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'left' }}>Display Name</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'center' }}>Admin</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map(u => (
+                  <tr key={u.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '7px 12px' }}>{u.username}</td>
+                    <td style={{ padding: '7px 12px' }}>{u.display_name || '-'}</td>
+                    <td style={{ padding: '7px 12px', textAlign: 'center' }}>
+                      <input type="checkbox" checked={!!u.is_admin} onChange={() => handleToggleAdmin(u.id)}
+                        style={{ accentColor: 'var(--accent)', cursor: 'pointer', width: 16, height: 16 }} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
     function App() {
       const [user, setUser] = useState(null);
       const [theme, setTheme] = useState(
