@@ -2009,6 +2009,71 @@ async def get_note_titles(user=Depends(get_current_user)):
         """, access_params).fetchall()
     return [dict(r) for r in rows]
 
+@app.get("/api/habit-templates")
+async def list_habit_templates():
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM habit_templates ORDER BY kategori, subkategori, id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+@app.post("/api/habit-templates")
+async def create_habit_template(req: HabitTemplateCreate, user=Depends(get_admin_user)):
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO habit_templates (kategori, subkategori, type, item, frequency, priority, difficulty, tags)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (req.kategori, req.subkategori, req.type, req.item,
+             req.frequency, req.priority, req.difficulty, json.dumps(req.tags))
+        )
+        row = conn.execute("SELECT * FROM habit_templates WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return dict(row)
+
+@app.put("/api/habit-templates/{template_id}")
+async def update_habit_template(template_id: int, req: HabitTemplateUpdate, user=Depends(get_admin_user)):
+    with get_db() as conn:
+        existing = conn.execute("SELECT id FROM habit_templates WHERE id = ?", (template_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Template tidak ditemukan")
+        conn.execute(
+            """UPDATE habit_templates SET
+               kategori=?, subkategori=?, type=?, item=?, frequency=?, priority=?, difficulty=?, tags=?
+               WHERE id=?""",
+            (req.kategori, req.subkategori, req.type, req.item,
+             req.frequency, req.priority, req.difficulty, json.dumps(req.tags), template_id)
+        )
+        row = conn.execute("SELECT * FROM habit_templates WHERE id = ?", (template_id,)).fetchone()
+        return dict(row)
+
+@app.delete("/api/habit-templates/{template_id}")
+async def delete_habit_template(template_id: int, user=Depends(get_admin_user)):
+    with get_db() as conn:
+        existing = conn.execute("SELECT id FROM habit_templates WHERE id = ?", (template_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Template tidak ditemukan")
+        conn.execute("DELETE FROM habit_templates WHERE id = ?", (template_id,))
+    return {"ok": True}
+
+@app.get("/api/admin/users")
+async def list_admin_users(user=Depends(get_admin_user)):
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, username, display_name, is_admin, created_at FROM users ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+@app.put("/api/admin/users/{target_id}/toggle-admin")
+async def toggle_admin(target_id: int, user=Depends(get_admin_user)):
+    if target_id == user["sub"]:
+        raise HTTPException(status_code=400, detail="Tidak bisa mengubah status admin diri sendiri")
+    with get_db() as conn:
+        row = conn.execute("SELECT id, is_admin FROM users WHERE id = ?", (target_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="User tidak ditemukan")
+        new_val = 0 if row["is_admin"] else 1
+        conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (new_val, target_id))
+    return {"id": target_id, "is_admin": new_val}
+
 @app.get("/api/drawings/{note_id}")
 async def get_drawing(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
