@@ -6052,6 +6052,53 @@
         document.addEventListener("mousedown", close);
         return () => document.removeEventListener("mousedown", close);
       }, [shareOpen]);
+
+      // Draw canvas — fetch + postMessage sync
+      React.useEffect(() => {
+        setDrawIframeReady(false);
+        setDrawPendingData(null);
+        setDrawSyncStatus('saved');
+
+        if (note?.id) {
+          api.get(`/api/drawings/${note.id}`)
+            .then(data => setDrawPendingData(data.data_json))
+            .catch(() => {});
+        }
+
+        const handler = (e) => {
+          if (e.origin !== window.location.origin) return;
+          if (e.data?.type === 'ready') setDrawIframeReady(true);
+          if (e.data?.type === 'change' && e.data.data && note?.id) {
+            if (!navigator.onLine) { setDrawSyncStatus('offline'); return; }
+            setDrawSyncStatus('saving');
+            api.put(`/api/drawings/${note.id}`, { data_json: e.data.data })
+              .then(() => setDrawSyncStatus('saved'))
+              .catch(() => setDrawSyncStatus('offline'));
+          }
+        };
+        window.addEventListener('message', handler);
+
+        const onlineHandler = () => {
+          if (drawIframeRef.current && note?.id)
+            drawIframeRef.current.contentWindow.postMessage({ type: 'requestSnapshot' }, '*');
+        };
+        window.addEventListener('online', onlineHandler);
+
+        return () => {
+          window.removeEventListener('message', handler);
+          window.removeEventListener('online', onlineHandler);
+        };
+      }, [note?.id]);
+
+      // Draw canvas — load snapshot to iframe
+      React.useEffect(() => {
+        if (drawIframeReady && drawPendingData && drawIframeRef.current) {
+          drawIframeRef.current.contentWindow.postMessage(
+            { type: 'load', data: drawPendingData }, '*'
+          );
+        }
+      }, [drawIframeReady, drawPendingData]);
+
       const [noteListId, setNoteListId] = useState(note?.list_id ?? null);
       const handleModalShare = async (listId) => {
         setShareOpen(false);
