@@ -2530,19 +2530,16 @@
                   <div>
                     <label className="input-label">Judul <span style={{ color: "var(--text-light)", fontWeight: 400 }}>(opsional)</span></label>
                     <input className="input" value={noteForm.title} onChange={e => setNote("title", e.target.value)} placeholder="Judul catatan..." style={{ marginBottom: 14 }} />
-                    <label className="input-label">Isi Catatan *</label>
-                    <div style={{ position: "relative" }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <label className="input-label" style={{ marginBottom: 0 }}>Isi Catatan *</label>
                       <button
                         type="button"
-                        title="Fullscreen"
                         onClick={() => setNoteTextareaFullscreen(true)}
-                        style={{
-                          position: 'absolute', top: 6, right: 6, zIndex: 10,
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          fontSize: 14, color: 'var(--accent)', lineHeight: 1,
-                          padding: '2px 4px', borderRadius: 4, fontWeight: 700,
-                        }}
-                      >⤢</button>
+                        style={{ background: 'none', border: 'none', cursor: 'pointer',
+                                 fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}
+                      >⤢ Expand</button>
+                    </div>
+                    <div style={{ position: "relative" }}>
                       <textarea
                         ref={noteContentRef}
                         className="input"
@@ -6529,6 +6526,13 @@
                   Lihat
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={() => setTextareaFullscreen(true)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer',
+                         fontSize: 13, color: 'var(--accent)', fontWeight: 600,
+                         marginLeft: 8, flexShrink: 0 }}
+              >⤢ Expand</button>
             </div>
             {preview ? (
               <div className="note-rendered note-modal-content-input"
@@ -6538,17 +6542,6 @@
               />
             ) : (
               <div style={{ position: 'relative' }}>
-                <button
-                  type="button"
-                  title="Fullscreen"
-                  onClick={() => setTextareaFullscreen(true)}
-                  style={{
-                    position: 'absolute', top: 6, right: 6, zIndex: 10,
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    fontSize: 13, color: 'var(--text-light)', lineHeight: 1,
-                    padding: '2px 4px', borderRadius: 4,
-                  }}
-                >⤢</button>
                 <textarea
                   ref={textareaRef}
                 className="note-modal-content-input"
