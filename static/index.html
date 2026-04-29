@@ -1693,6 +1693,7 @@
         { id: "q2", icon: "📅", label: "Q2 Rencanakan", count: qc("Q2") },
         { id: "q3", icon: "👋", label: "Q3 Delegasikan", count: qc("Q3") },
         { id: "q4", icon: "🗑️", label: "Q4 Singkirkan", count: qc("Q4") },
+        ...(user?.is_admin ? [{ id: "admin", icon: "🔧", label: "Admin" }] : []),
       ];
 
       // Dynamic project links
@@ -9213,6 +9214,10 @@
 
         if (page === "notes") {
           return <NotesPage tasks={tasks} showToast={showToast} onTaskClick={setSelectedTask} user={user} sharedLists={sharedLists} />;
+        }
+
+        if (page === "admin" && user?.is_admin) {
+          return <AdminPage user={user} showToast={showToast} />;
         }
 
         if (page === "settings") {
