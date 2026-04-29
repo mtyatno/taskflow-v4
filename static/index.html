@@ -1327,7 +1327,7 @@
       };
 
       return (
-        <div className="modal-overlay" onClick={onClose}>
+                  <div className="modal-overlay" onClick={onClose}>
           <div className="modal-content scale-in" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <h2 style={{ fontSize: 18, fontWeight: 700 }}>👥 Bergabung ke Shared List</h2>
@@ -2194,6 +2194,13 @@
         frequency: ["mon","tue","wed","thu","fri","sat","sun"],
         identity_pillar: "",
       });
+      // Note tab — canvas & textarea fullscreen
+      const [noteTextareaFullscreen, setNoteTextareaFullscreen] = React.useState(false);
+      const [noteCanvasId] = React.useState(() => crypto.randomUUID());
+      const noteDrawIframeRef = React.useRef(null);
+      const [noteDrawFullscreen, setNoteDrawFullscreen] = React.useState(false);
+      const [noteDrawIframeReady, setNoteDrawIframeReady] = React.useState(false);
+
       const setHabit = (k, v) => setHabitForm(f => ({ ...f, [k]: v }));
       const DAYS = [
         { key: "mon", label: "Sen" }, { key: "tue", label: "Sel" },
@@ -2395,7 +2402,31 @@
       };
 
       return (
-        <div className="modal-overlay" onClick={onClose}>
+        <>
+          {noteTextareaFullscreen && (
+            <div style={{
+              position: 'fixed', inset: 0, zIndex: 10000,
+              background: 'var(--bg-primary)',
+              display: 'flex', flexDirection: 'column', padding: 16
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                <button type="button"
+                  onClick={() => setNoteTextareaFullscreen(false)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer',
+                           fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
+                  ✕ Tutup
+                </button>
+              </div>
+              <textarea
+                className="input"
+                placeholder="Tulis isi catatan..."
+                value={noteForm.content}
+                onChange={e => handleNoteContentChange(e.target.value)}
+                style={{ flex: 1, resize: 'none', fontSize: 16, fontFamily: 'inherit', lineHeight: 1.6 }}
+              />
+            </div>
+          )}
+          <div className="modal-overlay" onClick={onClose}>
           <div className="modal-content scale-in" onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <h2 style={{ fontSize: 20, fontWeight: 700 }}>{isEdit ? "Edit Task" : "＋ Buat Baru"}</h2>
@@ -2501,6 +2532,17 @@
                     <input className="input" value={noteForm.title} onChange={e => setNote("title", e.target.value)} placeholder="Judul catatan..." style={{ marginBottom: 14 }} />
                     <label className="input-label">Isi Catatan *</label>
                     <div style={{ position: "relative" }}>
+                      <button
+                        type="button"
+                        title="Fullscreen"
+                        onClick={() => setNoteTextareaFullscreen(true)}
+                        style={{
+                          position: 'absolute', top: 6, right: 6, zIndex: 10,
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          fontSize: 14, color: 'var(--accent)', lineHeight: 1,
+                          padding: '2px 4px', borderRadius: 4, fontWeight: 700,
+                        }}
+                      >⤢</button>
                       <textarea
                         ref={noteContentRef}
                         className="input"
@@ -2540,6 +2582,44 @@
                         ))}
                       </div>
                     )}
+                    {/* Note canvas */}
+                    <div style={noteDrawFullscreen ? {
+                      position: 'fixed', inset: 0, zIndex: 10000,
+                      background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column'
+                    } : { marginTop: 12, marginBottom: 14 }}>
+                      <div style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: noteDrawFullscreen ? '10px 16px' : '0 0 8px 0',
+                        borderBottom: noteDrawFullscreen ? '1px solid var(--border)' : 'none',
+                      }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Canvas</span>
+                        <button type="button"
+                          onClick={() => setNoteDrawFullscreen(f => !f)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer',
+                                   fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
+                          {noteDrawFullscreen ? '✕ Tutup' : '⤢ Expand'}
+                        </button>
+                      </div>
+                      <div style={{
+                        flex: noteDrawFullscreen ? 1 : undefined,
+                        height: noteDrawFullscreen ? undefined : 300,
+                        border: '1px solid var(--border)',
+                        borderRadius: noteDrawFullscreen ? 0 : 8,
+                        overflow: 'hidden',
+                      }}>
+                        <iframe
+                          ref={noteDrawIframeRef}
+                          src={`/static/vendor/tldraw/index.html?noteId=${noteCanvasId}`}
+                          style={{ width: '100%', height: '100%', border: 'none' }}
+                          title="Drawing canvas"
+                        />
+                      </div>
+                      {!noteDrawFullscreen && (
+                        <div style={{ fontSize: 11, marginTop: 4, color: 'var(--text-light)' }}>
+                          Simpan note untuk sync drawing ke server
+                        </div>
+                      )}
+                    </div>
                     <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                       <button type="button" className="btn btn-secondary" onClick={onClose}>Batal</button>
                       <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? "Menyimpan..." : "Simpan Note"}</button>
@@ -2726,6 +2806,7 @@
             </form>
           </div>
         </div>
+        </>
       );
     }
 
