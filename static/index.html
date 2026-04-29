@@ -6072,6 +6072,19 @@
       const [tagDropdown, setTagDropdown] = useState(null);
       const [existingTags, setExistingTags] = useState([]);
 
+      // Textarea fullscreen
+      const [textareaFullscreen, setTextareaFullscreen] = React.useState(false);
+
+      // Draw canvas
+      const [canvasNoteId] = React.useState(() =>
+        note?.id ? String(note.id) : crypto.randomUUID()
+      );
+      const drawIframeRef = React.useRef(null);
+      const [drawFullscreen, setDrawFullscreen] = React.useState(false);
+      const [drawSyncStatus, setDrawSyncStatus] = React.useState('saved');
+      const [drawIframeReady, setDrawIframeReady] = React.useState(false);
+      const [drawPendingData, setDrawPendingData] = React.useState(null);
+
       // Autosave: debounced 2.5s setelah perubahan, hanya untuk note yang sudah ada
       useEffect(() => {
         if (!note?.id) return;
