@@ -18,7 +18,7 @@ import re
 from collections import defaultdict
 from datetime import datetime, date, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Literal
 from contextlib import contextmanager
 
 import pytz as _pytz
@@ -218,6 +218,13 @@ async def get_current_user(request: Request) -> dict:
     data["sub"] = int(data["sub"])
     return data
 
+async def get_admin_user(user: dict = Depends(get_current_user)) -> dict:
+    with get_db() as conn:
+        row = conn.execute("SELECT is_admin FROM users WHERE id = ?", (user["sub"],)).fetchone()
+        if not row or not row["is_admin"]:
+            raise HTTPException(status_code=403, detail="Admin access required")
+    return {**user, "is_admin": 1}
+
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
 
@@ -279,6 +286,26 @@ class HabitCheckinReq(BaseModel):
 
 class InviteUserReq(BaseModel):
     username: str
+
+class HabitTemplateCreate(BaseModel):
+    kategori: str
+    subkategori: str
+    type: Literal["habit", "task"]
+    item: str
+    frequency: Literal["daily", "monthly"]
+    priority: Literal["low", "medium", "high"]
+    difficulty: Literal["easy", "medium", "hard"]
+    tags: list[str] = []
+
+class HabitTemplateUpdate(BaseModel):
+    kategori: str
+    subkategori: str
+    type: Literal["habit", "task"]
+    item: str
+    frequency: Literal["daily", "monthly"]
+    priority: Literal["low", "medium", "high"]
+    difficulty: Literal["easy", "medium", "hard"]
+    tags: list[str] = []
 
 class DrawingUpsert(BaseModel):
     data_json: str = Field(max_length=5_000_000)
@@ -416,10 +443,33 @@ async def _notify_members_bg(list_id: int, actor_user_id: int, message: str, tas
 app = FastAPI(title="TaskFlow V4", docs_url="/api/docs")
 
 
+def seed_habit_templates():
+    """Seed habit_templates from JSON if table is empty."""
+    import os as _os
+    json_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'habits_tasks_1000.json')
+    if not _os.path.exists(json_path):
+        return
+    with get_db() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM habit_templates").fetchone()[0]
+        if count > 0:
+            return
+        with open(json_path, encoding='utf-8') as f:
+            items = json.load(f)
+        for item in items:
+            conn.execute(
+                """INSERT OR IGNORE INTO habit_templates
+                   (kategori, subkategori, type, item, frequency, priority, difficulty, tags)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (item['kategori'], item['subkategori'], item['type'], item['item'],
+                 item['frequency'], item['priority'], item['difficulty'],
+                 json.dumps(item.get('tags', [])))
+            )
+
 @app.on_event("startup")
 async def startup():
     global _tg_bot
     migrate_db()
+    seed_habit_templates()
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     if TELEGRAM_BOT_TOKEN:
         try:
@@ -465,7 +515,7 @@ async def login(req: LoginReq, response: Response):
 @app.get("/api/auth/me")
 async def get_me(user=Depends(get_current_user)):
     with get_db() as conn:
-        row = conn.execute("SELECT id, username, display_name, created_at, telegram_id FROM users WHERE id = ?", (user["sub"],)).fetchone()
+        row = conn.execute("SELECT id, username, display_name, created_at, telegram_id, is_admin FROM users WHERE id = ?", (user["sub"],)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
     result = dict(row)
