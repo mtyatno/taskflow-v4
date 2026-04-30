@@ -40,3 +40,9 @@ MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE_MB", "10")) * 1024 * 1024  # Defaul
 
 # Webapp URL (untuk magic login link)
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://todo.yatno.web.id")
+
+# Nextcloud (WebDAV)
+NEXTCLOUD_URL = os.getenv("NEXTCLOUD_URL", "")
+NEXTCLOUD_USER = os.getenv("NEXTCLOUD_USER", "")
+NEXTCLOUD_APP_PASSWORD = os.getenv("NEXTCLOUD_APP_PASSWORD", "")
+NEXTCLOUD_FOLDER = os.getenv("NEXTCLOUD_FOLDER", "/TaskFlow/attachments")
