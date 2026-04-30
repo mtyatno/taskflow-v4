@@ -6972,14 +6972,17 @@
               />
             </div>
           )}
-          <div className="note-modal-overlay" onClick={onClose}>
-            <div className="note-modal-box" style={{ display: "flex", flexDirection: "column", maxHeight: "90vh" }} onClick={e => e.stopPropagation()}>
-              {header}
-              <div className="note-modal-scroll-area">
-                {inner}
+          {ReactDOM.createPortal(
+            <div className="note-modal-overlay" onClick={onClose}>
+              <div className="note-modal-box" style={{ display: "flex", flexDirection: "column", maxHeight: "90vh" }} onClick={e => e.stopPropagation()}>
+                {header}
+                <div className="note-modal-scroll-area">
+                  {inner}
+                </div>
               </div>
-            </div>
-          </div>
+            </div>,
+            document.body
+          )}
         </>
       );
     }
