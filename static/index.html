@@ -4267,6 +4267,7 @@
       const ctxList = contexts && contexts.length > 0 ? contexts : [...new Set(allTasks?.filter(t => t.context).map(t => t.context) || [])];
 
       return (
+        <>
         <div className="fade-in">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h1 style={{ fontSize: 24, fontWeight: 700 }}>{icon} {title}</h1>
@@ -6972,17 +6973,14 @@
               />
             </div>
           )}
-          {ReactDOM.createPortal(
-            <div className="note-modal-overlay" onClick={onClose}>
-              <div className="note-modal-box" style={{ display: "flex", flexDirection: "column", maxHeight: "90vh" }} onClick={e => e.stopPropagation()}>
-                {header}
-                <div className="note-modal-scroll-area">
-                  {inner}
-                </div>
+          <div className="note-modal-overlay" onClick={onClose}>
+            <div className="note-modal-box" style={{ display: "flex", flexDirection: "column", maxHeight: "90vh" }} onClick={e => e.stopPropagation()}>
+              {header}
+              <div className="note-modal-scroll-area">
+                {inner}
               </div>
-            </div>,
-            document.body
-          )}
+            </div>
+          </div>
         </>
       );
     }
@@ -7827,6 +7825,7 @@
 
           </div>
 
+        </div>
           {/* Modal — edit only */}
           {showModal && (
             <NoteModal
@@ -7843,7 +7842,7 @@
               noteTitles={noteTitles}
             />
           )}
-        </div>
+        </>
       );
     }
 
