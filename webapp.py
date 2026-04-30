@@ -2175,10 +2175,10 @@ async def view_note_attachment(att_id: int, user=Depends(get_current_user)):
     r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=30, stream=True)
     if r.status_code != 200:
         raise HTTPException(status_code=404, detail="File tidak ditemukan di Nextcloud")
+    safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')
     return StreamingResponse(
         r.iter_content(chunk_size=8192),
         media_type=att["mime_type"],
-        safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')
         headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
     )
 
