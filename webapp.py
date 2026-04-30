@@ -39,7 +39,7 @@ from pydantic import BaseModel, Field, field_validator
 import jwt
 import uvicorn
 
-from config import DB_PATH, EISENHOWER_INTERVAL_MINUTES, UPLOAD_DIR, MAX_FILE_SIZE, TELEGRAM_BOT_USERNAME
+from config import DB_PATH, EISENHOWER_INTERVAL_MINUTES, UPLOAD_DIR, MAX_FILE_SIZE, TELEGRAM_BOT_USERNAME, NEXTCLOUD_URL, NEXTCLOUD_USER, NEXTCLOUD_APP_PASSWORD, NEXTCLOUD_FOLDER
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 _tg_bot = None  # Initialized at startup if token available
@@ -55,6 +55,20 @@ JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "72"))
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# ── Nextcloud WebDAV helpers ────────────────────────────────────────────────
+def _nc_dav_url(path: str) -> str:
+    return f"{NEXTCLOUD_URL.rstrip('/')}/remote.php/dav/files/{NEXTCLOUD_USER}{path}"
+
+def _nc_auth() -> tuple:
+    return (NEXTCLOUD_USER, NEXTCLOUD_APP_PASSWORD)
+
+def _nc_ensure_folder() -> None:
+    import requests as _req
+    url = _nc_dav_url(NEXTCLOUD_FOLDER)
+    r = _req.request("MKCOL", url, auth=_nc_auth(), timeout=10)
+    if r.status_code not in (201, 405):  # 201=created, 405=already exists
+        raise HTTPException(status_code=500, detail=f"Nextcloud folder error: {r.status_code}")
 
 # ── Chat SSE broadcast bus ─────────────────────────────────────────────────────
 chat_subscribers: dict[int, set[asyncio.Queue]] = defaultdict(set)
@@ -2076,6 +2090,94 @@ async def toggle_admin(target_id: int, user=Depends(get_admin_user)):
         new_val = 0 if row["is_admin"] else 1
         conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (new_val, target_id))
     return {"id": target_id, "is_admin": new_val}
+
+_ALLOWED_ATTACH_MIME = {"image/png", "image/jpeg", "image/webp", "application/pdf"}
+
+@app.post("/api/scratchpad/{note_id}/attachments")
+async def upload_note_attachment(note_id: int, file: UploadFile = FastAPIFile(...), user=Depends(get_current_user)):
+    import requests as _req
+    uid = user["sub"]
+    with get_db() as conn:
+        note = conn.execute(
+            "SELECT id FROM scratchpad_notes WHERE id=? AND user_id=?", (note_id, uid)
+        ).fetchone()
+        if not note:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail=f"File terlalu besar. Maks {MAX_FILE_SIZE // (1024*1024)}MB")
+
+    original_name = file.filename or "file"
+    mime_type = file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+    if mime_type not in _ALLOWED_ATTACH_MIME:
+        raise HTTPException(status_code=415, detail="Tipe file tidak diizinkan. Gunakan PNG, JPG, WebP, atau PDF")
+
+    ext = Path(original_name).suffix or ""
+    nc_path = f"{NEXTCLOUD_FOLDER}/{uuid.uuid4()}{ext}"
+
+    _nc_ensure_folder()
+    r = _req.put(_nc_dav_url(nc_path), data=content, auth=_nc_auth(), timeout=60,
+                 headers={"Content-Type": mime_type})
+    if r.status_code not in (200, 201, 204):
+        raise HTTPException(status_code=500, detail=f"Upload ke Nextcloud gagal: {r.status_code}")
+
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO note_attachments (note_id, user_id, nextcloud_path, original_name, file_size, mime_type) VALUES (?,?,?,?,?,?)",
+            (note_id, uid, nc_path, original_name, len(content), mime_type)
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM note_attachments WHERE id=?", (cur.lastrowid,)).fetchone()
+        return dict(row)
+
+@app.get("/api/scratchpad/{note_id}/attachments")
+async def list_note_attachments(note_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        note = conn.execute(
+            "SELECT id FROM scratchpad_notes WHERE id=? AND user_id=?", (note_id, uid)
+        ).fetchone()
+        if not note:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        rows = conn.execute(
+            "SELECT * FROM note_attachments WHERE note_id=? ORDER BY id", (note_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+@app.delete("/api/scratchpad/attachments/{att_id}")
+async def delete_note_attachment(att_id: int, user=Depends(get_current_user)):
+    import requests as _req
+    uid = user["sub"]
+    with get_db() as conn:
+        att = conn.execute("SELECT * FROM note_attachments WHERE id=?", (att_id,)).fetchone()
+        if not att:
+            raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
+        if att["user_id"] != uid:
+            raise HTTPException(status_code=403, detail="Bukan attachment milikmu")
+        _req.delete(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=10)
+        conn.execute("DELETE FROM note_attachments WHERE id=?", (att_id,))
+        conn.commit()
+    return {"ok": True}
+
+@app.get("/api/scratchpad/attachments/{att_id}/view")
+async def view_note_attachment(att_id: int, user=Depends(get_current_user)):
+    import requests as _req
+    uid = user["sub"]
+    with get_db() as conn:
+        att = conn.execute("SELECT * FROM note_attachments WHERE id=?", (att_id,)).fetchone()
+        if not att:
+            raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
+        if att["user_id"] != uid:
+            raise HTTPException(status_code=403, detail="Bukan attachment milikmu")
+    r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=30, stream=True)
+    if r.status_code != 200:
+        raise HTTPException(status_code=404, detail="File tidak ditemukan di Nextcloud")
+    return StreamingResponse(
+        r.iter_content(chunk_size=8192),
+        media_type=att["mime_type"],
+        headers={"Content-Disposition": f'inline; filename="{att["original_name"]}"'}
+    )
 
 @app.get("/api/export/download")
 async def export_user_data(user=Depends(get_current_user)):
