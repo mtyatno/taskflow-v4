@@ -318,6 +318,21 @@ class TaskRepository:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_drawings_note ON drawings(note_id)"
             )
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS note_attachments (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    note_id         INTEGER NOT NULL REFERENCES scratchpad_notes(id) ON DELETE CASCADE,
+                    user_id         INTEGER NOT NULL REFERENCES users(id),
+                    nextcloud_path  TEXT NOT NULL,
+                    original_name   TEXT NOT NULL,
+                    file_size       INTEGER NOT NULL,
+                    mime_type       TEXT NOT NULL,
+                    created_at      TEXT DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_note_attachments_note_id ON note_attachments(note_id)"
+            )
             if "pinned" in sp_cols:
                 conn.execute("""
                     INSERT OR IGNORE INTO note_pins (user_id, note_id)
