@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v8-export";
+const CACHE = "taskflow-v9-attach";
 const STATIC = [
   // "/" sengaja tidak di-cache — selalu fetch dari network agar update langsung terlihat
   "/static/vendor/react.production.min.js",
