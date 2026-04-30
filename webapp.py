@@ -2104,6 +2104,10 @@ _ALLOWED_ATTACH_MIME = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.ms-powerpoint",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.visio",
+    "application/vnd.ms-visio.drawing",
+    "application/vnd.ms-visio.drawing.macroEnabled",
+    "application/vnd.ms-project",
 }
 
 @app.post("/api/scratchpad/{note_id}/attachments")
