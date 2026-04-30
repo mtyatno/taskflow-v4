@@ -4267,7 +4267,6 @@
       const ctxList = contexts && contexts.length > 0 ? contexts : [...new Set(allTasks?.filter(t => t.context).map(t => t.context) || [])];
 
       return (
-        <>
         <div className="fade-in">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h1 style={{ fontSize: 24, fontWeight: 700 }}>{icon} {title}</h1>

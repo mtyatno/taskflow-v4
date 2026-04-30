@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v19-modal-fix2";
+const CACHE = "taskflow-v20-modal-fix3";
 const STATIC = [
   // "/" sengaja tidak di-cache — selalu fetch dari network agar update langsung terlihat
   "/static/vendor/react.production.min.js",
