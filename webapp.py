@@ -2155,7 +2155,9 @@ async def delete_note_attachment(att_id: int, user=Depends(get_current_user)):
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
         if att["user_id"] != uid:
             raise HTTPException(status_code=403, detail="Bukan attachment milikmu")
-        _req.delete(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=10)
+        r = _req.delete(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=10)
+        if r.status_code not in (200, 204, 404):  # 404 = already deleted, still OK
+            raise HTTPException(status_code=500, detail=f"Nextcloud delete gagal: {r.status_code}")
         conn.execute("DELETE FROM note_attachments WHERE id=?", (att_id,))
         conn.commit()
     return {"ok": True}
@@ -2176,7 +2178,8 @@ async def view_note_attachment(att_id: int, user=Depends(get_current_user)):
     return StreamingResponse(
         r.iter_content(chunk_size=8192),
         media_type=att["mime_type"],
-        headers={"Content-Disposition": f'inline; filename="{att["original_name"]}"'}
+        safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')
+        headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
     )
 
 @app.get("/api/export/download")
