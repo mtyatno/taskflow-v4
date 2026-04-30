@@ -2108,6 +2108,12 @@ _ALLOWED_ATTACH_MIME = {
     "application/vnd.ms-visio.drawing",
     "application/vnd.ms-visio.drawing.macroEnabled",
     "application/vnd.ms-project",
+    "image/vnd.dwg",
+    "image/vnd.dxf",
+    "application/acad",
+    "application/x-acad",
+    "application/dwg",
+    "application/dxf",
 }
 
 @app.post("/api/scratchpad/{note_id}/attachments")
