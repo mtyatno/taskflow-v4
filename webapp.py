@@ -65,10 +65,15 @@ def _nc_auth() -> tuple:
 
 def _nc_ensure_folder() -> None:
     import requests as _req
-    url = _nc_dav_url(NEXTCLOUD_FOLDER)
-    r = _req.request("MKCOL", url, auth=_nc_auth(), timeout=10)
-    if r.status_code not in (201, 405):  # 201=created, 405=already exists
-        raise HTTPException(status_code=500, detail=f"Nextcloud folder error: {r.status_code}")
+    # Create each path segment in order so parent exists before child
+    # e.g. /TaskFlow/attachments → first /TaskFlow, then /TaskFlow/attachments
+    segments = NEXTCLOUD_FOLDER.strip("/").split("/")
+    path = ""
+    for seg in segments:
+        path += "/" + seg
+        r = _req.request("MKCOL", _nc_dav_url(path), auth=_nc_auth(), timeout=10)
+        if r.status_code not in (201, 405):  # 201=created, 405=already exists
+            raise HTTPException(status_code=500, detail=f"Nextcloud folder error: {r.status_code} on {path}")
 
 # ── Chat SSE broadcast bus ─────────────────────────────────────────────────────
 chat_subscribers: dict[int, set[asyncio.Queue]] = defaultdict(set)
