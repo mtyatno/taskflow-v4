@@ -795,7 +795,7 @@
     .note-modal-title-input { font-size: 17px; font-weight: 700; background: none; border: none; outline: none; color: var(--text-primary); width: 100%; border-bottom: 1.5px solid var(--border); padding-bottom: 8px; }
     .note-modal-content-input { font-size: 14px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 12px; color: var(--text-primary); width: 100%; resize: vertical; min-height: 120px; outline: none; font-family: inherit; line-height: 1.6; }
     .note-modal-section-label { font-size: 11px; font-weight: 700; color: var(--text-secondary); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px; }
-    .note-toolbar { display: flex; gap: 3px; flex-wrap: wrap; margin-bottom: 6px; }
+    .note-toolbar { display: flex; gap: 2px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
     .wikilink { color: var(--accent); font-weight: 600; cursor: pointer; border-bottom: 1px dashed var(--accent); transition: opacity 0.15s; }
     .wikilink:hover { opacity: 0.75; }
     .wikilink-broken { color: var(--text-light); border-bottom: 1px dashed var(--text-light); cursor: default; font-style: italic; }
@@ -6108,20 +6108,18 @@
             )}
           </div>
           <div className="sep"/>
-          <button onClick={() => insert("**", "**", "bold")} title="Bold"><b>B</b></button>
-          <button onClick={() => insert("*", "*", "italic")} title="Italic"><i>I</i></button>
-          <button onClick={() => insert("`", "`", "code")} title="Inline code">{"<>"}</button>
+          <button onClick={() => insert("**", "**", "bold")} title="Bold" style={{ fontWeight: 700, fontFamily: "serif", fontSize: 15 }}>B</button>
+          <button onClick={() => insert("*", "*", "italic")} title="Italic" style={{ fontStyle: "italic", fontFamily: "serif", fontSize: 15 }}>I</button>
+          <button onClick={() => insert("`", "`", "code")} title="Inline code" style={{ fontFamily: "monospace", fontSize: 12 }}>&lt;/&gt;</button>
           <div className="sep"/>
-          <button onClick={() => insertLinePrefix("- ")} title="Bullet list">• List</button>
-          <button onClick={() => insertLinePrefix("- [ ] ")} title="Checklist">☐</button>
-          <button onClick={() => insertLinePrefix("> ")} title="Blockquote">❝</button>
+          <button onClick={() => insertLinePrefix("- ")} title="Bullet list" style={{ fontSize: 14 }}>≡</button>
+          <button onClick={() => insertLinePrefix("- [ ] ")} title="Checklist / Task" style={{ fontSize: 13 }}>☑</button>
+          <button onClick={() => insertLinePrefix("> ")} title="Blockquote" style={{ fontSize: 15 }}>❝</button>
           <div className="sep"/>
-          <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const newVal = value.slice(0,s) + "\n---\n" + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+5,s+5); },0); }} title="Horizontal rule">─</button>
-          <div className="sep"/>
+          <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const newVal = value.slice(0,s) + "\n---\n" + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+5,s+5); },0); }} title="Horizontal rule" style={{ fontSize: 13, letterSpacing: -1 }}>—</button>
           <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vsd,.vsdx,.vsdm,.mpp,.mpt,.dwg,.dxf" style={{ display: 'none' }} onChange={handleAttachFile} />
-          <button onClick={() => noteId && fileInputRef.current?.click()} title={noteId ? 'Lampirkan file' : 'Simpan note dulu'} disabled={uploading || !noteId} style={{ opacity: noteId ? 1 : 0.4 }}>
-            {uploading ? '⏳' : '📎'}
-          </button>
+          <button onClick={() => noteId && fileInputRef.current?.click()} title={noteId ? 'Lampirkan file' : 'Simpan note dulu'} disabled={uploading || !noteId}
+            style={{ opacity: noteId ? 1 : 0.4, fontSize: 15 }}>📎</button>
         </div>
       );
     }
