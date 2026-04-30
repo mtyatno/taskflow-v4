@@ -6118,7 +6118,7 @@
           <div className="sep"/>
           <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const newVal = value.slice(0,s) + "\n---\n" + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+5,s+5); },0); }} title="Horizontal rule">─</button>
           <div className="sep"/>
-          <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf" style={{ display: 'none' }} onChange={handleAttachFile} />
+          <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" style={{ display: 'none' }} onChange={handleAttachFile} />
           <button onClick={() => noteId && fileInputRef.current?.click()} title={noteId ? 'Lampirkan file' : 'Simpan note dulu'} disabled={uploading || !noteId} style={{ opacity: noteId ? 1 : 0.4 }}>
             {uploading ? '⏳' : '📎'}
           </button>
@@ -6982,6 +6982,7 @@
 
     function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onPin, onNavigate, onNavigateFrom, onTrailClick, sharedLists = [], currentUserId, onTaskClick }) {
       const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
+      const [panelAttachments, setPanelAttachments] = React.useState([]);
 
       const iframeRef = React.useRef(null);
       const [drawFullscreen, setDrawFullscreen] = React.useState(false);
@@ -6998,6 +6999,14 @@
         document.addEventListener("mousedown", close);
         return () => document.removeEventListener("mousedown", close);
       }, [shareOpen]);
+
+      React.useEffect(() => {
+        if (!note) return;
+        setPanelAttachments([]);
+        api.get(`/api/scratchpad/${note.id}/attachments`)
+          .then(d => setPanelAttachments(d))
+          .catch(() => {});
+      }, [note?.id]);
 
       React.useEffect(() => {
         if (!note) return;
@@ -7305,6 +7314,25 @@
               ))}
             </div>
           )}
+        {panelAttachments.length > 0 && (
+          <div className="note-attachments-panel">
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              Lampiran ({panelAttachments.length})
+            </div>
+            {panelAttachments.map(att => (
+              <div key={att.id} className="note-attach-row">
+                <span style={{ fontSize: 16 }}>{att.mime_type.startsWith('image/') ? '🖼' : '📄'}</span>
+                <a href={`/api/scratchpad/attachments/${att.id}/view`} target="_blank" rel="noreferrer"
+                   style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--accent)', textDecoration: 'none' }}>
+                  {att.original_name}
+                </a>
+                <span style={{ fontSize: 11, color: 'var(--text-light)', flexShrink: 0 }}>
+                  {att.file_size > 1048576 ? (att.file_size/1048576).toFixed(1)+'MB' : Math.round(att.file_size/1024)+'KB'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         {note && (
         <div style={drawFullscreen ? {
           position: 'fixed', inset: 0, zIndex: 9999,

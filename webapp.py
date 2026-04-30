@@ -2096,7 +2096,15 @@ async def toggle_admin(target_id: int, user=Depends(get_admin_user)):
         conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (new_val, target_id))
     return {"id": target_id, "is_admin": new_val}
 
-_ALLOWED_ATTACH_MIME = {"image/png", "image/jpeg", "image/webp", "application/pdf"}
+_ALLOWED_ATTACH_MIME = {
+    "image/png", "image/jpeg", "image/webp", "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
 
 @app.post("/api/scratchpad/{note_id}/attachments")
 async def upload_note_attachment(note_id: int, file: UploadFile = FastAPIFile(...), user=Depends(get_current_user)):
