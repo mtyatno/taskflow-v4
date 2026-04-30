@@ -6288,6 +6288,14 @@
         note?.id ? String(note.id) : crypto.randomUUID()
       );
       const drawIframeRef = React.useRef(null);
+      const [drawActive, setDrawActive] = React.useState(false);
+      const drawContainerRef = React.useRef(null);
+      React.useEffect(() => {
+        if (!drawActive) return;
+        const hdl = (e) => { if (drawContainerRef.current && !drawContainerRef.current.contains(e.target)) setDrawActive(false); };
+        document.addEventListener('mousedown', hdl);
+        return () => document.removeEventListener('mousedown', hdl);
+      }, [drawActive]);
       const [drawFullscreen, setDrawFullscreen] = React.useState(false);
       const [drawSyncStatus, setDrawSyncStatus] = React.useState('saved');
       const [drawIframeReady, setDrawIframeReady] = React.useState(false);
@@ -6721,13 +6729,22 @@
               border: '1px solid var(--border)',
               borderRadius: drawFullscreen ? 0 : 8,
               overflow: 'hidden',
-            }}>
+              position: 'relative',
+            }} ref={drawContainerRef}>
               <iframe
                 ref={drawIframeRef}
                 src={`/static/vendor/tldraw/index.html?noteId=${canvasNoteId}`}
-                style={{ width: '100%', height: '100%', border: 'none' }}
+                style={{ width: '100%', height: '100%', border: 'none', pointerEvents: drawActive ? 'auto' : 'none' }}
                 title="Drawing canvas"
               />
+              {!drawActive && (
+                <div onClick={() => setDrawActive(true)}
+                  style={{ position: 'absolute', inset: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ background: 'rgba(168,197,0,0.15)', color: 'var(--accent)', padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, backdropFilter: 'blur(2px)' }}>
+                    ✏️ Klik untuk menggambar
+                  </span>
+                </div>
+              )}
             </div>
             {!drawFullscreen && (
               <div style={{
@@ -6987,6 +7004,14 @@
     function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onPin, onNavigate, onNavigateFrom, onTrailClick, sharedLists = [], currentUserId, onTaskClick }) {
       const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
       const [panelAttachments, setPanelAttachments] = React.useState([]);
+      const [canvasActive, setCanvasActive] = React.useState(false);
+      const canvasContainerRef = React.useRef(null);
+      React.useEffect(() => {
+        if (!canvasActive) return;
+        const h = (e) => { if (canvasContainerRef.current && !canvasContainerRef.current.contains(e.target)) setCanvasActive(false); };
+        document.addEventListener('mousedown', h);
+        return () => document.removeEventListener('mousedown', h);
+      }, [canvasActive]);
 
       const iframeRef = React.useRef(null);
       const [drawFullscreen, setDrawFullscreen] = React.useState(false);
@@ -7362,13 +7387,22 @@
             border: '1px solid var(--border)',
             borderRadius: drawFullscreen ? 0 : 8,
             overflow: 'hidden',
-          }}>
+            position: 'relative',
+          }} ref={canvasContainerRef}>
             <iframe
               ref={iframeRef}
               src={`/static/vendor/tldraw/index.html?noteId=${note.id}`}
-              style={{ width: '100%', height: '100%', border: 'none' }}
+              style={{ width: '100%', height: '100%', border: 'none', pointerEvents: canvasActive ? 'auto' : 'none' }}
               title="Drawing canvas"
             />
+            {!canvasActive && (
+              <div onClick={() => setCanvasActive(true)}
+                style={{ position: 'absolute', inset: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ background: 'rgba(168,197,0,0.15)', color: 'var(--accent)', padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, backdropFilter: 'blur(2px)' }}>
+                  ✏️ Klik untuk menggambar
+                </span>
+              </div>
+            )}
           </div>
           {!drawFullscreen && (
             <div style={{
