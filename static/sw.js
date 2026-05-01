@@ -1,6 +1,6 @@
-const CACHE = "taskflow-v29-swr";
+const CACHE = "taskflow-v30-offline";
 const STATIC = [
-  // "/" sengaja tidak di-cache — selalu fetch dari network agar update langsung terlihat
+  "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
   "/static/vendor/react-dom.production.min.js",
   "/static/vendor/babel.min.js",
