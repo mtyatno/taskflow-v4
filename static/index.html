@@ -803,7 +803,7 @@
     .note-modal-title-input { font-size: 17px; font-weight: 700; background: none; border: none; outline: none; color: var(--text-primary); width: 100%; border-bottom: 1.5px solid var(--border); padding-bottom: 8px; }
     .note-modal-content-input { font-size: 14px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 12px; color: var(--text-primary); width: 100%; resize: vertical; min-height: 120px; outline: none; font-family: inherit; line-height: 1.6; }
     .note-modal-section-label { font-size: 11px; font-weight: 700; color: var(--text-secondary); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px; }
-    .note-toolbar { display: flex; gap: 2px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+    .note-toolbar { display: flex; gap: 2px; flex-wrap: nowrap; align-items: center; margin-bottom: 6px; overflow: visible; }
     .wikilink { color: var(--accent); font-weight: 600; cursor: pointer; border-bottom: 1px dashed var(--accent); transition: opacity 0.15s; }
     .wikilink:hover { opacity: 0.75; }
     .wikilink-broken { color: var(--text-light); border-bottom: 1px dashed var(--text-light); cursor: default; font-style: italic; }
@@ -6028,6 +6028,8 @@
     function NoteToolbar({ textareaRef, value, onChange, noteId, onAttachUploaded }) {
       const [hOpen, setHOpen] = React.useState(false);
       const hRef = React.useRef(null);
+      const [moreOpen, setMoreOpen] = React.useState(false);
+      const moreRef = React.useRef(null);
       const fileInputRef = React.useRef(null);
       const [uploading, setUploading] = React.useState(false);
 
@@ -6058,6 +6060,12 @@
         document.addEventListener("mousedown", close);
         return () => document.removeEventListener("mousedown", close);
       }, [hOpen]);
+      React.useEffect(() => {
+        if (!moreOpen) return;
+        const close = (e) => { if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false); };
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
+      }, [moreOpen]);
 
       const insert = (before, after = "", placeholder = "") => {
         const el = textareaRef.current;
@@ -6124,11 +6132,24 @@
           <button onClick={() => insertLinePrefix("- [ ] ")} title="Checklist / Task" style={{ fontSize: 13 }}>☑</button>
           <button onClick={() => insertLinePrefix("> ")} title="Blockquote" style={{ fontSize: 15 }}>❝</button>
           <div className="sep"/>
-          <button onClick={() => insertLinePrefix("1. ")} title="Numbered list" style={{ fontSize: 12, fontWeight: 700 }}>1.</button>
-          <button onClick={() => insert("~~", "~~", "teks")} title="Strikethrough" style={{ textDecoration: "line-through", fontSize: 13 }}>S</button>
-          <div className="sep"/>
-          <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const row1 = "| Kolom 1 | Kolom 2 | Kolom 3 |"; const row2 = "|---------|---------|---------|"; const row3 = "|  |  |  |"; const tbl = "\n" + row1 + "\n" + row2 + "\n" + row3 + "\n"; const newVal = value.slice(0,s) + tbl + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+tbl.length,s+tbl.length); },0); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
-          <button onClick={() => insert("[[", "]]", "judul note")} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
+          {/* More dropdown */}
+          <div ref={moreRef} style={{ position: "relative", flexShrink: 0 }}>
+            <button onClick={() => setMoreOpen(o => !o)} title="Format lainnya"
+              style={{ fontWeight: 700, fontSize: 14, color: moreOpen ? "var(--accent)" : undefined,
+                       borderColor: moreOpen ? "var(--accent)" : undefined }}>+</button>
+            {moreOpen && (
+              <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 300,
+                background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10,
+                boxShadow: "0 6px 24px rgba(0,0,0,0.15)", display: "flex", alignItems: "center",
+                gap: 2, padding: "6px 8px", flexWrap: "nowrap" }}>
+                <button onClick={() => { insertLinePrefix("1. "); setMoreOpen(false); }} title="Numbered list" style={{ fontSize: 12, fontWeight: 700 }}>1.</button>
+                <button onClick={() => { insert("~~", "~~", "teks"); setMoreOpen(false); }} title="Strikethrough" style={{ textDecoration: "line-through", fontSize: 13 }}>S</button>
+                <div className="sep"/>
+                <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const row1 = "| Kolom 1 | Kolom 2 | Kolom 3 |"; const row2 = "|---------|---------|---------|"; const row3 = "|  |  |  |"; const tbl = "\n" + row1 + "\n" + row2 + "\n" + row3 + "\n"; const newVal = value.slice(0,s) + tbl + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+tbl.length,s+tbl.length); },0); setMoreOpen(false); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
+                <button onClick={() => { insert("[[", "]]", "judul note"); setMoreOpen(false); }} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
+              </div>
+            )}
+          </div>
           <div className="sep"/>
           <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const nl = String.fromCharCode(10); const newVal = value.slice(0,s) + nl + "---" + nl + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+5,s+5); },0); }} title="Horizontal rule" style={{ fontSize: 13, letterSpacing: -1 }}>—</button>
           <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vsd,.vsdx,.vsdm,.mpp,.mpt,.dwg,.dxf" style={{ display: 'none' }} onChange={handleAttachFile} />
