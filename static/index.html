@@ -6124,7 +6124,19 @@
           <button onClick={() => insertLinePrefix("- [ ] ")} title="Checklist / Task" style={{ fontSize: 13 }}>☑</button>
           <button onClick={() => insertLinePrefix("> ")} title="Blockquote" style={{ fontSize: 15 }}>❝</button>
           <div className="sep"/>
-          <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const newVal = value.slice(0,s) + "\n---\n" + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+5,s+5); },0); }} title="Horizontal rule" style={{ fontSize: 13, letterSpacing: -1 }}>—</button>
+          <button onClick={() => insertLinePrefix("1. ")} title="Numbered list" style={{ fontSize: 12, fontWeight: 700 }}>1.</button>
+          <button onClick={() => insert("~~", "~~", "teks")} title="Strikethrough" style={{ textDecoration: "line-through", fontSize: 13 }}>S</button>
+          <div className="sep"/>
+          <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const tbl = "
+| Kolom 1 | Kolom 2 | Kolom 3 |
+|-|-|-|
+|  |  |  |
+"; const newVal = value.slice(0,s) + tbl + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+tbl.length,s+tbl.length); },0); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
+          <button onClick={() => insert("[[", "]]", "judul note")} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
+          <div className="sep"/>
+          <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const newVal = value.slice(0,s) + "
+---
+" + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+5,s+5); },0); }} title="Horizontal rule" style={{ fontSize: 13, letterSpacing: -1 }}>—</button>
           <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vsd,.vsdx,.vsdm,.mpp,.mpt,.dwg,.dxf" style={{ display: 'none' }} onChange={handleAttachFile} />
           <button onClick={() => noteId && fileInputRef.current?.click()} title={noteId ? 'Lampirkan file' : 'Simpan note dulu'} disabled={uploading || !noteId}
             style={{ opacity: noteId ? 1 : 0.4, fontSize: 15 }}>📎</button>
