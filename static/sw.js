@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v28-toolbar4";
+const CACHE = "taskflow-v29-swr";
 const STATIC = [
   // "/" sengaja tidak di-cache — selalu fetch dari network agar update langsung terlihat
   "/static/vendor/react.production.min.js",
@@ -72,24 +72,23 @@ self.addEventListener("fetch", e => {
     return
   }
 
-  // HTML root ("/") — network-first + update cache
-  // Saat online: selalu fetch terbaru dari server dan simpan ke cache
-  // Saat offline: serve dari cache yang tersimpan terakhir kali online
+  // HTML root ("/") — stale-while-revalidate
+  // Kunjungan ke-2+: langsung dari cache, background fetch update cache untuk kunjungan berikutnya
+  // Kunjungan pertama (cache kosong): tunggu network seperti biasa
   if (url.pathname === "/" && request.method === "GET") {
     e.respondWith(
-      fetch(request)
-        .then(res => {
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE).then(c => c.put(request, clone));
-          }
-          return res;
-        })
-        .catch(() =>
-          caches.match(request).then(cached =>
+      caches.open(CACHE).then(cache =>
+        cache.match(request).then(cached => {
+          const networkFetch = fetch(request).then(res => {
+            if (res.ok) cache.put(request, res.clone());
+            return res;
+          }).catch(() =>
             cached || new Response("Offline — buka kembali saat terhubung ke internet", { status: 503 })
-          )
-        )
+          );
+          // Jika ada cache → serve langsung, update cache di background
+          return cached || networkFetch;
+        })
+      )
     );
     return;
   }
