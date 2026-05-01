@@ -6127,11 +6127,7 @@
           <button onClick={() => insertLinePrefix("1. ")} title="Numbered list" style={{ fontSize: 12, fontWeight: 700 }}>1.</button>
           <button onClick={() => insert("~~", "~~", "teks")} title="Strikethrough" style={{ textDecoration: "line-through", fontSize: 13 }}>S</button>
           <div className="sep"/>
-          <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const tbl = "
-| Kolom 1 | Kolom 2 | Kolom 3 |
-|-|-|-|
-|  |  |  |
-"; const newVal = value.slice(0,s) + tbl + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+tbl.length,s+tbl.length); },0); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
+          <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const row1 = "| Kolom 1 | Kolom 2 | Kolom 3 |"; const row2 = "|---------|---------|---------|"; const row3 = "|  |  |  |"; const tbl = "\n" + row1 + "\n" + row2 + "\n" + row3 + "\n"; const newVal = value.slice(0,s) + tbl + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+tbl.length,s+tbl.length); },0); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
           <button onClick={() => insert("[[", "]]", "judul note")} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
           <div className="sep"/>
           <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const newVal = value.slice(0,s) + "
