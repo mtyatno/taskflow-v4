@@ -1069,10 +1069,16 @@ async def check_recurring_expiry(background_tasks: BackgroundTasks, user=Depends
 
         # Atomic update: only update if level hasn't changed since we read it
         with get_db() as conn:
-            conn.execute(
-                "UPDATE tasks SET recurrence_notif_level=? WHERE id=? AND (recurrence_notif_level IS ? OR recurrence_notif_level=?)",
-                (new_level, t["id"], current_level, current_level)
-            )
+            if current_level is None:
+                conn.execute(
+                    "UPDATE tasks SET recurrence_notif_level=? WHERE id=? AND recurrence_notif_level IS NULL",
+                    (new_level, t["id"])
+                )
+            else:
+                conn.execute(
+                    "UPDATE tasks SET recurrence_notif_level=? WHERE id=? AND recurrence_notif_level=?",
+                    (new_level, t["id"], current_level)
+                )
 
         repo = TaskRepository(DB_PATH)
         repo.add_notification(uid, msg, task_id=t["id"])
