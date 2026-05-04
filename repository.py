@@ -265,7 +265,7 @@ class TaskRepository:
                 CREATE TABLE IF NOT EXISTS recurring_exceptions (
                     id               INTEGER PRIMARY KEY AUTOINCREMENT,
                     task_id          INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-                    user_id          INTEGER NOT NULL REFERENCES users(id),
+                    user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                     occurrence_date  TEXT NOT NULL,
                     status           TEXT NOT NULL,
                     created_at       TEXT NOT NULL,
