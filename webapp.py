@@ -28,7 +28,7 @@ def _today_jkt() -> date:
     """Return today's date in Jakarta timezone (UTC+7)."""
     return datetime.now(_TZ_JKT).date()
 
-from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, UploadFile, File as FastAPIFile, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, UploadFile, File as FastAPIFile, BackgroundTasks, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 import io
@@ -374,6 +374,9 @@ class MessageCreate(BaseModel):
     msg_type: str = "text"
     reply_to_id: Optional[int] = None
 
+class RecurrenceMarkReq(BaseModel):
+    status: str  # "done" | "skipped"
+
 
 # ── Row → dict helper ─────────────────────────────────────────────────────────
 
@@ -459,6 +462,13 @@ async def _notify_members_bg(list_id: int, actor_user_id: int, message: str, tas
                     await _tg_bot.send_message(chat_id=tg_id, text=message, parse_mode="HTML")
                 except Exception:
                     pass
+    except Exception:
+        pass
+
+
+async def _send_tg_message(tg_id: int, text: str):
+    try:
+        await _tg_bot.send_message(chat_id=tg_id, text=text, parse_mode="HTML")
     except Exception:
         pass
 
@@ -951,6 +961,127 @@ async def delete_task(task_id: int, user=Depends(get_current_user)):
                 raise HTTPException(status_code=403, detail="Hanya task owner atau list owner yang bisa menghapus")
         conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
     return {"ok": True, "id": task_id}
+
+
+# ── Recurring task endpoints ──────────────────────────────────────────────────
+
+@app.post("/api/tasks/{task_id}/occurrences/{occurrence_date}/mark")
+async def mark_occurrence(task_id: int, occurrence_date: str, req: RecurrenceMarkReq, user=Depends(get_current_user)):
+    uid = user["sub"]
+    if req.status not in ("done", "skipped"):
+        raise HTTPException(status_code=400, detail="status harus 'done' atau 'skipped'")
+    try:
+        occ_date = date.fromisoformat(occurrence_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Format tanggal tidak valid (YYYY-MM-DD)")
+    with get_db() as conn:
+        task = _can_access_task(conn, task_id, uid)
+        if not task["recurrence_type"]:
+            raise HTTPException(status_code=400, detail="Task ini bukan recurring task")
+        task_created = date.fromisoformat(task["created_at"][:10])
+        task_end = date.fromisoformat(task["recurrence_end_date"])
+        if occ_date < task_created or occ_date > task_end:
+            raise HTTPException(status_code=400, detail="Tanggal di luar range recurring task")
+        now = datetime.now().isoformat()
+        conn.execute("""
+            INSERT INTO recurring_exceptions (task_id, user_id, occurrence_date, status, created_at)
+            VALUES (?,?,?,?,?)
+            ON CONFLICT(task_id, occurrence_date) DO UPDATE SET status=excluded.status
+        """, (task_id, uid, occurrence_date, req.status, now))
+        row = conn.execute(
+            "SELECT * FROM recurring_exceptions WHERE task_id=? AND occurrence_date=?",
+            (task_id, occurrence_date)
+        ).fetchone()
+    return dict(row)
+
+
+@app.get("/api/recurring/exceptions")
+async def get_recurring_exceptions(
+    from_date: str = Query(..., alias="from"),
+    to_date: str = Query(..., alias="to"),
+    user=Depends(get_current_user)
+):
+    uid = user["sub"]
+    try:
+        date.fromisoformat(from_date)
+        date.fromisoformat(to_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Format tanggal tidak valid (YYYY-MM-DD)")
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT re.task_id, re.occurrence_date, re.status
+            FROM recurring_exceptions re
+            JOIN tasks t ON t.id = re.task_id
+            WHERE re.user_id = ?
+              AND re.occurrence_date >= ?
+              AND re.occurrence_date <= ?
+        """, (uid, from_date, to_date)).fetchall()
+    result = {}
+    for r in rows:
+        key = str(r["task_id"])
+        if key not in result:
+            result[key] = []
+        result[key].append({"occurrence_date": r["occurrence_date"], "status": r["status"]})
+    return result
+
+
+@app.post("/api/recurring/check-expiry")
+async def check_recurring_expiry(background_tasks: BackgroundTasks, user=Depends(get_current_user)):
+    uid = user["sub"]
+    today = date.today()
+    with get_db() as conn:
+        tasks_rows = conn.execute("""
+            SELECT id, title, recurrence_end_date, recurrence_notif_level, user_id
+            FROM tasks
+            WHERE user_id = ? AND recurrence_type IS NOT NULL AND recurrence_end_date IS NOT NULL
+        """, (uid,)).fetchall()
+
+    notified = []
+    expiring_tasks = []
+
+    for t in tasks_rows:
+        end_date = date.fromisoformat(t["recurrence_end_date"])
+        days_left = (end_date - today).days
+        current_level = t["recurrence_notif_level"]
+        new_level = None
+        msg = None
+        tg_msg = None
+
+        if days_left < 0 and current_level in (None, "week", "day"):
+            new_level = "expired"
+            msg = f'🔄 Recurring task "{t["title"]}" telah berakhir. Buat ulang jika masih diperlukan.'
+            tg_msg = f'🔄 <b>Recurring Task Berakhir</b>\n"{t["title"]}" telah berakhir.\nBuka TaskFlow untuk membuat ulang.'
+        elif days_left <= 1 and current_level == "week":
+            new_level = "day"
+            msg = f'⚠️ Recurring task "{t["title"]}" berakhir besok. Perpanjang jika masih diperlukan.'
+            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" berakhir besok.\nBuka TaskFlow untuk memperpanjang.'
+        elif days_left <= 7 and current_level is None:
+            new_level = "week"
+            msg = f'⚠️ Recurring task "{t["title"]}" akan berakhir dalam {days_left} hari. Perpanjang jika masih diperlukan.'
+            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" akan berakhir dalam {days_left} hari.\nBuka TaskFlow untuk memperpanjang.'
+        else:
+            continue
+
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE tasks SET recurrence_notif_level=? WHERE id=?",
+                (new_level, t["id"])
+            )
+
+        repo = TaskRepository(DB_PATH)
+        repo.add_notification(uid, msg, task_id=t["id"])
+
+        if _tg_bot:
+            with get_db() as conn:
+                user_row = conn.execute("SELECT telegram_id FROM users WHERE id=?", (uid,)).fetchone()
+            if user_row and user_row["telegram_id"]:
+                tg_id = user_row["telegram_id"]
+                background_tasks.add_task(_send_tg_message, tg_id, tg_msg)
+
+        notified.append(new_level)
+        expiring_tasks.append({"id": t["id"], "title": t["title"], "level": new_level, "days_left": days_left})
+
+    return {"notified": notified, "tasks": expiring_tasks}
 
 
 # ── Dashboard / summary ───────────────────────────────────────────────────────
