@@ -2192,6 +2192,14 @@
         assigned_to: task?.assigned_to || null,
         progress: task?.progress || 0,
       });
+      const [recurringOn, setRecurringOn] = React.useState(!!(task && task.recurrence_type));
+      const [recurForm, setRecurForm] = React.useState({
+        type: (task && task.recurrence_type) || "daily",
+        days: (task && task.recurrence_days) ? JSON.parse(task.recurrence_days) : [0,2,4],
+        dayOfMonth: (task && task.recurrence_days) ? JSON.parse(task.recurrence_days)[0] : 1,
+      });
+      const setRecur = (k, v) => setRecurForm(f => ({ ...f, [k]: v }));
+      const isRecurExpired = !!(task && task.recurrence_end_date && task.recurrence_end_date < new Date().toISOString().slice(0,10));
       const titleInputRef = React.useRef(null);
       const [titleTagDropdown, setTitleTagDropdown] = useState(null);
       const [titleExistingTags, setTitleExistingTags] = useState([]);
@@ -2387,12 +2395,17 @@
           return;
         }
         // ── Task mode ─────────────────────────────────────────────
+        const recurrencePayload = recurringOn ? {
+          recurrence_type: recurForm.type,
+          recurrence_days: recurForm.type === "weekly" ? JSON.stringify(recurForm.days) :
+                           recurForm.type === "monthly" ? JSON.stringify([recurForm.dayOfMonth]) : null,
+        } : { recurrence_type: null, recurrence_days: null };
         try {
           if (isEdit) {
-            await api.put(`/api/tasks/${task.id}`, form);
+            await api.put(`/api/tasks/${task.id}`, { ...form, ...recurrencePayload });
             onSave();
           } else {
-            const newTask = await api.post("/api/tasks", form);
+            const newTask = await api.post("/api/tasks", { ...form, ...recurrencePayload });
             for (const sub of pendingSubtasks) {
               await api.post("/api/tasks", { title: sub.title, gtd_status: sub.gtd, parent_id: newTask.id });
             }
@@ -2761,6 +2774,71 @@
 
               <label className="input-label">Deadline</label>
               <input className="input" type="date" value={form.deadline} onChange={e => set("deadline", e.target.value)} style={{ marginBottom: 14 }} />
+
+              {/* Recurring Task Section */}
+              <div style={{ marginTop: 0, marginBottom: 14, padding: "10px 12px", background: "var(--bg-primary)", borderRadius: 10, border: "1px solid var(--border)" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
+                  <input type="checkbox" checked={recurringOn} onChange={e => setRecurringOn(e.target.checked)}
+                    style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
+                  🔁 Berulang
+                </label>
+                {recurringOn && (
+                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                    <select value={recurForm.type} onChange={e => setRecur("type", e.target.value)}
+                      style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-primary)", color: "var(--text-primary)", fontSize: 13 }}>
+                      <option value="daily">Setiap Hari</option>
+                      <option value="weekdays">Hari Kerja (Sen-Jum)</option>
+                      <option value="weekly">Mingguan</option>
+                      <option value="monthly">Bulanan</option>
+                    </select>
+                    {recurForm.type === "weekly" && (
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {[["Sen",0],["Sel",1],["Rab",2],["Kam",3],["Jum",4],["Sab",5],["Min",6]].map(([lbl,val]) => (
+                          <button key={val} type="button"
+                            onClick={() => setRecur("days", recurForm.days.includes(val) ? recurForm.days.filter(d => d !== val) : [...recurForm.days, val])}
+                            style={{ padding: "3px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                              background: recurForm.days.includes(val) ? "var(--accent)" : "var(--bg-card)",
+                              color: recurForm.days.includes(val) ? "#000" : "var(--text-secondary)",
+                              border: "1px solid var(--border)" }}>{lbl}</button>
+                        ))}
+                      </div>
+                    )}
+                    {recurForm.type === "monthly" && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 13 }}>Tanggal</span>
+                        <input type="number" min={1} max={28} value={recurForm.dayOfMonth}
+                          onChange={e => setRecur("dayOfMonth", Math.max(1,Math.min(28,parseInt(e.target.value)||1)))}
+                          style={{ width: 60, padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-primary)", color: "var(--text-primary)", fontSize: 13 }} />
+                        <span style={{ fontSize: 12, color: "var(--text-light)" }}>setiap bulan (maks. 28)</span>
+                      </div>
+                    )}
+                    {task && task.recurrence_end_date && !isRecurExpired && (
+                      <div style={{ fontSize: 12, color: "var(--text-light)" }}>
+                        Aktif hingga {task.recurrence_end_date}
+                      </div>
+                    )}
+                    {isRecurExpired && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 12, color: "#ef4444", fontWeight: 600 }}>Berakhir {task.recurrence_end_date}</span>
+                        <button type="button" onClick={async () => {
+                          try {
+                            const updated = await api.put("/api/tasks/" + task.id, { recurrence_renew: true });
+                            onSave && onSave(updated);
+                          } catch(e) {}
+                        }} style={{ padding: "3px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                          background: "var(--accent)", color: "#000", border: "none", cursor: "pointer" }}>
+                          🔄 Perpanjang 3 Bulan
+                        </button>
+                      </div>
+                    )}
+                    {!(task && task.recurrence_end_date) && recurringOn && (
+                      <div style={{ fontSize: 12, color: "var(--text-light)" }}>
+                        Aktif selama 3 bulan setelah disimpan
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {form.gtd_status === "waiting" && <>
                 <label className="input-label">Waiting For</label>
