@@ -271,6 +271,8 @@ class TaskCreate(BaseModel):
     list_id: Optional[int] = None
     assigned_to: Optional[int] = None
     parent_id: Optional[int] = None
+    recurrence_type: Optional[str] = None   # daily|weekly|monthly|weekdays
+    recurrence_days: Optional[list] = None  # [0,2,4] untuk weekly Sen/Rab/Jum
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
@@ -283,6 +285,9 @@ class TaskUpdate(BaseModel):
     waiting_for: Optional[str] = None
     assigned_to: Optional[int] = None
     progress: Optional[int] = None
+    recurrence_type: Optional[str] = None
+    recurrence_days: Optional[list] = None
+    recurrence_renew: Optional[bool] = None  # True = perpanjang 3 bulan
 
 class SharedListCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
@@ -696,14 +701,30 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
     )
     quadrant = calculate_quadrant(task_obj).value
 
+    # Recurrence
+    recurrence_type = req.recurrence_type if req.recurrence_type in ("daily","weekly","monthly","weekdays") else None
+    recurrence_days_json = None
+    recurrence_end_date = None
+    if recurrence_type:
+        if recurrence_type == "weekly" and req.recurrence_days:
+            recurrence_days_json = json.dumps([int(d) for d in req.recurrence_days if 0 <= int(d) <= 6])
+        elif recurrence_type == "monthly" and req.recurrence_days:
+            day_of_month = max(1, min(28, int(req.recurrence_days[0])))
+            recurrence_days_json = json.dumps([day_of_month])
+        recurrence_end_date = (date.today() + timedelta(days=90)).isoformat()
+
     with get_db() as conn:
         cur = conn.execute(
             """INSERT INTO tasks
                (title, description, gtd_status, priority, quadrant,
-                project, context, deadline, waiting_for, user_id, list_id, assigned_to, parent_id, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                project, context, deadline, waiting_for, user_id, list_id, assigned_to, parent_id,
+                recurrence_type, recurrence_days, recurrence_end_date,
+                created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (req.title, req.description, req.gtd_status, req.priority.upper(), quadrant,
-             req.project, req.context, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, parent_id, now, now),
+             req.project, req.context, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, parent_id,
+             recurrence_type, recurrence_days_json, recurrence_end_date,
+             now, now),
         )
         task_id = cur.lastrowid
         if task_tags:
@@ -803,6 +824,27 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
             updates["assigned_to"] = req.assigned_to if req.assigned_to != 0 else None
         if req.progress is not None:
             updates["progress"] = max(0, min(100, req.progress))
+
+        if req.recurrence_renew:
+            updates["recurrence_end_date"] = (date.today() + timedelta(days=90)).isoformat()
+            updates["recurrence_notif_level"] = None
+        elif req.recurrence_type is not None:
+            if req.recurrence_type in ("daily","weekly","monthly","weekdays"):
+                updates["recurrence_type"] = req.recurrence_type
+                if req.recurrence_type == "weekly" and req.recurrence_days is not None:
+                    updates["recurrence_days"] = json.dumps([int(d) for d in req.recurrence_days if 0 <= int(d) <= 6])
+                elif req.recurrence_type == "monthly" and req.recurrence_days is not None:
+                    day_of_month = max(1, min(28, int(req.recurrence_days[0])))
+                    updates["recurrence_days"] = json.dumps([day_of_month])
+                else:
+                    updates["recurrence_days"] = None
+                if not existing.get("recurrence_end_date"):
+                    updates["recurrence_end_date"] = (date.today() + timedelta(days=90)).isoformat()
+            else:
+                updates["recurrence_type"] = None
+                updates["recurrence_days"] = None
+                updates["recurrence_end_date"] = None
+                updates["recurrence_notif_level"] = None
 
         if not updates:
             raise HTTPException(status_code=400, detail="No fields to update")
