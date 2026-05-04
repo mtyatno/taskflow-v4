@@ -1039,6 +1039,11 @@ async def check_recurring_expiry(background_tasks: BackgroundTasks, user=Depends
     notified = []
     expiring_tasks = []
 
+    # Batch lookup telegram_id — satu koneksi di luar loop
+    with get_db() as conn:
+        user_row = conn.execute("SELECT telegram_id FROM users WHERE id=?", (uid,)).fetchone()
+    tg_id = user_row["telegram_id"] if user_row else None
+
     for t in tasks_rows:
         end_date = date.fromisoformat(t["recurrence_end_date"])
         days_left = (end_date - today).days
@@ -1062,21 +1067,18 @@ async def check_recurring_expiry(background_tasks: BackgroundTasks, user=Depends
         else:
             continue
 
+        # Atomic update: only update if level hasn't changed since we read it
         with get_db() as conn:
             conn.execute(
-                "UPDATE tasks SET recurrence_notif_level=? WHERE id=?",
-                (new_level, t["id"])
+                "UPDATE tasks SET recurrence_notif_level=? WHERE id=? AND (recurrence_notif_level IS ? OR recurrence_notif_level=?)",
+                (new_level, t["id"], current_level, current_level)
             )
 
         repo = TaskRepository(DB_PATH)
         repo.add_notification(uid, msg, task_id=t["id"])
 
-        if _tg_bot:
-            with get_db() as conn:
-                user_row = conn.execute("SELECT telegram_id FROM users WHERE id=?", (uid,)).fetchone()
-            if user_row and user_row["telegram_id"]:
-                tg_id = user_row["telegram_id"]
-                background_tasks.add_task(_send_tg_message, tg_id, tg_msg)
+        if _tg_bot and tg_id:
+            background_tasks.add_task(_send_tg_message, tg_id, tg_msg)
 
         notified.append(new_level)
         expiring_tasks.append({"id": t["id"], "title": t["title"], "level": new_level, "days_left": days_left})
