@@ -2413,11 +2413,11 @@
           }
         } catch (err) {
           if (isOfflineErr(err) && isEdit && onOfflineSave) {
-            await OfflineDB.queueAdd({ method: "PUT", url: `/api/tasks/${task.id}`, body: form });
-            onOfflineSave({ ...task, ...form, _pending: true });
+            await OfflineDB.queueAdd({ method: "PUT", url: `/api/tasks/${task.id}`, body: { ...form, ...recurrencePayload } });
+            onOfflineSave({ ...task, ...form, ...recurrencePayload, _pending: true });
           } else if (isOfflineErr(err) && !isEdit && onOfflineSave) {
             const tempId = `tmp_${Date.now()}`;
-            await OfflineDB.queueAdd({ method: "POST", url: "/api/tasks", body: form, tempId, createdAt: Date.now() });
+            await OfflineDB.queueAdd({ method: "POST", url: "/api/tasks", body: { ...form, ...recurrencePayload }, tempId, createdAt: Date.now() });
             for (const sub of pendingSubtasks) {
               await OfflineDB.queueAdd({ method: "POST", url: "/api/tasks", body: { title: sub.title, gtd_status: sub.gtd, parent_id: tempId }, tempId: null, createdAt: Date.now() });
             }
