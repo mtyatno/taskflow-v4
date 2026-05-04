@@ -4579,6 +4579,39 @@
       return <div style={{ height: 200 }}><canvas ref={canvasRef} /></div>;
     }
 
+    // ── Recurring Task Helper ───────────────────────────────────────
+    function computeOccurrences(task, fromDate, toDate) {
+      // Returns array of YYYY-MM-DD strings for recurring occurrences in [fromDate, toDate]
+      if (!task.recurrence_type || !task.recurrence_end_date) return [];
+      const days = task.recurrence_days ? JSON.parse(task.recurrence_days) : [];
+      const startD = new Date(task.created_at.slice(0,10) + 'T00:00:00');
+      const endD   = new Date(task.recurrence_end_date + 'T00:00:00');
+      const fromD  = new Date(fromDate + 'T00:00:00');
+      const toD    = new Date(toDate + 'T00:00:00');
+      const lo = startD > fromD ? startD : fromD;
+      const hi = endD < toD ? endD : toD;
+      if (lo > hi) return [];
+      const result = [];
+      const cur = new Date(lo);
+      while (cur <= hi) {
+        const jsDay = cur.getDay();
+        const myDay = (jsDay + 6) % 7;
+        let match = false;
+        if (task.recurrence_type === 'daily') match = true;
+        else if (task.recurrence_type === 'weekdays') match = myDay <= 4;
+        else if (task.recurrence_type === 'weekly') match = days.includes(myDay);
+        else if (task.recurrence_type === 'monthly') match = cur.getDate() === days[0];
+        if (match) {
+          const y = cur.getFullYear();
+          const m = String(cur.getMonth()+1).padStart(2,'0');
+          const d = String(cur.getDate()).padStart(2,'0');
+          result.push(y + '-' + m + '-' + d);
+        }
+        cur.setDate(cur.getDate() + 1);
+      }
+      return result;
+    }
+
     // ── Calendar View ───────────────────────────────────────────
     function CalendarView({ tasks, onTaskClick }) {
       const today = new Date();
