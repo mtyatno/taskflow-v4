@@ -249,6 +249,32 @@ class TaskRepository:
             if "parent_id" not in cols:
                 conn.execute("ALTER TABLE tasks ADD COLUMN parent_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL")
 
+            # Migrate: recurring task columns
+            cols = [row["name"] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+            if "recurrence_type" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN recurrence_type TEXT DEFAULT NULL")
+            if "recurrence_days" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN recurrence_days TEXT DEFAULT NULL")
+            if "recurrence_end_date" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN recurrence_end_date TEXT DEFAULT NULL")
+            if "recurrence_notif_level" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN recurrence_notif_level TEXT DEFAULT NULL")
+
+            # Recurring exceptions table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS recurring_exceptions (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id          INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    user_id          INTEGER NOT NULL REFERENCES users(id),
+                    occurrence_date  TEXT NOT NULL,
+                    status           TEXT NOT NULL,
+                    created_at       TEXT NOT NULL,
+                    UNIQUE(task_id, occurrence_date)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_rec_exc_task_date ON recurring_exceptions(task_id, occurrence_date)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_rec_exc_user ON recurring_exceptions(user_id)")
+
             # Migrate: add author_id and client_id to task_notes if missing
             note_cols = [row["name"] for row in conn.execute("PRAGMA table_info(task_notes)").fetchall()]
             if "author_id" not in note_cols:
