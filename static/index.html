@@ -2397,8 +2397,8 @@
         // ── Task mode ─────────────────────────────────────────────
         const recurrencePayload = recurringOn ? {
           recurrence_type: recurForm.type,
-          recurrence_days: recurForm.type === "weekly" ? JSON.stringify(recurForm.days) :
-                           recurForm.type === "monthly" ? JSON.stringify([recurForm.dayOfMonth]) : null,
+          recurrence_days: recurForm.type === "weekly" ? recurForm.days :
+                           recurForm.type === "monthly" ? [recurForm.dayOfMonth] : null,
         } : { recurrence_type: null, recurrence_days: null };
         try {
           if (isEdit) {
