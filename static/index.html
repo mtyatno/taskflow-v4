@@ -4216,6 +4216,23 @@
     function TodayFocusView({ tasks, onTaskClick, onDone, loading }) {
       const [focusTask, setFocusTask] = useState(null);
       const [taskPomodoros, setTaskPomodoros] = useState({});
+      const [todayExceptions, setTodayExceptions] = useState({});
+      const todayStr = new Date().toISOString().slice(0,10);
+      React.useEffect(() => {
+        const recurringTasks = tasks.filter(t => t.recurrence_type && t.recurrence_end_date);
+        if (recurringTasks.length === 0) return;
+        api.get("/api/recurring/exceptions?from=" + todayStr + "&to=" + todayStr)
+          .then(data => setTodayExceptions(data || {}))
+          .catch(() => {});
+      }, [tasks]);
+      const recurringToday = tasks.filter(t => {
+        if (!t.recurrence_type || !t.recurrence_end_date) return false;
+        const occs = computeOccurrences(t, todayStr, todayStr);
+        if (occs.length === 0) return false;
+        const excs = todayExceptions[String(t.id)] || [];
+        const exc = excs.find(e => e.occurrence_date === todayStr);
+        return !exc || (exc.status !== "done" && exc.status !== "skipped");
+      });
 
       const todayTasks = tasks.filter(t =>
         (t.quadrant === "Q1" || t.is_overdue || t.is_focused) &&
@@ -4258,6 +4275,30 @@
           />
 
           {/* Task List */}
+          {recurringToday.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--accent)", letterSpacing: "0.5px" }}>ð RECURRING HARI INI</span>
+                <div style={{ flex: 1, height: 1, background: "rgba(168,197,0,0.3)" }} />
+                <span style={{ fontSize: 12, color: "var(--text-light)" }}>{recurringToday.length} task</span>
+              </div>
+              {recurringToday.map(t => (
+                <div key={t.id} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderLeft: "3px solid var(--accent)", borderRadius: 10, padding: "10px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>ð {t.title}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-light)" }}>{t.priority} Â· {t.recurrence_type}</div>
+                  </div>
+                  <button onClick={async () => {
+                    await api.post("/api/tasks/" + t.id + "/occurrences/" + todayStr + "/mark", { status: "done" });
+                    const data = await api.get("/api/recurring/exceptions?from=" + todayStr + "&to=" + todayStr);
+                    setTodayExceptions(data || {});
+                  }} style={{ padding: "5px 12px", borderRadius: 8, background: "var(--accent)", color: "#000", border: "none", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
+                    â Done
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div style={{ marginBottom: 20 }}>
             {/* Section header — habit-style */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -9123,6 +9164,7 @@
       const [sidebarOpen, setSidebarOpen] = useState(false);
       const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
       const [unreadCount, setUnreadCount] = useState(0);
+      const [recurExpiryAlert, setRecurExpiryAlert] = useState(null);
       const [notifications, setNotifications] = useState([]);
       const [showNotifPanel, setShowNotifPanel] = useState(false);
 
@@ -9228,6 +9270,16 @@
         // Deteksi online berdasarkan navigator.onLine — lebih reliable dari API call result
         // karena SW bisa serve cached API response (HTTP 200) walaupun sebenarnya offline
         setIsOnline(navigator.onLine);
+        if (navigator.onLine) {
+          api.post("/api/recurring/check-expiry")
+            .then(data => {
+              if (data && data.tasks && data.tasks.length > 0) {
+                const hasExpired = data.tasks.some(t => t.level === "expired");
+                setRecurExpiryAlert({ count: data.tasks.length, hasExpired });
+              }
+            })
+            .catch(() => {});
+        }
 
         // Saat offline: apply pending queue mutations di atas data cache
         // Cek navigator.onLine (bukan results[0].status) agar tidak ter-bypass oleh SW cache
@@ -9671,6 +9723,19 @@
               <div style={{ background: "#ecfdf5", borderBottom: "1px solid #6ee7b7", padding: "6px 16px", fontSize: 13, color: "#065f46", display: "flex", alignItems: "center", gap: 8 }}>
                 <span>🔄</span>
                 <span>Menyinkronkan {queueSize} perubahan...</span>
+              </div>
+            )}
+            {recurExpiryAlert && (
+              <div onClick={() => { setPage("tasks"); setRecurExpiryAlert(null); }}
+                style={{ position: "sticky", top: 0, zIndex: 50, cursor: "pointer", padding: "8px 16px",
+                  background: recurExpiryAlert.hasExpired ? "#fef2f2" : "#fefce8",
+                  borderBottom: "1px solid " + (recurExpiryAlert.hasExpired ? "#fca5a5" : "#fde68a"),
+                  display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: recurExpiryAlert.hasExpired ? "#b91c1c" : "#854d0e" }}>
+                  {recurExpiryAlert.hasExpired ? "ð´" : "â ï¸"} {recurExpiryAlert.count} recurring task {recurExpiryAlert.hasExpired ? "telah berakhir" : "akan berakhir"} â Klik untuk lihat
+                </span>
+                <button onClick={e => { e.stopPropagation(); setRecurExpiryAlert(null); }}
+                  style={{ background: "transparent", border: "none", fontSize: 16, cursor: "pointer", color: "var(--text-light)" }}>â</button>
               </div>
             )}
 
