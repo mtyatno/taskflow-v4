@@ -2821,6 +2821,7 @@
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontSize: 12, color: "#ef4444", fontWeight: 600 }}>Berakhir {task.recurrence_end_date}</span>
                         <button type="button" onClick={async () => {
+                          if (!navigator.onLine) { window.__showToast?.("Tidak bisa dilakukan saat offline", "error"); return; }
                           try {
                             const updated = await api.put("/api/tasks/" + task.id, { recurrence_renew: true });
                             onSave && onSave(updated);
@@ -4289,9 +4290,12 @@
                     <div style={{ fontSize: 12, color: "var(--text-light)" }}>{t.priority} Â· {t.recurrence_type}</div>
                   </div>
                   <button onClick={async () => {
-                    await api.post("/api/tasks/" + t.id + "/occurrences/" + todayStr + "/mark", { status: "done" });
-                    const data = await api.get("/api/recurring/exceptions?from=" + todayStr + "&to=" + todayStr);
-                    setTodayExceptions(data || {});
+                    if (!navigator.onLine) { window.__showToast?.("Tidak bisa dilakukan saat offline", "error"); return; }
+                    try {
+                      await api.post("/api/tasks/" + t.id + "/occurrences/" + todayStr + "/mark", { status: "done" });
+                      const data = await api.get("/api/recurring/exceptions?from=" + todayStr + "&to=" + todayStr);
+                      setTodayExceptions(data || {});
+                    } catch(e) { window.__showToast?.("Gagal: " + e.message, "error"); }
                   }} style={{ padding: "5px 12px", borderRadius: 8, background: "var(--accent)", color: "#000", border: "none", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
                     â Done
                   </button>
@@ -5095,20 +5099,26 @@
               ) : (
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={async () => {
-                    await api.post('/api/tasks/' + recurPopup.task.id + '/occurrences/' + recurPopup.date + '/mark', { status: "done" });
-                    setRecurPopup(null);
-                    const fl = year + '-' + String(month+1).padStart(2,'0') + '-01';
-                    const ll = new Date(year, month+1, 0).toISOString().slice(0,10);
-                    api.get('/api/recurring/exceptions?from=' + fl + '&to=' + ll).then(d => setRecurExceptions(d || {})).catch(()=>{});
+                    if (!navigator.onLine) { window.__showToast?.("Tidak bisa dilakukan saat offline", "error"); return; }
+                    try {
+                      await api.post('/api/tasks/' + recurPopup.task.id + '/occurrences/' + recurPopup.date + '/mark', { status: "done" });
+                      setRecurPopup(null);
+                      const fl = year + '-' + String(month+1).padStart(2,'0') + '-01';
+                      const ll = new Date(year, month+1, 0).toISOString().slice(0,10);
+                      api.get('/api/recurring/exceptions?from=' + fl + '&to=' + ll).then(d => setRecurExceptions(d || {})).catch(()=>{});
+                    } catch(e) { window.__showToast?.("Gagal: " + e.message, "error"); }
                   }} style={{ padding: "6px 14px", borderRadius: 8, background: "var(--accent)", color: "#000", border: "none", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
                     ✓ Selesai
                   </button>
                   <button onClick={async () => {
-                    await api.post('/api/tasks/' + recurPopup.task.id + '/occurrences/' + recurPopup.date + '/mark', { status: "skipped" });
-                    setRecurPopup(null);
-                    const fl = year + '-' + String(month+1).padStart(2,'0') + '-01';
-                    const ll = new Date(year, month+1, 0).toISOString().slice(0,10);
-                    api.get('/api/recurring/exceptions?from=' + fl + '&to=' + ll).then(d => setRecurExceptions(d || {})).catch(()=>{});
+                    if (!navigator.onLine) { window.__showToast?.("Tidak bisa dilakukan saat offline", "error"); return; }
+                    try {
+                      await api.post('/api/tasks/' + recurPopup.task.id + '/occurrences/' + recurPopup.date + '/mark', { status: "skipped" });
+                      setRecurPopup(null);
+                      const fl = year + '-' + String(month+1).padStart(2,'0') + '-01';
+                      const ll = new Date(year, month+1, 0).toISOString().slice(0,10);
+                      api.get('/api/recurring/exceptions?from=' + fl + '&to=' + ll).then(d => setRecurExceptions(d || {})).catch(()=>{});
+                    } catch(e) { window.__showToast?.("Gagal: " + e.message, "error"); }
                   }} style={{ padding: "6px 14px", borderRadius: 8, background: "var(--bg-primary)", color: "var(--text-secondary)", border: "1px solid var(--border)", cursor: "pointer", fontSize: 13 }}>
                     — Lewati
                   </button>
@@ -9187,6 +9197,7 @@
       }, []);
 
       window.__logout = logout;
+      window.__showToast = showToast;
 
       // Check existing session on mount
       const [authChecked, setAuthChecked] = useState(!tokenStore.get());
