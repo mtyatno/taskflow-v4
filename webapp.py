@@ -838,7 +838,7 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
         if req.recurrence_renew:
             updates["recurrence_end_date"] = (date.today() + timedelta(days=90)).isoformat()
             updates["recurrence_notif_level"] = None
-        elif req.recurrence_type is not None:
+        elif "recurrence_type" in req.model_fields_set:
             if req.recurrence_type in ("daily","weekly","monthly","weekdays"):
                 updates["recurrence_type"] = req.recurrence_type
                 if req.recurrence_type == "weekly" and req.recurrence_days is not None:
