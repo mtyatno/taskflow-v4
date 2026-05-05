@@ -6494,27 +6494,49 @@
         setDrawSyncStatus('saved');
 
         if (note?.id) {
+          const _lsKey = 'draw_pending_' + note.id;
           api.get(`/api/drawings/${note.id}`)
-            .then(data => setDrawPendingData(data.data_json))
-            .catch(() => {});
+            .then(data => {
+              const local = localStorage.getItem(_lsKey);
+              setDrawPendingData(local || data.data_json);
+              if (local) setDrawSyncStatus('offline');
+            })
+            .catch(() => {
+              const local = localStorage.getItem(_lsKey);
+              if (local) { setDrawPendingData(local); setDrawSyncStatus('offline'); }
+            });
         }
 
         const handler = (e) => {
           if (e.origin !== window.location.origin) return;
           if (e.data?.type === 'ready') setDrawIframeReady(true);
           if (e.data?.type === 'change' && e.data.data && note?.id) {
+            try { localStorage.setItem('draw_pending_' + note.id, e.data.data); } catch(_) {}
             if (!navigator.onLine) { setDrawSyncStatus('offline'); return; }
             setDrawSyncStatus('saving');
             api.put(`/api/drawings/${note.id}`, { data_json: e.data.data })
-              .then(() => setDrawSyncStatus('saved'))
+              .then(() => {
+                setDrawSyncStatus('saved');
+                try { localStorage.removeItem('draw_pending_' + note.id); } catch(_) {}
+              })
               .catch(() => setDrawSyncStatus('offline'));
           }
         };
         window.addEventListener('message', handler);
 
         const onlineHandler = () => {
-          if (drawIframeRef.current && note?.id)
+          if (!note?.id) return;
+          const local = localStorage.getItem('draw_pending_' + note.id);
+          if (local) {
+            api.put(`/api/drawings/${note.id}`, { data_json: local })
+              .then(() => {
+                setDrawSyncStatus('saved');
+                try { localStorage.removeItem('draw_pending_' + note.id); } catch(_) {}
+              })
+              .catch(() => setDrawSyncStatus('offline'));
+          } else if (drawIframeRef.current) {
             drawIframeRef.current.contentWindow.postMessage({ type: 'requestSnapshot' }, '*');
+          }
         };
         window.addEventListener('online', onlineHandler);
 
@@ -7312,9 +7334,17 @@
         setPendingDrawData(null);
         setSyncStatus('saved');
 
+        const _lsKeyModal = 'draw_pending_' + note.id;
         api.get(`/api/drawings/${note.id}`)
-          .then(data => setPendingDrawData(data.data_json))
-          .catch(() => {});
+          .then(data => {
+            const local = localStorage.getItem(_lsKeyModal);
+            setPendingDrawData(local || data.data_json);
+            if (local) setSyncStatus('offline');
+          })
+          .catch(() => {
+            const local = localStorage.getItem(_lsKeyModal);
+            if (local) { setPendingDrawData(local); setSyncStatus('offline'); }
+          });
 
         const handler = (e) => {
           if (e.origin !== window.location.origin) return;
@@ -7322,20 +7352,32 @@
             setIframeReady(true);
           }
           if (e.data?.type === 'change' && e.data.data) {
+            try { localStorage.setItem(_lsKeyModal, e.data.data); } catch(_) {}
             if (!navigator.onLine) {
               setSyncStatus('offline');
               return;
             }
             setSyncStatus('saving');
             api.put(`/api/drawings/${note.id}`, { data_json: e.data.data })
-              .then(() => setSyncStatus('saved'))
+              .then(() => {
+                setSyncStatus('saved');
+                try { localStorage.removeItem(_lsKeyModal); } catch(_) {}
+              })
               .catch(() => setSyncStatus('offline'));
           }
         };
         window.addEventListener('message', handler);
 
         const onlineHandler = () => {
-          if (iframeRef.current) {
+          const local = localStorage.getItem(_lsKeyModal);
+          if (local && note.id) {
+            api.put(`/api/drawings/${note.id}`, { data_json: local })
+              .then(() => {
+                setSyncStatus('saved');
+                try { localStorage.removeItem(_lsKeyModal); } catch(_) {}
+              })
+              .catch(() => setSyncStatus('offline'));
+          } else if (iframeRef.current) {
             iframeRef.current.contentWindow.postMessage({ type: 'requestSnapshot' }, '*');
           }
         };
