@@ -4974,6 +4974,70 @@
       );
     }
 
+    // ── Kanban components ────────────────────────────────────────
+    const PRI_COLOR_KANBAN = { P1: "#ef4444", P2: "#f97316", P3: "#eab308", P4: "#22c55e" };
+    const PRI_BG_KANBAN    = { P1: "#ef444420", P2: "#f9731620", P3: "#eab30820", P4: "#22c55e20" };
+
+    function KanbanCard({ task, groupBy, onTaskClick, onDone, onCardDragStart }) {
+      const isOverdue = task.deadline && task.deadline < new Date().toISOString().slice(0, 10);
+      const isToday   = task.deadline && task.deadline === new Date().toISOString().slice(0, 10);
+      const deadlineColor = isOverdue ? "#ef4444" : isToday ? "#f97316" : "var(--text-light)";
+      const canDrag = groupBy !== "quadrant";
+
+      const handleDragStart = (e) => {
+        e.dataTransfer.setData("text/plain", String(task.id));
+        e.dataTransfer.effectAllowed = "move";
+        if (onCardDragStart) onCardDragStart();
+        setTimeout(() => { e.target.style.opacity = "0.4"; }, 0);
+      };
+      const handleDragEnd = (e) => { e.target.style.opacity = "1"; };
+
+      return (
+        <div
+          draggable={canDrag}
+          onDragStart={canDrag ? handleDragStart : undefined}
+          onDragEnd={canDrag ? handleDragEnd : undefined}
+          onClick={() => onTaskClick(task)}
+          style={{
+            background: "var(--bg-card)", border: "1px solid var(--border)",
+            borderRadius: 8, padding: "8px 10px", cursor: canDrag ? "grab" : "pointer",
+            transition: "border-color 0.15s, box-shadow 0.15s", userSelect: "none",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(108,122,224,0.15)"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.boxShadow = "none"; }}
+        >
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 5 }}>
+            <input
+              type="checkbox"
+              onClick={e => { e.stopPropagation(); onDone(task.id); }}
+              style={{ marginTop: 2, flexShrink: 0, cursor: "pointer" }}
+            />
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.35, wordBreak: "break-word" }}>
+              {task.title}
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            {task.priority && (
+              <span style={{ background: PRI_BG_KANBAN[task.priority], color: PRI_COLOR_KANBAN[task.priority],
+                borderRadius: 3, padding: "1px 5px", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
+                {task.priority}
+              </span>
+            )}
+            {task.deadline && (
+              <span style={{ fontSize: 10, color: deadlineColor, flexShrink: 0 }}>
+                {task.deadline.slice(5)}
+              </span>
+            )}
+            {task.quadrant && groupBy !== "quadrant" && (
+              <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-light)", flexShrink: 0 }}>
+                {{"Q1":"🔥","Q2":"📅","Q3":"👋","Q4":"🗑️"}[task.quadrant]} {task.quadrant}
+              </span>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     // ── Task List view with filters ─────────────────────────────
     function TaskListView({ tasks, allTasks, title, icon, onTaskClick, onDone, onToggleFocus, loading, projects, contexts, showFilters, showQuadrant = true, collaborators = [] }) {
       const [fPriority, setFPriority] = useState("");
