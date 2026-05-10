@@ -1,42 +1,40 @@
-# PWA Shortcuts — Quick Create Task & Note
+# PWA Shortcuts — Quick Create (Buat Baru)
 
 **Date:** 2026-05-10  
 **Status:** Approved
 
 ## Overview
 
-Add PWA home screen shortcuts to TaskFlow so users can long-press the app icon on Android and immediately jump to the new-task or new-note form — without navigating through the app first. On iOS, users achieve the same via the iOS Shortcuts app pointing to the same URLs.
+Add a single PWA home screen shortcut to TaskFlow so users can long-press the app icon on Android and immediately open the "Buat Baru" form (TaskFormModal with 4 tabs: Task, Habit, Note, Goal). On iOS, users achieve the same via the iOS Shortcuts app. A one-time hint toast educates installed users about the feature.
 
 ## Goals
 
-- Android: long-press PWA icon → shortcuts "Buat Task Baru" and "Buat Note Baru"
-- iOS: user creates home screen shortcuts via iOS Shortcuts app (documented, no code change needed)
-- App opens directly to the relevant form, already authenticated (no extra navigation)
-- URL is cleaned up after action is consumed
+- Android: long-press PWA icon → shortcut "Buat Baru" → opens TaskFormModal (4 tabs, Task active)
+- iOS: user creates home screen shortcut via iOS Shortcuts app (documented, no code change needed)
+- One-time hint toast on first standalone launch after login
+- Works offline: app shell served from SW cache, form submission uses existing OfflineDB queue
 
 ## Non-Goals
 
 - Native app (React Native / Capacitor)
 - Real-time widget displaying task list
+- Separate shortcut per content type (Task / Note / Habit / Goal)
 - Unauthenticated access via shortcut URL
 
 ## Architecture
 
 ### URL Convention
 
-Two shortcut URLs trigger the respective actions:
-
-| URL | Action |
-|-----|--------|
-| `/?action=new-task` | Open new task form modal |
-| `/?action=new-note` | Navigate to Notes page + open new note modal |
+| URL                 | Action                                        |
+| ------------------- | --------------------------------------------- |
+| `/?action=new-task` | Open TaskFormModal (mode defaults to "task")  |
 
 ### Flow
 
 ```
-User taps shortcut
+User long-presses PWA icon → taps "Buat Baru"
       ↓
-PWA opens at /?action=new-task (or new-note)
+PWA opens at /?action=new-task
       ↓
 App() reads param via useState initializer (same pattern as ?join=)
       ↓
@@ -44,40 +42,44 @@ Auth check completes (existing token or login)
       ↓
 useEffect fires: user + pendingAction both truthy
       ↓
-  new-task → setEditTask(null); setShowForm(true)
-  new-note → setPage("notes"), passes autoOpenNew=true to NotesPage
+setEditTask(null); setShowForm(true)
       ↓
 URL cleaned: window.history.replaceState({}, "", "/")
 ```
+
+### Offline Behavior
+
+- `/?action=new-task` → SW matches `url.pathname === "/"` → serves app shell from cache ✓
+- Task/habit/note/goal submitted offline → existing `OfflineDB.queueAdd` handles queuing ✓
 
 ## Components Changed
 
 ### 1. `static/manifest.json`
 
-Add `shortcuts` array with two entries. Icons reference SVG files at `/static/`.
+Add `shortcuts` array with one entry. Icon references SVG at `/static/`.
 
 ```json
 "shortcuts": [
   {
-    "name": "Buat Task Baru",
-    "short_name": "Task Baru",
-    "description": "Buka form tambah task baru",
+    "name": "Buat Baru",
+    "short_name": "Buat Baru",
+    "description": "Buka form tambah task, habit, note, atau goal",
     "url": "/?action=new-task",
     "icons": [{ "src": "/static/icon-new-task.svg", "sizes": "any", "type": "image/svg+xml" }]
-  },
-  {
-    "name": "Buat Note Baru",
-    "short_name": "Note Baru",
-    "description": "Buka form tambah catatan baru",
-    "url": "/?action=new-note",
-    "icons": [{ "src": "/static/icon-new-note.svg", "sizes": "any", "type": "image/svg+xml" }]
   }
 ]
 ```
 
-### 2. `static/index.html` — App() component
+### 2. `static/sw.js` — tambah icon ke STATIC cache
 
-**Add state** (alongside existing `pendingJoinCode` state):
+```js
+"/static/icon-new-task.svg",
+```
+
+### 3. `static/index.html` — App() component
+
+**Add state** (alongside existing `pendingJoinCode`):
+
 ```js
 const [pendingAction, setPendingAction] = useState(() => {
   const params = new URLSearchParams(window.location.search);
@@ -85,83 +87,57 @@ const [pendingAction, setPendingAction] = useState(() => {
 });
 ```
 
-**Add useEffect** (alongside existing join useEffect):
+**Add useEffect** untuk consume action (alongside existing join useEffect):
+
 ```js
 useEffect(() => {
   if (!user || !pendingAction) return;
   if (pendingAction === "new-task") {
     setEditTask(null);
     setShowForm(true);
-  } else if (pendingAction === "new-note") {
-    setPage("notes");
-    setAutoOpenNote(true);
   }
   setPendingAction("");
   window.history.replaceState({}, "", "/");
 }, [user, pendingAction]);
 ```
 
-**Add state for note trigger:**
-```js
-const [autoOpenNote, setAutoOpenNote] = useState(false);
-```
+**Add useEffect** untuk one-time hint (after user is set):
 
-**Pass prop to NotesPage:**
-```jsx
-<NotesPage
-  ...existing props...
-  autoOpenNew={autoOpenNote}
-  onAutoOpenDone={() => setAutoOpenNote(false)}
-/>
-```
-
-### 3. `static/index.html` — NotesPage() component
-
-**Add prop** `autoOpenNew = false` and `onAutoOpenDone`:
-```js
-function NotesPage({ tasks, showToast, onTaskClick, user, sharedLists = [], autoOpenNew = false, onAutoOpenDone }) {
-```
-
-**Add useEffect** after `openNew` is defined:
 ```js
 useEffect(() => {
-  if (autoOpenNew) {
-    openNew();
-    if (onAutoOpenDone) onAutoOpenDone();
+  if (!user) return;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+  if (isStandalone && !localStorage.getItem('tf_shortcut_hint')) {
+    showToast("💡 Tekan lama ikon app untuk akses cepat buat task/habit/note");
+    localStorage.setItem('tf_shortcut_hint', '1');
   }
-}, [autoOpenNew]);
+}, [user]);
 ```
 
-### 4. New icon files
+### 4. `static/icon-new-task.svg`
 
-Two minimal SVG files in `static/`:
-
-**`icon-new-task.svg`** — checkmark + plus on green background  
-**`icon-new-note.svg`** — document + pencil on blue background
-
-SVG format chosen because:
-- Single file works for all sizes (`sizes: "any"`)
+Minimal SVG — plus sign on accent-colored background. SVG format:
+- Works for all sizes (`sizes: "any"`)
 - No build step needed
 - Renders crisply at any resolution
 
 ## Error Handling
 
-- If user is not logged in when shortcut is tapped: app shows login page normally; `pendingAction` is preserved in state and fires once user logs in
-- If `action` param is unrecognized: silently ignored (no `else` branch in the useEffect)
+- User not logged in when shortcut tapped: app shows login page; `pendingAction` preserved in state, fires after login
+- Unrecognized `action` param: silently ignored
 
 ## Testing
 
-- Android Chrome: install PWA → long-press icon → verify shortcuts appear → tap each → verify modal opens
-- iOS: create shortcut via Shortcuts app → tap → verify correct page + modal opens
-- Login flow: open shortcut URL while logged out → log in → verify modal auto-opens after login
+- Android Chrome: install PWA → long-press icon → verify "Buat Baru" shortcut appears → tap → verify TaskFormModal opens with Task tab active
+- Offline: disable network → tap shortcut → app opens from cache → submit task → verify item queued in OfflineDB → re-enable network → verify sync
+- Hint: clear `tf_shortcut_hint` from localStorage → open app in standalone mode → verify toast appears once
 
 ## iOS Setup (User Documentation)
 
-No code change needed. User does this once per shortcut:
+No code change needed. User does this once:
 
 1. Open iOS Shortcuts app
 2. Tap `+` → Add Action → "Open URLs"
 3. URL: `https://<taskflow-domain>/?action=new-task`
 4. Tap shortcut name → "Add to Home Screen"
-5. Set name "Task Baru" and choose icon
-6. Repeat for note shortcut with `?action=new-note`
+5. Set name "Buat Baru" and choose icon
