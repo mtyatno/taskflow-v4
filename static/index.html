@@ -4249,9 +4249,6 @@
       const handleStartFocus = (task) => setFocusTask(focusTask?.id === task.id ? null : task);
       const totalPomodoros = Object.values(taskPomodoros).reduce((a, b) => a + b, 0);
 
-      const borderColor = { overdue: "#ef4444", focused: "#f59e0b", normal: "var(--accent)" };
-      const cardBorder = (t) => t.is_overdue ? borderColor.overdue : t.is_focused ? borderColor.focused : borderColor.normal;
-
       return (
         <div className="fade-in" style={{ maxWidth: 900, margin: "0 auto", padding: "24px 16px" }}>
           {/* Header */}
@@ -4324,7 +4321,7 @@
                 {sortedTasks.map((task) => (
                   <div key={task.id} style={{
                     background: "var(--bg-card)", borderRadius: 14,
-                    border: "1px solid var(--border)", borderLeft: `3px solid ${cardBorder(task)}`,
+                    border: "1px solid var(--border)",
                     overflow: "hidden"
                   }}>
                     <FocusTaskRow
