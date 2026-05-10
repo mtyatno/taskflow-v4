@@ -171,6 +171,25 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Ensure mindmaps table exists
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS mindmaps (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                title      TEXT NOT NULL DEFAULT 'Untitled',
+                data_json  TEXT NOT NULL DEFAULT '{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}',
+                is_pinned  INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
     # Migrate scratchpad_notes.tags (JSON array) → tags + entity_tags
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -344,6 +363,33 @@ class DrawingUpsert(BaseModel):
             json.loads(v)
         except ValueError:
             raise ValueError("data_json must be valid JSON")
+        return v
+
+class MindmapCreate(BaseModel):
+    title: str = "Untitled"
+    data_json: str = '{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}'
+
+    @field_validator("data_json")
+    @classmethod
+    def mindmap_json_valid(cls, v: str) -> str:
+        try:
+            json.loads(v)
+        except ValueError:
+            raise ValueError("data_json must be valid JSON")
+        return v
+
+class MindmapUpdate(BaseModel):
+    title: Optional[str] = None
+    data_json: Optional[str] = None
+
+    @field_validator("data_json")
+    @classmethod
+    def mindmap_json_valid(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            try:
+                json.loads(v)
+            except ValueError:
+                raise ValueError("data_json must be valid JSON")
         return v
 
 class ScratchpadCreate(BaseModel):
@@ -2834,6 +2880,89 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
         ],
     }
 
+
+# ── Mindmap endpoints ────────────────────────────────────────────────────────
+
+@app.get("/api/mindmaps")
+async def list_mindmaps(user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, title, is_pinned, created_at, updated_at FROM mindmaps "
+            "WHERE user_id = ? ORDER BY is_pinned DESC, updated_at DESC",
+            (uid,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+@app.post("/api/mindmaps")
+async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO mindmaps (user_id, title, data_json, is_pinned, created_at, updated_at) "
+            "VALUES (?, ?, ?, 0, ?, ?)",
+            (uid, req.title, req.data_json, now, now)
+        )
+        row = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return dict(row)
+
+@app.get("/api/mindmaps/{mid}")
+async def get_mindmap(mid: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM mindmaps WHERE id = ? AND user_id = ?", (mid, uid)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
+        return dict(row)
+
+@app.put("/api/mindmaps/{mid}")
+async def update_mindmap(mid: int, req: MindmapUpdate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, title, data_json FROM mindmaps WHERE id = ? AND user_id = ?", (mid, uid)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
+        new_title = req.title if req.title is not None else row["title"]
+        new_data = req.data_json if req.data_json is not None else row["data_json"]
+        conn.execute(
+            "UPDATE mindmaps SET title = ?, data_json = ?, updated_at = ? WHERE id = ?",
+            (new_title, new_data, now, mid)
+        )
+        updated = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (mid,)).fetchone()
+        return dict(updated)
+
+@app.patch("/api/mindmaps/{mid}/pin")
+async def toggle_pin_mindmap(mid: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, is_pinned FROM mindmaps WHERE id = ? AND user_id = ?", (mid, uid)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
+        conn.execute(
+            "UPDATE mindmaps SET is_pinned = ? WHERE id = ?",
+            (0 if row["is_pinned"] else 1, mid)
+        )
+        updated = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (mid,)).fetchone()
+        return dict(updated)
+
+@app.delete("/api/mindmaps/{mid}")
+async def delete_mindmap(mid: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        if not conn.execute(
+            "SELECT id FROM mindmaps WHERE id = ? AND user_id = ?", (mid, uid)
+        ).fetchone():
+            raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
+        conn.execute("DELETE FROM mindmaps WHERE id = ?", (mid,))
+    return {"ok": True}
 
 # ══════════════════════════════════════════════════════════════════════════════
 
