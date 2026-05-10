@@ -215,7 +215,26 @@
       window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
     }
 
-    function updateBadges() { /* implemented in Task 4 */ }
+    function updateBadges() {
+      document.querySelectorAll('.node-link-badge').forEach(el => el.remove());
+      function addBadge(nodeData) {
+        const count = (nodeData.links || []).length;
+        if (count > 0) {
+          const allTopics = document.querySelectorAll('me-tpc');
+          allTopics.forEach(el => {
+            if (el.nodeObj && el.nodeObj.id === nodeData.id) {
+              el.style.position = 'relative';
+              const badge = document.createElement('span');
+              badge.className = 'node-link-badge';
+              badge.textContent = count;
+              el.appendChild(badge);
+            }
+          });
+        }
+        (nodeData.children || []).forEach(addBadge);
+      }
+      addBadge(mind.getData().nodeData);
+    }
 
     function initMind(data) {
       if (mind) {
@@ -233,6 +252,7 @@
         keypress: true,
       });
       mind.init(data);
+      setTimeout(updateBadges, 300);
       mind.bus.addListener('selectNodes', (nodes) => {
         clearTimeout(unselectTimer);
         if (!nodes || nodes.length === 0) return;
@@ -271,6 +291,20 @@
       if (e.origin !== window.location.origin) return;
       if (e.data && e.data.type === 'load') {
         initMind(e.data.data);
+      }
+      if (e.data && e.data.type === 'addLink') {
+        if (!currentNodeId || e.data.nodeId !== currentNodeId) return;
+        currentNodeData = findNode(mind.getData().nodeData, currentNodeId);
+        if (!currentNodeData) return;
+        if (!currentNodeData.links) currentNodeData.links = [];
+        const alreadyLinked = currentNodeData.links.some(
+          l => l.type === e.data.link.type && l.id === e.data.link.id
+        );
+        if (alreadyLinked) return;
+        currentNodeData.links.push(e.data.link);
+        renderPanel(currentNodeData.topic, currentNodeData.links);
+        updateBadges();
+        window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
       }
     });
 
