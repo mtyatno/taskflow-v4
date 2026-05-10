@@ -10437,7 +10437,7 @@
         }
 
         if (page === "mindmap") {
-          return <MindmapPage showToast={showToast} />;
+          return <MindmapPage showToast={showToast} onTaskClick={setSelectedTask} tasks={tasks} />;
         }
 
         if (page === "admin" && user?.is_admin) {
