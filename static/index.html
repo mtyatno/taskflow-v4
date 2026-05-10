@@ -4397,6 +4397,7 @@
       const clearAll = () => { setFPriority(""); setFQuadrant(""); setFProject(""); setFContext(""); setFAssignee(""); setFSearch(""); };
 
       const buildGroups = (tasks) => {
+        if (groupBy === "none") return [{ key: "__all__", tasks }];
         const PRI_LABELS = { P1: "🔴 P1 Critical", P2: "🟠 P2 High", P3: "🟡 P3 Medium", P4: "🟢 P4 Low" };
         const QUAD_LABELS = { Q1: "🔥 Q1 Lakukan", Q2: "📅 Q2 Rencanakan", Q3: "👋 Q3 Delegasikan", Q4: "🗑️ Q4 Singkirkan" };
         const PRI_ORDER_MAP = ["🔴 P1 Critical", "🟠 P2 High", "🟡 P3 Medium", "🟢 P4 Low"];
@@ -4408,7 +4409,7 @@
           else if (groupBy === "quadrant") key = QUAD_LABELS[t.quadrant] || "(Tanpa Quadrant)";
           else if (groupBy === "project") key = t.project || "(Tanpa Project)";
           else if (groupBy === "context") key = t.context || "(Tanpa Context)";
-          else if (groupBy === "tag") key = (t.tags && t.tags[0]) ? t.tags[0] : "(Tanpa Tag)";
+          else if (groupBy === "tag") key = (t.tags && t.tags[0]) ? t.tags[0] : "(Tanpa Tag)"; // first tag only — no task duplication across groups
           if (!map[key]) map[key] = [];
           map[key].push(t);
         }
