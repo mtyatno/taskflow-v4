@@ -124,6 +124,22 @@
   <script>
     let mind = null;
 
+    let currentNodeId = null;
+    let currentNodeData = null;
+    let unselectTimer = null;
+
+    function findNode(node, id) {
+      if (node.id === id) return node;
+      for (const c of (node.children || [])) {
+        const found = findNode(c, id);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    function showPanel() { document.getElementById('link-panel').style.display = 'block'; }
+    function hidePanel() { document.getElementById('link-panel').style.display = 'none'; }
+
     function initMind(data) {
       if (mind) {
         mind.init(data);
@@ -140,6 +156,35 @@
         keypress: true,
       });
       mind.init(data);
+      mind.bus.addListener('selectNodes', (nodes) => {
+        clearTimeout(unselectTimer);
+        if (!nodes || nodes.length === 0) return;
+        const node = nodes[0];
+        currentNodeId = node.id;
+        currentNodeData = findNode(mind.getData().nodeData, node.id);
+        renderPanel(node.topic, currentNodeData ? (currentNodeData.links || []) : []);
+        window.parent.postMessage(
+          { type: 'nodeSelected', nodeId: node.id, topic: node.topic, links: currentNodeData ? (currentNodeData.links || []) : [] },
+          window.location.origin
+        );
+      });
+
+      mind.bus.addListener('unselectNodes', () => {
+        unselectTimer = setTimeout(() => {
+          currentNodeId = null;
+          currentNodeData = null;
+          hidePanel();
+          window.parent.postMessage({ type: 'nodeDeselected' }, window.location.origin);
+        }, 50);
+      });
+
+      document.getElementById('link-panel-close').onclick = () => {
+        hidePanel();
+        currentNodeId = null;
+        currentNodeData = null;
+        window.parent.postMessage({ type: 'nodeDeselected' }, window.location.origin);
+      };
+
       mind.bus.addListener('operation', () => {
         window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
       });
