@@ -1694,6 +1694,7 @@
         { id: "today", icon: "🍅", label: "Fokus Hari Ini", count: todayCount },
         { id: "habit", icon: "🔁", label: "Habit Tracker" },
         { id: "notes", icon: "📝", label: "Notes & Draw" },
+        { id: "mindmap", icon: "🧠", label: "Mindmap" },
         { id: "chat", icon: "💬", label: "Diskusi" },
         { section: "GTD" },
         { id: "inbox", icon: "📥", label: "Inbox", count: sc("inbox") },
@@ -10270,6 +10271,10 @@
 
         if (page === "notes") {
           return <NotesPage tasks={tasks} showToast={showToast} onTaskClick={setSelectedTask} user={user} sharedLists={sharedLists} />;
+        }
+
+        if (page === "mindmap") {
+          return <MindmapPage showToast={showToast} />;
         }
 
         if (page === "admin" && user?.is_admin) {
