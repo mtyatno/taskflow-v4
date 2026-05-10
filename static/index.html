@@ -10194,7 +10194,10 @@
       const [sharedLists, setSharedLists] = useState([]);
       const [collaborators, setCollaborators] = useState([]);
       const [selectedTask, setSelectedTask] = useState(null);
-      const [showForm, setShowForm] = useState(false);
+      const [showForm, setShowForm] = useState(() => {
+        const params = new URLSearchParams(window.location.search);
+        return params.get("action") === "new-task" && !!tokenStore.get();
+      });
       const [editTask, setEditTask] = useState(null);
       const [toast, setToast] = useState(null);
       const [loading, setLoading] = useState(false);
@@ -10246,6 +10249,7 @@
                 setAuthChecked(true);
               } else {
                 tokenStore.clear();
+                setShowForm(false);
                 setAuthChecked(true);
               }
             });
