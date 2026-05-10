@@ -5140,7 +5140,7 @@
     }
 
     // ── Task List view with filters ─────────────────────────────
-    function TaskListView({ tasks, allTasks, title, icon, onTaskClick, onDone, onToggleFocus, loading, projects, contexts, showFilters, showQuadrant = true, collaborators = [] }) {
+    function TaskListView({ tasks, allTasks, title, icon, onTaskClick, onDone, onToggleFocus, loading, projects, contexts, showFilters, showQuadrant = true, collaborators = [], showToast }) {
       const [fPriority, setFPriority] = useState("");
       const [fQuadrant, setFQuadrant] = useState("");
       const [fProject, setFProject] = useState("");
@@ -5151,10 +5151,18 @@
       const [viewMode, setViewMode] = useState(() => localStorage.getItem("tf_viewmode") || "normal");
       const [collapsed, setCollapsed] = useState({});
       const [showFilterPanel, setShowFilterPanel] = useState(false);
+      const [dragVersion, setDragVersion] = useState(0);
+      const dragSourceRef = React.useRef(null);
 
       const toggle = (setter, current, val) => setter(current === val ? "" : val);
       const handleGroupBy = (val) => { setGroupBy(val); localStorage.setItem("tf_groupby", val); setCollapsed({}); };
       const handleViewMode = (val) => { setViewMode(val); localStorage.setItem("tf_viewmode", val); };
+      useEffect(() => {
+        if ((groupBy === "none" || groupBy === "tag") && viewMode === "kanban") {
+          setViewMode("normal");
+          localStorage.setItem("tf_viewmode", "normal");
+        }
+      }, [groupBy]);
       const toggleGroup = (key) => {
         const isTanpa = key.startsWith("(Tanpa");
         setCollapsed(c => {
@@ -5178,6 +5186,35 @@
       const hasFilters = fPriority || fQuadrant || fProject || fContext || fAssignee || fSearch;
       const activeFilterCount = [fPriority, fQuadrant, fProject, fContext, fAssignee].filter(Boolean).length;
       const clearAll = () => { setFPriority(""); setFQuadrant(""); setFProject(""); setFContext(""); setFAssignee(""); setFSearch(""); setShowFilterPanel(false); };
+
+      const KANBAN_FIELD = { priority: "priority", project: "project", context: "context" };
+
+      const parseGroupKeyValue = (key) => {
+        if (key.startsWith("(Tanpa")) return "";
+        if (groupBy === "priority") { const m = key.match(/P[1-4]/); return m ? m[0] : null; }
+        if (groupBy === "quadrant") { const m = key.match(/Q[1-4]/); return m ? m[0] : null; }
+        return key;
+      };
+
+      const onMoveTask = async (taskId, targetGroupKey) => {
+        const field = KANBAN_FIELD[groupBy];
+        if (!field) return;
+        const newValue = parseGroupKeyValue(targetGroupKey);
+        if (newValue === null) return;
+        const task = filtered.find(t => t.id === taskId);
+        if (!task) return;
+        const originalValue = task[field];
+        if (originalValue === newValue || (originalValue == null && newValue === "")) return;
+        task[field] = newValue;
+        setDragVersion(v => v + 1);
+        try {
+          await api.put(`/api/tasks/${taskId}`, { [field]: newValue });
+        } catch (_) {
+          task[field] = originalValue;
+          setDragVersion(v => v + 1);
+          if (showToast) showToast("Gagal memindahkan task", "error");
+        }
+      };
 
       const buildGroups = (tasks) => {
         if (groupBy === "none") return [{ key: "__all__", tasks }];
@@ -5242,6 +5279,23 @@
                   {ico}
                 </button>
               ))}
+              {(() => {
+                const kanbanDisabled = groupBy === "none" || groupBy === "tag";
+                const kanbanTitle = kanbanDisabled ? "Pilih Group by terlebih dahulu" : "Kanban view";
+                return (
+                  <button type="button"
+                    onClick={() => !kanbanDisabled && handleViewMode("kanban")}
+                    title={kanbanTitle}
+                    style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border)",
+                      cursor: kanbanDisabled ? "not-allowed" : "pointer", fontSize: 14, lineHeight: 1,
+                      background: viewMode === "kanban" ? "var(--accent)" : "var(--bg-card)",
+                      color: kanbanDisabled ? "var(--text-light)" : viewMode === "kanban" ? "#1a2a00" : "var(--text-secondary)",
+                      fontWeight: viewMode === "kanban" ? 700 : 400, transition: "all 0.15s",
+                      opacity: kanbanDisabled ? 0.45 : 1 }}>
+                    ⊞
+                  </button>
+                );
+              })()}
             </div>
           </div>
 
@@ -5347,6 +5401,15 @@
                 : <TaskRow key={t.id} task={t} onClick={onTaskClick} onDone={onDone} onToggleFocus={onToggleFocus} />
               )}
             </div>
+          ) : viewMode === "kanban" ? (
+            <KanbanView
+              groups={buildGroups(filtered)}
+              groupBy={groupBy}
+              dragSourceRef={dragSourceRef}
+              onTaskClick={onTaskClick}
+              onDone={onDone}
+              onMoveTask={onMoveTask}
+            />
           ) : (
             <div className="card" style={{ overflow: "hidden", padding: 0 }}>
               {buildGroups(filtered).map(({ key, tasks: groupTasks }, idx) => {
@@ -10696,6 +10759,7 @@
             showFilters={page !== "dashboard" && page !== "today"}
             showQuadrant={!["q1","q2","q3","q4"].includes(page)}
             collaborators={page.startsWith("slist_") ? collaborators : []}
+            showToast={showToast}
           />
         );
       };
