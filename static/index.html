@@ -5120,6 +5120,25 @@
       );
     }
 
+    function KanbanView({ groups, groupBy, dragSourceRef, onTaskClick, onDone, onMoveTask }) {
+      return (
+        <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 12, alignItems: "flex-start" }}>
+          {groups.map(({ key, tasks }) => (
+            <KanbanColumn
+              key={key}
+              groupKey={key}
+              tasks={tasks}
+              groupBy={groupBy}
+              dragSourceRef={dragSourceRef}
+              onTaskClick={onTaskClick}
+              onDone={onDone}
+              onMoveTask={onMoveTask}
+            />
+          ))}
+        </div>
+      );
+    }
+
     // ── Task List view with filters ─────────────────────────────
     function TaskListView({ tasks, allTasks, title, icon, onTaskClick, onDone, onToggleFocus, loading, projects, contexts, showFilters, showQuadrant = true, collaborators = [] }) {
       const [fPriority, setFPriority] = useState("");
