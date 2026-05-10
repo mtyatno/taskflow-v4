@@ -4426,6 +4426,46 @@
       const projList = projects && projects.length > 0 ? projects : [...new Set(allTasks?.filter(t => t.project).map(t => t.project) || [])];
       const ctxList = contexts && contexts.length > 0 ? contexts : [...new Set(allTasks?.filter(t => t.context).map(t => t.context) || [])];
 
+      const CompactRow = ({ task }) => {
+        const dateStr = task.deadline ? formatDate(task.deadline) : null;
+        return (
+          <div onClick={() => onTaskClick(task)}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer",
+              borderBottom: "1px solid var(--border)", transition: "background 0.1s" }}
+            onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
+            onMouseLeave={e => e.currentTarget.style.background = ""}>
+            <div className="check-btn" onClick={e => { e.stopPropagation(); onDone(task.id); }} style={{ flexShrink: 0 }}>
+              {task.gtd_status === "done" && <span className="check-icon" style={{ color: "var(--success)", fontSize: 14 }}>✓</span>}
+            </div>
+            <span style={{ flex: 1, fontSize: 13, fontWeight: 500,
+              color: task.gtd_status === "done" ? "var(--text-light)" : "var(--text-primary)",
+              textDecoration: task.gtd_status === "done" ? "line-through" : "none",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {task.title}
+            </span>
+            {dateStr && (
+              <span style={{ fontSize: 11, color: task.is_overdue ? "#ef4444" : "var(--text-light)", flexShrink: 0 }}>
+                {dateStr}
+              </span>
+            )}
+          </div>
+        );
+      };
+
+      const GroupHeader = ({ groupKey, count, isCollapsed }) => (
+        <div onClick={() => toggleGroup(groupKey)}
+          style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px",
+            cursor: "pointer", background: "var(--bg-primary)", borderBottom: "1px solid var(--border)",
+            userSelect: "none", transition: "background 0.1s" }}
+          onMouseEnter={e => e.currentTarget.style.background = "rgba(168,197,0,0.07)"}
+          onMouseLeave={e => e.currentTarget.style.background = "var(--bg-primary)"}>
+          <span style={{ fontSize: 11, color: "var(--text-light)", display: "inline-block",
+            transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>▼</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--accent)", flex: 1 }}>{groupKey}</span>
+          <span style={{ fontSize: 11, color: "var(--text-light)" }}>{count} task</span>
+        </div>
+      );
+
       return (
         <div className="fade-in">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
