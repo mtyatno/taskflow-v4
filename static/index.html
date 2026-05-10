@@ -4396,6 +4396,31 @@
       const hasFilters = fPriority || fQuadrant || fProject || fContext || fAssignee || fSearch;
       const clearAll = () => { setFPriority(""); setFQuadrant(""); setFProject(""); setFContext(""); setFAssignee(""); setFSearch(""); };
 
+      const buildGroups = (tasks) => {
+        const PRI_LABELS = { P1: "🔴 P1 Critical", P2: "🟠 P2 High", P3: "🟡 P3 Medium", P4: "🟢 P4 Low" };
+        const QUAD_LABELS = { Q1: "🔥 Q1 Lakukan", Q2: "📅 Q2 Rencanakan", Q3: "👋 Q3 Delegasikan", Q4: "🗑️ Q4 Singkirkan" };
+        const PRI_ORDER_MAP = ["🔴 P1 Critical", "🟠 P2 High", "🟡 P3 Medium", "🟢 P4 Low"];
+        const QUAD_ORDER_MAP = ["🔥 Q1 Lakukan", "📅 Q2 Rencanakan", "👋 Q3 Delegasikan", "🗑️ Q4 Singkirkan"];
+        const map = {};
+        for (const t of tasks) {
+          let key;
+          if (groupBy === "priority") key = PRI_LABELS[t.priority] || "(Tanpa Priority)";
+          else if (groupBy === "quadrant") key = QUAD_LABELS[t.quadrant] || "(Tanpa Quadrant)";
+          else if (groupBy === "project") key = t.project || "(Tanpa Project)";
+          else if (groupBy === "context") key = t.context || "(Tanpa Context)";
+          else if (groupBy === "tag") key = (t.tags && t.tags[0]) ? t.tags[0] : "(Tanpa Tag)";
+          if (!map[key]) map[key] = [];
+          map[key].push(t);
+        }
+        const allKeys = Object.keys(map);
+        const tanpaKeys = allKeys.filter(k => k.startsWith("(Tanpa"));
+        const normalKeys = allKeys.filter(k => !k.startsWith("(Tanpa"));
+        if (groupBy === "priority") normalKeys.sort((a, b) => PRI_ORDER_MAP.indexOf(a) - PRI_ORDER_MAP.indexOf(b));
+        else if (groupBy === "quadrant") normalKeys.sort((a, b) => QUAD_ORDER_MAP.indexOf(a) - QUAD_ORDER_MAP.indexOf(b));
+        else normalKeys.sort();
+        return [...normalKeys, ...tanpaKeys].map(key => ({ key, tasks: map[key] }));
+      };
+
       // Derive projects/contexts from allTasks if not provided
       const projList = projects && projects.length > 0 ? projects : [...new Set(allTasks?.filter(t => t.project).map(t => t.project) || [])];
       const ctxList = contexts && contexts.length > 0 ? contexts : [...new Set(allTasks?.filter(t => t.context).map(t => t.context) || [])];
