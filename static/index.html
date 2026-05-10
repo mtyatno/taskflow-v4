@@ -4388,6 +4388,100 @@
       );
     }
 
+    // ── Link Picker Modal (for Mindmap node linking) ────────────
+    function LinkPickerModal({ existingLinks = [], onSelect, onClose }) {
+      const [query, setQuery] = React.useState("");
+      const [tab, setTab] = React.useState("all");
+      const [results, setResults] = React.useState(null);
+      const [loading, setLoading] = React.useState(false);
+      const debounceRef = React.useRef(null);
+      const inputRef = React.useRef(null);
+
+      React.useEffect(() => { inputRef.current?.focus(); }, []);
+
+      React.useEffect(() => {
+        clearTimeout(debounceRef.current);
+        if (!query.trim()) { setResults(null); return; }
+        setLoading(true);
+        debounceRef.current = setTimeout(() => {
+          api.get(`/api/search?q=${encodeURIComponent(query.trim())}`)
+            .then(data => { setResults(data); setLoading(false); })
+            .catch(() => { setResults(null); setLoading(false); });
+        }, 300);
+      }, [query]);
+
+      const existingSet = new Set(existingLinks.map(l => `${l.type}-${l.id}`));
+      const notes = (results?.notes || []).filter(n => !existingSet.has(`note-${n.id}`));
+      const tasks = (results?.tasks || []).filter(t => !existingSet.has(`task-${t.id}`));
+      const allItems = tab === 'notes' ? notes.map(n => ({...n, _type:'note'}))
+                     : tab === 'tasks' ? tasks.map(t => ({...t, _type:'task'}))
+                     : [...notes.map(n => ({...n, _type:'note'})), ...tasks.map(t => ({...t, _type:'task'}))];
+
+      const handleSelect = (item) => {
+        const link = item._type === 'note'
+          ? { type: 'note', id: item.id, title: item.title, preview: (item.content || '').slice(0, 60) }
+          : { type: 'task', id: item.id, title: item.title, priority: item.priority, deadline: item.deadline, status: item.gtd_status };
+        onSelect(link);
+      };
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal-content" style={{ maxWidth: 420, maxHeight: '70vh', display:'flex', flexDirection:'column' }}
+               onClick={e => e.stopPropagation()}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+              <span style={{ fontWeight:700, fontSize:15 }}>🔗 Tambah Link</span>
+              <button className="btn-ghost" onClick={onClose} style={{ fontSize:18, lineHeight:1 }}>✕</button>
+            </div>
+            <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
+              placeholder="Cari note atau task..."
+              style={{ width:'100%', padding:'8px 12px', borderRadius:8, border:'1px solid var(--border)',
+                background:'var(--bg-primary)', color:'var(--text-primary)', fontSize:13, marginBottom:10, outline:'none' }} />
+            <div style={{ display:'flex', gap:6, marginBottom:10 }}>
+              {['all','notes','tasks'].map(t => (
+                <button key={t} onClick={() => setTab(t)}
+                  style={{ padding:'4px 12px', borderRadius:6, fontSize:12, fontWeight:600, cursor:'pointer',
+                    background: tab===t ? 'var(--accent)' : 'var(--bg-primary)',
+                    color: tab===t ? 'white' : 'var(--text-secondary)',
+                    border:'1px solid var(--border)' }}>
+                  {t === 'all' ? 'Semua' : t === 'notes' ? 'Notes' : 'Tasks'}
+                </button>
+              ))}
+            </div>
+            <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:6 }}>
+              {!query.trim() && (
+                <div style={{ color:'var(--text-light)', fontSize:13, textAlign:'center', padding:24 }}>Ketik untuk mencari...</div>
+              )}
+              {loading && <div style={{ color:'var(--text-light)', fontSize:13, textAlign:'center', padding:16 }}>Mencari...</div>}
+              {!loading && query.trim() && allItems.length === 0 && (
+                <div style={{ color:'var(--text-light)', fontSize:13, textAlign:'center', padding:24 }}>Tidak ada hasil</div>
+              )}
+              {allItems.map(item => (
+                <div key={`${item._type}-${item.id}`} onClick={() => handleSelect(item)}
+                  style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', borderRadius:8,
+                    border:'1px solid var(--border)', background:'var(--bg-primary)', cursor:'pointer' }}
+                  onMouseOver={e => e.currentTarget.style.borderColor='var(--accent)'}
+                  onMouseOut={e => e.currentTarget.style.borderColor='var(--border)'}>
+                  <span style={{ background: item._type==='note' ? '#6c7ae0' : '#e0a06c',
+                    color:'white', borderRadius:3, padding:'1px 6px', fontSize:10, fontWeight:700, flexShrink:0 }}>
+                    {item._type === 'note' ? 'NOTE' : 'TASK'}
+                  </span>
+                  <span style={{ fontWeight:600, fontSize:13, flex:1, overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis' }}>
+                    {item.title}
+                  </span>
+                  {item._type === 'task' && item.priority && (
+                    <span style={{ background:'var(--bg-card)', border:'1px solid var(--border)',
+                      borderRadius:3, padding:'1px 5px', fontSize:10, color:'var(--text-secondary)', flexShrink:0 }}>
+                      {item.priority}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // ── Mindmap page ──────────────────────────────────────────────
     function MindmapPage({ showToast }) {
       const [mindmaps, setMindmaps] = useState([]);
