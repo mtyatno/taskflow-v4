@@ -7887,6 +7887,7 @@
       };
 
       const allTags = tagList.map(t => t.name);
+      const maxTagCount = Math.max(...tagList.map(t => t.count || 0), 1);
 
       const openNew = () => { setSelected({}); setShowModal(true); };
       const openEdit = (n) => { setSelected(n); setShowModal(true); };
@@ -8011,12 +8012,21 @@
               </div>
               {tagsOpen && (
                 <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                  {allTags.map(tag => {
-                    const isActive = activeTags.includes(tag) || parseQuery(q).syntaxTags.includes(tag);
+                  {tagList.map(t => {
+                    const isActive = activeTags.includes(t.name) || parseQuery(q).syntaxTags.includes(t.name);
+                    const ratio = (t.count || 0) / maxTagCount;
+                    const bgAlpha = 0.06 + ratio * 0.29;
+                    const textAlpha = 0.42 + ratio * 0.58;
+                    const glow = !isActive && ratio > 0.6 ? `0 0 7px rgba(168,197,0,${(ratio * 0.45).toFixed(2)})` : "none";
                     return (
-                      <span key={tag} onClick={() => handleTagFilter(tag)} className="note-tag"
-                        style={{ cursor: "pointer", fontSize: 11.5, background: isActive ? "var(--accent)" : "rgba(168,197,0,0.10)", color: isActive ? "#1a2a00" : "var(--accent)", fontWeight: isActive ? 700 : 500, transition: "all 0.15s", borderRadius: 20, padding: "3px 10px" }}>
-                        #{tag}
+                      <span key={t.name} onClick={() => handleTagFilter(t.name)} className="note-tag"
+                        style={{ cursor: "pointer", fontSize: 11.5,
+                          background: isActive ? "var(--accent)" : `rgba(168,197,0,${bgAlpha.toFixed(2)})`,
+                          color: isActive ? "#1a2a00" : `rgba(168,197,0,${textAlpha.toFixed(2)})`,
+                          fontWeight: isActive ? 700 : (ratio > 0.5 ? 600 : 500),
+                          boxShadow: glow,
+                          transition: "all 0.15s", borderRadius: 20, padding: "3px 10px" }}>
+                        #{t.name}
                       </span>
                     );
                   })}
