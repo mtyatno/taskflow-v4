@@ -206,10 +206,13 @@
         openBtn.textContent = '↗';
         openBtn.title = 'Buka';
         openBtn.onclick = () => {
-          window.parent.postMessage(
-            { type: link.type === 'note' ? 'openNote' : 'openTask', id: link.id },
-            window.location.origin
-          );
+          const msgType = link.type === 'note' ? 'openNote' : 'openTask';
+          const send = () => window.parent.postMessage({ type: msgType, id: link.id }, window.location.origin);
+          if (document.fullscreenElement) {
+            document.exitFullscreen().finally(send);
+          } else {
+            send();
+          }
         };
 
         const removeBtn = document.createElement('span');
@@ -424,6 +427,13 @@
 
       mind.bus.addListener('operation', () => {
         window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+      });
+
+      // Re-render panel after fullscreen exits so links stay visible
+      document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement && currentNodeId && currentNodeData) {
+          setTimeout(() => renderPanel(currentNodeData.topic, currentNodeData.links || []), 100);
+        }
       });
     }
 
