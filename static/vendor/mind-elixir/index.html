@@ -251,6 +251,10 @@
         toolBar: true,
         keypress: true,
       });
+      // Redirect fullscreen from #map to #app so #link-panel stays visible
+      const mapEl = document.getElementById('map');
+      mapEl.requestFullscreen = () => document.getElementById('app').requestFullscreen();
+
       mind.init(data);
       setTimeout(updateBadges, 300);
       mind.bus.addListener('selectNodes', (nodes) => {
