@@ -4358,6 +4358,393 @@
       );
     }
 
+    // ── Mindmap list item ─────────────────────────────────────────
+    function MindmapListItem({ m, isSelected, onSelect, onPin }) {
+      const [hovered, setHovered] = useState(false);
+      return (
+        <div onClick={onSelect}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px",
+            cursor: "pointer", borderRadius: 6, transition: "background 0.1s",
+            background: isSelected ? "rgba(168,197,0,0.1)" : "transparent",
+            borderRight: isSelected ? "2px solid var(--accent)" : "2px solid transparent" }}>
+          <span style={{ flex: 1, fontSize: 12,
+            color: isSelected ? "var(--accent)" : "var(--text-secondary)",
+            fontWeight: isSelected ? 600 : 400,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {m.title}
+          </span>
+          {(hovered || m.is_pinned) && (
+            <span onClick={e => { e.stopPropagation(); onPin(m); }}
+              title={m.is_pinned ? "Unpin" : "Pin"}
+              style={{ fontSize: 11, cursor: "pointer", flexShrink: 0,
+                color: m.is_pinned ? "var(--accent)" : "var(--text-light)" }}>
+              {m.is_pinned ? "★" : "☆"}
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    // ── Mindmap page ──────────────────────────────────────────────
+    function MindmapPage({ showToast }) {
+      const [mindmaps, setMindmaps] = useState([]);
+      const [selected, setSelected] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [sidebarOpen, setSidebarOpen] = useState(
+        () => (localStorage.getItem("tf_mindmap_sidebar") || "open") === "open"
+      );
+      const [searchQ, setSearchQ] = useState("");
+      const [creating, setCreating] = useState(false);
+      const [newTitle, setNewTitle] = useState("");
+      const [renaming, setRenaming] = useState(false);
+      const [renameVal, setRenameVal] = useState("");
+      const [deleteConfirm, setDeleteConfirm] = useState(false);
+      const [syncStatus, setSyncStatus] = useState("saved");
+      const iframeRef = useRef(null);
+      const saveTimerRef = useRef(null);
+
+      // Load list on mount
+      useEffect(() => {
+        api.get("/api/mindmaps")
+          .then(data => {
+            setMindmaps(data || []);
+            try { localStorage.setItem("tf_mindmap_list", JSON.stringify(data || [])); } catch(_) {}
+          })
+          .catch(() => {
+            const cached = JSON.parse(localStorage.getItem("tf_mindmap_list") || "[]");
+            setMindmaps(cached);
+          })
+          .finally(() => setLoading(false));
+      }, []);
+
+      // Persist sidebar state
+      useEffect(() => {
+        localStorage.setItem("tf_mindmap_sidebar", sidebarOpen ? "open" : "collapsed");
+      }, [sidebarOpen]);
+
+      // Send data to iframe when selected mindmap changes
+      useEffect(() => {
+        if (!selected) return;
+        setSyncStatus("saved");
+        setDeleteConfirm(false);
+        setRenaming(false);
+        const pending = localStorage.getItem(`tf_mindmap_pending_${selected.id}`);
+        const dataStr = pending || selected.data_json;
+        const sendLoad = () => {
+          try {
+            const data = JSON.parse(dataStr);
+            iframeRef.current?.contentWindow?.postMessage({ type: "load", data }, window.location.origin);
+            if (pending) setSyncStatus("offline");
+          } catch(_) {}
+        };
+        if (iframeRef.current?.contentWindow) {
+          setTimeout(sendLoad, 50);
+        }
+      }, [selected?.id]);
+
+      // iframe message handler: ready + change events
+      useEffect(() => {
+        const handler = (e) => {
+          if (e.origin !== window.location.origin) return;
+          if (e.data && e.data.type === "ready" && selected) {
+            const pending = localStorage.getItem(`tf_mindmap_pending_${selected.id}`);
+            const dataStr = pending || selected.data_json;
+            try {
+              const data = JSON.parse(dataStr);
+              iframeRef.current?.contentWindow?.postMessage({ type: "load", data }, window.location.origin);
+              if (pending) setSyncStatus("offline");
+            } catch(_) {}
+          }
+          if (e.data && e.data.type === "change" && selected) {
+            const dataStr = JSON.stringify(e.data.data);
+            try { localStorage.setItem(`tf_mindmap_pending_${selected.id}`, dataStr); } catch(_) {}
+            if (!navigator.onLine) { setSyncStatus("offline"); return; }
+            setSyncStatus("saving");
+            clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = setTimeout(() => {
+              api.put(`/api/mindmaps/${selected.id}`, { data_json: dataStr })
+                .then(() => {
+                  setSyncStatus("saved");
+                  try { localStorage.removeItem(`tf_mindmap_pending_${selected.id}`); } catch(_) {}
+                })
+                .catch(() => setSyncStatus("offline"));
+            }, 1000);
+          }
+        };
+        window.addEventListener("message", handler);
+        return () => window.removeEventListener("message", handler);
+      }, [selected?.id]);
+
+      // Flush pending on reconnect
+      useEffect(() => {
+        const handler = () => {
+          if (!selected) return;
+          const pending = localStorage.getItem(`tf_mindmap_pending_${selected.id}`);
+          if (pending) {
+            api.put(`/api/mindmaps/${selected.id}`, { data_json: pending })
+              .then(() => {
+                setSyncStatus("saved");
+                try { localStorage.removeItem(`tf_mindmap_pending_${selected.id}`); } catch(_) {}
+              })
+              .catch(() => {});
+          }
+        };
+        window.addEventListener("online", handler);
+        return () => window.removeEventListener("online", handler);
+      }, [selected?.id]);
+
+      const selectMindmap = async (m) => {
+        if (selected?.id === m.id) return;
+        try {
+          const full = await api.get(`/api/mindmaps/${m.id}`);
+          setSelected(full);
+        } catch(e) { showToast("Gagal memuat mindmap", "error"); }
+      };
+
+      const handleCreate = async () => {
+        const title = newTitle.trim() || "Untitled";
+        const defaultData = JSON.stringify({
+          nodeData: { id: "root", topic: title, root: true, children: [] }
+        });
+        try {
+          const created = await api.post("/api/mindmaps", { title, data_json: defaultData });
+          const next = [created, ...mindmaps];
+          setMindmaps(next);
+          try { localStorage.setItem("tf_mindmap_list", JSON.stringify(next)); } catch(_) {}
+          setSelected(created);
+          setNewTitle("");
+          setCreating(false);
+          showToast("✅ Mindmap dibuat");
+        } catch(e) { showToast("Gagal membuat mindmap", "error"); }
+      };
+
+      const handleRename = async () => {
+        if (!selected || !renameVal.trim()) return;
+        try {
+          const updated = await api.put(`/api/mindmaps/${selected.id}`, { title: renameVal.trim() });
+          setMindmaps(prev => prev.map(m => m.id === updated.id ? { ...m, title: updated.title } : m));
+          setSelected(s => ({ ...s, title: updated.title }));
+          setRenaming(false);
+          showToast("✅ Mindmap diubah");
+        } catch(e) { showToast("Gagal rename", "error"); }
+      };
+
+      const handleDelete = async () => {
+        if (!selected) return;
+        try {
+          await api.del(`/api/mindmaps/${selected.id}`);
+          const next = mindmaps.filter(m => m.id !== selected.id);
+          setMindmaps(next);
+          try { localStorage.setItem("tf_mindmap_list", JSON.stringify(next)); } catch(_) {}
+          setSelected(null);
+          setDeleteConfirm(false);
+          showToast("🗑 Mindmap dihapus");
+        } catch(e) { showToast("Gagal hapus", "error"); }
+      };
+
+      const handlePin = async (m) => {
+        try {
+          const updated = await api.patch(`/api/mindmaps/${m.id}/pin`, {});
+          setMindmaps(prev => {
+            const next = prev.map(x => x.id === updated.id ? { ...x, is_pinned: updated.is_pinned } : x);
+            return next.sort((a, b) => b.is_pinned - a.is_pinned || new Date(b.updated_at) - new Date(a.updated_at));
+          });
+        } catch(e) { showToast("Gagal pin/unpin", "error"); }
+      };
+
+      const q = searchQ.trim().toLowerCase();
+      const filtered = q ? mindmaps.filter(m => m.title.toLowerCase().includes(q)) : mindmaps;
+      const pinned = filtered.filter(m => m.is_pinned);
+      const unpinned = filtered.filter(m => !m.is_pinned);
+      const hasPinnedSection = pinned.length > 0 && !q;
+
+      return (
+        <div className="fade-in" style={{ display: "flex", height: "calc(100vh - 112px)", overflow: "hidden", marginTop: 8 }}>
+
+          {/* ── Sidebar ── */}
+          <div style={{ width: sidebarOpen ? 200 : 36, flexShrink: 0, transition: "width 0.2s ease",
+            overflow: "hidden", borderRight: "1px solid var(--border)",
+            display: "flex", flexDirection: "column", background: "var(--bg-card)" }}>
+
+            {sidebarOpen ? (
+              <>
+                {/* Search */}
+                <div style={{ padding: "8px 8px 4px", display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
+                  <input value={searchQ} onChange={e => setSearchQ(e.target.value)}
+                    placeholder="🔍 Cari..."
+                    style={{ flex: 1, fontSize: 11, padding: "4px 8px", borderRadius: 6,
+                      border: "1px solid var(--border)", background: "var(--bg-primary)",
+                      color: "var(--text-primary)", outline: "none" }} />
+                  {searchQ && (
+                    <span onClick={() => setSearchQ("")}
+                      style={{ cursor: "pointer", fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>✕</span>
+                  )}
+                </div>
+
+                {/* New button / inline create */}
+                <div style={{ padding: "4px 8px", flexShrink: 0 }}>
+                  {creating ? (
+                    <div>
+                      <input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)}
+                        placeholder="Nama mindmap..."
+                        onKeyDown={e => {
+                          if (e.key === "Enter") handleCreate();
+                          if (e.key === "Escape") { setCreating(false); setNewTitle(""); }
+                        }}
+                        style={{ width: "100%", fontSize: 12, padding: "4px 8px", borderRadius: 6,
+                          border: "1px solid var(--accent)", background: "var(--bg-primary)",
+                          color: "var(--text-primary)", outline: "none", marginBottom: 4 }} />
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button className="btn btn-primary btn-sm" onClick={handleCreate}
+                          style={{ flex: 1, fontSize: 11 }}>Buat</button>
+                        <button className="btn btn-secondary btn-sm"
+                          onClick={() => { setCreating(false); setNewTitle(""); }}
+                          style={{ fontSize: 11 }}>✕</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => setCreating(true)}
+                      style={{ width: "100%", padding: "5px 8px", borderRadius: 6,
+                        border: "1px dashed var(--border)", background: "none",
+                        color: "var(--accent)", cursor: "pointer", fontSize: 11,
+                        fontWeight: 600, textAlign: "left" }}>
+                      + Baru
+                    </button>
+                  )}
+                </div>
+
+                {/* List */}
+                <div style={{ flex: 1, overflowY: "auto", padding: "4px 0" }}>
+                  {loading ? (
+                    <div style={{ padding: "8px 12px", color: "var(--text-light)", fontSize: 11 }}>Memuat...</div>
+                  ) : filtered.length === 0 ? (
+                    <div style={{ padding: "8px 12px", color: "var(--text-light)", fontSize: 11 }}>
+                      {q ? "Tidak ditemukan" : "Belum ada mindmap"}
+                    </div>
+                  ) : (
+                    <>
+                      {hasPinnedSection && (
+                        <>
+                          <div style={{ padding: "4px 10px 2px", fontSize: 10, fontWeight: 700,
+                            color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.6px" }}>
+                            ★ Pinned
+                          </div>
+                          {pinned.map(m => (
+                            <MindmapListItem key={m.id} m={m} isSelected={selected?.id === m.id}
+                              onSelect={() => selectMindmap(m)} onPin={handlePin} />
+                          ))}
+                          <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+                          <div style={{ padding: "4px 10px 2px", fontSize: 10, fontWeight: 700,
+                            color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.6px" }}>
+                            Semua
+                          </div>
+                        </>
+                      )}
+                      {unpinned.map(m => (
+                        <MindmapListItem key={m.id} m={m} isSelected={selected?.id === m.id}
+                          onSelect={() => selectMindmap(m)} onPin={handlePin} />
+                      ))}
+                    </>
+                  )}
+                </div>
+
+                {/* Collapse button */}
+                <button onClick={() => setSidebarOpen(false)}
+                  style={{ padding: "8px 12px", background: "none", border: "none",
+                    borderTop: "1px solid var(--border)", cursor: "pointer",
+                    color: "var(--text-light)", fontSize: 11, textAlign: "left", flexShrink: 0 }}>
+                  ‹ Sembunyikan
+                </button>
+              </>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 10, gap: 10 }}>
+                <span style={{ fontSize: 14 }}>🧠</span>
+                <button onClick={() => setSidebarOpen(true)}
+                  style={{ background: "none", border: "none", cursor: "pointer",
+                    color: "var(--text-light)", fontSize: 16, lineHeight: 1 }}>›</button>
+              </div>
+            )}
+          </div>
+
+          {/* ── Editor area ── */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+            {selected && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 14px",
+                borderBottom: "1px solid var(--border)", background: "var(--bg-card)",
+                flexShrink: 0, minHeight: 38 }}>
+                {renaming ? (
+                  <>
+                    <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") handleRename();
+                        if (e.key === "Escape") setRenaming(false);
+                      }}
+                      style={{ flex: 1, maxWidth: 280, fontSize: 13, fontWeight: 600,
+                        padding: "2px 8px", borderRadius: 6,
+                        border: "1px solid var(--accent)", background: "var(--bg-primary)",
+                        color: "var(--text-primary)", outline: "none" }} />
+                    <button className="btn btn-primary btn-sm" onClick={handleRename} style={{ fontSize: 11 }}>Simpan</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setRenaming(false)} style={{ fontSize: 11 }}>Batal</button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)",
+                      flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      🧠 {selected.title}
+                    </span>
+                    <span style={{ fontSize: 11, color: syncStatus === "offline" ? "#ef4444" : "var(--text-light)", flexShrink: 0 }}>
+                      {syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : "Tersimpan"}
+                    </span>
+                    <button className="btn btn-secondary btn-sm"
+                      onClick={() => { setRenaming(true); setRenameVal(selected.title); }}
+                      style={{ fontSize: 11 }}>Rename</button>
+                    {deleteConfirm ? (
+                      <>
+                        <span style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}>Hapus?</span>
+                        <button onClick={handleDelete}
+                          style={{ padding: "3px 8px", borderRadius: 6, border: "none", cursor: "pointer",
+                            background: "#ef4444", color: "#fff", fontSize: 11 }}>Ya</button>
+                        <button className="btn btn-secondary btn-sm"
+                          onClick={() => setDeleteConfirm(false)} style={{ fontSize: 11 }}>Batal</button>
+                      </>
+                    ) : (
+                      <button onClick={() => setDeleteConfirm(true)}
+                        style={{ padding: "3px 8px", borderRadius: 6, cursor: "pointer", fontSize: 11,
+                          background: "none", border: "1px solid #ef4444", color: "#ef4444" }}>Hapus</button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {!selected ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center", gap: 10 }}>
+                <span style={{ fontSize: 40 }}>🧠</span>
+                <span style={{ color: "var(--text-light)", fontSize: 13 }}>
+                  {mindmaps.length === 0 && !loading ? "Buat mindmap pertamamu" : "Pilih mindmap dari daftar"}
+                </span>
+                {mindmaps.length === 0 && !loading && !creating && (
+                  <button className="btn btn-primary" onClick={() => { setSidebarOpen(true); setCreating(true); }}
+                    style={{ marginTop: 4 }}>
+                    + Buat Mindmap Pertama
+                  </button>
+                )}
+              </div>
+            ) : (
+              <iframe ref={iframeRef}
+                src="/static/vendor/mind-elixir/index.html"
+                style={{ flex: 1, border: "none", width: "100%" }}
+                title="Mindmap editor" />
+            )}
+          </div>
+        </div>
+      );
+    }
+
     // ── Compact task row (minimal: checkbox + title + date) ──────
     function CompactRow({ task, onTaskClick, onDone }) {
       const dateStr = task.deadline ? formatDate(task.deadline) : null;
