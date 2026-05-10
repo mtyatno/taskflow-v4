@@ -4405,6 +4405,9 @@
       const iframeRef = useRef(null);
       const saveTimerRef = useRef(null);
 
+      // Clear debounce timer on unmount
+      useEffect(() => { return () => clearTimeout(saveTimerRef.current); }, []);
+
       // Load list on mount
       useEffect(() => {
         api.get("/api/mindmaps")
@@ -4440,7 +4443,7 @@
           } catch(_) {}
         };
         if (iframeRef.current?.contentWindow) {
-          setTimeout(sendLoad, 50);
+          setTimeout(sendLoad, 200);
         }
       }, [selected?.id]);
 
@@ -4459,15 +4462,16 @@
           }
           if (e.data && e.data.type === "change" && selected) {
             const dataStr = JSON.stringify(e.data.data);
-            try { localStorage.setItem(`tf_mindmap_pending_${selected.id}`, dataStr); } catch(_) {}
+            const mid = selected.id;
+            try { localStorage.setItem(`tf_mindmap_pending_${mid}`, dataStr); } catch(_) {}
             if (!navigator.onLine) { setSyncStatus("offline"); return; }
             setSyncStatus("saving");
             clearTimeout(saveTimerRef.current);
             saveTimerRef.current = setTimeout(() => {
-              api.put(`/api/mindmaps/${selected.id}`, { data_json: dataStr })
+              api.put(`/api/mindmaps/${mid}`, { data_json: dataStr })
                 .then(() => {
                   setSyncStatus("saved");
-                  try { localStorage.removeItem(`tf_mindmap_pending_${selected.id}`); } catch(_) {}
+                  try { localStorage.removeItem(`tf_mindmap_pending_${mid}`); } catch(_) {}
                 })
                 .catch(() => setSyncStatus("offline"));
             }, 1000);
@@ -4510,9 +4514,11 @@
         });
         try {
           const created = await api.post("/api/mindmaps", { title, data_json: defaultData });
-          const next = [created, ...mindmaps];
-          setMindmaps(next);
-          try { localStorage.setItem("tf_mindmap_list", JSON.stringify(next)); } catch(_) {}
+          setMindmaps(prev => {
+            const next = [created, ...prev];
+            try { localStorage.setItem("tf_mindmap_list", JSON.stringify(next)); } catch(_) {}
+            return next;
+          });
           setSelected(created);
           setNewTitle("");
           setCreating(false);
@@ -4558,7 +4564,7 @@
       const filtered = q ? mindmaps.filter(m => m.title.toLowerCase().includes(q)) : mindmaps;
       const pinned = filtered.filter(m => m.is_pinned);
       const unpinned = filtered.filter(m => !m.is_pinned);
-      const hasPinnedSection = pinned.length > 0 && !q;
+      const hasPinnedSection = pinned.length > 0;
 
       return (
         <div className="fade-in" style={{ display: "flex", height: "calc(100vh - 112px)", overflow: "hidden", marginTop: 8 }}>
