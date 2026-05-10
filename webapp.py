@@ -366,8 +366,11 @@ class DrawingUpsert(BaseModel):
         return v
 
 class MindmapCreate(BaseModel):
-    title: str = "Untitled"
-    data_json: str = '{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}'
+    title: str = Field(default="Untitled", min_length=1)
+    data_json: str = Field(
+        default='{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}',
+        max_length=5_000_000
+    )
 
     @field_validator("data_json")
     @classmethod
@@ -380,7 +383,7 @@ class MindmapCreate(BaseModel):
 
 class MindmapUpdate(BaseModel):
     title: Optional[str] = None
-    data_json: Optional[str] = None
+    data_json: Optional[str] = Field(default=None, max_length=5_000_000)
 
     @field_validator("data_json")
     @classmethod
