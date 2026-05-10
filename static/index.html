@@ -4577,9 +4577,33 @@
               <div style={{ fontSize: 36, marginBottom: 8 }}>{hasFilters ? "🔍" : "🎉"}</div>
               <div>{hasFilters ? "Tidak ada task yang cocok dengan filter" : "Tidak ada task"}</div>
             </div>
+          ) : groupBy === "none" ? (
+            <div className="card" style={{ padding: viewMode === "compact" ? 0 : 8, overflow: "hidden" }}>
+              {filtered.map(t => viewMode === "compact"
+                ? <CompactRow key={t.id} task={t} />
+                : <TaskRow key={t.id} task={t} onClick={onTaskClick} onDone={onDone} onToggleFocus={onToggleFocus} />
+              )}
+            </div>
           ) : (
-            <div className="card" style={{ padding: 8 }}>
-              {filtered.map(t => <TaskRow key={t.id} task={t} onClick={onTaskClick} onDone={onDone} onToggleFocus={onToggleFocus} />)}
+            <div className="card" style={{ overflow: "hidden", padding: 0 }}>
+              {buildGroups(filtered).map(({ key, tasks: groupTasks }, idx) => {
+                const isTanpa = key.startsWith("(Tanpa");
+                const isCollapsed = isTanpa ? (collapsed[key] !== false) : !!collapsed[key];
+                return (
+                  <div key={key}>
+                    {idx > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
+                    <GroupHeader groupKey={key} count={groupTasks.length} isCollapsed={isCollapsed} />
+                    {!isCollapsed && (
+                      <div style={{ padding: viewMode === "compact" ? 0 : 8 }}>
+                        {groupTasks.map(t => viewMode === "compact"
+                          ? <CompactRow key={t.id} task={t} />
+                          : <TaskRow key={t.id} task={t} onClick={onTaskClick} onDone={onDone} onToggleFocus={onToggleFocus} />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
