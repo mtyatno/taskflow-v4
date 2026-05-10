@@ -21,7 +21,8 @@
         mind.init(data);
         return;
       }
-      mind = new MindElixir({
+      const ME = MindElixir.default || MindElixir;
+      mind = new ME({
         el: '#map',
         direction: MindElixir.SIDE,
         draggable: true,
