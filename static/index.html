@@ -4366,17 +4366,19 @@
       const [fContext, setFContext] = useState("");
       const [fAssignee, setFAssignee] = useState("");
       const [fSearch, setFSearch] = useState("");
-      const [groupBy, setGroupBy] = useState(() => localStorage.getItem("taskflow_groupby") || "none");
-      const [viewMode, setViewMode] = useState(() => localStorage.getItem("taskflow_viewmode") || "normal");
+      const [groupBy, setGroupBy] = useState(() => localStorage.getItem("tf_groupby") || "none");
+      const [viewMode, setViewMode] = useState(() => localStorage.getItem("tf_viewmode") || "normal");
       const [collapsed, setCollapsed] = useState({});
 
       const toggle = (setter, current, val) => setter(current === val ? "" : val);
-      const handleGroupBy = (val) => { setGroupBy(val); localStorage.setItem("taskflow_groupby", val); setCollapsed({}); };
-      const handleViewMode = (val) => { setViewMode(val); localStorage.setItem("taskflow_viewmode", val); };
+      const handleGroupBy = (val) => { setGroupBy(val); localStorage.setItem("tf_groupby", val); setCollapsed({}); };
+      const handleViewMode = (val) => { setViewMode(val); localStorage.setItem("tf_viewmode", val); };
       const toggleGroup = (key) => {
         const isTanpa = key.startsWith("(Tanpa");
-        const current = isTanpa ? (collapsed[key] !== false) : !!collapsed[key];
-        setCollapsed(c => ({ ...c, [key]: !current }));
+        setCollapsed(c => {
+          const current = isTanpa ? (c[key] !== false) : !!c[key];
+          return { ...c, [key]: !current };
+        });
       };
 
       const PRI_ORDER = { P1: 0, P2: 1, P3: 2, P4: 3 };
