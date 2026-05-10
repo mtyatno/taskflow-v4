@@ -4477,7 +4477,7 @@
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 500 }}>Group by:</span>
-              <select value={groupBy} onChange={e => handleGroupBy(e.target.value)}
+              <select aria-label="Group by" value={groupBy} onChange={e => handleGroupBy(e.target.value)}
                 style={{ fontSize: 12, padding: "4px 8px", borderRadius: 6,
                   border: "1px solid var(--border)", background: "var(--bg-card)",
                   color: "var(--text-primary)", cursor: "pointer" }}>
@@ -4491,7 +4491,7 @@
             </div>
             <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
               {[["normal", "▦", "Normal"], ["compact", "▤", "Compact"]].map(([mode, ico, label]) => (
-                <button key={mode} onClick={() => handleViewMode(mode)} title={label}
+                <button type="button" key={mode} onClick={() => handleViewMode(mode)} title={label}
                   style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border)",
                     cursor: "pointer", fontSize: 14, lineHeight: 1,
                     background: viewMode === mode ? "var(--accent)" : "var(--bg-card)",
