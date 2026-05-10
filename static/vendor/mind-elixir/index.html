@@ -140,6 +140,83 @@
     function showPanel() { document.getElementById('link-panel').style.display = 'block'; }
     function hidePanel() { document.getElementById('link-panel').style.display = 'none'; }
 
+    function renderPanel(topic, links) {
+      document.getElementById('link-panel-title').textContent = '🔗 Links — ' + topic;
+      const container = document.getElementById('link-panel-items');
+      container.innerHTML = '';
+
+      links.forEach((link, idx) => {
+        const card = document.createElement('div');
+        card.className = 'lp-card';
+
+        const row = document.createElement('div');
+        row.className = 'lp-card-row';
+
+        const badge = document.createElement('span');
+        badge.className = 'lp-badge ' + (link.type === 'note' ? 'lp-badge-note' : 'lp-badge-task');
+        badge.textContent = link.type === 'note' ? 'NOTE' : 'TASK';
+
+        const title = document.createElement('span');
+        title.className = 'lp-title';
+        title.textContent = link.title;
+
+        const openBtn = document.createElement('span');
+        openBtn.className = 'lp-open';
+        openBtn.textContent = '↗';
+        openBtn.title = 'Buka';
+        openBtn.onclick = () => {
+          window.parent.postMessage(
+            { type: link.type === 'note' ? 'openNote' : 'openTask', id: link.id },
+            window.location.origin
+          );
+        };
+
+        const removeBtn = document.createElement('span');
+        removeBtn.className = 'lp-remove';
+        removeBtn.textContent = '✕';
+        removeBtn.title = 'Hapus link';
+        removeBtn.onclick = () => removeLinkAtIndex(idx);
+
+        row.append(badge, title, openBtn, removeBtn);
+
+        const preview = document.createElement('div');
+        preview.className = 'lp-preview';
+        if (link.type === 'task') {
+          const parts = [];
+          if (link.priority) parts.push(link.priority);
+          if (link.deadline) parts.push('Due ' + link.deadline.slice(0, 10));
+          if (link.status) parts.push(link.status);
+          preview.textContent = parts.join(' · ') || '—';
+        } else {
+          preview.textContent = link.preview || '';
+        }
+
+        card.append(row, preview);
+        container.appendChild(card);
+      });
+
+      // Add link button
+      const addBtn = document.createElement('button');
+      addBtn.className = 'lp-add-btn';
+      addBtn.textContent = '+ Tambah link';
+      addBtn.onclick = () => {
+        window.parent.postMessage({ type: 'requestLinkPicker', nodeId: currentNodeId }, window.location.origin);
+      };
+      container.appendChild(addBtn);
+
+      showPanel();
+    }
+
+    function removeLinkAtIndex(idx) {
+      if (!currentNodeId || !currentNodeData) return;
+      currentNodeData.links = (currentNodeData.links || []).filter((_, i) => i !== idx);
+      renderPanel(currentNodeData.topic, currentNodeData.links);
+      updateBadges();
+      window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+    }
+
+    function updateBadges() { /* implemented in Task 4 */ }
+
     function initMind(data) {
       if (mind) {
         mind.init(data);
