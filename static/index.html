@@ -4483,7 +4483,7 @@
     }
 
     // ── Mindmap page ──────────────────────────────────────────────
-    function MindmapPage({ showToast }) {
+    function MindmapPage({ showToast, onTaskClick, tasks = [] }) {
       const [mindmaps, setMindmaps] = useState([]);
       const [selected, setSelected] = useState(null);
       const [loading, setLoading] = useState(true);
@@ -4499,6 +4499,10 @@
       const [syncStatus, setSyncStatus] = useState("saved");
       const iframeRef = useRef(null);
       const saveTimerRef = useRef(null);
+      const [modalNote, setModalNote]               = useState(null);
+      const [showLinkPicker, setShowLinkPicker]     = useState(false);
+      const [pickerNodeId, setPickerNodeId]         = useState(null);
+      const [currentNodeLinks, setCurrentNodeLinks] = useState([]);
 
       // Clear debounce timer on unmount
       useEffect(() => { return () => clearTimeout(saveTimerRef.current); }, []);
@@ -4556,6 +4560,32 @@
               if (pending) setSyncStatus("offline");
             } catch(_) {}
           }
+          if (e.data && e.data.type === "nodeSelected") {
+            setCurrentNodeLinks(e.data.links || []);
+          }
+          if (e.data && e.data.type === "nodeDeselected") {
+            setCurrentNodeLinks([]);
+          }
+          if (e.data && e.data.type === "openNote") {
+            api.get(`/api/scratchpad/${e.data.id}`)
+              .then(note => setModalNote(note))
+              .catch(() => showToast("Gagal memuat note", "error"));
+          }
+          if (e.data && e.data.type === "openTask") {
+            if (typeof onTaskClick === "function") {
+              const found = tasks.find(t => t.id === e.data.id);
+              if (found) { onTaskClick(found); }
+              else {
+                api.get(`/api/tasks/${e.data.id}`)
+                  .then(t => onTaskClick(t))
+                  .catch(() => showToast("Gagal memuat task", "error"));
+              }
+            }
+          }
+          if (e.data && e.data.type === "requestLinkPicker") {
+            setPickerNodeId(e.data.nodeId);
+            setShowLinkPicker(true);
+          }
           if (e.data && e.data.type === "change" && selected) {
             const dataStr = JSON.stringify(e.data.data);
             const mid = selected.id;
@@ -4597,6 +4627,8 @@
 
       const selectMindmap = async (m) => {
         if (selected?.id === m.id) return;
+        iframeRef.current?.contentWindow?.postMessage({ type: 'clearPanel' }, window.location.origin);
+        setCurrentNodeLinks([]);
         try {
           const full = await api.get(`/api/mindmaps/${m.id}`);
           setSelected(full);
@@ -4845,6 +4877,40 @@
                 title="Mindmap editor" />
             )}
           </div>
+          {showLinkPicker && (
+            <LinkPickerModal
+              existingLinks={currentNodeLinks}
+              onSelect={(link) => {
+                iframeRef.current?.contentWindow?.postMessage(
+                  { type: 'addLink', nodeId: pickerNodeId, link },
+                  window.location.origin
+                );
+                setCurrentNodeLinks(prev => [...prev, link]);
+                setShowLinkPicker(false);
+                setPickerNodeId(null);
+              }}
+              onClose={() => { setShowLinkPicker(false); setPickerNodeId(null); }}
+            />
+          )}
+          {modalNote && (
+            <NoteModal
+              note={modalNote}
+              tasks={tasks}
+              onClose={() => setModalNote(null)}
+              onSave={async (updates) => {
+                try {
+                  const saved = await api.put(`/api/scratchpad/${modalNote.id}`, updates);
+                  setModalNote(null);
+                  return saved;
+                } catch(e) { showToast("Gagal simpan", "error"); }
+              }}
+              onDelete={async (id) => {
+                try { await api.del(`/api/scratchpad/${id}`); setModalNote(null); } catch(e) {}
+              }}
+              onTaskClick={onTaskClick}
+              showToast={showToast}
+            />
+          )}
         </div>
       );
     }
