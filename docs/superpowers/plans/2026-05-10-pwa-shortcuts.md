@@ -164,11 +164,11 @@
 ## Task 4: Add pendingAction state and useEffect in App()
 
 **Files:**
-- Modify: `static/index.html` (around line 9435 and 9444)
+- Modify: `static/index.html` (around line 10028 and 10040)
 
 - [ ] **Step 1: Add pendingAction state**
 
-  In `static/index.html`, locate this block (around line 9431–9435):
+  In `static/index.html`, locate this block (around line 10027–10031):
 
   ```js
       // Handle ?join=<code> invite link from URL
@@ -189,7 +189,7 @@
 
 - [ ] **Step 2: Add useEffect to consume the action**
 
-  Locate the join `useEffect` (around line 9438–9444):
+  Locate the join `useEffect` (around line 10034–10040):
 
   ```js
       useEffect(() => {
