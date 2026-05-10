@@ -19,3 +19,4 @@ jobs:
             git pull origin main
             cd draw-app && npm ci --prefer-offline && npx vite build && cd ..
             venv/bin/pip install -r requirements.txt
+            sudo systemctl restart taskflow-web
