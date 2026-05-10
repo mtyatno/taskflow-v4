@@ -4521,6 +4521,21 @@
           .finally(() => setLoading(false));
       }, []);
 
+      // Open specific mindmap via global search
+      useEffect(() => {
+        const handler = (e) => {
+          const id = e.detail;
+          const found = mindmaps.find(m => m.id === id);
+          if (found) selectMindmap(found);
+          else api.get(`/api/mindmaps/${id}`).then(full => {
+            setMindmaps(prev => prev.find(m => m.id === full.id) ? prev : [full, ...prev]);
+            setSelected(full);
+          }).catch(() => {});
+        };
+        window.addEventListener("openMindmap", handler);
+        return () => window.removeEventListener("openMindmap", handler);
+      }, [mindmaps]);
+
       // Persist sidebar state
       useEffect(() => {
         localStorage.setItem("tf_mindmap_sidebar", sidebarOpen ? "open" : "collapsed");
@@ -9525,7 +9540,7 @@
       );
     }
 
-    function SearchModal({ onClose, onTaskClick, onNoteClick }) {
+    function SearchModal({ onClose, onTaskClick, onNoteClick, onMindmapClick }) {
       const [query, setQuery] = useState("");
       const [results, setResults] = useState(null);
       const [loading, setLoading] = useState(false);
@@ -9554,7 +9569,7 @@
       };
 
       const PRI_COLOR = { P1: "#ef4444", P2: "#f97316", P3: "#eab308", P4: "#22c55e" };
-      const hasResults = results && (results.tags.length > 0 || results.tasks.length > 0 || results.notes.length > 0);
+      const hasResults = results && (results.tags.length > 0 || results.tasks.length > 0 || results.notes.length > 0 || (results.mindmaps || []).length > 0);
 
       return (
         <div className="modal-overlay" onClick={onClose}>
@@ -9656,6 +9671,30 @@
                           {note.content}
                         </div>
                       )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Mindmaps */}
+              {results && results.mindmaps && results.mindmaps.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, padding: "6px 16px 4px" }}>
+                    🧠 Mindmaps
+                  </div>
+                  {results.mindmaps.map(mm => (
+                    <div key={mm.id}
+                      onClick={() => { onClose(); onMindmapClick && onMindmapClick(mm); }}
+                      style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+                      onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    >
+                      <span style={{ fontSize: 14, color: "var(--text-primary)", fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {mm.title}
+                      </span>
+                      <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>
+                        {mm.updated_at ? mm.updated_at.slice(0, 10) : ""}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -10231,6 +10270,16 @@
         }
       };
 
+      const handleSearchMindmapClick = (mm) => {
+        setShowSearch(false);
+        setPage("mindmap");
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            window.dispatchEvent(new CustomEvent("openMindmap", { detail: mm.id }));
+          });
+        });
+      };
+
       const handleSearchNoteClick = (note) => {
         setPage("notes");
         requestAnimationFrame(() => {
@@ -10652,6 +10701,7 @@
               onClose={() => setShowSearch(false)}
               onTaskClick={(task) => { setShowSearch(false); openTaskById(task.id); }}
               onNoteClick={handleSearchNoteClick}
+              onMindmapClick={handleSearchMindmapClick}
             />
           )}
 

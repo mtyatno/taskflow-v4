@@ -2868,6 +2868,15 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
             LIMIT 8
         """, note_ap + [like, like]).fetchall()
 
+        # Mindmaps
+        mindmap_rows = conn.execute("""
+            SELECT id, title, updated_at
+            FROM mindmaps
+            WHERE user_id = ? AND title LIKE ?
+            ORDER BY updated_at DESC
+            LIMIT 5
+        """, (uid, like)).fetchall()
+
     def snippet(text, length=80):
         if not text:
             return ""
@@ -2881,6 +2890,7 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
             {**dict(r), "content": snippet(r["content"])}
             for r in note_rows
         ],
+        "mindmaps": [dict(r) for r in mindmap_rows],
     }
 
 
