@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v31-recurring";
+const CACHE = "taskflow-v32-shortcuts";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
@@ -10,6 +10,7 @@ const STATIC = [
   "/manifest.json",
   "/static/icon-192.png",
   "/static/icon-512.png",
+  "/static/icon-new-task.svg",
 ];
 
 self.addEventListener("message", e => {
