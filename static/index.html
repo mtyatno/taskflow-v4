@@ -10257,6 +10257,10 @@
         const params = new URLSearchParams(window.location.search);
         return params.get("join") || "";
       });
+      const [pendingAction, setPendingAction] = useState(() => {
+        const params = new URLSearchParams(window.location.search);
+        return params.get("action") || "";
+      });
       const [joinModal, setJoinModal] = useState(false);
 
       useEffect(() => {
@@ -10266,6 +10270,16 @@
           window.history.replaceState({}, "", "/");
         }
       }, [user, pendingJoinCode]);
+
+      useEffect(() => {
+        if (!user || !pendingAction) return;
+        if (pendingAction === "new-task") {
+          setEditTask(null);
+          setShowForm(true);
+        }
+        setPendingAction("");
+        window.history.replaceState({}, "", "/");
+      }, [user, pendingAction]);
 
       // Fetch data
       const initialLoad = useRef(true);
