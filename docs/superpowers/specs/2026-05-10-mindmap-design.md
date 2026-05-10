@@ -22,6 +22,7 @@ CREATE TABLE mindmaps (
   user_id    INTEGER NOT NULL,
   title      TEXT NOT NULL DEFAULT 'Untitled',
   data_json  TEXT NOT NULL DEFAULT '{}',
+  is_pinned  INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id)
@@ -32,10 +33,11 @@ CREATE TABLE mindmaps (
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/mindmaps` | List all mindmaps for current user (id, title, updated_at — no data_json) |
+| GET | `/api/mindmaps` | List all mindmaps for current user (id, title, is_pinned, updated_at — no data_json). Pinned first, then by updated_at DESC |
 | POST | `/api/mindmaps` | Create new mindmap `{title, data_json}` → returns full object |
 | GET | `/api/mindmaps/:id` | Get single mindmap including data_json |
 | PUT | `/api/mindmaps/:id` | Update mindmap `{title?, data_json?}` |
+| PATCH | `/api/mindmaps/:id/pin` | Toggle is_pinned (0→1, 1→0) → returns updated object |
 | DELETE | `/api/mindmaps/:id` | Delete mindmap |
 
 All endpoints require auth (`get_current_user` dependency, same as other endpoints).
@@ -92,9 +94,11 @@ MindmapPage                     iframe (mind-elixir)
 ├──────────────────┬──────────────────────────────────┤
 │ Sidebar (200px)  │  iframe: mind-elixir editor      │
 │                  │                                   │
-│ [+ Baru]         │  (full width, full height)        │
-│ ─────────────    │                                   │
-│ • Product Rmap ← │                                   │
+│ [🔍 Cari...]     │  (full width, full height)        │
+│ [+ Baru]         │                                   │
+│ ── PINNED ──     │                                   │
+│ ★ Product Rmap ← │                                   │
+│ ── SEMUA ──      │                                   │
 │   Sprint Plan    │                                   │
 │   Biz Model      │                                   │
 │   Team Struct    │                                   │
@@ -139,6 +143,21 @@ State persisted to `localStorage` key `tf_mindmap_sidebar` (`"open"` | `"collaps
 - Click Delete in topbar → inline confirm ("Hapus mindmap ini?  [Ya] [Batal]")
 - DELETE `/api/mindmaps/:id` → select next mindmap in list (or show empty state)
 
+### Pin / Unpin
+- Hover mindmap item in sidebar → ☆ icon appears on the right
+- Click ☆ → PATCH `/api/mindmaps/:id/pin` → toggle pinned state
+- Pinned: item moves to "Pinned" section at top, icon becomes ★ (accent color)
+- Pinned section only shown if at least 1 mindmap is pinned
+- Section labels: "★ Pinned" and "Semua" (shown only when pinned section exists)
+
+### Search
+- Search input at top of sidebar (always visible, not collapsible)
+- Filters list client-side in realtime as user types
+- Searches against mindmap title (case-insensitive)
+- Clears with ✕ button or Escape key
+- When search active: section labels (Pinned/Semua) hidden, flat filtered list shown
+- No results: "Tidak ada mindmap yang cocok"
+
 ### Export
 - Click Export in topbar → triggers mind-elixir built-in export (SVG/PNG)
 - No backend involvement — client-side only
@@ -182,7 +201,7 @@ State persisted to `localStorage` key `tf_mindmap_sidebar` (`"open"` | `"collaps
 
 | File | Change |
 |------|--------|
-| `webapp.py` | Add 5 mindmap API endpoints + `mindmaps` table migration |
+| `webapp.py` | Add 6 mindmap API endpoints + `mindmaps` table migration (incl. `is_pinned`) |
 | `static/index.html` | Add `MindmapPage` component + nav link |
 | `static/vendor/mind-elixir/index.html` | New: iframe host page |
 | `static/vendor/mind-elixir/MindElixir.iife.js` | New: downloaded from npm |
