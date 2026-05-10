@@ -57,13 +57,13 @@ Nodes with at least one link show a small badge (count) in the top-right corner.
 
 ### Panel content per link item
 
-| Field | Notes |
-|-------|-------|
-| Type badge | `NOTE` (purple) or `TASK` (orange) |
-| Title | note.title / task.title |
-| Preview | Note: first ~60 chars of content. Task: priority badge + deadline + status |
-| ↗ button | Sends postMessage to parent to open the modal |
-| ✕ button | Removes link from node data, triggers autosave |
+| Field      | Notes                                                                      |
+| ---------- | -------------------------------------------------------------------------- |
+| Type badge | `NOTE` (purple) or `TASK` (orange)                                         |
+| Title      | note.title / task.title                                                    |
+| Preview    | Note: first ~60 chars of content. Task: priority badge + deadline + status |
+| ↗ button   | Sends postMessage to parent to open the modal                              |
+| ✕ button   | Removes link from node data, triggers autosave                             |
 
 ---
 
@@ -73,22 +73,22 @@ All messages use `window.location.origin` as targetOrigin.
 
 ### iframe → parent
 
-| type | payload | when |
-|------|---------|------|
-| `nodeSelected` | `{nodeId, topic, links}` | user clicks a node |
-| `nodeDeselected` | — | user clicks empty space |
-| `openNote` | `{id}` | user clicks ↗ on a note link |
-| `openTask` | `{id}` | user clicks ↗ on a task link |
-| `requestLinkPicker` | `{nodeId}` | user clicks "+ Tambah link" |
-| `change` | `{data}` | any edit including link add/remove (existing) |
+| type                | payload                  | when                                          |
+| ------------------- | ------------------------ | --------------------------------------------- |
+| `nodeSelected`      | `{nodeId, topic, links}` | user clicks a node                            |
+| `nodeDeselected`    | —                        | user clicks empty space                       |
+| `openNote`          | `{id}`                   | user clicks ↗ on a note link                  |
+| `openTask`          | `{id}`                   | user clicks ↗ on a task link                  |
+| `requestLinkPicker` | `{nodeId}`               | user clicks "+ Tambah link"                   |
+| `change`            | `{data}`                 | any edit including link add/remove (existing) |
 
 ### parent → iframe
 
-| type | payload | when |
-|------|---------|------|
-| `load` | `{data}` | mindmap selected (existing) |
-| `addLink` | `{nodeId, link: {type,id,title}}` | user picked item in LinkPickerModal |
-| `clearPanel` | — | called on `load` to reset panel state when switching mindmap |
+| type         | payload                           | when                                                         |
+| ------------ | --------------------------------- | ------------------------------------------------------------ |
+| `load`       | `{data}`                          | mindmap selected (existing)                                  |
+| `addLink`    | `{nodeId, link: {type,id,title}}` | user picked item in LinkPickerModal                          |
+| `clearPanel` | —                                 | called on `load` to reset panel state when switching mindmap |
 
 ---
 
@@ -108,25 +108,35 @@ All messages use `window.location.origin` as targetOrigin.
 ### JS additions
 
 **Node selection listeners:**
+
 ```js
-mind.bus.addListener('selectNode', (nodeObj) => {
-  const d = nodeObj.nodeData;
-  currentNodeId = d.id;
-  renderPanel(d.topic, d.links || []);
+// mind-elixir fires 'selectNodes'/'unselectNodes' (plural) with arrays of nodeObj
+let unselectTimer = null;
+
+mind.bus.addListener('selectNodes', (nodes) => {
+  clearTimeout(unselectTimer);
+  if (!nodes || nodes.length === 0) return;
+  const node = nodes[0]; // nodeObj has id, topic, links, etc. directly
+  currentNodeId = node.id;
+  renderPanel(node.topic, node.links || []);
   window.parent.postMessage(
-    { type: 'nodeSelected', nodeId: d.id, topic: d.topic, links: d.links || [] },
+    { type: 'nodeSelected', nodeId: node.id, topic: node.topic, links: node.links || [] },
     window.location.origin
   );
 });
 
-mind.bus.addListener('unselectNode', () => {
-  currentNodeId = null;
-  hidePanel();
-  window.parent.postMessage({ type: 'nodeDeselected' }, window.location.origin);
+mind.bus.addListener('unselectNodes', () => {
+  // debounce: selectNodes fires right after unselectNodes when switching nodes
+  unselectTimer = setTimeout(() => {
+    currentNodeId = null;
+    hidePanel();
+    window.parent.postMessage({ type: 'nodeDeselected' }, window.location.origin);
+  }, 50);
 });
 ```
 
 **Incoming `addLink` message:**
+
 ```js
 if (e.data.type === 'addLink' && e.data.nodeId === currentNodeId) {
   const node = findNode(mind.getData().nodeData, e.data.nodeId);
@@ -141,6 +151,7 @@ if (e.data.type === 'addLink' && e.data.nodeId === currentNodeId) {
 ```
 
 **Recursive node finder:**
+
 ```js
 function findNode(node, id) {
   if (node.id === id) return node;
@@ -155,6 +166,7 @@ function findNode(node, id) {
 **Panel renderer** (`renderPanel(topic, links)`): builds link card HTML, wires ↗ and ✕ buttons.
 
 **Remove link** (✕ handler inside iframe):
+
 - Remove from `node.links`
 - Re-render panel
 - Update badge
@@ -224,10 +236,10 @@ if (e.data.type === 'requestLinkPicker') {
 
 ## 6. Affected Files
 
-| File | Change |
-|------|--------|
-| `static/vendor/mind-elixir/index.html` | Add panel HTML, node selection listeners, `addLink` handler, `findNode`, `renderPanel`, badge update |
-| `static/index.html` | Add `onTaskClick` + `tasks` props to MindmapPage; extend message handler (openNote, openTask, requestLinkPicker, nodeSelected, nodeDeselected); add `LinkPickerModal` component; add inline `NoteModal` render in MindmapPage; wire picker flow |
+| File                                   | Change                                                                                                                                                                                                                                          |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `static/vendor/mind-elixir/index.html` | Add panel HTML, node selection listeners, `addLink` handler, `findNode`, `renderPanel`, badge update                                                                                                                                            |
+| `static/index.html`                    | Add `onTaskClick` + `tasks` props to MindmapPage; extend message handler (openNote, openTask, requestLinkPicker, nodeSelected, nodeDeselected); add `LinkPickerModal` component; add inline `NoteModal` render in MindmapPage; wire picker flow |
 
 No changes to backend, no new DB tables, no changes to any other component.
 
