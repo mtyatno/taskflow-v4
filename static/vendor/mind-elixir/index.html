@@ -290,7 +290,18 @@
     window.addEventListener('message', (e) => {
       if (e.origin !== window.location.origin) return;
       if (e.data && e.data.type === 'load') {
+        hidePanel();
+        currentNodeId = null;
+        currentNodeData = null;
+        clearTimeout(unselectTimer);
         initMind(e.data.data);
+        setTimeout(updateBadges, 300);
+      }
+      if (e.data && e.data.type === 'clearPanel') {
+        currentNodeId = null;
+        currentNodeData = null;
+        clearTimeout(unselectTimer);
+        hidePanel();
       }
       if (e.data && e.data.type === 'addLink') {
         if (!currentNodeId || e.data.nodeId !== currentNodeId) return;
