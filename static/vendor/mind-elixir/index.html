@@ -90,6 +90,47 @@
     }
     .lp-add-btn:hover { border-color: #6c7ae0; }
 
+    #lp-picker-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 9999; font-family: system-ui, sans-serif;
+    }
+    #lp-picker-box {
+      background: #1a1a2e; border: 1px solid #3a3a6a; border-radius: 12px;
+      padding: 20px; width: 420px; max-width: 95vw; max-height: 70vh;
+      display: flex; flex-direction: column; gap: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    #lp-picker-header { display: flex; justify-content: space-between; align-items: center; }
+    #lp-picker-title { font-weight: 700; font-size: 15px; color: #ddd; }
+    #lp-picker-close { cursor: pointer; color: #666; font-size: 20px; line-height: 1; padding: 0 4px; }
+    #lp-picker-close:hover { color: #aaa; }
+    #lp-picker-input {
+      width: 100%; padding: 9px 13px; border-radius: 8px;
+      border: 1px solid #3a3a6a; background: #12122a;
+      color: #ddd; font-size: 13px; outline: none; box-sizing: border-box;
+    }
+    #lp-picker-input:focus { border-color: #6c7ae0; }
+    #lp-picker-tabs { display: flex; gap: 6px; }
+    .lp-tab {
+      padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
+      cursor: pointer; border: 1px solid #3a3a6a; color: #aaa; background: transparent;
+    }
+    .lp-tab.active { background: #6c7ae0; color: white; border-color: #6c7ae0; }
+    #lp-picker-results { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+    .lp-result-item {
+      display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+      border-radius: 8px; border: 1px solid #3a3a6a; cursor: pointer;
+    }
+    .lp-result-item:hover { border-color: #6c7ae0; background: #1e1e38; }
+    .lp-result-badge {
+      border-radius: 3px; padding: 1px 6px; font-size: 10px; font-weight: 700;
+      color: white; flex-shrink: 0;
+    }
+    .lp-result-title { font-size: 13px; font-weight: 600; color: #ddd; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .lp-result-meta { font-size: 10px; color: #666; flex-shrink: 0; }
+    .lp-picker-hint { color: #555; font-size: 13px; text-align: center; padding: 20px; }
+
     .node-link-badge {
       position: absolute;
       top: -5px;
@@ -199,9 +240,7 @@
       const addBtn = document.createElement('button');
       addBtn.className = 'lp-add-btn';
       addBtn.textContent = '+ Tambah link';
-      addBtn.onclick = () => {
-        window.parent.postMessage({ type: 'requestLinkPicker', nodeId: currentNodeId }, window.location.origin);
-      };
+      addBtn.onclick = () => showLinkPicker();
       container.appendChild(addBtn);
 
       showPanel();
@@ -213,6 +252,103 @@
       renderPanel(currentNodeData.topic, currentNodeData.links);
       updateBadges();
       window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+    }
+
+    function showLinkPicker() {
+      if (!currentNodeId || !currentNodeData) return;
+      if (document.getElementById('lp-picker-overlay')) return;
+
+      const token = localStorage.getItem('tf_token');
+      let activeTab = 'all';
+      let searchResults = null;
+      let debounceTimer = null;
+      const existingSet = new Set((currentNodeData.links || []).map(l => `${l.type}-${l.id}`));
+
+      const overlay = document.createElement('div');
+      overlay.id = 'lp-picker-overlay';
+      overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+      overlay.innerHTML = `
+        <div id="lp-picker-box">
+          <div id="lp-picker-header">
+            <span id="lp-picker-title">🔗 Tambah Link</span>
+            <span id="lp-picker-close">✕</span>
+          </div>
+          <input id="lp-picker-input" placeholder="Cari note atau task..." autocomplete="off" />
+          <div id="lp-picker-tabs">
+            <button class="lp-tab active" data-tab="all">Semua</button>
+            <button class="lp-tab" data-tab="notes">Notes</button>
+            <button class="lp-tab" data-tab="tasks">Tasks</button>
+          </div>
+          <div id="lp-picker-results"><p class="lp-picker-hint">Ketik untuk mencari...</p></div>
+        </div>`;
+
+      document.getElementById('app').appendChild(overlay);
+
+      const input = overlay.querySelector('#lp-picker-input');
+      const resultsEl = overlay.querySelector('#lp-picker-results');
+      input.focus();
+
+      overlay.querySelector('#lp-picker-close').onclick = () => overlay.remove();
+
+      overlay.querySelectorAll('.lp-tab').forEach(btn => {
+        btn.onclick = () => {
+          activeTab = btn.dataset.tab;
+          overlay.querySelectorAll('.lp-tab').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          renderResults();
+        };
+      });
+
+      function renderResults() {
+        if (!searchResults) { resultsEl.innerHTML = '<p class="lp-picker-hint">Ketik untuk mencari...</p>'; return; }
+        const notes = (searchResults.notes || []).filter(n => !existingSet.has(`note-${n.id}`));
+        const tasks = (searchResults.tasks || []).filter(t => !existingSet.has(`task-${t.id}`));
+        const items = activeTab === 'notes' ? notes.map(n => ({...n, _type:'note'}))
+                    : activeTab === 'tasks' ? tasks.map(t => ({...t, _type:'task'}))
+                    : [...notes.map(n => ({...n, _type:'note'})), ...tasks.map(t => ({...t, _type:'task'}))];
+        if (items.length === 0) { resultsEl.innerHTML = '<p class="lp-picker-hint">Tidak ada hasil</p>'; return; }
+        resultsEl.innerHTML = '';
+        items.forEach(item => {
+          const el = document.createElement('div');
+          el.className = 'lp-result-item';
+          const color = item._type === 'note' ? '#6c7ae0' : '#e0a06c';
+          const label = item._type === 'note' ? 'NOTE' : 'TASK';
+          const meta = item._type === 'task' && item.priority ? item.priority : '';
+          el.innerHTML = `<span class="lp-result-badge" style="background:${color}">${label}</span>
+            <span class="lp-result-title">${item.title}</span>
+            ${meta ? `<span class="lp-result-meta">${meta}</span>` : ''}`;
+          el.onclick = () => {
+            const link = item._type === 'note'
+              ? { type: 'note', id: item.id, title: item.title, preview: (item.content || '').slice(0, 60) }
+              : { type: 'task', id: item.id, title: item.title, priority: item.priority, deadline: item.deadline, status: item.gtd_status };
+            if (!currentNodeData.links) currentNodeData.links = [];
+            if (!currentNodeData.links.some(l => l.type === link.type && l.id === link.id)) {
+              currentNodeData.links.push(link);
+              renderPanel(currentNodeData.topic, currentNodeData.links);
+              updateBadges();
+              window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+            }
+            overlay.remove();
+          };
+          resultsEl.appendChild(el);
+        });
+      }
+
+      input.oninput = () => {
+        clearTimeout(debounceTimer);
+        const q = input.value.trim();
+        if (!q) { searchResults = null; renderResults(); return; }
+        resultsEl.innerHTML = '<p class="lp-picker-hint">Mencari...</p>';
+        debounceTimer = setTimeout(() => {
+          fetch(`/api/search?q=${encodeURIComponent(q)}`, {
+            headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+          })
+            .then(r => r.json())
+            .then(data => { searchResults = data; renderResults(); })
+            .catch(() => { resultsEl.innerHTML = '<p class="lp-picker-hint">Gagal mencari</p>'; });
+        }, 300);
+      };
     }
 
     function updateBadges() {
