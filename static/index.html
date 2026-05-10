@@ -4431,6 +4431,7 @@
       // Send data to iframe when selected mindmap changes
       useEffect(() => {
         if (!selected) return;
+        clearTimeout(saveTimerRef.current);
         setSyncStatus("saved");
         setDeleteConfirm(false);
         setRenaming(false);
@@ -4555,8 +4556,10 @@
         try {
           const updated = await api.patch(`/api/mindmaps/${m.id}/pin`, {});
           setMindmaps(prev => {
-            const next = prev.map(x => x.id === updated.id ? { ...x, is_pinned: updated.is_pinned } : x);
-            return next.sort((a, b) => b.is_pinned - a.is_pinned || new Date(b.updated_at) - new Date(a.updated_at));
+            const next = prev.map(x => x.id === updated.id ? { ...x, is_pinned: updated.is_pinned } : x)
+              .sort((a, b) => b.is_pinned - a.is_pinned || new Date(b.updated_at) - new Date(a.updated_at));
+            try { localStorage.setItem("tf_mindmap_list", JSON.stringify(next)); } catch(_) {}
+            return next;
           });
         } catch(e) { showToast("Gagal pin/unpin", "error"); }
       };

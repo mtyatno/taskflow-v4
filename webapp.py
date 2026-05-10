@@ -382,7 +382,7 @@ class MindmapCreate(BaseModel):
         return v
 
 class MindmapUpdate(BaseModel):
-    title: Optional[str] = None
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
     data_json: Optional[str] = Field(default=None, max_length=5_000_000)
 
     @field_validator("data_json")
