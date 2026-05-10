@@ -10281,6 +10281,15 @@
         window.history.replaceState({}, "", "/");
       }, [user, pendingAction]);
 
+      useEffect(() => {
+        if (!user) return;
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+        if (isStandalone && !localStorage.getItem('tf_shortcut_hint')) {
+          showToast("💡 Tekan lama ikon app untuk akses cepat buat task/habit/note");
+          localStorage.setItem('tf_shortcut_hint', '1');
+        }
+      }, [user]);
+
       // Fetch data
       const initialLoad = useRef(true);
       const isSyncing = useRef(false);
