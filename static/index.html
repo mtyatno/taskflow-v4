@@ -5038,6 +5038,88 @@
       );
     }
 
+    function KanbanColumn({ groupKey, tasks, groupBy, dragSourceRef, onTaskClick, onDone, onMoveTask }) {
+      const [isDragOver, setIsDragOver] = React.useState(false);
+      const canDrop = groupBy !== "quadrant";
+
+      const COL_COLORS = {
+        "🔴 P1 Critical": "#ef4444", "🟠 P2 High": "#f97316",
+        "🟡 P3 Medium": "#eab308",   "🟢 P4 Low": "#22c55e",
+        "🔥 Q1 Lakukan": "#ef4444",  "📅 Q2 Rencanakan": "#3b82f6",
+        "👋 Q3 Delegasikan": "#f97316","🗑️ Q4 Singkirkan": "#6b7280",
+      };
+      const accentColor = COL_COLORS[groupKey] || "var(--accent)";
+      const isTanpa = groupKey.startsWith("(Tanpa");
+
+      const handleDragOver = (e) => {
+        if (!canDrop) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setIsDragOver(true);
+      };
+      const handleDragLeave = (e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setIsDragOver(false);
+      };
+      const handleDrop = (e) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        if (!canDrop) return;
+        const taskId = parseInt(e.dataTransfer.getData("text/plain"), 10);
+        if (!taskId || isNaN(taskId)) return;
+        if (dragSourceRef.current === groupKey) return;
+        onMoveTask(taskId, groupKey);
+      };
+
+      return (
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          style={{
+            width: 280, flexShrink: 0, background: isDragOver ? "rgba(108,122,224,0.06)" : "var(--bg-primary)",
+            borderRadius: 10, border: isDragOver ? "2px dashed var(--accent)" : `1.5px solid ${isTanpa ? "var(--border)" : accentColor + "44"}`,
+            display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 240px)", overflow: "hidden",
+            transition: "border-color 0.15s, background 0.15s",
+          }}
+        >
+          <div style={{
+            padding: "10px 12px 8px", borderBottom: "1px solid var(--border)",
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            position: "sticky", top: 0, background: "var(--bg-primary)", zIndex: 1, borderRadius: "10px 10px 0 0",
+          }}>
+            <span style={{ fontWeight: 700, fontSize: 12, color: isTanpa ? "var(--text-secondary)" : accentColor }}>
+              {groupKey}
+            </span>
+            <span style={{
+              background: isTanpa ? "var(--bg-card)" : accentColor + "22",
+              color: isTanpa ? "var(--text-light)" : accentColor,
+              borderRadius: 10, padding: "1px 7px", fontSize: 10, fontWeight: 700,
+            }}>
+              {tasks.length}
+            </span>
+          </div>
+          <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", flex: 1 }}>
+            {tasks.length === 0 ? (
+              <div style={{ color: "var(--text-light)", fontSize: 11, textAlign: "center", padding: "16px 0" }}>
+                Tidak ada task
+              </div>
+            ) : (
+              tasks.map(t => (
+                <KanbanCard key={t.id} task={t} groupBy={groupBy} onTaskClick={onTaskClick} onDone={onDone}
+                  onCardDragStart={() => { dragSourceRef.current = groupKey; }} />
+              ))
+            )}
+            {isDragOver && (
+              <div style={{ height: 48, border: "2px dashed var(--accent)", borderRadius: 8,
+                display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontSize: 10, color: "var(--accent)" }}>Drop di sini</span>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     // ── Task List view with filters ─────────────────────────────
     function TaskListView({ tasks, allTasks, title, icon, onTaskClick, onDone, onToggleFocus, loading, projects, contexts, showFilters, showQuadrant = true, collaborators = [] }) {
       const [fPriority, setFPriority] = useState("");
