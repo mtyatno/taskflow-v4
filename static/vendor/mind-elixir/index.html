@@ -32,7 +32,7 @@
       });
       mind.init(data);
       mind.bus.addListener('operation', () => {
-        window.parent.postMessage({ type: 'change', data: mind.getData() }, '*');
+        window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
       });
     }
 
@@ -43,7 +43,7 @@
       }
     });
 
-    window.parent.postMessage({ type: 'ready' }, '*');
+    window.parent.postMessage({ type: 'ready' }, window.location.origin);
   </script>
 </body>
 </html>
