@@ -398,10 +398,10 @@
         if (!nodes || nodes.length === 0) return;
         const node = nodes[0];
         currentNodeId = node.id;
-        currentNodeData = findNode(mind.getData().nodeData, node.id);
-        renderPanel(node.topic, currentNodeData ? (currentNodeData.links || []) : []);
+        currentNodeData = node; // live reference to internal nodeObj — not a getData() copy
+        renderPanel(node.topic, node.links || []);
         window.parent.postMessage(
-          { type: 'nodeSelected', nodeId: node.id, topic: node.topic, links: currentNodeData ? (currentNodeData.links || []) : [] },
+          { type: 'nodeSelected', nodeId: node.id, topic: node.topic, links: node.links || [] },
           window.location.origin
         );
       });
@@ -444,9 +444,7 @@
         hidePanel();
       }
       if (e.data && e.data.type === 'addLink') {
-        if (!currentNodeId || e.data.nodeId !== currentNodeId) return;
-        currentNodeData = findNode(mind.getData().nodeData, currentNodeId);
-        if (!currentNodeData) return;
+        if (!currentNodeId || e.data.nodeId !== currentNodeId || !currentNodeData) return;
         if (!currentNodeData.links) currentNodeData.links = [];
         const alreadyLinked = currentNodeData.links.some(
           l => l.type === e.data.link.type && l.id === e.data.link.id
