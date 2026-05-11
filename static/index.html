@@ -909,19 +909,19 @@
     }
     .wikilink-node {
       color: var(--accent);
-      background: rgba(168, 197, 0, 0.12);
-      background: color-mix(in srgb, var(--accent) 10%, transparent);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
       border-radius: 4px;
       padding: 0 3px;
       cursor: pointer;
       text-decoration: none;
+      border-bottom: 1.5px dashed var(--accent);
       font-size: 0.95em;
       user-select: all;
     }
     .wikilink-node:hover {
-      background: rgba(168, 197, 0, 0.22);
-      background: color-mix(in srgb, var(--accent) 20%, transparent);
-      text-decoration: underline;
+      background: color-mix(in srgb, var(--accent) 22%, transparent);
+      border-bottom-color: var(--accent-hover);
+      opacity: 0.85;
     }
     /* Scoped typography — avoids bleeding into app chrome */
     .milkdown-editor .ProseMirror h1 { font-size: 1.6em; font-weight: 700; margin: 0.5em 0; }
@@ -986,6 +986,25 @@
     [data-theme="dark"] .milkdown-editor .ProseMirror code,
     [data-theme="dark"] .milkdown-editor .ProseMirror pre { background: rgba(255,255,255,0.08); }
     [data-theme="dark"] .milkdown-editor .ProseMirror th { background: rgba(255,255,255,0.08); }
+    /* Dark mode — wikilink editor node */
+    [data-theme="dark"] .wikilink-node {
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+    }
+    [data-theme="dark"] .wikilink-node:hover {
+      background: color-mix(in srgb, var(--accent) 28%, transparent);
+    }
+    /* Dark mode — wikilink read view */
+    [data-theme="dark"] .wikilink {
+      border-bottom-color: var(--accent);
+    }
+    [data-theme="dark"] .wikilink:hover {
+      opacity: 0.8;
+    }
+    /* Dark mode — wikilink-broken (unresolved) */
+    [data-theme="dark"] .wikilink-broken {
+      color: #9ca3af;
+      border-bottom-color: #9ca3af;
+    }
   </style>
 </head>
 <body>
@@ -6581,7 +6600,7 @@
               {recentNotes.map(n => (
                 <div key={n.id} className="note-card" onClick={() => onNav("notes")}>
                   <div className="note-card-title">{n.title || n.content.slice(0, 60)}</div>
-                  {n.title && <div className="note-card-preview" dangerouslySetInnerHTML={{ __html: n.content.slice(0,200) }} />}
+                  {n.title && <div className="note-card-preview" dangerouslySetInnerHTML={{ __html: renderWikilinksPreview(n.content, 200) }} />}
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
                     {(n.tags || []).map(tag => <span key={tag} className="note-tag">#{tag}</span>)}
                     <span style={{ fontSize: 11, color: "var(--text-light)", marginLeft: "auto" }}>
@@ -7320,6 +7339,45 @@
 
     function normalizeWikiLoose(s = "") {
       return normalizeWikiText(s).replace(/[^a-z0-9]+/g, " ").trim();
+    }
+
+    function renderWikilinksPreview(text, maxLen) {
+      if (!text) return "";
+      const wikiMap = {};
+      let wi = 0;
+      const processed = text.replace(/\[{2,}([^\[\]]+)\]{2,}/g, (_, title) => {
+        const key = `WKPREV${wi++}WKPREV`;
+        const parsed = parseWikilinkRaw(title);
+        const labelEsc = escapeHtml(parsed.label);
+        const titleEsc = escapeAttr(parsed.title);
+        wikiMap[key] = `<span class="wikilink" data-wiki-title="${titleEsc}">${labelEsc}</span>`;
+        return key;
+      });
+      let html = escapeHtml(processed);
+      for (const [k, v] of Object.entries(wikiMap)) {
+        html = html.split(k).join(v);
+      }
+      if (html.length <= maxLen) return html;
+      let truncated = '';
+      let inTag = false;
+      let count = 0;
+      for (let i = 0; i < html.length && count < maxLen; i++) {
+        const ch = html[i];
+        truncated += ch;
+        if (ch === '<') inTag = true;
+        else if (ch === '>') inTag = false;
+        else if (!inTag) count++;
+      }
+      if (inTag) {
+        const lastLt = truncated.lastIndexOf('<');
+        truncated = truncated.slice(0, lastLt);
+      }
+      const openSpans = (truncated.match(/<span[^>]*>/g) || []).length;
+      const closeSpans = (truncated.match(/<\/span>/g) || []).length;
+      for (let i = closeSpans; i < openSpans; i++) {
+        truncated += '</span>';
+      }
+      return truncated + '...';
     }
 
     function renderMarkdown(text, noteTitles = [], allNotes = []) {
@@ -9505,7 +9563,7 @@
                           </div>
                           <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{fmtDate(n.updated_at)}</span>
                         </div>
-                        {n.title && <div className="note-card-preview" dangerouslySetInnerHTML={{ __html: n.content.slice(0, 200) }} />}
+                        {n.title && <div className="note-card-preview" dangerouslySetInnerHTML={{ __html: renderWikilinksPreview(n.content, 200) }} />}
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>
                           {(n.tags || []).map(tag => (
                             <span key={tag} className="note-tag"
