@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v32-shortcuts";
+const CACHE = "taskflow-v33-notesfix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",

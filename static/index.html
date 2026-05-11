@@ -8850,17 +8850,19 @@
       const handleSave = async (data) => {
         const now = new Date().toISOString();
         try {
+          let result;
           if (selected?.id) {
             await api.put(`/api/scratchpad/${selected.id}`, data);
             showToast("✅ Catatan disimpan");
-            return { id: selected.id };
+            result = { id: selected.id };
           } else {
             const created = await api.post("/api/scratchpad", data);
             showToast("✅ Catatan dibuat");
-            return created;
+            result = created;
           }
           await fetchNotes(q, activeTags);
           window.dispatchEvent(new CustomEvent("noteSaved"));
+          return result;
         } catch (e) {
           if (isOfflineErr(e)) {
             // update cache optimistically
