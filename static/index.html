@@ -807,7 +807,7 @@
     .note-toolbar { display: flex; gap: 2px; flex-wrap: nowrap; align-items: center; margin-bottom: 6px; overflow: visible; }
     .wikilink { color: var(--accent); font-weight: 600; cursor: pointer; border-bottom: 1px dashed var(--accent); transition: opacity 0.15s; }
     .wikilink:hover { opacity: 0.75; }
-    .wikilink-broken { color: var(--text-light); border-bottom: 1px dashed var(--text-light); cursor: default; font-style: italic; }
+    .wikilink-broken { color: var(--text-light); border-bottom: 1px dashed var(--text-light); cursor: pointer; font-style: italic; }
     .wikilink-private { color: var(--text-light); border-bottom: 1px dashed var(--text-light); cursor: default; font-style: italic; opacity: 0.7; }
     .note-shared-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; color: var(--text-secondary); background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 1px 6px; vertical-align: middle; }
     .note-toc-item { display: block; font-size: 10.5px; color: var(--text-secondary); cursor: pointer; padding: 2px 6px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.45; transition: background 0.1s, color 0.1s; }
@@ -8715,6 +8715,7 @@
       }, [allNotes]);
 
       const handlePreviewClick = (e) => {
+        if (e && typeof e.preventDefault === "function") e.preventDefault();
         const base = (e.target && e.target.nodeType === 3)
           ? e.target.parentElement
           : e.target;
@@ -8742,8 +8743,32 @@
           if (!found && parsed.numericId && notesById.has(String(parsed.numericId))) {
             found = notesById.get(String(parsed.numericId));
           }
+          if (!found) {
+            const loose = normalizeWikiText(parsed.title).replace(/[^a-z0-9]+/g, " ").trim();
+            if (loose) {
+              found = (allNotes || []).find(n => normalizeWikiText(n.title || "").replace(/[^a-z0-9]+/g, " ").trim() === loose) || null;
+            }
+          }
         }
-        if (found) onNavigate(found);
+        if (!found && titleAttr) {
+          const loose = normalizeWikiText(titleAttr).replace(/[^a-z0-9]+/g, " ").trim();
+          if (loose) {
+            found = (allNotes || []).find(n => normalizeWikiText(n.title || "").replace(/[^a-z0-9]+/g, " ").trim() === loose) || null;
+          }
+        }
+        if (found) {
+          onNavigate(found);
+          return;
+        }
+        if (rawAttr) {
+          const parsed = parseWikilinkRaw(rawAttr);
+          const titleCandidate = (parsed.title || "").trim();
+          if (titleCandidate) {
+            const outs = outlinks || [];
+            const fallback = outs.find(n => normalizeWikiText(n.title || "") === normalizeWikiText(titleCandidate));
+            if (fallback) onNavigate(fallback);
+          }
+        }
       };
 
       const fmtDate = (s) => {
