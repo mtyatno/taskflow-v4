@@ -7332,6 +7332,10 @@
       };
     }
 
+    function normalizeWikiLoose(s = "") {
+      return normalizeWikiText(s).replace(/[^a-z0-9]+/g, " ").trim();
+    }
+
     function renderMarkdown(text, noteTitles = [], allNotes = []) {
       if (!text) return "";
       _markedHIdx = 0;
@@ -8734,6 +8738,13 @@
           if (!fallback && parsed.numericId && notesById.has(String(parsed.numericId))) {
             fallback = notesById.get(String(parsed.numericId));
           }
+          if (!fallback) {
+            const loose = normalizeWikiLoose(parsed.title);
+            if (loose) {
+              const matches = (allNotes || []).filter(n => normalizeWikiLoose(n.title || "") === loose);
+              if (matches.length === 1) fallback = matches[0];
+            }
+          }
           if (fallback) onNavigate(fallback);
           return;
         }
@@ -8758,16 +8769,32 @@
             found = notesById.get(String(parsed.numericId));
           }
           if (!found) {
-            const loose = normalizeWikiText(parsed.title).replace(/[^a-z0-9]+/g, " ").trim();
+            const loose = normalizeWikiLoose(parsed.title);
             if (loose) {
-              found = (allNotes || []).find(n => normalizeWikiText(n.title || "").replace(/[^a-z0-9]+/g, " ").trim() === loose) || null;
+              const exactLoose = (allNotes || []).filter(n => normalizeWikiLoose(n.title || "") === loose);
+              if (exactLoose.length === 1) found = exactLoose[0];
+              if (!found) {
+                const fuzzyLoose = (allNotes || []).filter(n => {
+                  const t = normalizeWikiLoose(n.title || "");
+                  return t && (t.includes(loose) || loose.includes(t));
+                });
+                if (fuzzyLoose.length === 1) found = fuzzyLoose[0];
+              }
             }
           }
         }
         if (!found && titleAttr) {
-          const loose = normalizeWikiText(titleAttr).replace(/[^a-z0-9]+/g, " ").trim();
+          const loose = normalizeWikiLoose(titleAttr);
           if (loose) {
-            found = (allNotes || []).find(n => normalizeWikiText(n.title || "").replace(/[^a-z0-9]+/g, " ").trim() === loose) || null;
+            const exactLoose = (allNotes || []).filter(n => normalizeWikiLoose(n.title || "") === loose);
+            if (exactLoose.length === 1) found = exactLoose[0];
+            if (!found) {
+              const fuzzyLoose = (allNotes || []).filter(n => {
+                const t = normalizeWikiLoose(n.title || "");
+                return t && (t.includes(loose) || loose.includes(t));
+              });
+              if (fuzzyLoose.length === 1) found = fuzzyLoose[0];
+            }
           }
         }
         if (found) {
@@ -8780,7 +8807,18 @@
           if (titleCandidate) {
             const outs = outlinks || [];
             const fallback = outs.find(n => normalizeWikiText(n.title || "") === normalizeWikiText(titleCandidate));
-            if (fallback) onNavigate(fallback);
+            if (fallback) {
+              onNavigate(fallback);
+              return;
+            }
+            const loose = normalizeWikiLoose(titleCandidate);
+            if (loose) {
+              const looseOut = outs.filter(n => normalizeWikiLoose(n.title || "") === loose);
+              if (looseOut.length === 1) {
+                onNavigate(looseOut[0]);
+                return;
+              }
+            }
           }
         }
       };
