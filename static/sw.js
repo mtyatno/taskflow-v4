@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v34-milkdown";
+const CACHE = "taskflow-v35-milkdown-ui";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",

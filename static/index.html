@@ -7670,8 +7670,6 @@
       const [conflictBanner, setConflictBanner] = useState(null);
       const [expanded, setExpanded]   = useState(false);
       const [focus, setFocus]         = useState(false);
-      const [preview, setPreview]     = useState(false);
-      const textareaRef               = useRef(null);
       const milkdownEditorRef         = React.useRef(null);
 
       function getTextBeforeCursor() {
@@ -7920,68 +7918,6 @@
         return () => container.removeEventListener('keydown', onKeyDown, true);
       }, [tagDropdown, wikiDropdown]);
 
-      // Handle [[  autocomplete in textarea
-      const handleContentKeyDown = (e) => {
-        // Tag dropdown navigation
-        if (tagDropdown) {
-          if (e.key === "Escape") { setTagDropdown(null); return; }
-          if (e.key === "Enter" || e.key === "Tab") {
-            e.preventDefault();
-            if (tagDropdown.items[0]) insertTag(tagDropdown.items[0].name);
-            return;
-          }
-        }
-        // Wikilink dropdown navigation
-        if (wikiDropdown) {
-          const totalItems = wikiDropdown.items.length + (wikiDropdown.canCreate ? 1 : 0);
-          if (e.key === "ArrowDown") { e.preventDefault(); setWikiDropdown(d => ({ ...d, activeIdx: Math.min(d.activeIdx + 1, totalItems - 1) })); return; }
-          if (e.key === "ArrowUp")   { e.preventDefault(); setWikiDropdown(d => ({ ...d, activeIdx: Math.max(d.activeIdx - 1, 0) })); return; }
-          if (e.key === "Enter" || e.key === "Tab") {
-            e.preventDefault();
-            if (wikiDropdown.activeIdx < wikiDropdown.items.length) {
-              insertWikilink(wikiDropdown.items[wikiDropdown.activeIdx].title);
-            } else if (wikiDropdown.canCreate) {
-              createNewNote(wikiDropdown.query.trim());
-            }
-            return;
-          }
-          if (e.key === "Escape") { setWikiDropdown(null); return; }
-        }
-
-        // Auto-continue list on Enter
-        if (e.key === "Enter") {
-          const el = textareaRef.current;
-          if (!el) return;
-          const pos = el.selectionStart;
-          const val = el.value;
-          const lineStart = val.lastIndexOf("\n", pos - 1) + 1;
-          const line = val.slice(lineStart, pos);
-
-          // Detect prefix: checklist done, checklist empty, checklist, bullet
-          let prefix = null;
-          if (/^- \[x\] /i.test(line)) prefix = "- [ ] ";       // after done item → new empty check
-          else if (/^- \[ \] $/.test(line)) prefix = null;       // empty checklist → exit (handled below)
-          else if (/^- \[ \] /.test(line)) prefix = "- [ ] ";
-          else if (/^- $/.test(line)) prefix = null;              // empty bullet → exit
-          else if (/^- /.test(line)) prefix = "- ";
-
-          if (prefix !== null) {
-            e.preventDefault();
-            const newVal = val.slice(0, pos) + "\n" + prefix + val.slice(pos);
-            setContent(newVal);
-            const newPos = pos + 1 + prefix.length;
-            setTimeout(() => { el.focus(); el.setSelectionRange(newPos, newPos); }, 0);
-          } else if (/^- (\[ \] )?$/.test(line)) {
-            // Empty list item → remove prefix, exit list mode
-            e.preventDefault();
-            const newVal = val.slice(0, lineStart) + "\n" + val.slice(pos);
-            setContent(newVal);
-            const newPos = lineStart + 1;
-            setTimeout(() => { el.focus(); el.setSelectionRange(newPos, newPos); }, 0);
-          }
-        }
-      };
-
       const handleEditorChange = (markdown) => {
         setContent(markdown);
 
@@ -8144,15 +8080,6 @@
         }
       };
 
-      // Click wikilink in preview
-      const handlePreviewClick = (e) => {
-        const el = e.target.closest("[data-wiki-title]");
-        if (el) {
-          const t = el.getAttribute("data-wiki-title");
-          const found = noteTitles.find(n => n.title.toLowerCase() === t.toLowerCase());
-          if (found) { /* parent NotesPage doesn't exist here — we dispatch event */ window.dispatchEvent(new CustomEvent("openNote", { detail: found.id })); }
-        } else { setPreview(false); }
-      };
 
       const allKnownTasks = [...tasks, ...localNewTasks.filter(t => !tasks.find(x => x.id === t.id))];
       const linkedTasks   = allKnownTasks.filter(t => linkedTaskIds.includes(t.id));
@@ -8238,40 +8165,28 @@
           {/* Content + ToC */}
           <div style={{ display: "flex", gap: 0, alignItems: "flex-start", marginTop: 12 }}>
           <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
-            <div className="note-tab-bar">
-              <div className={`note-tab${!preview ? ' note-tab-active' : ''}`} onClick={() => setPreview(false)}>✏ Tulis</div>
-              <div className={`note-tab${preview ? ' note-tab-active' : ''}`} onClick={() => setPreview(true)}>◻ Lihat</div>
-              <div className="note-tab" onClick={() => setTextareaFullscreen(true)}>⤢ Expand</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div className="note-word-count" style={{ marginBottom: 0, marginTop: 0 }}>
+                  <span>{wordCount} kata</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {saving ? <span style={{ color: 'var(--text-light)' }}>Menyimpan...</span> : <span style={{ color: '#22c55e', fontWeight: 600 }}>✓ Tersimpan</span>}
+                  </span>
+                </div>
+                <button type="button" className="note-tab" onClick={() => setTextareaFullscreen(true)} style={{ margin: 0 }}>⤢ Expand</button>
+              </div>
             </div>
-            {!preview && <NoteToolbar textareaRef={textareaRef} value={content} onChange={handleEditorChange} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} />}
-            {!preview && (
-              <div className="note-word-count">
-                <span>{wordCount} {wordCount === 1 ? 'kata' : 'kata'}</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>Markdown</span>
-                  {saving ? <span style={{ color: 'var(--text-light)' }}>Menyimpan...</span> : <span style={{ color: '#22c55e', fontWeight: 600 }}>✓ Tersimpan</span>}
-                </span>
-              </div>
-            )}
-            {preview ? (
-              <div className="note-rendered note-modal-content-input"
-                style={{ minHeight: expanded ? (focus ? "calc(100vh - 180px)" : "calc(100vh - 320px)") : 120, cursor: "text", overflowY: "auto" }}
-                onClick={handlePreviewClick}
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(content, noteTitles.map(n => n.title)) || '<span style="color:var(--text-light)">Klik untuk edit...</span>' }}
-              />
-            ) : (
-              <div style={{ position: 'relative' }}>
-                <textarea
-                  ref={textareaRef}
-                className="note-modal-content-input"
-                placeholder={"Tulis isi catatan...\n# H1  ## H2  - bullet  - [ ] checklist  [[Link Note]]"}
-                value={content}
-                onChange={e => handleEditorChange(e.target.value)}
-                onKeyDown={handleContentKeyDown}
-                style={{ minHeight: expanded ? (focus ? "calc(100vh - 180px)" : "calc(100vh - 320px)") : 120, fontSize: expanded ? 16 : 14, resize: expanded ? "none" : "vertical" }}
-              />
-              </div>
-            )}
+            <MilkdownEditor
+              value={content}
+              onChange={handleEditorChange}
+              minHeight={expanded ? (focus ? 'calc(100vh - 180px)' : 'calc(100vh - 320px)') : 120}
+              editorRef={milkdownEditorRef}
+              onWikilinkClick={t => {
+                const target = noteTitles.find(n => n.title === t);
+                if (target) onNavigate?.(target);
+              }}
+            />
             {/* Wikilink autocomplete dropdown */}
             {wikiDropdown && (
               <div ref={wikiDropdownRef} className="wiki-autocomplete"
@@ -8310,7 +8225,7 @@
               </div>
             )}
           </div>
-          {preview && tocItems.length >= 2 && <NoteToc items={tocItems} />}
+          {tocItems.length >= 2 && <NoteToc items={tocItems} />}
           </div>
 
           {/* Tags — auto-extracted from content */}
@@ -8597,12 +8512,15 @@
                 onChange={e => setTitle(e.target.value)}
                 style={{ marginBottom: 8 }}
               />
-              <textarea
-                className="note-modal-content-input"
-                placeholder="Tulis isi catatan..."
+              <MilkdownEditor
                 value={content}
-                onChange={e => handleEditorChange(e.target.value)}
-                style={{ flex: 1, resize: 'none', fontSize: 16 }}
+                onChange={handleEditorChange}
+                minHeight="calc(100vh - 120px)"
+                onWikilinkClick={t => {
+                  setTextareaFullscreen(false);
+                  const target = noteTitles.find(n => n.title === t);
+                  if (target) onNavigate?.(target);
+                }}
               />
             </div>
           )}
