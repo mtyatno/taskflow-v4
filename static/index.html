@@ -907,6 +907,20 @@
       float: left;
       height: 0;
     }
+    .wikilink-node {
+      color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+      border-radius: 4px;
+      padding: 0 3px;
+      cursor: pointer;
+      text-decoration: none;
+      font-size: 0.95em;
+      user-select: all;
+    }
+    .wikilink-node:hover {
+      background: color-mix(in srgb, var(--accent) 20%, transparent);
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -7399,6 +7413,7 @@
           .use(MB.gfm)
           .use(MB.listener)
           .use(MB.history)
+          .use(createWikilinkPlugin(onWikilinkClick))
           .create()
           .then(editor => {
             if (cancelled) { editor.destroy(); return; }
@@ -7449,6 +7464,92 @@
           onClick={handleContainerClick}
         />
       );
+    }
+
+    function remarkWikilinkPlugin() {
+      return function transformer(tree) {
+        function walk(node, parent, index) {
+          if (node.type === 'text' && typeof node.value === 'string') {
+            const regex = /\[\[([^\[\]\n]+)\]\]/g;
+            const parts = [];
+            let lastIndex = 0;
+            let match;
+            while ((match = regex.exec(node.value)) !== null) {
+              if (match.index > lastIndex) {
+                parts.push({ type: 'text', value: node.value.slice(lastIndex, match.index) });
+              }
+              parts.push({ type: 'wikilink', title: match[1] });
+              lastIndex = regex.lastIndex;
+            }
+            if (parts.length > 0) {
+              if (lastIndex < node.value.length) {
+                parts.push({ type: 'text', value: node.value.slice(lastIndex) });
+              }
+              parent.children.splice(index, 1, ...parts);
+              return index + parts.length;
+            }
+          }
+          if (node.children && Array.isArray(node.children)) {
+            let i = 0;
+            while (i < node.children.length) {
+              const next = walk(node.children[i], node, i);
+              i = next !== undefined ? next : i + 1;
+            }
+          }
+        }
+        walk(tree, null, 0);
+      };
+    }
+
+    function createWikilinkPlugin(onWikilinkClick) {
+      const MB = window.MilkdownBundle;
+
+      const wikilinkNode = MB.$node('wikilink', () => ({
+        group: 'inline',
+        inline: true,
+        atom: true,
+        attrs: { title: { default: '' } },
+        toDOM: (node) => [
+          'span',
+          {
+            class: 'wikilink-node',
+            'data-wikilink': '',
+            'data-title': node.attrs.title,
+            title: `Open: ${node.attrs.title}`,
+          },
+          `[[${node.attrs.title}]]`,
+        ],
+        parseDOM: [{
+          tag: 'span[data-wikilink]',
+          getAttrs: (dom) => ({ title: dom.getAttribute('data-title') || '' }),
+        }],
+        parseMarkdown: {
+          match: (node) => node.type === 'wikilink',
+          runner: (state, node, type) => {
+            state.addNode(type, { title: node.title });
+          },
+        },
+        toMarkdown: {
+          match: (node) => node.type.name === 'wikilink',
+          runner: (state, node) => {
+            state.addNode('text', undefined, undefined, `[[${node.attrs.title}]]`);
+          },
+        },
+      }));
+
+      const wikilinkRemark = MB.$remark('wikilink-remark', () => remarkWikilinkPlugin);
+
+      const wikilinkInputRule = MB.$inputRule((ctx) => {
+        const nodeType = ctx.get(wikilinkNode.type);
+        return new MB.InputRule(
+          /\[\[([^\[\]\n]+)\]\]$/,
+          (state, match, start, end) => {
+            return state.tr.replaceWith(start, end, nodeType.create({ title: match[1] }));
+          }
+        );
+      });
+
+      return [wikilinkRemark, wikilinkNode, wikilinkInputRule];
     }
 
     function extractHeadings(content) {
