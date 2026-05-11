@@ -7344,7 +7344,7 @@
       }
       const wikiMap = {};
       let wi = 0;
-      const processed = text.replace(/\[\[([^\[\]]+)\]\]/g, (_, title) => {
+      const processed = text.replace(/\[{2,}([^\[\]]+)\]{2,}/g, (_, title) => {
         const key = `WKLN${wi++}WKLNEND`;
         const parsed = parseWikilinkRaw(title);
         const normTitle = normalizeWikiText(parsed.title);
@@ -8715,7 +8715,12 @@
       }, [allNotes]);
 
       const handlePreviewClick = (e) => {
-        const el = e.target.closest("[data-wiki-id], [data-wiki-title], [data-wiki-raw]");
+        const base = (e.target && e.target.nodeType === 3)
+          ? e.target.parentElement
+          : e.target;
+        const el = base && base.closest
+          ? base.closest("[data-wiki-id], [data-wiki-title], [data-wiki-raw]")
+          : null;
         if (!el) return;
         const idAttr = el.getAttribute("data-wiki-id") || "";
         const titleAttr = el.getAttribute("data-wiki-title") || "";
