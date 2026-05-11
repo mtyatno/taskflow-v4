@@ -7951,7 +7951,25 @@
           setTags(extracted);
         }
 
-        const textBefore = getTextBeforeCursor();
+        // Get text before cursor: ProseMirror when Milkdown is active, textarea fallback otherwise
+        let textBefore;
+        let getPos;
+        if (milkdownEditorRef.current) {
+          textBefore = getTextBeforeCursor();
+          getPos = getCursorCoords;
+        } else {
+          const el = textareaRef.current;
+          if (!el) return;
+          textBefore = markdown.slice(0, el.selectionStart);
+          getPos = () => {
+            const rect = el.getBoundingClientRect();
+            const lh = parseFloat(getComputedStyle(el).lineHeight) || 22;
+            const linesBefore = textBefore.split('\n').length;
+            const rawTop = rect.top + linesBefore * lh;
+            const top = rawTop + 260 > window.innerHeight ? rect.top - 4 : rawTop + 4;
+            return { top, left: rect.left + 8 };
+          };
+        }
 
         // Tag autocomplete
         const tagMatch = textBefore.match(/#([a-zA-Z0-9_À-ɏ]*)$/);
@@ -7961,7 +7979,7 @@
             .filter(t => t.name.startsWith(query) && !extracted.includes(t.name))
             .slice(0, 6);
           if (items.length > 0) {
-            const coords = getCursorCoords();
+            const coords = getPos();
             setTagDropdown({ query, items, top: coords.top, left: coords.left });
           } else {
             setTagDropdown(null);
@@ -7981,37 +7999,42 @@
           .slice(0, 6);
         const exactMatch = noteTitles.some(n => n.title.toLowerCase() === queryLow);
         const canCreate = queryTrimmed.length > 0 && !exactMatch;
-        const coords = getCursorCoords();
+        const coords = getPos();
         setWikiDropdown({ top: coords.top, left: coords.left, query, items, activeIdx: 0, canCreate });
       };
 
       const insertWikilink = (t) => {
-        const editor = milkdownEditorRef.current;
-        if (!editor) return;
-        const MB = window.MilkdownBundle;
         setWikiDropdown(null);
-
-        editor.action(ctx => {
-          const view = ctx.get(MB.editorViewCtx);
-          const { from } = view.state.selection;
-          const textBefore = view.state.doc.textBetween(0, from, '\n', '\0');
-          const wikiMatch = textBefore.match(/\[\[([^\]]*)$/);
-          if (!wikiMatch) return;
-
-          const replaceFrom = from - wikiMatch[0].length;
-          const nodeType = view.state.schema.nodes.wikilink;
-          if (nodeType) {
-            view.dispatch(
-              view.state.tr.replaceWith(replaceFrom, from, nodeType.create({ title: t }))
-            );
-          } else {
-            view.dispatch(
-              view.state.tr.replaceWith(replaceFrom, from,
-                view.state.schema.text(`[[${t}]]`))
-            );
-          }
-        });
-        editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
+        const editor = milkdownEditorRef.current;
+        if (editor) {
+          // ProseMirror path (Milkdown active)
+          const MB = window.MilkdownBundle;
+          editor.action(ctx => {
+            const view = ctx.get(MB.editorViewCtx);
+            const { from } = view.state.selection;
+            const textBefore = view.state.doc.textBetween(0, from, '\n', '\0');
+            const wikiMatch = textBefore.match(/\[\[([^\]]*)$/);
+            if (!wikiMatch) return;
+            const replaceFrom = from - wikiMatch[0].length;
+            const nodeType = view.state.schema.nodes.wikilink;
+            if (nodeType) {
+              view.dispatch(view.state.tr.replaceWith(replaceFrom, from, nodeType.create({ title: t })));
+            } else {
+              view.dispatch(view.state.tr.replaceWith(replaceFrom, from, view.state.schema.text(`[[${t}]]`)));
+            }
+          });
+          editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
+        } else {
+          // Textarea fallback (intermediate state before Task 7)
+          const el = textareaRef.current;
+          if (!el) return;
+          const pos = el.selectionStart;
+          const before = content.slice(0, pos);
+          const after  = content.slice(pos);
+          const replaced = before.replace(/\[\[([^\]]*)$/, `[[${t}]]`);
+          setContent(replaced + after);
+          setTimeout(() => { el.focus(); el.setSelectionRange(replaced.length, replaced.length); }, 0);
+        }
       };
 
       const createNewNote = async (newTitle) => {
@@ -8039,35 +8062,43 @@
       };
 
       const insertTag = (tagName) => {
-        const editor = milkdownEditorRef.current;
-        if (!editor) return;
-        const MB = window.MilkdownBundle;
         setTagDropdown(null);
-
-        editor.action(ctx => {
-          const view = ctx.get(MB.editorViewCtx);
-          const { from } = view.state.selection;
-          const textBefore = view.state.doc.textBetween(0, from, '\n', '\0');
-          const tagMatch = textBefore.match(/#([a-zA-Z0-9_À-ɏ]*)$/);
-          if (!tagMatch) return;
-          const replaceFrom = from - tagMatch[0].length;
-          view.dispatch(
-            view.state.tr.insertText(`#${tagName} `, replaceFrom, from)
-          );
-        });
-        editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
-
-        // Re-run tag extraction on updated content
-        setTimeout(() => {
-          if (milkdownEditorRef.current) {
-            milkdownEditorRef.current.action(ctx => {
-              const view = ctx.get(window.MilkdownBundle.editorViewCtx);
-              const serializer = ctx.get(window.MilkdownBundle.serializerCtx);
-              const md = serializer(view.state.doc);
-              handleEditorChange(md);
-            });
-          }
-        }, 0);
+        const editor = milkdownEditorRef.current;
+        if (editor) {
+          // ProseMirror path (Milkdown active)
+          const MB = window.MilkdownBundle;
+          editor.action(ctx => {
+            const view = ctx.get(MB.editorViewCtx);
+            const { from } = view.state.selection;
+            const textBefore = view.state.doc.textBetween(0, from, '\n', '\0');
+            const tagMatch = textBefore.match(/#([a-zA-Z0-9_À-ɏ]*)$/);
+            if (!tagMatch) return;
+            const replaceFrom = from - tagMatch[0].length;
+            view.dispatch(view.state.tr.insertText(`#${tagName} `, replaceFrom, from));
+          });
+          editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
+          // Re-run tag extraction on updated content
+          setTimeout(() => {
+            if (milkdownEditorRef.current) {
+              milkdownEditorRef.current.action(ctx => {
+                const view = ctx.get(window.MilkdownBundle.editorViewCtx);
+                const serializer = ctx.get(window.MilkdownBundle.serializerCtx);
+                handleEditorChange(serializer(view.state.doc));
+              });
+            }
+          }, 0);
+        } else {
+          // Textarea fallback (intermediate state before Task 7)
+          const el = textareaRef.current;
+          if (!el) return;
+          const pos = el.selectionStart;
+          const before = content.slice(0, pos);
+          const after = content.slice(pos);
+          const newBefore = before.replace(/#([a-zA-Z0-9_À-ɏ]*)$/, `#${tagName} `);
+          const newVal = newBefore + after;
+          handleEditorChange(newVal);
+          setTimeout(() => { el.selectionStart = el.selectionEnd = newBefore.length; el.focus(); }, 0);
+        }
       };
 
       // Click wikilink in preview
