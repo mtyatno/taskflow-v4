@@ -887,6 +887,26 @@
         padding: 0 4px;
       }
     }
+    .milkdown-editor {
+      outline: none;
+      overflow-y: auto;
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-primary);
+    }
+    .milkdown-editor .ProseMirror {
+      min-height: inherit;
+      padding: 8px 12px;
+      outline: none;
+    }
+    /* Placeholder text */
+    .milkdown-editor .ProseMirror p.is-editor-empty:first-child::before {
+      content: attr(data-placeholder);
+      color: var(--text-light);
+      pointer-events: none;
+      float: left;
+      height: 0;
+    }
   </style>
 </head>
 <body>
@@ -7352,6 +7372,82 @@
           <button onClick={() => noteId && fileInputRef.current?.click()} title={noteId ? 'Lampirkan file' : 'Simpan note dulu'} disabled={uploading || !noteId}
             style={{ opacity: noteId ? 1 : 0.4, fontSize: 15 }}>📎</button>
         </div>
+      );
+    }
+
+    function MilkdownEditor({ value, onChange, minHeight, editorRef, onWikilinkClick }) {
+      const containerRef = React.useRef(null);
+      const instanceRef = React.useRef(null);
+      const isExternalUpdate = React.useRef(false);
+      const [ready, setReady] = React.useState(false);
+
+      React.useEffect(() => {
+        if (!containerRef.current) return;
+        const MB = window.MilkdownBundle;
+        let cancelled = false;
+
+        MB.Editor.make()
+          .config(ctx => {
+            ctx.set(MB.rootCtx, containerRef.current);
+            ctx.set(MB.defaultValueCtx, value || '');
+            ctx.get(MB.listenerCtx).markdownUpdated((_ctx, markdown) => {
+              if (!isExternalUpdate.current) {
+                onChange(markdown);
+              }
+            });
+          })
+          .use(MB.gfm)
+          .use(MB.listener)
+          .use(MB.history)
+          .create()
+          .then(editor => {
+            if (cancelled) { editor.destroy(); return; }
+            instanceRef.current = editor;
+            if (editorRef) editorRef.current = editor;
+            setReady(true);
+          });
+
+        return () => {
+          cancelled = true;
+          instanceRef.current?.destroy();
+          instanceRef.current = null;
+          if (editorRef) editorRef.current = null;
+          setReady(false);
+        };
+      }, []);
+
+      React.useEffect(() => {
+        const editor = instanceRef.current;
+        if (!editor || !ready) return;
+        const MB = window.MilkdownBundle;
+
+        const current = editor.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          const serializer = ctx.get(MB.serializerCtx);
+          return serializer(view.state.doc);
+        });
+
+        if (current.trim() !== (value || '').trim()) {
+          isExternalUpdate.current = true;
+          editor.action(MB.callCommand(MB.replaceAll, value || ''));
+          setTimeout(() => { isExternalUpdate.current = false; }, 0);
+        }
+      }, [value, ready]);
+
+      const handleContainerClick = React.useCallback((e) => {
+        const target = e.target.closest('[data-wikilink]');
+        if (target && onWikilinkClick) {
+          onWikilinkClick(target.getAttribute('data-title'));
+        }
+      }, [onWikilinkClick]);
+
+      return (
+        <div
+          ref={containerRef}
+          className="milkdown-editor note-modal-content-input"
+          style={{ minHeight: minHeight || 120 }}
+          onClick={handleContainerClick}
+        />
       );
     }
 
