@@ -15,6 +15,7 @@ export {
 } from '@milkdown/preset-gfm';
 
 export {
+  commonmark,
   toggleStrongCommand,
   toggleEmphasisCommand,
   toggleInlineCodeCommand,
