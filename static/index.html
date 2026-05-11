@@ -8722,7 +8722,21 @@
         const el = base && base.closest
           ? base.closest("[data-wiki-id], [data-wiki-title], [data-wiki-raw]")
           : null;
-        if (!el) return;
+        if (!el) {
+          const rawText = (base && base.textContent) ? String(base.textContent) : "";
+          const m = rawText.match(/\[{2,}([^\[\]]+)\]{2,}/);
+          if (!m) return;
+          const parsed = parseWikilinkRaw(m[1]);
+          let fallback = notesByNormTitle.get(normalizeWikiText(parsed.title)) || null;
+          if (!fallback && parsed.explicitId && notesById.has(String(parsed.explicitId))) {
+            fallback = notesById.get(String(parsed.explicitId));
+          }
+          if (!fallback && parsed.numericId && notesById.has(String(parsed.numericId))) {
+            fallback = notesById.get(String(parsed.numericId));
+          }
+          if (fallback) onNavigate(fallback);
+          return;
+        }
         const idAttr = el.getAttribute("data-wiki-id") || "";
         const titleAttr = el.getAttribute("data-wiki-title") || "";
         const rawAttr = el.getAttribute("data-wiki-raw") || "";
@@ -8943,6 +8957,7 @@
           {/* Rendered content */}
           <div className="note-rendered"
             style={{ lineHeight: 1.75 }}
+            onMouseDown={handlePreviewClick}
             onClick={handlePreviewClick}
             dangerouslySetInnerHTML={{
               __html: renderMarkdown(note.content || "", titleStrings, allNotes) ||
