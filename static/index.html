@@ -7532,7 +7532,7 @@
         toMarkdown: {
           match: (node) => node.type.name === 'wikilink',
           runner: (state, node) => {
-            state.addNode('text', undefined, undefined, `[[${node.attrs.title}]]`);
+            state.addNode('text', undefined, `[[${node.attrs.title}]]`);
           },
         },
       }));
