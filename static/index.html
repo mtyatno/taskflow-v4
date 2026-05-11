@@ -9221,7 +9221,7 @@
           .map(s => s.slice(2, -2).trim().toLowerCase());
         const outs = allNotes.filter(n => n.id !== panelNote.id && wikiTitles.includes((n.title || "").toLowerCase()));
         setPanelOutlinks(outs);
-      }, [panelNote?.id, allNotes]);
+      }, [panelNote?.id, panelNote?.content, allNotes]);
 
       useEffect(() => {
         const handler = () => fetchNotes(q, activeTags);
