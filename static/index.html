@@ -7596,17 +7596,7 @@
 
       const wikilinkRemark = MB.$remark('wikilink-remark', () => remarkWikilinkPlugin);
 
-      const wikilinkInputRule = MB.$inputRule((ctx) => {
-        const nodeType = ctx.get(wikilinkNode.type);
-        return new MB.InputRule(
-          /\[\[([^\[\]\n]+)\]\]$/,
-          (state, match, start, end) => {
-            return state.tr.replaceWith(start, end, nodeType.create({ title: match[1] }));
-          }
-        );
-      });
-
-      return [wikilinkRemark, wikilinkNode, wikilinkInputRule];
+      return [wikilinkRemark, wikilinkNode];
     }
 
     function extractHeadings(content) {
@@ -7659,7 +7649,7 @@
       );
     }
 
-    function NoteModal({ note, tasks, onClose, onSave, onDelete, onTaskClick, showToast, sharedLists = [], currentUserId, noteTitles: noteTitlesProp = [] }) {
+    function NoteModal({ note, tasks, onClose, onSave, onDelete, onTaskClick, showToast, sharedLists = [], currentUserId, noteTitles: noteTitlesProp = [], onNavigate }) {
       const [title, setTitle]         = useState(note?.title || "");
       const [content, setContent]     = useState(note?.content || "");
       const [tags, setTags]           = useState(note?.tags || []);
@@ -7934,6 +7924,7 @@
 
       const handleEditorChange = (markdown) => {
         setContent(markdown);
+        autoConvertWikilinkAtCursor();
 
         // Auto-extract tags
         const extracted = [...new Set(
@@ -8002,6 +7993,28 @@
           editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
         }
       };
+
+      const autoConvertWikilinkAtCursor = React.useCallback(() => {
+        const editor = milkdownEditorRef.current;
+        if (!editor) return;
+        const MB = window.MilkdownBundle;
+        editor.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          const sel = view.state.selection;
+          const from = sel.from;
+          const to = sel.to;
+          if (from !== to) return;
+          const textBefore = view.state.doc.textBetween(0, from, '\n', '\0');
+          const complete = textBefore.match(/\[\[([^\[\]\n]+)\]\]$/);
+          if (!complete) return;
+          const title = (complete[1] || '').trim();
+          if (!title) return;
+          const replaceFrom = from - complete[0].length;
+          const nodeType = view.state.schema.nodes.wikilink;
+          if (!nodeType) return;
+          view.dispatch(view.state.tr.replaceWith(replaceFrom, from, nodeType.create({ title })));
+        });
+      }, []);
 
       const createNewNote = async (newTitle) => {
         setWikiDropdown(null);
