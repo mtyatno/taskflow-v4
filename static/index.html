@@ -7419,7 +7419,7 @@
                 <button onClick={() => { milkdownEditorRef?.current ? cmd(window.MilkdownBundle.toggleStrikethroughCommand.key) : insert("~~", "~~", "teks"); setMoreOpen(false); }} title="Strikethrough" style={{ textDecoration: "line-through", fontSize: 13 }}>S</button>
                 <div className="sep"/>
                 <button onClick={() => { milkdownEditorRef?.current ? cmd(window.MilkdownBundle.insertTableCommand.key) : (() => { const el = textareaRef?.current; if (!el) return; const s = el.selectionStart; const tbl = "\n| Kolom 1 | Kolom 2 | Kolom 3 |\n|---------|---------|----------|\n|  |  |  |\n"; const newVal = (value||'').slice(0,s) + tbl + (value||'').slice(s); onChange?.(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+tbl.length,s+tbl.length); },0); })(); setMoreOpen(false); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
-                <button onClick={() => { insertText('[['); setMoreOpen(false); }} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
+                <button onClick={() => { milkdownEditorRef?.current ? insertText('[[') : insert("[[", "]]", "judul note"); setMoreOpen(false); }} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
               </div>
             )}
           </div>
