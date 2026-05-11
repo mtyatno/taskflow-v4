@@ -909,6 +909,7 @@
     }
     .wikilink-node {
       color: var(--accent);
+      background: rgba(168, 197, 0, 0.12);
       background: color-mix(in srgb, var(--accent) 10%, transparent);
       border-radius: 4px;
       padding: 0 3px;
@@ -918,6 +919,7 @@
       user-select: all;
     }
     .wikilink-node:hover {
+      background: rgba(168, 197, 0, 0.22);
       background: color-mix(in srgb, var(--accent) 20%, transparent);
       text-decoration: underline;
     }
@@ -938,14 +940,14 @@
       margin: 0.5em 0;
     }
     .milkdown-editor .ProseMirror code {
-      background: var(--bg-secondary);
+      background: rgba(0,0,0,0.06);
       border-radius: 3px;
       padding: 1px 4px;
-      font-family: monospace;
+      font-family: ui-monospace, Consolas, 'Courier New', monospace;
       font-size: 0.9em;
     }
     .milkdown-editor .ProseMirror pre {
-      background: var(--bg-secondary);
+      background: rgba(0,0,0,0.06);
       padding: 10px 14px;
       border-radius: 6px;
       overflow-x: auto;
@@ -968,15 +970,22 @@
       padding: 4px 8px;
       font-size: 0.9em;
     }
-    .milkdown-editor .ProseMirror th { background: var(--bg-secondary); font-weight: 600; }
+    .milkdown-editor .ProseMirror th { background: rgba(0,0,0,0.06); font-weight: 600; }
     .milkdown-editor .ProseMirror input[type="checkbox"] {
       margin-right: 6px;
       accent-color: var(--accent);
     }
     .milkdown-editor .ProseMirror p { margin: 0.2em 0; }
+    .milkdown-editor .ProseMirror strong { font-weight: 700; }
+    .milkdown-editor .ProseMirror em { font-style: italic; }
+    .milkdown-editor .ProseMirror del { text-decoration: line-through; opacity: 0.6; }
     .milkdown-editor .ProseMirror a { color: var(--accent); text-decoration: underline; }
+    .milkdown-editor .ProseMirror .wikilink-node { text-decoration: none; }
     /* Dark mode */
     [data-theme="dark"] .milkdown-editor .ProseMirror { color: var(--text-primary); }
+    [data-theme="dark"] .milkdown-editor .ProseMirror code,
+    [data-theme="dark"] .milkdown-editor .ProseMirror pre { background: rgba(255,255,255,0.08); }
+    [data-theme="dark"] .milkdown-editor .ProseMirror th { background: rgba(255,255,255,0.08); }
   </style>
 </head>
 <body>
