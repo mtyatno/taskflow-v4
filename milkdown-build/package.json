@@ -1,0 +1,19 @@
+{
+  "name": "milkdown-build",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild entry.js --bundle --format=iife --global-name=MilkdownBundle --minify --outfile=../static/vendor/milkdown.bundle.js"
+  },
+  "dependencies": {
+    "@milkdown/core": "^7.5.6",
+    "@milkdown/preset-gfm": "^7.5.6",
+    "@milkdown/plugin-listener": "^7.5.6",
+    "@milkdown/plugin-history": "^7.5.6",
+    "@milkdown/utils": "^7.5.6"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.0"
+  }
+}
