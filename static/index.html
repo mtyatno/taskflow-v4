@@ -921,6 +921,62 @@
       background: color-mix(in srgb, var(--accent) 20%, transparent);
       text-decoration: underline;
     }
+    /* Scoped typography — avoids bleeding into app chrome */
+    .milkdown-editor .ProseMirror h1 { font-size: 1.6em; font-weight: 700; margin: 0.5em 0; }
+    .milkdown-editor .ProseMirror h2 { font-size: 1.3em; font-weight: 700; margin: 0.5em 0; }
+    .milkdown-editor .ProseMirror h3 { font-size: 1.1em; font-weight: 600; margin: 0.4em 0; }
+    .milkdown-editor .ProseMirror h4,
+    .milkdown-editor .ProseMirror h5,
+    .milkdown-editor .ProseMirror h6 { font-size: 1em; font-weight: 600; margin: 0.3em 0; }
+    .milkdown-editor .ProseMirror ul  { list-style: disc; padding-left: 1.5em; margin: 0.3em 0; }
+    .milkdown-editor .ProseMirror ol  { list-style: decimal; padding-left: 1.5em; margin: 0.3em 0; }
+    .milkdown-editor .ProseMirror li  { margin: 0.1em 0; }
+    .milkdown-editor .ProseMirror blockquote {
+      border-left: 3px solid var(--accent);
+      padding-left: 12px;
+      color: var(--text-secondary);
+      margin: 0.5em 0;
+    }
+    .milkdown-editor .ProseMirror code {
+      background: var(--bg-secondary);
+      border-radius: 3px;
+      padding: 1px 4px;
+      font-family: monospace;
+      font-size: 0.9em;
+    }
+    .milkdown-editor .ProseMirror pre {
+      background: var(--bg-secondary);
+      padding: 10px 14px;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 0.5em 0;
+    }
+    .milkdown-editor .ProseMirror pre code { background: none; padding: 0; }
+    .milkdown-editor .ProseMirror hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 1em 0;
+    }
+    .milkdown-editor .ProseMirror table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.5em 0;
+    }
+    .milkdown-editor .ProseMirror th,
+    .milkdown-editor .ProseMirror td {
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      font-size: 0.9em;
+    }
+    .milkdown-editor .ProseMirror th { background: var(--bg-secondary); font-weight: 600; }
+    .milkdown-editor .ProseMirror input[type="checkbox"] {
+      margin-right: 6px;
+      accent-color: var(--accent);
+    }
+    .milkdown-editor .ProseMirror p { margin: 0.2em 0; }
+    .milkdown-editor .ProseMirror a { color: var(--accent); text-decoration: underline; }
+    /* Dark mode */
+    [data-theme="dark"] .milkdown-editor .ProseMirror { color: var(--text-primary); }
   </style>
 </head>
 <body>
