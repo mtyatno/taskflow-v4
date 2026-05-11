@@ -1777,16 +1777,7 @@
         }, {}),
         [tasks]
       );
-      const pendingByQuadrant = React.useMemo(() =>
-        (tasks || []).filter(t => t._pending).reduce((acc, t) => {
-          const q = t.quadrant || "Q4";
-          acc[q] = (acc[q] || 0) + 1;
-          return acc;
-        }, {}),
-        [tasks]
-      );
       const sc = (status) => (summary?.by_status?.[status] || 0) + (pendingByStatus[status] || 0);
-      const qc = (q) => (summary?.by_quadrant?.[q] || 0) + (pendingByQuadrant[q] || 0);
 
       const links = [
         { id: "dashboard", icon: "📊", label: "Dashboard" },
@@ -1801,11 +1792,6 @@
         { id: "next", icon: "▶️", label: "Next Actions", count: sc("next") },
         { id: "waiting", icon: "⏳", label: "Waiting For", count: sc("waiting") },
         { id: "someday", icon: "💭", label: "Someday", count: sc("someday") },
-        { section: "EISENHOWER" },
-        { id: "q1", icon: "🔥", label: "Q1 Lakukan", count: qc("Q1") },
-        { id: "q2", icon: "📅", label: "Q2 Rencanakan", count: qc("Q2") },
-        { id: "q3", icon: "👋", label: "Q3 Delegasikan", count: qc("Q3") },
-        { id: "q4", icon: "🗑️", label: "Q4 Singkirkan", count: qc("Q4") },
         ...(user?.is_admin ? [{ id: "admin", icon: "🔧", label: "Admin" }] : []),
       ];
 
@@ -5247,7 +5233,7 @@
       const [fContext, setFContext] = useState("");
       const [fAssignee, setFAssignee] = useState("");
       const [fSearch, setFSearch] = useState("");
-      const [groupBy, setGroupBy] = useState(() => localStorage.getItem("tf_groupby") || "none");
+      const [groupBy, setGroupBy] = useState(() => localStorage.getItem("tf_groupby") || "quadrant");
       const [viewMode, setViewMode] = useState(() => localStorage.getItem("tf_viewmode") || "normal");
       const [collapsed, setCollapsed] = useState({});
       const [showFilterPanel, setShowFilterPanel] = useState(false);
@@ -11147,10 +11133,6 @@
           case "next": return tasks.filter(t => t.gtd_status === "next");
           case "waiting": return tasks.filter(t => t.gtd_status === "waiting");
           case "someday": return tasks.filter(t => t.gtd_status === "someday");
-          case "q1": return tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done" && t.gtd_status !== "archived");
-          case "q2": return tasks.filter(t => t.quadrant === "Q2" && t.gtd_status !== "done" && t.gtd_status !== "archived");
-          case "q3": return tasks.filter(t => t.quadrant === "Q3" && t.gtd_status !== "done" && t.gtd_status !== "archived");
-          case "q4": return tasks.filter(t => t.quadrant === "Q4" && t.gtd_status !== "done" && t.gtd_status !== "archived");
           case "overdue": return tasks.filter(t => t.is_overdue);
           case "done": return tasks.filter(t => t.gtd_status === "done");
           case "today": return tasks.filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused) && t.gtd_status !== "done" && t.gtd_status !== "archived");
@@ -11168,8 +11150,7 @@
         }
         const titles = {
           dashboard: "Dashboard", inbox: "Inbox", next: "Next Actions", waiting: "Waiting For",
-          someday: "Someday / Maybe", q1: "Q1 — Do", q2: "Q2 — Schedule", q3: "Q3 — Delegate",
-          q4: "Q4 — Eliminate", overdue: "Overdue", done: "Done", today: "Fokus Hari Ini", all: "Semua Task",
+          someday: "Someday / Maybe", overdue: "Overdue", done: "Done", today: "Fokus Hari Ini", all: "Semua Task",
           settings: "Pengaturan",
           habit: "Habit Tracker"
         };
@@ -11179,8 +11160,8 @@
         if (page.startsWith("proj_")) return "📂";
         if (page.startsWith("slist_")) return "👥";
         const icons = {
-          dashboard: "📊", inbox: "📥", next: "▶️", waiting: "⏳", someday: "💭",
-          q1: "🔥", q2: "📅", q3: "👋", q4: "🗑️", overdue: "⚠️", done: "✅", today: "🍅", all: "📋",
+          dashboard: "📊", inbox: "📥", next: "▶️", waiting: "⏳",           someday: "💭",
+          overdue: "⚠️", done: "✅", today: "🍅", all: "📋",
           settings: "⚙️",
           habit: "🔁"
         };
@@ -11241,7 +11222,6 @@
             projects={projects}
             contexts={contexts}
             showFilters={page !== "dashboard" && page !== "today"}
-            showQuadrant={!["q1","q2","q3","q4"].includes(page)}
             collaborators={page.startsWith("slist_") ? collaborators : []}
             showToast={showToast}
           />
