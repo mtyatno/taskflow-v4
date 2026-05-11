@@ -7255,7 +7255,7 @@
       return html;
     }
 
-    function NoteToolbar({ milkdownEditorRef, textareaRef, value, onChange, noteId, onAttachUploaded }) {
+    function NoteToolbar({ milkdownEditorRef, noteId, onAttachUploaded }) {
       const [hOpen, setHOpen] = React.useState(false);
       const hRef = React.useRef(null);
       const [moreOpen, setMoreOpen] = React.useState(false);
@@ -7283,51 +7283,15 @@
         editor.action(window.MilkdownBundle.callCommand(commandKey, payload));
       };
 
-      // Insert raw text at cursor (Milkdown path)
       const insertText = (text) => {
         const editor = milkdownEditorRef?.current;
-        if (editor) {
-          editor.action(ctx => {
-            const view = ctx.get(window.MilkdownBundle.editorViewCtx);
-            const { tr, selection } = view.state;
-            view.dispatch(tr.insertText(text, selection.from, selection.to));
-          });
-          editor.action(ctx => ctx.get(window.MilkdownBundle.editorViewCtx).focus());
-        } else if (textareaRef?.current && onChange) {
-          // Textarea fallback (intermediate state before Task 7)
-          insert(text, '', '');
-        }
-      };
-
-      // Textarea fallback helpers (used when Milkdown not yet active)
-      const insert = (before, after = "", placeholder = "") => {
-        const el = textareaRef?.current;
-        if (!el) return;
-        const start = el.selectionStart, end = el.selectionEnd;
-        const selected = (value || '').slice(start, end) || placeholder;
-        const newVal = (value || '').slice(0, start) + before + selected + after + (value || '').slice(end);
-        onChange?.(newVal);
-        setTimeout(() => { el.focus(); el.setSelectionRange(start + before.length, start + before.length + selected.length); }, 0);
-      };
-
-      const insertLinePrefix = (prefix) => {
-        const editor = milkdownEditorRef?.current;
-        if (editor) {
-          // For block-level prefixes without a Milkdown command (e.g. checklist), insert at line start
-          insertText(prefix);
-          return;
-        }
-        const el = textareaRef?.current;
-        if (!el) return;
-        const start = el.selectionStart;
-        const lineStart = (value || '').lastIndexOf("\n", start - 1) + 1;
-        const lineEnd = (value || '').indexOf("\n", start);
-        const end = lineEnd === -1 ? (value || '').length : lineEnd;
-        const line = (value || '').slice(lineStart, end);
-        const newLine = line.startsWith(prefix) ? line.slice(prefix.length) : prefix + line;
-        const newVal = (value || '').slice(0, lineStart) + newLine + (value || '').slice(end);
-        onChange?.(newVal);
-        setTimeout(() => { el.focus(); el.setSelectionRange(lineStart + prefix.length, lineStart + prefix.length); }, 0);
+        if (!editor) return;
+        editor.action(ctx => {
+          const view = ctx.get(window.MilkdownBundle.editorViewCtx);
+          const { tr, selection } = view.state;
+          view.dispatch(tr.insertText(text, selection.from, selection.to));
+        });
+        editor.action(ctx => ctx.get(window.MilkdownBundle.editorViewCtx).focus());
       };
 
       const handleAttachFile = async (e) => {
@@ -7369,15 +7333,7 @@
               <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", minWidth: 110, padding: "4px 0" }}>
                 {headings.map(h => (
                   <div key={h.level}
-                    onMouseDown={e => {
-                      e.preventDefault();
-                      if (milkdownEditorRef?.current) {
-                        cmd(window.MilkdownBundle.wrapInHeadingCommand.key, h.level);
-                      } else {
-                        insertLinePrefix('#'.repeat(h.level) + ' ');
-                      }
-                      setHOpen(false);
-                    }}
+                    onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.wrapInHeadingCommand.key, h.level); setHOpen(false); }}
                     style={{ padding: "6px 14px", fontSize: 12, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}
                     onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -7389,21 +7345,13 @@
             )}
           </div>
           <div className="sep"/>
-          <button onClick={() => milkdownEditorRef?.current ? cmd(window.MilkdownBundle.toggleStrongCommand.key) : insert("**", "**", "bold")} title="Bold" style={{ fontWeight: 700, fontFamily: "serif", fontSize: 15 }}>B</button>
-          <button onClick={() => milkdownEditorRef?.current ? cmd(window.MilkdownBundle.toggleEmphasisCommand.key) : insert("*", "*", "italic")} title="Italic" style={{ fontStyle: "italic", fontFamily: "serif", fontSize: 15 }}>I</button>
-          <button onClick={() => milkdownEditorRef?.current ? cmd(window.MilkdownBundle.toggleInlineCodeCommand.key) : insert("`", "`", "code")} title="Inline code" style={{ fontFamily: "monospace", fontSize: 12 }}>&lt;/&gt;</button>
+          <button onClick={() => cmd(window.MilkdownBundle.toggleStrongCommand.key)} title="Bold" style={{ fontWeight: 700, fontFamily: "serif", fontSize: 15 }}>B</button>
+          <button onClick={() => cmd(window.MilkdownBundle.toggleEmphasisCommand.key)} title="Italic" style={{ fontStyle: "italic", fontFamily: "serif", fontSize: 15 }}>I</button>
+          <button onClick={() => cmd(window.MilkdownBundle.toggleInlineCodeCommand.key)} title="Inline code" style={{ fontFamily: "monospace", fontSize: 12 }}>&lt;/&gt;</button>
           <div className="sep"/>
-          <button onClick={() => milkdownEditorRef?.current ? cmd(window.MilkdownBundle.wrapInBulletListCommand.key) : insertLinePrefix("- ")} title="Bullet list" style={{ fontSize: 14 }}>≡</button>
-          <button onClick={() => {
-            if (milkdownEditorRef?.current && window.MilkdownBundle.wrapInTaskListCommand) {
-              cmd(window.MilkdownBundle.wrapInTaskListCommand.key);
-            } else if (milkdownEditorRef?.current) {
-              insertText('- [ ] ');
-            } else {
-              insertLinePrefix("- [ ] ");
-            }
-          }} title="Checklist / Task" style={{ fontSize: 13 }}>☑</button>
-          <button onClick={() => milkdownEditorRef?.current ? cmd(window.MilkdownBundle.wrapInBlockquoteCommand.key) : insertLinePrefix("> ")} title="Blockquote" style={{ fontSize: 15 }}>❝</button>
+          <button onClick={() => cmd(window.MilkdownBundle.wrapInBulletListCommand.key)} title="Bullet list" style={{ fontSize: 14 }}>≡</button>
+          <button onClick={() => insertText('- [ ] ')} title="Checklist / Task" style={{ fontSize: 13 }}>☑</button>
+          <button onClick={() => cmd(window.MilkdownBundle.wrapInBlockquoteCommand.key)} title="Blockquote" style={{ fontSize: 15 }}>❝</button>
           <div className="sep"/>
           {/* More dropdown */}
           <div ref={moreRef} style={{ position: "relative", flexShrink: 0 }}>
@@ -7415,16 +7363,16 @@
                 background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10,
                 boxShadow: "0 6px 24px rgba(0,0,0,0.15)", display: "flex", alignItems: "center",
                 gap: 2, padding: "6px 8px", flexWrap: "nowrap" }}>
-                <button onClick={() => { milkdownEditorRef?.current ? cmd(window.MilkdownBundle.wrapInOrderedListCommand.key) : insertLinePrefix("1. "); setMoreOpen(false); }} title="Numbered list" style={{ fontSize: 12, fontWeight: 700 }}>1.</button>
-                <button onClick={() => { milkdownEditorRef?.current ? cmd(window.MilkdownBundle.toggleStrikethroughCommand.key) : insert("~~", "~~", "teks"); setMoreOpen(false); }} title="Strikethrough" style={{ textDecoration: "line-through", fontSize: 13 }}>S</button>
+                <button onClick={() => { cmd(window.MilkdownBundle.wrapInOrderedListCommand.key); setMoreOpen(false); }} title="Numbered list" style={{ fontSize: 12, fontWeight: 700 }}>1.</button>
+                <button onClick={() => { cmd(window.MilkdownBundle.toggleStrikethroughCommand.key); setMoreOpen(false); }} title="Strikethrough" style={{ textDecoration: "line-through", fontSize: 13 }}>S</button>
                 <div className="sep"/>
-                <button onClick={() => { milkdownEditorRef?.current ? cmd(window.MilkdownBundle.insertTableCommand.key) : (() => { const el = textareaRef?.current; if (!el) return; const s = el.selectionStart; const tbl = "\n| Kolom 1 | Kolom 2 | Kolom 3 |\n|---------|---------|----------|\n|  |  |  |\n"; const newVal = (value||'').slice(0,s) + tbl + (value||'').slice(s); onChange?.(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+tbl.length,s+tbl.length); },0); })(); setMoreOpen(false); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
-                <button onClick={() => { milkdownEditorRef?.current ? insertText('[[') : insert("[[", "]]", "judul note"); setMoreOpen(false); }} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
+                <button onClick={() => { cmd(window.MilkdownBundle.insertTableCommand.key); setMoreOpen(false); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
+                <button onClick={() => { insertText('[['); setMoreOpen(false); }} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
               </div>
             )}
           </div>
           <div className="sep"/>
-          <button onClick={() => milkdownEditorRef?.current ? cmd(window.MilkdownBundle.insertHrCommand.key) : (() => { const el = textareaRef?.current; if (!el) return; const s = el.selectionStart; const nl = String.fromCharCode(10); const newVal = (value||'').slice(0,s) + nl + "---" + nl + (value||'').slice(s); onChange?.(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+5,s+5); },0); })()} title="Horizontal rule" style={{ fontSize: 13, letterSpacing: -1 }}>—</button>
+          <button onClick={() => cmd(window.MilkdownBundle.insertHrCommand.key)} title="Horizontal rule" style={{ fontSize: 13, letterSpacing: -1 }}>—</button>
           <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vsd,.vsdx,.vsdm,.mpp,.mpt,.dwg,.dxf" style={{ display: 'none' }} onChange={handleAttachFile} />
           <button onClick={() => noteId && fileInputRef.current?.click()} title={noteId ? 'Lampirkan file' : 'Simpan note dulu'} disabled={uploading || !noteId}
             style={{ opacity: noteId ? 1 : 0.4, fontSize: 15 }}>📎</button>
@@ -7930,25 +7878,8 @@
           setTags(extracted);
         }
 
-        // Get text before cursor: ProseMirror when Milkdown is active, textarea fallback otherwise
-        let textBefore;
-        let getPos;
-        if (milkdownEditorRef.current) {
-          textBefore = getTextBeforeCursor();
-          getPos = getCursorCoords;
-        } else {
-          const el = textareaRef.current;
-          if (!el) return;
-          textBefore = markdown.slice(0, el.selectionStart);
-          getPos = () => {
-            const rect = el.getBoundingClientRect();
-            const lh = parseFloat(getComputedStyle(el).lineHeight) || 22;
-            const linesBefore = textBefore.split('\n').length;
-            const rawTop = rect.top + linesBefore * lh;
-            const top = rawTop + 260 > window.innerHeight ? rect.top - 4 : rawTop + 4;
-            return { top, left: rect.left + 8 };
-          };
-        }
+        const textBefore = getTextBeforeCursor();
+        const getPos = getCursorCoords;
 
         // Tag autocomplete
         const tagMatch = textBefore.match(/#([a-zA-Z0-9_À-ɏ]*)$/);
@@ -8003,16 +7934,6 @@
             }
           });
           editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
-        } else {
-          // Textarea fallback (intermediate state before Task 7)
-          const el = textareaRef.current;
-          if (!el) return;
-          const pos = el.selectionStart;
-          const before = content.slice(0, pos);
-          const after  = content.slice(pos);
-          const replaced = before.replace(/\[\[([^\]]*)$/, `[[${t}]]`);
-          setContent(replaced + after);
-          setTimeout(() => { el.focus(); el.setSelectionRange(replaced.length, replaced.length); }, 0);
         }
       };
 
@@ -8066,17 +7987,6 @@
               });
             }
           }, 0);
-        } else {
-          // Textarea fallback (intermediate state before Task 7)
-          const el = textareaRef.current;
-          if (!el) return;
-          const pos = el.selectionStart;
-          const before = content.slice(0, pos);
-          const after = content.slice(pos);
-          const newBefore = before.replace(/#([a-zA-Z0-9_À-ɏ]*)$/, `#${tagName} `);
-          const newVal = newBefore + after;
-          handleEditorChange(newVal);
-          setTimeout(() => { el.selectionStart = el.selectionEnd = newBefore.length; el.focus(); }, 0);
         }
       };
 
