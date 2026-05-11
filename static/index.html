@@ -7255,13 +7255,80 @@
       return html;
     }
 
-    function NoteToolbar({ textareaRef, value, onChange, noteId, onAttachUploaded }) {
+    function NoteToolbar({ milkdownEditorRef, textareaRef, value, onChange, noteId, onAttachUploaded }) {
       const [hOpen, setHOpen] = React.useState(false);
       const hRef = React.useRef(null);
       const [moreOpen, setMoreOpen] = React.useState(false);
       const moreRef = React.useRef(null);
       const fileInputRef = React.useRef(null);
       const [uploading, setUploading] = React.useState(false);
+
+      React.useEffect(() => {
+        if (!hOpen) return;
+        const close = (e) => { if (hRef.current && !hRef.current.contains(e.target)) setHOpen(false); };
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
+      }, [hOpen]);
+      React.useEffect(() => {
+        if (!moreOpen) return;
+        const close = (e) => { if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false); };
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
+      }, [moreOpen]);
+
+      // Milkdown command caller
+      const cmd = (commandKey, payload) => {
+        const editor = milkdownEditorRef?.current;
+        if (!editor) return;
+        editor.action(window.MilkdownBundle.callCommand(commandKey, payload));
+      };
+
+      // Insert raw text at cursor (Milkdown path)
+      const insertText = (text) => {
+        const editor = milkdownEditorRef?.current;
+        if (editor) {
+          editor.action(ctx => {
+            const view = ctx.get(window.MilkdownBundle.editorViewCtx);
+            const { tr, selection } = view.state;
+            view.dispatch(tr.insertText(text, selection.from, selection.to));
+          });
+          editor.action(ctx => ctx.get(window.MilkdownBundle.editorViewCtx).focus());
+        } else if (textareaRef?.current && onChange) {
+          // Textarea fallback (intermediate state before Task 7)
+          insert(text, '', '');
+        }
+      };
+
+      // Textarea fallback helpers (used when Milkdown not yet active)
+      const insert = (before, after = "", placeholder = "") => {
+        const el = textareaRef?.current;
+        if (!el) return;
+        const start = el.selectionStart, end = el.selectionEnd;
+        const selected = (value || '').slice(start, end) || placeholder;
+        const newVal = (value || '').slice(0, start) + before + selected + after + (value || '').slice(end);
+        onChange?.(newVal);
+        setTimeout(() => { el.focus(); el.setSelectionRange(start + before.length, start + before.length + selected.length); }, 0);
+      };
+
+      const insertLinePrefix = (prefix) => {
+        const editor = milkdownEditorRef?.current;
+        if (editor) {
+          // For block-level prefixes without a Milkdown command (e.g. checklist), insert at line start
+          insertText(prefix);
+          return;
+        }
+        const el = textareaRef?.current;
+        if (!el) return;
+        const start = el.selectionStart;
+        const lineStart = (value || '').lastIndexOf("\n", start - 1) + 1;
+        const lineEnd = (value || '').indexOf("\n", start);
+        const end = lineEnd === -1 ? (value || '').length : lineEnd;
+        const line = (value || '').slice(lineStart, end);
+        const newLine = line.startsWith(prefix) ? line.slice(prefix.length) : prefix + line;
+        const newVal = (value || '').slice(0, lineStart) + newLine + (value || '').slice(end);
+        onChange?.(newVal);
+        setTimeout(() => { el.focus(); el.setSelectionRange(lineStart + prefix.length, lineStart + prefix.length); }, 0);
+      };
 
       const handleAttachFile = async (e) => {
         const file = e.target.files?.[0];
@@ -7278,59 +7345,19 @@
           const isImage = att.mime_type.startsWith('image/');
           const url = `/api/scratchpad/attachments/${att.id}/view`;
           const syntax = isImage ? `![${att.original_name}](${url})` : `[📄 ${att.original_name}](${url})`;
-          insert(syntax, '', '');
+          insertText(syntax);
           onAttachUploaded?.(att);
         } catch (err) { alert(err.message); }
         finally { setUploading(false); e.target.value = ''; }
       };
 
-      React.useEffect(() => {
-        if (!hOpen) return;
-        const close = (e) => { if (hRef.current && !hRef.current.contains(e.target)) setHOpen(false); };
-        document.addEventListener("mousedown", close);
-        return () => document.removeEventListener("mousedown", close);
-      }, [hOpen]);
-      React.useEffect(() => {
-        if (!moreOpen) return;
-        const close = (e) => { if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false); };
-        document.addEventListener("mousedown", close);
-        return () => document.removeEventListener("mousedown", close);
-      }, [moreOpen]);
-
-      const insert = (before, after = "", placeholder = "") => {
-        const el = textareaRef.current;
-        if (!el) return;
-        const start = el.selectionStart, end = el.selectionEnd;
-        const selected = value.slice(start, end) || placeholder;
-        const newVal = value.slice(0, start) + before + selected + after + value.slice(end);
-        onChange(newVal);
-        setTimeout(() => {
-          el.focus();
-          el.setSelectionRange(start + before.length, start + before.length + selected.length);
-        }, 0);
-      };
-
-      const insertLinePrefix = (prefix) => {
-        const el = textareaRef.current;
-        if (!el) return;
-        const start = el.selectionStart;
-        const lineStart = value.lastIndexOf("\n", start - 1) + 1;
-        const lineEnd = value.indexOf("\n", start);
-        const end = lineEnd === -1 ? value.length : lineEnd;
-        const line = value.slice(lineStart, end);
-        const newLine = line.startsWith(prefix) ? line.slice(prefix.length) : prefix + line;
-        const newVal = value.slice(0, lineStart) + newLine + value.slice(end);
-        onChange(newVal);
-        setTimeout(() => { el.focus(); el.setSelectionRange(lineStart + prefix.length, lineStart + prefix.length); }, 0);
-      };
-
       const headings = [
-        { label: "H1", hint: "#",      prefix: "# " },
-        { label: "H2", hint: "##",     prefix: "## " },
-        { label: "H3", hint: "###",    prefix: "### " },
-        { label: "H4", hint: "####",   prefix: "#### " },
-        { label: "H5", hint: "#####",  prefix: "##### " },
-        { label: "H6", hint: "######", prefix: "###### " },
+        { label: "H1", hint: "#",      level: 1 },
+        { label: "H2", hint: "##",     level: 2 },
+        { label: "H3", hint: "###",    level: 3 },
+        { label: "H4", hint: "####",   level: 4 },
+        { label: "H5", hint: "#####",  level: 5 },
+        { label: "H6", hint: "######", level: 6 },
       ];
 
       return (
@@ -7341,8 +7368,16 @@
             {hOpen && (
               <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", minWidth: 110, padding: "4px 0" }}>
                 {headings.map(h => (
-                  <div key={h.prefix}
-                    onMouseDown={e => { e.preventDefault(); insertLinePrefix(h.prefix); setHOpen(false); }}
+                  <div key={h.level}
+                    onMouseDown={e => {
+                      e.preventDefault();
+                      if (milkdownEditorRef?.current) {
+                        cmd(window.MilkdownBundle.wrapInHeadingCommand.key, h.level);
+                      } else {
+                        insertLinePrefix('#'.repeat(h.level) + ' ');
+                      }
+                      setHOpen(false);
+                    }}
                     style={{ padding: "6px 14px", fontSize: 12, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}
                     onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -7354,13 +7389,21 @@
             )}
           </div>
           <div className="sep"/>
-          <button onClick={() => insert("**", "**", "bold")} title="Bold" style={{ fontWeight: 700, fontFamily: "serif", fontSize: 15 }}>B</button>
-          <button onClick={() => insert("*", "*", "italic")} title="Italic" style={{ fontStyle: "italic", fontFamily: "serif", fontSize: 15 }}>I</button>
-          <button onClick={() => insert("`", "`", "code")} title="Inline code" style={{ fontFamily: "monospace", fontSize: 12 }}>&lt;/&gt;</button>
+          <button onClick={() => milkdownEditorRef?.current ? cmd(window.MilkdownBundle.toggleStrongCommand.key) : insert("**", "**", "bold")} title="Bold" style={{ fontWeight: 700, fontFamily: "serif", fontSize: 15 }}>B</button>
+          <button onClick={() => milkdownEditorRef?.current ? cmd(window.MilkdownBundle.toggleEmphasisCommand.key) : insert("*", "*", "italic")} title="Italic" style={{ fontStyle: "italic", fontFamily: "serif", fontSize: 15 }}>I</button>
+          <button onClick={() => milkdownEditorRef?.current ? cmd(window.MilkdownBundle.toggleInlineCodeCommand.key) : insert("`", "`", "code")} title="Inline code" style={{ fontFamily: "monospace", fontSize: 12 }}>&lt;/&gt;</button>
           <div className="sep"/>
-          <button onClick={() => insertLinePrefix("- ")} title="Bullet list" style={{ fontSize: 14 }}>≡</button>
-          <button onClick={() => insertLinePrefix("- [ ] ")} title="Checklist / Task" style={{ fontSize: 13 }}>☑</button>
-          <button onClick={() => insertLinePrefix("> ")} title="Blockquote" style={{ fontSize: 15 }}>❝</button>
+          <button onClick={() => milkdownEditorRef?.current ? cmd(window.MilkdownBundle.wrapInBulletListCommand.key) : insertLinePrefix("- ")} title="Bullet list" style={{ fontSize: 14 }}>≡</button>
+          <button onClick={() => {
+            if (milkdownEditorRef?.current && window.MilkdownBundle.wrapInTaskListCommand) {
+              cmd(window.MilkdownBundle.wrapInTaskListCommand.key);
+            } else if (milkdownEditorRef?.current) {
+              insertText('- [ ] ');
+            } else {
+              insertLinePrefix("- [ ] ");
+            }
+          }} title="Checklist / Task" style={{ fontSize: 13 }}>☑</button>
+          <button onClick={() => milkdownEditorRef?.current ? cmd(window.MilkdownBundle.wrapInBlockquoteCommand.key) : insertLinePrefix("> ")} title="Blockquote" style={{ fontSize: 15 }}>❝</button>
           <div className="sep"/>
           {/* More dropdown */}
           <div ref={moreRef} style={{ position: "relative", flexShrink: 0 }}>
@@ -7372,16 +7415,16 @@
                 background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10,
                 boxShadow: "0 6px 24px rgba(0,0,0,0.15)", display: "flex", alignItems: "center",
                 gap: 2, padding: "6px 8px", flexWrap: "nowrap" }}>
-                <button onClick={() => { insertLinePrefix("1. "); setMoreOpen(false); }} title="Numbered list" style={{ fontSize: 12, fontWeight: 700 }}>1.</button>
-                <button onClick={() => { insert("~~", "~~", "teks"); setMoreOpen(false); }} title="Strikethrough" style={{ textDecoration: "line-through", fontSize: 13 }}>S</button>
+                <button onClick={() => { milkdownEditorRef?.current ? cmd(window.MilkdownBundle.wrapInOrderedListCommand.key) : insertLinePrefix("1. "); setMoreOpen(false); }} title="Numbered list" style={{ fontSize: 12, fontWeight: 700 }}>1.</button>
+                <button onClick={() => { milkdownEditorRef?.current ? cmd(window.MilkdownBundle.toggleStrikethroughCommand.key) : insert("~~", "~~", "teks"); setMoreOpen(false); }} title="Strikethrough" style={{ textDecoration: "line-through", fontSize: 13 }}>S</button>
                 <div className="sep"/>
-                <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const row1 = "| Kolom 1 | Kolom 2 | Kolom 3 |"; const row2 = "|---------|---------|---------|"; const row3 = "|  |  |  |"; const tbl = "\n" + row1 + "\n" + row2 + "\n" + row3 + "\n"; const newVal = value.slice(0,s) + tbl + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+tbl.length,s+tbl.length); },0); setMoreOpen(false); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
-                <button onClick={() => { insert("[[", "]]", "judul note"); setMoreOpen(false); }} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
+                <button onClick={() => { milkdownEditorRef?.current ? cmd(window.MilkdownBundle.insertTableCommand.key) : (() => { const el = textareaRef?.current; if (!el) return; const s = el.selectionStart; const tbl = "\n| Kolom 1 | Kolom 2 | Kolom 3 |\n|---------|---------|----------|\n|  |  |  |\n"; const newVal = (value||'').slice(0,s) + tbl + (value||'').slice(s); onChange?.(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+tbl.length,s+tbl.length); },0); })(); setMoreOpen(false); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
+                <button onClick={() => { insertText('[['); setMoreOpen(false); }} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
               </div>
             )}
           </div>
           <div className="sep"/>
-          <button onClick={() => { const el = textareaRef.current; if (!el) return; const s = el.selectionStart; const nl = String.fromCharCode(10); const newVal = value.slice(0,s) + nl + "---" + nl + value.slice(s); onChange(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+5,s+5); },0); }} title="Horizontal rule" style={{ fontSize: 13, letterSpacing: -1 }}>—</button>
+          <button onClick={() => milkdownEditorRef?.current ? cmd(window.MilkdownBundle.insertHrCommand.key) : (() => { const el = textareaRef?.current; if (!el) return; const s = el.selectionStart; const nl = String.fromCharCode(10); const newVal = (value||'').slice(0,s) + nl + "---" + nl + (value||'').slice(s); onChange?.(newVal); setTimeout(() => { el.focus(); el.setSelectionRange(s+5,s+5); },0); })()} title="Horizontal rule" style={{ fontSize: 13, letterSpacing: -1 }}>—</button>
           <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vsd,.vsdx,.vsdm,.mpp,.mpt,.dwg,.dxf" style={{ display: 'none' }} onChange={handleAttachFile} />
           <button onClick={() => noteId && fileInputRef.current?.click()} title={noteId ? 'Lampirkan file' : 'Simpan note dulu'} disabled={uploading || !noteId}
             style={{ opacity: noteId ? 1 : 0.4, fontSize: 15 }}>📎</button>
