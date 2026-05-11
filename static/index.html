@@ -7298,19 +7298,75 @@
       }
     });
 
-    function renderMarkdown(text, noteTitles = []) {
+    function normalizeWikiText(s = "") {
+      return String(s).replace(/\s+/g, " ").trim().toLowerCase();
+    }
+
+    function escapeHtml(s = "") {
+      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function escapeAttr(s = "") {
+      return escapeHtml(String(s)).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    function parseWikilinkRaw(raw = "") {
+      let token = String(raw).trim();
+      token = token.replace(/^\[+/, "").replace(/\]+$/, "").trim();
+
+      const parts = token.split("|");
+      const left = (parts[0] || "").trim();
+      const label = (parts[1] || "").trim();
+
+      let explicitId = null;
+      const m = left.match(/^(?:id|note)\s*:\s*(\d+)$/i);
+      if (m) explicitId = m[1];
+      const numericId = /^\d+$/.test(left) ? left : null;
+
+      return {
+        raw: token,
+        title: left,
+        label: label || left,
+        explicitId,
+        numericId,
+      };
+    }
+
+    function renderMarkdown(text, noteTitles = [], allNotes = []) {
       if (!text) return "";
       _markedHIdx = 0;
-      const titleSet = new Set(noteTitles.map(t => t.toLowerCase()));
+      const titleSet = new Set((noteTitles || []).map(t => normalizeWikiText(t)));
+      const notesById = new Map((allNotes || []).map(n => [String(n.id), n]));
+      const notesByTitle = new Map();
+      for (const n of allNotes || []) {
+        const key = normalizeWikiText(n.title || "");
+        if (key && !notesByTitle.has(key)) notesByTitle.set(key, n);
+      }
       const wikiMap = {};
       let wi = 0;
       const processed = text.replace(/\[\[([^\[\]]+)\]\]/g, (_, title) => {
         const key = `WKLN${wi++}WKLNEND`;
-        const exists = titleSet.has(title.toLowerCase());
-        const esc = title.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-        wikiMap[key] = exists
-          ? `<span class="wikilink" data-wiki-title="${esc}">${esc}</span>`
-          : `<span class="wikilink-broken" title="Note tidak ditemukan">[[${esc}]]</span>`;
+        const parsed = parseWikilinkRaw(title);
+        const normTitle = normalizeWikiText(parsed.title);
+        let target = null;
+
+        if (normTitle && notesByTitle.has(normTitle)) {
+          target = notesByTitle.get(normTitle);
+        } else if (parsed.explicitId && notesById.has(String(parsed.explicitId))) {
+          target = notesById.get(String(parsed.explicitId));
+        } else if (parsed.numericId && notesById.has(String(parsed.numericId))) {
+          target = notesById.get(String(parsed.numericId));
+        } else if (normTitle && titleSet.has(normTitle)) {
+          target = { id: "", title: parsed.title };
+        }
+
+        const labelEsc = escapeHtml(parsed.label);
+        const titleEsc = escapeAttr(parsed.title);
+        const rawEsc = escapeAttr(parsed.raw);
+
+        wikiMap[key] = target
+          ? `<span class="wikilink" data-wiki-id="${escapeAttr(String(target.id || ""))}" data-wiki-title="${titleEsc}" data-wiki-raw="${rawEsc}">${labelEsc}</span>`
+          : `<span class="wikilink-broken" data-wiki-title="${titleEsc}" data-wiki-raw="${rawEsc}" title="Note tidak ditemukan">[[${labelEsc}]]</span>`;
         return key;
       });
       let html = marked.parse(processed);
@@ -8643,11 +8699,45 @@
         } catch (e) { /* silent — note still works */ }
       };
 
+      const notesById = useMemo(() => {
+        const map = new Map();
+        for (const n of allNotes || []) map.set(String(n.id), n);
+        return map;
+      }, [allNotes]);
+
+      const notesByNormTitle = useMemo(() => {
+        const map = new Map();
+        for (const n of allNotes || []) {
+          const key = normalizeWikiText(n.title || "");
+          if (key && !map.has(key)) map.set(key, n);
+        }
+        return map;
+      }, [allNotes]);
+
       const handlePreviewClick = (e) => {
-        const el = e.target.closest("[data-wiki-title]");
+        const el = e.target.closest("[data-wiki-id], [data-wiki-title], [data-wiki-raw]");
         if (!el) return;
-        const t = el.getAttribute("data-wiki-title");
-        const found = allNotes.find(n => (n.title || "").toLowerCase() === t.toLowerCase());
+        const idAttr = el.getAttribute("data-wiki-id") || "";
+        const titleAttr = el.getAttribute("data-wiki-title") || "";
+        const rawAttr = el.getAttribute("data-wiki-raw") || "";
+
+        let found = null;
+        if (idAttr && notesById.has(String(idAttr))) {
+          found = notesById.get(String(idAttr));
+        }
+        if (!found && titleAttr) {
+          found = notesByNormTitle.get(normalizeWikiText(titleAttr)) || null;
+        }
+        if (!found && rawAttr) {
+          const parsed = parseWikilinkRaw(rawAttr);
+          found = notesByNormTitle.get(normalizeWikiText(parsed.title)) || null;
+          if (!found && parsed.explicitId && notesById.has(String(parsed.explicitId))) {
+            found = notesById.get(String(parsed.explicitId));
+          }
+          if (!found && parsed.numericId && notesById.has(String(parsed.numericId))) {
+            found = notesById.get(String(parsed.numericId));
+          }
+        }
         if (found) onNavigate(found);
       };
 
@@ -8661,7 +8751,7 @@
       const tocItems = useMemo(() => extractHeadings(note.content || ""), [note.content]);
 
       const handlePrint = () => {
-        const html = renderMarkdown(note.content || "", titleStrings);
+        const html = renderMarkdown(note.content || "", titleStrings, allNotes);
         const el = document.createElement("div");
         el.id = "note-print-area";
         el.innerHTML = `<div class="npa-title">${note.title || "(tanpa judul)"}</div><div class="npa-meta">${fmtDate(note.updated_at)}</div><div class="note-rendered">${html}</div>`;
@@ -8825,7 +8915,7 @@
             style={{ lineHeight: 1.75 }}
             onClick={handlePreviewClick}
             dangerouslySetInnerHTML={{
-              __html: renderMarkdown(note.content || "", titleStrings) ||
+              __html: renderMarkdown(note.content || "", titleStrings, allNotes) ||
                 '<span style="color:var(--text-light);font-style:italic">Catatan kosong.</span>'
             }}
           />
