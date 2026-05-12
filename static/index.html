@@ -733,9 +733,13 @@
     .scratchpad-bar input { flex: 1; background: none; border: none; outline: none; font-size: 14px; color: var(--text-primary); }
     .scratchpad-bar input::placeholder { color: var(--text-light); }
     .notes-layout { display: flex; gap: 0; height: calc(100vh - 112px); min-height: 400px; margin-top: 8px; }
-    .notes-left { width: 300px; min-width: 240px; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); padding-right: 0; }
+    .notes-left { min-width: 240px; max-width: 600px; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); padding-right: 0; }
+    .notes-resizer { width: 4px; cursor: col-resize; background: transparent; transition: background 0.2s; z-index: 10; flex-shrink: 0; }
+    .notes-resizer:hover, .notes-resizer.resizing { background: var(--accent); }
     .notes-left-inner { flex: 1; overflow-y: auto; padding: 0 16px 16px 0; scrollbar-width: none; }
     .notes-left-inner::-webkit-scrollbar { display: none; }
+    .notes-resizer { width: 4px; cursor: col-resize; background: transparent; transition: background 0.2s; flex-shrink: 0; z-index: 10; }
+    .notes-resizer:hover, .notes-resizer.active { background: var(--accent); }
     .pinned-list-expanded { max-height: 160px; overflow-y: auto; scrollbar-width: none; }
     .pinned-list-expanded::-webkit-scrollbar { display: none; }
     .pinned-note-item { display: block; font-size: 13px; color: var(--text-secondary); cursor: pointer; padding: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.5; transition: color 0.1s; }
@@ -9235,6 +9239,8 @@
       const [tagsOpen, setTagsOpen]             = useState(true);
       const [sortBy, setSortBy]                 = useState("updated");
       const [pinnedExpanded, setPinnedExpanded] = useState(false);
+      const [notesLeftWidth, setNotesLeftWidth] = useState(300);
+      const [isResizing, setIsResizing] = useState(false);
 
       useEffect(() => {
         api.get("/api/tags?entity_type=note").then(data => setTagList(data || [])).catch(() => {});
@@ -9472,6 +9478,27 @@
         });
       });
 
+      const startResizing = (e) => {
+        e.preventDefault();
+        setIsResizing(true);
+        const startX = e.clientX;
+        const startWidth = notesLeftWidth;
+
+        const onMouseMove = (moveEvent) => {
+          const deltaX = moveEvent.clientX - startX;
+          setNotesLeftWidth(Math.max(240, Math.min(600, startWidth + deltaX)));
+        };
+
+        const onMouseUp = () => {
+          setIsResizing(false);
+          document.removeEventListener("mousemove", onMouseMove);
+          document.removeEventListener("mouseup", onMouseUp);
+        };
+
+        document.addEventListener("mousemove", onMouseMove);
+        document.addEventListener("mouseup", onMouseUp);
+      };
+
       return (
         <>
         <div className="fade-in">
@@ -9531,9 +9558,9 @@
 
           <div className={`notes-layout${panelNote ? " note-open" : ""}`}>
 
-            {/* ── LEFT PANEL ── */}
-            <div className="notes-left">
-              {/* Pinned notes */}
+             {/* ── LEFT PANEL ── */}
+             <div className="notes-left" style={{ width: notesLeftWidth }}>
+               {/* Pinned notes */}
               {(() => {
                 const pinned = allNotes.filter(n => n.pinned);
                 if (pinned.length === 0) return null;
@@ -9626,10 +9653,12 @@
                   })
                 )}
               </div>
-            </div>
+             </div>
 
-            {/* ── RIGHT PANEL ── */}
-            <div className="notes-right">
+             <div className={`notes-resizer ${isResizing ? "active" : ""}`} onMouseDown={startResizing} />
+
+             {/* ── RIGHT PANEL ── */}
+             <div className="notes-right">
               {!panelNote ? (
                 <div className="notes-panel-empty">
                   <span style={{ fontSize: 40, opacity: 0.3 }}>📝</span>
