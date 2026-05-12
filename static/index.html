@@ -9456,11 +9456,19 @@
       };
 
       const handleTagFilter = (tag) => {
+        setFilterUntagged(false);
         const next = activeTags.includes(tag)
           ? activeTags.filter(t => t !== tag)
           : [...activeTags, tag];
         setActiveTags(next);
-        setNotes(applyFilters(q, next, allNotes, filterUntagged));
+        setNotes(applyFilters(q, next, allNotes, false));
+      };
+
+      const handleUntaggedFilter = () => {
+        const next = !filterUntagged;
+        setFilterUntagged(next);
+        if (next) setActiveTags([]);
+        setNotes(applyFilters(q, [], allNotes, next));
       };
 
       const allTags = tagList.map(t => t.name);
@@ -9622,8 +9630,8 @@
                                       style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 9, color: '#98A2B3', padding: 0, lineHeight: 1 }}>
                                       {tagsOpen ? '▲' : '▼'}
                                     </button>
-                                    {activeTags.length > 0 && (
-                                      <span onClick={() => { setActiveTags([]); setNotes(applyFilters(q, [], allNotes, filterUntagged)); }}
+                                    {(activeTags.length > 0 || filterUntagged) && (
+                                      <span onClick={() => { setActiveTags([]); setFilterUntagged(false); setNotes(applyFilters(q, [], allNotes, false)); }}
                                         style={{ fontSize: 9, color: '#98A2B3', cursor: 'pointer', marginLeft: 'auto' }}>
                                         ✕ reset
                                       </span>
