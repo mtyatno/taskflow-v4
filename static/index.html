@@ -9757,6 +9757,12 @@
                                 #{tag}
                               </span>
                             ))}
+                            {(n.tags || []).length === 0 && (
+                              <span className="note-tag-untagged"
+                                onClick={e => { e.stopPropagation(); handleUntaggedFilter(); }}>
+                                ⬜ tanpa tag
+                              </span>
+                            )}
                             {(n.linked_tasks || []).map(t => (
                               <span key={t.id} style={{ fontSize: 11, color: "var(--text-secondary)", background: "var(--bg-primary)", borderRadius: 6, padding: "2px 8px" }}>
                                 📌 {t.title}
