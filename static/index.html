@@ -9344,16 +9344,16 @@
         return result;
       };
 
-      const fetchNotes = async (filterQ = "", filterTags = []) => {
+      const fetchNotes = async (filterQ = "", filterTags = [], untagged = false) => {
         try {
           const data = await api.get("/api/scratchpad");
           await OfflineDB.cacheSet("scratchpad_notes", data);
           setAllNotes(data);
-          setNotes(filterQ || filterTags.length ? applyFiltersStatic(filterQ, filterTags, data) : data);
+          setNotes(filterQ || filterTags.length || untagged ? applyFiltersStatic(filterQ, filterTags, data, untagged) : data);
         } catch (e) {
           const cached = await OfflineDB.cacheGet("scratchpad_notes") || [];
           setAllNotes(cached);
-          setNotes(filterQ || filterTags.length ? applyFiltersStatic(filterQ, filterTags, cached) : cached);
+          setNotes(filterQ || filterTags.length || untagged ? applyFiltersStatic(filterQ, filterTags, cached, untagged) : cached);
         }
         setLoading(false);
       };
@@ -9382,10 +9382,10 @@
       }, [panelNote?.id, panelNote?.content, allNotes]);
 
       useEffect(() => {
-        const handler = () => fetchNotes(q, activeTags);
+        const handler = () => fetchNotes(q, activeTags, filterUntagged);
         window.addEventListener("noteSaved", handler);
         return () => window.removeEventListener("noteSaved", handler);
-      }, [q, activeTags]);
+      }, [q, activeTags, filterUntagged]);
 
       useEffect(() => {
         const handler = () => {
@@ -9452,7 +9452,7 @@
 
       const handleSearch = (val) => {
         setQ(val);
-        setNotes(applyFilters(val, activeTags, allNotes));
+        setNotes(applyFilters(val, activeTags, allNotes, filterUntagged));
       };
 
       const handleTagFilter = (tag) => {
@@ -9460,7 +9460,7 @@
           ? activeTags.filter(t => t !== tag)
           : [...activeTags, tag];
         setActiveTags(next);
-        setNotes(applyFilters(q, next, allNotes));
+        setNotes(applyFilters(q, next, allNotes, filterUntagged));
       };
 
       const allTags = tagList.map(t => t.name);
@@ -9482,7 +9482,7 @@
             showToast("✅ Catatan dibuat");
             result = created;
           }
-          await fetchNotes(q, activeTags);
+          await fetchNotes(q, activeTags, filterUntagged);
           window.dispatchEvent(new CustomEvent("noteSaved"));
           return result;
         } catch (e) {
@@ -9511,7 +9511,7 @@
         try {
           await api.del(`/api/scratchpad/${id}`);
           showToast("🗑 Catatan dihapus");
-          fetchNotes(q, activeTags);
+          fetchNotes(q, activeTags, filterUntagged);
           setActiveTags([]);
         } catch (e) {
           if (isOfflineErr(e)) {
@@ -9539,7 +9539,7 @@
           const updated = await api.patch(`/api/scratchpad/${id}/pin`, {});
           const refresh = allNotes.map(n => n.id === id ? updated : n);
           setAllNotes(refresh);
-          setNotes(applyFilters(q, activeTags, refresh));
+          setNotes(applyFilters(q, activeTags, refresh, filterUntagged));
         } catch (e) { showToast(e.message, "error"); }
       };
 
@@ -9588,7 +9588,7 @@
                       <div className="scratchpad-bar" style={{ marginBottom: 6, marginTop: 0 }}>
                         <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>🔍</span>
                         <input value={q} onChange={e => handleSearch(e.target.value)} placeholder="Cari..." style={{ fontSize: 13 }} />
-                        {q && <button onClick={() => { setQ(""); setNotes(applyFilters("", activeTags, allNotes)); }}
+                        {q && <button onClick={() => { setQ(""); setNotes(applyFilters("", activeTags, allNotes, filterUntagged)); }}
                           style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}>✕</button>}
                       </div>
                       {allTags.length > 0 && (
@@ -9623,7 +9623,7 @@
                                       {tagsOpen ? '▲' : '▼'}
                                     </button>
                                     {activeTags.length > 0 && (
-                                      <span onClick={() => { setActiveTags([]); setNotes(applyFilters(q, [], allNotes)); }}
+                                      <span onClick={() => { setActiveTags([]); setNotes(applyFilters(q, [], allNotes, filterUntagged)); }}
                                         style={{ fontSize: 9, color: '#98A2B3', cursor: 'pointer', marginLeft: 'auto' }}>
                                         ✕ reset
                                       </span>
