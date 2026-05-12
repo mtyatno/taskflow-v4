@@ -790,11 +790,24 @@
     }
     .sidebar-collapse-btn:hover { background: rgba(168,197,0,0.12); border-color: var(--accent); color: var(--accent); }
     .sidebar-collapse-btn svg { width: 14px; height: 14px; }
-    .pinned-list-expanded { max-height: 160px; overflow-y: auto; scrollbar-width: none; }
+    .pinned-list-expanded { max-height: 220px; overflow-y: auto; scrollbar-width: none; }
     .pinned-list-expanded::-webkit-scrollbar { display: none; }
-    .pinned-note-item { display: block; font-size: 13px; color: var(--text-secondary); cursor: pointer; padding: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.5; transition: color 0.1s; }
-    .pinned-note-item:hover { color: var(--text-primary); }
-    .pinned-note-item.active { color: var(--accent); font-weight: 700; }
+    .pinned-note-item {
+      display: flex; align-items: center; gap: 7px;
+      padding: 7px 10px; border-radius: 10px; margin-bottom: 3px;
+      cursor: pointer; font-size: 12.5px; color: var(--text-secondary);
+      border: 1px solid transparent; background: transparent;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      transition: all 0.18s;
+    }
+    .pinned-note-item:hover { background: var(--bg-primary); border-color: var(--border); color: var(--text-primary); }
+    .pinned-note-item.active { background: rgba(168,197,0,0.08); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+    .pinned-note-icon { font-size: 14px; flex-shrink: 0; opacity: 0.7; line-height: 1; }
+    .pinned-note-item.active .pinned-note-icon { opacity: 1; }
+    .pinned-note-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+    .pinned-note-tags { display: flex; gap: 3px; flex-shrink: 0; }
+    .pinned-note-tag-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); opacity: 0.5; flex-shrink: 0; }
+    .pinned-note-item.active .pinned-note-tag-dot { opacity: 1; }
     .notes-right { flex: 1; overflow-y: auto; padding: 0 16px 24px 20px; min-width: 0; scrollbar-width: none; }
     .notes-right::-webkit-scrollbar { display: none; }
     .notes-panel-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-light); gap: 12px; }
@@ -9302,6 +9315,7 @@
       const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
       const [searchTagsCollapsed, setSearchTagsCollapsed] = useState(false);
       const [notesListCollapsed, setNotesListCollapsed] = useState(false);
+      const [filterUntagged, setFilterUntagged] = useState(false);
 
       useEffect(() => {
         api.get("/api/tags?entity_type=note").then(data => setTagList(data || [])).catch(() => {});
@@ -9653,21 +9667,29 @@
                   const visible = pinnedExpanded ? pinned : pinned.slice(0, 3);
                   const hasMore = pinned.length > 3;
                   return (
-                    <div style={{ flexShrink: 0, paddingRight: 16, marginBottom: 10, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>📌 Disematkan</div>
+                    <div style={{ flexShrink: 0, paddingRight: 16, marginBottom: 10, borderBottom: "1px solid var(--border)", paddingBottom: 10 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>📌 Disematkan</div>
                       <div className={pinnedExpanded ? "pinned-list-expanded" : ""}>
                         {visible.map(n => (
-                          <span key={n.id}
+                          <div key={n.id}
                             className={`pinned-note-item${panelNote?.id === n.id ? " active" : ""}`}
                             onClick={() => { setPanelNote(n); setNavTrail([n]); }}
                             title={n.title || "(tanpa judul)"}>
-                            {n.title || n.content.slice(0, 50) || "(tanpa judul)"}
-                          </span>
+                            <span className="pinned-note-icon">📌</span>
+                            <span className="pinned-note-text">{n.title || n.content.slice(0, 50) || "(tanpa judul)"}</span>
+                            {(n.tags || []).length > 0 && (
+                              <span className="pinned-note-tags">
+                                {(n.tags || []).slice(0, 2).map(tag => (
+                                  <span key={tag} className="pinned-note-tag-dot" title={`#${tag}`} />
+                                ))}
+                              </span>
+                            )}
+                          </div>
                         ))}
                       </div>
                       {hasMore && (
                         <span onClick={() => setPinnedExpanded(e => !e)}
-                          style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", marginTop: 2, display: "inline-block" }}>
+                          style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", marginTop: 4, display: "inline-block" }}>
                           {pinnedExpanded ? "Sembunyikan ▲" : `+${pinned.length - 3} lainnya ▼`}
                         </span>
                       )}
