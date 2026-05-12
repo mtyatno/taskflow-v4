@@ -738,8 +738,10 @@
     .notes-resizer:hover, .notes-resizer.resizing { background: var(--accent); }
     .notes-left-inner { flex: 1; overflow-y: auto; padding: 0 16px 16px 0; scrollbar-width: none; }
     .notes-left-inner::-webkit-scrollbar { display: none; }
-    .notes-resizer { width: 4px; cursor: col-resize; background: transparent; transition: background 0.2s; flex-shrink: 0; z-index: 10; }
+    .notes-resizer { width: 4px; cursor: col-resize; background: transparent; transition: background 0.2s; flex-shrink: 0; z-index: 10; display: none; }
     .notes-resizer:hover, .notes-resizer.active { background: var(--accent); }
+    .sidebar-toggle { position: fixed; left: 0; top: 50%; transform: translateY(-50%); width: 20px; height: 50px; background: var(--accent); color: #111; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 200; border-radius: 0 6px 6px 0; font-size: 12px; font-weight: 700; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+    .sidebar-toggle.visible { opacity: 1; pointer-events: auto; }
     .pinned-list-expanded { max-height: 160px; overflow-y: auto; scrollbar-width: none; }
     .pinned-list-expanded::-webkit-scrollbar { display: none; }
     .pinned-note-item { display: block; font-size: 13px; color: var(--text-secondary); cursor: pointer; padding: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.5; transition: color 0.1s; }
@@ -9239,8 +9241,7 @@
       const [tagsOpen, setTagsOpen]             = useState(true);
       const [sortBy, setSortBy]                 = useState("updated");
       const [pinnedExpanded, setPinnedExpanded] = useState(false);
-      const [notesLeftWidth, setNotesLeftWidth] = useState(300);
-      const [isResizing, setIsResizing] = useState(false);
+      const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
       useEffect(() => {
         api.get("/api/tags?entity_type=note").then(data => setTagList(data || [])).catch(() => {});
@@ -9478,27 +9479,6 @@
         });
       });
 
-      const startResizing = (e) => {
-        e.preventDefault();
-        setIsResizing(true);
-        const startX = e.clientX;
-        const startWidth = notesLeftWidth;
-
-        const onMouseMove = (moveEvent) => {
-          const deltaX = moveEvent.clientX - startX;
-          setNotesLeftWidth(Math.max(240, Math.min(600, startWidth + deltaX)));
-        };
-
-        const onMouseUp = () => {
-          setIsResizing(false);
-          document.removeEventListener("mousemove", onMouseMove);
-          document.removeEventListener("mouseup", onMouseUp);
-        };
-
-        document.addEventListener("mousemove", onMouseMove);
-        document.addEventListener("mouseup", onMouseUp);
-      };
-
       return (
         <>
         <div className="fade-in">
@@ -9558,167 +9538,177 @@
 
           <div className={`notes-layout${panelNote ? " note-open" : ""}`}>
 
-             {/* ── LEFT PANEL ── */}
-             <div className="notes-left" style={{ width: notesLeftWidth }}>
-               {/* Pinned notes */}
-              {(() => {
-                const pinned = allNotes.filter(n => n.pinned);
-                if (pinned.length === 0) return null;
-                const visible = pinnedExpanded ? pinned : pinned.slice(0, 3);
-                const hasMore = pinned.length > 3;
-                return (
-                  <div style={{ flexShrink: 0, paddingRight: 16, marginBottom: 10, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>📌 Disematkan</div>
-                    <div className={pinnedExpanded ? "pinned-list-expanded" : ""}>
-                      {visible.map(n => (
-                        <span key={n.id}
-                          className={`pinned-note-item${panelNote?.id === n.id ? " active" : ""}`}
-                          onClick={() => { setPanelNote(n); setNavTrail([n]); }}
-                          title={n.title || "(tanpa judul)"}>
-                          {n.title || n.content.slice(0, 50) || "(tanpa judul)"}
+              {/* ── LEFT PANEL ── */}
+              <div className="notes-left" style={{ width: sidebarCollapsed ? 0 : undefined, minWidth: sidebarCollapsed ? 0 : undefined, overflow: sidebarCollapsed ? 'hidden' : undefined, transition: 'width 0.25s, minWidth 0.25s', flexShrink: 0 }}>
+                {!sidebarCollapsed && (
+                <>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 4px 0 0' }}>
+                  <button onClick={() => setSidebarCollapsed(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--text-light)', padding: '2px 6px', borderRadius: 4 }}>‹</button>
+                </div>
+                {/* Pinned notes */}
+                {(() => {
+                  const pinned = allNotes.filter(n => n.pinned);
+                  if (pinned.length === 0) return null;
+                  const visible = pinnedExpanded ? pinned : pinned.slice(0, 3);
+                  const hasMore = pinned.length > 3;
+                  return (
+                    <div style={{ flexShrink: 0, paddingRight: 16, marginBottom: 10, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>📌 Disematkan</div>
+                      <div className={pinnedExpanded ? "pinned-list-expanded" : ""}>
+                        {visible.map(n => (
+                          <span key={n.id}
+                            className={`pinned-note-item${panelNote?.id === n.id ? " active" : ""}`}
+                            onClick={() => { setPanelNote(n); setNavTrail([n]); }}
+                            title={n.title || "(tanpa judul)"}>
+                            {n.title || n.content.slice(0, 50) || "(tanpa judul)"}
+                          </span>
+                        ))}
+                      </div>
+                      {hasMore && (
+                        <span onClick={() => setPinnedExpanded(e => !e)}
+                          style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", marginTop: 2, display: "inline-block" }}>
+                          {pinnedExpanded ? "Sembunyikan ▲" : `+${pinned.length - 3} lainnya ▼`}
                         </span>
-                      ))}
+                      )}
                     </div>
-                    {hasMore && (
-                      <span onClick={() => setPinnedExpanded(e => !e)}
-                        style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", marginTop: 2, display: "inline-block" }}>
-                        {pinnedExpanded ? "Sembunyikan ▲" : `+${pinned.length - 3} lainnya ▼`}
-                      </span>
-                    )}
+                  );
+                })()}
+
+                {/* Sort dropdown */}
+                <div style={{ marginBottom: 8, flexShrink: 0, paddingRight: 16 }}>
+                  <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+                    style={{ fontSize: 11, border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px", background: "var(--bg-primary)", color: "var(--text-secondary)", cursor: "pointer", width: "100%" }}>
+                    <option value="updated">Terbaru</option>
+                    <option value="created">Terlama</option>
+                    <option value="alpha">A–Z</option>
+                    <option value="links">Terbanyak link</option>
+                  </select>
+                </div>
+
+                {/* Note list */}
+                <div className="notes-left-inner">
+                  {loading ? (
+                    <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40 }}>Memuat...</div>
+                  ) : sortedNotes.length === 0 ? (
+                    <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40, fontSize: 13 }}>
+                      {activeTags.length > 0
+                        ? `Tidak ada catatan dengan tag ${activeTags.map(t => "#" + t).join(" + ")}`
+                        : q ? "Tidak ada catatan yang cocok."
+                        : "Belum ada catatan. Tulis sesuatu!"}
+                    </div>
+                  ) : (
+                    sortedNotes.map(n => {
+                      const outCount = (n.linked_to || []).length;
+                      const inCount = inCountMap[n.id] || 0;
+                      const isSelected = panelNote?.id === n.id;
+                      return (
+                        <div key={n.id} className="note-card"
+                          onClick={() => { setPanelNote(n); setNavTrail([n]); }}
+                          style={{ borderColor: isSelected ? "var(--accent)" : undefined, background: isSelected ? "rgba(168,197,0,0.06)" : undefined }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                            <div className="note-card-title">
+                              {n.pinned && <span style={{ fontSize: 11, marginRight: 4, opacity: 0.8 }}>📌</span>}
+                              {n.list_id && <span className="note-shared-badge" style={{ marginRight: 4 }}>👥</span>}
+                              {n.title || n.content.slice(0, 60)}
+                            </div>
+                            <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{fmtDate(n.updated_at)}</span>
+                          </div>
+                          {n.title && <div className="note-card-preview" dangerouslySetInnerHTML={{ __html: renderWikilinksPreview(n.content, 200) }} />}
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>
+                            {(n.tags || []).map(tag => (
+                              <span key={tag} className="note-tag"
+                                style={{ cursor: "pointer", fontSize: 11, background: activeTags.includes(tag) ? "var(--accent)" : undefined, color: activeTags.includes(tag) ? "#111" : undefined }}
+                                onClick={e => { e.stopPropagation(); handleTagFilter(tag); }}>
+                                #{tag}
+                              </span>
+                            ))}
+                            {(n.linked_tasks || []).map(t => (
+                              <span key={t.id} style={{ fontSize: 11, color: "var(--text-secondary)", background: "var(--bg-primary)", borderRadius: 6, padding: "2px 8px" }}>
+                                📌 {t.title}
+                              </span>
+                            ))}
+                            {(outCount > 0 || inCount > 0) && (
+                              <span className="note-conn">
+                                {outCount > 0 && `🔗${outCount}`}{outCount > 0 && inCount > 0 && " "}{inCount > 0 && `←${inCount}`}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                </>
+                )}
+                </div>
+
+                {sidebarCollapsed && (
+                  <div className="sidebar-toggle visible" onClick={() => setSidebarCollapsed(false)}>
+                    ›
                   </div>
-                );
-              })()}
+                )}
 
-              {/* Sort dropdown */}
-              <div style={{ marginBottom: 8, flexShrink: 0, paddingRight: 16 }}>
-                <select value={sortBy} onChange={e => setSortBy(e.target.value)}
-                  style={{ fontSize: 11, border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px", background: "var(--bg-primary)", color: "var(--text-secondary)", cursor: "pointer", width: "100%" }}>
-                  <option value="updated">Terbaru</option>
-                  <option value="created">Terlama</option>
-                  <option value="alpha">A–Z</option>
-                  <option value="links">Terbanyak link</option>
-                </select>
-              </div>
-
-              {/* Note list */}
-              <div className="notes-left-inner">
-                {loading ? (
-                  <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40 }}>Memuat...</div>
-                ) : sortedNotes.length === 0 ? (
-                  <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40, fontSize: 13 }}>
-                    {activeTags.length > 0
-                      ? `Tidak ada catatan dengan tag ${activeTags.map(t => "#" + t).join(" + ")}`
-                      : q ? "Tidak ada catatan yang cocok."
-                      : "Belum ada catatan. Tulis sesuatu!"}
+                {/* ── RIGHT PANEL ── */}
+                <div className="notes-right">
+                {!panelNote ? (
+                  <div className="notes-panel-empty">
+                    <span style={{ fontSize: 40, opacity: 0.3 }}>📝</span>
+                    <span style={{ fontSize: 13 }}>Pilih catatan untuk membaca</span>
+                    <button onClick={openNew} className="btn btn-secondary btn-sm">＋ Catatan Baru</button>
                   </div>
                 ) : (
-                  sortedNotes.map(n => {
-                    const outCount = (n.linked_to || []).length;
-                    const inCount = inCountMap[n.id] || 0;
-                    const isSelected = panelNote?.id === n.id;
-                    return (
-                      <div key={n.id} className="note-card"
-                        onClick={() => { setPanelNote(n); setNavTrail([n]); }}
-                        style={{ borderColor: isSelected ? "var(--accent)" : undefined, background: isSelected ? "rgba(168,197,0,0.06)" : undefined }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                          <div className="note-card-title">
-                            {n.pinned && <span style={{ fontSize: 11, marginRight: 4, opacity: 0.8 }}>📌</span>}
-                            {n.list_id && <span className="note-shared-badge" style={{ marginRight: 4 }}>👥</span>}
-                            {n.title || n.content.slice(0, 60)}
-                          </div>
-                          <span style={{ fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>{fmtDate(n.updated_at)}</span>
-                        </div>
-                        {n.title && <div className="note-card-preview" dangerouslySetInnerHTML={{ __html: renderWikilinksPreview(n.content, 200) }} />}
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>
-                          {(n.tags || []).map(tag => (
-                            <span key={tag} className="note-tag"
-                              style={{ cursor: "pointer", fontSize: 11, background: activeTags.includes(tag) ? "var(--accent)" : undefined, color: activeTags.includes(tag) ? "#111" : undefined }}
-                              onClick={e => { e.stopPropagation(); handleTagFilter(tag); }}>
-                              #{tag}
-                            </span>
-                          ))}
-                          {(n.linked_tasks || []).map(t => (
-                            <span key={t.id} style={{ fontSize: 11, color: "var(--text-secondary)", background: "var(--bg-primary)", borderRadius: 6, padding: "2px 8px" }}>
-                              📌 {t.title}
-                            </span>
-                          ))}
-                          {(outCount > 0 || inCount > 0) && (
-                            <span className="note-conn">
-                              {outCount > 0 && `🔗${outCount}`}{outCount > 0 && inCount > 0 && " "}{inCount > 0 && `←${inCount}`}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
+                  <NotePanel
+                    note={panelNote}
+                    allNotes={allNotes}
+                    noteTitles={noteTitles}
+                    sharedLists={sharedLists}
+                    currentUserId={user?.id}
+                    backlinks={panelBacklinks}
+                    outlinks={panelOutlinks}
+                    navTrail={navTrail}
+                    onTaskClick={onTaskClick}
+                    onEdit={() => openEdit(panelNote)}
+                    onClose={() => { setPanelNote(null); setNavTrail([]); }}
+                    onDelete={(id) => { handleDelete(id); setPanelNote(null); setNavTrail([]); }}
+                    onPin={(id) => handlePin(id)}
+                    onNavigate={async (n) => {
+                      const full = allNotes.find(x => x.id === n.id) || await api.get(`/api/scratchpad/${n.id}`).catch(() => n);
+                      setPanelNote(full);
+                      setNavTrail(t => [...t.slice(-7), full]);
+                    }}
+                    onTrailClick={(n) => {
+                      const idx = navTrail.findIndex(x => x.id === n.id);
+                      const full = allNotes.find(x => x.id === n.id) || n;
+                      setPanelNote(full);
+                      setNavTrail(idx >= 0 ? navTrail.slice(0, idx + 1) : navTrail);
+                    }}
+                    onNavigateFrom={(child, parentIdx) => {
+                      const full = allNotes.find(x => x.id === child.id) || child;
+                      setPanelNote(full);
+                      setNavTrail(t => t.slice(0, parentIdx + 1).concat([full]));
+                    }}
+                  />
                 )}
-              </div>
-             </div>
-
-             <div className={`notes-resizer ${isResizing ? "active" : ""}`} onMouseDown={startResizing} />
-
-             {/* ── RIGHT PANEL ── */}
-             <div className="notes-right">
-              {!panelNote ? (
-                <div className="notes-panel-empty">
-                  <span style={{ fontSize: 40, opacity: 0.3 }}>📝</span>
-                  <span style={{ fontSize: 13 }}>Pilih catatan untuk membaca</span>
-                  <button onClick={openNew} className="btn btn-secondary btn-sm">＋ Catatan Baru</button>
                 </div>
-              ) : (
-                <NotePanel
-                  note={panelNote}
-                  allNotes={allNotes}
-                  noteTitles={noteTitles}
+              </div>
+              {showModal && (
+                <NoteModal
+                  key={selected?.id}
+                  note={selected}
+                  tasks={tasks}
+                  onClose={() => { setShowModal(false); setSelected(null); }}
+                  onSave={handleSave}
+                  onDelete={handleDelete}
+                  onTaskClick={onTaskClick}
+                  showToast={showToast}
                   sharedLists={sharedLists}
                   currentUserId={user?.id}
-                  backlinks={panelBacklinks}
-                  outlinks={panelOutlinks}
-                  navTrail={navTrail}
-                  onTaskClick={onTaskClick}
-                  onEdit={() => openEdit(panelNote)}
-                  onClose={() => { setPanelNote(null); setNavTrail([]); }}
-                  onDelete={(id) => { handleDelete(id); setPanelNote(null); setNavTrail([]); }}
-                  onPin={(id) => handlePin(id)}
-                  onNavigate={async (n) => {
-                    const full = allNotes.find(x => x.id === n.id) || await api.get(`/api/scratchpad/${n.id}`).catch(() => n);
-                    setPanelNote(full);
-                    setNavTrail(t => [...t.slice(-7), full]);
-                  }}
-                  onTrailClick={(n) => {
-                    const idx = navTrail.findIndex(x => x.id === n.id);
-                    const full = allNotes.find(x => x.id === n.id) || n;
-                    setPanelNote(full);
-                    setNavTrail(idx >= 0 ? navTrail.slice(0, idx + 1) : navTrail);
-                  }}
-                  onNavigateFrom={(child, parentIdx) => {
-                    const full = allNotes.find(x => x.id === child.id) || child;
-                    setPanelNote(full);
-                    setNavTrail(t => t.slice(0, parentIdx + 1).concat([full]));
-                  }}
+                  noteTitles={noteTitles}
                 />
               )}
-            </div>
-
-          </div>
-
-        </div>
-          {/* Modal — edit only */}
-          {showModal && (
-            <NoteModal
-              key={selected?.id}
-              note={selected}
-              tasks={tasks}
-              onClose={() => { setShowModal(false); setSelected(null); }}
-              onSave={handleSave}
-              onDelete={handleDelete}
-              onTaskClick={onTaskClick}
-              showToast={showToast}
-              sharedLists={sharedLists}
-              currentUserId={user?.id}
-              noteTitles={noteTitles}
-            />
-          )}
+            </>
+          );
+        }
         </>
       );
     }
