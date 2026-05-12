@@ -4906,14 +4906,14 @@
         <div className="fade-in" style={{ display: "flex", height: "calc(100vh - 112px)", overflow: "hidden", marginTop: 8 }}>
 
           {/* ── Sidebar ── */}
-          <div style={{ width: sidebarOpen ? 200 : 36, flexShrink: 0, transition: "width 0.2s ease",
-            overflow: "hidden", borderRight: "1px solid var(--border)",
+          <div style={{ width: sidebarOpen ? 200 : 0, minWidth: sidebarOpen ? undefined : 0, flexShrink: 0, transition: "width 0.25s ease, min-width 0.25s ease",
+            overflow: sidebarOpen ? undefined : "hidden", borderRight: sidebarOpen ? "1px solid var(--border)" : "none",
             display: "flex", flexDirection: "column", background: "var(--bg-card)" }}>
 
-            {sidebarOpen ? (
+            {sidebarOpen && (
               <>
-                {/* Search */}
-                <div style={{ padding: "8px 8px 4px", display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
+                {/* Search + collapse button */}
+                <div style={{ display: "flex", gap: 4, alignItems: "center", padding: "8px 8px 4px", flexShrink: 0 }}>
                   <input value={searchQ} onChange={e => setSearchQ(e.target.value)}
                     placeholder="🔍 Cari..."
                     style={{ flex: 1, fontSize: 11, padding: "4px 8px", borderRadius: 6,
@@ -4923,6 +4923,11 @@
                     <span onClick={() => setSearchQ("")}
                       style={{ cursor: "pointer", fontSize: 11, color: "var(--text-light)", flexShrink: 0 }}>✕</span>
                   )}
+                  <button className="sidebar-collapse-btn" onClick={() => setSidebarOpen(false)} title="Sembunyikan sidebar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                  </button>
                 </div>
 
                 {/* New button / inline create */}
@@ -4991,24 +4996,17 @@
                     </>
                   )}
                 </div>
-
-                {/* Collapse button */}
-                <button onClick={() => setSidebarOpen(false)}
-                  style={{ padding: "8px 12px", background: "none", border: "none",
-                    borderTop: "1px solid var(--border)", cursor: "pointer",
-                    color: "var(--text-light)", fontSize: 11, textAlign: "left", flexShrink: 0 }}>
-                  ‹ Sembunyikan
-                </button>
               </>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 10, gap: 10 }}>
-                <span style={{ fontSize: 14 }}>🧠</span>
-                <button onClick={() => setSidebarOpen(true)}
-                  style={{ background: "none", border: "none", cursor: "pointer",
-                    color: "var(--text-light)", fontSize: 16, lineHeight: 1 }}>›</button>
-              </div>
             )}
           </div>
+
+          {!sidebarOpen && (
+            <div className="sidebar-toggle visible" onClick={() => setSidebarOpen(true)} title="Tampilkan sidebar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </div>
+          )}
 
           {/* ── Editor area ── */}
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
