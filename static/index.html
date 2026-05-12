@@ -9599,6 +9599,7 @@
                     </svg>
                   </div>
                   {!notesListCollapsed && (
+                <>
                 {(() => {
                   const pinned = allNotes.filter(n => n.pinned);
                   if (pinned.length === 0) return null;
@@ -9691,6 +9692,7 @@
                     })
                   )}
                 </div>
+                </>
                 )}
                 </div>
                 </>
