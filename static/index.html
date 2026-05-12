@@ -9759,6 +9759,7 @@
                             ))}
                             {(n.tags || []).length === 0 && (
                               <span className="note-tag-untagged"
+                                style={filterUntagged ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : undefined}
                                 onClick={e => { e.stopPropagation(); handleUntaggedFilter(); }}>
                                 ⬜ tanpa tag
                               </span>
