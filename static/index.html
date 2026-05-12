@@ -7548,6 +7548,32 @@
         editor.action(ctx => ctx.get(window.MilkdownBundle.editorViewCtx).focus());
       };
 
+      const insertTaskList = () => {
+        const editor = milkdownEditorRef?.current;
+        if (!editor) return;
+        const MB = window.MilkdownBundle;
+        editor.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          // If cursor is not already inside a list_item, wrap the current block
+          const { $from } = view.state.selection;
+          let inListItem = false;
+          for (let i = $from.depth; i >= 0; i--) {
+            if ($from.node(i).type.name === 'list_item') { inListItem = true; break; }
+          }
+          if (!inListItem) MB.callCommand(MB.wrapInBulletListCommand.key)(ctx);
+          // Set checked: false on the list_item to make it a task list item
+          const { $from: $f } = view.state.selection;
+          for (let i = $f.depth; i >= 0; i--) {
+            const n = $f.node(i);
+            if (n.type.name === 'list_item') {
+              view.dispatch(view.state.tr.setNodeMarkup($f.before(i), null, { ...n.attrs, checked: false }));
+              break;
+            }
+          }
+        });
+        editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
+      };
+
       const handleAttachFile = async (e) => {
         const file = e.target.files?.[0];
         if (!file || !noteId) return;
@@ -7604,7 +7630,7 @@
           <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.toggleInlineCodeCommand.key); }} title="Inline code" style={{ fontFamily: "monospace", fontSize: 12 }}>&lt;/&gt;</button>
           <div className="sep"/>
           <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.wrapInBulletListCommand.key); }} title="Bullet list" style={{ fontSize: 14 }}>≡</button>
-          <button onMouseDown={e => { e.preventDefault(); insertText('- [ ] '); }} title="Checklist / Task" style={{ fontSize: 13 }}>☑</button>
+          <button onMouseDown={e => { e.preventDefault(); insertTaskList(); }} title="Checklist / Task" style={{ fontSize: 13 }}>☑</button>
           <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.wrapInBlockquoteCommand.key); }} title="Blockquote" style={{ fontSize: 15 }}>❝</button>
           <div className="sep"/>
           {/* More dropdown */}
@@ -7628,7 +7654,7 @@
           <div className="sep"/>
           <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.insertHrCommand.key); }} title="Horizontal rule" style={{ fontSize: 13, letterSpacing: -1 }}>—</button>
           <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vsd,.vsdx,.vsdm,.mpp,.mpt,.dwg,.dxf" style={{ display: 'none' }} onChange={handleAttachFile} />
-          <button onClick={() => noteId && fileInputRef.current?.click()} title={noteId ? 'Lampirkan file' : 'Simpan note dulu'} disabled={uploading || !noteId}
+          <button onMouseDown={e => { e.preventDefault(); if (noteId) fileInputRef.current?.click(); }} title={noteId ? 'Lampirkan file' : 'Simpan note dulu'} disabled={uploading || !noteId}
             style={{ opacity: noteId ? 1 : 0.4, fontSize: 15 }}>📎</button>
         </div>
       );
