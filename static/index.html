@@ -9651,6 +9651,22 @@
                                       })}
                                     </div>
                                   )}
+                                  {(() => {
+                                    const untaggedCount = allNotes.filter(n => (n.tags || []).length === 0).length;
+                                    if (untaggedCount === 0) return null;
+                                    return (
+                                      <>
+                                        <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
+                                        <span
+                                          onClick={handleUntaggedFilter}
+                                          className={`tag-pill${filterUntagged ? ' active' : ''}`}
+                                          style={!filterUntagged ? { border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-light)', fontStyle: 'italic' } : {}}>
+                                          ⬜ Tanpa Tag
+                                          <span className="tag-count">{untaggedCount}</span>
+                                        </span>
+                                      </>
+                                    );
+                                  })()}
                                 </div>
                               </>
                             );
@@ -9726,7 +9742,9 @@
                     <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40 }}>Memuat...</div>
                   ) : sortedNotes.length === 0 ? (
                     <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40, fontSize: 13 }}>
-                      {activeTags.length > 0
+                      {filterUntagged
+                        ? "Tidak ada catatan tanpa tag."
+                        : activeTags.length > 0
                         ? `Tidak ada catatan dengan tag ${activeTags.map(t => "#" + t).join(" + ")}`
                         : q ? "Tidak ada catatan yang cocok."
                         : "Belum ada catatan. Tulis sesuatu!"}
