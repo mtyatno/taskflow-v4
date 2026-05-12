@@ -8136,6 +8136,28 @@
           setNoteTitles(prev => [{ id: created.id, title: created.title }, ...prev]);
           window.dispatchEvent(new CustomEvent("noteSaved"));
           insertWikilink(newTitle);
+          // Force-save parent note so its linked_to resolves the new note as backlink
+          if (note?.id) {
+            clearTimeout(autosaveTimerRef.current);
+            const editor = milkdownEditorRef.current;
+            const MB = window.MilkdownBundle;
+            const latestContent = editor ? editor.action(ctx => {
+              const ser = ctx.get(MB.serializerCtx);
+              return ser(ctx.get(MB.editorViewCtx).state.doc);
+            }) : null;
+            if (latestContent !== null && latestContent !== undefined) {
+              try {
+                await api.put(`/api/scratchpad/${note.id}`, {
+                  title, content: latestContent, tags,
+                  linked_task_ids: linkedTaskIds,
+                  linked_task_id: linkedTaskIds[0] || null,
+                });
+                window.dispatchEvent(new CustomEvent("noteSaved"));
+              } catch (e) {
+                if (!isOfflineErr(e)) console.warn("createNewNote save parent failed:", e.message);
+              }
+            }
+          }
         } catch (err) {
           if (isOfflineErr(err)) {
             const tempId = `tmp_note_${Date.now()}`;
@@ -9280,6 +9302,14 @@
         window.addEventListener("noteSaved", handler);
         return () => window.removeEventListener("noteSaved", handler);
       }, [q, activeTags]);
+
+      useEffect(() => {
+        const handler = () => {
+          if (panelNote?.id) api.get(`/api/scratchpad/${panelNote.id}/backlinks`).then(setPanelBacklinks).catch(() => {});
+        };
+        window.addEventListener("noteSaved", handler);
+        return () => window.removeEventListener("noteSaved", handler);
+      }, [panelNote?.id]);
 
       useEffect(() => {
         const handler = async () => {
