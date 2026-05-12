@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v39-untagged-filter";
+const CACHE = "taskflow-v40-wikilink-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",

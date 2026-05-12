@@ -889,12 +889,10 @@
     .wikilink { color: var(--accent); font-weight: 600; cursor: pointer; border-bottom: 1px dashed var(--accent); transition: opacity 0.15s; }
     .wikilink:hover { opacity: 0.75; }
     .wikilink-broken { color: var(--text-light); border-bottom: 1px dashed var(--text-light); cursor: pointer; font-style: italic; }
-    .wikilink-private { color: var(--text-light); border-bottom: 1px dashed var(--text-light); cursor: default; font-style: italic; opacity: 0.7; }
     /* Read-mode wikilink — higher specificity inside .note-rendered */
     .note-rendered .wikilink { color: var(--accent); font-weight: 600; cursor: pointer; border-bottom: 1px dashed var(--accent); }
     .note-rendered .wikilink:hover { opacity: 0.75; }
     .note-rendered .wikilink-broken { color: var(--text-light); border-bottom: 1px dashed var(--text-light); cursor: pointer; font-style: italic; }
-    .note-rendered .wikilink-private { color: var(--text-light); border-bottom: 1px dashed var(--text-light); cursor: default; font-style: italic; opacity: 0.7; }
     .note-shared-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; color: var(--text-secondary); background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 1px 6px; vertical-align: middle; }
     .note-toc-item { display: block; font-size: 10.5px; color: var(--text-secondary); cursor: pointer; padding: 2px 6px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.45; transition: background 0.1s, color 0.1s; }
     .note-toc-item:hover { background: var(--bg-primary); color: var(--text-primary); }
@@ -1091,8 +1089,8 @@
     /* Dark mode — wikilink-broken (unresolved) */
     [data-theme="dark"] .wikilink-broken,
     [data-theme="dark"] .note-rendered .wikilink-broken {
-      color: #9ca3af;
-      border-bottom-color: #9ca3af;
+      color: var(--text-light);
+      border-bottom-color: var(--text-light);
     }
   </style>
 </head>
@@ -7584,7 +7582,7 @@
         <div className="note-toolbar">
           {/* Heading dropdown */}
           <div ref={hRef} style={{ position: "relative" }}>
-            <button onClick={() => setHOpen(o => !o)} title="Heading" style={{ letterSpacing: 0.5 }}>H ▾</button>
+            <button onMouseDown={e => { e.preventDefault(); setHOpen(o => !o); }} title="Heading" style={{ letterSpacing: 0.5 }}>H ▾</button>
             {hOpen && (
               <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", minWidth: 110, padding: "4px 0" }}>
                 {headings.map(h => (
@@ -7601,17 +7599,17 @@
             )}
           </div>
           <div className="sep"/>
-          <button onClick={() => cmd(window.MilkdownBundle.toggleStrongCommand.key)} title="Bold" style={{ fontWeight: 700, fontFamily: "serif", fontSize: 15 }}>B</button>
-          <button onClick={() => cmd(window.MilkdownBundle.toggleEmphasisCommand.key)} title="Italic" style={{ fontStyle: "italic", fontFamily: "serif", fontSize: 15 }}>I</button>
-          <button onClick={() => cmd(window.MilkdownBundle.toggleInlineCodeCommand.key)} title="Inline code" style={{ fontFamily: "monospace", fontSize: 12 }}>&lt;/&gt;</button>
+          <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.toggleStrongCommand.key); }} title="Bold" style={{ fontWeight: 700, fontFamily: "serif", fontSize: 15 }}>B</button>
+          <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.toggleEmphasisCommand.key); }} title="Italic" style={{ fontStyle: "italic", fontFamily: "serif", fontSize: 15 }}>I</button>
+          <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.toggleInlineCodeCommand.key); }} title="Inline code" style={{ fontFamily: "monospace", fontSize: 12 }}>&lt;/&gt;</button>
           <div className="sep"/>
-          <button onClick={() => cmd(window.MilkdownBundle.wrapInBulletListCommand.key)} title="Bullet list" style={{ fontSize: 14 }}>≡</button>
-          <button onClick={() => insertText('- [ ] ')} title="Checklist / Task" style={{ fontSize: 13 }}>☑</button>
-          <button onClick={() => cmd(window.MilkdownBundle.wrapInBlockquoteCommand.key)} title="Blockquote" style={{ fontSize: 15 }}>❝</button>
+          <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.wrapInBulletListCommand.key); }} title="Bullet list" style={{ fontSize: 14 }}>≡</button>
+          <button onMouseDown={e => { e.preventDefault(); insertText('- [ ] '); }} title="Checklist / Task" style={{ fontSize: 13 }}>☑</button>
+          <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.wrapInBlockquoteCommand.key); }} title="Blockquote" style={{ fontSize: 15 }}>❝</button>
           <div className="sep"/>
           {/* More dropdown */}
           <div ref={moreRef} style={{ position: "relative", flexShrink: 0 }}>
-            <button onClick={() => setMoreOpen(o => !o)} title="Format lainnya"
+            <button onMouseDown={e => { e.preventDefault(); setMoreOpen(o => !o); }} title="Format lainnya"
               style={{ fontWeight: 700, fontSize: 14, color: moreOpen ? "var(--accent)" : undefined,
                        borderColor: moreOpen ? "var(--accent)" : undefined }}>+</button>
             {moreOpen && (
@@ -7619,16 +7617,16 @@
                 background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10,
                 boxShadow: "0 6px 24px rgba(0,0,0,0.15)", display: "flex", alignItems: "center",
                 gap: 2, padding: "6px 8px", flexWrap: "nowrap" }}>
-                <button onClick={() => { cmd(window.MilkdownBundle.wrapInOrderedListCommand.key); setMoreOpen(false); }} title="Numbered list" style={{ fontSize: 12, fontWeight: 700 }}>1.</button>
-                <button onClick={() => { cmd(window.MilkdownBundle.toggleStrikethroughCommand.key); setMoreOpen(false); }} title="Strikethrough" style={{ textDecoration: "line-through", fontSize: 13 }}>S</button>
+                <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.wrapInOrderedListCommand.key); setMoreOpen(false); }} title="Numbered list" style={{ fontSize: 12, fontWeight: 700 }}>1.</button>
+                <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.toggleStrikethroughCommand.key); setMoreOpen(false); }} title="Strikethrough" style={{ textDecoration: "line-through", fontSize: 13 }}>S</button>
                 <div className="sep"/>
-                <button onClick={() => { cmd(window.MilkdownBundle.insertTableCommand.key); setMoreOpen(false); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
-                <button onClick={() => { insertText('[['); setMoreOpen(false); }} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
+                <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.insertTableCommand.key); setMoreOpen(false); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
+                <button onMouseDown={e => { e.preventDefault(); insertText('[['); setMoreOpen(false); }} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
               </div>
             )}
           </div>
           <div className="sep"/>
-          <button onClick={() => cmd(window.MilkdownBundle.insertHrCommand.key)} title="Horizontal rule" style={{ fontSize: 13, letterSpacing: -1 }}>—</button>
+          <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.insertHrCommand.key); }} title="Horizontal rule" style={{ fontSize: 13, letterSpacing: -1 }}>—</button>
           <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vsd,.vsdx,.vsdm,.mpp,.mpt,.dwg,.dxf" style={{ display: 'none' }} onChange={handleAttachFile} />
           <button onClick={() => noteId && fileInputRef.current?.click()} title={noteId ? 'Lampirkan file' : 'Simpan note dulu'} disabled={uploading || !noteId}
             style={{ opacity: noteId ? 1 : 0.4, fontSize: 15 }}>📎</button>
@@ -8385,7 +8383,10 @@
               minHeight={expanded ? (focus ? 'calc(100vh - 180px)' : 'calc(100vh - 320px)') : 120}
               editorRef={milkdownEditorRef}
               onWikilinkClick={t => {
-                const target = noteTitles.find(n => n.title === t);
+                const parsed = parseWikilinkRaw(t);
+                const target = noteTitles.find(n => n.title === parsed.title)
+                  || (parsed.explicitId && noteTitles.find(n => String(n.id) === parsed.explicitId))
+                  || (parsed.numericId && noteTitles.find(n => String(n.id) === parsed.numericId));
                 if (target) onNavigate?.(target);
               }}
             />
@@ -8720,7 +8721,10 @@
                 minHeight="calc(100vh - 120px)"
                 onWikilinkClick={t => {
                   setTextareaFullscreen(false);
-                  const target = noteTitles.find(n => n.title === t);
+                  const parsed = parseWikilinkRaw(t);
+                  const target = noteTitles.find(n => n.title === parsed.title)
+                    || (parsed.explicitId && noteTitles.find(n => String(n.id) === parsed.explicitId))
+                    || (parsed.numericId && noteTitles.find(n => String(n.id) === parsed.numericId));
                   if (target) onNavigate?.(target);
                 }}
               />
@@ -9375,9 +9379,16 @@
       useEffect(() => {
         if (!panelNote?.id) { setPanelBacklinks([]); setPanelOutlinks([]); return; }
         api.get(`/api/scratchpad/${panelNote.id}/backlinks`).then(setPanelBacklinks).catch(() => {});
-        const wikiTitles = [...new Set((panelNote.content || "").match(/\[\[([^\[\]]+)\]\]/g) || [])]
-          .map(s => s.slice(2, -2).trim().toLowerCase());
-        const outs = allNotes.filter(n => n.id !== panelNote.id && wikiTitles.includes((n.title || "").toLowerCase()));
+        const wikiMatches = [...new Set((panelNote.content || "").match(/\[\[([^\[\]]+)\]\]/g) || [])];
+        const parsedWikilinks = wikiMatches.map(s => parseWikilinkRaw(s.slice(2, -2)));
+        const outs = allNotes.filter(n => {
+          if (n.id === panelNote.id) return false;
+          return parsedWikilinks.some(p =>
+            (p.title && (n.title || "").toLowerCase() === p.title.toLowerCase()) ||
+            (p.explicitId && String(n.id) === p.explicitId) ||
+            (p.numericId && String(n.id) === p.numericId)
+          );
+        });
         setPanelOutlinks(outs);
       }, [panelNote?.id, panelNote?.content, allNotes]);
 

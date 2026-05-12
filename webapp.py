@@ -2170,22 +2170,54 @@ def _scratchpad_row(row, conn=None, uid=None) -> dict:
     return d
 
 def _parse_wikilinks(content: str) -> list[str]:
-    """Extract [[Title]] references from note content."""
+    """Extract [[Title]] references, stripping [[Title|alias]] pipe syntax."""
     import re as _re
-    return list(dict.fromkeys(_re.findall(r"\[\[([^\[\]]+)\]\]", content)))
+    raw = _re.findall(r"\[\[([^\[\]]+)\]\]", content)
+    parsed = [t.split("|")[0].strip() for t in raw]
+    return list(dict.fromkeys(t for t in parsed if t))
 
 def _resolve_linked_to(titles: list[str], user_id: int, conn) -> list[int]:
-    """Resolve note titles to IDs — searches personal and shared notes accessible by user."""
+    """Resolve note titles/IDs to note IDs. Handles plain titles, id:N, and numeric IDs."""
     if not titles:
         return []
-    placeholders = ",".join("?" * len(titles))
+    import re as _re
+    by_title, by_id = [], []
+    for t in titles:
+        m = _re.match(r'^(?:id|note)\s*:\s*(\d+)$', t, _re.IGNORECASE)
+        if m:
+            by_id.append(int(m.group(1)))
+        elif _re.match(r'^\d+$', t):
+            by_id.append(int(t))
+        else:
+            by_title.append(t)
+
     access_clause, access_params = _note_access_clause(user_id)
-    rows = conn.execute(
-        f"SELECT id, title FROM scratchpad_notes WHERE {access_clause} AND title IN ({placeholders})",
-        access_params + titles,
-    ).fetchall()
-    title_map = {r["title"].strip().lower(): r["id"] for r in rows}
-    return [title_map[t.strip().lower()] for t in titles if t.strip().lower() in title_map]
+    ids: list[int] = []
+
+    if by_title:
+        placeholders = ",".join("?" * len(by_title))
+        rows = conn.execute(
+            f"SELECT id, title FROM scratchpad_notes WHERE {access_clause} AND title IN ({placeholders})",
+            access_params + by_title,
+        ).fetchall()
+        title_map = {r["title"].strip().lower(): r["id"] for r in rows}
+        for t in by_title:
+            found = title_map.get(t.strip().lower())
+            if found and found not in ids:
+                ids.append(found)
+
+    if by_id:
+        placeholders = ",".join("?" * len(by_id))
+        ac2, ap2 = _note_access_clause(user_id)
+        rows = conn.execute(
+            f"SELECT id FROM scratchpad_notes WHERE {ac2} AND id IN ({placeholders})",
+            ap2 + by_id,
+        ).fetchall()
+        for r in rows:
+            if r["id"] not in ids:
+                ids.append(r["id"])
+
+    return ids
 
 def _note_access_clause(uid: int, prefix: str = "") -> tuple[str, list]:
     """SQL WHERE fragment + params: notes owned by uid OR shared via list membership.
@@ -2750,9 +2782,10 @@ async def get_backlinks(note_id: int, user=Depends(get_current_user)):
                       (json_type(linked_to) = 'array'
                        AND EXISTS (SELECT 1 FROM json_each(linked_to) WHERE value = ?))
                       OR content LIKE ?
+                      OR content LIKE ?
                   )
                 ORDER BY updated_at DESC
-            """, ap2 + [note_id, note_id, f"%[[{title}]]%"]).fetchall()
+            """, ap2 + [note_id, note_id, f"%[[{title}]]%", f"%[[{title}|%"]).fetchall()
         else:
             rows = conn.execute(f"""
                 SELECT id, title, updated_at FROM scratchpad_notes
