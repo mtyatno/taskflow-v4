@@ -835,6 +835,15 @@
     .note-card-title { font-size: 13.5px; font-weight: 600; color: var(--text-primary); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.1px; }
     .note-card-preview { font-size: 12px; color: var(--text-light); line-height: 1.55; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin-top: 2px; }
     .note-tag { display: inline-flex; align-items: center; gap: 4px; background: rgba(168,197,0,0.12); color: var(--accent); border-radius: 20px; padding: 3px 10px; font-size: 11.5px; font-weight: 600; transition: all 0.15s; user-select: none; }
+    /* ── Redesigned tag pills (sidebar filter area) ── */
+    .tag-pill { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border-radius: 20px; font-size: 11.5px; font-weight: 500; background: #F3F4F6; color: #475467; border: 1px solid #E4E7EC; cursor: pointer; userSelect: none; transition: all 0.15s; white-space: nowrap; line-height: 1; min-height: 28px; }
+    .tag-pill:hover { background: #E9EEF5; border-color: #D0D5DD; }
+    .tag-pill.active { background: #B6D400; color: #fff; border-color: #B6D400; font-weight: 600; }
+    .tag-pill.active:hover { background: #A3C100; border-color: #A3C100; }
+    .tag-count { font-size: 10px; background: rgba(0,0,0,0.06); padding: 1px 6px; border-radius: 10px; font-weight: 600; min-width: 18px; text-align: center; line-height: 1.4; }
+    .tag-pill.active .tag-count { background: rgba(255,255,255,0.25); color: #fff; }
+    .tag-section-label { font-size: 10px; font-weight: 700; color: #98A2B3; text-transform: uppercase; letter-spacing: 0.6px; padding: 6px 2px 3px; }
+    .tag-scroll { display: flex; flex-wrap: wrap; gap: 5px; }
     .note-tab-bar { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 10px; margin-top: 4px; }
     .note-tab { flex: 1; text-align: center; padding: 8px 4px; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color 0.15s, border-color 0.15s; }
     .note-tab:hover { color: var(--text-primary); }
@@ -9551,40 +9560,61 @@
                           style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}>✕</button>}
                       </div>
                       {allTags.length > 0 && (
-                        <div style={{ marginBottom: 4 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Tags</span>
-                            <button onClick={() => setTagsOpen(o => !o)}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'var(--text-light)', padding: 0, lineHeight: 1 }}>
-                              {tagsOpen ? '▲' : '▼'}
-                            </button>
-                            {activeTags.length > 0 && (
-                              <span onClick={() => { setActiveTags([]); setNotes(applyFilters(q, [], allNotes)); }}
-                                style={{ fontSize: 10, color: 'var(--text-secondary)', cursor: 'pointer', padding: '1px 5px', marginLeft: 'auto' }}>
-                                ✕
-                              </span>
-                            )}
-                          </div>
-                          {tagsOpen && (
-                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                              {tagList.map(t => {
-                                const isActive = activeTags.includes(t.name) || parseQuery(q).syntaxTags.includes(t.name);
-                                const ratio = (t.count || 0) / maxTagCount;
-                                const bgAlpha = 0.06 + ratio * 0.29;
-                                const textAlpha = 0.42 + ratio * 0.58;
-                                return (
-                                  <span key={t.name} onClick={() => handleTagFilter(t.name)} className="note-tag"
-                                    style={{ cursor: 'pointer', fontSize: 10.5,
-                                      background: isActive ? 'var(--accent)' : `rgba(168,197,0,${bgAlpha.toFixed(2)})`,
-                                      color: isActive ? '#1a2a00' : `rgba(168,197,0,${textAlpha.toFixed(2)})`,
-                                      fontWeight: isActive ? 700 : (ratio > 0.5 ? 600 : 500),
-                                      transition: 'all 0.15s', borderRadius: 20, padding: '2px 8px' }}>
-                                    #{t.name}
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          )}
+                        <div>
+                          {(() => {
+                            const sorted = [...tagList].sort((a, b) => (b.count || 0) - (a.count || 0));
+                            const pinned = sorted.slice(0, 4);
+                            const rest = sorted.slice(4);
+                            return (
+                              <>
+                                {/* Pinned / top tags */}
+                                <div className="tag-section-label">📌 Sering Digunakan</div>
+                                <div className="tag-scroll">
+                                  {pinned.map(t => {
+                                    const isActive = activeTags.includes(t.name) || parseQuery(q).syntaxTags.includes(t.name);
+                                    return (
+                                      <span key={t.name} onClick={() => handleTagFilter(t.name)}
+                                        className={`tag-pill${isActive ? ' active' : ''}`}>
+                                        #{t.name}
+                                        <span className="tag-count">{t.count || 0}</span>
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* All tags */}
+                                <div style={{ marginTop: 8 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                    <span className="tag-section-label" style={{ padding: 0 }}>Semua Tags</span>
+                                    <button onClick={() => setTagsOpen(o => !o)}
+                                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 9, color: '#98A2B3', padding: 0, lineHeight: 1 }}>
+                                      {tagsOpen ? '▲' : '▼'}
+                                    </button>
+                                    {activeTags.length > 0 && (
+                                      <span onClick={() => { setActiveTags([]); setNotes(applyFilters(q, [], allNotes)); }}
+                                        style={{ fontSize: 9, color: '#98A2B3', cursor: 'pointer', marginLeft: 'auto' }}>
+                                        ✕ reset
+                                      </span>
+                                    )}
+                                  </div>
+                                  {tagsOpen && (
+                                    <div className="tag-scroll">
+                                      {rest.map(t => {
+                                        const isActive = activeTags.includes(t.name) || parseQuery(q).syntaxTags.includes(t.name);
+                                        return (
+                                          <span key={t.name} onClick={() => handleTagFilter(t.name)}
+                                            className={`tag-pill${isActive ? ' active' : ''}`}>
+                                            #{t.name}
+                                            <span className="tag-count">{t.count || 0}</span>
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
                     </div>
