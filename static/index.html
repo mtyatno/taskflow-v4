@@ -9518,32 +9518,30 @@
           <div className={`notes-layout${panelNote ? " note-open" : ""}`}>
 
               {/* ── LEFT PANEL ── */}
-              <div className="notes-left" style={{ width: sidebarCollapsed ? 0 : undefined, minWidth: sidebarCollapsed ? 0 : undefined, overflow: sidebarCollapsed ? 'hidden' : undefined, transition: 'width 0.25s, minWidth 0.25s', flexShrink: 0 }}>
+              <div className="notes-left" style={{ width: sidebarCollapsed ? 0 : undefined, minWidth: sidebarCollapsed ? 0 : undefined, overflow: sidebarCollapsed ? 'hidden' : undefined, transition: 'width 0.25s, minWidth 0.25s', flexShrink: 0, flexDirection: 'row', gap: 0 }}>
                 {!sidebarCollapsed && (
                 <>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 12px 4px 0', alignItems: 'center' }}>
-                  <button className="sidebar-collapse-btn" onClick={() => setSidebarCollapsed(true)} title="Sembunyikan sidebar">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="15 18 9 12 15 6"/>
-                    </svg>
-                  </button>
-                </div>
-
-                {/* Section 1: Search + Tags */}
-                <div style={{ borderBottom: '1px solid var(--border)', marginBottom: 4, paddingBottom: 4 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', flex: searchTagsCollapsed ? '0 0 auto' : '0 0 260px', minWidth: searchTagsCollapsed ? 36 : undefined, overflow: 'hidden', transition: 'flex 0.25s, min-width 0.25s', borderRight: searchTagsCollapsed ? 'none' : '1px solid var(--border)', position: 'relative' }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 8px 4px 0', alignItems: 'center' }}>
+                    <button className="sidebar-collapse-btn" onClick={() => setSidebarCollapsed(true)} title="Sembunyikan sidebar">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                      </svg>
+                    </button>
+                  </div>
                   <div onClick={() => setSearchTagsCollapsed(c => !c)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', cursor: 'pointer', userSelect: 'none' }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.8px', flex: 1 }}>🔍 Pencarian</span>
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', cursor: 'pointer', userSelect: 'none' }}>
+                    {!searchTagsCollapsed && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.8px', flex: 1 }}>🔍 Pencarian</span>}
                     <svg viewBox="0 0 24 24" fill="none" stroke="var(--text-light)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                      style={{ width: 14, height: 14, transform: searchTagsCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
-                      <polyline points="6 9 12 15 18 9"/>
+                      style={{ width: 14, height: 14, transform: searchTagsCollapsed ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', flexShrink: 0 }}>
+                      <polyline points="9 18 15 12 9 6"/>
                     </svg>
                   </div>
                   {!searchTagsCollapsed && (
-                    <div>
+                    <div style={{ flex: 1, overflow: 'auto', padding: '0 8px' }}>
                       <div className="scratchpad-bar" style={{ marginBottom: 6, marginTop: 0 }}>
                         <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>🔍</span>
-                        <input value={q} onChange={e => handleSearch(e.target.value)} placeholder="Cari catatan..." style={{ fontSize: 13 }} />
+                        <input value={q} onChange={e => handleSearch(e.target.value)} placeholder="Cari..." style={{ fontSize: 13 }} />
                         {q && <button onClick={() => { setQ(""); setNotes(applyFilters("", activeTags, allNotes)); }}
                           style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}>✕</button>}
                       </div>
@@ -9558,7 +9556,7 @@
                             {activeTags.length > 0 && (
                               <span onClick={() => { setActiveTags([]); setNotes(applyFilters(q, [], allNotes)); }}
                                 style={{ fontSize: 10, color: 'var(--text-secondary)', cursor: 'pointer', padding: '1px 5px', marginLeft: 'auto' }}>
-                                ✕ reset
+                                ✕
                               </span>
                             )}
                           </div>
@@ -9588,10 +9586,10 @@
                   )}
                 </div>
 
-                {/* Section 2: Notes list */}
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                {/* Column 2: Notes list */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
                   <div onClick={() => setNotesListCollapsed(c => !c)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', cursor: 'pointer', userSelect: 'none', flexShrink: 0 }}>
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 8px 4px', cursor: 'pointer', userSelect: 'none', flexShrink: 0 }}>
                     <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.8px', flex: 1 }}>📋 Catatan</span>
                     <svg viewBox="0 0 24 24" fill="none" stroke="var(--text-light)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
                       style={{ width: 14, height: 14, transform: notesListCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
