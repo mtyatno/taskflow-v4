@@ -9276,10 +9276,8 @@
       const [sortBy, setSortBy]                 = useState("updated");
       const [pinnedExpanded, setPinnedExpanded] = useState(false);
       const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
-      useEffect(() => {
-        api.get("/api/tags?entity_type=note").then(data => setTagList(data || [])).catch(() => {});
-      }, []);
+      const [searchTagsCollapsed, setSearchTagsCollapsed] = useState(false);
+      const [notesListCollapsed, setNotesListCollapsed] = useState(false);
 
       useEffect(() => {
         const handler = () => api.get("/api/tags?entity_type=note").then(data => setTagList(data || [])).catch(() => {});
@@ -9517,59 +9515,6 @@
         <>
         <div className="fade-in">
 
-          {/* ── FULL-WIDTH SEARCH BAR ── */}
-          <div className="scratchpad-bar" style={{ marginBottom: 8, marginTop: 20 }}>
-            <span style={{ fontSize: 15, color: "var(--text-secondary)" }}>🔍</span>
-            <input
-              value={q}
-              onChange={e => handleSearch(e.target.value)}
-              placeholder="Cari catatan... atau ketik tag:nama"
-            />
-            {q && <button onClick={() => { setQ(""); setNotes(applyFilters("", activeTags, allNotes)); }}
-              style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16 }}>✕</button>}
-          </div>
-
-          {/* ── FULL-WIDTH TAGS ── */}
-          {allTags.length > 0 && (
-            <div style={{ marginBottom: 6 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.8px" }}>Tags</span>
-                <button onClick={() => setTagsOpen(o => !o)}
-                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "var(--text-light)", padding: 0, lineHeight: 1 }}>
-                  {tagsOpen ? "▲" : "▼"}
-                </button>
-                {activeTags.length > 0 && (
-                  <span onClick={() => { setActiveTags([]); setNotes(applyFilters(q, [], allNotes)); }}
-                    style={{ fontSize: 11, color: "var(--text-secondary)", cursor: "pointer", padding: "1px 5px", marginLeft: "auto" }}>
-                    ✕ reset
-                  </span>
-                )}
-              </div>
-              {tagsOpen && (
-                <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                  {tagList.map(t => {
-                    const isActive = activeTags.includes(t.name) || parseQuery(q).syntaxTags.includes(t.name);
-                    const ratio = (t.count || 0) / maxTagCount;
-                    const bgAlpha = 0.06 + ratio * 0.29;
-                    const textAlpha = 0.42 + ratio * 0.58;
-                    const glow = !isActive && ratio > 0.6 ? `0 0 7px rgba(168,197,0,${(ratio * 0.45).toFixed(2)})` : "none";
-                    return (
-                      <span key={t.name} onClick={() => handleTagFilter(t.name)} className="note-tag"
-                        style={{ cursor: "pointer", fontSize: 11.5,
-                          background: isActive ? "var(--accent)" : `rgba(168,197,0,${bgAlpha.toFixed(2)})`,
-                          color: isActive ? "#1a2a00" : `rgba(168,197,0,${textAlpha.toFixed(2)})`,
-                          fontWeight: isActive ? 700 : (ratio > 0.5 ? 600 : 500),
-                          boxShadow: glow,
-                          transition: "all 0.15s", borderRadius: 20, padding: "3px 10px" }}>
-                        #{t.name}
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
           <div className={`notes-layout${panelNote ? " note-open" : ""}`}>
 
               {/* ── LEFT PANEL ── */}
@@ -9583,7 +9528,77 @@
                     </svg>
                   </button>
                 </div>
-                {/* Pinned notes */}
+
+                {/* Section 1: Search + Tags */}
+                <div style={{ borderBottom: '1px solid var(--border)', marginBottom: 4, paddingBottom: 4 }}>
+                  <div onClick={() => setSearchTagsCollapsed(c => !c)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', cursor: 'pointer', userSelect: 'none' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.8px', flex: 1 }}>🔍 Pencarian</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--text-light)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                      style={{ width: 14, height: 14, transform: searchTagsCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </div>
+                  {!searchTagsCollapsed && (
+                    <div>
+                      <div className="scratchpad-bar" style={{ marginBottom: 6, marginTop: 0 }}>
+                        <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>🔍</span>
+                        <input value={q} onChange={e => handleSearch(e.target.value)} placeholder="Cari catatan..." style={{ fontSize: 13 }} />
+                        {q && <button onClick={() => { setQ(""); setNotes(applyFilters("", activeTags, allNotes)); }}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14 }}>✕</button>}
+                      </div>
+                      {allTags.length > 0 && (
+                        <div style={{ marginBottom: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Tags</span>
+                            <button onClick={() => setTagsOpen(o => !o)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'var(--text-light)', padding: 0, lineHeight: 1 }}>
+                              {tagsOpen ? '▲' : '▼'}
+                            </button>
+                            {activeTags.length > 0 && (
+                              <span onClick={() => { setActiveTags([]); setNotes(applyFilters(q, [], allNotes)); }}
+                                style={{ fontSize: 10, color: 'var(--text-secondary)', cursor: 'pointer', padding: '1px 5px', marginLeft: 'auto' }}>
+                                ✕ reset
+                              </span>
+                            )}
+                          </div>
+                          {tagsOpen && (
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {tagList.map(t => {
+                                const isActive = activeTags.includes(t.name) || parseQuery(q).syntaxTags.includes(t.name);
+                                const ratio = (t.count || 0) / maxTagCount;
+                                const bgAlpha = 0.06 + ratio * 0.29;
+                                const textAlpha = 0.42 + ratio * 0.58;
+                                return (
+                                  <span key={t.name} onClick={() => handleTagFilter(t.name)} className="note-tag"
+                                    style={{ cursor: 'pointer', fontSize: 10.5,
+                                      background: isActive ? 'var(--accent)' : `rgba(168,197,0,${bgAlpha.toFixed(2)})`,
+                                      color: isActive ? '#1a2a00' : `rgba(168,197,0,${textAlpha.toFixed(2)})`,
+                                      fontWeight: isActive ? 700 : (ratio > 0.5 ? 600 : 500),
+                                      transition: 'all 0.15s', borderRadius: 20, padding: '2px 8px' }}>
+                                    #{t.name}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Section 2: Notes list */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                  <div onClick={() => setNotesListCollapsed(c => !c)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', cursor: 'pointer', userSelect: 'none', flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.8px', flex: 1 }}>📋 Catatan</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--text-light)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                      style={{ width: 14, height: 14, transform: notesListCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </div>
+                  {!notesListCollapsed && (
                 {(() => {
                   const pinned = allNotes.filter(n => n.pinned);
                   if (pinned.length === 0) return null;
@@ -9675,6 +9690,8 @@
                       );
                     })
                   )}
+                </div>
+                )}
                 </div>
                 </>
                 )}
