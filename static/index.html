@@ -9330,7 +9330,7 @@
       }, []);
 
       // Static version (no closure dep) used inside async fetchNotes
-      const applyFiltersStatic = (query, tags, base) => {
+      const applyFiltersStatic = (query, tags, base, untagged = false) => {
         const syntaxTags = [...query.matchAll(/\btag:(\S+)/gi)].map(m => m[1].toLowerCase());
         const cleanQuery = query.replace(/\btag:\S+/gi, "").trim();
         const allTags = [...new Set([...tags, ...syntaxTags])];
@@ -9340,6 +9340,7 @@
           n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) ||
           n.content?.toLowerCase().includes(cleanQuery.toLowerCase())
         );
+        if (untagged) result = result.filter(n => (n.tags || []).length === 0);
         return result;
       };
 
@@ -9434,7 +9435,7 @@
         return { cleanQuery, syntaxTags };
       };
 
-      const applyFilters = (query, tags, base) => {
+      const applyFilters = (query, tags, base, untagged = false) => {
         const { cleanQuery, syntaxTags } = parseQuery(query);
         const allActiveTags = [...new Set([...tags, ...syntaxTags])];
         let result = base;
@@ -9445,6 +9446,7 @@
           n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) ||
           n.content?.toLowerCase().includes(cleanQuery.toLowerCase())
         );
+        if (untagged) result = result.filter(n => (n.tags || []).length === 0);
         return result;
       };
 
