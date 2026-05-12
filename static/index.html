@@ -9280,6 +9280,10 @@
       const [notesListCollapsed, setNotesListCollapsed] = useState(false);
 
       useEffect(() => {
+        api.get("/api/tags?entity_type=note").then(data => setTagList(data || [])).catch(() => {});
+      }, []);
+
+      useEffect(() => {
         const handler = () => api.get("/api/tags?entity_type=note").then(data => setTagList(data || [])).catch(() => {});
         window.addEventListener("noteSaved", handler);
         return () => window.removeEventListener("noteSaved", handler);
