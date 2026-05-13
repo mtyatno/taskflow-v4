@@ -3094,17 +3094,17 @@ async def delete_mindmap(mid: int, user=Depends(get_current_user)):
 
 # ══════════════════════════════════════════════════════════════════════════════
 
-import urllib.request as _urllib_req
+import requests as _requests
 
 HOLIDAY_API_KEY = "v66wqUTF8Y11V3ME31fHIuPaEWfuc22JkELVQtyVsc1rlJxcdK"
 
 @app.get("/api/holidays")
 async def get_holidays(year: int, user=Depends(get_current_user)):
     url = f"https://use.api.co.id/holidays/indonesia/?year={year}&page=1"
-    req = _urllib_req.Request(url, headers={"x-api-co-id": HOLIDAY_API_KEY})
     try:
-        with _urllib_req.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read())
+        resp = _requests.get(url, headers={"x-api-co-id": HOLIDAY_API_KEY}, timeout=8)
+        resp.raise_for_status()
+        data = resp.json()
         holidays = [
             {"date": h["date"], "name": h["name"], "is_joint": h["is_joint_holiday"]}
             for h in data.get("data", [])
