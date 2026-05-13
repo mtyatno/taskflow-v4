@@ -7731,7 +7731,7 @@
 
         if (current.trim() !== (value || '').trim()) {
           isExternalUpdate.current = true;
-          editor.action(MB.callCommand(MB.replaceAll, value || ''));
+          editor.action(MB.replaceAll(value || ''));
           setTimeout(() => { isExternalUpdate.current = false; }, 0);
         }
       }, [value, ready]);
@@ -8153,11 +8153,7 @@
       }, [tagDropdown, wikiDropdown]);
 
       const handleEditorChange = (markdown) => {
-        // remark-stringify escapes [[title]] to \[\[title\]\]; clean it back before storing
-        const clean = markdown.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
-          return `[[${rawTitle.replace(/\\(.)/g, '$1')}]]`;
-        });
-        setContent(clean);
+        setContent(markdown);
         autoConvertWikilinkAtCursor();
 
         // Auto-extract tags
