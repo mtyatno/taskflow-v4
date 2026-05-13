@@ -2762,22 +2762,26 @@
                       <button
                         type="button"
                         onClick={() => setNoteTextareaFullscreen(true)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer',
-                                 fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}
-                      >⤢ Expand</button>
+                        style={{ background: 'none', border: '1.5px solid var(--accent)', borderRadius: 20,
+                                 cursor: 'pointer', fontSize: 12, color: 'var(--accent)', fontWeight: 700,
+                                 padding: '2px 10px', lineHeight: 1.5 }}
+                      >● Focus</button>
                     </div>
                     <div style={noteTextareaFullscreen ? {
                       position: 'fixed', inset: 0, zIndex: 10001,
                       background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', padding: 16
                     } : {}}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                      {noteTextareaFullscreen && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                          <button type="button" onClick={() => setNoteTextareaFullscreen(false)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer',
+                                     fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
+                            ✕ Tutup
+                          </button>
+                        </div>
+                      )}
+                      <div style={{ marginBottom: 4 }}>
                         <NoteToolbar milkdownEditorRef={noteMilkdownRef} noteId={null} onAttachUploaded={() => {}} />
-                        <button type="button"
-                          onClick={() => setNoteTextareaFullscreen(f => !f)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer',
-                                   fontSize: 13, color: 'var(--accent)', fontWeight: 600, flexShrink: 0 }}>
-                          {noteTextareaFullscreen ? '✕ Tutup' : '⤢ Expand'}
-                        </button>
                       </div>
                       <div style={{ position: 'relative', flex: noteTextareaFullscreen ? 1 : undefined }}>
                         <MilkdownEditor

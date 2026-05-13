@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v60-navtrail-dedup";
+const CACHE = "taskflow-v61-focus-pill-btn";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
