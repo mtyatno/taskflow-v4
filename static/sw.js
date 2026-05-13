@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v49-heading-enter-to-paragraph";
+const CACHE = "taskflow-v50-note-tab-markdown-toolbar";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",

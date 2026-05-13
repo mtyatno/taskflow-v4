@@ -2547,6 +2547,37 @@
         } else { setNoteTagDropdown(null); }
       };
 
+      const insertNoteMarkdown = (prefix, suffix = '') => {
+        const el = noteContentRef.current;
+        if (!el) return;
+        const start = el.selectionStart;
+        const end = el.selectionEnd;
+        const content = noteForm.content;
+        const selected = content.slice(start, end);
+        let newContent, newStart, newEnd;
+        if (selected) {
+          newContent = content.slice(0, start) + prefix + selected + suffix + content.slice(end);
+          newStart = start + prefix.length;
+          newEnd = end + prefix.length;
+        } else {
+          newContent = content.slice(0, start) + prefix + suffix + content.slice(end);
+          newStart = newEnd = start + prefix.length;
+        }
+        setNote("content", newContent);
+        setTimeout(() => { el.focus(); el.setSelectionRange(newStart, newEnd); }, 0);
+      };
+
+      const insertNoteLinePrefix = (prefix) => {
+        const el = noteContentRef.current;
+        if (!el) return;
+        const start = el.selectionStart;
+        const content = noteForm.content;
+        const lineStart = content.lastIndexOf('\n', start - 1) + 1;
+        const newContent = content.slice(0, lineStart) + prefix + content.slice(lineStart);
+        setNote("content", newContent);
+        setTimeout(() => { el.focus(); el.setSelectionRange(start + prefix.length, start + prefix.length); }, 0);
+      };
+
       const insertNoteTag = (tagName) => {
         const el = noteContentRef.current;
         if (!el) return;
@@ -2774,6 +2805,27 @@
                         style={{ background: 'none', border: 'none', cursor: 'pointer',
                                  fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}
                       >⤢ Expand</button>
+                    </div>
+                    <div className="note-toolbar" style={{ marginBottom: 4 }}>
+                      {[['H1','# '],['H2','## '],['H3','### ']].map(([lbl,pfx]) => (
+                        <button key={lbl} type="button"
+                          onMouseDown={e => { e.preventDefault(); insertNoteLinePrefix(pfx); }}
+                          style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.3 }}>{lbl}</button>
+                      ))}
+                      <div className="sep"/>
+                      <button type="button" onMouseDown={e => { e.preventDefault(); insertNoteMarkdown('**','**'); }}
+                        style={{ fontWeight: 700, fontFamily: 'serif', fontSize: 15 }}>B</button>
+                      <button type="button" onMouseDown={e => { e.preventDefault(); insertNoteMarkdown('*','*'); }}
+                        style={{ fontStyle: 'italic', fontFamily: 'serif', fontSize: 15 }}>I</button>
+                      <button type="button" onMouseDown={e => { e.preventDefault(); insertNoteMarkdown('`','`'); }}
+                        style={{ fontFamily: 'monospace', fontSize: 12 }}>&lt;/&gt;</button>
+                      <div className="sep"/>
+                      <button type="button" onMouseDown={e => { e.preventDefault(); insertNoteLinePrefix('- '); }}
+                        style={{ fontSize: 14 }}>≡</button>
+                      <button type="button" onMouseDown={e => { e.preventDefault(); insertNoteLinePrefix('- [ ] '); }}
+                        style={{ fontSize: 13 }}>☑</button>
+                      <button type="button" onMouseDown={e => { e.preventDefault(); insertNoteLinePrefix('> '); }}
+                        style={{ fontSize: 15 }}>❝</button>
                     </div>
                     <div style={{ position: "relative" }}>
                       <textarea
