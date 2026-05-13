@@ -4598,7 +4598,7 @@
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {m.title}
           </span>
-          {(hovered || m.is_pinned) && (
+          {(hovered || !!m.is_pinned) && (
             <span onClick={e => { e.stopPropagation(); onPin(m); }}
               title={m.is_pinned ? "Unpin" : "Pin"}
               style={{ fontSize: 11, cursor: "pointer", flexShrink: 0,

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v73-mindmap-share";
+const CACHE = "taskflow-v74-mindmap-pin-zero";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
