@@ -928,15 +928,13 @@
 
     /* Mobile Notes Modal */
     @media (max-width: 768px) {
-      .note-modal-overlay { padding: 0; }
-      .note-modal-box { 
-        width: 100% !important; 
-        height: 100% !important; 
-        max-height: 100vh !important; 
-        border-radius: 0; 
-        border: none;
-        padding: 16px;
-        gap: 12px;
+      .note-modal-overlay { padding: 12px; }
+      .note-modal-box {
+        width: 100% !important;
+        max-height: 92vh !important;
+        border-radius: 16px;
+        padding: 20px 16px;
+        gap: 10px;
       }
       .note-toolbar { 
         flex-wrap: nowrap; 
@@ -8483,16 +8481,15 @@
           )}
 
            {/* Toolbar */}
-           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, marginTop: 12 }}>
-             <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} />
-             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-               <div className="note-word-count" style={{ marginBottom: 0, marginTop: 0 }}>
-                 <span>{wordCount} kata</span>
-                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                   {saving ? <span style={{ color: 'var(--text-light)' }}>Menyimpan...</span> : <span style={{ color: '#22c55e', fontWeight: 600 }}>✓ Tersimpan</span>}
-                 </span>
-               </div>
-               <button type="button" className="note-tab" onClick={() => setTextareaFullscreen(true)} style={{ margin: 0 }}>⤢ Expand</button>
+           <div style={{ marginTop: 12 }}>
+             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+               <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} />
+               <button type="button" className="note-tab" onClick={() => setTextareaFullscreen(true)} style={{ margin: 0, flexShrink: 0, marginLeft: 8 }}>⤢ Expand</button>
+             </div>
+             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-light)', marginBottom: 4 }}>
+               <span>{wordCount} kata</span>
+               <span>·</span>
+               {saving ? <span>Menyimpan...</span> : <span style={{ color: '#22c55e', fontWeight: 600 }}>✓ Tersimpan</span>}
              </div>
            </div>
            {/* Content + ToC */}
