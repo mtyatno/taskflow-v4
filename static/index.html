@@ -9559,8 +9559,8 @@
       useEffect(() => {
         if (!panelNote?.id) { setPanelBacklinks([]); setPanelOutlinks([]); return; }
         api.get(`/api/scratchpad/${panelNote.id}/backlinks`).then(setPanelBacklinks).catch(() => {});
-        const wikiMatches = [...new Set((panelNote.content || "").match(/\[\[([^\[\]]+)\]\]/g) || [])];
-        const parsedWikilinks = wikiMatches.map(s => parseWikilinkRaw(s.slice(2, -2)));
+        const wikiMatches = [...new Set([...(panelNote.content || "").matchAll(/(?:\\?\[){2}([^\[\]\\]+)(?:\\?\]){2}/g)].map(m => m[1]))];
+        const parsedWikilinks = wikiMatches.map(s => parseWikilinkRaw(s));
         const outs = allNotes.filter(n => {
           if (n.id === panelNote.id) return false;
           return parsedWikilinks.some(p =>
