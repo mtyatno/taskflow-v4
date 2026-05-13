@@ -2428,6 +2428,7 @@
       const [noteTextareaFullscreen, setNoteTextareaFullscreen] = React.useState(false);
       const [noteCanvasId] = React.useState(() => crypto.randomUUID());
       const noteDrawIframeRef = React.useRef(null);
+      const [noteDrawOpen, setNoteDrawOpen] = React.useState(false);
       const [noteDrawFullscreen, setNoteDrawFullscreen] = React.useState(false);
       const [noteDrawIframeReady, setNoteDrawIframeReady] = React.useState(false);
 
@@ -2814,43 +2815,57 @@
                         ))}
                       </div>
                     )}
-                    {/* Note canvas */}
-                    <div style={noteDrawFullscreen ? {
-                      position: 'fixed', inset: 0, zIndex: 10000,
-                      background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column'
-                    } : { marginTop: 12, marginBottom: 14 }}>
-                      <div style={{
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        padding: noteDrawFullscreen ? '10px 16px' : '0 0 8px 0',
-                        borderBottom: noteDrawFullscreen ? '1px solid var(--border)' : 'none',
-                      }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Canvas</span>
-                        <button type="button"
-                          onClick={() => setNoteDrawFullscreen(f => !f)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer',
-                                   fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
-                          {noteDrawFullscreen ? '✕ Tutup' : '⤢ Expand'}
-                        </button>
-                      </div>
-                      <div style={{
-                        flex: noteDrawFullscreen ? 1 : undefined,
-                        height: noteDrawFullscreen ? undefined : 300,
-                        border: '1px solid var(--border)',
-                        borderRadius: noteDrawFullscreen ? 0 : 8,
-                        overflow: 'hidden',
-                      }}>
-                        <iframe
-                          ref={noteDrawIframeRef}
-                          src={`/static/vendor/tldraw/index.html?noteId=${noteCanvasId}`}
-                          style={{ width: '100%', height: '100%', border: 'none' }}
-                          title="Drawing canvas"
-                        />
-                      </div>
+                    {/* Note canvas — collapsible */}
+                    <div style={{ marginTop: 12, marginBottom: 14 }}>
                       {!noteDrawFullscreen && (
-                        <div style={{ fontSize: 11, marginTop: 4, color: 'var(--text-light)' }}>
-                          Simpan note untuk sync drawing ke server
-                        </div>
+                        <button type="button"
+                          onClick={() => setNoteDrawOpen(o => !o)}
+                          style={{ width: '100%', padding: '5px 10px', display: 'flex', alignItems: 'center',
+                                   justifyContent: 'space-between', background: 'var(--bg-primary)',
+                                   border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer',
+                                   fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                          <span>✏️ Canvas</span>
+                          <span style={{ fontSize: 10, opacity: 0.6 }}>{noteDrawOpen ? '▲' : '▼'}</span>
+                        </button>
                       )}
+                      <div style={noteDrawFullscreen ? {
+                        position: 'fixed', inset: 0, zIndex: 10000,
+                        background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column'
+                      } : noteDrawOpen ? { marginTop: 8 } : { display: 'none' }}>
+                        {noteDrawFullscreen && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                        padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Canvas</span>
+                            <button type="button" onClick={() => setNoteDrawFullscreen(false)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
+                              ✕ Tutup
+                            </button>
+                          </div>
+                        )}
+                        <div style={{
+                          flex: noteDrawFullscreen ? 1 : undefined,
+                          height: noteDrawFullscreen ? undefined : 300,
+                          border: '1px solid var(--border)',
+                          borderRadius: noteDrawFullscreen ? 0 : 8,
+                          overflow: 'hidden',
+                        }}>
+                          <iframe
+                            ref={noteDrawIframeRef}
+                            src={`/static/vendor/tldraw/index.html?noteId=${noteCanvasId}`}
+                            style={{ width: '100%', height: '100%', border: 'none' }}
+                            title="Drawing canvas"
+                          />
+                        </div>
+                        {!noteDrawFullscreen && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                            <span style={{ fontSize: 11, color: 'var(--text-light)' }}>Simpan note untuk sync drawing ke server</span>
+                            <button type="button" onClick={() => setNoteDrawFullscreen(true)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent)', fontWeight: 600 }}>
+                              ⤢ Expand
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                       <button type="button" className="btn btn-secondary" onClick={onClose}>Batal</button>
@@ -8870,6 +8885,7 @@
       }, [canvasActive]);
 
       const iframeRef = React.useRef(null);
+      const [drawOpen, setDrawOpen] = React.useState(false);
       const [drawFullscreen, setDrawFullscreen] = React.useState(false);
       const [syncStatus, setSyncStatus] = React.useState('saved');
       const [iframeReady, setIframeReady] = React.useState(false);
@@ -9352,55 +9368,66 @@
           </div>
         )}
         {note && (
-        <div style={drawFullscreen ? {
-          position: 'fixed', inset: 0, zIndex: 9999,
-          background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column'
-        } : { marginTop: 24 }}>
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: drawFullscreen ? '10px 16px' : '0 0 8px 0',
-            borderBottom: drawFullscreen ? '1px solid var(--border)' : 'none',
-          }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Canvas</span>
-            <button
-              type="button"
-              onClick={() => setDrawFullscreen(f => !f)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}
-            >
-              {drawFullscreen ? '✕ Tutup' : '⤢ Expand'}
+        <div style={{ marginTop: 24 }}>
+          {!drawFullscreen && (
+            <button type="button"
+              onClick={() => { setDrawOpen(o => !o); if (drawOpen) setCanvasActive(false); }}
+              style={{ width: '100%', padding: '5px 10px', display: 'flex', alignItems: 'center',
+                       justifyContent: 'space-between', background: 'var(--bg-primary)',
+                       border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer',
+                       fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
+              <span>✏️ Canvas</span>
+              <span style={{ fontSize: 10, opacity: 0.6 }}>{drawOpen ? '▲' : '▼'}</span>
             </button>
-          </div>
-          <div style={{
-            flex: drawFullscreen ? 1 : undefined,
-            height: drawFullscreen ? undefined : 360,
-            border: '1px solid var(--border)',
-            borderRadius: drawFullscreen ? 0 : 8,
-            overflow: 'hidden',
-            position: 'relative',
-          }} ref={canvasContainerRef}>
-            <iframe
-              ref={iframeRef}
-              src={`/static/vendor/tldraw/index.html?noteId=${note.id}`}
-              style={{ width: '100%', height: '100%', border: 'none', pointerEvents: canvasActive ? 'auto' : 'none' }}
-              title="Drawing canvas"
-            />
-            {!canvasActive && (
-              <div onClick={() => setCanvasActive(true)}
-                style={{ position: 'absolute', inset: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ background: 'rgba(168,197,0,0.15)', color: 'var(--accent)', padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, backdropFilter: 'blur(2px)' }}>
-                  ✏️ Klik untuk menggambar
+          )}
+          <div style={drawFullscreen ? {
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column'
+          } : drawOpen ? { marginTop: 8 } : { display: 'none' }}>
+            {drawFullscreen && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Canvas</span>
+                <button type="button" onClick={() => setDrawFullscreen(false)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
+                  ✕ Tutup
+                </button>
+              </div>
+            )}
+            <div style={{
+              flex: drawFullscreen ? 1 : undefined,
+              height: drawFullscreen ? undefined : 360,
+              border: '1px solid var(--border)',
+              borderRadius: drawFullscreen ? 0 : 8,
+              overflow: 'hidden', position: 'relative',
+            }} ref={canvasContainerRef}>
+              <iframe
+                ref={iframeRef}
+                src={`/static/vendor/tldraw/index.html?noteId=${note.id}`}
+                style={{ width: '100%', height: '100%', border: 'none', pointerEvents: canvasActive ? 'auto' : 'none' }}
+                title="Drawing canvas"
+              />
+              {!canvasActive && (
+                <div onClick={() => setCanvasActive(true)}
+                  style={{ position: 'absolute', inset: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ background: 'rgba(168,197,0,0.15)', color: 'var(--accent)', padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, backdropFilter: 'blur(2px)' }}>
+                    ✏️ Klik untuk menggambar
+                  </span>
+                </div>
+              )}
+            </div>
+            {!drawFullscreen && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                <span style={{ fontSize: 11, color: syncStatus === 'saved' ? '#27ae60' : syncStatus === 'offline' ? '#f39c12' : 'var(--text-light)' }}>
+                  {syncStatus === 'saved' ? 'Tersimpan' : syncStatus === 'saving' ? 'Menyimpan...' : 'Offline — tersimpan lokal'}
                 </span>
+                <button type="button" onClick={() => setDrawFullscreen(true)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent)', fontWeight: 600 }}>
+                  ⤢ Expand
+                </button>
               </div>
             )}
           </div>
-          {!drawFullscreen && (
-            <div style={{
-              fontSize: 11, marginTop: 4,
-              color: syncStatus === 'saved' ? '#27ae60' : syncStatus === 'offline' ? '#f39c12' : 'var(--text-light)'
-            }}>
-              {syncStatus === 'saved' ? 'Tersimpan' : syncStatus === 'saving' ? 'Menyimpan...' : 'Offline — tersimpan lokal'}
-            </div>
-          )}
         </div>
         )}
         </div>
