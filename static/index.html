@@ -8792,8 +8792,8 @@
               </button>
             )}
             <button onClick={() => setTextareaFullscreen(true)} title="Focus — editor fullscreen"
-              style={{ ...btnStyle, color: "var(--text-secondary)" }}>
-              ✦ Focus
+              style={{ background: "none", border: "1.5px solid var(--accent)", borderRadius: 20, cursor: "pointer", fontSize: 12, color: "var(--accent)", fontWeight: 700, padding: "2px 10px", lineHeight: 1.5 }}>
+              ● Focus
             </button>
             <button onClick={() => setExpanded(e => !e)} title={expanded ? "Compact" : "Expand"}
               style={{ ...btnStyle, color: "var(--text-secondary)" }}>
