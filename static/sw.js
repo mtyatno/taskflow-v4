@@ -1,9 +1,8 @@
-const CACHE = "taskflow-v79-mindmap-no-border-right";
+const CACHE = "taskflow-v80-precompile-jsx";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
   "/static/vendor/react-dom.production.min.js",
-  "/static/vendor/babel.min.js",
   "/static/vendor/chart.umd.min.js",
   "/static/vendor/marked.min.js",
   "/static/vendor/milkdown.bundle.js",

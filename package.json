@@ -1,0 +1,12 @@
+{
+  "name": "taskflow-compile",
+  "version": "1.0.0",
+  "description": "JSX pre-compiler for TaskFlow V4 index.html",
+  "scripts": {
+    "compile": "node compile.js"
+  },
+  "dependencies": {
+    "@babel/core": "^7.24.0",
+    "@babel/preset-react": "^7.24.0"
+  }
+}
