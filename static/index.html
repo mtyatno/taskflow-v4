@@ -8854,36 +8854,38 @@
             <div style={{
               position: 'fixed', inset: 0, zIndex: 10000,
               background: 'var(--bg-primary)',
-              display: 'flex', flexDirection: 'column', padding: 16
+              display: 'flex', flexDirection: 'column',
             }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+              {/* Header: toolbar kiri, tutup kanan */}
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '8px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0,
+              }}>
+                <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} />
                 <button
                   onClick={() => setTextareaFullscreen(false)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer',
-                           fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
+                           fontSize: 13, fontWeight: 600, color: 'var(--accent)', flexShrink: 0, marginLeft: 12 }}>
                   ✕ Tutup
                 </button>
               </div>
-              <input
-                className="note-modal-title-input"
-                placeholder="Judul catatan..."
-                value={title}
-                onChange={e => setTitle(e.target.value)}
-                style={{ marginBottom: 8 }}
-              />
-              <MilkdownEditor
-                value={content}
-                onChange={handleEditorChange}
-                minHeight="calc(100vh - 120px)"
-                onWikilinkClick={t => {
-                  setTextareaFullscreen(false);
-                  const parsed = parseWikilinkRaw(t);
-                  const target = noteTitles.find(n => n.title === parsed.title)
-                    || (parsed.explicitId && noteTitles.find(n => String(n.id) === parsed.explicitId))
-                    || (parsed.numericId && noteTitles.find(n => String(n.id) === parsed.numericId));
-                  if (target) onNavigate?.(target);
-                }}
-              />
+              {/* Editor full-height */}
+              <div style={{ flex: 1, overflow: 'auto' }}>
+                <MilkdownEditor
+                  value={content}
+                  onChange={handleEditorChange}
+                  editorRef={milkdownEditorRef}
+                  minHeight="calc(100vh - 50px)"
+                  onWikilinkClick={t => {
+                    setTextareaFullscreen(false);
+                    const parsed = parseWikilinkRaw(t);
+                    const target = noteTitles.find(n => n.title === parsed.title)
+                      || (parsed.explicitId && noteTitles.find(n => String(n.id) === parsed.explicitId))
+                      || (parsed.numericId && noteTitles.find(n => String(n.id) === parsed.numericId));
+                    if (target) onNavigate?.(target);
+                  }}
+                />
+              </div>
             </div>
           )}
           {ReactDOM.createPortal(

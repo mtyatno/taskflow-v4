@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v53-note-modal-layout-fix";
+const CACHE = "taskflow-v54-expand-view-toolbar";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
