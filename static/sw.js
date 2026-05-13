@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v78-dashboard-no-border-top";
+const CACHE = "taskflow-v79-mindmap-no-border-right";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
