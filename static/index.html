@@ -204,6 +204,11 @@
     /* ── Chat ── */
     .main-content.no-padding { padding: 0; }
     .chat-layout { display: flex; height: 100vh; overflow: hidden; padding: 16px; gap: 12px; background: var(--bg-page); }
+    @media (min-width: 769px) {
+      .main-content.no-padding { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+      .main-content.no-padding .desktop-topbar { margin: 0; flex-shrink: 0; }
+      .main-content.no-padding .chat-layout { flex: 1; min-height: 0; height: auto; }
+    }
     /* Chat list panel */
     .chat-list-panel { width: 240px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 16px; overflow-y: auto; background: var(--bg-card); transition: width 0.25s ease; }
     .chat-list-panel.collapsed { width: 60px; overflow: hidden; }
