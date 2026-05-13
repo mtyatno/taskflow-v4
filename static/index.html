@@ -883,6 +883,8 @@
     .tag-pill.active .tag-count { background: rgba(255,255,255,0.25); color: #fff; }
     .tag-section-label { font-size: 10px; font-weight: 700; color: #98A2B3; text-transform: uppercase; letter-spacing: 0.6px; padding: 6px 2px 3px; }
     .tag-scroll { display: flex; flex-wrap: wrap; gap: 5px; }
+    .hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
     .note-tab-bar { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 10px; margin-top: 4px; }
     .note-tab { flex: 1; text-align: center; padding: 8px 4px; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color 0.15s, border-color 0.15s; }
     .note-tab:hover { color: var(--text-primary); }
@@ -9888,7 +9890,7 @@
                     </svg>
                   </div>
                   {!searchTagsCollapsed && (
-                    <div style={{ flex: 1, overflow: 'auto', padding: '0 8px' }}>
+                    <div className="hide-scrollbar" style={{ flex: 1, overflow: 'auto', padding: '0 8px' }}>
                       <div className="scratchpad-bar" style={{ marginBottom: 6, marginTop: 0 }}>
                         <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>🔍</span>
                         <input value={q} onChange={e => handleSearch(e.target.value)} placeholder="Cari..." style={{ fontSize: 13 }} />

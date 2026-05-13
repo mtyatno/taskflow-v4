@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v71-chat-bubble-light";
+const CACHE = "taskflow-v72-hide-search-scrollbar";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
