@@ -6734,6 +6734,11 @@
     }
 
     function ChatListPanel({ lists, selectedId, onSelect, collapsed, onToggle }) {
+      const [query, setQuery] = React.useState("");
+      const filtered = query.trim()
+        ? lists.filter(l => l.name.toLowerCase().includes(query.toLowerCase()))
+        : lists;
+
       return (
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           {/* Header with toggle button */}
@@ -6747,6 +6752,18 @@
             </button>
           </div>
 
+          {/* Search bar */}
+          {!collapsed && lists.length > 0 && (
+            <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="🔍 Cari list..."
+                style={{ width: "100%", background: "var(--bg-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", fontSize: 12, color: "var(--text-primary)", outline: "none", boxSizing: "border-box" }}
+              />
+            </div>
+          )}
+
           {/* List items */}
           {lists.length === 0 && !collapsed && (
             <div style={{ padding: 20, color: "var(--text-light)", fontSize: 13, textAlign: "center" }}>
@@ -6754,7 +6771,12 @@
               Belum ada shared list.<br />Buat atau bergabung dulu.
             </div>
           )}
-          {lists.map(l => (
+          {filtered.length === 0 && query.trim() && !collapsed && (
+            <div style={{ padding: 20, color: "var(--text-light)", fontSize: 13, textAlign: "center" }}>
+              Tidak ada hasil untuk<br /><b>"{query}"</b>
+            </div>
+          )}
+          {filtered.map(l => (
             <div key={l.id}
               className={`chat-list-item${selectedId === l.id ? " active" : ""}`}
               onClick={() => onSelect(l)}
