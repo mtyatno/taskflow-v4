@@ -2407,6 +2407,7 @@
       const [habitTitleTagDropdown, setHabitTitleTagDropdown] = useState(null);
       const [habitExistingTags, setHabitExistingTags] = useState([]);
       const noteContentRef = React.useRef(null);
+      const noteMilkdownRef = React.useRef(null);
       const [noteTagDropdown, setNoteTagDropdown] = useState(null);
       const [noteExistingTags, setNoteExistingTags] = useState([]);
       const [loading, setLoading] = useState(false);
@@ -2530,65 +2531,48 @@
         setTimeout(() => { el.selectionStart = el.selectionEnd = newBefore.length; el.focus(); }, 0);
       };
 
-      const handleNoteContentChange = (val) => {
-        setNote("content", val);
-        const el = noteContentRef.current;
-        const pos = el?.selectionStart ?? val.length;
-        const before = val.slice(0, pos);
-        const tagMatch = before.match(/#([a-zA-Z0-9_À-ɏ]*)$/);
+      const handleNoteContentChange = (markdown) => {
+        setNote("content", markdown);
+        const editor = noteMilkdownRef.current;
+        if (!editor) { setNoteTagDropdown(null); return; }
+        const MB = window.MilkdownBundle;
+        let textBefore = '';
+        let coords = { top: 100, left: 100 };
+        try {
+          editor.action(ctx => {
+            const view = ctx.get(MB.editorViewCtx);
+            const { from } = view.state.selection;
+            textBefore = view.state.doc.textBetween(0, from, '\n', '\0');
+            const c = view.coordsAtPos(from);
+            coords = { top: c.bottom + 4, left: c.left };
+          });
+        } catch (_) {}
+        const tagMatch = textBefore.match(/#([a-zA-Z0-9_À-ɏ]*)$/);
         if (tagMatch) {
           const query = tagMatch[1].toLowerCase();
-          const currentTags = [...new Set((val.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(t => t.slice(1).toLowerCase()))];
+          const currentTags = [...new Set((markdown.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(t => t.slice(1).toLowerCase()))];
           const items = noteExistingTags.filter(t => t.name.startsWith(query) && !currentTags.includes(t.name)).slice(0, 6);
-          if (items.length > 0 && el) {
-            const rect = el.getBoundingClientRect();
-            setNoteTagDropdown({ items, top: rect.top + 20, left: rect.left + 8 });
+          if (items.length > 0) {
+            setNoteTagDropdown({ items, top: coords.top, left: coords.left });
           } else { setNoteTagDropdown(null); }
         } else { setNoteTagDropdown(null); }
       };
 
-      const insertNoteMarkdown = (prefix, suffix = '') => {
-        const el = noteContentRef.current;
-        if (!el) return;
-        const start = el.selectionStart;
-        const end = el.selectionEnd;
-        const content = noteForm.content;
-        const selected = content.slice(start, end);
-        let newContent, newStart, newEnd;
-        if (selected) {
-          newContent = content.slice(0, start) + prefix + selected + suffix + content.slice(end);
-          newStart = start + prefix.length;
-          newEnd = end + prefix.length;
-        } else {
-          newContent = content.slice(0, start) + prefix + suffix + content.slice(end);
-          newStart = newEnd = start + prefix.length;
-        }
-        setNote("content", newContent);
-        setTimeout(() => { el.focus(); el.setSelectionRange(newStart, newEnd); }, 0);
-      };
-
-      const insertNoteLinePrefix = (prefix) => {
-        const el = noteContentRef.current;
-        if (!el) return;
-        const start = el.selectionStart;
-        const content = noteForm.content;
-        const lineStart = content.lastIndexOf('\n', start - 1) + 1;
-        const newContent = content.slice(0, lineStart) + prefix + content.slice(lineStart);
-        setNote("content", newContent);
-        setTimeout(() => { el.focus(); el.setSelectionRange(start + prefix.length, start + prefix.length); }, 0);
-      };
-
       const insertNoteTag = (tagName) => {
-        const el = noteContentRef.current;
-        if (!el) return;
-        const pos = el.selectionStart;
-        const before = noteForm.content.slice(0, pos);
-        const after = noteForm.content.slice(pos);
-        const newBefore = before.replace(/#([a-zA-Z0-9_À-ɏ]*)$/, `#${tagName} `);
-        const newVal = newBefore + after;
-        setNote("content", newVal);
         setNoteTagDropdown(null);
-        setTimeout(() => { el.selectionStart = el.selectionEnd = newBefore.length; el.focus(); }, 0);
+        const editor = noteMilkdownRef.current;
+        if (!editor) return;
+        const MB = window.MilkdownBundle;
+        editor.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          const { from } = view.state.selection;
+          const textBefore = view.state.doc.textBetween(0, from, '\n', '\0');
+          const tagMatch = textBefore.match(/#([a-zA-Z0-9_À-ɏ]*)$/);
+          if (!tagMatch) return;
+          const replaceFrom = from - tagMatch[0].length;
+          view.dispatch(view.state.tr.insertText(`#${tagName} `, replaceFrom, from));
+        });
+        editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
       };
 
       const handleSubmit = async (e) => {
@@ -2670,29 +2654,6 @@
 
       return (
         <>
-          {noteTextareaFullscreen && (
-            <div style={{
-              position: 'fixed', inset: 0, zIndex: 10000,
-              background: 'var(--bg-primary)',
-              display: 'flex', flexDirection: 'column', padding: 16
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-                <button type="button"
-                  onClick={() => setNoteTextareaFullscreen(false)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer',
-                           fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
-                  ✕ Tutup
-                </button>
-              </div>
-              <textarea
-                className="input"
-                placeholder="Tulis isi catatan..."
-                value={noteForm.content}
-                onChange={e => handleNoteContentChange(e.target.value)}
-                style={{ flex: 1, resize: 'none', fontSize: 16, fontFamily: 'inherit', lineHeight: 1.6 }}
-              />
-            </div>
-          )}
           <div className="modal-overlay" onClick={onClose}>
           <div className="modal-content scale-in" onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
@@ -2806,58 +2767,39 @@
                                  fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}
                       >⤢ Expand</button>
                     </div>
-                    <div className="note-toolbar" style={{ marginBottom: 4 }}>
-                      {[['H1','# '],['H2','## '],['H3','### ']].map(([lbl,pfx]) => (
-                        <button key={lbl} type="button"
-                          onMouseDown={e => { e.preventDefault(); insertNoteLinePrefix(pfx); }}
-                          style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.3 }}>{lbl}</button>
-                      ))}
-                      <div className="sep"/>
-                      <button type="button" onMouseDown={e => { e.preventDefault(); insertNoteMarkdown('**','**'); }}
-                        style={{ fontWeight: 700, fontFamily: 'serif', fontSize: 15 }}>B</button>
-                      <button type="button" onMouseDown={e => { e.preventDefault(); insertNoteMarkdown('*','*'); }}
-                        style={{ fontStyle: 'italic', fontFamily: 'serif', fontSize: 15 }}>I</button>
-                      <button type="button" onMouseDown={e => { e.preventDefault(); insertNoteMarkdown('`','`'); }}
-                        style={{ fontFamily: 'monospace', fontSize: 12 }}>&lt;/&gt;</button>
-                      <div className="sep"/>
-                      <button type="button" onMouseDown={e => { e.preventDefault(); insertNoteLinePrefix('- '); }}
-                        style={{ fontSize: 14 }}>≡</button>
-                      <button type="button" onMouseDown={e => { e.preventDefault(); insertNoteLinePrefix('- [ ] '); }}
-                        style={{ fontSize: 13 }}>☑</button>
-                      <button type="button" onMouseDown={e => { e.preventDefault(); insertNoteLinePrefix('> '); }}
-                        style={{ fontSize: 15 }}>❝</button>
-                    </div>
-                    <div style={{ position: "relative" }}>
-                      <textarea
-                        ref={noteContentRef}
-                        className="input"
-                        value={noteForm.content}
-                        onChange={e => handleNoteContentChange(e.target.value)}
-                        onKeyDown={e => {
-                          if (noteTagDropdown) {
-                            if (e.key === "Escape") { setNoteTagDropdown(null); return; }
-                            if (e.key === "Enter" || e.key === "Tab") {
-                              e.preventDefault();
-                              if (noteTagDropdown.items[0]) insertNoteTag(noteTagDropdown.items[0].name);
-                              return;
-                            }
-                          }
-                        }}
-                        rows={6}
-                        placeholder={"Tulis catatan...\n\nGunakan #tag untuk menambahkan tag otomatis\n# Heading  - bullet  - [ ] checklist"}
-                        style={{ marginBottom: 6, resize: "vertical", fontFamily: "inherit", lineHeight: 1.6, width: "100%" }}
-                      />
-                      {noteTagDropdown && noteTagDropdown.items.length > 0 && (
-                        <div className="wiki-autocomplete" style={{ position: "fixed", top: noteTagDropdown.top, left: noteTagDropdown.left, zIndex: 1050 }}>
-                          {noteTagDropdown.items.map((t, i) => (
-                            <div key={t.id} className={`wiki-autocomplete-item${i === 0 ? " active" : ""}`}
-                              onMouseDown={e => { e.preventDefault(); insertNoteTag(t.name); }}>
-                              <span style={{ color: "var(--accent)", fontWeight: 700 }}>#</span>{t.name}
-                              <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>{t.count}×</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                    <div style={noteTextareaFullscreen ? {
+                      position: 'fixed', inset: 0, zIndex: 10001,
+                      background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', padding: 16
+                    } : {}}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <NoteToolbar milkdownEditorRef={noteMilkdownRef} noteId={null} onAttachUploaded={() => {}} />
+                        <button type="button"
+                          onClick={() => setNoteTextareaFullscreen(f => !f)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer',
+                                   fontSize: 13, color: 'var(--accent)', fontWeight: 600, flexShrink: 0 }}>
+                          {noteTextareaFullscreen ? '✕ Tutup' : '⤢ Expand'}
+                        </button>
+                      </div>
+                      <div style={{ position: 'relative', flex: noteTextareaFullscreen ? 1 : undefined }}>
+                        <MilkdownEditor
+                          value={noteForm.content}
+                          onChange={handleNoteContentChange}
+                          editorRef={noteMilkdownRef}
+                          minHeight={noteTextareaFullscreen ? 'calc(100vh - 100px)' : 140}
+                          onWikilinkClick={() => {}}
+                        />
+                        {noteTagDropdown && noteTagDropdown.items.length > 0 && (
+                          <div className="wiki-autocomplete" style={{ position: "fixed", top: noteTagDropdown.top, left: noteTagDropdown.left, zIndex: 1050 }}>
+                            {noteTagDropdown.items.map((t, i) => (
+                              <div key={t.id} className={`wiki-autocomplete-item${i === 0 ? " active" : ""}`}
+                                onMouseDown={e => { e.preventDefault(); insertNoteTag(t.name); }}>
+                                <span style={{ color: "var(--accent)", fontWeight: 700 }}>#</span>{t.name}
+                                <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>{t.count}×</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     {detectedTags.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14, alignItems: "center" }}>
