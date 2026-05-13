@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v75-mindmap-pill-counter";
+const CACHE = "taskflow-v76-mindmap-hide-scrollbar";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
