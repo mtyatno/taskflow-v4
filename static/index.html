@@ -1904,7 +1904,6 @@
         { id: "next", icon: "▶️", label: "Next Actions", count: sc("next") },
         { id: "waiting", icon: "⏳", label: "Waiting For", count: sc("waiting") },
         { id: "someday", icon: "💭", label: "Someday", count: sc("someday") },
-        ...(user?.is_admin ? [{ id: "admin", icon: "🔧", label: "Admin" }] : []),
       ];
 
       // Dynamic project links
@@ -1938,6 +1937,7 @@
 
       links.push({ section: "AKUN" });
       links.push({ id: "settings", icon: "⚙️", label: "Pengaturan" });
+      if (user?.is_admin) links.push({ id: "admin", icon: "🔧", label: "Admin" });
 
       // Render: track current section to know which links to hide
       let currentSection = null;
