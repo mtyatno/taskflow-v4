@@ -11198,6 +11198,7 @@
       const [sharedLists, setSharedLists] = useState([]);
       const [collaborators, setCollaborators] = useState([]);
       const [selectedTask, setSelectedTask] = useState(null);
+      const [selectedNote, setSelectedNote] = useState(null);
       const [showForm, setShowForm] = useState(() => {
         const params = new URLSearchParams(window.location.search);
         return params.get("action") === "new-task" && !!tokenStore.get();
@@ -11760,7 +11761,7 @@
         }
         if (page === "chat") {
           return <ChatPage user={user} sharedLists={sharedLists} onTaskClick={setSelectedTask}
-            onNoteOpen={(id) => { setPage("notes"); setTimeout(() => window.dispatchEvent(new CustomEvent("openNote", { detail: id })), 150); }}
+            onNoteOpen={(id) => api.get(`/api/scratchpad/${id}`).then(setSelectedNote).catch(() => {})}
             showToast={showToast} />;
         }
 
@@ -11919,6 +11920,26 @@
               onRefresh={fetchAll}
               onOfflineEdit={handleOfflineEdit}
               collaborators={collaborators}
+            />
+          )}
+
+          {selectedNote && (
+            <NoteModal
+              key={selectedNote.id}
+              note={selectedNote}
+              tasks={tasks}
+              onClose={() => setSelectedNote(null)}
+              onSave={(updates) => {
+                api.put(`/api/scratchpad/${selectedNote.id}`, updates)
+                  .then(saved => setSelectedNote(saved))
+                  .catch(() => {});
+              }}
+              onDelete={(id) => { api.delete(`/api/scratchpad/${id}`).catch(() => {}); setSelectedNote(null); }}
+              onTaskClick={setSelectedTask}
+              showToast={showToast}
+              sharedLists={sharedLists}
+              currentUserId={user?.id}
+              noteTitles={[]}
             />
           )}
 
