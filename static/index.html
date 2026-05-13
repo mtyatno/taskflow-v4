@@ -929,6 +929,7 @@
 
     /* Mobile Notes Modal */
     @media (max-width: 768px) {
+      .note-hdr-icon { display: none; }
       .note-modal-overlay { padding: 12px; }
       .note-modal-box {
         width: 100% !important;
@@ -8788,16 +8789,16 @@
             {note?.id && (
               <button onClick={() => { onDelete(note.id); onClose(); }}
                 style={{ background: "none", border: "1.5px solid #ef4444", borderRadius: 20, cursor: "pointer", fontSize: 12, color: "#ef4444", fontWeight: 700, padding: "2px 10px", lineHeight: 1.5 }}>
-                🗑 Hapus
+                <span className="note-hdr-icon">🗑 </span>Hapus
               </button>
             )}
             <button onClick={() => setTextareaFullscreen(true)} title="Focus — editor fullscreen"
               style={{ background: "none", border: "1.5px solid var(--accent)", borderRadius: 20, cursor: "pointer", fontSize: 12, color: "var(--accent)", fontWeight: 700, padding: "2px 10px", lineHeight: 1.5 }}>
-              ● Focus
+              <span className="note-hdr-icon">● </span>Focus
             </button>
             <button onClick={() => setExpanded(e => !e)} title={expanded ? "Compact" : "Expand"}
               style={{ background: "none", border: "1.5px solid var(--border)", borderRadius: 20, cursor: "pointer", fontSize: 12, color: "var(--text-secondary)", fontWeight: 700, padding: "2px 10px", lineHeight: 1.5 }}>
-              {expanded ? "⊡ Compact" : "⤢ Expand"}
+              {expanded ? <><span className="note-hdr-icon">⊡ </span>Compact</> : <><span className="note-hdr-icon">⤢ </span>Expand</>}
             </button>
             {note?.id && note.user_id === currentUserId && sharedLists.length > 0 && (
               <div ref={shareRef} style={{ position: "relative", flexShrink: 0 }}>

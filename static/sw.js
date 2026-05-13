@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v63-header-pill-unified";
+const CACHE = "taskflow-v64-mobile-hide-icons";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
