@@ -7561,21 +7561,25 @@
         const editor = milkdownEditorRef?.current;
         if (!editor) return;
         const MB = window.MilkdownBundle;
+        // Step 1: check if cursor is already inside a list_item
+        let inListItem = false;
         editor.action(ctx => {
           const view = ctx.get(MB.editorViewCtx);
-          // If cursor is not already inside a list_item, wrap the current block
           const { $from } = view.state.selection;
-          let inListItem = false;
           for (let i = $from.depth; i >= 0; i--) {
             if ($from.node(i).type.name === 'list_item') { inListItem = true; break; }
           }
-          if (!inListItem) MB.callCommand(MB.wrapInBulletListCommand.key)(ctx);
-          // Set checked: false on the list_item to make it a task list item
-          const { $from: $f } = view.state.selection;
-          for (let i = $f.depth; i >= 0; i--) {
-            const n = $f.node(i);
+        });
+        // Step 2: wrap in bullet list if needed (separate action — cannot nest callCommand inside action)
+        if (!inListItem) editor.action(MB.callCommand(MB.wrapInBulletListCommand.key));
+        // Step 3: set checked: false on the resulting list_item
+        editor.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          const { $from } = view.state.selection;
+          for (let i = $from.depth; i >= 0; i--) {
+            const n = $from.node(i);
             if (n.type.name === 'list_item') {
-              view.dispatch(view.state.tr.setNodeMarkup($f.before(i), null, { ...n.attrs, checked: false }));
+              view.dispatch(view.state.tr.setNodeMarkup($from.before(i), null, { ...n.attrs, checked: false }));
               break;
             }
           }
