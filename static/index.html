@@ -8401,22 +8401,23 @@
             </div>
           )}
 
-          {/* Content + ToC */}
-          <div style={{ display: "flex", gap: 0, alignItems: "flex-start", marginTop: 12 }}>
-          <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div className="note-word-count" style={{ marginBottom: 0, marginTop: 0 }}>
-                  <span>{wordCount} kata</span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {saving ? <span style={{ color: 'var(--text-light)' }}>Menyimpan...</span> : <span style={{ color: '#22c55e', fontWeight: 600 }}>✓ Tersimpan</span>}
-                  </span>
-                </div>
-                <button type="button" className="note-tab" onClick={() => setTextareaFullscreen(true)} style={{ margin: 0 }}>⤢ Expand</button>
-              </div>
-            </div>
-            <MilkdownEditor
+           {/* Toolbar */}
+           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, marginTop: 12 }}>
+             <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} />
+             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+               <div className="note-word-count" style={{ marginBottom: 0, marginTop: 0 }}>
+                 <span>{wordCount} kata</span>
+                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                   {saving ? <span style={{ color: 'var(--text-light)' }}>Menyimpan...</span> : <span style={{ color: '#22c55e', fontWeight: 600 }}>✓ Tersimpan</span>}
+                 </span>
+               </div>
+               <button type="button" className="note-tab" onClick={() => setTextareaFullscreen(true)} style={{ margin: 0 }}>⤢ Expand</button>
+             </div>
+           </div>
+           {/* Content + ToC */}
+           <div style={{ display: "flex", gap: 0, alignItems: "flex-start", marginTop: 0 }}>
+           <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+             <MilkdownEditor
               value={content}
               onChange={handleEditorChange}
               minHeight={expanded ? (focus ? 'calc(100vh - 180px)' : 'calc(100vh - 320px)') : 120}
