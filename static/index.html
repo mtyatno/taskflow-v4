@@ -7709,9 +7709,11 @@
 
         return () => {
           cancelled = true;
+          // Null editorRef BEFORE destroy so any markdownUpdated fired during
+          // teardown finds editor=null and exits early (prevents "pm" context error)
+          if (editorRef) editorRef.current = null;
           instanceRef.current?.destroy();
           instanceRef.current = null;
-          if (editorRef) editorRef.current = null;
           setReady(false);
         };
       }, []);
