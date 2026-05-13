@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v56-toolbar-height";
+const CACHE = "taskflow-v57-focus-btn-remap";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",

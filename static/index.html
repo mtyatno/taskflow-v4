@@ -7949,7 +7949,6 @@
       const lastKnownAtRef            = useRef(note?.updated_at ?? null);
       const [conflictBanner, setConflictBanner] = useState(null);
       const [expanded, setExpanded]   = useState(false);
-      const [focus, setFocus]         = useState(false);
       const milkdownEditorRef         = React.useRef(null);
 
       function getTextBeforeCursor() {
@@ -8483,9 +8482,8 @@
 
            {/* Toolbar */}
            <div style={{ marginTop: 12 }}>
-             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+             <div style={{ marginBottom: 2 }}>
                <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} />
-               <button type="button" className="note-tab" onClick={() => setTextareaFullscreen(true)} style={{ margin: 0, flexShrink: 0, marginLeft: 8 }}>⤢ Expand</button>
              </div>
              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-light)', marginBottom: 4 }}>
                <span>{wordCount} kata</span>
@@ -8499,7 +8497,7 @@
              <MilkdownEditor
               value={content}
               onChange={handleEditorChange}
-              minHeight={expanded ? (focus ? 'calc(100vh - 180px)' : 'calc(100vh - 320px)') : 120}
+              minHeight={expanded ? 'calc(100vh - 320px)' : 120}
               editorRef={milkdownEditorRef}
               onWikilinkClick={t => {
                 const parsed = parseWikilinkRaw(t);
@@ -8551,7 +8549,7 @@
           </div>
 
           {/* Tags — auto-extracted from content */}
-          {!focus && tags.length > 0 && (
+          {tags.length > 0 && (
             <div style={{ marginBottom: 4 }}>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {tags.map(t => (
@@ -8683,8 +8681,8 @@
             ))}
           </div>
         )}
-          {/* Link ke Task — hidden in focus mode */}
-          {!focus && (
+          {/* Link ke Task */}
+          {true && (
             <div>
               <div className="note-modal-section-label">Di-link ke Task ({linkedTaskIds.length})</div>
 
@@ -8747,8 +8745,8 @@
             </div>
           )}
 
-          {/* Backlinks — hidden in focus mode */}
-          {!focus && backlinks.length > 0 && (
+          {/* Backlinks */}
+          {backlinks.length > 0 && (
             <div>
               <div className="note-modal-section-label">🔗 Disebutkan di ({backlinks.length})</div>
               {backlinks.map(bl => (
@@ -8763,8 +8761,8 @@
           )}
 
 
-          {/* Actions — hidden in focus mode */}
-          {!focus && (
+          {/* Actions */}
+          {(
             <div className="note-mobile-footer" style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
               <button className="btn btn-secondary btn-sm" onClick={onClose}>Batal</button>
               <button className="btn btn-sm" style={{ background: "var(--accent)", color: "#111", fontWeight: 700 }}
@@ -8780,25 +8778,23 @@
       const btnStyle = { background: "none", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12, cursor: "pointer", padding: "3px 8px", lineHeight: 1.4, transition: "all 0.15s" };
 
       const header = (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: focus ? 10 : 14, flexShrink: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexShrink: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "var(--accent)" }}>⚡ Catatan (v5.1)</div>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            {!focus && note?.id && (
+            {note?.id && (
               <button onClick={() => { onDelete(note.id); onClose(); }}
                 style={{ background: "none", border: "none", color: "#ef4444", fontSize: 13, cursor: "pointer", padding: "2px 6px" }}>
                 🗑 Hapus
               </button>
             )}
-            <button onClick={() => { if (focus) saveOnly(); setFocus(f => !f); }} title={focus ? "Keluar Focus" : "Focus Mode"}
-              style={{ ...btnStyle, color: focus ? "#111" : "var(--text-secondary)", background: focus ? "var(--accent)" : "none", borderColor: focus ? "var(--accent)" : "var(--border)" }}>
-              {focus ? "✦ Focus" : "✦ Focus"}
+            <button onClick={() => setTextareaFullscreen(true)} title="Focus — editor fullscreen"
+              style={{ ...btnStyle, color: "var(--text-secondary)" }}>
+              ✦ Focus
             </button>
-            {!focus && (
-              <button onClick={() => setExpanded(e => !e)} title={expanded ? "Compact" : "Expand"}
-                style={{ ...btnStyle, color: "var(--text-secondary)" }}>
-                {expanded ? "⊡ Compact" : "⤢ Expand"}
-              </button>
-            )}
+            <button onClick={() => setExpanded(e => !e)} title={expanded ? "Compact" : "Expand"}
+              style={{ ...btnStyle, color: "var(--text-secondary)" }}>
+              {expanded ? "⊡ Compact" : "⤢ Expand"}
+            </button>
             {note?.id && note.user_id === currentUserId && sharedLists.length > 0 && (
               <div ref={shareRef} style={{ position: "relative", flexShrink: 0 }}>
                 <button onClick={() => setShareOpen(o => !o)}
