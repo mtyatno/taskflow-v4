@@ -9581,6 +9581,7 @@
       const [searchTagsCollapsed, setSearchTagsCollapsed] = useState(false);
       const [notesListCollapsed, setNotesListCollapsed] = useState(false);
       const [filterUntagged, setFilterUntagged] = useState(false);
+      const [filterListId, setFilterListId] = useState(null);
 
       useEffect(() => {
         // stale-while-revalidate: show cache immediately, update in background
@@ -9601,7 +9602,7 @@
       }, []);
 
       // Static version (no closure dep) used inside async fetchNotes
-      const applyFiltersStatic = (query, tags, base, untagged = false) => {
+      const applyFiltersStatic = (query, tags, base, untagged = false, listId = null) => {
         const syntaxTags = [...query.matchAll(/\btag:(\S+)/gi)].map(m => m[1].toLowerCase());
         const cleanQuery = query.replace(/\btag:\S+/gi, "").trim();
         const allTags = [...new Set([...tags, ...syntaxTags])];
@@ -9612,22 +9613,24 @@
           n.content?.toLowerCase().includes(cleanQuery.toLowerCase())
         );
         if (untagged) result = result.filter(n => (n.tags || []).length === 0);
+        if (listId) result = result.filter(n => n.list_id === listId);
         return result;
       };
 
-      const fetchNotes = async (filterQ = "", filterTags = [], untagged = false) => {
+      const fetchNotes = async (filterQ = "", filterTags = [], untagged = false, listId = null) => {
         // stale-while-revalidate: show cache immediately, fetch in background
+        const hasFilter = filterQ || filterTags.length || untagged || listId;
         const cached = await OfflineDB.cacheGet("scratchpad_notes") || [];
         if (cached.length) {
           setAllNotes(cached);
-          setNotes(filterQ || filterTags.length || untagged ? applyFiltersStatic(filterQ, filterTags, cached, untagged) : cached);
+          setNotes(hasFilter ? applyFiltersStatic(filterQ, filterTags, cached, untagged, listId) : cached);
           setLoading(false);
         }
         try {
           const data = await api.get("/api/scratchpad");
           await OfflineDB.cacheSet("scratchpad_notes", data);
           setAllNotes(data);
-          setNotes(filterQ || filterTags.length || untagged ? applyFiltersStatic(filterQ, filterTags, data, untagged) : data);
+          setNotes(hasFilter ? applyFiltersStatic(filterQ, filterTags, data, untagged, listId) : data);
         } catch (e) {
           if (!cached.length) setNotes([]);
         }
@@ -9718,7 +9721,7 @@
         return { cleanQuery, syntaxTags };
       };
 
-      const applyFilters = (query, tags, base, untagged = false) => {
+      const applyFilters = (query, tags, base, untagged = false, listId = null) => {
         const { cleanQuery, syntaxTags } = parseQuery(query);
         const allActiveTags = [...new Set([...tags, ...syntaxTags])];
         let result = base;
@@ -9730,12 +9733,13 @@
           n.content?.toLowerCase().includes(cleanQuery.toLowerCase())
         );
         if (untagged) result = result.filter(n => (n.tags || []).length === 0);
+        if (listId) result = result.filter(n => n.list_id === listId);
         return result;
       };
 
       const handleSearch = (val) => {
         setQ(val);
-        setNotes(applyFilters(val, activeTags, allNotes, filterUntagged));
+        setNotes(applyFilters(val, activeTags, allNotes, filterUntagged, filterListId));
       };
 
       const handleTagFilter = (tag) => {
@@ -9744,14 +9748,20 @@
           ? activeTags.filter(t => t !== tag)
           : [...activeTags, tag];
         setActiveTags(next);
-        setNotes(applyFilters(q, next, allNotes, false));
+        setNotes(applyFilters(q, next, allNotes, false, filterListId));
       };
 
       const handleUntaggedFilter = () => {
         const next = !filterUntagged;
         setFilterUntagged(next);
         if (next) setActiveTags([]);
-        setNotes(applyFilters(q, [], allNotes, next));
+        setNotes(applyFilters(q, [], allNotes, next, filterListId));
+      };
+
+      const handleListFilter = (listId) => {
+        const next = filterListId === listId ? null : listId;
+        setFilterListId(next);
+        setNotes(applyFilters(q, activeTags, allNotes, filterUntagged, next));
       };
 
       const allTags = tagList.map(t => t.name);
@@ -9958,6 +9968,29 @@
                       )}
                     </div>
                   )}
+                  {/* Shared Lists filter */}
+                  {sharedLists.length > 0 && (() => {
+                    const listsWithNotes = sharedLists.filter(l => allNotes.some(n => n.list_id === l.id));
+                    if (listsWithNotes.length === 0) return null;
+                    return (
+                      <div style={{ padding: '8px 0 4px' }}>
+                        <div className="tag-section-label">🔗 Shared List</div>
+                        <div className="tag-scroll">
+                          {listsWithNotes.map(l => {
+                            const count = allNotes.filter(n => n.list_id === l.id).length;
+                            const isActive = filterListId === l.id;
+                            return (
+                              <span key={l.id} onClick={() => handleListFilter(l.id)}
+                                className={`tag-pill${isActive ? ' active' : ''}`}>
+                                {l.name}
+                                <span className="tag-count">{count}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Column 2: Notes list */}
