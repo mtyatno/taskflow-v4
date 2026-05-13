@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v46-milkdown-replaceall-fix";
+const CACHE = "taskflow-v47-canvas-collapsible-tag-suggestion";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
