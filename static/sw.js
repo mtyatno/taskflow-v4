@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v42-wikilink-broken-style";
+const CACHE = "taskflow-v43-wikilink-escaped-bracket-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",

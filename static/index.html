@@ -7437,7 +7437,8 @@
       if (!text) return "";
       const wikiMap = {};
       let wi = 0;
-      const processed = text.replace(/\[{2,}([^\[\]]+)\]{2,}/g, (_, title) => {
+      const processed = text.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
+        const title = rawTitle.replace(/\\(.)/g, '$1');
         const key = `WKPREV${wi++}WKPREV`;
         const parsed = parseWikilinkRaw(title);
         const labelEsc = escapeHtml(parsed.label);
@@ -7484,7 +7485,8 @@
       }
       const wikiMap = {};
       let wi = 0;
-      const processed = text.replace(/\[{2,}([^\[\]]+)\]{2,}/g, (_, title) => {
+      const processed = text.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
+        const title = rawTitle.replace(/\\(.)/g, '$1'); // unescape remark-stringify escapes
         const key = `WKLN${wi++}WKLNEND`;
         const parsed = parseWikilinkRaw(title);
         const normTitle = normalizeWikiText(parsed.title);
@@ -8145,7 +8147,11 @@
       }, [tagDropdown, wikiDropdown]);
 
       const handleEditorChange = (markdown) => {
-        setContent(markdown);
+        // remark-stringify escapes [[title]] to \[\[title\]\]; clean it back before storing
+        const clean = markdown.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
+          return `[[${rawTitle.replace(/\\(.)/g, '$1')}]]`;
+        });
+        setContent(clean);
         autoConvertWikilinkAtCursor();
 
         // Auto-extract tags
