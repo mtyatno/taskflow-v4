@@ -6798,7 +6798,7 @@
       );
     }
 
-    function ChatPage({ user, sharedLists, onTaskClick, showToast }) {
+    function ChatPage({ user, sharedLists, onTaskClick, onNoteOpen, showToast }) {
       const [selectedList, setSelectedList] = useState(null);
       const [panelCollapsed, setPanelCollapsed] = useState(false);
 
@@ -6810,7 +6810,7 @@
           </div>
           <div className="chat-room">
             {selectedList ? (
-              <ChatRoom key={selectedList.id} list={selectedList} user={user} onTaskClick={onTaskClick} showToast={showToast}
+              <ChatRoom key={selectedList.id} list={selectedList} user={user} onTaskClick={onTaskClick} onNoteOpen={onNoteOpen} showToast={showToast}
                 onBack={() => setSelectedList(null)} />
             ) : (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-light)", flexDirection: "column", gap: 8 }}>
@@ -6872,7 +6872,7 @@
       );
     }
 
-    function ChatRoom({ list, user, onTaskClick, showToast, onBack }) {
+    function ChatRoom({ list, user, onTaskClick, onNoteOpen, showToast, onBack }) {
       const [messages, setMessages] = useState([]);
       const [loading, setLoading] = useState(true);
       const [hasMore, setHasMore] = useState(false);
@@ -7014,7 +7014,7 @@
                           <TaskMiniCard task={msg} onClick={() => onTaskClick && onTaskClick({ id: msg.task_id, title: msg.task_title, priority: msg.task_priority, deadline: msg.task_deadline, quadrant: msg.task_quadrant, gtd_status: msg.task_status })} />
                         )}
                         {msg.note_id && (
-                          <NoteMiniCard msg={msg} onOpen={(id) => window.dispatchEvent(new CustomEvent("openNote", { detail: id }))} />
+                          <NoteMiniCard msg={msg} onOpen={onNoteOpen} />
                         )}
                         <button
                           className="chat-reply-btn"
@@ -11759,7 +11759,9 @@
           return <TodayFocusView tasks={tasks} onTaskClick={setSelectedTask} onDone={handleDone} loading={loading} />;
         }
         if (page === "chat") {
-          return <ChatPage user={user} sharedLists={sharedLists} onTaskClick={setSelectedTask} showToast={showToast} />;
+          return <ChatPage user={user} sharedLists={sharedLists} onTaskClick={setSelectedTask}
+            onNoteOpen={(id) => { setPage("notes"); setTimeout(() => window.dispatchEvent(new CustomEvent("openNote", { detail: id })), 150); }}
+            showToast={showToast} />;
         }
 
         if (page === "manage_lists") {
