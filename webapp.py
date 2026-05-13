@@ -208,6 +208,17 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Migrate messages.note_id column
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
+        if "note_id" not in cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN note_id INTEGER")
+            conn.commit()
+    finally:
+        conn.close()
+
 
 # ── Password hashing (no external deps) ───────────────────────────────────────
 
@@ -420,6 +431,7 @@ class JoinListReq(BaseModel):
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
     task_id: Optional[int] = None
+    note_id: Optional[int] = None
     msg_type: str = "text"
     reply_to_id: Optional[int] = None
 
@@ -1681,18 +1693,20 @@ async def get_messages(list_id: int, limit: int = 50, before_id: Optional[int] =
         raise HTTPException(status_code=403, detail="Not a member of this list")
     with get_db() as conn:
         base_select = """
-            SELECT m.id, m.list_id, m.user_id, m.content, m.task_id, m.msg_type,
+            SELECT m.id, m.list_id, m.user_id, m.content, m.task_id, m.note_id, m.msg_type,
                    m.created_at, m.reply_to_id,
                    u.username, u.display_name,
                    t.title as task_title, t.priority as task_priority,
                    t.deadline as task_deadline, t.quadrant as task_quadrant,
                    t.gtd_status as task_status,
+                   sn.title as note_title,
                    ru.username as reply_to_username,
                    ru.display_name as reply_to_display_name,
                    rm.content as reply_to_content
             FROM messages m
             JOIN users u ON u.id = m.user_id
             LEFT JOIN tasks t ON t.id = m.task_id
+            LEFT JOIN scratchpad_notes sn ON sn.id = m.note_id
             LEFT JOIN messages rm ON rm.id = m.reply_to_id
             LEFT JOIN users ru ON ru.id = rm.user_id
         """
@@ -1736,6 +1750,21 @@ async def get_list_member_usernames(list_id: int, user=Depends(get_current_user)
     return result
 
 
+@app.get("/api/lists/{list_id}/notes")
+async def get_list_notes(list_id: int, user=Depends(get_current_user)):
+    """Return shared notes that belong to this list."""
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Not a member of this list")
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, title, updated_at FROM scratchpad_notes WHERE list_id = ? ORDER BY updated_at DESC",
+            (list_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 @app.post("/api/lists/{list_id}/messages")
 async def post_message(list_id: int, req: MessageCreate, user=Depends(get_current_user)):
     uid = user["sub"]
@@ -1753,25 +1782,27 @@ async def post_message(list_id: int, req: MessageCreate, user=Depends(get_curren
                 raise HTTPException(status_code=400, detail="Task tidak ditemukan di list ini")
         # Save message
         cur = conn.execute(
-            "INSERT INTO messages (list_id, user_id, content, task_id, msg_type, reply_to_id, created_at) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (list_id, uid, req.content, req.task_id, req.msg_type, req.reply_to_id, now),
+            "INSERT INTO messages (list_id, user_id, content, task_id, note_id, msg_type, reply_to_id, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (list_id, uid, req.content, req.task_id, req.note_id, req.msg_type, req.reply_to_id, now),
         )
         msg_id = cur.lastrowid
         # Fetch with joined data for broadcast
         row = conn.execute(
-            """SELECT m.id, m.list_id, m.user_id, m.content, m.task_id, m.msg_type,
+            """SELECT m.id, m.list_id, m.user_id, m.content, m.task_id, m.note_id, m.msg_type,
                       m.created_at, m.reply_to_id,
                       u.username, u.display_name,
                       t.title as task_title, t.priority as task_priority,
                       t.deadline as task_deadline, t.quadrant as task_quadrant,
                       t.gtd_status as task_status,
+                      sn.title as note_title,
                       ru.username as reply_to_username,
                       ru.display_name as reply_to_display_name,
                       rm.content as reply_to_content
                FROM messages m
                JOIN users u ON u.id = m.user_id
                LEFT JOIN tasks t ON t.id = m.task_id
+               LEFT JOIN scratchpad_notes sn ON sn.id = m.note_id
                LEFT JOIN messages rm ON rm.id = m.reply_to_id
                LEFT JOIN users ru ON ru.id = rm.user_id
                WHERE m.id = ?""",

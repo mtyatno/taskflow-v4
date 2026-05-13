@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v66-chat-list-search";
+const CACHE = "taskflow-v67-chat-attach-note";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",

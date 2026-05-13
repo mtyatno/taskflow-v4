@@ -6861,6 +6861,17 @@
       );
     }
 
+    function NoteMiniCard({ msg, onOpen }) {
+      if (!msg?.note_id) return null;
+      return (
+        <div className="chat-task-card" onClick={() => onOpen && onOpen(msg.note_id)}
+          style={{ cursor: "pointer" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", marginBottom: 3 }}>📝 NOTE</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{msg.note_title || "(tanpa judul)"}</div>
+        </div>
+      );
+    }
+
     function ChatRoom({ list, user, onTaskClick, showToast, onBack }) {
       const [messages, setMessages] = useState([]);
       const [loading, setLoading] = useState(true);
@@ -7002,6 +7013,9 @@
                         {msg.task_id && (
                           <TaskMiniCard task={msg} onClick={() => onTaskClick && onTaskClick({ id: msg.task_id, title: msg.task_title, priority: msg.task_priority, deadline: msg.task_deadline, quadrant: msg.task_quadrant, gtd_status: msg.task_status })} />
                         )}
+                        {msg.note_id && (
+                          <NoteMiniCard msg={msg} onOpen={(id) => window.dispatchEvent(new CustomEvent("openNote", { detail: id }))} />
+                        )}
                         <button
                           className="chat-reply-btn"
                           onClick={e => { e.stopPropagation(); setReplyTo({ id: msg.id, content: msg.content, username: msg.username, display_name: msg.display_name }); }}
@@ -7033,40 +7047,74 @@
       );
     }
 
-    function TaskAttachPopup({ list, onSelect, onCreateNew, onClose }) {
+    function AttachPopup({ list, onSelectTask, onSelectNote, onCreateNew, onClose }) {
+      const [tab, setTab] = React.useState("task");
       const [listTasks, setListTasks] = useState([]);
+      const [listNotes, setListNotes] = useState([]);
       const [query, setQuery] = useState("");
       const [loading, setLoading] = useState(true);
 
       useEffect(() => {
-        api.get(`/api/lists/${list.id}/tasks`)
-          .then(tasks => { setListTasks(tasks); setLoading(false); })
-          .catch(() => setLoading(false));
-      }, [list.id]);
+        setLoading(true);
+        if (tab === "task") {
+          api.get(`/api/lists/${list.id}/tasks`)
+            .then(tasks => { setListTasks(tasks); setLoading(false); })
+            .catch(() => setLoading(false));
+        } else {
+          api.get(`/api/lists/${list.id}/notes`)
+            .then(notes => { setListNotes(notes); setLoading(false); })
+            .catch(() => setLoading(false));
+        }
+      }, [list.id, tab]);
 
-      const filtered = listTasks.filter(t =>
-        !query || t.title.toLowerCase().includes(query.toLowerCase())
+      const filteredTasks = listTasks.filter(t => !query || t.title.toLowerCase().includes(query.toLowerCase()));
+      const filteredNotes = listNotes.filter(n => !query || (n.title || "").toLowerCase().includes(query.toLowerCase()));
+
+      const tabBtn = (id, label) => (
+        <button onClick={() => { setTab(id); setQuery(""); }}
+          style={{ flex: 1, padding: "6px 0", fontSize: 12, fontWeight: 700, cursor: "pointer", background: "none", border: "none",
+                   borderBottom: tab === id ? "2px solid var(--accent)" : "2px solid transparent",
+                   color: tab === id ? "var(--accent)" : "var(--text-secondary)" }}>
+          {label}
+        </button>
       );
 
       return (
         <div className="chat-attach-popup">
-          <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)", display: "flex", gap: 8, alignItems: "center" }}>
+          {/* Tabs */}
+          <div style={{ display: "flex", borderBottom: "1px solid var(--border)" }}>
+            {tabBtn("task", "📌 Task")}
+            {tabBtn("note", "📝 Note")}
+          </div>
+          {/* Search + close */}
+          <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--border)", display: "flex", gap: 8, alignItems: "center" }}>
             <input className="chat-input" style={{ padding: "5px 8px", fontSize: 13, borderRadius: 6 }}
-              placeholder="Cari task..." value={query} onChange={e => setQuery(e.target.value)} autoFocus />
+              placeholder={tab === "task" ? "Cari task..." : "Cari note..."} value={query}
+              onChange={e => setQuery(e.target.value)} autoFocus />
             <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "var(--text-light)" }}>✕</button>
           </div>
           <div style={{ maxHeight: 200, overflowY: "auto" }}>
-            <div className="chat-attach-item" style={{ color: "var(--accent)", fontWeight: 600 }} onClick={onCreateNew}>
-              ➕ Buat Task Baru
-            </div>
-            {loading && <div style={{ padding: 12, color: "var(--text-light)", fontSize: 13 }}>Memuat...</div>}
-            {!loading && filtered.length === 0 && <div style={{ padding: 12, color: "var(--text-light)", fontSize: 13 }}>Tidak ada task</div>}
-            {filtered.map(t => (
-              <div key={t.id} className="chat-attach-item" onClick={() => onSelect(t)}>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{t.title}</div>
-                <div style={{ fontSize: 11, color: "var(--text-light)" }}>{t.priority} · {t.quadrant}</div>
-              </div>
-            ))}
+            {tab === "task" && <>
+              <div className="chat-attach-item" style={{ color: "var(--accent)", fontWeight: 600 }} onClick={onCreateNew}>➕ Buat Task Baru</div>
+              {loading && <div style={{ padding: 12, color: "var(--text-light)", fontSize: 13 }}>Memuat...</div>}
+              {!loading && filteredTasks.length === 0 && <div style={{ padding: 12, color: "var(--text-light)", fontSize: 13 }}>Tidak ada task</div>}
+              {filteredTasks.map(t => (
+                <div key={t.id} className="chat-attach-item" onClick={() => onSelectTask(t)}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{t.title}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-light)" }}>{t.priority} · {t.quadrant}</div>
+                </div>
+              ))}
+            </>}
+            {tab === "note" && <>
+              {loading && <div style={{ padding: 12, color: "var(--text-light)", fontSize: 13 }}>Memuat...</div>}
+              {!loading && filteredNotes.length === 0 && <div style={{ padding: 12, color: "var(--text-light)", fontSize: 13 }}>Tidak ada note yang dishare ke list ini</div>}
+              {filteredNotes.map(n => (
+                <div key={n.id} className="chat-attach-item" onClick={() => onSelectNote(n)}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{n.title || "(tanpa judul)"}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-light)" }}>{n.updated_at?.slice(0, 10)}</div>
+                </div>
+              ))}
+            </>}
           </div>
         </div>
       );
@@ -7077,6 +7125,7 @@
       const [sending, setSending] = useState(false);
       const [showAttach, setShowAttach] = useState(false);
       const [attachedTask, setAttachedTask] = useState(null);
+      const [attachedNote, setAttachedNote] = useState(null);
       const [showTaskForm, setShowTaskForm] = useState(false);
       const [members, setMembers] = useState([]);
       const [mentionQuery, setMentionQuery] = useState(null); // null = off, string = query
@@ -7116,18 +7165,20 @@
       };
 
       const handleSend = async () => {
-        if (!text.trim() && !attachedTask) return;
+        if (!text.trim() && !attachedTask && !attachedNote) return;
         setSending(true);
         try {
           const payload = {
-            content: text.trim() || (attachedTask ? `📌 ${attachedTask.title}` : ""),
+            content: text.trim() || (attachedTask ? `📌 ${attachedTask.title}` : attachedNote ? `📝 ${attachedNote.title || "(tanpa judul)"}` : ""),
             task_id: attachedTask?.id || null,
-            msg_type: attachedTask ? "task_attach" : "text",
+            note_id: attachedNote?.id || null,
+            msg_type: attachedTask ? "task_attach" : attachedNote ? "note_attach" : "text",
             reply_to_id: replyTo?.id || null,
           };
           const msg = await api.post(`/api/lists/${list.id}/messages`, payload);
           setText("");
           setAttachedTask(null);
+          setAttachedNote(null);
           setMentionQuery(null);
           onClearReply();
           onSent(msg);
@@ -7171,11 +7222,12 @@
             </div>
           )}
 
-          {/* Task attach popup */}
+          {/* Attach popup */}
           {showAttach && (
-            <TaskAttachPopup
+            <AttachPopup
               list={list}
-              onSelect={(task) => { setAttachedTask(task); setShowAttach(false); }}
+              onSelectTask={(task) => { setAttachedTask(task); setAttachedNote(null); setShowAttach(false); }}
+              onSelectNote={(note) => { setAttachedNote(note); setAttachedTask(null); setShowAttach(false); }}
               onCreateNew={() => { setShowAttach(false); setShowTaskForm(true); }}
               onClose={() => setShowAttach(false)}
             />
@@ -7206,6 +7258,14 @@
               <button onClick={() => setAttachedTask(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-light)", fontSize: 14, padding: "0 2px" }}>✕</button>
             </div>
           )}
+          {/* Attached note preview */}
+          {attachedNote && (
+            <div style={{ position: "absolute", bottom: 64, left: 12, background: "var(--bg-card)", border: "1px solid var(--accent)", borderRadius: 8, padding: "6px 10px", display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+              <span style={{ color: "var(--accent)" }}>📝</span>
+              <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{attachedNote.title || "(tanpa judul)"}</span>
+              <button onClick={() => setAttachedNote(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-light)", fontSize: 14, padding: "0 2px" }}>✕</button>
+            </div>
+          )}
 
           <textarea
             ref={textareaRef}
@@ -7215,15 +7275,15 @@
             value={text}
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
-            style={{ marginBottom: attachedTask ? 36 : 0 }}
+            style={{ marginBottom: (attachedTask || attachedNote) ? 36 : 0 }}
           />
           <button
-            title="Attach atau buat task"
+            title="Attach task atau note"
             onClick={() => setShowAttach(v => !v)}
             style={{ background: showAttach ? "var(--accent)" : "var(--bg-primary)", color: showAttach ? "white" : "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>
-            📌
+            📎
           </button>
-          <button className="chat-send-btn" onClick={handleSend} disabled={sending || (!text.trim() && !attachedTask)} title="Kirim">
+          <button className="chat-send-btn" onClick={handleSend} disabled={sending || (!text.trim() && !attachedTask && !attachedNote)} title="Kirim">
             {sending ? "·" : "➤"}
           </button>
         </div>
