@@ -3111,8 +3111,8 @@ async def get_holidays(year: int, user=Depends(get_current_user)):
             if h.get("is_holiday") or h.get("is_joint_holiday")
         ]
         return {"data": holidays}
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Gagal ambil data libur: {e}")
+    except Exception:
+        return {"data": []}
 
 
 if __name__ == "__main__":
