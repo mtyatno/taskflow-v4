@@ -8167,6 +8167,25 @@
         return () => document.removeEventListener("mousedown", close);
       }, [shareOpen]);
 
+      // Draw canvas — state (must be declared before the useEffects below)
+      const [canvasNoteId] = React.useState(() =>
+        note?.id ? String(note.id) : crypto.randomUUID()
+      );
+      const drawIframeRef = React.useRef(null);
+      const [drawActive, setDrawActive] = React.useState(false);
+      const drawContainerRef = React.useRef(null);
+      React.useEffect(() => {
+        if (!drawActive) return;
+        const hdl = (e) => { if (drawContainerRef.current && !drawContainerRef.current.contains(e.target)) setDrawActive(false); };
+        document.addEventListener('mousedown', hdl);
+        return () => document.removeEventListener('mousedown', hdl);
+      }, [drawActive]);
+      const [drawOpen, setDrawOpen] = React.useState(false);
+      const [drawFullscreen, setDrawFullscreen] = React.useState(false);
+      const [drawSyncStatus, setDrawSyncStatus] = React.useState('saved');
+      const [drawIframeReady, setDrawIframeReady] = React.useState(false);
+      const [drawPendingData, setDrawPendingData] = React.useState(null);
+
       // Draw canvas — fetch + postMessage sync
       React.useEffect(() => {
         setDrawIframeReady(false);
@@ -8257,25 +8276,6 @@
 
       // Textarea fullscreen
       const [textareaFullscreen, setTextareaFullscreen] = React.useState(false);
-
-      // Draw canvas
-      const [canvasNoteId] = React.useState(() =>
-        note?.id ? String(note.id) : crypto.randomUUID()
-      );
-      const drawIframeRef = React.useRef(null);
-      const [drawActive, setDrawActive] = React.useState(false);
-      const drawContainerRef = React.useRef(null);
-      React.useEffect(() => {
-        if (!drawActive) return;
-        const hdl = (e) => { if (drawContainerRef.current && !drawContainerRef.current.contains(e.target)) setDrawActive(false); };
-        document.addEventListener('mousedown', hdl);
-        return () => document.removeEventListener('mousedown', hdl);
-      }, [drawActive]);
-      const [drawOpen, setDrawOpen] = React.useState(false);
-      const [drawFullscreen, setDrawFullscreen] = React.useState(false);
-      const [drawSyncStatus, setDrawSyncStatus] = React.useState('saved');
-      const [drawIframeReady, setDrawIframeReady] = React.useState(false);
-      const [drawPendingData, setDrawPendingData] = React.useState(null);
 
       // Autosave: debounced 2.5s setelah perubahan, hanya untuk note yang sudah ada
       useEffect(() => {
