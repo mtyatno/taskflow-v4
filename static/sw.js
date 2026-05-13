@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v62-focus-pill-notemodal";
+const CACHE = "taskflow-v63-header-pill-unified";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
