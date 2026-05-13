@@ -9495,11 +9495,19 @@
       const [filterUntagged, setFilterUntagged] = useState(false);
 
       useEffect(() => {
-        api.get("/api/tags?entity_type=note").then(data => setTagList(data || [])).catch(() => {});
+        // stale-while-revalidate: show cache immediately, update in background
+        OfflineDB.cacheGet("note_tags").then(cached => { if (cached?.length) setTagList(cached); });
+        api.get("/api/tags?entity_type=note").then(data => {
+          setTagList(data || []);
+          OfflineDB.cacheSet("note_tags", data || []);
+        }).catch(() => {});
       }, []);
 
       useEffect(() => {
-        const handler = () => api.get("/api/tags?entity_type=note").then(data => setTagList(data || [])).catch(() => {});
+        const handler = () => api.get("/api/tags?entity_type=note").then(data => {
+          setTagList(data || []);
+          OfflineDB.cacheSet("note_tags", data || []);
+        }).catch(() => {});
         window.addEventListener("noteSaved", handler);
         return () => window.removeEventListener("noteSaved", handler);
       }, []);
@@ -9520,15 +9528,20 @@
       };
 
       const fetchNotes = async (filterQ = "", filterTags = [], untagged = false) => {
+        // stale-while-revalidate: show cache immediately, fetch in background
+        const cached = await OfflineDB.cacheGet("scratchpad_notes") || [];
+        if (cached.length) {
+          setAllNotes(cached);
+          setNotes(filterQ || filterTags.length || untagged ? applyFiltersStatic(filterQ, filterTags, cached, untagged) : cached);
+          setLoading(false);
+        }
         try {
           const data = await api.get("/api/scratchpad");
           await OfflineDB.cacheSet("scratchpad_notes", data);
           setAllNotes(data);
           setNotes(filterQ || filterTags.length || untagged ? applyFiltersStatic(filterQ, filterTags, data, untagged) : data);
         } catch (e) {
-          const cached = await OfflineDB.cacheGet("scratchpad_notes") || [];
-          setAllNotes(cached);
-          setNotes(filterQ || filterTags.length || untagged ? applyFiltersStatic(filterQ, filterTags, cached, untagged) : cached);
+          if (!cached.length) setNotes([]);
         }
         setLoading(false);
       };
