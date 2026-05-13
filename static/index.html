@@ -7698,6 +7698,8 @@
         if (!containerRef.current) return;
         const MB = window.MilkdownBundle;
         let cancelled = false;
+        let pmDom = null;
+        let headingEnterHandler = null;
 
         MB.Editor.make()
           .config(ctx => {
@@ -7719,11 +7721,47 @@
             if (cancelled) { editor.destroy(); return; }
             instanceRef.current = editor;
             if (editorRef) editorRef.current = editor;
+
+            // Enter inside heading → create paragraph (not another heading)
+            pmDom = containerRef.current?.querySelector('.ProseMirror');
+            if (pmDom) {
+              headingEnterHandler = (e) => {
+                if (e.key !== 'Enter' || e.shiftKey || e.defaultPrevented) return;
+                const inst = instanceRef.current;
+                if (!inst) return;
+                let handled = false;
+                try {
+                  inst.action(ctx => {
+                    const view = ctx.get(MB.editorViewCtx);
+                    const { state } = view;
+                    const { $from } = state.selection;
+                    if ($from.parent.type.name !== 'heading') return;
+                    const para = state.schema.nodes.paragraph;
+                    if (!para) return;
+                    // Split at cursor; second block becomes paragraph
+                    const tr = state.tr.split($from.pos);
+                    const newPos = tr.mapping.map($from.pos);
+                    const $new = tr.doc.resolve(newPos);
+                    if ($new.parent.type.name === 'heading') {
+                      tr.setNodeMarkup($new.before($new.depth), para, {});
+                    }
+                    view.dispatch(tr);
+                    handled = true;
+                  });
+                } catch (_) { /* editor not ready */ }
+                if (handled) e.preventDefault();
+              };
+              pmDom.addEventListener('keydown', headingEnterHandler, true);
+            }
+
             setReady(true);
           });
 
         return () => {
           cancelled = true;
+          if (pmDom && headingEnterHandler) {
+            pmDom.removeEventListener('keydown', headingEnterHandler, true);
+          }
           // Null editorRef BEFORE destroy so any markdownUpdated fired during
           // teardown finds editor=null and exits early (prevents "pm" context error)
           if (editorRef) editorRef.current = null;

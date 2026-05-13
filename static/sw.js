@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v48-canvas-collapsible-all-locations";
+const CACHE = "taskflow-v49-heading-enter-to-paragraph";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
