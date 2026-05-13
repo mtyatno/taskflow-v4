@@ -208,6 +208,17 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Migrate mindmaps.list_id column
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(mindmaps)").fetchall()]
+        if "list_id" not in cols:
+            conn.execute("ALTER TABLE mindmaps ADD COLUMN list_id INTEGER DEFAULT NULL")
+            conn.commit()
+    finally:
+        conn.close()
+
     # Migrate messages.note_id column
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -2969,11 +2980,47 @@ async def list_mindmaps(user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, title, is_pinned, created_at, updated_at FROM mindmaps "
+            "SELECT id, title, is_pinned, list_id, created_at, updated_at FROM mindmaps "
             "WHERE user_id = ? ORDER BY is_pinned DESC, updated_at DESC",
             (uid,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+class MindmapShareReq(BaseModel):
+    list_id: Optional[int] = None
+
+@app.patch("/api/mindmaps/{mid}/share")
+async def share_mindmap(mid: int, req: MindmapShareReq, user=Depends(get_current_user)):
+    uid = user["sub"]
+    list_id = req.list_id
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id FROM mindmaps WHERE id = ? AND user_id = ?", (mid, uid)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
+        if list_id is not None:
+            repo = TaskRepository(DB_PATH)
+            if not repo.is_list_member_or_owner(list_id, uid):
+                raise HTTPException(status_code=403, detail="Bukan anggota list ini")
+        conn.execute("UPDATE mindmaps SET list_id = ? WHERE id = ?", (list_id, mid))
+        updated = conn.execute("SELECT id, title, is_pinned, list_id, created_at, updated_at FROM mindmaps WHERE id = ?", (mid,)).fetchone()
+        return dict(updated)
+
+
+@app.get("/api/lists/{list_id}/mindmaps")
+async def get_list_mindmaps(list_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Bukan anggota list ini")
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, title, updated_at FROM mindmaps WHERE list_id = ? ORDER BY updated_at DESC",
+            (list_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 @app.post("/api/mindmaps")
 async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):

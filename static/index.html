@@ -4705,7 +4705,7 @@
     }
 
     // ── Mindmap page ──────────────────────────────────────────────
-    function MindmapPage({ showToast, onTaskClick, tasks = [] }) {
+    function MindmapPage({ showToast, onTaskClick, tasks = [], sharedLists = [] }) {
       const [mindmaps, setMindmaps] = useState([]);
       const [selected, setSelected] = useState(null);
       const [loading, setLoading] = useState(true);
@@ -4713,12 +4713,16 @@
         () => (localStorage.getItem("tf_mindmap_sidebar") || "open") === "open"
       );
       const [searchQ, setSearchQ] = useState("");
+      const [filterListId, setFilterListId] = useState(null);
       const [creating, setCreating] = useState(false);
       const [newTitle, setNewTitle] = useState("");
       const [renaming, setRenaming] = useState(false);
       const [renameVal, setRenameVal] = useState("");
       const [deleteConfirm, setDeleteConfirm] = useState(false);
       const [syncStatus, setSyncStatus] = useState("saved");
+      const [mmListId, setMmListId] = useState(null);
+      const [shareOpen, setShareOpen] = useState(false);
+      const shareRef = React.useRef(null);
       const iframeRef = useRef(null);
       const saveTimerRef = useRef(null);
       const [modalNote, setModalNote]               = useState(null);
@@ -4782,7 +4786,29 @@
         if (iframeRef.current?.contentWindow) {
           setTimeout(sendLoad, 200);
         }
+        setMmListId(selected?.list_id ?? null);
+        setShareOpen(false);
       }, [selected?.id]);
+
+      // Close share dropdown on outside click
+      useEffect(() => {
+        if (!shareOpen) return;
+        const handler = (e) => { if (shareRef.current && !shareRef.current.contains(e.target)) setShareOpen(false); };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+      }, [shareOpen]);
+
+      const handleShare = async (listId) => {
+        if (!selected) return;
+        try {
+          const updated = await api.patch(`/api/mindmaps/${selected.id}/share`, { list_id: listId });
+          setMmListId(updated.list_id);
+          setMindmaps(prev => prev.map(m => m.id === updated.id ? { ...m, list_id: updated.list_id } : m));
+          setSelected(prev => prev ? { ...prev, list_id: updated.list_id } : prev);
+          setShareOpen(false);
+          showToast(listId ? "✅ Mindmap dibagikan" : "Berbagi dibatalkan");
+        } catch { showToast("Gagal menyimpan", "error"); }
+      };
 
       // iframe message handler: ready + change events
       useEffect(() => {
@@ -4928,7 +4954,9 @@
       };
 
       const q = searchQ.trim().toLowerCase();
-      const filtered = q ? mindmaps.filter(m => m.title.toLowerCase().includes(q)) : mindmaps;
+      const filtered = mindmaps
+        .filter(m => !q || m.title.toLowerCase().includes(q))
+        .filter(m => !filterListId || m.list_id === filterListId);
       const pinned = filtered.filter(m => m.is_pinned);
       const unpinned = filtered.filter(m => !m.is_pinned);
       const hasPinnedSection = pinned.length > 0;
@@ -4960,6 +4988,30 @@
                     </svg>
                   </button>
                 </div>
+
+                {/* Shared list filter pills */}
+                {sharedLists.filter(l => mindmaps.some(m => m.list_id === l.id)).length > 0 && (
+                  <div style={{ padding: "4px 8px 0", flexShrink: 0 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 4 }}>🔗 Shared List</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {sharedLists.filter(l => mindmaps.some(m => m.list_id === l.id)).map(l => {
+                        const count = mindmaps.filter(m => m.list_id === l.id).length;
+                        const isActive = filterListId === l.id;
+                        return (
+                          <span key={l.id} onClick={() => setFilterListId(isActive ? null : l.id)}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 8px", borderRadius: 20,
+                              fontSize: 11, fontWeight: isActive ? 700 : 500, cursor: "pointer", whiteSpace: "nowrap",
+                              background: isActive ? "var(--accent)" : "var(--bg-primary)",
+                              color: isActive ? "#111" : "var(--text-secondary)",
+                              border: `1px solid ${isActive ? "var(--accent)" : "var(--border)"}` }}>
+                            {l.name}
+                            <span style={{ fontSize: 10, opacity: 0.75 }}>{count}</span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* New button / inline create */}
                 <div style={{ padding: "4px 8px", flexShrink: 0 }}>
@@ -5072,6 +5124,37 @@
                     <button className="btn btn-secondary btn-sm"
                       onClick={() => { setRenaming(true); setRenameVal(selected.title); }}
                       style={{ fontSize: 11 }}>Rename</button>
+                    {sharedLists.length > 0 && (
+                      <div ref={shareRef} style={{ position: "relative", flexShrink: 0 }}>
+                        <button className="btn btn-secondary btn-sm" onClick={() => setShareOpen(o => !o)}
+                          style={{ fontSize: 11, color: mmListId ? "var(--accent)" : undefined, borderColor: mmListId ? "var(--accent)" : undefined }}>
+                          👥 {mmListId ? sharedLists.find(l => l.id === mmListId)?.name || "Shared" : "Share"}
+                        </button>
+                        {shareOpen && (
+                          <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 300,
+                            background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10,
+                            boxShadow: "0 6px 20px rgba(0,0,0,0.18)", minWidth: 180, padding: "4px 0" }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, padding: "6px 14px 4px" }}>Bagikan ke List</div>
+                            {sharedLists.map(l => (
+                              <div key={l.id} onMouseDown={e => { e.preventDefault(); handleShare(mmListId === l.id ? null : l.id); }}
+                                style={{ padding: "7px 14px", fontSize: 13, cursor: "pointer", color: mmListId === l.id ? "var(--accent)" : "var(--text-primary)", fontWeight: mmListId === l.id ? 700 : 400 }}
+                                onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
+                                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                                {mmListId === l.id ? "✓ " : ""}{l.name}
+                              </div>
+                            ))}
+                            {mmListId && (
+                              <div onMouseDown={e => { e.preventDefault(); handleShare(null); }}
+                                style={{ padding: "7px 14px", fontSize: 13, cursor: "pointer", color: "#ef4444", borderTop: "1px solid var(--border)" }}
+                                onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
+                                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                                Batal berbagi
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {deleteConfirm ? (
                       <>
                         <span style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}>Hapus?</span>
@@ -11779,7 +11862,7 @@
         }
 
         if (page === "mindmap") {
-          return <MindmapPage showToast={showToast} onTaskClick={setSelectedTask} tasks={tasks} />;
+          return <MindmapPage showToast={showToast} onTaskClick={setSelectedTask} tasks={tasks} sharedLists={sharedLists} />;
         }
 
         if (page === "admin" && user?.is_admin) {
