@@ -2170,9 +2170,9 @@ def _scratchpad_row(row, conn=None, uid=None) -> dict:
     return d
 
 def _parse_wikilinks(content: str) -> list[str]:
-    """Extract [[Title]] references, stripping [[Title|alias]] pipe syntax."""
+    """Extract [[Title]] references, handling remark-stringify escaped form \\[\\[...\\]\\]."""
     import re as _re
-    raw = _re.findall(r"\[\[([^\[\]]+)\]\]", content)
+    raw = _re.findall(r"(?:\\?\[){2}([^\[\]\\]+)(?:\\?\]){2}", content)
     parsed = [t.split("|")[0].strip() for t in raw]
     return list(dict.fromkeys(t for t in parsed if t))
 
@@ -2783,9 +2783,13 @@ async def get_backlinks(note_id: int, user=Depends(get_current_user)):
                        AND EXISTS (SELECT 1 FROM json_each(linked_to) WHERE value = ?))
                       OR content LIKE ?
                       OR content LIKE ?
+                      OR content LIKE ?
+                      OR content LIKE ?
                   )
                 ORDER BY updated_at DESC
-            """, ap2 + [note_id, note_id, f"%[[{title}]]%", f"%[[{title}|%"]).fetchall()
+            """, ap2 + [note_id, note_id,
+                        f"%[[{title}]]%", f"%[[{title}|%",
+                        f"%\\[\\[{title}\\]\\]%", f"%\\[\\[{title}|%"]).fetchall()
         else:
             rows = conn.execute(f"""
                 SELECT id, title, updated_at FROM scratchpad_notes
