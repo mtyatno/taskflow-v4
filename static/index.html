@@ -9612,7 +9612,7 @@
           }
           if (note) {
             setPanelNote(note);
-            setNavTrail(t => [...t.slice(-7), note]);
+            setNavTrail(t => { const idx = t.findIndex(x => x.id === note.id); return idx >= 0 ? [...t.slice(0, idx), note] : [...t.slice(-7), note]; });
           }
         };
         window.addEventListener("openNote", handler);
@@ -10030,7 +10030,7 @@
                     onNavigate={async (n) => {
                       const full = allNotes.find(x => x.id === n.id) || await api.get(`/api/scratchpad/${n.id}`).catch(() => n);
                       setPanelNote(full);
-                      setNavTrail(t => [...t.slice(-7), full]);
+                      setNavTrail(t => { const idx = t.findIndex(x => x.id === full.id); return idx >= 0 ? [...t.slice(0, idx), full] : [...t.slice(-7), full]; });
                     }}
                     onTrailClick={(n) => {
                       const idx = navTrail.findIndex(x => x.id === n.id);
