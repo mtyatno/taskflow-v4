@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v55-modal-border-radius";
+const CACHE = "taskflow-v56-toolbar-height";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
