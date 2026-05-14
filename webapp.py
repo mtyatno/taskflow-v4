@@ -3134,7 +3134,8 @@ async def update_note_template(tid: int, body: NoteTemplateUpdate, user=Depends(
         ).fetchone()
         if not existing:
             raise HTTPException(status_code=403, detail="Not found or forbidden")
-        updates = {k: v for k, v in body.dict().items() if v is not None}
+        _allowed = {"name", "group_name", "content"}
+        updates = {k: v for k, v in body.dict().items() if v is not None and k in _allowed}
         if not updates:
             row = conn.execute(
                 "SELECT id, name, group_name, content, is_default, sort_order FROM note_templates WHERE id = ?", (tid,)
