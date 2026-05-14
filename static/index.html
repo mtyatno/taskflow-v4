@@ -8900,6 +8900,35 @@
         }
       };
 
+      const insertTasklink = (taskId) => {
+        setTaskDropdown(null);
+        const editor = milkdownEditorRef.current;
+        if (!editor) return;
+        const MB = window.MilkdownBundle;
+        editor.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          const { from } = view.state.selection;
+          const textBefore = view.state.doc.textBetween(0, from, '\n', '\0');
+          const triggerMatch = textBefore.match(/\[(task|tasks|todo|todos|tugas)[a-zA-Z0-9 ]*$/i);
+          const replaceFrom = triggerMatch ? from - triggerMatch[0].length : from;
+          const nodeType = view.state.schema.nodes.tasklink;
+          if (nodeType) {
+            view.dispatch(view.state.tr.replaceWith(replaceFrom, from, nodeType.create({ taskId })));
+          }
+        });
+        editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
+      };
+
+      const openTaskDropdown = () => {
+        const coords = getCursorCoords();
+        setTaskDropdown({ top: coords.top, left: coords.left, query: '', activeIdx: 0 });
+        const editor = milkdownEditorRef.current;
+        if (editor) {
+          const MB = window.MilkdownBundle;
+          editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
+        }
+      };
+
       const autoConvertWikilinkAtCursor = React.useCallback(() => {
         const editor = milkdownEditorRef.current;
         if (!editor) return;
