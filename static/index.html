@@ -2729,7 +2729,8 @@
           if (!noteForm.content.trim() && !noteForm.title.trim()) { alert("Isi catatan tidak boleh kosong"); setLoading(false); return; }
           try {
             const autoTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(t => t.slice(1).toLowerCase().trim()))].filter(Boolean);
-            await api.post("/api/scratchpad", { title: noteForm.title, content: noteForm.content, tags: autoTags, linked_task_ids: [], linked_task_id: null });
+            const noteTaskIds = extractTaskIdsFromContent(noteForm.content);
+            await api.post("/api/scratchpad", { title: noteForm.title, content: noteForm.content, tags: autoTags, linked_task_ids: noteTaskIds, linked_task_id: noteTaskIds[0] || null });
             window.dispatchEvent(new CustomEvent("noteSaved"));
             onSave();
           } catch (err) { alert(err.message); }
@@ -9728,7 +9729,7 @@
       );
     }
 
-    function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onPin, onNavigate, onNavigateFrom, onTrailClick, sharedLists = [], currentUserId, onTaskClick }) {
+    function NotePanel({ note, allNotes, noteTitles, backlinks, outlinks, navTrail, onEdit, onClose, onDelete, onPin, onNavigate, onNavigateFrom, onTrailClick, sharedLists = [], currentUserId, onTaskClick, tasks = [] }) {
       const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
       const [panelAttachments, setPanelAttachments] = React.useState([]);
       const [canvasActive, setCanvasActive] = React.useState(false);
@@ -9869,7 +9870,7 @@
         const taskEl = base && base.closest ? base.closest('[data-tasklink]') : null;
         if (taskEl && onTaskClick) {
           const taskId = Number(taskEl.getAttribute('data-tasklink-id') || 0);
-          const task = (note.linked_tasks || []).find(t => t.id === taskId);
+          const task = tasks.find(t => t.id === taskId);
           if (task) { onTaskClick(task); return; }
           return;
         }
@@ -9984,7 +9985,7 @@
       const tocItems = useMemo(() => extractHeadings(note.content || ""), [note.content]);
 
       const handlePrint = () => {
-        const html = renderMarkdown(note.content || "", titleStrings, allNotes, note.linked_tasks || []);
+        const html = renderMarkdown(note.content || "", titleStrings, allNotes, tasks);
         const el = document.createElement("div");
         el.id = "note-print-area";
         el.innerHTML = `<div class="npa-title">${note.title || "(tanpa judul)"}</div><div class="npa-meta">${fmtDate(note.updated_at)}</div><div class="note-rendered">${html}</div>`;
@@ -10149,7 +10150,7 @@
             onMouseDown={handlePreviewClick}
             onClick={handlePreviewClick}
             dangerouslySetInnerHTML={{
-              __html: renderMarkdown(note.content || "", titleStrings, allNotes, note.linked_tasks || []) ||
+              __html: renderMarkdown(note.content || "", titleStrings, allNotes, tasks) ||
                 '<span style="color:var(--text-light);font-style:italic">Catatan kosong.</span>'
             }}
           />
@@ -10894,6 +10895,7 @@
                     outlinks={panelOutlinks}
                     navTrail={navTrail}
                     onTaskClick={onTaskClick}
+                    tasks={tasks}
                     onEdit={() => openEdit(panelNote)}
                     onClose={() => { setPanelNote(null); setNavTrail([]); }}
                     onDelete={(id) => { handleDelete(id); setPanelNote(null); setNavTrail([]); }}
