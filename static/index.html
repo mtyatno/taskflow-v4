@@ -8543,7 +8543,6 @@
         return [...new Set([...contentIds, ...dbIds])];
       };
       const [linkedTaskIds, setLinkedTaskIds] = useState(initTaskIds);
-      const [localNewTasks, setLocalNewTasks] = useState([]);
       const [taskDropdown, setTaskDropdown]   = useState(null);
       const [saving, setSaving]       = useState(false);
       const wordCount = React.useMemo(() => content.trim() ? content.trim().split(/\s+/).length : 0, [content]);
@@ -9046,10 +9045,7 @@
         return [...byOverlap, ...popular].slice(0, 5);
       }, [existingTags, tags, title, content]);
 
-      const allKnownTasks = React.useMemo(
-        () => [...tasks, ...localNewTasks.filter(t => !tasks.find(x => x.id === t.id))],
-        [tasks, localNewTasks]
-      );
+      const allKnownTasks = React.useMemo(() => tasks, [tasks]);
       allKnownTasksRef.current = allKnownTasks;
       const linkedTasks   = allKnownTasks.filter(t => linkedTaskIds.includes(t.id));
 
@@ -9134,9 +9130,6 @@
       };
 
       const handleSave = async () => { await saveOnly(); onClose(); };
-
-      // createAndLinkTask — legacy inline search (Task 12 will replace UI with taskDropdown)
-      const createAndLinkTask = async () => { /* replaced by taskDropdown in Task 12 */ };
 
       // ── Shared inner content ──────────────────────────────────────
       const inner = (
@@ -9420,12 +9413,10 @@
             ))}
           </div>
         )}
-          {/* Link ke Task */}
-          {true && (
+          {/* Link ke Task — read-only, derived dari parsing konten */}
+          {linkedTaskIds.length > 0 && (
             <div>
               <div className="note-modal-section-label">Di-link ke Task ({linkedTaskIds.length})</div>
-
-              {/* List linked tasks */}
               {linkedTasks.map(t => (
                 <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-primary)", borderRadius: 8, padding: "8px 12px", marginBottom: 6 }}>
                   <PriBadge p={t.priority} />
@@ -9435,12 +9426,11 @@
                     style={{ background: "none", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11, fontWeight: 600, color: "var(--accent)", cursor: "pointer", padding: "2px 8px", flexShrink: 0 }}>
                     Buka
                   </button>
-                  <button onClick={() => setLinkedTaskIds(ids => ids.filter(id => id !== t.id))}
-                    style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>✕</button>
                 </div>
               ))}
-
-              {/* Add link search — replaced by taskDropdown trigger in Task 12 */}
+              <div style={{ fontSize: 11, color: "var(--text-light)", marginTop: 4, fontStyle: "italic" }}>
+                Hapus link: klik badge task di dalam teks note.
+              </div>
             </div>
           )}
 
