@@ -862,6 +862,21 @@
       #note-print-area .note-rendered hr { border: none; border-top: 1px solid #ccc; margin: 14pt 0; }
       #note-print-area .wikilink, #note-print-area .wikilink-broken { color: #333 !important; border-bottom: none !important; font-style: normal !important; }
       #note-print-area .check-item { display: flex; gap: 6pt; align-items: baseline; }
+      #note-print-area .tasklink-node, #note-print-area .tasklink-node-fallback {
+        display: inline-flex; align-items: center; gap: 3px;
+        border: 1px solid #999 !important; border-radius: 4px; padding: 1px 6px;
+        background: transparent !important; color: #333 !important;
+        font-size: 9pt; font-weight: 600; vertical-align: middle;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+      #note-print-area .tasklink-status-label {
+        font-size: 7pt !important; padding: 0 4px; border-radius: 2px; font-weight: 700;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+      #note-print-area .tasklink-priority-label {
+        font-size: 8pt !important; padding: 0 3px; border-radius: 2px; font-weight: 700;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
     }
     .note-rendered img { max-width: 100%; border-radius: 6px; margin: 6px 0; display: block; }
     .img-offline-placeholder { font-size: 12px; color: var(--text-light); font-style: italic; }
@@ -7978,7 +7993,7 @@
       const wikiMap = {};
       let wi = 0;
       // Strip tasklink tokens — they don't belong in card previews
-      const stripped = text.replace(/\\?\[tasklink:\d+\]/g, '');
+      const stripped = text.replace(/\\?\[tasklink:\d+\\?\]/g, '');
       const processed = stripped.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
         const title = rawTitle.replace(/\\(.)/g, '$1');
         const key = `WKPREV${wi++}WKPREV`;
@@ -8058,7 +8073,7 @@
       const _PRI_COLORS = { P1: '#ef4444', P2: '#f97316', P3: '#eab308', P4: '#94a3b8' };
       const taskMap = {};
       let ti = 0;
-      const processed2 = processed.replace(/\\?\[tasklink:(\d+)\]/g, (_, idStr) => {
+      const processed2 = processed.replace(/\\?\[tasklink:(\d+)\\?\]/g, (_, idStr) => {
         const taskId = Number(idStr);
         const key = `TKLNK${ti++}TKLNKEND`;
         const task = (tasks || []).find(t => t.id === taskId);
@@ -8514,7 +8529,7 @@
     }
 
     function extractTaskIdsFromContent(markdown) {
-      const matches = [...(markdown || '').matchAll(/\\?\[tasklink:(\d+)\]/g)];
+      const matches = [...(markdown || '').matchAll(/\\?\[tasklink:(\d+)\\?\]/g)];
       return [...new Set(matches.map(m => Number(m[1])))];
     }
 
