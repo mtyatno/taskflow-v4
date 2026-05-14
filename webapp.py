@@ -3086,12 +3086,10 @@ _DEFAULT_NOTE_TEMPLATES = [
 async def list_note_templates(user=Depends(get_current_user)):
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
+    _q = ("SELECT id, name, group_name, content, is_default, sort_order FROM note_templates "
+          "WHERE user_id = ? ORDER BY group_name, sort_order, name")
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT id, name, group_name, content, is_default, sort_order FROM note_templates "
-            "WHERE user_id = ? ORDER BY group_name, sort_order, name",
-            (uid,)
-        ).fetchall()
+        rows = conn.execute(_q, (uid,)).fetchall()
         if not rows:
             for t in _DEFAULT_NOTE_TEMPLATES:
                 conn.execute(
@@ -3100,11 +3098,7 @@ async def list_note_templates(user=Depends(get_current_user)):
                     (uid, t["name"], t["group_name"], t["content"], t["sort_order"], now, now)
                 )
             conn.commit()
-            rows = conn.execute(
-                "SELECT id, name, group_name, content, is_default, sort_order FROM note_templates "
-                "WHERE user_id = ? ORDER BY group_name, sort_order, name",
-                (uid,)
-            ).fetchall()
+            rows = conn.execute(_q, (uid,)).fetchall()
         return [dict(r) for r in rows]
 
 
