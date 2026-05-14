@@ -8910,6 +8910,13 @@
         }
       };
 
+      const handleTasklinkClick = React.useCallback((taskId) => {
+        const task = allKnownTasksRef.current.find(t => t.id === taskId);
+        if (!task) return;
+        onClose();
+        setTimeout(() => onTaskClick?.(task), 60);
+      }, [onClose, onTaskClick]);
+
       const autoConvertWikilinkAtCursor = React.useCallback(() => {
         const editor = milkdownEditorRef.current;
         if (!editor) return;
@@ -9174,7 +9181,7 @@
            {/* Toolbar */}
            <div style={{ marginTop: 12 }}>
              <div style={{ marginBottom: 2 }}>
-               <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} content={content} onApplyTemplate={(tpl) => setContent(tpl)} />
+               <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} content={content} onApplyTemplate={(tpl) => setContent(tpl)} onInsertTask={openTaskDropdown} />
              </div>
              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-light)', marginBottom: 4 }}>
                <span>{wordCount} kata</span>
@@ -9197,6 +9204,8 @@
                   || (parsed.numericId && noteTitles.find(n => String(n.id) === parsed.numericId));
                 if (target) onNavigate?.(target);
               }}
+              tasksGetter={tasksGetterRef.current}
+              onTasklinkClick={handleTasklinkClick}
             />
             {/* Wikilink autocomplete dropdown */}
             {wikiDropdown && (
@@ -9548,7 +9557,7 @@
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 padding: '8px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0,
               }}>
-                <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} content={content} onApplyTemplate={(tpl) => setContent(tpl)} />
+                <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} content={content} onApplyTemplate={(tpl) => setContent(tpl)} onInsertTask={openTaskDropdown} />
                 <button
                   onClick={() => setTextareaFullscreen(false)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer',
@@ -9571,6 +9580,8 @@
                       || (parsed.numericId && noteTitles.find(n => String(n.id) === parsed.numericId));
                     if (target) onNavigate?.(target);
                   }}
+                  tasksGetter={tasksGetterRef.current}
+                  onTasklinkClick={handleTasklinkClick}
                 />
               </div>
             </div>
