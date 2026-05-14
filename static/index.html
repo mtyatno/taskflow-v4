@@ -7977,7 +7977,9 @@
       if (!text) return "";
       const wikiMap = {};
       let wi = 0;
-      const processed = text.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
+      // Strip tasklink tokens — they don't belong in card previews
+      const stripped = text.replace(/\\?\[tasklink:\d+\]/g, '');
+      const processed = stripped.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
         const title = rawTitle.replace(/\\(.)/g, '$1');
         const key = `WKPREV${wi++}WKPREV`;
         const parsed = parseWikilinkRaw(title);
@@ -10845,11 +10847,6 @@
                                 ⬜ tanpa tag
                               </span>
                             )}
-                            {(n.linked_tasks || []).map(t => (
-                              <span key={t.id} style={{ fontSize: 11, color: "var(--text-secondary)", background: "var(--bg-primary)", borderRadius: 6, padding: "2px 8px" }}>
-                                📌 {t.title}
-                              </span>
-                            ))}
                             {(outCount > 0 || inCount > 0) && (
                               <span className="note-conn">
                                 {outCount > 0 && `🔗${outCount}`}{outCount > 0 && inCount > 0 && " "}{inCount > 0 && `←${inCount}`}
