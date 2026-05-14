@@ -2452,7 +2452,7 @@
       );
     }
 
-    function TaskFormModal({ task, onSave, onOfflineSave, onClose, projects, contexts, sharedLists, collaborators = [] }) {
+    function TaskFormModal({ task, onSave, onOfflineSave, onClose, projects, contexts, sharedLists, collaborators = [], tasks = [] }) {
       const isEdit = !!task?.id;
       const [form, setForm] = useState({
         title: task?.title || "",
@@ -2485,6 +2485,10 @@
       const noteMilkdownRef = React.useRef(null);
       const [noteTagDropdown, setNoteTagDropdown] = useState(null);
       const [noteExistingTags, setNoteExistingTags] = useState([]);
+      const [noteTaskDropdown, setNoteTaskDropdown] = useState(null);
+      const noteAllTasksRef = React.useRef([]);
+      const noteTasksGetterRef = React.useRef(() => noteAllTasksRef.current);
+      const noteTaskDropdownRef = React.useRef(null);
       const [loading, setLoading] = useState(false);
       const [pendingSubtasks, setPendingSubtasks] = useState([]);
       const [pendingSubTitle, setPendingSubTitle] = useState("");
@@ -2508,6 +2512,7 @@
       const [noteDrawFullscreen, setNoteDrawFullscreen] = React.useState(false);
       const [noteDrawIframeReady, setNoteDrawIframeReady] = React.useState(false);
 
+      noteAllTasksRef.current = tasks;
       const setHabit = (k, v) => setHabitForm(f => ({ ...f, [k]: v }));
       const DAYS = [
         { key: "mon", label: "Sen" }, { key: "tue", label: "Sel" },
@@ -2519,6 +2524,15 @@
         ...f,
         frequency: f.frequency.includes(key) ? f.frequency.filter(d => d !== key) : [...f.frequency, key]
       }));
+
+      const noteTaskDropdownItems = React.useMemo(() =>
+        noteTaskDropdown !== null
+          ? (tasks || [])
+              .filter(t => t.gtd_status !== 'done' && t.gtd_status !== 'archived')
+              .filter(t => t.title.toLowerCase().includes((noteTaskDropdown.query || '').toLowerCase()))
+              .slice(0, 8)
+          : []
+      , [noteTaskDropdown, tasks]);
 
       const handleTitleChange = (val) => {
         set("title", val);
@@ -2580,6 +2594,15 @@
         return () => setNoteTagDropdown(null);
       }, [mode]);
 
+      React.useEffect(() => {
+        if (!noteTaskDropdown) return;
+        const close = (e) => {
+          if (noteTaskDropdownRef.current && !noteTaskDropdownRef.current.contains(e.target)) setNoteTaskDropdown(null);
+        };
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
+      }, [noteTaskDropdown]);
+
       const handleHabitTitleChange = (val) => {
         setHabit("title", val);
         const el = habitTitleInputRef.current;
@@ -2609,7 +2632,7 @@
       const handleNoteContentChange = (markdown) => {
         setNote("content", markdown);
         const editor = noteMilkdownRef.current;
-        if (!editor) { setNoteTagDropdown(null); return; }
+        if (!editor) { setNoteTagDropdown(null); setNoteTaskDropdown(null); return; }
         const MB = window.MilkdownBundle;
         let textBefore = '';
         let coords = { top: 100, left: 100 };
@@ -2631,6 +2654,18 @@
             setNoteTagDropdown({ items, top: coords.top, left: coords.left });
           } else { setNoteTagDropdown(null); }
         } else { setNoteTagDropdown(null); }
+
+        const taskTriggerMatch = textBefore.match(/\[(task|tasks|todo|todos|tugas)[a-zA-Z0-9 ]*$/i);
+        if (taskTriggerMatch) {
+          const triggerStart = textBefore.length - taskTriggerMatch[0].length;
+          const charBefore = triggerStart > 0 ? textBefore[triggerStart - 1] : '';
+          if (charBefore !== '[') {
+            const queryRaw = taskTriggerMatch[0].slice(1 + taskTriggerMatch[1].length);
+            setNoteTaskDropdown({ top: coords.top, left: coords.left, query: queryRaw.trimStart(), activeIdx: 0 });
+            return;
+          }
+        }
+        setNoteTaskDropdown(null);
       };
 
       const insertNoteTag = (tagName) => {
@@ -2647,6 +2682,42 @@
           const replaceFrom = from - tagMatch[0].length;
           view.dispatch(view.state.tr.insertText(`#${tagName} `, replaceFrom, from));
         });
+        editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
+      };
+
+      const insertNoteTasklink = (taskId) => {
+        setNoteTaskDropdown(null);
+        const editor = noteMilkdownRef.current;
+        if (!editor) return;
+        const MB = window.MilkdownBundle;
+        editor.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          const { from } = view.state.selection;
+          const textBefore = view.state.doc.textBetween(0, from, '\n', '\0');
+          const triggerMatch = textBefore.match(/\[(task|tasks|todo|todos|tugas)[a-zA-Z0-9 ]*$/i);
+          const replaceFrom = triggerMatch ? from - triggerMatch[0].length : from;
+          const nodeType = view.state.schema.nodes.tasklink;
+          if (nodeType) {
+            view.dispatch(view.state.tr.replaceWith(replaceFrom, from, nodeType.create({ taskId })));
+          }
+        });
+        editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
+      };
+
+      const openNoteTaskDropdown = () => {
+        const editor = noteMilkdownRef.current;
+        if (!editor) return;
+        const MB = window.MilkdownBundle;
+        let coords = { top: 100, left: 100 };
+        try {
+          editor.action(ctx => {
+            const view = ctx.get(MB.editorViewCtx);
+            const { from } = view.state.selection;
+            const c = view.coordsAtPos(from);
+            coords = { top: c.bottom + 4, left: c.left };
+          });
+        } catch (_) {}
+        setNoteTaskDropdown({ top: coords.top, left: coords.left, query: '', activeIdx: 0 });
         editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
       };
 
@@ -2857,7 +2928,7 @@
                         </div>
                       )}
                       <div style={{ marginBottom: 4 }}>
-                        <NoteToolbar milkdownEditorRef={noteMilkdownRef} noteId={null} onAttachUploaded={() => {}} content={noteForm.content} onApplyTemplate={(tpl) => setNote("content", tpl)} />
+                        <NoteToolbar milkdownEditorRef={noteMilkdownRef} noteId={null} onAttachUploaded={() => {}} content={noteForm.content} onApplyTemplate={(tpl) => setNote("content", tpl)} onInsertTask={openNoteTaskDropdown} />
                       </div>
                       <div style={{ position: 'relative', flex: noteTextareaFullscreen ? 1 : undefined }}>
                         <MilkdownEditor
@@ -2866,6 +2937,8 @@
                           editorRef={noteMilkdownRef}
                           minHeight={noteTextareaFullscreen ? 'calc(100vh - 100px)' : 140}
                           onWikilinkClick={() => {}}
+                          tasksGetter={noteTasksGetterRef.current}
+                          onTasklinkClick={() => {}}
                         />
                         {noteTagDropdown && noteTagDropdown.items.length > 0 && (
                           <div className="wiki-autocomplete" style={{ position: "fixed", top: noteTagDropdown.top, left: noteTagDropdown.left, zIndex: 1050 }}>
@@ -2876,6 +2949,44 @@
                                 <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>{t.count}×</span>
                               </div>
                             ))}
+                          </div>
+                        )}
+                        {noteTaskDropdown && (
+                          <div ref={noteTaskDropdownRef} className="wiki-autocomplete"
+                            style={{ position: "fixed", top: noteTaskDropdown.top, left: noteTaskDropdown.left, zIndex: 1060 }}>
+                            <input
+                              className="input"
+                              style={{ width: "100%", padding: "5px 8px", fontSize: 12, marginBottom: 4, borderRadius: 5, boxSizing: 'border-box' }}
+                              placeholder="Cari task..."
+                              value={noteTaskDropdown.query || ''}
+                              onChange={e => setNoteTaskDropdown(d => ({ ...d, query: e.target.value, activeIdx: 0 }))}
+                              autoFocus
+                              onMouseDown={e => e.stopPropagation()}
+                              onKeyDown={e => {
+                                if (e.key === 'Escape') { e.preventDefault(); setNoteTaskDropdown(null); return; }
+                                if (e.key === 'Enter' || e.key === 'Tab') {
+                                  e.preventDefault();
+                                  const chosen = noteTaskDropdownItems[noteTaskDropdown.activeIdx || 0];
+                                  if (chosen) insertNoteTasklink(chosen.id);
+                                  return;
+                                }
+                                if (e.key === 'ArrowDown') { e.preventDefault(); setNoteTaskDropdown(d => ({ ...d, activeIdx: Math.min((d.activeIdx || 0) + 1, noteTaskDropdownItems.length - 1) })); return; }
+                                if (e.key === 'ArrowUp') { e.preventDefault(); setNoteTaskDropdown(d => ({ ...d, activeIdx: Math.max((d.activeIdx || 0) - 1, 0) })); return; }
+                              }}
+                            />
+                            {noteTaskDropdownItems.map((t, i) => (
+                              <div key={t.id}
+                                className={`wiki-autocomplete-item${i === (noteTaskDropdown.activeIdx || 0) ? " active" : ""}`}
+                                onMouseDown={e => { e.preventDefault(); insertNoteTasklink(t.id); }}>
+                                <PriBadge p={t.priority} />
+                                <span style={{ marginLeft: 4 }}>{t.title}</span>
+                              </div>
+                            ))}
+                            {noteTaskDropdownItems.length === 0 && (
+                              <div className="wiki-autocomplete-item" style={{ color: "var(--text-light)", cursor: "default", fontStyle: "italic" }}>
+                                {(noteTaskDropdown.query || '').trim() ? "Task tidak ditemukan" : "Ketik nama task..."}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -7399,6 +7510,7 @@
               collaborators={[]}
               projects={[]}
               contexts={[]}
+              tasks={[]}
             />
           )}
 
@@ -12627,6 +12739,7 @@
               contexts={contexts}
               sharedLists={sharedLists}
               collaborators={collaborators}
+              tasks={tasks}
             />
           )}
 
