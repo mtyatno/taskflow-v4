@@ -7900,7 +7900,7 @@
       return truncated + '...';
     }
 
-    function renderMarkdown(text, noteTitles = [], allNotes = []) {
+    function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
       if (!text) return "";
       _markedHIdx = 0;
       const titleSet = new Set((noteTitles || []).map(t => normalizeWikiText(t)));
@@ -7938,8 +7938,33 @@
           : `<span class="wikilink-broken" data-wiki-title="${titleEsc}" data-wiki-raw="${rawEsc}" title="Note tidak ditemukan">[[${labelEsc}]]</span>`;
         return key;
       });
-      let html = marked.parse(processed);
+
+      // Pre-process tasklink tokens before marked.parse
+      const _PRI_COLORS = { P1: '#ef4444', P2: '#f97316', P3: '#eab308', P4: '#94a3b8' };
+      const taskMap = {};
+      let ti = 0;
+      const processed2 = processed.replace(/\[tasklink:(\d+)\]/g, (_, idStr) => {
+        const taskId = Number(idStr);
+        const key = `TKLNK${ti++}TKLNKEND`;
+        const task = (tasks || []).find(t => t.id === taskId);
+        if (!task) {
+          taskMap[key] = `<span class="tasklink-node-fallback"><span class="tasklink-status-label" style="background:#3b82f6">OPEN</span> <span class="tasklink-priority-label" style="background:#94a3b8">?</span> task tidak tersedia</span>`;
+        } else {
+          const isDone = task.gtd_status === 'done' || task.gtd_status === 'archived';
+          const statusLabel = isDone ? 'DONE' : 'OPEN';
+          const statusColor = isDone ? '#16a34a' : '#3b82f6';
+          const priority = task.priority || 'P4';
+          const priColor = _PRI_COLORS[priority] || '#94a3b8';
+          taskMap[key] = `<span class="tasklink-node" data-tasklink data-tasklink-id="${taskId}" title="Task: ${escapeAttr(task.title || '')}"><span class="tasklink-status-label" style="background:${statusColor}">${statusLabel}</span> <span class="tasklink-priority-label" style="background:${priColor}">${priority}</span> ${escapeHtml(task.title || '')}</span>`;
+        }
+        return key;
+      });
+
+      let html = marked.parse(processed2);
       for (const [k, v] of Object.entries(wikiMap)) {
+        html = html.split(k).join(v);
+      }
+      for (const [k, v] of Object.entries(taskMap)) {
         html = html.split(k).join(v);
       }
       return html;
@@ -9727,6 +9752,16 @@
         const base = (e.target && e.target.nodeType === 3)
           ? e.target.parentElement
           : e.target;
+
+        // Tasklink click — open task modal
+        const taskEl = base && base.closest ? base.closest('[data-tasklink]') : null;
+        if (taskEl && onTaskClick) {
+          const taskId = Number(taskEl.getAttribute('data-tasklink-id') || 0);
+          const task = (note.linked_tasks || []).find(t => t.id === taskId);
+          if (task) { onTaskClick(task); return; }
+          return;
+        }
+
         const el = base && base.closest
           ? base.closest("[data-wiki-id], [data-wiki-title], [data-wiki-raw]")
           : null;
@@ -9837,7 +9872,7 @@
       const tocItems = useMemo(() => extractHeadings(note.content || ""), [note.content]);
 
       const handlePrint = () => {
-        const html = renderMarkdown(note.content || "", titleStrings, allNotes);
+        const html = renderMarkdown(note.content || "", titleStrings, allNotes, note.linked_tasks || []);
         const el = document.createElement("div");
         el.id = "note-print-area";
         el.innerHTML = `<div class="npa-title">${note.title || "(tanpa judul)"}</div><div class="npa-meta">${fmtDate(note.updated_at)}</div><div class="note-rendered">${html}</div>`;
@@ -10002,7 +10037,7 @@
             onMouseDown={handlePreviewClick}
             onClick={handlePreviewClick}
             dangerouslySetInnerHTML={{
-              __html: renderMarkdown(note.content || "", titleStrings, allNotes) ||
+              __html: renderMarkdown(note.content || "", titleStrings, allNotes, note.linked_tasks || []) ||
                 '<span style="color:var(--text-light);font-style:italic">Catatan kosong.</span>'
             }}
           />

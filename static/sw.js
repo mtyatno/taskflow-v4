@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v86-inline-tasklink";
+const CACHE = "taskflow-v87-tasklink-readmode";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
