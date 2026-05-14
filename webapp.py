@@ -230,6 +230,27 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Create note_templates table
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS note_templates (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL,
+                name        TEXT NOT NULL,
+                group_name  TEXT NOT NULL,
+                content     TEXT NOT NULL,
+                is_default  INTEGER NOT NULL DEFAULT 0,
+                sort_order  INTEGER NOT NULL DEFAULT 0,
+                created_at  TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
 
 # ── Password hashing (no external deps) ───────────────────────────────────────
 
@@ -2989,6 +3010,77 @@ async def list_mindmaps(user=Depends(get_current_user)):
 
 class MindmapShareReq(BaseModel):
     list_id: Optional[int] = None
+
+
+class NoteTemplateCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    group_name: str = Field(min_length=1, max_length=100)
+    content: str = Field(min_length=1)
+
+
+class NoteTemplateUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    group_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    content: Optional[str] = None
+
+
+_DEFAULT_NOTE_TEMPLATES = [
+    {
+        "group_name": "Umum & Penangkapan Cepat",
+        "name": "Catatan Cepat",
+        "sort_order": 0,
+        "content": "# Catatan Cepat\n\n## Inti Pikiran\n- \n\n## Detail\n- \n\n## Tindakan Selanjutnya\n- [ ] ",
+    },
+    {
+        "group_name": "Umum & Penangkapan Cepat",
+        "name": "Curah Pikiran",
+        "sort_order": 1,
+        "content": "# Curah Pikiran\n\n## Apa yang Sedang Saya Pikirkan\n- ",
+    },
+    {
+        "group_name": "Pekerjaan & Proyek",
+        "name": "Log Harian",
+        "sort_order": 0,
+        "content": "# Log Harian - [Tanggal]\n\n## Fokus Hari Ini\n- \n\n## Progress\n- \n\n## Hambatan\n- \n\n## Besok\n- ",
+    },
+    {
+        "group_name": "Pekerjaan & Proyek",
+        "name": "Catatan Rapat",
+        "sort_order": 1,
+        "content": "# Judul Rapat\n\n**Tanggal:**  \n**Peserta:**  \n\n## Agenda\n- \n\n## Diskusi\n- \n\n## Keputusan\n- \n\n## Tindak Lanjut\n- [ ] ",
+    },
+    {
+        "group_name": "Pekerjaan & Proyek",
+        "name": "Perencanaan Proyek",
+        "sort_order": 2,
+        "content": "# Nama Proyek\n\n## Tujuan\n- \n\n## Ruang Lingkup\n- \n\n## Timeline & Milestone\n- \n\n## Tugas\n- [ ] ",
+    },
+    {
+        "group_name": "Pekerjaan & Proyek",
+        "name": "Pemecahan Masalah",
+        "sort_order": 3,
+        "content": "# Masalah / Isu\n\n## Kondisi Saat Ini\n- \n\n## Akar Penyebab\n- \n\n## Dampak\n- \n\n## Solusi\n- \n\n## Tindakan Lanjutan\n- [ ] ",
+    },
+    {
+        "group_name": "Pekerjaan & Proyek",
+        "name": "Pengambilan Keputusan",
+        "sort_order": 4,
+        "content": "# Topik Keputusan\n\n## Opsi\n- \n\n## Kelebihan & Kekurangan\n- **Opsi A:** (+)... (-) ...\n- **Opsi B:** (+)... (-) ...\n\n## Keputusan Akhir\n- ",
+    },
+    {
+        "group_name": "Evaluasi & Pembelajaran",
+        "name": "Tinjauan Mingguan",
+        "sort_order": 0,
+        "content": "# Tinjauan Mingguan\n\n## Pencapaian\n- \n\n## Kegagalan / Tantangan\n- \n\n## Pelajaran yang Dipetik\n- \n\n## Fokus Minggu Depan\n- ",
+    },
+    {
+        "group_name": "Evaluasi & Pembelajaran",
+        "name": "Catatan Pembelajaran",
+        "sort_order": 1,
+        "content": "# Topik\n\n**Sumber:**  \n\n## Insight Utama\n- \n\n## Kutipan Penting\n> \n\n## Hal yang Dapat Diterapkan\n- ",
+    },
+]
+
 
 @app.patch("/api/mindmaps/{mid}/share")
 async def share_mindmap(mid: int, req: MindmapShareReq, user=Depends(get_current_user)):
