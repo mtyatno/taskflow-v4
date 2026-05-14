@@ -2799,7 +2799,7 @@
                         </div>
                       )}
                       <div style={{ marginBottom: 4 }}>
-                        <NoteToolbar milkdownEditorRef={noteMilkdownRef} noteId={null} onAttachUploaded={() => {}} />
+                        <NoteToolbar milkdownEditorRef={noteMilkdownRef} noteId={null} onAttachUploaded={() => {}} content={noteForm.content} onApplyTemplate={(tpl) => setNote("content", tpl)} />
                       </div>
                       <div style={{ position: 'relative', flex: noteTextareaFullscreen ? 1 : undefined }}>
                         <MilkdownEditor
@@ -8724,7 +8724,7 @@
            {/* Toolbar */}
            <div style={{ marginTop: 12 }}>
              <div style={{ marginBottom: 2 }}>
-               <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} />
+               <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} content={content} onApplyTemplate={(tpl) => setContent(tpl)} />
              </div>
              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-light)', marginBottom: 4 }}>
                <span>{wordCount} kata</span>
@@ -9099,7 +9099,7 @@
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 padding: '8px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0,
               }}>
-                <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} />
+                <NoteToolbar milkdownEditorRef={milkdownEditorRef} noteId={savedNoteId} onAttachUploaded={att => setAttachments(prev => [...prev, att])} content={content} onApplyTemplate={(tpl) => setContent(tpl)} />
                 <button
                   onClick={() => setTextareaFullscreen(false)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer',
