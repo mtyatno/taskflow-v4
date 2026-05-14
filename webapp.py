@@ -3082,6 +3082,32 @@ _DEFAULT_NOTE_TEMPLATES = [
 ]
 
 
+@app.get("/api/note-templates")
+async def list_note_templates(user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, group_name, content, is_default, sort_order FROM note_templates "
+            "WHERE user_id = ? ORDER BY group_name, sort_order, name",
+            (uid,)
+        ).fetchall()
+        if not rows:
+            for t in _DEFAULT_NOTE_TEMPLATES:
+                conn.execute(
+                    "INSERT INTO note_templates (user_id, name, group_name, content, is_default, sort_order, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
+                    (uid, t["name"], t["group_name"], t["content"], t["sort_order"], now, now)
+                )
+            conn.commit()
+            rows = conn.execute(
+                "SELECT id, name, group_name, content, is_default, sort_order FROM note_templates "
+                "WHERE user_id = ? ORDER BY group_name, sort_order, name",
+                (uid,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
 @app.patch("/api/mindmaps/{mid}/share")
 async def share_mindmap(mid: int, req: MindmapShareReq, user=Depends(get_current_user)):
     uid = user["sub"]
