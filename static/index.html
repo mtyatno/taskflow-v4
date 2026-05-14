@@ -7943,7 +7943,7 @@
       const _PRI_COLORS = { P1: '#ef4444', P2: '#f97316', P3: '#eab308', P4: '#94a3b8' };
       const taskMap = {};
       let ti = 0;
-      const processed2 = processed.replace(/\[tasklink:(\d+)\]/g, (_, idStr) => {
+      const processed2 = processed.replace(/\\?\[tasklink:(\d+)\]/g, (_, idStr) => {
         const taskId = Number(idStr);
         const key = `TKLNK${ti++}TKLNKEND`;
         const task = (tasks || []).find(t => t.id === taskId);
@@ -8399,7 +8399,7 @@
     }
 
     function extractTaskIdsFromContent(markdown) {
-      const matches = [...(markdown || '').matchAll(/\[tasklink:(\d+)\]/g)];
+      const matches = [...(markdown || '').matchAll(/\\?\[tasklink:(\d+)\]/g)];
       return [...new Set(matches.map(m => Number(m[1])))];
     }
 
