@@ -919,6 +919,13 @@
     .note-toolbar button { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 0 9px; height: 28px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.12s; font-family: inherit; white-space: nowrap; }
     .note-toolbar button:hover { background: var(--bg-primary); border-color: var(--accent); color: var(--text-primary); }
     .note-toolbar .sep { width: 1px; background: var(--border); margin: 2px 3px; align-self: stretch; }
+    .tpl-dropdown { position: absolute; top: 100%; left: 0; background: white; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); min-width: 220px; z-index: 1000; overflow: hidden; padding: 4px 0; }
+    .tpl-group-label { padding: 6px 14px 3px; font-size: 9px; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.8px; }
+    .tpl-item { padding: 7px 14px; font-size: 13px; cursor: pointer; color: #374151; }
+    .tpl-item:hover { background: #f9fafb; }
+    .tpl-footer { padding: 8px 14px; font-size: 12px; color: #b6d400; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+    .tpl-footer:hover { background: #f9fafb; }
+    .tpl-divider { height: 1px; background: #f3f4f6; margin: 4px 0; }
     .note-rendered { font-size: 14px; line-height: 1.75; color: var(--text-primary); }
     .note-rendered h1 { font-size: 20px; font-weight: 800; margin: 10px 0 6px; }
     .note-rendered h2 { font-size: 16px; font-weight: 700; margin: 8px 0 4px; }
@@ -7705,13 +7712,18 @@
       return html;
     }
 
-    function NoteToolbar({ milkdownEditorRef, noteId, onAttachUploaded }) {
+    function NoteToolbar({ milkdownEditorRef, noteId, onAttachUploaded, content, onApplyTemplate }) {
       const [hOpen, setHOpen] = React.useState(false);
       const hRef = React.useRef(null);
       const [moreOpen, setMoreOpen] = React.useState(false);
       const moreRef = React.useRef(null);
       const fileInputRef = React.useRef(null);
       const [uploading, setUploading] = React.useState(false);
+      const [templates, setTemplates] = React.useState([]);
+      const [tplOpen, setTplOpen] = React.useState(false);
+      const tplBtnRef = React.useRef(null);
+
+      const isEmpty = !content || !content.trim();
 
       React.useEffect(() => {
         if (!hOpen) return;
@@ -7725,6 +7737,15 @@
         document.addEventListener("mousedown", close);
         return () => document.removeEventListener("mousedown", close);
       }, [moreOpen]);
+      React.useEffect(() => {
+        api.get('/api/note-templates').then(data => setTemplates(Array.isArray(data) ? data : [])).catch(() => {});
+      }, []);
+      React.useEffect(() => {
+        if (!tplOpen) return;
+        const close = (e) => { if (tplBtnRef.current && !tplBtnRef.current.contains(e.target)) setTplOpen(false); };
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
+      }, [tplOpen]);
 
       // Milkdown command caller
       const cmd = (commandKey, payload) => {
@@ -7804,8 +7825,49 @@
         { label: "H6", hint: "######", level: 6 },
       ];
 
+      const tplGroups = templates.reduce((acc, t) => {
+        const g = t.group_name || 'Lainnya';
+        if (!acc[g]) acc[g] = [];
+        acc[g].push(t);
+        return acc;
+      }, {});
+      const tplGroupKeys = Object.keys(tplGroups);
+
       return (
         <div className="note-toolbar">
+          {/* Template dropdown */}
+          <div ref={tplBtnRef} style={{ position: "relative", flexShrink: 0 }}>
+            <button
+              onMouseDown={e => { e.preventDefault(); if (isEmpty) setTplOpen(o => !o); }}
+              title="Terapkan template"
+              style={isEmpty
+                ? { border: '1.5px solid #b6d400', color: '#b6d400', background: 'rgba(182,212,0,0.08)', borderRadius: 6, padding: '2px 9px', cursor: 'pointer', fontSize: 11, fontWeight: 700, height: 28, display: 'inline-flex', alignItems: 'center', gap: 3 }
+                : { border: '1px solid #e5e7eb', color: '#d1d5db', borderRadius: 6, padding: '2px 9px', cursor: 'not-allowed', fontSize: 11, height: 28, display: 'inline-flex', alignItems: 'center', gap: 3 }
+              }
+            >📋 Template ▾</button>
+            {tplOpen && isEmpty && (
+              <div className="tpl-dropdown">
+                {tplGroupKeys.map((g, gi) => (
+                  <div key={g}>
+                    {gi > 0 && <div className="tpl-divider" />}
+                    <div className="tpl-group-label">{g}</div>
+                    {tplGroups[g].map(t => (
+                      <div key={t.id} className="tpl-item"
+                        onMouseDown={e => { e.preventDefault(); onApplyTemplate && onApplyTemplate(t.content); setTplOpen(false); }}>
+                        {t.name}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                <div className="tpl-divider" />
+                <div className="tpl-footer"
+                  onMouseDown={e => { e.preventDefault(); setTplOpen(false); window.dispatchEvent(new CustomEvent('navigate', { detail: 'settings' })); }}>
+                  ⚙️ Kelola Template...
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="sep"/>
           {/* Heading dropdown */}
           <div ref={hRef} style={{ position: "relative" }}>
             <button onMouseDown={e => { e.preventDefault(); setHOpen(o => !o); }} title="Heading" style={{ letterSpacing: 0.5 }}>H ▾</button>
