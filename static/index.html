@@ -7999,6 +7999,7 @@
           {/* Template dropdown */}
           <div ref={tplBtnRef} style={{ position: "relative", flexShrink: 0 }}>
             <button
+              type="button"
               onMouseDown={e => { e.preventDefault(); if (isEmpty) setTplOpen(o => !o); }}
               title="Terapkan template"
               style={isEmpty
@@ -8008,18 +8009,21 @@
             >📋 Template ▾</button>
             {tplOpen && isEmpty && (
               <div className="tpl-dropdown">
-                {tplGroupKeys.map((g, gi) => (
-                  <div key={g}>
-                    {gi > 0 && <div className="tpl-divider" />}
-                    <div className="tpl-group-label">{g}</div>
-                    {tplGroups[g].map(t => (
-                      <div key={t.id} className="tpl-item"
-                        onMouseDown={e => { e.preventDefault(); onApplyTemplate && onApplyTemplate(t.content); setTplOpen(false); }}>
-                        {t.name}
-                      </div>
-                    ))}
-                  </div>
-                ))}
+                {tplGroupKeys.length === 0
+                  ? <div style={{ padding: '10px 14px', fontSize: 12, color: '#9ca3af' }}>Memuat...</div>
+                  : tplGroupKeys.map((g, gi) => (
+                    <div key={g}>
+                      {gi > 0 && <div className="tpl-divider" />}
+                      <div className="tpl-group-label">{g}</div>
+                      {tplGroups[g].map(t => (
+                        <div key={t.id} className="tpl-item"
+                          onMouseDown={e => { e.preventDefault(); onApplyTemplate && onApplyTemplate(t.content); setTplOpen(false); }}>
+                          {t.name}
+                        </div>
+                      ))}
+                    </div>
+                  ))
+                }
                 <div className="tpl-divider" />
                 <div className="tpl-footer"
                   onMouseDown={e => { e.preventDefault(); setTplOpen(false); window.dispatchEvent(new CustomEvent('navigate', { detail: 'settings' })); }}>

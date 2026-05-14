@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v82-template-settings";
+const CACHE = "taskflow-v83-template-bugfix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
