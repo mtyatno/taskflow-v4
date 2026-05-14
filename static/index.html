@@ -8171,7 +8171,7 @@
       );
     }
 
-    function MilkdownEditor({ value, onChange, minHeight, editorRef, onWikilinkClick }) {
+    function MilkdownEditor({ value, onChange, minHeight, editorRef, onWikilinkClick, tasksGetter, onTasklinkClick }) {
       const containerRef = React.useRef(null);
       const instanceRef = React.useRef(null);
       const isExternalUpdate = React.useRef(false);
@@ -8199,6 +8199,7 @@
           .use(MB.listener)
           .use(MB.history)
           .use(createWikilinkPlugin(onWikilinkClick))
+          .use(createTasklinkPlugin(tasksGetter || (() => [])))
           .create()
           .then(editor => {
             if (cancelled) { editor.destroy(); return; }
@@ -8273,11 +8274,16 @@
       }, [value, ready]);
 
       const handleContainerClick = React.useCallback((e) => {
-        const target = e.target.closest('[data-wikilink]');
-        if (target && onWikilinkClick) {
-          onWikilinkClick(target.getAttribute('data-title'));
+        const wikiTarget = e.target.closest('[data-wikilink]');
+        if (wikiTarget && onWikilinkClick) {
+          onWikilinkClick(wikiTarget.getAttribute('data-title'));
+          return;
         }
-      }, [onWikilinkClick]);
+        const taskTarget = e.target.closest('[data-tasklink]');
+        if (taskTarget && onTasklinkClick) {
+          onTasklinkClick(Number(taskTarget.getAttribute('data-tasklink-id') || 0));
+        }
+      }, [onWikilinkClick, onTasklinkClick]);
 
       return (
         <div
