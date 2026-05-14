@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v89-tasklink-print";
+const CACHE = "taskflow-v90-tasklink-print-color";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
