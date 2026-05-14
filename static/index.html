@@ -7384,6 +7384,164 @@
       );
     }
 
+    // ── Note Templates Settings ──────────────────────────────────
+    function NoteTemplatesSettings({ showToast }) {
+      const [templates, setTemplates] = React.useState([]);
+      const [loadingTpl, setLoadingTpl] = React.useState(true);
+      const [showForm, setShowForm] = React.useState(false);
+      const [editingId, setEditingId] = React.useState(null);
+      const [form, setForm] = React.useState({ name: "", group_name: "", content: "" });
+      const [newGroup, setNewGroup] = React.useState("");
+      const [saving, setSaving] = React.useState(false);
+
+      const fetchTemplates = async () => {
+        try {
+          const data = await api.get('/api/note-templates');
+          setTemplates(Array.isArray(data) ? data : []);
+        } catch (e) {
+          showToast('Gagal memuat template', 'error');
+        } finally {
+          setLoadingTpl(false);
+        }
+      };
+
+      React.useEffect(() => { fetchTemplates(); }, []);
+
+      const groups = React.useMemo(() => {
+        const seen = new Set();
+        const result = [];
+        for (const t of templates) {
+          if (!seen.has(t.group_name)) { seen.add(t.group_name); result.push(t.group_name); }
+        }
+        return result;
+      }, [templates]);
+
+      const grouped = React.useMemo(() => {
+        const map = {};
+        for (const t of templates) {
+          if (!map[t.group_name]) map[t.group_name] = [];
+          map[t.group_name].push(t);
+        }
+        return map;
+      }, [templates]);
+
+      const openAdd = () => {
+        setEditingId(null);
+        setForm({ name: "", group_name: groups[0] || "", content: "" });
+        setNewGroup("");
+        setShowForm(true);
+      };
+
+      const openEdit = (t) => {
+        setEditingId(t.id);
+        setForm({ name: t.name, group_name: t.group_name, content: t.content });
+        setNewGroup("");
+        setShowForm(true);
+      };
+
+      const handleCancel = () => { setShowForm(false); setEditingId(null); };
+
+      const handleSave = async () => {
+        const resolvedGroup = form.group_name === "__new__" ? newGroup.trim() : form.group_name;
+        if (!form.name.trim()) { showToast('Nama template wajib diisi', 'error'); return; }
+        if (!resolvedGroup) { showToast('Nama grup wajib diisi', 'error'); return; }
+        setSaving(true);
+        try {
+          const payload = { name: form.name.trim(), group_name: resolvedGroup, content: form.content };
+          if (editingId !== null) {
+            await api.put(`/api/note-templates/${editingId}`, payload);
+          } else {
+            await api.post('/api/note-templates', payload);
+          }
+          showToast(editingId !== null ? 'Template diperbarui' : 'Template ditambahkan');
+          setShowForm(false);
+          setEditingId(null);
+          await fetchTemplates();
+        } catch (e) {
+          showToast(e.message || 'Gagal menyimpan template', 'error');
+        }
+        setSaving(false);
+      };
+
+      const handleDelete = async (t) => {
+        if (!window.confirm('Hapus template ini?')) return;
+        try {
+          await api.delete(`/api/note-templates/${t.id}`);
+          showToast('Template dihapus');
+          await fetchTemplates();
+        } catch (e) {
+          showToast(e.message || 'Gagal menghapus template', 'error');
+        }
+      };
+
+      const groupDropdownOptions = [...groups, '__new__'];
+
+      return (
+        <div style={{ marginTop: 32 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Template Catatan</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Template muncul di toolbar editor saat catatan masih kosong</div>
+            </div>
+            {!showForm && (
+              <button className="btn btn-primary" style={{ fontSize: 13, whiteSpace: 'nowrap', marginLeft: 16 }} onClick={openAdd}>
+                + Tambah Template
+              </button>
+            )}
+          </div>
+
+          {showForm && (
+            <div className="card" style={{ marginBottom: 20, border: '1px solid var(--accent)', borderRadius: 10, padding: 18 }}>
+              <div style={{ marginBottom: 14 }}>
+                <label className="input-label">Nama Template</label>
+                <input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="cth. Catatan Rapat" />
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label className="input-label">Grup</label>
+                <select className="input" value={form.group_name} onChange={e => setForm(f => ({ ...f, group_name: e.target.value }))}>
+                  {groups.map(g => <option key={g} value={g}>{g}</option>)}
+                  <option value="__new__">Grup baru...</option>
+                </select>
+                {form.group_name === '__new__' && (
+                  <input className="input" style={{ marginTop: 8 }} value={newGroup} onChange={e => setNewGroup(e.target.value)} placeholder="Nama grup baru" />
+                )}
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label className="input-label">Konten (Markdown)</label>
+                <textarea className="input" rows={6} style={{ fontFamily: 'monospace', fontSize: 13, resize: 'vertical' }} value={form.content} onChange={e => setForm(f => ({ ...f, content: e.target.value }))} placeholder="Tulis konten template..." />
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="btn" onClick={handleCancel} disabled={saving}>Batal</button>
+                <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
+              </div>
+            </div>
+          )}
+
+          {loadingTpl ? (
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '12px 0' }}>Memuat template...</div>
+          ) : templates.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '12px 0' }}>Belum ada template. Klik + Tambah Template untuk mulai.</div>
+          ) : (
+            Object.entries(grouped).map(([groupName, items]) => (
+              <div key={groupName} style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>{groupName}</div>
+                <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                  {items.map((t, idx) => (
+                    <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: idx < items.length - 1 ? '1px solid var(--border)' : 'none', background: 'var(--bg-secondary)' }}>
+                      <span style={{ flex: 1, fontSize: 14 }}>{t.name}</span>
+                      <span style={{ fontSize: 11, color: t.is_default ? '#9ca3af' : '#b6d400', marginRight: 4 }}>{t.is_default ? 'default' : 'custom'}</span>
+                      <button className="btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => openEdit(t)} title="Edit">Edit</button>
+                      <button className="btn" style={{ fontSize: 12, padding: '3px 10px', color: '#ef4444' }} onClick={() => handleDelete(t)} title="Hapus">Hapus</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      );
+    }
+
     // ── Settings Page ───────────────────────────────────────────
     function SettingsPage({ user, onUsernameChange, showToast }) {
       const [unForm, setUnForm] = useState({ new_username: "", current_password: "" });
@@ -7558,6 +7716,9 @@
           <button className="btn btn-primary" onClick={handleExport} disabled={downloading} style={{ minWidth: 190 }}>
             {downloading ? 'Menyiapkan...' : '⬇ Download Backup (.zip)'}
           </button>
+        </div>
+        <div style={{ paddingTop: 24, borderTop: '1px solid var(--border)', marginTop: 28 }}>
+          <NoteTemplatesSettings showToast={showToast} />
         </div>
         </div>
       );
@@ -11471,6 +11632,13 @@
         setPendingAction("");
         window.history.replaceState({}, "", "/");
       }, [user, pendingAction]);
+
+      // Handle navigate event dispatched from toolbar dropdowns etc.
+      useEffect(() => {
+        const handler = (e) => { if (e.detail) setPage(e.detail); };
+        window.addEventListener('navigate', handler);
+        return () => window.removeEventListener('navigate', handler);
+      }, []);
 
       useEffect(() => {
         if (!user) return;
