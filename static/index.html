@@ -9029,7 +9029,10 @@
         return [...byOverlap, ...popular].slice(0, 5);
       }, [existingTags, tags, title, content]);
 
-      const allKnownTasks = [...tasks, ...localNewTasks.filter(t => !tasks.find(x => x.id === t.id))];
+      const allKnownTasks = React.useMemo(
+        () => [...tasks, ...localNewTasks.filter(t => !tasks.find(x => x.id === t.id))],
+        [tasks, localNewTasks]
+      );
       allKnownTasksRef.current = allKnownTasks;
       const linkedTasks   = allKnownTasks.filter(t => linkedTaskIds.includes(t.id));
 
