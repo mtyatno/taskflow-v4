@@ -7385,6 +7385,8 @@
     }
 
     // ── Note Templates Settings ──────────────────────────────────
+    let _tplCache = null; // module-level cache, cleared on mutation
+
     function NoteTemplatesSettings({ showToast }) {
       const [templates, setTemplates] = React.useState([]);
       const [loadingTpl, setLoadingTpl] = React.useState(true);
@@ -7453,6 +7455,7 @@
           } else {
             await api.post('/api/note-templates', payload);
           }
+          _tplCache = null;
           showToast(editingId !== null ? 'Template diperbarui' : 'Template ditambahkan');
           setShowForm(false);
           setEditingId(null);
@@ -7467,6 +7470,7 @@
         if (!window.confirm('Hapus template ini?')) return;
         try {
           await api.delete(`/api/note-templates/${t.id}`);
+          _tplCache = null;
           showToast('Template dihapus');
           await fetchTemplates();
         } catch (e) {
@@ -7899,7 +7903,12 @@
         return () => document.removeEventListener("mousedown", close);
       }, [moreOpen]);
       React.useEffect(() => {
-        api.get('/api/note-templates').then(data => setTemplates(Array.isArray(data) ? data : [])).catch(() => {});
+        if (_tplCache) { setTemplates(_tplCache); return; }
+        api.get('/api/note-templates').then(data => {
+          const arr = Array.isArray(data) ? data : [];
+          _tplCache = arr;
+          setTemplates(arr);
+        }).catch(() => {});
       }, []);
       React.useEffect(() => {
         if (!tplOpen) return;
