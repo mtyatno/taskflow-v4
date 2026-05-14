@@ -8578,6 +8578,16 @@
         return coords;
       }
 
+      // Click-outside for task dropdown
+      useEffect(() => {
+        if (!taskDropdown) return;
+        const close = (e) => {
+          if (taskDropdownRef.current && !taskDropdownRef.current.contains(e.target)) setTaskDropdown(null);
+        };
+        document.addEventListener("mousedown", close);
+        return () => document.removeEventListener("mousedown", close);
+      }, [taskDropdown]);
+
       // Share dropdown
       const [shareOpen, setShareOpen] = useState(false);
       const shareRef = useRef(null);
@@ -9199,6 +9209,34 @@
                 {!wikiDropdown.canCreate && wikiDropdown.items.length === 0 && (
                   <div className="wiki-autocomplete-item" style={{ color: "var(--text-light)", cursor: "default", fontStyle: "italic" }}>
                     {noteTitles.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan"}
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Task link autocomplete dropdown */}
+            {taskDropdown && (
+              <div ref={taskDropdownRef} className="wiki-autocomplete"
+                style={{ position: "fixed", top: taskDropdown.top, left: taskDropdown.left, zIndex: 1060 }}>
+                <input
+                  className="input"
+                  style={{ width: "100%", padding: "5px 8px", fontSize: 12, marginBottom: 4, borderRadius: 5, boxSizing: 'border-box' }}
+                  placeholder="Cari task..."
+                  value={taskDropdown.query || ''}
+                  onChange={e => setTaskDropdown(d => ({ ...d, query: e.target.value, activeIdx: 0 }))}
+                  autoFocus
+                  onMouseDown={e => e.stopPropagation()}
+                />
+                {taskDropdownItems.map((t, i) => (
+                  <div key={t.id}
+                    className={`wiki-autocomplete-item${i === (taskDropdown.activeIdx || 0) ? " active" : ""}`}
+                    onMouseDown={e => { e.preventDefault(); insertTasklink(t.id); }}>
+                    <PriBadge p={t.priority} />
+                    <span style={{ marginLeft: 4 }}>{t.title}</span>
+                  </div>
+                ))}
+                {taskDropdownItems.length === 0 && (
+                  <div className="wiki-autocomplete-item" style={{ color: "var(--text-light)", cursor: "default", fontStyle: "italic" }}>
+                    {(taskDropdown.query || '').trim() ? "Task tidak ditemukan" : "Ketik nama task..."}
                   </div>
                 )}
               </div>
