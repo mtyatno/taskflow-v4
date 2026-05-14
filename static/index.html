@@ -8528,15 +8528,15 @@
       const [tags, setTags]           = useState(note?.tags || []);
       // Multi-task linking
       const initTaskIds = () => {
-        if (note?.linked_task_ids?.length) return note.linked_task_ids;
-        if (note?.linked_task_id) return [note.linked_task_id];
-        return [];
+        const contentIds = extractTaskIdsFromContent(note?.content || '');
+        const dbIds = note?.linked_task_ids?.length
+          ? note.linked_task_ids
+          : (note?.linked_task_id ? [note.linked_task_id] : []);
+        return [...new Set([...contentIds, ...dbIds])];
       };
       const [linkedTaskIds, setLinkedTaskIds] = useState(initTaskIds);
       const [localNewTasks, setLocalNewTasks] = useState([]);
-      const [taskSearch, setTaskSearch]       = useState("");
-      const [showTaskSearch, setShowTaskSearch] = useState(false);
-      const [creatingTask, setCreatingTask]   = useState(false);
+      const [taskDropdown, setTaskDropdown]   = useState(null);
       const [saving, setSaving]       = useState(false);
       const wordCount = React.useMemo(() => content.trim() ? content.trim().split(/\s+/).length : 0, [content]);
       const isDirtyRef                = useRef(false);
@@ -8547,6 +8547,9 @@
       const [conflictBanner, setConflictBanner] = useState(null);
       const [expanded, setExpanded]   = useState(false);
       const milkdownEditorRef         = React.useRef(null);
+      const allKnownTasksRef          = React.useRef([]);
+      const tasksGetterRef            = React.useRef(() => allKnownTasksRef.current);
+      const taskDropdownRef           = React.useRef(null);
 
       function getTextBeforeCursor() {
         const editor = milkdownEditorRef.current;
@@ -8997,11 +9000,21 @@
       }, [existingTags, tags, title, content]);
 
       const allKnownTasks = [...tasks, ...localNewTasks.filter(t => !tasks.find(x => x.id === t.id))];
+      allKnownTasksRef.current = allKnownTasks;
       const linkedTasks   = allKnownTasks.filter(t => linkedTaskIds.includes(t.id));
-      const filteredTasks = allKnownTasks.filter(t =>
-        t.gtd_status !== "done" && t.gtd_status !== "archived" &&
-        t.title.toLowerCase().includes(taskSearch.toLowerCase())
-      ).slice(0, 8);
+
+      const pickerTasks = React.useMemo(() => {
+        const active = allKnownTasks.filter(t => t.gtd_status !== 'done' && t.gtd_status !== 'archived');
+        if (!sharedLists?.length) return active;
+        const sharedIds = new Set(sharedLists.map(l => l.id));
+        return active.filter(t => sharedIds.has(t.list_id));
+      }, [allKnownTasks, sharedLists]);
+
+      const taskDropdownItems = taskDropdown !== null
+        ? pickerTasks
+            .filter(t => !linkedTaskIds.includes(t.id) && t.title.toLowerCase().includes((taskDropdown.query || '').toLowerCase()))
+            .slice(0, 8)
+        : [];
 
       React.useEffect(() => {
         if (!savedNoteId) return;
@@ -9021,21 +9034,8 @@
 
       const handleSave = async () => { await saveOnly(); onClose(); };
 
-      const createAndLinkTask = async () => {
-        const newTitle = taskSearch.trim() || "Task baru";
-        setCreatingTask(true);
-        try {
-          const created = await api.post("/api/tasks", { title: newTitle });
-          setLocalNewTasks(prev => [...prev, created]);
-          setLinkedTaskIds(ids => [...ids, created.id]);
-          setShowTaskSearch(false);
-          setTaskSearch("");
-        } catch (e) {
-          // silent — user can retry
-        } finally {
-          setCreatingTask(false);
-        }
-      };
+      // createAndLinkTask — legacy inline search (Task 12 will replace UI with taskDropdown)
+      const createAndLinkTask = async () => { /* replaced by taskDropdown in Task 12 */ };
 
       // ── Shared inner content ──────────────────────────────────────
       const inner = (
@@ -9298,47 +9298,7 @@
                 </div>
               ))}
 
-              {/* Add link search */}
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowTaskSearch(s => !s)}>
-                + Tambah Link Task
-              </button>
-              {showTaskSearch && (
-                <div style={{ marginTop: 8 }}>
-                  <input
-                    className="input" style={{ width: "100%", padding: "7px 10px", fontSize: 13, marginBottom: 6 }}
-                    placeholder="Cari task..."
-                    value={taskSearch}
-                    onChange={e => setTaskSearch(e.target.value)}
-                    autoFocus
-                  />
-                  {filteredTasks.filter(t => !linkedTaskIds.includes(t.id)).map(t => (
-                    <div key={t.id}
-                      onClick={() => { setLinkedTaskIds(ids => [...ids, t.id]); setShowTaskSearch(false); setTaskSearch(""); }}
-                      style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13,
-                        background: "var(--bg-primary)", marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}
-                      onMouseEnter={e => e.currentTarget.style.opacity = "0.75"}
-                      onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-                      <PriBadge p={t.priority} />
-                      {t.title}
-                    </div>
-                  ))}
-                  {filteredTasks.filter(t => !linkedTaskIds.includes(t.id)).length === 0 && !taskSearch.trim() && (
-                    <div style={{ fontSize: 12, color: "var(--text-light)", padding: "6px 10px" }}>Tidak ada task ditemukan</div>
-                  )}
-                  {taskSearch.trim() && (
-                    <div
-                      onClick={creatingTask ? undefined : createAndLinkTask}
-                      style={{ padding: "8px 10px", borderRadius: 8, cursor: creatingTask ? "default" : "pointer", fontSize: 13,
-                        background: "var(--bg-primary)", marginTop: 4, display: "flex", alignItems: "center", gap: 8,
-                        opacity: creatingTask ? 0.6 : 1, borderTop: "1px solid var(--border)" }}
-                      onMouseEnter={e => { if (!creatingTask) e.currentTarget.style.opacity = "0.75"; }}
-                      onMouseLeave={e => e.currentTarget.style.opacity = creatingTask ? "0.6" : "1"}>
-                      <span style={{ fontSize: 15 }}>＋</span>
-                      <span>{creatingTask ? "Membuat..." : `Buat task baru: "${taskSearch.trim()}"`}</span>
-                    </div>
-                  )}
-                </div>
-              )}
+              {/* Add link search — replaced by taskDropdown trigger in Task 12 */}
             </div>
           )}
 
