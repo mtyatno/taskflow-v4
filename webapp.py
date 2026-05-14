@@ -3102,6 +3102,68 @@ async def list_note_templates(user=Depends(get_current_user)):
         return [dict(r) for r in rows]
 
 
+@app.post("/api/note-templates")
+async def create_note_template(body: NoteTemplateCreate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        max_order = conn.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) FROM note_templates WHERE user_id = ? AND group_name = ?",
+            (uid, body.group_name)
+        ).fetchone()[0]
+        cur = conn.execute(
+            "INSERT INTO note_templates (user_id, name, group_name, content, is_default, sort_order, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
+            (uid, body.name, body.group_name, body.content, max_order + 1, now, now)
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT id, name, group_name, content, is_default, sort_order FROM note_templates WHERE id = ?",
+            (cur.lastrowid,)
+        ).fetchone()
+    return dict(row)
+
+
+@app.put("/api/note-templates/{tid}")
+async def update_note_template(tid: int, body: NoteTemplateUpdate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM note_templates WHERE id = ? AND user_id = ?", (tid, uid)
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=403, detail="Not found or forbidden")
+        updates = {k: v for k, v in body.dict().items() if v is not None}
+        if not updates:
+            row = conn.execute(
+                "SELECT id, name, group_name, content, is_default, sort_order FROM note_templates WHERE id = ?", (tid,)
+            ).fetchone()
+            return dict(row)
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [now, tid]
+        conn.execute(f"UPDATE note_templates SET {set_clause}, updated_at = ? WHERE id = ?", values)
+        conn.commit()
+        row = conn.execute(
+            "SELECT id, name, group_name, content, is_default, sort_order FROM note_templates WHERE id = ?", (tid,)
+        ).fetchone()
+    return dict(row)
+
+
+@app.delete("/api/note-templates/{tid}")
+async def delete_note_template(tid: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM note_templates WHERE id = ? AND user_id = ?", (tid, uid)
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=403, detail="Not found or forbidden")
+        conn.execute("DELETE FROM note_templates WHERE id = ?", (tid,))
+        conn.commit()
+    return {"ok": True}
+
+
 @app.patch("/api/mindmaps/{mid}/share")
 async def share_mindmap(mid: int, req: MindmapShareReq, user=Depends(get_current_user)):
     uid = user["sub"]
