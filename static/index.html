@@ -7418,6 +7418,7 @@
         return result;
       }, [templates]);
 
+      const _SETTINGS_GROUP_ORDER = ["Umum & Penangkapan Cepat", "Pekerjaan & Proyek", "Evaluasi & Pembelajaran"];
       const grouped = React.useMemo(() => {
         const map = {};
         for (const t of templates) {
@@ -7426,6 +7427,15 @@
         }
         return map;
       }, [templates]);
+      const groupedEntries = React.useMemo(() => {
+        return Object.entries(grouped).sort(([a], [b]) => {
+          const ia = _SETTINGS_GROUP_ORDER.indexOf(a), ib = _SETTINGS_GROUP_ORDER.indexOf(b);
+          if (ia !== -1 && ib !== -1) return ia - ib;
+          if (ia !== -1) return -1;
+          if (ib !== -1) return 1;
+          return a.localeCompare(b);
+        });
+      }, [grouped]);
 
       const openAdd = () => {
         setEditingId(null);
@@ -7526,7 +7536,7 @@
           ) : templates.length === 0 ? (
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '12px 0' }}>Belum ada template. Klik + Tambah Template untuk mulai.</div>
           ) : (
-            Object.entries(grouped).map(([groupName, items]) => (
+            groupedEntries.map(([groupName, items]) => (
               <div key={groupName} style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>{groupName}</div>
                 <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
@@ -8001,7 +8011,14 @@
         acc[g].push(t);
         return acc;
       }, {});
-      const tplGroupKeys = Object.keys(tplGroups);
+      const _TPL_GROUP_ORDER = ["Umum & Penangkapan Cepat", "Pekerjaan & Proyek", "Evaluasi & Pembelajaran"];
+      const tplGroupKeys = Object.keys(tplGroups).sort((a, b) => {
+        const ia = _TPL_GROUP_ORDER.indexOf(a), ib = _TPL_GROUP_ORDER.indexOf(b);
+        if (ia !== -1 && ib !== -1) return ia - ib;
+        if (ia !== -1) return -1;
+        if (ib !== -1) return 1;
+        return a.localeCompare(b);
+      });
 
       return (
         <div className="note-toolbar">

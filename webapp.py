@@ -251,6 +251,21 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Update default template content (add hardcoded tags)
+    from datetime import datetime as _dt
+    _now = _dt.now().isoformat()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        for t in _DEFAULT_NOTE_TEMPLATES:
+            conn.execute(
+                "UPDATE note_templates SET content = ?, updated_at = ? "
+                "WHERE name = ? AND group_name = ? AND is_default = 1",
+                (t["content"], _now, t["name"], t["group_name"])
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
 
 # ── Password hashing (no external deps) ───────────────────────────────────────
 
@@ -3029,55 +3044,55 @@ _DEFAULT_NOTE_TEMPLATES = [
         "group_name": "Umum & Penangkapan Cepat",
         "name": "Catatan Cepat",
         "sort_order": 0,
-        "content": "# Catatan Cepat\n\n## Inti Pikiran\n- \n\n## Detail\n- \n\n## Tindakan Selanjutnya\n- [ ] ",
+        "content": "# Catatan Cepat\n\n## Inti Pikiran\n- \n\n## Detail\n- \n\n## Tindakan Selanjutnya\n- [ ] \n\n---\n\n#catatan #cepat",
     },
     {
         "group_name": "Umum & Penangkapan Cepat",
         "name": "Curah Pikiran",
         "sort_order": 1,
-        "content": "# Curah Pikiran\n\n## Apa yang Sedang Saya Pikirkan\n- ",
+        "content": "# Curah Pikiran\n\n## Apa yang Sedang Saya Pikirkan\n- \n\n---\n\n#ide #brainstorm",
     },
     {
         "group_name": "Pekerjaan & Proyek",
         "name": "Log Harian",
         "sort_order": 0,
-        "content": "# Log Harian - [Tanggal]\n\n## Fokus Hari Ini\n- \n\n## Progress\n- \n\n## Hambatan\n- \n\n## Besok\n- ",
+        "content": "# Log Harian - [Tanggal]\n\n## Fokus Hari Ini\n- \n\n## Progress\n- \n\n## Hambatan\n- \n\n## Besok\n- \n\n---\n\n#log #harian",
     },
     {
         "group_name": "Pekerjaan & Proyek",
         "name": "Catatan Rapat",
         "sort_order": 1,
-        "content": "# Judul Rapat\n\n**Tanggal:**  \n**Peserta:**  \n\n## Agenda\n- \n\n## Diskusi\n- \n\n## Keputusan\n- \n\n## Tindak Lanjut\n- [ ] ",
+        "content": "# Judul Rapat\n\n**Tanggal:**  \n**Peserta:**  \n\n## Agenda\n- \n\n## Diskusi\n- \n\n## Keputusan\n- \n\n## Tindak Lanjut\n- [ ] \n\n---\n\n#rapat #meeting",
     },
     {
         "group_name": "Pekerjaan & Proyek",
         "name": "Perencanaan Proyek",
         "sort_order": 2,
-        "content": "# Nama Proyek\n\n## Tujuan\n- \n\n## Ruang Lingkup\n- \n\n## Timeline & Milestone\n- \n\n## Tugas\n- [ ] ",
+        "content": "# Nama Proyek\n\n## Tujuan\n- \n\n## Ruang Lingkup\n- \n\n## Timeline & Milestone\n- \n\n## Tugas\n- [ ] \n\n---\n\n#proyek #planning",
     },
     {
         "group_name": "Pekerjaan & Proyek",
         "name": "Pemecahan Masalah",
         "sort_order": 3,
-        "content": "# Masalah / Isu\n\n## Kondisi Saat Ini\n- \n\n## Akar Penyebab\n- \n\n## Dampak\n- \n\n## Solusi\n- \n\n## Tindakan Lanjutan\n- [ ] ",
+        "content": "# Masalah / Isu\n\n## Kondisi Saat Ini\n- \n\n## Akar Penyebab\n- \n\n## Dampak\n- \n\n## Solusi\n- \n\n## Tindakan Lanjutan\n- [ ] \n\n---\n\n#masalah #solusi",
     },
     {
         "group_name": "Pekerjaan & Proyek",
         "name": "Pengambilan Keputusan",
         "sort_order": 4,
-        "content": "# Topik Keputusan\n\n## Opsi\n- \n\n## Kelebihan & Kekurangan\n- **Opsi A:** (+)... (-) ...\n- **Opsi B:** (+)... (-) ...\n\n## Keputusan Akhir\n- ",
+        "content": "# Topik Keputusan\n\n## Opsi\n- \n\n## Kelebihan & Kekurangan\n- **Opsi A:** (+)... (-) ...\n- **Opsi B:** (+)... (-) ...\n\n## Keputusan Akhir\n- \n\n---\n\n#keputusan #analisis",
     },
     {
         "group_name": "Evaluasi & Pembelajaran",
         "name": "Tinjauan Mingguan",
         "sort_order": 0,
-        "content": "# Tinjauan Mingguan\n\n## Pencapaian\n- \n\n## Kegagalan / Tantangan\n- \n\n## Pelajaran yang Dipetik\n- \n\n## Fokus Minggu Depan\n- ",
+        "content": "# Tinjauan Mingguan\n\n## Pencapaian\n- \n\n## Kegagalan / Tantangan\n- \n\n## Pelajaran yang Dipetik\n- \n\n## Fokus Minggu Depan\n- \n\n---\n\n#review #mingguan",
     },
     {
         "group_name": "Evaluasi & Pembelajaran",
         "name": "Catatan Pembelajaran",
         "sort_order": 1,
-        "content": "# Topik\n\n**Sumber:**  \n\n## Insight Utama\n- \n\n## Kutipan Penting\n> \n\n## Hal yang Dapat Diterapkan\n- ",
+        "content": "# Topik\n\n**Sumber:**  \n\n## Insight Utama\n- \n\n## Kutipan Penting\n> \n\n## Hal yang Dapat Diterapkan\n- \n\n---\n\n#belajar #insight",
     },
 ]
 
