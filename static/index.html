@@ -8405,6 +8405,67 @@
       return [wikilinkRemark, wikilinkNode];
     }
 
+    function createTasklinkPlugin(tasksGetter) {
+      const MB = window.MilkdownBundle;
+
+      const PRI_COLORS = { P1: '#ef4444', P2: '#f97316', P3: '#eab308', P4: '#94a3b8' };
+
+      const tasklinkNode = MB.$node('tasklink', () => ({
+        group: 'inline',
+        inline: true,
+        atom: true,
+        attrs: { taskId: { default: 0 } },
+        toDOM: (node) => {
+          const tasks = tasksGetter();
+          const task = tasks.find(t => t.id === node.attrs.taskId);
+          if (!task) {
+            return ['span', { class: 'tasklink-node-fallback', 'data-tasklink': '', 'data-tasklink-id': String(node.attrs.taskId) },
+              ['span', { class: 'tasklink-status-label', style: 'background:#3b82f6' }, 'OPEN'],
+              ' ',
+              ['span', { class: 'tasklink-priority-label', style: 'background:#94a3b8' }, '?'],
+              ' task tidak tersedia',
+            ];
+          }
+          const isDone = task.gtd_status === 'done' || task.gtd_status === 'archived';
+          const statusLabel = isDone ? 'DONE' : 'OPEN';
+          const statusColor = isDone ? '#16a34a' : '#3b82f6';
+          const priority = task.priority || 'P4';
+          const priColor = PRI_COLORS[priority] || '#94a3b8';
+          return ['span', {
+            class: 'tasklink-node',
+            'data-tasklink': '',
+            'data-tasklink-id': String(task.id),
+            title: `Task: ${task.title}`,
+          },
+            ['span', { class: 'tasklink-status-label', style: `background:${statusColor}` }, statusLabel],
+            ' ',
+            ['span', { class: 'tasklink-priority-label', style: `background:${priColor}` }, priority],
+            ` ${task.title}`,
+          ];
+        },
+        parseDOM: [{
+          tag: 'span[data-tasklink]',
+          getAttrs: (dom) => ({ taskId: Number(dom.getAttribute('data-tasklink-id') || 0) }),
+        }],
+        parseMarkdown: {
+          match: (node) => node.type === 'tasklink',
+          runner: (state, node, type) => {
+            state.addNode(type, { taskId: node.taskId });
+          },
+        },
+        toMarkdown: {
+          match: (node) => node.type.name === 'tasklink',
+          runner: (state, node) => {
+            state.addNode('text', undefined, `[tasklink:${node.attrs.taskId}]`);
+          },
+        },
+      }));
+
+      const tasklinkRemark = MB.$remark('tasklink-remark', () => remarkTasklinkPlugin);
+
+      return [tasklinkRemark, tasklinkNode];
+    }
+
     function extractHeadings(content) {
       const headings = [];
       let idx = 0;
