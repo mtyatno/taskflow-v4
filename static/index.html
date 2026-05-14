@@ -8324,6 +8324,46 @@
       };
     }
 
+    function remarkTasklinkPlugin() {
+      return function transformer(tree) {
+        function walk(node, parent, index) {
+          if (node.type === 'text' && typeof node.value === 'string') {
+            const regex = /\[tasklink:(\d+)\]/g;
+            const parts = [];
+            let lastIndex = 0;
+            let match;
+            while ((match = regex.exec(node.value)) !== null) {
+              if (match.index > lastIndex) {
+                parts.push({ type: 'text', value: node.value.slice(lastIndex, match.index) });
+              }
+              parts.push({ type: 'tasklink', taskId: Number(match[1]) });
+              lastIndex = regex.lastIndex;
+            }
+            if (parts.length > 0) {
+              if (lastIndex < node.value.length) {
+                parts.push({ type: 'text', value: node.value.slice(lastIndex) });
+              }
+              parent.children.splice(index, 1, ...parts);
+              return index + parts.length;
+            }
+          }
+          if (node.children && Array.isArray(node.children)) {
+            let i = 0;
+            while (i < node.children.length) {
+              const next = walk(node.children[i], node, i);
+              i = next !== undefined ? next : i + 1;
+            }
+          }
+        }
+        walk(tree, null, 0);
+      };
+    }
+
+    function extractTaskIdsFromContent(markdown) {
+      const matches = [...(markdown || '').matchAll(/\[tasklink:(\d+)\]/g)];
+      return [...new Set(matches.map(m => Number(m[1])))];
+    }
+
     function createWikilinkPlugin(onWikilinkClick) {
       const MB = window.MilkdownBundle;
 
