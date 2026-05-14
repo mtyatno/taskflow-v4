@@ -3021,7 +3021,7 @@ class NoteTemplateCreate(BaseModel):
 class NoteTemplateUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     group_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    content: Optional[str] = None
+    content: Optional[str] = Field(default=None, min_length=1)
 
 
 _DEFAULT_NOTE_TEMPLATES = [
