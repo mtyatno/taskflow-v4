@@ -8811,6 +8811,15 @@
           setTags(extracted);
         }
 
+        // Sync linkedTaskIds from content (source of truth after first edit)
+        const parsedTaskIds = extractTaskIdsFromContent(markdown);
+        setLinkedTaskIds(prev => {
+          const prevSorted = prev.slice().sort((a, b) => a - b);
+          const nextSorted = parsedTaskIds.slice().sort((a, b) => a - b);
+          if (JSON.stringify(prevSorted) === JSON.stringify(nextSorted)) return prev;
+          return parsedTaskIds;
+        });
+
         const textBefore = getTextBeforeCursor();
         const getPos = getCursorCoords;
 
@@ -8830,6 +8839,27 @@
         } else {
           setTagDropdown(null);
         }
+
+        // Task link trigger: [task [tasks [todo [todos [tugas (case-insensitive)
+        // Guard: char before [ must NOT be [ (wikilink territory)
+        const taskTriggerMatch = textBefore.match(/\[(task|tasks|todo|todos|tugas)[a-zA-Z0-9 ]*$/i);
+        if (taskTriggerMatch) {
+          const triggerStart = textBefore.length - taskTriggerMatch[0].length;
+          const charBefore = triggerStart > 0 ? textBefore[triggerStart - 1] : '';
+          if (charBefore !== '[') {
+            const coords = getPos();
+            const queryRaw = taskTriggerMatch[0].slice(1 + taskTriggerMatch[1].length);
+            setTaskDropdown(prev => ({
+              top: coords.top,
+              left: coords.left,
+              query: queryRaw.trimStart(),
+              activeIdx: 0,
+            }));
+            setWikiDropdown(null);
+            return;
+          }
+        }
+        setTaskDropdown(null);
 
         // Wikilink autocomplete
         const wikiMatch = textBefore.match(/\[\[([^\]]*)$/);
