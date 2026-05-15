@@ -2561,7 +2561,7 @@
           ? allNoteKnownTasks
               .filter(t => t.gtd_status !== 'done' && t.gtd_status !== 'archived')
               .filter(t => t.title.toLowerCase().includes((noteTaskDropdown.query || '').toLowerCase()))
-              .slice(0, 8)
+              .slice(0, 12)
           : []
       , [noteTaskDropdown, allNoteKnownTasks]);
 
@@ -9378,18 +9378,15 @@
       allKnownTasksRef.current = allKnownTasks;
       const linkedTasks   = allKnownTasks.filter(t => linkedTaskIds.includes(t.id));
 
-      const pickerTasks = React.useMemo(() => {
-        const active = allKnownTasks.filter(t => t.gtd_status !== 'done' && t.gtd_status !== 'archived');
-        if (!sharedLists?.length) return active;
-        const sharedIds = new Set(sharedLists.map(l => l.id));
-        return active.filter(t => sharedIds.has(t.list_id));
-      }, [allKnownTasks, sharedLists]);
+      const pickerTasks = React.useMemo(() =>
+        allKnownTasks.filter(t => t.gtd_status !== 'done' && t.gtd_status !== 'archived')
+      , [allKnownTasks]);
 
       const taskDropdownItems = React.useMemo(() =>
         taskDropdown !== null
           ? pickerTasks
               .filter(t => !linkedTaskIds.includes(t.id) && t.title.toLowerCase().includes((taskDropdown.query || '').toLowerCase()))
-              .slice(0, 8)
+              .slice(0, 12)
           : []
       , [taskDropdown, pickerTasks, linkedTaskIds]);
 
