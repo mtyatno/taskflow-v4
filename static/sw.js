@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v93-focus-mode-dropdowns";
+const CACHE = "taskflow-v94-highlight-syntax";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",

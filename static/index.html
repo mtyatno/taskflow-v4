@@ -872,8 +872,13 @@
       #note-print-area .tasklink-priority-label {
         -webkit-print-color-adjust: exact; print-color-adjust: exact;
       }
+      #note-print-area .highlight-mark {
+        background: #fef08a !important;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
     }
     .note-rendered img { max-width: 100%; border-radius: 6px; margin: 6px 0; display: block; }
+    .note-rendered mark { background: #fef08a; border-radius: 2px; padding: 0 2px; }
     .img-offline-placeholder { font-size: 12px; color: var(--text-light); font-style: italic; }
     .note-attachments-panel { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
     .note-attach-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
@@ -1163,6 +1168,16 @@
       background: rgba(241,245,249,0.08);
       border-color: rgba(203,213,225,0.2);
       color: #94a3b8;
+    }
+    .highlight-mark {
+      background: #fef08a;
+      border-radius: 2px;
+      padding: 0 2px;
+      color: inherit;
+    }
+    [data-theme="dark"] .highlight-mark {
+      background: rgba(254,240,138,0.28);
+      color: var(--text-primary);
     }
     /* Dark mode — wikilink read view */
     [data-theme="dark"] .wikilink,
@@ -8016,8 +8031,8 @@
       if (!text) return "";
       const wikiMap = {};
       let wi = 0;
-      // Strip tasklink tokens — they don't belong in card previews
-      const stripped = text.replace(/\\?\[tasklink:\d+\\?\]/g, '');
+      // Strip tasklink and highlight tokens — they don't belong in card previews
+      const stripped = text.replace(/\\?\[tasklink:\d+\\?\]/g, '').replace(/==([^=\n]+)==/g, '$1');
       const processed = stripped.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
         const title = rawTitle.replace(/\\(.)/g, '$1');
         const key = `WKPREV${wi++}WKPREV`;
@@ -8114,11 +8129,23 @@
         return key;
       });
 
-      let html = marked.parse(processed2);
+      // Pre-process ==highlight== tokens before marked.parse
+      const hlMap = {};
+      let hi = 0;
+      const processed3 = processed2.replace(/==([^=\n]+)==/g, (_, val) => {
+        const key = `HLMK${hi++}HLMKEND`;
+        hlMap[key] = `<mark class="highlight-mark">${escapeHtml(val)}</mark>`;
+        return key;
+      });
+
+      let html = marked.parse(processed3);
       for (const [k, v] of Object.entries(wikiMap)) {
         html = html.split(k).join(v);
       }
       for (const [k, v] of Object.entries(taskMap)) {
+        html = html.split(k).join(v);
+      }
+      for (const [k, v] of Object.entries(hlMap)) {
         html = html.split(k).join(v);
       }
       return html;
@@ -8387,6 +8414,7 @@
           .use(MB.history)
           .use(createWikilinkPlugin(onWikilinkClick))
           .use(createTasklinkPlugin(tasksGetter || (() => [])))
+          .use(createHighlightPlugin())
           .create()
           .then(editor => {
             if (cancelled) { editor.destroy(); return; }
@@ -8657,6 +8685,73 @@
       const tasklinkRemark = MB.$remark('tasklink-remark', () => remarkTasklinkPlugin);
 
       return [tasklinkRemark, tasklinkNode];
+    }
+
+    function remarkHighlightPlugin() {
+      return function transformer(tree) {
+        function walk(node, parent, index) {
+          if (node.type === 'text' && typeof node.value === 'string') {
+            const regex = /==([^=]+)==/g;
+            const parts = [];
+            let lastIndex = 0;
+            let match;
+            while ((match = regex.exec(node.value)) !== null) {
+              if (match.index > lastIndex) {
+                parts.push({ type: 'text', value: node.value.slice(lastIndex, match.index) });
+              }
+              parts.push({ type: 'highlight', value: match[1] });
+              lastIndex = regex.lastIndex;
+            }
+            if (parts.length > 0) {
+              if (lastIndex < node.value.length) {
+                parts.push({ type: 'text', value: node.value.slice(lastIndex) });
+              }
+              parent.children.splice(index, 1, ...parts);
+              return index + parts.length;
+            }
+          }
+          if (node.children && Array.isArray(node.children)) {
+            let i = 0;
+            while (i < node.children.length) {
+              const next = walk(node.children[i], node, i);
+              i = next !== undefined ? next : i + 1;
+            }
+          }
+        }
+        walk(tree, null, 0);
+      };
+    }
+
+    function createHighlightPlugin() {
+      const MB = window.MilkdownBundle;
+
+      const highlightNode = MB.$node('highlight', () => ({
+        group: 'inline',
+        inline: true,
+        atom: true,
+        attrs: { value: { default: '' } },
+        toDOM: (node) => ['mark', { class: 'highlight-mark', 'data-highlight': '' }, node.attrs.value],
+        parseDOM: [{
+          tag: 'mark[data-highlight]',
+          getAttrs: (dom) => ({ value: dom.textContent }),
+        }],
+        parseMarkdown: {
+          match: (node) => node.type === 'highlight',
+          runner: (state, node, type) => {
+            state.addNode(type, { value: node.value });
+          },
+        },
+        toMarkdown: {
+          match: (node) => node.type.name === 'highlight',
+          runner: (state, node) => {
+            state.addNode('text', undefined, `==${node.attrs.value}==`);
+          },
+        },
+      }));
+
+      const highlightRemark = MB.$remark('highlight-remark', () => remarkHighlightPlugin);
+
+      return [highlightRemark, highlightNode];
     }
 
     function extractHeadings(content) {
@@ -8962,6 +9057,7 @@
       const handleEditorChange = (markdown) => {
         setContent(markdown);
         autoConvertWikilinkAtCursor();
+        autoConvertHighlightAtCursor();
 
         // Auto-extract tags
         const extracted = [...new Set(
@@ -9130,6 +9226,27 @@
           const nodeType = view.state.schema.nodes.wikilink;
           if (!nodeType) return;
           view.dispatch(view.state.tr.replaceWith(replaceFrom, from, nodeType.create({ title })));
+        });
+      }, []);
+
+      const autoConvertHighlightAtCursor = React.useCallback(() => {
+        const editor = milkdownEditorRef.current;
+        if (!editor) return;
+        const MB = window.MilkdownBundle;
+        editor.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          const sel = view.state.selection;
+          const from = sel.from;
+          if (from !== sel.to) return;
+          const textBefore = view.state.doc.textBetween(0, from, '\n', '\0');
+          const complete = textBefore.match(/==([^=\n]+)==$/);
+          if (!complete) return;
+          const value = complete[1];
+          if (!value) return;
+          const replaceFrom = from - complete[0].length;
+          const nodeType = view.state.schema.nodes.highlight;
+          if (!nodeType) return;
+          view.dispatch(view.state.tr.replaceWith(replaceFrom, from, nodeType.create({ value })));
         });
       }, []);
 
