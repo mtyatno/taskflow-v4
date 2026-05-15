@@ -8077,7 +8077,13 @@
 
     function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
       if (!text) return "";
-      if (text.includes('>')) console.log('[renderMarkdown RAW]', JSON.stringify(text.substring(0, 800)));
+      if (text.includes('>')) {
+        // Log in chunks to bypass console truncation
+        const chunk = 800;
+        for (let _ci = 0; _ci * chunk < text.length; _ci++) {
+          console.log('[renderMarkdown RAW chunk' + _ci + ']', JSON.stringify(text.substring(_ci * chunk, (_ci + 1) * chunk)));
+        }
+      }
       _markedHIdx = 0;
       const titleSet = new Set((noteTitles || []).map(t => normalizeWikiText(t)));
       const notesById = new Map((allNotes || []).map(n => [String(n.id), n]));
