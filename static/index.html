@@ -9764,7 +9764,7 @@
                 </button>
               </div>
               {/* Editor full-height */}
-              <div style={{ flex: 1, overflow: 'auto' }}>
+              <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
                 <MilkdownEditor
                   value={content}
                   onChange={handleEditorChange}
@@ -9781,6 +9781,87 @@
                   tasksGetter={tasksGetterRef.current}
                   onTasklinkClick={handleTasklinkClick}
                 />
+                {/* Dropdowns in fullscreen — rendered here so zIndex > 10000 container */}
+                {taskDropdown && (
+                  <div ref={taskDropdownRef} className="wiki-autocomplete"
+                    style={{ position: "fixed", top: taskDropdown.top, left: taskDropdown.left, zIndex: 10100 }}>
+                    <input
+                      className="input"
+                      style={{ width: "100%", padding: "5px 8px", fontSize: 12, marginBottom: 4, borderRadius: 5, boxSizing: 'border-box' }}
+                      placeholder="Cari task..."
+                      value={taskDropdown.query || ''}
+                      onChange={e => setTaskDropdown(d => ({ ...d, query: e.target.value, activeIdx: 0 }))}
+                      autoFocus
+                      onMouseDown={e => e.stopPropagation()}
+                      onKeyDown={e => {
+                        if (e.key === 'Escape') { e.preventDefault(); setTaskDropdown(null); return; }
+                        if (e.key === 'Enter' || e.key === 'Tab') {
+                          e.preventDefault();
+                          const chosen = taskDropdownItems[taskDropdown.activeIdx || 0];
+                          if (chosen) { insertTasklink(chosen.id); return; }
+                          const q = (taskDropdown.query || '').trim();
+                          if (q) createAndInsertTask(q);
+                          return;
+                        }
+                        if (e.key === 'ArrowDown') { e.preventDefault(); setTaskDropdown(d => ({ ...d, activeIdx: Math.min((d.activeIdx || 0) + 1, taskDropdownItems.length - 1) })); return; }
+                        if (e.key === 'ArrowUp') { e.preventDefault(); setTaskDropdown(d => ({ ...d, activeIdx: Math.max((d.activeIdx || 0) - 1, 0) })); return; }
+                      }}
+                    />
+                    {taskDropdownItems.map((t, i) => (
+                      <div key={t.id}
+                        className={`wiki-autocomplete-item${i === (taskDropdown.activeIdx || 0) ? " active" : ""}`}
+                        onMouseDown={e => { e.preventDefault(); insertTasklink(t.id); }}>
+                        <PriBadge p={t.priority} />
+                        <span style={{ marginLeft: 4 }}>{t.title}</span>
+                      </div>
+                    ))}
+                    {taskDropdownItems.length === 0 && !(taskDropdown.query || '').trim() && (
+                      <div className="wiki-autocomplete-item" style={{ color: "var(--text-light)", cursor: "default", fontStyle: "italic" }}>Ketik nama task...</div>
+                    )}
+                    {(taskDropdown.query || '').trim() && (
+                      <div
+                        className="wiki-autocomplete-item"
+                        style={{ borderTop: taskDropdownItems.length > 0 ? '1px solid var(--border)' : undefined, color: 'var(--accent)', fontWeight: 600, opacity: creatingInlineTask ? 0.5 : 1 }}
+                        onMouseDown={e => { e.preventDefault(); if (!creatingInlineTask) createAndInsertTask((taskDropdown.query || '').trim()); }}>
+                        {creatingInlineTask ? 'Membuat...' : `＋ Buat task: "${(taskDropdown.query || '').trim()}"`}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {wikiDropdown && (
+                  <div ref={wikiDropdownRef} className="wiki-autocomplete"
+                    style={{ position: "fixed", top: wikiDropdown.top, left: wikiDropdown.left, zIndex: 10100 }}>
+                    {wikiDropdown.items.map((n, i) => (
+                      <div key={n.id} className={`wiki-autocomplete-item${i === wikiDropdown.activeIdx ? " active" : ""}`}
+                        onMouseDown={e => { e.preventDefault(); insertWikilink(n.title); }}>
+                        [[{n.title}]]</div>
+                    ))}
+                    {wikiDropdown.canCreate && (
+                      <div
+                        className={`wiki-autocomplete-item${wikiDropdown.activeIdx === wikiDropdown.items.length ? " active" : ""}`}
+                        style={{ borderTop: wikiDropdown.items.length > 0 ? "1px solid var(--border)" : undefined, color: "var(--accent)", fontWeight: 600 }}
+                        onMouseDown={e => { e.preventDefault(); createNewNote(wikiDropdown.query.trim()); }}>
+                        ✨ Buat note "{wikiDropdown.query.trim()}"
+                      </div>
+                    )}
+                    {!wikiDropdown.canCreate && wikiDropdown.items.length === 0 && (
+                      <div className="wiki-autocomplete-item" style={{ color: "var(--text-light)", cursor: "default", fontStyle: "italic" }}>
+                        {noteTitles.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan"}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {tagDropdown && tagDropdown.items.length > 0 && (
+                  <div className="wiki-autocomplete" style={{ position: "fixed", top: tagDropdown.top, left: tagDropdown.left, zIndex: 10100 }}>
+                    {tagDropdown.items.map((t, i) => (
+                      <div key={t.id} className={`wiki-autocomplete-item${i === 0 ? " active" : ""}`}
+                        onMouseDown={e => { e.preventDefault(); insertTag(t.name); }}>
+                        <span style={{ color: "var(--accent)", fontWeight: 700 }}>#</span>{t.name}
+                        <span style={{ fontSize: 10, color: "var(--text-light)", marginLeft: 6 }}>{t.count}×</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
