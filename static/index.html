@@ -2961,10 +2961,11 @@
                     </div>
                     <div style={noteTextareaFullscreen ? {
                       position: 'fixed', inset: 0, zIndex: 10001,
-                      background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', padding: 16
+                      background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', padding: 16,
+                      overflow: 'hidden'
                     } : {}}>
                       {noteTextareaFullscreen && (
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, flexShrink: 0 }}>
                           <button type="button" onClick={() => setNoteTextareaFullscreen(false)}
                             style={{ background: 'none', border: 'none', cursor: 'pointer',
                                      fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
@@ -2972,10 +2973,12 @@
                           </button>
                         </div>
                       )}
-                      <div style={{ marginBottom: 4 }}>
+                      <div style={noteTextareaFullscreen
+                        ? { marginBottom: 4, flexShrink: 0 }
+                        : { position: 'sticky', top: -28, background: 'var(--bg-card)', zIndex: 10, paddingTop: 4, paddingBottom: 8, marginBottom: 4 }}>
                         <NoteToolbar milkdownEditorRef={noteMilkdownRef} noteId={null} onAttachUploaded={() => {}} content={noteForm.content} onApplyTemplate={(tpl) => setNote("content", tpl)} onInsertTask={openNoteTaskDropdown} />
                       </div>
-                      <div style={{ position: 'relative', flex: noteTextareaFullscreen ? 1 : undefined }}>
+                      <div style={{ position: 'relative', flex: noteTextareaFullscreen ? 1 : undefined, overflow: noteTextareaFullscreen ? 'auto' : undefined, minHeight: noteTextareaFullscreen ? 0 : undefined }}>
                         <MilkdownEditor
                           value={noteForm.content}
                           onChange={handleNoteContentChange}
