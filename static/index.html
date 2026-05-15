@@ -6319,7 +6319,8 @@
       const dayNames = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
 
       const chipColor = (t) => {
-        if (t.gtd_status === "done") return { bg: "#dcfce7", color: "#15803d", dot: "#22c55e" };
+        const isDone = t._isRecurring ? t._occurrenceStatus === 'done' : t.gtd_status === 'done';
+        if (isDone) return { bg: "#dcfce7", color: "#15803d", dot: "#22c55e" };
         if (t.is_overdue) return { bg: "#fee2e2", color: "#b91c1c", dot: "#ef4444" };
         const map = {
           P1: { bg: "#fee2e2", color: "#b91c1c", dot: "#ef4444" },
@@ -6340,21 +6341,26 @@
 
       // Shared task list renderer (used both in inline panel and desktop modal)
       const TaskListItems = ({ items, onSelect }) => items.map(t => {
+        const isDone = t._isRecurring ? t._occurrenceStatus === 'done' : t.gtd_status === 'done';
         const c = chipColor(t);
+        const itemKey = t._isRecurring ? (t.id + '_' + t._occurrenceDate) : t.id;
+        const handleClick = () => t._isRecurring
+          ? setRecurPopup({ task: t, date: t._occurrenceDate })
+          : onSelect(t);
         return (
-          <div key={t.id} onClick={() => onSelect(t)}
+          <div key={itemKey} onClick={handleClick}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, marginBottom: 7, cursor: "pointer",
               background: "var(--bg-card)", border: "1px solid var(--border)", borderLeft: `3px solid ${c.dot}`, transition: "opacity 0.15s",
-              opacity: t.gtd_status === "done" ? 0.65 : 1 }}>
+              opacity: isDone ? 0.65 : 1 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)",
-                textDecoration: t.gtd_status === "done" ? "line-through" : "none",
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>{t.title}</div>
+                textDecoration: isDone ? "line-through" : "none",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>{t._isRecurring ? "🔁 " : ""}{t.title}</div>
               <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: c.color, background: c.bg, padding: "1px 6px", borderRadius: 4 }}>{t.priority}</span>
                 {t.quadrant && <span style={{ fontSize: 11, color: "var(--text-light)", background: "var(--bg-primary)", padding: "1px 6px", borderRadius: 4 }}>{t.quadrant}</span>}
-                {t.gtd_status === "done" && <span style={{ fontSize: 11, color: "#15803d", background: "#dcfce7", padding: "1px 6px", borderRadius: 4, fontWeight: 700 }}>✓ Done</span>}
-                {t.project && <span style={{ fontSize: 11, color: "var(--text-light)" }}>📁 {t.project}</span>}
+                {isDone && <span style={{ fontSize: 11, color: "#15803d", background: "#dcfce7", padding: "1px 6px", borderRadius: 4, fontWeight: 700 }}>✓ Done</span>}
+                {!t._isRecurring && t.project && <span style={{ fontSize: 11, color: "var(--text-light)" }}>📁 {t.project}</span>}
               </div>
             </div>
             <span style={{ fontSize: 16, color: "var(--text-light)", flexShrink: 0 }}>›</span>

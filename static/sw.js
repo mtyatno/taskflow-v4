@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v94-highlight-syntax";
+const CACHE = "taskflow-v95-recurring-occurrence-status";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
