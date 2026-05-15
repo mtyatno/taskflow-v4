@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v97-debug-blockquote-chunks";
+const CACHE = "taskflow-v98-fix-blockquote-in-checkbox";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",

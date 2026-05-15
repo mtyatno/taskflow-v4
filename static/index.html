@@ -7987,6 +7987,14 @@
           if (item.task) {
             const cls = item.checked ? "check-item done" : "check-item";
             const chk = `<input type="checkbox" disabled${item.checked ? " checked" : ""}/>`;
+            // Use parser for items containing block-level content (blockquotes, nested lists)
+            // — item.text is raw markdown, wrapping in <span> would hide the > markers
+            const hasBlock = item.tokens && item.tokens.some(t =>
+              t.type === 'blockquote' || t.type === 'list' || t.type === 'paragraph' || t.type === 'space'
+            );
+            if (hasBlock) {
+              return `<div class="${cls}">${chk}${this.parser.parse(item.tokens)}</div>\n`;
+            }
             const body = (item.text || "").replace(/^\[[ xX]\] /, "");
             return `<div class="${cls}">${chk}<span>${body}</span></div>\n`;
           }
@@ -8077,13 +8085,6 @@
 
     function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
       if (!text) return "";
-      if (text.includes('>')) {
-        // Log in chunks to bypass console truncation
-        const chunk = 800;
-        for (let _ci = 0; _ci * chunk < text.length; _ci++) {
-          console.log('[renderMarkdown RAW chunk' + _ci + ']', JSON.stringify(text.substring(_ci * chunk, (_ci + 1) * chunk)));
-        }
-      }
       _markedHIdx = 0;
       const titleSet = new Set((noteTitles || []).map(t => normalizeWikiText(t)));
       const notesById = new Map((allNotes || []).map(n => [String(n.id), n]));
@@ -8145,7 +8146,7 @@
       // Pre-process ==highlight== tokens before marked.parse
       const hlMap = {};
       let hi = 0;
-      const processed3 = processed2.replace(/==([^=\n]+)==/g, (_, val) => {
+      const processed3 = processed2.replace(/\\?==([^=\n]+)==/g, (_, val) => {
         const key = `HLMK${hi++}HLMKEND`;
         hlMap[key] = `<mark class="highlight-mark">${escapeHtml(val)}</mark>`;
         return key;
