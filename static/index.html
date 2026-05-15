@@ -8111,14 +8111,14 @@
       React.useEffect(() => {
         if (!hOpen) return;
         const close = (e) => { if (hRef.current && !hRef.current.contains(e.target)) setHOpen(false); };
-        document.addEventListener("mousedown", close);
-        return () => document.removeEventListener("mousedown", close);
+        document.addEventListener("pointerdown", close);
+        return () => document.removeEventListener("pointerdown", close);
       }, [hOpen]);
       React.useEffect(() => {
         if (!moreOpen) return;
         const close = (e) => { if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false); };
-        document.addEventListener("mousedown", close);
-        return () => document.removeEventListener("mousedown", close);
+        document.addEventListener("pointerdown", close);
+        return () => document.removeEventListener("pointerdown", close);
       }, [moreOpen]);
       React.useEffect(() => {
         if (_tplCache) { setTemplates(_tplCache); return; }
@@ -8131,8 +8131,8 @@
       React.useEffect(() => {
         if (!tplOpen) return;
         const close = (e) => { if (tplBtnRef.current && !tplBtnRef.current.contains(e.target)) setTplOpen(false); };
-        document.addEventListener("mousedown", close);
-        return () => document.removeEventListener("mousedown", close);
+        document.addEventListener("pointerdown", close);
+        return () => document.removeEventListener("pointerdown", close);
       }, [tplOpen]);
 
       // Milkdown command caller
@@ -8234,7 +8234,7 @@
           <div ref={tplBtnRef} style={{ position: "relative", flexShrink: 0 }}>
             <button
               type="button"
-              onMouseDown={e => { e.preventDefault(); if (isEmpty) setTplOpen(o => !o); }}
+              onPointerDown={e => { e.preventDefault(); if (isEmpty) setTplOpen(o => !o); }}
               title="Terapkan template"
               style={isEmpty
                 ? { border: '1.5px solid #b6d400', color: '#b6d400', background: 'rgba(182,212,0,0.08)', borderRadius: 6, padding: '2px 9px', cursor: 'pointer', fontSize: 11, fontWeight: 700, height: 28, display: 'inline-flex', alignItems: 'center', gap: 3 }
@@ -8251,7 +8251,7 @@
                       <div className="tpl-group-label">{g}</div>
                       {tplGroups[g].map(t => (
                         <div key={t.id} className="tpl-item"
-                          onMouseDown={e => { e.preventDefault(); onApplyTemplate && onApplyTemplate(t.content); setTplOpen(false); }}>
+                          onPointerDown={e => { e.preventDefault(); onApplyTemplate && onApplyTemplate(t.content); setTplOpen(false); }}>
                           {t.name}
                         </div>
                       ))}
@@ -8260,7 +8260,7 @@
                 }
                 <div className="tpl-divider" />
                 <div className="tpl-footer"
-                  onMouseDown={e => { e.preventDefault(); setTplOpen(false); window.dispatchEvent(new CustomEvent('navigate', { detail: 'settings' })); }}>
+                  onPointerDown={e => { e.preventDefault(); setTplOpen(false); window.dispatchEvent(new CustomEvent('navigate', { detail: 'settings' })); }}>
                   ⚙️ Kelola Template...
                 </div>
               </div>
@@ -8269,12 +8269,12 @@
           <div className="sep"/>
           {/* Heading dropdown */}
           <div ref={hRef} style={{ position: "relative" }}>
-            <button onMouseDown={e => { e.preventDefault(); setHOpen(o => !o); }} title="Heading" style={{ letterSpacing: 0.5 }}>H ▾</button>
+            <button onPointerDown={e => { e.preventDefault(); setHOpen(o => !o); }} title="Heading" style={{ letterSpacing: 0.5 }}>H ▾</button>
             {hOpen && (
               <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", minWidth: 110, padding: "4px 0" }}>
                 {headings.map(h => (
                   <div key={h.level}
-                    onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.wrapInHeadingCommand.key, h.level); setHOpen(false); }}
+                    onPointerDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.wrapInHeadingCommand.key, h.level); setHOpen(false); }}
                     style={{ padding: "6px 14px", fontSize: 12, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}
                     onMouseEnter={e => e.currentTarget.style.background = "var(--bg-primary)"}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -8304,7 +8304,7 @@
           <div className="sep"/>
           {/* More dropdown */}
           <div ref={moreRef} style={{ position: "relative", flexShrink: 0 }}>
-            <button onMouseDown={e => { e.preventDefault(); setMoreOpen(o => !o); }} title="Format lainnya"
+            <button onPointerDown={e => { e.preventDefault(); setMoreOpen(o => !o); }} title="Format lainnya"
               style={{ fontWeight: 700, fontSize: 14, color: moreOpen ? "var(--accent)" : undefined,
                        borderColor: moreOpen ? "var(--accent)" : undefined }}>+</button>
             {moreOpen && (
@@ -8312,11 +8312,11 @@
                 background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10,
                 boxShadow: "0 6px 24px rgba(0,0,0,0.15)", display: "flex", alignItems: "center",
                 gap: 2, padding: "6px 8px", flexWrap: "nowrap" }}>
-                <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.wrapInOrderedListCommand.key); setMoreOpen(false); }} title="Numbered list" style={{ fontSize: 12, fontWeight: 700 }}>1.</button>
-                <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.toggleStrikethroughCommand.key); setMoreOpen(false); }} title="Strikethrough" style={{ textDecoration: "line-through", fontSize: 13 }}>S</button>
+                <button onPointerDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.wrapInOrderedListCommand.key); setMoreOpen(false); }} title="Numbered list" style={{ fontSize: 12, fontWeight: 700 }}>1.</button>
+                <button onPointerDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.toggleStrikethroughCommand.key); setMoreOpen(false); }} title="Strikethrough" style={{ textDecoration: "line-through", fontSize: 13 }}>S</button>
                 <div className="sep"/>
-                <button onMouseDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.insertTableCommand.key); setMoreOpen(false); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
-                <button onMouseDown={e => { e.preventDefault(); insertText('[['); setMoreOpen(false); }} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
+                <button onPointerDown={e => { e.preventDefault(); cmd(window.MilkdownBundle.insertTableCommand.key); setMoreOpen(false); }} title="Insert table" style={{ fontSize: 13 }}>&#x229E;</button>
+                <button onPointerDown={e => { e.preventDefault(); insertText('[['); setMoreOpen(false); }} title="Internal link [[wiki]]" style={{ fontSize: 11, fontWeight: 700 }}>[[]]</button>
               </div>
             )}
           </div>
