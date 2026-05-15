@@ -8077,6 +8077,7 @@
 
     function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
       if (!text) return "";
+      if (text.includes('>')) console.log('[renderMarkdown RAW]', JSON.stringify(text.substring(0, 800)));
       _markedHIdx = 0;
       const titleSet = new Set((noteTitles || []).map(t => normalizeWikiText(t)));
       const notesById = new Map((allNotes || []).map(n => [String(n.id), n]));
