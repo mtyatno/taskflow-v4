@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v91-toolbar-pointer-events";
+const CACHE = "taskflow-v92-inline-create-task";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",

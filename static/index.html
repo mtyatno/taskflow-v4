@@ -2496,6 +2496,8 @@
       const [noteTagDropdown, setNoteTagDropdown] = useState(null);
       const [noteExistingTags, setNoteExistingTags] = useState([]);
       const [noteTaskDropdown, setNoteTaskDropdown] = useState(null);
+      const [localNoteNewTasks, setLocalNoteNewTasks] = useState([]);
+      const [creatingInlineNoteTask, setCreatingInlineNoteTask] = useState(false);
       const noteAllTasksRef = React.useRef([]);
       const noteTasksGetterRef = React.useRef(() => noteAllTasksRef.current);
       const noteTaskDropdownRef = React.useRef(null);
@@ -2522,7 +2524,11 @@
       const [noteDrawFullscreen, setNoteDrawFullscreen] = React.useState(false);
       const [noteDrawIframeReady, setNoteDrawIframeReady] = React.useState(false);
 
-      noteAllTasksRef.current = tasks;
+      const allNoteKnownTasks = React.useMemo(
+        () => [...(tasks || []), ...localNoteNewTasks.filter(t => !(tasks || []).find(x => x.id === t.id))],
+        [tasks, localNoteNewTasks]
+      );
+      noteAllTasksRef.current = allNoteKnownTasks;
       const setHabit = (k, v) => setHabitForm(f => ({ ...f, [k]: v }));
       const DAYS = [
         { key: "mon", label: "Sen" }, { key: "tue", label: "Sel" },
@@ -2537,12 +2543,12 @@
 
       const noteTaskDropdownItems = React.useMemo(() =>
         noteTaskDropdown !== null
-          ? (tasks || [])
+          ? allNoteKnownTasks
               .filter(t => t.gtd_status !== 'done' && t.gtd_status !== 'archived')
               .filter(t => t.title.toLowerCase().includes((noteTaskDropdown.query || '').toLowerCase()))
               .slice(0, 8)
           : []
-      , [noteTaskDropdown, tasks]);
+      , [noteTaskDropdown, allNoteKnownTasks]);
 
       const handleTitleChange = (val) => {
         set("title", val);
@@ -2729,6 +2735,19 @@
         } catch (_) {}
         setNoteTaskDropdown({ top: coords.top, left: coords.left, query: '', activeIdx: 0 });
         editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
+      };
+
+      const createAndInsertNoteTask = async (taskTitle) => {
+        if (!taskTitle.trim() || creatingInlineNoteTask) return;
+        setCreatingInlineNoteTask(true);
+        setNoteTaskDropdown(null);
+        try {
+          const created = await api.post('/api/tasks', { title: taskTitle.trim(), priority: 'P3', gtd_status: 'inbox' });
+          noteAllTasksRef.current = [...noteAllTasksRef.current, created];
+          setLocalNoteNewTasks(prev => [...prev, created]);
+          insertNoteTasklink(created.id);
+        } catch (_) { /* silent */ }
+        finally { setCreatingInlineNoteTask(false); }
       };
 
       const handleSubmit = async (e) => {
@@ -2978,7 +2997,9 @@
                                 if (e.key === 'Enter' || e.key === 'Tab') {
                                   e.preventDefault();
                                   const chosen = noteTaskDropdownItems[noteTaskDropdown.activeIdx || 0];
-                                  if (chosen) insertNoteTasklink(chosen.id);
+                                  if (chosen) { insertNoteTasklink(chosen.id); return; }
+                                  const q = (noteTaskDropdown.query || '').trim();
+                                  if (q) createAndInsertNoteTask(q);
                                   return;
                                 }
                                 if (e.key === 'ArrowDown') { e.preventDefault(); setNoteTaskDropdown(d => ({ ...d, activeIdx: Math.min((d.activeIdx || 0) + 1, noteTaskDropdownItems.length - 1) })); return; }
@@ -2993,9 +3014,17 @@
                                 <span style={{ marginLeft: 4 }}>{t.title}</span>
                               </div>
                             ))}
-                            {noteTaskDropdownItems.length === 0 && (
+                            {noteTaskDropdownItems.length === 0 && !(noteTaskDropdown.query || '').trim() && (
                               <div className="wiki-autocomplete-item" style={{ color: "var(--text-light)", cursor: "default", fontStyle: "italic" }}>
-                                {(noteTaskDropdown.query || '').trim() ? "Task tidak ditemukan" : "Ketik nama task..."}
+                                Ketik nama task...
+                              </div>
+                            )}
+                            {(noteTaskDropdown.query || '').trim() && (
+                              <div
+                                className="wiki-autocomplete-item"
+                                style={{ borderTop: noteTaskDropdownItems.length > 0 ? '1px solid var(--border)' : undefined, color: 'var(--accent)', fontWeight: 600, opacity: creatingInlineNoteTask ? 0.5 : 1, cursor: creatingInlineNoteTask ? 'default' : 'pointer' }}
+                                onMouseDown={e => { e.preventDefault(); if (!creatingInlineNoteTask) createAndInsertNoteTask((noteTaskDropdown.query || '').trim()); }}>
+                                {creatingInlineNoteTask ? 'Membuat...' : `＋ Buat task: "${(noteTaskDropdown.query || '').trim()}"`}
                               </div>
                             )}
                           </div>
@@ -8694,6 +8723,8 @@
       };
       const [linkedTaskIds, setLinkedTaskIds] = useState(initTaskIds);
       const [taskDropdown, setTaskDropdown]   = useState(null);
+      const [localNewTasks, setLocalNewTasks] = useState([]);
+      const [creatingInlineTask, setCreatingInlineTask] = useState(false);
       const [saving, setSaving]       = useState(false);
       const wordCount = React.useMemo(() => content.trim() ? content.trim().split(/\s+/).length : 0, [content]);
       const isDirtyRef                = useRef(false);
@@ -9059,6 +9090,20 @@
         }
       };
 
+      const createAndInsertTask = async (taskTitle) => {
+        if (!taskTitle.trim() || creatingInlineTask) return;
+        setCreatingInlineTask(true);
+        setTaskDropdown(null);
+        try {
+          const created = await api.post('/api/tasks', { title: taskTitle.trim(), priority: 'P3', gtd_status: 'inbox' });
+          // Eagerly update ref so toDOM renders badge correctly before React re-render
+          allKnownTasksRef.current = [...allKnownTasksRef.current, created];
+          setLocalNewTasks(prev => [...prev, created]);
+          insertTasklink(created.id);
+        } catch (_) { /* silent — user can retry */ }
+        finally { setCreatingInlineTask(false); }
+      };
+
       const handleTasklinkClick = React.useCallback((taskId) => {
         const task = allKnownTasksRef.current.find(t => t.id === taskId);
         if (!task) return;
@@ -9195,7 +9240,10 @@
         return [...byOverlap, ...popular].slice(0, 5);
       }, [existingTags, tags, title, content]);
 
-      const allKnownTasks = React.useMemo(() => tasks, [tasks]);
+      const allKnownTasks = React.useMemo(
+        () => [...tasks, ...localNewTasks.filter(t => !tasks.find(x => x.id === t.id))],
+        [tasks, localNewTasks]
+      );
       allKnownTasksRef.current = allKnownTasks;
       const linkedTasks   = allKnownTasks.filter(t => linkedTaskIds.includes(t.id));
 
@@ -9392,7 +9440,9 @@
                     if (e.key === 'Enter' || e.key === 'Tab') {
                       e.preventDefault();
                       const chosen = taskDropdownItems[taskDropdown.activeIdx || 0];
-                      if (chosen) insertTasklink(chosen.id);
+                      if (chosen) { insertTasklink(chosen.id); return; }
+                      const q = (taskDropdown.query || '').trim();
+                      if (q) createAndInsertTask(q);
                       return;
                     }
                     if (e.key === 'ArrowDown') { e.preventDefault(); setTaskDropdown(d => ({ ...d, activeIdx: Math.min((d.activeIdx || 0) + 1, taskDropdownItems.length - 1) })); return; }
@@ -9407,9 +9457,17 @@
                     <span style={{ marginLeft: 4 }}>{t.title}</span>
                   </div>
                 ))}
-                {taskDropdownItems.length === 0 && (
+                {taskDropdownItems.length === 0 && !(taskDropdown.query || '').trim() && (
                   <div className="wiki-autocomplete-item" style={{ color: "var(--text-light)", cursor: "default", fontStyle: "italic" }}>
-                    {(taskDropdown.query || '').trim() ? "Task tidak ditemukan" : "Ketik nama task..."}
+                    Ketik nama task...
+                  </div>
+                )}
+                {(taskDropdown.query || '').trim() && (
+                  <div
+                    className="wiki-autocomplete-item"
+                    style={{ borderTop: taskDropdownItems.length > 0 ? '1px solid var(--border)' : undefined, color: 'var(--accent)', fontWeight: 600, opacity: creatingInlineTask ? 0.5 : 1, cursor: creatingInlineTask ? 'default' : 'pointer' }}
+                    onMouseDown={e => { e.preventDefault(); if (!creatingInlineTask) createAndInsertTask((taskDropdown.query || '').trim()); }}>
+                    {creatingInlineTask ? 'Membuat...' : `＋ Buat task: "${(taskDropdown.query || '').trim()}"`}
                   </div>
                 )}
               </div>
