@@ -738,6 +738,10 @@ async def ext_auth_begin():
     expires = (datetime.now(_TZ_JKT) + timedelta(minutes=5)).isoformat()
     with get_db() as conn:
         conn.execute(
+            "DELETE FROM ext_tokens WHERE token IS NULL AND expires_at < ?",
+            (datetime.now(_TZ_JKT).isoformat(),)
+        )
+        conn.execute(
             "INSERT INTO ext_tokens (user_id, token, state, created_at, expires_at) VALUES (0, NULL, ?, ?, ?)",
             (state, now, expires)
         )
@@ -756,7 +760,7 @@ async def ext_auth_poll(state: str = Query(...)):
     # Cek apakah state sudah expired
     try:
         exp = datetime.fromisoformat(row["expires_at"])
-        if datetime.now(_TZ_JKT) > exp.replace(tzinfo=_TZ_JKT):
+        if datetime.now().replace(tzinfo=None) > exp.replace(tzinfo=None):
             raise HTTPException(status_code=410, detail="State expired")
     except (ValueError, TypeError):
         pass
@@ -780,7 +784,7 @@ async def ext_auth_confirm(req: ExtAuthConfirmReq, user=Depends(get_current_user
         # Cek apakah state expired
         try:
             exp = datetime.fromisoformat(row["expires_at"])
-            if datetime.now(_TZ_JKT) > exp.replace(tzinfo=_TZ_JKT):
+            if datetime.now().replace(tzinfo=None) > exp.replace(tzinfo=None):
                 raise HTTPException(status_code=410, detail="State expired")
         except (ValueError, TypeError):
             pass
