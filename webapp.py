@@ -266,6 +266,26 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Create ext_tokens table (browser clipper auth)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ext_tokens (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                token      TEXT,
+                state      TEXT UNIQUE,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ext_tokens_state ON ext_tokens(state)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ext_tokens_user  ON ext_tokens(user_id)")
+        conn.commit()
+    finally:
+        conn.close()
+
 
 # ── Password hashing (no external deps) ───────────────────────────────────────
 
