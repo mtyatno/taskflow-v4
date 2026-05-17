@@ -13065,6 +13065,8 @@ function SettingsPage({
   const [tgToken, setTgToken] = useState(null);
   const [tgBotUsername, setTgBotUsername] = useState("");
   const [tgLoading, setTgLoading] = useState(false);
+  const [extToken, setExtToken] = useState(null);
+  const [extRevoking, setExtRevoking] = useState(false);
   const [downloading, setDownloading] = React.useState(false);
   const setL = (k, v) => setLoading(l => ({
     ...l,
@@ -13164,6 +13166,24 @@ function SettingsPage({
       showToast(err.message, "error");
     }
     setTgLoading(false);
+  };
+  useEffect(() => {
+    setExtToken("loading");
+    api.get("/api/ext-auth/status")
+      .then(function(data) { setExtToken(data.token || null); })
+      .catch(function() { setExtToken(null); });
+  }, []);
+  const handleRevokeExt = async () => {
+    if (!confirm("Revoke semua token Browser Clipper? Extension perlu connect ulang.")) return;
+    setExtRevoking(true);
+    try {
+      await api.delete("/api/ext-auth/revoke");
+      setExtToken(null);
+      showToast("Token Browser Clipper berhasil direvoke ✅");
+    } catch (err) {
+      showToast(err.message, "error");
+    }
+    setExtRevoking(false);
   };
   const Field = ({
     label,
@@ -13366,6 +13386,36 @@ function SettingsPage({
     onClick: handleGenerateTgToken,
     disabled: tgLoading
   }, "\uD83D\uDD04 Generate ulang")))), /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {marginBottom: 20, marginTop: 20}
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {fontWeight: 700, fontSize: 16, marginBottom: 4}
+  }, "Browser Clipper"), /*#__PURE__*/React.createElement("div", {
+    style: {fontSize: 13, color: "var(--text-secondary)", marginBottom: 14}
+  }, "Extension browser untuk menyimpan halaman web ke Notes dengan tag #bookmark."),
+  extToken === "loading"
+    ? /*#__PURE__*/React.createElement("div", {style: {fontSize: 13, color: "var(--text-secondary)"}}, "Memuat...")
+    : extToken
+      ? /*#__PURE__*/React.createElement("div", null,
+          /*#__PURE__*/React.createElement("div", {style: {display: "flex", alignItems: "center", gap: 10, marginBottom: 12}},
+            /*#__PURE__*/React.createElement("span", {style: {fontSize: 20}}, "\u2705"),
+            /*#__PURE__*/React.createElement("div", null,
+              /*#__PURE__*/React.createElement("div", {style: {fontSize: 13, fontWeight: 600}}, "Token aktif"),
+              /*#__PURE__*/React.createElement("div", {style: {fontSize: 12, color: "var(--text-secondary)"}},
+                "Dibuat: " + new Date(extToken.created_at).toLocaleDateString("id-ID") + " \u00B7 Expired: " + new Date(extToken.expires_at).toLocaleDateString("id-ID")
+              )
+            )
+          ),
+          /*#__PURE__*/React.createElement("button", {
+            className: "btn btn-danger btn-sm",
+            onClick: handleRevokeExt,
+            disabled: extRevoking
+          }, extRevoking ? "Merevoking..." : "\uD83D\uDDD1 Revoke Token")
+        )
+      : /*#__PURE__*/React.createElement("div", {style: {fontSize: 13, color: "var(--text-secondary)"}},
+          "Belum ada token aktif. Connect dari extension untuk memulai."
+        )
+  ), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 32,
       paddingTop: 24,
