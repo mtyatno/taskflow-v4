@@ -809,6 +809,20 @@ async def ext_auth_revoke(user=Depends(get_current_user)):
     return {"ok": True}
 
 
+@app.get("/api/ext-auth/status")
+async def ext_auth_status(user=Depends(get_current_user)):
+    """Return info token aktif milik user, tanpa expose token value."""
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT created_at, expires_at FROM ext_tokens WHERE user_id = ? AND token IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+            (uid,)
+        ).fetchone()
+    if not row:
+        return {"token": None}
+    return {"token": {"created_at": row["created_at"], "expires_at": row["expires_at"]}}
+
+
 @app.get("/auth/magic")
 async def magic_login(token: str):
     """One-time login link dari Telegram bot. Token valid 5 menit, sekali pakai."""
