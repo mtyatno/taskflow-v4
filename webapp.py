@@ -314,6 +314,16 @@ def create_token(user_id: int, username: str) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
+def create_ext_token(user_id: int, username: str) -> str:
+    payload = {
+        "sub": str(user_id),
+        "username": username,
+        "scope": "ext",
+        "exp": datetime.utcnow() + timedelta(days=30),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
 def decode_token(token: str) -> dict:
     try:
         return jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
@@ -335,6 +345,13 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Not authenticated")
     data = decode_token(token)
     data["sub"] = int(data["sub"])
+    if data.get("scope") == "ext":
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT id FROM ext_tokens WHERE token = ?", (token,)
+            ).fetchone()
+        if not row:
+            raise HTTPException(status_code=401, detail="Token sudah direvoke")
     return data
 
 async def get_admin_user(user: dict = Depends(get_current_user)) -> dict:
@@ -488,6 +505,9 @@ class ScratchpadUpdate(BaseModel):
     linked_task_id: Optional[int] = None
     linked_task_ids: list[int] = []
     list_id: Optional[int] = None
+
+class ExtAuthConfirmReq(BaseModel):
+    state: str
 
 class NoteShareReq(BaseModel):
     list_id: Optional[int] = None  # None = unshare
@@ -707,6 +727,81 @@ async def generate_telegram_link_token(user=Depends(get_current_user)):
 @app.post("/api/auth/logout")
 async def logout(response: Response):
     response.delete_cookie("token")
+    return {"ok": True}
+
+
+@app.post("/api/ext-auth/begin")
+async def ext_auth_begin():
+    """Extension panggil ini untuk mulai auth flow. Return state UUID."""
+    state = str(uuid.uuid4())
+    now = datetime.now(_TZ_JKT).isoformat()
+    expires = (datetime.now(_TZ_JKT) + timedelta(minutes=5)).isoformat()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO ext_tokens (user_id, token, state, created_at, expires_at) VALUES (0, NULL, ?, ?, ?)",
+            (state, now, expires)
+        )
+    return {"state": state}
+
+
+@app.get("/api/ext-auth/poll")
+async def ext_auth_poll(state: str = Query(...)):
+    """Extension poll ini setiap 2 detik sampai token tersedia."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT token, expires_at FROM ext_tokens WHERE state = ?", (state,)
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="State tidak ditemukan atau sudah expired")
+    # Cek apakah state sudah expired
+    try:
+        exp = datetime.fromisoformat(row["expires_at"])
+        if datetime.now(_TZ_JKT) > exp.replace(tzinfo=_TZ_JKT):
+            raise HTTPException(status_code=410, detail="State expired")
+    except (ValueError, TypeError):
+        pass
+    if row["token"] is None:
+        return {"pending": True}
+    return {"token": row["token"]}
+
+
+@app.post("/api/ext-auth/confirm")
+async def ext_auth_confirm(req: ExtAuthConfirmReq, user=Depends(get_current_user)):
+    """User (sudah login webapp) approve extension. Generate token."""
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, token, expires_at FROM ext_tokens WHERE state = ?", (req.state,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="State tidak ditemukan")
+        if row["token"] is not None:
+            raise HTTPException(status_code=409, detail="State sudah diklaim")
+        # Cek apakah state expired
+        try:
+            exp = datetime.fromisoformat(row["expires_at"])
+            if datetime.now(_TZ_JKT) > exp.replace(tzinfo=_TZ_JKT):
+                raise HTTPException(status_code=410, detail="State expired")
+        except (ValueError, TypeError):
+            pass
+        # Generate token, update created_at menjadi now, expires_at +30 hari
+        username = user.get("username", "")
+        token = create_ext_token(uid, username)
+        now = datetime.now(_TZ_JKT).isoformat()
+        expires = (datetime.now(_TZ_JKT) + timedelta(days=30)).isoformat()
+        conn.execute(
+            "UPDATE ext_tokens SET token = ?, user_id = ?, state = NULL, created_at = ?, expires_at = ? WHERE id = ?",
+            (token, uid, now, expires, row["id"])
+        )
+    return {"ok": True}
+
+
+@app.delete("/api/ext-auth/revoke")
+async def ext_auth_revoke(user=Depends(get_current_user)):
+    """User revoke semua ext tokens miliknya."""
+    uid = user["sub"]
+    with get_db() as conn:
+        conn.execute("DELETE FROM ext_tokens WHERE user_id = ? AND token IS NOT NULL", (uid,))
     return {"ok": True}
 
 
