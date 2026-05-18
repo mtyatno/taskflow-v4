@@ -828,7 +828,7 @@
       .notes-panel-meta { width: 100%; }
       .notes-panel-actions { width: 100%; }
     }
-    .notes-nav-trail { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 11px; color: var(--text-light); margin-bottom: 12px; }
+    .notes-nav-trail { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 11px; color: var(--text-light); margin-bottom: 6px; background: var(--bg-primary); border-radius: 6px; padding: 4px 8px; }
     .notes-nav-crumb { cursor: pointer; color: var(--accent); }
     .notes-nav-crumb:hover { text-decoration: underline; }
     .notes-section-label { font-size: 11px; font-weight: 700; color: var(--text-light); text-transform: uppercase; letter-spacing: 0.8px; margin: 16px 0 8px; }
@@ -16697,7 +16697,7 @@ function NotePanel({
     style: {
       flexWrap: "wrap",
       alignItems: "center",
-      marginBottom: 14
+      marginBottom: 10
     },
     "data-crumb-dropdown": true
   }, navTrail.map((n, i) => {
@@ -16721,10 +16721,11 @@ function NotePanel({
     }, /*#__PURE__*/React.createElement("span", {
       className: isActive ? "" : "notes-nav-crumb",
       style: {
-        fontWeight: isActive ? 700 : 400,
-        color: isActive ? "var(--text-primary)" : undefined,
+        fontWeight: 400,
+        color: isActive ? "var(--text-secondary)" : undefined,
         cursor: isActive ? "default" : "pointer",
-        fontSize: 12
+        fontSize: 11,
+        opacity: isActive ? 0.75 : 1
       },
       onClick: () => {
         if (!isActive) {
