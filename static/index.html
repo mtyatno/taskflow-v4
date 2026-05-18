@@ -849,7 +849,11 @@
     @page { margin: 0; }
     @media print {
       body > *:not(#note-print-area) { display: none !important; }
-      #note-print-area { display: block !important; font-family: 'Nunito Sans', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 20mm 15mm 24mm 15mm; color: #1f2937; background: #fff; }
+      #note-print-area { display: block !important; background: #fff; font-family: 'Nunito Sans', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937; }
+      #note-print-area .print-container { width: 100%; border-collapse: collapse; }
+      #note-print-area .page-header-space { height: 20mm; display: block; }
+      #note-print-area .page-footer-space { height: 16mm; display: block; }
+      #note-print-area .note-content { padding: 0 15mm; }
       #note-print-area .npa-title { font-size: 24pt; font-weight: 700; margin: 0 0 2mm; color: #111827; }
       #note-print-area .npa-meta { font-size: 10pt; color: #6b7280; margin-bottom: 8mm; padding-bottom: 4mm; border-bottom: 1px solid #e5e7eb; }
       #note-print-area .note-rendered { font-size: 11pt; line-height: 1.6; }
@@ -16658,7 +16662,7 @@ function NotePanel({
     const html = renderMarkdown(note.content || "", titleStrings, allNotes, tasks);
     const el = document.createElement("div");
     el.id = "note-print-area";
-    el.innerHTML = `<div class="npa-title">${note.title || "(tanpa judul)"}</div><div class="npa-meta">${fmtDate(note.updated_at)}</div><div class="note-rendered">${html}</div><div class="npa-footer"><span>${note.title || ""}</span><span>TaskFlow V4</span></div>`;
+    el.innerHTML = `<table class="print-container"><thead><tr><td><div class="page-header-space"></div></td></tr></thead><tfoot><tr><td><div class="page-footer-space"></div></td></tr></tfoot><tbody><tr><td class="note-content"><div class="npa-title">${note.title || "(tanpa judul)"}</div><div class="npa-meta">${fmtDate(note.updated_at)}</div><div class="note-rendered">${html}</div></td></tr></tbody></table><div class="npa-footer"><span>${note.title || ""}</span><span>TaskFlow V4</span></div>`;
     document.body.appendChild(el);
     const cleanup = () => {
       document.body.removeChild(el);
