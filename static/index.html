@@ -20173,6 +20173,16 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     return params.get("ext_auth") === "1" ? params.get("state") || "" : "";
   });
+  const [shareData, setShareData] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const url = params.get("share_url");
+    if (!url) return null;
+    return {
+      url,
+      title: params.get("share_title") || url,
+      text: params.get("share_text") || ""
+    };
+  });
   const [pendingAction, setPendingAction] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("action") || "";
@@ -20194,6 +20204,43 @@ function App() {
     setPendingAction("");
     window.history.replaceState({}, "", "/");
   }, [user, pendingAction]);
+  // Share Target: simpan ke sessionStorage kalau belum login
+  useEffect(() => {
+    if (shareData && !tokenStore.get()) {
+      sessionStorage.setItem("pendingShare", JSON.stringify(shareData));
+      setShareData(null);
+      window.history.replaceState({}, "", "/");
+    }
+  }, []);
+  // Share Target: setelah login, ambil dari sessionStorage
+  useEffect(() => {
+    if (!user) return;
+    const pending = sessionStorage.getItem("pendingShare");
+    if (!pending) return;
+    sessionStorage.removeItem("pendingShare");
+    try { setShareData(JSON.parse(pending)); } catch(e) {}
+  }, [user]);
+  // Share Target: auto-clip note
+  useEffect(() => {
+    if (!user || !shareData) return;
+    const content = shareData.text
+      ? `**Source:** ${shareData.url}\n\n> ${shareData.text}`
+      : `**Source:** ${shareData.url}`;
+    api.post("/api/scratchpad", {
+      title: shareData.title,
+      content,
+      tags: ["bookmark"]
+    }).then(() => {
+      showToast("Tersimpan di Notes! 📎");
+      setShareData(null);
+      window.history.replaceState({}, "", "/");
+      setTimeout(() => window.close(), 2000);
+    }).catch(err => {
+      showToast("Gagal menyimpan: " + (err && err.message ? err.message : "Error"), "error");
+      setShareData(null);
+      window.history.replaceState({}, "", "/");
+    });
+  }, [user, shareData]);
 
   // Handle navigate event dispatched from toolbar dropdowns etc.
   useEffect(() => {
