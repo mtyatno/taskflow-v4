@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v103-browser-clipper";
+const CACHE = "taskflow-v104-sw-catch";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
@@ -22,6 +22,7 @@ self.addEventListener("install", e => {
     caches.open(CACHE)
       .then(cache => Promise.allSettled(STATIC.map(url => cache.add(url))))
       .then(() => self.skipWaiting())
+      .catch(() => self.skipWaiting())
   );
 });
 
@@ -30,6 +31,7 @@ self.addEventListener("activate", e => {
     caches.keys()
       .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
+      .catch(() => self.clients.claim())
   );
 });
 
