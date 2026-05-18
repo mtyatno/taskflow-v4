@@ -20173,20 +20173,18 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     return params.get("ext_auth") === "1" ? params.get("state") || "" : "";
   });
-  // DEBUG: tampilkan URL penuh saat app load (hapus setelah debug)
-  useEffect(() => {
-    if (window.location.search) {
-      alert("DEBUG URL: " + window.location.href);
-    }
-  }, []);
   const [shareData, setShareData] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    const url = params.get("share_url");
+    const shareTitle = params.get("share_title") || "";
+    const shareText = params.get("share_text") || "";
+    // share_url: standard spec. Fallback: share_text kalau berisi URL (Chrome taruh URL di share_text)
+    let url = params.get("share_url") || "";
+    if (!url && shareText.match(/^https?:\/\//)) url = shareText;
     if (!url) return null;
     return {
       url,
-      title: params.get("share_title") || url,
-      text: params.get("share_text") || ""
+      title: shareTitle || url,
+      text: shareText !== url ? shareText : ""
     };
   });
   const [pendingAction, setPendingAction] = useState(() => {
