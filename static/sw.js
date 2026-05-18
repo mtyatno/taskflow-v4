@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v104-sw-catch";
+const CACHE = "taskflow-v105-pwa-share-target";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
