@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v105-pwa-share-target";
+const CACHE = "taskflow-v106-sw-robust";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
@@ -75,23 +75,33 @@ self.addEventListener("fetch", e => {
     return
   }
 
-  // HTML root ("/") — stale-while-revalidate
-  // Kunjungan ke-2+: langsung dari cache, background fetch update cache untuk kunjungan berikutnya
-  // Kunjungan pertama (cache kosong): tunggu network seperti biasa
+  // HTML root ("/") — network-first jika ada query params (share target, ext-auth, dll)
+  // Stale-while-revalidate hanya untuk "/" tanpa params
   if (url.pathname === "/" && request.method === "GET") {
+    // URL dengan params: selalu ambil dari network (share target, ext-auth, dll)
+    if (url.search) {
+      e.respondWith(
+        fetch(request).catch(() =>
+          caches.match("/").then(cached =>
+            cached || new Response("Offline — buka kembali saat terhubung ke internet", { status: 503 })
+          ).catch(() => new Response("Offline", { status: 503 }))
+        )
+      );
+      return;
+    }
+    // "/" tanpa params: stale-while-revalidate, fallback ke network jika cache error
     e.respondWith(
       caches.open(CACHE).then(cache =>
         cache.match(request).then(cached => {
           const networkFetch = fetch(request).then(res => {
-            if (res.ok) cache.put(request, res.clone());
+            if (res.ok) cache.put(request, res.clone()).catch(() => {});
             return res;
           }).catch(() =>
             cached || new Response("Offline — buka kembali saat terhubung ke internet", { status: 503 })
           );
-          // Jika ada cache → serve langsung, update cache di background
           return cached || networkFetch;
         })
-      )
+      ).catch(() => fetch(request))
     );
     return;
   }
