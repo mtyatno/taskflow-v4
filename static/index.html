@@ -20177,6 +20177,8 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     const url = params.get("share_url");
     if (!url) return null;
+    // DEBUG: alert saat share_url terdeteksi
+    setTimeout(() => alert("DEBUG shareData: " + url), 500);
     return {
       url,
       title: params.get("share_title") || url,
