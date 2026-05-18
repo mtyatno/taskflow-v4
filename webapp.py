@@ -766,6 +766,9 @@ async def ext_auth_poll(state: str = Query(...)):
         pass
     if row["token"] is None:
         return {"pending": True}
+    # Token tersedia — clear state agar tidak bisa diklaim ulang
+    with get_db() as conn2:
+        conn2.execute("UPDATE ext_tokens SET state = NULL WHERE state = ?", (state,))
     return {"token": row["token"]}
 
 
@@ -794,7 +797,7 @@ async def ext_auth_confirm(req: ExtAuthConfirmReq, user=Depends(get_current_user
         now = datetime.now(_TZ_JKT).isoformat()
         expires = (datetime.now(_TZ_JKT) + timedelta(days=30)).isoformat()
         conn.execute(
-            "UPDATE ext_tokens SET token = ?, user_id = ?, state = NULL, created_at = ?, expires_at = ? WHERE id = ?",
+            "UPDATE ext_tokens SET token = ?, user_id = ?, created_at = ?, expires_at = ? WHERE id = ?",
             (token, uid, now, expires, row["id"])
         )
     return {"ok": True}
