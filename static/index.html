@@ -1227,6 +1227,14 @@
     }
     /* Print: render math as-is, no border */
     #note-print-area .math-block { border-left: none; background: none; text-align: left; }
+    /* Math block editor (Milkdown WYSIWYG — click to edit overlay) */
+    .mk-math-block-wrap { border-left: 3px solid var(--accent); border-radius: 6px; margin: 6px 0; overflow: hidden; }
+    .mk-math-formula { padding: 0.6em 1em; text-align: center; cursor: pointer; min-height: 36px; }
+    .mk-math-formula:hover { background: rgba(0,0,0,0.04); }
+    [data-theme="dark"] .mk-math-formula:hover { background: rgba(255,255,255,0.06); }
+    .mk-math-empty { color: var(--text-light); font-style: italic; font-size: 13px; padding: 8px 0; }
+    .mk-math-edit-ta { display:none; width:100%; padding:8px 10px; font-family:monospace; font-size:13px; resize:vertical; min-height:52px; border:none; border-top:1px solid var(--border); background:var(--bg-secondary); color:var(--text-primary); box-sizing:border-box; outline:none; }
+    .mk-math-hint { display:none; font-size:11px; color:var(--text-light); text-align:right; padding:3px 8px; background:var(--bg-secondary); }
   </style>
 </head>
 <body>
@@ -14245,6 +14253,23 @@ function MilkdownEditor({
       instanceRef.current = editor;
       if (editorRef) editorRef.current = editor;
 
+      // Fix math_block empty-textarea bug:
+      // plugin-math stores LaTeX in attrs.value but textContent is always "".
+      // Custom nodeView shows textarea from attrs.value so editing works after save/reload.
+      try {
+        editor.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          const mathBlockType = view.state.schema.nodes.math_block;
+          if (!mathBlockType) return;
+          view.setProps({
+            nodeViews: {
+              ...(view.props.nodeViews || {}),
+              math_block: makeMathBlockNodeView(mathBlockType)
+            }
+          });
+        });
+      } catch(_) {}
+
       // Enter inside heading → create paragraph (not another heading)
       pmDom = containerRef.current?.querySelector('.ProseMirror');
       if (pmDom) {
@@ -14619,6 +14644,118 @@ function createHighlightPlugin() {
   }));
   const highlightRemark = MB.$remark('highlight-remark', () => remarkHighlightPlugin);
   return [highlightRemark, highlightNode];
+}
+// Custom node view for math_block:
+// @milkdown/plugin-math stores LaTeX in attrs.value but leaves textContent empty.
+// Without this, clicking inside the block shows an empty editing area.
+// This node view shows a click-to-edit textarea populated from attrs.value.
+function makeMathBlockNodeView(mathBlockType) {
+  return function(node, editorView, getPos) {
+    const wrap = document.createElement('div');
+    wrap.className = 'mk-math-block-wrap';
+
+    const formulaEl = document.createElement('div');
+    formulaEl.className = 'mk-math-formula';
+    formulaEl.title = 'Klik untuk edit LaTeX';
+    wrap.appendChild(formulaEl);
+
+    const taEl = document.createElement('textarea');
+    taEl.className = 'mk-math-edit-ta';
+    taEl.placeholder = 'LaTeX, contoh: E = mc^2';
+    wrap.appendChild(taEl);
+
+    const hintEl = document.createElement('div');
+    hintEl.className = 'mk-math-hint';
+    hintEl.textContent = 'Ctrl+Enter atau Esc untuk selesai';
+    wrap.appendChild(hintEl);
+
+    function getVal(n) {
+      return (n.attrs && n.attrs.value) || n.textContent || '';
+    }
+
+    function renderKaTeX(val) {
+      formulaEl.innerHTML = '';
+      if (!val || !val.trim()) {
+        const ph = document.createElement('span');
+        ph.className = 'mk-math-empty';
+        ph.textContent = 'Klik untuk masukkan LaTeX $$...$$';
+        formulaEl.appendChild(ph);
+        return;
+      }
+      try {
+        window.katex.render(val, formulaEl, { displayMode: true, throwOnError: false, output: 'html' });
+      } catch(e) {
+        formulaEl.textContent = '$$' + val + '$$';
+        formulaEl.style.color = '#ef4444';
+      }
+    }
+
+    let curVal = getVal(node);
+    renderKaTeX(curVal);
+    taEl.value = curVal;
+
+    function enterEdit() {
+      formulaEl.style.display = 'none';
+      taEl.style.display = '';
+      hintEl.style.display = '';
+      taEl.focus();
+      taEl.select();
+    }
+
+    function exitEdit() {
+      if (taEl.style.display === 'none') return;
+      taEl.style.display = 'none';
+      hintEl.style.display = 'none';
+      formulaEl.style.display = '';
+      const newVal = taEl.value.trim();
+      renderKaTeX(newVal || curVal);
+      const pos = typeof getPos === 'function' ? getPos() : null;
+      if (pos !== null && newVal !== curVal) {
+        curVal = newVal;
+        editorView.dispatch(
+          editorView.state.tr.setNodeMarkup(pos, null, { value: newVal })
+        );
+      }
+    }
+
+    formulaEl.addEventListener('mousedown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      enterEdit();
+    });
+
+    taEl.addEventListener('keydown', e => {
+      if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
+        e.preventDefault();
+        exitEdit();
+        editorView.focus();
+      }
+    });
+
+    taEl.addEventListener('blur', () => {
+      if (taEl.style.display !== 'none') exitEdit();
+    });
+
+    // Auto-open textarea for newly created empty math blocks
+    if (!curVal) setTimeout(enterEdit, 0);
+
+    return {
+      dom: wrap,
+      contentDOM: null,
+      update(newNode) {
+        if (newNode.type !== mathBlockType) return false;
+        const newVal = getVal(newNode);
+        if (taEl.style.display === 'none' && newVal !== curVal) {
+          curVal = newVal;
+          taEl.value = newVal;
+          renderKaTeX(newVal);
+        }
+        return true;
+      },
+      stopEvent(event) { return event.target === taEl; },
+      ignoreMutation() { return true; }
+    };
+  };
 }
 function extractHeadings(content) {
   const headings = [];
