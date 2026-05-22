@@ -29,6 +29,7 @@ export {
 export { listener, listenerCtx } from '@milkdown/plugin-listener';
 export { history } from '@milkdown/plugin-history';
 export { callCommand, $node, $remark, $inputRule, replaceAll } from '@milkdown/utils';
+export { math } from '@milkdown/plugin-math';
 
 // ProseMirror re-exports needed for custom wikilink plugin
 export { InputRule } from '@milkdown/prose/inputrules';
