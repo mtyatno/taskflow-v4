@@ -4,16 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild entry.js --bundle --format=iife --global-name=MilkdownBundle --minify --outfile=../static/vendor/milkdown.bundle.js"
+    "build": "esbuild entry.js --bundle --format=iife --global-name=MilkdownBundle --minify --outfile=../static/vendor/milkdown.bundle.js --alias:katex=./katex-global.js"
   },
   "dependencies": {
     "@milkdown/core": "^7.5.6",
-    "@milkdown/preset-gfm": "^7.5.6",
-    "@milkdown/plugin-listener": "^7.5.6",
     "@milkdown/plugin-history": "^7.5.6",
-    "@milkdown/utils": "^7.5.6",
+    "@milkdown/plugin-listener": "^7.5.6",
+    "@milkdown/plugin-math": "^7.5.9",
     "@milkdown/preset-commonmark": "^7.5.6",
-    "@milkdown/prose": "^7.5.6"
+    "@milkdown/preset-gfm": "^7.5.6",
+    "@milkdown/prose": "^7.5.6",
+    "@milkdown/utils": "^7.5.6"
   },
   "devDependencies": {
     "esbuild": "^0.21.0"

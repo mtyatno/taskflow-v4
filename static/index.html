@@ -22,6 +22,8 @@
 
   <script src="/static/vendor/chart.umd.min.js"></script>
   <script src="/static/vendor/marked.min.js"></script>
+  <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
+  <script src="/static/vendor/katex/katex.min.js"></script>
   <script src="/static/vendor/milkdown.bundle.js"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
   <style>
@@ -1198,6 +1200,33 @@
     [data-theme="dark"] .note-rendered .wikilink-broken:hover {
       background: rgba(251,191,36,0.22);
     }
+    /* Math block (display) */
+    .math-block {
+      display: block;
+      overflow-x: auto;
+      padding: 0.75em 1em;
+      margin: 0.75em 0;
+      background: color-mix(in srgb, var(--bg-card) 60%, transparent);
+      border-radius: 6px;
+      border-left: 3px solid var(--accent);
+      text-align: center;
+    }
+    /* Math inline */
+    .math-inline .katex { font-size: 1em; }
+    /* KaTeX error fallback */
+    .math-error {
+      color: #ef4444;
+      font-family: monospace;
+      font-size: 0.85em;
+      background: rgba(239,68,68,0.08);
+      border-radius: 4px;
+      padding: 0 4px;
+    }
+    [data-theme="dark"] .math-block {
+      background: rgba(255,255,255,0.05);
+    }
+    /* Print: render math as-is, no border */
+    #note-print-area .math-block { border-left: none; background: none; text-align: left; }
   </style>
 </head>
 <body>
@@ -13556,9 +13585,34 @@ function renderWikilinksPreview(text, maxLen) {
   }
   return truncated + '...';
 }
+function renderMath(latex, displayMode) {
+  try {
+    return window.katex.renderToString(latex, { displayMode, throwOnError: true, output: 'html' });
+  } catch (e) {
+    const escaped = latex.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return `<span class="math-error" title="${escapeAttr(e.message)}">${displayMode ? '$$' : '$'}${escaped}${displayMode ? '$$' : '$'}</span>`;
+  }
+}
+
 function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   if (!text) return "";
   _markedHIdx = 0;
+
+  // Step 0: Extract math BEFORE all other processing so markdown doesn't mangle LaTeX.
+  // Block math first ($$...$$), then inline ($...$) to avoid double-match.
+  const mathMap = {};
+  let mi = 0;
+  const preMath0 = text.replace(/\$\$([\s\S]*?)\$\$/g, (_, latex) => {
+    const key = `MATH${mi++}MATHEND`;
+    mathMap[key] = `<div class="math-block">${renderMath(latex.trim(), true)}</div>`;
+    return key;
+  });
+  const preMath1 = preMath0.replace(/\$(?!\s)([^$\n\r]+?)(?<!\s)\$/g, (_, latex) => {
+    const key = `MATH${mi++}MATHEND`;
+    mathMap[key] = `<span class="math-inline">${renderMath(latex, false)}</span>`;
+    return key;
+  });
+
   const titleSet = new Set((noteTitles || []).map(t => normalizeWikiText(t)));
   const notesById = new Map((allNotes || []).map(n => [String(n.id), n]));
   const notesByTitle = new Map();
@@ -13568,7 +13622,7 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   }
   const wikiMap = {};
   let wi = 0;
-  const processed = text.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
+  const processed = preMath1.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
     const title = rawTitle.replace(/\\(.)/g, '$1'); // unescape remark-stringify escapes
     const key = `WKLN${wi++}WKLNEND`;
     const parsed = parseWikilinkRaw(title);
@@ -13635,6 +13689,9 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
     html = html.split(k).join(v);
   }
   for (const [k, v] of Object.entries(hlMap)) {
+    html = html.split(k).join(v);
+  }
+  for (const [k, v] of Object.entries(mathMap)) {
     html = html.split(k).join(v);
   }
   return html;
@@ -14180,7 +14237,7 @@ function MilkdownEditor({
           onChange(markdown);
         }
       });
-    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).create().then(editor => {
+    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).create().then(editor => {
       if (cancelled) {
         editor.destroy();
         return;
