@@ -14256,6 +14256,8 @@ function MilkdownEditor({
       // Fix math_block empty-textarea bug:
       // plugin-math stores LaTeX in attrs.value but textContent is always "".
       // Custom nodeView shows textarea from attrs.value so editing works after save/reload.
+      // setProps alone does NOT trigger a DOM update (ProseMirror's updateState short-circuits
+      // when state object is unchanged). A no-op dispatch forces nodeView re-instantiation.
       try {
         editor.action(ctx => {
           const view = ctx.get(MB.editorViewCtx);
@@ -14267,6 +14269,11 @@ function MilkdownEditor({
               math_block: makeMathBlockNodeView(mathBlockType)
             }
           });
+          // Force DOM re-render so existing math_block nodes use the new nodeView.
+          // setMeta('addToHistory', false) = no-op for content, no markdownUpdated fired.
+          isExternalUpdate.current = true;
+          view.dispatch(view.state.tr.setMeta('addToHistory', false));
+          setTimeout(() => { isExternalUpdate.current = false; }, 0);
         });
       } catch(_) {}
 
