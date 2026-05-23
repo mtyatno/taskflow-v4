@@ -1227,14 +1227,20 @@
     }
     /* Print: render math as-is, no border */
     #note-print-area .math-block { border-left: none; background: none; text-align: left; }
-    /* Math block editor (Milkdown WYSIWYG — click to edit overlay) */
-    .mk-math-block-wrap { border-left: 3px solid var(--accent); border-radius: 6px; margin: 6px 0; overflow: hidden; }
-    .mk-math-formula { padding: 0.6em 1em; text-align: center; cursor: pointer; min-height: 36px; }
-    .mk-math-formula:hover { background: rgba(0,0,0,0.04); }
-    [data-theme="dark"] .mk-math-formula:hover { background: rgba(255,255,255,0.06); }
-    .mk-math-empty { color: var(--text-light); font-style: italic; font-size: 13px; padding: 8px 0; }
-    .mk-math-edit-ta { display:none; width:100%; padding:8px 10px; font-family:monospace; font-size:13px; resize:vertical; min-height:52px; border:none; border-top:1px solid var(--border); background:var(--bg-secondary); color:var(--text-primary); box-sizing:border-box; outline:none; }
-    .mk-math-hint { display:none; font-size:11px; color:var(--text-light); text-align:right; padding:3px 8px; background:var(--bg-secondary); }
+    /* Math block in Milkdown editor: clickable to edit */
+    .milkdown-editor div[data-type="math_block"] { cursor: pointer; padding: 6px 10px; border-radius: 6px; transition: background 0.15s, outline 0.15s; }
+    .milkdown-editor div[data-type="math_block"]:hover { background: rgba(99,102,241,0.06); outline: 1px dashed var(--accent); }
+    [data-theme="dark"] .milkdown-editor div[data-type="math_block"]:hover { background: rgba(99,102,241,0.12); }
+    .milkdown-editor span[data-type="math_inline"] { cursor: pointer; padding: 0 2px; border-radius: 3px; }
+    .milkdown-editor span[data-type="math_inline"]:hover { background: rgba(99,102,241,0.1); outline: 1px dashed var(--accent); }
+    /* React-controlled edit overlay */
+    .mk-math-popover { position: absolute; z-index: 100; background: var(--bg-card); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.18); padding: 10px; }
+    .mk-math-popover-ta { width: 100%; padding: 8px 10px; font-family: monospace; font-size: 13px; resize: vertical; min-height: 60px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary); box-sizing: border-box; outline: none; }
+    .mk-math-popover-ta:focus { border-color: var(--accent); }
+    .mk-math-popover-hint { font-size: 11px; color: var(--text-light); margin-top: 4px; }
+    .mk-math-popover-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
+    .mk-math-popover-actions button { padding: 4px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); font-weight: 500; }
+    .mk-math-popover-actions button.primary { background: var(--accent); color: white; border-color: var(--accent); }
   </style>
 </head>
 <body>
@@ -14231,6 +14237,8 @@ function MilkdownEditor({
   const instanceRef = React.useRef(null);
   const isExternalUpdate = React.useRef(false);
   const [ready, setReady] = React.useState(false);
+  const [mathEdit, setMathEdit] = React.useState(null);
+  const mathTaRef = React.useRef(null);
   React.useEffect(() => {
     if (!containerRef.current) return;
     const MB = window.MilkdownBundle;
@@ -14253,29 +14261,7 @@ function MilkdownEditor({
       instanceRef.current = editor;
       if (editorRef) editorRef.current = editor;
 
-      // Fix math_block empty-textarea bug:
-      // plugin-math stores LaTeX in attrs.value but textContent is always "".
-      // Custom nodeView shows textarea from attrs.value so editing works after save/reload.
-      // setProps alone does NOT trigger a DOM update (ProseMirror's updateState short-circuits
-      // when state object is unchanged). A no-op dispatch forces nodeView re-instantiation.
-      try {
-        editor.action(ctx => {
-          const view = ctx.get(MB.editorViewCtx);
-          const mathBlockType = view.state.schema.nodes.math_block;
-          if (!mathBlockType) return;
-          view.setProps({
-            nodeViews: {
-              ...(view.props.nodeViews || {}),
-              math_block: makeMathBlockNodeView(mathBlockType)
-            }
-          });
-          // Force DOM re-render so existing math_block nodes use the new nodeView.
-          // setMeta('addToHistory', false) = no-op for content, no markdownUpdated fired.
-          isExternalUpdate.current = true;
-          view.dispatch(view.state.tr.setMeta('addToHistory', false));
-          setTimeout(() => { isExternalUpdate.current = false; }, 0);
-        });
-      } catch(_) {}
+      // Math editing via click handler + React overlay (handled in handleContainerClick below)
 
       // Enter inside heading → create paragraph (not another heading)
       pmDom = containerRef.current?.querySelector('.ProseMirror');
@@ -14353,16 +14339,115 @@ function MilkdownEditor({
     const taskTarget = e.target.closest('[data-tasklink]');
     if (taskTarget && onTasklinkClick) {
       onTasklinkClick(Number(taskTarget.getAttribute('data-tasklink-id') || 0));
+      return;
+    }
+    // math_block click → show inline edit overlay
+    const mathTarget = e.target.closest('[data-type="math_block"]');
+    if (mathTarget) {
+      e.preventDefault();
+      e.stopPropagation();
+      const latex = mathTarget.dataset.value || '';
+      const editor = instanceRef.current;
+      if (!editor) return;
+      const MB = window.MilkdownBundle;
+      let foundPos = null;
+      try {
+        editor.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          view.state.doc.descendants((node, nodePos) => {
+            if (foundPos !== null) return false;
+            if (node.type && node.type.name === 'math_block') {
+              try {
+                const dom = view.nodeDOM(nodePos);
+                if (dom === mathTarget || (dom && dom.contains && dom.contains(mathTarget))) {
+                  foundPos = nodePos;
+                  return false;
+                }
+              } catch (_) {}
+            }
+          });
+        });
+      } catch (_) {}
+      if (foundPos === null) return;
+      const rect = mathTarget.getBoundingClientRect();
+      const cRect = containerRef.current.getBoundingClientRect();
+      setMathEdit({
+        latex,
+        pos: foundPos,
+        top: rect.bottom - cRect.top + 4,
+        left: Math.max(0, rect.left - cRect.left),
+        width: Math.max(rect.width, 320)
+      });
+      setTimeout(() => {
+        if (mathTaRef.current) {
+          mathTaRef.current.focus();
+          mathTaRef.current.select();
+        }
+      }, 0);
     }
   }, [onWikilinkClick, onTasklinkClick]);
+  const saveMathEdit = React.useCallback(() => {
+    if (!mathEdit) return;
+    const newLatex = (mathTaRef.current?.value || '').trim();
+    const editor = instanceRef.current;
+    if (editor && newLatex !== mathEdit.latex) {
+      const MB = window.MilkdownBundle;
+      try {
+        editor.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          view.dispatch(
+            view.state.tr.setNodeMarkup(mathEdit.pos, null, { value: newLatex })
+          );
+        });
+      } catch (_) {}
+    }
+    setMathEdit(null);
+  }, [mathEdit]);
+  const cancelMathEdit = React.useCallback(() => setMathEdit(null), []);
   return /*#__PURE__*/React.createElement("div", {
     ref: containerRef,
     className: "milkdown-editor note-modal-content-input",
     style: {
-      minHeight: minHeight || 120
+      minHeight: minHeight || 120,
+      position: 'relative'
     },
     onClick: handleContainerClick
-  });
+  }, mathEdit !== null && /*#__PURE__*/React.createElement("div", {
+    className: "mk-math-popover",
+    style: {
+      top: mathEdit.top,
+      left: mathEdit.left,
+      width: mathEdit.width
+    },
+    onClick: e => e.stopPropagation(),
+    onMouseDown: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("textarea", {
+    ref: mathTaRef,
+    className: "mk-math-popover-ta",
+    defaultValue: mathEdit.latex,
+    placeholder: "LaTeX, contoh: E = mc^2",
+    onKeyDown: e => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelMathEdit();
+      }
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        saveMathEdit();
+      }
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "mk-math-popover-hint"
+  }, "Ctrl+Enter untuk simpan, Esc untuk batal"), /*#__PURE__*/React.createElement("div", {
+    className: "mk-math-popover-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: cancelMathEdit
+  }, "Batal"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "primary",
+    onClick: saveMathEdit
+  }, "Simpan"))));
 }
 function remarkWikilinkPlugin() {
   return function transformer(tree) {
@@ -14651,118 +14736,6 @@ function createHighlightPlugin() {
   }));
   const highlightRemark = MB.$remark('highlight-remark', () => remarkHighlightPlugin);
   return [highlightRemark, highlightNode];
-}
-// Custom node view for math_block:
-// @milkdown/plugin-math stores LaTeX in attrs.value but leaves textContent empty.
-// Without this, clicking inside the block shows an empty editing area.
-// This node view shows a click-to-edit textarea populated from attrs.value.
-function makeMathBlockNodeView(mathBlockType) {
-  return function(node, editorView, getPos) {
-    const wrap = document.createElement('div');
-    wrap.className = 'mk-math-block-wrap';
-
-    const formulaEl = document.createElement('div');
-    formulaEl.className = 'mk-math-formula';
-    formulaEl.title = 'Klik untuk edit LaTeX';
-    wrap.appendChild(formulaEl);
-
-    const taEl = document.createElement('textarea');
-    taEl.className = 'mk-math-edit-ta';
-    taEl.placeholder = 'LaTeX, contoh: E = mc^2';
-    wrap.appendChild(taEl);
-
-    const hintEl = document.createElement('div');
-    hintEl.className = 'mk-math-hint';
-    hintEl.textContent = 'Ctrl+Enter atau Esc untuk selesai';
-    wrap.appendChild(hintEl);
-
-    function getVal(n) {
-      return (n.attrs && n.attrs.value) || n.textContent || '';
-    }
-
-    function renderKaTeX(val) {
-      formulaEl.innerHTML = '';
-      if (!val || !val.trim()) {
-        const ph = document.createElement('span');
-        ph.className = 'mk-math-empty';
-        ph.textContent = 'Klik untuk masukkan LaTeX $$...$$';
-        formulaEl.appendChild(ph);
-        return;
-      }
-      try {
-        window.katex.render(val, formulaEl, { displayMode: true, throwOnError: false, output: 'html' });
-      } catch(e) {
-        formulaEl.textContent = '$$' + val + '$$';
-        formulaEl.style.color = '#ef4444';
-      }
-    }
-
-    let curVal = getVal(node);
-    renderKaTeX(curVal);
-    taEl.value = curVal;
-
-    function enterEdit() {
-      formulaEl.style.display = 'none';
-      taEl.style.display = '';
-      hintEl.style.display = '';
-      taEl.focus();
-      taEl.select();
-    }
-
-    function exitEdit() {
-      if (taEl.style.display === 'none') return;
-      taEl.style.display = 'none';
-      hintEl.style.display = 'none';
-      formulaEl.style.display = '';
-      const newVal = taEl.value.trim();
-      renderKaTeX(newVal || curVal);
-      const pos = typeof getPos === 'function' ? getPos() : null;
-      if (pos !== null && newVal !== curVal) {
-        curVal = newVal;
-        editorView.dispatch(
-          editorView.state.tr.setNodeMarkup(pos, null, { value: newVal })
-        );
-      }
-    }
-
-    formulaEl.addEventListener('mousedown', e => {
-      e.preventDefault();
-      e.stopPropagation();
-      enterEdit();
-    });
-
-    taEl.addEventListener('keydown', e => {
-      if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
-        e.preventDefault();
-        exitEdit();
-        editorView.focus();
-      }
-    });
-
-    taEl.addEventListener('blur', () => {
-      if (taEl.style.display !== 'none') exitEdit();
-    });
-
-    // Auto-open textarea for newly created empty math blocks
-    if (!curVal) setTimeout(enterEdit, 0);
-
-    return {
-      dom: wrap,
-      contentDOM: null,
-      update(newNode) {
-        if (newNode.type !== mathBlockType) return false;
-        const newVal = getVal(newNode);
-        if (taEl.style.display === 'none' && newVal !== curVal) {
-          curVal = newVal;
-          taEl.value = newVal;
-          renderKaTeX(newVal);
-        }
-        return true;
-      },
-      stopEvent(event) { return event.target === taEl; },
-      ignoreMutation() { return true; }
-    };
-  };
 }
 function extractHeadings(content) {
   const headings = [];
