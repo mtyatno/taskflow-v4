@@ -1,5 +1,5 @@
 """
-TaskFlow V4 - Configuration
+Jotask - Configuration
 """
 import os
 from pathlib import Path
@@ -19,7 +19,7 @@ ALLOWED_USER_IDS = [
 ]
 
 # Database
-DB_PATH = os.getenv("DB_PATH", str(Path(__file__).parent / "taskflow.db"))
+DB_PATH = os.getenv("DB_PATH", str(Path(__file__).parent / "jotask.db"))
 
 # Eisenhower auto-recalculation interval (minutes)
 EISENHOWER_INTERVAL_MINUTES = int(os.getenv("EISENHOWER_INTERVAL_MINUTES", "15"))
@@ -45,4 +45,4 @@ WEBAPP_URL = os.getenv("WEBAPP_URL", "https://todo.yatno.web.id")
 NEXTCLOUD_URL = os.getenv("NEXTCLOUD_URL", "")
 NEXTCLOUD_USER = os.getenv("NEXTCLOUD_USER", "")
 NEXTCLOUD_APP_PASSWORD = os.getenv("NEXTCLOUD_APP_PASSWORD", "")
-NEXTCLOUD_FOLDER = os.getenv("NEXTCLOUD_FOLDER", "/TaskFlow/attachments")
+NEXTCLOUD_FOLDER = os.getenv("NEXTCLOUD_FOLDER", "/Jotask/attachments")

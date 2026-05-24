@@ -1,5 +1,5 @@
 [Unit]
-Description=TaskFlow V4 - Web Application
+Description=Jotask - Web Application
 After=network.target
 
 [Service]

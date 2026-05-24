@@ -1,7 +1,7 @@
 {
-  "name": "taskflow-compile",
+  "name": "jotask-compile",
   "version": "1.0.0",
-  "description": "JSX pre-compiler for TaskFlow V4 index.html",
+  "description": "JSX pre-compiler for Jotask index.html",
   "scripts": {
     "compile": "node compile.js"
   },

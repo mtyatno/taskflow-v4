@@ -1,5 +1,5 @@
 """
-TaskFlow V4 - Date Parser Utility
+Jotask - Date Parser Utility
 
 Supports Indonesian date format DD-MM-YYYY and various natural language dates.
 Uses dateparser with DATE_ORDER: DMY setting.

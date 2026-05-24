@@ -1,5 +1,5 @@
 """
-TaskFlow V4 — Web Application (FastAPI)
+Jotask — Web Application (FastAPI)
 
 Multi-user web interface with JWT auth, REST API, and React SPA frontend.
 Runs alongside the Telegram bot, sharing the same SQLite database.
@@ -66,7 +66,7 @@ def _nc_auth() -> tuple:
 def _nc_ensure_folder() -> None:
     import requests as _req
     # Create each path segment in order so parent exists before child
-    # e.g. /TaskFlow/attachments → first /TaskFlow, then /TaskFlow/attachments
+    # e.g. /Jotask/attachments → first /Jotask, then /Jotask/attachments
     segments = NEXTCLOUD_FOLDER.strip("/").split("/")
     path = ""
     for seg in segments:
@@ -625,7 +625,7 @@ async def _send_tg_message(tg_id: int, text: str):
 #  APP
 # ══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title="TaskFlow V4", docs_url="/api/docs")
+app = FastAPI(title="Jotask", docs_url="/api/docs")
 
 
 def seed_habit_templates():
@@ -1299,15 +1299,15 @@ async def check_recurring_expiry(background_tasks: BackgroundTasks, user=Depends
         if days_left < 0 and current_level in (None, "week", "day"):
             new_level = "expired"
             msg = f'🔄 Recurring task "{t["title"]}" telah berakhir. Buat ulang jika masih diperlukan.'
-            tg_msg = f'🔄 <b>Recurring Task Berakhir</b>\n"{t["title"]}" telah berakhir.\nBuka TaskFlow untuk membuat ulang.'
+            tg_msg = f'🔄 <b>Recurring Task Berakhir</b>\n"{t["title"]}" telah berakhir.\nBuka Jotask untuk membuat ulang.'
         elif days_left <= 1 and current_level == "week":
             new_level = "day"
             msg = f'⚠️ Recurring task "{t["title"]}" berakhir besok. Perpanjang jika masih diperlukan.'
-            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" berakhir besok.\nBuka TaskFlow untuk memperpanjang.'
+            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" berakhir besok.\nBuka Jotask untuk memperpanjang.'
         elif days_left <= 7 and current_level is None:
             new_level = "week"
             msg = f'⚠️ Recurring task "{t["title"]}" akan berakhir dalam {days_left} hari. Perpanjang jika masih diperlukan.'
-            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" akan berakhir dalam {days_left} hari.\nBuka TaskFlow untuk memperpanjang.'
+            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" akan berakhir dalam {days_left} hari.\nBuka Jotask untuk memperpanjang.'
         else:
             continue
 
@@ -2072,7 +2072,7 @@ async def serve_spa():
                 "Expires": "0",
             },
         )
-    return HTMLResponse("<h1>TaskFlow V4</h1><p>Static files not found.</p>")
+    return HTMLResponse("<h1>Jotask</h1><p>Static files not found.</p>")
 
 
 @app.get("/sw.js")
@@ -2792,7 +2792,7 @@ async def export_user_data(user=Depends(get_current_user)):
         zf.writestr("habits.csv", csv_buf2.getvalue().encode("utf-8"))
 
     buf.seek(0)
-    filename = f"taskflow-export-{today}.zip"
+    filename = f"jotask-export-{today}.zip"
     return StreamingResponse(
         buf,
         media_type="application/zip",

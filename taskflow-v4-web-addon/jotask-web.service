@@ -1,5 +1,5 @@
 [Unit]
-Description=TaskFlow V4 - GTD Todo Bot
+Description=Jotask - Web Application
 After=network.target
 
 [Service]
@@ -7,11 +7,9 @@ Type=simple
 User=__USER__
 WorkingDirectory=__INSTALL_DIR__
 EnvironmentFile=__INSTALL_DIR__/.env
-ExecStart=__INSTALL_DIR__/venv/bin/python bot.py
+ExecStart=__INSTALL_DIR__/venv/bin/python webapp.py
 Restart=always
 RestartSec=10
-
-# Hardening
 NoNewPrivileges=true
 PrivateTmp=true
 

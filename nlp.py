@@ -1,5 +1,5 @@
 """
-TaskFlow V4 — Natural Language Parser
+Jotask — Natural Language Parser
 
 Mendeteksi task dari teks bebas Bahasa Indonesia/Inggris.
 Menggunakan scoring dua sumbu Eisenhower: Urgency + Importance.

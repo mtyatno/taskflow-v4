@@ -1,5 +1,5 @@
 """
-TaskFlow V4 - Telegram Bot
+Jotask - Telegram Bot
 
 Commands:
   /start          - Welcome & help
@@ -76,7 +76,7 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     level=logging.INFO,
 )
-logger = logging.getLogger("taskflow")
+logger = logging.getLogger("jotask")
 
 # ── Repository singleton ──────────────────────────────────────────────────────
 repo = TaskRepository()
@@ -187,10 +187,10 @@ async def send_long(update: Update, text: str, **kwargs):
 
 @authorized
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = f"""⚡ <b>TaskFlow V4</b>
+    text = f"""⚡ <b>Jotask</b>
 <i>GTD + Eisenhower + Priority + Pomodoro</i>
 
-Selamat datang! TaskFlow membantu mengelola task dengan:
+Selamat datang! Jotask membantu mengelola task dengan:
 
 🔄 <b>GTD</b> — inbox → next/waiting/someday → done
 🎯 <b>Priority</b> — P1 (critical) → P4 (low)
@@ -211,7 +211,7 @@ Ketik /help untuk daftar command lengkap."""
 @authorized
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = f"""━━━━━━━━━━━━━━━━━━━━
-  ⚡ <b>TASKFLOW V4 — HELP</b>
+  ⚡ <b>JOTASK — HELP</b>
 ━━━━━━━━━━━━━━━━━━━━
 
 <b>➕ Tambah Task</b>
@@ -373,7 +373,7 @@ async def cmd_webapp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     token = repo.create_magic_token(uid(context), expire_minutes=5)
     link = f"{WEBAPP_URL}/auth/magic?token={token}"
     await update.message.reply_text(
-        f"🌐 <b>Login ke TaskFlow WebApp</b>\n\n"
+        f"🌐 <b>Login ke Jotask WebApp</b>\n\n"
         f'<a href="{link}">👉 Klik di sini untuk masuk</a>\n\n'
         f"⚠️ Link hanya bisa digunakan <b>sekali</b> dan expired dalam <b>5 menit</b>.\n"
         f"Kirim /webapp lagi jika butuh link baru.",
@@ -1125,7 +1125,7 @@ async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = [
         f"━━━━━━━━━━━━━━━━━━━━",
-        f"  ⚡ <b>TASKFLOW DASHBOARD</b>",
+        f"  ⚡ <b>JOTASK DASHBOARD</b>",
         f"  {date.today().strftime('%A, %d %B %Y')}",
         f"━━━━━━━━━━━━━━━━━━━━",
         "",
@@ -2559,7 +2559,7 @@ async def cmd_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target = repo.get_user_by_display_name(raw_username)
     if not target:
         await update.message.reply_text(
-            f"❌ User <b>{raw_username}</b> tidak ditemukan di TaskFlow.\n"
+            f"❌ User <b>{raw_username}</b> tidak ditemukan di Jotask.\n"
             f"Pastikan mereka sudah pernah menggunakan bot ini.",
             parse_mode=ParseMode.HTML,
         )
@@ -2937,7 +2937,7 @@ def main():
 
     app.post_init = post_init
 
-    logger.info("🚀 TaskFlow V4 starting...")
+    logger.info("🚀 Jotask starting...")
     logger.info(f"   Eisenhower recalc interval: {EISENHOWER_INTERVAL_MINUTES}m")
     logger.info(f"   Daily summary: {DAILY_SUMMARY_HOUR:02d}:{DAILY_SUMMARY_MINUTE:02d} ({TIMEZONE})")
     days_name = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"]

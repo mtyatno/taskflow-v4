@@ -1,8 +1,8 @@
-# 🚀 TaskFlow V4
+# 🚀 Jotask
 
 **Personal GTD + Eisenhower + Priority Todo System — Telegram Bot**
 
-TaskFlow V4 adalah sistem manajemen task pribadi yang menggabungkan tiga metodologi produktivitas:
+Jotask adalah sistem manajemen task pribadi yang menggabungkan tiga metodologi produktivitas:
 
 - **GTD (Getting Things Done)** — Workflow status: inbox → next/waiting/someday/project → done
 - **Priority P1-P4** — User-defined importance level (static, set manual)
@@ -22,7 +22,7 @@ taskflow-v4/
 ├── config.py           # Configuration loader
 ├── requirements.txt    # Python dependencies
 ├── .env.example        # Template konfigurasi
-├── taskflow.service    # Systemd service template
+├── jotask.service    # Systemd service template
 ├── install.sh          # One-click installer
 └── README.md           # Dokumentasi ini
 ```
@@ -45,7 +45,7 @@ taskflow-v4/
 
 1. Buka Telegram, cari **@BotFather**
 2. Kirim `/newbot`
-3. Ikuti instruksi, beri nama bot (misal: "TaskFlow V4")
+3. Ikuti instruksi, beri nama bot (misal: "Jotask")
 4. Simpan **Bot Token** yang diberikan
 5. Opsional: cari tahu Telegram User ID kamu via **@userinfobot**
 
@@ -77,7 +77,7 @@ Installer akan:
 Setelah selesai:
 
 ```bash
-sudo systemctl start taskflow
+sudo systemctl start jotask
 ```
 
 Buka Telegram → cari bot kamu → ketik `/start` 🎉
@@ -177,7 +177,7 @@ python bot.py
 
 ## 🧠 Cara Kerja Eisenhower Auto-Calc
 
-Setiap 15 menit (configurable), TaskFlow menghitung ulang quadrant semua task aktif:
+Setiap 15 menit (configurable), Jotask menghitung ulang quadrant semua task aktif:
 
 **Importance** (dari Priority):
 - P1 Critical → skor 10 → **Important**
@@ -209,7 +209,7 @@ Setiap 15 menit (configurable), TaskFlow menghitung ulang quadrant semua task ak
 |----------|---------|------------|
 | `TELEGRAM_BOT_TOKEN` | — | Token dari @BotFather (wajib) |
 | `ALLOWED_USER_IDS` | (kosong) | Comma-separated Telegram user IDs. Kosong = semua boleh |
-| `DB_PATH` | `./taskflow.db` | Path file database SQLite |
+| `DB_PATH` | `./jotask.db` | Path file database SQLite |
 | `EISENHOWER_INTERVAL_MINUTES` | `15` | Interval recalc Eisenhower (menit) |
 | `TIMEZONE` | `Asia/Jakarta` | Timezone |
 
@@ -219,24 +219,24 @@ Setiap 15 menit (configurable), TaskFlow menghitung ulang quadrant semua task ak
 
 ```bash
 # Lihat status
-sudo systemctl status taskflow
+sudo systemctl status jotask
 
 # Lihat log real-time
-sudo journalctl -u taskflow -f
+sudo journalctl -u jotask -f
 
 # Restart setelah edit .env
-sudo systemctl restart taskflow
+sudo systemctl restart jotask
 
 # Stop
-sudo systemctl stop taskflow
+sudo systemctl stop jotask
 
 # Backup database
-cp ~/taskflow-v4/taskflow.db ~/taskflow-v4/taskflow.db.bak
+cp ~/taskflow-v4/jotask.db ~/taskflow-v4/jotask.db.bak
 
 # Update (setelah upload file baru)
-sudo systemctl stop taskflow
+sudo systemctl stop jotask
 # ... replace files ...
-sudo systemctl start taskflow
+sudo systemctl start jotask
 ```
 
 ---
@@ -258,4 +258,4 @@ sudo systemctl start taskflow
 
 ---
 
-**TaskFlow V4** — Built with ❤️ for productivity
+**Jotask** — Built with ❤️ for productivity

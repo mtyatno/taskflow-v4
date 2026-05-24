@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════╗
-# ║    TaskFlow V4 — Web App Installer                   ║
+# ║    Jotask — Web App Installer                   ║
 # ║    Jalankan di folder taskflow-v4 yang sudah ada      ║
 # ╚══════════════════════════════════════════════════════╝
 
@@ -21,11 +21,11 @@ err()   { echo -e "${RED}[ERROR]${NC} $1"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="$SCRIPT_DIR"
 CURRENT_USER="$(whoami)"
-SERVICE_NAME="taskflow-web"
+SERVICE_NAME="jotask-web"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║    🌐 TaskFlow V4 Web App Installer      ║${NC}"
+echo -e "${BOLD}║    🌐 Jotask Web App Installer      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -100,7 +100,7 @@ SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 sed -e "s|__USER__|$CURRENT_USER|g" \
     -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
-    "$INSTALL_DIR/taskflow-web.service" | sudo tee "$SERVICE_FILE" > /dev/null
+    "$INSTALL_DIR/jotask-web.service" | sudo tee "$SERVICE_FILE" > /dev/null
 
 sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
@@ -117,9 +117,9 @@ if [ "$SETUP_NGINX" = "y" ] || [ "$SETUP_NGINX" = "Y" ]; then
         if [ -n "$SUBDOMAIN" ]; then
             sed -e "s|__SUBDOMAIN__|$SUBDOMAIN|g" \
                 -e "s|__PORT__|$WEB_PORT|g" \
-                "$INSTALL_DIR/nginx-taskflow.conf" | sudo tee "/etc/nginx/sites-available/taskflow" > /dev/null
+                "$INSTALL_DIR/nginx-jotask.conf" | sudo tee "/etc/nginx/sites-available/jotask" > /dev/null
 
-            sudo ln -sf /etc/nginx/sites-available/taskflow /etc/nginx/sites-enabled/taskflow
+            sudo ln -sf /etc/nginx/sites-available/jotask /etc/nginx/sites-enabled/jotask
 
             if sudo nginx -t 2>/dev/null; then
                 sudo systemctl reload nginx
@@ -138,7 +138,7 @@ fi
 # ── Done ──
 echo ""
 echo -e "${GREEN}${BOLD}══════════════════════════════════════════${NC}"
-echo -e "${GREEN}${BOLD}  ✅ TaskFlow V4 Web App installed!       ${NC}"
+echo -e "${GREEN}${BOLD}  ✅ Jotask Web App installed!       ${NC}"
 echo -e "${GREEN}${BOLD}══════════════════════════════════════════${NC}"
 echo ""
 echo -e "  ${BOLD}Start web app:${NC}"

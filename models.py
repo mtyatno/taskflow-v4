@@ -1,5 +1,5 @@
 """
-TaskFlow V4 - Models
+Jotask - Models
 
 GTD Status : inbox → next | waiting | someday | project → done | archived
 Priority   : P1 (critical) → P2 (high) → P3 (medium) → P4 (low)

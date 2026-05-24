@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════╗
-# ║    TaskFlow V4 — Backup Script                       ║
+# ║    Jotask — Backup Script                       ║
 # ║    Jalankan dari folder taskflow-v4                   ║
 # ╚══════════════════════════════════════════════════════╝
 
@@ -21,12 +21,12 @@ err()   { echo -e "${RED}[ERROR]${NC} $1"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP_BASE="${HOME}/backups"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-BACKUP_NAME="taskflow-backup-${TIMESTAMP}"
+BACKUP_NAME="jotask-backup-${TIMESTAMP}"
 BACKUP_DIR="${BACKUP_BASE}/${BACKUP_NAME}"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║    📦 TaskFlow V4 — Backup               ║${NC}"
+echo -e "${BOLD}║    📦 Jotask — Backup               ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -45,18 +45,18 @@ mkdir -p "${BACKUP_DIR}"
 
 # ── 1. Database ──
 info "Step 1/5 — Backup database..."
-if [ -f "${SCRIPT_DIR}/taskflow.db" ]; then
+if [ -f "${SCRIPT_DIR}/jotask.db" ]; then
     # Gunakan sqlite3 backup jika tersedia (safe copy saat DB sedang diakses)
     if command -v sqlite3 &>/dev/null; then
-        sqlite3 "${SCRIPT_DIR}/taskflow.db" ".backup '${BACKUP_DIR}/taskflow.db'"
+        sqlite3 "${SCRIPT_DIR}/jotask.db" ".backup '${BACKUP_DIR}/jotask.db'"
         ok "Database (sqlite3 safe backup)"
     else
-        cp "${SCRIPT_DIR}/taskflow.db" "${BACKUP_DIR}/"
+        cp "${SCRIPT_DIR}/jotask.db" "${BACKUP_DIR}/"
         ok "Database (file copy)"
     fi
     # Juga backup WAL/SHM jika ada
-    [ -f "${SCRIPT_DIR}/taskflow.db-wal" ] && cp "${SCRIPT_DIR}/taskflow.db-wal" "${BACKUP_DIR}/"
-    [ -f "${SCRIPT_DIR}/taskflow.db-shm" ] && cp "${SCRIPT_DIR}/taskflow.db-shm" "${BACKUP_DIR}/"
+    [ -f "${SCRIPT_DIR}/jotask.db-wal" ] && cp "${SCRIPT_DIR}/jotask.db-wal" "${BACKUP_DIR}/"
+    [ -f "${SCRIPT_DIR}/jotask.db-shm" ] && cp "${SCRIPT_DIR}/jotask.db-shm" "${BACKUP_DIR}/"
 else
     warn "Database tidak ditemukan, skip."
 fi
@@ -97,7 +97,7 @@ for f in requirements.txt requirements-web.txt; do
     [ -f "${SCRIPT_DIR}/${f}" ] && cp "${SCRIPT_DIR}/${f}" "${BACKUP_DIR}/"
 done
 # service files
-for f in taskflow.service taskflow-web.service; do
+for f in jotask.service jotask-web.service; do
     [ -f "${SCRIPT_DIR}/${f}" ] && cp "${SCRIPT_DIR}/${f}" "${BACKUP_DIR}/"
 done
 # scripts
@@ -105,7 +105,7 @@ for f in install.sh install-web.sh backup.sh restore.sh; do
     [ -f "${SCRIPT_DIR}/${f}" ] && cp "${SCRIPT_DIR}/${f}" "${BACKUP_DIR}/"
 done
 # nginx config
-[ -f "${SCRIPT_DIR}/nginx-taskflow.conf" ] && cp "${SCRIPT_DIR}/nginx-taskflow.conf" "${BACKUP_DIR}/"
+[ -f "${SCRIPT_DIR}/nginx-jotask.conf" ] && cp "${SCRIPT_DIR}/nginx-jotask.conf" "${BACKUP_DIR}/"
 # static folder
 if [ -d "${SCRIPT_DIR}/static" ]; then
     cp -r "${SCRIPT_DIR}/static" "${BACKUP_DIR}/static"
@@ -121,7 +121,7 @@ tar czf "${BACKUP_NAME}.tar.gz" "${BACKUP_NAME}/"
 
 # Hitung ukuran
 BACKUP_SIZE=$(du -sh "${BACKUP_NAME}.tar.gz" | cut -f1)
-DB_SIZE=$(du -sh "${BACKUP_DIR}/taskflow.db" 2>/dev/null | cut -f1 || echo "0")
+DB_SIZE=$(du -sh "${BACKUP_DIR}/jotask.db" 2>/dev/null | cut -f1 || echo "0")
 UPLOAD_SIZE=$(du -sh "${BACKUP_DIR}/uploads" 2>/dev/null | cut -f1 || echo "0")
 
 # Cleanup folder (keep only tar.gz)
@@ -146,10 +146,10 @@ echo "    rsync -avz -e ssh $(whoami)@$(hostname -I | awk '{print $1}'):${BACKUP
 echo ""
 
 # ── Cleanup old backups (keep last 7) ──
-BACKUP_COUNT=$(ls -1 "${BACKUP_BASE}"/taskflow-backup-*.tar.gz 2>/dev/null | wc -l)
+BACKUP_COUNT=$(ls -1 "${BACKUP_BASE}"/jotask-backup-*.tar.gz 2>/dev/null | wc -l)
 if [ "$BACKUP_COUNT" -gt 7 ]; then
     REMOVE_COUNT=$((BACKUP_COUNT - 7))
-    ls -1t "${BACKUP_BASE}"/taskflow-backup-*.tar.gz | tail -n "$REMOVE_COUNT" | while read f; do
+    ls -1t "${BACKUP_BASE}"/jotask-backup-*.tar.gz | tail -n "$REMOVE_COUNT" | while read f; do
         rm -f "$f"
         warn "Old backup removed: $(basename $f)"
     done

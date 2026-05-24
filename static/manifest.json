@@ -1,6 +1,6 @@
 {
-  "name": "TaskFlow V4",
-  "short_name": "TaskFlow",
+  "name": "Jotask",
+  "short_name": "Jotask",
   "description": "GTD Task Manager",
   "start_url": "/",
   "scope": "/",

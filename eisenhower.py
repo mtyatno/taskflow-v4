@@ -1,5 +1,5 @@
 """
-TaskFlow V4 - Eisenhower Quadrant Calculator
+Jotask - Eisenhower Quadrant Calculator
 
 Calculates Eisenhower quadrants dynamically based on:
   - Priority (P1-P4) → importance score

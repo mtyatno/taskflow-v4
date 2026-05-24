@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════╗
-# ║      TaskFlow V4 — Installer                        ║
+# ║      Jotask — Installer                        ║
 # ║      Tested on Ubuntu 20.04 / 22.04 / 24.04        ║
 # ╚══════════════════════════════════════════════════════╝
 
@@ -21,7 +21,7 @@ err()   { echo -e "${RED}[ERROR]${NC} $1"; }
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║       🚀 TaskFlow V4 Installer           ║${NC}"
+echo -e "${BOLD}║       🚀 Jotask Installer           ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -29,7 +29,7 @@ echo ""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="$SCRIPT_DIR"
 CURRENT_USER="$(whoami)"
-SERVICE_NAME="taskflow"
+SERVICE_NAME="jotask"
 
 info "Install directory : $INSTALL_DIR"
 info "Running as user   : $CURRENT_USER"
@@ -132,7 +132,7 @@ if [ -f "$SERVICE_FILE" ]; then
         warn "Skip systemd setup."
         echo ""
         echo -e "${GREEN}${BOLD}══════════════════════════════════════════${NC}"
-        echo -e "${GREEN}${BOLD}  ✅ TaskFlow V4 installed successfully!  ${NC}"
+        echo -e "${GREEN}${BOLD}  ✅ Jotask installed successfully!  ${NC}"
         echo -e "${GREEN}${BOLD}══════════════════════════════════════════${NC}"
         echo ""
         echo "  Jalankan manual:  $INSTALL_DIR/venv/bin/python $INSTALL_DIR/bot.py"
@@ -145,7 +145,7 @@ fi
 # Generate service file from template
 sed -e "s|__USER__|$CURRENT_USER|g" \
     -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
-    "$INSTALL_DIR/taskflow.service" | sudo tee "$SERVICE_FILE" > /dev/null
+    "$INSTALL_DIR/jotask.service" | sudo tee "$SERVICE_FILE" > /dev/null
 
 sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
@@ -155,7 +155,7 @@ ok "Systemd service installed & enabled."
 # ── Done ──────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}══════════════════════════════════════════${NC}"
-echo -e "${GREEN}${BOLD}  ✅ TaskFlow V4 installed successfully!  ${NC}"
+echo -e "${GREEN}${BOLD}  ✅ Jotask installed successfully!  ${NC}"
 echo -e "${GREEN}${BOLD}══════════════════════════════════════════${NC}"
 echo ""
 echo -e "  ${BOLD}Start bot:${NC}"
@@ -174,7 +174,7 @@ echo -e "  ${BOLD}Config:${NC}"
 echo "    $INSTALL_DIR/.env"
 echo ""
 echo -e "  ${BOLD}Database:${NC}"
-echo "    $INSTALL_DIR/taskflow.db"
+echo "    $INSTALL_DIR/jotask.db"
 echo ""
 echo -e "  Buka Telegram, cari bot kamu, dan ketik ${BOLD}/start${NC} 🚀"
 echo ""

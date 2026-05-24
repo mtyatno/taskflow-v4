@@ -1,5 +1,5 @@
 """
-TaskFlow V4 - Database Repository (SQLite)
+Jotask - Database Repository (SQLite)
 Multi-user: all task queries filter by user_id.
 """
 from __future__ import annotations

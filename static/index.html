@@ -6,12 +6,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,opsz,wght@0,6..12,400;0,6..12,500;0,6..12,600;0,6..12,700;1,6..12,400;1,6..12,600&display=swap" rel="stylesheet">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TaskFlow V4</title>
+  <title>Jotask</title>
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="TaskFlow">
+  <meta name="apple-mobile-web-app-title" content="Jotask">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/icon-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
   <link rel="apple-touch-icon" sizes="192x192" href="/static/icon-192.png">
@@ -1306,7 +1306,7 @@ const tokenStore = {
 
 // ── Offline — IndexedDB ─────────────────────────────────────
 const OfflineDB = (() => {
-  const NAME = "taskflow-offline",
+  const NAME = "jotask-offline",
     VER = 1;
   let _db = null;
   const open = () => new Promise((res, rej) => {
@@ -1657,7 +1657,7 @@ function LoginPage({
       fontWeight: 700,
       color: "var(--bg-primary)"
     }
-  }, "\u26A1 TaskFlow"), /*#__PURE__*/React.createElement("div", {
+  }, "\u26A1 Jotask"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 14,
       color: "var(--text-secondary)",
@@ -1771,7 +1771,7 @@ function RegisterPage({
       fontWeight: 700,
       color: "var(--bg-primary)"
     }
-  }, "\u26A1 TaskFlow"), /*#__PURE__*/React.createElement("div", {
+  }, "\u26A1 Jotask"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 14,
       color: "var(--text-secondary)",
@@ -2878,7 +2878,7 @@ function Sidebar({
       fontWeight: 700,
       color: "var(--text-primary)"
     }
-  }, "\u26A1 TaskFlow"), /*#__PURE__*/React.createElement("div", {
+  }, "\u26A1 Jotask"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: "#888880",
@@ -13149,7 +13149,7 @@ function SettingsPage({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'taskflow-export-' + today + '.zip';
+      a.download = 'jotask-export-' + today + '.zip';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -16859,7 +16859,7 @@ function NotePanel({
     const html = renderMarkdown(note.content || "", titleStrings, allNotes, tasks);
     const el = document.createElement("div");
     el.id = "note-print-area";
-    el.innerHTML = `<table class="print-container"><thead><tr><td><div class="page-header-space"></div></td></tr></thead><tfoot><tr><td><div class="page-footer-space"></div></td></tr></tfoot><tbody><tr><td class="note-content"><div class="npa-title">${note.title || "(tanpa judul)"}</div><div class="npa-meta">${fmtDate(note.updated_at)}</div><div class="note-rendered">${html}</div></td></tr></tbody></table><div class="npa-footer"><span>${note.title || ""}</span><span>TaskFlow V4</span></div>`;
+    el.innerHTML = `<table class="print-container"><thead><tr><td><div class="page-header-space"></div></td></tr></thead><tfoot><tr><td><div class="page-footer-space"></div></td></tr></tfoot><tbody><tr><td class="note-content"><div class="npa-title">${note.title || "(tanpa judul)"}</div><div class="npa-meta">${fmtDate(note.updated_at)}</div><div class="note-rendered">${html}</div></td></tr></tbody></table><div class="npa-footer"><span>${note.title || ""}</span><span>Jotask</span></div>`;
     document.body.appendChild(el);
     const cleanup = () => {
       document.body.removeChild(el);
@@ -21587,7 +21587,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <div id="pwa-install-banner" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999;background:#0f172a;color:white;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.35);padding:14px 18px;gap:14px;align-items:center;min-width:280px;max-width:360px;width:calc(100vw - 48px);">
     <div style="font-size:26px;line-height:1;">📲</div>
     <div style="flex:1;">
-      <div style="font-weight:700;font-size:14px;margin-bottom:2px;">Install TaskFlow</div>
+      <div style="font-weight:700;font-size:14px;margin-bottom:2px;">Install Jotask</div>
       <div style="font-size:12px;opacity:0.7;">Akses offline, lebih cepat dari browser</div>
     </div>
     <button onclick="pwaInstall()" style="background:#22c55e;color:white;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;">Install</button>

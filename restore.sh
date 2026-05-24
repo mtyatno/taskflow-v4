@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════╗
-# ║    TaskFlow V4 — Restore Script                      ║
+# ║    Jotask — Restore Script                      ║
 # ║    Usage: ./restore.sh <backup-file.tar.gz>          ║
 # ╚══════════════════════════════════════════════════════╝
 
@@ -20,7 +20,7 @@ err()   { echo -e "${RED}[ERROR]${NC} $1"; }
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║    🔄 TaskFlow V4 — Restore              ║${NC}"
+echo -e "${BOLD}║    🔄 Jotask — Restore              ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -29,11 +29,11 @@ if [ -z "${1:-}" ]; then
     echo "Usage: ./restore.sh <backup-file.tar.gz> [target-dir]"
     echo ""
     echo "Contoh:"
-    echo "  ./restore.sh ~/backups/taskflow-backup-20260317-200000.tar.gz"
+    echo "  ./restore.sh ~/backups/jotask-backup-20260317-200000.tar.gz"
     echo "  ./restore.sh backup.tar.gz ~/todo-system/taskflow-v4"
     echo ""
     echo "Backup yang tersedia:"
-    ls -1th ~/backups/taskflow-backup-*.tar.gz 2>/dev/null | head -5 || echo "  (tidak ada)"
+    ls -1th ~/backups/jotask-backup-*.tar.gz 2>/dev/null | head -5 || echo "  (tidak ada)"
     exit 1
 fi
 
@@ -54,7 +54,7 @@ echo -e "${YELLOW}${BOLD}⚠️  PERHATIAN!${NC}"
 echo ""
 echo "  Restore akan MENIMPA file berikut di target:"
 echo "    - Semua .py files (bot, webapp, config, dll)"
-echo "    - Database (taskflow.db)"
+echo "    - Database (jotask.db)"
 echo "    - Uploads (lampiran)"
 echo "    - Static files (index.html)"
 echo "    - Config (.env)"
@@ -70,8 +70,8 @@ echo ""
 
 # ── Stop services ──
 info "Step 1/6 — Stopping services..."
-sudo systemctl stop taskflow 2>/dev/null && ok "taskflow stopped" || warn "taskflow not running"
-sudo systemctl stop taskflow-web 2>/dev/null && ok "taskflow-web stopped" || warn "taskflow-web not running"
+sudo systemctl stop jotask 2>/dev/null && ok "jotask stopped" || warn "jotask not running"
+sudo systemctl stop jotask-web 2>/dev/null && ok "jotask-web stopped" || warn "jotask-web not running"
 
 # ── Extract backup ke temp dir ──
 info "Step 2/6 — Extracting backup..."
@@ -79,15 +79,15 @@ TEMP_DIR=$(mktemp -d)
 tar xzf "$BACKUP_FILE" -C "$TEMP_DIR"
 
 # Find the extracted folder (could be nested)
-EXTRACTED=$(find "$TEMP_DIR" -maxdepth 1 -type d -name "taskflow-backup-*" | head -1)
+EXTRACTED=$(find "$TEMP_DIR" -maxdepth 1 -type d -name "jotask-backup-*" | head -1)
 if [ -z "$EXTRACTED" ]; then
     # Maybe files are directly in temp dir
     EXTRACTED="$TEMP_DIR"
 fi
 
 # Check contents
-if [ ! -f "$EXTRACTED/bot.py" ] && [ ! -f "$EXTRACTED/taskflow.db" ]; then
-    err "Backup tidak valid — bot.py atau taskflow.db tidak ditemukan"
+if [ ! -f "$EXTRACTED/bot.py" ] && [ ! -f "$EXTRACTED/jotask.db" ]; then
+    err "Backup tidak valid — bot.py atau jotask.db tidak ditemukan"
     rm -rf "$TEMP_DIR"
     exit 1
 fi
@@ -101,7 +101,7 @@ PRE_RESTORE="${TARGET_DIR}/.pre-restore-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$PRE_RESTORE"
 
 # Backup existing files
-for f in bot.py webapp.py repository.py models.py eisenhower.py datehelper.py config.py .env taskflow.db; do
+for f in bot.py webapp.py repository.py models.py eisenhower.py datehelper.py config.py .env jotask.db; do
     [ -f "$TARGET_DIR/$f" ] && cp "$TARGET_DIR/$f" "$PRE_RESTORE/"
 done
 [ -d "$TARGET_DIR/static" ] && cp -r "$TARGET_DIR/static" "$PRE_RESTORE/static"
@@ -136,7 +136,7 @@ for f in requirements.txt requirements-web.txt; do
 done
 
 # Service files
-for f in taskflow.service taskflow-web.service; do
+for f in jotask.service jotask-web.service; do
     [ -f "$EXTRACTED/$f" ] && cp "$EXTRACTED/$f" "$TARGET_DIR/"
 done
 
@@ -149,24 +149,24 @@ for f in install.sh install-web.sh backup.sh restore.sh; do
 done
 
 # Nginx config
-[ -f "$EXTRACTED/nginx-taskflow.conf" ] && cp "$EXTRACTED/nginx-taskflow.conf" "$TARGET_DIR/"
+[ -f "$EXTRACTED/nginx-jotask.conf" ] && cp "$EXTRACTED/nginx-jotask.conf" "$TARGET_DIR/"
 
 # README
 [ -f "$EXTRACTED/README.md" ] && cp "$EXTRACTED/README.md" "$TARGET_DIR/"
 
 # ── Restore database ──
 info "Step 5/6 — Restoring database..."
-if [ -f "$EXTRACTED/taskflow.db" ]; then
-    cp "$EXTRACTED/taskflow.db" "$TARGET_DIR/"
+if [ -f "$EXTRACTED/jotask.db" ]; then
+    cp "$EXTRACTED/jotask.db" "$TARGET_DIR/"
     # WAL/SHM jika ada
-    [ -f "$EXTRACTED/taskflow.db-wal" ] && cp "$EXTRACTED/taskflow.db-wal" "$TARGET_DIR/"
-    [ -f "$EXTRACTED/taskflow.db-shm" ] && cp "$EXTRACTED/taskflow.db-shm" "$TARGET_DIR/"
+    [ -f "$EXTRACTED/jotask.db-wal" ] && cp "$EXTRACTED/jotask.db-wal" "$TARGET_DIR/"
+    [ -f "$EXTRACTED/jotask.db-shm" ] && cp "$EXTRACTED/jotask.db-shm" "$TARGET_DIR/"
     ok "Database restored"
     
     # Show DB stats
     if command -v sqlite3 &>/dev/null; then
-        TASK_COUNT=$(sqlite3 "$TARGET_DIR/taskflow.db" "SELECT COUNT(*) FROM tasks;" 2>/dev/null || echo "?")
-        USER_COUNT=$(sqlite3 "$TARGET_DIR/taskflow.db" "SELECT COUNT(*) FROM users;" 2>/dev/null || echo "?")
+        TASK_COUNT=$(sqlite3 "$TARGET_DIR/jotask.db" "SELECT COUNT(*) FROM tasks;" 2>/dev/null || echo "?")
+        USER_COUNT=$(sqlite3 "$TARGET_DIR/jotask.db" "SELECT COUNT(*) FROM users;" 2>/dev/null || echo "?")
         echo -e "     Tasks: ${TASK_COUNT} | Users: ${USER_COUNT}"
     fi
 else
@@ -202,8 +202,8 @@ if [ ! -d "$TARGET_DIR/venv" ]; then
     warn "Virtual environment not found. Run install.sh first:"
     echo "    cd $TARGET_DIR && ./install.sh"
 else
-    sudo systemctl start taskflow 2>/dev/null && ok "taskflow started" || warn "taskflow failed to start"
-    sudo systemctl start taskflow-web 2>/dev/null && ok "taskflow-web started" || warn "taskflow-web failed to start"
+    sudo systemctl start jotask 2>/dev/null && ok "jotask started" || warn "jotask failed to start"
+    sudo systemctl start jotask-web 2>/dev/null && ok "jotask-web started" || warn "jotask-web failed to start"
 fi
 
 # ── Summary ──
@@ -217,10 +217,10 @@ echo -e "  ${BOLD}Pre-restore:${NC}  $PRE_RESTORE"
 echo -e "  ${BOLD}Waktu:${NC}        $(date '+%d-%m-%Y %H:%M:%S')"
 echo ""
 echo -e "  ${BOLD}Cek status:${NC}"
-echo "    sudo systemctl status taskflow"
-echo "    sudo systemctl status taskflow-web"
+echo "    sudo systemctl status jotask"
+echo "    sudo systemctl status jotask-web"
 echo ""
 echo -e "  ${BOLD}Rollback jika bermasalah:${NC}"
 echo "    cp ${PRE_RESTORE}/* ${TARGET_DIR}/"
-echo "    sudo systemctl restart taskflow taskflow-web"
+echo "    sudo systemctl restart jotask jotask-web"
 echo ""
