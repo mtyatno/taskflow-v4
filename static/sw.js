@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v108-math-edit";
+const CACHE = "taskflow-v109-katex-patch";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
