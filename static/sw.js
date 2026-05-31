@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v110-tour";
+const CACHE = "taskflow-v111-tour-mobile";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",

@@ -20366,17 +20366,31 @@ const TOUR_STEPS = {
 // Pages yang menggunakan steps dari 'inbox' (semua task list pages)
 ['next','waiting','someday','all','overdue','done'].forEach(p => { TOUR_STEPS[p] = TOUR_STEPS.inbox; });
 
+function isTourVisible(el) {
+  if (!el) return false;
+  const st = getComputedStyle(el);
+  if (st.display === 'none' || st.visibility === 'hidden' || parseFloat(st.opacity) === 0) return false;
+  const rect = el.getBoundingClientRect();
+  // Element must have size and be within reasonable bounds (not scrolled far off-screen)
+  return rect.width > 0 && rect.height > 0 && rect.bottom > -200 && rect.top < window.innerHeight + 200;
+}
+
 function startTour(page, forceShow) {
   if (!window.driver) return;
   const steps = TOUR_STEPS[page];
   if (!steps || steps.length === 0) return;
   const key = `tf_tour_${page}`;
   if (!forceShow && localStorage.getItem(key)) return;
-  // wait for DOM
+  // Wait for DOM — slightly longer on mobile to account for render timing
+  const delay = window.innerWidth < 769 ? 600 : 400;
   setTimeout(() => {
-    const availableSteps = steps.filter(s => document.querySelector(s.element));
+    const availableSteps = steps.filter(s => {
+      const el = document.querySelector(s.element);
+      return isTourVisible(el);
+    });
     if (availableSteps.length === 0) return;
     localStorage.setItem(key, '1');
+    const isMobile = window.innerWidth < 769;
     const driverObj = window.driver.driver({
       showProgress: true,
       nextBtnText: 'Lanjut →',
@@ -20385,11 +20399,16 @@ function startTour(page, forceShow) {
       progressText: '{{current}} / {{total}}',
       steps: availableSteps.map(s => ({
         element: s.element,
-        popover: { title: s.popover.title, description: s.popover.description, side: 'bottom', align: 'start' }
+        popover: {
+          title: s.popover.title,
+          description: s.popover.description,
+          side: isMobile ? 'top' : 'bottom',
+          align: 'start',
+        }
       })),
     });
     driverObj.drive();
-  }, 400);
+  }, delay);
 }
 
 function TourButton({ page }) {
