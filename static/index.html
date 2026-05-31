@@ -20376,7 +20376,7 @@ function isTourVisible(el) {
 }
 
 function startTour(page, forceShow) {
-  if (!window.driver) return;
+  if (!window.driver || !window.driver.js || !window.driver.js.driver) return;
   const steps = TOUR_STEPS[page];
   if (!steps || steps.length === 0) return;
   const key = `tf_tour_${page}`;
@@ -20391,7 +20391,7 @@ function startTour(page, forceShow) {
     if (availableSteps.length === 0) return;
     localStorage.setItem(key, '1');
     const isMobile = window.innerWidth < 769;
-    const driverObj = window.driver.driver({
+    const driverObj = window.driver.js.driver({
       showProgress: true,
       nextBtnText: 'Lanjut →',
       prevBtnText: '← Kembali',
