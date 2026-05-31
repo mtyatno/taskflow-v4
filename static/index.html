@@ -22,6 +22,8 @@
 
   <script src="/static/vendor/chart.umd.min.js"></script>
   <script src="/static/vendor/marked.min.js"></script>
+  <link rel="stylesheet" href="/static/vendor/driver.css">
+  <script src="/static/vendor/driver.iife.js"></script>
   <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
   <script src="/static/vendor/katex/katex.min.js"></script>
   <script>
@@ -1262,6 +1264,18 @@
     .mk-math-popover-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
     .mk-math-popover-actions button { padding: 4px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); font-weight: 500; }
     .mk-math-popover-actions button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+    /* Driver.js tour overrides — match TaskFlow theme */
+    .driver-popover { background: var(--bg-card) !important; border: 1px solid var(--border) !important; border-radius: 12px !important; box-shadow: 0 8px 32px rgba(0,0,0,0.18) !important; max-width: 320px !important; }
+    .driver-popover-title { color: var(--accent) !important; font-size: 15px !important; font-weight: 700 !important; font-family: inherit !important; }
+    .driver-popover-description { color: var(--text-primary) !important; font-size: 13px !important; line-height: 1.6 !important; font-family: inherit !important; }
+    .driver-popover-progress-text { color: var(--text-light) !important; font-size: 11px !important; }
+    .driver-popover-navigation-btns button { background: var(--accent) !important; color: #1a2a00 !important; border: none !important; border-radius: 7px !important; font-weight: 700 !important; font-size: 12px !important; padding: 6px 14px !important; cursor: pointer !important; font-family: inherit !important; }
+    .driver-popover-navigation-btns button.driver-popover-prev-btn { background: var(--bg-secondary) !important; color: var(--text-secondary) !important; }
+    .driver-popover-close-btn { color: var(--text-light) !important; font-size: 18px !important; }
+    .driver-popover-footer { border-top: 1px solid var(--border) !important; margin-top: 10px !important; padding-top: 10px !important; }
+    [data-theme="dark"] .driver-popover { box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important; }
+    .tour-btn { background: var(--bg-card); border: 1px solid var(--border); border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 13px; font-weight: 700; color: var(--text-secondary); flex-shrink: 0; transition: all 0.15s; }
+    .tour-btn:hover { background: var(--accent); color: #1a2a00; border-color: var(--accent); }
   </style>
 </head>
 <body>
@@ -2844,6 +2858,7 @@ function Sidebar({
       items.push(/*#__PURE__*/React.createElement("div", {
         key: `sec-${i}`,
         className: "sidebar-section",
+        "data-tour": "task-gtd",
         onClick: () => toggleSection(sName),
         style: {
           cursor: "pointer",
@@ -4096,6 +4111,7 @@ function TaskFormModal({
     placeholder: "Meditasi, Olahraga, Baca... atau tambahkan #tag"
   }), habitTitleTagDropdown && habitTitleTagDropdown.items.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "wiki-autocomplete",
+            "data-tour": "notes-wikilink",
     style: {
       position: "absolute",
       top: "100%",
@@ -6367,6 +6383,7 @@ function TaskRow({
 }) {
   return /*#__PURE__*/React.createElement("div", {
     className: "task-row fade-in",
+    "data-tour": "task-list",
     onClick: () => onClick(task)
   }, /*#__PURE__*/React.createElement("div", {
     className: "check-btn",
@@ -6608,6 +6625,7 @@ function FocusTaskRow({
   }, "\uD83D\uDCC5 ", formatDate(task.deadline), " ", task.is_overdue && /*#__PURE__*/React.createElement("span", {
     className: "overdue-indicator"
   })))), /*#__PURE__*/React.createElement("button", {
+    "data-tour": "today-focus-btn",
     className: `task-focus-btn ${isFocusing ? 'active' : isOtherFocused ? 'disabled' : 'start'}`,
     onClick: e => {
       e.stopPropagation();
@@ -6912,7 +6930,8 @@ function PomodoroTimer({
     onClick: skipTimer,
     title: "Skip"
   }, "\u23ED")), focusTask && /*#__PURE__*/React.createElement("div", {
-    className: "focus-task-card"
+    className: "focus-task-card",
+      "data-tour": "today-list"
   }, /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 20
@@ -8425,6 +8444,7 @@ function MindmapPage({
     }
   }, "\u2715"))) : /*#__PURE__*/React.createElement("button", {
     onClick: () => setCreating(true),
+    "data-tour": "mindmap-new",
     style: {
       width: "100%",
       padding: "5px 8px",
@@ -8439,6 +8459,7 @@ function MindmapPage({
     }
   }, "+ Baru")), /*#__PURE__*/React.createElement("div", {
     className: "hide-scrollbar",
+    "data-tour": "mindmap-list",
     style: {
       flex: 1,
       overflowY: "auto",
@@ -8711,6 +8732,7 @@ function MindmapPage({
     }
   }, "+ Buat Mindmap Pertama")) : /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
+    "data-tour": "mindmap-canvas",
     src: "/static/vendor/mind-elixir/index.html",
     style: {
       flex: 1,
@@ -9335,7 +9357,8 @@ function TaskListView({
   }, "Group by:"), /*#__PURE__*/React.createElement("select", {
     "aria-label": "Group by",
     value: groupBy,
-    onChange: e => handleGroupBy(e.target.value),
+    "data-tour": "task-filter",
+        onChange: e => handleGroupBy(e.target.value),
     style: {
       fontSize: 12,
       padding: "4px 8px",
@@ -10285,6 +10308,7 @@ function CalendarView({
     }
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
+    "data-tour": "cal-nav",
     onClick: prevMonth
   }, "\u2039 Prev"), /*#__PURE__*/React.createElement("span", {
     style: {
@@ -10302,6 +10326,7 @@ function CalendarView({
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
+      "data-tour": "cal-grid",
       gridTemplateColumns: "repeat(7, 1fr)",
       gap: isMobile ? 2 : 4,
       marginBottom: 4
@@ -11020,7 +11045,8 @@ function Dashboard({
       marginBottom: 16
     }
   }, "\uD83D\uDCCA Dashboard"), /*#__PURE__*/React.createElement("div", {
-    className: "scratchpad-bar"
+    className: "scratchpad-bar",
+    "data-tour": "scratchpad"
   }, /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 16
@@ -11402,6 +11428,7 @@ function Dashboard({
     }
   }, "Penting")), /*#__PURE__*/React.createElement("div", {
     className: "eisenhower-grid",
+    "data-tour": "eisenhower",
     style: {
       gap: 16,
       marginBottom: 32
@@ -11430,6 +11457,7 @@ function Dashboard({
     className: "section-title"
   }, "\uD83D\uDD04 GTD Status"), /*#__PURE__*/React.createElement("div", {
     className: "gtd-grid",
+    "data-tour": "gtd-grid",
     style: {
       display: "grid",
       gridTemplateColumns: "1fr 1fr",
@@ -17947,7 +17975,8 @@ function NotesPage({
     const pinned = sorted.slice(0, 4);
     const rest = sorted.slice(4);
     return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-      className: "tag-section-label"
+      className: "tag-section-label",
+    "data-tour": "notes-tags"
     }, "\uD83D\uDCCC Sering Digunakan"), /*#__PURE__*/React.createElement("div", {
       className: "tag-scroll"
     }, pinned.map(t => {
@@ -18054,6 +18083,7 @@ function NotesPage({
     })));
   })()), /*#__PURE__*/React.createElement("div", {
     className: "notes-col-list",
+    "data-tour": "notes-list",
     style: {
       flex: 1,
       display: 'flex',
@@ -18285,9 +18315,11 @@ function NotesPage({
   }, /*#__PURE__*/React.createElement("polyline", {
     points: "9 18 15 12 9 6"
   }))), /*#__PURE__*/React.createElement("div", {
-    className: "notes-right"
+    className: "notes-right",
+    "data-tour": "notes-editor"
   }, !panelNote ? /*#__PURE__*/React.createElement("div", {
-    className: "notes-panel-empty"
+    className: "notes-panel-empty",
+    "data-tour": "notes-new"
   }, /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 40,
@@ -18488,6 +18520,7 @@ function HabitCard({
   }, [h?.id]);
   return /*#__PURE__*/React.createElement("div", {
     className: "habit-card fade-in",
+      "data-tour": "habit-card",
     style: {
       position: "relative",
       zIndex: menuOpen ? 10 : "auto"
@@ -18594,7 +18627,8 @@ function HabitCard({
       border: "1px solid var(--border)"
     }
   }, tagsExpanded ? "‹" : `+${habitTags.length - 3}`))), /*#__PURE__*/React.createElement("div", {
-    className: "habit-card-grid"
+    className: "habit-card-grid",
+    "data-tour": "habit-streak"
   }, DAY_LABELS.map((d, i) => {
     const s = (h.week_log || [])[i];
     const isToday = i === todayDow;
@@ -19332,6 +19366,7 @@ function HabitPage({
     const pct = totalPossible > 0 ? Math.round(totalDone / totalPossible * 100) : 0;
     return /*#__PURE__*/React.createElement("div", {
       key: phase,
+      "data-tour": "habit-phase",
       style: {
         marginBottom: 28
       }
@@ -20286,6 +20321,86 @@ function AdminPage({
     }
   }))))))));
 }
+// ─── Tour System ──────────────────────────────────────────────────────────────
+const TOUR_STEPS = {
+  dashboard: [
+    { element: '[data-tour="scratchpad"]', popover: { title: '⚡ Quick Capture', description: 'Ketik apa saja di sini lalu tekan Enter — langsung tersimpan ke Inbox tanpa menutup apapun. Cocok untuk menangkap ide cepat.' } },
+    { element: '[data-tour="dashboard-metrics"]', popover: { title: '📊 Ringkasan Harian', description: 'Lihat jumlah task aktif, selesai hari ini, overdue, dan inbox secara sekilas.' } },
+    { element: '[data-tour="eisenhower"]', popover: { title: '🧭 Eisenhower Matrix', description: 'Task otomatis dikategorikan ke Q1–Q4 setiap 15 menit berdasarkan priority dan deadline. Q1 = kerjakan segera, Q2 = jadwalkan, Q3 = delegasikan, Q4 = eliminasi.' } },
+    { element: '[data-tour="gtd-grid"]', popover: { title: '🔄 GTD Status', description: 'Pantau jumlah task di setiap status GTD — Inbox, Next Actions, Waiting For, dan Someday.' } },
+  ],
+  today: [
+    { element: '[data-tour="today-list"]', popover: { title: '🍅 Fokus Hari Ini', description: 'Daftar task Q1 (urgent + important) dan yang overdue. Ini yang harus diselesaikan hari ini.' } },
+    { element: '[data-tour="today-focus-btn"]', popover: { title: '📌 Pin ke Fokus', description: 'Klik tombol ini untuk menambahkan task apapun ke daftar fokus hari ini, meskipun bukan Q1.' } },
+  ],
+  calendar: [
+    { element: '[data-tour="cal-nav"]', popover: { title: '📅 Navigasi Bulan', description: 'Klik ‹ › untuk pindah bulan, atau klik nama bulan untuk langsung ke hari ini.' } },
+    { element: '[data-tour="cal-grid"]', popover: { title: '🗓️ Grid Kalender', description: 'Setiap tanggal menampilkan chip task berdasarkan deadline. Warna chip menunjukkan priority (merah = P1, oranye = P2, dst).' } },
+    { element: '[data-tour="cal-day-panel"]', popover: { title: '📋 Detail Hari', description: 'Klik tanggal mana saja untuk melihat semua task di hari itu. Dari sini bisa langsung tandai selesai.' } },
+  ],
+  habit: [
+    { element: '[data-tour="habit-phase"]', popover: { title: '☀️ Phase Habit', description: 'Habit dikelompokkan per fase: Pagi, Siang, dan Malam sesuai jadwal harianmu.' } },
+    { element: '[data-tour="habit-card"]', popover: { title: '✅ Check-in Habit', description: 'Klik kartu habit untuk membuka check-in. Pilih Selesai ✅ atau Skip ⏭️. Streak dihitung otomatis setiap hari.' } },
+    { element: '[data-tour="habit-streak"]', popover: { title: '🔥 Streak', description: 'Angka streak menunjukkan berapa hari berturut-turut kamu menyelesaikan habit ini. Skip tidak memutus streak, tapi missed iya.' } },
+    { element: '[data-tour="habit-add"]', popover: { title: '➕ Tambah Habit', description: 'Buat habit baru dengan judul, fase waktu, micro target, dan hari aktifnya.' } },
+  ],
+  notes: [
+    { element: '[data-tour="notes-new"]', popover: { title: '✛ Catatan Baru', description: 'Klik untuk membuat catatan baru. Editor menggunakan Markdown — bold, italic, heading, list, semua bisa.' } },
+    { element: '[data-tour="notes-editor"]', popover: { title: '✏️ Editor Milkdown', description: 'Editor WYSIWYG berbasis Markdown. Ketik [[judul catatan]] untuk membuat wikilink ke catatan lain — seperti Obsidian.' } },
+    { element: '[data-tour="notes-wikilink"]', popover: { title: '🔗 Wikilink', description: 'Ketik [[ lalu mulai ketik judul catatan — autocomplete akan muncul. Klik link untuk navigasi antar catatan. Backlink otomatis terbentuk.' } },
+    { element: '[data-tour="notes-tags"]', popover: { title: '🏷️ Tags', description: 'Filter catatan berdasarkan tag. Klik tag di sidebar untuk melihat semua catatan bertag sama.' } },
+  ],
+  mindmap: [
+    { element: '[data-tour="mindmap-new"]', popover: { title: '➕ Mindmap Baru', description: 'Klik "+ Baru" untuk membuat mindmap kosong baru.' } },
+    { element: '[data-tour="mindmap-canvas"]', popover: { title: '🧠 Canvas Mindmap', description: 'Klik node untuk pilih, lalu:\n• Enter → tambah sibling (node sederajat)\n• Tab → tambah child (node anak)\n• Delete/Backspace → hapus node\n• F2 → rename node\n• Drag → pindah posisi' } },
+    { element: '[data-tour="mindmap-list"]', popover: { title: '📋 Daftar Mindmap', description: 'Semua mindmapmu ada di sini. Klik untuk buka, tahan untuk opsi rename/hapus/pin.' } },
+  ],
+  inbox: [
+    { element: '[data-tour="task-add"]', popover: { title: '➕ Tambah Task', description: 'Klik tombol ini untuk membuat task baru. Isi judul, priority (P1–P4), deadline, project, dan context.' } },
+    { element: '[data-tour="task-list"]', popover: { title: '📋 Daftar Task', description: 'Klik task untuk melihat detail dan aksi — edit, pindah status GTD, tandai selesai, atau hapus.' } },
+    { element: '[data-tour="task-filter"]', popover: { title: '🔍 Filter & Group', description: 'Filter task berdasarkan priority, quadrant Eisenhower, project, atau context. Bisa dikombinasikan.' } },
+    { element: '[data-tour="task-gtd"]', popover: { title: '🔄 GTD Workflow', description: 'Pindahkan task dari Inbox → Next Actions → Waiting → Someday → Done. Setiap status punya makna berbeda di metodologi GTD.' } },
+  ],
+};
+
+// Pages yang menggunakan steps dari 'inbox' (semua task list pages)
+['next','waiting','someday','all','overdue','done'].forEach(p => { TOUR_STEPS[p] = TOUR_STEPS.inbox; });
+
+function startTour(page, forceShow) {
+  if (!window.driver) return;
+  const steps = TOUR_STEPS[page];
+  if (!steps || steps.length === 0) return;
+  const key = `tf_tour_${page}`;
+  if (!forceShow && localStorage.getItem(key)) return;
+  // wait for DOM
+  setTimeout(() => {
+    const availableSteps = steps.filter(s => document.querySelector(s.element));
+    if (availableSteps.length === 0) return;
+    localStorage.setItem(key, '1');
+    const driverObj = window.driver.driver({
+      showProgress: true,
+      nextBtnText: 'Lanjut →',
+      prevBtnText: '← Kembali',
+      doneBtnText: 'Selesai ✓',
+      progressText: '{{current}} / {{total}}',
+      steps: availableSteps.map(s => ({
+        element: s.element,
+        popover: { title: s.popover.title, description: s.popover.description, side: 'bottom', align: 'start' }
+      })),
+    });
+    driverObj.drive();
+  }, 400);
+}
+
+function TourButton({ page }) {
+  return React.createElement('button', {
+    className: 'tour-btn',
+    title: 'Lihat panduan halaman ini',
+    onClick: () => startTour(page, true),
+  }, '?');
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function App() {
   const [user, setUser] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('tf_theme') || 'light');
@@ -20486,6 +20601,12 @@ function App() {
       localStorage.setItem('tf_shortcut_hint', '1');
     }
   }, [user]);
+
+  // Auto-trigger tour on first visit to each page
+  useEffect(() => {
+    if (!user || !page) return;
+    startTour(page, false);
+  }, [page, user]);
 
   // Fetch data
   const initialLoad = useRef(true);
@@ -21241,7 +21362,7 @@ function App() {
       justifyContent: "center",
       padding: "0 2px"
     }
-  }, unreadCount > 9 ? "9+" : unreadCount)), /*#__PURE__*/React.createElement(ThemeToggle, {
+  }, unreadCount > 9 ? "9+" : unreadCount)), /*#__PURE__*/React.createElement(TourButton, { page: page }), /*#__PURE__*/React.createElement(ThemeToggle, {
     theme: theme,
     onToggle: toggleTheme
   })), /*#__PURE__*/React.createElement("div", {
@@ -21558,6 +21679,7 @@ function App() {
     }
   }), page !== "chat" && /*#__PURE__*/React.createElement("button", {
     className: "fab",
+    "data-tour": "task-add",
     onClick: () => {
       setEditTask(null);
       setShowForm(true);
