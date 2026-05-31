@@ -2727,7 +2727,8 @@ function Sidebar({
   const links = [{
     id: "dashboard",
     icon: "📊",
-    label: "Dashboard"
+    label: "Dashboard",
+    tourId: "sidebar-general"
   }, {
     id: "calendar",
     icon: "🗓️",
@@ -2811,7 +2812,8 @@ function Sidebar({
   links.push({
     id: "manage_lists",
     icon: "⚙️",
-    label: "Kelola Shared List"
+    label: "Kelola Shared List",
+    tourId: "sidebar-shared"
   });
   links.push({
     section: "LAINNYA"
@@ -2839,7 +2841,8 @@ function Sidebar({
   links.push({
     id: "settings",
     icon: "⚙️",
-    label: "Pengaturan"
+    label: "Pengaturan",
+    tourId: "sidebar-settings"
   });
   if (user?.is_admin) links.push({
     id: "admin",
@@ -2878,6 +2881,7 @@ function Sidebar({
       items.push(/*#__PURE__*/React.createElement("div", {
         key: l.id,
         className: `sidebar-link ${page === l.id ? "active" : ""}`,
+        "data-tour": l.tourId || undefined,
         onClick: () => {
           setPage(l.id);
           onClose?.();
@@ -2931,6 +2935,7 @@ function Sidebar({
   }, "v4 \u2014 ", user?.display_name || user?.username)), /*#__PURE__*/React.createElement("button", {
     onClick: onToggleCollapse,
     title: "Sembunyikan menu",
+    "data-tour": "sidebar-collapse",
     style: {
       background: "none",
       border: "none",
@@ -20324,8 +20329,12 @@ function AdminPage({
 // ─── Tour System ──────────────────────────────────────────────────────────────
 const TOUR_STEPS = {
   dashboard: [
+    { element: '[data-tour="sidebar-general"]', popover: { title: '🗂️ Menu Utama', description: 'Navigasi utama TaskFlow — Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes & Draw, Mindmap, dan Diskusi. Klik salah satu untuk berpindah halaman.' } },
+    { element: '[data-tour="sidebar-collapse"]', popover: { title: '◀ Collapse Menu', description: 'Klik tombol × ini untuk menyembunyikan sidebar dan mendapatkan area kerja yang lebih luas. Klik tombol ☰ di topbar untuk membukanya kembali.' } },
+    { element: '[data-tour="task-gtd"]', popover: { title: '🔄 GTD Menu', description: 'Bagian GTD (Getting Things Done) — Inbox, Next Actions, Waiting For, dan Someday. Metodologi GTD membantu mengelola task berdasarkan konteks dan prioritas.' } },
+    { element: '[data-tour="sidebar-shared"]', popover: { title: '👥 Shared List', description: 'Kelola daftar task bersama — buat Shared List baru, undang anggota, atau bergabung ke list milik orang lain. Cocok untuk kolaborasi tim atau keluarga.' } },
+    { element: '[data-tour="sidebar-settings"]', popover: { title: '⚙️ Pengaturan', description: 'Atur profil, notifikasi Telegram, koneksi perangkat, dan preferensi aplikasi di halaman Pengaturan.' } },
     { element: '[data-tour="scratchpad"]', popover: { title: '⚡ Quick Capture', description: 'Ketik apa saja di sini lalu tekan Enter — langsung tersimpan ke Inbox tanpa menutup apapun. Cocok untuk menangkap ide cepat.' } },
-    { element: '[data-tour="dashboard-metrics"]', popover: { title: '📊 Ringkasan Harian', description: 'Lihat jumlah task aktif, selesai hari ini, overdue, dan inbox secara sekilas.' } },
     { element: '[data-tour="eisenhower"]', popover: { title: '🧭 Eisenhower Matrix', description: 'Task otomatis dikategorikan ke Q1–Q4 setiap 15 menit berdasarkan priority dan deadline. Q1 = kerjakan segera, Q2 = jadwalkan, Q3 = delegasikan, Q4 = eliminasi.' } },
     { element: '[data-tour="gtd-grid"]', popover: { title: '🔄 GTD Status', description: 'Pantau jumlah task di setiap status GTD — Inbox, Next Actions, Waiting For, dan Someday.' } },
   ],
