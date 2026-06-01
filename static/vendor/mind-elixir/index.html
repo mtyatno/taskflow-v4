@@ -8,7 +8,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; }
-    #app { display: flex; flex-direction: column; height: 100%; position: relative; }
+    #app { display: flex; flex-direction: column; height: 100%; }
     #map { flex: 1; min-height: 0; overflow: hidden; }
 
     #link-panel {
@@ -149,21 +149,22 @@
       z-index: 10;
     }
 
-    /* Floating node action toolbar — visible on touch / tablet */
+    /* Node action toolbar — top-center, above the canvas */
     #node-toolbar {
       display: none;
       position: absolute;
-      bottom: 16px;
+      top: 12px;
       left: 50%;
       transform: translateX(-50%);
-      z-index: 200;
+      z-index: 100;
       background: #1a1a2e;
       border: 1px solid #3a3a6a;
       border-radius: 40px;
-      padding: 6px 10px;
-      gap: 4px;
+      padding: 5px 8px;
+      gap: 2px;
       align-items: center;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.45);
+      white-space: nowrap;
     }
     #node-toolbar.visible { display: flex; }
     .ntb-btn {
@@ -174,51 +175,36 @@
       background: none;
       border: none;
       cursor: pointer;
-      border-radius: 28px;
-      padding: 8px 14px;
+      border-radius: 24px;
+      padding: 7px 12px;
       color: #ccc;
-      font-size: 18px;
+      font-size: 17px;
       line-height: 1;
       transition: background 0.15s;
       -webkit-tap-highlight-color: transparent;
-      min-width: 56px;
+      min-width: 50px;
     }
-    .ntb-btn span.label {
-      font-size: 9px;
-      color: #888;
-      font-weight: 600;
-      letter-spacing: 0.3px;
-      text-transform: uppercase;
-    }
+    .ntb-btn .lbl { font-size: 9px; color: #888; font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; }
     .ntb-btn:hover, .ntb-btn:active { background: rgba(108,122,224,0.18); }
-    .ntb-btn.danger:hover, .ntb-btn.danger:active { background: rgba(224,108,108,0.18); }
     .ntb-btn.danger { color: #e06c6c; }
-    .ntb-sep { width: 1px; height: 32px; background: #3a3a6a; margin: 0 2px; }
+    .ntb-btn.danger:hover, .ntb-btn.danger:active { background: rgba(224,108,108,0.18); }
+    .ntb-sep { width: 1px; height: 28px; background: #3a3a6a; margin: 0 2px; }
+
   </style>
 </head>
 <body>
-  <div id="app">
+  <div id="app" style="position:relative;">
     <div id="map"></div>
 
-    <!-- Floating action toolbar: appears when a node is selected -->
+    <!-- Node action toolbar: top-center, appears when a node is selected -->
     <div id="node-toolbar">
-      <button class="ntb-btn" id="ntb-child" title="Tambah Child (Tab)">
-        ↳<span class="label">Child</span>
-      </button>
-      <button class="ntb-btn" id="ntb-sibling" title="Tambah Sibling (Enter)">
-        ↵<span class="label">Sibling</span>
-      </button>
-      <button class="ntb-btn" id="ntb-promote" title="Naikkan level — jadikan sibling dari parent">
-        ↑<span class="label">Promote</span>
-      </button>
+      <button class="ntb-btn" id="ntb-child" title="Tambah Child (Tab)">↳<span class="lbl">Child</span></button>
+      <button class="ntb-btn" id="ntb-sibling" title="Tambah Sibling (Enter)">↵<span class="lbl">Sibling</span></button>
+      <button class="ntb-btn" id="ntb-promote" title="Naikan level — jadi sibling dari parent">↑<span class="lbl">Promote</span></button>
       <div class="ntb-sep"></div>
-      <button class="ntb-btn" id="ntb-edit" title="Edit node (F2)">
-        ✏️<span class="label">Edit</span>
-      </button>
+      <button class="ntb-btn" id="ntb-edit" title="Edit teks node (F2)">✏️<span class="lbl">Edit</span></button>
       <div class="ntb-sep"></div>
-      <button class="ntb-btn danger" id="ntb-delete" title="Hapus node (Delete)">
-        🗑️<span class="label">Hapus</span>
-      </button>
+      <button class="ntb-btn danger" id="ntb-delete" title="Hapus node (Delete)">🗑️<span class="lbl">Hapus</span></button>
     </div>
 
     <div id="link-panel">
@@ -495,16 +481,14 @@
         if (!mind.currentNodes || mind.currentNodes.length === 0) return;
         const nodeEl = mind.currentNodes[0];
         const nodeObj = nodeEl.nodeObj;
-        // Need grandparent to exist — direct children of root cannot be promoted
-        if (!nodeObj.parent || !nodeObj.parent.parent) return;
+        if (!nodeObj?.parent?.parent) return;
         const parentEl = mind.findEle(nodeObj.parent.id);
         mind.moveNodeAfter(nodeEl, parentEl);
       };
       document.getElementById('ntb-edit').onclick = () => { if (mind.currentNodes) mind.beginEdit(); };
       document.getElementById('ntb-delete').onclick = () => {
         if (!mind.currentNodes) return;
-        const isRoot = mind.currentNodes.some(n => !n.parent);
-        if (isRoot) return; // cannot delete root
+        if (mind.currentNodes.some(n => !n.nodeObj?.parent)) return;
         if (confirm('Hapus node ini?')) mind.removeNodes(mind.currentNodes);
       };
 
