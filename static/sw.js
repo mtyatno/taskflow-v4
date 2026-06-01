@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v113-tour-sidebar";
+const CACHE = "taskflow-v114-mindmap-toolbar";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/vendor/react.production.min.js",
