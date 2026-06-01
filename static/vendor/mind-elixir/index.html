@@ -12,7 +12,7 @@
     #map { flex: 1; min-height: 0; overflow: hidden; }
 
     #node-toolbar {
-      display: flex;
+      display: none;
       flex-shrink: 0;
       border-bottom: 2px solid #6c7ae0;
       background: #12122a;
@@ -186,7 +186,6 @@
 </head>
 <body>
   <div id="app">
-    <div id="map"></div>
     <div id="node-toolbar">
       <button id="ntb-child" title="Tambah Child (Tab)">↳<span class="lbl">Child</span></button>
       <button id="ntb-sibling" title="Tambah Sibling (Enter)">↵<span class="lbl">Sibling</span></button>
@@ -196,6 +195,7 @@
       <div class="sep"></div>
       <button id="ntb-delete" class="danger" title="Hapus node (Delete)">🗑️<span class="lbl">Hapus</span></button>
     </div>
+    <div id="map"></div>
     <div id="link-panel">
       <div id="link-panel-header">
         <span id="link-panel-title">🔗 Links</span>
