@@ -148,9 +148,73 @@
       pointer-events: none;
       z-index: 10;
     }
+
+    /* Floating node action toolbar — visible on touch / tablet */
+    #node-toolbar {
+      display: none;
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 200;
+      background: #1a1a2e;
+      border: 1px solid #3a3a6a;
+      border-radius: 40px;
+      padding: 6px 10px;
+      gap: 4px;
+      align-items: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+    #node-toolbar.visible { display: flex; }
+    .ntb-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      border-radius: 28px;
+      padding: 8px 14px;
+      color: #ccc;
+      font-size: 18px;
+      line-height: 1;
+      transition: background 0.15s;
+      -webkit-tap-highlight-color: transparent;
+      min-width: 56px;
+    }
+    .ntb-btn span.label {
+      font-size: 9px;
+      color: #888;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    .ntb-btn:hover, .ntb-btn:active { background: rgba(108,122,224,0.18); }
+    .ntb-btn.danger:hover, .ntb-btn.danger:active { background: rgba(224,108,108,0.18); }
+    .ntb-btn.danger { color: #e06c6c; }
+    .ntb-sep { width: 1px; height: 32px; background: #3a3a6a; margin: 0 2px; }
   </style>
 </head>
 <body>
+  <!-- Floating action toolbar: appears when a node is selected -->
+  <div id="node-toolbar">
+    <button class="ntb-btn" id="ntb-child" title="Tambah Child (Tab)">
+      ↳<span class="label">Child</span>
+    </button>
+    <button class="ntb-btn" id="ntb-sibling" title="Tambah Sibling (Enter)">
+      ↵<span class="label">Sibling</span>
+    </button>
+    <div class="ntb-sep"></div>
+    <button class="ntb-btn" id="ntb-edit" title="Edit node (F2)">
+      ✏️<span class="label">Edit</span>
+    </button>
+    <div class="ntb-sep"></div>
+    <button class="ntb-btn danger" id="ntb-delete" title="Hapus node (Delete)">
+      🗑️<span class="label">Hapus</span>
+    </button>
+  </div>
+
   <div id="app">
     <div id="map"></div>
     <div id="link-panel">
@@ -403,6 +467,7 @@
         currentNodeId = node.id;
         currentNodeData = node; // live reference to internal nodeObj — not a getData() copy
         renderPanel(node.topic, node.links || []);
+        document.getElementById('node-toolbar').classList.add('visible');
         window.parent.postMessage(
           { type: 'nodeSelected', nodeId: node.id, topic: node.topic, links: node.links || [] },
           window.location.origin
@@ -414,9 +479,21 @@
           currentNodeId = null;
           currentNodeData = null;
           hidePanel();
+          document.getElementById('node-toolbar').classList.remove('visible');
           window.parent.postMessage({ type: 'nodeDeselected' }, window.location.origin);
         }, 50);
       });
+
+      // Node toolbar button handlers
+      document.getElementById('ntb-child').onclick = () => { if (mind.currentNodes) mind.addChild(); };
+      document.getElementById('ntb-sibling').onclick = () => { if (mind.currentNodes) mind.insertSibling('after'); };
+      document.getElementById('ntb-edit').onclick = () => { if (mind.currentNodes) mind.beginEdit(); };
+      document.getElementById('ntb-delete').onclick = () => {
+        if (!mind.currentNodes) return;
+        const isRoot = mind.currentNodes.some(n => !n.parent);
+        if (isRoot) return; // cannot delete root
+        if (confirm('Hapus node ini?')) mind.removeNodes(mind.currentNodes);
+      };
 
       document.getElementById('link-panel-close').onclick = () => {
         hidePanel();
