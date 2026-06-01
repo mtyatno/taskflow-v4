@@ -205,6 +205,9 @@
     <button class="ntb-btn" id="ntb-sibling" title="Tambah Sibling (Enter)">
       ↵<span class="label">Sibling</span>
     </button>
+    <button class="ntb-btn" id="ntb-promote" title="Naikkan level — jadikan sibling dari parent">
+      ↑<span class="label">Promote</span>
+    </button>
     <div class="ntb-sep"></div>
     <button class="ntb-btn" id="ntb-edit" title="Edit node (F2)">
       ✏️<span class="label">Edit</span>
@@ -487,6 +490,15 @@
       // Node toolbar button handlers
       document.getElementById('ntb-child').onclick = () => { if (mind.currentNodes) mind.addChild(); };
       document.getElementById('ntb-sibling').onclick = () => { if (mind.currentNodes) mind.insertSibling('after'); };
+      document.getElementById('ntb-promote').onclick = () => {
+        if (!mind.currentNodes || mind.currentNodes.length === 0) return;
+        const nodeEl = mind.currentNodes[0];
+        const nodeObj = nodeEl.nodeObj;
+        // Need grandparent to exist — direct children of root cannot be promoted
+        if (!nodeObj.parent || !nodeObj.parent.parent) return;
+        const parentEl = mind.findEle(nodeObj.parent.id);
+        mind.moveNodeAfter(nodeEl, parentEl);
+      };
       document.getElementById('ntb-edit').onclick = () => { if (mind.currentNodes) mind.beginEdit(); };
       document.getElementById('ntb-delete').onclick = () => {
         if (!mind.currentNodes) return;
