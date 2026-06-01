@@ -8,7 +8,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; }
-    #app { display: flex; flex-direction: column; height: 100%; }
+    #app { display: flex; flex-direction: column; height: 100%; position: relative; }
     #map { flex: 1; min-height: 0; overflow: hidden; }
 
     #link-panel {
@@ -152,7 +152,7 @@
     /* Floating node action toolbar — visible on touch / tablet */
     #node-toolbar {
       display: none;
-      position: fixed;
+      position: absolute;
       bottom: 16px;
       left: 50%;
       transform: translateX(-50%);
@@ -197,29 +197,30 @@
   </style>
 </head>
 <body>
-  <!-- Floating action toolbar: appears when a node is selected -->
-  <div id="node-toolbar">
-    <button class="ntb-btn" id="ntb-child" title="Tambah Child (Tab)">
-      ↳<span class="label">Child</span>
-    </button>
-    <button class="ntb-btn" id="ntb-sibling" title="Tambah Sibling (Enter)">
-      ↵<span class="label">Sibling</span>
-    </button>
-    <button class="ntb-btn" id="ntb-promote" title="Naikkan level — jadikan sibling dari parent">
-      ↑<span class="label">Promote</span>
-    </button>
-    <div class="ntb-sep"></div>
-    <button class="ntb-btn" id="ntb-edit" title="Edit node (F2)">
-      ✏️<span class="label">Edit</span>
-    </button>
-    <div class="ntb-sep"></div>
-    <button class="ntb-btn danger" id="ntb-delete" title="Hapus node (Delete)">
-      🗑️<span class="label">Hapus</span>
-    </button>
-  </div>
-
   <div id="app">
     <div id="map"></div>
+
+    <!-- Floating action toolbar: appears when a node is selected -->
+    <div id="node-toolbar">
+      <button class="ntb-btn" id="ntb-child" title="Tambah Child (Tab)">
+        ↳<span class="label">Child</span>
+      </button>
+      <button class="ntb-btn" id="ntb-sibling" title="Tambah Sibling (Enter)">
+        ↵<span class="label">Sibling</span>
+      </button>
+      <button class="ntb-btn" id="ntb-promote" title="Naikkan level — jadikan sibling dari parent">
+        ↑<span class="label">Promote</span>
+      </button>
+      <div class="ntb-sep"></div>
+      <button class="ntb-btn" id="ntb-edit" title="Edit node (F2)">
+        ✏️<span class="label">Edit</span>
+      </button>
+      <div class="ntb-sep"></div>
+      <button class="ntb-btn danger" id="ntb-delete" title="Hapus node (Delete)">
+        🗑️<span class="label">Hapus</span>
+      </button>
+    </div>
+
     <div id="link-panel">
       <div id="link-panel-header">
         <span id="link-panel-title">🔗 Links</span>
