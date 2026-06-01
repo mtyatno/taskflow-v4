@@ -149,24 +149,6 @@
       z-index: 10;
     }
 
-    /* Node action toolbar — top-center, above the canvas */
-    #node-toolbar {
-      display: none;
-      position: absolute;
-      top: 12px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 100;
-      background: #1a1a2e;
-      border: 1px solid #3a3a6a;
-      border-radius: 40px;
-      padding: 5px 8px;
-      gap: 2px;
-      align-items: center;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.45);
-      white-space: nowrap;
-    }
-    #node-toolbar.visible { display: flex; }
     .ntb-btn {
       display: flex;
       flex-direction: column;
@@ -176,28 +158,25 @@
       border: none;
       cursor: pointer;
       border-radius: 24px;
-      padding: 7px 12px;
+      padding: 8px 14px;
       color: #ccc;
       font-size: 17px;
       line-height: 1;
       transition: background 0.15s;
       -webkit-tap-highlight-color: transparent;
-      min-width: 50px;
     }
     .ntb-btn .lbl { font-size: 9px; color: #888; font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; }
     .ntb-btn:hover, .ntb-btn:active { background: rgba(108,122,224,0.18); }
     .ntb-btn.danger { color: #e06c6c; }
     .ntb-btn.danger:hover, .ntb-btn.danger:active { background: rgba(224,108,108,0.18); }
-    .ntb-sep { width: 1px; height: 28px; background: #3a3a6a; margin: 0 2px; }
+    .ntb-sep { width: 1px; height: 28px; background: #3a3a6a; margin: 0 4px; }
 
   </style>
 </head>
 <body>
-  <div id="app" style="position:relative;">
-    <div id="map"></div>
-
-    <!-- Node action toolbar: top-center, appears when a node is selected -->
-    <div id="node-toolbar">
+  <div id="app">
+    <!-- Node toolbar: flex child, sits above map, hidden by default via inline style -->
+    <div id="node-toolbar" style="display:none;flex-shrink:0;align-items:center;justify-content:center;gap:2px;background:#1a1a2e;border-bottom:1px solid #3a3a6a;padding:6px 8px;">
       <button class="ntb-btn" id="ntb-child" title="Tambah Child (Tab)">↳<span class="lbl">Child</span></button>
       <button class="ntb-btn" id="ntb-sibling" title="Tambah Sibling (Enter)">↵<span class="lbl">Sibling</span></button>
       <button class="ntb-btn" id="ntb-promote" title="Naikan level — jadi sibling dari parent">↑<span class="lbl">Promote</span></button>
@@ -206,7 +185,7 @@
       <div class="ntb-sep"></div>
       <button class="ntb-btn danger" id="ntb-delete" title="Hapus node (Delete)">🗑️<span class="lbl">Hapus</span></button>
     </div>
-
+    <div id="map"></div>
     <div id="link-panel">
       <div id="link-panel-header">
         <span id="link-panel-title">🔗 Links</span>
@@ -457,7 +436,7 @@
         currentNodeId = node.id;
         currentNodeData = node; // live reference to internal nodeObj — not a getData() copy
         renderPanel(node.topic, node.links || []);
-        document.getElementById('node-toolbar').classList.add('visible');
+        document.getElementById('node-toolbar').style.display = 'flex';
         window.parent.postMessage(
           { type: 'nodeSelected', nodeId: node.id, topic: node.topic, links: node.links || [] },
           window.location.origin
@@ -469,7 +448,7 @@
           currentNodeId = null;
           currentNodeData = null;
           hidePanel();
-          document.getElementById('node-toolbar').classList.remove('visible');
+          document.getElementById('node-toolbar').style.display = 'none';
           window.parent.postMessage({ type: 'nodeDeselected' }, window.location.origin);
         }, 50);
       });
