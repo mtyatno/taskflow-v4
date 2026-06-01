@@ -472,7 +472,10 @@
         const nodeObj = nodeEl.nodeObj;
         if (!nodeObj?.parent?.parent) return;
         const parentEl = mind.findEle(nodeObj.parent.id);
-        mind.moveNodeAfter(nodeEl, parentEl);
+        // moveNodeAfter butuh ARRAY di argumen pertama (internal: ve(e).filter()).
+        // Pindahkan node ke posisi tepat setelah parent-nya = promote satu level.
+        // Memicu event 'operation' → listener kita auto postMessage 'change' (tersimpan).
+        mind.moveNodeAfter([nodeEl], parentEl);
       };
       document.getElementById('ntb-edit').onclick = () => { if (mind.currentNodes) mind.beginEdit(); };
       document.getElementById('ntb-delete').onclick = () => {
