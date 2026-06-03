@@ -24,18 +24,21 @@
     }));
   }
 
-  // Build the frontend-facing display object from a stored record.
-  function assemble(rec, todayISO) {
+  // Pure: build the frontend-facing display object from a record + resolved parent title.
+  function displayFrom(rec, todayISO, parentTitle) {
     const derived = TFlogic.deriveTaskFields(rec, todayISO);
-    return getParentTitle(rec.parent_cid).then((parentTitle) =>
-      Object.assign({}, rec, {
-        is_focused: !!rec.is_focused,
-        days_until_deadline: derived.days_until_deadline,
-        is_overdue: derived.is_overdue,
-        assigned_to_name: null, // resolution deferred (no local users store yet)
-        parent_title: parentTitle,
-      })
-    );
+    return Object.assign({}, rec, {
+      is_focused: !!rec.is_focused,
+      days_until_deadline: derived.days_until_deadline,
+      is_overdue: derived.is_overdue,
+      assigned_to_name: null, // resolution deferred (no local users store yet)
+      parent_title: parentTitle != null ? parentTitle : null,
+    });
+  }
+
+  // Async: resolve parent title from the store, then assemble.
+  function assemble(rec, todayISO) {
+    return getParentTitle(rec.parent_cid).then((parentTitle) => displayFrom(rec, todayISO, parentTitle));
   }
 
   function getParentTitle(parentCid) {
@@ -158,7 +161,7 @@
     });
   }
 
-  const exported = { getTask, createTask, updateTask, deleteTask };
+  const exported = { getTask, createTask, updateTask, deleteTask, displayFrom };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.taskrepo = exported; }
   return exported;
 });

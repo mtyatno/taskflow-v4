@@ -199,3 +199,19 @@ test("deleteTask sets deleted=true + dirty and enqueues a delete op", async () =
 test("deleteTask rejects an unknown cid", async () => {
   await assert.rejects(() => deleteTask("ghost", { now: LATER }), /not found/i);
 });
+
+const { displayFrom } = require("../../static/offline/taskrepo.js");
+
+test("displayFrom builds the display object from a record + parentTitle (pure)", () => {
+  const rec = {
+    cid: "x", title: "T", deadline: "2026-06-02", gtd_status: "next",
+    is_focused: 1, parent_cid: "p",
+  };
+  const d = displayFrom(rec, TODAY, "Parent");
+  assert.equal(d.is_focused, true);
+  assert.equal(d.days_until_deadline, -1);
+  assert.equal(d.is_overdue, true);
+  assert.equal(d.assigned_to_name, null);
+  assert.equal(d.parent_title, "Parent");
+  assert.equal(d.cid, "x"); // original fields preserved
+});
