@@ -16,7 +16,7 @@ jobs:
           port: 22
           script: |
             cd /home/yatno/todo-system/taskflow-v4
-            git checkout -- static/index.html
+            git checkout -- static/index.html package-lock.json
             git pull origin main
             npm install --prefer-offline
             node compile.js
