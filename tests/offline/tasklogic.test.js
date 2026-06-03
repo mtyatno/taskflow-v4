@@ -50,3 +50,33 @@ test("calculateQuadrant defaults today to local date when omitted (smoke, no thr
   const q = calculateQuadrant({ priority: "P1", deadline: null });
   assert.ok(["Q1", "Q2", "Q3", "Q4"].includes(q));
 });
+
+const { deriveTaskFields } = require("../../static/offline/tasklogic.js");
+
+test("deriveTaskFields: no deadline -> null days, not overdue", () => {
+  const r = deriveTaskFields({ deadline: null, gtd_status: "inbox" }, TODAY);
+  assert.equal(r.days_until_deadline, null);
+  assert.equal(r.is_overdue, false);
+});
+
+test("deriveTaskFields: deadline tomorrow -> 1 day, not overdue", () => {
+  const r = deriveTaskFields({ deadline: "2026-06-04", gtd_status: "inbox" }, TODAY);
+  assert.equal(r.days_until_deadline, 1);
+  assert.equal(r.is_overdue, false);
+});
+
+test("deriveTaskFields: deadline yesterday + active -> -1 day, overdue", () => {
+  const r = deriveTaskFields({ deadline: "2026-06-02", gtd_status: "next" }, TODAY);
+  assert.equal(r.days_until_deadline, -1);
+  assert.equal(r.is_overdue, true);
+});
+
+test("deriveTaskFields: overdue but done -> not overdue", () => {
+  const r = deriveTaskFields({ deadline: "2026-06-02", gtd_status: "done" }, TODAY);
+  assert.equal(r.is_overdue, false);
+});
+
+test("deriveTaskFields: overdue but archived -> not overdue", () => {
+  const r = deriveTaskFields({ deadline: "2026-06-02", gtd_status: "archived" }, TODAY);
+  assert.equal(r.is_overdue, false);
+});

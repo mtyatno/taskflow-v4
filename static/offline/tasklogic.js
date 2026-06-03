@@ -59,7 +59,18 @@
     return "Q4";
   }
 
-  const exported = { calculateQuadrant };
+  function deriveTaskFields(task, todayISO) {
+    const today = todayISO || todayLocalISO();
+    let daysLeft = null;
+    let isOverdue = false;
+    if (task.deadline) {
+      daysLeft = daysUntil(task.deadline, today);
+      isOverdue = daysLeft < 0 && task.gtd_status !== "done" && task.gtd_status !== "archived";
+    }
+    return { days_until_deadline: daysLeft, is_overdue: isOverdue };
+  }
+
+  const exported = { calculateQuadrant, deriveTaskFields };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.tasklogic = exported; }
   return exported;
 });
