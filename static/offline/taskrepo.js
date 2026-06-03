@@ -13,8 +13,30 @@
   const TFids = isNode ? require("./ids.js") : root.TF.ids;
   const TFoutbox = isNode ? require("./outbox.js") : root.TF.outbox;
   const TFlogic = isNode ? require("./tasklogic.js") : root.TF.tasklogic;
+  const TFtagrepo = isNode ? require("./tagrepo.js") : root.TF.tagrepo;
 
-  const TAG_RE = /#([a-zA-Z0-9_À-ɏ]+)/g;
+  // today (YYYY-MM-DD) + 90 days, UTC-stable.
+  function plus90(todayISO) {
+    const base = todayISO || new Date().toISOString().slice(0, 10);
+    const [y, m, d] = String(base).slice(0, 10).split("-").map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d) + 90 * 86400000);
+    const yy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getUTCDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
+  }
+
+  // Normalize recurrence type + days → { type, daysJson } matching the server.
+  function normRecurrence(type, days) {
+    const t = (type === "daily" || type === "weekly" || type === "monthly" || type === "weekdays") ? type : null;
+    let daysJson = null;
+    if (t === "weekly" && Array.isArray(days)) {
+      daysJson = JSON.stringify(days.map(Number).filter((n) => n >= 0 && n <= 6));
+    } else if (t === "monthly" && Array.isArray(days) && days.length) {
+      daysJson = JSON.stringify([Math.max(1, Math.min(28, Number(days[0])))]);
+    }
+    return { type: t, daysJson: daysJson };
+  }
 
   function getRaw(cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -62,18 +84,16 @@
     }));
   }
 
-  function stripTags(title) {
-    return String(title).replace(TAG_RE, "").trim();
-  }
-
   function createTask(input, opts) {
     const now = (opts && opts.now) || new Date().toISOString();
-    const cleanTitle = stripTags(input.title);
+    const ex = TFtagrepo.extractTags(input.title);
+    const cleanTitle = ex.clean;
     if (!cleanTitle) {
       return Promise.reject(new Error("Judul tidak boleh kosong setelah strip tag"));
     }
     const priority = String(input.priority || "P3").toUpperCase();
     const deadline = input.deadline || null;
+    const rc = normRecurrence(input.recurrence_type, input.recurrence_days);
     const rec = {
       cid: TFids.newCid(),
       server_id: null,
@@ -92,6 +112,10 @@
       progress: 0,
       is_focused: 0,
       completed_at: null,
+      recurrence_type: rc.type,
+      recurrence_days: rc.daysJson,
+      recurrence_end_date: rc.type ? plus90(opts && opts.today) : null,
+      recurrence_notif_level: null,
       created_at: now,
       updated_at: now,
       deleted: false,
@@ -100,6 +124,7 @@
     };
     return putRaw(rec)
       .then(() => TFoutbox.outboxAdd({ op: "create", entity_type: "task", cid: rec.cid, payload: rec }))
+      .then(() => TFtagrepo.setEntityTags("task", rec.cid, ex.tags))
       .then(() => assemble(rec, opts && opts.today));
   }
 
@@ -111,10 +136,12 @@
       }
       const next = Object.assign({}, rec);
 
+      let newTags = null;
       if (patch.title != null) {
-        const clean = stripTags(patch.title);
-        if (!clean) return Promise.reject(new Error("Judul tidak boleh kosong setelah strip tag"));
-        next.title = clean;
+        const ex = TFtagrepo.extractTags(patch.title);
+        if (!ex.clean) return Promise.reject(new Error("Judul tidak boleh kosong setelah strip tag"));
+        next.title = ex.clean;
+        newTags = ex.tags;
       }
       if (patch.description != null) next.description = patch.description;
       if (patch.priority != null) next.priority = String(patch.priority).toUpperCase();
@@ -135,6 +162,23 @@
         next.progress = Math.max(0, Math.min(100, patch.progress));
       }
 
+      if (patch.recurrence_renew) {
+        next.recurrence_end_date = plus90(opts && opts.today);
+        next.recurrence_notif_level = null;
+      } else if ("recurrence_type" in patch) {
+        const rc = normRecurrence(patch.recurrence_type, patch.recurrence_days);
+        if (rc.type) {
+          next.recurrence_type = rc.type;
+          next.recurrence_days = rc.daysJson;
+          if (!next.recurrence_end_date) next.recurrence_end_date = plus90(opts && opts.today);
+        } else {
+          next.recurrence_type = null;
+          next.recurrence_days = null;
+          next.recurrence_end_date = null;
+          next.recurrence_notif_level = null;
+        }
+      }
+
       next.updated_at = now;
       next.dirty = 1;
       next.quadrant = TFlogic.calculateQuadrant(
@@ -144,6 +188,7 @@
 
       return putRaw(next)
         .then(() => TFoutbox.outboxAdd({ op: "update", entity_type: "task", cid: cid, payload: next }))
+        .then(() => (newTags != null ? TFtagrepo.setEntityTags("task", cid, newTags) : null))
         .then(() => assemble(next, opts && opts.today));
     });
   }

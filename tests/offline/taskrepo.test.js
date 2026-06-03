@@ -215,3 +215,70 @@ test("displayFrom builds the display object from a record + parentTitle (pure)",
   assert.equal(d.parent_title, "Parent");
   assert.equal(d.cid, "x"); // original fields preserved
 });
+
+const { getEntityTags } = require("../../static/offline/tagrepo.js");
+
+test("createTask persists recurrence fields (weekly days json + end_date)", async () => {
+  const t = await createTask(
+    { title: "Standup", recurrence_type: "weekly", recurrence_days: [1, 3, 5] },
+    { today: TODAY, now: NOW }
+  );
+  assert.equal(t.recurrence_type, "weekly");
+  assert.equal(t.recurrence_days, JSON.stringify([1, 3, 5]));
+  assert.equal(t.recurrence_end_date, "2026-09-01"); // 2026-06-03 + 90d
+  assert.equal(t.recurrence_notif_level, null);
+});
+
+test("createTask without recurrence leaves recurrence fields null", async () => {
+  const t = await createTask({ title: "Plain" }, { today: TODAY, now: NOW });
+  assert.equal(t.recurrence_type, null);
+  assert.equal(t.recurrence_days, null);
+  assert.equal(t.recurrence_end_date, null);
+});
+
+test("createTask persists #tags from the title", async () => {
+  const t = await createTask({ title: "Beli #kopi #Susu" }, { today: TODAY, now: NOW });
+  assert.equal(t.title, "Beli");
+  assert.deepEqual((await getEntityTags("task", t.cid)).map((x) => x.name), ["kopi", "susu"]);
+});
+
+test("updateTask rewrites tags when the title changes", async () => {
+  const t = await createTask({ title: "A #one" }, { today: TODAY, now: NOW });
+  await updateTask(t.cid, { title: "B #two #three" }, { today: TODAY, now: NOW });
+  assert.deepEqual((await getEntityTags("task", t.cid)).map((x) => x.name), ["three", "two"]);
+});
+
+test("updateTask leaves tags untouched when the title is absent", async () => {
+  const t = await createTask({ title: "A #keep" }, { today: TODAY, now: NOW });
+  await updateTask(t.cid, { priority: "P1" }, { today: TODAY, now: NOW });
+  assert.deepEqual((await getEntityTags("task", t.cid)).map((x) => x.name), ["keep"]);
+});
+
+test("updateTask sets recurrence (type + monthly day clamp + end_date)", async () => {
+  const t = await createTask({ title: "Bill" }, { today: TODAY, now: NOW });
+  const u = await updateTask(
+    t.cid, { recurrence_type: "monthly", recurrence_days: [99] }, { today: TODAY, now: NOW }
+  );
+  assert.equal(u.recurrence_type, "monthly");
+  assert.equal(u.recurrence_days, JSON.stringify([28])); // clamped to 28
+  assert.equal(u.recurrence_end_date, "2026-09-01");
+});
+
+test("updateTask recurrence_renew bumps end_date and clears notif_level", async () => {
+  const t = await createTask(
+    { title: "Daily", recurrence_type: "daily" }, { today: "2026-01-01", now: NOW }
+  );
+  const u = await updateTask(t.cid, { recurrence_renew: true }, { today: TODAY, now: NOW });
+  assert.equal(u.recurrence_end_date, "2026-09-01"); // today+90, not the old 2026-04-01
+  assert.equal(u.recurrence_notif_level, null);
+});
+
+test("updateTask clears recurrence when type is null/invalid", async () => {
+  const t = await createTask(
+    { title: "Daily", recurrence_type: "daily" }, { today: TODAY, now: NOW }
+  );
+  const u = await updateTask(t.cid, { recurrence_type: null }, { today: TODAY, now: NOW });
+  assert.equal(u.recurrence_type, null);
+  assert.equal(u.recurrence_days, null);
+  assert.equal(u.recurrence_end_date, null);
+});
