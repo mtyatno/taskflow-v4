@@ -50,3 +50,62 @@ test("getTask hides soft-deleted (tombstoned) records", async () => {
   await seedTask({ cid: "gone", title: "Gone", parent_cid: null, deleted: true, dirty: 1 });
   assert.equal(await getTask("gone", TODAY), undefined);
 });
+
+const { createTask } = require("../../static/offline/taskrepo.js");
+const { outboxAll } = require("../../static/offline/outbox.js");
+
+const NOW = "2026-06-03T08:00:00.000Z";
+
+test("createTask applies defaults, uppercases priority, sets timestamps", async () => {
+  const t = await createTask({ title: "Beli kopi" }, { today: TODAY, now: NOW });
+  assert.equal(typeof t.cid, "string");
+  assert.equal(t.server_id, null);
+  assert.equal(t.title, "Beli kopi");
+  assert.equal(t.description, "");
+  assert.equal(t.priority, "P3");
+  assert.equal(t.gtd_status, "inbox");
+  assert.equal(t.project, "");
+  assert.equal(t.context, "");
+  assert.equal(t.deadline, null);
+  assert.equal(t.progress, 0);
+  assert.equal(t.is_focused, false);
+  assert.equal(t.completed_at, null);
+  assert.equal(t.created_at, NOW);
+  assert.equal(t.updated_at, NOW);
+  assert.equal(t.dirty, 1);
+  assert.equal(t.deleted, false);
+});
+
+test("createTask lowercases-and-strips #tags from the title", async () => {
+  const t = await createTask({ title: "Riset pasar #Kerja #urgent" }, { today: TODAY, now: NOW });
+  assert.equal(t.title, "Riset pasar");
+});
+
+test("createTask throws when title is empty after stripping tags", async () => {
+  await assert.rejects(
+    () => createTask({ title: "#onlytags" }, { today: TODAY, now: NOW }),
+    /kosong setelah strip tag/i
+  );
+});
+
+test("createTask computes quadrant via tasklogic (P1 due in 5 days -> Q1)", async () => {
+  const t = await createTask({ title: "X", priority: "p1", deadline: "2026-06-08" }, { today: TODAY, now: NOW });
+  assert.equal(t.priority, "P1");
+  assert.equal(t.quadrant, "Q1");
+});
+
+test("createTask P3 with no deadline -> Q4", async () => {
+  const t = await createTask({ title: "Y", priority: "P3" }, { today: TODAY, now: NOW });
+  assert.equal(t.quadrant, "Q4");
+});
+
+test("createTask persists the record and enqueues a create op in _outbox", async () => {
+  const t = await createTask({ title: "Z" }, { today: TODAY, now: NOW });
+  const fetched = await getTask(t.cid, TODAY);
+  assert.equal(fetched.title, "Z");
+  const ops = await outboxAll();
+  assert.equal(ops.length, 1);
+  assert.equal(ops[0].op, "create");
+  assert.equal(ops[0].entity_type, "task");
+  assert.equal(ops[0].cid, t.cid);
+});
