@@ -119,3 +119,36 @@ test("getContexts returns distinct non-empty contexts of active tasks, sorted", 
   ]);
   assert.deepEqual(await getContexts(), ["@home", "@office"]);
 });
+
+const { getSummary } = require("../../static/offline/taskquery.js");
+
+test("getSummary aggregates by_status, by_quadrant, totals, overdue, done_last_7_days", async () => {
+  await seed([
+    task({ cid: "a", gtd_status: "next", quadrant: "Q1", deadline: "2026-06-01" }),  // active, overdue
+    task({ cid: "b", gtd_status: "next", quadrant: "Q2", deadline: null }),           // active
+    task({ cid: "c", gtd_status: "inbox", quadrant: "Q4", deadline: null }),          // active
+    task({ cid: "d", gtd_status: "done", quadrant: "Q1", completed_at: "2026-06-02T10:00:00.000Z" }), // done within 7d
+    task({ cid: "e", gtd_status: "done", quadrant: "Q1", completed_at: "2026-05-01T10:00:00.000Z" }), // done >7d ago
+    task({ cid: "f", gtd_status: "archived", quadrant: "Q3" }),
+    task({ cid: "g", gtd_status: "next", quadrant: "Q1", deleted: true }),            // tombstone — ignored
+  ]);
+  const s = await getSummary({ today: TODAY });
+  assert.deepEqual(s.by_status, { next: 2, inbox: 1, done: 2, archived: 1 });
+  assert.deepEqual(s.by_quadrant, { Q1: 1, Q2: 1, Q4: 1 }); // active only
+  assert.equal(s.overdue, 1);            // only "a"
+  assert.equal(s.total_active, 3);       // next(2) + inbox(1)
+  assert.equal(s.total_done, 2);
+  assert.equal(s.done_last_7_days, 1);   // only "d"
+  assert.equal(s.date, TODAY);
+});
+
+test("getSummary on an empty store returns zeros", async () => {
+  const s = await getSummary({ today: TODAY });
+  assert.deepEqual(s.by_status, {});
+  assert.deepEqual(s.by_quadrant, {});
+  assert.equal(s.overdue, 0);
+  assert.equal(s.total_active, 0);
+  assert.equal(s.total_done, 0);
+  assert.equal(s.done_last_7_days, 0);
+  assert.equal(s.date, TODAY);
+});

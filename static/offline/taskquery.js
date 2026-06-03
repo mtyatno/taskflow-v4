@@ -82,7 +82,60 @@
   function getProjects() { return distinctActiveField("project"); }
   function getContexts() { return distinctActiveField("context"); }
 
-  const exported = { listTasks, getProjects, getContexts };
+  function todayLocalISO() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  function minusDaysISO(iso, n) {
+    const [y, m, d] = String(iso).slice(0, 10).split("-").map(Number);
+    const t = Date.UTC(y, m - 1, d) - n * 86400000;
+    const dt = new Date(t);
+    const yy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getUTCDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
+  }
+
+  function getSummary(opts) {
+    const today = (opts && opts.today) || todayLocalISO();
+    const cutoff7 = minusDaysISO(today, 7);
+    return getAllRaw().then((all) => {
+      const live = all.filter((r) => !r.deleted);
+      const by_status = {};
+      const by_quadrant = {};
+      let overdue = 0;
+      let done_last_7_days = 0;
+      for (const r of live) {
+        by_status[r.gtd_status] = (by_status[r.gtd_status] || 0) + 1;
+        if (isActive(r)) {
+          if (r.quadrant) by_quadrant[r.quadrant] = (by_quadrant[r.quadrant] || 0) + 1;
+          if (r.deadline && r.deadline < today) overdue += 1;
+        }
+        if (r.gtd_status === "done" && r.completed_at && r.completed_at >= cutoff7) {
+          done_last_7_days += 1;
+        }
+      }
+      let total_active = 0;
+      for (const k in by_status) {
+        if (k !== "done" && k !== "archived") total_active += by_status[k];
+      }
+      return {
+        by_status: by_status,
+        by_quadrant: by_quadrant,
+        overdue: overdue,
+        total_active: total_active,
+        total_done: by_status["done"] || 0,
+        done_last_7_days: done_last_7_days,
+        date: today,
+      };
+    });
+  }
+
+  const exported = { listTasks, getProjects, getContexts, getSummary };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.taskquery = exported; }
   return exported;
 });
