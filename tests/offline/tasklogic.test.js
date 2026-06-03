@@ -25,3 +25,28 @@ test("unknown priority defaults to importance 4 (not important)", () => {
   // no deadline -> not urgent, importance 4 < 5 -> Q4
   assert.equal(calculateQuadrant({ priority: "PX", deadline: null }, TODAY), "Q4");
 });
+
+test("P2 due in exactly 7 days is still urgent -> Q1 (server boundary, NOT 3 days)", () => {
+  assert.equal(calculateQuadrant({ priority: "P2", deadline: "2026-06-10" }, TODAY), "Q1");
+});
+
+test("P2 due in 8 days is no longer urgent -> Q2", () => {
+  assert.equal(calculateQuadrant({ priority: "P2", deadline: "2026-06-11" }, TODAY), "Q2");
+});
+
+test("P1 overdue (yesterday) is urgent -> Q1", () => {
+  assert.equal(calculateQuadrant({ priority: "P1", deadline: "2026-06-02" }, TODAY), "Q1");
+});
+
+test("P3 due in 8 days is neither -> Q4", () => {
+  assert.equal(calculateQuadrant({ priority: "P3", deadline: "2026-06-11" }, TODAY), "Q4");
+});
+
+test("P3 overdue is urgent but not important -> Q3", () => {
+  assert.equal(calculateQuadrant({ priority: "P3", deadline: "2026-05-01" }, TODAY), "Q3");
+});
+
+test("calculateQuadrant defaults today to local date when omitted (smoke, no throw)", () => {
+  const q = calculateQuadrant({ priority: "P1", deadline: null });
+  assert.ok(["Q1", "Q2", "Q3", "Q4"].includes(q));
+});
