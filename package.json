@@ -3,10 +3,14 @@
   "version": "1.0.0",
   "description": "JSX pre-compiler for TaskFlow V4 index.html",
   "scripts": {
-    "compile": "node compile.js"
+    "compile": "node compile.js",
+    "test": "node --test \"tests/offline/*.test.js\""
   },
   "dependencies": {
     "@babel/core": "^7.24.0",
     "@babel/preset-react": "^7.24.0"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.0.0"
   }
 }
