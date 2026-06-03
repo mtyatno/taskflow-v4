@@ -145,7 +145,20 @@
     });
   }
 
-  const exported = { getTask, createTask, updateTask };
+  function deleteTask(cid, opts) {
+    const now = (opts && opts.now) || new Date().toISOString();
+    return getRaw(cid).then((rec) => {
+      if (!rec || rec.deleted) {
+        return Promise.reject(new Error("Task not found"));
+      }
+      const next = Object.assign({}, rec, { deleted: true, dirty: 1, updated_at: now });
+      return putRaw(next)
+        .then(() => TFoutbox.outboxAdd({ op: "delete", entity_type: "task", cid: cid, payload: { cid: cid } }))
+        .then(() => ({ ok: true }));
+    });
+  }
+
+  const exported = { getTask, createTask, updateTask, deleteTask };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.taskrepo = exported; }
   return exported;
 });

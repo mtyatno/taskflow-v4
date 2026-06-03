@@ -170,3 +170,32 @@ test("updateTask enqueues an update op and rejects unknown cid", async () => {
   assert.ok(ops.some((o) => o.op === "update" && o.cid === t.cid));
   await assert.rejects(() => updateTask("ghost", { description: "x" }, { today: TODAY, now: LATER }), /not found/i);
 });
+
+const { deleteTask } = require("../../static/offline/taskrepo.js");
+
+test("deleteTask soft-deletes (tombstone) and hides from getTask", async () => {
+  const t = await createTask({ title: "Trash" }, { today: TODAY, now: NOW });
+  const res = await deleteTask(t.cid, { now: LATER });
+  assert.deepEqual(res, { ok: true });
+  assert.equal(await getTask(t.cid, TODAY), undefined);
+});
+
+test("deleteTask sets deleted=true + dirty and enqueues a delete op", async () => {
+  const t = await createTask({ title: "Trash2" }, { today: TODAY, now: NOW });
+  await deleteTask(t.cid, { now: LATER });
+  const db = await openDB();
+  const raw = await new Promise((resolve, reject) => {
+    const r = db.transaction("tasks", "readonly").objectStore("tasks").get(t.cid);
+    r.onsuccess = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+  });
+  assert.equal(raw.deleted, true);
+  assert.equal(raw.dirty, 1);
+  assert.equal(raw.updated_at, LATER);
+  const ops = await outboxAll();
+  assert.ok(ops.some((o) => o.op === "delete" && o.cid === t.cid));
+});
+
+test("deleteTask rejects an unknown cid", async () => {
+  await assert.rejects(() => deleteTask("ghost", { now: LATER }), /not found/i);
+});
