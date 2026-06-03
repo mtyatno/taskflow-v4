@@ -152,3 +152,23 @@ test("getSummary on an empty store returns zeros", async () => {
   assert.equal(s.done_last_7_days, 0);
   assert.equal(s.date, TODAY);
 });
+
+const { setEntityTags } = require("../../static/offline/tagrepo.js");
+
+test("listTasks filters by tag", async () => {
+  await seed([
+    task({ cid: "a", gtd_status: "next" }),
+    task({ cid: "b", gtd_status: "next" }),
+    task({ cid: "c", gtd_status: "next" }),
+  ]);
+  await setEntityTags("task", "a", ["kerja"]);
+  await setEntityTags("task", "c", ["kerja"]);
+  const rows = await listTasks({ tag: "KERJA" }, { today: TODAY }); // case-insensitive
+  assert.deepEqual(rows.map((r) => r.cid).sort(), ["a", "c"]);
+});
+
+test("listTasks tag with no matches returns empty", async () => {
+  await seed([task({ cid: "a", gtd_status: "next" })]);
+  const rows = await listTasks({ tag: "missing" }, { today: TODAY });
+  assert.deepEqual(rows, []);
+});

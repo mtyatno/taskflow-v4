@@ -11,6 +11,7 @@
   const isNode = (typeof module !== "undefined" && module.exports);
   const TFdb = isNode ? require("./db.js") : root.TF.db;
   const TFrepo = isNode ? require("./taskrepo.js") : root.TF.taskrepo;
+  const TFtagrepo = isNode ? require("./tagrepo.js") : root.TF.tagrepo;
 
   function getAllRaw() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -39,7 +40,7 @@
     if (q.quadrant && rec.quadrant !== String(q.quadrant).toUpperCase()) return false;
     if (q.project != null && q.project !== "" && rec.project !== q.project) return false;
     if (q.context != null && q.context !== "" && rec.context !== q.context) return false;
-    // q.tag is intentionally ignored (tags not persisted locally yet — see plan non-goals).
+    // q.tag is applied separately in listTasks (async tag→cid resolution via tagrepo).
     return true;
   }
 
@@ -55,11 +56,17 @@
 
   function listTasks(query, opts) {
     const today = opts && opts.today;
-    return getAllRaw().then((all) => {
+    const q = query || {};
+    const tagPromise = (q.tag != null && q.tag !== "")
+      ? TFtagrepo.cidsForTag("task", q.tag)
+      : Promise.resolve(null);
+    return Promise.all([getAllRaw(), tagPromise]).then(([all, tagSet]) => {
       const live = all.filter((r) => !r.deleted);
       const titleByCid = {};
       for (const r of live) titleByCid[r.cid] = r.title;
-      const rows = live.filter((r) => matchesQuery(r, query)).sort(compareTasks);
+      let rows = live.filter((r) => matchesQuery(r, q));
+      if (tagSet) rows = rows.filter((r) => tagSet.has(r.cid));
+      rows.sort(compareTasks);
       return rows.map((r) => {
         const parentTitle = r.parent_cid ? (titleByCid[r.parent_cid] != null ? titleByCid[r.parent_cid] : null) : null;
         return TFrepo.displayFrom(r, today, parentTitle);
