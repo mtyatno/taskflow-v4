@@ -47,6 +47,7 @@
   const ENTITY_STORE_NAMES = Object.keys(ENTITY_STORES);
 
   let _dbPromise = null;
+  let _db = null;
 
   function createSchema(db, tx) {
     for (const [name, indexes] of Object.entries(ENTITY_STORES)) {
@@ -106,7 +107,7 @@
         createSchema(db, tx);
         migrateLegacy(db, tx, (err) => { _dbPromise = null; reject(err); });
       };
-      req.onsuccess = (e) => resolve(e.target.result);
+      req.onsuccess = (e) => { _db = e.target.result; resolve(e.target.result); };
       req.onerror = () => { _dbPromise = null; reject(req.error); };
       req.onblocked = () => {
         try { console.warn("taskflow-offline: openDB blocked by another open connection"); } catch (_) {}
@@ -115,7 +116,10 @@
     return _dbPromise;
   }
 
-  function _reset() { _dbPromise = null; }
+  function _reset() {
+    if (_db) { try { _db.close(); } catch (_) {} _db = null; }
+    _dbPromise = null;
+  }
 
   const publicApi = { DB_NAME, DB_VERSION, ENTITY_STORES, ENTITY_STORE_NAMES, openDB };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.db = publicApi; }
