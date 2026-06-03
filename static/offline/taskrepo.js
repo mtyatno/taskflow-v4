@@ -100,7 +100,52 @@
       .then(() => assemble(rec, opts && opts.today));
   }
 
-  const exported = { getTask, createTask };
+  function updateTask(cid, patch, opts) {
+    const now = (opts && opts.now) || new Date().toISOString();
+    return getRaw(cid).then((rec) => {
+      if (!rec || rec.deleted) {
+        return Promise.reject(new Error("Task not found"));
+      }
+      const next = Object.assign({}, rec);
+
+      if (patch.title != null) {
+        const clean = stripTags(patch.title);
+        if (!clean) return Promise.reject(new Error("Judul tidak boleh kosong setelah strip tag"));
+        next.title = clean;
+      }
+      if (patch.description != null) next.description = patch.description;
+      if (patch.priority != null) next.priority = String(patch.priority).toUpperCase();
+      if (patch.project != null) next.project = patch.project;
+      if (patch.context != null) next.context = patch.context;
+      if (patch.waiting_for != null) next.waiting_for = patch.waiting_for;
+      if (patch.gtd_status != null) {
+        next.gtd_status = patch.gtd_status;
+        if (patch.gtd_status === "done") next.completed_at = now;
+      }
+      if (patch.deadline != null) {
+        next.deadline = (patch.deadline === "" || patch.deadline === "-") ? null : patch.deadline;
+      }
+      if (patch.assigned_to != null) {
+        next.assigned_to = patch.assigned_to === 0 ? null : patch.assigned_to;
+      }
+      if (patch.progress != null) {
+        next.progress = Math.max(0, Math.min(100, patch.progress));
+      }
+
+      next.updated_at = now;
+      next.dirty = 1;
+      next.quadrant = TFlogic.calculateQuadrant(
+        { priority: next.priority, deadline: next.deadline },
+        opts && opts.today
+      );
+
+      return putRaw(next)
+        .then(() => TFoutbox.outboxAdd({ op: "update", entity_type: "task", cid: cid, payload: next }))
+        .then(() => assemble(next, opts && opts.today));
+    });
+  }
+
+  const exported = { getTask, createTask, updateTask };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.taskrepo = exported; }
   return exported;
 });

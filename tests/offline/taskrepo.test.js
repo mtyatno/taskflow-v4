@@ -109,3 +109,64 @@ test("createTask persists the record and enqueues a create op in _outbox", async
   assert.equal(ops[0].entity_type, "task");
   assert.equal(ops[0].cid, t.cid);
 });
+
+const { updateTask } = require("../../static/offline/taskrepo.js");
+
+const LATER = "2026-06-04T09:00:00.000Z";
+
+test("updateTask changes only provided fields and bumps updated_at", async () => {
+  const t = await createTask({ title: "Edit me", priority: "P3" }, { today: TODAY, now: NOW });
+  const u = await updateTask(t.cid, { description: "added" }, { today: TODAY, now: LATER });
+  assert.equal(u.description, "added");
+  assert.equal(u.title, "Edit me");
+  assert.equal(u.priority, "P3");
+  assert.equal(u.updated_at, LATER);
+  assert.equal(u.dirty, 1);
+});
+
+test("updateTask uppercases priority and recomputes quadrant", async () => {
+  const t = await createTask({ title: "Q", priority: "P3", deadline: "2026-06-05" }, { today: TODAY, now: NOW });
+  const u = await updateTask(t.cid, { priority: "p1" }, { today: TODAY, now: LATER });
+  assert.equal(u.priority, "P1");
+  assert.equal(u.quadrant, "Q1"); // P1 + due in 2 days
+});
+
+test("updateTask gtd_status done sets completed_at", async () => {
+  const t = await createTask({ title: "Finish" }, { today: TODAY, now: NOW });
+  const u = await updateTask(t.cid, { gtd_status: "done" }, { today: TODAY, now: LATER });
+  assert.equal(u.gtd_status, "done");
+  assert.equal(u.completed_at, LATER);
+});
+
+test("updateTask deadline '' or '-' clears the deadline", async () => {
+  const t = await createTask({ title: "D", deadline: "2026-06-10" }, { today: TODAY, now: NOW });
+  const u1 = await updateTask(t.cid, { deadline: "" }, { today: TODAY, now: LATER });
+  assert.equal(u1.deadline, null);
+  const t2 = await createTask({ title: "D2", deadline: "2026-06-10" }, { today: TODAY, now: NOW });
+  const u2 = await updateTask(t2.cid, { deadline: "-" }, { today: TODAY, now: LATER });
+  assert.equal(u2.deadline, null);
+});
+
+test("updateTask assigned_to 0 becomes null; progress is clamped", async () => {
+  const t = await createTask({ title: "P" }, { today: TODAY, now: NOW });
+  const u = await updateTask(t.cid, { assigned_to: 0, progress: 250 }, { today: TODAY, now: LATER });
+  assert.equal(u.assigned_to, null);
+  assert.equal(u.progress, 100);
+  const u2 = await updateTask(t.cid, { progress: -5 }, { today: TODAY, now: LATER });
+  assert.equal(u2.progress, 0);
+});
+
+test("updateTask strips tags from a new title; rejects empty result", async () => {
+  const t = await createTask({ title: "Orig" }, { today: TODAY, now: NOW });
+  const u = await updateTask(t.cid, { title: "New title #tag" }, { today: TODAY, now: LATER });
+  assert.equal(u.title, "New title");
+  await assert.rejects(() => updateTask(t.cid, { title: "#only" }, { today: TODAY, now: LATER }), /kosong/i);
+});
+
+test("updateTask enqueues an update op and rejects unknown cid", async () => {
+  const t = await createTask({ title: "OB" }, { today: TODAY, now: NOW });
+  await updateTask(t.cid, { description: "x" }, { today: TODAY, now: LATER });
+  const ops = await outboxAll();
+  assert.ok(ops.some((o) => o.op === "update" && o.cid === t.cid));
+  await assert.rejects(() => updateTask("ghost", { description: "x" }, { today: TODAY, now: LATER }), /not found/i);
+});
