@@ -67,7 +67,22 @@
     });
   }
 
-  const exported = { listTasks };
+  function distinctActiveField(field) {
+    return getAllRaw().then((all) => {
+      const set = new Set();
+      for (const r of all) {
+        if (r.deleted || !isActive(r)) continue;
+        const v = r[field];
+        if (v != null && v !== "") set.add(v);
+      }
+      return Array.from(set).sort();
+    });
+  }
+
+  function getProjects() { return distinctActiveField("project"); }
+  function getContexts() { return distinctActiveField("context"); }
+
+  const exported = { listTasks, getProjects, getContexts };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.taskquery = exported; }
   return exported;
 });

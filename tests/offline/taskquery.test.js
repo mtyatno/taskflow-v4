@@ -94,3 +94,28 @@ test("listTasks resolves parent_title from the live set", async () => {
   const kid = rows.find((r) => r.cid === "kid");
   assert.equal(kid.parent_title, "Parent");
 });
+
+const { getProjects, getContexts } = require("../../static/offline/taskquery.js");
+
+test("getProjects returns distinct non-empty projects of active tasks, sorted", async () => {
+  await seed([
+    task({ cid: "a", project: "Web", gtd_status: "next" }),
+    task({ cid: "b", project: "Alpha", gtd_status: "next" }),
+    task({ cid: "c", project: "Web", gtd_status: "next" }),
+    task({ cid: "d", project: "", gtd_status: "next" }),
+    task({ cid: "e", project: "Done", gtd_status: "done" }),     // excluded (not active)
+    task({ cid: "f", project: "Gone", gtd_status: "next", deleted: true }), // excluded (tombstone)
+  ]);
+  assert.deepEqual(await getProjects(), ["Alpha", "Web"]);
+});
+
+test("getContexts returns distinct non-empty contexts of active tasks, sorted", async () => {
+  await seed([
+    task({ cid: "a", context: "@office", gtd_status: "next" }),
+    task({ cid: "b", context: "@home", gtd_status: "next" }),
+    task({ cid: "c", context: "@office", gtd_status: "next" }),
+    task({ cid: "d", context: "", gtd_status: "next" }),
+    task({ cid: "e", context: "@archived", gtd_status: "archived" }), // excluded
+  ]);
+  assert.deepEqual(await getContexts(), ["@home", "@office"]);
+});
