@@ -11,6 +11,37 @@
     #app { display: flex; flex-direction: column; height: 100%; }
     #map { flex: 1; min-height: 0; overflow: hidden; }
 
+    #node-toolbar {
+      display: none;
+      flex-shrink: 0;
+      border-bottom: 2px solid #6c7ae0;
+      background: #12122a;
+      padding: 6px 12px;
+      font-family: system-ui, sans-serif;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+    #node-toolbar button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      border-radius: 24px;
+      padding: 6px 12px;
+      color: #ccc;
+      font-size: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #node-toolbar button .lbl { font-size: 9px; color: #888; font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; }
+    #node-toolbar button:hover, #node-toolbar button:active { background: rgba(108,122,224,0.18); }
+    #node-toolbar button.danger { color: #e06c6c; }
+    #node-toolbar button.danger:hover, #node-toolbar button.danger:active { background: rgba(224,108,108,0.18); }
+    #node-toolbar .sep { width: 1px; height: 28px; background: #3a3a6a; margin: 0 4px; }
+
     #link-panel {
       display: none;
       flex-shrink: 0;
@@ -148,10 +179,22 @@
       pointer-events: none;
       z-index: 10;
     }
+
+
+
   </style>
 </head>
 <body>
   <div id="app">
+    <div id="node-toolbar">
+      <button id="ntb-child" title="Tambah Child (Tab)">↳<span class="lbl">Child</span></button>
+      <button id="ntb-sibling" title="Tambah Sibling (Enter)">↵<span class="lbl">Sibling</span></button>
+      <button id="ntb-promote" title="Naikan level — jadi sibling dari parent">↑<span class="lbl">Promote</span></button>
+      <div class="sep"></div>
+      <button id="ntb-edit" title="Edit teks node (F2)">✏️<span class="lbl">Edit</span></button>
+      <div class="sep"></div>
+      <button id="ntb-delete" class="danger" title="Hapus node (Delete)">🗑️<span class="lbl">Hapus</span></button>
+    </div>
     <div id="map"></div>
     <div id="link-panel">
       <div id="link-panel-header">
@@ -403,6 +446,7 @@
         currentNodeId = node.id;
         currentNodeData = node; // live reference to internal nodeObj — not a getData() copy
         renderPanel(node.topic, node.links || []);
+        document.getElementById('node-toolbar').style.display = 'flex';
         window.parent.postMessage(
           { type: 'nodeSelected', nodeId: node.id, topic: node.topic, links: node.links || [] },
           window.location.origin
@@ -414,9 +458,31 @@
           currentNodeId = null;
           currentNodeData = null;
           hidePanel();
+          document.getElementById('node-toolbar').style.display = 'none';
           window.parent.postMessage({ type: 'nodeDeselected' }, window.location.origin);
         }, 50);
       });
+
+      // Node toolbar button handlers
+      document.getElementById('ntb-child').onclick = () => { if (mind.currentNodes) mind.addChild(); };
+      document.getElementById('ntb-sibling').onclick = () => { if (mind.currentNodes) mind.insertSibling('after'); };
+      document.getElementById('ntb-promote').onclick = () => {
+        if (!mind.currentNodes || mind.currentNodes.length === 0) return;
+        const nodeEl = mind.currentNodes[0];
+        const nodeObj = nodeEl.nodeObj;
+        if (!nodeObj?.parent?.parent) return;
+        const parentEl = mind.findEle(nodeObj.parent.id);
+        // moveNodeAfter butuh ARRAY di argumen pertama (internal: ve(e).filter()).
+        // Pindahkan node ke posisi tepat setelah parent-nya = promote satu level.
+        // Memicu event 'operation' → listener kita auto postMessage 'change' (tersimpan).
+        mind.moveNodeAfter([nodeEl], parentEl);
+      };
+      document.getElementById('ntb-edit').onclick = () => { if (mind.currentNodes) mind.beginEdit(); };
+      document.getElementById('ntb-delete').onclick = () => {
+        if (!mind.currentNodes) return;
+        if (mind.currentNodes.some(n => !n.nodeObj?.parent)) return;
+        if (confirm('Hapus node ini?')) mind.removeNodes(mind.currentNodes);
+      };
 
       document.getElementById('link-panel-close').onclick = () => {
         hidePanel();
