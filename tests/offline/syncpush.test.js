@@ -180,3 +180,13 @@ test("pushOutbox returns busy without double-processing when already running", a
   release();
   await first;
 });
+
+test("pushOutbox create records base_rev from the server response updated_at", async () => {
+  await put("tasks", [task({ cid: "a", title: "A" })]);
+  await put("_outbox", [{ qid: 1, op: "create", entity_type: "task", cid: "a", payload: {} }]);
+  const tr = fakeTransport(() => ({ status: 201, data: { id: 100, updated_at: "2026-06-04T09:00:00" } }));
+  await pushOutbox(tr);
+  const db = await openDB();
+  const rec = await new Promise((res) => { const q = db.transaction("tasks").objectStore("tasks").get("a"); q.onsuccess = () => res(q.result); });
+  assert.equal(rec.base_rev, "2026-06-04T09:00:00");
+});

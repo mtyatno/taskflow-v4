@@ -94,7 +94,7 @@
           if (ok(res)) {
             const sid = res.data.id;
             return TFidmap.mapPut("task", sid, op.cid)
-              .then(() => putTaskRaw(Object.assign({}, rec, { server_id: sid, dirty: 0 })))
+              .then(() => putTaskRaw(Object.assign({}, rec, { server_id: sid, dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev })))
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => { result.pushed++; });
           }
@@ -110,7 +110,7 @@
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
       return tagsOf(op.cid, tagsFor).then((tags) =>
         send(transport, "PUT", "/api/tasks/" + sid, taskToUpdatePayload(rec, tags)).then((res) => {
-          if (ok(res)) { return putTaskRaw(Object.assign({}, rec, { dirty: 0 })).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; }); }
+          if (ok(res)) { return putTaskRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev })).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; }); }
           result.failed++;
           return TFoutbox.outboxRemove(op.qid);
         })
