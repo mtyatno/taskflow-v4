@@ -1,6 +1,20 @@
-const CACHE = "taskflow-v109-katex-patch";
+const CACHE = "taskflow-v110-offline-tasks";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
+  "/static/offline/ids.js",
+  "/static/offline/db.js",
+  "/static/offline/meta.js",
+  "/static/offline/idmap.js",
+  "/static/offline/outbox.js",
+  "/static/offline/blobstore.js",
+  "/static/offline/router.js",
+  "/static/offline/tasklogic.js",
+  "/static/offline/tagrepo.js",
+  "/static/offline/taskrepo.js",
+  "/static/offline/taskquery.js",
+  "/static/offline/recurrence.js",
+  "/static/offline/taskroutes.js",
+  "/static/offline/hydrate.js",
   "/static/vendor/react.production.min.js",
   "/static/vendor/react-dom.production.min.js",
   "/static/vendor/chart.umd.min.js",
