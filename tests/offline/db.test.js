@@ -52,6 +52,7 @@ test("migration v1->v2 moves queue records into _outbox and drops queue", async 
 
   const db = await openDB(); // upgrades to v2
   assert.equal(db.objectStoreNames.contains("queue"), false, "queue should be deleted");
+  assert.equal(db.objectStoreNames.contains("cache"), false, "cache should be deleted");
   const all = await new Promise((resolve, reject) => {
     const r = db.transaction("_outbox", "readonly").objectStore("_outbox").getAll();
     r.onsuccess = () => resolve(r.result);
@@ -63,3 +64,10 @@ test("migration v1->v2 moves queue records into _outbox and drops queue", async 
 });
 
 test("DB_VERSION is 2", () => { assert.equal(DB_VERSION, 2); });
+
+test("openDB returns the same connection on repeated calls", async () => {
+  const a = await openDB();
+  const b = await openDB();
+  assert.equal(a, b);
+  a.close();
+});

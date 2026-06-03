@@ -68,16 +68,18 @@
     if (!db.objectStoreNames.contains("blobs")) db.createObjectStore("blobs", { keyPath: "id" });
   }
 
-  function migrateLegacy(db, tx) {
+  function migrateLegacy(db, tx, onErr) {
     if (!db.objectStoreNames.contains("queue")) return;
     const src = tx.objectStore("queue");
     const dst = tx.objectStore("_outbox");
     const cur = src.openCursor();
+    cur.onerror = () => { if (onErr) onErr(cur.error); };
     cur.onsuccess = (e) => {
       const cursor = e.target.result;
       if (cursor) {
         const { qid, ...rest } = cursor.value;
-        dst.add(rest);
+        const addReq = dst.add(rest);
+        addReq.onerror = () => { if (onErr) onErr(addReq.error); };
         cursor.continue();
       } else {
         db.deleteObjectStore("queue");
@@ -89,23 +91,33 @@
   function openDB() {
     if (_dbPromise) return _dbPromise;
     _dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      let req;
+      try {
+        req = indexedDB.open(DB_NAME, DB_VERSION);
+      } catch (err) {
+        _dbPromise = null;
+        reject(err);
+        return;
+      }
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
-        const tx = e.target.transaction;
+        const tx = e.target.transaction; // versionchange transaction
+        tx.onabort = () => { _dbPromise = null; reject(tx.error || new Error("offline DB upgrade aborted")); };
         createSchema(db, tx);
-        migrateLegacy(db, tx);
+        migrateLegacy(db, tx, (err) => { _dbPromise = null; reject(err); });
       };
       req.onsuccess = (e) => resolve(e.target.result);
-      req.onerror = () => reject(req.error);
-      req.onblocked = () => {};
+      req.onerror = () => { _dbPromise = null; reject(req.error); };
+      req.onblocked = () => {
+        try { console.warn("taskflow-offline: openDB blocked by another open connection"); } catch (_) {}
+      };
     });
     return _dbPromise;
   }
 
   function _reset() { _dbPromise = null; }
 
-  const exported = { DB_NAME, DB_VERSION, ENTITY_STORES, ENTITY_STORE_NAMES, openDB, _reset };
-  if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.db = exported; }
-  return exported;
+  const publicApi = { DB_NAME, DB_VERSION, ENTITY_STORES, ENTITY_STORE_NAMES, openDB };
+  if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.db = publicApi; }
+  return Object.assign({ _reset }, publicApi);
 });
