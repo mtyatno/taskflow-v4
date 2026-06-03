@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v119-offline-tasks";
+const CACHE = "taskflow-v120-sync-push";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
@@ -15,6 +15,7 @@ const STATIC = [
   "/static/offline/recurrence.js",
   "/static/offline/taskroutes.js",
   "/static/offline/hydrate.js",
+  "/static/offline/syncpush.js",
   "/static/vendor/react.production.min.js",
   "/static/vendor/react-dom.production.min.js",
   "/static/vendor/chart.umd.min.js",
