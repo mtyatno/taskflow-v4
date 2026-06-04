@@ -273,6 +273,13 @@ test("updateTask recurrence_renew bumps end_date and clears notif_level", async 
   assert.equal(u.recurrence_notif_level, null);
 });
 
+test("createTask stores a server list_id when provided", async () => {
+  const t = await createTask({ title: "Shared task", list_id: 7 }, { today: TODAY, now: NOW });
+  assert.equal(t.list_id, 7);
+  const plain = await createTask({ title: "Personal" }, { today: TODAY, now: NOW });
+  assert.equal(plain.list_id, null);
+});
+
 test("updateTask clears recurrence when type is null/invalid", async () => {
   const t = await createTask(
     { title: "Daily", recurrence_type: "daily" }, { today: TODAY, now: NOW }

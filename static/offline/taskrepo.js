@@ -107,6 +107,7 @@
       deadline: deadline,
       waiting_for: input.waiting_for != null ? input.waiting_for : "",
       list_cid: input.list_cid != null ? input.list_cid : null,
+      list_id: input.list_id != null ? input.list_id : null,
       assigned_to: input.assigned_to != null ? input.assigned_to : null,
       parent_cid: input.parent_cid != null ? input.parent_cid : null,
       progress: 0,
