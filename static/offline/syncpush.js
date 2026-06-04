@@ -87,6 +87,7 @@
   function opCreate(op, transport, tagsFor, result) {
     return getTaskRaw(op.cid).then((rec) => {
       if (!rec) return TFoutbox.outboxRemove(op.qid);
+      if (rec.conflict) return; // held until user resolves the conflict
       if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
       const parentP = rec.parent_cid ? TFidmap.serverIdOf(rec.parent_cid) : Promise.resolve(null);
       return Promise.all([parentP, tagsOf(op.cid, tagsFor)]).then(([parentSid, tags]) =>
@@ -108,9 +109,11 @@
   function opUpdate(op, transport, tagsFor, result) {
     return Promise.all([getTaskRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
+      if (rec.conflict) return; // held until user resolves the conflict
       return tagsOf(op.cid, tagsFor).then((tags) =>
         send(transport, "PUT", "/api/tasks/" + sid, taskToUpdatePayload(rec, tags)).then((res) => {
           if (ok(res)) { return putTaskRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev })).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; }); }
+          if (res.status === 404) { return putTaskRaw(Object.assign({}, rec, { conflict: "remote_deleted" })); } // safety net: flag, keep op
           result.failed++;
           return TFoutbox.outboxRemove(op.qid);
         })

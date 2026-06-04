@@ -152,7 +152,7 @@ test("pushOutbox drops a 4xx op and counts it failed", async () => {
   const { mapPut } = require("../../static/offline/idmap.js");
   await mapPut("task", 10, "a");
   await put("_outbox", [{ qid: 1, op: "update", entity_type: "task", cid: "a", payload: {} }]);
-  const tr = fakeTransport(() => ({ status: 404, data: { detail: "not found" } }));
+  const tr = fakeTransport(() => ({ status: 400, data: { detail: "bad request" } }));
   const r = await pushOutbox(tr);
   assert.equal(r.failed, 1);
   assert.equal(r.remaining, 0);
@@ -189,4 +189,29 @@ test("pushOutbox create records base_rev from the server response updated_at", a
   const db = await openDB();
   const rec = await new Promise((res) => { const q = db.transaction("tasks").objectStore("tasks").get("a"); q.onsuccess = () => res(q.result); });
   assert.equal(rec.base_rev, "2026-06-04T09:00:00");
+});
+
+const { mapPut: _mapPutP } = require("../../static/offline/idmap.js");
+
+test("pushOutbox skips an op whose record is flagged conflict (op kept, not pushed)", async () => {
+  await put("tasks", [task({ cid: "a", server_id: 10, title: "A", conflict: "remote_deleted" })]);
+  await _mapPutP("task", 10, "a");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "task", cid: "a", payload: {} }]);
+  const tr = fakeTransport(() => ({ status: 200, data: { id: 10 } }));
+  const r = await pushOutbox(tr);
+  assert.equal(tr.calls.length, 0);
+  assert.equal(r.pushed, 0);
+  assert.equal(r.remaining, 1);
+});
+
+test("pushOutbox update 404 flags the record conflict and keeps the op", async () => {
+  await put("tasks", [task({ cid: "a", server_id: 10, title: "A" })]);
+  await _mapPutP("task", 10, "a");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "task", cid: "a", payload: {} }]);
+  const tr = fakeTransport(() => ({ status: 404, data: { detail: "gone" } }));
+  const r = await pushOutbox(tr);
+  const db = await openDB();
+  const rec = await new Promise((res) => { const q = db.transaction("tasks").objectStore("tasks").get("a"); q.onsuccess = () => res(q.result); });
+  assert.equal(rec.conflict, "remote_deleted");
+  assert.equal(r.remaining, 1);
 });
