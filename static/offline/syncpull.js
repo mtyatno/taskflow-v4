@@ -14,6 +14,7 @@
   const TFids = req("./ids.js", root.TF && root.TF.ids);
   const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
   const TFhydrate = req("./hydrate.js", root.TF && root.TF.hydrate);
+  const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
 
   function getAllTasks() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -48,6 +49,19 @@
     });
   }
 
+  // Normalize a timestamp to epoch ms; treat a tz-less string (server naive) as UTC.
+  function tsEpoch(ts) {
+    if (ts == null) return 0;
+    const s = String(ts);
+    const hasTz = /[zZ]|[+-]\d\d:?\d\d$/.test(s);
+    const v = Date.parse(hasTz ? s : s + "Z");
+    return isNaN(v) ? 0 : v;
+  }
+  function dropOutbox(cid) {
+    return TFoutbox.outboxByEntity("task", cid).then((ops) =>
+      ops.reduce((p, o) => p.then(() => TFoutbox.outboxRemove(o.qid)), Promise.resolve()));
+  }
+
   function pullTasks(serverList) {
     const list = serverList || [];
     const cache = {}; // serverId -> cid
@@ -57,16 +71,27 @@
         const localByCid = {};
         for (const r of localAll) localByCid[r.cid] = r;
         const getCid = (sid) => cache[sid] || null;
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0 };
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflicts: 0 };
         let chain = Promise.resolve();
         for (const s of list) {
           const cid = cache[s.id];
           const localRec = localByCid[cid];
           chain = chain.then(() => {
             if (!localRec) { result.created++; return putTask(TFhydrate.taskFromServer(s, getCid)); }
-            if (localRec.dirty) { result.skipped++; return; }
+            if (localRec.conflict) { result.skipped++; return; }
+            if (localRec.dirty) {
+              if (s.updated_at !== localRec.base_rev) {
+                // edit-vs-edit conflict → last-write-wins
+                result.lwwResolved++;
+                if (tsEpoch(s.updated_at) > tsEpoch(localRec.updated_at)) {
+                  return dropOutbox(cid).then(() => putTask(TFhydrate.taskFromServer(s, getCid))); // server wins
+                }
+                return; // local wins — keep dirty, push will send
+              }
+              result.skipped++; return; // local pending, server unchanged
+            }
             if (s.updated_at !== localRec.base_rev) { result.updated++; return putTask(TFhydrate.taskFromServer(s, getCid)); }
-            return;
+            return; // unchanged
           });
         }
         const serverIds = new Set(list.map((s) => String(s.id)));
@@ -74,7 +99,8 @@
           if (r.server_id == null) continue;
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
-            if (r.dirty) { result.skipped++; return; }
+            if (r.conflict) { result.skipped++; return; }
+            if (r.dirty) { result.conflicts++; return putTask(Object.assign({}, r, { conflict: "remote_deleted" })); }
             result.deleted++;
             return deleteTask(r.cid);
           });

@@ -5,6 +5,7 @@ const { deleteDB } = require("./setup.js");
 const { DB_NAME, _reset, openDB } = require("../../static/offline/db.js");
 const { mapPut } = require("../../static/offline/idmap.js");
 const { pullTasks } = require("../../static/offline/syncpull.js");
+const { outboxAll, outboxAdd } = require("../../static/offline/outbox.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
 
@@ -74,8 +75,8 @@ test("pullTasks leaves unchanged records (same updated_at) alone", async () => {
   assert.equal(r.created, 0);
 });
 
-test("pullTasks skips a dirty local record even if the server changed", async () => {
-  await putTasks([local({ cid: "a", server_id: 10, title: "Local edit", base_rev: "2026-06-01T00:00:00", dirty: 1 })]);
+test("pullTasks skips a dirty local record when the server is unchanged since base_rev", async () => {
+  await putTasks([local({ cid: "a", server_id: 10, title: "Local edit", base_rev: "2026-06-05T00:00:00", dirty: 1 })]);
   await mapPut("task", 10, "a");
   const r = await pullTasks([srv({ id: 10, title: "Server", updated_at: "2026-06-05T00:00:00" })]);
   assert.equal(r.skipped, 1);
@@ -96,7 +97,7 @@ test("pullTasks does NOT delete a dirty local record missing from the server", a
   await mapPut("task", 10, "a");
   const r = await pullTasks([]);
   assert.equal(r.deleted, 0);
-  assert.equal(r.skipped, 1);
+  assert.equal(r.conflicts, 1);
   assert.notEqual(await getTask("a"), undefined);
 });
 
@@ -105,6 +106,45 @@ test("pullTasks ignores local-only records (server_id null) when reconciling del
   const r = await pullTasks([]);
   assert.equal(r.deleted, 0);
   assert.notEqual(await getTask("b"), undefined);
+});
+
+test("pullTasks edit-vs-edit: server newer wins, overwrites local and drops outbox op", async () => {
+  await putTasks([local({ cid: "a", server_id: 10, title: "Local", base_rev: "2026-06-01T00:00:00", updated_at: "2026-06-04T01:00:00.000Z", dirty: 1 })]);
+  await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  const r = await pullTasks([srv({ id: 10, title: "Server", updated_at: "2026-06-04T05:00:00" })]);
+  assert.equal(r.lwwResolved, 1);
+  assert.equal((await getTask("a")).title, "Server");
+  assert.equal((await getTask("a")).dirty, 0);
+  assert.equal((await outboxAll()).length, 0);
+});
+
+test("pullTasks edit-vs-edit: local newer wins, keeps local and outbox op", async () => {
+  await putTasks([local({ cid: "a", server_id: 10, title: "Local", base_rev: "2026-06-01T00:00:00", updated_at: "2026-06-04T09:00:00.000Z", dirty: 1 })]);
+  await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  const r = await pullTasks([srv({ id: 10, title: "Server", updated_at: "2026-06-04T02:00:00" })]);
+  assert.equal(r.lwwResolved, 1);
+  assert.equal((await getTask("a")).title, "Local");
+  assert.equal((await getTask("a")).dirty, 1);
+  assert.equal((await outboxAll()).length, 1);
+});
+
+test("pullTasks edit-vs-delete: dirty local missing from server is flagged, not deleted", async () => {
+  await putTasks([local({ cid: "a", server_id: 10, title: "Local edit", dirty: 1 })]);
+  await mapPut("task", 10, "a");
+  const r = await pullTasks([]);
+  assert.equal(r.conflicts, 1);
+  assert.equal(r.deleted, 0);
+  assert.equal((await getTask("a")).conflict, "remote_deleted");
+});
+
+test("pullTasks skips an already-flagged conflict record", async () => {
+  await putTasks([local({ cid: "a", server_id: 10, title: "Local", dirty: 1, conflict: "remote_deleted" })]);
+  await mapPut("task", 10, "a");
+  const r = await pullTasks([srv({ id: 10, title: "Server", updated_at: "2026-06-09T00:00:00" })]);
+  assert.equal((await getTask("a")).title, "Local");
+  assert.equal(r.skipped, 1);
 });
 
 test("pullTasks resolves parent_cid across the server batch", async () => {
