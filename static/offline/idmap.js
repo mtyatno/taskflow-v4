@@ -39,7 +39,16 @@
     }));
   }
 
-  const exported = { mapPut, cidOf, serverIdOf };
+  function mapDelete(type, serverId) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("_idmap", "readwrite");
+      tx.objectStore("_idmap").delete(keyFor(type, serverId));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
+  const exported = { mapPut, cidOf, serverIdOf, mapDelete };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.idmap = exported; }
   return exported;
 });
