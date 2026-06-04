@@ -28,6 +28,7 @@
     rec.title = dict.title;
     rec.parent_cid = dict.parent_id != null ? getCid(dict.parent_id) : null;
     rec.list_cid = null;
+    rec.list_id = dict.list_id != null ? dict.list_id : null;
     rec.deleted = false;
     rec.dirty = 0;
     rec.base_rev = dict.updated_at != null ? dict.updated_at : null;

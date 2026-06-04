@@ -68,6 +68,13 @@ test("hydrateTasks resolves parent_cid across the batch", async () => {
   assert.equal(kid.parent_cid, parent.cid);
 });
 
+test("taskFromServer copies the server list_id", () => {
+  const rec = taskFromServer(serverTask({ id: 9, list_id: 7 }), () => "x");
+  assert.equal(rec.list_id, 7);
+  const personal = taskFromServer(serverTask({ id: 10, list_id: null }), () => "x");
+  assert.equal(personal.list_id, null);
+});
+
 test("hydrateTasks does not touch local-only tasks (server_id null)", async () => {
   const db = await openDB();
   await new Promise((res, rej) => {
