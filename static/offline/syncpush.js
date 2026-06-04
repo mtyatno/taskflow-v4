@@ -30,7 +30,7 @@
       deadline: record.deadline != null ? record.deadline : null,
       gtd_status: record.gtd_status || "inbox",
       waiting_for: record.waiting_for != null ? record.waiting_for : "",
-      list_id: null,
+      list_id: record.list_id != null ? record.list_id : null,
       assigned_to: record.assigned_to != null ? record.assigned_to : null,
       parent_id: parentServerId != null ? parentServerId : null,
       recurrence_type: record.recurrence_type != null ? record.recurrence_type : null,
@@ -75,6 +75,21 @@
     }));
   }
 
+  function deleteTaskRaw(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("tasks", "readwrite");
+      tx.objectStore("tasks").delete(cid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  // Removed from the shared list (HTTP 403): drop access — delete local task + idmap + op.
+  function lostAccess(rec, op) {
+    return (rec.server_id != null ? TFidmap.mapDelete("task", rec.server_id) : Promise.resolve())
+      .then(() => deleteTaskRaw(rec.cid))
+      .then(() => TFoutbox.outboxRemove(op.qid));
+  }
+
   function send(transport, method, path, body) {
     return transport.request(method, path, body).then(
       (res) => res,
@@ -99,6 +114,7 @@
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => { result.pushed++; });
           }
+          if (res.status === 403) { return lostAccess(rec, op); }
           result.failed++;
           return TFoutbox.outboxRemove(op.qid);
         })
@@ -114,6 +130,7 @@
         send(transport, "PUT", "/api/tasks/" + sid, taskToUpdatePayload(rec, tags)).then((res) => {
           if (ok(res)) { return putTaskRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev })).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; }); }
           if (res.status === 404) { return putTaskRaw(Object.assign({}, rec, { conflict: "remote_deleted" })); } // safety net: flag, keep op
+          if (res.status === 403) { return lostAccess(rec, op); }
           result.failed++;
           return TFoutbox.outboxRemove(op.qid);
         })

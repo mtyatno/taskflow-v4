@@ -215,3 +215,23 @@ test("pushOutbox update 404 flags the record conflict and keeps the op", async (
   assert.equal(rec.conflict, "remote_deleted");
   assert.equal(r.remaining, 1);
 });
+
+const { mapPut: _mapPutL, cidOf: _cidOfL } = require("../../static/offline/idmap.js");
+
+test("taskToCreatePayload includes the record's list_id", () => {
+  assert.equal(taskToCreatePayload(task({ cid: "a", title: "A", list_id: 9 }), [], null).list_id, 9);
+  assert.equal(taskToCreatePayload(task({ cid: "a", title: "A" }), [], null).list_id, null);
+});
+
+test("pushOutbox update 403 (removed from list) deletes the task locally + idmap + op", async () => {
+  await put("tasks", [task({ cid: "a", server_id: 10, title: "A", list_id: 7 })]);
+  await _mapPutL("task", 10, "a");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "task", cid: "a", payload: {} }]);
+  const tr = fakeTransport(() => ({ status: 403, data: { detail: "Not a member" } }));
+  const r = await pushOutbox(tr);
+  const db = await openDB();
+  const rec = await new Promise((res) => { const q = db.transaction("tasks").objectStore("tasks").get("a"); q.onsuccess = () => res(q.result); });
+  assert.equal(rec, undefined);
+  assert.equal(await _cidOfL("task", 10), undefined);
+  assert.equal(r.remaining, 0);
+});
