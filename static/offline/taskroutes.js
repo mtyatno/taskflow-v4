@@ -17,6 +17,7 @@
   const TFtag = req("./tagrepo.js", root.TF && root.TF.tagrepo);
   const TFrec = req("./recurrence.js", root.TF && root.TF.recurrence);
   const TFlistsync = req("./listsync.js", root.TF && root.TF.listsync);
+  const TFhabitroutes = req("./habitroutes.js", root.TF && root.TF.habitroutes);
 
   function todayISO() {
     const n = new Date();
@@ -111,6 +112,8 @@
     router.register("GET", "/api/lists/:id/tasks", ({ params }) =>
       TFquery.listTasks({}, opts()).then((rows) =>
         rows.filter((r) => String(r.list_id) === String(params.id)).map(withId)));
+
+    TFhabitroutes.registerHabitRoutes(router);
 
     return router;
   }

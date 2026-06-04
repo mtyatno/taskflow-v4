@@ -164,3 +164,30 @@ test("GET /api/lists/:id/tasks returns only that list's active tasks", async () 
   assert.deepEqual(rows.map((r) => r.cid).sort(), ["a", "b"]);
   assert.ok(rows.every((r) => r.id !== undefined));
 });
+
+async function seedHabits(recs) {
+  const db = await openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("habits", "readwrite");
+    for (const r of recs) tx.objectStore("habits").put(r);
+    tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+  });
+}
+
+test("GET /api/habits returns local habits via the router", async () => {
+  await seedHabits([{ cid: "h1", server_id: 5, title: "Run", phase: "pagi", micro_target: "", frequency: '["mon"]', identity_pillar: "", deleted: false }]);
+  const R = buildTaskRouter();
+  const rows = await R.dispatch("GET", "/api/habits", undefined);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, 5);
+});
+
+test("POST /api/habits/:id/checkin records a local log via the router", async () => {
+  await seedHabits([{ cid: "h1", server_id: 5, title: "Run", phase: "pagi", frequency: '["mon"]', deleted: false }]);
+  const R = buildTaskRouter();
+  await R.dispatch("POST", "/api/habits/5/checkin", { status: "done", date: "2026-06-04" });
+  const today = await R.dispatch("GET", "/api/habits/today", undefined);
+  const run = today.find((h) => h.id === 5);
+  assert.equal(run.week_log.length, 7);
+  assert.equal(run.today_status === "done" || run.today_status === null, true);
+});
