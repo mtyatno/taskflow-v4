@@ -2302,6 +2302,22 @@ async def get_habits_monthly(user=Depends(get_current_user)):
     return {"days": result, "avg": avg, "today_day": today_day, "days_in_month": days_in_month}
 
 
+@app.get("/api/habits/logs")
+async def get_habit_logs(since: str = "", user=Depends(get_current_user)):
+    uid = user["sub"]
+    if not since:
+        since = (_today_jkt() - timedelta(days=90)).isoformat()
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT hl.habit_id, hl.date, hl.status, hl.skip_reason
+               FROM habit_logs hl JOIN habits h ON h.id = hl.habit_id
+               WHERE h.user_id = ? AND hl.date >= ?
+               ORDER BY hl.date""",
+            (uid, since),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 @app.post("/api/habits/{habit_id}/checkin")
 async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_current_user)):
     uid = user["sub"]
