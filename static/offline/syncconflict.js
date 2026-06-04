@@ -51,7 +51,7 @@
 
   function listConflicts() {
     return getAllTasks().then((all) =>
-      all.filter((r) => r.conflict).map((r) => ({ cid: r.cid, title: r.title, conflict: r.conflict })));
+      all.filter((r) => r.conflict).map((r) => ({ cid: r.cid, title: r.title, conflict: r.conflict, list_id: r.list_id != null ? r.list_id : null })));
   }
 
   function resolveConflict(cid, choice) {

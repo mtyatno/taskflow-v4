@@ -56,3 +56,9 @@ test("resolveConflict keep_as_new clears server_id, drops idmap, and queues a cr
   assert.equal(ops.length, 1);
   assert.equal(ops[0].op, "create");
 });
+
+test("listConflicts includes list_id (for shared-task discard-only)", async () => {
+  await putTasks([{ cid: "a", title: "A", conflict: "remote_deleted", dirty: 1, list_id: 7 }]);
+  const list = await listConflicts();
+  assert.equal(list[0].list_id, 7);
+});
