@@ -1329,6 +1329,11 @@
   <script src="/static/offline/taskrepo.js"></script>
   <script src="/static/offline/taskquery.js"></script>
   <script src="/static/offline/recurrence.js"></script>
+  <script src="/static/offline/habitlogic.js"></script>
+  <script src="/static/offline/habitrepo.js"></script>
+  <script src="/static/offline/habitquery.js"></script>
+  <script src="/static/offline/habithydrate.js"></script>
+  <script src="/static/offline/habitroutes.js"></script>
   <script src="/static/offline/listsync.js"></script>
   <script src="/static/offline/taskroutes.js"></script>
   <script src="/static/offline/hydrate.js"></script>
@@ -20693,9 +20698,10 @@ function App() {
       } else setLoading(true);
     }
     const calls = [["/api/tasks?include_done=true", setTasks, "tasks"], ["/api/summary", setSummary, "summary"], ["/api/projects", setProjects, "projects"], ["/api/contexts", setContexts, "contexts"], ["/api/lists", setSharedLists, "lists"], ["/api/collaborators", setCollaborators, null]];
-    // Sync local tasks with the server (push pending, then pull/reconcile). Supersedes one-shot hydration.
+    // Sync local tasks + seed habits from the server.
     if (navigator.onLine && __token) {
       try { await sync(); } catch (e) {}
+      try { if (window.TF && window.TF.habithydrate) await window.TF.habithydrate.ensureHabits(__syncRawFetch); } catch (e) {}
     }
     const results = await Promise.allSettled(calls.map(([url]) => api.get(url)));
     for (let i = 0; i < calls.length; i++) {
