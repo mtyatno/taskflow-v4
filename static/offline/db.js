@@ -9,7 +9,7 @@
   "use strict";
 
   const DB_NAME = "taskflow-offline";
-  const DB_VERSION = 2;
+  const DB_VERSION = 3;
 
   // Each entity store keyed by `cid`. Indexes: [name, keyPath, options].
   const ENTITY_STORES = {
@@ -33,6 +33,7 @@
     note_attachments: [["note_cid", "note_cid"]],
     note_pins: [["note_cid", "note_cid"]],
     mindmaps: [["server_id", "server_id"], ["updated_at", "updated_at"], ["dirty", "dirty"]],
+    lists: [["server_id", "server_id"], ["dirty", "dirty"]],
     tags: [["server_id", "server_id"], ["name", "name"], ["dirty", "dirty"]],
     entity_tags: [
       ["tag_cid", "tag_cid"],

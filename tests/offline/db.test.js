@@ -63,7 +63,7 @@ test("migration v1->v2 moves queue records into _outbox and drops queue", async 
   db.close();
 });
 
-test("DB_VERSION is 2", () => { assert.equal(DB_VERSION, 2); });
+test("DB_VERSION is 3", () => { assert.equal(DB_VERSION, 3); });
 
 test("openDB returns the same connection on repeated calls", async () => {
   const a = await openDB();
