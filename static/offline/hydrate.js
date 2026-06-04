@@ -13,7 +13,6 @@
   const TFdb = req("./db.js", root.TF && root.TF.db);
   const TFids = req("./ids.js", root.TF && root.TF.ids);
   const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
-  const TFmeta = req("./meta.js", root.TF && root.TF.meta);
 
   const COPY = [
     "title", "description", "gtd_status", "priority", "quadrant", "project", "context",
@@ -67,19 +66,7 @@
       });
   }
 
-  let _ensurePromise = null;
-  function ensureTasks(rawFetch) {
-    if (_ensurePromise) return _ensurePromise;
-    _ensurePromise = Promise.resolve()
-      .then(() => rawFetch("/api/tasks?include_done=true"))
-      .then((res) => (res && typeof res.json === "function" ? res.json() : res))
-      .then((tasks) => hydrateTasks(tasks || []))
-      .then(() => TFmeta.metaSet("tasks_hydrated_at", new Date().toISOString()))
-      .catch((e) => { _ensurePromise = null; throw e; });
-    return _ensurePromise;
-  }
-
-  const exported = { taskFromServer, hydrateTasks, ensureTasks };
+  const exported = { taskFromServer, hydrateTasks };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.hydrate = exported; }
   return exported;
 });

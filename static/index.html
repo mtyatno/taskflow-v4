@@ -3093,14 +3093,6 @@ function ComboSelect({
 }
 
 // ── Task Form Modal ─────────────────────────────────────────
-function computeOfflineQuadrant(priority, deadline_date) {
-  const isImportant = priority === "P1" || priority === "P2";
-  const isUrgent = deadline_date ? (new Date(deadline_date) - new Date()) / 86400000 <= 3 : false;
-  if (isImportant && isUrgent) return "Q1";
-  if (isImportant && !isUrgent) return "Q2";
-  if (!isImportant && isUrgent) return "Q3";
-  return "Q4";
-}
 const FREQ_MAP = {
   daily: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
   monthly: ['mon']
@@ -4029,62 +4021,7 @@ function TaskFormModal({
         onSave(newTask);
       }
     } catch (err) {
-      if (isOfflineErr(err) && isEdit && onOfflineSave) {
-        await OfflineDB.queueAdd({
-          method: "PUT",
-          url: `/api/tasks/${task.id}`,
-          body: {
-            ...form,
-            ...recurrencePayload
-          }
-        });
-        onOfflineSave({
-          ...task,
-          ...form,
-          ...recurrencePayload,
-          _pending: true
-        });
-      } else if (isOfflineErr(err) && !isEdit && onOfflineSave) {
-        const tempId = `tmp_${Date.now()}`;
-        await OfflineDB.queueAdd({
-          method: "POST",
-          url: "/api/tasks",
-          body: {
-            ...form,
-            ...recurrencePayload
-          },
-          tempId,
-          createdAt: Date.now()
-        });
-        for (const sub of pendingSubtasks) {
-          await OfflineDB.queueAdd({
-            method: "POST",
-            url: "/api/tasks",
-            body: {
-              title: sub.title,
-              gtd_status: sub.gtd,
-              parent_id: tempId
-            },
-            tempId: null,
-            createdAt: Date.now()
-          });
-        }
-        const tempTask = {
-          ...form,
-          id: tempId,
-          _pending: true,
-          quadrant: computeOfflineQuadrant(form.priority, form.deadline_date),
-          is_overdue: false,
-          is_focused: false,
-          days_until_deadline: null,
-          assigned_to_name: null,
-          parent_title: null,
-          created_at: new Date().toISOString()
-        };
-        onOfflineSave(tempTask);
-      } else {
-        alert(err.message);
-      }
+      alert(err.message);
     }
     setLoading(false);
   };
@@ -20745,55 +20682,6 @@ function App() {
       }).catch(() => {});
     }
 
-    // Saat offline: apply pending queue mutations di atas data cache
-    // Cek navigator.onLine (bukan results[0].status) agar tidak ter-bypass oleh SW cache
-    if (!navigator.onLine) {
-      const q = await OfflineDB.queueGetAll();
-      if (q.length) {
-        setTasks(prev => {
-          let tasks = [...prev];
-          for (const item of q) {
-            // PUT /api/tasks/:id — edit task
-            const putMatch = item.method === "PUT" && item.url.match(/^\/api\/tasks\/(\d+)$/);
-            if (putMatch) {
-              const id = parseInt(putMatch[1]);
-              tasks = tasks.map(t => t.id === id ? {
-                ...t,
-                ...item.body,
-                _pending: true
-              } : t);
-            }
-            // POST /api/tasks/:id/done
-            const doneMatch = item.method === "POST" && item.url.match(/^\/api\/tasks\/(\d+)\/done$/);
-            if (doneMatch) {
-              const id = parseInt(doneMatch[1]);
-              tasks = tasks.map(t => t.id === id ? {
-                ...t,
-                gtd_status: "done",
-                _pending: true
-              } : t);
-            }
-            // POST /api/tasks (new task)
-            if (item.method === "POST" && item.url === "/api/tasks" && item.tempId) {
-              const exists = tasks.some(t => String(t.id) === item.tempId);
-              if (!exists) tasks.push({
-                ...item.body,
-                id: item.tempId,
-                _pending: true,
-                quadrant: computeOfflineQuadrant(item.body.priority, item.body.deadline_date),
-                is_overdue: false,
-                is_focused: false,
-                days_until_deadline: null,
-                assigned_to_name: null,
-                parent_title: null,
-                created_at: new Date(item.createdAt || Date.now()).toISOString()
-              });
-            }
-          }
-          return tasks;
-        });
-      }
-    }
     if (initialLoad.current) {
       setLoading(false);
       initialLoad.current = false;

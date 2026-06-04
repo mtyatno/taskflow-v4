@@ -3,7 +3,7 @@ const { test, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { deleteDB } = require("./setup.js");
 const { DB_NAME, _reset, openDB } = require("../../static/offline/db.js");
-const { taskFromServer, hydrateTasks, ensureTasks } = require("../../static/offline/hydrate.js");
+const { taskFromServer, hydrateTasks } = require("../../static/offline/hydrate.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
 
@@ -80,13 +80,4 @@ test("hydrateTasks does not touch local-only tasks (server_id null)", async () =
   const local = rows.find((r) => r.cid === "local1");
   assert.equal(local.title, "Local");
   assert.equal(local.dirty, 1); // untouched
-});
-
-test("ensureTasks fetches once and hydrates; second call does not re-fetch", async () => {
-  let calls = 0;
-  const rawFetch = async (url) => { calls++; return { json: async () => [serverTask({ id: 1 })] }; };
-  await ensureTasks(rawFetch);
-  await ensureTasks(rawFetch);
-  assert.equal(calls, 1);
-  assert.equal((await allTasks()).length, 1);
 });
