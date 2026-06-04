@@ -16,6 +16,7 @@
   const TFquery = req("./taskquery.js", root.TF && root.TF.taskquery);
   const TFtag = req("./tagrepo.js", root.TF && root.TF.tagrepo);
   const TFrec = req("./recurrence.js", root.TF && root.TF.recurrence);
+  const TFlistsync = req("./listsync.js", root.TF && root.TF.listsync);
 
   function todayISO() {
     const n = new Date();
@@ -104,6 +105,12 @@
 
     router.register("POST", "/api/tasks/:id/occurrences/:date/mark", ({ params, body }) =>
       resolveCid(params.id).then((cid) => (cid ? TFrec.markOccurrence(cid, params.date, (body || {}).status, {}) : notFound())));
+
+    router.register("GET", "/api/lists", () => TFlistsync.getLocalLists());
+
+    router.register("GET", "/api/lists/:id/tasks", ({ params }) =>
+      TFquery.listTasks({}, opts()).then((rows) =>
+        rows.filter((r) => String(r.list_id) === String(params.id)).map(withId)));
 
     return router;
   }

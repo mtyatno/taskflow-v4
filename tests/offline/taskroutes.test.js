@@ -135,3 +135,32 @@ test("hasRoute is false for un-ported task routes", () => {
   assert.equal(R.hasRoute("POST", "/api/tasks/10/focus"), false);
   assert.equal(R.hasRoute("GET", "/api/tasks/10/subtasks"), false);
 });
+
+async function seedLists(recs) {
+  const db = await openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("lists", "readwrite");
+    for (const r of recs) tx.objectStore("lists").put(r);
+    tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+  });
+}
+
+test("GET /api/lists returns local lists shaped like the server", async () => {
+  await seedLists([{ cid: "l1", server_id: 7, name: "Team", owner_id: 1, role: "owner", member_count: 3, dirty: 0 }]);
+  const R = buildTaskRouter();
+  const lists = await R.dispatch("GET", "/api/lists", undefined);
+  assert.deepEqual(lists, [{ id: 7, name: "Team", owner_id: 1, role: "owner", member_count: 3 }]);
+});
+
+test("GET /api/lists/:id/tasks returns only that list's active tasks", async () => {
+  await seedTasks([
+    task({ cid: "a", server_id: 100, list_id: 7, gtd_status: "next" }),
+    task({ cid: "b", server_id: 101, list_id: 7, gtd_status: "next" }),
+    task({ cid: "c", server_id: 102, list_id: 9, gtd_status: "next" }),
+    task({ cid: "d", server_id: 103, list_id: null, gtd_status: "next" }),
+  ]);
+  const R = buildTaskRouter();
+  const rows = await R.dispatch("GET", "/api/lists/7/tasks", undefined);
+  assert.deepEqual(rows.map((r) => r.cid).sort(), ["a", "b"]);
+  assert.ok(rows.every((r) => r.id !== undefined));
+});
