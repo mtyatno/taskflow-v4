@@ -1333,6 +1333,7 @@
   <script src="/static/offline/hydrate.js"></script>
   <script src="/static/offline/syncpush.js"></script>
   <script src="/static/offline/syncpull.js"></script>
+  <script src="/static/offline/syncconflict.js"></script>
   <script>
 function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
 const {
@@ -1501,10 +1502,46 @@ function schedulePush() {
 window.__pushNow = () => (window.TF && window.TF.syncpush) ? window.TF.syncpush.pushOutbox(__syncTransport) : Promise.resolve(null);
 const __syncRawFetch = (u) => window.fetch(u, { headers: __token ? { Authorization: "Bearer " + __token } : {} });
 function sync() {
-  if (!(window.TF && window.TF.syncpush && window.TF.syncpull)) return Promise.resolve(null);
-  return window.TF.syncpush.pushOutbox(__syncTransport)
-    .then(() => window.TF.syncpull.pullAndReconcile(__syncRawFetch))
-    .catch(() => null);
+  if (!(window.TF && window.TF.syncpull && window.TF.syncpush)) { renderConflicts(); return Promise.resolve(null); }
+  return window.TF.syncpull.pullAndReconcile(__syncRawFetch)
+    .then(() => window.TF.syncpush.pushOutbox(__syncTransport))
+    .then((r) => { renderConflicts(); return r; })
+    .catch(() => { renderConflicts(); return null; });
+}
+function renderConflicts() {
+  if (!(window.TF && window.TF.syncconflict)) return;
+  window.TF.syncconflict.listConflicts().then(list => {
+    let bar = document.getElementById("tf-conflict-bar");
+    if (!list.length) { if (bar) bar.remove(); return; }
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "tf-conflict-bar";
+      bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#fef3c7;border-top:2px solid #f59e0b;padding:10px 14px;font:14px sans-serif;color:#92400e;max-height:40vh;overflow:auto;";
+      document.body.appendChild(bar);
+    }
+    bar.innerHTML = "";
+    list.forEach(c => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap;";
+      const label = document.createElement("span");
+      label.textContent = "🔔 '" + (c.title || "(tanpa judul)") + "' dihapus di perangkat lain, tapi ada perubahan lokal.";
+      row.appendChild(label);
+      [["Buang perubahan", "discard"], ["Simpan sebagai task baru", "keep_as_new"]].forEach(([text, choice]) => {
+        const b = document.createElement("button");
+        b.textContent = text;
+        b.style.cssText = "padding:4px 10px;border:1px solid #92400e;border-radius:6px;background:#fff;cursor:pointer;";
+        b.onclick = () => {
+          b.disabled = true;
+          window.TF.syncconflict.resolveConflict(c.cid, choice)
+            .then(() => sync())
+            .then(() => { if (window.__refreshTasks) window.__refreshTasks(); })
+            .catch(() => {});
+        };
+        row.appendChild(b);
+      });
+      bar.appendChild(row);
+    });
+  }).catch(() => {});
 }
 window.__syncNow = () => sync();
 window.addEventListener("online", sync);
@@ -20688,6 +20725,7 @@ function App() {
     }
   }, [user]);
   useEffect(() => {
+    window.__refreshTasks = fetchAll;
     fetchAll();
   }, [fetchAll]);
 
