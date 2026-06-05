@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v126-habit-sync";
+const CACHE = "taskflow-v127-notes-local";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
@@ -24,6 +24,11 @@ const STATIC = [
   "/static/offline/habitquery.js",
   "/static/offline/habithydrate.js",
   "/static/offline/habitroutes.js",
+  "/static/offline/notelogic.js",
+  "/static/offline/noterepo.js",
+  "/static/offline/notequery.js",
+  "/static/offline/notehydrate.js",
+  "/static/offline/noteroutes.js",
   "/static/vendor/react.production.min.js",
   "/static/vendor/react-dom.production.min.js",
   "/static/vendor/chart.umd.min.js",

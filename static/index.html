@@ -1334,6 +1334,11 @@
   <script src="/static/offline/habitquery.js"></script>
   <script src="/static/offline/habithydrate.js"></script>
   <script src="/static/offline/habitroutes.js"></script>
+  <script src="/static/offline/notelogic.js"></script>
+  <script src="/static/offline/noterepo.js"></script>
+  <script src="/static/offline/notequery.js"></script>
+  <script src="/static/offline/notehydrate.js"></script>
+  <script src="/static/offline/noteroutes.js"></script>
   <script src="/static/offline/listsync.js"></script>
   <script src="/static/offline/taskroutes.js"></script>
   <script src="/static/offline/hydrate.js"></script>
@@ -20702,6 +20707,7 @@ function App() {
     // Sync local tasks + habits from the server (sync() now pulls habits+logs).
     if (navigator.onLine && __token) {
       try { await sync(); } catch (e) {}
+      try { if (window.TF && window.TF.notehydrate) await window.TF.notehydrate.ensureNotes(__syncRawFetch); } catch (e) {}
     }
     const results = await Promise.allSettled(calls.map(([url]) => api.get(url)));
     for (let i = 0; i < calls.length; i++) {
