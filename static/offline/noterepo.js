@@ -95,7 +95,49 @@
     });
   }
 
-  const exported = { createNote, getNoteRaw, putNote, resolveLinkedTo, resolveLinkedTasks };
+  function updateNote(cid, patch, opts) {
+    const now = (opts && opts.now) || new Date().toISOString();
+    return getNoteRaw(cid).then((rec) => {
+      if (!rec || rec.deleted) return Promise.reject(new Error("Note not found"));
+      const content = patch.content != null ? patch.content : rec.content;
+      const taskIds = (patch.linked_task_ids || []).concat(patch.linked_task_id != null ? [patch.linked_task_id] : []);
+      return Promise.all([resolveLinkedTo(content), resolveLinkedTasks(taskIds)]).then(([toCids, taskCids]) => {
+        const next = Object.assign({}, rec, {
+          title: patch.title != null ? patch.title : rec.title,
+          content: content,
+          linked_to_cids: JSON.stringify(toCids),
+          linked_task_cids: JSON.stringify(taskCids),
+          updated_at: now, dirty: 1,
+        });
+        return putNote(next)
+          .then(() => TFoutbox.outboxAdd({ op: "update", entity_type: "note", cid: cid, payload: next }))
+          .then(() => (patch.tags != null ? TFtag.setEntityTags("note", cid, patch.tags) : null))
+          .then(() => next);
+      });
+    });
+  }
+
+  function deleteNote(cid, opts) {
+    return getNoteRaw(cid).then((rec) => {
+      if (!rec || rec.deleted) return Promise.reject(new Error("Note not found"));
+      const next = Object.assign({}, rec, { deleted: true, dirty: 1 });
+      return putNote(next)
+        .then(() => TFoutbox.outboxAdd({ op: "delete", entity_type: "note", cid: cid, payload: { cid: cid } }))
+        .then(() => ({ ok: true }));
+    });
+  }
+
+  function togglePin(cid, opts) {
+    return getNoteRaw(cid).then((rec) => {
+      if (!rec || rec.deleted) return Promise.reject(new Error("Note not found"));
+      const next = Object.assign({}, rec, { pinned: !rec.pinned, dirty: 1 });
+      return putNote(next)
+        .then(() => TFoutbox.outboxAdd({ op: "pin", entity_type: "note", cid: cid, payload: { pinned: next.pinned } }))
+        .then(() => next);
+    });
+  }
+
+  const exported = { createNote, updateNote, deleteNote, togglePin, getNoteRaw, putNote, resolveLinkedTo, resolveLinkedTasks };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.noterepo = exported; }
   return exported;
 });
