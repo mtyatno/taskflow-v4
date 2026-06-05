@@ -380,6 +380,24 @@
     });
   }
 
+  function opNoteDelete(op, transport, result) {
+    return TFidmap.serverIdOf(op.cid).then((sid) => {
+      if (sid == null) {
+        return deleteNoteRaw(op.cid).then(() => TFoutbox.outboxRemove(op.qid));
+      }
+      return send(transport, "DELETE", "/api/scratchpad/" + sid, undefined).then((res) => {
+        if (ok(res) || res.status === 404) {
+          return TFidmap.mapDelete("note", sid)
+            .then(() => deleteNoteRaw(op.cid))
+            .then(() => TFoutbox.outboxRemove(op.qid))
+            .then(() => { result.pushed++; });
+        }
+        result.failed++;
+        return TFoutbox.outboxRemove(op.qid);
+      });
+    });
+  }
+
   function opHabitDelete(op, transport, result) {
     return TFidmap.serverIdOf(op.cid).then((sid) => {
       if (sid == null) {
@@ -409,7 +427,8 @@
     if (op.entity_type === "habit_log" && op.op === "checkin") return opHabitCheckin(op, transport, result);
     if (op.entity_type === "note" && op.op === "create") return opNoteCreate(op, transport, result);
     if (op.entity_type === "note" && op.op === "update") return opNoteUpdate(op, transport, result);
-    if (op.entity_type === "note") return Promise.resolve(); // held (Opsi B): note push handlers arrive in #2f-2 — do NOT drop
+    if (op.entity_type === "note" && op.op === "delete") return opNoteDelete(op, transport, result);
+    if (op.entity_type === "note") return Promise.resolve(); // held (Opsi B): remaining note ops (e.g. pin) — do NOT drop
     return TFoutbox.outboxRemove(op.qid);
   }
 

@@ -388,16 +388,15 @@ test("pushOutbox checkin drops op when the habit has no server_id (deleted)", as
   assert.equal(r.remaining, 0);
 });
 
-test("pushOutbox HOLDS note delete/pin ops without deleting them", async () => {
+test("pushOutbox HOLDS note pin ops without deleting them", async () => {
   await put("_outbox", [
-    { qid: 1, op: "delete", entity_type: "note", cid: "n2", payload: {} },
-    { qid: 2, op: "pin",    entity_type: "note", cid: "n3", payload: {} },
+    { qid: 1, op: "pin", entity_type: "note", cid: "n3", payload: {} },
   ]);
   const tr = fakeTransport(() => { throw new Error("should not call network for a note op"); });
   const r = await pushOutbox(tr);
   assert.equal(tr.calls.length, 0);
-  assert.equal(r.remaining, 2);
-  assert.equal((await outboxAll()).length, 2);
+  assert.equal(r.remaining, 1);
+  assert.equal((await outboxAll()).length, 1);
 });
 
 const { noteToCreatePayload, noteToUpdatePayload } = require("../../static/offline/syncpush.js");
@@ -485,4 +484,27 @@ test("pushOutbox note update 404 re-creates the note and remaps server_id", asyn
   const rec = await getNote("n");
   assert.equal(rec.server_id, 99);
   assert.equal(rec.dirty, 0);
+});
+
+test("pushOutbox note delete DELETEs, hard-deletes local + idmap", async () => {
+  await put("scratchpad_notes", [note({ cid: "n", server_id: 7, deleted: true })]);
+  await _mapPutN("note", 7, "n");
+  await put("_outbox", [{ qid: 1, op: "delete", entity_type: "note", cid: "n", payload: { cid: "n" } }]);
+  const tr = fakeTransport(() => ({ status: 200, data: { ok: true } }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(tr.calls[0].method, "DELETE");
+  assert.equal(tr.calls[0].path, "/api/scratchpad/7");
+  assert.equal(await getNote("n"), undefined);
+  assert.equal(await _cidOfN("note", 7), undefined);
+});
+
+test("pushOutbox note delete with no server_id just drops op + local record", async () => {
+  await put("scratchpad_notes", [note({ cid: "n", deleted: true })]);
+  await put("_outbox", [{ qid: 1, op: "delete", entity_type: "note", cid: "n", payload: { cid: "n" } }]);
+  const tr = fakeTransport(() => { throw new Error("should not call"); });
+  const r = await pushOutbox(tr);
+  assert.equal(tr.calls.length, 0);
+  assert.equal(r.remaining, 0);
+  assert.equal(await getNote("n"), undefined);
 });
