@@ -75,3 +75,27 @@ test("getRecent returns the 5 most recent personal notes", async () => {
   assert.equal(rows.length, 5);
   assert.equal(rows[0].id, "n6"); // newest first
 });
+
+const { getTitles, getBacklinks } = require("../../static/offline/notequery.js");
+
+test("getTitles returns {id,title} for personal notes", async () => {
+  await put("scratchpad_notes", [
+    note({ cid: "a", server_id: 5, title: "Alpha" }),
+    note({ cid: "b", title: "Beta" }),
+    note({ cid: "c", title: "Shared", list_id: 4 }),
+  ]);
+  const rows = await getTitles();
+  const ids = rows.map((r) => r.id).sort();
+  assert.deepEqual(rows.map((r) => r.title).sort(), ["Alpha", "Beta"]);
+  assert.ok(ids.includes(5) && ids.includes("b"));
+});
+
+test("getBacklinks returns notes whose linked_to includes the target cid", async () => {
+  await put("scratchpad_notes", [
+    note({ cid: "tgt", server_id: 8, title: "Target" }),
+    note({ cid: "src1", title: "Src1", linked_to_cids: '["tgt"]' }),
+    note({ cid: "src2", title: "Src2", linked_to_cids: '["other"]' }),
+  ]);
+  const rows = await getBacklinks("tgt");
+  assert.deepEqual(rows.map((r) => r.title), ["Src1"]);
+});

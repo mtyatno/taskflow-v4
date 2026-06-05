@@ -88,7 +88,19 @@
       buildCtx(all).then((ctx) => personalSorted(all).slice(0, 5).map((n) => shape(n, ctx))));
   }
 
-  const exported = { getNotes, getNote, getRecent };
+  function getTitles() {
+    return getAll("scratchpad_notes").then((all) =>
+      personalSorted(all).map((n) => ({ id: displayId(n), title: n.title })));
+  }
+
+  function getBacklinks(cid) {
+    return getAll("scratchpad_notes").then((all) => {
+      const sources = personalSorted(all).filter((n) => n.cid !== cid && parseArr(n.linked_to_cids).indexOf(cid) !== -1);
+      return buildCtx(all).then((ctx) => sources.map((n) => shape(n, ctx)));
+    });
+  }
+
+  const exported = { getNotes, getNote, getRecent, getTitles, getBacklinks };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.notequery = exported; }
   return exported;
 });
