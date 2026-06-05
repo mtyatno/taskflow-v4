@@ -269,3 +269,37 @@ test("checkinPayload returns date/status/skip_reason", () => {
     { date: "2026-06-05", status: "done", skip_reason: "" }
   );
 });
+
+const { cidOf: _cidOfH, mapPut: _mapPutH } = require("../../static/offline/idmap.js");
+const { setEntityTags: _setTagsH } = require("../../static/offline/tagrepo.js");
+
+async function getHabit(cid) {
+  const db = await openDB();
+  return new Promise((res) => { const q = db.transaction("habits").objectStore("habits").get(cid); q.onsuccess = () => res(q.result); });
+}
+
+test("pushOutbox habit create posts, sets server_id + idmap, removes op", async () => {
+  await put("habits", [habit({ cid: "h", title: "Lari" })]);
+  await _setTagsH("habit", "h", ["pagi_hari"]);
+  await put("_outbox", [{ qid: 1, op: "create", entity_type: "habit", cid: "h", payload: {} }]);
+  const tr = fakeTransport(() => ({ status: 200, data: { id: 50, title: "Lari" } }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(r.remaining, 0);
+  assert.equal(tr.calls[0].method, "POST");
+  assert.equal(tr.calls[0].path, "/api/habits");
+  assert.equal(tr.calls[0].body.title, "Lari #pagi_hari");
+  assert.equal(await serverIdOf("h"), 50);
+  const rec = await getHabit("h");
+  assert.equal(rec.server_id, 50);
+  assert.equal(rec.dirty, 0);
+});
+
+test("pushOutbox skips a habit create whose record already has server_id", async () => {
+  await put("habits", [habit({ cid: "h", server_id: 9, title: "Lari" })]);
+  await put("_outbox", [{ qid: 1, op: "create", entity_type: "habit", cid: "h", payload: {} }]);
+  const tr = fakeTransport(() => { throw new Error("should not POST"); });
+  const r = await pushOutbox(tr);
+  assert.equal(tr.calls.length, 0);
+  assert.equal(r.remaining, 0);
+});

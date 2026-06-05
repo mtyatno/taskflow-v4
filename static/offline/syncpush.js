@@ -103,6 +103,30 @@
       tx.onerror = () => reject(tx.error);
     }));
   }
+  function getHabitRaw(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("habits", "readonly").objectStore("habits").get(cid);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function putHabitRaw(rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("habits", "readwrite");
+      tx.objectStore("habits").put(rec);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function deleteHabitRaw(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("habits", "readwrite");
+      tx.objectStore("habits").delete(cid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
   // Removed from the shared list (HTTP 403): drop access — delete local task + idmap + op.
   function lostAccess(rec, op) {
     return (rec.server_id != null ? TFidmap.mapDelete("task", rec.server_id) : Promise.resolve())
@@ -181,11 +205,32 @@
     });
   }
 
-  function processOp(op, transport, tagsFor, result) {
+  function opHabitCreate(op, transport, habitTagsFor, result) {
+    return getHabitRaw(op.cid).then((rec) => {
+      if (!rec) return TFoutbox.outboxRemove(op.qid);
+      if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
+      return habitTagsFor(op.cid).then((tags) =>
+        send(transport, "POST", "/api/habits", habitToCreatePayload(rec, tags)).then((res) => {
+          if (ok(res)) {
+            const sid = res.data.id;
+            return TFidmap.mapPut("habit", sid, op.cid)
+              .then(() => putHabitRaw(Object.assign({}, rec, { server_id: sid, dirty: 0 })))
+              .then(() => TFoutbox.outboxRemove(op.qid))
+              .then(() => { result.pushed++; });
+          }
+          result.failed++;
+          return TFoutbox.outboxRemove(op.qid);
+        })
+      );
+    });
+  }
+
+  function processOp(op, transport, tagsFor, habitTagsFor, result) {
     if (op.entity_type === "task" && op.op === "create") return opCreate(op, transport, tagsFor, result);
     if (op.entity_type === "task" && op.op === "update") return opUpdate(op, transport, tagsFor, result);
     if (op.entity_type === "task" && op.op === "delete") return opDelete(op, transport, result);
     if (op.entity_type === "recurring_exception" && op.op === "mark_occurrence") return opMark(op, transport, result);
+    if (op.entity_type === "habit" && op.op === "create") return opHabitCreate(op, transport, habitTagsFor, result);
     return TFoutbox.outboxRemove(op.qid);
   }
 
@@ -195,13 +240,14 @@
     _running = true;
     opts = opts || {};
     const tagsFor = opts.tagsFor || ((cid) => TFtag.getEntityTags("task", cid).then((ts) => ts.map((t) => t.name)));
+    const habitTagsFor = opts.habitTagsFor || ((cid) => TFtag.getEntityTags("habit", cid).then((ts) => ts.map((t) => t.name)));
     const result = { pushed: 0, failed: 0, remaining: 0 };
     let stopped = false;
     return TFoutbox.outboxAll()
       .then((ops) => ops.slice().sort((a, b) => a.qid - b.qid))
       .then((ops) => ops.reduce((chain, op) => chain.then(() => {
         if (stopped) return;
-        return processOp(op, transport, tagsFor, result).catch((err) => { stopped = true; if (!(err && err.__network)) result.failed++; });
+        return processOp(op, transport, tagsFor, habitTagsFor, result).catch((err) => { stopped = true; if (!(err && err.__network)) result.failed++; });
       }), Promise.resolve()))
       .then(() => TFoutbox.outboxAll())
       .then((rem) => { result.remaining = rem.length; return result; })
