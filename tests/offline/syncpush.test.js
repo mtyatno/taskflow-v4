@@ -358,3 +358,32 @@ test("pushOutbox habit delete with no server_id just drops op + local record", a
   assert.equal(r.remaining, 0);
   assert.equal(await getHabit("h"), undefined);
 });
+
+async function putLogRow(rec) { await put("habit_logs", [rec]); }
+async function getLog(cid) {
+  const db = await openDB();
+  return new Promise((res) => { const q = db.transaction("habit_logs").objectStore("habit_logs").get(cid); q.onsuccess = () => res(q.result); });
+}
+
+test("pushOutbox checkin resolves habit server_id and posts to /checkin", async () => {
+  await put("habits", [habit({ cid: "h", server_id: 7 })]);
+  await _mapPutH("habit", 7, "h");
+  await putLogRow({ cid: "log1", habit_cid: "h", date: "2026-06-05", status: "done", skip_reason: "", dirty: 1 });
+  await put("_outbox", [{ qid: 1, op: "checkin", entity_type: "habit_log", cid: "log1", payload: {} }]);
+  const tr = fakeTransport(() => ({ status: 200, data: { ok: true, habit_id: 7, date: "2026-06-05", status: "done" } }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(tr.calls[0].method, "POST");
+  assert.equal(tr.calls[0].path, "/api/habits/7/checkin");
+  assert.deepEqual(tr.calls[0].body, { date: "2026-06-05", status: "done", skip_reason: "" });
+  assert.equal((await getLog("log1")).dirty, 0);
+});
+
+test("pushOutbox checkin drops op when the habit has no server_id (deleted)", async () => {
+  await putLogRow({ cid: "log1", habit_cid: "gone", date: "2026-06-05", status: "done", skip_reason: "", dirty: 1 });
+  await put("_outbox", [{ qid: 1, op: "checkin", entity_type: "habit_log", cid: "log1", payload: {} }]);
+  const tr = fakeTransport(() => { throw new Error("should not call"); });
+  const r = await pushOutbox(tr);
+  assert.equal(tr.calls.length, 0);
+  assert.equal(r.remaining, 0);
+});

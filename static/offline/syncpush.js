@@ -255,6 +255,38 @@
     });
   }
 
+  function getLogRaw(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("habit_logs", "readonly").objectStore("habit_logs").get(cid);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function putLogRaw(rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("habit_logs", "readwrite");
+      tx.objectStore("habit_logs").put(rec);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function opHabitCheckin(op, transport, result) {
+    return getLogRaw(op.cid).then((log) => {
+      if (!log) return TFoutbox.outboxRemove(op.qid);
+      return TFidmap.serverIdOf(log.habit_cid).then((sid) => {
+        if (sid == null) return TFoutbox.outboxRemove(op.qid);
+        return send(transport, "POST", "/api/habits/" + sid + "/checkin", checkinPayload(log)).then((res) => {
+          if (ok(res)) {
+            return putLogRaw(Object.assign({}, log, { dirty: 0 }))
+              .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+          }
+          result.failed++;
+          return TFoutbox.outboxRemove(op.qid);
+        });
+      });
+    });
+  }
+
   function opHabitDelete(op, transport, result) {
     return TFidmap.serverIdOf(op.cid).then((sid) => {
       if (sid == null) {
@@ -281,6 +313,7 @@
     if (op.entity_type === "habit" && op.op === "create") return opHabitCreate(op, transport, habitTagsFor, result);
     if (op.entity_type === "habit" && op.op === "update") return opHabitUpdate(op, transport, habitTagsFor, result);
     if (op.entity_type === "habit" && op.op === "delete") return opHabitDelete(op, transport, result);
+    if (op.entity_type === "habit_log" && op.op === "checkin") return opHabitCheckin(op, transport, result);
     return TFoutbox.outboxRemove(op.qid);
   }
 
