@@ -388,16 +388,6 @@ test("pushOutbox checkin drops op when the habit has no server_id (deleted)", as
   assert.equal(r.remaining, 0);
 });
 
-test("pushOutbox HOLDS note pin ops without deleting them", async () => {
-  await put("_outbox", [
-    { qid: 1, op: "pin", entity_type: "note", cid: "n3", payload: {} },
-  ]);
-  const tr = fakeTransport(() => { throw new Error("should not call network for a note op"); });
-  const r = await pushOutbox(tr);
-  assert.equal(tr.calls.length, 0);
-  assert.equal(r.remaining, 1);
-  assert.equal((await outboxAll()).length, 1);
-});
 
 const { noteToCreatePayload, noteToUpdatePayload } = require("../../static/offline/syncpush.js");
 
@@ -507,4 +497,31 @@ test("pushOutbox note delete with no server_id just drops op + local record", as
   assert.equal(tr.calls.length, 0);
   assert.equal(r.remaining, 0);
   assert.equal(await getNote("n"), undefined);
+});
+
+test("pushOutbox note pin GETs then PATCHes /pin only when server differs", async () => {
+  await put("scratchpad_notes", [note({ cid: "n", server_id: 7, pinned: true })]);
+  await _mapPutN("note", 7, "n");
+  await put("_outbox", [{ qid: 1, op: "pin", entity_type: "note", cid: "n", payload: { pinned: true } }]);
+  const tr = fakeTransport((m) => {
+    if (m === "GET") return { status: 200, data: { id: 7, pinned: false } }; // server differs → must PATCH
+    return { status: 200, data: { id: 7, pinned: true } };
+  });
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(tr.calls[0].method, "GET");
+  assert.equal(tr.calls[1].method, "PATCH");
+  assert.equal(tr.calls[1].path, "/api/scratchpad/7/pin");
+  assert.equal(r.remaining, 0);
+});
+
+test("pushOutbox note pin is a no-op PATCH when server already matches", async () => {
+  await put("scratchpad_notes", [note({ cid: "n", server_id: 7, pinned: true })]);
+  await _mapPutN("note", 7, "n");
+  await put("_outbox", [{ qid: 1, op: "pin", entity_type: "note", cid: "n", payload: { pinned: true } }]);
+  const tr = fakeTransport(() => ({ status: 200, data: { id: 7, pinned: true } })); // already pinned
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(tr.calls.length, 1); // only the GET, no PATCH
+  assert.equal(tr.calls[0].method, "GET");
 });

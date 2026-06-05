@@ -130,7 +130,7 @@
   function togglePin(cid, opts) {
     return getNoteRaw(cid).then((rec) => {
       if (!rec || rec.deleted) return Promise.reject(new Error("Note not found"));
-      const next = Object.assign({}, rec, { pinned: !rec.pinned, dirty: 1 });
+      const next = Object.assign({}, rec, { pinned: !rec.pinned });
       return putNote(next)
         .then(() => TFoutbox.outboxAdd({ op: "pin", entity_type: "note", cid: cid, payload: { pinned: next.pinned } }))
         .then(() => next);

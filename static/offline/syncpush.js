@@ -398,6 +398,23 @@
     });
   }
 
+  function opNotePin(op, transport, result) {
+    return Promise.all([getNoteRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
+      if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
+      return send(transport, "GET", "/api/scratchpad/" + sid, undefined).then((res) => {
+        if (!ok(res)) { result.failed++; return TFoutbox.outboxRemove(op.qid); }
+        if (!!(res.data && res.data.pinned) === !!rec.pinned) {
+          return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); // already in sync
+        }
+        return send(transport, "PATCH", "/api/scratchpad/" + sid + "/pin", undefined).then((res2) => {
+          if (ok(res2)) { return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); }
+          result.failed++;
+          return TFoutbox.outboxRemove(op.qid);
+        });
+      });
+    });
+  }
+
   function opHabitDelete(op, transport, result) {
     return TFidmap.serverIdOf(op.cid).then((sid) => {
       if (sid == null) {
@@ -428,7 +445,7 @@
     if (op.entity_type === "note" && op.op === "create") return opNoteCreate(op, transport, result);
     if (op.entity_type === "note" && op.op === "update") return opNoteUpdate(op, transport, result);
     if (op.entity_type === "note" && op.op === "delete") return opNoteDelete(op, transport, result);
-    if (op.entity_type === "note") return Promise.resolve(); // held (Opsi B): remaining note ops (e.g. pin) — do NOT drop
+    if (op.entity_type === "note" && op.op === "pin") return opNotePin(op, transport, result);
     return TFoutbox.outboxRemove(op.qid);
   }
 

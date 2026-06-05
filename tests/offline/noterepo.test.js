@@ -92,3 +92,12 @@ test("togglePin flips pinned and records a pin op", async () => {
   const r2 = await togglePin(rec.cid, {});
   assert.equal(r2.pinned, false);
 });
+
+test("togglePin records a pin op without forcing the note dirty", async () => {
+  await put("scratchpad_notes", [{ cid: "n", server_id: 5, title: "N", content: "", linked_task_cids: "[]", linked_to_cids: "[]", pinned: false, list_id: null, deleted: false, dirty: 0 }]);
+  const r = await togglePin("n", {});
+  assert.equal(r.pinned, true);
+  assert.equal(r.dirty, 0); // pin does not mark content dirty
+  const ops = (await outboxAll()).filter((o) => o.op === "pin");
+  assert.equal(ops.length, 1);
+});
