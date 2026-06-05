@@ -255,6 +255,24 @@
     });
   }
 
+  function opHabitDelete(op, transport, result) {
+    return TFidmap.serverIdOf(op.cid).then((sid) => {
+      if (sid == null) {
+        return deleteHabitRaw(op.cid).then(() => TFoutbox.outboxRemove(op.qid));
+      }
+      return send(transport, "DELETE", "/api/habits/" + sid, undefined).then((res) => {
+        if (ok(res) || res.status === 404) {
+          return TFidmap.mapDelete("habit", sid)
+            .then(() => deleteHabitRaw(op.cid))
+            .then(() => TFoutbox.outboxRemove(op.qid))
+            .then(() => { result.pushed++; });
+        }
+        result.failed++;
+        return TFoutbox.outboxRemove(op.qid);
+      });
+    });
+  }
+
   function processOp(op, transport, tagsFor, habitTagsFor, result) {
     if (op.entity_type === "task" && op.op === "create") return opCreate(op, transport, tagsFor, result);
     if (op.entity_type === "task" && op.op === "update") return opUpdate(op, transport, tagsFor, result);
@@ -262,6 +280,7 @@
     if (op.entity_type === "recurring_exception" && op.op === "mark_occurrence") return opMark(op, transport, result);
     if (op.entity_type === "habit" && op.op === "create") return opHabitCreate(op, transport, habitTagsFor, result);
     if (op.entity_type === "habit" && op.op === "update") return opHabitUpdate(op, transport, habitTagsFor, result);
+    if (op.entity_type === "habit" && op.op === "delete") return opHabitDelete(op, transport, result);
     return TFoutbox.outboxRemove(op.qid);
   }
 

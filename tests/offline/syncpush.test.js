@@ -335,3 +335,26 @@ test("pushOutbox habit update 404 re-creates the habit and remaps server_id", as
   assert.equal(rec.server_id, 88);
   assert.equal(rec.dirty, 0);
 });
+
+test("pushOutbox habit delete DELETEs, hard-deletes local + idmap", async () => {
+  await put("habits", [habit({ cid: "h", server_id: 7, deleted: true })]);
+  await _mapPutH("habit", 7, "h");
+  await put("_outbox", [{ qid: 1, op: "delete", entity_type: "habit", cid: "h", payload: { cid: "h" } }]);
+  const tr = fakeTransport(() => ({ status: 200, data: { ok: true } }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(tr.calls[0].method, "DELETE");
+  assert.equal(tr.calls[0].path, "/api/habits/7");
+  assert.equal(await getHabit("h"), undefined);
+  assert.equal(await _cidOfH("habit", 7), undefined);
+});
+
+test("pushOutbox habit delete with no server_id just drops op + local record", async () => {
+  await put("habits", [habit({ cid: "h", deleted: true })]);
+  await put("_outbox", [{ qid: 1, op: "delete", entity_type: "habit", cid: "h", payload: { cid: "h" } }]);
+  const tr = fakeTransport(() => { throw new Error("should not call"); });
+  const r = await pushOutbox(tr);
+  assert.equal(tr.calls.length, 0);
+  assert.equal(r.remaining, 0);
+  assert.equal(await getHabit("h"), undefined);
+});
