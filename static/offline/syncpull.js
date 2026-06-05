@@ -202,7 +202,53 @@
       });
   }
 
-  const exported = { pullTasks, pullAndReconcile, pullHabits };
+  function getLogByHabitDate(habitCid, date) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("habit_logs", "readonly").objectStore("habit_logs").index("habit_date").get([habitCid, date]);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function putLog(rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("habit_logs", "readwrite");
+      tx.objectStore("habit_logs").put(rec);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function pullHabitLogs(serverLogs) {
+    const list = serverLogs || [];
+    const cache = {};
+    const result = { created: 0, updated: 0, skipped: 0 };
+    return list.reduce((p, l) => p.then(() =>
+      ensureHabitCid(l.habit_id, cache).then((hcid) =>
+        getLogByHabitDate(hcid, l.date).then((local) => {
+          const skip = l.skip_reason != null ? l.skip_reason : "";
+          if (!local) {
+            result.created++;
+            return putLog({ cid: TFids.newCid(), habit_cid: hcid, date: l.date, status: l.status, skip_reason: skip, dirty: 0 });
+          }
+          if (local.dirty) { result.skipped++; return; }
+          if (local.status !== l.status || (local.skip_reason || "") !== skip) {
+            result.updated++;
+            return putLog(Object.assign({}, local, { status: l.status, skip_reason: skip, dirty: 0 }));
+          }
+          return;
+        })
+      )
+    ), Promise.resolve()).then(() => result);
+  }
+  function pullHabitsAndLogs(rawFetch) {
+    return Promise.all([
+      Promise.resolve(rawFetch("/api/habits")).then((r) => (r && typeof r.json === "function" ? r.json() : r)),
+      Promise.resolve(rawFetch("/api/habits/logs")).then((r) => (r && typeof r.json === "function" ? r.json() : r)),
+    ]).then(([habits, logs]) =>
+      pullHabits(habits || []).then((hb) =>
+        pullHabitLogs(logs || []).then((lg) => ({ habits: hb, logs: lg }))));
+  }
+
+  const exported = { pullTasks, pullAndReconcile, pullHabits, pullHabitLogs, pullHabitsAndLogs };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpull = exported; }
   return exported;
 });

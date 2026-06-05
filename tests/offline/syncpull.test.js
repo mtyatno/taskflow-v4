@@ -237,3 +237,55 @@ test("pullHabits does NOT delete a dirty local habit missing from server", async
   assert.equal(r.skipped, 1);
   assert.notEqual(await getHabitRec("h"), undefined);
 });
+
+const { pullHabitLogs, pullHabitsAndLogs } = require("../../static/offline/syncpull.js");
+
+async function putLogs(recs) {
+  const db = await openDB();
+  await new Promise((res, rej) => {
+    const tx = db.transaction("habit_logs", "readwrite");
+    const os = tx.objectStore("habit_logs");
+    for (const r of recs) os.put(r);
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+  });
+}
+async function logByHabitDate(habitCid, date) {
+  const db = await openDB();
+  return new Promise((res) => { const q = db.transaction("habit_logs").objectStore("habit_logs").index("habit_date").get([habitCid, date]); q.onsuccess = () => res(q.result); });
+}
+
+test("pullHabitLogs creates a new log mapped to the habit cid", async () => {
+  await mapPut("habit", 3, "h");
+  const r = await pullHabitLogs([{ habit_id: 3, date: "2026-06-05", status: "done", skip_reason: "" }]);
+  assert.equal(r.created, 1);
+  const log = await logByHabitDate("h", "2026-06-05");
+  assert.equal(log.status, "done");
+  assert.equal(log.dirty, 0);
+});
+
+test("pullHabitLogs upserts a clean local log when status differs", async () => {
+  await mapPut("habit", 3, "h");
+  await putLogs([{ cid: "L1", habit_cid: "h", date: "2026-06-05", status: "skipped", skip_reason: "", dirty: 0 }]);
+  const r = await pullHabitLogs([{ habit_id: 3, date: "2026-06-05", status: "done", skip_reason: "" }]);
+  assert.equal(r.updated, 1);
+  assert.equal((await logByHabitDate("h", "2026-06-05")).status, "done");
+});
+
+test("pullHabitLogs skips a dirty local log (local-wins)", async () => {
+  await mapPut("habit", 3, "h");
+  await putLogs([{ cid: "L1", habit_cid: "h", date: "2026-06-05", status: "done", skip_reason: "", dirty: 1 }]);
+  const r = await pullHabitLogs([{ habit_id: 3, date: "2026-06-05", status: "skipped", skip_reason: "" }]);
+  assert.equal(r.skipped, 1);
+  assert.equal((await logByHabitDate("h", "2026-06-05")).status, "done");
+});
+
+test("pullHabitsAndLogs pulls habits then logs from rawFetch", async () => {
+  const rawFetch = (u) => {
+    if (u === "/api/habits") return Promise.resolve({ json: () => Promise.resolve([srvHabit({ id: 3, title: "Lari" })]) });
+    return Promise.resolve({ json: () => Promise.resolve([{ habit_id: 3, date: "2026-06-05", status: "done", skip_reason: "" }]) });
+  };
+  const r = await pullHabitsAndLogs(rawFetch);
+  assert.equal(r.habits.created, 1);
+  assert.equal(r.logs.created, 1);
+  assert.equal((await logByHabitDate((await allHabits())[0].cid, "2026-06-05")).status, "done");
+});
