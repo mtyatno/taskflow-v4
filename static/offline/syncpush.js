@@ -59,6 +59,26 @@
     return { status: record.status };
   }
 
+  function habitToCreatePayload(record, tagNames) {
+    return {
+      title: titleWithTags(record, tagNames),
+      phase: record.phase || "pagi",
+      micro_target: record.micro_target != null ? record.micro_target : "",
+      frequency: record.frequency ? JSON.parse(record.frequency) : [],
+      identity_pillar: record.identity_pillar != null ? record.identity_pillar : "",
+    };
+  }
+  function habitToUpdatePayload(record, tagNames) {
+    return habitToCreatePayload(record, tagNames);
+  }
+  function checkinPayload(record) {
+    return {
+      date: record.date,
+      status: record.status,
+      skip_reason: record.skip_reason != null ? record.skip_reason : "",
+    };
+  }
+
   function getTaskRaw(cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const r = db.transaction("tasks", "readonly").objectStore("tasks").get(cid);
@@ -188,7 +208,7 @@
       .then((r) => { _running = false; return r; }, (e) => { _running = false; throw e; });
   }
 
-  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, pushOutbox };
+  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, pushOutbox };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpush = exported; }
   return exported;
 });

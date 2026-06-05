@@ -235,3 +235,37 @@ test("pushOutbox update 403 (removed from list) deletes the task locally + idmap
   assert.equal(await _cidOfL("task", 10), undefined);
   assert.equal(r.remaining, 0);
 });
+
+const {
+  habitToCreatePayload, habitToUpdatePayload, checkinPayload,
+} = require("../../static/offline/syncpush.js");
+
+function habit(over) {
+  return Object.assign({
+    cid: over.cid, server_id: null, title: over.cid, phase: "pagi", micro_target: "",
+    frequency: JSON.stringify(["mon", "wed"]), identity_pillar: "", created_at: null,
+    deleted: false, dirty: 1,
+  }, over);
+}
+
+test("habitToCreatePayload reconstructs title+tags and parses frequency to array", () => {
+  const p = habitToCreatePayload(habit({ cid: "h", title: "Lari", phase: "siang", micro_target: "5 menit", identity_pillar: "sehat" }), ["pagi_hari"]);
+  assert.equal(p.title, "Lari #pagi_hari");
+  assert.equal(p.phase, "siang");
+  assert.equal(p.micro_target, "5 menit");
+  assert.deepEqual(p.frequency, ["mon", "wed"]);
+  assert.equal(p.identity_pillar, "sehat");
+});
+
+test("habitToUpdatePayload has the same shape as create", () => {
+  const p = habitToUpdatePayload(habit({ cid: "h", title: "Baca" }), ["x"]);
+  assert.equal(p.title, "Baca #x");
+  assert.deepEqual(p.frequency, ["mon", "wed"]);
+});
+
+test("checkinPayload returns date/status/skip_reason", () => {
+  assert.deepEqual(
+    checkinPayload({ date: "2026-06-05", status: "done", skip_reason: "" }),
+    { date: "2026-06-05", status: "done", skip_reason: "" }
+  );
+});
