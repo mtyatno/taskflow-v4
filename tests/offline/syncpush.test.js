@@ -388,13 +388,17 @@ test("pushOutbox checkin drops op when the habit has no server_id (deleted)", as
   assert.equal(r.remaining, 0);
 });
 
-test("pushOutbox HOLDS note ops (no push handler yet) without deleting them", async () => {
-  await put("_outbox", [{ qid: 1, op: "create", entity_type: "note", cid: "n1", payload: {} }]);
+test("pushOutbox HOLDS note update/delete/pin ops without deleting them", async () => {
+  await put("_outbox", [
+    { qid: 1, op: "update", entity_type: "note", cid: "n1", payload: {} },
+    { qid: 2, op: "delete", entity_type: "note", cid: "n2", payload: {} },
+    { qid: 3, op: "pin",    entity_type: "note", cid: "n3", payload: {} },
+  ]);
   const tr = fakeTransport(() => { throw new Error("should not call network for a note op"); });
   const r = await pushOutbox(tr);
   assert.equal(tr.calls.length, 0);
-  assert.equal(r.remaining, 1);
-  assert.equal((await outboxAll()).length, 1);
+  assert.equal(r.remaining, 3);
+  assert.equal((await outboxAll()).length, 3);
 });
 
 const { noteToCreatePayload, noteToUpdatePayload } = require("../../static/offline/syncpush.js");
@@ -423,4 +427,32 @@ test("noteToUpdatePayload has the same shape as create", () => {
   assert.deepEqual(p.tags, ["a"]);
   assert.deepEqual(p.linked_task_ids, []);
   assert.equal(p.list_id, null);
+});
+
+const { mapPut: _mapPutN, cidOf: _cidOfN } = require("../../static/offline/idmap.js");
+const { setEntityTags: _setTagsN } = require("../../static/offline/tagrepo.js");
+
+async function getNote(cid) {
+  const db = await openDB();
+  return new Promise((res) => { const q = db.transaction("scratchpad_notes").objectStore("scratchpad_notes").get(cid); q.onsuccess = () => res(q.result); });
+}
+
+test("pushOutbox note create POSTs to /api/scratchpad, sets server_id + idmap + base_rev", async () => {
+  await put("scratchpad_notes", [note({ cid: "n", title: "Hi", content: "x", linked_task_cids: '["tc"]' })]);
+  await put("tasks", [{ cid: "tc", server_id: 88, title: "T", deleted: false }]);
+  await _mapPutN("task", 88, "tc");
+  await _setTagsN("note", "n", ["work"]);
+  await put("_outbox", [{ qid: 1, op: "create", entity_type: "note", cid: "n", payload: {} }]);
+  const tr = fakeTransport(() => ({ status: 200, data: { id: 50, updated_at: "2026-06-06T10:00:00" } }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(tr.calls[0].method, "POST");
+  assert.equal(tr.calls[0].path, "/api/scratchpad");
+  assert.deepEqual(tr.calls[0].body.tags, ["work"]);
+  assert.deepEqual(tr.calls[0].body.linked_task_ids, [88]);
+  assert.equal(await serverIdOf("n"), 50);
+  const rec = await getNote("n");
+  assert.equal(rec.server_id, 50);
+  assert.equal(rec.dirty, 0);
+  assert.equal(rec.base_rev, "2026-06-06T10:00:00");
 });

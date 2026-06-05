@@ -300,6 +300,57 @@
     });
   }
 
+  function getNoteRaw(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("scratchpad_notes", "readonly").objectStore("scratchpad_notes").get(cid);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function putNoteRaw(rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("scratchpad_notes", "readwrite");
+      tx.objectStore("scratchpad_notes").put(rec);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function deleteNoteRaw(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("scratchpad_notes", "readwrite");
+      tx.objectStore("scratchpad_notes").delete(cid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function noteTagNames(cid) {
+    return TFtag.getEntityTags("note", cid).then((ts) => ts.map((t) => t.name));
+  }
+  function linkedTaskServerIds(rec) {
+    let cids; try { cids = JSON.parse(rec.linked_task_cids || "[]"); } catch (_) { cids = []; }
+    return cids.reduce((p, c) => p.then((acc) => TFidmap.serverIdOf(c).then((sid) => { if (sid != null) acc.push(sid); return acc; })), Promise.resolve([]));
+  }
+
+  function opNoteCreate(op, transport, result) {
+    return getNoteRaw(op.cid).then((rec) => {
+      if (!rec) return TFoutbox.outboxRemove(op.qid);
+      if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
+      return Promise.all([noteTagNames(op.cid), linkedTaskServerIds(rec)]).then(([tags, taskSids]) =>
+        send(transport, "POST", "/api/scratchpad", noteToCreatePayload(rec, tags, taskSids)).then((res) => {
+          if (ok(res)) {
+            const sid = res.data.id;
+            return TFidmap.mapPut("note", sid, op.cid)
+              .then(() => putNoteRaw(Object.assign({}, rec, { server_id: sid, dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev })))
+              .then(() => TFoutbox.outboxRemove(op.qid))
+              .then(() => { result.pushed++; });
+          }
+          result.failed++;
+          return TFoutbox.outboxRemove(op.qid);
+        })
+      );
+    });
+  }
+
   function opHabitDelete(op, transport, result) {
     return TFidmap.serverIdOf(op.cid).then((sid) => {
       if (sid == null) {
@@ -327,6 +378,7 @@
     if (op.entity_type === "habit" && op.op === "update") return opHabitUpdate(op, transport, habitTagsFor, result);
     if (op.entity_type === "habit" && op.op === "delete") return opHabitDelete(op, transport, result);
     if (op.entity_type === "habit_log" && op.op === "checkin") return opHabitCheckin(op, transport, result);
+    if (op.entity_type === "note" && op.op === "create") return opNoteCreate(op, transport, result);
     if (op.entity_type === "note") return Promise.resolve(); // held (Opsi B): note push handlers arrive in #2f-2 — do NOT drop
     return TFoutbox.outboxRemove(op.qid);
   }
