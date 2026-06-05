@@ -196,6 +196,15 @@ test("pullHabits creates an unknown server habit", async () => {
   assert.equal(rows[0].dirty, 0);
 });
 
+test("pullHabits treats frequency differing only by whitespace as unchanged", async () => {
+  // local stores compact JSON (no spaces); server returns python json.dumps (with spaces)
+  await putHabits([{ cid: "h", server_id: 3, title: "H", phase: "pagi", micro_target: "", frequency: '["mon","wed"]', identity_pillar: "", deleted: false, dirty: 0 }]);
+  await mapPut("habit", 3, "h");
+  const r = await pullHabits([srvHabit({ id: 3, title: "H", frequency: '["mon", "wed"]' })]);
+  assert.equal(r.updated, 0);
+  assert.equal(r.created, 0);
+});
+
 test("pullHabits updates a clean local habit when a field differs", async () => {
   await putHabits([{ cid: "h", server_id: 3, title: "Old", phase: "pagi", micro_target: "", frequency: JSON.stringify(["mon"]), identity_pillar: "", deleted: false, dirty: 0 }]);
   await mapPut("habit", 3, "h");

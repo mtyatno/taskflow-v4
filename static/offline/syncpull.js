@@ -128,11 +128,17 @@
       deleted: false, dirty: 0,
     };
   }
+  // Compare two frequency JSON strings by value (server uses json.dumps → spaces;
+  // local uses JSON.stringify → no spaces), so whitespace alone is not a change.
+  function freqEq(a, b) {
+    try { return JSON.stringify(JSON.parse(a || "[]")) === JSON.stringify(JSON.parse(b || "[]")); }
+    catch (_) { return a === b; }
+  }
   function habitChanged(local, h) {
     return local.title !== h.title
       || (local.phase || "pagi") !== (h.phase || "pagi")
       || (local.micro_target || "") !== (h.micro_target || "")
-      || local.frequency !== (h.frequency != null ? h.frequency : DEFAULT_FREQ)
+      || !freqEq(local.frequency, h.frequency != null ? h.frequency : DEFAULT_FREQ)
       || (local.identity_pillar || "") !== (h.identity_pillar || "");
   }
   function getAllHabits() {
