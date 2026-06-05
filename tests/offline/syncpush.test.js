@@ -396,3 +396,31 @@ test("pushOutbox HOLDS note ops (no push handler yet) without deleting them", as
   assert.equal(r.remaining, 1);
   assert.equal((await outboxAll()).length, 1);
 });
+
+const { noteToCreatePayload, noteToUpdatePayload } = require("../../static/offline/syncpush.js");
+
+function note(over) {
+  return Object.assign({
+    cid: over.cid, server_id: null, title: over.cid, content: "",
+    linked_task_cids: "[]", linked_to_cids: "[]", pinned: false, list_id: null,
+    created_at: null, updated_at: null, deleted: false, dirty: 1, base_rev: null,
+  }, over);
+}
+
+test("noteToCreatePayload builds the ScratchpadCreate body with tags + task server ids", () => {
+  const p = noteToCreatePayload(note({ cid: "n", title: "Hi", content: "body [[X]]" }), ["work"], [42]);
+  assert.equal(p.title, "Hi");
+  assert.equal(p.content, "body [[X]]");
+  assert.deepEqual(p.tags, ["work"]);
+  assert.deepEqual(p.linked_task_ids, [42]);
+  assert.equal(p.list_id, null);
+});
+
+test("noteToUpdatePayload has the same shape as create", () => {
+  const p = noteToUpdatePayload(note({ cid: "n", title: "T", content: "c" }), ["a"], []);
+  assert.equal(p.title, "T");
+  assert.equal(p.content, "c");
+  assert.deepEqual(p.tags, ["a"]);
+  assert.deepEqual(p.linked_task_ids, []);
+  assert.equal(p.list_id, null);
+});

@@ -79,6 +79,19 @@
     };
   }
 
+  function noteToCreatePayload(record, tagNames, taskServerIds) {
+    return {
+      title: record.title != null ? record.title : "",
+      content: record.content != null ? record.content : "",
+      tags: tagNames || [],
+      linked_task_ids: taskServerIds || [],
+      list_id: null,
+    };
+  }
+  function noteToUpdatePayload(record, tagNames, taskServerIds) {
+    return noteToCreatePayload(record, tagNames, taskServerIds);
+  }
+
   function getTaskRaw(cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const r = db.transaction("tasks", "readonly").objectStore("tasks").get(cid);
@@ -338,7 +351,7 @@
       .then((r) => { _running = false; return r; }, (e) => { _running = false; throw e; });
   }
 
-  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, pushOutbox };
+  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, noteToCreatePayload, noteToUpdatePayload, pushOutbox };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpush = exported; }
   return exported;
 });
