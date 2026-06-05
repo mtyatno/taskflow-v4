@@ -387,3 +387,12 @@ test("pushOutbox checkin drops op when the habit has no server_id (deleted)", as
   assert.equal(tr.calls.length, 0);
   assert.equal(r.remaining, 0);
 });
+
+test("pushOutbox HOLDS note ops (no push handler yet) without deleting them", async () => {
+  await put("_outbox", [{ qid: 1, op: "create", entity_type: "note", cid: "n1", payload: {} }]);
+  const tr = fakeTransport(() => { throw new Error("should not call network for a note op"); });
+  const r = await pushOutbox(tr);
+  assert.equal(tr.calls.length, 0);
+  assert.equal(r.remaining, 1);
+  assert.equal((await outboxAll()).length, 1);
+});

@@ -314,6 +314,7 @@
     if (op.entity_type === "habit" && op.op === "update") return opHabitUpdate(op, transport, habitTagsFor, result);
     if (op.entity_type === "habit" && op.op === "delete") return opHabitDelete(op, transport, result);
     if (op.entity_type === "habit_log" && op.op === "checkin") return opHabitCheckin(op, transport, result);
+    if (op.entity_type === "note") return Promise.resolve(); // held (Opsi B): note push handlers arrive in #2f-2 — do NOT drop
     return TFoutbox.outboxRemove(op.qid);
   }
 
