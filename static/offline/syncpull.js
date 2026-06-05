@@ -15,6 +15,7 @@
   const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
   const TFhydrate = req("./hydrate.js", root.TF && root.TF.hydrate);
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
+  const TFtag = req("./tagrepo.js", root.TF && root.TF.tagrepo);
 
   function getAllTasks() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -57,8 +58,8 @@
     const v = Date.parse(hasTz ? s : s + "Z");
     return isNaN(v) ? 0 : v;
   }
-  function dropOutbox(cid) {
-    return TFoutbox.outboxByEntity("task", cid).then((ops) =>
+  function dropOutbox(entityType, cid) {
+    return TFoutbox.outboxByEntity(entityType, cid).then((ops) =>
       ops.reduce((p, o) => p.then(() => TFoutbox.outboxRemove(o.qid)), Promise.resolve()));
   }
 
@@ -84,7 +85,7 @@
                 // edit-vs-edit conflict → last-write-wins
                 result.lwwResolved++;
                 if (tsEpoch(s.updated_at) > tsEpoch(localRec.updated_at)) {
-                  return dropOutbox(cid).then(() => putTask(TFhydrate.taskFromServer(s, getCid))); // server wins
+                  return dropOutbox("task", cid).then(() => putTask(TFhydrate.taskFromServer(s, getCid))); // server wins
                 }
                 return; // local wins — keep dirty, push will send
               }
@@ -254,7 +255,98 @@
         pullHabitLogs(logs || []).then((lg) => ({ habits: hb, logs: lg }))));
   }
 
-  const exported = { pullTasks, pullAndReconcile, pullHabits, pullHabitLogs, pullHabitsAndLogs };
+  function getAllNotes() {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("scratchpad_notes", "readonly").objectStore("scratchpad_notes").getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function putNote(rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("scratchpad_notes", "readwrite");
+      tx.objectStore("scratchpad_notes").put(rec);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function deleteNoteRec(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("scratchpad_notes", "readwrite");
+      tx.objectStore("scratchpad_notes").delete(cid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function ensureNoteCid(serverId, cache) {
+    if (cache[serverId]) return Promise.resolve(cache[serverId]);
+    return TFidmap.cidOf("note", serverId).then((cid) => {
+      if (cid) { cache[serverId] = cid; return cid; }
+      const fresh = TFids.newCid();
+      cache[serverId] = fresh;
+      return TFidmap.mapPut("note", serverId, fresh).then(() => fresh);
+    });
+  }
+  function noteFromServer(s, cid, noteCidCache) {
+    const toCids = (s.linked_to || []).map((sid) => noteCidCache[sid]).filter(Boolean);
+    const taskIds = s.linked_task_ids || [];
+    return taskIds.reduce((p, tid) => p.then((acc) => TFidmap.cidOf("task", tid).then((c) => { if (c) acc.push(c); return acc; })), Promise.resolve([]))
+      .then((taskCids) => ({
+        cid: cid, server_id: s.id, title: s.title != null ? s.title : "", content: s.content != null ? s.content : "",
+        linked_to_cids: JSON.stringify(toCids), linked_task_cids: JSON.stringify(taskCids),
+        pinned: !!s.pinned, list_id: null, last_edited_by: s.last_edited_by != null ? s.last_edited_by : null,
+        created_at: s.created_at != null ? s.created_at : null, updated_at: s.updated_at != null ? s.updated_at : null,
+        deleted: false, dirty: 0, base_rev: s.updated_at != null ? s.updated_at : null,
+      }));
+  }
+  function writeNote(s, cid, cache) {
+    return noteFromServer(s, cid, cache).then((rec) => putNote(rec)).then(() => TFtag.setEntityTags("note", cid, s.tags || []));
+  }
+
+  function pullNotes(serverNotes) {
+    const list = (serverNotes || []).filter((s) => s.list_id == null);
+    const cache = {};
+    return list.reduce((p, s) => p.then(() => ensureNoteCid(s.id, cache)), Promise.resolve())
+      .then(() => getAllNotes())
+      .then((localAll) => {
+        const byCid = {}; for (const r of localAll) byCid[r.cid] = r;
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0 };
+        let chain = Promise.resolve();
+        for (const s of list) {
+          const cid = cache[s.id];
+          const local = byCid[cid];
+          chain = chain.then(() => {
+            if (!local) { result.created++; return writeNote(s, cid, cache); }
+            if (local.conflict) { result.skipped++; return; }
+            if (local.dirty) {
+              if (s.updated_at !== local.base_rev) {
+                result.lwwResolved++;
+                if (tsEpoch(s.updated_at) > tsEpoch(local.updated_at)) {
+                  return dropOutbox("note", cid).then(() => writeNote(s, cid, cache)); // server wins
+                }
+                return; // local wins
+              }
+              result.skipped++; return;
+            }
+            if (s.updated_at !== local.base_rev) { result.updated++; return writeNote(s, cid, cache); }
+            return;
+          });
+        }
+        const serverIds = new Set(list.map((s) => String(s.id)));
+        for (const r of localAll) {
+          if (r.server_id == null) continue;
+          if (serverIds.has(String(r.server_id))) continue;
+          chain = chain.then(() => {
+            if (r.dirty) { result.skipped++; return; } // local-wins; push update→404→re-create
+            result.deleted++;
+            return deleteNoteRec(r.cid).then(() => TFidmap.mapDelete("note", r.server_id));
+          });
+        }
+        return chain.then(() => result);
+      });
+  }
+
+  const exported = { pullTasks, pullAndReconcile, pullHabits, pullHabitLogs, pullHabitsAndLogs, pullNotes };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpull = exported; }
   return exported;
 });

@@ -298,3 +298,115 @@ test("pullHabitsAndLogs pulls habits then logs from rawFetch", async () => {
   assert.equal(r.logs.created, 1);
   assert.equal((await logByHabitDate((await allHabits())[0].cid, "2026-06-05")).status, "done");
 });
+
+const { pullNotes } = require("../../static/offline/syncpull.js");
+const { getEntityTags: _getTagsNp } = require("../../static/offline/tagrepo.js");
+const { cidOf: _cidOfNp } = require("../../static/offline/idmap.js");
+
+async function putNotes(recs) {
+  const db = await openDB();
+  await new Promise((res, rej) => {
+    const tx = db.transaction("scratchpad_notes", "readwrite");
+    const os = tx.objectStore("scratchpad_notes");
+    for (const r of recs) os.put(r);
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+  });
+}
+async function getNoteRec(cid) {
+  const db = await openDB();
+  return new Promise((res) => { const q = db.transaction("scratchpad_notes").objectStore("scratchpad_notes").get(cid); q.onsuccess = () => res(q.result); });
+}
+async function allNotesP() {
+  const db = await openDB();
+  return new Promise((res) => { const q = db.transaction("scratchpad_notes").objectStore("scratchpad_notes").getAll(); q.onsuccess = () => res(q.result || []); });
+}
+function srvNote(over) {
+  return Object.assign({
+    id: over.id, title: "N", content: "", tags: [], linked_to: [], linked_task_ids: [],
+    pinned: false, list_id: null, created_at: "2026-06-01T00:00:00", updated_at: "2026-06-02T00:00:00",
+  }, over);
+}
+function localNote(over) {
+  return Object.assign({
+    cid: over.cid, server_id: null, title: over.cid, content: "", linked_task_cids: "[]", linked_to_cids: "[]",
+    pinned: false, list_id: null, created_at: null, updated_at: "2026-06-01T00:00:00", base_rev: "2026-06-01T00:00:00",
+    deleted: false, dirty: 0,
+  }, over);
+}
+
+test("pullNotes creates an unknown personal server note (dirty 0, base_rev, tags)", async () => {
+  const r = await pullNotes([srvNote({ id: 5, title: "New", tags: ["x"], updated_at: "2026-06-03T00:00:00" })]);
+  assert.equal(r.created, 1);
+  const rows = await allNotesP();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].server_id, 5);
+  assert.equal(rows[0].dirty, 0);
+  assert.equal(rows[0].base_rev, "2026-06-03T00:00:00");
+  const tags = await _getTagsNp("note", rows[0].cid);
+  assert.deepEqual(tags.map((t) => t.name), ["x"]);
+});
+
+test("pullNotes skips shared notes (list_id != null)", async () => {
+  const r = await pullNotes([srvNote({ id: 5, list_id: 9 })]);
+  assert.equal(r.created, 0);
+  assert.equal((await allNotesP()).length, 0);
+});
+
+test("pullNotes updates a clean local note when updated_at differs", async () => {
+  await putNotes([localNote({ cid: "n", server_id: 5, title: "Old", base_rev: "2026-06-01T00:00:00" })]);
+  await mapPut("note", 5, "n");
+  const r = await pullNotes([srvNote({ id: 5, title: "New", updated_at: "2026-06-05T00:00:00" })]);
+  assert.equal(r.updated, 1);
+  assert.equal((await getNoteRec("n")).title, "New");
+  assert.equal((await getNoteRec("n")).base_rev, "2026-06-05T00:00:00");
+});
+
+test("pullNotes edit-vs-edit LWW: server newer wins and drops outbox", async () => {
+  await putNotes([localNote({ cid: "n", server_id: 5, title: "Local", base_rev: "2026-06-01T00:00:00", updated_at: "2026-06-04T01:00:00.000Z", dirty: 1 })]);
+  await mapPut("note", 5, "n");
+  await outboxAdd({ op: "update", entity_type: "note", cid: "n", payload: {} });
+  const r = await pullNotes([srvNote({ id: 5, title: "Server", updated_at: "2026-06-04T05:00:00" })]);
+  assert.equal(r.lwwResolved, 1);
+  assert.equal((await getNoteRec("n")).title, "Server");
+  assert.equal((await getNoteRec("n")).dirty, 0);
+  assert.equal((await outboxAll()).length, 0);
+});
+
+test("pullNotes edit-vs-edit LWW: local newer wins and keeps local + outbox", async () => {
+  await putNotes([localNote({ cid: "n", server_id: 5, title: "Local", base_rev: "2026-06-01T00:00:00", updated_at: "2026-06-04T09:00:00.000Z", dirty: 1 })]);
+  await mapPut("note", 5, "n");
+  await outboxAdd({ op: "update", entity_type: "note", cid: "n", payload: {} });
+  const r = await pullNotes([srvNote({ id: 5, title: "Server", updated_at: "2026-06-04T02:00:00" })]);
+  assert.equal((await getNoteRec("n")).title, "Local");
+  assert.equal((await outboxAll()).length, 1);
+});
+
+test("pullNotes deletes a clean local note whose server_id vanished + clears idmap", async () => {
+  await putNotes([localNote({ cid: "n", server_id: 5, dirty: 0 })]);
+  await mapPut("note", 5, "n");
+  const r = await pullNotes([]);
+  assert.equal(r.deleted, 1);
+  assert.equal(await getNoteRec("n"), undefined);
+  assert.equal(await _cidOfNp("note", 5), undefined);
+});
+
+test("pullNotes does NOT delete a dirty local note missing from server", async () => {
+  await putNotes([localNote({ cid: "n", server_id: 5, dirty: 1 })]);
+  await mapPut("note", 5, "n");
+  const r = await pullNotes([]);
+  assert.equal(r.deleted, 0);
+  assert.equal(r.skipped, 1);
+  assert.notEqual(await getNoteRec("n"), undefined);
+});
+
+test("pullNotes resolves linked_to server ids to cids across the batch", async () => {
+  const r = await pullNotes([
+    srvNote({ id: 1, title: "A", linked_to: [2] }),
+    srvNote({ id: 2, title: "B" }),
+  ]);
+  assert.equal(r.created, 2);
+  const rows = await allNotesP();
+  const a = rows.find((x) => x.server_id === 1);
+  const bCid = await _cidOfNp("note", 2);
+  assert.deepEqual(JSON.parse(a.linked_to_cids), [bCid]);
+});
