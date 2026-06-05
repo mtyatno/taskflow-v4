@@ -225,12 +225,43 @@
     });
   }
 
+  function opHabitUpdate(op, transport, habitTagsFor, result) {
+    return Promise.all([getHabitRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
+      if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
+      return habitTagsFor(op.cid).then((tags) =>
+        send(transport, "POST", "/api/habits/" + sid + "/update", habitToUpdatePayload(rec, tags)).then((res) => {
+          if (ok(res)) {
+            return putHabitRaw(Object.assign({}, rec, { dirty: 0 }))
+              .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+          }
+          if (res.status === 404) {
+            // habit deleted on server → local-wins: re-create, then remap idmap
+            return send(transport, "POST", "/api/habits", habitToCreatePayload(rec, tags)).then((res2) => {
+              if (ok(res2)) {
+                const nid = res2.data.id;
+                return TFidmap.mapDelete("habit", sid)
+                  .then(() => TFidmap.mapPut("habit", nid, op.cid))
+                  .then(() => putHabitRaw(Object.assign({}, rec, { server_id: nid, dirty: 0 })))
+                  .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+              }
+              result.failed++;
+              return TFoutbox.outboxRemove(op.qid);
+            });
+          }
+          result.failed++;
+          return TFoutbox.outboxRemove(op.qid);
+        })
+      );
+    });
+  }
+
   function processOp(op, transport, tagsFor, habitTagsFor, result) {
     if (op.entity_type === "task" && op.op === "create") return opCreate(op, transport, tagsFor, result);
     if (op.entity_type === "task" && op.op === "update") return opUpdate(op, transport, tagsFor, result);
     if (op.entity_type === "task" && op.op === "delete") return opDelete(op, transport, result);
     if (op.entity_type === "recurring_exception" && op.op === "mark_occurrence") return opMark(op, transport, result);
     if (op.entity_type === "habit" && op.op === "create") return opHabitCreate(op, transport, habitTagsFor, result);
+    if (op.entity_type === "habit" && op.op === "update") return opHabitUpdate(op, transport, habitTagsFor, result);
     return TFoutbox.outboxRemove(op.qid);
   }
 

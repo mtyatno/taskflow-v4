@@ -303,3 +303,35 @@ test("pushOutbox skips a habit create whose record already has server_id", async
   assert.equal(tr.calls.length, 0);
   assert.equal(r.remaining, 0);
 });
+
+test("pushOutbox habit update posts to /update and clears dirty", async () => {
+  await put("habits", [habit({ cid: "h", server_id: 7, title: "Lari" })]);
+  await _mapPutH("habit", 7, "h");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "habit", cid: "h", payload: {} }]);
+  const tr = fakeTransport(() => ({ status: 200, data: { ok: true, id: 7 } }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(tr.calls[0].method, "POST");
+  assert.equal(tr.calls[0].path, "/api/habits/7/update");
+  assert.equal((await getHabit("h")).dirty, 0);
+});
+
+test("pushOutbox habit update 404 re-creates the habit and remaps server_id", async () => {
+  await put("habits", [habit({ cid: "h", server_id: 7, title: "Lari" })]);
+  await _mapPutH("habit", 7, "h");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "habit", cid: "h", payload: {} }]);
+  let n = 0;
+  const tr = fakeTransport((m, p) => {
+    if (n++ === 0) return { status: 404, data: { detail: "gone" } };
+    return { status: 200, data: { id: 88, title: "Lari" } };
+  });
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(tr.calls[1].method, "POST");
+  assert.equal(tr.calls[1].path, "/api/habits");
+  assert.equal(await serverIdOf("h"), 88);
+  assert.equal(await _cidOfH("habit", 7), undefined);
+  const rec = await getHabit("h");
+  assert.equal(rec.server_id, 88);
+  assert.equal(rec.dirty, 0);
+});
