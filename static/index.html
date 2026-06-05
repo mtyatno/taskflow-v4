@@ -1511,6 +1511,7 @@ function sync() {
   if (!(window.TF && window.TF.syncpull && window.TF.syncpush)) { renderConflicts(); return Promise.resolve(null); }
   return window.TF.syncpull.pullAndReconcile(__syncRawFetch)
     .then(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null))
+    .then(() => (window.TF.syncpull.pullHabitsAndLogs ? window.TF.syncpull.pullHabitsAndLogs(__syncRawFetch) : null))
     .then(() => window.TF.syncpush.pushOutbox(__syncTransport))
     .then((r) => { renderConflicts(); return r; })
     .catch(() => { renderConflicts(); return null; });
@@ -20698,10 +20699,9 @@ function App() {
       } else setLoading(true);
     }
     const calls = [["/api/tasks?include_done=true", setTasks, "tasks"], ["/api/summary", setSummary, "summary"], ["/api/projects", setProjects, "projects"], ["/api/contexts", setContexts, "contexts"], ["/api/lists", setSharedLists, "lists"], ["/api/collaborators", setCollaborators, null]];
-    // Sync local tasks + seed habits from the server.
+    // Sync local tasks + habits from the server (sync() now pulls habits+logs).
     if (navigator.onLine && __token) {
       try { await sync(); } catch (e) {}
-      try { if (window.TF && window.TF.habithydrate) await window.TF.habithydrate.ensureHabits(__syncRawFetch); } catch (e) {}
     }
     const results = await Promise.allSettled(calls.map(([url]) => api.get(url)));
     for (let i = 0; i < calls.length; i++) {

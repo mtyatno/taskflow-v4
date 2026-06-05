@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v125-habits";
+const CACHE = "taskflow-v126-habit-sync";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
