@@ -18,6 +18,7 @@
   const TFrec = req("./recurrence.js", root.TF && root.TF.recurrence);
   const TFlistsync = req("./listsync.js", root.TF && root.TF.listsync);
   const TFhabitroutes = req("./habitroutes.js", root.TF && root.TF.habitroutes);
+  const TFnoteroutes = req("./noteroutes.js", root.TF && root.TF.noteroutes);
 
   function todayISO() {
     const n = new Date();
@@ -114,6 +115,7 @@
         rows.filter((r) => String(r.list_id) === String(params.id)).map(withId)));
 
     TFhabitroutes.registerHabitRoutes(router);
+    TFnoteroutes.registerNoteRoutes(router);
 
     return router;
   }
