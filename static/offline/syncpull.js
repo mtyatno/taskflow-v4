@@ -342,11 +342,34 @@
             return deleteNoteRec(r.cid).then(() => TFidmap.mapDelete("note", r.server_id));
           });
         }
+        // pass 4: adopt server pinned for notes with no pending pin op (pin is orthogonal to updated_at).
+        chain = chain.then(() => TFoutbox.outboxAll().then((ops) => {
+          const pendingPin = new Set(ops.filter((o) => o.entity_type === "note" && o.op === "pin").map((o) => o.cid));
+          return getAllNotes().then((fresh) => {
+            const freshByCid = {}; for (const r of fresh) freshByCid[r.cid] = r;
+            let c2 = Promise.resolve();
+            for (const s of list) {
+              const cid = cache[s.id];
+              const local = freshByCid[cid];
+              if (!local || pendingPin.has(cid)) continue;
+              if (!!local.pinned !== !!s.pinned) {
+                c2 = c2.then(() => { result.pinned++; return putNote(Object.assign({}, local, { pinned: !!s.pinned })); });
+              }
+            }
+            return c2;
+          });
+        }));
         return chain.then(() => result);
       });
   }
 
-  const exported = { pullTasks, pullAndReconcile, pullHabits, pullHabitLogs, pullHabitsAndLogs, pullNotes };
+  function pullNotesAndReconcile(rawFetch) {
+    return Promise.resolve(rawFetch("/api/scratchpad"))
+      .then((res) => (res && typeof res.json === "function" ? res.json() : res))
+      .then((list) => pullNotes(list || []));
+  }
+
+  const exported = { pullTasks, pullAndReconcile, pullHabits, pullHabitLogs, pullHabitsAndLogs, pullNotes, pullNotesAndReconcile };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpull = exported; }
   return exported;
 });

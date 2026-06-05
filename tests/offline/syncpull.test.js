@@ -410,3 +410,29 @@ test("pullNotes resolves linked_to server ids to cids across the batch", async (
   const bCid = await _cidOfNp("note", 2);
   assert.deepEqual(JSON.parse(a.linked_to_cids), [bCid]);
 });
+
+const { pullNotesAndReconcile } = require("../../static/offline/syncpull.js");
+
+test("pullNotes adopts server pinned for a clean note with no pending pin op", async () => {
+  await putNotes([localNote({ cid: "n", server_id: 5, base_rev: "2026-06-02T00:00:00", pinned: false })]);
+  await mapPut("note", 5, "n");
+  const r = await pullNotes([srvNote({ id: 5, pinned: true, updated_at: "2026-06-02T00:00:00" })]); // updated_at unchanged → only pin differs
+  assert.equal(r.pinned, 1);
+  assert.equal((await getNoteRec("n")).pinned, true);
+});
+
+test("pullNotes does NOT adopt server pinned when a pin op is pending", async () => {
+  await putNotes([localNote({ cid: "n", server_id: 5, base_rev: "2026-06-02T00:00:00", pinned: true })]);
+  await mapPut("note", 5, "n");
+  await outboxAdd({ op: "pin", entity_type: "note", cid: "n", payload: { pinned: true } });
+  const r = await pullNotes([srvNote({ id: 5, pinned: false, updated_at: "2026-06-02T00:00:00" })]);
+  assert.equal(r.pinned, 0);
+  assert.equal((await getNoteRec("n")).pinned, true); // local pin intent preserved
+});
+
+test("pullNotesAndReconcile fetches /api/scratchpad and reconciles", async () => {
+  const rawFetch = () => Promise.resolve({ json: () => Promise.resolve([srvNote({ id: 5, title: "P", updated_at: "2026-06-03T00:00:00" })]) });
+  const r = await pullNotesAndReconcile(rawFetch);
+  assert.equal(r.created, 1);
+  assert.equal((await allNotesP()).length, 1);
+});
