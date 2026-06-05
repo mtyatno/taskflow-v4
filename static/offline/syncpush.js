@@ -351,6 +351,35 @@
     });
   }
 
+  function opNoteUpdate(op, transport, result) {
+    return Promise.all([getNoteRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
+      if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
+      return Promise.all([noteTagNames(op.cid), linkedTaskServerIds(rec)]).then(([tags, taskSids]) =>
+        send(transport, "PUT", "/api/scratchpad/" + sid, noteToUpdatePayload(rec, tags, taskSids)).then((res) => {
+          if (ok(res)) {
+            return putNoteRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev }))
+              .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+          }
+          if (res.status === 404) {
+            return send(transport, "POST", "/api/scratchpad", noteToCreatePayload(rec, tags, taskSids)).then((res2) => {
+              if (ok(res2)) {
+                const nid = res2.data.id;
+                return TFidmap.mapDelete("note", sid)
+                  .then(() => TFidmap.mapPut("note", nid, op.cid))
+                  .then(() => putNoteRaw(Object.assign({}, rec, { server_id: nid, dirty: 0, base_rev: res2.data && res2.data.updated_at != null ? res2.data.updated_at : rec.base_rev })))
+                  .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+              }
+              result.failed++;
+              return TFoutbox.outboxRemove(op.qid);
+            });
+          }
+          result.failed++;
+          return TFoutbox.outboxRemove(op.qid);
+        })
+      );
+    });
+  }
+
   function opHabitDelete(op, transport, result) {
     return TFidmap.serverIdOf(op.cid).then((sid) => {
       if (sid == null) {
@@ -379,6 +408,7 @@
     if (op.entity_type === "habit" && op.op === "delete") return opHabitDelete(op, transport, result);
     if (op.entity_type === "habit_log" && op.op === "checkin") return opHabitCheckin(op, transport, result);
     if (op.entity_type === "note" && op.op === "create") return opNoteCreate(op, transport, result);
+    if (op.entity_type === "note" && op.op === "update") return opNoteUpdate(op, transport, result);
     if (op.entity_type === "note") return Promise.resolve(); // held (Opsi B): note push handlers arrive in #2f-2 — do NOT drop
     return TFoutbox.outboxRemove(op.qid);
   }

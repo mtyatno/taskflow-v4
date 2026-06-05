@@ -388,17 +388,16 @@ test("pushOutbox checkin drops op when the habit has no server_id (deleted)", as
   assert.equal(r.remaining, 0);
 });
 
-test("pushOutbox HOLDS note update/delete/pin ops without deleting them", async () => {
+test("pushOutbox HOLDS note delete/pin ops without deleting them", async () => {
   await put("_outbox", [
-    { qid: 1, op: "update", entity_type: "note", cid: "n1", payload: {} },
-    { qid: 2, op: "delete", entity_type: "note", cid: "n2", payload: {} },
-    { qid: 3, op: "pin",    entity_type: "note", cid: "n3", payload: {} },
+    { qid: 1, op: "delete", entity_type: "note", cid: "n2", payload: {} },
+    { qid: 2, op: "pin",    entity_type: "note", cid: "n3", payload: {} },
   ]);
   const tr = fakeTransport(() => { throw new Error("should not call network for a note op"); });
   const r = await pushOutbox(tr);
   assert.equal(tr.calls.length, 0);
-  assert.equal(r.remaining, 3);
-  assert.equal((await outboxAll()).length, 3);
+  assert.equal(r.remaining, 2);
+  assert.equal((await outboxAll()).length, 2);
 });
 
 const { noteToCreatePayload, noteToUpdatePayload } = require("../../static/offline/syncpush.js");
@@ -455,4 +454,35 @@ test("pushOutbox note create POSTs to /api/scratchpad, sets server_id + idmap + 
   assert.equal(rec.server_id, 50);
   assert.equal(rec.dirty, 0);
   assert.equal(rec.base_rev, "2026-06-06T10:00:00");
+});
+
+test("pushOutbox note update PUTs and sets dirty 0 + base_rev", async () => {
+  await put("scratchpad_notes", [note({ cid: "n", server_id: 7, title: "T", content: "c" })]);
+  await _mapPutN("note", 7, "n");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "note", cid: "n", payload: {} }]);
+  const tr = fakeTransport(() => ({ status: 200, data: { id: 7, updated_at: "2026-06-06T11:00:00" } }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(tr.calls[0].method, "PUT");
+  assert.equal(tr.calls[0].path, "/api/scratchpad/7");
+  const rec = await getNote("n");
+  assert.equal(rec.dirty, 0);
+  assert.equal(rec.base_rev, "2026-06-06T11:00:00");
+});
+
+test("pushOutbox note update 404 re-creates the note and remaps server_id", async () => {
+  await put("scratchpad_notes", [note({ cid: "n", server_id: 7, title: "T", content: "c" })]);
+  await _mapPutN("note", 7, "n");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "note", cid: "n", payload: {} }]);
+  let i = 0;
+  const tr = fakeTransport(() => (i++ === 0 ? { status: 404, data: { detail: "gone" } } : { status: 200, data: { id: 99, updated_at: "2026-06-06T12:00:00" } }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(tr.calls[1].method, "POST");
+  assert.equal(tr.calls[1].path, "/api/scratchpad");
+  assert.equal(await serverIdOf("n"), 99);
+  assert.equal(await _cidOfN("note", 7), undefined);
+  const rec = await getNote("n");
+  assert.equal(rec.server_id, 99);
+  assert.equal(rec.dirty, 0);
 });
