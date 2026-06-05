@@ -158,3 +158,82 @@ test("pullTasks resolves parent_cid across the server batch", async () => {
   const kid = rows.find((x) => x.server_id === 2);
   assert.equal(kid.parent_cid, parent.cid);
 });
+
+const { pullHabits } = require("../../static/offline/syncpull.js");
+const { cidOf: _cidOfHp } = require("../../static/offline/idmap.js");
+
+async function putHabits(recs) {
+  const db = await openDB();
+  await new Promise((res, rej) => {
+    const tx = db.transaction("habits", "readwrite");
+    const os = tx.objectStore("habits");
+    for (const r of recs) os.put(r);
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+  });
+}
+async function getHabitRec(cid) {
+  const db = await openDB();
+  return new Promise((res) => { const q = db.transaction("habits").objectStore("habits").get(cid); q.onsuccess = () => res(q.result); });
+}
+async function allHabits() {
+  const db = await openDB();
+  return new Promise((res) => { const q = db.transaction("habits").objectStore("habits").getAll(); q.onsuccess = () => res(q.result || []); });
+}
+function srvHabit(over) {
+  return Object.assign({
+    id: over.id, title: "H", phase: "pagi", micro_target: "",
+    frequency: JSON.stringify(["mon"]), identity_pillar: "", created_at: "2026-06-01T00:00:00",
+  }, over);
+}
+
+test("pullHabits creates an unknown server habit", async () => {
+  const r = await pullHabits([srvHabit({ id: 3, title: "Lari" })]);
+  assert.equal(r.created, 1);
+  const rows = await allHabits();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].server_id, 3);
+  assert.equal(rows[0].title, "Lari");
+  assert.equal(rows[0].dirty, 0);
+});
+
+test("pullHabits updates a clean local habit when a field differs", async () => {
+  await putHabits([{ cid: "h", server_id: 3, title: "Old", phase: "pagi", micro_target: "", frequency: JSON.stringify(["mon"]), identity_pillar: "", deleted: false, dirty: 0 }]);
+  await mapPut("habit", 3, "h");
+  const r = await pullHabits([srvHabit({ id: 3, title: "New" })]);
+  assert.equal(r.updated, 1);
+  assert.equal((await getHabitRec("h")).title, "New");
+});
+
+test("pullHabits skips a dirty local habit (local-wins)", async () => {
+  await putHabits([{ cid: "h", server_id: 3, title: "Local edit", phase: "pagi", micro_target: "", frequency: JSON.stringify(["mon"]), identity_pillar: "", deleted: false, dirty: 1 }]);
+  await mapPut("habit", 3, "h");
+  const r = await pullHabits([srvHabit({ id: 3, title: "Server" })]);
+  assert.equal(r.skipped, 1);
+  assert.equal((await getHabitRec("h")).title, "Local edit");
+});
+
+test("pullHabits leaves an unchanged clean habit alone", async () => {
+  await putHabits([{ cid: "h", server_id: 3, title: "H", phase: "pagi", micro_target: "", frequency: JSON.stringify(["mon"]), identity_pillar: "", deleted: false, dirty: 0 }]);
+  await mapPut("habit", 3, "h");
+  const r = await pullHabits([srvHabit({ id: 3, title: "H" })]);
+  assert.equal(r.updated, 0);
+  assert.equal(r.created, 0);
+});
+
+test("pullHabits hard-deletes a clean local habit whose server_id vanished + clears idmap", async () => {
+  await putHabits([{ cid: "h", server_id: 3, title: "H", phase: "pagi", micro_target: "", frequency: JSON.stringify(["mon"]), identity_pillar: "", deleted: false, dirty: 0 }]);
+  await mapPut("habit", 3, "h");
+  const r = await pullHabits([]);
+  assert.equal(r.deleted, 1);
+  assert.equal(await getHabitRec("h"), undefined);
+  assert.equal(await _cidOfHp("habit", 3), undefined);
+});
+
+test("pullHabits does NOT delete a dirty local habit missing from server", async () => {
+  await putHabits([{ cid: "h", server_id: 3, title: "Local", phase: "pagi", micro_target: "", frequency: JSON.stringify(["mon"]), identity_pillar: "", deleted: false, dirty: 1 }]);
+  await mapPut("habit", 3, "h");
+  const r = await pullHabits([]);
+  assert.equal(r.deleted, 0);
+  assert.equal(r.skipped, 1);
+  assert.notEqual(await getHabitRec("h"), undefined);
+});

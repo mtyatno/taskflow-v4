@@ -115,7 +115,94 @@
       .then((list) => pullTasks(list || []));
   }
 
-  const exported = { pullTasks, pullAndReconcile };
+  const DEFAULT_FREQ = JSON.stringify(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
+
+  function habitFromServer(h, cid) {
+    return {
+      cid: cid, server_id: h.id, title: h.title,
+      phase: h.phase || "pagi",
+      micro_target: h.micro_target != null ? h.micro_target : "",
+      frequency: h.frequency != null ? h.frequency : DEFAULT_FREQ,
+      identity_pillar: h.identity_pillar != null ? h.identity_pillar : "",
+      created_at: h.created_at != null ? h.created_at : null,
+      deleted: false, dirty: 0,
+    };
+  }
+  function habitChanged(local, h) {
+    return local.title !== h.title
+      || (local.phase || "pagi") !== (h.phase || "pagi")
+      || (local.micro_target || "") !== (h.micro_target || "")
+      || local.frequency !== (h.frequency != null ? h.frequency : DEFAULT_FREQ)
+      || (local.identity_pillar || "") !== (h.identity_pillar || "");
+  }
+  function getAllHabits() {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("habits", "readonly").objectStore("habits").getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function putHabit(rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("habits", "readwrite");
+      tx.objectStore("habits").put(rec);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function deleteHabitRec(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("habits", "readwrite");
+      tx.objectStore("habits").delete(cid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function ensureHabitCid(serverId, cache) {
+    if (cache[serverId]) return Promise.resolve(cache[serverId]);
+    return TFidmap.cidOf("habit", serverId).then((cid) => {
+      if (cid) { cache[serverId] = cid; return cid; }
+      const fresh = TFids.newCid();
+      cache[serverId] = fresh;
+      return TFidmap.mapPut("habit", serverId, fresh).then(() => fresh);
+    });
+  }
+
+  function pullHabits(serverHabits) {
+    const list = serverHabits || [];
+    const cache = {};
+    return list.reduce((p, h) => p.then(() => ensureHabitCid(h.id, cache)), Promise.resolve())
+      .then(() => getAllHabits())
+      .then((localAll) => {
+        const localByCid = {};
+        for (const r of localAll) localByCid[r.cid] = r;
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0 };
+        let chain = Promise.resolve();
+        for (const h of list) {
+          const cid = cache[h.id];
+          const localRec = localByCid[cid];
+          chain = chain.then(() => {
+            if (!localRec) { result.created++; return putHabit(habitFromServer(h, cid)); }
+            if (localRec.dirty) { result.skipped++; return; }
+            if (habitChanged(localRec, h)) { result.updated++; return putHabit(habitFromServer(h, cid)); }
+            return;
+          });
+        }
+        const serverIds = new Set(list.map((h) => String(h.id)));
+        for (const r of localAll) {
+          if (r.server_id == null) continue;
+          if (serverIds.has(String(r.server_id))) continue;
+          chain = chain.then(() => {
+            if (r.dirty) { result.skipped++; return; }
+            result.deleted++;
+            return deleteHabitRec(r.cid).then(() => TFidmap.mapDelete("habit", r.server_id));
+          });
+        }
+        return chain.then(() => result);
+      });
+  }
+
+  const exported = { pullTasks, pullAndReconcile, pullHabits };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpull = exported; }
   return exported;
 });
