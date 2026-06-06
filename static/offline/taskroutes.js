@@ -19,6 +19,7 @@
   const TFlistsync = req("./listsync.js", root.TF && root.TF.listsync);
   const TFhabitroutes = req("./habitroutes.js", root.TF && root.TF.habitroutes);
   const TFnoteroutes = req("./noteroutes.js", root.TF && root.TF.noteroutes);
+  const TFdrawingroutes = req("./drawingroutes.js", root.TF && root.TF.drawingroutes);
 
   function todayISO() {
     const n = new Date();
@@ -116,6 +117,7 @@
 
     TFhabitroutes.registerHabitRoutes(router);
     TFnoteroutes.registerNoteRoutes(router);
+    TFdrawingroutes.registerDrawingRoutes(router);
 
     return router;
   }
