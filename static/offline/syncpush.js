@@ -14,6 +14,7 @@
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
   const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
   const TFtag = req("./tagrepo.js", root.TF && root.TF.tagrepo);
+  const TFblob = req("./blobstore.js", root.TF && root.TF.blobstore);
 
   function titleWithTags(record, tagNames) {
     const base = String(record.title == null ? "" : record.title).replace(/\s+$/, "");
@@ -398,6 +399,41 @@
     });
   }
 
+  const _BlobStore = TFblob.makeBlobStore();
+  function getDrawingRaw(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("drawings", "readonly").objectStore("drawings").get(cid);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function putDrawingRaw(rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("drawings", "readwrite");
+      tx.objectStore("drawings").put(rec);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
+  function opDrawingUpsert(op, transport, result) {
+    return getDrawingRaw(op.cid).then((rec) => {
+      if (!rec) return TFoutbox.outboxRemove(op.qid);
+      return TFidmap.serverIdOf(rec.note_cid).then((noteSid) => {
+        if (noteSid == null) return; // hold: note not pushed yet (FIFO → note create runs first; retry next drain)
+        return Promise.resolve(_BlobStore.getBytes(rec.blob_ref)).then((dataJson) =>
+          send(transport, "PUT", "/api/drawings/" + noteSid, { data_json: dataJson }).then((res) => {
+            if (ok(res)) {
+              return putDrawingRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev }))
+                .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+            }
+            result.failed++;
+            return TFoutbox.outboxRemove(op.qid);
+          }));
+      });
+    });
+  }
+
   function opNotePin(op, transport, result) {
     return Promise.all([getNoteRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
@@ -446,6 +482,7 @@
     if (op.entity_type === "note" && op.op === "update") return opNoteUpdate(op, transport, result);
     if (op.entity_type === "note" && op.op === "delete") return opNoteDelete(op, transport, result);
     if (op.entity_type === "note" && op.op === "pin") return opNotePin(op, transport, result);
+    if (op.entity_type === "drawing" && op.op === "upsert") return opDrawingUpsert(op, transport, result);
     return TFoutbox.outboxRemove(op.qid);
   }
 
