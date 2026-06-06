@@ -69,7 +69,34 @@
     return getByNoteCid(noteCid).then((rec) => (rec && !rec.deleted ? rec : null));
   }
 
-  const exported = { putDrawing, getDrawingLocal, _BlobStore: BlobStore };
+  function cacheServerDrawing(noteCid, dataJson, updatedAt) {
+    return getByNoteCid(noteCid).then((existing) =>
+      _store(noteCid, dataJson, updatedAt, 0, updatedAt, existing));
+  }
+
+  function getDrawing(noteCid, opts) {
+    opts = opts || {};
+    const fetcher = opts.fetch || _fetcher;
+    const online = opts.online != null ? opts.online : true;
+    return getDrawingLocal(noteCid).then((local) => {
+      const refreshP = (fetcher && online)
+        ? Promise.resolve(fetcher(noteCid)).then((srv) => {
+            if (!srv || srv.data_json == null) return;
+            if (!local || (local.dirty === 0 && tsEpoch(srv.updated_at) > tsEpoch(local.base_rev))) {
+              return cacheServerDrawing(noteCid, srv.data_json, srv.updated_at);
+            }
+          }).catch(() => {})
+        : Promise.resolve();
+      return refreshP.then(() => getDrawingLocal(noteCid)).then((rec) => {
+        if (!rec) return null;
+        return Promise.resolve(BlobStore.getBytes(rec.blob_ref)).then((bytes) => ({ data_json: bytes, updated_at: rec.updated_at }));
+      });
+    });
+  }
+
+  function configureFetcher(fn) { _fetcher = fn; }
+
+  const exported = { putDrawing, getDrawingLocal, cacheServerDrawing, getDrawing, configureFetcher, _BlobStore: BlobStore };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.drawingrepo = exported; }
   return exported;
 });
