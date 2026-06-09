@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v129-drawings";
+const CACHE = "taskflow-v130-tldraw-offline";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
@@ -31,6 +31,9 @@ const STATIC = [
   "/static/offline/noteroutes.js",
   "/static/offline/drawingrepo.js",
   "/static/offline/drawingroutes.js",
+  "/static/vendor/tldraw/index.html",
+  "/static/vendor/tldraw/assets/index-Jy53w_fU.js",
+  "/static/vendor/tldraw/assets/index-J1Af-IlE.css",
   "/static/vendor/react.production.min.js",
   "/static/vendor/react-dom.production.min.js",
   "/static/vendor/chart.umd.min.js",
@@ -114,9 +117,11 @@ self.addEventListener("fetch", e => {
   }
 
   // tldraw static files — cache-first
+  // ignoreSearch: iframe dimuat sebagai index.html?noteId=N — query harus diabaikan
+  // agar cocok dengan index.html yang di-precache (tanpa query).
   if (url.pathname.startsWith('/static/vendor/tldraw/')) {
     e.respondWith(
-      caches.match(request).then(cached => {
+      caches.match(request, { ignoreSearch: true }).then(cached => {
         if (cached) return cached
         return fetch(request).then(res => {
           if (res.ok) {
