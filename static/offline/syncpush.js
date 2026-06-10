@@ -93,10 +93,11 @@
     return noteToCreatePayload(record, tagNames, taskServerIds);
   }
 
+  const MM_DEFAULT_DATA = '{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}';
   function mindmapToCreatePayload(record) {
     return {
       title: record.title != null ? record.title : "Untitled",
-      data_json: record.data_json != null ? record.data_json : "",
+      data_json: record.data_json != null ? record.data_json : MM_DEFAULT_DATA,
     };
   }
   function mindmapToUpdatePayload(record) {

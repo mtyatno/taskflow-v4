@@ -401,11 +401,12 @@
       return TFidmap.mapPut("mindmap", serverId, fresh).then(() => fresh);
     });
   }
+  const MM_DEFAULT_DATA = '{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}';
   function mindmapFromServer(s, cid) {
     return {
       cid: cid, server_id: s.id,
       title: s.title != null ? s.title : "Untitled",
-      data_json: s.data_json != null ? s.data_json : "",
+      data_json: s.data_json != null ? s.data_json : MM_DEFAULT_DATA,
       pinned: !!s.is_pinned, list_id: null,
       created_at: s.created_at != null ? s.created_at : null,
       updated_at: s.updated_at != null ? s.updated_at : null,
