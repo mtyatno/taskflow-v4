@@ -369,7 +369,123 @@
       .then((list) => pullNotes(list || []));
   }
 
-  const exported = { pullTasks, pullAndReconcile, pullHabits, pullHabitLogs, pullHabitsAndLogs, pullNotes, pullNotesAndReconcile };
+  function getAllMindmaps() {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("mindmaps", "readonly").objectStore("mindmaps").getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function putMindmap(rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("mindmaps", "readwrite");
+      tx.objectStore("mindmaps").put(rec);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function deleteMindmapRec(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("mindmaps", "readwrite");
+      tx.objectStore("mindmaps").delete(cid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function ensureMindmapCid(serverId, cache) {
+    if (cache[serverId]) return Promise.resolve(cache[serverId]);
+    return TFidmap.cidOf("mindmap", serverId).then((cid) => {
+      if (cid) { cache[serverId] = cid; return cid; }
+      const fresh = TFids.newCid();
+      cache[serverId] = fresh;
+      return TFidmap.mapPut("mindmap", serverId, fresh).then(() => fresh);
+    });
+  }
+  function mindmapFromServer(s, cid) {
+    return {
+      cid: cid, server_id: s.id,
+      title: s.title != null ? s.title : "Untitled",
+      data_json: s.data_json != null ? s.data_json : "",
+      pinned: !!s.is_pinned, list_id: null,
+      created_at: s.created_at != null ? s.created_at : null,
+      updated_at: s.updated_at != null ? s.updated_at : null,
+      deleted: false, dirty: 0, base_rev: s.updated_at != null ? s.updated_at : null,
+    };
+  }
+  function writeMindmapFull(serverId, cid, fetchOne) {
+    return Promise.resolve(fetchOne(serverId)).then((fullRow) => (fullRow ? putMindmap(mindmapFromServer(fullRow, cid)) : null));
+  }
+
+  // serverList = GET /api/mindmaps (metadata, no data_json). fetchOne(serverId) = GET /api/mindmaps/:id (full).
+  function pullMindmaps(serverList, fetchOne) {
+    const list = (serverList || []).filter((s) => s.list_id == null);
+    const cache = {};
+    return list.reduce((p, s) => p.then(() => ensureMindmapCid(s.id, cache)), Promise.resolve())
+      .then(() => getAllMindmaps())
+      .then((localAll) => {
+        const byCid = {}; for (const r of localAll) byCid[r.cid] = r;
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0 };
+        let chain = Promise.resolve();
+        for (const s of list) {
+          const cid = cache[s.id];
+          const local = byCid[cid];
+          chain = chain.then(() => {
+            if (!local) { result.created++; return writeMindmapFull(s.id, cid, fetchOne); }
+            if (local.dirty) {
+              if (s.updated_at !== local.base_rev) {
+                result.lwwResolved++;
+                if (tsEpoch(s.updated_at) > tsEpoch(local.updated_at)) {
+                  return dropOutbox("mindmap", cid).then(() => writeMindmapFull(s.id, cid, fetchOne)); // server wins
+                }
+                return; // local wins
+              }
+              result.skipped++; return;
+            }
+            if (s.updated_at !== local.base_rev) { result.updated++; return writeMindmapFull(s.id, cid, fetchOne); }
+            return;
+          });
+        }
+        const serverIds = new Set(list.map((s) => String(s.id)));
+        for (const r of localAll) {
+          if (r.server_id == null) continue;
+          if (serverIds.has(String(r.server_id))) continue;
+          chain = chain.then(() => {
+            if (r.dirty) { result.skipped++; return; } // local-wins; push update→404→re-create
+            result.deleted++;
+            return deleteMindmapRec(r.cid).then(() => TFidmap.mapDelete("mindmap", r.server_id));
+          });
+        }
+        // pin-adopt: list metadata carries is_pinned; respect a pending pin op.
+        chain = chain.then(() => TFoutbox.outboxAll().then((ops) => {
+          const pendingPin = new Set(ops.filter((o) => o.entity_type === "mindmap" && o.op === "pin").map((o) => o.cid));
+          return getAllMindmaps().then((fresh) => {
+            const freshByCid = {}; for (const r of fresh) freshByCid[r.cid] = r;
+            let c2 = Promise.resolve();
+            for (const s of list) {
+              const cid = cache[s.id];
+              const local = freshByCid[cid];
+              if (!local || pendingPin.has(cid)) continue;
+              if (!!local.pinned !== !!s.is_pinned) {
+                c2 = c2.then(() => { result.pinned++; return putMindmap(Object.assign({}, local, { pinned: !!s.is_pinned })); });
+              }
+            }
+            return c2;
+          });
+        }));
+        return chain.then(() => result);
+      });
+  }
+
+  function pullMindmapsAndReconcile(rawFetch) {
+    const fetchOne = (sid) => Promise.resolve(rawFetch("/api/mindmaps/" + sid))
+      .then((res) => (res && typeof res.json === "function" ? res.json() : res))
+      .catch(() => null);
+    return Promise.resolve(rawFetch("/api/mindmaps"))
+      .then((res) => (res && typeof res.json === "function" ? res.json() : res))
+      .then((listRows) => pullMindmaps(listRows || [], fetchOne));
+  }
+
+  const exported = { pullTasks, pullAndReconcile, pullHabits, pullHabitLogs, pullHabitsAndLogs, pullNotes, pullNotesAndReconcile, pullMindmaps, pullMindmapsAndReconcile };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpull = exported; }
   return exported;
 });
