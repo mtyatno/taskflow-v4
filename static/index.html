@@ -8073,17 +8073,12 @@ function MindmapPage({
     return () => clearTimeout(saveTimerRef.current);
   }, []);
 
-  // Load list on mount
+  // Load list on mount (local-first: api.get resolves from IndexedDB via intercept)
   useEffect(() => {
-    api.get("/api/mindmaps").then(data => {
-      setMindmaps(data || []);
-      try {
-        localStorage.setItem("tf_mindmap_list", JSON.stringify(data || []));
-      } catch (_) {}
-    }).catch(() => {
-      const cached = JSON.parse(localStorage.getItem("tf_mindmap_list") || "[]");
-      setMindmaps(cached);
-    }).finally(() => setLoading(false));
+    api.get("/api/mindmaps")
+      .then(data => setMindmaps(data || []))
+      .catch(() => setMindmaps([]))
+      .finally(() => setLoading(false));
   }, []);
 
   // Open specific mindmap via global search
@@ -8112,8 +8107,7 @@ function MindmapPage({
     setSyncStatus("saved");
     setDeleteConfirm(false);
     setRenaming(false);
-    const pending = localStorage.getItem(`tf_mindmap_pending_${selected.id}`);
-    const dataStr = pending || selected.data_json;
+    const dataStr = selected.data_json;
     const sendLoad = () => {
       try {
         const data = JSON.parse(dataStr);
@@ -8121,7 +8115,6 @@ function MindmapPage({
           type: "load",
           data
         }, window.location.origin);
-        if (pending) setSyncStatus("offline");
       } catch (_) {}
     };
     if (iframeRef.current?.contentWindow) {
@@ -8167,15 +8160,12 @@ function MindmapPage({
     const handler = e => {
       if (e.origin !== window.location.origin) return;
       if (e.data && e.data.type === "ready" && selected) {
-        const pending = localStorage.getItem(`tf_mindmap_pending_${selected.id}`);
-        const dataStr = pending || selected.data_json;
         try {
-          const data = JSON.parse(dataStr);
+          const data = JSON.parse(selected.data_json);
           iframeRef.current?.contentWindow?.postMessage({
             type: "load",
             data
           }, window.location.origin);
-          if (pending) setSyncStatus("offline");
         } catch (_) {}
       }
       if (e.data && e.data.type === "nodeSelected") {
@@ -8204,24 +8194,13 @@ function MindmapPage({
       if (e.data && e.data.type === "change" && selected) {
         const dataStr = JSON.stringify(e.data.data);
         const mid = selected.id;
-        try {
-          localStorage.setItem(`tf_mindmap_pending_${mid}`, dataStr);
-        } catch (_) {}
-        if (!navigator.onLine) {
-          setSyncStatus("offline");
-          return;
-        }
         setSyncStatus("saving");
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(() => {
           api.put(`/api/mindmaps/${mid}`, {
             data_json: dataStr
-          }).then(() => {
-            setSyncStatus("saved");
-            try {
-              localStorage.removeItem(`tf_mindmap_pending_${mid}`);
-            } catch (_) {}
-          }).catch(() => setSyncStatus("offline"));
+          }).then(() => setSyncStatus("saved"))
+            .catch(() => setSyncStatus("offline"));
         }, 1000);
       }
     };
@@ -8229,25 +8208,6 @@ function MindmapPage({
     return () => window.removeEventListener("message", handler);
   }, [selected?.id]);
 
-  // Flush pending on reconnect
-  useEffect(() => {
-    const handler = () => {
-      if (!selected) return;
-      const pending = localStorage.getItem(`tf_mindmap_pending_${selected.id}`);
-      if (pending) {
-        api.put(`/api/mindmaps/${selected.id}`, {
-          data_json: pending
-        }).then(() => {
-          setSyncStatus("saved");
-          try {
-            localStorage.removeItem(`tf_mindmap_pending_${selected.id}`);
-          } catch (_) {}
-        }).catch(() => {});
-      }
-    };
-    window.addEventListener("online", handler);
-    return () => window.removeEventListener("online", handler);
-  }, [selected?.id]);
   const selectMindmap = async m => {
     if (selected?.id === m.id) return;
     iframeRef.current?.contentWindow?.postMessage({
@@ -8276,13 +8236,7 @@ function MindmapPage({
         title,
         data_json: defaultData
       });
-      setMindmaps(prev => {
-        const next = [created, ...prev];
-        try {
-          localStorage.setItem("tf_mindmap_list", JSON.stringify(next));
-        } catch (_) {}
-        return next;
-      });
+      setMindmaps(prev => [created, ...prev]);
       setSelected(created);
       setNewTitle("");
       setCreating(false);
@@ -8315,11 +8269,7 @@ function MindmapPage({
     if (!selected) return;
     try {
       await api.del(`/api/mindmaps/${selected.id}`);
-      const next = mindmaps.filter(m => m.id !== selected.id);
-      setMindmaps(next);
-      try {
-        localStorage.setItem("tf_mindmap_list", JSON.stringify(next));
-      } catch (_) {}
+      setMindmaps(mindmaps.filter(m => m.id !== selected.id));
       setSelected(null);
       setDeleteConfirm(false);
       showToast("🗑 Mindmap dihapus");
@@ -8330,16 +8280,10 @@ function MindmapPage({
   const handlePin = async m => {
     try {
       const updated = await api.patch(`/api/mindmaps/${m.id}/pin`, {});
-      setMindmaps(prev => {
-        const next = prev.map(x => x.id === updated.id ? {
-          ...x,
-          is_pinned: updated.is_pinned
-        } : x).sort((a, b) => b.is_pinned - a.is_pinned || new Date(b.updated_at) - new Date(a.updated_at));
-        try {
-          localStorage.setItem("tf_mindmap_list", JSON.stringify(next));
-        } catch (_) {}
-        return next;
-      });
+      setMindmaps(prev => prev.map(x => x.id === updated.id ? {
+        ...x,
+        is_pinned: updated.is_pinned
+      } : x).sort((a, b) => b.is_pinned - a.is_pinned || new Date(b.updated_at) - new Date(a.updated_at)));
     } catch (e) {
       showToast("Gagal pin/unpin", "error");
     }
