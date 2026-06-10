@@ -93,6 +93,16 @@
     return noteToCreatePayload(record, tagNames, taskServerIds);
   }
 
+  function mindmapToCreatePayload(record) {
+    return {
+      title: record.title != null ? record.title : "Untitled",
+      data_json: record.data_json != null ? record.data_json : "",
+    };
+  }
+  function mindmapToUpdatePayload(record) {
+    return mindmapToCreatePayload(record);
+  }
+
   function getTaskRaw(cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const r = db.transaction("tasks", "readonly").objectStore("tasks").get(cid);
@@ -451,6 +461,109 @@
     });
   }
 
+  function getMindmapRaw(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("mindmaps", "readonly").objectStore("mindmaps").get(cid);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function putMindmapRaw(rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("mindmaps", "readwrite");
+      tx.objectStore("mindmaps").put(rec);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function deleteMindmapRaw(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("mindmaps", "readwrite");
+      tx.objectStore("mindmaps").delete(cid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
+  function opMindmapCreate(op, transport, result) {
+    return getMindmapRaw(op.cid).then((rec) => {
+      if (!rec) return TFoutbox.outboxRemove(op.qid);
+      if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
+      return send(transport, "POST", "/api/mindmaps", mindmapToCreatePayload(rec)).then((res) => {
+        if (ok(res)) {
+          const sid = res.data.id;
+          return TFidmap.mapPut("mindmap", sid, op.cid)
+            .then(() => putMindmapRaw(Object.assign({}, rec, { server_id: sid, dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev })))
+            .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+        }
+        result.failed++;
+        return TFoutbox.outboxRemove(op.qid);
+      });
+    });
+  }
+
+  function opMindmapUpdate(op, transport, result) {
+    return Promise.all([getMindmapRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
+      if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
+      return send(transport, "PUT", "/api/mindmaps/" + sid, mindmapToUpdatePayload(rec)).then((res) => {
+        if (ok(res)) {
+          return putMindmapRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev }))
+            .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+        }
+        if (res.status === 404) {
+          return send(transport, "POST", "/api/mindmaps", mindmapToCreatePayload(rec)).then((res2) => {
+            if (ok(res2)) {
+              const nid = res2.data.id;
+              return TFidmap.mapDelete("mindmap", sid)
+                .then(() => TFidmap.mapPut("mindmap", nid, op.cid))
+                .then(() => putMindmapRaw(Object.assign({}, rec, { server_id: nid, dirty: 0, base_rev: res2.data && res2.data.updated_at != null ? res2.data.updated_at : rec.base_rev })))
+                .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+            }
+            result.failed++;
+            return TFoutbox.outboxRemove(op.qid);
+          });
+        }
+        result.failed++;
+        return TFoutbox.outboxRemove(op.qid);
+      });
+    });
+  }
+
+  function opMindmapDelete(op, transport, result) {
+    return TFidmap.serverIdOf(op.cid).then((sid) => {
+      if (sid == null) {
+        return deleteMindmapRaw(op.cid).then(() => TFoutbox.outboxRemove(op.qid));
+      }
+      return send(transport, "DELETE", "/api/mindmaps/" + sid, undefined).then((res) => {
+        if (ok(res) || res.status === 404) {
+          return TFidmap.mapDelete("mindmap", sid)
+            .then(() => deleteMindmapRaw(op.cid))
+            .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+        }
+        result.failed++;
+        return TFoutbox.outboxRemove(op.qid);
+      });
+    });
+  }
+
+  function opMindmapPin(op, transport, result) {
+    return Promise.all([getMindmapRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
+      if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
+      return send(transport, "GET", "/api/mindmaps/" + sid, undefined).then((res) => {
+        if (!ok(res)) { result.failed++; return TFoutbox.outboxRemove(op.qid); }
+        const serverPinned = !!(res.data && res.data.is_pinned);
+        if (serverPinned === !!rec.pinned) {
+          return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); // already in sync
+        }
+        return send(transport, "PATCH", "/api/mindmaps/" + sid + "/pin", undefined).then((res2) => {
+          if (ok(res2)) { return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); }
+          result.failed++;
+          return TFoutbox.outboxRemove(op.qid);
+        });
+      });
+    });
+  }
+
   function opHabitDelete(op, transport, result) {
     return TFidmap.serverIdOf(op.cid).then((sid) => {
       if (sid == null) {
@@ -483,6 +596,10 @@
     if (op.entity_type === "note" && op.op === "delete") return opNoteDelete(op, transport, result);
     if (op.entity_type === "note" && op.op === "pin") return opNotePin(op, transport, result);
     if (op.entity_type === "drawing" && op.op === "upsert") return opDrawingUpsert(op, transport, result);
+    if (op.entity_type === "mindmap" && op.op === "create") return opMindmapCreate(op, transport, result);
+    if (op.entity_type === "mindmap" && op.op === "update") return opMindmapUpdate(op, transport, result);
+    if (op.entity_type === "mindmap" && op.op === "delete") return opMindmapDelete(op, transport, result);
+    if (op.entity_type === "mindmap" && op.op === "pin") return opMindmapPin(op, transport, result);
     return TFoutbox.outboxRemove(op.qid);
   }
 
@@ -506,7 +623,7 @@
       .then((r) => { _running = false; return r; }, (e) => { _running = false; throw e; });
   }
 
-  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, noteToCreatePayload, noteToUpdatePayload, pushOutbox };
+  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, noteToCreatePayload, noteToUpdatePayload, mindmapToCreatePayload, mindmapToUpdatePayload, pushOutbox };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpush = exported; }
   return exported;
 });
