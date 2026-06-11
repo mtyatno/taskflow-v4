@@ -21,6 +21,7 @@
   const TFnoteroutes = req("./noteroutes.js", root.TF && root.TF.noteroutes);
   const TFdrawingroutes = req("./drawingroutes.js", root.TF && root.TF.drawingroutes);
   const TFmindmaproutes = req("./mindmaproutes.js", root.TF && root.TF.mindmaproutes);
+  const TFchatroutes = req("./chatroutes.js", root.TF && root.TF.chatroutes);
 
   function todayISO() {
     const n = new Date();
@@ -120,6 +121,7 @@
     TFnoteroutes.registerNoteRoutes(router);
     TFdrawingroutes.registerDrawingRoutes(router);
     TFmindmaproutes.registerMindmapRoutes(router);
+    TFchatroutes.registerChatRoutes(router);
 
     return router;
   }
