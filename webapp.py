@@ -230,6 +230,17 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Migrate messages.client_id column (offline chat dedup)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
+        if "client_id" not in cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN client_id TEXT")
+            conn.commit()
+    finally:
+        conn.close()
+
     # Create note_templates table
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -521,6 +532,7 @@ class MessageCreate(BaseModel):
     note_id: Optional[int] = None
     msg_type: str = "text"
     reply_to_id: Optional[int] = None
+    client_id: Optional[str] = Field(default=None, max_length=64)
 
 class RecurrenceMarkReq(BaseModel):
     status: str  # "done" | "skipped"
@@ -1877,6 +1889,7 @@ async def get_messages(list_id: int, limit: int = 50, before_id: Optional[int] =
     with get_db() as conn:
         base_select = """
             SELECT m.id, m.list_id, m.user_id, m.content, m.task_id, m.note_id, m.msg_type,
+                   m.client_id,
                    m.created_at, m.reply_to_id,
                    u.username, u.display_name,
                    t.title as task_title, t.priority as task_priority,
@@ -1965,14 +1978,15 @@ async def post_message(list_id: int, req: MessageCreate, user=Depends(get_curren
                 raise HTTPException(status_code=400, detail="Task tidak ditemukan di list ini")
         # Save message
         cur = conn.execute(
-            "INSERT INTO messages (list_id, user_id, content, task_id, note_id, msg_type, reply_to_id, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (list_id, uid, req.content, req.task_id, req.note_id, req.msg_type, req.reply_to_id, now),
+            "INSERT INTO messages (list_id, user_id, content, task_id, note_id, msg_type, reply_to_id, client_id, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (list_id, uid, req.content, req.task_id, req.note_id, req.msg_type, req.reply_to_id, req.client_id, now),
         )
         msg_id = cur.lastrowid
         # Fetch with joined data for broadcast
         row = conn.execute(
             """SELECT m.id, m.list_id, m.user_id, m.content, m.task_id, m.note_id, m.msg_type,
+                      m.client_id,
                       m.created_at, m.reply_to_id,
                       u.username, u.display_name,
                       t.title as task_title, t.priority as task_priority,
