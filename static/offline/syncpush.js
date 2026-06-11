@@ -565,6 +565,70 @@
     });
   }
 
+  function getChatRaw(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("chat_messages", "readonly").objectStore("chat_messages").get(cid);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function putChatRaw(rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("chat_messages", "readwrite");
+      tx.objectStore("chat_messages").put(rec);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function deleteChatRaw(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("chat_messages", "readwrite");
+      tx.objectStore("chat_messages").delete(cid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function chatSendPayload(rec, replyServerId) {
+    return {
+      content: rec.content != null ? rec.content : "",
+      task_id: rec.task_id != null ? rec.task_id : null,
+      note_id: rec.note_id != null ? rec.note_id : null,
+      msg_type: rec.msg_type || "text",
+      reply_to_id: replyServerId != null ? replyServerId : null,
+      client_id: rec.cid,
+    };
+  }
+  // reply_to_id is a server int for confirmed targets, or a cid for a still-local target.
+  function resolveReplyServerId(rec) {
+    const rt = rec.reply_to_id;
+    if (rt == null) return Promise.resolve({ serverId: null, hold: false });
+    if (typeof rt === "number" || /^\d+$/.test(String(rt))) return Promise.resolve({ serverId: Number(rt), hold: false });
+    return TFidmap.serverIdOf(rt).then((sid) => (sid != null ? { serverId: sid, hold: false } : { hold: true }));
+  }
+
+  function opChatSend(op, transport, result) {
+    return getChatRaw(op.cid).then((rec) => {
+      if (!rec) return TFoutbox.outboxRemove(op.qid);
+      if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
+      return resolveReplyServerId(rec).then((rep) => {
+        if (rep.hold) return; // reply target not on the server yet; retry next drain (FIFO)
+        return send(transport, "POST", "/api/lists/" + rec.list_id + "/messages", chatSendPayload(rec, rep.serverId)).then((res) => {
+          if (ok(res)) {
+            const sid = res.data.id;
+            return TFidmap.mapPut("message", sid, op.cid)
+              .then(() => putChatRaw(Object.assign({}, rec, { server_id: sid, created_at: res.data.created_at != null ? res.data.created_at : rec.created_at, pending: 0 })))
+              .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+          }
+          if (res.status === 403) {
+            return deleteChatRaw(op.cid).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
+          }
+          result.failed++;
+          return TFoutbox.outboxRemove(op.qid);
+        });
+      });
+    });
+  }
+
   function opHabitDelete(op, transport, result) {
     return TFidmap.serverIdOf(op.cid).then((sid) => {
       if (sid == null) {
@@ -601,6 +665,7 @@
     if (op.entity_type === "mindmap" && op.op === "update") return opMindmapUpdate(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "delete") return opMindmapDelete(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "pin") return opMindmapPin(op, transport, result);
+    if (op.entity_type === "message" && op.op === "send") return opChatSend(op, transport, result);
     return TFoutbox.outboxRemove(op.qid);
   }
 
