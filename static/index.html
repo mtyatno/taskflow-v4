@@ -1343,6 +1343,8 @@
   <script src="/static/offline/drawingroutes.js"></script>
   <script src="/static/offline/mindmaprepo.js"></script>
   <script src="/static/offline/mindmaproutes.js"></script>
+  <script src="/static/offline/chatrepo.js"></script>
+  <script src="/static/offline/chatroutes.js"></script>
   <script src="/static/offline/listsync.js"></script>
   <script src="/static/offline/taskroutes.js"></script>
   <script src="/static/offline/hydrate.js"></script>
@@ -1520,6 +1522,10 @@ if (window.TF && window.TF.drawingrepo && window.TF.idmap) {
   window.TF.drawingrepo.configureFetcher((noteCid) =>
     window.TF.idmap.serverIdOf(noteCid).then((sid) =>
       (sid == null ? null : __syncRawFetch("/api/drawings/" + sid).then((r) => (r.ok ? r.json() : null)))));
+}
+if (window.TF && window.TF.chatrepo) {
+  window.TF.chatrepo.configureFetcher((url) =>
+    __syncRawFetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error("http " + r.status)))));
 }
 function sync() {
   if (!(window.TF && window.TF.syncpull && window.TF.syncpush)) { renderConflicts(); return Promise.resolve(null); }
@@ -20435,6 +20441,7 @@ function App() {
     if (tokenStore.get()) {
       api.get("/api/auth/me").then(u => {
         setUser(u);
+        if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
         setAuthChecked(true);
       }).catch(err => {
         // Offline: jangan hapus token, pakai username dari token payload
@@ -20446,6 +20453,7 @@ function App() {
               username: payload.username || payload.sub,
               display_name: payload.display_name || payload.username || payload.sub
             });
+            if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
           } catch (_) {}
           setAuthChecked(true);
         } else {

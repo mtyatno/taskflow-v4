@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v132-mindmaps";
+const CACHE = "taskflow-v133-chat";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
@@ -33,6 +33,8 @@ const STATIC = [
   "/static/offline/drawingroutes.js",
   "/static/offline/mindmaprepo.js",
   "/static/offline/mindmaproutes.js",
+  "/static/offline/chatrepo.js",
+  "/static/offline/chatroutes.js",
   "/static/vendor/tldraw/index.html",
   "/static/vendor/tldraw/assets/index.js",
   "/static/vendor/tldraw/assets/index.css",
