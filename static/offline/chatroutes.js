@@ -39,7 +39,8 @@
       return TFrepo.getMessages(listId, q);
     });
     router.register("POST", "/api/lists/:id/messages", ({ params, body }) =>
-      TFrepo.sendMessage(params.id, body || {}, TFrepo.getCurrentUser(), {}));
+      TFrepo.sendMessage(params.id, body || {}, TFrepo.getCurrentUser(),
+        { cid: body && body.client_id ? body.client_id : undefined }));
   }
 
   const exported = { registerChatRoutes };
