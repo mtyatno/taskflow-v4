@@ -12163,7 +12163,14 @@ function ChatRoom({
       try {
         const msg = JSON.parse(e.data);
         if (msg.type === "ping") return;
-        setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+        if (window.TF && window.TF.chatrepo) window.TF.chatrepo.upsertIncoming(msg);
+        setMessages(prev => {
+          if (msg.client_id) {
+            const idx = prev.findIndex(m => m.client_id === msg.client_id);
+            if (idx >= 0) { const next = prev.slice(); next[idx] = msg; return next; }
+          }
+          return prev.some(m => m.id === msg.id) ? prev : [...prev, msg];
+        });
         setTimeout(scrollToBottom, 30);
       } catch (_) {}
     };
@@ -12362,14 +12369,20 @@ function ChatRoom({
       style: {
         textAlign: isSelf ? "right" : "left"
       }
-    }, formatTime(msg.created_at)))));
+    }, msg.pending ? "🕐 mengirim…" : formatTime(msg.created_at)))));
   }), /*#__PURE__*/React.createElement("div", {
     ref: messagesEndRef
   })), /*#__PURE__*/React.createElement(ChatInputBar, {
     list: list,
     user: user,
     onSent: msg => {
-      setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+      setMessages(prev => {
+        if (msg.client_id) {
+          const idx = prev.findIndex(m => m.client_id === msg.client_id);
+          if (idx >= 0) { const next = prev.slice(); next[idx] = msg; return next; }
+        }
+        return prev.some(m => m.id === msg.id) ? prev : [...prev, msg];
+      });
       setTimeout(scrollToBottom, 30);
     },
     showToast: showToast,
@@ -12569,12 +12582,16 @@ function ChatInputBar({
     if (!text.trim() && !attachedTask && !attachedNote) return;
     setSending(true);
     try {
+      const clientId = (window.TF && window.TF.ids && window.TF.ids.newCid)
+        ? window.TF.ids.newCid()
+        : `tmp_msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       const payload = {
         content: text.trim() || (attachedTask ? `📌 ${attachedTask.title}` : attachedNote ? `📝 ${attachedNote.title || "(tanpa judul)"}` : ""),
         task_id: attachedTask?.id || null,
         note_id: attachedNote?.id || null,
         msg_type: attachedTask ? "task_attach" : attachedNote ? "note_attach" : "text",
-        reply_to_id: replyTo?.id || null
+        reply_to_id: replyTo?.id || null,
+        client_id: clientId
       };
       const msg = await api.post(`/api/lists/${list.id}/messages`, payload);
       setText("");
