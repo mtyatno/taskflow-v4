@@ -90,3 +90,15 @@ test("upsertIncoming caches a single SSE message", async () => {
   assert.equal(list.length, 1);
   assert.equal(list[0].id, 77);
 });
+
+test("getMessages collapses duplicate rows sharing a server_id (concurrent-write safety net)", async () => {
+  // Two local rows (distinct cids) for the same server message — what a concurrent
+  // cacheMessages + upsertIncoming race could leave behind.
+  await put("chat_messages", [
+    { cid: "dupA", server_id: 88, list_id: 7, user_id: 2, content: "once", msg_type: "text", created_at: "2026-06-11T00:00:00", pending: 0 },
+    { cid: "dupB", server_id: 88, list_id: 7, user_id: 2, content: "once", msg_type: "text", created_at: "2026-06-11T00:00:00", pending: 0 },
+  ]);
+  const list = await getMessages(7, {});
+  assert.equal(list.length, 1);
+  assert.equal(list[0].id, 88);
+});

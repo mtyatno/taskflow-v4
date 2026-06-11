@@ -124,6 +124,16 @@
         const bs = b.server_id != null ? b.server_id : Infinity;
         return as - bs;
       });
+      // Defensive: a concurrent read-through cache write + SSE upsert can mint two
+      // cids for the same server message. Collapse rows sharing a server_id (keep first).
+      const seenSid = new Set();
+      rows = rows.filter((r) => {
+        if (r.server_id == null) return true;
+        const k = String(r.server_id);
+        if (seenSid.has(k)) return false;
+        seenSid.add(k);
+        return true;
+      });
       if (beforeId != null) {
         const refIdx = rows.findIndex((r) => r.server_id != null && String(r.server_id) === String(beforeId));
         if (refIdx >= 0) rows = rows.slice(0, refIdx);
