@@ -62,6 +62,16 @@ test("LWW-loss on a dirty shared note attaches an overwritten notice", async () 
   assert.equal(local.notice.editor, "Bob");
 });
 
+test("an un-dismissed notice survives a later ordinary (clean) server update", async () => {
+  await put("scratchpad_notes", [localNote({ cid: "n", server_id: 5, list_id: 9, dirty: 0, title: "Theirs", updated_at: "2026-06-12T05:00:00", base_rev: "2026-06-12T05:00:00", notice: { kind: "overwritten", title: "Theirs", editor: "Bob" } })]);
+  await mapPut("note", 5, "n");
+  // server edits the note again (clean local, base_rev differs) -> ordinary "updated" write
+  await pullNotes([srv({ id: 5, list_id: 9, title: "TheirsAgain", updated_at: "2026-06-12T09:00:00", last_edited_by: 7, last_editor_display_name: "Bob" })]);
+  const local = (await getAll("scratchpad_notes"))[0];
+  assert.equal(local.title, "TheirsAgain"); // content updated
+  assert.equal(local.notice.kind, "overwritten"); // notice preserved until dismissed
+});
+
 test("shared dirty note vanished from server -> conflict remote_deleted (not silent keep)", async () => {
   await put("scratchpad_notes", [localNote({ cid: "n", server_id: 5, list_id: 9, dirty: 1, title: "Mine" })]);
   await mapPut("note", 5, "n");

@@ -335,7 +335,7 @@
               }
               result.skipped++; return;
             }
-            if (s.updated_at !== local.base_rev) { result.updated++; return writeNote(s, cid, cache); }
+            if (s.updated_at !== local.base_rev) { result.updated++; return writeNote(s, cid, cache, local.notice ? { notice: local.notice } : undefined); }
             return;
           });
         }
