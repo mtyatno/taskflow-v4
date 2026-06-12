@@ -46,9 +46,10 @@ test("resolveConflict('note', cid, 'discard') removes the note + idmap + op", as
 test("listNotices surfaces note notices; dismissNotice clears them", async () => {
   await put("scratchpad_notes", [note({ cid: "n", notice: { kind: "overwritten", title: "Doc", editor: "Bob" } })]);
   const notices = await listNotices();
-  assert.equal(notices.length, 1);
-  assert.equal(notices[0].editor, "Bob");
-  await dismissNotice("n");
+  const n = notices.find((x) => x.entity === "note");
+  assert.ok(n);
+  assert.equal(n.editor, "Bob");
+  await dismissNotice("note", "n");
   assert.equal((await listNotices()).length, 0);
   assert.equal((await getNote("n")).notice, undefined);
 });

@@ -14,7 +14,7 @@
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
   const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
 
-  const STORE = { task: "tasks", note: "scratchpad_notes" };
+  const STORE = { task: "tasks", note: "scratchpad_notes", mindmap: "mindmaps" };
 
   function getAll(store) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -52,10 +52,10 @@
   }
 
   function listConflicts() {
-    return Promise.all([getAll("tasks"), getAll("scratchpad_notes")]).then(([tasks, notes]) => {
+    return Promise.all([getAll("tasks"), getAll("scratchpad_notes"), getAll("mindmaps")]).then(([tasks, notes, mindmaps]) => {
       const out = [];
-      for (const r of tasks) if (r.conflict) out.push({ entity: "task", cid: r.cid, title: r.title, conflict: r.conflict, list_id: r.list_id != null ? r.list_id : null });
-      for (const r of notes) if (r.conflict) out.push({ entity: "note", cid: r.cid, title: r.title, conflict: r.conflict, list_id: r.list_id != null ? r.list_id : null });
+      const add = (entity, rows) => { for (const r of rows) if (r.conflict) out.push({ entity: entity, cid: r.cid, title: r.title, conflict: r.conflict, list_id: r.list_id != null ? r.list_id : null }); };
+      add("task", tasks); add("note", notes); add("mindmap", mindmaps);
       return out;
     });
   }
@@ -83,16 +83,22 @@
   }
 
   function listNotices() {
-    return getAll("scratchpad_notes").then((notes) =>
-      notes.filter((r) => r.notice).map((r) => ({ cid: r.cid, kind: r.notice.kind, title: r.notice.title, editor: r.notice.editor != null ? r.notice.editor : null })));
+    return Promise.all([getAll("scratchpad_notes"), getAll("mindmaps")]).then(([notes, mindmaps]) => {
+      const out = [];
+      const add = (entity, rows) => { for (const r of rows) if (r.notice) out.push({ entity: entity, cid: r.cid, kind: r.notice.kind, title: r.notice.title, editor: r.notice.editor != null ? r.notice.editor : null }); };
+      add("note", notes); add("mindmap", mindmaps);
+      return out;
+    });
   }
 
-  function dismissNotice(cid) {
-    return getRaw("scratchpad_notes", cid).then((rec) => {
+  function dismissNotice(entity, cid) {
+    const store = STORE[entity];
+    if (!store) return Promise.reject(new Error("unknown entity: " + entity));
+    return getRaw(store, cid).then((rec) => {
       if (!rec) return { ok: false };
       const next = Object.assign({}, rec);
       delete next.notice;
-      return putRaw("scratchpad_notes", next).then(() => ({ ok: true }));
+      return putRaw(store, next).then(() => ({ ok: true }));
     });
   }
 
