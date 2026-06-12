@@ -98,6 +98,7 @@
     return {
       title: record.title != null ? record.title : "Untitled",
       data_json: record.data_json != null ? record.data_json : MM_DEFAULT_DATA,
+      list_id: record.list_id != null ? record.list_id : null,
     };
   }
   function mindmapToUpdatePayload(record) {
@@ -518,6 +519,9 @@
             .then(() => putMindmapRaw(Object.assign({}, rec, { server_id: sid, dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev })))
             .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
         }
+        if (res.status === 403) {
+          return deleteMindmapRaw(op.cid).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
+        }
         result.failed++;
         return TFoutbox.outboxRemove(op.qid);
       });
@@ -527,12 +531,17 @@
   function opMindmapUpdate(op, transport, result) {
     return Promise.all([getMindmapRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
+      if (rec.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves
       return send(transport, "PUT", "/api/mindmaps/" + sid, mindmapToUpdatePayload(rec)).then((res) => {
         if (ok(res)) {
           return putMindmapRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev }))
             .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
         }
         if (res.status === 404) {
+          if (rec.list_id != null) {
+            return putMindmapRaw(Object.assign({}, rec, { conflict: "remote_deleted" }))
+              .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
+          }
           return send(transport, "POST", "/api/mindmaps", mindmapToCreatePayload(rec)).then((res2) => {
             if (ok(res2)) {
               const nid = res2.data.id;
@@ -544,6 +553,11 @@
             result.failed++;
             return TFoutbox.outboxRemove(op.qid);
           });
+        }
+        if (res.status === 403) {
+          return TFidmap.mapDelete("mindmap", sid)
+            .then(() => deleteMindmapRaw(op.cid))
+            .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
         }
         result.failed++;
         return TFoutbox.outboxRemove(op.qid);
@@ -561,6 +575,13 @@
           return TFidmap.mapDelete("mindmap", sid)
             .then(() => deleteMindmapRaw(op.cid))
             .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+        }
+        if (res.status === 403) {
+          return getMindmapRaw(op.cid).then((rec) =>
+            (rec
+              ? putMindmapRaw(Object.assign({}, rec, { deleted: false, dirty: 0, notice: { kind: "delete_refused", title: rec.title } }))
+              : Promise.resolve()))
+            .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
         }
         result.failed++;
         return TFoutbox.outboxRemove(op.qid);

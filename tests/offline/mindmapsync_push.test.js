@@ -36,10 +36,10 @@ function fakeTransport(handler) {
   return { calls, request(method, path, body) { calls.push({ method, path, body }); const h = handler(method, path, body); if (h === "NETWORK") return Promise.reject(new Error("net")); return Promise.resolve(h); } };
 }
 
-test("mindmapToCreatePayload / Update build {title, data_json}", () => {
+test("mindmapToCreatePayload / Update build {title, data_json, list_id}", () => {
   const p = mindmapToCreatePayload(mm({ cid: "m", title: "Hi", data_json: "{\"x\":1}" }));
-  assert.deepEqual(p, { title: "Hi", data_json: "{\"x\":1}" });
-  assert.deepEqual(mindmapToUpdatePayload(mm({ cid: "m", title: "T", data_json: "{}" })), { title: "T", data_json: "{}" });
+  assert.deepEqual(p, { title: "Hi", data_json: "{\"x\":1}", list_id: null });
+  assert.deepEqual(mindmapToUpdatePayload(mm({ cid: "m", title: "T", data_json: "{}" })), { title: "T", data_json: "{}", list_id: null });
 });
 
 test("push create POSTs /api/mindmaps, sets server_id + idmap + base_rev, clears dirty", async () => {
