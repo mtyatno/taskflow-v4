@@ -417,19 +417,24 @@
       cid: cid, server_id: s.id,
       title: s.title != null ? s.title : "Untitled",
       data_json: s.data_json != null ? s.data_json : MM_DEFAULT_DATA,
-      pinned: !!s.is_pinned, list_id: null,
+      pinned: !!s.is_pinned,
+      list_id: s.list_id != null ? s.list_id : null,
+      user_id: s.user_id != null ? s.user_id : null,
+      last_edited_by: s.last_edited_by != null ? s.last_edited_by : null,
+      last_editor_username: s.last_editor_username != null ? s.last_editor_username : null,
+      last_editor_display_name: s.last_editor_display_name != null ? s.last_editor_display_name : null,
       created_at: s.created_at != null ? s.created_at : null,
       updated_at: s.updated_at != null ? s.updated_at : null,
       deleted: false, dirty: 0, base_rev: s.updated_at != null ? s.updated_at : null,
     };
   }
-  function writeMindmapFull(serverId, cid, fetchOne) {
-    return Promise.resolve(fetchOne(serverId)).then((fullRow) => (fullRow ? putMindmap(mindmapFromServer(fullRow, cid)) : null));
+  function writeMindmapFull(serverId, cid, fetchOne, extra) {
+    return Promise.resolve(fetchOne(serverId)).then((fullRow) => (fullRow ? putMindmap(Object.assign(mindmapFromServer(fullRow, cid), extra || {})) : null));
   }
 
   // serverList = GET /api/mindmaps (metadata, no data_json). fetchOne(serverId) = GET /api/mindmaps/:id (full).
   function pullMindmaps(serverList, fetchOne) {
-    const list = (serverList || []).filter((s) => s.list_id == null);
+    const list = (serverList || []);
     const cache = {};
     return list.reduce((p, s) => p.then(() => ensureMindmapCid(s.id, cache)), Promise.resolve())
       .then(() => getAllMindmaps())
@@ -442,17 +447,20 @@
           const local = byCid[cid];
           chain = chain.then(() => {
             if (!local) { result.created++; return writeMindmapFull(s.id, cid, fetchOne); }
+            if (local.conflict) { result.skipped++; return; }
             if (local.dirty) {
               if (s.updated_at !== local.base_rev) {
                 result.lwwResolved++;
                 if (tsEpoch(s.updated_at) > tsEpoch(local.updated_at)) {
-                  return dropOutbox("mindmap", cid).then(() => writeMindmapFull(s.id, cid, fetchOne)); // server wins
+                  return dropOutbox("mindmap", cid).then(() => writeMindmapFull(s.id, cid, fetchOne, {
+                    notice: { kind: "overwritten", title: s.title, editor: s.last_editor_display_name || s.last_editor_username || "Pengguna lain" },
+                  })); // server wins (LWW) — leave a notice
                 }
                 return; // local wins
               }
               result.skipped++; return;
             }
-            if (s.updated_at !== local.base_rev) { result.updated++; return writeMindmapFull(s.id, cid, fetchOne); }
+            if (s.updated_at !== local.base_rev) { result.updated++; return writeMindmapFull(s.id, cid, fetchOne, local.notice ? { notice: local.notice } : undefined); }
             return;
           });
         }
@@ -461,7 +469,10 @@
           if (r.server_id == null) continue;
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
-            if (r.dirty) { result.skipped++; return; } // local-wins; push update→404→re-create
+            if (r.dirty) {
+              if (r.list_id != null) { result.skipped++; return putMindmap(Object.assign({}, r, { conflict: "remote_deleted" })); }
+              result.skipped++; return; // personal local-wins; push update→404→re-create
+            }
             result.deleted++;
             return deleteMindmapRec(r.cid).then(() => TFidmap.mapDelete("mindmap", r.server_id));
           });

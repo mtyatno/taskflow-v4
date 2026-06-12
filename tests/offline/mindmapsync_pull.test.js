@@ -98,9 +98,10 @@ test("pin-adopt uses list is_pinned but respects a pending pin op", async () => 
   assert.equal(local.pinned, false);
 });
 
-test("shared mindmaps (list_id != null) are ignored", async () => {
+test("shared mindmaps (list_id != null) are reconciled like personal ones", async () => {
   const rows = [metaRow({ id: 9, title: "Shared", list_id: 3 })];
   const res = await pullMindmaps(rows, fullFor(rows));
-  assert.equal(res.created, 0);
-  assert.equal((await getAll("mindmaps")).length, 0);
+  assert.equal(res.created, 1);
+  const local = (await getAll("mindmaps"))[0];
+  assert.equal(local.list_id, 3);
 });
