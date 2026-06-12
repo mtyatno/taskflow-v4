@@ -16,6 +16,11 @@
   const TFtag = req("./tagrepo.js", root.TF && root.TF.tagrepo);
   const TFlogic = req("./notelogic.js", root.TF && root.TF.notelogic);
 
+  let _currentUser = null;
+  function setCurrentUser(u) { _currentUser = u; }
+  function getCurrentUser() { return _currentUser; }
+  function curUid() { return (_currentUser && _currentUser.user_id != null) ? _currentUser.user_id : null; }
+
   function getAll(store) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const r = db.transaction(store, "readonly").objectStore(store).getAll();
@@ -85,7 +90,11 @@
         content: input.content != null ? input.content : "",
         linked_task_cids: JSON.stringify(taskCids),
         linked_to_cids: JSON.stringify(toCids),
-        pinned: false, list_id: null, last_edited_by: null,
+        pinned: false,
+        list_id: input.list_id != null ? input.list_id : null,
+        user_id: curUid(),
+        last_edited_by: curUid(),
+        last_editor_username: null, last_editor_display_name: null,
         created_at: now, updated_at: now, deleted: false, dirty: 1, base_rev: null,
       };
       return putNote(rec)
@@ -107,6 +116,7 @@
           content: content,
           linked_to_cids: JSON.stringify(toCids),
           linked_task_cids: JSON.stringify(taskCids),
+          last_edited_by: curUid(),
           updated_at: now, dirty: 1,
         });
         return putNote(next)
@@ -137,7 +147,7 @@
     });
   }
 
-  const exported = { createNote, updateNote, deleteNote, togglePin, getNoteRaw, putNote, resolveLinkedTo, resolveLinkedTasks };
+  const exported = { createNote, updateNote, deleteNote, togglePin, getNoteRaw, putNote, resolveLinkedTo, resolveLinkedTasks, setCurrentUser, getCurrentUser };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.noterepo = exported; }
   return exported;
 });
