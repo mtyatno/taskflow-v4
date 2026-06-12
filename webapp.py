@@ -219,6 +219,17 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Migrate mindmaps.last_edited_by column (collaborative shared mindmaps #2h-3)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(mindmaps)").fetchall()]
+        if "last_edited_by" not in cols:
+            conn.execute("ALTER TABLE mindmaps ADD COLUMN last_edited_by INTEGER")
+            conn.commit()
+    finally:
+        conn.close()
+
     # Migrate messages.note_id column
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -2476,6 +2487,29 @@ def _note_access_clause(uid: int, prefix: str = "") -> tuple[str, list]:
     )
     return clause, [uid, uid, uid]
 
+def _mindmap_access_clause(uid: int, prefix: str = "") -> tuple[str, list]:
+    """SQL WHERE fragment + params: mindmaps owned by uid OR shared via list membership."""
+    p = f"{prefix}." if prefix else ""
+    clause = (
+        f"({p}user_id = ? OR {p}list_id IN ("
+        "  SELECT id FROM shared_lists WHERE owner_id = ?"
+        "  UNION SELECT list_id FROM list_members WHERE user_id = ?"
+        "))"
+    )
+    return clause, [uid, uid, uid]
+
+
+def _mindmap_enrich(d: dict, conn) -> dict:
+    """Add last_editor_username/display_name when last_edited_by is set and != owner."""
+    if d.get("last_edited_by") and d["last_edited_by"] != d.get("user_id"):
+        editor = conn.execute(
+            "SELECT username, display_name FROM users WHERE id = ?", (d["last_edited_by"],)
+        ).fetchone()
+        if editor:
+            d["last_editor_username"] = editor["username"]
+            d["last_editor_display_name"] = editor["display_name"]
+    return d
+
 @app.get("/api/scratchpad")
 async def list_scratchpad(q: str = "", tag: str = "", user=Depends(get_current_user)):
     uid = user["sub"]
@@ -3181,12 +3215,13 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
 async def list_mindmaps(user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
+        access_clause, access_params = _mindmap_access_clause(uid)
         rows = conn.execute(
-            "SELECT id, title, is_pinned, list_id, created_at, updated_at FROM mindmaps "
-            "WHERE user_id = ? ORDER BY is_pinned DESC, updated_at DESC",
-            (uid,)
+            "SELECT id, title, is_pinned, list_id, user_id, last_edited_by, created_at, updated_at FROM mindmaps "
+            f"WHERE {access_clause} ORDER BY is_pinned DESC, updated_at DESC",
+            access_params
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_mindmap_enrich(dict(r), conn) for r in rows]
 
 
 class MindmapShareReq(BaseModel):
@@ -3395,31 +3430,33 @@ async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
 async def get_mindmap(mid: int, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
+        access_clause, access_params = _mindmap_access_clause(uid)
         row = conn.execute(
-            "SELECT * FROM mindmaps WHERE id = ? AND user_id = ?", (mid, uid)
+            f"SELECT * FROM mindmaps WHERE id = ? AND {access_clause}", [mid] + access_params
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
-        return dict(row)
+        return _mindmap_enrich(dict(row), conn)
 
 @app.put("/api/mindmaps/{mid}")
 async def update_mindmap(mid: int, req: MindmapUpdate, user=Depends(get_current_user)):
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
     with get_db() as conn:
+        access_clause, access_params = _mindmap_access_clause(uid)
         row = conn.execute(
-            "SELECT id, title, data_json FROM mindmaps WHERE id = ? AND user_id = ?", (mid, uid)
+            f"SELECT id, title, data_json FROM mindmaps WHERE id = ? AND {access_clause}", [mid] + access_params
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
         new_title = req.title if req.title is not None else row["title"]
         new_data = req.data_json if req.data_json is not None else row["data_json"]
         conn.execute(
-            "UPDATE mindmaps SET title = ?, data_json = ?, updated_at = ? WHERE id = ?",
-            (new_title, new_data, now, mid)
+            "UPDATE mindmaps SET title = ?, data_json = ?, last_edited_by = ?, updated_at = ? WHERE id = ?",
+            (new_title, new_data, uid, now, mid)
         )
         updated = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (mid,)).fetchone()
-        return dict(updated)
+        return _mindmap_enrich(dict(updated), conn)
 
 @app.patch("/api/mindmaps/{mid}/pin")
 async def toggle_pin_mindmap(mid: int, user=Depends(get_current_user)):
@@ -3444,7 +3481,7 @@ async def delete_mindmap(mid: int, user=Depends(get_current_user)):
         if not conn.execute(
             "SELECT id FROM mindmaps WHERE id = ? AND user_id = ?", (mid, uid)
         ).fetchone():
-            raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
+            raise HTTPException(status_code=403, detail="Hanya pemilik yang bisa menghapus mindmap ini")
         conn.execute("DELETE FROM mindmaps WHERE id = ?", (mid,))
     return {"ok": True}
 
