@@ -46,6 +46,11 @@
       resolveNoteCid(params.id).then((cid) => (cid ? TFrepo.deleteNote(cid, {}) : notFound())));
     router.register("PATCH", "/api/scratchpad/:id/pin", ({ params }) =>
       resolveNoteCid(params.id).then((cid) => (cid ? TFrepo.togglePin(cid, {}).then(() => TFquery.getNote(cid)) : notFound())));
+    router.register("GET", "/api/lists/:id/notes", ({ params }) =>
+      allNotes().then((all) => all
+        .filter((n) => !n.deleted && n.list_id != null && String(n.list_id) === String(params.id))
+        .sort((a, b) => (String(b.updated_at) < String(a.updated_at) ? -1 : String(b.updated_at) > String(a.updated_at) ? 1 : 0))
+        .map((n) => ({ id: n.server_id != null ? n.server_id : n.cid, title: n.title, updated_at: n.updated_at }))));
   }
 
   const exported = { registerNoteRoutes };
