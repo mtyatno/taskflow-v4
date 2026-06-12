@@ -36,7 +36,7 @@ test("resolveConflict discard removes the record, its outbox ops, and idmap entr
   await putTasks([{ cid: "a", server_id: 10, title: "A", conflict: "remote_deleted", dirty: 1 }]);
   await mapPut("task", 10, "a");
   await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
-  await resolveConflict("a", "discard");
+  await resolveConflict("task", "a", "discard");
   assert.equal(await getTask("a"), undefined);
   assert.equal((await outboxAll()).length, 0);
   assert.equal(await cidOf("task", 10), undefined);
@@ -46,7 +46,7 @@ test("resolveConflict keep_as_new clears server_id, drops idmap, and queues a cr
   await putTasks([{ cid: "a", server_id: 10, title: "A", conflict: "remote_deleted", dirty: 1 }]);
   await mapPut("task", 10, "a");
   await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
-  await resolveConflict("a", "keep_as_new");
+  await resolveConflict("task", "a", "keep_as_new");
   const rec = await getTask("a");
   assert.equal(rec.server_id, null);
   assert.equal(rec.conflict, undefined);

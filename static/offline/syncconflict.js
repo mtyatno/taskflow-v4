@@ -14,67 +14,89 @@
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
   const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
 
-  function getAllTasks() {
+  const STORE = { task: "tasks", note: "scratchpad_notes" };
+
+  function getAll(store) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const r = db.transaction("tasks", "readonly").objectStore("tasks").getAll();
+      const r = db.transaction(store, "readonly").objectStore(store).getAll();
       r.onsuccess = () => resolve(r.result || []);
       r.onerror = () => reject(r.error);
     }));
   }
-  function getTaskRaw(cid) {
+  function getRaw(store, cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const r = db.transaction("tasks", "readonly").objectStore("tasks").get(cid);
+      const r = db.transaction(store, "readonly").objectStore(store).get(cid);
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
     }));
   }
-  function putTask(rec) {
+  function putRaw(store, rec) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction("tasks", "readwrite");
-      tx.objectStore("tasks").put(rec);
+      const tx = db.transaction(store, "readwrite");
+      tx.objectStore(store).put(rec);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     }));
   }
-  function deleteTask(cid) {
+  function deleteRaw(store, cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction("tasks", "readwrite");
-      tx.objectStore("tasks").delete(cid);
+      const tx = db.transaction(store, "readwrite");
+      tx.objectStore(store).delete(cid);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     }));
   }
-  function dropOutbox(cid) {
-    return TFoutbox.outboxByEntity("task", cid).then((ops) =>
+  function dropOutbox(entity, cid) {
+    return TFoutbox.outboxByEntity(entity, cid).then((ops) =>
       ops.reduce((p, o) => p.then(() => TFoutbox.outboxRemove(o.qid)), Promise.resolve()));
   }
 
   function listConflicts() {
-    return getAllTasks().then((all) =>
-      all.filter((r) => r.conflict).map((r) => ({ cid: r.cid, title: r.title, conflict: r.conflict, list_id: r.list_id != null ? r.list_id : null })));
+    return Promise.all([getAll("tasks"), getAll("scratchpad_notes")]).then(([tasks, notes]) => {
+      const out = [];
+      for (const r of tasks) if (r.conflict) out.push({ entity: "task", cid: r.cid, title: r.title, conflict: r.conflict, list_id: r.list_id != null ? r.list_id : null });
+      for (const r of notes) if (r.conflict) out.push({ entity: "note", cid: r.cid, title: r.title, conflict: r.conflict, list_id: r.list_id != null ? r.list_id : null });
+      return out;
+    });
   }
 
-  function resolveConflict(cid, choice) {
-    return getTaskRaw(cid).then((rec) => {
+  function resolveConflict(entity, cid, choice) {
+    const store = STORE[entity];
+    if (!store) return Promise.reject(new Error("unknown entity: " + entity));
+    return getRaw(store, cid).then((rec) => {
       if (!rec) return { ok: false };
-      const cleanup = dropOutbox(cid)
-        .then(() => (rec.server_id != null ? TFidmap.mapDelete("task", rec.server_id) : null));
+      const cleanup = dropOutbox(entity, cid)
+        .then(() => (rec.server_id != null ? TFidmap.mapDelete(entity, rec.server_id) : null));
       if (choice === "discard") {
-        return cleanup.then(() => deleteTask(cid)).then(() => ({ ok: true }));
+        return cleanup.then(() => deleteRaw(store, cid)).then(() => ({ ok: true }));
       }
       if (choice === "keep_as_new") {
         const next = Object.assign({}, rec, { server_id: null, dirty: 1 });
         delete next.conflict;
         return cleanup
-          .then(() => putTask(next))
-          .then(() => TFoutbox.outboxAdd({ op: "create", entity_type: "task", cid: cid, payload: {} }))
+          .then(() => putRaw(store, next))
+          .then(() => TFoutbox.outboxAdd({ op: "create", entity_type: entity, cid: cid, payload: {} }))
           .then(() => ({ ok: true }));
       }
       return Promise.reject(new Error("unknown choice: " + choice));
     });
   }
 
-  const exported = { listConflicts, resolveConflict };
+  function listNotices() {
+    return getAll("scratchpad_notes").then((notes) =>
+      notes.filter((r) => r.notice).map((r) => ({ cid: r.cid, kind: r.notice.kind, title: r.notice.title, editor: r.notice.editor != null ? r.notice.editor : null })));
+  }
+
+  function dismissNotice(cid) {
+    return getRaw("scratchpad_notes", cid).then((rec) => {
+      if (!rec) return { ok: false };
+      const next = Object.assign({}, rec);
+      delete next.notice;
+      return putRaw("scratchpad_notes", next).then(() => ({ ok: true }));
+    });
+  }
+
+  const exported = { listConflicts, resolveConflict, listNotices, dismissNotice };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncconflict = exported; }
   return exported;
 });
