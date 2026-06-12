@@ -86,7 +86,7 @@
       content: record.content != null ? record.content : "",
       tags: tagNames || [],
       linked_task_ids: taskServerIds || [],
-      list_id: null,
+      list_id: record.list_id != null ? record.list_id : null,
     };
   }
   function noteToUpdatePayload(record, tagNames, taskServerIds) {
@@ -356,6 +356,9 @@
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => { result.pushed++; });
           }
+          if (res.status === 403) {
+            return deleteNoteRaw(op.cid).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
+          }
           result.failed++;
           return TFoutbox.outboxRemove(op.qid);
         })
@@ -373,6 +376,11 @@
               .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
           }
           if (res.status === 404) {
+            if (rec.list_id != null) {
+              // shared note deleted by owner (or access lost): do not re-create — surface edit-vs-delete.
+              return putNoteRaw(Object.assign({}, rec, { conflict: "remote_deleted" }))
+                .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
+            }
             return send(transport, "POST", "/api/scratchpad", noteToCreatePayload(rec, tags, taskSids)).then((res2) => {
               if (ok(res2)) {
                 const nid = res2.data.id;
@@ -384,6 +392,11 @@
               result.failed++;
               return TFoutbox.outboxRemove(op.qid);
             });
+          }
+          if (res.status === 403) {
+            return TFidmap.mapDelete("note", sid)
+              .then(() => deleteNoteRaw(op.cid))
+              .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
           }
           result.failed++;
           return TFoutbox.outboxRemove(op.qid);
@@ -403,6 +416,13 @@
             .then(() => deleteNoteRaw(op.cid))
             .then(() => TFoutbox.outboxRemove(op.qid))
             .then(() => { result.pushed++; });
+        }
+        if (res.status === 403) {
+          return getNoteRaw(op.cid).then((rec) =>
+            (rec
+              ? putNoteRaw(Object.assign({}, rec, { deleted: false, dirty: 0, notice: { kind: "delete_refused", title: rec.title } }))
+              : Promise.resolve()))
+            .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
         }
         result.failed++;
         return TFoutbox.outboxRemove(op.qid);
