@@ -1563,7 +1563,7 @@ function renderConflicts() {
           const b = document.createElement("button");
           b.textContent = "Tutup";
           b.style.cssText = "padding:4px 10px;border:1px solid #92400e;border-radius:6px;background:#fff;cursor:pointer;";
-          b.onclick = () => { b.disabled = true; window.TF.syncconflict.dismissNotice(n.cid).then(() => renderConflicts()).catch(() => {}); };
+          b.onclick = () => { b.disabled = true; window.TF.syncconflict.dismissNotice(n.entity, n.cid).then(() => renderConflicts()).catch(() => {}); };
           row.appendChild(b);
           bar.appendChild(row);
         });
@@ -1612,7 +1612,7 @@ function renderConflicts() {
         const b = document.createElement("button");
         b.textContent = "Tutup";
         b.style.cssText = "padding:4px 10px;border:1px solid #92400e;border-radius:6px;background:#fff;cursor:pointer;";
-        b.onclick = () => { b.disabled = true; window.TF.syncconflict.dismissNotice(n.cid).then(() => renderConflicts()).catch(() => {}); };
+        b.onclick = () => { b.disabled = true; window.TF.syncconflict.dismissNotice(n.entity, n.cid).then(() => renderConflicts()).catch(() => {}); };
         row.appendChild(b);
         bar.appendChild(row);
       });
@@ -20503,6 +20503,7 @@ function App() {
         setUser(u);
         if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
         if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
+        if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
         setAuthChecked(true);
       }).catch(err => {
         // Offline: jangan hapus token, pakai username dari token payload
@@ -20516,6 +20517,7 @@ function App() {
             });
             if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
             if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
+            if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
           } catch (_) {}
           setAuthChecked(true);
         } else {
