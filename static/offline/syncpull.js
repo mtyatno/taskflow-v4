@@ -294,17 +294,22 @@
       .then((taskCids) => ({
         cid: cid, server_id: s.id, title: s.title != null ? s.title : "", content: s.content != null ? s.content : "",
         linked_to_cids: JSON.stringify(toCids), linked_task_cids: JSON.stringify(taskCids),
-        pinned: !!s.pinned, list_id: null, last_edited_by: s.last_edited_by != null ? s.last_edited_by : null,
+        pinned: !!s.pinned,
+        list_id: s.list_id != null ? s.list_id : null,
+        user_id: s.user_id != null ? s.user_id : null,
+        last_edited_by: s.last_edited_by != null ? s.last_edited_by : null,
+        last_editor_username: s.last_editor_username != null ? s.last_editor_username : null,
+        last_editor_display_name: s.last_editor_display_name != null ? s.last_editor_display_name : null,
         created_at: s.created_at != null ? s.created_at : null, updated_at: s.updated_at != null ? s.updated_at : null,
         deleted: false, dirty: 0, base_rev: s.updated_at != null ? s.updated_at : null,
       }));
   }
-  function writeNote(s, cid, cache) {
-    return noteFromServer(s, cid, cache).then((rec) => putNote(rec)).then(() => TFtag.setEntityTags("note", cid, s.tags || []));
+  function writeNote(s, cid, cache, extra) {
+    return noteFromServer(s, cid, cache).then((rec) => putNote(Object.assign(rec, extra || {}))).then(() => TFtag.setEntityTags("note", cid, s.tags || []));
   }
 
   function pullNotes(serverNotes) {
-    const list = (serverNotes || []).filter((s) => s.list_id == null);
+    const list = (serverNotes || []);
     const cache = {};
     return list.reduce((p, s) => p.then(() => ensureNoteCid(s.id, cache)), Promise.resolve())
       .then(() => getAllNotes())
@@ -322,7 +327,9 @@
               if (s.updated_at !== local.base_rev) {
                 result.lwwResolved++;
                 if (tsEpoch(s.updated_at) > tsEpoch(local.updated_at)) {
-                  return dropOutbox("note", cid).then(() => writeNote(s, cid, cache)); // server wins
+                  return dropOutbox("note", cid).then(() => writeNote(s, cid, cache, {
+                    notice: { kind: "overwritten", title: s.title, editor: s.last_editor_display_name || s.last_editor_username || "Pengguna lain" },
+                  })); // server wins (LWW) — leave a notice
                 }
                 return; // local wins
               }
@@ -337,7 +344,10 @@
           if (r.server_id == null) continue;
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
-            if (r.dirty) { result.skipped++; return; } // local-wins; push update→404→re-create
+            if (r.dirty) {
+              if (r.list_id != null) { result.skipped++; return putNote(Object.assign({}, r, { conflict: "remote_deleted" })); }
+              result.skipped++; return; // personal local-wins; push update→404→re-create
+            }
             result.deleted++;
             return deleteNoteRec(r.cid).then(() => TFidmap.mapDelete("note", r.server_id));
           });

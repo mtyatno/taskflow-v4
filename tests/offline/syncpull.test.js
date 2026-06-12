@@ -346,10 +346,12 @@ test("pullNotes creates an unknown personal server note (dirty 0, base_rev, tags
   assert.deepEqual(tags.map((t) => t.name), ["x"]);
 });
 
-test("pullNotes skips shared notes (list_id != null)", async () => {
+test("pullNotes includes shared notes (list_id != null) and carries list_id", async () => {
   const r = await pullNotes([srvNote({ id: 5, list_id: 9 })]);
-  assert.equal(r.created, 0);
-  assert.equal((await allNotesP()).length, 0);
+  assert.equal(r.created, 1);
+  const rows = await allNotesP();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].list_id, 9);
 });
 
 test("pullNotes updates a clean local note when updated_at differs", async () => {
