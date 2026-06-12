@@ -25,7 +25,7 @@ function note(over) {
   }, over);
 }
 
-test("getNotes returns personal non-deleted notes ordered by updated_at DESC with display id", async () => {
+test("getNotes returns non-deleted notes (personal + shared) ordered by updated_at DESC with display id", async () => {
   await put("scratchpad_notes", [
     note({ cid: "a", server_id: 5, title: "A", updated_at: "2026-06-02T00:00:00" }),
     note({ cid: "b", title: "B", updated_at: "2026-06-03T00:00:00" }),
@@ -33,7 +33,7 @@ test("getNotes returns personal non-deleted notes ordered by updated_at DESC wit
     note({ cid: "d", title: "Shared", list_id: 9 }),
   ]);
   const rows = await getNotes({});
-  assert.deepEqual(rows.map((r) => r.id), ["b", 5]); // b newest; a has server_id 5; deleted+shared excluded
+  assert.deepEqual(rows.map((r) => r.id), ["b", 5, "d"]); // b newest (06-03); a server_id 5 (06-02); d shared (06-01); deleted excluded
 });
 
 test("getNotes filters by q (title/content) and includes tags + pinned in shape", async () => {
@@ -78,7 +78,7 @@ test("getRecent returns the 5 most recent personal notes", async () => {
 
 const { getTitles, getBacklinks } = require("../../static/offline/notequery.js");
 
-test("getTitles returns {id,title} for personal notes", async () => {
+test("getTitles returns {id,title} for accessible notes (personal + shared)", async () => {
   await put("scratchpad_notes", [
     note({ cid: "a", server_id: 5, title: "Alpha" }),
     note({ cid: "b", title: "Beta" }),
@@ -86,7 +86,7 @@ test("getTitles returns {id,title} for personal notes", async () => {
   ]);
   const rows = await getTitles();
   const ids = rows.map((r) => r.id).sort();
-  assert.deepEqual(rows.map((r) => r.title).sort(), ["Alpha", "Beta"]);
+  assert.deepEqual(rows.map((r) => r.title).sort(), ["Alpha", "Beta", "Shared"]);
   assert.ok(ids.includes(5) && ids.includes("b"));
 });
 

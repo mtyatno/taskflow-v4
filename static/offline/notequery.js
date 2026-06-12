@@ -35,12 +35,17 @@
       tags: (ctx.tagsByCid[rec.cid] || []).map((t) => t.name),
       pinned: !!rec.pinned,
       linked_task_ids: taskDisplay, linked_tasks: linkedTasks, linked_to: toDisplay,
-      list_id: null, created_at: rec.created_at, updated_at: rec.updated_at,
+      list_id: rec.list_id != null ? rec.list_id : null,
+      user_id: rec.user_id != null ? rec.user_id : null,
+      last_edited_by: rec.last_edited_by != null ? rec.last_edited_by : null,
+      last_editor_username: rec.last_editor_username != null ? rec.last_editor_username : null,
+      last_editor_display_name: rec.last_editor_display_name != null ? rec.last_editor_display_name : null,
+      created_at: rec.created_at, updated_at: rec.updated_at,
     };
   }
 
   function personalSorted(notes) {
-    return notes.filter((n) => !n.deleted && n.list_id == null)
+    return notes.filter((n) => !n.deleted)
       .sort((a, b) => (String(b.updated_at) < String(a.updated_at) ? -1 : String(b.updated_at) > String(a.updated_at) ? 1 : 0));
   }
 
