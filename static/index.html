@@ -1542,7 +1542,33 @@ function renderConflicts() {
   if (!(window.TF && window.TF.syncconflict)) return;
   window.TF.syncconflict.listConflicts().then(list => {
     let bar = document.getElementById("tf-conflict-bar");
-    if (!list.length) { if (bar) bar.remove(); return; }
+    if (!list.length) {
+      return window.TF.syncconflict.listNotices().then(notices => {
+        if (!notices.length) { if (bar) bar.remove(); return; }
+        if (!bar) {
+          bar = document.createElement("div");
+          bar.id = "tf-conflict-bar";
+          bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#fef3c7;border-top:2px solid #f59e0b;padding:10px 14px;font:14px sans-serif;color:#92400e;max-height:40vh;overflow:auto;";
+          document.body.appendChild(bar);
+        }
+        bar.innerHTML = "";
+        notices.forEach(n => {
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap;";
+          const label = document.createElement("span");
+          label.textContent = n.kind === "delete_refused"
+            ? "🔔 '" + (n.title || "(tanpa judul)") + "' tidak bisa dihapus — hanya pemilik yang bisa menghapus."
+            : "🔔 Edit offline-mu pada '" + (n.title || "(tanpa judul)") + "' ditimpa oleh " + (n.editor || "pengguna lain") + ".";
+          row.appendChild(label);
+          const b = document.createElement("button");
+          b.textContent = "Tutup";
+          b.style.cssText = "padding:4px 10px;border:1px solid #92400e;border-radius:6px;background:#fff;cursor:pointer;";
+          b.onclick = () => { b.disabled = true; window.TF.syncconflict.dismissNotice(n.cid).then(() => renderConflicts()).catch(() => {}); };
+          row.appendChild(b);
+          bar.appendChild(row);
+        });
+      });
+    }
     if (!bar) {
       bar = document.createElement("div");
       bar.id = "tf-conflict-bar";
@@ -1565,7 +1591,7 @@ function renderConflicts() {
         b.style.cssText = "padding:4px 10px;border:1px solid #92400e;border-radius:6px;background:#fff;cursor:pointer;";
         b.onclick = () => {
           b.disabled = true;
-          window.TF.syncconflict.resolveConflict(c.cid, choice)
+          window.TF.syncconflict.resolveConflict(c.entity || "task", c.cid, choice)
             .then(() => sync())
             .then(() => { if (window.__refreshTasks) window.__refreshTasks(); })
             .catch(() => {});
@@ -1574,6 +1600,23 @@ function renderConflicts() {
       });
       bar.appendChild(row);
     });
+    window.TF.syncconflict.listNotices().then(notices => {
+      notices.forEach(n => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap;";
+        const label = document.createElement("span");
+        label.textContent = n.kind === "delete_refused"
+          ? "🔔 '" + (n.title || "(tanpa judul)") + "' tidak bisa dihapus — hanya pemilik yang bisa menghapus."
+          : "🔔 Edit offline-mu pada '" + (n.title || "(tanpa judul)") + "' ditimpa oleh " + (n.editor || "pengguna lain") + ".";
+        row.appendChild(label);
+        const b = document.createElement("button");
+        b.textContent = "Tutup";
+        b.style.cssText = "padding:4px 10px;border:1px solid #92400e;border-radius:6px;background:#fff;cursor:pointer;";
+        b.onclick = () => { b.disabled = true; window.TF.syncconflict.dismissNotice(n.cid).then(() => renderConflicts()).catch(() => {}); };
+        row.appendChild(b);
+        bar.appendChild(row);
+      });
+    }).catch(() => {});
   }).catch(() => {});
 }
 window.__syncNow = () => sync();
@@ -20459,6 +20502,7 @@ function App() {
       api.get("/api/auth/me").then(u => {
         setUser(u);
         if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
+        if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
         setAuthChecked(true);
       }).catch(err => {
         // Offline: jangan hapus token, pakai username dari token payload
@@ -20471,6 +20515,7 @@ function App() {
               display_name: payload.display_name || payload.username || payload.sub
             });
             if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
+            if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
           } catch (_) {}
           setAuthChecked(true);
         } else {
