@@ -117,6 +117,7 @@
           linked_to_cids: JSON.stringify(toCids),
           linked_task_cids: JSON.stringify(taskCids),
           last_edited_by: curUid(),
+          last_editor_username: null, last_editor_display_name: null, // I edited it now — clear stale "edited by X"
           updated_at: now, dirty: 1,
         });
         return putNote(next)
