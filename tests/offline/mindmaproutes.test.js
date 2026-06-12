@@ -51,8 +51,8 @@ test("list sorts pinned first then by updated_at desc", async () => {
   assert.equal(list[0].is_pinned, 1);
 });
 
-test("share + list-scoped mindmaps are NOT intercepted (stay network)", async () => {
+test("share is NOT intercepted (stays network); list-scoped mindmaps IS intercepted", async () => {
   const R = buildTaskRouter();
   assert.equal(R.hasRoute("PATCH", "/api/mindmaps/5/share"), false);
-  assert.equal(R.hasRoute("GET", "/api/lists/3/mindmaps"), false);
+  assert.equal(R.hasRoute("GET", "/api/lists/3/mindmaps"), true);
 });

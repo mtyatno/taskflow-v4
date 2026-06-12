@@ -25,6 +25,10 @@
     return {
       id: displayId(rec), title: rec.title, is_pinned: rec.pinned ? 1 : 0,
       list_id: rec.list_id != null ? rec.list_id : null,
+      user_id: rec.user_id != null ? rec.user_id : null,
+      last_edited_by: rec.last_edited_by != null ? rec.last_edited_by : null,
+      last_editor_username: rec.last_editor_username != null ? rec.last_editor_username : null,
+      last_editor_display_name: rec.last_editor_display_name != null ? rec.last_editor_display_name : null,
       created_at: rec.created_at, updated_at: rec.updated_at,
     };
   }
@@ -41,7 +45,7 @@
 
   function listMindmaps() {
     return allMindmaps().then((all) => {
-      const personal = all.filter((m) => !m.deleted && m.list_id == null);
+      const personal = all.filter((m) => !m.deleted);
       personal.sort((a, b) => {
         const pa = a.pinned ? 1 : 0, pb = b.pinned ? 1 : 0;
         if (pa !== pb) return pb - pa;
@@ -69,6 +73,11 @@
       resolveMindmapCid(params.id).then((cid) => (cid ? TFrepo.togglePin(cid).then(() => getFull(cid)) : notFound())));
     router.register("DELETE", "/api/mindmaps/:id", ({ params }) =>
       resolveMindmapCid(params.id).then((cid) => (cid ? TFrepo.deleteMindmap(cid) : notFound())));
+    router.register("GET", "/api/lists/:id/mindmaps", ({ params }) =>
+      allMindmaps().then((all) => all
+        .filter((m) => !m.deleted && m.list_id != null && String(m.list_id) === String(params.id))
+        .sort((a, b) => (String(b.updated_at) < String(a.updated_at) ? -1 : String(b.updated_at) > String(a.updated_at) ? 1 : 0))
+        .map((m) => ({ id: m.server_id != null ? m.server_id : m.cid, title: m.title, updated_at: m.updated_at }))));
   }
 
   const exported = { registerMindmapRoutes };
