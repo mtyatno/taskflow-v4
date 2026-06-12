@@ -14,6 +14,11 @@
   const TFids = req("./ids.js", root.TF && root.TF.ids);
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
 
+  let _currentUser = null;
+  function setCurrentUser(u) { _currentUser = u; }
+  function getCurrentUser() { return _currentUser; }
+  function curUid() { return (_currentUser && _currentUser.user_id != null) ? _currentUser.user_id : null; }
+
   const DEFAULT_DATA = '{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}';
 
   function getRaw(cid) {
@@ -43,7 +48,11 @@
       cid: TFids.newCid(), server_id: null,
       title: input.title != null ? input.title : "Untitled",
       data_json: input.data_json != null ? input.data_json : DEFAULT_DATA,
-      pinned: false, list_id: null,
+      pinned: false,
+      list_id: input.list_id != null ? input.list_id : null,
+      user_id: curUid(),
+      last_edited_by: curUid(),
+      last_editor_username: null, last_editor_display_name: null,
       created_at: now, updated_at: now, deleted: false, dirty: 1, base_rev: null,
     };
     return putRaw(rec)
@@ -58,6 +67,8 @@
       const next = Object.assign({}, rec, {
         title: patch.title != null ? patch.title : rec.title,
         data_json: patch.data_json != null ? patch.data_json : rec.data_json,
+        last_edited_by: curUid(),
+        last_editor_username: null, last_editor_display_name: null,
         updated_at: now, dirty: 1,
       });
       return putRaw(next)
@@ -87,7 +98,7 @@
     });
   }
 
-  const exported = { createMindmap, updateMindmap, deleteMindmap, togglePin, getRaw, putRaw };
+  const exported = { createMindmap, updateMindmap, deleteMindmap, togglePin, getRaw, putRaw, setCurrentUser, getCurrentUser };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.mindmaprepo = exported; }
   return exported;
 });
