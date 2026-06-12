@@ -82,3 +82,12 @@ test("member delete 403 reverts the tombstone + records a notice", async () => {
   assert.equal(rec.notice.kind, "delete_refused");
   assert.equal((await outboxAll()).length, 0);
 });
+
+test("a note already flagged conflict is not re-pushed (guard, no network call)", async () => {
+  await put("scratchpad_notes", [note({ cid: "n", server_id: 7, list_id: 9, conflict: "remote_deleted" })]);
+  await mapPut("note", 7, "n");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "note", cid: "n", payload: {} }]);
+  const tr = fakeTransport(() => { throw new Error("should not hit the network for a conflicted note"); });
+  await pushOutbox(tr);
+  assert.equal((await outboxAll()).length, 0); // op dropped, no PUT issued
+});

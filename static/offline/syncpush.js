@@ -369,6 +369,7 @@
   function opNoteUpdate(op, transport, result) {
     return Promise.all([getNoteRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
+      if (rec.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves; don't re-push against an unreachable note
       return Promise.all([noteTagNames(op.cid), linkedTaskServerIds(rec)]).then(([tags, taskSids]) =>
         send(transport, "PUT", "/api/scratchpad/" + sid, noteToUpdatePayload(rec, tags, taskSids)).then((res) => {
           if (ok(res)) {
