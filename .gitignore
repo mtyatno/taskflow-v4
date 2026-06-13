@@ -5,6 +5,7 @@ __pycache__/
 *.log
 .venv/
 dist/
+dist-tauri/
 draw-app/node_modules/
 static/vendor/tldraw/
 
