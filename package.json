@@ -4,7 +4,8 @@
   "description": "JSX pre-compiler for TaskFlow V4 index.html",
   "scripts": {
     "compile": "node compile.js",
-    "test": "node --test \"tests/offline/*.test.js\""
+    "test": "node --test \"tests/offline/*.test.js\"",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@babel/core": "^7.24.0",
