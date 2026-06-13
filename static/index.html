@@ -1437,22 +1437,21 @@ const apiUrl = (p) => (typeof p === "string" && p.charAt(0) === "/") ? API_BASE 
 // token and download the resulting blob.
 async function openAttachment(path, filename) {
   if (!API_BASE) { window.open(path, "_blank", "noopener"); return; }
+  // Native app (desktop + mobile): the webview can't handle blob downloads and the
+  // Android webview can't render PDFs, so open the file in the OS browser/viewer via
+  // the Tauri opener plugin. Append ?token= so the external browser (a separate
+  // context without the cookie/header) can authenticate — the download/view
+  // endpoints accept it (get_current_user_sse).
+  const tok = (typeof __token !== "undefined" && __token) ? __token : "";
+  const url = apiUrl(path) + (path.indexOf("?") === -1 ? "?" : "&") + "token=" + encodeURIComponent(tok);
   try {
-    const headers = (typeof __token !== "undefined" && __token) ? { Authorization: "Bearer " + __token } : {};
-    const res = await fetch(apiUrl(path), { headers });
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename || "lampiran";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-  } catch (e) {
-    alert("Gagal membuka lampiran: " + e.message);
-  }
+    const T = window.__TAURI__;
+    if (T && T.core && typeof T.core.invoke === "function") {
+      await T.core.invoke("plugin:opener|open_url", { url });
+      return;
+    }
+  } catch (e) { /* fall through to window.open */ }
+  window.open(url, "_blank");
 }
 // An <img> embedded in note content cannot send the auth token, and in the native
 // app the webview is cross-origin to the API. The /view endpoint also accepts the

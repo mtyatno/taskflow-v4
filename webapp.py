@@ -1627,7 +1627,7 @@ async def delete_attachment(attachment_id: int, user=Depends(get_current_user)):
     return {"ok": True}
 
 @app.get("/api/attachments/{attachment_id}/download")
-async def download_attachment(attachment_id: int, user=Depends(get_current_user)):
+async def download_attachment(attachment_id: int, user=Depends(get_current_user_sse)):
     with get_db() as conn:
         att = conn.execute("SELECT * FROM task_attachments WHERE id = ?", (attachment_id,)).fetchone()
         if not att:
