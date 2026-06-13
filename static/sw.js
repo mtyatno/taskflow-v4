@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v137-tauri-config";
+const CACHE = "taskflow-v138-sse-token";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

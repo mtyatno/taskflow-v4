@@ -12204,7 +12204,9 @@ function ChatRoom({
 
   // SSE subscription
   useEffect(() => {
-    const es = new EventSource(apiUrl(`/api/lists/${list.id}/messages/stream`));
+    const __sseUrl = apiUrl(`/api/lists/${list.id}/messages/stream`)
+      + (API_BASE && __token ? `?token=${encodeURIComponent(__token)}` : "");
+    const es = new EventSource(__sseUrl);
     esRef.current = es;
     es.onmessage = e => {
       try {
