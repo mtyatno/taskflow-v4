@@ -650,6 +650,22 @@ async def _send_tg_message(tg_id: int, text: str):
 
 app = FastAPI(title="TaskFlow V4", docs_url="/api/docs")
 
+from fastapi.middleware.cors import CORSMiddleware
+
+_CORS_ORIGINS = [
+    o.strip() for o in os.environ.get(
+        "CORS_ALLOW_ORIGINS",
+        "tauri://localhost,http://tauri.localhost,https://tauri.localhost,https://todo.yatno.web.id",
+    ).split(",") if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 def seed_habit_templates():
     """Seed habit_templates from JSON if table is empty."""
