@@ -1427,6 +1427,9 @@ const OfflineDB = (() => {
 
 // ── API helper ──────────────────────────────────────────────
 const genId = () => typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
+const API_BASE = (typeof window !== "undefined" && window.__API_BASE) ? window.__API_BASE : "";
+// Prepend API_BASE to absolute API paths ("/api/..."); full URLs and non-slash inputs pass through.
+const apiUrl = (p) => (typeof p === "string" && p.charAt(0) === "/") ? API_BASE + p : p;
 const api = {
   async fetch(url, opts = {}) {
     // ── Offline local-first intercept (TF.taskroutes) ──
@@ -1453,7 +1456,7 @@ const api = {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const res = await fetch(url, {
+      const res = await fetch(apiUrl(url), {
         ...opts,
         headers,
         signal: controller.signal
@@ -1504,7 +1507,7 @@ const api = {
 };
 // ── Offline push (TF.syncpush) — raw-fetch transport bypasses the api intercept ──
 const __syncTransport = {
-  request: (method, path, body) => window.fetch(path, {
+  request: (method, path, body) => window.fetch(apiUrl(path), {
     method,
     headers: Object.assign({ "Content-Type": "application/json" }, __token ? { Authorization: "Bearer " + __token } : {}),
     body: body != null ? JSON.stringify(body) : undefined,
@@ -1517,7 +1520,7 @@ function schedulePush() {
   __pushTimer = setTimeout(() => { window.TF.syncpush.pushOutbox(__syncTransport).catch(() => {}); }, 1500);
 }
 window.__pushNow = () => (window.TF && window.TF.syncpush) ? window.TF.syncpush.pushOutbox(__syncTransport) : Promise.resolve(null);
-const __syncRawFetch = (u) => window.fetch(u, { headers: __token ? { Authorization: "Bearer " + __token } : {} });
+const __syncRawFetch = (u) => window.fetch(apiUrl(u), { headers: __token ? { Authorization: "Bearer " + __token } : {} });
 if (window.TF && window.TF.drawingrepo && window.TF.idmap) {
   window.TF.drawingrepo.configureFetcher((noteCid) =>
     window.TF.idmap.serverIdOf(noteCid).then((sid) =>
@@ -5244,7 +5247,7 @@ function ModalAttachments({
       const formData = new FormData();
       formData.append("file", file);
       const token = __token;
-      const res = await fetch(`/api/tasks/${taskId}/attachments`, {
+      const res = await fetch(apiUrl(`/api/tasks/${taskId}/attachments`), {
         method: "POST",
         headers: token ? {
           "Authorization": "Bearer " + token
@@ -7456,7 +7459,7 @@ function FocusAttachments({
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch(`/api/tasks/${taskId}/attachments`, {
+      const res = await fetch(apiUrl(`/api/tasks/${taskId}/attachments`), {
         method: "POST",
         headers: __token ? {
           "Authorization": "Bearer " + __token
@@ -12200,7 +12203,7 @@ function ChatRoom({
 
   // SSE subscription
   useEffect(() => {
-    const es = new EventSource(`/api/lists/${list.id}/messages/stream`);
+    const es = new EventSource(apiUrl(`/api/lists/${list.id}/messages/stream`));
     esRef.current = es;
     es.onmessage = e => {
       try {
@@ -13267,7 +13270,7 @@ function SettingsPage({
   const handleExport = async () => {
     setDownloading(true);
     try {
-      const res = await fetch('/api/export/download', {
+      const res = await fetch(apiUrl('/api/export/download'), {
         headers: typeof __token !== 'undefined' && __token ? {
           Authorization: 'Bearer ' + __token
         } : {}
@@ -13981,7 +13984,7 @@ function NoteToolbar({
       formData.append('file', file);
       const headers = {};
       if (typeof __token !== 'undefined' && __token) headers['Authorization'] = 'Bearer ' + __token;
-      const res = await fetch(`/api/scratchpad/${noteId}/attachments`, {
+      const res = await fetch(apiUrl(`/api/scratchpad/${noteId}/attachments`), {
         method: 'POST',
         headers,
         body: formData
