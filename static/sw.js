@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v136-apibase";
+const CACHE = "taskflow-v137-tauri-config";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
@@ -69,6 +69,7 @@ const STATIC = [
   "/static/vendor/katex/fonts/KaTeX_Size4-Regular.woff2",
   "/static/vendor/katex/fonts/KaTeX_Typewriter-Regular.woff2",
   "/manifest.json",
+  "/config.js",
   "/static/icon-192.png",
   "/static/icon-512.png",
   "/static/icon-new-task.svg",
