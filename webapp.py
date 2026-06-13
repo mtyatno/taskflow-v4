@@ -357,12 +357,16 @@ def decode_token(token: str) -> dict:
 
 # ── Auth dependency ────────────────────────────────────────────────────────────
 
-async def get_current_user(request: Request) -> dict:
+async def _resolve_user(request: Request, allow_query: bool) -> dict:
     token = request.cookies.get("token")
     if not token:
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
             token = auth[7:]
+    if not token and allow_query:
+        # EventSource (SSE) cannot send the Authorization header cross-origin (Tauri desktop),
+        # so the stream endpoint also accepts the token as a query param. Scoped to SSE only.
+        token = request.query_params.get("token")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     data = decode_token(token)
@@ -375,6 +379,14 @@ async def get_current_user(request: Request) -> dict:
         if not row:
             raise HTTPException(status_code=401, detail="Token sudah direvoke")
     return data
+
+
+async def get_current_user(request: Request) -> dict:
+    return await _resolve_user(request, allow_query=False)
+
+
+async def get_current_user_sse(request: Request) -> dict:
+    return await _resolve_user(request, allow_query=True)
 
 async def get_admin_user(user: dict = Depends(get_current_user)) -> dict:
     with get_db() as conn:
@@ -2067,7 +2079,7 @@ async def post_message(list_id: int, req: MessageCreate, user=Depends(get_curren
 
 
 @app.get("/api/lists/{list_id}/messages/stream")
-async def chat_stream(list_id: int, request: Request, user=Depends(get_current_user)):
+async def chat_stream(list_id: int, request: Request, user=Depends(get_current_user_sse)):
     uid = user["sub"]
     repo = TaskRepository(DB_PATH)
     if not repo.is_list_member_or_owner(list_id, uid):
