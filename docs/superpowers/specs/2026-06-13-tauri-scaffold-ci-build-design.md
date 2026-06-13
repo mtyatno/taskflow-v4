@@ -60,6 +60,7 @@ Standard Tauri v2 layout at the repo root. The Rust is the generated boilerplate
 - **`src-tauri/src/main.rs`** — `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` + `fn main() { taskflow_lib::run() }`.
 - **`src-tauri/src/lib.rs`** — `pub fn run() { tauri::Builder::default().run(tauri::generate_context!()).expect("error while running tauri application"); }`.
 - **`src-tauri/capabilities/default.json`** — Tauri v2 permissions: `{ "$schema": "../gen/schemas/desktop-schema.json", "identifier": "default", "description": "default capability", "windows": ["main"], "permissions": ["core:default"] }`.
+- **Frontend layout (`scripts/build-tauri-dist.js` → `dist-tauri/`):** the web server serves `static/index.html` at `/`, `static/sw.js` at `/sw.js`, `static/manifest.json` at `/manifest.json`, and mounts `static/` at `/static/`; `index.html` references vendor/offline as `/static/vendor/...` and root files as `/sw.js`, `/manifest.json`, `/config.js`. A bundled `frontendDist: "../static"` would break (`/static/vendor` → `static/static/vendor`). So a small cross-platform Node script assembles `dist-tauri/` mirroring the served layout — `index.html`, `sw.js`, `manifest.json`, `config.js` at the root, plus the entire `static/` dir copied to `dist-tauri/static/` (so `/static/*` resolves). `tauri.conf.json` points `frontendDist` at `../dist-tauri`. The CI workflow runs this script after building the tldraw vendor (so `static/vendor/tldraw/` is present when copied).
 - **`src-tauri/tauri.conf.json`**:
   ```json
   {
@@ -67,7 +68,7 @@ Standard Tauri v2 layout at the repo root. The Rust is the generated boilerplate
     "productName": "TaskFlow",
     "version": "4.0.0",
     "identifier": "id.web.yatno.taskflow",
-    "build": { "frontendDist": "../static" },
+    "build": { "frontendDist": "../dist-tauri" },
     "app": {
       "windows": [
         { "title": "TaskFlow", "label": "main", "width": 1280, "height": 800, "resizable": true }
@@ -91,7 +92,7 @@ Standard Tauri v2 layout at the repo root. The Rust is the generated boilerplate
 
 - **Root `package.json`:** add `@tauri-apps/cli` (v2) to `devDependencies` so the CI `npm install` provides the `tauri` CLI that `tauri-action` invokes.
 
-- **`.gitignore`:** add `src-tauri/target/` and `src-tauri/gen/` (build output / generated schemas).
+- **`.gitignore`:** add `src-tauri/target/`, `src-tauri/gen/` (build output / generated schemas), and `dist-tauri/` (assembled frontend).
 
 ---
 
@@ -117,6 +118,8 @@ jobs:
         run: node compile.js
       - name: Build tldraw vendor (draw-app → static/vendor/tldraw)
         run: cd draw-app && npm ci && npx vite build
+      - name: Assemble Tauri frontend (dist-tauri)
+        run: node scripts/build-tauri-dist.js
       - uses: dtolnay/rust-toolchain@stable
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
