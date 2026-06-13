@@ -1431,6 +1431,29 @@ const genId = () => typeof crypto !== "undefined" && crypto.randomUUID ? crypto.
 const API_BASE = (typeof window !== "undefined" && window.__API_BASE) ? window.__API_BASE : "";
 // Prepend API_BASE to absolute API paths ("/api/..."); full URLs and non-slash inputs pass through.
 const apiUrl = (p) => (typeof p === "string" && p.charAt(0) === "/") ? API_BASE + p : p;
+// Open/download an attachment. On web (same-origin) the cookie/session opens it
+// directly in a new tab. In the native app the webview is cross-origin to the API
+// and a plain <a href> can't send the auth token, so fetch the file with the Bearer
+// token and download the resulting blob.
+async function openAttachment(path, filename) {
+  if (!API_BASE) { window.open(path, "_blank", "noopener"); return; }
+  try {
+    const headers = (typeof __token !== "undefined" && __token) ? { Authorization: "Bearer " + __token } : {};
+    const res = await fetch(apiUrl(path), { headers });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename || "lampiran";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    alert("Gagal membuka lampiran: " + e.message);
+  }
+}
 const api = {
   async fetch(url, opts = {}) {
     // ── Offline local-first intercept (TF.taskroutes) ──
@@ -5335,9 +5358,9 @@ function ModalAttachments({
     }
   }, /*#__PURE__*/React.createElement("a", {
     href: `/api/attachments/${a.id}/download`,
-    target: "_blank",
-    rel: "noopener",
+    onClick: e => { e.preventDefault(); openAttachment(`/api/attachments/${a.id}/download`, a.original_name); },
     style: {
+      cursor: "pointer",
       fontSize: 13,
       fontWeight: 500,
       color: "var(--accent)",
@@ -7527,9 +7550,9 @@ function FocusAttachments({
     }
   }, a.mime_type?.startsWith("image/") ? "🖼️" : "📄"), /*#__PURE__*/React.createElement("a", {
     href: `/api/attachments/${a.id}/download`,
-    target: "_blank",
-    rel: "noopener",
+    onClick: e => { e.preventDefault(); openAttachment(`/api/attachments/${a.id}/download`, a.original_name); },
     style: {
+      cursor: "pointer",
       fontSize: 12,
       color: "var(--accent)",
       textDecoration: "none",
@@ -16131,9 +16154,9 @@ function NoteModal({
     }
   }, att.mime_type.startsWith('image/') ? '🖼' : '📄'), /*#__PURE__*/React.createElement("a", {
     href: `/api/scratchpad/attachments/${att.id}/view`,
-    target: "_blank",
-    rel: "noreferrer",
+    onClick: e => { e.preventDefault(); openAttachment(`/api/scratchpad/attachments/${att.id}/view`, att.original_name); },
     style: {
+      cursor: "pointer",
       flex: 1,
       overflow: 'hidden',
       textOverflow: 'ellipsis',
@@ -17363,9 +17386,9 @@ function NotePanel({
     }
   }, att.mime_type.startsWith('image/') ? '🖼' : '📄'), /*#__PURE__*/React.createElement("a", {
     href: `/api/scratchpad/attachments/${att.id}/view`,
-    target: "_blank",
-    rel: "noreferrer",
+    onClick: e => { e.preventDefault(); openAttachment(`/api/scratchpad/attachments/${att.id}/view`, att.original_name); },
     style: {
+      cursor: "pointer",
       flex: 1,
       overflow: 'hidden',
       textOverflow: 'ellipsis',
@@ -21694,43 +21717,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
       });
     }
 
-    // PWA Install Prompt
-    let _deferredPrompt = null;
-    window.addEventListener("beforeinstallprompt", e => {
-      e.preventDefault();
-      _deferredPrompt = e;
-      const banner = document.getElementById("pwa-install-banner");
-      if (banner) banner.style.display = "flex";
-    });
-    window.addEventListener("appinstalled", () => {
-      _deferredPrompt = null;
-      const banner = document.getElementById("pwa-install-banner");
-      if (banner) banner.style.display = "none";
-    });
-    function pwaInstall() {
-      if (!_deferredPrompt) return;
-      _deferredPrompt.prompt();
-      _deferredPrompt.userChoice.then(() => {
-        _deferredPrompt = null;
-        const banner = document.getElementById("pwa-install-banner");
-        if (banner) banner.style.display = "none";
-      });
-    }
-    function pwaDismiss() {
-      const banner = document.getElementById("pwa-install-banner");
-      if (banner) banner.style.display = "none";
-    }
   </script>
 
-  <!-- PWA Install Banner -->
-  <div id="pwa-install-banner" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999;background:#0f172a;color:white;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.35);padding:14px 18px;gap:14px;align-items:center;min-width:280px;max-width:360px;width:calc(100vw - 48px);">
-    <div style="font-size:26px;line-height:1;">📲</div>
-    <div style="flex:1;">
-      <div style="font-weight:700;font-size:14px;margin-bottom:2px;">Install TaskFlow</div>
-      <div style="font-size:12px;opacity:0.7;">Akses offline, lebih cepat dari browser</div>
-    </div>
-    <button onclick="pwaInstall()" style="background:#22c55e;color:white;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;">Install</button>
-    <button onclick="pwaDismiss()" style="background:none;border:none;color:rgba(255,255,255,0.5);font-size:18px;cursor:pointer;padding:0 2px;line-height:1;">✕</button>
-  </div>
 </body>
 </html>
