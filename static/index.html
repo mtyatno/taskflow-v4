@@ -1454,6 +1454,39 @@ async function openAttachment(path, filename) {
     alert("Gagal membuka lampiran: " + e.message);
   }
 }
+// An <img> embedded in note content cannot send the auth token, and in the native
+// app the webview is cross-origin to the API. The /view endpoint also accepts the
+// token as a query param; mediaUrl() appends it for note-attachment view URLs (web
+// stays relative + cookie-based, so no token is put in the URL there).
+function mediaUrl(path) {
+  if (typeof path !== "string") return path;
+  if (API_BASE && typeof __token !== "undefined" && __token
+      && /^\/api\/scratchpad\/attachments\/[^?#]+\/view$/.test(path)) {
+    return apiUrl(path) + "?token=" + encodeURIComponent(__token);
+  }
+  return apiUrl(path);
+}
+// Rewrite attachment <img> elements that still carry a relative/un-tokenized src
+// (e.g. images drawn by the Milkdown editor) so they load in the native app.
+function fixAttachmentImg(img) {
+  if (!API_BASE || typeof __token === "undefined" || !__token) return;
+  const src = img.getAttribute("src") || "";
+  if (/[?&]token=/.test(src)) return;
+  if (/^\/api\/scratchpad\/attachments\/[^?#]+\/view$/.test(src)) {
+    img.setAttribute("src", mediaUrl(src));
+  }
+}
+if (typeof window !== "undefined" && API_BASE && typeof document !== "undefined" && document.body) {
+  new MutationObserver(muts => {
+    for (const mu of muts) {
+      for (const n of mu.addedNodes) {
+        if (!n || n.nodeType !== 1) continue;
+        if (n.tagName === "IMG") fixAttachmentImg(n);
+        else if (n.querySelectorAll) n.querySelectorAll("img").forEach(fixAttachmentImg);
+      }
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+}
 const api = {
   async fetch(url, opts = {}) {
     // ── Offline local-first intercept (TF.taskroutes) ──
@@ -13690,7 +13723,7 @@ marked.use({
       text
     }) {
       const esc = (text || '').replace(/"/g, '&quot;');
-      return `<img src="${href}" alt="${esc}" onerror="this.style.display='none';this.nextSibling&&(this.nextSibling.style.display='inline')" /><span class="img-offline-placeholder" style="display:none">📎 ${esc} — tidak tersedia offline</span>`;
+      return `<img src="${mediaUrl(href)}" alt="${esc}" onerror="this.style.display='none';this.nextSibling&&(this.nextSibling.style.display='inline')" /><span class="img-offline-placeholder" style="display:none">📎 ${esc} — tidak tersedia offline</span>`;
     },
     listitem(item) {
       if (item.task) {

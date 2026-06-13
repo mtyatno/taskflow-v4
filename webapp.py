@@ -2760,7 +2760,7 @@ async def delete_note_attachment(att_id: int, user=Depends(get_current_user)):
     return {"ok": True}
 
 @app.get("/api/scratchpad/attachments/{att_id}/view")
-async def view_note_attachment(att_id: int, user=Depends(get_current_user)):
+async def view_note_attachment(att_id: int, user=Depends(get_current_user_sse)):
     import requests as _req
     uid = user["sub"]
     with get_db() as conn:
