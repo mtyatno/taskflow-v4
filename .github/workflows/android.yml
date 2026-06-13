@@ -1,0 +1,67 @@
+name: Build Android APK
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install NDK + platform + build-tools
+        run: |
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264"
+          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+      - name: Install root deps (provides @tauri-apps/cli)
+        run: npm install
+      - name: Pre-compile JSX (no-op if already compiled)
+        run: node compile.js
+      - name: Build tldraw vendor (draw-app -> static/vendor/tldraw)
+        run: cd draw-app && npm ci && npx vite build
+      - name: Assemble Tauri frontend (dist-tauri)
+        run: node scripts/build-tauri-dist.js
+      - name: Tauri Android init (regenerate gen/android)
+        run: npx tauri android init
+      - name: Build Android APK (unsigned release)
+        run: npx tauri android build --apk
+      - name: Sign APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > keystore.jks
+          BT="$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -1)"
+          UNSIGNED="$(find src-tauri/gen/android/app/build/outputs/apk -name '*-unsigned.apk' | head -1)"
+          echo "build-tools: $BT"
+          echo "unsigned apk: $UNSIGNED"
+          "$BT/zipalign" -v -p 4 "$UNSIGNED" aligned.apk
+          "$BT/apksigner" sign \
+            --ks keystore.jks \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:ANDROID_KEY_PASSWORD \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --out taskflow-release.apk aligned.apk
+          "$BT/apksigner" verify --verbose taskflow-release.apk
+          rm -f keystore.jks
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: taskflow-android-apk
+          path: taskflow-release.apk
+          if-no-files-found: error
