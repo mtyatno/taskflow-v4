@@ -2129,6 +2129,12 @@ async def serve_manifest():
     return FileResponse(str(mf), media_type="application/manifest+json")
 
 
+@app.get("/config.js")
+async def serve_config():
+    cfg = STATIC_DIR / "config.js"
+    return FileResponse(str(cfg), media_type="application/javascript")
+
+
 # Mount static files
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
