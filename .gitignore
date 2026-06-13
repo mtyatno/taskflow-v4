@@ -8,6 +8,8 @@ dist/
 dist-tauri/
 draw-app/node_modules/
 static/vendor/tldraw/
+src-tauri/target/
+src-tauri/gen/
 
 # Database
 *.db

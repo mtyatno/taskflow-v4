@@ -11,6 +11,7 @@
     "@babel/preset-react": "^7.24.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2",
     "fake-indexeddb": "^6.0.0"
   }
 }
