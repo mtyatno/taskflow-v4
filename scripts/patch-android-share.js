@@ -47,17 +47,26 @@ const ktPath = findFile(path.join(ANDROID, "app/src/main"), "MainActivity.kt");
 if (!ktPath) { console.error("PATCH FAIL: MainActivity.kt not found"); process.exit(1); }
 let kt = fs.readFileSync(ktPath, "utf8");
 if (!kt.includes("handleShare")) {
-  const imports =
-    "\n\nimport android.content.Intent" +
-    "\nimport android.os.Bundle" +
-    "\nimport org.json.JSONObject" +
-    "\nimport java.io.File";
-  kt = kt.replace(/^(package .+)$/m, "$1" + imports);
-  const body =
-    "\n  override fun onCreate(savedInstanceState: Bundle?) {\n" +
-    "    super.onCreate(savedInstanceState)\n" +
-    "    handleShare(intent)\n  }\n" +
-    "  override fun onNewIntent(intent: Intent) {\n" +
+  // The generated MainActivity already has a body, an onCreate override, and
+  // imports android.os.Bundle. So we (a) add only the imports not already
+  // present, (b) call handleShare() from inside the existing onCreate, and
+  // (c) add onNewIntent + handleShare before the class's closing brace.
+  const needed = [
+    "import android.content.Intent",
+    "import org.json.JSONObject",
+    "import java.io.File",
+  ].filter(function (imp) { return !kt.includes(imp); });
+  if (needed.length) {
+    kt = kt.replace(/^(package .+)$/m, "$1\n\n" + needed.join("\n"));
+  }
+  if (kt.indexOf("super.onCreate(savedInstanceState)") !== -1) {
+    kt = kt.replace("super.onCreate(savedInstanceState)",
+      "super.onCreate(savedInstanceState)\n    handleShare(intent)");
+  } else {
+    console.error("PATCH WARN: super.onCreate(savedInstanceState) not found; cold-start share may not fire");
+  }
+  const methods =
+    "\n  override fun onNewIntent(intent: Intent) {\n" +
     "    super.onNewIntent(intent)\n" +
     "    handleShare(intent)\n  }\n" +
     "  private fun handleShare(intent: Intent?) {\n" +
@@ -66,13 +75,7 @@ if (!kt.includes("handleShare")) {
     "    val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: \"\"\n" +
     "    val json = JSONObject().put(\"text\", text).put(\"subject\", subject)\n" +
     "    File(filesDir, \"pending_share.json\").writeText(json.toString())\n  }\n";
-  // Give the (body-less) class a body, or inject before its closing brace.
-  if (/class\s+MainActivity\s*:\s*TauriActivity\s*\(\s*\)\s*$/m.test(kt)) {
-    kt = kt.replace(/(class\s+MainActivity\s*:\s*TauriActivity\s*\(\s*\))\s*$/m,
-      "$1 {\n" + body + "}\n");
-  } else {
-    kt = kt.replace(/}\s*$/, body + "}\n");
-  }
+  kt = kt.replace(/}\s*$/, methods + "}\n");
   fs.writeFileSync(ktPath, kt);
   console.log("patched MainActivity: " + ktPath);
 } else {

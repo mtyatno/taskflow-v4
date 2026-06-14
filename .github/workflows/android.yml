@@ -49,6 +49,11 @@ jobs:
           find src-tauri/gen/android -path '*/src/main/AndroidManifest.xml' -exec cat {} \;
           echo "===== patched MainActivity.kt ====="
           find src-tauri/gen/android -name MainActivity.kt -exec cat {} \;
+      - name: Pin brotli (work around broken 8.0.3 alloc-no-stdlib mismatch)
+        run: |
+          cd src-tauri
+          cargo generate-lockfile
+          cargo update -p brotli --precise 8.0.1
       - name: Build Android APK (unsigned release)
         run: npx tauri android build --apk
       - name: Sign APK
