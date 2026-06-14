@@ -35,8 +35,20 @@ jobs:
         run: node scripts/build-tauri-dist.js
       - name: Tauri Android init (regenerate gen/android)
         run: npx tauri android init
+      - name: (diag) Print generated Android files before patch
+        run: |
+          echo "===== AndroidManifest.xml ====="
+          find src-tauri/gen/android -path '*/src/main/AndroidManifest.xml' -exec cat {} \;
+          echo "===== MainActivity.kt ====="
+          find src-tauri/gen/android -name MainActivity.kt -exec sh -c 'echo "FILE: $1"; echo "----"; cat "$1"; echo' _ {} \;
       - name: Patch gen/android for share-target
         run: node scripts/patch-android-share.js
+      - name: (diag) Print patched MainActivity + manifest
+        run: |
+          echo "===== patched AndroidManifest.xml ====="
+          find src-tauri/gen/android -path '*/src/main/AndroidManifest.xml' -exec cat {} \;
+          echo "===== patched MainActivity.kt ====="
+          find src-tauri/gen/android -name MainActivity.kt -exec cat {} \;
       - name: Build Android APK (unsigned release)
         run: npx tauri android build --apk
       - name: Sign APK
