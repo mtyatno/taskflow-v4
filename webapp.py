@@ -2997,9 +2997,28 @@ async def bookmark_extract(body: BookmarkExtractIn, user=Depends(get_current_use
     if err:
         raise HTTPException(status_code=400, detail=err)
     headers = {"User-Agent": "Mozilla/5.0 (compatible; TaskFlowBookmark/1.0)"}
+    # Follow redirects manually, re-validating every hop — otherwise a public URL
+    # could 30x-redirect to an internal host and bypass the SSRF guard.
+    from urllib.parse import urljoin
+    current = url
+    resp = None
     try:
-        resp = _req.get(url, headers=headers, timeout=10, stream=True,
-                        allow_redirects=True)
+        for _ in range(6):
+            resp = _req.get(current, headers=headers, timeout=10, stream=True,
+                            allow_redirects=False)
+            if resp.is_redirect or resp.is_permanent_redirect:
+                loc = resp.headers.get("location", "")
+                resp.close()
+                if not loc:
+                    raise HTTPException(status_code=502, detail="Redirect tidak valid")
+                nxt = urljoin(current, loc)
+                if bookmark.validate_bookmark_url(nxt):
+                    raise HTTPException(status_code=400, detail="Redirect ke host tidak diizinkan")
+                current = nxt
+                continue
+            break
+        else:
+            raise HTTPException(status_code=502, detail="Terlalu banyak redirect")
     except _req.RequestException:
         raise HTTPException(status_code=502, detail="Gagal mengambil halaman")
     ctype = resp.headers.get("content-type", "")
