@@ -49,7 +49,7 @@ jobs:
           find src-tauri/gen/android -path '*/src/main/AndroidManifest.xml' -exec cat {} \;
           echo "===== patched MainActivity.kt ====="
           find src-tauri/gen/android -name MainActivity.kt -exec cat {} \;
-      - name: Pin brotli (8.0.x is broken: alloc-no-stdlib 2.x vs 3.x; use 7.x)
+      - name: Pin brotli to 7.x (8.0.x broken on alloc-no-stdlib)
         run: |
           cd src-tauri
           cargo generate-lockfile
