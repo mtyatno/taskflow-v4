@@ -34,3 +34,31 @@ def validate_bookmark_url(url):
                 or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
             return "Host internal tidak diizinkan"
     return None
+
+
+MAX_CONTENT_CHARS = 50_000
+
+
+def extract_readable(html, url):
+    """Extract the main article (title + text) from already-fetched HTML.
+
+    Returns {"title": str, "content": str}. On failure returns empty content.
+    """
+    import trafilatura
+    title = ""
+    content = ""
+    try:
+        meta = trafilatura.extract_metadata(html)
+        if meta is not None and getattr(meta, "title", None):
+            title = meta.title or ""
+    except Exception:
+        pass
+    try:
+        extracted = trafilatura.extract(
+            html, url=url, include_comments=False, include_tables=False,
+            favor_recall=True,
+        )
+        content = (extracted or "").strip()[:MAX_CONTENT_CHARS]
+    except Exception:
+        content = ""
+    return {"title": title, "content": content}
