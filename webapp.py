@@ -47,6 +47,7 @@ from models import Task, GTDStatus, Priority, Quadrant
 from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date
 from repository import TaskRepository
+import bookmark
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("WEB_SECRET_KEY", secrets.token_hex(32))
@@ -2983,6 +2984,41 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
         conn.commit()
         row = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row(row, conn, uid)
+
+class BookmarkExtractIn(BaseModel):
+    url: str
+
+
+@app.post("/api/bookmark/extract")
+async def bookmark_extract(body: BookmarkExtractIn, user=Depends(get_current_user)):
+    import requests as _req
+    url = (body.url or "").strip()
+    err = bookmark.validate_bookmark_url(url)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; TaskFlowBookmark/1.0)"}
+    try:
+        resp = _req.get(url, headers=headers, timeout=10, stream=True,
+                        allow_redirects=True)
+    except _req.RequestException:
+        raise HTTPException(status_code=502, detail="Gagal mengambil halaman")
+    ctype = resp.headers.get("content-type", "")
+    if "html" not in ctype.lower():
+        resp.close()
+        return {"title": "", "content": "", "url": url}
+    # Size cap: read up to 5 MB.
+    chunks = []
+    total = 0
+    for chunk in resp.iter_content(chunk_size=65536):
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > 5_000_000:
+            break
+    resp.close()
+    html = b"".join(chunks).decode("utf-8", errors="replace")
+    out = bookmark.extract_readable(html, url)
+    return {"title": out["title"], "content": out["content"], "url": url}
+
 
 @app.put("/api/scratchpad/{note_id}")
 async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(get_current_user)):
