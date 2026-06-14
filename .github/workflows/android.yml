@@ -35,6 +35,8 @@ jobs:
         run: node scripts/build-tauri-dist.js
       - name: Tauri Android init (regenerate gen/android)
         run: npx tauri android init
+      - name: Patch gen/android for share-target
+        run: node scripts/patch-android-share.js
       - name: Build Android APK (unsigned release)
         run: npx tauri android build --apk
       - name: Sign APK
