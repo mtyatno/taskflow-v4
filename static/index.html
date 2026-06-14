@@ -20678,6 +20678,40 @@ function App() {
     })();
     return () => { cancelled = true; };
   }, [user, shareData]);
+  // Native (Tauri) share delivery: the Android activity wrote the shared text to a
+  // file; read it via the Rust command and feed the existing share handler. Web
+  // arrives via ?share_* query params, so this only runs in the native app.
+  useEffect(() => {
+    if (!API_BASE) return;
+    const T = window.__TAURI__;
+    if (!T || !T.core || typeof T.core.invoke !== "function") return;
+    let stop = false;
+    const poll = async () => {
+      try {
+        const raw = await T.core.invoke("get_pending_share");
+        if (!raw || stop) return;
+        const o = JSON.parse(raw);
+        const text = (o && o.text) ? String(o.text) : "";
+        if (!text) return;
+        const m = text.match(/https?:\/\/\S+/);
+        const url = m ? m[0] : text;
+        setShareData({
+          url,
+          title: (o && o.subject) ? String(o.subject) : url,
+          text: (m && text !== url) ? text : ""
+        });
+      } catch (e) { /* no pending share */ }
+    };
+    poll();
+    const onVis = () => { if (document.visibilityState === "visible") poll(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", poll);
+    return () => {
+      stop = true;
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", poll);
+    };
+  }, []);
 
   // Handle navigate event dispatched from toolbar dropdowns etc.
   useEffect(() => {
