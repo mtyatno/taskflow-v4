@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v143-tasklink-click";
+const CACHE = "taskflow-v144-bookmark-extract";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

@@ -20653,23 +20653,30 @@ function App() {
   // Share Target: auto-clip note
   useEffect(() => {
     if (!user || !shareData) return;
-    const content = shareData.text
-      ? `**Source:** ${shareData.url}\n\n> ${shareData.text}`
-      : `**Source:** ${shareData.url}`;
-    api.post("/api/scratchpad", {
-      title: shareData.title,
-      content,
-      tags: ["bookmark"]
-    }).then(() => {
-      showToast("Tersimpan di Notes! 📎");
+    let cancelled = false;
+    (async () => {
+      let exTitle = "", exContent = "";
+      try {
+        const r = await api.post("/api/bookmark/extract", { url: shareData.url });
+        exTitle = (r && r.title) || "";
+        exContent = (r && r.content) || "";
+      } catch (e) { /* offline / extraction failed → url-only fallback */ }
+      if (cancelled) return;
+      const title = exTitle || shareData.title || shareData.url;
+      let content = `**Source:** ${shareData.url}`;
+      if (exContent) content += `\n\n${exContent}`;
+      else if (shareData.text) content += `\n\n> ${shareData.text}`;
+      try {
+        await api.post("/api/scratchpad", { title, content, tags: ["bookmark"] });
+        showToast("Tersimpan di Notes! 📎");
+      } catch (err) {
+        showToast("Gagal menyimpan: " + (err && err.message ? err.message : "Error"), "error");
+      }
+      if (cancelled) return;
       setShareData(null);
       window.history.replaceState({}, "", "/");
-      setTimeout(() => window.close(), 2000);
-    }).catch(err => {
-      showToast("Gagal menyimpan: " + (err && err.message ? err.message : "Error"), "error");
-      setShareData(null);
-      window.history.replaceState({}, "", "/");
-    });
+    })();
+    return () => { cancelled = true; };
   }, [user, shareData]);
 
   // Handle navigate event dispatched from toolbar dropdowns etc.
