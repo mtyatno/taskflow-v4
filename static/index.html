@@ -17303,7 +17303,7 @@ function NotePanel({
     style: {
       lineHeight: 1.75
     },
-    onMouseDown: handlePreviewClick,
+    onMouseDown: e => { if (e && e.preventDefault) e.preventDefault(); },
     onClick: handlePreviewClick,
     dangerouslySetInnerHTML: {
       __html: renderMarkdown(note.content || "", titleStrings, allNotes, tasks) || '<span style="color:var(--text-light);font-style:italic">Catatan kosong.</span>'
