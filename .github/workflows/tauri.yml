@@ -20,12 +20,12 @@ jobs:
       - name: Assemble Tauri frontend (dist-tauri)
         run: node scripts/build-tauri-dist.js
       - uses: dtolnay/rust-toolchain@stable
-      - name: Pin brotli to 7.x (8.0.x broken on alloc-no-stdlib)
+      - name: Pin brotli to 8.0.2 (8.0.1/8.0.3 broken on alloc-no-stdlib)
         shell: bash
         run: |
           cd src-tauri
           cargo generate-lockfile
-          cargo update -p brotli --precise 7.0.0
+          cargo update -p brotli --precise 8.0.2
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         with:
