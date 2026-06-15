@@ -1,0 +1,50 @@
+name: Build Linux AppImage
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+jobs:
+  build:
+    # 22.04 (not latest/24.04) so the AppImage links against an older glibc and
+    # runs on a wider range of Linux distros.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri Linux system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            build-essential
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install root deps (provides @tauri-apps/cli)
+        run: npm install
+      - name: Pre-compile JSX (no-op if already compiled)
+        run: node compile.js
+      - name: Build tldraw vendor (draw-app -> static/vendor/tldraw)
+        run: cd draw-app && npm ci && npx vite build
+      - name: Assemble Tauri frontend (dist-tauri)
+        run: node scripts/build-tauri-dist.js
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Pin brotli to 8.0.2 (8.0.1/8.0.3 broken on alloc-no-stdlib)
+        run: |
+          cd src-tauri
+          cargo generate-lockfile
+          cargo update -p brotli --precise 8.0.2
+      - name: Build AppImage (override config nsis target)
+        run: npx tauri build --bundles appimage
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: taskflow-linux-appimage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
