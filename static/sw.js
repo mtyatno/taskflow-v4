@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v151-note-bg";
+const CACHE = "taskflow-v152-milkdown-indent-emoji";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

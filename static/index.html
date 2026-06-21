@@ -1171,6 +1171,9 @@
     .milkdown-editor .ProseMirror del { text-decoration: line-through; opacity: 0.6; }
     .milkdown-editor .ProseMirror a { color: var(--accent); text-decoration: underline; }
     .milkdown-editor .ProseMirror .wikilink-node { text-decoration: none; }
+    /* Twemoji inline sizing (from @milkdown/plugin-emoji) */
+    .milkdown-editor .ProseMirror img.emoji,
+    .note-rendered img.emoji { height: 1.2em; width: 1.2em; margin: 0 .05em 0 .1em; vertical-align: -0.2em; display: inline-block; border-radius: 0; }
     /* Dark mode */
     [data-theme="dark"] .milkdown-editor .ProseMirror { color: var(--text-primary); }
     [data-theme="dark"] .milkdown-editor .ProseMirror code,
@@ -14597,7 +14600,7 @@ function MilkdownEditor({
           onChange(markdown);
         }
       });
-    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin()).create().then(editor => {
+    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin()).create().then(editor => {
       if (cancelled) {
         editor.destroy();
         return;

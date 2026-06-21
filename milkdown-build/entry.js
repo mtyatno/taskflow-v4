@@ -31,6 +31,8 @@ export { listener, listenerCtx } from '@milkdown/plugin-listener';
 export { history } from '@milkdown/plugin-history';
 export { callCommand, $node, $remark, $inputRule, $prose, replaceAll } from '@milkdown/utils';
 export { math } from '@milkdown/plugin-math';
+export { indent } from '@milkdown/plugin-indent';
+export { emoji } from '@milkdown/plugin-emoji';
 
 // ProseMirror re-exports needed for custom wikilink plugin
 export { InputRule } from '@milkdown/prose/inputrules';
