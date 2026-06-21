@@ -422,7 +422,7 @@ class TaskRepository:
                     subkategori TEXT NOT NULL,
                     type TEXT NOT NULL CHECK(type IN ('habit','task')),
                     item TEXT NOT NULL,
-                    frequency TEXT NOT NULL CHECK(frequency IN ('daily','monthly')),
+                    frequency TEXT NOT NULL CHECK(frequency IN ('daily','weekly','monthly')),
                     priority TEXT NOT NULL CHECK(priority IN ('low','medium','high')),
                     difficulty TEXT NOT NULL CHECK(difficulty IN ('easy','medium','hard')),
                     tags TEXT NOT NULL DEFAULT '[]'

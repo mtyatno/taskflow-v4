@@ -163,6 +163,33 @@ def migrate_db():
                 value TEXT
             )
         """)
+        # Widen habit_templates.frequency CHECK to allow 'weekly'. Older DBs
+        # were created with CHECK(frequency IN ('daily','monthly')); the curated
+        # template set uses 'weekly', so reseed would violate the constraint and
+        # crash startup. SQLite can't ALTER a CHECK, so rebuild the table.
+        ht = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='habit_templates'"
+        ).fetchone()
+        if ht and "'weekly'" not in (ht["sql"] or ""):
+            conn.execute("ALTER TABLE habit_templates RENAME TO habit_templates_old")
+            conn.execute("""
+                CREATE TABLE habit_templates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kategori TEXT NOT NULL,
+                    subkategori TEXT NOT NULL,
+                    type TEXT NOT NULL CHECK(type IN ('habit','task')),
+                    item TEXT NOT NULL,
+                    frequency TEXT NOT NULL CHECK(frequency IN ('daily','weekly','monthly')),
+                    priority TEXT NOT NULL CHECK(priority IN ('low','medium','high')),
+                    difficulty TEXT NOT NULL CHECK(difficulty IN ('easy','medium','hard')),
+                    tags TEXT NOT NULL DEFAULT '[]'
+                )
+            """)
+            conn.execute("INSERT INTO habit_templates SELECT * FROM habit_templates_old")
+            conn.execute("DROP TABLE habit_templates_old")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_habit_templates_kat ON habit_templates(kategori, subkategori)"
+            )
         conn.commit()
     finally:
         conn.close()
