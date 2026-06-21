@@ -20834,7 +20834,7 @@ function App() {
       setShareData(null);
       window.history.replaceState({}, "", "/");
     }
-  }, []);
+  }, [shareData]);
   // Share Target: setelah login, ambil dari sessionStorage
   useEffect(() => {
     if (!user) return;
@@ -20879,13 +20879,23 @@ function App() {
     const T = window.__TAURI__;
     if (!T || !T.core || typeof T.core.invoke !== "function") return;
     let stop = false;
-    const poll = async () => {
+    const poll = async (verbose) => {
       try {
         const raw = await T.core.invoke("get_pending_share");
-        if (!raw || stop) return;
+        if (stop) return;
+        if (!raw) {
+          if (verbose) {
+            try {
+              const dbg = await T.core.invoke("share_debug");
+              alert("Share tidak ditemukan di penyimpanan.\nLokasi yang dicek:\n\n" + dbg);
+            } catch (e) {}
+          }
+          return;
+        }
         const o = JSON.parse(raw);
         const text = (o && o.text) ? String(o.text) : "";
-        if (!text) return;
+        if (!text) { if (verbose) showToast("Share diterima tapi teksnya kosong", "error"); return; }
+        showToast("Share diterima, memproses…");
         const m = text.match(/https?:\/\/\S+/);
         const url = m ? m[0] : text;
         setShareData({
@@ -20893,16 +20903,17 @@ function App() {
           title: (o && o.subject) ? String(o.subject) : url,
           text: (m && text !== url) ? text : ""
         });
-      } catch (e) { /* no pending share */ }
+      } catch (e) { if (verbose) showToast("Gagal membaca share: " + (e && e.message ? e.message : e), "error"); }
     };
-    poll();
-    const onVis = () => { if (document.visibilityState === "visible") poll(); };
+    poll(true);
+    const onVis = () => { if (document.visibilityState === "visible") poll(false); };
+    const onFocus = () => poll(false);
     document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("focus", poll);
+    window.addEventListener("focus", onFocus);
     return () => {
       stop = true;
       document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("focus", poll);
+      window.removeEventListener("focus", onFocus);
     };
   }, []);
 
