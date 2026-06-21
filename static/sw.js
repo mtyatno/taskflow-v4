@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v153-milkdown-core-dedupe";
+const CACHE = "taskflow-v154-sw-clone-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
@@ -126,7 +126,8 @@ self.addEventListener("fetch", e => {
     e.respondWith(
       fetch(request).then(res => {
         if (res.ok) {
-          caches.open(CACHE).then(c => c.put(request, res.clone()))
+          const clone = res.clone()
+          caches.open(CACHE).then(c => c.put(request, clone))
         }
         return res
       }).catch(() =>
@@ -147,7 +148,8 @@ self.addEventListener("fetch", e => {
         if (cached) return cached
         return fetch(request).then(res => {
           if (res.ok) {
-            caches.open(CACHE).then(c => c.put(request, res.clone()))
+            const clone = res.clone()
+            caches.open(CACHE).then(c => c.put(request, clone))
           }
           return res
         }).catch(() => cached || new Response('Offline', { status: 503 }))
