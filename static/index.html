@@ -14597,7 +14597,7 @@ function MilkdownEditor({
           onChange(markdown);
         }
       });
-    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).create().then(editor => {
+    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin()).create().then(editor => {
       if (cancelled) {
         editor.destroy();
         return;
@@ -15080,6 +15080,43 @@ function createHighlightPlugin() {
   }));
   const highlightRemark = MB.$remark('highlight-remark', () => remarkHighlightPlugin);
   return [highlightRemark, highlightNode];
+}
+// Parse pasted markdown source into real nodes (tables, bold, headings, …).
+// Without this, ProseMirror inserts pasted markdown as literal text — so a
+// pasted GFM table stays as "| a | b |" and **bold** keeps its asterisks.
+function createMarkdownPastePlugin() {
+  const MB = window.MilkdownBundle;
+  // Only re-parse when the text actually contains block/inline markdown markers,
+  // so plain-text pastes keep ProseMirror's default (richer) handling.
+  const looksLikeMarkdown = t => /(^|\n)[ \t]*\|.*\|/.test(t) || // table row
+  /(^|\n)#{1,6}\s/.test(t) || // heading
+  /(^|\n)[ \t]*([-*+]|\d+[.)])\s/.test(t) || // list item
+  /(^|\n)[ \t]*>\s/.test(t) || // blockquote
+  /```/.test(t) || // fenced code
+  /(^|\n)(-{3,}|\*{3,}|_{3,})[ \t]*$/.test(t) || // thematic break
+  /\*\*[^*\n]+\*\*/.test(t) || // bold
+  /(^|\n)[ \t]*\$\$/.test(t); // math block
+  return MB.$prose(ctx => new MB.Plugin({
+    key: new MB.PluginKey('MILKDOWN_MARKDOWN_PASTE'),
+    props: {
+      handlePaste: (view, event) => {
+        const cd = event.clipboardData;
+        if (!cd) return false;
+        const text = cd.getData('text/plain');
+        if (!text || !looksLikeMarkdown(text)) return false;
+        let doc;
+        try {
+          doc = ctx.get(MB.parserCtx)(text);
+        } catch (_) {
+          return false;
+        }
+        if (!doc || !doc.content || doc.content.size === 0) return false;
+        const slice = doc.slice(0, doc.content.size);
+        view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
+        return true;
+      }
+    }
+  }));
 }
 function extractHeadings(content) {
   const headings = [];
