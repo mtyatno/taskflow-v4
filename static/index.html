@@ -3779,6 +3779,8 @@ function TaskFormModal({
   const [noteTagDropdown, setNoteTagDropdown] = useState(null);
   const [noteExistingTags, setNoteExistingTags] = useState([]);
   const [noteTaskDropdown, setNoteTaskDropdown] = useState(null);
+  const [noteWikiDropdown, setNoteWikiDropdown] = useState(null);
+  const [noteTitlesList, setNoteTitlesList] = useState([]);
   const [localNoteNewTasks, setLocalNoteNewTasks] = useState([]);
   const [creatingInlineNoteTask, setCreatingInlineNoteTask] = useState(false);
   const noteAllTasksRef = React.useRef([]);
@@ -3906,8 +3908,12 @@ function TaskFormModal({
   useEffect(() => {
     if (mode === "note") {
       api.get("/api/tags?entity_type=note").then(data => setNoteExistingTags(data || [])).catch(() => {});
+      api.get("/api/scratchpad/titles").then(data => setNoteTitlesList(data || [])).catch(() => {});
     }
-    return () => setNoteTagDropdown(null);
+    return () => {
+      setNoteTagDropdown(null);
+      setNoteWikiDropdown(null);
+    };
   }, [mode]);
   React.useEffect(() => {
     if (!noteTaskDropdown) return;
@@ -3954,10 +3960,12 @@ function TaskFormModal({
   };
   const handleNoteContentChange = markdown => {
     setNote("content", markdown);
+    autoConvertNoteWikilink();
     const editor = noteMilkdownRef.current;
     if (!editor) {
       setNoteTagDropdown(null);
       setNoteTaskDropdown(null);
+      setNoteWikiDropdown(null);
       return;
     }
     const MB = window.MilkdownBundle;
@@ -4003,6 +4011,7 @@ function TaskFormModal({
       const charBefore = triggerStart > 0 ? textBefore[triggerStart - 1] : '';
       if (charBefore !== '[') {
         const queryRaw = taskTriggerMatch[0].slice(1 + taskTriggerMatch[1].length);
+        setNoteWikiDropdown(null);
         setNoteTaskDropdown({
           top: coords.top,
           left: coords.left,
@@ -4013,6 +4022,26 @@ function TaskFormModal({
       }
     }
     setNoteTaskDropdown(null);
+    // Wikilink autocomplete: [[query
+    const wikiMatch = textBefore.match(/\[\[([^\]]*)$/);
+    if (!wikiMatch) {
+      setNoteWikiDropdown(null);
+      return;
+    }
+    const wquery = wikiMatch[1];
+    const wqueryTrimmed = wquery.trim();
+    const wqueryLow = wqueryTrimmed.toLowerCase();
+    const witems = noteTitlesList.filter(n => n.title.toLowerCase().includes(wqueryLow) && n.title !== noteForm.title).slice(0, 6);
+    const wexact = noteTitlesList.some(n => n.title.toLowerCase() === wqueryLow);
+    const wcanCreate = wqueryTrimmed.length > 0 && !wexact;
+    setNoteWikiDropdown({
+      top: coords.top,
+      left: coords.left,
+      query: wquery,
+      items: witems,
+      activeIdx: 0,
+      canCreate: wcanCreate
+    });
   };
   const insertNoteTag = tagName => {
     setNoteTagDropdown(null);
@@ -4099,6 +4128,73 @@ function TaskFormModal({
     } catch (_) {/* silent */} finally {
       setCreatingInlineNoteTask(false);
     }
+  };
+  const insertNoteWikilink = t => {
+    setNoteWikiDropdown(null);
+    const editor = noteMilkdownRef.current;
+    if (!editor) return;
+    const MB = window.MilkdownBundle;
+    editor.action(ctx => {
+      const view = ctx.get(MB.editorViewCtx);
+      const {
+        from
+      } = view.state.selection;
+      const textBefore = view.state.doc.textBetween(0, from, '\n', '\0');
+      const wikiMatch = textBefore.match(/\[\[([^\]]*)$/);
+      if (!wikiMatch) return;
+      const replaceFrom = from - wikiMatch[0].length;
+      const nodeType = view.state.schema.nodes.wikilink;
+      if (nodeType) {
+        view.dispatch(view.state.tr.replaceWith(replaceFrom, from, nodeType.create({
+          title: t
+        })));
+      } else {
+        view.dispatch(view.state.tr.replaceWith(replaceFrom, from, view.state.schema.text(`[[${t}]]`)));
+      }
+    });
+    editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
+  };
+  const createNoteWikiTarget = async newTitle => {
+    setNoteWikiDropdown(null);
+    try {
+      const created = await api.post("/api/scratchpad", {
+        title: newTitle,
+        content: "",
+        tags: [],
+        linked_task_ids: [],
+        linked_task_id: null
+      });
+      setNoteTitlesList(prev => [{
+        id: created.id,
+        title: created.title
+      }, ...prev]);
+      window.dispatchEvent(new CustomEvent("noteSaved"));
+      insertNoteWikilink(newTitle);
+    } catch (_) {
+      insertNoteWikilink(newTitle);
+    }
+  };
+  const autoConvertNoteWikilink = () => {
+    const editor = noteMilkdownRef.current;
+    if (!editor) return;
+    const MB = window.MilkdownBundle;
+    editor.action(ctx => {
+      const view = ctx.get(MB.editorViewCtx);
+      const sel = view.state.selection;
+      const from = sel.from;
+      if (from !== sel.to) return;
+      const textBefore = view.state.doc.textBetween(0, from, '\n', '\0');
+      const complete = textBefore.match(/\[\[([^\[\]\n]+)\]\]$/);
+      if (!complete) return;
+      const title = (complete[1] || '').trim();
+      if (!title) return;
+      const replaceFrom = from - complete[0].length;
+      const nodeType = view.state.schema.nodes.wikilink;
+      if (!nodeType) return;
+      view.dispatch(view.state.tr.replaceWith(replaceFrom, from, nodeType.create({
+        title
+      })));
+    });
   };
   const handleSubmit = async e => {
     e.preventDefault();
@@ -4643,7 +4739,40 @@ function TaskFormModal({
         e.preventDefault();
         if (!creatingInlineNoteTask) createAndInsertNoteTask((noteTaskDropdown.query || '').trim());
       }
-    }, creatingInlineNoteTask ? 'Membuat...' : `＋ Buat task: "${(noteTaskDropdown.query || '').trim()}"`)))), detectedTags.length > 0 && /*#__PURE__*/React.createElement("div", {
+    }, creatingInlineNoteTask ? 'Membuat...' : `＋ Buat task: "${(noteTaskDropdown.query || '').trim()}"`)), noteWikiDropdown && /*#__PURE__*/React.createElement("div", {
+      className: "wiki-autocomplete",
+      style: {
+        position: "fixed",
+        top: noteWikiDropdown.top,
+        left: noteWikiDropdown.left,
+        zIndex: 1070
+      }
+    }, noteWikiDropdown.items.map((n, i) => /*#__PURE__*/React.createElement("div", {
+      key: n.id,
+      className: `wiki-autocomplete-item${i === noteWikiDropdown.activeIdx ? " active" : ""}`,
+      onMouseDown: e => {
+        e.preventDefault();
+        insertNoteWikilink(n.title);
+      }
+    }, "[[", n.title, "]]")), noteWikiDropdown.canCreate && /*#__PURE__*/React.createElement("div", {
+      className: `wiki-autocomplete-item${noteWikiDropdown.activeIdx === noteWikiDropdown.items.length ? " active" : ""}`,
+      style: {
+        borderTop: noteWikiDropdown.items.length > 0 ? "1px solid var(--border)" : undefined,
+        color: "var(--accent)",
+        fontWeight: 600
+      },
+      onMouseDown: e => {
+        e.preventDefault();
+        createNoteWikiTarget(noteWikiDropdown.query.trim());
+      }
+    }, "✨ Buat note \"", noteWikiDropdown.query.trim(), "\""), !noteWikiDropdown.canCreate && noteWikiDropdown.items.length === 0 && /*#__PURE__*/React.createElement("div", {
+      className: "wiki-autocomplete-item",
+      style: {
+        color: "var(--text-light)",
+        cursor: "default",
+        fontStyle: "italic"
+      }
+    }, noteTitlesList.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan")))), detectedTags.length > 0 && /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         flexWrap: "wrap",
@@ -15830,7 +15959,26 @@ function NoteModal({
     onWikilinkClick: t => {
       const parsed = parseWikilinkRaw(t);
       const target = noteTitles.find(n => n.title === parsed.title) || parsed.explicitId && noteTitles.find(n => String(n.id) === parsed.explicitId) || parsed.numericId && noteTitles.find(n => String(n.id) === parsed.numericId);
-      if (target) onNavigate?.(target);
+      if (target) {
+        onNavigate?.(target);
+        return;
+      }
+      const ct = (parsed.title || "").trim();
+      if (!ct) return;
+      api.post("/api/scratchpad", {
+        title: ct,
+        content: "",
+        tags: [],
+        linked_task_ids: [],
+        linked_task_id: null
+      }).then(created => {
+        setNoteTitles(prev => [{
+          id: created.id,
+          title: created.title
+        }, ...prev]);
+        window.dispatchEvent(new CustomEvent("noteSaved"));
+        onNavigate?.(created);
+      }).catch(() => {});
     },
     tasksGetter: tasksGetterRef.current,
     onTasklinkClick: handleTasklinkClick
@@ -16562,7 +16710,26 @@ function NoteModal({
       setTextareaFullscreen(false);
       const parsed = parseWikilinkRaw(t);
       const target = noteTitles.find(n => n.title === parsed.title) || parsed.explicitId && noteTitles.find(n => String(n.id) === parsed.explicitId) || parsed.numericId && noteTitles.find(n => String(n.id) === parsed.numericId);
-      if (target) onNavigate?.(target);
+      if (target) {
+        onNavigate?.(target);
+        return;
+      }
+      const ct = (parsed.title || "").trim();
+      if (!ct) return;
+      api.post("/api/scratchpad", {
+        title: ct,
+        content: "",
+        tags: [],
+        linked_task_ids: [],
+        linked_task_id: null
+      }).then(created => {
+        setNoteTitles(prev => [{
+          id: created.id,
+          title: created.title
+        }, ...prev]);
+        window.dispatchEvent(new CustomEvent("noteSaved"));
+        onNavigate?.(created);
+      }).catch(() => {});
     },
     tasksGetter: tasksGetterRef.current,
     onTasklinkClick: handleTasklinkClick
@@ -16955,6 +17122,20 @@ function NotePanel({
           }
         }
       }
+    }
+    // Obsidian-style: a wikilink whose target note doesn't exist → create it, then open.
+    const createTitle = ((titleAttr || "") || (rawAttr ? parseWikilinkRaw(rawAttr).title : "") || "").trim();
+    if (createTitle) {
+      api.post("/api/scratchpad", {
+        title: createTitle,
+        content: "",
+        tags: [],
+        linked_task_ids: [],
+        linked_task_id: null
+      }).then(created => {
+        window.dispatchEvent(new CustomEvent("noteSaved"));
+        onNavigate(created);
+      }).catch(() => {});
     }
   };
   const fmtDate = s => {
