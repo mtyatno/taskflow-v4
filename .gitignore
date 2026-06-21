@@ -11,6 +11,9 @@ static/vendor/tldraw/
 src-tauri/target/
 src-tauri/gen/
 
+# Brainstorming visual-companion mockups (local only)
+.superpowers/
+
 # Database
 *.db
 *.db-journal
