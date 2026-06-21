@@ -1,0 +1,2641 @@
+[
+  {
+    "kategori": "Karir",
+    "subkategori": "Networking",
+    "type": "habit",
+    "item": "Sapa satu koneksi baru di LinkedIn",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "networking",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Networking",
+    "type": "habit",
+    "item": "Balas pesan atau komentar dari rekan seprofesi",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "networking",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Networking",
+    "type": "habit",
+    "item": "Bagikan satu wawasan industri di media sosial profesional",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "networking",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Networking",
+    "type": "habit",
+    "item": "Ucapkan selamat ke kontak yang naik jabatan atau pindah kerja",
+    "frequency": "weekly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "networking",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Networking",
+    "type": "habit",
+    "item": "Luangkan 10 menit menjaga hubungan dengan mentor",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "networking",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Networking",
+    "type": "habit",
+    "item": "Catat satu orang yang ingin kamu ajak ngobrol bulan ini",
+    "frequency": "weekly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "networking",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Networking",
+    "type": "task",
+    "item": "Perbarui profil LinkedIn dengan pencapaian terbaru",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "networking",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Networking",
+    "type": "task",
+    "item": "Jadwalkan ngopi atau video call dengan satu kontak lama",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "networking",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Networking",
+    "type": "task",
+    "item": "Ikuti satu acara atau webinar industri",
+    "frequency": "monthly",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "networking",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Networking",
+    "type": "task",
+    "item": "Susun daftar 10 orang kunci di bidangmu untuk dihubungi",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "networking",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Networking",
+    "type": "task",
+    "item": "Minta perkenalan ke pihak ketiga yang ingin kamu kenal",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "hard",
+    "tags": [
+      "networking",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Networking",
+    "type": "task",
+    "item": "Kirim pesan tindak lanjut setelah bertemu kontak baru",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "networking",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Produktivitas kerja",
+    "type": "habit",
+    "item": "Tentukan 3 tugas terpenting sebelum mulai kerja",
+    "frequency": "daily",
+    "priority": "high",
+    "difficulty": "easy",
+    "tags": [
+      "produktivitas kerja",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Produktivitas kerja",
+    "type": "habit",
+    "item": "Matikan notifikasi saat sesi kerja fokus",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "produktivitas kerja",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Produktivitas kerja",
+    "type": "habit",
+    "item": "Kerjakan tugas tersulit di jam paling produktifmu",
+    "frequency": "daily",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "produktivitas kerja",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Produktivitas kerja",
+    "type": "habit",
+    "item": "Tutup hari kerja dengan menulis progres hari ini",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "produktivitas kerja",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Produktivitas kerja",
+    "type": "habit",
+    "item": "Bersihkan inbox email sampai kosong sekali sehari",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "produktivitas kerja",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Produktivitas kerja",
+    "type": "habit",
+    "item": "Ambil jeda 5 menit tiap selesai satu blok kerja",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "produktivitas kerja",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Produktivitas kerja",
+    "type": "task",
+    "item": "Rapikan dan prioritaskan daftar tugas tiap Senin",
+    "frequency": "weekly",
+    "priority": "high",
+    "difficulty": "easy",
+    "tags": [
+      "produktivitas kerja",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Produktivitas kerja",
+    "type": "task",
+    "item": "Evaluasi tugas mana yang bisa didelegasikan atau dihapus",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "produktivitas kerja",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Produktivitas kerja",
+    "type": "task",
+    "item": "Siapkan template untuk pekerjaan yang sering berulang",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "produktivitas kerja",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Produktivitas kerja",
+    "type": "task",
+    "item": "Blokir waktu fokus tanpa rapat di kalender minggu depan",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "produktivitas kerja",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Produktivitas kerja",
+    "type": "task",
+    "item": "Audit alat kerja yang justru menghambat",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "medium",
+    "tags": [
+      "produktivitas kerja",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Produktivitas kerja",
+    "type": "task",
+    "item": "Review beban kerja bulan ini dan sesuaikan target",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "produktivitas kerja",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Profesionalisme",
+    "type": "habit",
+    "item": "Mulai dan hadiri rapat tepat waktu",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "profesionalisme",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Profesionalisme",
+    "type": "habit",
+    "item": "Balas email penting dalam 24 jam",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "profesionalisme",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Profesionalisme",
+    "type": "habit",
+    "item": "Catat keputusan dan tindak lanjut setiap rapat",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "profesionalisme",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Profesionalisme",
+    "type": "habit",
+    "item": "Sampaikan kabar lebih awal saat ada keterlambatan",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "profesionalisme",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Profesionalisme",
+    "type": "habit",
+    "item": "Ucapkan terima kasih ke rekan yang membantu",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "profesionalisme",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Profesionalisme",
+    "type": "task",
+    "item": "Minta umpan balik dari atasan tentang kinerjamu",
+    "frequency": "monthly",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "profesionalisme",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Profesionalisme",
+    "type": "task",
+    "item": "Perbarui CV dan portofolio dengan capaian terbaru",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "profesionalisme",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Profesionalisme",
+    "type": "task",
+    "item": "Pelajari SOP atau kode etik terbaru di tempat kerja",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "profesionalisme",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Profesionalisme",
+    "type": "task",
+    "item": "Tetapkan batas jam kerja agar tidak kelelahan",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "profesionalisme",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Karir",
+    "subkategori": "Profesionalisme",
+    "type": "task",
+    "item": "Tulis ringkasan pencapaian kuartal ini",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "profesionalisme",
+      "karir"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Investasi",
+    "type": "habit",
+    "item": "Baca satu artikel atau berita keuangan tepercaya",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "investasi",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Investasi",
+    "type": "habit",
+    "item": "Pantau portofolio tanpa panik menjual",
+    "frequency": "weekly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "investasi",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Investasi",
+    "type": "habit",
+    "item": "Catat alasan setiap keputusan beli atau jual aset",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "investasi",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Investasi",
+    "type": "habit",
+    "item": "Hindari cek harga aset lebih dari sekali sehari",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "investasi",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Investasi",
+    "type": "habit",
+    "item": "Sisihkan dana investasi rutin",
+    "frequency": "monthly",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "investasi",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Investasi",
+    "type": "task",
+    "item": "Setel auto-invest ke reksa dana atau saham tiap gajian",
+    "frequency": "monthly",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "investasi",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Investasi",
+    "type": "task",
+    "item": "Diversifikasi portofolio agar tidak menumpuk di satu aset",
+    "frequency": "monthly",
+    "priority": "high",
+    "difficulty": "hard",
+    "tags": [
+      "investasi",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Investasi",
+    "type": "task",
+    "item": "Pelajari satu instrumen investasi baru beserta risikonya",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "hard",
+    "tags": [
+      "investasi",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Investasi",
+    "type": "task",
+    "item": "Hitung ulang profil risiko dan target investasimu",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "investasi",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Investasi",
+    "type": "task",
+    "item": "Bandingkan biaya dan fee platform investasi yang kamu pakai",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "medium",
+    "tags": [
+      "investasi",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Investasi",
+    "type": "task",
+    "item": "Tetapkan target dana untuk satu tujuan jangka panjang",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "investasi",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Kontrol diri",
+    "type": "habit",
+    "item": "Tunggu 24 jam sebelum membeli barang di luar rencana",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "kontrol diri",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Kontrol diri",
+    "type": "habit",
+    "item": "Tanyakan 'butuh atau ingin?' sebelum checkout",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "kontrol diri",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Kontrol diri",
+    "type": "habit",
+    "item": "Bawa uang tunai secukupnya saat belanja",
+    "frequency": "weekly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "kontrol diri",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Kontrol diri",
+    "type": "habit",
+    "item": "Catat setiap godaan belanja yang berhasil kamu tahan",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "kontrol diri",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Kontrol diri",
+    "type": "task",
+    "item": "Berhenti berlangganan layanan yang jarang dipakai",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "kontrol diri",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Kontrol diri",
+    "type": "task",
+    "item": "Tetapkan batas belanja bulanan untuk hiburan",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "kontrol diri",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Kontrol diri",
+    "type": "task",
+    "item": "Unsubscribe dari email promo yang memancing belanja",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "kontrol diri",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Kontrol diri",
+    "type": "task",
+    "item": "Buat daftar belanja dan patuhi saat ke pasar",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "kontrol diri",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Kontrol diri",
+    "type": "task",
+    "item": "Sisihkan tabungan dulu sebelum belanja",
+    "frequency": "monthly",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "kontrol diri",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Kontrol diri",
+    "type": "task",
+    "item": "Evaluasi pembelian besar terakhir: perlu atau tidak",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "kontrol diri",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Menabung",
+    "type": "habit",
+    "item": "Sisihkan Rp20.000 ke tabungan tiap pagi",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "menabung",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Menabung",
+    "type": "habit",
+    "item": "Masukkan uang receh atau kembalian ke celengan digital",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "menabung",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Menabung",
+    "type": "habit",
+    "item": "Pindahkan sisa uang harian ke tabungan tiap malam",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "menabung",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Menabung",
+    "type": "habit",
+    "item": "Cek saldo tabungan tiap akhir pekan",
+    "frequency": "weekly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "menabung",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Menabung",
+    "type": "task",
+    "item": "Buka rekening terpisah khusus dana darurat",
+    "frequency": "monthly",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "menabung",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Menabung",
+    "type": "task",
+    "item": "Setel auto-debit tabungan tiap tanggal gajian",
+    "frequency": "monthly",
+    "priority": "high",
+    "difficulty": "easy",
+    "tags": [
+      "menabung",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Menabung",
+    "type": "task",
+    "item": "Tetapkan target dana darurat 3-6 bulan pengeluaran",
+    "frequency": "monthly",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "menabung",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Menabung",
+    "type": "task",
+    "item": "Naikkan nominal tabungan otomatis 5% bulan ini",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "menabung",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Menabung",
+    "type": "task",
+    "item": "Pisahkan tabungan tujuan dari dana darurat",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "menabung",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Menabung",
+    "type": "task",
+    "item": "Tinjau ke mana uang tabungan bulan lalu mengalir",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "menabung",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Pengeluaran",
+    "type": "habit",
+    "item": "Catat semua pengeluaran hari ini",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "pengeluaran",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Pengeluaran",
+    "type": "habit",
+    "item": "Masak di rumah alih-alih jajan di luar",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "pengeluaran",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Pengeluaran",
+    "type": "habit",
+    "item": "Bandingkan harga sebelum membeli kebutuhan besar",
+    "frequency": "weekly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "pengeluaran",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Pengeluaran",
+    "type": "habit",
+    "item": "Cek total pengeluaran tiap akhir pekan",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "pengeluaran",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Pengeluaran",
+    "type": "task",
+    "item": "Susun anggaran bulanan dengan metode 50/30/20",
+    "frequency": "monthly",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "pengeluaran",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Pengeluaran",
+    "type": "task",
+    "item": "Identifikasi 3 pengeluaran terbesar dan cara menekannya",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "pengeluaran",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Pengeluaran",
+    "type": "task",
+    "item": "Negosiasi ulang tagihan internet, listrik, atau asuransi",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "hard",
+    "tags": [
+      "pengeluaran",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Pengeluaran",
+    "type": "task",
+    "item": "Rekap pengeluaran bulan lalu per kategori",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "pengeluaran",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Keuangan",
+    "subkategori": "Pengeluaran",
+    "type": "task",
+    "item": "Tetapkan anggaran untuk kategori yang sering bocor",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "pengeluaran",
+      "keuangan"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Belajar",
+    "type": "habit",
+    "item": "Baca minimal 10 halaman buku tiap hari",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "belajar",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Belajar",
+    "type": "habit",
+    "item": "Tulis satu hal baru yang kamu pelajari hari ini",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "belajar",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Belajar",
+    "type": "habit",
+    "item": "Ulangi catatan belajar kemarin selama 5 menit",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "belajar",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Belajar",
+    "type": "habit",
+    "item": "Dengarkan satu materi edukatif saat perjalanan",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "belajar",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Belajar",
+    "type": "task",
+    "item": "Pilih satu kursus online dan selesaikan satu modul",
+    "frequency": "weekly",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "belajar",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Belajar",
+    "type": "task",
+    "item": "Buat ringkasan satu buku yang sudah selesai dibaca",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "belajar",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Belajar",
+    "type": "task",
+    "item": "Tetapkan satu topik untuk dikuasai bulan ini",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "belajar",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Belajar",
+    "type": "task",
+    "item": "Ajarkan apa yang kamu pelajari ke orang lain",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "belajar",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Belajar",
+    "type": "task",
+    "item": "Uji pemahamanmu dengan latihan soal atau proyek kecil",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "hard",
+    "tags": [
+      "belajar",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Belajar",
+    "type": "task",
+    "item": "Susun daftar bacaan untuk 3 bulan ke depan",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "belajar",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Mindset",
+    "type": "habit",
+    "item": "Tulis 3 hal yang kamu syukuri hari ini",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "mindset",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Mindset",
+    "type": "habit",
+    "item": "Ganti satu pikiran negatif dengan sudut pandang positif",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "mindset",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Mindset",
+    "type": "habit",
+    "item": "Rayakan satu kemajuan kecil hari ini",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "mindset",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Mindset",
+    "type": "habit",
+    "item": "Renungkan satu pelajaran dari kesalahan hari ini",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "mindset",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Mindset",
+    "type": "task",
+    "item": "Tulis ulang satu keyakinan membatasi jadi memberdayakan",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "hard",
+    "tags": [
+      "mindset",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Mindset",
+    "type": "task",
+    "item": "Baca satu buku tentang growth mindset",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "mindset",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Mindset",
+    "type": "task",
+    "item": "Buat papan visi untuk tahun ini",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "mindset",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Mindset",
+    "type": "task",
+    "item": "Kurangi konsumsi konten yang bikin membandingkan diri",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "mindset",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Mindset",
+    "type": "task",
+    "item": "Identifikasi pemicu stres dan rencana menghadapinya",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "mindset",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Skill",
+    "type": "habit",
+    "item": "Latih skill utamamu minimal 20 menit",
+    "frequency": "daily",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "skill",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Skill",
+    "type": "habit",
+    "item": "Pelajari satu teknik baru di bidangmu",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "skill",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Skill",
+    "type": "habit",
+    "item": "Praktikkan langsung apa yang baru dipelajari",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "skill",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Skill",
+    "type": "habit",
+    "item": "Catat progres latihan skill hari ini",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "skill",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Skill",
+    "type": "task",
+    "item": "Kerjakan satu proyek kecil untuk mengasah skill",
+    "frequency": "weekly",
+    "priority": "high",
+    "difficulty": "hard",
+    "tags": [
+      "skill",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Skill",
+    "type": "task",
+    "item": "Minta umpan balik atas karyamu dari yang lebih ahli",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "skill",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Skill",
+    "type": "task",
+    "item": "Tetapkan target tingkat keahlian bulan ini",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "skill",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Skill",
+    "type": "task",
+    "item": "Tiru satu studi kasus lengkap dari tutorial",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "skill",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Skill",
+    "type": "task",
+    "item": "Bangun portofolio dari hasil latihanmu",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "skill",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Pengembangan Diri",
+    "subkategori": "Skill",
+    "type": "task",
+    "item": "Ikuti tantangan atau kompetisi untuk menguji skill",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "hard",
+    "tags": [
+      "skill",
+      "pengembangan diri"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Disiplin",
+    "type": "habit",
+    "item": "Bangun di jam yang sama setiap hari",
+    "frequency": "daily",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "disiplin",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Disiplin",
+    "type": "habit",
+    "item": "Kerjakan satu tugas penting sebelum buka media sosial",
+    "frequency": "daily",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "disiplin",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Disiplin",
+    "type": "habit",
+    "item": "Tidur tepat waktu agar bangun segar",
+    "frequency": "daily",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "disiplin",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Disiplin",
+    "type": "habit",
+    "item": "Tepati satu komitmen kecil untuk diri sendiri",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "disiplin",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Disiplin",
+    "type": "habit",
+    "item": "Siapkan perlengkapan esok hari pada malam sebelumnya",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "disiplin",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Disiplin",
+    "type": "task",
+    "item": "Buat rutinitas pagi dan tempel di tempat terlihat",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "disiplin",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Disiplin",
+    "type": "task",
+    "item": "Hapus satu distraksi terbesar dari lingkunganmu",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "disiplin",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Disiplin",
+    "type": "task",
+    "item": "Susun jadwal harian ideal dan uji coba seminggu",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "disiplin",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Disiplin",
+    "type": "task",
+    "item": "Tetapkan konsekuensi dan hadiah untuk targetmu",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "medium",
+    "tags": [
+      "disiplin",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Disiplin",
+    "type": "task",
+    "item": "Evaluasi kebiasaan yang merusak disiplinmu",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "disiplin",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Fokus kerja",
+    "type": "habit",
+    "item": "Kerja dengan teknik Pomodoro 25 menit fokus",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "fokus kerja",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Fokus kerja",
+    "type": "habit",
+    "item": "Singkirkan ponsel dari meja saat bekerja",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "fokus kerja",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Fokus kerja",
+    "type": "habit",
+    "item": "Mulai sesi kerja dengan menulis satu tujuan jelas",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "fokus kerja",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Fokus kerja",
+    "type": "habit",
+    "item": "Catat ide pengganggu di kertas lalu lanjut bekerja",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "fokus kerja",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Fokus kerja",
+    "type": "task",
+    "item": "Atur lingkungan kerja bebas gangguan",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "fokus kerja",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Fokus kerja",
+    "type": "task",
+    "item": "Pasang pemblokir situs pengganggu saat jam kerja",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "fokus kerja",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Fokus kerja",
+    "type": "task",
+    "item": "Kelompokkan tugas sejenis agar jarang ganti konteks",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "fokus kerja",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Fokus kerja",
+    "type": "task",
+    "item": "Tentukan jam 'deep work' tetap tiap hari",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "fokus kerja",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Fokus kerja",
+    "type": "task",
+    "item": "Matikan notifikasi non-darurat secara permanen",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "fokus kerja",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Manajemen waktu",
+    "type": "habit",
+    "item": "Rencanakan hari esok sebelum tidur",
+    "frequency": "daily",
+    "priority": "high",
+    "difficulty": "easy",
+    "tags": [
+      "manajemen waktu",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Manajemen waktu",
+    "type": "habit",
+    "item": "Cek kalender dan prioritas tiap pagi",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "manajemen waktu",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Manajemen waktu",
+    "type": "habit",
+    "item": "Tetapkan tenggat untuk tiap tugas hari ini",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "manajemen waktu",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Manajemen waktu",
+    "type": "habit",
+    "item": "Selesaikan satu per satu, hindari multitasking",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "manajemen waktu",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Manajemen waktu",
+    "type": "task",
+    "item": "Time-block kalender untuk minggu depan",
+    "frequency": "weekly",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "manajemen waktu",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Manajemen waktu",
+    "type": "task",
+    "item": "Lacak ke mana waktumu habis selama 3 hari",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "manajemen waktu",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Manajemen waktu",
+    "type": "task",
+    "item": "Terapkan aturan 2 menit untuk tugas singkat",
+    "frequency": "weekly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "manajemen waktu",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Manajemen waktu",
+    "type": "task",
+    "item": "Identifikasi dan kurangi pencuri waktu terbesar",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "manajemen waktu",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Manajemen waktu",
+    "type": "task",
+    "item": "Delegasikan atau hapus satu tugas tak bernilai",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "manajemen waktu",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Organisasi",
+    "type": "habit",
+    "item": "Rapikan meja kerja sebelum pulang",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "organisasi",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Organisasi",
+    "type": "habit",
+    "item": "Simpan file ke folder yang benar saat itu juga",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "organisasi",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Organisasi",
+    "type": "habit",
+    "item": "Kosongkan inbox tugas ke daftar terstruktur",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "organisasi",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Organisasi",
+    "type": "habit",
+    "item": "Letakkan barang kembali ke tempatnya",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "organisasi",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Organisasi",
+    "type": "task",
+    "item": "Buat sistem folder digital yang konsisten",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "organisasi",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Organisasi",
+    "type": "task",
+    "item": "Bereskan satu area berantakan di rumah atau kantor",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "organisasi",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Organisasi",
+    "type": "task",
+    "item": "Susun checklist untuk rutinitas yang berulang",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "organisasi",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Organisasi",
+    "type": "task",
+    "item": "Arsipkan atau hapus file dan email lama yang menumpuk",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "organisasi",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Organisasi",
+    "type": "task",
+    "item": "Siapkan satu tempat khusus untuk dokumen penting",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "organisasi",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Produktivitas",
+    "subkategori": "Organisasi",
+    "type": "task",
+    "item": "Rapikan daftar tugas tiap akhir pekan",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "organisasi",
+      "produktivitas"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kebersamaan",
+    "type": "habit",
+    "item": "Makan bersama keluarga tanpa gawai",
+    "frequency": "daily",
+    "priority": "high",
+    "difficulty": "easy",
+    "tags": [
+      "kebersamaan",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kebersamaan",
+    "type": "habit",
+    "item": "Luangkan 15 menit bermain atau ngobrol dengan keluarga",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "kebersamaan",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kebersamaan",
+    "type": "habit",
+    "item": "Tanyakan kabar dan dengarkan cerita pasangan",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "kebersamaan",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kebersamaan",
+    "type": "habit",
+    "item": "Abadikan satu momen kebersamaan",
+    "frequency": "weekly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "kebersamaan",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kebersamaan",
+    "type": "task",
+    "item": "Rencanakan satu kegiatan akhir pekan bersama",
+    "frequency": "weekly",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "kebersamaan",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kebersamaan",
+    "type": "task",
+    "item": "Jadwalkan kunjungan ke orang tua atau saudara",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "kebersamaan",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kebersamaan",
+    "type": "task",
+    "item": "Buat tradisi keluarga rutin",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "kebersamaan",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kebersamaan",
+    "type": "task",
+    "item": "Atur liburan singkat keluarga",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "hard",
+    "tags": [
+      "kebersamaan",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kebersamaan",
+    "type": "task",
+    "item": "Sisihkan satu malam khusus tanpa pekerjaan untuk keluarga",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "kebersamaan",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kepedulian",
+    "type": "habit",
+    "item": "Tanyakan apakah ada yang bisa kamu bantu",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "kepedulian",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kepedulian",
+    "type": "habit",
+    "item": "Beri pujian tulus ke orang terdekat",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "kepedulian",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kepedulian",
+    "type": "habit",
+    "item": "Perhatikan perubahan suasana hati orang di sekitarmu",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "kepedulian",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kepedulian",
+    "type": "habit",
+    "item": "Ucapkan terima kasih atas hal kecil",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "kepedulian",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kepedulian",
+    "type": "task",
+    "item": "Hubungi teman yang sedang kesulitan",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "kepedulian",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kepedulian",
+    "type": "task",
+    "item": "Beri kejutan kecil untuk seseorang yang kamu sayang",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "kepedulian",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kepedulian",
+    "type": "task",
+    "item": "Tawarkan bantuan konkret ke tetangga atau kerabat",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "kepedulian",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kepedulian",
+    "type": "task",
+    "item": "Tulis pesan apresiasi untuk seseorang yang berjasa",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "kepedulian",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Kepedulian",
+    "type": "task",
+    "item": "Ingat dan rayakan tanggal penting orang terdekat",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "kepedulian",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Komunikasi",
+    "type": "habit",
+    "item": "Dengarkan sampai selesai sebelum menanggapi",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "komunikasi",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Komunikasi",
+    "type": "habit",
+    "item": "Sampaikan perasaan dengan kalimat 'aku', bukan menyalahkan",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "komunikasi",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Komunikasi",
+    "type": "habit",
+    "item": "Hindari menatap layar saat orang bicara",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "komunikasi",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Komunikasi",
+    "type": "habit",
+    "item": "Tanyakan kabar dengan pertanyaan terbuka",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "komunikasi",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Komunikasi",
+    "type": "task",
+    "item": "Adakan obrolan jujur untuk menyelesaikan satu masalah lama",
+    "frequency": "monthly",
+    "priority": "high",
+    "difficulty": "hard",
+    "tags": [
+      "komunikasi",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Komunikasi",
+    "type": "task",
+    "item": "Minta maaf untuk satu hal yang masih mengganjal",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "komunikasi",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Komunikasi",
+    "type": "task",
+    "item": "Pelajari satu teknik komunikasi tanpa kekerasan",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "komunikasi",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Komunikasi",
+    "type": "task",
+    "item": "Sepakati cara menyelesaikan konflik bersama",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "hard",
+    "tags": [
+      "komunikasi",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Komunikasi",
+    "type": "task",
+    "item": "Jadwalkan ngobrol rutin tanpa membahas masalah",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "komunikasi",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Sosial",
+    "type": "habit",
+    "item": "Sapa dan tersenyum ke orang yang kamu temui",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "sosial",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Sosial",
+    "type": "habit",
+    "item": "Balas pesan teman dengan perhatian",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "sosial",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Sosial",
+    "type": "habit",
+    "item": "Mulai satu percakapan ringan dengan orang baru",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "sosial",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Sosial",
+    "type": "task",
+    "item": "Ajak satu teman bertemu atau ngopi",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "sosial",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Sosial",
+    "type": "task",
+    "item": "Hadiri satu acara komunitas atau kumpul teman",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "sosial",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Sosial",
+    "type": "task",
+    "item": "Hubungi kembali teman lama yang lama tak kontak",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "sosial",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Sosial",
+    "type": "task",
+    "item": "Gabung satu komunitas sesuai minatmu",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "sosial",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Relasi & Keluarga",
+    "subkategori": "Sosial",
+    "type": "task",
+    "item": "Rencanakan pertemuan rutin dengan lingkaran dekat",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "sosial",
+      "relasi_keluarga"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Ibadah",
+    "type": "habit",
+    "item": "Mulai hari dengan doa atau niat baik",
+    "frequency": "daily",
+    "priority": "high",
+    "difficulty": "easy",
+    "tags": [
+      "ibadah",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Ibadah",
+    "type": "habit",
+    "item": "Jalankan ibadah tepat waktu",
+    "frequency": "daily",
+    "priority": "high",
+    "difficulty": "medium",
+    "tags": [
+      "ibadah",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Ibadah",
+    "type": "habit",
+    "item": "Baca kitab suci atau renungan beberapa ayat",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "ibadah",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Ibadah",
+    "type": "habit",
+    "item": "Akhiri hari dengan doa syukur",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "ibadah",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Ibadah",
+    "type": "habit",
+    "item": "Lakukan dzikir atau doa singkat di sela kesibukan",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "ibadah",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Ibadah",
+    "type": "task",
+    "item": "Ikuti satu kajian atau ibadah komunitas pekan ini",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "ibadah",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Ibadah",
+    "type": "task",
+    "item": "Pelajari makna satu bagian kitab suci lebih dalam",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "ibadah",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Ibadah",
+    "type": "task",
+    "item": "Tetapkan target ibadah yang ingin dikonsistenkan bulan ini",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "ibadah",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Ibadah",
+    "type": "task",
+    "item": "Siapkan tempat ibadah yang nyaman di rumah",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "ibadah",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Ibadah",
+    "type": "task",
+    "item": "Lakukan satu amal atau sedekah terencana",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "ibadah",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Refleksi",
+    "type": "habit",
+    "item": "Tulis jurnal singkat tentang hari ini",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "refleksi",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Refleksi",
+    "type": "habit",
+    "item": "Renungkan satu hal yang kamu syukuri",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "refleksi",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Refleksi",
+    "type": "habit",
+    "item": "Evaluasi apa yang baik dan bisa diperbaiki hari ini",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "refleksi",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Refleksi",
+    "type": "habit",
+    "item": "Duduk hening 5 menit tanpa gawai",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "refleksi",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Refleksi",
+    "type": "task",
+    "item": "Lakukan refleksi mingguan atas pencapaian dan perasaan",
+    "frequency": "weekly",
+    "priority": "high",
+    "difficulty": "easy",
+    "tags": [
+      "refleksi",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Refleksi",
+    "type": "task",
+    "item": "Tinjau tujuan hidup dan nilai-nilai utamamu",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "hard",
+    "tags": [
+      "refleksi",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Refleksi",
+    "type": "task",
+    "item": "Tulis surat untuk dirimu di masa depan",
+    "frequency": "monthly",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "refleksi",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Refleksi",
+    "type": "task",
+    "item": "Evaluasi keseimbangan hidup: kerja, relasi, diri",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "refleksi",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Refleksi",
+    "type": "task",
+    "item": "Identifikasi satu kebiasaan untuk dilepas bulan ini",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "refleksi",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Sosial",
+    "type": "habit",
+    "item": "Lakukan satu kebaikan kecil tanpa pamrih",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "sosial",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Sosial",
+    "type": "habit",
+    "item": "Doakan kebaikan untuk orang lain",
+    "frequency": "daily",
+    "priority": "low",
+    "difficulty": "easy",
+    "tags": [
+      "sosial",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Sosial",
+    "type": "habit",
+    "item": "Tahan diri dari berkata buruk tentang orang",
+    "frequency": "daily",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "sosial",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Sosial",
+    "type": "task",
+    "item": "Ikut kegiatan sosial atau bakti komunitas",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "sosial",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Sosial",
+    "type": "task",
+    "item": "Sumbang waktu sebagai relawan satu kali",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "sosial",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Sosial",
+    "type": "task",
+    "item": "Beri sedekah atau donasi terencana bulan ini",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "easy",
+    "tags": [
+      "sosial",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Sosial",
+    "type": "task",
+    "item": "Bantu seseorang yang sedang kesulitan secara nyata",
+    "frequency": "weekly",
+    "priority": "medium",
+    "difficulty": "medium",
+    "tags": [
+      "sosial",
+      "spiritual"
+    ]
+  },
+  {
+    "kategori": "Spiritual",
+    "subkategori": "Sosial",
+    "type": "task",
+    "item": "Damaikan atau pererat hubungan yang renggang",
+    "frequency": "monthly",
+    "priority": "medium",
+    "difficulty": "hard",
+    "tags": [
+      "sosial",
+      "spiritual"
+    ]
+  }
+]

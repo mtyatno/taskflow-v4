@@ -157,6 +157,12 @@ def migrate_db():
                 expires_at TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS app_meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -680,27 +686,46 @@ app.add_middleware(
 )
 
 
+# Bump when the curated template content changes; a higher value than the
+# stored app_meta['habit_templates_version'] triggers a wipe-and-reseed.
+HABIT_TEMPLATES_SEED_VERSION = 2
+
+
 def seed_habit_templates():
-    """Seed habit_templates from JSON if table is empty."""
+    """Seed habit_templates from the curated JSON, version-aware.
+
+    On first run (no prior version) or after HABIT_TEMPLATES_SEED_VERSION is
+    bumped, wipe the table and reseed from habit_templates_curated.json. The
+    stored version makes this idempotent across restarts. Missing JSON is a
+    no-op so startup never crashes.
+    """
     import os as _os
-    json_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'habits_tasks_1000.json')
+    json_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'habit_templates_curated.json')
     if not _os.path.exists(json_path):
         return
     with get_db() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM habit_templates").fetchone()[0]
-        if count > 0:
+        row = conn.execute(
+            "SELECT value FROM app_meta WHERE key = 'habit_templates_version'"
+        ).fetchone()
+        current = int(row[0]) if row and str(row[0]).isdigit() else 0
+        if current >= HABIT_TEMPLATES_SEED_VERSION:
             return
         with open(json_path, encoding='utf-8') as f:
             items = json.load(f)
+        conn.execute("DELETE FROM habit_templates")
         for item in items:
             conn.execute(
-                """INSERT OR IGNORE INTO habit_templates
+                """INSERT INTO habit_templates
                    (kategori, subkategori, type, item, frequency, priority, difficulty, tags)
                    VALUES (?,?,?,?,?,?,?,?)""",
                 (item['kategori'], item['subkategori'], item['type'], item['item'],
                  item['frequency'], item['priority'], item['difficulty'],
                  json.dumps(item.get('tags', [])))
             )
+        conn.execute(
+            "INSERT OR REPLACE INTO app_meta (key, value) VALUES ('habit_templates_version', ?)",
+            (str(HABIT_TEMPLATES_SEED_VERSION),)
+        )
 
 @app.on_event("startup")
 async def startup():
