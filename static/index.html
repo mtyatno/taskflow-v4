@@ -20707,6 +20707,18 @@ function App() {
   const [recurExpiryAlert, setRecurExpiryAlert] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
+  // Auto-collapse the app nav on Notes & Draw (dense multi-column page) so the note
+  // content gets more width; restore the prior state when leaving the page.
+  const prevSidebarCollapsedRef = React.useRef(null);
+  React.useEffect(() => {
+    if (page === "notes") {
+      if (prevSidebarCollapsedRef.current === null) prevSidebarCollapsedRef.current = sidebarCollapsed;
+      setSidebarCollapsed(true);
+    } else if (prevSidebarCollapsedRef.current !== null) {
+      setSidebarCollapsed(prevSidebarCollapsedRef.current);
+      prevSidebarCollapsedRef.current = null;
+    }
+  }, [page]);
   const showToast = (message, type = "success") => setToast({
     message,
     type

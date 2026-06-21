@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v146-wikilink-create";
+const CACHE = "taskflow-v147-notes-autocollapse";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
