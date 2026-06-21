@@ -1521,7 +1521,9 @@ const api = {
       if (res.status === 401 && !url.includes("/api/auth/")) {
         tokenStore.clear();
         window.__logout?.();
-        throw new Error("Unauthorized");
+        const e401 = new Error("Unauthorized");
+        e401.status = 401;
+        throw e401;
       }
       const text = await res.text();
       let data;
@@ -1535,7 +1537,9 @@ const api = {
       if (!res.ok) {
         let msg;
         if (typeof data.detail === "string") msg = data.detail;else if (Array.isArray(data.detail)) msg = data.detail.map(e => e.msg || JSON.stringify(e)).join(", ");else msg = `Request failed (${res.status})`;
-        throw new Error(msg);
+        const eHttp = new Error(msg);
+        eHttp.status = res.status;
+        throw eHttp;
       }
       return data;
     } catch (err) {
@@ -20760,25 +20764,28 @@ function App() {
         if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
         setAuthChecked(true);
       }).catch(err => {
-        // Offline: jangan hapus token, pakai username dari token payload
-        if (isOfflineErr(err) || err?.message === "OFFLINE") {
-          try {
-            const payload = JSON.parse(atob(tokenStore.get().split(".")[1]));
-            setUser({
-              id: payload.sub,
-              username: payload.username || payload.sub,
-              display_name: payload.display_name || payload.username || payload.sub
-            });
-            if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
-            if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
-            if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
-          } catch (_) {}
-          setAuthChecked(true);
-        } else {
+        // Only log out when the server EXPLICITLY rejects the token (HTTP 401).
+        // For offline / server-down / 5xx / timeout we keep the token and run in
+        // offline mode using the token payload — otherwise a broken or unreachable
+        // server would lock the user out with no way back in.
+        if (err && err.status === 401) {
           tokenStore.clear();
           setShowForm(false);
           setAuthChecked(true);
+          return;
         }
+        try {
+          const payload = JSON.parse(atob(tokenStore.get().split(".")[1]));
+          setUser({
+            id: payload.sub,
+            username: payload.username || payload.sub,
+            display_name: payload.display_name || payload.username || payload.sub
+          });
+          if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
+          if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
+          if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
+        } catch (_) {}
+        setAuthChecked(true);
       });
     }
   }, []);
