@@ -3340,10 +3340,27 @@ function GoalTab({
   const [templates, setTemplates] = React.useState([]);
   const [templatesLoading, setTemplatesLoading] = React.useState(true);
   React.useEffect(() => {
-    api.get('/api/habit-templates').then(data => {
-      setTemplates(data);
-      setTemplatesLoading(false);
-    }).catch(() => setTemplatesLoading(false));
+    let done = false;
+    (async () => {
+      // Offline support: show cached templates immediately, refresh from the
+      // network when online, and fall back to cache when the request fails (e.g.
+      // mobile app offline) so the category picker still populates.
+      const cached = await OfflineDB.cacheGet("habit_templates");
+      if (cached && !done) {
+        setTemplates(cached);
+        setTemplatesLoading(false);
+      }
+      try {
+        const data = await api.get('/api/habit-templates');
+        if (done) return;
+        setTemplates(data);
+        setTemplatesLoading(false);
+        OfflineDB.cacheSet("habit_templates", data);
+      } catch (e) {
+        if (!done && !cached) setTemplatesLoading(false);
+      }
+    })();
+    return () => { done = true; };
   }, []);
   const selectCategory = cat => {
     setSelectedCategory(cat);
