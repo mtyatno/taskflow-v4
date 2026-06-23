@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v161-dashboard-note-open-reliable";
+const CACHE = "taskflow-v162-tour-btn-text-shadow";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
