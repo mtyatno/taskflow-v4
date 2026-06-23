@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v164-sidebar-line-icons";
+const CACHE = "taskflow-v165-line-icons-topbar";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
