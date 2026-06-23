@@ -17494,9 +17494,11 @@ function NotePanel({
       fontWeight: 600,
       color: note.list_id ? "var(--accent)" : "var(--text-light)",
       cursor: "pointer",
-      padding: "4px 8px"
+      padding: "5px 9px",
+      display: "flex",
+      alignItems: "center"
     }
-  }, "\uD83D\uDC65"), shareOpen && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "users", size: 15 })), shareOpen && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "absolute",
       top: "calc(100% + 4px)",
@@ -17558,9 +17560,11 @@ function NotePanel({
       fontWeight: 600,
       color: note.pinned ? "var(--accent)" : "var(--text-light)",
       cursor: "pointer",
-      padding: "4px 10px"
+      padding: "5px 9px",
+      display: "flex",
+      alignItems: "center"
     }
-  }, "\uD83D\uDCCC"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 15 })), /*#__PURE__*/React.createElement("button", {
     onClick: handlePrint,
     title: "Cetak / Simpan PDF",
     style: {
@@ -17583,9 +17587,12 @@ function NotePanel({
       fontWeight: 600,
       color: "var(--accent)",
       cursor: "pointer",
-      padding: "4px 10px"
+      padding: "4px 10px",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 5
     }
-  }, "\u270F Edit"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "edit", size: 14 }), "Edit"), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       if (window.confirm("Hapus catatan ini?")) onDelete(note.id);
     },
@@ -17597,9 +17604,11 @@ function NotePanel({
       fontWeight: 600,
       color: "#ef4444",
       cursor: "pointer",
-      padding: "4px 10px"
+      padding: "5px 9px",
+      display: "flex",
+      alignItems: "center"
     }
-  }, "\uD83D\uDDD1"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "trash", size: 15 })), /*#__PURE__*/React.createElement("button", {
     onClick: onClose,
     style: {
       background: "none",
@@ -17608,9 +17617,11 @@ function NotePanel({
       fontSize: 18,
       color: "var(--text-light)",
       padding: 0,
-      lineHeight: 1
+      lineHeight: 1,
+      display: "flex",
+      alignItems: "center"
     }
-  }, "\u2715"))), (note.tags || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "x", size: 18 })))), (note.tags || []).length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 5,
@@ -17635,7 +17646,7 @@ function NotePanel({
     }
   }), outlinks.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "notes-section-label"
-  }, "\uD83D\uDD17 Links keluar (", outlinks.length, ")"), outlinks.map(n => /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "link", size: 13, style: { marginRight: 5 } }), "Links keluar (", outlinks.length, ")"), outlinks.map(n => /*#__PURE__*/React.createElement("div", {
     key: n.id,
     className: "notes-link-item",
     onClick: () => onNavigate(n)
@@ -17643,7 +17654,7 @@ function NotePanel({
     style: {
       fontSize: 15
     }
-  }, "\uD83D\uDCDD"), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "notes", size: 15 })), /*#__PURE__*/React.createElement("span", {
     style: {
       flex: 1,
       fontWeight: 600,
@@ -17667,7 +17678,7 @@ function NotePanel({
     style: {
       fontSize: 15
     }
-  }, "\uD83D\uDCDD"), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "notes", size: 15 })), /*#__PURE__*/React.createElement("span", {
     style: {
       flex: 1,
       fontWeight: 600,
@@ -17694,7 +17705,7 @@ function NotePanel({
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "notes-section-label"
-  }, "\u2611 Tasks terkait (", note.linked_tasks.length, ")"), note.linked_tasks.map(t => /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "clipboardCheck", size: 13, style: { marginRight: 5 } }), "Tasks terkait (", note.linked_tasks.length, ")"), note.linked_tasks.map(t => /*#__PURE__*/React.createElement("div", {
     key: t.id,
     className: "notes-link-item",
     onClick: async () => {
@@ -18508,7 +18519,7 @@ function NotesPage({
       letterSpacing: '0.8px',
       flex: 1
     }
-  }, "\uD83D\uDCCB Catatan"), /*#__PURE__*/React.createElement("svg", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "notes", size: 13, style: { marginRight: 5 } }), "Catatan"), /*#__PURE__*/React.createElement("svg", {
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "var(--text-light)",
@@ -18545,7 +18556,7 @@ function NotesPage({
         letterSpacing: 1,
         marginBottom: 6
       }
-    }, "\uD83D\uDCCC Disematkan"), /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 12, style: { marginRight: 5 } }), "Disematkan"), /*#__PURE__*/React.createElement("div", {
       className: pinnedExpanded ? "pinned-list-expanded" : ""
     }, visible.map(n => /*#__PURE__*/React.createElement("div", {
       key: n.id,
@@ -18557,7 +18568,7 @@ function NotesPage({
       title: n.title || "(tanpa judul)"
     }, /*#__PURE__*/React.createElement("span", {
       className: "pinned-note-icon"
-    }, "\uD83D\uDCCC"), /*#__PURE__*/React.createElement("span", {
+    }, /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 13 })), /*#__PURE__*/React.createElement("span", {
       className: "pinned-note-text"
     }, n.title || n.content.slice(0, 50) || "(tanpa judul)"), (n.tags || []).length > 0 && /*#__PURE__*/React.createElement("span", {
       className: "pinned-note-tags"
