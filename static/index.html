@@ -1447,13 +1447,15 @@ async function openAttachment(path, filename) {
   // endpoints accept it (get_current_user_sse).
   const tok = (typeof __token !== "undefined" && __token) ? __token : "";
   const url = apiUrl(path) + (path.indexOf("?") === -1 ? "?" : "&") + "token=" + encodeURIComponent(tok);
-  try {
-    const T = window.__TAURI__;
-    if (T && T.core && typeof T.core.invoke === "function") {
-      await T.core.invoke("plugin:opener|open_url", { url });
-      return;
-    }
-  } catch (e) { /* fall through to window.open */ }
+  // Native app (desktop + mobile): handing the file to an external OS app is
+  // unreliable — on Windows desktop open_url silently does nothing, and on Android
+  // the external viewer takes over the task stack with no way back to the app.
+  // Instead show the file in an in-app viewer (AttachmentViewer) which fetches the
+  // blob with the token and renders it inline; "Close" returns to the note.
+  if (typeof window !== "undefined" && window.__TAURI__) {
+    window.dispatchEvent(new CustomEvent("tf-open-attachment", { detail: { url, filename: filename || "" } }));
+    return;
+  }
   window.open(url, "_blank");
 }
 // An <img> embedded in note content cannot send the auth token, and in the native
@@ -4569,7 +4571,7 @@ function TaskFormModal({
         background: 'var(--bg-primary)',
         display: 'flex',
         flexDirection: 'column',
-        padding: 16,
+        padding: 'calc(16px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) calc(16px + env(safe-area-inset-left, 0px))',
         overflow: 'hidden'
       } : {}
     }, noteTextareaFullscreen && /*#__PURE__*/React.createElement("div", {
@@ -4847,7 +4849,7 @@ function TaskFormModal({
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: '10px 16px',
+        padding: 'calc(10px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) 10px calc(16px + env(safe-area-inset-left, 0px))',
         borderBottom: '1px solid var(--border)'
       }
     }, /*#__PURE__*/React.createElement("span", {
@@ -16277,7 +16279,7 @@ function NoteModal({
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
-      padding: '10px 16px',
+      padding: 'calc(10px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) 10px calc(16px + env(safe-area-inset-left, 0px))',
       borderBottom: '1px solid var(--border)'
     }
   }, /*#__PURE__*/React.createElement("span", {
@@ -16715,7 +16717,7 @@ function NoteModal({
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      padding: '8px 16px',
+      padding: 'calc(8px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) 8px calc(16px + env(safe-area-inset-left, 0px))',
       borderBottom: '1px solid var(--border)',
       flexShrink: 0
     }
@@ -17706,7 +17708,7 @@ function NotePanel({
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
-      padding: '10px 16px',
+      padding: 'calc(10px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) 10px calc(16px + env(safe-area-inset-left, 0px))',
       borderBottom: '1px solid var(--border)'
     }
   }, /*#__PURE__*/React.createElement("span", {
@@ -20706,6 +20708,140 @@ function TourButton({ page }) {
   }, '?');
 }
 // ─────────────────────────────────────────────────────────────────────────────
+// In-app attachment viewer (native app). openAttachment() dispatches the
+// "tf-open-attachment" event instead of handing the file to an external OS app
+// (unreliable on Windows desktop, no way back on Android). This fetches the blob
+// with the token and shows it inline; "Tutup" returns to the note on every platform.
+function AttachmentViewer() {
+  const [item, setItem] = React.useState(null);
+  const [blobUrl, setBlobUrl] = React.useState("");
+  const [kind, setKind] = React.useState("");
+  const [error, setError] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const blobRef = React.useRef("");
+
+  const cleanup = React.useCallback(() => {
+    if (blobRef.current) {
+      try { URL.revokeObjectURL(blobRef.current); } catch (_) {}
+      blobRef.current = "";
+    }
+  }, []);
+  const close = React.useCallback(() => {
+    cleanup();
+    setItem(null); setBlobUrl(""); setKind(""); setError(""); setLoading(false);
+  }, [cleanup]);
+
+  React.useEffect(() => {
+    const onOpen = e => {
+      const d = (e && e.detail) || {};
+      if (d.url) setItem({ url: d.url, filename: d.filename || "lampiran" });
+    };
+    window.addEventListener("tf-open-attachment", onOpen);
+    return () => window.removeEventListener("tf-open-attachment", onOpen);
+  }, []);
+
+  React.useEffect(() => {
+    if (!item) return;
+    let cancelled = false;
+    setLoading(true); setError(""); setBlobUrl(""); setKind("");
+    (async () => {
+      try {
+        const res = await fetch(item.url);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const blob = await res.blob();
+        if (cancelled) return;
+        const ct = (blob.type || "").toLowerCase();
+        const name = (item.filename || "").toLowerCase();
+        let k = "other";
+        if (ct.indexOf("image/") === 0 || /\.(png|jpe?g|gif|webp|bmp|svg|avif|heic)$/.test(name)) k = "image";
+        else if (ct === "application/pdf" || /\.pdf$/.test(name)) k = "pdf";
+        const u = URL.createObjectURL(blob);
+        blobRef.current = u;
+        setBlobUrl(u); setKind(k); setLoading(false);
+      } catch (e) {
+        if (!cancelled) { setError((e && e.message) || "Gagal memuat"); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [item]);
+
+  React.useEffect(() => {
+    if (!item) return;
+    const onKey = e => { if (e.key === "Escape") close(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [item, close]);
+
+  const save = React.useCallback(() => {
+    if (!blobRef.current) return;
+    const a = document.createElement("a");
+    a.href = blobRef.current;
+    a.download = (item && item.filename) || "lampiran";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, [item]);
+
+  if (!item) return null;
+  const headerBtn = {
+    background: "rgba(255,255,255,0.14)", border: "none", color: "#fff",
+    cursor: "pointer", fontSize: 13, fontWeight: 600, padding: "8px 14px",
+    borderRadius: 8, flexShrink: 0, whiteSpace: "nowrap"
+  };
+  let body;
+  if (loading) {
+    body = React.createElement("div", { style: { color: "#fff", fontSize: 14, opacity: 0.85 } }, "Memuat…");
+  } else if (error) {
+    body = React.createElement("div", { style: { color: "#fff", textAlign: "center" } },
+      React.createElement("div", { style: { fontSize: 14, marginBottom: 12 } }, "Gagal memuat lampiran: " + error),
+      React.createElement("button", { onClick: save, style: headerBtn }, "⬇ Simpan ke perangkat"));
+  } else if (kind === "image") {
+    body = React.createElement("img", {
+      src: blobUrl, alt: item.filename,
+      onClick: e => e.stopPropagation(),
+      style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }
+    });
+  } else if (kind === "pdf") {
+    body = React.createElement("iframe", {
+      src: blobUrl, title: item.filename,
+      style: { width: "100%", height: "100%", border: "none", background: "#fff" }
+    });
+  } else {
+    body = React.createElement("div", { style: { color: "#fff", textAlign: "center", maxWidth: 320 } },
+      React.createElement("div", { style: { fontSize: 44, marginBottom: 12 } }, "📎"),
+      React.createElement("div", { style: { fontSize: 15, fontWeight: 600, marginBottom: 6, wordBreak: "break-word" } }, item.filename),
+      React.createElement("div", { style: { fontSize: 13, opacity: 0.8, marginBottom: 18 } }, "Pratinjau tidak tersedia untuk tipe file ini."),
+      React.createElement("button", { onClick: save, style: { ...headerBtn, background: "var(--accent)", padding: "10px 18px", fontSize: 14 } }, "⬇ Simpan ke perangkat"));
+  }
+  return React.createElement("div", {
+    style: {
+      position: "fixed", inset: 0, zIndex: 10050,
+      background: "rgba(0,0,0,0.92)", display: "flex", flexDirection: "column"
+    }
+  },
+    React.createElement("div", {
+      style: {
+        display: "flex", alignItems: "center", gap: 12, flexShrink: 0,
+        background: "rgba(0,0,0,0.55)",
+        padding: "calc(10px + env(safe-area-inset-top, 0px)) calc(14px + env(safe-area-inset-right, 0px)) 10px calc(14px + env(safe-area-inset-left, 0px))"
+      }
+    },
+      React.createElement("span", {
+        style: { flex: 1, color: "#fff", fontSize: 14, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }
+      }, item.filename),
+      !loading && !error && React.createElement("button", { onClick: save, style: headerBtn }, "⬇ Simpan"),
+      React.createElement("button", { onClick: close, style: headerBtn }, "✕ Tutup")
+    ),
+    React.createElement("div", {
+      onClick: kind === "image" ? close : undefined,
+      style: {
+        flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center",
+        overflow: "auto", padding: kind === "pdf" ? 0 : 16
+      }
+    }, body)
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 function App() {
   const [user, setUser] = useState(null);
@@ -20952,7 +21088,10 @@ function App() {
         });
       } catch (e) { if (verbose) showToast("Gagal membaca share: " + (e && e.message ? e.message : e), "error"); }
     };
-    poll(true);
+    // Non-verbose on launch: a real cold-start share is still processed (that path
+    // runs regardless of `verbose`); we only suppress the "share not found"
+    // diagnostic alert that otherwise popped up on every normal app open.
+    poll(false);
     const onVis = () => { if (document.visibilityState === "visible") poll(false); };
     const onFocus = () => poll(false);
     document.addEventListener("visibilitychange", onVis);
@@ -22028,7 +22167,7 @@ function App() {
       background: "rgba(0,0,0,0.3)",
       zIndex: 30
     }
-  }));
+  }), /*#__PURE__*/React.createElement(AttachmentViewer, null));
 }
 ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElementById("root"));
 </script>
