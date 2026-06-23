@@ -11158,6 +11158,7 @@ function Dashboard({
   onTaskClick,
   onDone,
   onNav,
+  onNoteClick,
   showToast
 }) {
   const q1Tasks = tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done").sort(SORT_PRI);
@@ -12067,7 +12068,7 @@ function Dashboard({
   }, "Lihat semua \u2192")), recentNotes.map(n => /*#__PURE__*/React.createElement("div", {
     key: n.id,
     className: "note-card",
-    onClick: () => onNav("notes")
+    onClick: () => onNoteClick ? onNoteClick(n) : onNav("notes")
   }, /*#__PURE__*/React.createElement("div", {
     className: "note-card-title"
   }, n.title || n.content.slice(0, 60)), n.title && /*#__PURE__*/React.createElement("div", {
@@ -21721,6 +21722,7 @@ function App() {
         onTaskClick: setSelectedTask,
         onDone: handleDone,
         onNav: setPage,
+        onNoteClick: handleSearchNoteClick,
         showToast: showToast
       });
     }
