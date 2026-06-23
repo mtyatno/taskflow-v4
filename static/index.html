@@ -1491,6 +1491,27 @@ if (typeof window !== "undefined" && API_BASE && typeof document !== "undefined"
     }
   }).observe(document.body, { childList: true, subtree: true });
 }
+// Backup export shared by Settings button + weekly reminder banner. Fetches the
+// export zip, triggers the download, and records the time on success so the
+// reminder (BackupReminder) knows the user backed up. Throws on failure.
+const BACKUP_INTERVAL_DAYS = 7;
+async function downloadBackup() {
+  const res = await fetch(apiUrl('/api/export/download'), {
+    headers: (typeof __token !== 'undefined' && __token) ? { Authorization: 'Bearer ' + __token } : {}
+  });
+  if (!res.ok) throw new Error('Gagal');
+  const blob = await res.blob();
+  const today = new Date().toISOString().slice(0, 10);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'taskflow-export-' + today + '.zip';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  try { localStorage.setItem('tf_last_backup', new Date().toISOString()); } catch (_) {}
+}
 const api = {
   async fetch(url, opts = {}) {
     // ── Offline local-first intercept (TF.taskroutes) ──
@@ -11290,7 +11311,9 @@ function Dashboard({
   }, "+", cellTasks.length - 5, " lagi \u2192"));
   return /*#__PURE__*/React.createElement("div", {
     className: "fade-in"
-  }, /*#__PURE__*/React.createElement("h1", {
+  }, /*#__PURE__*/React.createElement(BackupReminder, {
+    showToast: showToast
+  }), /*#__PURE__*/React.createElement("h1", {
     style: {
       fontSize: 24,
       fontWeight: 700,
@@ -13466,22 +13489,7 @@ function SettingsPage({
   const handleExport = async () => {
     setDownloading(true);
     try {
-      const res = await fetch(apiUrl('/api/export/download'), {
-        headers: typeof __token !== 'undefined' && __token ? {
-          Authorization: 'Bearer ' + __token
-        } : {}
-      });
-      if (!res.ok) throw new Error('Gagal');
-      const blob = await res.blob();
-      const today = new Date().toISOString().slice(0, 10);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'taskflow-export-' + today + '.zip';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      await downloadBackup();
     } catch (e) {
       showToast('Gagal export data', 'error');
     } finally {
@@ -20839,6 +20847,69 @@ function AttachmentViewer() {
         overflow: "auto", padding: kind === "pdf" ? 0 : 16
       }
     }, body)
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// Weekly backup reminder banner (top of Dashboard). Per-device via localStorage:
+// `tf_last_backup` (ISO, set on successful download) and `tf_backup_snooze`
+// (YYYY-MM-DD). Shows when it's been >= BACKUP_INTERVAL_DAYS since the last
+// backup and not snoozed today. First detection with no prior backup sets the
+// baseline to now so fresh/updated users aren't nagged on day one.
+function BackupReminder({ showToast }) {
+  const [show, setShow] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => {
+    try {
+      const last = localStorage.getItem('tf_last_backup');
+      if (!last) {
+        localStorage.setItem('tf_last_backup', new Date().toISOString());
+        return;
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      if (localStorage.getItem('tf_backup_snooze') === today) return;
+      const days = (Date.now() - new Date(last).getTime()) / 86400000;
+      if (days >= BACKUP_INTERVAL_DAYS) setShow(true);
+    } catch (_) {}
+  }, []);
+  const onDownload = async () => {
+    setBusy(true);
+    try {
+      await downloadBackup();
+      setShow(false);
+      showToast && showToast('Backup tersimpan ✅');
+    } catch (e) {
+      showToast && showToast('Gagal download backup', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const onDismiss = () => {
+    try { localStorage.setItem('tf_backup_snooze', new Date().toISOString().slice(0, 10)); } catch (_) {}
+    setShow(false);
+  };
+  if (!show) return null;
+  return React.createElement("div", {
+    style: {
+      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+      background: 'var(--bg-primary)', border: '1px solid var(--border)',
+      borderLeft: '4px solid var(--accent)', borderRadius: 10,
+      padding: '12px 14px', marginBottom: 16
+    }
+  },
+    React.createElement("span", { style: { fontSize: 20, flexShrink: 0 } }, "💾"),
+    React.createElement("span", { style: { flex: 1, minWidth: 180, fontSize: 13, color: 'var(--text-primary)' } },
+      "Sudah seminggu lebih sejak backup terakhir. Amankan datamu."),
+    React.createElement("button", {
+      className: "btn btn-primary btn-sm",
+      onClick: onDownload,
+      disabled: busy,
+      style: { flexShrink: 0 }
+    }, busy ? 'Menyiapkan…' : '⬇ Download Backup'),
+    React.createElement("button", {
+      onClick: onDismiss,
+      title: "Ingatkan lagi besok",
+      style: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--text-secondary)', flexShrink: 0, padding: '0 4px' }
+    }, "✕")
   );
 }
 // ─────────────────────────────────────────────────────────────────────────────
