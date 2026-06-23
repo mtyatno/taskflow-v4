@@ -2946,6 +2946,41 @@ function SharedListsManager({
     onClick: () => copyLink(generatedLinks[l.id])
   }, "Salin"))))))));
 }
+// Sidebar nav icons — cohesive monochrome line set (Lucide). Stroke = currentColor
+// so each icon inherits the link color: muted by default, lime when active. This
+// replaces the multicolor, platform-dependent emoji that didn't read as a set.
+const NAV_ICONS = {
+  dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+  calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+  notes: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>',
+  mindmap: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/>',
+  chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  next: '<path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  sliders: '<line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="2" x2="6" y1="14" y2="14"/><line x1="10" x2="14" y1="8" y2="8"/><line x1="18" x2="22" y1="16" y2="16"/>',
+  list: '<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/>',
+  check: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+  settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  wrench: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'
+};
+function NavIcon({ name }) {
+  const inner = NAV_ICONS[name];
+  if (!inner) return /*#__PURE__*/React.createElement("span", null, name);
+  return /*#__PURE__*/React.createElement("svg", {
+    width: 18, height: 18, viewBox: "0 0 24 24", fill: "none",
+    stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round",
+    style: { flexShrink: 0, display: "block" },
+    dangerouslySetInnerHTML: { __html: inner }
+  });
+}
 function Sidebar({
   page,
   setPage,
@@ -2984,54 +3019,54 @@ function Sidebar({
   const sc = status => (summary?.by_status?.[status] || 0) + (pendingByStatus[status] || 0);
   const links = [{
     id: "dashboard",
-    icon: "📊",
+    icon: "dashboard",
     label: "Dashboard",
     tourId: "sidebar-general"
   }, {
     id: "calendar",
-    icon: "🗓️",
+    icon: "calendar",
     label: "Kalender"
   }, {
     id: "today",
-    icon: "🍅",
+    icon: "target",
     label: "Fokus Hari Ini",
     count: todayCount
   }, {
     id: "habit",
-    icon: "🔁",
+    icon: "repeat",
     label: "Habit Tracker"
   }, {
     id: "notes",
-    icon: "📝",
+    icon: "notes",
     label: "Notes & Draw"
   }, {
     id: "mindmap",
-    icon: "🧠",
+    icon: "mindmap",
     label: "Mindmap"
   }, {
     id: "chat",
-    icon: "💬",
+    icon: "chat",
     label: "Diskusi"
   }, {
     section: "GTD"
   }, {
     id: "inbox",
-    icon: "📥",
+    icon: "inbox",
     label: "Inbox",
     count: sc("inbox")
   }, {
     id: "next",
-    icon: "▶️",
+    icon: "next",
     label: "Next Actions",
     count: sc("next")
   }, {
     id: "waiting",
-    icon: "⏳",
+    icon: "clock",
     label: "Waiting For",
     count: sc("waiting")
   }, {
     id: "someday",
-    icon: "💭",
+    icon: "cloud",
     label: "Someday",
     count: sc("someday")
   }];
@@ -3044,7 +3079,7 @@ function Sidebar({
     projects.forEach(p => {
       links.push({
         id: `proj_${p}`,
-        icon: "📂",
+        icon: "folder",
         label: p,
         count: projCounts[p]
       });
@@ -3060,7 +3095,7 @@ function Sidebar({
       const listTaskCount = (tasks || []).filter(t => t.list_id === l.id && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
       links.push({
         id: `slist_${l.id}`,
-        icon: l.role === "owner" ? "📋" : "👥",
+        icon: l.role === "owner" ? "clipboard" : "users",
         label: l.name,
         count: listTaskCount || undefined,
         badge: l.role === "member" ? "shared" : null
@@ -3069,7 +3104,7 @@ function Sidebar({
   }
   links.push({
     id: "manage_lists",
-    icon: "⚙️",
+    icon: "sliders",
     label: "Kelola Shared List",
     tourId: "sidebar-shared"
   });
@@ -3078,18 +3113,18 @@ function Sidebar({
   });
   links.push({
     id: "all",
-    icon: "📋",
+    icon: "list",
     label: "Semua Task"
   });
   links.push({
     id: "overdue",
-    icon: "⚠️",
+    icon: "alert",
     label: "Overdue",
     count: summary?.overdue
   });
   links.push({
     id: "done",
-    icon: "✅",
+    icon: "check",
     label: "Done",
     count: summary?.by_status?.done
   });
@@ -3098,13 +3133,13 @@ function Sidebar({
   });
   links.push({
     id: "settings",
-    icon: "⚙️",
+    icon: "settings",
     label: "Pengaturan",
     tourId: "sidebar-settings"
   });
   if (user?.is_admin) links.push({
     id: "admin",
-    icon: "🔧",
+    icon: "wrench",
     label: "Admin"
   });
 
@@ -3144,7 +3179,9 @@ function Sidebar({
           setPage(l.id);
           onClose?.();
         }
-      }, /*#__PURE__*/React.createElement("span", null, l.icon), /*#__PURE__*/React.createElement("span", {
+      }, /*#__PURE__*/React.createElement(NavIcon, {
+        name: l.icon
+      }), /*#__PURE__*/React.createElement("span", {
         style: {
           flex: 1
         }
