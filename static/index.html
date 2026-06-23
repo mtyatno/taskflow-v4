@@ -1637,7 +1637,7 @@ function renderConflicts() {
         if (!bar) {
           bar = document.createElement("div");
           bar.id = "tf-conflict-bar";
-          bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#fef3c7;border-top:2px solid #f59e0b;padding:10px 14px;font:14px sans-serif;color:#92400e;max-height:40vh;overflow:auto;";
+          bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#fef3c7;border-top:2px solid #f59e0b;padding:10px calc(14px + env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) calc(14px + env(safe-area-inset-left,0px));font:14px sans-serif;color:#92400e;max-height:40vh;overflow:auto;";
           document.body.appendChild(bar);
         }
         bar.innerHTML = "";
@@ -1661,7 +1661,7 @@ function renderConflicts() {
     if (!bar) {
       bar = document.createElement("div");
       bar.id = "tf-conflict-bar";
-      bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#fef3c7;border-top:2px solid #f59e0b;padding:10px 14px;font:14px sans-serif;color:#92400e;max-height:40vh;overflow:auto;";
+      bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#fef3c7;border-top:2px solid #f59e0b;padding:10px calc(14px + env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) calc(14px + env(safe-area-inset-left,0px));font:14px sans-serif;color:#92400e;max-height:40vh;overflow:auto;";
       document.body.appendChild(bar);
     }
     bar.innerHTML = "";
