@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v172-share-dropdown-onscreen";
+const CACHE = "taskflow-v173-print-area-hidden";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

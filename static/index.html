@@ -873,6 +873,9 @@
       .notes-layout .sidebar-collapse-btn { display: none !important; }
     }
     @page { margin: 0; }
+    /* Hidden except during print; @media print sets display:block. Prevents the
+       print DOM lingering visibly if 'afterprint' never fires (e.g. Android webview). */
+    #note-print-area { display: none; }
     @media print {
       html, body { background: #fff !important; color: #1f2937 !important; }
       body > *:not(#note-print-area) { display: none !important; }
@@ -17329,13 +17332,20 @@ function NotePanel({
   const titleStrings = useMemo(() => noteTitles.map(n => n.title), [noteTitles]);
   const tocItems = useMemo(() => extractHeadings(note.content || ""), [note.content]);
   const handlePrint = () => {
+    // Remove any stale print area (e.g. from a previous print whose afterprint
+    // never fired on a mobile webview).
+    const stale = document.getElementById("note-print-area");
+    if (stale) stale.remove();
     const html = renderMarkdown(note.content || "", titleStrings, allNotes, tasks);
     const el = document.createElement("div");
     el.id = "note-print-area";
     el.innerHTML = `<table class="print-container"><thead><tr><td><div class="page-header-space"></div></td></tr></thead><tfoot><tr><td><div class="page-footer-space"></div></td></tr></tfoot><tbody><tr><td class="note-content"><div class="npa-title">${note.title || "(tanpa judul)"}</div><div class="npa-meta">${fmtDate(note.updated_at)}</div><div class="note-rendered">${html}</div></td></tr></tbody></table><div class="npa-footer"><span>${note.title || ""}</span><span>TaskFlow V4</span></div>`;
     document.body.appendChild(el);
+    let done = false;
     const cleanup = () => {
-      document.body.removeChild(el);
+      if (done) return;
+      done = true;
+      if (el.parentNode) el.parentNode.removeChild(el);
       window.removeEventListener("afterprint", cleanup);
     };
     window.addEventListener("afterprint", cleanup);
