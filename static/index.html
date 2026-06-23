@@ -2397,7 +2397,7 @@ function JoinListModal({
     },
     onClick: handleJoin,
     disabled: joining
-  }, joining ? "Bergabung..." : "✅ Gabung ke List Ini")) : /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+  }, joining ? "Bergabung..." : /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 } }, /*#__PURE__*/React.createElement(Icon, { name: "check", size: 15 }), "Gabung ke List Ini"))) : /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
   }, "Masukkan kode invite"), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -2693,7 +2693,7 @@ function SharedListsManager({
     className: "btn btn-primary btn-sm",
     onClick: handleJoinByCode,
     disabled: joining
-  }, joining ? "..." : "✅ Gabung"), /*#__PURE__*/React.createElement("button", {
+  }, joining ? "..." : /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 } }, /*#__PURE__*/React.createElement(Icon, { name: "check", size: 14 }), "Gabung")), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
     onClick: () => {
       setJoinPreview(null);
@@ -13564,7 +13564,7 @@ function ExtAuthOverlay({
     },
     onClick: handleAuthorize,
     disabled: loading
-  }, loading ? "Memproses..." : "✅ Authorize"), /*#__PURE__*/React.createElement("button", {
+  }, loading ? "Memproses..." : /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 } }, /*#__PURE__*/React.createElement(Icon, { name: "check", size: 15 }), "Authorize")), /*#__PURE__*/React.createElement("button", {
     className: "btn",
     style: {
       width: "100%"
