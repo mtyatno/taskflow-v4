@@ -17818,7 +17818,9 @@ function NotesPage({
   showToast,
   onTaskClick,
   user,
-  sharedLists = []
+  sharedLists = [],
+  initialNoteId = null,
+  onInitialNoteConsumed
 }) {
   const [notes, setNotes] = useState([]);
   const [allNotes, setAllNotes] = useState([]);
@@ -17943,30 +17945,41 @@ function NotesPage({
     return () => window.removeEventListener("taskUpdated", handler);
   }, [panelNote?.id]);
 
-  // Open a specific note by ID (from wikilink / backlink click)
+  // Open a specific note by ID. Used by the "openNote" event (wikilink / backlink
+  // clicks within the page) and by the initialNoteId prop (cross-page navigation
+  // from the Dashboard / search). Fetches the note if it isn't loaded yet.
+  const openNoteById = useCallback(async id => {
+    if (id == null) return;
+    let note = allNotes.find(n => n.id === id);
+    if (!note) {
+      try {
+        const all = await api.get("/api/scratchpad");
+        setAllNotes(all);
+        setNotes(all);
+        note = all.find(n => n.id === id);
+      } catch {}
+    }
+    if (note) {
+      setPanelNote(note);
+      setNavTrail(t => {
+        const idx = t.findIndex(x => x.id === note.id);
+        return idx >= 0 ? [...t.slice(0, idx), note] : [...t.slice(-7), note];
+      });
+    }
+  }, [allNotes]);
   useEffect(() => {
-    const handler = async e => {
-      const id = e.detail;
-      let note = allNotes.find(n => n.id === id);
-      if (!note) {
-        try {
-          const all = await api.get("/api/scratchpad");
-          setAllNotes(all);
-          setNotes(all);
-          note = all.find(n => n.id === id);
-        } catch {}
-      }
-      if (note) {
-        setPanelNote(note);
-        setNavTrail(t => {
-          const idx = t.findIndex(x => x.id === note.id);
-          return idx >= 0 ? [...t.slice(0, idx), note] : [...t.slice(-7), note];
-        });
-      }
-    };
+    const handler = e => openNoteById(e.detail);
     window.addEventListener("openNote", handler);
     return () => window.removeEventListener("openNote", handler);
-  }, [allNotes]);
+  }, [openNoteById]);
+  // Cross-page open: when navigated here with a target note id, open it once the
+  // page mounts (reliable regardless of event timing), then clear it in the parent
+  // so plain navigation to Notes later doesn't reopen a stale note.
+  useEffect(() => {
+    if (initialNoteId == null) return;
+    openNoteById(initialNoteId);
+    onInitialNoteConsumed && onInitialNoteConsumed();
+  }, [initialNoteId]);
 
   // Parse tag: syntax from query, return { cleanQuery, syntaxTags }
   const parseQuery = query => {
@@ -20942,6 +20955,7 @@ function App() {
   const [collaborators, setCollaborators] = useState([]);
   const [selectedTask, setSelectedTask] = useState(null);
   const [selectedNote, setSelectedNote] = useState(null);
+  const [pendingNoteId, setPendingNoteId] = useState(null);
   const [showForm, setShowForm] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("action") === "new-task" && !!tokenStore.get();
@@ -21404,14 +21418,10 @@ function App() {
     });
   };
   const handleSearchNoteClick = note => {
+    // Set the target before navigating; NotesPage opens it on mount via the
+    // initialNoteId prop (reliable, unlike racing an event against mount timing).
+    setPendingNoteId(note.id);
     setPage("notes");
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        window.dispatchEvent(new CustomEvent("openNote", {
-          detail: note.id
-        }));
-      });
-    });
   };
   const openTaskById = async taskId => {
     setShowNotifPanel(false);
@@ -21691,7 +21701,9 @@ function App() {
         showToast: showToast,
         onTaskClick: setSelectedTask,
         user: user,
-        sharedLists: sharedLists
+        sharedLists: sharedLists,
+        initialNoteId: pendingNoteId,
+        onInitialNoteConsumed: () => setPendingNoteId(null)
       });
     }
     if (page === "mindmap") {
