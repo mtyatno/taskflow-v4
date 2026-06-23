@@ -2998,7 +2998,17 @@ const ICONS = {
   star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
   clipboardCheck: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
   refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
-  maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>'
+  maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
+  paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  briefcase: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
+  dollar: '<line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  book: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/>',
+  heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
+  building: '<rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/>',
+  graduation: '<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
+  target2: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  wifiOff: '<path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/>'
 };
 // General-purpose inline-SVG icon. `size` lets it sit inline with text where the
 // emoji used to be; stroke is currentColor so it inherits the surrounding color.
@@ -3254,9 +3264,12 @@ function Sidebar({
     style: {
       fontSize: 20,
       fontWeight: 700,
-      color: "var(--text-primary)"
+      color: "var(--text-primary)",
+      display: "flex",
+      alignItems: "center",
+      gap: 7
     }
-  }, "\u26A1 TaskFlow"), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "zap", size: 20, style: { color: "var(--accent)", fill: "var(--accent)" } }), "TaskFlow"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: "#888880",
@@ -3377,12 +3390,12 @@ const PRIORITY_MAP = {
   high: 'P1'
 };
 const CATEGORY_ICONS = {
-  'Karir': '💼',
-  'Keuangan': '💰',
-  'Pengembangan Diri': '📚',
-  'Produktivitas': '⚡',
-  'Relasi & Keluarga': '❤️',
-  'Spiritual': '🕌'
+  'Karir': 'briefcase',
+  'Keuangan': 'dollar',
+  'Pengembangan Diri': 'book',
+  'Produktivitas': 'zap',
+  'Relasi & Keluarga': 'heart',
+  'Spiritual': 'building'
 };
 function buildGoalCategories(templates) {
   const map = {};
@@ -3393,7 +3406,7 @@ function buildGoalCategories(templates) {
   return Object.entries(map).map(([label, subs]) => ({
     id: slugifyGoal(label),
     label,
-    icon: CATEGORY_ICONS[label] || '📋',
+    icon: CATEGORY_ICONS[label] || 'list',
     subcategories: [...subs].sort()
   }));
 }
@@ -3545,10 +3558,12 @@ function GoalTab({
       onMouseOut: e => e.currentTarget.style.borderColor = "var(--border)"
     }, /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 24,
-        marginBottom: 4
+        marginBottom: 6,
+        color: "var(--accent)",
+        display: "flex",
+        justifyContent: "center"
       }
-    }, cat.icon), /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement(Icon, { name: cat.icon, size: 26 })), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 13,
         fontWeight: 600,
@@ -4886,7 +4901,7 @@ function TaskFormModal({
         e.preventDefault();
         createNoteWikiTarget(noteWikiDropdown.query.trim());
       }
-    }, "✨ Buat note \"", noteWikiDropdown.query.trim(), "\""), !noteWikiDropdown.canCreate && noteWikiDropdown.items.length === 0 && /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement(Icon, { name: "sparkles", size: 14, style: { marginRight: 5 } }), "Buat note \"", noteWikiDropdown.query.trim(), "\""), !noteWikiDropdown.canCreate && noteWikiDropdown.items.length === 0 && /*#__PURE__*/React.createElement("div", {
       className: "wiki-autocomplete-item",
       style: {
         color: "var(--text-light)",
@@ -5633,7 +5648,7 @@ function ModalAttachments({
     style: {
       fontSize: 20
     }
-  }, isImage(a.mime_type) ? "🖼️" : "📄"), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: isImage(a.mime_type) ? "image" : "file", size: 16 })), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
       minWidth: 0
@@ -7835,7 +7850,7 @@ function FocusAttachments({
     style: {
       fontSize: 14
     }
-  }, a.mime_type?.startsWith("image/") ? "🖼️" : "📄"), /*#__PURE__*/React.createElement("a", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: a.mime_type?.startsWith("image/") ? "image" : "file", size: 16 })), /*#__PURE__*/React.createElement("a", {
     href: `/api/attachments/${a.id}/download`,
     onClick: e => { e.preventDefault(); openAttachment(`/api/attachments/${a.id}/download`, a.original_name); },
     style: {
@@ -11651,35 +11666,35 @@ function Dashboard({
       label: "Active",
       sub: "Task aktif saat ini",
       color: "var(--accent)",
-      icon: "⚡",
+      icon: "zap",
       bg: null
     }, {
       value: summary.done_last_7_days ?? 0,
       label: "Done 7 hari",
       sub: "Selesai dalam 7 hari",
       color: "#16a34a",
-      icon: "✅",
+      icon: "check",
       bg: null
     }, {
       value: q1Count,
       label: "Q1 Lakukan",
       sub: "Mendesak & Penting",
       color: "var(--q1)",
-      icon: "🔥",
+      icon: "flame",
       bg: null
     }, {
       value: overdueCount,
       label: "Overdue",
       sub: overdueCount > 0 ? `${overdueCount} task terlambat` : "Tidak ada overdue",
       color: overdueCount > 0 ? "#dc2626" : "var(--text-light)",
-      icon: "⚠️",
+      icon: "alert",
       bg: overdueCount > 0 ? "#fef2f2" : null
     }, {
       value: inboxCount,
       label: "Inbox",
       sub: "Task baru masuk",
       color: "#2563eb",
-      icon: "📥",
+      icon: "inbox",
       bg: null
     }];
     return /*#__PURE__*/React.createElement("div", {
@@ -11700,11 +11715,11 @@ function Dashboard({
         position: "absolute",
         right: 14,
         top: 12,
-        fontSize: 28,
-        opacity: 0.07,
-        lineHeight: 1
+        opacity: 0.1,
+        lineHeight: 1,
+        color: k.color
       }
-    }, k.icon), /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement(Icon, { name: k.icon, size: 30 })), /*#__PURE__*/React.createElement("div", {
       className: "stat-number",
       style: {
         color: k.color
@@ -16492,7 +16507,7 @@ function NoteModal({
     style: {
       fontSize: 16
     }
-  }, att.mime_type.startsWith('image/') ? '🖼' : '📄'), /*#__PURE__*/React.createElement("a", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: att.mime_type.startsWith('image/') ? "image" : "file", size: 16 })), /*#__PURE__*/React.createElement("a", {
     href: `/api/scratchpad/attachments/${att.id}/view`,
     onClick: e => { e.preventDefault(); openAttachment(`/api/scratchpad/attachments/${att.id}/view`, att.original_name); },
     style: {
@@ -17768,7 +17783,7 @@ function NotePanel({
     style: {
       fontSize: 16
     }
-  }, att.mime_type.startsWith('image/') ? '🖼' : '📄'), /*#__PURE__*/React.createElement("a", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: att.mime_type.startsWith('image/') ? "image" : "file", size: 16 })), /*#__PURE__*/React.createElement("a", {
     href: `/api/scratchpad/attachments/${att.id}/view`,
     onClick: e => { e.preventDefault(); openAttachment(`/api/scratchpad/attachments/${att.id}/view`, att.original_name); },
     style: {
@@ -20950,7 +20965,7 @@ function AttachmentViewer() {
     });
   } else {
     body = React.createElement("div", { style: { color: "#fff", textAlign: "center", maxWidth: 320 } },
-      React.createElement("div", { style: { fontSize: 44, marginBottom: 12 } }, "📎"),
+      React.createElement("div", { style: { marginBottom: 14, display: "flex", justifyContent: "center", opacity: 0.85 } }, React.createElement(Icon, { name: "paperclip", size: 40 })),
       React.createElement("div", { style: { fontSize: 15, fontWeight: 600, marginBottom: 6, wordBreak: "break-word" } }, item.filename),
       React.createElement("div", { style: { fontSize: 13, opacity: 0.8, marginBottom: 18 } }, "Pratinjau tidak tersedia untuk tipe file ini."),
       React.createElement("button", { onClick: save, style: { ...headerBtn, background: "var(--accent)", padding: "10px 18px", fontSize: 14 } }, "⬇ Simpan ke perangkat"));
