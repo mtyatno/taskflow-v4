@@ -7,7 +7,7 @@ function buildReview(tasks) {
   const active = (t) => t.gtd_status !== "done" && t.gtd_status !== "archived";
   const inbox = tasks.filter(t => t.gtd_status === "inbox");
   const overdue = tasks.filter(t => t.is_overdue && active(t));
-  const doneThisWeek = tasks.filter(t => t.gtd_status === "done" && days(t.updated_at) !== null && days(t.updated_at) <= 7);
+  const doneThisWeek = tasks.filter(t => t.gtd_status === "done" && days(t.updated_at) !== null && days(t.updated_at) >= 0 && days(t.updated_at) <= 7);
   const staleNext = tasks.filter(t => t.gtd_status === "next" && days(t.updated_at) !== null && days(t.updated_at) > 7);
   const waiting = tasks.filter(t => t.gtd_status === "waiting");
   const someday = tasks.filter(t => t.gtd_status === "someday");

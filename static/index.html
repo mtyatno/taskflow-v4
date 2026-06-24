@@ -20933,7 +20933,7 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onCreateTask, onAddFocus 
   };
   const taskRow = (t) => /*#__PURE__*/React.createElement("div", {
     key: t.id, className: "task-row", style: { cursor: "pointer", padding: "7px 0" },
-    onClick: () => onTaskClick && onTaskClick(t)
+    onClick: () => { setOpen(false); if (onTaskClick) onTaskClick(t); }
   }, t.title || "(tanpa judul)");
   const Section = (title, items, render) => items.length === 0 ? null :
     /*#__PURE__*/React.createElement("div", { key: title, style: { marginBottom: 18 } },
