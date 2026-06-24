@@ -1,7 +1,7 @@
 # Weekly Review (AI) — Design Spec
 
 **Date:** 2026-06-24
-**Status:** Draft for review
+**Status:** Approved (2026-06-24)
 **Scope:** A GTD-style **Weekly Review** feature with a thin AI layer. Tasks-only
 (never touches notes). Built so it can be **fully disabled or cleanly reverted**
 back to the current app with no residue.
@@ -144,10 +144,13 @@ Close anytime (✕ / Escape). Non-blocking.
   It must not import the scratchpad/notes layer. (Mirrors the existing
   `taskrepo`/`noterepo` separation; a notes import in this module is a review-time
   reject.)
-- **Whitelist sent to the model** (per task): `id, title, gtd_status, quadrant,
-  priority, deadline, project, age_days, is_overdue`. No description by default
-  (can be added later if needed); **no note content, ever**. The bulk is sent as
-  aggregates; only candidate task titles go in full.
+- **Whitelist sent to the model** (per task): `id, title, description, gtd_status,
+  quadrant, priority, deadline, project, age_days, is_overdue` (description included
+  per the resolved decision in §15 — richer next-action suggestions); **no note
+  content, ever**. The bulk is sent as aggregates; candidate task titles +
+  descriptions go in full. The Settings opt-in copy states plainly: *"AI hanya
+  membaca tugasmu (judul, deskripsi, deadline, prioritas). Catatan tidak pernah
+  dikirim."*
 - **Model:** `claude-opus-4-8` (weekly, low-volume, needs real reasoning), adaptive
   thinking, `output_config.format` json_schema for a reliable structured result,
   `max_tokens: 4096` (non-streaming is safe at this size). Keep the static
@@ -312,8 +315,14 @@ leave it installed (harmless) if only soft-disabling.
 
 ---
 
-## 15. Open questions for the user
+## 15. Resolved decisions
 
-1. Server flag default — ship **off** (opt-in only) until you've tried it? (Recommended.)
-2. Save a **local snapshot** of each completed review for history now, or defer?
-3. Include task **description** in the AI payload, or strictly title-only for max privacy? (Default: title-only.)
+1. **Rollout: off by default, opt-in.** `AI_FEATURES_ENABLED=false` on ship, plus a
+   per-user opt-in toggle (also off). Nothing changes for anyone until explicitly
+   enabled. Safest given the feature may not be kept.
+2. **History: deferred.** Ship the live review only; no saved snapshots in v1.
+   "Selesai Review" just records `tf_last_review`. History can be added later
+   without rework.
+3. **AI payload: title + description.** Task `description` is included alongside the
+   structured fields for richer next-action suggestions. Notes are still never sent.
+   The Settings opt-in copy states exactly what is sent (see §7).
