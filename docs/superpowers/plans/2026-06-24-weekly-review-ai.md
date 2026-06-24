@@ -420,25 +420,26 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-### Task 6: Frontend gate + local digest `buildReview()`
+### Task 6: Frontend gate + local digest `buildReview()` (extracted module)
 
 **Files:**
-- Modify: `static/index.html` (add near the top of the app `<script>`, beside the `ICONS`/helpers block)
-- Test: `tests/buildReview.test.js`
+- Create: `static/review/digest.js` (single source of `buildReview`, dual export: `window.buildReview` + CommonJS — mirrors the `static/config.js` dual-export pattern)
+- Modify: `static/index.html` (load the module via a `<script>` tag before the app script; add `aiReviewOn()` gate helper)
+- Modify: `static/sw.js` (add `/static/review/digest.js` to the `STATIC` precache list so it works offline)
+- Test: `tests/buildReview.test.js` (imports the one real module — no duplication)
 
 **Interfaces:**
-- Produces (module scope in `index.html`):
-  - `window.AI_REVIEW_ON` getter / `AI_REVIEW_ON` const — `!!window.__AI_ENABLED && localStorage.getItem('tf_ai_review_optin') === '1'`.
-  - `function buildReview(tasks)` → `{ inbox, overdue, doneThisWeek, staleNext, waiting, projectsNoNext, dueNextWeek, someday }` where each is an array of task objects (except counts derivable via `.length`). `projectsNoNext` is an array of `{ project, tasks }`.
+- Produces:
+  - Global `buildReview(tasks)` (via `window.buildReview`, loaded before the app) → `{ inbox, overdue, doneThisWeek, staleNext, waiting, projectsNoNext, dueNextWeek, someday }`; each is an array of task objects. `projectsNoNext` is an array of `{ project, tasks }`.
+  - `aiReviewOn()` (module scope in `index.html`) → `!!window.__AI_ENABLED && localStorage.getItem('tf_ai_review_optin') === '1'`.
 
 - [ ] **Step 1: Write failing test** — `tests/buildReview.test.js`
 
 ```javascript
 const test = require("node:test");
 const assert = require("node:assert");
-const { buildReview } = require("./buildReview.cjs"); // extracted copy for test
+const { buildReview } = require("../static/review/digest.js"); // the one real module
 
-const today = new Date().toISOString().slice(0, 10);
 const ago = (d) => new Date(Date.now() - d * 864e5).toISOString();
 
 const tasks = [
@@ -448,7 +449,7 @@ const tasks = [
   { id: 4, gtd_status: "waiting", title: "d" },
   { id: 5, gtd_status: "someday", title: "e" },
   { id: 6, gtd_status: "done", title: "f", updated_at: ago(2) },          // win
-  { id: 7, gtd_status: "inbox", title: "g", project: "P", },              // P has no next
+  { id: 7, gtd_status: "inbox", title: "g", project: "P" },              // P has no next
 ];
 
 test("buildReview buckets", () => {
@@ -466,11 +467,14 @@ test("buildReview buckets", () => {
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `node --test tests/buildReview.test.js`
-Expected: FAIL — cannot find `./buildReview.cjs`.
+Expected: FAIL — cannot find `../static/review/digest.js`.
 
-- [ ] **Step 3: Implement `buildReview` in `index.html`** (module scope, near other helpers)
+- [ ] **Step 3: Create `static/review/digest.js`** (one source of truth; dual export)
 
 ```javascript
+// Weekly Review digest — pure function over the in-memory tasks array.
+// Loaded as a plain script before the app (exposes window.buildReview) and
+// importable in Node tests (module.exports). No app/React dependencies.
 function buildReview(tasks) {
   const today = new Date();
   const days = (iso) => iso ? Math.floor((today - new Date(String(iso).replace("Z",""))) / 864e5) : null;
@@ -482,39 +486,48 @@ function buildReview(tasks) {
   const waiting = tasks.filter(t => t.gtd_status === "waiting");
   const someday = tasks.filter(t => t.gtd_status === "someday");
   const dueNextWeek = tasks.filter(t => active(t) && t.deadline && days(t.deadline) !== null && days(t.deadline) <= 0 && days(t.deadline) >= -7);
-  // projects with active tasks but no active "next" action
   const byProj = {};
-  tasks.filter(t => active(t) && t.project).forEach(t => { (byProj[t.project] ||= []).push(t); });
+  tasks.filter(t => active(t) && t.project).forEach(t => { (byProj[t.project] = byProj[t.project] || []).push(t); });
   const projectsNoNext = Object.entries(byProj)
     .filter(([, ts]) => !ts.some(t => t.gtd_status === "next"))
     .map(([project, ts]) => ({ project, tasks: ts }));
   return { inbox, overdue, doneThisWeek, staleNext, waiting, projectsNoNext, dueNextWeek, someday };
 }
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { buildReview };
+} else {
+  try { window.buildReview = buildReview; } catch (e) {}
+}
 ```
 
-Then add the gate helper (module scope):
+- [ ] **Step 4: Load it in `index.html` + add the gate helper**
+
+In `static/index.html`, add a `<script src="/static/review/digest.js"></script>` tag in `<head>` **before** the main app `<script>` (place it next to the other `/static/...` script includes such as the offline modules / config). Then, in the app `<script>` module scope (near other helpers), add:
 ```javascript
 function aiReviewOn() {
   try { return !!window.__AI_ENABLED && localStorage.getItem("tf_ai_review_optin") === "1"; }
   catch (e) { return false; }
 }
 ```
+(The app references the global `buildReview` provided by the loaded module.)
 
-- [ ] **Step 4: Create the test mirror** — copy the exact `buildReview` body into `tests/buildReview.cjs` wrapped as `module.exports = { buildReview };` (the test imports this CJS mirror; the source of truth stays in `index.html`).
+- [ ] **Step 5: Precache the module in the SW**
 
-- [ ] **Step 5: Run tests + parse-check**
+In `static/sw.js`, add `"/static/review/digest.js",` to the `STATIC` array (so the digest works offline on first load). Bump `CACHE` if not already bumped this task chain.
+
+- [ ] **Step 6: Run tests + parse-check**
 
 ```bash
 node --test tests/buildReview.test.js
 node -e 'const fs=require("fs"),b=require("@babel/core");let h=fs.readFileSync("static/index.html","utf8");const i=h.indexOf("ReactDOM.render(");const o=h.lastIndexOf("<script>",i),c=h.indexOf("</script>",i);b.parseSync(h.slice(o+8,c),{presets:[]});console.log("PARSE OK")'
 ```
-Expected: tests pass; `PARSE OK`.
+Expected: test passes; `PARSE OK`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add static/index.html tests/buildReview.test.js tests/buildReview.cjs
-git commit -m "feat(ai): local buildReview() digest + AI gate helper
+git add static/review/digest.js static/index.html static/sw.js tests/buildReview.test.js
+git commit -m "feat(ai): extracted buildReview() digest module + AI gate helper
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
