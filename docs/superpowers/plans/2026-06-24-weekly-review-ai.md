@@ -134,11 +134,12 @@ def test_build_payload_never_leaks_notes_field():
     assert "PRIVATE" not in blob and "note_content" not in blob
 
 def test_no_notes_module_imported():
-    import sys, importlib
-    importlib.reload(ai_review)
+    import re
     src = open("ai_review.py", encoding="utf-8").read()
-    for banned in ("scratchpad", "noterepo", "notequery", "import note"):
-        assert banned not in src, f"ai_review must not reference {banned}"
+    import_lines = [l for l in src.splitlines() if re.match(r"\s*(import|from)\s", l)]
+    joined = "\n".join(import_lines).lower()
+    for banned in ("scratchpad", "noterepo", "notequery", "note"):
+        assert banned not in joined, f"ai_review must not import {banned}"
 
 def test_schema_is_strict_object():
     s = ai_review.REVIEW_SCHEMA
@@ -157,11 +158,11 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'ai_review'`.
 
 ```python
 """Weekly Review AI layer. TASKS-ONLY: this module must never import or read
-notes/scratchpad data. Only the WHITELIST fields below leave the server."""
+notes/scratchpad data. Only the WHITELIST fields below leave the server.
+NOTE: `anthropic` is imported lazily inside generate_review() so this module
+imports (and build_payload/schema unit-test) without the SDK installed."""
 import os
 from datetime import date, datetime
-
-import anthropic
 
 WHITELIST = ["id", "title", "description", "gtd_status", "quadrant",
              "priority", "deadline", "project", "age_days", "is_overdue"]
@@ -256,6 +257,7 @@ REVIEW_SYSTEM_PROMPT = (
 
 def generate_review(payload: dict) -> dict:
     import json
+    import anthropic  # lazy: keeps the module importable without the SDK
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         raise AIReviewError("ANTHROPIC_API_KEY not configured")
