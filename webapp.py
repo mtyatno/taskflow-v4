@@ -40,6 +40,7 @@ import jwt
 import uvicorn
 
 from config import DB_PATH, EISENHOWER_INTERVAL_MINUTES, UPLOAD_DIR, MAX_FILE_SIZE, TELEGRAM_BOT_USERNAME, NEXTCLOUD_URL, NEXTCLOUD_USER, NEXTCLOUD_APP_PASSWORD, NEXTCLOUD_FOLDER
+import config as appconfig
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 _tg_bot = None  # Initialized at startup if token available
@@ -2196,8 +2197,10 @@ async def serve_manifest():
 
 @app.get("/config.js")
 async def serve_config():
-    cfg = STATIC_DIR / "config.js"
-    return FileResponse(str(cfg), media_type="application/javascript")
+    base = (STATIC_DIR / "config.js").read_text(encoding="utf-8")
+    flag = "true" if appconfig.AI_FEATURES_ENABLED else "false"
+    body = base + f"\ntry {{ window.__AI_ENABLED = {flag}; }} catch (e) {{}}\n"
+    return Response(content=body, media_type="application/javascript")
 
 
 # Mount static files
