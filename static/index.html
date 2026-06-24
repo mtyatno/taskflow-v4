@@ -3123,6 +3123,10 @@ function Sidebar({
     label: "Someday",
     count: sc("someday")
   }];
+  if (aiReviewOn()) {
+    const _i = links.findIndex(l => l.id === "someday");
+    if (_i !== -1) links.splice(_i + 1, 0, { id: "__review", icon: "list", label: "Review Mingguan" });
+  }
 
   // Dynamic project links
   if (projects && projects.length > 0) {
@@ -3229,6 +3233,7 @@ function Sidebar({
         className: `sidebar-link ${page === l.id ? "active" : ""}`,
         "data-tour": l.tourId || undefined,
         onClick: () => {
+          if (l.id === "__review") { window.dispatchEvent(new CustomEvent("tf-open-review")); onClose && onClose(); return; }
           setPage(l.id);
           onClose?.();
         }
@@ -20883,6 +20888,67 @@ function TourButton({ page }) {
   }, '?');
 }
 // ─────────────────────────────────────────────────────────────────────────────
+// Weekly Review — full-screen overlay. Listens to "tf-open-review" to open.
+// Gated by aiReviewOn() at the App-root mount site.
+function WeeklyReview({ tasks, onTaskClick, showToast }) {
+  const [open, setOpen] = React.useState(false);
+  React.useEffect(() => {
+    const h = () => setOpen(true);
+    window.addEventListener("tf-open-review", h);
+    return () => window.removeEventListener("tf-open-review", h);
+  }, []);
+  React.useEffect(() => {
+    if (!open) return;
+    const k = (e) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [open]);
+  if (!open) return null;
+  const r = buildReview(tasks || []);
+  const finish = () => {
+    try { localStorage.setItem("tf_last_review", new Date().toISOString()); } catch (e) {}
+    setOpen(false);
+    showToast && showToast("Review selesai ✅");
+  };
+  const taskRow = (t) => /*#__PURE__*/React.createElement("div", {
+    key: t.id, className: "task-row", style: { cursor: "pointer", padding: "7px 0" },
+    onClick: () => onTaskClick && onTaskClick(t)
+  }, t.title || "(tanpa judul)");
+  const Section = (title, items, render) => items.length === 0 ? null :
+    /*#__PURE__*/React.createElement("div", { key: title, style: { marginBottom: 18 } },
+      /*#__PURE__*/React.createElement("div", { className: "notes-section-label" }, `${title} (${items.length})`),
+      items.slice(0, 20).map(render));
+  return /*#__PURE__*/React.createElement("div", {
+    style: { position: "fixed", inset: 0, zIndex: 10060, background: "var(--bg-page)", display: "flex", flexDirection: "column" }
+  },
+    /*#__PURE__*/React.createElement("div", {
+      style: { display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid var(--border)",
+        padding: "calc(12px + env(safe-area-inset-top,0px)) calc(16px + env(safe-area-inset-right,0px)) 12px calc(16px + env(safe-area-inset-left,0px))" }
+    },
+      /*#__PURE__*/React.createElement("span", { style: { flex: 1, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 9 } },
+        /*#__PURE__*/React.createElement(Icon, { name: "list", size: 20 }), "Review Mingguan"),
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: finish }, "Selesai Review"),
+      /*#__PURE__*/React.createElement("button", { onClick: () => setOpen(false), style: { background: "none", border: "none", cursor: "pointer", display: "flex" } },
+        /*#__PURE__*/React.createElement(Icon, { name: "x", size: 20 }))
+    ),
+    /*#__PURE__*/React.createElement("div", {
+      style: { flex: 1, overflow: "auto", maxWidth: 880, margin: "0 auto", width: "100%",
+        padding: "18px calc(20px + env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) calc(20px + env(safe-area-inset-left,0px))" }
+    },
+      Section("Get Clear \xB7 Inbox", r.inbox, taskRow),
+      Section("Overdue", r.overdue, taskRow),
+      Section("Selesai minggu ini", r.doneThisWeek, taskRow),
+      Section("Next Actions mandek", r.staleNext, taskRow),
+      Section("Waiting For", r.waiting, taskRow),
+      Section("Jatuh tempo minggu depan", r.dueNextWeek, taskRow),
+      Section("Someday / Maybe", r.someday, taskRow),
+      r.projectsNoNext.length > 0 && /*#__PURE__*/React.createElement("div", { style: { marginBottom: 18 } },
+        /*#__PURE__*/React.createElement("div", { className: "notes-section-label" }, `Project tanpa next-action (${r.projectsNoNext.length})`),
+        r.projectsNoNext.map(p => /*#__PURE__*/React.createElement("div", { key: p.project, className: "task-row", style: { padding: "7px 0" } }, `⚠ ${p.project}`)))
+    )
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
 // In-app attachment viewer (native app). openAttachment() dispatches the
 // "tf-open-attachment" event instead of handing the file to an external OS app
 // (unreliable on Windows desktop, no way back on Android). This fetches the blob
@@ -22439,7 +22505,7 @@ function App() {
       background: "rgba(0,0,0,0.3)",
       zIndex: 30
     }
-  }), /*#__PURE__*/React.createElement(AttachmentViewer, null));
+  }), /*#__PURE__*/React.createElement(AttachmentViewer, null), aiReviewOn() && /*#__PURE__*/React.createElement(WeeklyReview, { tasks: tasks, onTaskClick: setSelectedTask, showToast: showToast }));
 }
 ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElementById("root"));
 </script>
