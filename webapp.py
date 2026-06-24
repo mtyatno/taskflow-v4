@@ -49,6 +49,7 @@ from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date
 from repository import TaskRepository
 import bookmark
+import ai_review
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("WEB_SECRET_KEY", secrets.token_hex(32))
@@ -3092,6 +3093,28 @@ async def bookmark_extract(body: BookmarkExtractIn, user=Depends(get_current_use
     html = b"".join(chunks).decode("utf-8", errors="replace")
     out = bookmark.extract_readable(html, url)
     return {"title": out["title"], "content": out["content"], "url": url}
+
+
+@app.post("/api/ai/review")
+async def ai_weekly_review(user=Depends(get_current_user)):
+    if not appconfig.AI_FEATURES_ENABLED:
+        raise HTTPException(status_code=404, detail="AI features disabled")
+    uid = user["sub"]
+    access_clause = (
+        "user_id = ? OR list_id IN ("
+        "  SELECT id FROM shared_lists WHERE owner_id = ?"
+        "  UNION SELECT list_id FROM list_members WHERE user_id = ?)"
+    )
+    sql = (f"SELECT * FROM tasks WHERE ({access_clause}) "
+           "AND gtd_status NOT IN ('archived')")
+    with get_db() as conn:
+        rows = conn.execute(sql, [uid, uid, uid]).fetchall()
+        tasks = [task_row_to_dict(r, conn) for r in rows]
+    payload = ai_review.build_payload(tasks)
+    try:
+        return ai_review.generate_review(payload)
+    except ai_review.AIReviewError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 @app.put("/api/scratchpad/{note_id}")
