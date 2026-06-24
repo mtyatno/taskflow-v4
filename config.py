@@ -46,3 +46,6 @@ NEXTCLOUD_URL = os.getenv("NEXTCLOUD_URL", "")
 NEXTCLOUD_USER = os.getenv("NEXTCLOUD_USER", "")
 NEXTCLOUD_APP_PASSWORD = os.getenv("NEXTCLOUD_APP_PASSWORD", "")
 NEXTCLOUD_FOLDER = os.getenv("NEXTCLOUD_FOLDER", "/TaskFlow/attachments")
+
+# AI Features (Weekly Review, etc.) — default OFF (kill-switch)
+AI_FEATURES_ENABLED = os.getenv("AI_FEATURES_ENABLED", "false").strip().lower() in ("1", "true", "yes")
