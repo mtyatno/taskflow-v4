@@ -13982,7 +13982,16 @@ function SettingsPage({
     }
   }, /*#__PURE__*/React.createElement(NoteTemplatesSettings, {
     showToast: showToast
-  })));
+  })),
+  window.__AI_ENABLED && /*#__PURE__*/React.createElement("div", { style: { marginTop: 28, paddingTop: 24, borderTop: "1px solid var(--border)" } },
+    /*#__PURE__*/React.createElement("h3", { style: { fontSize: 14, fontWeight: 700, marginBottom: 8 } }, "Asisten AI (Weekly Review)"),
+    /*#__PURE__*/React.createElement("p", { style: { fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 } },
+      "AI hanya membaca tugasmu (judul, deskripsi, deadline, prioritas). Catatan tidak pernah dikirim."),
+    /*#__PURE__*/React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" } },
+      /*#__PURE__*/React.createElement("input", { type: "checkbox",
+        defaultChecked: localStorage.getItem("tf_ai_review_optin") === "1",
+        onChange: (e) => { try { localStorage.setItem("tf_ai_review_optin", e.target.checked ? "1" : "0"); } catch (err) {} showToast("Tersimpan — muat ulang untuk menerapkan"); } }),
+      /*#__PURE__*/React.createElement("span", { style: { fontSize: 13 } }, "Aktifkan Weekly Review berbantuan AI"))));
 }
 
 // ── Notes / Scratchpad ────────────────────────────────────────
