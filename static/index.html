@@ -1358,6 +1358,7 @@
   <script src="/static/offline/syncpush.js"></script>
   <script src="/static/offline/syncpull.js"></script>
   <script src="/static/offline/syncconflict.js"></script>
+  <script src="/static/review/digest.js"></script>
   <script>
 function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
 const {
@@ -1437,6 +1438,10 @@ const genId = () => typeof crypto !== "undefined" && crypto.randomUUID ? crypto.
 const API_BASE = (typeof window !== "undefined" && window.__API_BASE) ? window.__API_BASE : "";
 // Prepend API_BASE to absolute API paths ("/api/..."); full URLs and non-slash inputs pass through.
 const apiUrl = (p) => (typeof p === "string" && p.charAt(0) === "/") ? API_BASE + p : p;
+function aiReviewOn() {
+  try { return !!window.__AI_ENABLED && localStorage.getItem("tf_ai_review_optin") === "1"; }
+  catch (e) { return false; }
+}
 // Open/download an attachment. On web (same-origin) the cookie/session opens it
 // directly in a new tab. In the native app the webview is cross-origin to the API
 // and a plain <a href> can't send the auth token, so fetch the file with the Bearer
