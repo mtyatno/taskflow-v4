@@ -11440,7 +11440,7 @@ function Dashboard({
     className: "fade-in"
   }, /*#__PURE__*/React.createElement(BackupReminder, {
     showToast: showToast
-  }), /*#__PURE__*/React.createElement("h1", {
+  }), aiReviewOn() && /*#__PURE__*/React.createElement(ReviewNudge, { tasks: tasks, onStart: () => window.dispatchEvent(new CustomEvent("tf-open-review")) }), /*#__PURE__*/React.createElement("h1", {
     style: {
       fontSize: 24,
       fontWeight: 700,
@@ -21017,6 +21017,43 @@ function AttachmentViewer() {
   );
 }
 // ─────────────────────────────────────────────────────────────────────────────
+// Weekly review nudge banner (gated by AI flag). Shows when >= 7 days since
+// last review and not snoozed today. Dispatches tf-open-review to launch the
+// review flow (handled by a later task).
+function ReviewNudge({ tasks, onStart }) {
+  const [show, setShow] = React.useState(false);
+  React.useEffect(() => {
+    if (!aiReviewOn()) return;
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      if (localStorage.getItem("tf_review_snooze") === today) return;
+      const last = localStorage.getItem("tf_last_review");
+      const due = !last || (Date.now() - new Date(last).getTime()) / 864e5 >= 7;
+      if (due) setShow(true);
+    } catch (e) {}
+  }, []);
+  if (!show) return null;
+  const r = buildReview(tasks || []);
+  const onDismiss = () => {
+    try { localStorage.setItem("tf_review_snooze", new Date().toISOString().slice(0, 10)); } catch (e) {}
+    setShow(false);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    style: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+      background: "var(--bg-primary)", border: "1px solid var(--border)",
+      borderLeft: "4px solid var(--accent)", borderRadius: 10, padding: "12px 14px", marginBottom: 16 }
+  },
+    /*#__PURE__*/React.createElement("span", { style: { color: "var(--accent)", display: "flex" } },
+      /*#__PURE__*/React.createElement(Icon, { name: "list", size: 20 })),
+    /*#__PURE__*/React.createElement("span", { style: { flex: 1, minWidth: 180, fontSize: 13 } },
+      `Saatnya Review Mingguan — ${r.inbox.length} inbox, ${r.overdue.length} overdue`),
+    /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: onStart }, "Mulai Review"),
+    /*#__PURE__*/React.createElement("button", { onClick: onDismiss, title: "Ingatkan lagi besok",
+      style: { background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", padding: "0 4px" } },
+      /*#__PURE__*/React.createElement(Icon, { name: "x", size: 16 }))
+  );
+}
+
 // Weekly backup reminder banner (top of Dashboard). Per-device via localStorage:
 // `tf_last_backup` (ISO, set on successful download) and `tf_backup_snooze`
 // (YYYY-MM-DD). Shows when it's been >= BACKUP_INTERVAL_DAYS since the last
