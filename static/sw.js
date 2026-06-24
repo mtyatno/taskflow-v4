@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v173-print-area-hidden";
+const CACHE = "taskflow-v174-weekly-review";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
@@ -120,6 +120,9 @@ self.addEventListener("fetch", e => {
 
   // Hanya proses skema http/https untuk menghindari error pada ekstensi browser
   if (!url.protocol.startsWith("http")) return;
+
+  // AI endpoints are dynamic — never cache, always network.
+  if (url.pathname.startsWith("/api/ai/")) return;
 
   // /api/habit-templates — network-first + cache fallback for offline
   if (url.pathname === '/api/habit-templates' && request.method === 'GET') {
