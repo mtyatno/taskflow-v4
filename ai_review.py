@@ -1,7 +1,9 @@
 """Weekly Review AI layer. TASKS-ONLY: this module must never import or read
 notes/scratchpad data. Only the WHITELIST fields below leave the server.
-NOTE: `anthropic` is imported lazily inside generate_review() so this module
-imports (and build_payload/schema unit-test) without the SDK installed."""
+Provider: OpenRouter (OpenAI-compatible chat-completions), so the API key works
+where Anthropic's own billing was unavailable. `requests` is imported lazily
+inside generate_review() so this module imports (and build_payload/schema
+unit-test) with no network deps."""
 import os
 from datetime import date, datetime
 
@@ -96,29 +98,66 @@ REVIEW_SYSTEM_PROMPT = (
 )
 
 
+# OpenRouter (OpenAI-compatible). Pick the exact model slug from
+# https://openrouter.ai/models and set AI_MODEL in .env (default below is a
+# safe fallback; override it). On any failure we raise AIReviewError, which the
+# route turns into HTTP 503 and the UI shows as "Gagal membuat ringkasan AI".
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_MODEL = "anthropic/claude-sonnet-4"
+
+
 def generate_review(payload: dict) -> dict:
     import json
-    import anthropic  # lazy: keeps the module importable without the SDK
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    import requests  # lazy: already installed for the web service (webapp uses it)
+    api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
-        raise AIReviewError("ANTHROPIC_API_KEY not configured")
-    client = anthropic.Anthropic(api_key=api_key)
+        raise AIReviewError("OPENROUTER_API_KEY not configured")
+    model = os.getenv("AI_MODEL", DEFAULT_MODEL)
+    user_msg = (
+        json.dumps(payload, ensure_ascii=False)
+        + "\n\nBalas HANYA dengan satu objek JSON valid sesuai skema: "
+        '{"summary": str, "focus_suggestions": [{"task_id": str, "reason": str}], '
+        '"stalled_projects": [{"project": str, "next_actions": [{"title": str, '
+        '"rationale": str}]}], "reflective_questions": [str]}. '
+        "Tanpa teks atau markdown apa pun di luar JSON."
+    )
     try:
-        resp = client.messages.create(
-            model="claude-opus-4-8",
-            max_tokens=4096,
-            thinking={"type": "adaptive"},
-            system=[{"type": "text", "text": REVIEW_SYSTEM_PROMPT,
-                     "cache_control": {"type": "ephemeral"}}],
-            output_config={"format": {"type": "json_schema",
-                                      "schema": REVIEW_SCHEMA}},
-            messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+        r = requests.post(
+            OPENROUTER_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "X-Title": "TaskFlow Weekly Review",
+            },
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_msg},
+                ],
+                "max_tokens": 4096,
+                "response_format": {"type": "json_object"},
+            },
+            timeout=60,
         )
-    except anthropic.APIError as e:
-        raise AIReviewError(f"Claude API error: {e}") from e
-    if resp.stop_reason == "refusal":
-        raise AIReviewError("model refused")
-    text = next((b.text for b in resp.content if b.type == "text"), None)
-    if not text:
+    except requests.RequestException as e:
+        raise AIReviewError(f"OpenRouter request failed: {e}") from e
+    if r.status_code != 200:
+        raise AIReviewError(f"OpenRouter HTTP {r.status_code}: {r.text[:200]}")
+    try:
+        data = r.json()
+        content = data["choices"][0]["message"]["content"]
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+        raise AIReviewError(f"bad OpenRouter response: {e}") from e
+    if not content:
         raise AIReviewError("empty response")
-    return json.loads(text)
+    txt = content.strip()
+    if txt.startswith("```"):  # some models wrap JSON in code fences
+        txt = txt.strip("`")
+        if txt[:4].lower() == "json":
+            txt = txt[4:]
+        txt = txt.strip()
+    try:
+        return json.loads(txt)
+    except json.JSONDecodeError as e:
+        raise AIReviewError(f"model did not return valid JSON: {e}") from e
