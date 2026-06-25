@@ -20903,7 +20903,7 @@ function TourButton({ page }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Weekly Review — full-screen overlay. Listens to "tf-open-review" to open.
 // Gated by aiReviewOn() at the App-root mount site.
-function WeeklyReview({ tasks, onTaskClick, showToast, onCreateTask, onAddFocus }) {
+function WeeklyReview({ tasks, onTaskClick, showToast, onCreateTask, onAddFocus, onReschedule, onClarifyNext, onFollowUp }) {
   const [open, setOpen] = React.useState(false);
   React.useEffect(() => {
     const h = () => setOpen(true);
@@ -20943,7 +20943,7 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onCreateTask, onAddFocus 
     if (d === 0) return "hari ini";
     return `${d} hari lagi`;
   };
-  const taskRow = (t) => /*#__PURE__*/React.createElement("div", {
+  const taskRow = (t, extraAction) => /*#__PURE__*/React.createElement("div", {
     key: t.id, className: "task-row",
     style: { cursor: "pointer", padding: "8px 0", display: "flex", alignItems: "center", gap: 10 },
     onClick: () => { setOpen(false); if (onTaskClick) onTaskClick(t); }
@@ -20954,6 +20954,10 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onCreateTask, onAddFocus 
       (dlabel(t) || t.project) && /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, color: "var(--text-light)", display: "flex", gap: 8, marginTop: 1, flexWrap: "wrap" } },
         dlabel(t) && /*#__PURE__*/React.createElement("span", { style: { color: t.is_overdue ? "#ef4444" : "var(--text-light)" } }, "⏰ " + dlabel(t)),
         t.project && /*#__PURE__*/React.createElement("span", null, "#" + t.project))),
+    extraAction && /*#__PURE__*/React.createElement("button", {
+      onClick: (e) => { e.stopPropagation(); extraAction.onClick(t); },
+      style: { background: "none", border: "1px solid var(--border)", borderRadius: 7, cursor: "pointer", color: "var(--text-secondary)", padding: "3px 9px", flexShrink: 0, fontSize: 12, fontWeight: 600 }
+    }, extraAction.label),
     onAddFocus && !t.is_focused && /*#__PURE__*/React.createElement("button", {
       title: "Tambah ke Fokus", onClick: (e) => { e.stopPropagation(); onAddFocus(t.id); },
       style: { background: "none", border: "1px solid var(--border)", borderRadius: 7, cursor: "pointer", color: "var(--text-light)", padding: "3px 7px", flexShrink: 0, display: "flex", alignItems: "center" }
@@ -21015,11 +21019,11 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onCreateTask, onAddFocus 
         ai && ai.reflective_questions && ai.reflective_questions.map((q, i) =>
           /*#__PURE__*/React.createElement("div", { key: i, style: { marginTop: 8, fontSize: 13, fontStyle: "italic", color: "var(--text-secondary)" } }, "❓ " + q))
       ),
-      Section("Get Clear \xB7 Inbox", r.inbox, taskRow),
-      Section("Overdue", r.overdue, taskRow),
+      Section("Get Clear \xB7 Inbox", r.inbox, (t) => taskRow(t, { label: "Jadikan Next", onClick: onClarifyNext })),
+      Section("Overdue", r.overdue, (t) => taskRow(t, { label: "Tunda 1mg", onClick: onReschedule })),
       Section("Selesai minggu ini", r.doneThisWeek, taskRow),
       Section("Next Actions mandek", r.staleNext, taskRow),
-      Section("Waiting For", r.waiting, taskRow),
+      Section("Waiting For", r.waiting, (t) => taskRow(t, { label: "Tindak lanjut", onClick: onFollowUp })),
       Section("Jatuh tempo minggu depan", r.dueNextWeek, taskRow),
       Section("Someday / Maybe", r.someday, taskRow),
       r.projectsNoNext.length > 0 && /*#__PURE__*/React.createElement("div", { style: { marginBottom: 18 } },
@@ -21948,6 +21952,32 @@ function App() {
     api.post(`/api/tasks/${taskId}/focus`, {})
       .then(() => { if (window.__refreshTasks) window.__refreshTasks(); showToast("Ditambahkan ke Fokus ⭐"); })
       .catch(() => showToast("Gagal menambah fokus", "error"));
+  const handleReviewReschedule = (task) => {
+    const prev = task.deadline || null;
+    api.put(`/api/tasks/${task.id}`, { deadline: window.plusDaysISO(7) })
+      .then(() => { if (window.__refreshTasks) window.__refreshTasks();
+        showToast("Ditunda 1 minggu ⏰", "success", { label: "Undo", onClick: () =>
+          api.put(`/api/tasks/${task.id}`, { deadline: prev })
+            .then(() => { if (window.__refreshTasks) window.__refreshTasks(); }) }); })
+      .catch(() => showToast("Gagal menunda", "error"));
+  };
+  const handleReviewClarifyNext = (task) => {
+    api.put(`/api/tasks/${task.id}`, { gtd_status: "next" })
+      .then(() => { if (window.__refreshTasks) window.__refreshTasks();
+        showToast("Jadi Next ✅", "success", { label: "Undo", onClick: () =>
+          api.put(`/api/tasks/${task.id}`, { gtd_status: "inbox" })
+            .then(() => { if (window.__refreshTasks) window.__refreshTasks(); }) }); })
+      .catch(() => showToast("Gagal mengubah status", "error"));
+  };
+  const handleReviewFollowUp = (task) => {
+    api.post("/api/tasks", { title: "Tindak lanjut: " + (task.title || ""), gtd_status: "next", project: task.project || "", priority: "P3" })
+      .then((created) => { if (window.__refreshTasks) window.__refreshTasks();
+        const newId = created && created.id;
+        showToast("Next-action dibuat ✅", "success", newId ? { label: "Undo", onClick: () =>
+          api.del(`/api/tasks/${newId}`)
+            .then(() => { if (window.__refreshTasks) window.__refreshTasks(); }) } : null); })
+      .catch(() => showToast("Gagal membuat next-action", "error"));
+  };
   const handleSaved = () => {
     setShowForm(false);
     setEditTask(null);
@@ -22595,7 +22625,7 @@ function App() {
       background: "rgba(0,0,0,0.3)",
       zIndex: 30
     }
-  }), /*#__PURE__*/React.createElement(AttachmentViewer, null), aiReviewOn() && /*#__PURE__*/React.createElement(WeeklyReview, { tasks: tasks, onTaskClick: setSelectedTask, showToast: showToast, onCreateTask: handleReviewCreate, onAddFocus: handleReviewFocus }));
+  }), /*#__PURE__*/React.createElement(AttachmentViewer, null), aiReviewOn() && /*#__PURE__*/React.createElement(WeeklyReview, { tasks: tasks, onTaskClick: setSelectedTask, showToast: showToast, onCreateTask: handleReviewCreate, onAddFocus: handleReviewFocus, onReschedule: handleReviewReschedule, onClarifyNext: handleReviewClarifyNext, onFollowUp: handleReviewFollowUp }));
 }
 ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElementById("root"));
 </script>
