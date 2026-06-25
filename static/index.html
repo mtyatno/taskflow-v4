@@ -21953,6 +21953,9 @@ function App() {
       .then(() => { if (window.__refreshTasks) window.__refreshTasks(); showToast("Ditambahkan ke Fokus ⭐"); })
       .catch(() => showToast("Gagal menambah fokus", "error"));
   const handleReviewReschedule = (task) => {
+    // Only rendered in the Overdue section, where is_overdue implies a non-null
+    // deadline — so `prev` is always a real date and undo can restore it. (PUT
+    // ignores a null deadline, so this action must not be reused on no-deadline rows.)
     const prev = task.deadline || null;
     api.put(`/api/tasks/${task.id}`, { deadline: window.plusDaysISO(7) })
       .then(() => { if (window.__refreshTasks) window.__refreshTasks();

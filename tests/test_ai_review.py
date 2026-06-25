@@ -92,8 +92,15 @@ def test_build_payload_has_signals():
     assert sig["p1_overdue"] == 1
     # Alpha has only an overdue 'next' (counts as having a next); Beta has no 'next'
     assert sig["projects_without_next"] == 1
-    assert sig["oldest_overdue_days"] >= sig.get("_never", 0)  # is an int, >=0
+    # task "a" is the oldest overdue; its age must lead and be a non-negative int
     assert isinstance(sig["oldest_overdue_days"], int)
+    assert sig["oldest_overdue_days"] == ai_review._age_days(tasks[0])
+
+
+def test_signals_empty_task_list():
+    sig = ai_review.build_payload([])["signals"]
+    assert sig == {"p1_overdue": 0, "oldest_overdue_days": 0,
+                   "projects_without_next": 0}
 
 
 def test_signals_never_leak_non_whitelisted():
