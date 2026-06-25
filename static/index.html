@@ -1727,15 +1727,19 @@ const AppContext = createContext();
 function Toast({
   message,
   type,
+  action,
   onClose
 }) {
   useEffect(() => {
-    const t = setTimeout(onClose, 3000);
+    const t = setTimeout(onClose, action ? 6000 : 3000);
     return () => clearTimeout(t);
   }, []);
   return /*#__PURE__*/React.createElement("div", {
     className: `toast toast-${type}`
-  }, message);
+  }, message, action && /*#__PURE__*/React.createElement("button", {
+    onClick: () => { action.onClick(); onClose(); },
+    style: { marginLeft: 12, background: "none", border: "1px solid rgba(255,255,255,0.5)", color: "inherit", borderRadius: 6, padding: "2px 10px", cursor: "pointer", fontSize: 13, fontWeight: 600 }
+  }, action.label));
 }
 
 // ── Theme Toggle ────────────────────────────────────────────
@@ -21317,9 +21321,10 @@ function App() {
       prevSidebarCollapsedRef.current = null;
     }
   }, [page]);
-  const showToast = (message, type = "success") => setToast({
+  const showToast = (message, type = "success", action = null) => setToast({
     message,
-    type
+    type,
+    action
   });
   const logout = useCallback(async () => {
     if (!tokenStore.get()) return;
@@ -22559,6 +22564,7 @@ function App() {
   }), toast && /*#__PURE__*/React.createElement(Toast, {
     message: toast.message,
     type: toast.type,
+    action: toast.action,
     onClose: () => setToast(null)
   }), joinModal && /*#__PURE__*/React.createElement(JoinListModal, {
     code: pendingJoinCode,
