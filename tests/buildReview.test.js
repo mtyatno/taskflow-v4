@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { buildReview } = require("../static/review/digest.js"); // the one real module
+const { buildReview, plusDaysISO } = require("../static/review/digest.js"); // the one real module
 
 const ago = (d) => new Date(Date.now() - d * 864e5).toISOString();
 
@@ -23,4 +23,11 @@ test("buildReview buckets", () => {
   assert.equal(r.someday.length, 1);
   assert.equal(r.doneThisWeek.length, 1);
   assert.ok(r.projectsNoNext.some((p) => p.project === "P"));
+});
+
+test("plusDaysISO adds days and formats YYYY-MM-DD", () => {
+  const base = new Date("2026-06-25T10:00:00");
+  assert.equal(plusDaysISO(7, base), "2026-07-02");
+  assert.equal(plusDaysISO(0, base), "2026-06-25");
+  assert.match(plusDaysISO(7), /^\d{4}-\d{2}-\d{2}$/);
 });
