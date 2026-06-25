@@ -100,3 +100,10 @@ def test_signals_never_leak_non_whitelisted():
     tasks = [dict(SAMPLE[0], note_content="PRIVATE")]
     blob = json.dumps(ai_review.build_payload(tasks))
     assert "PRIVATE" not in blob and "note_content" not in blob
+
+
+def test_prompt_mentions_quadrant_and_overdue_priority():
+    p = ai_review.REVIEW_SYSTEM_PROMPT.lower()
+    assert "quadrant" in p
+    assert "p1" in p and "overdue" in p
+    assert "signals" in p  # tells the model the aggregate block exists
