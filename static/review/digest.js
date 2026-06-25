@@ -19,8 +19,17 @@ function buildReview(tasks) {
     .map(([project, ts]) => ({ project, tasks: ts }));
   return { inbox, overdue, doneThisWeek, staleNext, waiting, projectsNoNext, dueNextWeek, someday };
 }
+
+function plusDaysISO(n, base) {
+  const d = base ? new Date(base) : new Date();
+  d.setDate(d.getDate() + n);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { buildReview };
+  module.exports = { buildReview, plusDaysISO };
 } else {
-  try { window.buildReview = buildReview; } catch (e) {}
+  try { window.buildReview = buildReview; window.plusDaysISO = plusDaysISO; } catch (e) {}
 }
