@@ -106,6 +106,41 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "anthropic/claude-sonnet-4"
 
 
+def parse_review_content(content, reasoning="") -> dict:
+    """Turn raw model output into the review dict, defensively.
+
+    Free models often ignore `response_format` and wrap the JSON in prose or
+    code fences; reasoning models (e.g. R1) may leave `content` empty and put
+    the answer in `reasoning`. We: prefer content, fall back to reasoning,
+    strip code fences, try a direct parse, then recover the first {...} block.
+    On total failure we echo a snippet so the real model output is diagnosable
+    (a content-safety/moderation model, say, returns a verdict — never JSON)."""
+    import json
+    raw = (content or "").strip()
+    if not raw:
+        raw = (reasoning or "").strip()
+    if not raw:
+        raise AIReviewError("empty response (no content/reasoning)")
+    txt = raw
+    if txt.startswith("```"):  # some models wrap JSON in code fences
+        txt = txt.strip("`")
+        if txt[:4].lower() == "json":
+            txt = txt[4:]
+        txt = txt.strip()
+    try:
+        return json.loads(txt)
+    except json.JSONDecodeError:
+        pass
+    start, end = txt.find("{"), txt.rfind("}")  # recover JSON embedded in prose
+    if start != -1 and end > start:
+        try:
+            return json.loads(txt[start:end + 1])
+        except json.JSONDecodeError:
+            pass
+    snippet = raw[:200].replace("\n", " ")
+    raise AIReviewError(f"model did not return valid JSON; got: {snippet!r}")
+
+
 def generate_review(payload: dict) -> dict:
     import json
     import requests  # lazy: already installed for the web service (webapp uses it)
@@ -146,18 +181,9 @@ def generate_review(payload: dict) -> dict:
         raise AIReviewError(f"OpenRouter HTTP {r.status_code}: {r.text[:200]}")
     try:
         data = r.json()
-        content = data["choices"][0]["message"]["content"]
+        msg = data["choices"][0]["message"]
+        content = msg.get("content")
+        reasoning = msg.get("reasoning") or ""
     except (ValueError, KeyError, IndexError, TypeError) as e:
         raise AIReviewError(f"bad OpenRouter response: {e}") from e
-    if not content:
-        raise AIReviewError("empty response")
-    txt = content.strip()
-    if txt.startswith("```"):  # some models wrap JSON in code fences
-        txt = txt.strip("`")
-        if txt[:4].lower() == "json":
-            txt = txt[4:]
-        txt = txt.strip()
-    try:
-        return json.loads(txt)
-    except json.JSONDecodeError as e:
-        raise AIReviewError(f"model did not return valid JSON: {e}") from e
+    return parse_review_content(content, reasoning)

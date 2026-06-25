@@ -37,3 +37,44 @@ def test_schema_is_strict_object():
     assert s["additionalProperties"] is False
     assert set(["summary", "focus_suggestions", "stalled_projects",
                 "reflective_questions"]).issubset(s["properties"].keys())
+
+
+VALID = '{"summary": "ok", "focus_suggestions": [], "stalled_projects": [], "reflective_questions": []}'
+
+
+def test_parse_plain_json():
+    out = ai_review.parse_review_content(VALID)
+    assert out["summary"] == "ok"
+
+
+def test_parse_code_fenced_json():
+    fenced = "```json\n" + VALID + "\n```"
+    assert ai_review.parse_review_content(fenced)["summary"] == "ok"
+
+
+def test_parse_prose_wrapped_json():
+    prose = "Tentu, ini reviewnya:\n" + VALID + "\nSemoga membantu!"
+    assert ai_review.parse_review_content(prose)["summary"] == "ok"
+
+
+def test_parse_reasoning_fallback_when_content_empty():
+    # reasoning-style models (e.g. R1) may leave content empty
+    out = ai_review.parse_review_content("", reasoning=VALID)
+    assert out["summary"] == "ok"
+
+
+def test_parse_empty_raises():
+    try:
+        ai_review.parse_review_content("   ", reasoning="")
+        assert False, "expected AIReviewError"
+    except ai_review.AIReviewError:
+        pass
+
+
+def test_parse_non_json_raises_with_snippet():
+    # a content-safety/moderation model returns a verdict, not JSON
+    try:
+        ai_review.parse_review_content("UNSAFE: category=violence")
+        assert False, "expected AIReviewError"
+    except ai_review.AIReviewError as e:
+        assert "UNSAFE" in str(e)  # snippet echoed for diagnosis
