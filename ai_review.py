@@ -27,21 +27,40 @@ def _age_days(t: dict) -> int:
 
 
 def build_payload(tasks: list) -> dict:
-    """Reduce full task dicts to whitelisted fields + aggregate counts."""
+    """Reduce full task dicts to whitelisted fields + aggregate counts/signals."""
     out_tasks = []
     counts = {"inbox": 0, "next": 0, "waiting": 0, "someday": 0,
               "overdue": 0, "total": 0}
+    p1_overdue = 0
+    oldest_overdue_days = 0
+    proj_has_next = {}      # project -> bool (any task with gtd_status == 'next')
+    proj_seen = set()
     for t in tasks:
         gs = t.get("gtd_status")
         counts["total"] += 1
         if gs in counts:
             counts[gs] += 1
+        age = _age_days(t)
         if t.get("is_overdue"):
             counts["overdue"] += 1
+            if t.get("priority") == "P1":
+                p1_overdue += 1
+            if age > oldest_overdue_days:
+                oldest_overdue_days = age
+        proj = t.get("project")
+        if proj:
+            proj_seen.add(proj)
+            if gs == "next":
+                proj_has_next[proj] = True
         item = {k: t.get(k) for k in WHITELIST if k != "age_days"}
-        item["age_days"] = _age_days(t)
+        item["age_days"] = age
         out_tasks.append(item)
-    return {"counts": counts, "tasks": out_tasks}
+    projects_without_next = sum(
+        1 for p in proj_seen if not proj_has_next.get(p))
+    signals = {"p1_overdue": p1_overdue,
+               "oldest_overdue_days": oldest_overdue_days,
+               "projects_without_next": projects_without_next}
+    return {"counts": counts, "tasks": out_tasks, "signals": signals}
 
 
 REVIEW_SCHEMA = {

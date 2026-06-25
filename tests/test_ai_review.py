@@ -10,7 +10,7 @@ SAMPLE = [
 
 def test_build_payload_only_whitelisted_keys():
     out = ai_review.build_payload(SAMPLE)
-    assert set(out.keys()) == {"counts", "tasks"}
+    assert set(out.keys()) == {"counts", "tasks", "signals"}
     t = out["tasks"][0]
     assert set(t.keys()) <= set(ai_review.WHITELIST)
     assert "secret_note" not in t
@@ -78,3 +78,25 @@ def test_parse_non_json_raises_with_snippet():
         assert False, "expected AIReviewError"
     except ai_review.AIReviewError as e:
         assert "UNSAFE" in str(e)  # snippet echoed for diagnosis
+
+
+def test_build_payload_has_signals():
+    tasks = [
+        {"id": "a", "gtd_status": "next", "priority": "P1", "is_overdue": True,
+         "project": "Alpha", "updated_at": "2026-06-01T00:00:00"},
+        {"id": "b", "gtd_status": "inbox", "priority": "P2", "is_overdue": True,
+         "project": "Beta", "updated_at": "2026-06-20T00:00:00"},
+        {"id": "c", "gtd_status": "inbox", "priority": "P3", "project": "Beta"},
+    ]
+    sig = ai_review.build_payload(tasks)["signals"]
+    assert sig["p1_overdue"] == 1
+    # Alpha has only an overdue 'next' (counts as having a next); Beta has no 'next'
+    assert sig["projects_without_next"] == 1
+    assert sig["oldest_overdue_days"] >= sig.get("_never", 0)  # is an int, >=0
+    assert isinstance(sig["oldest_overdue_days"], int)
+
+
+def test_signals_never_leak_non_whitelisted():
+    tasks = [dict(SAMPLE[0], note_content="PRIVATE")]
+    blob = json.dumps(ai_review.build_payload(tasks))
+    assert "PRIVATE" not in blob and "note_content" not in blob
