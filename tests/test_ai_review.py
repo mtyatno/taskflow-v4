@@ -41,28 +41,28 @@ def test_schema_is_verdict_annotations():
     assert set(ann["properties"].keys()) == {"task_id", "note"}
 
 
-VALID = '{"summary": "ok", "focus_suggestions": [], "stalled_projects": [], "reflective_questions": []}'
+VALID = '{"verdict": "ok", "annotations": []}'
 
 
 def test_parse_plain_json():
     out = ai_review.parse_review_content(VALID)
-    assert out["summary"] == "ok"
+    assert out["verdict"] == "ok"
 
 
 def test_parse_code_fenced_json():
     fenced = "```json\n" + VALID + "\n```"
-    assert ai_review.parse_review_content(fenced)["summary"] == "ok"
+    assert ai_review.parse_review_content(fenced)["verdict"] == "ok"
 
 
 def test_parse_prose_wrapped_json():
     prose = "Tentu, ini reviewnya:\n" + VALID + "\nSemoga membantu!"
-    assert ai_review.parse_review_content(prose)["summary"] == "ok"
+    assert ai_review.parse_review_content(prose)["verdict"] == "ok"
 
 
 def test_parse_reasoning_fallback_when_content_empty():
     # reasoning-style models (e.g. R1) may leave content empty
     out = ai_review.parse_review_content("", reasoning=VALID)
-    assert out["summary"] == "ok"
+    assert out["verdict"] == "ok"
 
 
 def test_parse_empty_raises():

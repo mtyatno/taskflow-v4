@@ -45,7 +45,7 @@ function healthBand(score) {
 }
 
 function buildActionQueue(tasks, cap) {
-  const limit = cap || 15;
+  const limit = cap == null ? 15 : cap;
   const today = new Date();
   const days = (iso) => iso ? Math.floor((today - new Date(String(iso).replace("Z", ""))) / 864e5) : null;
   const active = (t) => t.gtd_status !== "done" && t.gtd_status !== "archived";

@@ -21936,15 +21936,6 @@ function App() {
             .then(() => { if (window.__refreshTasks) window.__refreshTasks(); }) }); })
       .catch(() => showToast("Gagal mengubah status", "error"));
   };
-  const handleReviewFollowUp = (task) => {
-    api.post("/api/tasks", { title: "Tindak lanjut: " + (task.title || ""), gtd_status: "next", project: task.project || "", priority: "P3" })
-      .then((created) => { if (window.__refreshTasks) window.__refreshTasks();
-        const newId = created && created.id;
-        showToast("Next-action dibuat ✅", "success", newId ? { label: "Undo", onClick: () =>
-          api.del(`/api/tasks/${newId}`)
-            .then(() => { if (window.__refreshTasks) window.__refreshTasks(); }) } : null); })
-      .catch(() => showToast("Gagal membuat next-action", "error"));
-  };
   const handleReviewComplete = (task) => {
     const prev = task.gtd_status;
     api.put(`/api/tasks/${task.id}`, { gtd_status: "done" })
