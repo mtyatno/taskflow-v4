@@ -20903,7 +20903,7 @@ function TourButton({ page }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Weekly Review — full-screen overlay. Listens to "tf-open-review" to open.
 // Gated by aiReviewOn() at the App-root mount site.
-function WeeklyReview({ tasks, onTaskClick, showToast, onCreateTask, onAddFocus, onReschedule, onClarifyNext, onFollowUp }) {
+function WeeklyReview({ tasks, onTaskClick, showToast, onAddFocus, onReschedule, onClarifyNext, onCreate, onSetDeadline, onComplete }) {
   const [open, setOpen] = React.useState(false);
   React.useEffect(() => {
     const h = () => setOpen(true);
@@ -20919,118 +20919,82 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onCreateTask, onAddFocus,
   const [ai, setAi] = React.useState(null);
   const [aiBusy, setAiBusy] = React.useState(false);
   const [aiErr, setAiErr] = React.useState("");
-  const [expanded, setExpanded] = React.useState({});
+  const [showAll, setShowAll] = React.useState(false);
   const runAI = async () => {
     setAiBusy(true); setAiErr("");
-    try {
-      const data = await api.post("/api/ai/review", {});
-      setAi(data);
-    } catch (e) {
-      setAiErr(navigator.onLine ? "Gagal membuat ringkasan AI" : "Perlu online untuk ringkasan AI");
-    } finally { setAiBusy(false); }
+    try { setAi(await api.post("/api/ai/review", {})); }
+    catch (e) { setAiErr(navigator.onLine ? "Gagal membuat ringkasan AI" : "Perlu online untuk ringkasan AI"); }
+    finally { setAiBusy(false); }
   };
   if (!open) return null;
   const r = buildReview(tasks || []);
-  const finish = () => {
-    try { localStorage.setItem("tf_last_review", new Date().toISOString()); } catch (e) {}
-    setOpen(false);
-    showToast && showToast("Review selesai ✅");
+  const activeCount = (tasks || []).filter(t => t.gtd_status !== "done" && t.gtd_status !== "archived").length;
+  const p1Overdue = r.overdue.filter(t => t.priority === "P1").length;
+  const score = computeHealthScore({ overdue: r.overdue.length, active: activeCount, p1_overdue: p1Overdue, projects_without_next: r.projectsNoNext.length, stale_next: r.staleNext.length });
+  const band = healthBand(score);
+  const q = buildActionQueue(tasks || [], showAll ? 999 : 15);
+  const annotFor = (id) => { if (!ai || !ai.annotations) return null; const a = ai.annotations.find(x => String(x.task_id) === String(id)); return a ? a.note : null; };
+  const finish = () => { try { localStorage.setItem("tf_last_review", new Date().toISOString()); } catch (e) {} setOpen(false); showToast && showToast("Review selesai ✅"); };
+  const dlabel = (t) => { if (!t.deadline) return null; const d = Math.floor((new Date(String(t.deadline).slice(0, 10)) - new Date(new Date().toISOString().slice(0, 10))) / 864e5); if (d < 0) return `${-d} hari lalu`; if (d === 0) return "hari ini"; return `${d} hari lagi`; };
+  const primary = (item) => {
+    const t = item.task;
+    switch (item.type) {
+      case "overdue": return { label: "Tunda 1mg", run: () => onReschedule(t) };
+      case "due_soon": return { label: "Fokus", run: () => onAddFocus(t.id) };
+      case "priority": return (!t.deadline) ? { label: "Set deadline", run: () => onSetDeadline(t) } : { label: "Fokus", run: () => onAddFocus(t.id) };
+      case "inbox": return { label: "Jadikan Next", run: () => onClarifyNext(t) };
+      default: return null;
+    }
   };
-  const dlabel = (t) => {
-    if (!t.deadline) return null;
-    const d = Math.floor((new Date(String(t.deadline).slice(0, 10)) - new Date(new Date().toISOString().slice(0, 10))) / 864e5);
-    if (d < 0) return `${-d} hari lalu`;
-    if (d === 0) return "hari ini";
-    return `${d} hari lagi`;
+  const TYPE_BADGE = { overdue: ["Overdue", "#dc2626"], due_soon: ["Due", "#f59e0b"], priority: ["Prioritas", "#7c3aed"], inbox: ["Inbox", "#2563eb"], stalled_project: ["Mandek", "#0891b2"] };
+  const open_task = (t) => { setOpen(false); if (onTaskClick) onTaskClick(t); };
+  const taskItem = (item) => {
+    const t = item.task;
+    const badge = TYPE_BADGE[item.type] || ["", ""];
+    const act = primary(item);
+    const note = annotFor(t.id);
+    return /*#__PURE__*/React.createElement("div", { key: "t" + t.id, className: "task-row", style: { display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--border)" } },
+      /*#__PURE__*/React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: badge[1], border: `1px solid ${badge[1]}`, borderRadius: 5, padding: "1px 6px", flexShrink: 0, marginTop: 2 } }, badge[0]),
+      /*#__PURE__*/React.createElement("div", { style: { flex: 1, minWidth: 0, cursor: "pointer" }, onClick: () => open_task(t) },
+        /*#__PURE__*/React.createElement("div", { style: { fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, t.title || "(tanpa judul)"),
+        (dlabel(t) || t.project) && /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, color: "var(--text-light)", display: "flex", gap: 8, marginTop: 1, flexWrap: "wrap" } },
+          dlabel(t) && /*#__PURE__*/React.createElement("span", { style: { color: t.is_overdue ? "#ef4444" : "var(--text-light)" } }, "⏰ " + dlabel(t)),
+          t.project && /*#__PURE__*/React.createElement("span", null, "#" + t.project)),
+        note && /*#__PURE__*/React.createElement("div", { style: { fontSize: 12, fontStyle: "italic", color: "var(--accent)", marginTop: 3 } }, "✦ " + note)),
+      /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 6, flexShrink: 0 } },
+        act && /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: (e) => { e.stopPropagation(); act.run(); } }, act.label),
+        /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", title: "Selesai", onClick: (e) => { e.stopPropagation(); onComplete(t); } }, "✓"),
+        /*#__PURE__*/React.createElement("button", { className: "btn btn-sm", style: { border: "1px solid var(--border)", background: "none" }, title: "Buka", onClick: (e) => { e.stopPropagation(); open_task(t); } }, "Buka")));
   };
-  const taskRow = (t, extraAction) => /*#__PURE__*/React.createElement("div", {
-    key: t.id, className: "task-row",
-    style: { cursor: "pointer", padding: "8px 0", display: "flex", alignItems: "center", gap: 10 },
-    onClick: () => { setOpen(false); if (onTaskClick) onTaskClick(t); }
-  },
-    t.priority && /*#__PURE__*/React.createElement("span", { title: t.priority, style: { width: 8, height: 8, borderRadius: "50%", background: (PRI_DOT[t.priority] || "var(--text-light)"), flexShrink: 0 } }),
-    /*#__PURE__*/React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-      /*#__PURE__*/React.createElement("div", { style: { fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, t.title || "(tanpa judul)"),
-      (dlabel(t) || t.project) && /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, color: "var(--text-light)", display: "flex", gap: 8, marginTop: 1, flexWrap: "wrap" } },
-        dlabel(t) && /*#__PURE__*/React.createElement("span", { style: { color: t.is_overdue ? "#ef4444" : "var(--text-light)" } }, "⏰ " + dlabel(t)),
-        t.project && /*#__PURE__*/React.createElement("span", null, "#" + t.project))),
-    extraAction && /*#__PURE__*/React.createElement("button", {
-      onClick: (e) => { e.stopPropagation(); extraAction.onClick(t); },
-      style: { background: "none", border: "1px solid var(--border)", borderRadius: 7, cursor: "pointer", color: "var(--text-secondary)", padding: "3px 9px", flexShrink: 0, fontSize: 12, fontWeight: 600 }
-    }, extraAction.label),
-    onAddFocus && !t.is_focused && /*#__PURE__*/React.createElement("button", {
-      title: "Tambah ke Fokus", onClick: (e) => { e.stopPropagation(); onAddFocus(t.id); },
-      style: { background: "none", border: "1px solid var(--border)", borderRadius: 7, cursor: "pointer", color: "var(--text-light)", padding: "3px 7px", flexShrink: 0, display: "flex", alignItems: "center" }
-    }, /*#__PURE__*/React.createElement(Icon, { name: "star", size: 13 }))
-  );
-  const Section = (title, items, render) => {
-    if (items.length === 0) return null;
-    const isOpen = !!expanded[title];
-    const shown = isOpen ? items : items.slice(0, 6);
-    return /*#__PURE__*/React.createElement("div", { key: title, style: { marginBottom: 18 } },
-      /*#__PURE__*/React.createElement("div", { className: "notes-section-label" }, `${title} (${items.length})`),
-      shown.map(render),
-      items.length > 6 && /*#__PURE__*/React.createElement("button", {
-        onClick: () => setExpanded(s => ({ ...s, [title]: !isOpen })),
-        style: { background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 12, padding: "4px 0", fontWeight: 600 }
-      }, isOpen ? "Sembunyikan" : `+ ${items.length - 6} lainnya`));
-  };
-  return /*#__PURE__*/React.createElement("div", {
-    style: { position: "fixed", inset: 0, zIndex: 10060, background: "var(--bg-page)", display: "flex", flexDirection: "column" }
-  },
-    /*#__PURE__*/React.createElement("div", {
-      style: { display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid var(--border)",
-        padding: "calc(12px + env(safe-area-inset-top,0px)) calc(16px + env(safe-area-inset-right,0px)) 12px calc(16px + env(safe-area-inset-left,0px))" }
-    },
-      /*#__PURE__*/React.createElement("span", { style: { flex: 1, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 9 } },
-        /*#__PURE__*/React.createElement(Icon, { name: "list", size: 20 }), "Review Mingguan"),
+  const projItem = (item) => /*#__PURE__*/React.createElement("div", { key: "p" + item.project, className: "task-row", style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--border)" } },
+    /*#__PURE__*/React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: "#0891b2", border: "1px solid #0891b2", borderRadius: 5, padding: "1px 6px", flexShrink: 0 } }, "Mandek"),
+    /*#__PURE__*/React.createElement("div", { style: { flex: 1, minWidth: 0, fontSize: 14 } }, "Proyek tanpa next-action: #" + item.project),
+    /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: () => onCreate({ title: "Next action: " + item.project, project: item.project }) }, "Buat next-action"));
+  return /*#__PURE__*/React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 10060, background: "var(--bg-page)", display: "flex", flexDirection: "column" } },
+    /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid var(--border)", padding: "calc(12px + env(safe-area-inset-top,0px)) calc(16px + env(safe-area-inset-right,0px)) 12px calc(16px + env(safe-area-inset-left,0px))" } },
+      /*#__PURE__*/React.createElement("span", { style: { flex: 1, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 9 } }, /*#__PURE__*/React.createElement(Icon, { name: "list", size: 20 }), "Review Mingguan"),
       /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: finish }, "Selesai Review"),
-      /*#__PURE__*/React.createElement("button", { onClick: () => setOpen(false), style: { background: "none", border: "none", cursor: "pointer", display: "flex" } },
-        /*#__PURE__*/React.createElement(Icon, { name: "x", size: 20 }))
-    ),
-    /*#__PURE__*/React.createElement("div", {
-      style: { flex: 1, overflow: "auto", maxWidth: 880, margin: "0 auto", width: "100%",
-        padding: "18px calc(20px + env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) calc(20px + env(safe-area-inset-left,0px))" }
-    },
-      /*#__PURE__*/React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 } },
-        [["Inbox", r.inbox.length, "#2563eb"], ["Overdue", r.overdue.length, "#dc2626"], ["Selesai 7h", r.doneThisWeek.length, "#16a34a"], ["Waiting", r.waiting.length, "#f59e0b"], ["Tanpa next-action", r.projectsNoNext.length, "#7c3aed"]].map(s =>
-          /*#__PURE__*/React.createElement("div", { key: s[0], style: { flex: "1 1 auto", minWidth: 96, padding: "8px 12px", border: "1px solid var(--border)", borderRadius: 10, background: "var(--bg-card)" } },
-            /*#__PURE__*/React.createElement("div", { style: { fontSize: 20, fontWeight: 800, color: s[2], lineHeight: 1 } }, s[1]),
-            /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, color: "var(--text-secondary)", marginTop: 3 } }, s[0])))),
-      /*#__PURE__*/React.createElement("div", { style: { marginBottom: 20, padding: 14, border: "1px solid var(--border)", borderRadius: 12, background: "var(--bg-card)" } },
-        /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 } },
-          /*#__PURE__*/React.createElement("span", { style: { color: "var(--accent)", display: "flex" } }, /*#__PURE__*/React.createElement(Icon, { name: "sparkles", size: 16 })),
-          /*#__PURE__*/React.createElement("span", { style: { fontWeight: 700, flex: 1 } }, "Ringkasan AI"),
-          !ai && /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: runAI, disabled: aiBusy }, aiBusy ? "Membuat…" : "Buat ringkasan AI")),
-        aiErr && /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, color: "var(--text-secondary)" } }, aiErr),
-        ai && /*#__PURE__*/React.createElement("div", { style: { fontSize: 14, lineHeight: 1.6, marginBottom: 10 } }, ai.summary),
-        ai && ai.focus_suggestions && ai.focus_suggestions.length > 0 && /*#__PURE__*/React.createElement("div", null,
-          /*#__PURE__*/React.createElement("div", { className: "notes-section-label" }, "Fokus minggu depan"),
-          ai.focus_suggestions
-            .filter(s => (tasks || []).some(t => String(t.id) === String(s.task_id)))
-            .map(s => /*#__PURE__*/React.createElement("div", { key: s.task_id, style: { display: "flex", alignItems: "center", gap: 8, padding: "4px 0" } },
-              /*#__PURE__*/React.createElement("span", { style: { flex: 1, fontSize: 13 } }, ((tasks || []).find(t => String(t.id) === String(s.task_id)) || {}).title || s.task_id),
-              /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => onAddFocus && onAddFocus(s.task_id) }, "⭐ Fokus")))),
-        ai && ai.stalled_projects && ai.stalled_projects.map(p => /*#__PURE__*/React.createElement("div", { key: p.project, style: { marginTop: 10 } },
-          /*#__PURE__*/React.createElement("div", { className: "notes-section-label" }, `Next-action: ${p.project}`),
-          (p.next_actions || []).map((na, i) => /*#__PURE__*/React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, padding: "4px 0" } },
-            /*#__PURE__*/React.createElement("span", { style: { flex: 1, fontSize: 13 } }, na.title),
-            /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: () => onCreateTask && onCreateTask({ title: na.title, project: p.project }) }, "Buat"))))),
-        ai && ai.reflective_questions && ai.reflective_questions.map((q, i) =>
-          /*#__PURE__*/React.createElement("div", { key: i, style: { marginTop: 8, fontSize: 13, fontStyle: "italic", color: "var(--text-secondary)" } }, "❓ " + q))
-      ),
-      Section("Get Clear \xB7 Inbox", r.inbox, (t) => taskRow(t, { label: "Jadikan Next", onClick: onClarifyNext })),
-      Section("Overdue", r.overdue, (t) => taskRow(t, { label: "Tunda 1mg", onClick: onReschedule })),
-      Section("Selesai minggu ini", r.doneThisWeek, taskRow),
-      Section("Next Actions mandek", r.staleNext, taskRow),
-      Section("Waiting For", r.waiting, (t) => taskRow(t, { label: "Tindak lanjut", onClick: onFollowUp })),
-      Section("Jatuh tempo minggu depan", r.dueNextWeek, taskRow),
-      Section("Someday / Maybe", r.someday, taskRow),
-      r.projectsNoNext.length > 0 && /*#__PURE__*/React.createElement("div", { style: { marginBottom: 18 } },
-        /*#__PURE__*/React.createElement("div", { className: "notes-section-label" }, `Project tanpa next-action (${r.projectsNoNext.length})`),
-        r.projectsNoNext.map(p => /*#__PURE__*/React.createElement("div", { key: p.project, className: "task-row", style: { padding: "7px 0" } }, `⚠ ${p.project}`)))
-    )
-  );
+      /*#__PURE__*/React.createElement("button", { onClick: () => setOpen(false), style: { background: "none", border: "none", cursor: "pointer", display: "flex" } }, /*#__PURE__*/React.createElement(Icon, { name: "x", size: 20 }))),
+    /*#__PURE__*/React.createElement("div", { style: { flex: 1, overflow: "auto", maxWidth: 880, margin: "0 auto", width: "100%", padding: "18px calc(20px + env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) calc(20px + env(safe-area-inset-left,0px))" } },
+      /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16, padding: 16, border: "1px solid var(--border)", borderRadius: 12, background: "var(--bg-card)", marginBottom: 18 } },
+        /*#__PURE__*/React.createElement("div", { style: { position: "relative", width: 72, height: 72, flexShrink: 0, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: `conic-gradient(${band.color} ${score * 3.6}deg, var(--border) 0deg)` } },
+          /*#__PURE__*/React.createElement("div", { style: { width: 56, height: 56, borderRadius: "50%", background: "var(--bg-card)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" } },
+            /*#__PURE__*/React.createElement("span", { style: { fontSize: 20, fontWeight: 800, color: band.color, lineHeight: 1 } }, score),
+            /*#__PURE__*/React.createElement("span", { style: { fontSize: 9, color: "var(--text-light)" } }, "skor"))),
+        /*#__PURE__*/React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+          /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: band.color, marginBottom: 2 } }, band.label),
+          /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5, minHeight: 19 } },
+            ai && ai.verdict ? ai.verdict : (aiErr ? aiErr : (aiBusy ? "Menyusun ringkasan…" :
+              /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: runAI }, "Buat ringkasan AI")))),
+          /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 14, marginTop: 8, fontSize: 12, color: "var(--text-light)" } },
+            /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", { style: { color: "#dc2626" } }, r.overdue.length), " overdue"),
+            /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", { style: { color: "#dc2626" } }, p1Overdue), " P1 overdue"),
+            /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", { style: { color: "#0891b2" } }, r.projectsNoNext.length), " mandek")))),
+      /*#__PURE__*/React.createElement("div", { className: "notes-section-label" }, "Antrian aksi"),
+      q.items.length === 0
+        ? /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, color: "var(--text-secondary)", padding: "12px 0" } }, "Tidak ada yang perlu ditindak. Bersih! 🎉")
+        : q.items.map(item => item.type === "stalled_project" ? projItem(item) : taskItem(item)),
+      !showAll && q.overflow > 0 && /*#__PURE__*/React.createElement("button", { onClick: () => setShowAll(true), style: { background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 12, padding: "10px 0", fontWeight: 600 } }, `+ ${q.overflow} lainnya`)));
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // In-app attachment viewer (native app). openAttachment() dispatches the
@@ -21981,6 +21945,23 @@ function App() {
             .then(() => { if (window.__refreshTasks) window.__refreshTasks(); }) } : null); })
       .catch(() => showToast("Gagal membuat next-action", "error"));
   };
+  const handleReviewComplete = (task) => {
+    const prev = task.gtd_status;
+    api.put(`/api/tasks/${task.id}`, { gtd_status: "done" })
+      .then(() => { if (window.__refreshTasks) window.__refreshTasks();
+        showToast("Selesai ✅", "success", { label: "Undo", onClick: () =>
+          api.put(`/api/tasks/${task.id}`, { gtd_status: prev })
+            .then(() => { if (window.__refreshTasks) window.__refreshTasks(); }) }); })
+      .catch(() => showToast("Gagal menyelesaikan", "error"));
+  };
+  // Set-deadline has no undo: PUT ignores a null deadline, so an originally
+  // null deadline cannot be restored. Only offered on P1 rows without a deadline.
+  const handleReviewSetDeadline = (task) => {
+    api.put(`/api/tasks/${task.id}`, { deadline: window.plusDaysISO(7) })
+      .then(() => { if (window.__refreshTasks) window.__refreshTasks();
+        showToast("Deadline diset +7 hari ⏰", "success"); })
+      .catch(() => showToast("Gagal set deadline", "error"));
+  };
   const handleSaved = () => {
     setShowForm(false);
     setEditTask(null);
@@ -22628,7 +22609,7 @@ function App() {
       background: "rgba(0,0,0,0.3)",
       zIndex: 30
     }
-  }), /*#__PURE__*/React.createElement(AttachmentViewer, null), aiReviewOn() && /*#__PURE__*/React.createElement(WeeklyReview, { tasks: tasks, onTaskClick: setSelectedTask, showToast: showToast, onCreateTask: handleReviewCreate, onAddFocus: handleReviewFocus, onReschedule: handleReviewReschedule, onClarifyNext: handleReviewClarifyNext, onFollowUp: handleReviewFollowUp }));
+  }), /*#__PURE__*/React.createElement(AttachmentViewer, null), aiReviewOn() && /*#__PURE__*/React.createElement(WeeklyReview, { tasks: tasks, onTaskClick: setSelectedTask, showToast: showToast, onCreate: handleReviewCreate, onAddFocus: handleReviewFocus, onReschedule: handleReviewReschedule, onClarifyNext: handleReviewClarifyNext, onSetDeadline: handleReviewSetDeadline, onComplete: handleReviewComplete }));
 }
 ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElementById("root"));
 </script>
