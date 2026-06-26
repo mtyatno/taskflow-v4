@@ -20956,6 +20956,11 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onAddFocus, onReschedule,
   const [aiBusy, setAiBusy] = React.useState(false);
   const [aiErr, setAiErr] = React.useState("");
   const [showAll, setShowAll] = React.useState(false);
+  const [hist, setHist] = React.useState(null);
+  React.useEffect(() => {
+    if (!open) return;
+    api.get("/api/review/history").then(setHist).catch(() => setHist(null));
+  }, [open]);
   const runAI = async () => {
     setAiBusy(true); setAiErr("");
     try { setAi(await api.post("/api/ai/review", {})); }
@@ -20968,9 +20973,19 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onAddFocus, onReschedule,
   const p1Overdue = r.overdue.filter(t => t.priority === "P1").length;
   const score = computeHealthScore({ overdue: r.overdue.length, active: activeCount, p1_overdue: p1Overdue, projects_without_next: r.projectsNoNext.length, stale_next: r.staleNext.length });
   const band = healthBand(score);
+  const prevScore = hist && hist.prev ? hist.prev.score : null;
+  const delta = prevScore == null ? null : score - prevScore;
+  const streak = hist ? hist.streak : 0;
+  const prevDone = hist && hist.prev ? hist.prev.done_this_week : null;
   const q = buildActionQueue(tasks || [], showAll ? 999 : 15);
   const annotFor = (id) => { if (!ai || !ai.annotations) return null; const a = ai.annotations.find(x => String(x.task_id) === String(id)); return a ? a.note : null; };
-  const finish = () => { try { localStorage.setItem("tf_last_review", new Date().toISOString()); } catch (e) {} setOpen(false); showToast && showToast("Review selesai ✅"); };
+  const finish = () => {
+    try { localStorage.setItem("tf_last_review", new Date().toISOString()); } catch (e) {}
+    try {
+      api.post("/api/review/snapshot", { score: score, overdue: r.overdue.length, p1_overdue: p1Overdue, projects_without_next: r.projectsNoNext.length, done_this_week: r.doneThisWeek.length, active: activeCount }).catch(() => {});
+    } catch (e) {}
+    setOpen(false); showToast && showToast("Review selesai ✅");
+  };
   const dlabel = (t) => { if (!t.deadline) return null; const d = Math.floor((new Date(String(t.deadline).slice(0, 10)) - new Date(new Date().toISOString().slice(0, 10))) / 864e5); if (d < 0) return `${-d} hari lalu`; if (d === 0) return "hari ini"; return `${d} hari lagi`; };
   const primary = (item) => {
     const t = item.task;
@@ -21018,14 +21033,18 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onAddFocus, onReschedule,
             /*#__PURE__*/React.createElement("span", { style: { fontSize: 20, fontWeight: 800, color: band.color, lineHeight: 1 } }, score),
             /*#__PURE__*/React.createElement("span", { style: { fontSize: 9, color: "var(--text-light)" } }, "skor"))),
         /*#__PURE__*/React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-          /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: band.color, marginBottom: 2 } }, band.label),
+          /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: band.color, marginBottom: 2, display: "flex", alignItems: "center", gap: 8 } },
+            band.label,
+            delta != null && /*#__PURE__*/React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: delta > 0 ? "#16a34a" : (delta < 0 ? "#dc2626" : "var(--text-light)") } }, delta > 0 ? `▲+${delta}` : (delta < 0 ? `▼${delta}` : "±0")),
+            streak >= 2 && /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: "#f59e0b" } }, `🔥 ${streak} mgg`)),
           /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5, minHeight: 19 } },
             ai && ai.verdict ? ai.verdict : (aiErr ? aiErr : (aiBusy ? "Menyusun ringkasan…" :
               /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: runAI }, "Buat ringkasan AI")))),
           /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 14, marginTop: 8, fontSize: 12, color: "var(--text-light)" } },
             /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", { style: { color: "#dc2626" } }, r.overdue.length), " overdue"),
             /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", { style: { color: "#dc2626" } }, p1Overdue), " P1 overdue"),
-            /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", { style: { color: "#0891b2" } }, r.projectsNoNext.length), " mandek")))),
+            /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", { style: { color: "#0891b2" } }, r.projectsNoNext.length), " mandek"),
+            /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", { style: { color: "#16a34a" } }, r.doneThisWeek.length), prevDone != null ? ` selesai (lalu ${prevDone})` : " selesai")))),
       /*#__PURE__*/React.createElement("div", { className: "notes-section-label" }, "Antrian aksi"),
       q.items.length === 0
         ? /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, color: "var(--text-secondary)", padding: "12px 0" } }, "Tidak ada yang perlu ditindak. Bersih! 🎉")
