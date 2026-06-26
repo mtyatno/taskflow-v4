@@ -28,8 +28,24 @@ function plusDaysISO(n, base) {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
+function computeHealthScore(m) {
+  const active = Math.max(1, m.active || 0);
+  let score = 100;
+  score -= Math.min(40, Math.round(40 * (m.overdue || 0) / active));
+  score -= Math.min(24, 8 * (m.p1_overdue || 0));
+  score -= Math.min(40, 6 * (m.projects_without_next || 0));
+  score -= Math.min(10, 2 * (m.stale_next || 0));
+  return Math.max(0, Math.min(100, score));
+}
+
+function healthBand(score) {
+  if (score >= 80) return { label: "Tenang", color: "#16a34a" };
+  if (score >= 50) return { label: "Waspada", color: "#f59e0b" };
+  return { label: "Genting", color: "#dc2626" };
+}
+
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { buildReview, plusDaysISO };
+  module.exports = { buildReview, plusDaysISO, computeHealthScore, healthBand };
 } else {
-  try { window.buildReview = buildReview; window.plusDaysISO = plusDaysISO; } catch (e) {}
+  try { window.buildReview = buildReview; window.plusDaysISO = plusDaysISO; window.computeHealthScore = computeHealthScore; window.healthBand = healthBand; } catch (e) {}
 }
