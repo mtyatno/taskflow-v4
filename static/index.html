@@ -1810,11 +1810,11 @@ const QUAD_LABELS = {
   Q3: "Delegasikan",
   Q4: "Singkirkan"
 };
-const QUAD_EMOJI = {
-  Q1: "🔥",
-  Q2: "📅",
-  Q3: "👋",
-  Q4: "🗑️"
+const QUAD_ICON = {
+  Q1: "flame",
+  Q2: "calendar",
+  Q3: "users",
+  Q4: "trash"
 };
 const GTD_LABELS = {
   inbox: "Inbox",
@@ -1824,13 +1824,13 @@ const GTD_LABELS = {
   project: "Project",
   done: "Done"
 };
-const GTD_EMOJI = {
-  inbox: "📥",
-  next: "▶️",
-  waiting: "⏳",
-  someday: "💭",
-  project: "📁",
-  done: "✅"
+const GTD_ICON = {
+  inbox: "inbox",
+  next: "next",
+  waiting: "clock",
+  someday: "cloud",
+  project: "folder",
+  done: "check"
 };
 const PRI_DOT = {
   P1: "#ef4444",
@@ -1862,15 +1862,25 @@ function QuadBadge({
 }) {
   if (!q) return null;
   return /*#__PURE__*/React.createElement("span", {
-    className: `badge badge-${q.toLowerCase()}`
-  }, QUAD_EMOJI[q], " ", q);
+    className: `badge badge-${q.toLowerCase()}`,
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 3
+    }
+  }, React.createElement(Icon, { name: QUAD_ICON[q], size: 12 }), " ", q);
 }
 function StatusBadge({
   s
 }) {
   return /*#__PURE__*/React.createElement("span", {
-    className: `badge badge-${s}`
-  }, GTD_EMOJI[s], " ", GTD_LABELS[s]);
+    className: `badge badge-${s}`,
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 3
+    }
+  }, React.createElement(Icon, { name: GTD_ICON[s], size: 12 }), " ", GTD_LABELS[s]);
 }
 function formatDate(d) {
   if (!d) return "";
@@ -11366,7 +11376,7 @@ function Dashboard({
   const EisenCell = ({
     tasks: cellTasks,
     label,
-    emoji,
+    icon,
     cls
   }) => /*#__PURE__*/React.createElement("div", {
     className: `eisenhower-cell ${cls}`
@@ -11382,10 +11392,13 @@ function Dashboard({
     style: {
       fontWeight: 700,
       fontSize: 14,
-      cursor: "help"
+      cursor: "help",
+      display: "flex",
+      alignItems: "center",
+      gap: 6
     }
-  }, emoji, " ", label, " (", cellTasks.length, ")"), cellTasks.length > 5 && /*#__PURE__*/React.createElement("span", {
-    onClick: () => openModal(`${emoji} ${label}`, cellTasks),
+  }, React.createElement(Icon, { name: icon, size: 16 }), " ", label, " (", cellTasks.length, ")"), cellTasks.length > 5 && /*#__PURE__*/React.createElement("span", {
+    onClick: () => openModal(label, cellTasks),
     style: {
       fontSize: 11,
       color: "var(--accent)",
@@ -11436,7 +11449,7 @@ function Dashboard({
       minWidth: 0
     }
   }, t.title))), cellTasks.length > 5 && /*#__PURE__*/React.createElement("div", {
-    onClick: () => openModal(`${emoji} ${label}`, cellTasks),
+    onClick: () => openModal(label, cellTasks),
     style: {
       fontSize: 12,
       color: "var(--accent)",
@@ -11805,16 +11818,22 @@ function Dashboard({
     style: {
       fontSize: 14,
       fontWeight: 700,
-      marginBottom: 12
+      marginBottom: 12,
+      display: "flex",
+      alignItems: "center",
+      gap: 8
     }
-  }, "\uD83D\uDCCB GTD Status"), /*#__PURE__*/React.createElement(StatusBarChart, {
+  }, React.createElement(Icon, { name: "clipboard", size: 18 }), "GTD Status"), /*#__PURE__*/React.createElement(StatusBarChart, {
     summary: summary
   }))), /*#__PURE__*/React.createElement("h2", {
     className: "section-title",
     style: {
-      marginTop: 8
+      marginTop: 8,
+      display: "flex",
+      alignItems: "center",
+      gap: 8
     }
-  }, "\uD83C\uDFAF Eisenhower Matrix"), /*#__PURE__*/React.createElement("div", {
+  }, React.createElement(Icon, { name: "target", size: 18 }), "Eisenhower Matrix"), /*#__PURE__*/React.createElement("div", {
     className: "eisen-header-row",
     style: {
       display: "grid",
@@ -11850,26 +11869,31 @@ function Dashboard({
   }, /*#__PURE__*/React.createElement(EisenCell, {
     tasks: q1Tasks,
     label: "Lakukan",
-    emoji: "\uD83D\uDD25",
+    icon: "flame",
     cls: "eq1"
   }), /*#__PURE__*/React.createElement(EisenCell, {
     tasks: q2Tasks,
     label: "Rencanakan",
-    emoji: "\uD83D\uDCC5",
+    icon: "calendar",
     cls: "eq2"
   }), /*#__PURE__*/React.createElement(EisenCell, {
     tasks: q3Tasks,
     label: "Delegasikan",
-    emoji: "\uD83D\uDC4B",
+    icon: "users",
     cls: "eq3"
   }), /*#__PURE__*/React.createElement(EisenCell, {
     tasks: q4Tasks,
     label: "Singkirkan",
-    emoji: "\uD83D\uDDD1\uFE0F",
+    icon: "trash",
     cls: "eq4"
   })), /*#__PURE__*/React.createElement("h2", {
-    className: "section-title"
-  }, "\uD83D\uDD04 GTD Status"), /*#__PURE__*/React.createElement("div", {
+    className: "section-title",
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, React.createElement(Icon, { name: "refresh", size: 18 }), "GTD Status"), /*#__PURE__*/React.createElement("div", {
     className: "gtd-grid",
     "data-tour": "gtd-grid",
     style: {
@@ -11880,35 +11904,35 @@ function Dashboard({
   }, [{
     key: "inbox",
     label: "Inbox",
-    emoji: "📥",
+    icon: "inbox",
     accent: "#3b82f6",
     fullWidth: false,
     tip: "Semua task baru masuk ke sini. Belum diputuskan mau diapakan."
   }, {
     key: "next",
     label: "Next Actions",
-    emoji: "▶️",
+    icon: "next",
     accent: "#f97316",
     fullWidth: false,
     tip: "Task yang sudah siap dikerjakan. Lakukan satu per satu saat ada waktu."
   }, {
     key: "waiting",
     label: "Waiting For",
-    emoji: "⏳",
+    icon: "clock",
     accent: "#eab308",
     fullWidth: false,
     tip: "Menunggu orang lain atau sesuatu sebelum bisa dilanjutkan."
   }, {
     key: "someday",
     label: "Someday",
-    emoji: "💭",
+    icon: "cloud",
     accent: "#94a3b8",
     fullWidth: false,
     tip: "Ide atau rencana yang menarik tapi belum waktunya dikerjakan sekarang."
   }].map(({
     key,
     label,
-    emoji,
+    icon,
     accent,
     fullWidth,
     tip
@@ -11949,10 +11973,13 @@ function Dashboard({
       style: {
         fontWeight: 700,
         fontSize: 14,
-        cursor: "help"
+        cursor: "help",
+        display: "flex",
+        alignItems: "center",
+        gap: 6
       }
-    }, emoji, " ", label, " (", sectionTasks.length, ")"), sectionTasks.length > 5 && /*#__PURE__*/React.createElement("span", {
-      onClick: () => openModal(`${emoji} ${label}`, sectionTasks),
+    }, React.createElement(Icon, { name: icon, size: 16 }), " ", label, " (", sectionTasks.length, ")"), sectionTasks.length > 5 && /*#__PURE__*/React.createElement("span", {
+      onClick: () => openModal(label, sectionTasks),
       style: {
         fontSize: 11,
         color: "var(--accent)",
@@ -12002,7 +12029,7 @@ function Dashboard({
         minWidth: 0
       }
     }, t.title))), sectionTasks.length > 5 && /*#__PURE__*/React.createElement("div", {
-      onClick: () => openModal(`${emoji} ${label}`, sectionTasks),
+      onClick: () => openModal(label, sectionTasks),
       style: {
         fontSize: 12,
         color: "var(--accent)",
