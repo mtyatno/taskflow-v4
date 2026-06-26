@@ -33,7 +33,7 @@ function computeHealthScore(m) {
   let score = 100;
   score -= Math.min(40, Math.round(40 * (m.overdue || 0) / active));
   score -= Math.min(24, 8 * (m.p1_overdue || 0));
-  score -= Math.min(40, 6 * (m.projects_without_next || 0));
+  score -= Math.min(18, 6 * (m.projects_without_next || 0));
   score -= Math.min(10, 2 * (m.stale_next || 0));
   return Math.max(0, Math.min(100, score));
 }

@@ -43,8 +43,14 @@ test("computeHealthScore penalizes overdue/P1/stalled and clamps", () => {
   // 100 - min(40,round(40*20/25=32))=32 - min(24,40)=24 - min(18,18)=18 - min(10,10)=10 => 16
   assert.equal(s, 16);
   assert.equal(healthBand(s).label, "Genting");
+  // Spec caps: 40 + 24 + 18 + 10 = 92 max penalty, so extreme inputs floor at 100-92=8.
   const floor = computeHealthScore({ overdue: 100, active: 1, p1_overdue: 99, projects_without_next: 99, stale_next: 99 });
-  assert.equal(floor, 0);
+  assert.equal(floor, 8);
+});
+
+test("computeHealthScore projects_without_next cap is 18 (not 40)", () => {
+  // 6*4=24 capped to 18 => 100-18=82; an over-large cap would wrongly give 76.
+  assert.equal(computeHealthScore({ overdue: 0, active: 10, p1_overdue: 0, projects_without_next: 4, stale_next: 0 }), 82);
 });
 
 test("healthBand boundaries", () => {
