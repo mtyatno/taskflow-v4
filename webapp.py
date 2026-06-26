@@ -50,6 +50,7 @@ from datehelper import parse_date
 from repository import TaskRepository
 import bookmark
 import ai_review
+import review_history
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("WEB_SECRET_KEY", secrets.token_hex(32))
@@ -457,6 +458,14 @@ class TaskCreate(BaseModel):
     parent_id: Optional[int] = None
     recurrence_type: Optional[str] = None   # daily|weekly|monthly|weekdays
     recurrence_days: Optional[list] = None  # [0,2,4] untuk weekly Sen/Rab/Jum
+
+class ReviewSnapshotIn(BaseModel):
+    score: int
+    overdue: int = 0
+    p1_overdue: int = 0
+    projects_without_next: int = 0
+    done_this_week: int = 0
+    active: int = 0
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
@@ -3115,6 +3124,28 @@ async def ai_weekly_review(user=Depends(get_current_user)):
         return ai_review.generate_review(payload)
     except ai_review.AIReviewError as e:
         raise HTTPException(status_code=503, detail=str(e))
+
+
+@app.post("/api/review/snapshot")
+async def review_snapshot(req: ReviewSnapshotIn, user=Depends(get_current_user)):
+    uid = user["sub"]
+    week = review_history.current_iso_week()
+    now = datetime.utcnow().isoformat()
+    with get_db() as conn:
+        review_history.upsert_snapshot(conn, uid, week, now, {
+            "score": req.score, "overdue": req.overdue,
+            "p1_overdue": req.p1_overdue,
+            "projects_without_next": req.projects_without_next,
+            "done_this_week": req.done_this_week, "active": req.active})
+    return {"ok": True}
+
+
+@app.get("/api/review/history")
+async def review_history_route(user=Depends(get_current_user)):
+    uid = user["sub"]
+    week = review_history.current_iso_week()
+    with get_db() as conn:
+        return review_history.get_history(conn, uid, week)
 
 
 @app.put("/api/scratchpad/{note_id}")
