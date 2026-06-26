@@ -12102,9 +12102,12 @@ function Dashboard({
         fontSize: 18,
         fontWeight: 700,
         marginBottom: 12,
-        marginTop: 24
+        marginTop: 24,
+        display: "flex",
+        alignItems: "center",
+        gap: 8
       }
-    }, "\uD83D\uDCC1 Active Projects"), /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement(Icon, { name: "folder", size: 20 }), "Active Projects"), /*#__PURE__*/React.createElement("div", {
       className: "gtd-grid",
       style: {
         display: "grid",
@@ -12134,9 +12137,15 @@ function Dashboard({
       }, /*#__PURE__*/React.createElement("div", {
         style: {
           fontWeight: 700,
-          fontSize: 14
+          fontSize: 14,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          minWidth: 0
         }
-      }, "\uD83D\uDCC2 ", proj, " (", projTasks.length, ")"), projTasks.length > 5 && /*#__PURE__*/React.createElement("span", {
+      }, /*#__PURE__*/React.createElement(Icon, { name: "folder", size: 15 }), /*#__PURE__*/React.createElement("span", {
+        style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+      }, proj + " (" + projTasks.length + ")")), projTasks.length > 5 && /*#__PURE__*/React.createElement("span", {
         onClick: () => openModal(`📂 ${proj}`, projTasks),
         style: {
           fontSize: 11,
