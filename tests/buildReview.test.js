@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { buildReview, plusDaysISO, computeHealthScore, healthBand } = require("../static/review/digest.js"); // the one real module
+const { buildReview, plusDaysISO, computeHealthScore, healthBand, buildActionQueue } = require("../static/review/digest.js"); // the one real module
 
 const ago = (d) => new Date(Date.now() - d * 864e5).toISOString();
 
@@ -58,4 +58,37 @@ test("healthBand boundaries", () => {
   assert.equal(healthBand(79).label, "Waspada");
   assert.equal(healthBand(50).label, "Waspada");
   assert.equal(healthBand(49).label, "Genting");
+});
+
+const aq_ago = (d) => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
+const aq_in = (d) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+
+test("buildActionQueue orders, dedups, and tags types", () => {
+  const tasks = [
+    { id: 1, gtd_status: "next", is_overdue: true, priority: "P1", deadline: aq_ago(10) }, // overdue+P1 -> once, overdue
+    { id: 2, gtd_status: "next", is_overdue: false, deadline: aq_in(3) },                   // due_soon
+    { id: 3, gtd_status: "next", priority: "P1" },                                          // priority (no deadline)
+    { id: 4, gtd_status: "inbox" },                                                         // inbox
+    { id: 5, gtd_status: "next", project: "Stuck" },                                        // stalled project (no 'next'? it IS next) -> NOT stalled
+    { id: 6, gtd_status: "waiting", project: "Stalled" },                                   // project Stalled has no 'next' -> stalled_project
+  ];
+  const { items } = buildActionQueue(tasks, 15);
+  // task 1 appears once, as overdue, and first
+  const ids = items.filter(i => i.task).map(i => i.task.id);
+  assert.equal(ids.filter(x => x === 1).length, 1);
+  assert.equal(items[0].type, "overdue");
+  assert.equal(items[0].task.id, 1);
+  // ordering: overdue(1) -> due_soon(2) -> priority(3) -> inbox(4)
+  assert.deepEqual(ids, [1, 2, 3, 4]);
+  // one stalled project item for "Stalled", none for "Stuck"
+  const projs = items.filter(i => i.type === "stalled_project").map(i => i.project);
+  assert.deepEqual(projs, ["Stalled"]);
+});
+
+test("buildActionQueue caps and reports overflow", () => {
+  const tasks = [];
+  for (let i = 0; i < 20; i++) tasks.push({ id: i, gtd_status: "inbox" });
+  const { items, overflow } = buildActionQueue(tasks, 15);
+  assert.equal(items.length, 15);
+  assert.equal(overflow, 5);
 });

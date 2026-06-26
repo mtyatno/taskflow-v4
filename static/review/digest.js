@@ -44,8 +44,35 @@ function healthBand(score) {
   return { label: "Genting", color: "#dc2626" };
 }
 
+function buildActionQueue(tasks, cap) {
+  const limit = cap || 15;
+  const today = new Date();
+  const days = (iso) => iso ? Math.floor((today - new Date(String(iso).replace("Z", ""))) / 864e5) : null;
+  const active = (t) => t.gtd_status !== "done" && t.gtd_status !== "archived";
+  const byDeadline = (a, b) => String(a.deadline || "").localeCompare(String(b.deadline || ""));
+  const seen = new Set();
+  const items = [];
+  const push = (t, type) => { if (!seen.has(t.id)) { seen.add(t.id); items.push({ task: t, type }); } };
+  tasks.filter(t => t.is_overdue && active(t)).sort(byDeadline).forEach(t => push(t, "overdue"));
+  tasks.filter(t => active(t) && !t.is_overdue && t.deadline && days(t.deadline) !== null && days(t.deadline) <= 0 && days(t.deadline) >= -7)
+    .sort(byDeadline).forEach(t => push(t, "due_soon"));
+  tasks.filter(t => active(t) && (t.priority === "P1" || t.quadrant === "Q1")).forEach(t => push(t, "priority"));
+  tasks.filter(t => t.gtd_status === "inbox").forEach(t => push(t, "inbox"));
+  const byProj = {};
+  tasks.filter(t => active(t) && t.project).forEach(t => { (byProj[t.project] = byProj[t.project] || []).push(t); });
+  const stalled = Object.entries(byProj)
+    .filter(([, ts]) => !ts.some(t => t.gtd_status === "next"))
+    .map(([project]) => ({ project, type: "stalled_project" }));
+  const all = items.concat(stalled);
+  return { items: all.slice(0, limit), overflow: Math.max(0, all.length - limit) };
+}
+
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { buildReview, plusDaysISO, computeHealthScore, healthBand };
+  module.exports = { buildReview, plusDaysISO, computeHealthScore, healthBand, buildActionQueue };
 } else {
-  try { window.buildReview = buildReview; window.plusDaysISO = plusDaysISO; window.computeHealthScore = computeHealthScore; window.healthBand = healthBand; } catch (e) {}
+  try {
+    window.buildReview = buildReview; window.plusDaysISO = plusDaysISO;
+    window.computeHealthScore = computeHealthScore; window.healthBand = healthBand;
+    window.buildActionQueue = buildActionQueue;
+  } catch (e) {}
 }
