@@ -31,12 +31,14 @@ def test_no_notes_module_imported():
     for banned in ("scratchpad", "noterepo", "notequery", "note"):
         assert banned not in joined, f"ai_review must not import {banned}"
 
-def test_schema_is_strict_object():
+def test_schema_is_verdict_annotations():
     s = ai_review.REVIEW_SCHEMA
     assert s["type"] == "object"
     assert s["additionalProperties"] is False
-    assert set(["summary", "focus_suggestions", "stalled_projects",
-                "reflective_questions"]).issubset(s["properties"].keys())
+    assert set(s["properties"].keys()) == {"verdict", "annotations"}
+    assert set(s["required"]) == {"verdict", "annotations"}
+    ann = s["properties"]["annotations"]["items"]
+    assert set(ann["properties"].keys()) == {"task_id", "note"}
 
 
 VALID = '{"summary": "ok", "focus_suggestions": [], "stalled_projects": [], "reflective_questions": []}'
@@ -113,4 +115,5 @@ def test_prompt_mentions_quadrant_and_overdue_priority():
     p = ai_review.REVIEW_SYSTEM_PROMPT.lower()
     assert "quadrant" in p
     assert "p1" in p and "overdue" in p
-    assert "signals" in p  # tells the model the aggregate block exists
+    assert "signals" in p
+    assert "verdict" in p and "annotations" in p

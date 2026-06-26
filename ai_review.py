@@ -67,55 +67,32 @@ REVIEW_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "summary": {"type": "string"},
-        "focus_suggestions": {
+        "verdict": {"type": "string"},
+        "annotations": {
             "type": "array",
             "items": {
                 "type": "object", "additionalProperties": False,
                 "properties": {"task_id": {"type": "string"},
-                               "reason": {"type": "string"}},
-                "required": ["task_id", "reason"],
+                               "note": {"type": "string"}},
+                "required": ["task_id", "note"],
             },
         },
-        "stalled_projects": {
-            "type": "array",
-            "items": {
-                "type": "object", "additionalProperties": False,
-                "properties": {
-                    "project": {"type": "string"},
-                    "next_actions": {
-                        "type": "array",
-                        "items": {
-                            "type": "object", "additionalProperties": False,
-                            "properties": {"title": {"type": "string"},
-                                           "rationale": {"type": "string"}},
-                            "required": ["title", "rationale"],
-                        },
-                    },
-                },
-                "required": ["project", "next_actions"],
-            },
-        },
-        "reflective_questions": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["summary", "focus_suggestions", "stalled_projects",
-                 "reflective_questions"],
+    "required": ["verdict", "annotations"],
 }
 
 REVIEW_SYSTEM_PROMPT = (
     "Kamu asisten GTD untuk aplikasi task. Berdasarkan ringkasan TUGAS user "
     "(judul, status GTD, quadrant Eisenhower, prioritas, deadline, project, umur) "
     "dan blok 'signals' (agregat: p1_overdue, oldest_overdue_days, "
-    "projects_without_next), buat review mingguan singkat dalam Bahasa Indonesia.\n"
-    "- summary: 1-3 kalimat insight. Jika signals.p1_overdue > 0 atau ada banyak "
-    "  task Q1 overdue, SOROTI tumpukan itu secara eksplisit sebagai titik macet utama.\n"
-    "- focus_suggestions: 3-5 task PALING layak difokuskan minggu depan, URUTKAN by "
-    "  urgensi (deadline terdekat / overdue dulu, quadrant Q1 lebih dulu dari Q2). "
-    "  task_id WAJIB berasal dari daftar yang diberikan; jangan mengarang id.\n"
-    "- stalled_projects: untuk project yang punya task tapi tidak punya next-action, "
-    "  usulkan 1-2 next-action KONKRET (kata kerja di depan: 'Email...', 'Finalisasi...'), "
-    "  bukan tujuan kabur.\n"
-    "- reflective_questions: 1-2 pertanyaan reflektif terarah.\n"
+    "projects_without_next), bantu user me-review minggunya dalam Bahasa Indonesia. "
+    "Keluaranmu HANYA detailing; aplikasi sudah menyusun antrian aksinya sendiri.\n"
+    "- verdict: TEPAT 1 kalimat kondisi minggu ini. Jika signals.p1_overdue > 0 "
+    "  atau banyak task Q1 overdue, sebut tumpukan itu sebagai titik macet utama.\n"
+    "- annotations: maksimal 5 item untuk task PALING layak ditindak. Tiap item "
+    "  {task_id, note}; note = 1 baris singkat 'kenapa penting / lakukan apa' "
+    "  (kata kerja di depan). task_id WAJIB dari daftar yang diberikan; jangan "
+    "  mengarang id.\n"
     "Jangan menyertakan data selain yang diberikan. Ringkas dan actionable."
 )
 
@@ -173,9 +150,7 @@ def generate_review(payload: dict) -> dict:
     user_msg = (
         json.dumps(payload, ensure_ascii=False)
         + "\n\nBalas HANYA dengan satu objek JSON valid sesuai skema: "
-        '{"summary": str, "focus_suggestions": [{"task_id": str, "reason": str}], '
-        '"stalled_projects": [{"project": str, "next_actions": [{"title": str, '
-        '"rationale": str}]}], "reflective_questions": [str]}. '
+        '{"verdict": str, "annotations": [{"task_id": str, "note": str}]}. '
         "Tanpa teks atau markdown apa pun di luar JSON."
     )
     try:
