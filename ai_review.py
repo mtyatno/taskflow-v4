@@ -8,7 +8,8 @@ import os
 from datetime import date, datetime
 
 WHITELIST = ["id", "title", "description", "gtd_status", "quadrant",
-             "priority", "deadline", "project", "age_days", "is_overdue"]
+             "priority", "deadline", "project", "age_days", "is_overdue",
+             "blocks_count", "waiting_for"]
 
 
 class AIReviewError(Exception):
@@ -26,8 +27,20 @@ def _age_days(t: dict) -> int:
         return 0
 
 
-def build_payload(tasks: list) -> dict:
-    """Reduce full task dicts to whitelisted fields + aggregate counts/signals."""
+def build_payload(tasks: list, queue=None) -> dict:
+    """Reduce full task dicts to whitelisted fields + aggregate counts/signals.
+
+    blocks_count = number of active (non-done/archived) child tasks (parent_id
+    pointing at this task) — the only honest basis for "menahan N task lain".
+    Optional `queue` (ordered task_ids the frontend wants annotated) is echoed
+    back, clamped to ids that exist and capped at 15."""
+    # pre-pass: active child count per parent id
+    child_count = {}
+    for t in tasks:
+        pid = t.get("parent_id")
+        if pid and t.get("gtd_status") not in ("done", "archived"):
+            child_count[pid] = child_count.get(pid, 0) + 1
+
     out_tasks = []
     counts = {"inbox": 0, "next": 0, "waiting": 0, "someday": 0,
               "overdue": 0, "total": 0}
@@ -35,6 +48,7 @@ def build_payload(tasks: list) -> dict:
     oldest_overdue_days = 0
     proj_has_next = {}      # project -> bool (any task with gtd_status == 'next')
     proj_seen = set()
+    computed = {"age_days", "blocks_count"}
     for t in tasks:
         gs = t.get("gtd_status")
         counts["total"] += 1
@@ -52,15 +66,22 @@ def build_payload(tasks: list) -> dict:
             proj_seen.add(proj)
             if gs == "next":
                 proj_has_next[proj] = True
-        item = {k: t.get(k) for k in WHITELIST if k != "age_days"}
+        item = {k: t.get(k) for k in WHITELIST if k not in computed}
         item["age_days"] = age
+        item["blocks_count"] = child_count.get(t.get("id"), 0)
         out_tasks.append(item)
     projects_without_next = sum(
         1 for p in proj_seen if not proj_has_next.get(p))
     signals = {"p1_overdue": p1_overdue,
                "oldest_overdue_days": oldest_overdue_days,
                "projects_without_next": projects_without_next}
-    return {"counts": counts, "tasks": out_tasks, "signals": signals}
+    result = {"counts": counts, "tasks": out_tasks, "signals": signals}
+    if queue:
+        valid = {str(t.get("id")) for t in tasks}
+        q = [str(i) for i in queue if str(i) in valid][:15]
+        if q:
+            result["queue"] = q
+    return result
 
 
 REVIEW_SCHEMA = {

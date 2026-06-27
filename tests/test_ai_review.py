@@ -117,3 +117,39 @@ def test_prompt_mentions_quadrant_and_overdue_priority():
     assert "p1" in p and "overdue" in p
     assert "signals" in p
     assert "verdict" in p and "annotations" in p
+
+
+def test_build_payload_blocks_count():
+    tasks = [
+        {"id": 1, "title": "Parent", "gtd_status": "next"},
+        {"id": 2, "title": "Child A", "gtd_status": "next", "parent_id": 1},
+        {"id": 3, "title": "Child B", "gtd_status": "inbox", "parent_id": 1},
+        {"id": 4, "title": "Child done", "gtd_status": "done", "parent_id": 1},
+    ]
+    p = ai_review.build_payload(tasks)
+    by_id = {t["id"]: t for t in p["tasks"]}
+    assert by_id[1]["blocks_count"] == 2   # two active children; done one excluded
+    assert by_id[2]["blocks_count"] == 0
+
+
+def test_build_payload_includes_waiting_for_and_closed_whitelist():
+    tasks = [{"id": 9, "title": "T", "gtd_status": "waiting",
+              "waiting_for": "Pak Budi", "secret": "leak-me"}]
+    p = ai_review.build_payload(tasks)
+    item = p["tasks"][0]
+    assert item["waiting_for"] == "Pak Budi"
+    assert "secret" not in item                      # whitelist stays closed
+    assert set(item.keys()) == set(ai_review.WHITELIST)
+
+
+def test_build_payload_queue_echo_clamped_and_ordered():
+    tasks = [{"id": i, "title": str(i), "gtd_status": "next"} for i in range(1, 20)]
+    p = ai_review.build_payload(tasks, queue=["3", "1", "999", "2"])
+    assert p["queue"] == ["3", "1", "2"]             # unknown 999 dropped, order kept
+    big = ai_review.build_payload(tasks, queue=[str(i) for i in range(1, 19)])
+    assert len(big["queue"]) == 15                   # capped at 15
+
+
+def test_build_payload_no_queue_omits_key():
+    p = ai_review.build_payload([{"id": 1, "title": "T", "gtd_status": "next"}])
+    assert "queue" not in p
