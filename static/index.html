@@ -20963,7 +20963,11 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onAddFocus, onReschedule,
   }, [open]);
   const runAI = async () => {
     setAiBusy(true); setAiErr("");
-    try { setAi(await api.post("/api/ai/review", {})); }
+    try {
+      const qq = buildActionQueue(tasks || [], 15);
+      const ids = qq.items.filter(i => i.task).map(i => String(i.task.id));
+      setAi(await api.post("/api/ai/review", { queue: ids }));
+    }
     catch (e) { setAiErr(navigator.onLine ? "Gagal membuat ringkasan AI" : "Perlu online untuk ringkasan AI"); }
     finally { setAiBusy(false); }
   };
@@ -20978,7 +20982,7 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onAddFocus, onReschedule,
   const streak = hist ? hist.streak : 0;
   const prevDone = hist && hist.prev ? hist.prev.done_this_week : null;
   const q = buildActionQueue(tasks || [], showAll ? 999 : 15);
-  const annotFor = (id) => { if (!ai || !ai.annotations) return null; const a = ai.annotations.find(x => String(x.task_id) === String(id)); return a ? a.note : null; };
+  const annotFor = (id) => { if (!ai || !ai.annotations) return null; return ai.annotations.find(x => String(x.task_id) === String(id)) || null; };
   const finish = () => {
     try { localStorage.setItem("tf_last_review", new Date().toISOString()); } catch (e) {}
     try {
@@ -21011,7 +21015,14 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onAddFocus, onReschedule,
         (dlabel(t) || t.project) && /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, color: "var(--text-light)", display: "flex", gap: 8, marginTop: 1, flexWrap: "wrap" } },
           dlabel(t) && /*#__PURE__*/React.createElement("span", { style: { color: t.is_overdue ? "#ef4444" : "var(--text-light)" } }, "⏰ " + dlabel(t)),
           t.project && /*#__PURE__*/React.createElement("span", null, "#" + t.project)),
-        note && /*#__PURE__*/React.createElement("div", { style: { fontSize: 12, fontStyle: "italic", color: "var(--accent)", marginTop: 3 } }, "✦ " + note)),
+        note && (function () {
+          var directive = note.directive || "";
+          var why = note.why || note.note || "";
+          if (!directive && !why) return null;
+          return /*#__PURE__*/React.createElement("div", { style: { marginTop: 4 } },
+            directive && /*#__PURE__*/React.createElement("div", { style: { fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)" } }, "➤ " + directive),
+            why && /*#__PURE__*/React.createElement("div", { style: { fontSize: 12, color: "var(--text-light)", lineHeight: 1.45, marginTop: 1 } }, why));
+        })()),
       /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 6, flexShrink: 0 } },
         act && /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: (e) => { e.stopPropagation(); act.run(); } }, act.label),
         /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", title: "Selesai", onClick: (e) => { e.stopPropagation(); onComplete(t); } }, "✓"),

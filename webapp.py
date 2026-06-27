@@ -28,7 +28,7 @@ def _today_jkt() -> date:
     """Return today's date in Jakarta timezone (UTC+7)."""
     return datetime.now(_TZ_JKT).date()
 
-from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, UploadFile, File as FastAPIFile, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, UploadFile, File as FastAPIFile, BackgroundTasks, Query, Body
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 import io
@@ -3104,8 +3104,13 @@ async def bookmark_extract(body: BookmarkExtractIn, user=Depends(get_current_use
     return {"title": out["title"], "content": out["content"], "url": url}
 
 
+class ReviewRequest(BaseModel):
+    queue: list[str] = []
+
+
 @app.post("/api/ai/review")
-async def ai_weekly_review(user=Depends(get_current_user)):
+async def ai_weekly_review(req: ReviewRequest = Body(default=ReviewRequest()),
+                           user=Depends(get_current_user)):
     if not appconfig.AI_FEATURES_ENABLED:
         raise HTTPException(status_code=404, detail="AI features disabled")
     uid = user["sub"]
@@ -3119,7 +3124,7 @@ async def ai_weekly_review(user=Depends(get_current_user)):
     with get_db() as conn:
         rows = conn.execute(sql, [uid, uid, uid]).fetchall()
         tasks = [task_row_to_dict(r, conn) for r in rows]
-    payload = ai_review.build_payload(tasks)
+    payload = ai_review.build_payload(tasks, queue=req.queue)
     try:
         return ai_review.generate_review(payload)
     except ai_review.AIReviewError as e:

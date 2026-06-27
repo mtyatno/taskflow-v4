@@ -8,7 +8,8 @@ import os
 from datetime import date, datetime
 
 WHITELIST = ["id", "title", "description", "gtd_status", "quadrant",
-             "priority", "deadline", "project", "age_days", "is_overdue"]
+             "priority", "deadline", "project", "age_days", "is_overdue",
+             "blocks_count", "waiting_for"]
 
 
 class AIReviewError(Exception):
@@ -26,8 +27,20 @@ def _age_days(t: dict) -> int:
         return 0
 
 
-def build_payload(tasks: list) -> dict:
-    """Reduce full task dicts to whitelisted fields + aggregate counts/signals."""
+def build_payload(tasks: list, queue=None) -> dict:
+    """Reduce full task dicts to whitelisted fields + aggregate counts/signals.
+
+    blocks_count = number of active (non-done/archived) child tasks (parent_id
+    pointing at this task) — the only honest basis for "menahan N task lain".
+    Optional `queue` (ordered task_ids the frontend wants annotated) is echoed
+    back, clamped to ids that exist and capped at 15."""
+    # pre-pass: active child count per parent id
+    child_count = {}
+    for t in tasks:
+        pid = t.get("parent_id")
+        if pid and t.get("gtd_status") not in ("done", "archived"):
+            child_count[pid] = child_count.get(pid, 0) + 1
+
     out_tasks = []
     counts = {"inbox": 0, "next": 0, "waiting": 0, "someday": 0,
               "overdue": 0, "total": 0}
@@ -35,6 +48,7 @@ def build_payload(tasks: list) -> dict:
     oldest_overdue_days = 0
     proj_has_next = {}      # project -> bool (any task with gtd_status == 'next')
     proj_seen = set()
+    computed = {"age_days", "blocks_count"}
     for t in tasks:
         gs = t.get("gtd_status")
         counts["total"] += 1
@@ -52,15 +66,22 @@ def build_payload(tasks: list) -> dict:
             proj_seen.add(proj)
             if gs == "next":
                 proj_has_next[proj] = True
-        item = {k: t.get(k) for k in WHITELIST if k != "age_days"}
+        item = {k: t.get(k) for k in WHITELIST if k not in computed}
         item["age_days"] = age
+        item["blocks_count"] = child_count.get(t.get("id"), 0)
         out_tasks.append(item)
     projects_without_next = sum(
         1 for p in proj_seen if not proj_has_next.get(p))
     signals = {"p1_overdue": p1_overdue,
                "oldest_overdue_days": oldest_overdue_days,
                "projects_without_next": projects_without_next}
-    return {"counts": counts, "tasks": out_tasks, "signals": signals}
+    result = {"counts": counts, "tasks": out_tasks, "signals": signals}
+    if queue:
+        valid = {str(t.get("id")) for t in tasks}
+        q = [str(i) for i in queue if str(i) in valid][:15]
+        if q:
+            result["queue"] = q
+    return result
 
 
 REVIEW_SCHEMA = {
@@ -73,8 +94,9 @@ REVIEW_SCHEMA = {
             "items": {
                 "type": "object", "additionalProperties": False,
                 "properties": {"task_id": {"type": "string"},
-                               "note": {"type": "string"}},
-                "required": ["task_id", "note"],
+                               "directive": {"type": "string"},
+                               "why": {"type": "string"}},
+                "required": ["task_id", "directive", "why"],
             },
         },
     },
@@ -82,18 +104,30 @@ REVIEW_SCHEMA = {
 }
 
 REVIEW_SYSTEM_PROMPT = (
-    "Kamu asisten GTD untuk aplikasi task. Berdasarkan ringkasan TUGAS user "
-    "(judul, status GTD, quadrant Eisenhower, prioritas, deadline, project, umur) "
-    "dan blok 'signals' (agregat: p1_overdue, oldest_overdue_days, "
-    "projects_without_next), bantu user me-review minggunya dalam Bahasa Indonesia. "
-    "Keluaranmu HANYA detailing; aplikasi sudah menyusun antrian aksinya sendiri.\n"
+    "Kamu seorang manajer yang memberi user briefing 5 menit untuk minggu ini, "
+    "berdasarkan ringkasan TUGAS-nya (judul, status GTD, quadrant Eisenhower, "
+    "prioritas, deadline, project, umur, blocks_count = jumlah task lain yang "
+    "tertahan oleh task ini, waiting_for) dan blok 'signals' (agregat: "
+    "p1_overdue, oldest_overdue_days, projects_without_next). Bahasa Indonesia, "
+    "tegas dan to the point seperti atasan yang paham prioritas.\n"
     "- verdict: TEPAT 1 kalimat kondisi minggu ini. Jika signals.p1_overdue > 0 "
     "  atau banyak task Q1 overdue, sebut tumpukan itu sebagai titik macet utama.\n"
-    "- annotations: maksimal 5 item untuk task PALING layak ditindak. Tiap item "
-    "  {task_id, note}; note = 1 baris singkat 'kenapa penting / lakukan apa' "
-    "  (kata kerja di depan). task_id WAJIB dari daftar yang diberikan; jangan "
-    "  mengarang id.\n"
-    "Jangan menyertakan data selain yang diberikan. Ringkas dan actionable."
+    "- annotations: untuk SETIAP task, beri {task_id, directive, why}.\n"
+    "  - directive: perintah singkat MAKS 4 kata soal KAPAN/aksi, kata kerja di "
+    "    depan. Contoh: 'Kerjakan hari ini', 'Jadwalkan minggu ini', "
+    "    'Tindak lanjut', 'Tunggu kabar', 'Pecah jadi langkah'.\n"
+    "  - why: TEPAT 1 kalimat singkat (maks ~18 kata) yang menjawab 'kenapa ini "
+    "    sekarang?'. WAJIB pakai angka/sinyal NYATA dari data: hari overdue / "
+    "    menuju deadline, blocks_count (sebut 'menahan N task lain' HANYA jika "
+    "    blocks_count > 0), status P1/Q1, project mandek, atau waiting_for. "
+    "    DILARANG mengarang angka atau relasi. Jika tak ada sinyal kuat, beri "
+    "    alasan jujur yang ringan (mis. 'biar inbox bersih').\n"
+    "  - Jika diberikan daftar 'queue' berisi task_id, WAJIB beri tepat satu "
+    "    anotasi untuk SETIAP id di queue, urut sesuai queue, dan JANGAN "
+    "    menganotasi id di luar queue. Jika tidak ada 'queue', anotasi maksimal "
+    "    5 task paling layak ditindak.\n"
+    "  - task_id WAJIB dari data yang diberikan; jangan mengarang id.\n"
+    "Jangan menyertakan data selain yang diberikan."
 )
 
 
@@ -150,8 +184,8 @@ def generate_review(payload: dict) -> dict:
     user_msg = (
         json.dumps(payload, ensure_ascii=False)
         + "\n\nBalas HANYA dengan satu objek JSON valid sesuai skema: "
-        '{"verdict": str, "annotations": [{"task_id": str, "note": str}]}. '
-        "Tanpa teks atau markdown apa pun di luar JSON."
+        '{"verdict": str, "annotations": [{"task_id": str, "directive": str, '
+        '"why": str}]}. Tanpa teks atau markdown apa pun di luar JSON.'
     )
     try:
         r = requests.post(
@@ -167,7 +201,7 @@ def generate_review(payload: dict) -> dict:
                     {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
                     {"role": "user", "content": user_msg},
                 ],
-                "max_tokens": 4096,
+                "max_tokens": 6000,
                 "response_format": {"type": "json_object"},
             },
             timeout=60,
