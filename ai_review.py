@@ -94,8 +94,9 @@ REVIEW_SCHEMA = {
             "items": {
                 "type": "object", "additionalProperties": False,
                 "properties": {"task_id": {"type": "string"},
-                               "note": {"type": "string"}},
-                "required": ["task_id", "note"],
+                               "directive": {"type": "string"},
+                               "why": {"type": "string"}},
+                "required": ["task_id", "directive", "why"],
             },
         },
     },
@@ -103,18 +104,30 @@ REVIEW_SCHEMA = {
 }
 
 REVIEW_SYSTEM_PROMPT = (
-    "Kamu asisten GTD untuk aplikasi task. Berdasarkan ringkasan TUGAS user "
-    "(judul, status GTD, quadrant Eisenhower, prioritas, deadline, project, umur) "
-    "dan blok 'signals' (agregat: p1_overdue, oldest_overdue_days, "
-    "projects_without_next), bantu user me-review minggunya dalam Bahasa Indonesia. "
-    "Keluaranmu HANYA detailing; aplikasi sudah menyusun antrian aksinya sendiri.\n"
+    "Kamu seorang manajer yang memberi user briefing 5 menit untuk minggu ini, "
+    "berdasarkan ringkasan TUGAS-nya (judul, status GTD, quadrant Eisenhower, "
+    "prioritas, deadline, project, umur, blocks_count = jumlah task lain yang "
+    "tertahan oleh task ini, waiting_for) dan blok 'signals' (agregat: "
+    "p1_overdue, oldest_overdue_days, projects_without_next). Bahasa Indonesia, "
+    "tegas dan to the point seperti atasan yang paham prioritas.\n"
     "- verdict: TEPAT 1 kalimat kondisi minggu ini. Jika signals.p1_overdue > 0 "
     "  atau banyak task Q1 overdue, sebut tumpukan itu sebagai titik macet utama.\n"
-    "- annotations: maksimal 5 item untuk task PALING layak ditindak. Tiap item "
-    "  {task_id, note}; note = 1 baris singkat 'kenapa penting / lakukan apa' "
-    "  (kata kerja di depan). task_id WAJIB dari daftar yang diberikan; jangan "
-    "  mengarang id.\n"
-    "Jangan menyertakan data selain yang diberikan. Ringkas dan actionable."
+    "- annotations: untuk SETIAP task, beri {task_id, directive, why}.\n"
+    "  - directive: perintah singkat MAKS 4 kata soal KAPAN/aksi, kata kerja di "
+    "    depan. Contoh: 'Kerjakan hari ini', 'Jadwalkan minggu ini', "
+    "    'Tindak lanjut', 'Tunggu kabar', 'Pecah jadi langkah'.\n"
+    "  - why: TEPAT 1 kalimat singkat (maks ~18 kata) yang menjawab 'kenapa ini "
+    "    sekarang?'. WAJIB pakai angka/sinyal NYATA dari data: hari overdue / "
+    "    menuju deadline, blocks_count (sebut 'menahan N task lain' HANYA jika "
+    "    blocks_count > 0), status P1/Q1, project mandek, atau waiting_for. "
+    "    DILARANG mengarang angka atau relasi. Jika tak ada sinyal kuat, beri "
+    "    alasan jujur yang ringan (mis. 'biar inbox bersih').\n"
+    "  - Jika diberikan daftar 'queue' berisi task_id, WAJIB beri tepat satu "
+    "    anotasi untuk SETIAP id di queue, urut sesuai queue, dan JANGAN "
+    "    menganotasi id di luar queue. Jika tidak ada 'queue', anotasi maksimal "
+    "    5 task paling layak ditindak.\n"
+    "  - task_id WAJIB dari data yang diberikan; jangan mengarang id.\n"
+    "Jangan menyertakan data selain yang diberikan."
 )
 
 
@@ -171,8 +184,8 @@ def generate_review(payload: dict) -> dict:
     user_msg = (
         json.dumps(payload, ensure_ascii=False)
         + "\n\nBalas HANYA dengan satu objek JSON valid sesuai skema: "
-        '{"verdict": str, "annotations": [{"task_id": str, "note": str}]}. '
-        "Tanpa teks atau markdown apa pun di luar JSON."
+        '{"verdict": str, "annotations": [{"task_id": str, "directive": str, '
+        '"why": str}]}. Tanpa teks atau markdown apa pun di luar JSON.'
     )
     try:
         r = requests.post(
@@ -188,7 +201,7 @@ def generate_review(payload: dict) -> dict:
                     {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
                     {"role": "user", "content": user_msg},
                 ],
-                "max_tokens": 4096,
+                "max_tokens": 6000,
                 "response_format": {"type": "json_object"},
             },
             timeout=60,

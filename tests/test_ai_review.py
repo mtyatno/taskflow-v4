@@ -38,7 +38,7 @@ def test_schema_is_verdict_annotations():
     assert set(s["properties"].keys()) == {"verdict", "annotations"}
     assert set(s["required"]) == {"verdict", "annotations"}
     ann = s["properties"]["annotations"]["items"]
-    assert set(ann["properties"].keys()) == {"task_id", "note"}
+    assert set(ann["properties"].keys()) == {"task_id", "directive", "why"}
 
 
 VALID = '{"verdict": "ok", "annotations": []}'
@@ -153,3 +153,10 @@ def test_build_payload_queue_echo_clamped_and_ordered():
 def test_build_payload_no_queue_omits_key():
     p = ai_review.build_payload([{"id": 1, "title": "T", "gtd_status": "next"}])
     assert "queue" not in p
+
+
+def test_review_schema_annotation_shape():
+    props = ai_review.REVIEW_SCHEMA["properties"]["annotations"]["items"]["properties"]
+    assert set(props.keys()) == {"task_id", "directive", "why"}
+    required = ai_review.REVIEW_SCHEMA["properties"]["annotations"]["items"]["required"]
+    assert set(required) == {"task_id", "directive", "why"}
