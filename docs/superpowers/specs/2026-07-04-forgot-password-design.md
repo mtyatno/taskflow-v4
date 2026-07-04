@@ -24,13 +24,12 @@ Kondisi sekarang:
 | Pengiriman email | `smtplib` stdlib, tanpa dependency baru |
 | SMTP belum siap | Dev mode: reset link dicetak ke log server, flow tetap bisa dites end-to-end |
 
-## 1. Database (repository.py)
+## 1. Database
 
 Migrasi mengikuti pola migrate-if-missing yang sudah ada:
 
-- `ALTER TABLE users ADD COLUMN email TEXT DEFAULT NULL` (nullable — user lama boleh kosong).
-- Unique index case-insensitive: `CREATE UNIQUE INDEX idx_users_email ON users(lower(email)) WHERE email IS NOT NULL`.
-- Tabel baru:
+- Di `repository.py` (bersama migrasi `is_admin`): `ALTER TABLE users ADD COLUMN email TEXT DEFAULT NULL` (nullable — user lama boleh kosong) + unique index case-insensitive `CREATE UNIQUE INDEX idx_users_email ON users(lower(email)) WHERE email IS NOT NULL`.
+- Di `webapp.py` `migrate_db()` (bersama tabel auth lain: `telegram_link_tokens`, `magic_tokens`, `ext_tokens`) — tabel baru:
 
 ```sql
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -82,7 +81,8 @@ Tidak ada hardcode domain — reset link dibangun dari `WEBAPP_URL` yang sudah a
 
 ### Endpoint email untuk user lama
 
-- `PUT /api/auth/email` (authenticated) — body `{email, password}`: verifikasi password lama, lalu set/ubah email. Password diminta supaya session yang dibajak tidak bisa membelokkan jalur recovery.
+- `PATCH /api/auth/profile/email` (authenticated) — body `{email, current_password}`: verifikasi password lama, lalu set/ubah email. Password diminta supaya session yang dibajak tidak bisa membelokkan jalur recovery.
+  - Path ini mengikuti temuan saat planning: frontend Settings **sudah punya** form email yang memanggil `PATCH /api/auth/profile/email`, tapi endpoint backend-nya tidak pernah dibuat. Kita implement di path yang sudah dipanggil itu (form frontend ditambah field password).
 - `GET /api/auth/me` ditambah field `email` supaya Settings bisa menampilkannya.
 
 ## 3. Frontend (static/index.html)
