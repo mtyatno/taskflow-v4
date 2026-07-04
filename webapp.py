@@ -39,7 +39,7 @@ from pydantic import BaseModel, Field, field_validator
 import jwt
 import uvicorn
 
-from config import DB_PATH, EISENHOWER_INTERVAL_MINUTES, UPLOAD_DIR, MAX_FILE_SIZE, TELEGRAM_BOT_USERNAME, NEXTCLOUD_URL, NEXTCLOUD_USER, NEXTCLOUD_APP_PASSWORD, NEXTCLOUD_FOLDER
+from config import DB_PATH, EISENHOWER_INTERVAL_MINUTES, UPLOAD_DIR, MAX_FILE_SIZE, TELEGRAM_BOT_USERNAME, NEXTCLOUD_URL, NEXTCLOUD_USER, NEXTCLOUD_APP_PASSWORD, NEXTCLOUD_FOLDER, WEBAPP_URL
 import config as appconfig
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -51,6 +51,7 @@ from repository import TaskRepository
 import bookmark
 import ai_review
 import review_history
+import mailer
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("WEB_SECRET_KEY", secrets.token_hex(32))
@@ -461,6 +462,13 @@ class LoginReq(BaseModel):
 class EmailChangeReq(BaseModel):
     email: str
     current_password: str
+
+class ForgotReq(BaseModel):
+    email: str
+
+class ResetReq(BaseModel):
+    token: str = Field(min_length=1)
+    new_password: str = Field(min_length=4, max_length=100)
 
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1)
@@ -885,6 +893,61 @@ async def change_email(req: EmailChangeReq, user=Depends(get_current_user)):
             raise HTTPException(status_code=400, detail="Email sudah terdaftar")
         conn.execute("UPDATE users SET email = ? WHERE id = ?", (email, user["sub"]))
     return {"ok": True, "email": email}
+
+
+_FORGOT_GENERIC = {"message": "Jika email terdaftar, link reset sudah dikirim"}
+
+@app.post("/api/auth/forgot")
+async def forgot_password(req: ForgotReq, background_tasks: BackgroundTasks):
+    email = req.email.strip().lower()
+    with get_db() as conn:
+        user = conn.execute(
+            "SELECT id, username FROM users WHERE lower(email) = ?", (email,)
+        ).fetchone()
+        if not user:
+            return _FORGOT_GENERIC
+        one_hour_ago = (datetime.now(_TZ_JKT) - timedelta(hours=1)).isoformat()
+        recent = conn.execute(
+            "SELECT COUNT(*) AS n FROM password_reset_tokens WHERE user_id = ? AND created_at > ?",
+            (user["id"], one_hour_ago),
+        ).fetchone()["n"]
+        if recent >= 3:
+            return _FORGOT_GENERIC
+        token = secrets.token_urlsafe(32)
+        now = datetime.now(_TZ_JKT)
+        conn.execute(
+            "INSERT INTO password_reset_tokens (user_id, token_hash, created_at, expires_at) VALUES (?,?,?,?)",
+            (
+                user["id"],
+                hashlib.sha256(token.encode()).hexdigest(),
+                now.isoformat(),
+                (now + timedelta(hours=1)).isoformat(),
+            ),
+        )
+    reset_link = f"{WEBAPP_URL}/?reset_token={token}"
+    background_tasks.add_task(mailer.send_reset_email, email, user["username"], reset_link)
+    return _FORGOT_GENERIC
+
+
+@app.post("/api/auth/reset")
+async def reset_password(req: ResetReq):
+    token_hash = hashlib.sha256(req.token.encode()).hexdigest()
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM password_reset_tokens WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+        if not row or row["used_at"] or row["expires_at"] < now:
+            raise HTTPException(status_code=400, detail="Link tidak valid atau kedaluwarsa")
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(req.new_password), row["user_id"]),
+        )
+        conn.execute(
+            "UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL",
+            (now, row["user_id"]),
+        )
+    return {"ok": True}
 
 
 @app.post("/api/ext-auth/begin")

@@ -41,3 +41,21 @@ def register_user(client, username, email, password="pass1234"):
     })
     assert r.status_code == 200, r.text
     return r.json()
+
+
+@pytest.fixture
+def captured_emails(monkeypatch):
+    """Tangkap panggilan mailer.send_reset_email alih-alih kirim email sungguhan.
+    webapp memanggil mailer.send_reset_email sebagai atribut modul, jadi patch
+    di modul mailer berlaku juga untuk webapp. TestClient menjalankan
+    BackgroundTasks secara sinkron setelah response — list terisi begitu
+    request selesai."""
+    import mailer
+    sent = []
+    monkeypatch.setattr(
+        mailer, "send_reset_email",
+        lambda to, username, reset_link: sent.append(
+            {"to": to, "username": username, "link": reset_link}
+        ),
+    )
+    return sent
