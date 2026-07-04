@@ -8008,7 +8008,7 @@ function TodayFocusView({
       color: "var(--accent)",
       letterSpacing: "0.5px"
     }
-  }, "\xF0\x9F\x94\x81 RECURRING HARI INI"), /*#__PURE__*/React.createElement("div", {
+  }, "🔁 RECURRING HARI INI"), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
       height: 1,
@@ -8041,12 +8041,12 @@ function TodayFocusView({
       fontWeight: 600,
       fontSize: 14
     }
-  }, "\xF0\x9F\x94\x81 ", t.title), /*#__PURE__*/React.createElement("div", {
+  }, "🔁 ", t.title), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: "var(--text-light)"
     }
-  }, t.priority, " \xC2\xB7 ", t.recurrence_type)), /*#__PURE__*/React.createElement("button", {
+  }, t.priority, " · ", t.recurrence_type)), /*#__PURE__*/React.createElement("button", {
     onClick: async () => {
       if (!navigator.onLine) {
         window.__showToast?.("Tidak bisa dilakukan saat offline", "error");
@@ -8072,7 +8072,7 @@ function TodayFocusView({
       cursor: "pointer",
       fontSize: 13
     }
-  }, "\xE2\x9C\x93 Done")))), /*#__PURE__*/React.createElement("div", {
+  }, "✓ Done")))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 20
     }
@@ -22269,7 +22269,7 @@ function App() {
       fontWeight: 600,
       color: recurExpiryAlert.hasExpired ? "#b91c1c" : "#854d0e"
     }
-  }, recurExpiryAlert.hasExpired ? "ð´" : "â ï¸", " ", recurExpiryAlert.count, " recurring task ", recurExpiryAlert.hasExpired ? "telah berakhir" : "akan berakhir", " \xE2\x80\x94 Klik untuk lihat"), /*#__PURE__*/React.createElement("button", {
+  }, recurExpiryAlert.hasExpired ? "🔴" : "⚠️", " ", recurExpiryAlert.count, " recurring task ", recurExpiryAlert.hasExpired ? "telah berakhir" : "akan berakhir", " — Klik untuk lihat"), /*#__PURE__*/React.createElement("button", {
     onClick: e => {
       e.stopPropagation();
       setRecurExpiryAlert(null);
@@ -22281,7 +22281,7 @@ function App() {
       cursor: "pointer",
       color: "var(--text-light)"
     }
-  }, "\xE2\x9C\x95")), /*#__PURE__*/React.createElement("div", {
+  }, "✕")), /*#__PURE__*/React.createElement("div", {
     className: "mobile-topbar"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setSidebarOpen(!sidebarOpen),
