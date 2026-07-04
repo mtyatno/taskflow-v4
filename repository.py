@@ -413,6 +413,13 @@ class TaskRepository:
             user_cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
             if "is_admin" not in user_cols:
                 conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+            # Migrate: add email to users if missing (forgot-password / SaaS)
+            if "email" not in user_cols:
+                conn.execute("ALTER TABLE users ADD COLUMN email TEXT DEFAULT NULL")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email "
+                "ON users(lower(email)) WHERE email IS NOT NULL"
+            )
 
             # Habit templates databank
             conn.execute("""

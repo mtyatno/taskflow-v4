@@ -56,6 +56,7 @@ import review_history
 SECRET_KEY = os.getenv("WEB_SECRET_KEY", secrets.token_hex(32))
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "72"))
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -160,6 +161,18 @@ def migrate_db():
                 expires_at TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL,
+                token_hash  TEXT NOT NULL,
+                created_at  TEXT NOT NULL,
+                expires_at  TEXT NOT NULL,
+                used_at     TEXT DEFAULT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prt_token_hash ON password_reset_tokens(token_hash)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prt_user ON password_reset_tokens(user_id)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS app_meta (
                 key   TEXT PRIMARY KEY,
@@ -439,10 +452,15 @@ class RegisterReq(BaseModel):
     username: str = Field(min_length=3, max_length=50)
     password: str = Field(min_length=4, max_length=100)
     display_name: str = ""
+    email: str = Field(min_length=5, max_length=255)
 
 class LoginReq(BaseModel):
     username: str
     password: str
+
+class EmailChangeReq(BaseModel):
+    email: str
+    current_password: str
 
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1)
@@ -783,21 +801,27 @@ async def startup():
 
 @app.post("/api/auth/register")
 async def register(req: RegisterReq, response: Response):
+    email = req.email.strip().lower()
+    if not EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Format email tidak valid")
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM users WHERE username = ?", (req.username,)).fetchone()
         if existing:
             raise HTTPException(status_code=400, detail="Username sudah digunakan")
+        dup = conn.execute("SELECT id FROM users WHERE lower(email) = ?", (email,)).fetchone()
+        if dup:
+            raise HTTPException(status_code=400, detail="Email sudah terdaftar")
 
         now = datetime.now().isoformat()
         cur = conn.execute(
-            "INSERT INTO users (username, password_hash, display_name, created_at) VALUES (?,?,?,?)",
-            (req.username, hash_password(req.password), req.display_name or req.username, now),
+            "INSERT INTO users (username, password_hash, display_name, email, created_at) VALUES (?,?,?,?,?)",
+            (req.username, hash_password(req.password), req.display_name or req.username, email, now),
         )
         user_id = cur.lastrowid
 
     token = create_token(user_id, req.username)
     response.set_cookie("token", token, httponly=True, samesite="lax", max_age=JWT_EXPIRE_HOURS * 3600)
-    return {"user_id": user_id, "username": req.username, "token": token}
+    return {"user_id": user_id, "username": req.username, "email": email, "token": token}
 
 
 @app.post("/api/auth/login")
@@ -809,13 +833,13 @@ async def login(req: LoginReq, response: Response):
 
     token = create_token(user["id"], user["username"])
     response.set_cookie("token", token, httponly=True, samesite="lax", max_age=JWT_EXPIRE_HOURS * 3600)
-    return {"user_id": user["id"], "username": user["username"], "display_name": user["display_name"], "token": token}
+    return {"user_id": user["id"], "username": user["username"], "display_name": user["display_name"], "email": user["email"], "token": token}
 
 
 @app.get("/api/auth/me")
 async def get_me(user=Depends(get_current_user)):
     with get_db() as conn:
-        row = conn.execute("SELECT id, username, display_name, created_at, telegram_id, is_admin FROM users WHERE id = ?", (user["sub"],)).fetchone()
+        row = conn.execute("SELECT id, username, display_name, email, created_at, telegram_id, is_admin FROM users WHERE id = ?", (user["sub"],)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
     result = dict(row)
@@ -843,6 +867,24 @@ async def generate_telegram_link_token(user=Depends(get_current_user)):
 async def logout(response: Response):
     response.delete_cookie("token")
     return {"ok": True}
+
+
+@app.patch("/api/auth/profile/email")
+async def change_email(req: EmailChangeReq, user=Depends(get_current_user)):
+    email = req.email.strip().lower()
+    if not EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Format email tidak valid")
+    with get_db() as conn:
+        row = conn.execute("SELECT password_hash FROM users WHERE id = ?", (user["sub"],)).fetchone()
+        if not row or not verify_password(req.current_password, row["password_hash"]):
+            raise HTTPException(status_code=400, detail="Password salah")
+        dup = conn.execute(
+            "SELECT id FROM users WHERE lower(email) = ? AND id != ?", (email, user["sub"])
+        ).fetchone()
+        if dup:
+            raise HTTPException(status_code=400, detail="Email sudah terdaftar")
+        conn.execute("UPDATE users SET email = ? WHERE id = ?", (email, user["sub"]))
+    return {"ok": True, "email": email}
 
 
 @app.post("/api/ext-auth/begin")
