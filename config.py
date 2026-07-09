@@ -49,3 +49,11 @@ NEXTCLOUD_FOLDER = os.getenv("NEXTCLOUD_FOLDER", "/TaskFlow/attachments")
 
 # AI Features (Weekly Review, etc.) — default OFF (kill-switch)
 AI_FEATURES_ENABLED = os.getenv("AI_FEATURES_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+
+# SMTP untuk email transaksional (reset password).
+# SMTP_HOST kosong = dev mode: email tidak dikirim, isinya dicetak ke log server.
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("SMTP_FROM", "TaskFlow <noreply@localhost>")

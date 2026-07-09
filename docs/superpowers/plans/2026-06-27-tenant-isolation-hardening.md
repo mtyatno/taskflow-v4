@@ -24,10 +24,12 @@
 
 ### Task 1: Integration test harness + CI workflow + tasks isolation baseline
 
+> **UPDATE 2026-07-04 (plan forgot-password):** `tests/conftest.py` dan `.github/workflows/test.yml` **SUDAH ADA** — dibuat oleh plan `2026-07-04-forgot-password.md`. JANGAN menimpa: tambahkan fixture/helper Task 1 ini (`client_factory`, `user_client`, `make_owned_resources`, `assert_denied`) ke `tests/conftest.py` yang sudah ada, dan lewati pembuatan `test.yml` (workflow sudah jalan). Selain itu, register kini **wajib email** — payload register di `user_client` di bawah sudah disesuaikan menyertakan `email`.
+
 **Files:**
-- Create: `tests/conftest.py`
+- Modify (SUDAH ADA — jangan timpa): `tests/conftest.py`
 - Create: `tests/test_tenant_isolation.py`
-- Create: `.github/workflows/test.yml`
+- Sudah ada (skip): `.github/workflows/test.yml`
 
 **Interfaces:**
 - Produces (consumed by all later tasks):
@@ -69,6 +71,7 @@ def user_client(client_factory, username):
     c = client_factory()
     c.post("/api/auth/register",
            json={"username": username, "password": "pw-" + username,
+                 "email": f"{username}@test.local",
                  "display_name": username})
     r = c.post("/api/auth/login",
                json={"username": username, "password": "pw-" + username})

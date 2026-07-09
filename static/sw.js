@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v182-recurring-mojibake-fix";
+const CACHE = "taskflow-v183-forgot-password";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
