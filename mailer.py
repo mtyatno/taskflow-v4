@@ -6,6 +6,7 @@ supaya flow reset password tetap bisa dites end-to-end sebelum SMTP di-setup.
 import logging
 import smtplib
 from email.mime.text import MIMEText
+from email.utils import parseaddr
 
 from config import SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM
 
@@ -26,7 +27,9 @@ def send_email(to: str, subject: str, body: str) -> None:
         s.starttls()
         if SMTP_USER:
             s.login(SMTP_USER, SMTP_PASSWORD)
-        s.sendmail(SMTP_FROM, [to], msg.as_string())
+        # Envelope sender (MAIL FROM) wajib bare address — MTA ketat menolak
+        # display-name; header From: tetap boleh "TaskFlow <noreply@x>".
+        s.sendmail(parseaddr(SMTP_FROM)[1], [to], msg.as_string())
 
 
 def send_reset_email(to: str, username: str, reset_link: str) -> None:
