@@ -11,7 +11,7 @@ import tempfile
 _TMP = tempfile.mkdtemp(prefix="taskflow-test-")
 os.environ["DB_PATH"] = os.path.join(_TMP, "test.db")
 os.environ["UPLOAD_DIR"] = os.path.join(_TMP, "uploads")
-os.environ["WEB_SECRET_KEY"] = "test-secret-key"
+os.environ["WEB_SECRET_KEY"] = "test-secret-key-0123456789abcdef-panjang-32b"  # >=32 byte: hindari InsecureKeyLengthWarning PyJWT
 os.environ["TELEGRAM_BOT_TOKEN"] = ""
 
 import pytest  # noqa: E402
