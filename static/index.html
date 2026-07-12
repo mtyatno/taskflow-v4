@@ -1168,6 +1168,35 @@
       margin-right: 6px;
       accent-color: var(--accent);
     }
+    /* GFM task list — Milkdown renders <li data-item-type="task"> tanpa <input>,
+       jadi checkbox digambar via ::before; toggle ditangani createTaskCheckboxPlugin */
+    .milkdown-editor .ProseMirror li[data-item-type="task"] { list-style: none; position: relative; }
+    .milkdown-editor .ProseMirror li[data-item-type="task"]::before {
+      content: "";
+      position: absolute;
+      left: -20px;
+      top: 0.28em;
+      width: 14px;
+      height: 14px;
+      box-sizing: border-box;
+      border: 1.5px solid var(--text-light);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .milkdown-editor .ProseMirror li[data-item-type="task"][data-checked="true"]::before {
+      content: "✓";
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-size: 11px;
+      line-height: 12px;
+      font-weight: 700;
+      text-align: center;
+    }
+    .milkdown-editor .ProseMirror li[data-item-type="task"][data-checked="true"] > p:first-of-type {
+      text-decoration: line-through;
+      color: var(--text-light);
+    }
     .milkdown-editor .ProseMirror p { margin: 0.2em 0; }
     .milkdown-editor .ProseMirror strong { font-weight: 700; }
     .milkdown-editor .ProseMirror em { font-style: italic; }
@@ -14959,7 +14988,7 @@ function MilkdownEditor({
           onChange(markdown);
         }
       });
-    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin()).create().then(editor => {
+    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin()).use(createTaskCheckboxPlugin()).create().then(editor => {
       if (cancelled) {
         editor.destroy();
         return;
@@ -15476,6 +15505,42 @@ function createMarkdownPastePlugin() {
         const slice = doc.slice(0, doc.content.size);
         view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
         return true;
+      }
+    }
+  }));
+}
+// GFM task list checkbox — Milkdown renders task items as <li data-item-type="task">
+// without an <input>, so the box is drawn by CSS (::before in the list gutter)
+// and this plugin toggles the `checked` attr when that gutter box is clicked.
+function createTaskCheckboxPlugin() {
+  const MB = window.MilkdownBundle;
+  return MB.$prose(() => new MB.Plugin({
+    key: new MB.PluginKey('MILKDOWN_TASK_CHECKBOX'),
+    props: {
+      handleDOMEvents: {
+        mousedown: (view, event) => {
+          const t = event.target;
+          if (!view.editable || !(t instanceof HTMLElement)) return false;
+          if (t.tagName !== 'LI' || t.getAttribute('data-item-type') !== 'task') return false;
+          const rect = t.getBoundingClientRect();
+          const x = event.clientX - rect.left;
+          const y = event.clientY - rect.top;
+          // hanya area checkbox ::before (gutter kiri li, baris pertama)
+          if (x < -24 || x > -2 || y < 0 || y > 24) return false;
+          event.preventDefault();
+          const $pos = view.state.doc.resolve(view.posAtDOM(t, 0));
+          for (let d = $pos.depth; d > 0; d--) {
+            const node = $pos.node(d);
+            if (node.type.name === 'list_item') {
+              if (node.attrs.checked == null) return false;
+              view.dispatch(view.state.tr.setNodeMarkup($pos.before(d), undefined, Object.assign({}, node.attrs, {
+                checked: !node.attrs.checked
+              })));
+              return true;
+            }
+          }
+          return false;
+        }
       }
     }
   }));
