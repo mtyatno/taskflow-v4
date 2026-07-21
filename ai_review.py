@@ -137,7 +137,7 @@ PROVIDERS = {
     "openrouter": {
         "url": "https://openrouter.ai/api/v1/chat/completions",
         "key_env": "OPENROUTER_API_KEY",
-        "default_model": "anthropic/claude-sonnet-4",
+        "default_model": "anthropic/claude-sonnet-5",
         "extra_headers": {"X-Title": "TaskFlow"},
     },
     "deepseek": {
