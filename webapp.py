@@ -3213,6 +3213,70 @@ class ReviewRequest(BaseModel):
     queue: list[str] = []
 
 
+class NoteAiRequest(BaseModel):
+    instruction: str
+    text: str
+
+
+@app.post("/api/ai/note-action")
+async def ai_note_action(req: NoteAiRequest, user=Depends(get_current_user)):
+    """AI transform note text. Freeform instruction + target text → transformed result.
+    Gated by AI_FEATURES_ENABLED (both config + user opt-in checked by frontend)."""
+    if not appconfig.AI_FEATURES_ENABLED:
+        raise HTTPException(status_code=404, detail="AI features disabled")
+    if not req.text.strip() or not req.instruction.strip():
+        raise HTTPException(status_code=400, detail="instruction and text required")
+    try:
+        result = _call_note_ai(req.instruction.strip(), req.text.strip())
+        return {"result": result}
+    except ai_review.AIReviewError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+def _call_note_ai(instruction: str, text: str) -> str:
+    """Call OpenRouter with a generic writing-assistant prompt + user instruction."""
+    import requests as _req
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise ai_review.AIReviewError("OPENROUTER_API_KEY not configured")
+    model = os.getenv("AI_MODEL", ai_review.DEFAULT_MODEL)
+    system = (
+        "Kamu adalah asisten penulisan catatan di TaskFlow. "
+        "Ikuti instruksi pengguna untuk mengubah TEKS INPUT menjadi output. "
+        "Instruksi bisa berupa: ringkas, perbaiki grammar, terjemahkan, "
+        "ubah tone, ekstrak action items, expand, atau instruksi bebas lainnya. "
+        "Balas HANYA dengan teks hasil transformasi. "
+        "Tanpa pengantar, tanpa penjelasan, tanpa markdown khusus."
+    )
+    user_msg = f"INSTRUKSI: {instruction}\n\nTEKS INPUT:\n{text}"
+    try:
+        r = _req.post(
+            ai_review.OPENROUTER_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "X-Title": "TaskFlow Note AI",
+            },
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_msg},
+                ],
+                "max_tokens": 4000,
+            },
+            timeout=45,
+        )
+    except _req.RequestException as e:
+        raise ai_review.AIReviewError(f"OpenRouter failed: {e}") from e
+    if r.status_code != 200:
+        raise ai_review.AIReviewError(f"OpenRouter HTTP {r.status_code}: {r.text[:200]}")
+    try:
+        return r.json()["choices"][0]["message"]["content"].strip()
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+        raise ai_review.AIReviewError(f"bad response: {e}") from e
+
+
 @app.post("/api/ai/review")
 async def ai_weekly_review(req: ReviewRequest = Body(default=ReviewRequest()),
                            user=Depends(get_current_user)):

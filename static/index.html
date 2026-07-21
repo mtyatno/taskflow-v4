@@ -957,6 +957,7 @@
     .wiki-autocomplete { position: fixed; background: var(--bg-card); border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.22); z-index: 2000; min-width: 200px; max-width: 320px; overflow: hidden; }
     .wiki-autocomplete-item { padding: 8px 14px; font-size: 13px; cursor: pointer; color: var(--text-primary); transition: background 0.1s; }
     .wiki-autocomplete-item:hover, .wiki-autocomplete-item.active { background: rgba(168,197,0,0.15); color: var(--accent); font-weight: 600; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .backlink-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; background: var(--bg-primary); margin-bottom: 5px; cursor: pointer; font-size: 13px; transition: opacity 0.15s; }
     .backlink-item:hover { opacity: 0.75; }
     .note-toolbar button { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 0 9px; height: 28px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.12s; font-family: inherit; white-space: nowrap; }
@@ -4127,6 +4128,9 @@ function TaskFormModal({
   const noteAllTasksRef = React.useRef([]);
   const noteTasksGetterRef = React.useRef(() => noteAllTasksRef.current);
   const noteTaskDropdownRef = React.useRef(null);
+  const [noteAiDropdown, setNoteAiDropdown] = useState(null);
+  const [noteAiBusy, setNoteAiBusy] = useState(false);
+  const noteAiDropdownRef = React.useRef(null);
   const [loading, setLoading] = useState(false);
   const [pendingSubtasks, setPendingSubtasks] = useState([]);
   const [pendingSubTitle, setPendingSubTitle] = useState("");
@@ -4254,6 +4258,7 @@ function TaskFormModal({
     return () => {
       setNoteTagDropdown(null);
       setNoteWikiDropdown(null);
+      setNoteAiDropdown(null);
     };
   }, [mode]);
   React.useEffect(() => {
@@ -4264,6 +4269,14 @@ function TaskFormModal({
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [noteTaskDropdown]);
+  React.useEffect(() => {
+    if (!noteAiDropdown) return;
+    const close = e => {
+      if (noteAiDropdownRef.current && !noteAiDropdownRef.current.contains(e.target)) setNoteAiDropdown(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [noteAiDropdown]);
   const handleHabitTitleChange = val => {
     setHabit("title", val);
     const el = habitTitleInputRef.current;
@@ -4307,6 +4320,7 @@ function TaskFormModal({
       setNoteTagDropdown(null);
       setNoteTaskDropdown(null);
       setNoteWikiDropdown(null);
+      setNoteAiDropdown(null);
       return;
     }
     const MB = window.MilkdownBundle;
@@ -4346,6 +4360,16 @@ function TaskFormModal({
     } else {
       setNoteTagDropdown(null);
     }
+    // AI slash command: /ai at start of line
+    const aiMatch = textBefore.match(/(?:^|\n)\/ai$/);
+    if (aiMatch && aiReviewOn()) {
+      setNoteTagDropdown(null);
+      setNoteTaskDropdown(null);
+      setNoteWikiDropdown(null);
+      setNoteAiDropdown({ top: coords.top, left: coords.left });
+      return;
+    }
+    setNoteAiDropdown(null);
     const taskTriggerMatch = textBefore.match(/\[(task|tasks|todo|todos|tugas)[a-zA-Z0-9 ]*$/i);
     if (taskTriggerMatch) {
       const triggerStart = textBefore.length - taskTriggerMatch[0].length;
@@ -4468,6 +4492,73 @@ function TaskFormModal({
       insertNoteTasklink(created.id);
     } catch (_) {/* silent */} finally {
       setCreatingInlineNoteTask(false);
+    }
+  };
+  const executeNoteAi = async instruction => {
+    if (noteAiBusy || !(instruction || '').trim()) return;
+    const instr = instruction.trim();
+    setNoteAiDropdown(null);
+    setNoteAiBusy(true);
+    const editor = noteMilkdownRef.current;
+    if (!editor) { setNoteAiBusy(false); return; }
+    const MB = window.MilkdownBundle;
+    let targetText = '';
+    let triggerFrom = 0, triggerTo = 0;
+    editor.action(ctx => {
+      const view = ctx.get(MB.editorViewCtx);
+      const sel = view.state.selection;
+      if (!sel.empty) {
+        targetText = view.state.doc.textBetween(sel.from, sel.to, '\n', '\0');
+      }
+      const textBefore = view.state.doc.textBetween(0, sel.from, '\n', '\0');
+      const aiMatch = textBefore.match(/(?:\n|^)\/ai$/);
+      if (aiMatch) {
+        triggerFrom = textBefore.lastIndexOf('/ai');
+        triggerTo = sel.from;
+        if (!targetText && triggerFrom > 0) {
+          const beforeTrigger = view.state.doc.textBetween(0, triggerFrom, '\n', '\0');
+          const parts = beforeTrigger.split('\n');
+          targetText = parts[parts.length - 1].trim();
+        }
+      }
+    });
+    if (!targetText) {
+      editor.action(ctx => {
+        targetText = ctx.get(MB.serializerCtx)(ctx.get(MB.editorViewCtx).state.doc);
+      });
+    }
+    if (triggerFrom < triggerTo) {
+      editor.action(ctx => {
+        const view = ctx.get(MB.editorViewCtx);
+        view.dispatch(view.state.tr.delete(triggerFrom, triggerTo));
+      });
+    }
+    editor.action(ctx => {
+      const view = ctx.get(MB.editorViewCtx);
+      view.dispatch(view.state.tr.insertText('✨ Memproses...', view.state.selection.from));
+    });
+    try {
+      const data = await api.post('/api/ai/note-action', { instruction: instr, text: targetText });
+      const result = (data.result || '').trim();
+      editor.action(ctx => {
+        const view = ctx.get(MB.editorViewCtx);
+        const full = view.state.doc.textBetween(0, view.state.doc.content.size, '\n', '\0');
+        const idx = full.lastIndexOf('✨ Memproses...');
+        if (idx !== -1) {
+          view.dispatch(view.state.tr.insertText('\n' + result + '\n', idx, idx + '✨ Memproses...'.length));
+        }
+      });
+    } catch (err) {
+      editor.action(ctx => {
+        const view = ctx.get(MB.editorViewCtx);
+        const full = view.state.doc.textBetween(0, view.state.doc.content.size, '\n', '\0');
+        const idx = full.lastIndexOf('✨ Memproses...');
+        if (idx !== -1) view.dispatch(view.state.tr.insertText('', idx, idx + '✨ Memproses...'.length));
+      });
+      showToast('Gagal AI: ' + (err.message || 'coba lagi'));
+    } finally {
+      setNoteAiBusy(false);
+      editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
     }
   };
   const insertNoteWikilink = t => {
@@ -5115,7 +5206,25 @@ function TaskFormModal({
         cursor: "default",
         fontStyle: "italic"
       }
-    }, noteTitlesList.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan")))), detectedTags.length > 0 && /*#__PURE__*/React.createElement("div", {
+    }, noteTitlesList.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan")))), noteAiDropdown && /*#__PURE__*/React.createElement("div", {
+      ref: noteAiDropdownRef,
+      className: "wiki-autocomplete",
+      style: { position: "fixed", top: noteAiDropdown.top, left: noteAiDropdown.left, zIndex: 1080, minWidth: 280, padding: 6 }
+    }, /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+      /*#__PURE__*/React.createElement(Icon, { name: "sparkles", size: 15, style: { color: "var(--accent)", flexShrink: 0 } }),
+      /*#__PURE__*/React.createElement("input", {
+        className: "input",
+        style: { flex: 1, padding: "5px 8px", fontSize: 13, borderRadius: 5, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)" },
+        placeholder: "Instruksi AI... misal: ringkas jadi 3 poin",
+        autoFocus: true,
+        onMouseDown: e => e.stopPropagation(),
+        onKeyDown: e => {
+          if (e.key === 'Escape') { setNoteAiDropdown(null); return; }
+          if (e.key === 'Enter') { e.preventDefault(); executeNoteAi(e.target.value); }
+        }
+      }),
+      noteAiBusy && /*#__PURE__*/React.createElement("span", { style: { display: "inline-block", width: 14, height: 14, border: "2px solid var(--accent)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.6s linear infinite" } })
+    )), detectedTags.length > 0 && /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         flexWrap: "wrap",
@@ -15784,6 +15893,9 @@ function NoteModal({
   const tocItems = React.useMemo(() => extractHeadings(content), [content]);
   const [tagDropdown, setTagDropdown] = useState(null);
   const [existingTags, setExistingTags] = useState([]);
+  const [noteAiDropdown, setNoteAiDropdown] = useState(null);
+  const [noteAiBusy, setNoteAiBusy] = useState(false);
+  const noteAiDropdownRef = React.useRef(null);
 
   // Textarea fullscreen
   const [textareaFullscreen, setTextareaFullscreen] = React.useState(false);
@@ -15898,6 +16010,18 @@ function NoteModal({
     } else {
       setTagDropdown(null);
     }
+
+    // AI slash command: /ai at start of line
+    const aiMatch = textBefore.match(/(?:^|\n)\/ai$/);
+    if (aiMatch && aiReviewOn()) {
+      setTagDropdown(null);
+      setTaskDropdown(null);
+      setWikiDropdown(null);
+      const coords = getPos();
+      setNoteAiDropdown({ top: coords.top, left: coords.left });
+      return;
+    }
+    setNoteAiDropdown(null);
 
     // Task link trigger: [task [tasks [todo [todos [tugas (case-insensitive)
     // Guard: char before [ must NOT be [ (wikilink territory)
@@ -16144,6 +16268,73 @@ function NoteModal({
       }
     }
   };
+  const executeNoteAi = async instruction => {
+    if (noteAiBusy || !(instruction || '').trim()) return;
+    const instr = instruction.trim();
+    setNoteAiDropdown(null);
+    setNoteAiBusy(true);
+    const editor = milkdownEditorRef.current;
+    if (!editor) { setNoteAiBusy(false); return; }
+    const MB = window.MilkdownBundle;
+    let targetText = '';
+    let triggerFrom = 0, triggerTo = 0;
+    editor.action(ctx => {
+      const view = ctx.get(MB.editorViewCtx);
+      const sel = view.state.selection;
+      if (!sel.empty) {
+        targetText = view.state.doc.textBetween(sel.from, sel.to, '\n', '\0');
+      }
+      const textBefore = view.state.doc.textBetween(0, sel.from, '\n', '\0');
+      const aiMatch = textBefore.match(/(?:\n|^)\/ai$/);
+      if (aiMatch) {
+        triggerFrom = textBefore.lastIndexOf('/ai');
+        triggerTo = sel.from;
+        if (!targetText && triggerFrom > 0) {
+          const beforeTrigger = view.state.doc.textBetween(0, triggerFrom, '\n', '\0');
+          const parts = beforeTrigger.split('\n');
+          targetText = parts[parts.length - 1].trim();
+        }
+      }
+    });
+    if (!targetText) {
+      editor.action(ctx => {
+        targetText = ctx.get(MB.serializerCtx)(ctx.get(MB.editorViewCtx).state.doc);
+      });
+    }
+    if (triggerFrom < triggerTo) {
+      editor.action(ctx => {
+        const view = ctx.get(MB.editorViewCtx);
+        view.dispatch(view.state.tr.delete(triggerFrom, triggerTo));
+      });
+    }
+    editor.action(ctx => {
+      const view = ctx.get(MB.editorViewCtx);
+      view.dispatch(view.state.tr.insertText('✨ Memproses...', view.state.selection.from));
+    });
+    try {
+      const data = await api.post('/api/ai/note-action', { instruction: instr, text: targetText });
+      const result = (data.result || '').trim();
+      editor.action(ctx => {
+        const view = ctx.get(MB.editorViewCtx);
+        const full = view.state.doc.textBetween(0, view.state.doc.content.size, '\n', '\0');
+        const idx = full.lastIndexOf('✨ Memproses...');
+        if (idx !== -1) {
+          view.dispatch(view.state.tr.insertText('\n' + result + '\n', idx, idx + '✨ Memproses...'.length));
+        }
+      });
+    } catch (err) {
+      editor.action(ctx => {
+        const view = ctx.get(MB.editorViewCtx);
+        const full = view.state.doc.textBetween(0, view.state.doc.content.size, '\n', '\0');
+        const idx = full.lastIndexOf('✨ Memproses...');
+        if (idx !== -1) view.dispatch(view.state.tr.insertText('', idx, idx + '✨ Memproses...'.length));
+      });
+      showToast('Gagal AI: ' + (err.message || 'coba lagi'));
+    } finally {
+      setNoteAiBusy(false);
+      editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
+    }
+  };
   const insertTag = tagName => {
     setTagDropdown(null);
     const editor = milkdownEditorRef.current;
@@ -16211,6 +16402,11 @@ function NoteModal({
     const pmDom = milkdownEditorRef.current ? document.querySelector('.milkdown-editor .ProseMirror') : null;
     if (!pmDom) return;
     const onKeyDown = e => {
+      if (noteAiDropdown) {
+        if (e.key === 'Escape') { setNoteAiDropdown(null); return; }
+        // Don't intercept other keys — the <input> handles Enter
+        return;
+      }
       if (tagDropdown) {
         if (e.key === 'Escape') {
           setTagDropdown(null);
@@ -16286,7 +16482,15 @@ function NoteModal({
     };
     pmDom.addEventListener('keydown', onKeyDown, true);
     return () => pmDom.removeEventListener('keydown', onKeyDown, true);
-  }, [tagDropdown, taskDropdown, taskDropdownItems, wikiDropdown]);
+  }, [tagDropdown, taskDropdown, taskDropdownItems, wikiDropdown, noteAiDropdown]);
+  React.useEffect(() => {
+    if (!noteAiDropdown) return;
+    const close = e => {
+      if (noteAiDropdownRef.current && !noteAiDropdownRef.current.contains(e.target)) setNoteAiDropdown(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [noteAiDropdown]);
   React.useEffect(() => {
     if (!savedNoteId) return;
     api.get(`/api/scratchpad/${savedNoteId}/attachments`).then(d => setAttachments(d)).catch(() => {});
@@ -17330,7 +17534,25 @@ function NoteModal({
       cursor: "default",
       fontStyle: "italic"
     }
-  }, noteTitles.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan")), tagDropdown && tagDropdown.items.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, noteTitles.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan")), noteAiDropdown && /*#__PURE__*/React.createElement("div", {
+    ref: noteAiDropdownRef,
+    className: "wiki-autocomplete",
+    style: { position: "fixed", top: noteAiDropdown.top, left: noteAiDropdown.left, zIndex: 1080, minWidth: 280, padding: 6 }
+  }, /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+    /*#__PURE__*/React.createElement(Icon, { name: "sparkles", size: 15, style: { color: "var(--accent)", flexShrink: 0 } }),
+    /*#__PURE__*/React.createElement("input", {
+      className: "input",
+      style: { flex: 1, padding: "5px 8px", fontSize: 13, borderRadius: 5, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)" },
+      placeholder: "Instruksi AI... misal: ringkas jadi 3 poin",
+      autoFocus: true,
+      onMouseDown: e => e.stopPropagation(),
+      onKeyDown: e => {
+        if (e.key === 'Escape') { setNoteAiDropdown(null); return; }
+        if (e.key === 'Enter') { e.preventDefault(); executeNoteAi(e.target.value); }
+      }
+    }),
+    noteAiBusy && /*#__PURE__*/React.createElement("span", { style: { display: "inline-block", width: 14, height: 14, border: "2px solid var(--accent)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.6s linear infinite" } })
+  )), tagDropdown && tagDropdown.items.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "wiki-autocomplete",
     style: {
       position: "fixed",
