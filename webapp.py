@@ -3240,8 +3240,10 @@ def _call_note_ai(instruction: str, text: str) -> str:
         "Ikuti instruksi pengguna untuk mengubah TEKS INPUT menjadi output. "
         "Instruksi bisa berupa: ringkas, perbaiki grammar, terjemahkan, "
         "ubah tone, ekstrak action items, expand, atau instruksi bebas lainnya. "
-        "Balas HANYA dengan teks hasil transformasi. "
-        "Tanpa pengantar, tanpa penjelasan, tanpa markdown khusus."
+        "Balas HANYA dengan teks hasil transformasi dalam format MARKDOWN. "
+        "Gunakan bold, italic, heading, list, code block, tabel, atau format "
+        "markdown lain yang sesuai untuk hasil yang rapi dan terstruktur. "
+        "JANGAN beri pengantar atau penjelasan — langsung hasil transformasi."
     )
     return ai_review._call_llm(
         messages=[

@@ -4545,7 +4545,18 @@ function TaskFormModal({
         const full = view.state.doc.textBetween(0, view.state.doc.content.size, '\n', '\0');
         const idx = full.lastIndexOf('✨ Memproses...');
         if (idx !== -1) {
-          view.dispatch(view.state.tr.insertText('\n' + result + '\n', idx, idx + '✨ Memproses...'.length));
+          const placeholderLen = '✨ Memproses...'.length;
+          try {
+            const doc = ctx.get(MB.parserCtx)(result);
+            if (doc && doc.content.size > 0) {
+              const slice = doc.slice(0, doc.content.size);
+              view.dispatch(view.state.tr.replaceRange(idx, idx + placeholderLen, slice));
+            } else {
+              view.dispatch(view.state.tr.insertText('\n' + result + '\n', idx, idx + placeholderLen));
+            }
+          } catch (_) {
+            view.dispatch(view.state.tr.insertText('\n' + result + '\n', idx, idx + placeholderLen));
+          }
         }
       });
     } catch (err) {
@@ -16319,7 +16330,18 @@ function NoteModal({
         const full = view.state.doc.textBetween(0, view.state.doc.content.size, '\n', '\0');
         const idx = full.lastIndexOf('✨ Memproses...');
         if (idx !== -1) {
-          view.dispatch(view.state.tr.insertText('\n' + result + '\n', idx, idx + '✨ Memproses...'.length));
+          const placeholderLen = '✨ Memproses...'.length;
+          try {
+            const doc = ctx.get(MB.parserCtx)(result);
+            if (doc && doc.content.size > 0) {
+              const slice = doc.slice(0, doc.content.size);
+              view.dispatch(view.state.tr.replaceRange(idx, idx + placeholderLen, slice));
+            } else {
+              view.dispatch(view.state.tr.insertText('\n' + result + '\n', idx, idx + placeholderLen));
+            }
+          } catch (_) {
+            view.dispatch(view.state.tr.insertText('\n' + result + '\n', idx, idx + placeholderLen));
+          }
         }
       });
     } catch (err) {
