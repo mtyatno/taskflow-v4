@@ -49,6 +49,10 @@ NEXTCLOUD_FOLDER = os.getenv("NEXTCLOUD_FOLDER", "/TaskFlow/attachments")
 
 # AI Features (Weekly Review, etc.) — default OFF (kill-switch)
 AI_FEATURES_ENABLED = os.getenv("AI_FEATURES_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+# AI Provider: "openrouter" (default) atau "deepseek". Semua fitur AI pakai provider yang sama.
+AI_PROVIDER = os.getenv("AI_PROVIDER", "openrouter").strip().lower()
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 
 # SMTP untuk email transaksional (reset password).
 # SMTP_HOST kosong = dev mode: email tidak dikirim, isinya dicetak ke log server.

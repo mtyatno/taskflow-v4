@@ -1,10 +1,9 @@
 """Weekly Review AI layer. TASKS-ONLY: this module must never import or read
 notes/scratchpad data. Only the WHITELIST fields below leave the server.
-Provider: OpenRouter (OpenAI-compatible chat-completions), so the API key works
-where Anthropic's own billing was unavailable. `requests` is imported lazily
-inside generate_review() so this module imports (and build_payload/schema
-unit-test) with no network deps."""
+Multi-provider: OpenRouter (default) or DeepSeek direct API, both via
+OpenAI-compatible chat-completions. Set AI_PROVIDER in .env to switch."""
 import os
+import config as appconfig
 from datetime import date, datetime
 
 WHITELIST = ["id", "title", "description", "gtd_status", "quadrant",
@@ -131,12 +130,57 @@ REVIEW_SYSTEM_PROMPT = (
 )
 
 
-# OpenRouter (OpenAI-compatible). Pick the exact model slug from
-# https://openrouter.ai/models and set AI_MODEL in .env (default below is a
-# safe fallback; override it). On any failure we raise AIReviewError, which the
-# route turns into HTTP 503 and the UI shows as "Gagal membuat ringkasan AI".
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "anthropic/claude-sonnet-4"
+# Provider registry. Add new providers here. All use OpenAI-compatible
+# chat-completions, so the only differences are URL, key env var, default model,
+# and optional extra headers. Set AI_PROVIDER in .env to switch.
+PROVIDERS = {
+    "openrouter": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "key_env": "OPENROUTER_API_KEY",
+        "default_model": "anthropic/claude-sonnet-4",
+        "extra_headers": {"X-Title": "TaskFlow"},
+    },
+    "deepseek": {
+        "url": "https://api.deepseek.com/v1/chat/completions",
+        "key_env": "DEEPSEEK_API_KEY",
+        "default_model": "deepseek-chat",
+        "extra_headers": {},
+    },
+}
+
+
+def _call_llm(*, messages, max_tokens=2000, timeout=45, response_format=None,
+              extra_headers=None, provider=None) -> str:
+    """Call the configured AI provider. Returns the model's text content.
+
+    All provider-specific details (URL, key, default model, headers) are read
+    from PROVIDERS. Set AI_PROVIDER in .env, or pass `provider` explicitly.
+    On any failure raises AIReviewError (→ HTTP 503 in the route)."""
+    import requests  # lazy import so unit tests don't need network
+    provider_name = provider or getattr(appconfig, "AI_PROVIDER", "openrouter")
+    p = PROVIDERS.get(provider_name, PROVIDERS["openrouter"])
+    api_key = os.getenv(p["key_env"])
+    if not api_key:
+        raise AIReviewError(f"{p['key_env']} not configured")
+    model = os.getenv("AI_MODEL", p["default_model"])
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    if p["extra_headers"]:
+        headers.update(p["extra_headers"])
+    if extra_headers:
+        headers.update(extra_headers)
+    body = {"model": model, "messages": messages, "max_tokens": max_tokens}
+    if response_format:
+        body["response_format"] = response_format
+    try:
+        r = requests.post(p["url"], headers=headers, json=body, timeout=timeout)
+    except requests.RequestException as e:
+        raise AIReviewError(f"{provider_name} request failed: {e}") from e
+    if r.status_code != 200:
+        raise AIReviewError(f"{provider_name} HTTP {r.status_code}: {r.text[:200]}")
+    try:
+        return r.json()["choices"][0]["message"]["content"].strip()
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+        raise AIReviewError(f"bad {provider_name} response: {e}") from e
 
 
 def parse_review_content(content, reasoning="") -> dict:
@@ -176,45 +220,21 @@ def parse_review_content(content, reasoning="") -> dict:
 
 def generate_review(payload: dict) -> dict:
     import json
-    import requests  # lazy: already installed for the web service (webapp uses it)
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        raise AIReviewError("OPENROUTER_API_KEY not configured")
-    model = os.getenv("AI_MODEL", DEFAULT_MODEL)
     user_msg = (
         json.dumps(payload, ensure_ascii=False)
         + "\n\nBalas HANYA dengan satu objek JSON valid sesuai skema: "
         '{"verdict": str, "annotations": [{"task_id": str, "directive": str, '
         '"why": str}]}. Tanpa teks atau markdown apa pun di luar JSON.'
     )
-    try:
-        r = requests.post(
-            OPENROUTER_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-                "X-Title": "TaskFlow Weekly Review",
-            },
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_msg},
-                ],
-                "max_tokens": 6000,
-                "response_format": {"type": "json_object"},
-            },
-            timeout=60,
-        )
-    except requests.RequestException as e:
-        raise AIReviewError(f"OpenRouter request failed: {e}") from e
-    if r.status_code != 200:
-        raise AIReviewError(f"OpenRouter HTTP {r.status_code}: {r.text[:200]}")
-    try:
-        data = r.json()
-        msg = data["choices"][0]["message"]
-        content = msg.get("content")
-        reasoning = msg.get("reasoning") or ""
-    except (ValueError, KeyError, IndexError, TypeError) as e:
-        raise AIReviewError(f"bad OpenRouter response: {e}") from e
-    return parse_review_content(content, reasoning)
+    content = _call_llm(
+        messages=[
+            {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
+            {"role": "user", "content": user_msg},
+        ],
+        max_tokens=6000,
+        timeout=60,
+        response_format={"type": "json_object"},
+        extra_headers={"X-Title": "TaskFlow Weekly Review"},
+    )
+    # DeepSeek doesn't have a reasoning field, so reasoning is always empty
+    return parse_review_content(content, reasoning="")
