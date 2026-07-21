@@ -151,36 +151,48 @@ PROVIDERS = {
 
 def _call_llm(*, messages, max_tokens=2000, timeout=45, response_format=None,
               extra_headers=None, provider=None) -> str:
-    """Call the configured AI provider. Returns the model's text content.
+    """Call the configured AI provider with auto-fallback. Returns model text content.
 
-    All provider-specific details (URL, key, default model, headers) are read
-    from PROVIDERS. Set AI_PROVIDER in .env, or pass `provider` explicitly.
-    On any failure raises AIReviewError (→ HTTP 503 in the route)."""
+    AI_PROVIDER can be a single name or comma-separated list for fallback:
+    "openrouter,deepseek" = try openrouter first, fall back to deepseek.
+    On total failure raises AIReviewError (→ HTTP 503 in the route)."""
     import requests  # lazy import so unit tests don't need network
-    provider_name = provider or getattr(appconfig, "AI_PROVIDER", "openrouter")
-    p = PROVIDERS.get(provider_name, PROVIDERS["openrouter"])
-    api_key = os.getenv(p["key_env"])
-    if not api_key:
-        raise AIReviewError(f"{p['key_env']} not configured")
-    model = os.getenv("AI_MODEL", p["default_model"])
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    if p["extra_headers"]:
-        headers.update(p["extra_headers"])
-    if extra_headers:
-        headers.update(extra_headers)
-    body = {"model": model, "messages": messages, "max_tokens": max_tokens}
-    if response_format:
-        body["response_format"] = response_format
-    try:
-        r = requests.post(p["url"], headers=headers, json=body, timeout=timeout)
-    except requests.RequestException as e:
-        raise AIReviewError(f"{provider_name} request failed: {e}") from e
-    if r.status_code != 200:
-        raise AIReviewError(f"{provider_name} HTTP {r.status_code}: {r.text[:200]}")
-    try:
-        return r.json()["choices"][0]["message"]["content"].strip()
-    except (ValueError, KeyError, IndexError, TypeError) as e:
-        raise AIReviewError(f"bad {provider_name} response: {e}") from e
+    raw = provider or getattr(appconfig, "AI_PROVIDER", "openrouter")
+    provider_names = [n.strip() for n in raw.split(",") if n.strip()]
+    if not provider_names:
+        provider_names = ["openrouter"]
+    last_error = None
+    for provider_name in provider_names:
+        p = PROVIDERS.get(provider_name)
+        if not p:
+            last_error = AIReviewError(f"unknown AI provider: {provider_name!r}")
+            continue
+        api_key = os.getenv(p["key_env"])
+        if not api_key:
+            last_error = AIReviewError(f"{p['key_env']} not configured")
+            continue
+        model = os.getenv("AI_MODEL", p["default_model"])
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        if p["extra_headers"]:
+            headers.update(p["extra_headers"])
+        if extra_headers:
+            headers.update(extra_headers)
+        body = {"model": model, "messages": messages, "max_tokens": max_tokens}
+        if response_format:
+            body["response_format"] = response_format
+        try:
+            r = requests.post(p["url"], headers=headers, json=body, timeout=timeout)
+            if r.status_code == 200:
+                try:
+                    return r.json()["choices"][0]["message"]["content"].strip()
+                except (ValueError, KeyError, IndexError, TypeError) as e:
+                    last_error = AIReviewError(f"bad {provider_name} response: {e}")
+                    continue
+            else:
+                last_error = AIReviewError(f"{provider_name} HTTP {r.status_code}: {r.text[:200]}")
+        except requests.RequestException as e:
+            last_error = AIReviewError(f"{provider_name} request failed: {e}")
+    raise last_error or AIReviewError("no AI provider configured")
 
 
 def parse_review_content(content, reasoning="") -> dict:
