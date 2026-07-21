@@ -16676,7 +16676,25 @@ function NoteModal({
     },
     tasksGetter: tasksGetterRef.current,
     onTasklinkClick: handleTasklinkClick
-  }), wikiDropdown && /*#__PURE__*/React.createElement("div", {
+  }), noteAiDropdown && /*#__PURE__*/React.createElement("div", {
+    ref: noteAiDropdownRef,
+    className: "wiki-autocomplete",
+    style: { position: "fixed", top: noteAiDropdown.top, left: noteAiDropdown.left, zIndex: 1080, minWidth: 280, padding: 6 }
+  }, /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+    /*#__PURE__*/React.createElement(Icon, { name: "sparkles", size: 15, style: { color: "var(--accent)", flexShrink: 0 } }),
+    /*#__PURE__*/React.createElement("input", {
+      className: "input",
+      style: { flex: 1, padding: "5px 8px", fontSize: 13, borderRadius: 5, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)" },
+      placeholder: "Instruksi AI... misal: ringkas jadi 3 poin",
+      autoFocus: true,
+      onMouseDown: e => e.stopPropagation(),
+      onKeyDown: e => {
+        if (e.key === 'Escape') { setNoteAiDropdown(null); return; }
+        if (e.key === 'Enter') { e.preventDefault(); executeNoteAi(e.target.value); }
+      }
+    }),
+    noteAiBusy && /*#__PURE__*/React.createElement("span", { style: { display: "inline-block", width: 14, height: 14, border: "2px solid var(--accent)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.6s linear infinite" } })
+  )), wikiDropdown && /*#__PURE__*/React.createElement("div", {
     ref: wikiDropdownRef,
     className: "wiki-autocomplete",
     style: {
@@ -17556,25 +17574,7 @@ function NoteModal({
       cursor: "default",
       fontStyle: "italic"
     }
-  }, noteTitles.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan")), noteAiDropdown && /*#__PURE__*/React.createElement("div", {
-    ref: noteAiDropdownRef,
-    className: "wiki-autocomplete",
-    style: { position: "fixed", top: noteAiDropdown.top, left: noteAiDropdown.left, zIndex: 1080, minWidth: 280, padding: 6 }
-  }, /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-    /*#__PURE__*/React.createElement(Icon, { name: "sparkles", size: 15, style: { color: "var(--accent)", flexShrink: 0 } }),
-    /*#__PURE__*/React.createElement("input", {
-      className: "input",
-      style: { flex: 1, padding: "5px 8px", fontSize: 13, borderRadius: 5, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)" },
-      placeholder: "Instruksi AI... misal: ringkas jadi 3 poin",
-      autoFocus: true,
-      onMouseDown: e => e.stopPropagation(),
-      onKeyDown: e => {
-        if (e.key === 'Escape') { setNoteAiDropdown(null); return; }
-        if (e.key === 'Enter') { e.preventDefault(); executeNoteAi(e.target.value); }
-      }
-    }),
-    noteAiBusy && /*#__PURE__*/React.createElement("span", { style: { display: "inline-block", width: 14, height: 14, border: "2px solid var(--accent)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.6s linear infinite" } })
-  )), tagDropdown && tagDropdown.items.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, noteTitles.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan")), tagDropdown && tagDropdown.items.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "wiki-autocomplete",
     style: {
       position: "fixed",
