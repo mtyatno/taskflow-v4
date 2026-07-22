@@ -26,4 +26,12 @@ for (const f of ["index.html", "sw.js", "manifest.json", "config.js"]) {
   fs.copyFileSync(path.join(staticDir, f), path.join(out, f));
 }
 
+// Inject AI feature flag for Tauri/APK builds (mirrors webapp.py serve_config).
+// APK users are server admins — enable by default so /ai slash command and
+// Settings toggle are visible. If AI is not configured on the server, the
+// API call will fail gracefully with an error message.
+const configPath = path.join(out, "config.js");
+const aiFlag = process.env.AI_FEATURES_ENABLED !== "false" ? "true" : "false";
+fs.appendFileSync(configPath, `\ntry { window.__AI_ENABLED = ${aiFlag}; } catch (e) {}\n`);
+
 console.log("assembled dist-tauri/ from static/");
