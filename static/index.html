@@ -14420,7 +14420,7 @@ function renderWikilinksPreview(text, maxLen) {
   const wikiMap = {};
   let wi = 0;
   // Strip tasklink and highlight tokens — they don't belong in card previews
-  const stripped = text.replace(/\\?\[tasklink:\d+\\?\]/g, '').replace(/==([^=\n]+)==/g, '$1');
+  const stripped = text.replace(/\\?\[tasklink:[0-9a-f-]+\\?\]/g, '').replace(/==([^=\n]+)==/g, '$1');
   const processed = stripped.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
     const title = rawTitle.replace(/\\(.)/g, '$1');
     const key = `WKPREV${wi++}WKPREV`;
@@ -14525,10 +14525,14 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   };
   const taskMap = {};
   let ti = 0;
-  const processed2 = processed.replace(/\\?\[tasklink:(\d+)\\?\]/g, (_, idStr) => {
-    const taskId = Number(idStr);
+  const processed2 = processed.replace(/\\?\[tasklink:([0-9a-f-]+)\\?\]/g, (_, idStr) => {
+    const isUuid = idStr.includes('-');
+    const taskId = isUuid ? idStr : Number(idStr);
     const key = `TKLNK${ti++}TKLNKEND`;
-    const task = (tasks || []).find(t => t.id === taskId);
+    const task = (tasks || []).find(t =>
+      t.id === taskId ||
+      (isUuid && (t.cid === idStr || String(t.id) === idStr))
+    );
     if (!task) {
       taskMap[key] = `<span class="tasklink-node-fallback"><span class="tasklink-status-label" style="background:#3b82f6">OPEN</span> <span class="tasklink-priority-label" style="background:#94a3b8">?</span> task tidak tersedia</span>`;
     } else {
@@ -14537,7 +14541,7 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
       const statusColor = isDone ? '#16a34a' : '#3b82f6';
       const priority = task.priority || 'P4';
       const priColor = _PRI_COLORS[priority] || '#94a3b8';
-      taskMap[key] = `<span class="tasklink-node" data-tasklink data-tasklink-id="${taskId}" title="Task: ${escapeAttr(task.title || '')}"><span class="tasklink-status-label" style="background:${statusColor}">${statusLabel}</span> <span class="tasklink-priority-label" style="background:${priColor}">${priority}</span> ${escapeHtml(task.title || '')}</span>`;
+      taskMap[key] = `<span class="tasklink-node" data-tasklink data-tasklink-id="${idStr}" title="Task: ${escapeAttr(task.title || '')}"><span class="tasklink-status-label" style="background:${statusColor}">${statusLabel}</span> <span class="tasklink-priority-label" style="background:${priColor}">${priority}</span> ${escapeHtml(task.title || '')}</span>`;
     }
     return key;
   });
@@ -15193,7 +15197,8 @@ function MilkdownEditor({
     }
     const taskTarget = e.target.closest('[data-tasklink]');
     if (taskTarget && onTasklinkClick) {
-      onTasklinkClick(Number(taskTarget.getAttribute('data-tasklink-id') || 0));
+      const rawId = taskTarget.getAttribute('data-tasklink-id') || '0';
+      onTasklinkClick(rawId.includes('-') ? rawId : Number(rawId));
       return;
     }
     // math_block click → show inline edit overlay
@@ -15351,7 +15356,7 @@ function remarkTasklinkPlugin() {
   return function transformer(tree) {
     function walk(node, parent, index) {
       if (node.type === 'text' && typeof node.value === 'string') {
-        const regex = /\[tasklink:(\d+)\]/g;
+        const regex = /\[tasklink:([0-9a-f-]+)\]/g;
         const parts = [];
         let lastIndex = 0;
         let match;
@@ -15362,9 +15367,10 @@ function remarkTasklinkPlugin() {
               value: node.value.slice(lastIndex, match.index)
             });
           }
+          const rawId = match[1];
           parts.push({
             type: 'tasklink',
-            taskId: Number(match[1])
+            taskId: rawId.includes('-') ? rawId : Number(rawId)
           });
           lastIndex = regex.lastIndex;
         }
@@ -15391,8 +15397,11 @@ function remarkTasklinkPlugin() {
   };
 }
 function extractTaskIdsFromContent(markdown) {
-  const matches = [...(markdown || '').matchAll(/\\?\[tasklink:(\d+)\\?\]/g)];
-  return [...new Set(matches.map(m => Number(m[1])))];
+  const matches = [...(markdown || '').matchAll(/\\?\[tasklink:([0-9a-f-]+)\\?\]/g)];
+  return [...new Set(matches.map(m => {
+    const raw = m[1];
+    return raw.includes('-') ? raw : Number(raw);
+  }))];
 }
 function createWikilinkPlugin(onWikilinkClick) {
   const MB = window.MilkdownBundle;
@@ -15454,7 +15463,8 @@ function createTasklinkPlugin(tasksGetter) {
     },
     toDOM: node => {
       const tasks = tasksGetter();
-      const task = tasks.find(t => t.id === node.attrs.taskId);
+      const taskId = node.attrs.taskId;
+      const task = tasks.find(t => t.id === taskId || (typeof taskId === 'string' && (t.cid === taskId || String(t.id) === taskId)));
       if (!task) {
         return ['span', {
           class: 'tasklink-node-fallback',
@@ -15488,9 +15498,10 @@ function createTasklinkPlugin(tasksGetter) {
     },
     parseDOM: [{
       tag: 'span[data-tasklink]',
-      getAttrs: dom => ({
-        taskId: Number(dom.getAttribute('data-tasklink-id') || 0)
-      })
+      getAttrs: dom => {
+        const raw = dom.getAttribute('data-tasklink-id') || '0';
+        return { taskId: raw.includes('-') ? raw : Number(raw) };
+      }
     }],
     parseMarkdown: {
       match: node => node.type === 'tasklink',
@@ -15923,8 +15934,8 @@ function NoteModal({
           title,
           content,
           tags,
-          linked_task_ids: linkedTaskIds,
-          linked_task_id: linkedTaskIds[0] || null
+          linked_task_ids: linkedTaskIds.filter(id => typeof id === 'number'),
+          linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null
         });
         isDirtyRef.current = false;
       } catch (e) {
@@ -16159,7 +16170,7 @@ function NoteModal({
     }
   };
   const handleTasklinkClick = React.useCallback(taskId => {
-    const task = allKnownTasksRef.current.find(t => t.id === taskId);
+    const task = allKnownTasksRef.current.find(t => t.id === taskId || (typeof taskId === 'string' && (t.cid === taskId || String(t.id) === taskId)));
     if (!task) return;
     onClose();
     setTimeout(() => onTaskClick?.(task), 60);
@@ -16241,8 +16252,8 @@ function NoteModal({
               title,
               content: latestContent,
               tags,
-              linked_task_ids: linkedTaskIds,
-              linked_task_id: linkedTaskIds[0] || null
+              linked_task_ids: linkedTaskIds.filter(id => typeof id === 'number'),
+              linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null
             });
             window.dispatchEvent(new CustomEvent("noteSaved"));
           } catch (e) {
@@ -16415,9 +16426,9 @@ function NoteModal({
   }, [existingTags, tags, title, content]);
   const allKnownTasks = React.useMemo(() => [...tasks, ...localNewTasks.filter(t => !tasks.find(x => x.id === t.id))], [tasks, localNewTasks]);
   allKnownTasksRef.current = allKnownTasks;
-  const linkedTasks = allKnownTasks.filter(t => linkedTaskIds.includes(t.id));
+  const linkedTasks = allKnownTasks.filter(t => linkedTaskIds.includes(t.id) || (t.cid && linkedTaskIds.includes(t.cid)));
   const pickerTasks = React.useMemo(() => allKnownTasks.filter(t => t.gtd_status !== 'done' && t.gtd_status !== 'archived'), [allKnownTasks]);
-  const taskDropdownItems = React.useMemo(() => taskDropdown !== null ? pickerTasks.filter(t => !linkedTaskIds.includes(t.id) && t.title.toLowerCase().includes((taskDropdown.query || '').toLowerCase())).slice(0, 12) : [], [taskDropdown, pickerTasks, linkedTaskIds]);
+  const taskDropdownItems = React.useMemo(() => taskDropdown !== null ? pickerTasks.filter(t => !linkedTaskIds.includes(t.id) && !(t.cid && linkedTaskIds.includes(t.cid)) && t.title.toLowerCase().includes((taskDropdown.query || '').toLowerCase())).slice(0, 12) : [], [taskDropdown, pickerTasks, linkedTaskIds]);
 
   // Keyboard nav for dropdowns in Milkdown ProseMirror editor
   useEffect(() => {
@@ -16524,8 +16535,8 @@ function NoteModal({
       title,
       content,
       tags,
-      linked_task_ids: linkedTaskIds,
-      linked_task_id: linkedTaskIds[0] || null
+      linked_task_ids: linkedTaskIds.filter(id => typeof id === 'number'),
+      linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null
     });
     if (saved?.id && !savedNoteId) setSavedNoteId(saved.id);
     isDirtyRef.current = false;
@@ -17733,8 +17744,10 @@ function NotePanel({
     // Tasklink click — open task modal
     const taskEl = base && base.closest ? base.closest('[data-tasklink]') : null;
     if (taskEl && onTaskClick) {
-      const taskId = Number(taskEl.getAttribute('data-tasklink-id') || 0);
-      const task = tasks.find(t => t.id === taskId);
+      const rawId = taskEl.getAttribute('data-tasklink-id') || '0';
+      const isUuid = rawId.includes('-');
+      const taskId = isUuid ? rawId : Number(rawId);
+      const task = tasks.find(t => t.id === taskId || (isUuid && (t.cid === rawId || String(t.id) === rawId)));
       if (task) {
         onTaskClick(task);
         return;
