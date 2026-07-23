@@ -18700,11 +18700,7 @@ function NotesPage({
       } catch {}
     }
     if (note) {
-      setPanelNote(note);
-      setNavTrail(t => {
-        const idx = t.findIndex(x => x.id === note.id);
-        return idx >= 0 ? [...t.slice(0, idx), note] : [...t.slice(-7), note];
-      });
+      openTab(note);
     }
   }, [allNotes]);
   useEffect(() => {
@@ -19203,8 +19199,7 @@ function NotesPage({
       key: n.id,
       className: `pinned-note-item${panelNote?.id === n.id ? " active" : ""}`,
       onClick: () => {
-        setPanelNote(n);
-        setNavTrail([n]);
+        openTab(n);
       },
       title: n.title || "(tanpa judul)"
     }, /*#__PURE__*/React.createElement("span", {
@@ -19277,8 +19272,7 @@ function NotesPage({
       key: n.id,
       className: "note-card",
       onClick: () => {
-        setPanelNote(n);
-        setNavTrail([n]);
+        openTab(n);
       },
       style: {
         borderColor: isSelected ? "var(--accent)" : undefined,
@@ -19404,21 +19398,17 @@ function NotesPage({
     onPin: id => handlePin(id),
     onNavigate: async n => {
       const full = allNotes.find(x => x.id === n.id) || (await api.get(`/api/scratchpad/${n.id}`).catch(() => n));
-      setPanelNote(full);
-      setNavTrail(t => {
-        const idx = t.findIndex(x => x.id === full.id);
-        return idx >= 0 ? [...t.slice(0, idx), full] : [...t.slice(-7), full];
-      });
+      openTab(full);
     },
     onTrailClick: n => {
       const idx = navTrail.findIndex(x => x.id === n.id);
       const full = allNotes.find(x => x.id === n.id) || n;
-      setPanelNote(full);
+      setActiveTabId(full.id);
       setNavTrail(idx >= 0 ? navTrail.slice(0, idx + 1) : navTrail);
     },
     onNavigateFrom: (child, parentIdx) => {
       const full = allNotes.find(x => x.id === child.id) || child;
-      setPanelNote(full);
+      setActiveTabId(full.id);
       setNavTrail(t => t.slice(0, parentIdx + 1).concat([full]));
     }
   }))), showModal && /*#__PURE__*/React.createElement(NoteModal, {
