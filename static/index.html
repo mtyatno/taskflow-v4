@@ -5164,10 +5164,12 @@ function TaskFormModal({
     }, /*#__PURE__*/React.createElement(NoteToolbar, {
       milkdownEditorRef: noteMilkdownRef,
       noteId: null,
-      onAttachUploaded: () => {},
+      onAttachUploaded: function() {},
       content: noteForm.content,
-      onApplyTemplate: tpl => setNote("content", tpl),
-      onInsertTask: openNoteTaskDropdown
+      onApplyTemplate: function(tpl) { return setNote("content", tpl); },
+      onInsertTask: openNoteTaskDropdown,
+      voiceState: 'unsupported',
+      onToggleVoice: null
     })), /*#__PURE__*/React.createElement("div", {
       style: {
         position: 'relative',
@@ -16049,6 +16051,81 @@ function NoteModal({
 
   // Textarea fullscreen
   const [textareaFullscreen, setTextareaFullscreen] = React.useState(false);
+  const [voiceState, setVoiceState] = React.useState(
+    window.TF && window.TF.voicedictate && window.TF.voicedictate.isSupported() ? 'idle' : 'unsupported'
+  );
+  const voiceRef = React.useRef(null);
+  const voiceInterimRef = React.useRef(null); // track interim text node for replacement
+
+  // Voice dictation setup + cleanup
+  React.useEffect(function () {
+    if (!window.TF || !window.TF.voicedictate || !window.TF.voicedictate.isSupported()) return;
+    var vd = window.TF.voicedictate.create({
+      lang: 'id-ID',
+      onInterim: function (text) {
+        // Store interim text for potential commit
+        voiceInterimRef.current = text;
+      },
+      onFinal: function (text) {
+        // Clear interim tracking
+        voiceInterimRef.current = null;
+        // Insert final text at cursor position in Milkdown
+        var editor = milkdownEditorRef.current;
+        if (!editor) return;
+        try {
+          editor.action(function (ctx) {
+            var MB = window.MilkdownBundle;
+            var view = ctx.get(MB.editorViewCtx);
+            var from = view.state.selection.from;
+            // Insert with space prefix if not at start of line
+            var before = view.state.doc.textBetween(Math.max(0, from - 1), from);
+            var prefix = (from === 0 || before === '\n' || before === ' ') ? '' : ' ';
+            var tr = view.state.tr.insertText(prefix + text, from, from);
+            view.dispatch(tr);
+          });
+        } catch (e) { /* editor mungkin belum siap */ }
+      },
+      onError: function (msg) {
+        showToast(msg);
+      },
+      onStateChange: function (s) {
+        setVoiceState(s);
+      }
+    });
+    voiceRef.current = vd;
+    return function () {
+      if (voiceRef.current) { voiceRef.current.stop(); voiceRef.current = null; }
+      voiceInterimRef.current = null;
+    };
+  }, []); // hanya setup sekali saat mount
+
+  function handleToggleVoice() {
+    if (!voiceRef.current) return;
+    if (voiceRef.current.getState() === 'listening' || voiceRef.current.getState() === 'paused') {
+      // Commit any pending interim text before stopping
+      if (voiceInterimRef.current) {
+        var editor = milkdownEditorRef.current;
+        if (editor) {
+          try {
+            var pendingText = voiceInterimRef.current;
+            voiceInterimRef.current = null;
+            editor.action(function (ctx) {
+              var MB = window.MilkdownBundle;
+              var view = ctx.get(MB.editorViewCtx);
+              var from = view.state.selection.from;
+              var before = view.state.doc.textBetween(Math.max(0, from - 1), from);
+              var prefix = (from === 0 || before === '\n' || before === ' ') ? '' : ' ';
+              var tr = view.state.tr.insertText(prefix + pendingText, from, from);
+              view.dispatch(tr);
+            });
+          } catch (e) { /* ignore */ }
+        }
+      }
+      voiceRef.current.stop();
+    } else {
+      voiceRef.current.start();
+    }
+  }
 
   // Autosave: debounced 2.5s setelah perubahan, hanya untuk note yang sudah ada
   useEffect(() => {
@@ -16753,10 +16830,12 @@ function NoteModal({
   }, /*#__PURE__*/React.createElement(NoteToolbar, {
     milkdownEditorRef: milkdownEditorRef,
     noteId: savedNoteId,
-    onAttachUploaded: att => setAttachments(prev => [...prev, att]),
+    onAttachUploaded: function(att) { return setAttachments(function(prev) { return prev.concat([att]); }); },
     content: content,
-    onApplyTemplate: tpl => setContent(tpl),
-    onInsertTask: openTaskDropdown
+    onApplyTemplate: function(tpl) { return setContent(tpl); },
+    onInsertTask: openTaskDropdown,
+    voiceState: voiceState,
+    onToggleVoice: handleToggleVoice
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -17530,10 +17609,12 @@ function NoteModal({
   }, /*#__PURE__*/React.createElement(NoteToolbar, {
     milkdownEditorRef: milkdownEditorRef,
     noteId: savedNoteId,
-    onAttachUploaded: att => setAttachments(prev => [...prev, att]),
+    onAttachUploaded: function(att) { return setAttachments(function(prev) { return prev.concat([att]); }); },
     content: content,
-    onApplyTemplate: tpl => setContent(tpl),
-    onInsertTask: openTaskDropdown
+    onApplyTemplate: function(tpl) { return setContent(tpl); },
+    onInsertTask: openTaskDropdown,
+    voiceState: 'unsupported',
+    onToggleVoice: null
   }), /*#__PURE__*/React.createElement("button", {
     onClick: () => setTextareaFullscreen(false),
     style: {
