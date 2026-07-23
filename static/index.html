@@ -1396,6 +1396,42 @@
     [data-theme="dark"] .driver-popover { box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important; }
     .tour-btn { background: var(--bg-card); border: 1px solid var(--border); border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 13px; font-weight: 700; color: var(--text-secondary); flex-shrink: 0; transition: all 0.15s; }
     .tour-btn:hover { background: var(--accent); color: #1a2a00; border-color: var(--accent); }
+    /* Voice dictation mic button */
+    @keyframes micPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
+      50%      { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+    }
+    .note-mic-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0 9px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.12s;
+      font-family: inherit;
+      flex-shrink: 0;
+    }
+    .note-mic-btn:hover {
+      background: var(--bg-primary);
+      border-color: var(--accent);
+      color: var(--text-primary);
+    }
+    .note-mic-btn.listening {
+      color: #ef4444;
+      border-color: #ef4444;
+      animation: micPulse 1.5s ease-in-out infinite;
+    }
+    .note-mic-btn.paused {
+      color: #eab308;
+      border-color: #eab308;
+    }
   </style>
 </head>
 <body>
@@ -1472,6 +1508,7 @@
   <script src="/static/offline/syncpull.js"></script>
   <script src="/static/offline/syncconflict.js"></script>
   <script src="/static/review/digest.js"></script>
+  <script src="/static/offline/voicedictate.js"></script>
   <script>
 function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
 const {
