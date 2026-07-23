@@ -14695,7 +14695,9 @@ function NoteToolbar({
   onAttachUploaded,
   content,
   onApplyTemplate,
-  onInsertTask
+  onInsertTask,
+  voiceState,
+  onToggleVoice
 }) {
   const [hOpen, setHOpen] = React.useState(false);
   const hRef = React.useRef(null);
@@ -15201,7 +15203,13 @@ function NoteToolbar({
       opacity: noteId ? 1 : 0.4,
       fontSize: 15
     }
-  }, "\uD83D\uDCCE"));
+  }, "\uD83D\uDCCE")), voiceState && voiceState !== 'unsupported' ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onPointerDown: function(e) { e.preventDefault(); if (onToggleVoice) onToggleVoice(); },
+    className: "note-mic-btn" + (voiceState === 'listening' ? ' listening' : '') + (voiceState === 'paused' ? ' paused' : ''),
+    title: voiceState === 'listening' ? 'Stop rekaman' : voiceState === 'paused' ? 'Menunggu suara...' : 'Mulai dikte suara',
+    style: { marginLeft: 4 }
+  }, voiceState === 'listening' ? "\uD83D\uDD34" : voiceState === 'paused' ? "\uD83D\uDFE1" : "\uD83C\uDF99\uFE0F") : null);
 }
 function MilkdownEditor({
   value,
