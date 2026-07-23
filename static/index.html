@@ -19443,59 +19443,83 @@ function NotesPage({
   }))), /*#__PURE__*/React.createElement("div", {
     className: "notes-right",
     "data-tour": "notes-editor"
-  }, !getActiveNote() ? /*#__PURE__*/React.createElement("div", {
-    className: "notes-panel-empty",
-    "data-tour": "notes-new"
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 40,
-      opacity: 0.3
+  }, openTabs.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "note-tab-bar"
+  }, openTabs.map(tab => {
+    const isActive = tab.id === activeTabId;
+    return /*#__PURE__*/React.createElement("div", {
+      key: tab.id,
+      className: `note-tab-item${isActive ? ' active' : ''}`,
+      onClick: () => {
+        setActiveTabId(tab.id);
+        setNavTrail([tab]);
+      },
+      title: tab.title || "(tanpa judul)"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "note-tab-title"
+    }, tab.title || "(tanpa judul)"), /*#__PURE__*/React.createElement("button", {
+      className: "note-tab-close",
+      onClick: e => {
+        e.stopPropagation();
+        closeTab(tab.id);
+      },
+      title: "Tutup tab"
+    }, "\u00D7"));
+  })), (() => {
+    const activeNote = getActiveNote();
+    if (!activeNote) {
+      return /*#__PURE__*/React.createElement("div", {
+        className: "notes-panel-empty",
+        "data-tour": "notes-new"
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 40,
+          opacity: 0.3
+        }
+      }, "\uD83D\uDCDD"), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 13
+        }
+      }, "Pilih catatan untuk membaca"), /*#__PURE__*/React.createElement("button", {
+        onClick: openNew,
+        className: "btn btn-secondary btn-sm"
+      }, "\uFF0B Catatan Baru"));
     }
-  }, "\uD83D\uDCDD"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13
-    }
-  }, "Pilih catatan untuk membaca"), /*#__PURE__*/React.createElement("button", {
-    onClick: openNew,
-    className: "btn btn-secondary btn-sm"
-  }, "\uFF0B Catatan Baru")) : /*#__PURE__*/React.createElement(NotePanel, {
-    note: getActiveNote(),
-    allNotes: allNotes,
-    noteTitles: noteTitles,
-    sharedLists: sharedLists,
-    currentUserId: user?.id,
-    backlinks: panelBacklinks,
-    outlinks: panelOutlinks,
-    navTrail: navTrail,
-    onTaskClick: onTaskClick,
-    tasks: tasks,
-    onEdit: () => openEdit(getActiveNote()),
-    onClose: () => {
-      setPanelNote(null);
-      setNavTrail([]);
-    },
-    onDelete: id => {
-      handleDelete(id);
-      setPanelNote(null);
-      setNavTrail([]);
-    },
-    onPin: id => handlePin(id),
-    onNavigate: async n => {
-      const full = allNotes.find(x => x.id === n.id) || (await api.get(`/api/scratchpad/${n.id}`).catch(() => n));
-      openTab(full);
-    },
-    onTrailClick: n => {
-      const idx = navTrail.findIndex(x => x.id === n.id);
-      const full = allNotes.find(x => x.id === n.id) || n;
-      setActiveTabId(full.id);
-      setNavTrail(idx >= 0 ? navTrail.slice(0, idx + 1) : navTrail);
-    },
-    onNavigateFrom: (child, parentIdx) => {
-      const full = allNotes.find(x => x.id === child.id) || child;
-      setActiveTabId(full.id);
-      setNavTrail(t => t.slice(0, parentIdx + 1).concat([full]));
-    }
-  }))), showModal && /*#__PURE__*/React.createElement(NoteModal, {
+    return /*#__PURE__*/React.createElement(NotePanel, {
+      note: activeNote,
+      allNotes: allNotes,
+      noteTitles: noteTitles,
+      sharedLists: sharedLists,
+      currentUserId: user?.id,
+      backlinks: panelBacklinks,
+      outlinks: panelOutlinks,
+      navTrail: navTrail,
+      onTaskClick: onTaskClick,
+      tasks: tasks,
+      onEdit: () => openEdit(activeNote),
+      onClose: () => closeTab(activeNote.id),
+      onDelete: id => {
+        handleDelete(id);
+        closeTab(id);
+      },
+      onPin: id => handlePin(id),
+      onNavigate: async n => {
+        const full = allNotes.find(x => x.id === n.id) || (await api.get(`/api/scratchpad/${n.id}`).catch(() => n));
+        openTab(full);
+      },
+      onTrailClick: n => {
+        const idx = navTrail.findIndex(x => x.id === n.id);
+        const full = allNotes.find(x => x.id === n.id) || n;
+        setActiveTabId(full.id);
+        setNavTrail(idx >= 0 ? navTrail.slice(0, idx + 1) : navTrail);
+      },
+      onNavigateFrom: (child, parentIdx) => {
+        const full = allNotes.find(x => x.id === child.id) || child;
+        setActiveTabId(full.id);
+        setNavTrail(t => t.slice(0, parentIdx + 1).concat([full]));
+      }
+    });
+  })())), showModal && /*#__PURE__*/React.createElement(NoteModal, {
     key: selected?.id,
     note: selected,
     tasks: tasks,
