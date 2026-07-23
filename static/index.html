@@ -782,7 +782,7 @@
     .scratchpad-bar input { flex: 1; background: none; border: none; outline: none; font-size: 14px; color: var(--text-primary); }
     .scratchpad-bar input::placeholder { color: var(--text-light); }
     .notes-layout { display: flex; gap: 0; height: calc(100vh - 112px); min-height: 400px; margin-top: 8px; }
-    .notes-left { min-width: 240px; max-width: 600px; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); padding-right: 0; }
+    .notes-left { min-width: 240px; max-width: 50%; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); padding-right: 0; }
     .notes-left-inner { flex: 1; overflow-y: auto; padding: 0 16px 16px 0; scrollbar-width: none; }
     .notes-left-inner::-webkit-scrollbar { display: none; }
     /* Sidebar expand toggle — visible only when sidebar is collapsed */
@@ -918,13 +918,13 @@
     .note-tag-untagged { display: inline-block; background: var(--bg-primary); border: 1px dashed var(--border); border-radius: 8px; padding: 1px 7px; font-size: 10px; color: var(--text-light); font-style: italic; cursor: pointer; transition: border-color 0.15s, color 0.15s; }
     .note-tag-untagged:hover { border-color: var(--accent); color: var(--accent); }
     /* ── Redesigned tag pills (sidebar filter area) ── */
-    .tag-pill { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border-radius: 20px; font-size: 11.5px; font-weight: 500; background: #F3F4F6; color: #475467; border: 1px solid #E4E7EC; cursor: pointer; userSelect: none; transition: all 0.15s; white-space: nowrap; line-height: 1; min-height: 28px; }
+    .tag-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px; font-size: 10.5px; font-weight: 500; background: #F3F4F6; color: #475467; border: 1px solid #E4E7EC; cursor: pointer; userSelect: none; transition: all 0.15s; white-space: nowrap; line-height: 1; min-height: 26px; }
     .tag-pill:hover { background: #E9EEF5; border-color: #D0D5DD; }
     .tag-pill.active { background: #B6D400; color: #fff; border-color: #B6D400; font-weight: 600; }
     .tag-pill.active:hover { background: #A3C100; border-color: #A3C100; }
-    .tag-count { font-size: 10px; background: rgba(0,0,0,0.06); padding: 1px 6px; border-radius: 10px; font-weight: 600; min-width: 18px; text-align: center; line-height: 1.4; }
+    .tag-count { font-size: 9px; background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 10px; font-weight: 600; min-width: 16px; text-align: center; line-height: 1.4; }
     .tag-pill.active .tag-count { background: rgba(255,255,255,0.25); color: #fff; }
-    .tag-section-label { font-size: 10px; font-weight: 700; color: #98A2B3; text-transform: uppercase; letter-spacing: 0.6px; padding: 6px 2px 3px; }
+    .tag-section-label { font-size: 9px; font-weight: 700; color: #98A2B3; text-transform: uppercase; letter-spacing: 0.6px; padding: 6px 2px 3px; }
     .tag-scroll { display: flex; flex-wrap: wrap; gap: 5px; }
     .hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
     .hide-scrollbar::-webkit-scrollbar { display: none; }
@@ -18855,8 +18855,9 @@ function NotesPage({
   }, /*#__PURE__*/React.createElement("div", {
     className: "notes-left",
     style: {
-      width: sidebarCollapsed ? 0 : undefined,
+      width: sidebarCollapsed ? 0 : '40%',
       minWidth: sidebarCollapsed ? 0 : undefined,
+      maxWidth: sidebarCollapsed ? 0 : undefined,
       overflow: sidebarCollapsed ? 'hidden' : undefined,
       transition: 'width 0.25s, minWidth 0.25s',
       flexShrink: 0,
@@ -18868,7 +18869,7 @@ function NotesPage({
     style: {
       display: 'flex',
       flexDirection: 'column',
-      flex: searchTagsCollapsed ? '0 0 auto' : '0 0 260px',
+      flex: searchTagsCollapsed ? '0 0 auto' : '0 0 200px',
       minWidth: searchTagsCollapsed ? 36 : undefined,
       overflow: 'hidden',
       transition: 'flex 0.25s, min-width 0.25s',
