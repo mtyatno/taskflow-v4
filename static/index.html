@@ -935,8 +935,11 @@
       scrollbar-width: none;
       -ms-overflow-style: none;
       flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      z-index: 5;
       border-bottom: 1px solid var(--border);
-      background: var(--bg-app);
+      background: var(--bg-card);
       min-height: 36px;
     }
     .note-tab-bar::-webkit-scrollbar { display: none; }
