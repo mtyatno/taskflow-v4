@@ -18521,6 +18521,56 @@ function NotesPage({
   const [selected, setSelected] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [panelNote, setPanelNote] = useState(null);
+  const [openTabs, setOpenTabs] = useState([]);   // max 5
+  const [activeTabId, setActiveTabId] = useState(null);
+
+  // Helper: derive active note from tabs
+  const getActiveNote = () => {
+    if (!activeTabId) return null;
+    const fromTabs = openTabs.find(t => t.id === activeTabId);
+    if (fromTabs) return fromTabs;
+    // fallback: find from allNotes (for cross-page open)
+    return allNotes.find(n => n.id === activeTabId) || null;
+  };
+
+  // Helper: open a note in a tab (or switch if already open)
+  const openTab = (note) => {
+    if (!note?.id) return;
+    setOpenTabs(prev => {
+      const exists = prev.findIndex(t => t.id === note.id);
+      if (exists >= 0) {
+        // Already open — just switch
+        setActiveTabId(note.id);
+        return prev;
+      }
+      if (prev.length >= 5) {
+        // Evict oldest (index 0), push new
+        const next = [...prev.slice(1), note];
+        setActiveTabId(note.id);
+        return next;
+      }
+      setActiveTabId(note.id);
+      return [...prev, note];
+    });
+    setNavTrail([note]);
+  };
+
+  // Helper: close a tab by note id
+  const closeTab = (noteId) => {
+    setOpenTabs(prev => {
+      const idx = prev.findIndex(t => t.id === noteId);
+      if (idx === -1) return prev;
+      const next = prev.filter(t => t.id !== noteId);
+      if (activeTabId === noteId) {
+        // Switch to neighbor
+        if (idx < next.length) setActiveTabId(next[idx]?.id || null);
+        else if (next.length > 0) setActiveTabId(next[next.length - 1]?.id || null);
+        else setActiveTabId(null);
+      }
+      return next;
+    });
+  };
+
   const [panelBacklinks, setPanelBacklinks] = useState([]);
   const [panelOutlinks, setPanelOutlinks] = useState([]);
   const [navTrail, setNavTrail] = useState([]);
