@@ -18640,27 +18640,27 @@ function NotesPage({
     api.get("/api/scratchpad/titles").then(setNoteTitles).catch(() => {});
   }, []);
   useEffect(() => {
-    setPanelNote(prev => {
-      if (!prev?.id) return prev;
-      const fresh = allNotes.find(n => n.id === prev.id);
-      return fresh || prev;
-    });
+    setOpenTabs(prev => prev.map(t => {
+      const fresh = allNotes.find(n => n.id === t.id);
+      return fresh || t;
+    }));
   }, [allNotes]);
   useEffect(() => {
-    if (!panelNote?.id) {
+    const active = getActiveNote();
+    if (!active?.id) {
       setPanelBacklinks([]);
       setPanelOutlinks([]);
       return;
     }
-    api.get(`/api/scratchpad/${panelNote.id}/backlinks`).then(setPanelBacklinks).catch(() => {});
-    const wikiMatches = [...new Set([...(panelNote.content || "").matchAll(/(?:\\?\[){2}([^\[\]\\]+)(?:\\?\]){2}/g)].map(m => m[1]))];
+    api.get(`/api/scratchpad/${active.id}/backlinks`).then(setPanelBacklinks).catch(() => {});
+    const wikiMatches = [...new Set([...(active.content || "").matchAll(/(?:\\?\[){2}([^\[\]\\]+)(?:\\?\]){2}/g)].map(m => m[1]))];
     const parsedWikilinks = wikiMatches.map(s => parseWikilinkRaw(s));
     const outs = allNotes.filter(n => {
-      if (n.id === panelNote.id) return false;
+      if (n.id === active.id) return false;
       return parsedWikilinks.some(p => p.title && (n.title || "").toLowerCase() === p.title.toLowerCase() || p.explicitId && String(n.id) === p.explicitId || p.numericId && String(n.id) === p.numericId);
     });
     setPanelOutlinks(outs);
-  }, [panelNote?.id, panelNote?.content, allNotes]);
+  }, [activeTabId, getActiveNote()?.content, allNotes]);
   useEffect(() => {
     const handler = () => fetchNotes(q, activeTags, filterUntagged);
     window.addEventListener("noteSaved", handler);
@@ -18668,22 +18668,24 @@ function NotesPage({
   }, [q, activeTags, filterUntagged]);
   useEffect(() => {
     const handler = () => {
-      if (panelNote?.id) api.get(`/api/scratchpad/${panelNote.id}/backlinks`).then(setPanelBacklinks).catch(() => {});
+      const active = getActiveNote();
+      if (active?.id) api.get(`/api/scratchpad/${active.id}/backlinks`).then(setPanelBacklinks).catch(() => {});
     };
     window.addEventListener("noteSaved", handler);
     return () => window.removeEventListener("noteSaved", handler);
-  }, [panelNote?.id]);
+  }, [activeTabId]);
   useEffect(() => {
     const handler = async () => {
-      if (!panelNote?.id) return;
+      const active = getActiveNote();
+      if (!active?.id) return;
       try {
-        const updated = await api.get(`/api/scratchpad/${panelNote.id}`);
-        setPanelNote(updated);
+        const updated = await api.get(`/api/scratchpad/${active.id}`);
+        setOpenTabs(prev => prev.map(t => t.id === updated.id ? updated : t));
       } catch {}
     };
     window.addEventListener("taskUpdated", handler);
     return () => window.removeEventListener("taskUpdated", handler);
-  }, [panelNote?.id]);
+  }, [activeTabId]);
 
   // Open a specific note by ID. Used by the "openNote" event (wikilink / backlink
   // clicks within the page) and by the initialNoteId prop (cross-page navigation
@@ -18897,7 +18899,7 @@ function NotesPage({
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "fade-in"
   }, /*#__PURE__*/React.createElement("div", {
-    className: `notes-layout${panelNote ? " note-open" : ""}`
+    className: `notes-layout${activeTabId ? " note-open" : ""}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "notes-left",
     style: {
@@ -19197,7 +19199,7 @@ function NotesPage({
       className: pinnedExpanded ? "pinned-list-expanded" : ""
     }, visible.map(n => /*#__PURE__*/React.createElement("div", {
       key: n.id,
-      className: `pinned-note-item${panelNote?.id === n.id ? " active" : ""}`,
+      className: `pinned-note-item${getActiveNote()?.id === n.id ? " active" : ""}`,
       onClick: () => {
         openTab(n);
       },
@@ -19267,7 +19269,7 @@ function NotesPage({
   }, filterUntagged ? "Tidak ada catatan tanpa tag." : activeTags.length > 0 ? `Tidak ada catatan dengan tag ${activeTags.map(t => "#" + t).join(" + ")}` : q ? "Tidak ada catatan yang cocok." : "Belum ada catatan. Tulis sesuatu!") : sortedNotes.map(n => {
     const outCount = (n.linked_to || []).length;
     const inCount = inCountMap[n.id] || 0;
-    const isSelected = panelNote?.id === n.id;
+    const isSelected = getActiveNote()?.id === n.id;
     return /*#__PURE__*/React.createElement("div", {
       key: n.id,
       className: "note-card",
@@ -19359,7 +19361,7 @@ function NotesPage({
   }))), /*#__PURE__*/React.createElement("div", {
     className: "notes-right",
     "data-tour": "notes-editor"
-  }, !panelNote ? /*#__PURE__*/React.createElement("div", {
+  }, !getActiveNote() ? /*#__PURE__*/React.createElement("div", {
     className: "notes-panel-empty",
     "data-tour": "notes-new"
   }, /*#__PURE__*/React.createElement("span", {
@@ -19375,7 +19377,7 @@ function NotesPage({
     onClick: openNew,
     className: "btn btn-secondary btn-sm"
   }, "\uFF0B Catatan Baru")) : /*#__PURE__*/React.createElement(NotePanel, {
-    note: panelNote,
+    note: getActiveNote(),
     allNotes: allNotes,
     noteTitles: noteTitles,
     sharedLists: sharedLists,
@@ -19385,7 +19387,7 @@ function NotesPage({
     navTrail: navTrail,
     onTaskClick: onTaskClick,
     tasks: tasks,
-    onEdit: () => openEdit(panelNote),
+    onEdit: () => openEdit(getActiveNote()),
     onClose: () => {
       setPanelNote(null);
       setNavTrail([]);
