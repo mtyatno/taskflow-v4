@@ -15205,7 +15205,7 @@ function NoteToolbar({
       opacity: noteId ? 1 : 0.4,
       fontSize: 15
     }
-  }, "\uD83D\uDCCE")), voiceState && voiceState !== 'unsupported' ? /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDCCE"), voiceState && voiceState !== 'unsupported' ? /*#__PURE__*/React.createElement("button", {
     type: "button",
     onPointerDown: function(e) { e.preventDefault(); if (onToggleVoice) onToggleVoice(); },
     className: "note-mic-btn" + (voiceState === 'listening' ? ' listening' : '') + (voiceState === 'paused' ? ' paused' : ''),
