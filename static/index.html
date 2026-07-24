@@ -16055,33 +16055,45 @@ function NoteModal({
     window.TF && window.TF.voicedictate && window.TF.voicedictate.isSupported() ? 'idle' : 'unsupported'
   );
   const voiceRef = React.useRef(null);
-  const voiceInterimRef = React.useRef(null); // track interim text node for replacement
+  const voiceLastLenRef = React.useRef(0); // track panjang text yg sudah di-insert (anti-duplikasi)
 
   // Voice dictation setup + cleanup
   React.useEffect(function () {
     if (!window.TF || !window.TF.voicedictate || !window.TF.voicedictate.isSupported()) return;
+    function insertTextDelta(text) {
+      var editor = milkdownEditorRef.current;
+      if (!editor) { console.warn('[voice] editor ref null'); return; }
+      editor.action(function (ctx) {
+        var MB = window.MilkdownBundle;
+        var view = ctx.get(MB.editorViewCtx);
+        var from = view.state.selection.from;
+        var before = view.state.doc.textBetween(Math.max(0, from - 1), from);
+        var prefix = (from === 0 || before === '\n' || before === ' ') ? '' : ' ';
+        var tr = view.state.tr.insertText(prefix + text, from, from);
+        view.dispatch(tr);
+      });
+    }
     var vd = window.TF.voicedictate.create({
       lang: 'id-ID',
       onInterim: function (text) {
         console.log('[voice] interim:', text.slice(0, 60));
-        voiceInterimRef.current = text;
-        // Visual feedback — tunjukkan apa yang didengar
-        showToast(text.slice(0, 80), 'info');
+        // Hanya insert bagian baru (delta) — cegah duplikasi
+        var prevLen = voiceLastLenRef.current;
+        if (text.length > prevLen) {
+          var delta = text.slice(prevLen);
+          insertTextDelta(delta);
+          voiceLastLenRef.current = text.length;
+        }
       },
       onFinal: function (text) {
         console.log('[voice] final:', text.slice(0, 60));
-        voiceInterimRef.current = null;
-        var editor = milkdownEditorRef.current;
-        if (!editor) { console.warn('[voice] editor ref null — Milkdown belum siap'); showToast('Editor belum siap, coba lagi', 'error'); return; }
-        editor.action(function (ctx) {
-          var MB = window.MilkdownBundle;
-          var view = ctx.get(MB.editorViewCtx);
-          var from = view.state.selection.from;
-          var before = view.state.doc.textBetween(Math.max(0, from - 1), from);
-          var prefix = (from === 0 || before === '\n' || before === ' ') ? '' : ' ';
-          var tr = view.state.tr.insertText(prefix + text, from, from);
-          view.dispatch(tr);
-        });
+        // Insert sisa delta jika ada, lalu reset counter
+        var prevLen = voiceLastLenRef.current;
+        if (text.length > prevLen) {
+          var delta = text.slice(prevLen);
+          insertTextDelta(delta);
+        }
+        voiceLastLenRef.current = 0;
         showToast('✅ ' + text.slice(0, 50), 'success');
       },
       onError: function (msg) {
@@ -16096,34 +16108,17 @@ function NoteModal({
     voiceRef.current = vd;
     return function () {
       if (voiceRef.current) { voiceRef.current.stop(); voiceRef.current = null; }
-      voiceInterimRef.current = null;
+      voiceLastLenRef.current = 0;
     };
   }, []); // hanya setup sekali saat mount
 
   function handleToggleVoice() {
     if (!voiceRef.current) return;
     if (voiceRef.current.getState() === 'listening' || voiceRef.current.getState() === 'paused') {
-      // Commit any pending interim text before stopping
-      if (voiceInterimRef.current) {
-        var editor = milkdownEditorRef.current;
-        if (editor) {
-          try {
-            var pendingText = voiceInterimRef.current;
-            voiceInterimRef.current = null;
-            editor.action(function (ctx) {
-              var MB = window.MilkdownBundle;
-              var view = ctx.get(MB.editorViewCtx);
-              var from = view.state.selection.from;
-              var before = view.state.doc.textBetween(Math.max(0, from - 1), from);
-              var prefix = (from === 0 || before === '\n' || before === ' ') ? '' : ' ';
-              var tr = view.state.tr.insertText(prefix + pendingText, from, from);
-              view.dispatch(tr);
-            });
-          } catch (e) { /* ignore */ }
-        }
-      }
       voiceRef.current.stop();
+      voiceLastLenRef.current = 0;
     } else {
+      voiceLastLenRef.current = 0;
       voiceRef.current.start();
     }
   }
