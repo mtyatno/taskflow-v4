@@ -4029,9 +4029,8 @@ _PUBLIC_CSS = """<style>
   .pub-notfound p { color: var(--text-secondary); }
 
   /* Scrollbar */
-  .pub-sidebar-left::-webkit-scrollbar { width: 5px; }
-  .pub-sidebar-left::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
-  .pub-sidebar-left::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+  .pub-sidebar-left::-webkit-scrollbar { display: none; }
+  .pub-sidebar-left { scrollbar-width: none; }
 
   /* Responsive: Tablet (hide right sidebar) */
   @media (max-width: 1100px) {
