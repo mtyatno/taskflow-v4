@@ -3786,6 +3786,10 @@ async def view_published_note(slug: str, request: Request):
         body_html = _render_published_content(row["content"] or "", conn)
         date_str = datetime.fromisoformat(row["updated_at"] or row["published_at"]).strftime("%d %B %Y")
 
+        # Helper: escape { } for .format() safety
+        def _esc(s):
+            return str(s).replace('{', '{{').replace('}', '}}')
+
         # Build backlinks: other published notes that link to this note
         note_title = row["title"] or ""
         backlinks_html = ""
@@ -3810,10 +3814,6 @@ async def view_published_note(slug: str, request: Request):
                     for b in backlinks
                 )
                 backlinks_html = f'<div class="pub-backlinks"><h2>🔗 Linked from</h2><ul>{items}</ul></div>'
-
-        # Escape { } in user content for .format() safety
-        def _esc(s):
-            return str(s).replace('{', '{{').replace('}', '}}')
 
         page_html = _PUBLIC_PAGE_HTML.format(
             title=_esc(row["title"] or "Untitled"),
