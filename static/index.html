@@ -18016,6 +18016,7 @@ function NotePanel({
   }, [shareOpen]);
   const [publishOpen, setPublishOpen] = React.useState(false);
   const [publishSlug, setPublishSlug] = React.useState(publishedMeta?.slug || '');
+  const [publishUsername, setPublishUsername] = React.useState(publishedMeta?.username || '');
   const [publishPassword, setPublishPassword] = React.useState('');
   const [publishHasPassword, setPublishHasPassword] = React.useState(publishedMeta?.password_set || false);
   const [publishShowPassword, setPublishShowPassword] = React.useState(false);
@@ -18506,6 +18507,7 @@ function NotePanel({
     onClick: () => {
       const meta = publishedMeta;
       setPublishSlug(meta?.slug || '');
+      setPublishUsername(meta?.username || '');
       setPublishHasPassword(meta?.password_set || false);
       setPublishPassword('');
       setPublishError('');
@@ -18886,11 +18888,11 @@ function NotePanel({
       /*#__PURE__*/React.createElement("div", { style: { display: 'flex', gap: 6, marginBottom: 12 } },
         /*#__PURE__*/React.createElement("input", {
           readOnly: true,
-          value: WEBAPP_URL + '/pub/' + publishSlug,
+          value: WEBAPP_URL + '/pub/' + (publishUsername || (publishedMeta && publishedMeta.username) || '') + '/' + publishSlug,
           style: { flex: 1, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, fontFamily: 'monospace', background: 'var(--bg-secondary)' }
         }),
         /*#__PURE__*/React.createElement("button", {
-          onClick: () => { navigator.clipboard.writeText(WEBAPP_URL + '/pub/' + publishSlug); showToast('Link disalin'); },
+          onClick: () => { navigator.clipboard.writeText(WEBAPP_URL + '/pub/' + (publishUsername || (publishedMeta && publishedMeta.username) || '') + '/' + publishSlug); showToast('Link disalin'); },
           style: { padding: '6px 12px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }
         }, "📋 Copy")
       )
@@ -18935,6 +18937,7 @@ function NotePanel({
           try {
             const result = await onPublish(note.id, publishPassword);
             setPublishSlug(result.slug);
+            setPublishUsername(result.username || '');
             setPublishHasPassword(result.password_set);
             showToast('Note di-publish!');
           } catch (e) { setPublishError(e.message || 'Gagal publish'); }
@@ -19350,7 +19353,7 @@ function NotesPage({
     // Immediately update state with publish result so the modal shows the link
     setPublishedNotes(prev => {
       const rest = prev.filter(p => p.note_id !== noteId);
-      return [...rest, { note_id: noteId, title: '', slug: res.slug, password_set: res.password_set, published_at: res.published_at }];
+      return [...rest, { note_id: noteId, title: '', slug: res.slug, username: res.username || '', password_set: res.password_set, published_at: res.published_at }];
     });
     // Background: refresh full list with proper titles (raw fetch to bypass offline router)
     try {
@@ -19625,7 +19628,7 @@ publishedNotes.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, nu
       }, (p.password_set ? "🔒 " : "🔗 ") + (p.title || "Untitled")),
       /*#__PURE__*/React.createElement("span", {
         onClick: () => {
-          navigator.clipboard.writeText(WEBAPP_URL + '/pub/' + p.slug);
+          navigator.clipboard.writeText(WEBAPP_URL + '/pub/' + (p.username || '') + '/' + p.slug);
           showToast('Link disalin');
         },
         title: "Copy link",

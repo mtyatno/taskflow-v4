@@ -2743,11 +2743,21 @@ def _parse_wikilinks(content: str) -> list[str]:
     parsed = [t.split("|")[0].strip() for t in raw]
     return list(dict.fromkeys(t for t in parsed if t))
 
-def _generate_publish_slug(conn) -> str:
-    """Generate unique 8-char URL-safe slug for published notes."""
+def _slugify(title: str) -> str:
+    """Convert note title to URL-safe slug fragment."""
+    import re as _re
+    s = (title or "untitled").strip().lower()
+    s = _re.sub(r'[^\w\s-]', '', s)  # remove non-word chars (keep spaces, hyphens)
+    s = _re.sub(r'[-\s]+', '-', s)   # spaces/hyphens → single hyphen
+    return s.strip('-')[:80] or "untitled"
+
+def _generate_publish_slug(conn, title: str = "") -> str:
+    """Generate unique slug: slugified-title + 4-char random suffix."""
     import secrets as _secrets
+    base = _slugify(title or "untitled")
     for _ in range(999):
-        slug = _secrets.token_urlsafe(6)[:8]
+        suffix = _secrets.token_urlsafe(3)[:4].lower()
+        slug = f"{base}-{suffix}"
         exists = conn.execute("SELECT 1 FROM published_notes WHERE slug = ?", (slug,)).fetchone()
         if not exists:
             return slug
@@ -2764,13 +2774,13 @@ def _render_published_content(raw_content: str, conn) -> str:
     # 2. Strip ==highlight== → render as <mark>
     content = _re.sub(r'==([^=\n]+)==', r'<mark>\1</mark>', content)
 
-    # 3. Build wikilink map: title → slug (only for published notes)
+    # 3. Build wikilink map: title → (username, slug) for published notes
     published_map = {}
     for row in conn.execute(
-        "SELECT n.title, p.slug FROM published_notes p JOIN scratchpad_notes n ON n.id = p.note_id"
+        "SELECT n.title, p.slug, u.username FROM published_notes p JOIN scratchpad_notes n ON n.id = p.note_id JOIN users u ON u.id = p.user_id"
     ).fetchall():
         key = row["title"].strip().lower()
-        published_map[key] = row["slug"]
+        published_map[key] = (row["username"], row["slug"])
 
     # 4. Rewrite [[wikilink]]
     def _replace_wikilink(m):
@@ -2779,22 +2789,25 @@ def _render_published_content(raw_content: str, conn) -> str:
         norm = title.strip().lower()
         # Check by title
         if norm in published_map:
-            return f'<a href="/pub/{published_map[norm]}">[[{title}]]</a>'
+            uname, uslug = published_map[norm]
+            return f'<a href="/pub/{uname}/{uslug}">[[{title}]]</a>'
         # Check by id: prefix
         m_id = _re.match(r'^(?:id|note)\s*:\s*(\d+)$', norm, _re.IGNORECASE)
         if m_id:
             row2 = conn.execute(
-                "SELECT p.slug FROM published_notes p WHERE p.note_id = ?", (int(m_id.group(1)),)
+                "SELECT p.slug, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (int(m_id.group(1)),)
             ).fetchone()
             if row2:
-                return f'<a href="/pub/{row2["slug"]}">[[{title}]]</a>'
+                un = row2["username"]; sl = row2["slug"]
+                return f'<a href="/pub/{un}/{sl}">[[{title}]]</a>'
         # Check by numeric id
         if norm.isdigit():
             row2 = conn.execute(
-                "SELECT p.slug FROM published_notes p WHERE p.note_id = ?", (int(norm),)
+                "SELECT p.slug, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (int(norm),)
             ).fetchone()
             if row2:
-                return f'<a href="/pub/{row2["slug"]}">[[{title}]]</a>'
+                un = row2["username"]; sl = row2["slug"]
+                return f'<a href="/pub/{un}/{sl}">[[{title}]]</a>'
         # Not published → plain text
         return f'[[{title}]]'
 
@@ -3306,9 +3319,10 @@ async def list_published(user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
         rows = conn.execute(
-            """SELECT p.note_id, n.title, p.slug, p.password_hash, p.published_at
+            """SELECT p.note_id, n.title, p.slug, p.password_hash, p.published_at, u.username
                FROM published_notes p
                JOIN scratchpad_notes n ON n.id = p.note_id
+               JOIN users u ON u.id = p.user_id
                WHERE p.user_id = ?
                ORDER BY p.published_at DESC""",
             (uid,)
@@ -3317,6 +3331,7 @@ async def list_published(user=Depends(get_current_user)):
             "note_id": r["note_id"],
             "title": r["title"],
             "slug": r["slug"],
+            "username": r["username"],
             "password_set": bool(r["password_hash"]),
             "published_at": r["published_at"]
         } for r in rows]
@@ -3604,14 +3619,14 @@ async def publish_scratchpad(note_id: int, req: PublishReq, user=Depends(get_cur
     now = datetime.now(_TZ_JKT).isoformat()
     with get_db() as conn:
         row = conn.execute(
-            "SELECT id, user_id FROM scratchpad_notes WHERE id = ?", (note_id,)
+            "SELECT id, user_id, title FROM scratchpad_notes WHERE id = ?", (note_id,)
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
         if row["user_id"] != uid:
             raise HTTPException(status_code=403, detail="Hanya pemilik note yang bisa publish")
 
-        slug = _generate_publish_slug(conn)
+        slug = _generate_publish_slug(conn, row["title"] or "")
         password = (req.password or "").strip()
         pw_hash = hash_password(password) if password else None
         conn.execute(
@@ -3620,7 +3635,9 @@ async def publish_scratchpad(note_id: int, req: PublishReq, user=Depends(get_cur
             (note_id, uid, slug, pw_hash, now)
         )
         conn.commit()
-        return {"slug": slug, "published_at": now, "password_set": bool(password)}
+        # Get username for frontend URL building
+        uname = conn.execute("SELECT username FROM users WHERE id = ?", (uid,)).fetchone()["username"]
+        return {"slug": slug, "published_at": now, "password_set": bool(password), "username": uname}
 
 @app.delete("/api/scratchpad/{note_id}/publish")
 async def unpublish_scratchpad(note_id: int, user=Depends(get_current_user)):
@@ -3703,7 +3720,7 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 <meta property="og:title" content="{title}">
 <meta property="og:description" content="{description}">
 <meta property="og:type" content="article">
-<meta property="og:url" content="{base_url}/pub/{slug}">
+<meta property="og:url" content="{base_url}/pub/{username}/{slug}">
 <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
 {css}
 </head>
@@ -3744,7 +3761,7 @@ _PASSWORD_GATE_HTML = """<!DOCTYPE html>
 <body>
 <div class="pub-password">
   <h1>🔒 Halaman ini dilindungi password</h1>
-  <form method="post" action="/pub/{slug}/unlock">
+  <form method="post" action="/pub/{username}/{slug}/unlock">
     <input type="password" name="password" placeholder="Masukkan password" autofocus required>
     <button type="submit">Buka</button>
   </form>
@@ -3753,15 +3770,28 @@ _PASSWORD_GATE_HTML = """<!DOCTYPE html>
 </body></html>"""
 
 @app.get("/pub/{slug}")
-async def view_published_note(slug: str, request: Request):
+async def view_published_note_legacy(slug: str):
+    """Redirect old /pub/{slug} URLs to new /pub/{username}/{slug} format."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.slug = ?",
+            (slug,)
+        ).fetchone()
+        if not row:
+            return HTMLResponse(content=_NOT_FOUND_HTML, status_code=404)
+        return RedirectResponse(url=f"/pub/{row['username']}/{slug}", status_code=301)
+
+@app.get("/pub/{username}/{slug}")
+async def view_published_note(username: str, slug: str, request: Request):
     """Public page for a published note. Server-side rendered HTML with OG meta."""
     with get_db() as conn:
         row = conn.execute(
-            """SELECT n.title, n.content, n.updated_at, p.published_at, p.password_hash, p.note_id
+            """SELECT n.title, n.content, n.updated_at, p.published_at, p.password_hash, p.note_id, u.username
                FROM published_notes p
                JOIN scratchpad_notes n ON n.id = p.note_id
-               WHERE p.slug = ?""",
-            (slug,)
+               JOIN users u ON u.id = p.user_id
+               WHERE p.slug = ? AND u.username = ?""",
+            (slug, username)
         ).fetchone()
         if not row:
             return HTMLResponse(
@@ -3776,6 +3806,7 @@ async def view_published_note(slug: str, request: Request):
             if not cookie_val or _verify_cookie(cookie_val) != slug:
                 # Show password form
                 return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
+                    username=username,
                     slug=slug,
                     error_html="",
                     css=_PUBLIC_CSS
@@ -3797,20 +3828,20 @@ async def view_published_note(slug: str, request: Request):
             t = note_title.strip()
             # Query all published notes except current, filter in Python to avoid LIKE escaping issues
             all_pub = conn.execute(
-                """SELECT n.title, n.content, p2.slug FROM scratchpad_notes n
+                """SELECT n.title, n.content, p2.slug, u2.username FROM scratchpad_notes n
                    JOIN published_notes p2 ON p2.note_id = n.id
+                   JOIN users u2 ON u2.id = p2.user_id
                    WHERE n.id != ? ORDER BY n.title""",
                 (row["note_id"],)
             ).fetchall()
             backlinks = []
             for b in all_pub:
                 c = b["content"] or ""
-                # Check plain [[title]] and Milkdown-escaped \[\[title]]
                 if f"[[{t}]]" in c or f"\\[\\[{t}]]" in c:
                     backlinks.append(b)
             if backlinks:
                 items = "".join(
-                    f'<li><a href="/pub/{b["slug"]}">{_esc(b["title"] or "Untitled")}</a></li>'
+                    f'<li><a href="/pub/{b["username"]}/{b["slug"]}">{_esc(b["title"] or "Untitled")}</a></li>'
                     for b in backlinks
                 )
                 backlinks_html = f'<div class="pub-backlinks"><h2>🔗 Linked from</h2><ul>{items}</ul></div>'
@@ -3819,6 +3850,7 @@ async def view_published_note(slug: str, request: Request):
             title=_esc(row["title"] or "Untitled"),
             description=_esc(description),
             base_url=WEBAPP_URL,
+            username=_esc(username),
             slug=_esc(slug),
             date=_esc(date_str),
             body=_esc(body_html),
@@ -3827,8 +3859,8 @@ async def view_published_note(slug: str, request: Request):
         )
         return HTMLResponse(content=page_html)
 
-@app.post("/pub/{slug}/unlock")
-async def unlock_published_note(slug: str, request: Request):
+@app.post("/pub/{username}/{slug}/unlock")
+async def unlock_published_note(username: str, slug: str, request: Request):
     """Verify password for a published note, set signed cookie on success."""
     ip = request.client.host if request.client else "unknown"
 
@@ -3837,11 +3869,11 @@ async def unlock_published_note(slug: str, request: Request):
 
     with get_db() as conn:
         row = conn.execute(
-            "SELECT password_hash FROM published_notes WHERE slug = ?", (slug,)
+            "SELECT p.password_hash, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.slug = ? AND u.username = ?",
+            (slug, username)
         ).fetchone()
         if not row or not row["password_hash"]:
-            # No password set → redirect to page (shouldn't happen normally)
-            return RedirectResponse(url=f"/pub/{slug}", status_code=302)
+            return RedirectResponse(url=f"/pub/{username}/{slug}", status_code=302)
 
         # Read password from form
         form = await request.form()
@@ -3851,6 +3883,7 @@ async def unlock_published_note(slug: str, request: Request):
             _record_failed_attempt(ip, slug)
             remaining = 5 - len(_ip_attempts.get(ip, deque()))
             return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
+                username=username,
                 slug=slug,
                 error_html=f'<p class="pub-error">Password salah. {max(0, remaining)} percobaan tersisa</p>',
                 css=_PUBLIC_CSS
@@ -3860,7 +3893,7 @@ async def unlock_published_note(slug: str, request: Request):
         _reset_bruteforce(ip, slug)
         cookie_key = f"pub_unlock_{slug}"
         cookie_val = _sign_cookie(slug)
-        response = RedirectResponse(url=f"/pub/{slug}", status_code=302)
+        response = RedirectResponse(url=f"/pub/{username}/{slug}", status_code=302)
         response.set_cookie(
             key=cookie_key,
             value=cookie_val,
