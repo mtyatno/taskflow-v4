@@ -1587,6 +1587,7 @@ const OfflineDB = (() => {
 // ── API helper ──────────────────────────────────────────────
 const genId = () => typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
 const API_BASE = (typeof window !== "undefined" && window.__API_BASE) ? window.__API_BASE : "";
+const WEBAPP_URL = API_BASE || (typeof window !== "undefined" && window.location.origin) || "";
 // Prepend API_BASE to absolute API paths ("/api/..."); full URLs and non-slash inputs pass through.
 const apiUrl = (p) => (typeof p === "string" && p.charAt(0) === "/") ? API_BASE + p : p;
 function aiReviewOn() {
@@ -17979,7 +17980,11 @@ function NotePanel({
   sharedLists = [],
   currentUserId,
   onTaskClick,
-  tasks = []
+  tasks = [],
+  publishedMeta,
+  onPublish,
+  onUnpublish,
+  showToast
 }) {
   const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
   const [panelAttachments, setPanelAttachments] = React.useState([]);
@@ -18009,6 +18014,13 @@ function NotePanel({
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [shareOpen]);
+  const [publishOpen, setPublishOpen] = React.useState(false);
+  const [publishSlug, setPublishSlug] = React.useState(publishedMeta?.slug || '');
+  const [publishPassword, setPublishPassword] = React.useState('');
+  const [publishHasPassword, setPublishHasPassword] = React.useState(publishedMeta?.password_set || false);
+  const [publishShowPassword, setPublishShowPassword] = React.useState(false);
+  const [publishWorking, setPublishWorking] = React.useState(false);
+  const [publishError, setPublishError] = React.useState('');
   React.useEffect(() => {
     if (!note) return;
     setPanelAttachments([]);
@@ -18491,6 +18503,29 @@ function NotePanel({
       alignItems: "center"
     }
   }, /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 15 })), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      const meta = publishedMeta;
+      setPublishSlug(meta?.slug || '');
+      setPublishHasPassword(meta?.password_set || false);
+      setPublishPassword('');
+      setPublishError('');
+      setPublishOpen(true);
+    },
+    title: publishedMeta ? "Publish Settings" : "Publish Note",
+    style: {
+      background: publishedMeta ? "rgba(168,197,0,0.10)" : "none",
+      border: publishedMeta ? "1.5px solid var(--accent)" : "1px solid var(--border)",
+      borderRadius: 7,
+      fontSize: 11,
+      fontWeight: 700,
+      color: publishedMeta ? "var(--accent)" : "var(--text-light)",
+      cursor: "pointer",
+      padding: "4px 10px",
+      display: "flex",
+      alignItems: "center",
+      gap: 3
+    }
+  }, publishedMeta?.password_set ? "🔗🔒 Publish" : "🔗 Publish"), /*#__PURE__*/React.createElement("button", {
     onClick: handlePrint,
     title: "Cetak / Simpan PDF",
     style: {
@@ -18837,7 +18872,79 @@ function NotePanel({
     }
   }, /*#__PURE__*/React.createElement(NoteToc, {
     items: tocItems
-  })));
+  }))), publishOpen && /*#__PURE__*/React.createElement("div", {
+    className: "modal-overlay",
+    onClick: () => setPublishOpen(false)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal-content scale-in",
+    style: { maxWidth: 420, padding: 20 },
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("h3", { style: { marginTop: 0 } }, "🔗 Publish Note"),
+    publishedMeta && /*#__PURE__*/React.createElement(React.Fragment, null,
+      /*#__PURE__*/React.createElement("div", { style: { fontSize: 12, color: '#16a34a', marginBottom: 8 } }, "✅ Published"),
+      /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, color: 'var(--text-light)', marginBottom: 4 } }, "Link publik:"),
+      /*#__PURE__*/React.createElement("div", { style: { display: 'flex', gap: 6, marginBottom: 12 } },
+        /*#__PURE__*/React.createElement("input", {
+          readOnly: true,
+          value: WEBAPP_URL + '/pub/' + publishSlug,
+          style: { flex: 1, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, fontFamily: 'monospace', background: 'var(--bg-secondary)' }
+        }),
+        /*#__PURE__*/React.createElement("button", {
+          onClick: () => { navigator.clipboard.writeText(WEBAPP_URL + '/pub/' + publishSlug); showToast('Link disalin'); },
+          style: { padding: '6px 12px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }
+        }, "📋 Copy")
+      )
+    ),
+    /*#__PURE__*/React.createElement("hr", { style: { border: 'none', borderTop: '1px solid var(--border)', margin: '16px 0' } }),
+    /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, color: 'var(--text-light)', marginBottom: 4 } }, "Password (opsional):"),
+    /*#__PURE__*/React.createElement("div", { style: { display: 'flex', gap: 6, marginBottom: 8 } },
+      /*#__PURE__*/React.createElement("input", {
+        type: publishShowPassword ? "text" : "password",
+        value: publishPassword,
+        onChange: e => setPublishPassword(e.target.value),
+        placeholder: publishHasPassword ? "•••••• (biarkan kosong = hapus password yang ada)" : "Kosongkan = tanpa password",
+        style: { flex: 1, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12 }
+      }),
+      /*#__PURE__*/React.createElement("button", {
+        onClick: () => setPublishShowPassword(!publishShowPassword),
+        style: { background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 14 }
+      }, publishShowPassword ? "🙈" : "👁")
+    ),
+    publishError && /*#__PURE__*/React.createElement("div", { style: { color: '#ef4444', fontSize: 11, marginBottom: 8 } }, publishError),
+    /*#__PURE__*/React.createElement("div", { style: { display: 'flex', gap: 8, justifyContent: 'space-between' } },
+      /*#__PURE__*/React.createElement("div", null,
+        publishedMeta && /*#__PURE__*/React.createElement("button", {
+          onClick: async () => {
+            if (!window.confirm('Unpublish note ini? Link publik akan mati.')) return;
+            setPublishWorking(true);
+            try {
+              await onUnpublish(note.id);
+              setPublishOpen(false);
+              showToast('Note di-unpublish');
+            } catch (e) { setPublishError(e.message); }
+            setPublishWorking(false);
+          },
+          disabled: publishWorking,
+          style: { background: 'none', border: '1px solid #ef4444', borderRadius: 6, color: '#ef4444', padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
+        }, "🗑️ Unpublish")
+      ),
+      /*#__PURE__*/React.createElement("button", {
+        onClick: async () => {
+          setPublishWorking(true);
+          setPublishError('');
+          try {
+            const result = await onPublish(note.id, publishPassword);
+            setPublishSlug(result.slug);
+            setPublishHasPassword(result.password_set);
+            showToast('Note di-publish!');
+          } catch (e) { setPublishError(e.message || 'Gagal publish'); }
+          setPublishWorking(false);
+        },
+        disabled: publishWorking,
+        style: { padding: '6px 18px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
+      }, publishWorking ? "Menyimpan..." : "💾 Simpan")
+    )
+  )));
 }
 function NotesPage({
   tasks,
@@ -18918,6 +19025,12 @@ function NotesPage({
   const [notesListCollapsed, setNotesListCollapsed] = useState(false);
   const [filterUntagged, setFilterUntagged] = useState(false);
   const [filterListId, setFilterListId] = useState(null);
+  const [publishedNotes, setPublishedNotes] = useState([]);
+  React.useEffect(() => {
+    api.get('/api/scratchpad/published')
+      .then(data => setPublishedNotes(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [allNotes]);
   useEffect(() => {
     // stale-while-revalidate: show cache immediately, update in background
     OfflineDB.cacheGet("note_tags").then(cached => {
@@ -19218,6 +19331,16 @@ function NotesPage({
     } catch (e) {
       showToast(e.message, "error");
     }
+  };
+  const handlePublish = async (noteId, password) => {
+    const res = await api.post(`/api/scratchpad/${noteId}/publish`, { password: password || null });
+    const listData = await api.get('/api/scratchpad/published');
+    setPublishedNotes(Array.isArray(listData) ? listData : []);
+    return res;
+  };
+  const handleUnpublish = async noteId => {
+    await api.del(`/api/scratchpad/${noteId}/publish`);
+    setPublishedNotes(prev => prev.filter(p => p.note_id !== noteId));
   };
   const sortedNotes = [...notes].sort((a, b) => {
     if (sortBy === "alpha") return (a.title || "").localeCompare(b.title || "");
@@ -19758,6 +19881,10 @@ function NotesPage({
         closeTab(id);
       },
       onPin: id => handlePin(id),
+      showToast: showToast,
+      publishedMeta: publishedNotes.find(p => p.note_id === activeNote.id),
+      onPublish: (noteId, password) => handlePublish(noteId, password),
+      onUnpublish: noteId => handleUnpublish(noteId),
       onNavigate: async n => {
         const full = allNotes.find(x => x.id === n.id) || (await api.get(`/api/scratchpad/${n.id}`).catch(() => n));
         openTab(full);
