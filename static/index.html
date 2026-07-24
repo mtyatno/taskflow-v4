@@ -18880,7 +18880,7 @@ function NotePanel({
     style: { maxWidth: 420, padding: 20 },
     onClick: e => e.stopPropagation()
   }, /*#__PURE__*/React.createElement("h3", { style: { marginTop: 0 } }, "🔗 Publish Note"),
-    publishedMeta && /*#__PURE__*/React.createElement(React.Fragment, null,
+    (publishedMeta || publishSlug) && /*#__PURE__*/React.createElement(React.Fragment, null,
       /*#__PURE__*/React.createElement("div", { style: { fontSize: 12, color: '#16a34a', marginBottom: 8 } }, "✅ Published"),
       /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, color: 'var(--text-light)', marginBottom: 4 } }, "Link publik:"),
       /*#__PURE__*/React.createElement("div", { style: { display: 'flex', gap: 6, marginBottom: 12 } },
@@ -19335,8 +19335,16 @@ function NotesPage({
   };
   const handlePublish = async (noteId, password) => {
     const res = await api.post(`/api/scratchpad/${noteId}/publish`, { password: password || null });
-    const listData = await api.get('/api/scratchpad/published');
-    setPublishedNotes(Array.isArray(listData) ? listData : []);
+    // Immediately update state with publish result so the modal shows the link
+    setPublishedNotes(prev => {
+      const rest = prev.filter(p => p.note_id !== noteId);
+      return [...rest, { note_id: noteId, title: '', slug: res.slug, password_set: res.password_set, published_at: res.published_at }];
+    });
+    // Background: refresh full list with proper titles
+    try {
+      const listData = await api.get('/api/scratchpad/published');
+      setPublishedNotes(Array.isArray(listData) ? listData : []);
+    } catch (_) {}
     return res;
   };
   const handleUnpublish = async noteId => {
