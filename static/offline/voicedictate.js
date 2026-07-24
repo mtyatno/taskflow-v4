@@ -77,7 +77,7 @@
           setState("paused");
           setTimeout(function () {
             if (!userStopped) createRecognition();
-          }, 100);
+          }, 50);
         } else {
           setState("idle");
         }

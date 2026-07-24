@@ -4239,6 +4239,68 @@ function TaskFormModal({
   const [habitExistingTags, setHabitExistingTags] = useState([]);
   const noteContentRef = React.useRef(null);
   const noteMilkdownRef = React.useRef(null);
+  // Voice dictation untuk catatan baru
+  const [noteVoiceState, setNoteVoiceState] = React.useState(
+    window.TF && window.TF.voicedictate && window.TF.voicedictate.isSupported() ? 'idle' : 'unsupported'
+  );
+  const noteVoiceRef = React.useRef(null);
+  const noteVoiceLastTextRef = React.useRef('');
+  React.useEffect(function () {
+    if (!window.TF || !window.TF.voicedictate || !window.TF.voicedictate.isSupported()) return;
+    function insert(text) {
+      var editor = noteMilkdownRef.current;
+      if (!editor || !text) return;
+      editor.action(function (ctx) {
+        var MB = window.MilkdownBundle;
+        var view = ctx.get(MB.editorViewCtx);
+        var from = view.state.selection.from;
+        var before = view.state.doc.textBetween(Math.max(0, from - 1), from);
+        var prefix = (from === 0 || before === '\n' || before === ' ') ? '' : ' ';
+        var tr = view.state.tr.insertText(prefix + text, from, from);
+        view.dispatch(tr);
+      });
+    }
+    function handle(text) {
+      var prev = noteVoiceLastTextRef.current;
+      if (text === prev) return;
+      if (text.length > prev.length && text.slice(0, prev.length) === prev) {
+        var delta = text.slice(prev.length);
+        insert(delta);
+        noteVoiceLastTextRef.current = text;
+        return;
+      }
+      insert(text);
+      noteVoiceLastTextRef.current = text;
+    }
+    var finalReset = null;
+    var vd = window.TF.voicedictate.create({
+      lang: 'id-ID',
+      onInterim: function (text) { clearTimeout(finalReset); handle(text); },
+      onFinal: function (text) {
+        clearTimeout(finalReset);
+        handle(text);
+        finalReset = setTimeout(function () { noteVoiceLastTextRef.current = ''; }, 1000);
+      },
+      onError: function (msg) { console.error('[voice]', msg); },
+      onStateChange: function (s) { setNoteVoiceState(s); }
+    });
+    noteVoiceRef.current = vd;
+    return function () {
+      if (noteVoiceRef.current) { noteVoiceRef.current.stop(); noteVoiceRef.current = null; }
+      noteVoiceLastTextRef.current = '';
+      clearTimeout(finalReset);
+    };
+  }, []);
+  function handleToggleNoteVoice() {
+    if (!noteVoiceRef.current) return;
+    if (noteVoiceRef.current.getState() === 'listening' || noteVoiceRef.current.getState() === 'paused') {
+      noteVoiceRef.current.stop();
+      noteVoiceLastTextRef.current = '';
+    } else {
+      noteVoiceLastTextRef.current = '';
+      noteVoiceRef.current.start();
+    }
+  }
   const [noteTagDropdown, setNoteTagDropdown] = useState(null);
   const [noteExistingTags, setNoteExistingTags] = useState([]);
   const [noteTaskDropdown, setNoteTaskDropdown] = useState(null);
@@ -5169,8 +5231,8 @@ function TaskFormModal({
       content: noteForm.content,
       onApplyTemplate: function(tpl) { return setNote("content", tpl); },
       onInsertTask: openNoteTaskDropdown,
-      voiceState: 'unsupported',
-      onToggleVoice: null
+      voiceState: noteVoiceState,
+      onToggleVoice: handleToggleNoteVoice
     })), /*#__PURE__*/React.createElement("div", {
       style: {
         position: 'relative',
