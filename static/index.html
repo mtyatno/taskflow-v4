@@ -17869,7 +17869,25 @@ function NoteModal({
       e.preventDefault();
       if (!creatingInlineTask) createAndInsertTask((taskDropdown.query || '').trim());
     }
-  }, creatingInlineTask ? 'Membuat...' : `＋ Buat task: "${(taskDropdown.query || '').trim()}"`)), wikiDropdown && /*#__PURE__*/React.createElement("div", {
+  }, creatingInlineTask ? 'Membuat...' : `＋ Buat task: "${(taskDropdown.query || '').trim()}"`)), noteAiDropdown && /*#__PURE__*/React.createElement("div", {
+    ref: noteAiDropdownRef,
+    className: "wiki-autocomplete",
+    style: { position: "fixed", top: noteAiDropdown.top, left: noteAiDropdown.left, zIndex: 10100, minWidth: 280, padding: 6 }
+  }, /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+    /*#__PURE__*/React.createElement(Icon, { name: "sparkles", size: 15, style: { color: "var(--accent)", flexShrink: 0 } }),
+    /*#__PURE__*/React.createElement("input", {
+      className: "input",
+      style: { flex: 1, padding: "5px 8px", fontSize: 13, borderRadius: 5, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)" },
+      placeholder: "Instruksi AI... misal: ringkas jadi 3 poin",
+      autoFocus: true,
+      onMouseDown: e => e.stopPropagation(),
+      onKeyDown: e => {
+        if (e.key === 'Escape') { setNoteAiDropdown(null); return; }
+        if (e.key === 'Enter') { e.preventDefault(); executeNoteAi(e.target.value); }
+      }
+    }),
+    noteAiBusy && /*#__PURE__*/React.createElement("span", { style: { display: "inline-block", width: 14, height: 14, border: "2px solid var(--accent)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.6s linear infinite" } })
+  )), wikiDropdown && /*#__PURE__*/React.createElement("div", {
     ref: wikiDropdownRef,
     className: "wiki-autocomplete",
     style: {
