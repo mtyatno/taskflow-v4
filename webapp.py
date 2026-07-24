@@ -21,6 +21,93 @@ from pathlib import Path
 from typing import Optional, Literal
 from contextlib import contextmanager
 
+from collections import deque
+import time as _time
+
+# Brute-force protection for published note unlock
+_ip_attempts: dict[str, deque] = defaultdict(lambda: deque(maxlen=50))
+_slug_fails: dict[str, dict] = {}       # slug -> {"count": int, "locked_until": float|0}
+_progressive: dict[str, dict] = {}      # "ip:slug" -> {"failures": int, "last_attempt": float}
+
+def _cleanup_bruteforce():
+    """Remove expired entries from trackers."""
+    now = _time.time()
+    for ip in list(_ip_attempts):
+        while _ip_attempts[ip] and _ip_attempts[ip][0] < now - 900:  # 15 min expiry
+            _ip_attempts[ip].popleft()
+        if not _ip_attempts[ip]:
+            del _ip_attempts[ip]
+    for slug in list(_slug_fails):
+        sf = _slug_fails[slug]
+        if sf.get("locked_until", 0) > 0 and sf["locked_until"] < now:
+            del _slug_fails[slug]  # Lock expired — clean up
+        elif not sf.get("locked_until") and sf.get("count", 0) == 0:
+            del _slug_fails[slug]  # Empty tracker — clean up
+    for key in list(_progressive):
+        if _progressive[key]["last_attempt"] < now - 1800:  # 30 min expiry
+            del _progressive[key]
+
+def _check_bruteforce(ip: str, slug: str):
+    """Check rate limits. Raise HTTPException if blocked."""
+    _cleanup_bruteforce()  # Lazy cleanup every check
+    now = _time.time()
+
+    # 1. Progressive delay
+    prog_key = f"{ip}:{slug}"
+    if prog_key in _progressive:
+        p = _progressive[prog_key]
+        delay = min(2 ** (p["failures"] - 1), 8)  # 0,1,2,4,8 seconds
+        elapsed = now - p["last_attempt"]
+        if elapsed < delay:
+            import time as _t
+            _t.sleep(delay - elapsed)
+            now = _time.time()  # refresh after sleep
+
+    # 2. IP-based rate limit
+    if len(_ip_attempts[ip]) >= 5:
+        raise HTTPException(
+            status_code=429,
+            detail="Terlalu banyak percobaan, coba lagi nanti",
+            headers={"Retry-After": str(max(1, int(900 - (now - _ip_attempts[ip][0]))))}
+        )
+
+    # 3. Slug-based lock
+    if slug in _slug_fails:
+        sf = _slug_fails[slug]
+        if sf.get("locked_until", 0) > now:
+            remaining = int(sf["locked_until"] - now)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Halaman ini terkunci sementara, coba lagi dalam {remaining // 60 + 1} menit",
+                headers={"Retry-After": str(remaining)}
+            )
+
+def _record_failed_attempt(ip: str, slug: str):
+    """Record a failed unlock attempt."""
+    now = _time.time()
+    _ip_attempts[ip].append(now)
+
+    sf = _slug_fails.setdefault(slug, {"count": 0, "locked_until": 0})
+    sf["count"] += 1
+    if sf["count"] >= 10:
+        sf["locked_until"] = now + 1800  # 30 min lock
+        sf["count"] = 0
+
+    prog_key = f"{ip}:{slug}"
+    p = _progressive.setdefault(prog_key, {"failures": 0, "last_attempt": 0})
+    p["failures"] += 1
+    p["last_attempt"] = now
+
+def _reset_bruteforce(ip: str, slug: str):
+    """Reset trackers on successful unlock."""
+    if ip in _ip_attempts:
+        _ip_attempts[ip].clear()
+    if slug in _slug_fails:
+        del _slug_fails[slug]
+    prog_key = f"{ip}:{slug}"
+    if prog_key in _progressive:
+        del _progressive[prog_key]
+
 import pytz as _pytz
 _TZ_JKT = _pytz.timezone("Asia/Jakarta")
 
