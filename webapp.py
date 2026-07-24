@@ -3300,6 +3300,27 @@ async def upsert_drawing(note_id: int, req: DrawingUpsert, user=Depends(get_curr
         return {"updated_at": now}
 
 
+@app.get("/api/scratchpad/published")
+async def list_published(user=Depends(get_current_user)):
+    """List all published notes owned by the current user."""
+    uid = user["sub"]
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT p.note_id, n.title, p.slug, p.password_hash, p.published_at
+               FROM published_notes p
+               JOIN scratchpad_notes n ON n.id = p.note_id
+               WHERE p.user_id = ?
+               ORDER BY p.published_at DESC""",
+            (uid,)
+        ).fetchall()
+        return [{
+            "note_id": r["note_id"],
+            "title": r["title"],
+            "slug": r["slug"],
+            "password_set": bool(r["password_hash"]),
+            "published_at": r["published_at"]
+        } for r in rows]
+
 @app.get("/api/scratchpad/{note_id}")
 async def get_scratchpad_note(note_id: int, user=Depends(get_current_user)):
     """Fetch a single note — used by frontend for polling (checks updated_at)."""
@@ -3616,27 +3637,6 @@ async def unpublish_scratchpad(note_id: int, user=Depends(get_current_user)):
         conn.execute("DELETE FROM published_notes WHERE note_id = ? AND user_id = ?", (note_id, uid))
         conn.commit()
         return {"ok": True}
-
-@app.get("/api/scratchpad/published")
-async def list_published(user=Depends(get_current_user)):
-    """List all published notes owned by the current user."""
-    uid = user["sub"]
-    with get_db() as conn:
-        rows = conn.execute(
-            """SELECT p.note_id, n.title, p.slug, p.password_hash, p.published_at
-               FROM published_notes p
-               JOIN scratchpad_notes n ON n.id = p.note_id
-               WHERE p.user_id = ?
-               ORDER BY p.published_at DESC""",
-            (uid,)
-        ).fetchall()
-        return [{
-            "note_id": r["note_id"],
-            "title": r["title"],
-            "slug": r["slug"],
-            "password_set": bool(r["password_hash"]),
-            "published_at": r["published_at"]
-        } for r in rows]
 
 # ── Public publish pages (/pub/*) ──────────────────────────────────────────────
 
