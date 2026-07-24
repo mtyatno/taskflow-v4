@@ -617,6 +617,9 @@ class ExtAuthConfirmReq(BaseModel):
 class NoteShareReq(BaseModel):
     list_id: Optional[int] = None  # None = unshare
 
+class PublishReq(BaseModel):
+    password: Optional[str] = None  # None/empty = no password
+
 class JoinListReq(BaseModel):
     code: str
 
@@ -2636,6 +2639,16 @@ def _parse_wikilinks(content: str) -> list[str]:
     parsed = [t.split("|")[0].strip() for t in raw]
     return list(dict.fromkeys(t for t in parsed if t))
 
+def _generate_publish_slug(conn) -> str:
+    """Generate unique 8-char URL-safe slug for published notes."""
+    import secrets as _secrets
+    for _ in range(999):
+        slug = _secrets.token_urlsafe(6)[:8]
+        exists = conn.execute("SELECT 1 FROM published_notes WHERE slug = ?", (slug,)).fetchone()
+        if not exists:
+            return slug
+    raise HTTPException(status_code=500, detail="Gagal generate slug unik — coba lagi")
+
 def _resolve_linked_to(titles: list[str], user_id: int, conn) -> list[int]:
     """Resolve note titles/IDs to note IDs. Handles plain titles, id:N, and numeric IDs."""
     if not titles:
@@ -3388,6 +3401,68 @@ async def toggle_pin_scratchpad(note_id: int, user=Depends(get_current_user)):
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row(updated, conn, uid)
+
+@app.post("/api/scratchpad/{note_id}/publish")
+async def publish_scratchpad(note_id: int, req: PublishReq, user=Depends(get_current_user)):
+    """Publish a note (or update password). Only the note owner can publish."""
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, user_id FROM scratchpad_notes WHERE id = ?", (note_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        if row["user_id"] != uid:
+            raise HTTPException(status_code=403, detail="Hanya pemilik note yang bisa publish")
+
+        slug = _generate_publish_slug(conn)
+        password = (req.password or "").strip()
+        pw_hash = hash_password(password) if password else None
+        conn.execute(
+            """INSERT OR REPLACE INTO published_notes (note_id, user_id, slug, password_hash, published_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (note_id, uid, slug, pw_hash, now)
+        )
+        conn.commit()
+        return {"slug": slug, "published_at": now, "password_set": bool(password)}
+
+@app.delete("/api/scratchpad/{note_id}/publish")
+async def unpublish_scratchpad(note_id: int, user=Depends(get_current_user)):
+    """Unpublish a note. Only the note owner can unpublish."""
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, user_id FROM scratchpad_notes WHERE id = ?", (note_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        if row["user_id"] != uid:
+            raise HTTPException(status_code=403, detail="Hanya pemilik note yang bisa unpublish")
+        conn.execute("DELETE FROM published_notes WHERE note_id = ? AND user_id = ?", (note_id, uid))
+        conn.commit()
+        return {"ok": True}
+
+@app.get("/api/scratchpad/published")
+async def list_published(user=Depends(get_current_user)):
+    """List all published notes owned by the current user."""
+    uid = user["sub"]
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT p.note_id, n.title, p.slug, p.password_hash, p.published_at
+               FROM published_notes p
+               JOIN scratchpad_notes n ON n.id = p.note_id
+               WHERE p.user_id = ?
+               ORDER BY p.published_at DESC""",
+            (uid,)
+        ).fetchall()
+        return [{
+            "note_id": r["note_id"],
+            "title": r["title"],
+            "slug": r["slug"],
+            "password_set": bool(r["password_hash"]),
+            "published_at": r["published_at"]
+        } for r in rows]
 
 @app.get("/api/scratchpad/{note_id}/backlinks")
 async def get_backlinks(note_id: int, user=Depends(get_current_user)):
