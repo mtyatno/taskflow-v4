@@ -3699,7 +3699,7 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 <meta property="og:type" content="article">
 <meta property="og:url" content="{base_url}/pub/{slug}">
 <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
-""" + _PUBLIC_CSS + """
+{css}
 </head>
 <body>
 <div class="pub-header">🔗 Published via <a href="{base_url}">TaskFlow</a></div>
@@ -3733,7 +3733,7 @@ _NOT_FOUND_HTML = """<!DOCTYPE html>
 
 _PASSWORD_GATE_HTML = """<!DOCTYPE html>
 <html lang="id">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>🔒 Protected — TaskFlow</title>""" + _PUBLIC_CSS + """</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>🔒 Protected — TaskFlow</title>{css}</head>
 <body>
 <div class="pub-password">
   <h1>🔒 Halaman ini dilindungi password</h1>
@@ -3770,7 +3770,8 @@ async def view_published_note(slug: str, request: Request):
                 # Show password form
                 return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
                     slug=slug,
-                    error_html=""
+                    error_html="",
+                    css=_PUBLIC_CSS
                 ))
 
         # Render full page
@@ -3788,7 +3789,8 @@ async def view_published_note(slug: str, request: Request):
             base_url=WEBAPP_URL,
             slug=_esc(slug),
             date=_esc(date_str),
-            body=_esc(body_html)
+            body=_esc(body_html),
+            css=_PUBLIC_CSS
         )
         return HTMLResponse(content=html)
 
@@ -3817,7 +3819,8 @@ async def unlock_published_note(slug: str, request: Request):
             remaining = 5 - len(_ip_attempts.get(ip, deque()))
             return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
                 slug=slug,
-                error_html=f'<p class="pub-error">Password salah. {max(0, remaining)} percobaan tersisa</p>'
+                error_html=f'<p class="pub-error">Password salah. {max(0, remaining)} percobaan tersisa</p>',
+                css=_PUBLIC_CSS
             ))
 
         # Success
