@@ -4296,7 +4296,7 @@ async def view_published_note(username: str, slug: str, request: Request):
         # Tags
         tags_html = ""
         tags = conn.execute(
-            "SELECT name FROM note_tags WHERE note_id = ?",
+            "SELECT t.name FROM tags t JOIN entity_tags et ON et.tag_id = t.id WHERE et.entity_type = 'note' AND et.entity_id = ?",
             (row["note_id"],)
         ).fetchall()
         if tags:
