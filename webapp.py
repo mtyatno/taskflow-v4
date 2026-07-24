@@ -3791,13 +3791,19 @@ async def view_published_note(slug: str, request: Request):
         backlinks_html = ""
         if note_title.strip():
             t = note_title.strip()
-            backlinks = conn.execute(
-                """SELECT n.title, p2.slug FROM scratchpad_notes n
+            # Query all published notes except current, filter in Python to avoid LIKE escaping issues
+            all_pub = conn.execute(
+                """SELECT n.title, n.content, p2.slug FROM scratchpad_notes n
                    JOIN published_notes p2 ON p2.note_id = n.id
-                   WHERE (n.content LIKE ? OR n.content LIKE ?) AND n.id != ?
-                   ORDER BY n.title""",
-                (f"%[[{t}]]%", f"%\\\\[[{t}]]%", row["note_id"])  # both plain and escaped wikilink
+                   WHERE n.id != ? ORDER BY n.title""",
+                (row["note_id"],)
             ).fetchall()
+            backlinks = []
+            for b in all_pub:
+                c = b["content"] or ""
+                # Check both plain [[title]] and escaped \[[title]]
+                if f"[[{t}]]" in c or f"\\[[{t}]]" in c:
+                    backlinks.append(b)
             if backlinks:
                 items = "".join(
                     f'<li><a href="/pub/{b["slug"]}">{_esc(b["title"] or "Untitled")}</a></li>'
