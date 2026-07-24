@@ -3685,6 +3685,12 @@ _PUBLIC_CSS = """<style>
   .pub-password button:hover { background: #96b000; }
   .pub-error { color: #ef4444; font-size: 13px; margin-top: 6px; }
   .pub-body .math-block, .pub-body .math-inline { /* KaTeX will replace these */ }
+  .pub-backlinks { margin-top: 32px; }
+  .pub-backlinks h2 { font-size: 1em; color: #888; margin-bottom: 10px; }
+  .pub-backlinks ul { list-style: none; padding: 0; }
+  .pub-backlinks li { margin-bottom: 4px; }
+  .pub-backlinks li a { color: var(--accent, #a8c500); text-decoration: none; }
+  .pub-backlinks li a:hover { text-decoration: underline; }
 </style>"""
 
 _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
@@ -3706,6 +3712,7 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 <h1>{title}</h1>
 <div class="pub-date">{date}</div>
 <div class="pub-body">{body}</div>
+{backlinks}
 <hr>
 <div class="pub-footer">Powered by <a href="{base_url}">TaskFlow</a></div>
 <script src="/static/vendor/katex/katex.min.js"></script>
@@ -3779,6 +3786,24 @@ async def view_published_note(slug: str, request: Request):
         body_html = _render_published_content(row["content"] or "", conn)
         date_str = datetime.fromisoformat(row["updated_at"] or row["published_at"]).strftime("%d %B %Y")
 
+        # Build backlinks: other published notes that link to this note
+        note_title = row["title"] or ""
+        backlinks_html = ""
+        if note_title.strip():
+            backlinks = conn.execute(
+                """SELECT n.title, p2.slug FROM scratchpad_notes n
+                   JOIN published_notes p2 ON p2.note_id = n.id
+                   WHERE n.content LIKE ? AND n.id != ?
+                   ORDER BY n.title""",
+                (f"%[[{note_title.strip()}]]%", row["note_id"])
+            ).fetchall()
+            if backlinks:
+                items = "".join(
+                    f'<li><a href="/pub/{b["slug"]}">{_esc(b["title"] or "Untitled")}</a></li>'
+                    for b in backlinks
+                )
+                backlinks_html = f'<div class="pub-backlinks"><h2>🔗 Linked from</h2><ul>{items}</ul></div>'
+
         # Escape { } in user content for .format() safety
         def _esc(s):
             return str(s).replace('{', '{{').replace('}', '}}')
@@ -3790,6 +3815,7 @@ async def view_published_note(slug: str, request: Request):
             slug=_esc(slug),
             date=_esc(date_str),
             body=_esc(body_html),
+            backlinks=backlinks_html,
             css=_PUBLIC_CSS
         )
         return HTMLResponse(content=page_html)
