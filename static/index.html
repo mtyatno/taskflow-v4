@@ -16065,12 +16065,14 @@ function NoteModal({
       onInterim: function (text) {
         console.log('[voice] interim:', text.slice(0, 60));
         voiceInterimRef.current = text;
+        // Visual feedback — tunjukkan apa yang didengar
+        showToast(text.slice(0, 80), 'info');
       },
       onFinal: function (text) {
         console.log('[voice] final:', text.slice(0, 60));
         voiceInterimRef.current = null;
         var editor = milkdownEditorRef.current;
-        if (!editor) { console.warn('[voice] editor ref null — Milkdown belum siap'); return; }
+        if (!editor) { console.warn('[voice] editor ref null — Milkdown belum siap'); showToast('Editor belum siap, coba lagi', 'error'); return; }
         editor.action(function (ctx) {
           var MB = window.MilkdownBundle;
           var view = ctx.get(MB.editorViewCtx);
@@ -16080,6 +16082,7 @@ function NoteModal({
           var tr = view.state.tr.insertText(prefix + text, from, from);
           view.dispatch(tr);
         });
+        showToast('✅ ' + text.slice(0, 50), 'success');
       },
       onError: function (msg) {
         console.error('[voice] error:', msg);
