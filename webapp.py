@@ -4121,15 +4121,22 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 </footer>
 
 <script src="/static/vendor/katex/katex.min.js"></script>
-<script src="/static/vendor/katex/auto-render.min.js"></script>
 <script>
+  // Inline KaTeX renderer (no auto-render.min.js needed)
   try {{
-    renderMathInElement(document.body, {{
-      delimiters: [
-        {{left: '$$', right: '$$', display: true}},
-        {{left: '$', right: '$', display: false}}
-      ]
-    }});
+    var body = document.querySelector('.pub-body');
+    if (body && window.katex) {{
+      var html = body.innerHTML;
+      // Display math: $$ ... $$
+      html = html.replace(/\$\$([\s\S]*?)\$\$/g, function(_, tex) {{
+        try {{ return katex.renderToString(tex.trim(), {{ displayMode: true, throwOnError: false }}); }} catch(e) {{ return _; }}
+      }});
+      // Inline math: $ ... $
+      html = html.replace(/\$([^$]+?)\$/g, function(_, tex) {{
+        try {{ return katex.renderToString(tex.trim(), {{ displayMode: false, throwOnError: false }}); }} catch(e) {{ return _; }}
+      }});
+      body.innerHTML = html;
+    }}
   }} catch(e) {{}}
 </script>
 <script>
