@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import hashlib
 import secrets
+import hmac
 import sqlite3
 import uuid
 import mimetypes
@@ -143,6 +144,21 @@ import mailer
 # ── Config ─────────────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("WEB_SECRET_KEY", secrets.token_hex(32))
 JWT_ALGORITHM = "HS256"
+
+# ── Cookie signing (for published note unlock) ─────────────────────────────────
+def _sign_cookie(slug: str) -> str:
+    """Sign a slug with HMAC-SHA256 for tamper-proof cookie."""
+    h = hmac.new(SECRET_KEY.encode(), slug.encode(), "sha256").hexdigest()[:24]
+    return f"{slug}:{h}"
+
+def _verify_cookie(signed: str) -> str | None:
+    """Verify HMAC cookie, return slug if valid, None if tampered."""
+    try:
+        slug, h = signed.rsplit(":", 1)
+    except ValueError:
+        return None
+    expected = hmac.new(SECRET_KEY.encode(), slug.encode(), "sha256").hexdigest()[:24]
+    return slug if hmac.compare_digest(h, expected) else None
 JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "72"))
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
