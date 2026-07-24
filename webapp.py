@@ -3958,6 +3958,11 @@ _PUBLIC_CSS = """<style>
   .pub-attachment-icon { font-size: 20px; flex-shrink: 0; }
   .pub-attachment-name { font-size: 13px; font-weight: 500; word-break: break-all; }
   .pub-attachment-meta { font-size: 11px; color: var(--text-secondary); }
+  .pub-drawing { margin-top: 32px; }
+  .pub-drawing h3 { font-size: 14px; margin-bottom: 12px; color: var(--text); }
+  .pub-drawing-container { position: relative; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; height: 450px; }
+  .pub-drawing-container iframe { width: 100%; height: 100%; border: none; }
+  .pub-drawing-overlay { position: absolute; inset: 0; z-index: 1; background: transparent; cursor: grab; }
 
   /* Right sidebar */
   .pub-about-item { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
@@ -4095,6 +4100,7 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
     </div>
     <div class="pub-body">{body}</div>
     {attachments_html}
+    {drawing_html}
   </main>
 
   <aside class="pub-sidebar-right">
@@ -4208,6 +4214,32 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
         }}
       }}
     }});
+  }}
+
+  // Drawing canvas: block editing but allow scroll/zoom via wheel forwarding
+  var drawOverlay = document.getElementById('drawing-overlay');
+  var drawIframe = document.getElementById('drawing-iframe');
+  if (drawOverlay && drawIframe) {{
+    drawOverlay.addEventListener('mousedown', function(e) {{ e.preventDefault(); }});
+    drawOverlay.addEventListener('touchstart', function(e) {{ e.preventDefault(); }});
+    drawOverlay.addEventListener('click', function(e) {{ e.preventDefault(); }});
+    drawOverlay.addEventListener('dblclick', function(e) {{ e.preventDefault(); }});
+    drawOverlay.addEventListener('contextmenu', function(e) {{ e.preventDefault(); }});
+    drawOverlay.addEventListener('wheel', function(e) {{
+      try {{
+        var iframeDoc = drawIframe.contentDocument || drawIframe.contentWindow.document;
+        if (iframeDoc) {{
+          var rect = drawIframe.getBoundingClientRect();
+          var el = iframeDoc.elementFromPoint(e.clientX - rect.left, e.clientY - rect.top);
+          if (el) {{
+            el.dispatchEvent(new WheelEvent('wheel', {{
+              deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode,
+              bubbles: true, cancelable: true
+            }}));
+          }}
+        }}
+      }} catch(_) {{}}
+    }}, {{ passive: false }});
   }}
 </script>
 </body>
@@ -4408,6 +4440,18 @@ async def view_published_note(username: str, slug: str, request: Request):
                 )
                 backlinks_html = f'<section><h3>&#128279; Related</h3><ul>{items}</ul></section>'
 
+        # Drawing canvas (read-only embed)
+        drawing_html = ''
+        if row["note_id"]:
+            did = str(row["note_id"])
+            drawing_html = f'''<section class="pub-drawing">
+<h3>&#127912; Drawing</h3>
+<div class="pub-drawing-container" id="drawing-container">
+  <iframe src="/static/vendor/tldraw/index.html?noteId={did}" id="drawing-iframe" title="Drawing"></iframe>
+  <div class="pub-drawing-overlay" id="drawing-overlay"></div>
+</div>
+</section>'''
+
         page_html = _PUBLIC_PAGE_HTML.format(
             title=_esc(row["title"] or "Untitled"),
             description=_esc(description),
@@ -4427,6 +4471,7 @@ async def view_published_note(username: str, slug: str, request: Request):
             tags_html=tags_html,
             cover_html=cover_html,
             attachments_html=attachments_html,
+            drawing_html=drawing_html,
         )
         return HTMLResponse(content=page_html)
 
