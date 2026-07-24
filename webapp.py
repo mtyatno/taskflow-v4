@@ -3658,56 +3658,397 @@ async def unpublish_scratchpad(note_id: int, user=Depends(get_current_user)):
 # ── Public publish pages (/pub/*) ──────────────────────────────────────────────
 
 _PUBLIC_CSS = """<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; line-height: 1.7; color: #1a1a2e; background: #fff; max-width: 720px; margin: 0 auto; padding: 24px 20px 60px; }
-  @media (prefers-color-scheme: dark) {
-    body { color: #e2e2e2; background: #1a1a2e; }
-    a { color: #a8c500; }
-    pre, code { background: #2a2a3e; }
-    .pub-header, .pub-footer { color: #888; }
-    hr { border-color: #333; }
-    blockquote { border-left-color: #555; color: #bbb; }
-    table th, table td { border-color: #444; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #fafbfc;
+    --card-bg: #ffffff;
+    --text: #1a1a2e;
+    --text-secondary: #6b7280;
+    --accent: #a8c500;
+    --accent-hover: #96b000;
+    --border: #e5e7eb;
+    --header-bg: #ffffff;
+    --code-bg: #f0f0f0;
+    --pre-bg: #f5f5f5;
+    --blockquote-border: #ddd;
+    --blockquote-text: #666;
+    --table-border: #ddd;
+    --table-header-bg: #f5f5f5;
+    --tag-bg: #f0f0f0;
+    --tag-text: #555;
+    --highlight-bg: #fff3b0;
+    --input-bg: #f5f5f5;
+    --input-border: #e5e7eb;
+    --scrollbar-thumb: #ccc;
+    --scrollbar-track: transparent;
   }
-  .pub-header { font-size: 12px; color: #999; margin-bottom: 24px; }
-  .pub-header a { color: inherit; text-decoration: none; }
+
+  html.dark {
+    --bg: #0f1117;
+    --card-bg: #1a1d2e;
+    --text: #e2e2e2;
+    --text-secondary: #8b8fa3;
+    --accent: #a8c500;
+    --accent-hover: #96b000;
+    --border: #2a2d3e;
+    --header-bg: #1a1d2e;
+    --code-bg: #2a2a3e;
+    --pre-bg: #1e2030;
+    --blockquote-border: #555;
+    --blockquote-text: #bbb;
+    --table-border: #444;
+    --table-header-bg: #2a2a3e;
+    --tag-bg: #2a2d3e;
+    --tag-text: #aaa;
+    --highlight-bg: #4a4520;
+    --input-bg: #1e2030;
+    --input-border: #2a2d3e;
+    --scrollbar-thumb: #444;
+    --scrollbar-track: transparent;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not(.light) {
+      --bg: #0f1117;
+      --card-bg: #1a1d2e;
+      --text: #e2e2e2;
+      --text-secondary: #8b8fa3;
+      --border: #2a2d3e;
+      --header-bg: #1a1d2e;
+      --code-bg: #2a2a3e;
+      --pre-bg: #1e2030;
+      --blockquote-border: #555;
+      --blockquote-text: #bbb;
+      --table-border: #444;
+      --table-header-bg: #2a2a3e;
+      --tag-bg: #2a2d3e;
+      --tag-text: #aaa;
+      --highlight-bg: #4a4520;
+      --input-bg: #1e2030;
+      --input-border: #2a2d3e;
+      --scrollbar-thumb: #444;
+    }
+  }
+
+  body {
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.7;
+    color: var(--text);
+    background: var(--bg);
+    min-height: 100vh;
+  }
+
+  /* Header */
+  .pub-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 48px;
+    padding: 0 24px;
+    background: var(--header-bg);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-secondary);
+    gap: 12px;
+  }
+  .pub-header a { color: var(--accent); text-decoration: none; }
   .pub-header a:hover { text-decoration: underline; }
-  h1 { font-size: 1.8em; margin-bottom: 8px; line-height: 1.3; }
-  .pub-date { font-size: 13px; color: #888; margin-bottom: 28px; }
-  .pub-body h1, .pub-body h2, .pub-body h3 { margin-top: 1.2em; margin-bottom: 0.4em; }
-  .pub-body h2 { font-size: 1.3em; }
+  .pub-header-left { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .pub-header-right { display: flex; align-items: center; gap: 8px; }
+
+  .pub-search-wrap { position: relative; }
+  .pub-search-wrap::before {
+    content: '\2315';
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    color: var(--text-secondary);
+    pointer-events: none;
+  }
+  .pub-header input[type="text"] {
+    padding: 6px 10px 6px 30px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--input-bg);
+    color: var(--text);
+    width: 180px;
+    outline: none;
+  }
+  .pub-header input[type="text"]:focus { border-color: var(--accent); }
+
+  .pub-header button {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    color: var(--text-secondary);
+    background: var(--card-bg);
+    white-space: nowrap;
+  }
+  .pub-header button:hover { border-color: var(--accent); color: var(--accent); }
+  #dark-toggle { font-size: 16px; padding: 4px 8px; }
+
+  /* Layout */
+  .pub-layout {
+    display: grid;
+    grid-template-columns: 220px 1fr 200px;
+    gap: 32px;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 24px 60px;
+  }
+
+  /* Sidebar common */
+  .pub-sidebar-left, .pub-sidebar-right { font-size: 13px; color: var(--text-secondary); }
+  .pub-sidebar-left {
+    position: sticky;
+    top: 80px;
+    align-self: start;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+  }
+  .pub-sidebar-right { position: sticky; top: 80px; align-self: start; }
+  .pub-sidebar-left section, .pub-sidebar-right section {
+    margin-bottom: 24px;
+    padding: 16px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .pub-sidebar-left h3, .pub-sidebar-right h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+
+  /* TOC */
+  .pub-toc ul { list-style: none; padding: 0; }
+  .pub-toc li { margin-bottom: 4px; }
+  .pub-toc li.toc-h2 { padding-left: 12px; }
+  .pub-toc li.toc-h3 { padding-left: 24px; }
+  .pub-toc a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    display: block;
+    padding: 2px 0;
+    border-radius: 3px;
+  }
+  .pub-toc a:hover { color: var(--accent); }
+
+  /* Tags */
+  .pub-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pub-tag {
+    display: inline-block;
+    padding: 3px 10px;
+    background: var(--tag-bg);
+    color: var(--tag-text);
+    border-radius: 12px;
+    font-size: 12px;
+  }
+
+  /* Backlinks */
+  .pub-backlinks ul { list-style: none; padding: 0; }
+  .pub-backlinks li { margin-bottom: 4px; }
+  .pub-backlinks a { color: var(--text-secondary); text-decoration: none; }
+  .pub-backlinks a:hover { color: var(--accent); }
+
+  /* Main content */
+  .pub-main { min-width: 0; }
+
+  /* Cover */
+  .pub-cover { margin-bottom: 24px; }
+  .pub-cover img { display: block; width: 100%; max-height: 300px; object-fit: cover; border-radius: 8px; }
+
+  /* Title */
+  .pub-title { font-size: 2em; font-weight: 800; line-height: 1.2; margin-bottom: 8px; color: var(--text); }
+
+  /* Meta line */
+  .pub-meta {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 28px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+  }
+
+  /* Content body */
+  .pub-body { color: var(--text); }
+  .pub-body h1, .pub-body h2, .pub-body h3 {
+    margin-top: 1.5em;
+    margin-bottom: 0.4em;
+    scroll-margin-top: 70px;
+  }
+  .pub-body h1:first-child, .pub-body h2:first-child, .pub-body h3:first-child { margin-top: 0; }
+  .pub-body h1 { font-size: 1.5em; }
+  .pub-body h2 { font-size: 1.25em; }
   .pub-body h3 { font-size: 1.1em; }
   .pub-body p { margin-bottom: 0.8em; }
-  .pub-body a { color: #a8c500; text-decoration: none; }
+  .pub-body a { color: var(--accent); text-decoration: none; }
   .pub-body a:hover { text-decoration: underline; }
-  .pub-body pre { background: #f5f5f5; padding: 12px 16px; border-radius: 6px; overflow-x: auto; font-size: 0.9em; margin-bottom: 1em; }
-  .pub-body code { font-size: 0.9em; background: #f0f0f0; padding: 2px 5px; border-radius: 3px; }
+  .pub-body pre {
+    background: var(--pre-bg);
+    padding: 12px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.9em;
+    margin-bottom: 1em;
+  }
+  .pub-body code { font-size: 0.9em; background: var(--code-bg); padding: 2px 5px; border-radius: 3px; }
   .pub-body pre code { background: none; padding: 0; }
-  .pub-body blockquote { border-left: 3px solid #ddd; padding-left: 16px; color: #666; margin-bottom: 0.8em; }
+  .pub-body blockquote {
+    border-left: 3px solid var(--blockquote-border);
+    padding-left: 16px;
+    color: var(--blockquote-text);
+    margin-bottom: 0.8em;
+  }
   .pub-body ul, .pub-body ol { margin-bottom: 0.8em; padding-left: 1.5em; }
   .pub-body li { margin-bottom: 0.3em; }
   .pub-body table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
-  .pub-body table th, .pub-body table td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
-  .pub-body table th { background: #f5f5f5; font-weight: 600; }
+  .pub-body table th, .pub-body table td {
+    border: 1px solid var(--table-border);
+    padding: 8px 12px;
+    text-align: left;
+  }
+  .pub-body table th { background: var(--table-header-bg); font-weight: 600; }
   .pub-body img { max-width: 100%; height: auto; border-radius: 4px; }
-  .pub-body hr { border: none; border-top: 1px solid #eee; margin: 24px 0; }
-  .pub-body mark { background: #fff3b0; color: inherit; padding: 1px 3px; border-radius: 2px; }
-  hr { border: none; border-top: 1px solid #eee; margin: 28px 0; }
-  .pub-footer { text-align: center; font-size: 12px; color: #999; margin-top: 40px; }
-  .pub-footer a { color: inherit; }
-  .pub-password { max-width: 360px; margin: 80px auto; text-align: center; }
-  .pub-password h1 { font-size: 1.2em; margin-bottom: 16px; }
-  .pub-password input { width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; margin-bottom: 10px; }
-  .pub-password button { width: 100%; padding: 10px; background: #a8c500; color: #1a1a2e; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
-  .pub-password button:hover { background: #96b000; }
+  .pub-body hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+  .pub-body mark { background: var(--highlight-bg); color: inherit; padding: 1px 3px; border-radius: 2px; }
+
+  /* Search highlight */
+  mark.search-highlight { background: #ffeb3b; color: #000; padding: 1px 2px; border-radius: 2px; }
+  html.dark mark.search-highlight { background: #ffeb3b; color: #000; }
+
+  /* Attachments */
+  .pub-attachments {
+    margin-top: 32px;
+    padding: 20px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .pub-attachments h3 { font-size: 14px; margin-bottom: 12px; color: var(--text); }
+  .pub-attachment-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    text-decoration: none;
+    color: var(--text);
+    transition: border-color 0.15s;
+  }
+  .pub-attachment-item:hover { border-color: var(--accent); }
+  .pub-attachment-icon { font-size: 20px; flex-shrink: 0; }
+  .pub-attachment-name { font-size: 13px; font-weight: 500; word-break: break-all; }
+  .pub-attachment-meta { font-size: 11px; color: var(--text-secondary); }
+
+  /* Right sidebar */
+  .pub-about-item { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
+  .pub-actions { display: flex; flex-direction: column; gap: 6px; }
+  .pub-actions button {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--card-bg);
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+  .pub-actions button:hover { border-color: var(--accent); }
+
+  /* Footer */
+  .pub-footer {
+    text-align: center;
+    padding: 24px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    border-top: 1px solid var(--border);
+  }
+  .pub-footer a { color: var(--accent); text-decoration: none; }
+
+  /* Password gate */
+  .pub-password {
+    max-width: 360px;
+    margin: 80px auto;
+    text-align: center;
+    padding: 32px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .pub-password h1 { font-size: 1.2em; margin-bottom: 16px; color: var(--text); }
+  .pub-password input {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    margin-bottom: 10px;
+    background: var(--input-bg);
+    color: var(--text);
+  }
+  .pub-password button {
+    width: 100%;
+    padding: 10px;
+    background: var(--accent);
+    color: #1a1a2e;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .pub-password button:hover { background: var(--accent-hover); }
   .pub-error { color: #ef4444; font-size: 13px; margin-top: 6px; }
-  .pub-body .math-block, .pub-body .math-inline { /* KaTeX will replace these */ }
-  .pub-backlinks { margin-top: 32px; }
-  .pub-backlinks h2 { font-size: 1em; color: #888; margin-bottom: 10px; }
-  .pub-backlinks ul { list-style: none; padding: 0; }
-  .pub-backlinks li { margin-bottom: 4px; }
-  .pub-backlinks li a { color: var(--accent, #a8c500); text-decoration: none; }
-  .pub-backlinks li a:hover { text-decoration: underline; }
+
+  /* 404 page */
+  .pub-notfound { text-align: center; padding-top: 80px; color: var(--text); }
+  .pub-notfound h1 { font-size: 3em; margin-bottom: 12px; }
+  .pub-notfound p { color: var(--text-secondary); }
+
+  /* Scrollbar */
+  .pub-sidebar-left::-webkit-scrollbar { width: 5px; }
+  .pub-sidebar-left::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+  .pub-sidebar-left::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+
+  /* Responsive: Tablet (hide right sidebar) */
+  @media (max-width: 1100px) {
+    .pub-layout { grid-template-columns: 180px 1fr; gap: 24px; padding: 24px 20px 40px; }
+    .pub-sidebar-right { display: none; }
+  }
+
+  /* Responsive: Mobile (single column, hide sidebars) */
+  @media (max-width: 900px) {
+    .pub-layout { grid-template-columns: 1fr; padding: 20px 16px 40px; }
+    .pub-sidebar-left { display: none; }
+    .pub-sidebar-right { display: none; }
+    .pub-header { padding: 0 16px; }
+    .pub-header input[type="text"] { width: 120px; }
+    .pub-header .pub-search-wrap { display: none; }
+    .pub-title { font-size: 1.5em; }
+  }
 </style>"""
 
 _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
@@ -3725,13 +4066,60 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 {css}
 </head>
 <body>
-<div class="pub-header">🔗 Published via <a href="{base_url}">TaskFlow</a></div>
-<h1>{title}</h1>
-<div class="pub-date">{date}</div>
-<div class="pub-body">{body}</div>
-{backlinks}
-<hr>
-<div class="pub-footer">Powered by <a href="{base_url}">TaskFlow</a></div>
+<header class="pub-header">
+  <div class="pub-header-left">&#128279; <a href="{base_url}">Published via TaskFlow</a></div>
+  <div class="pub-header-right">
+    <div class="pub-search-wrap">
+      <input type="text" id="doc-search" placeholder="Search in document...">
+    </div>
+    <button id="dark-toggle" title="Toggle dark mode">&#127769;</button>
+    <button id="copy-link-btn">&#128203; Copy Link</button>
+  </div>
+</header>
+
+<div class="pub-layout">
+  <aside class="pub-sidebar-left">
+    {toc_html}
+    {backlinks}
+    {tags_html}
+  </aside>
+
+  <main class="pub-main">
+    {cover_html}
+    <h1 class="pub-title">{title}</h1>
+    <div class="pub-meta">
+      <span>&#128100; {author}</span>
+      <span>&#128197; {date}</span>
+      <span>&#9201; {reading_time} min read</span>
+      <span>&#128221; {word_count} words</span>
+    </div>
+    <div class="pub-body">{body}</div>
+    {attachments_html}
+  </main>
+
+  <aside class="pub-sidebar-right">
+    <section>
+      <h3>About this page</h3>
+      <div class="pub-about-item">&#128100; {author}</div>
+      <div class="pub-about-item">&#128197; Created: {created_date}</div>
+      <div class="pub-about-item">&#128339; Updated: {updated_date}</div>
+      <div class="pub-about-item">&#9201; {reading_time} min read</div>
+      <div class="pub-about-item">&#128221; {word_count} words</div>
+    </section>
+    <section>
+      <h3>Actions</h3>
+      <div class="pub-actions">
+        <button id="copy-link-btn-2">&#128203; Copy Link</button>
+        <button onclick="window.print()">&#128424; Print</button>
+      </div>
+    </section>
+  </aside>
+</div>
+
+<footer class="pub-footer">
+  Published with &#10084; by <a href="{base_url}">TaskFlow</a>
+</footer>
+
 <script src="/static/vendor/katex/katex.min.js"></script>
 <script src="/static/vendor/katex/auto-render.min.js"></script>
 <script>
@@ -3744,15 +4132,87 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
     }});
   }} catch(e) {{}}
 </script>
+<script>
+  // Dark mode toggle
+  (function() {{
+    if (localStorage.getItem('pub-dark') === '1' ||
+        (!localStorage.getItem('pub-dark') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {{
+      document.documentElement.classList.add('dark');
+    }}
+    var dt = document.getElementById('dark-toggle');
+    if (dt) {{
+      dt.addEventListener('click', function() {{
+        var isDark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('pub-dark', isDark ? '1' : '0');
+        dt.textContent = isDark ? '\\u2600\\uFE0F' : '\\uD83C\\uDF19';
+      }});
+      if (document.documentElement.classList.contains('dark')) {{
+        dt.textContent = '\\u2600\\uFE0F';
+      }}
+    }}
+  }})();
+
+  // Copy link buttons
+  function setupCopyBtn(btn) {{
+    if (!btn) return;
+    btn.addEventListener('click', function() {{
+      navigator.clipboard.writeText(window.location.href).then(function() {{
+        btn.textContent = '\\u2705 Copied!';
+        setTimeout(function() {{ btn.textContent = '\\uD83D\\uDCCB Copy Link'; }}, 2000);
+      }}).catch(function() {{}});
+    }});
+  }}
+  setupCopyBtn(document.getElementById('copy-link-btn'));
+  setupCopyBtn(document.getElementById('copy-link-btn-2'));
+
+  // Search in document
+  var searchInput = document.getElementById('doc-search');
+  if (searchInput) {{
+    searchInput.addEventListener('input', function() {{
+      var query = searchInput.value.toLowerCase().trim();
+      document.querySelectorAll('.search-highlight').forEach(function(el) {{
+        el.replaceWith(el.textContent);
+      }});
+      if (!query) return;
+      var body = document.querySelector('.pub-body');
+      if (body) highlightText(body, query);
+    }});
+  }}
+
+  function highlightText(element, query) {{
+    var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
+    var nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (var i = 0; i < nodes.length; i++) {{
+      var node = nodes[i];
+      var text = node.textContent;
+      var idx = text.toLowerCase().indexOf(query);
+      if (idx === -1) continue;
+      var mark = document.createElement('mark');
+      mark.className = 'search-highlight';
+      mark.textContent = text.substring(idx, idx + query.length);
+      var after = document.createTextNode(text.substring(idx + query.length));
+      node.textContent = text.substring(0, idx);
+      var parent = node.parentNode;
+      if (parent) {{
+        parent.insertBefore(mark, node.nextSibling);
+        parent.insertBefore(after, mark.nextSibling);
+      }}
+    }}
+  }}
+</script>
 </body>
 </html>"""
 
 _NOT_FOUND_HTML = """<!DOCTYPE html>
 <html lang="id">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Not Found — TaskFlow</title>""" + _PUBLIC_CSS + """</head>
-<body style="text-align:center;padding-top:80px">
+<body>
+<div class="pub-notfound">
 <h1>404</h1>
 <p>Halaman tidak ditemukan atau sudah di-unpublish.</p>
+<p style="margin-top:16px"><a href="/" style="color:var(--accent);text-decoration:none">&#8592; Back to TaskFlow</a></p>
+</div>
 </body></html>"""
 
 _PASSWORD_GATE_HTML = """<!DOCTYPE html>
@@ -3812,21 +4272,114 @@ async def view_published_note(username: str, slug: str, request: Request):
                     css=_PUBLIC_CSS
                 ))
 
-        # Render full page
-        description = html.escape(((row["content"] or "")[:200]).replace('\n', ' ').strip())
-        body_html = _render_published_content(row["content"] or "", conn)
-        date_str = datetime.fromisoformat(row["updated_at"] or row["published_at"]).strftime("%d %B %Y")
+        import re as _re
 
         # Helper: escape { } for .format() safety
         def _esc(s):
             return str(s).replace('{', '{{').replace('}', '}}')
+
+        raw_content = row["content"] or ""
+        description = html.escape(raw_content[:200].replace('\n', ' ').strip())
+        body_html = _render_published_content(raw_content, conn)
+
+        # Dates
+        created_date = datetime.fromisoformat(row["published_at"]).strftime("%d %B %Y")
+        updated_date = datetime.fromisoformat(row["updated_at"] or row["published_at"]).strftime("%d %B %Y")
+        date_str = updated_date  # most recent date for meta line
+
+        # Reading time & word count
+        word_count = len(raw_content.split())
+        reading_time = max(1, -(-word_count // 200))  # ceil division
+
+        author = row["username"]
+
+        # Tags
+        tags_html = ""
+        tags = conn.execute(
+            "SELECT name FROM note_tags WHERE note_id = ?",
+            (row["note_id"],)
+        ).fetchall()
+        if tags:
+            tag_pills = "".join(
+                f'<span class="pub-tag">{_esc(t["name"])}</span>'
+                for t in tags
+            )
+            tags_html = f'<section><h3>&#127991; Tags</h3><div class="pub-tags">{tag_pills}</div></section>'
+
+        # Attachments
+        attachments_html = ""
+        atts = conn.execute(
+            "SELECT id, original_name, mime_type FROM note_attachments WHERE note_id = ?",
+            (row["note_id"],)
+        ).fetchall()
+        if atts:
+            mime_icons = {
+                'image': '&#128444;', 'video': '&#127916;', 'audio': '&#127925;',
+                'pdf': '&#128196;', 'text': '&#128221;', 'application': '&#128206;'
+            }
+            att_items = ""
+            for a in atts:
+                mime = a["mime_type"] or ""
+                icon = '&#128206;'
+                for prefix, ico in mime_icons.items():
+                    if mime.startswith(prefix):
+                        icon = ico
+                        break
+                att_items += (
+                    f'<a href="/pub/attachments/{a["id"]}" class="pub-attachment-item">'
+                    f'<span class="pub-attachment-icon">{icon}</span>'
+                    f'<div><div class="pub-attachment-name">{_esc(a["original_name"] or "file")}</div>'
+                    f'<div class="pub-attachment-meta">{_esc(mime)}</div></div>'
+                    f'</a>'
+                )
+            attachments_html = (
+                f'<section class="pub-attachments">'
+                f'<h3>&#128206; Attachments</h3>{att_items}</section>'
+            )
+
+        # Cover image — extract first <img> from body_html
+        cover_html = ""
+        cover_match = _re.search(r'<img[^>]+src="([^"]+)"[^>]*>', body_html)
+        if cover_match:
+            cover_img = cover_match.group(0).replace(
+                '<img',
+                '<img style="width:100%;max-height:300px;object-fit:cover;border-radius:8px"'
+            )
+            cover_html = _esc(f'<div class="pub-cover">{cover_img}</div>')
+            body_html = body_html.replace(cover_match.group(0), '', 1)
+
+        # TOC — parse h1-h3 from raw content, generate slugs, add ids to body_html
+        toc_html = ""
+        toc_items = []
+        for m in _re.finditer(r'^(#{1,3})\s+(.+)$', raw_content, _re.MULTILINE):
+            level = len(m.group(1))
+            title = m.group(2).strip()
+            slug = _re.sub(r'[^\w-]', '', title.lower().replace(' ', '-'))[:50]
+            toc_items.append((level, title, slug))
+
+        if toc_items:
+            # Add id attributes to heading tags in body_html (assumes same order as raw content)
+            heading_idx = [0]
+            def _add_heading_id(m):
+                if heading_idx[0] < len(toc_items):
+                    lvl, tit, sid = toc_items[heading_idx[0]]
+                    heading_idx[0] += 1
+                    return f'<h{lvl} id="{sid}">'
+                return m.group(0)
+            body_html = _re.sub(r'<(h[1-3])>', _add_heading_id, body_html)
+
+            # Build TOC list
+            toc_list = ""
+            for level, title, slug in toc_items:
+                cls = f"toc-h{level}" if level > 1 else ""
+                toc_list += f'<li class="{cls}"><a href="#{slug}">{_esc(title)}</a></li>'
+            toc_html = f'<section class="pub-toc"><h3>&#128211; Contents</h3><ul>{toc_list}</ul></section>'
 
         # Build backlinks: other published notes that link to this note
         note_title = row["title"] or ""
         backlinks_html = ""
         if note_title.strip():
             t = note_title.strip()
-            # Query all published notes except current, filter in Python to avoid LIKE escaping issues
             all_pub = conn.execute(
                 """SELECT n.title, n.content, p2.slug, u2.username FROM scratchpad_notes n
                    JOIN published_notes p2 ON p2.note_id = n.id
@@ -3844,7 +4397,7 @@ async def view_published_note(username: str, slug: str, request: Request):
                     f'<li><a href="/pub/{b["username"]}/{b["slug"]}">{_esc(b["title"] or "Untitled")}</a></li>'
                     for b in backlinks
                 )
-                backlinks_html = f'<div class="pub-backlinks"><h2>🔗 Linked from</h2><ul>{items}</ul></div>'
+                backlinks_html = f'<section><h3>&#128279; Related</h3><ul>{items}</ul></section>'
 
         page_html = _PUBLIC_PAGE_HTML.format(
             title=_esc(row["title"] or "Untitled"),
@@ -3855,7 +4408,16 @@ async def view_published_note(username: str, slug: str, request: Request):
             date=_esc(date_str),
             body=_esc(body_html),
             backlinks=backlinks_html,
-            css=_PUBLIC_CSS
+            css=_PUBLIC_CSS,
+            author=_esc(author),
+            created_date=_esc(created_date),
+            updated_date=_esc(updated_date),
+            reading_time=str(reading_time),
+            word_count=str(word_count),
+            toc_html=toc_html,
+            tags_html=tags_html,
+            cover_html=cover_html,
+            attachments_html=attachments_html,
         )
         return HTMLResponse(content=page_html)
 
