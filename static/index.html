@@ -16074,37 +16074,37 @@ function NoteModal({
         view.dispatch(tr);
       });
     }
+    function handleVoiceText(text) {
+      var prev = voiceLastTextRef.current;
+      // Exact duplicate — skip (auto-restart atau event ganda)
+      if (text === prev) return;
+      // Text lebih panjang dan diawali prev → lanjutan utterance, insert delta aja
+      if (text.length > prev.length && text.slice(0, prev.length) === prev) {
+        var delta = text.slice(prev.length);
+        insertTextAtCursor(delta);
+        voiceLastTextRef.current = text;
+        return;
+      }
+      // Utterance baru (text berbeda total atau lebih pendek)
+      insertTextAtCursor(text);
+      voiceLastTextRef.current = text;
+    }
+    var finalResetTimer = null;
     var vd = window.TF.voicedictate.create({
       lang: 'id-ID',
       onInterim: function (text) {
         console.log('[voice] interim:', text.slice(0, 60));
-        var prev = voiceLastTextRef.current;
-        // Deteksi utterance baru: text tidak diawali prev (atau lebih pendek)
-        if (text.length <= prev.length || text.slice(0, prev.length) !== prev) {
-          // Utterance baru — reset tracker
-          voiceLastTextRef.current = '';
-          prev = '';
-        }
-        if (text.length > prev.length) {
-          var delta = text.slice(prev.length);
-          insertTextAtCursor(delta);
-          voiceLastTextRef.current = text;
-        }
+        clearTimeout(finalResetTimer);
+        handleVoiceText(text);
       },
       onFinal: function (text) {
         console.log('[voice] final:', text.slice(0, 60));
-        var prev = voiceLastTextRef.current;
-        // Sama seperti onInterim — deteksi utterance baru
-        if (text.length <= prev.length || text.slice(0, prev.length) !== prev) {
+        clearTimeout(finalResetTimer);
+        handleVoiceText(text);
+        // Reset tracker after 1 detik — biar utterance baru dgn text sama tetap masuk
+        finalResetTimer = setTimeout(function () {
           voiceLastTextRef.current = '';
-          prev = '';
-        }
-        if (text.length > prev.length) {
-          var delta = text.slice(prev.length);
-          insertTextAtCursor(delta);
-          voiceLastTextRef.current = text;
-        }
-        // JANGAN reset — auto-restart bisa kirim ulang text yg sama
+        }, 1000);
         showToast('✅ ' + text.slice(0, 50), 'success');
       },
       onError: function (msg) {
@@ -16120,6 +16120,7 @@ function NoteModal({
     return function () {
       if (voiceRef.current) { voiceRef.current.stop(); voiceRef.current = null; }
       voiceLastTextRef.current = '';
+      clearTimeout(finalResetTimer);
     };
   }, []); // hanya setup sekali saat mount
 
