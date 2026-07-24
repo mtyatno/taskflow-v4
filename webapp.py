@@ -3783,7 +3783,7 @@ async def view_published_note(slug: str, request: Request):
         def _esc(s):
             return str(s).replace('{', '{{').replace('}', '}}')
 
-        html = _PUBLIC_PAGE_HTML.format(
+        page_html = _PUBLIC_PAGE_HTML.format(
             title=_esc(row["title"] or "Untitled"),
             description=_esc(description),
             base_url=WEBAPP_URL,
@@ -3792,7 +3792,7 @@ async def view_published_note(slug: str, request: Request):
             body=_esc(body_html),
             css=_PUBLIC_CSS
         )
-        return HTMLResponse(content=html)
+        return HTMLResponse(content=page_html)
 
 @app.post("/pub/{slug}/unlock")
 async def unlock_published_note(slug: str, request: Request):
