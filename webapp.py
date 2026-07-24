@@ -3801,8 +3801,8 @@ async def view_published_note(slug: str, request: Request):
             backlinks = []
             for b in all_pub:
                 c = b["content"] or ""
-                # Check both plain [[title]] and escaped \[[title]]
-                if f"[[{t}]]" in c or f"\\[[{t}]]" in c:
+                # Check plain [[title]] and Milkdown-escaped \[\[title]]
+                if f"[[{t}]]" in c or f"\\[\\[{t}]]" in c:
                     backlinks.append(b)
             if backlinks:
                 items = "".join(
