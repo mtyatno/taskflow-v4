@@ -17683,8 +17683,8 @@ function NoteModal({
     content: content,
     onApplyTemplate: function(tpl) { return setContent(tpl); },
     onInsertTask: openTaskDropdown,
-    voiceState: 'unsupported',
-    onToggleVoice: null
+    voiceState: voiceState,
+    onToggleVoice: handleToggleVoice
   }), /*#__PURE__*/React.createElement("button", {
     onClick: () => setTextareaFullscreen(false),
     style: {
