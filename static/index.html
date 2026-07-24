@@ -16055,14 +16055,14 @@ function NoteModal({
     window.TF && window.TF.voicedictate && window.TF.voicedictate.isSupported() ? 'idle' : 'unsupported'
   );
   const voiceRef = React.useRef(null);
-  const voiceLastLenRef = React.useRef(0); // track panjang text yg sudah di-insert (anti-duplikasi)
+  const voiceLastTextRef = React.useRef(''); // track full text terakhir — deteksi utterance baru vs duplikat
 
   // Voice dictation setup + cleanup
   React.useEffect(function () {
     if (!window.TF || !window.TF.voicedictate || !window.TF.voicedictate.isSupported()) return;
-    function insertTextDelta(text) {
+    function insertTextAtCursor(text) {
       var editor = milkdownEditorRef.current;
-      if (!editor) { console.warn('[voice] editor ref null'); return; }
+      if (!editor || !text) return;
       editor.action(function (ctx) {
         var MB = window.MilkdownBundle;
         var view = ctx.get(MB.editorViewCtx);
@@ -16077,23 +16077,33 @@ function NoteModal({
       lang: 'id-ID',
       onInterim: function (text) {
         console.log('[voice] interim:', text.slice(0, 60));
-        // Hanya insert bagian baru (delta) — cegah duplikasi
-        var prevLen = voiceLastLenRef.current;
-        if (text.length > prevLen) {
-          var delta = text.slice(prevLen);
-          insertTextDelta(delta);
-          voiceLastLenRef.current = text.length;
+        var prev = voiceLastTextRef.current;
+        // Deteksi utterance baru: text tidak diawali prev (atau lebih pendek)
+        if (text.length <= prev.length || text.slice(0, prev.length) !== prev) {
+          // Utterance baru — reset tracker
+          voiceLastTextRef.current = '';
+          prev = '';
+        }
+        if (text.length > prev.length) {
+          var delta = text.slice(prev.length);
+          insertTextAtCursor(delta);
+          voiceLastTextRef.current = text;
         }
       },
       onFinal: function (text) {
         console.log('[voice] final:', text.slice(0, 60));
-        // Insert sisa delta jika ada, lalu reset counter
-        var prevLen = voiceLastLenRef.current;
-        if (text.length > prevLen) {
-          var delta = text.slice(prevLen);
-          insertTextDelta(delta);
+        var prev = voiceLastTextRef.current;
+        // Sama seperti onInterim — deteksi utterance baru
+        if (text.length <= prev.length || text.slice(0, prev.length) !== prev) {
+          voiceLastTextRef.current = '';
+          prev = '';
         }
-        voiceLastLenRef.current = 0;
+        if (text.length > prev.length) {
+          var delta = text.slice(prev.length);
+          insertTextAtCursor(delta);
+          voiceLastTextRef.current = text;
+        }
+        // JANGAN reset — auto-restart bisa kirim ulang text yg sama
         showToast('✅ ' + text.slice(0, 50), 'success');
       },
       onError: function (msg) {
@@ -16108,7 +16118,7 @@ function NoteModal({
     voiceRef.current = vd;
     return function () {
       if (voiceRef.current) { voiceRef.current.stop(); voiceRef.current = null; }
-      voiceLastLenRef.current = 0;
+      voiceLastTextRef.current = '';
     };
   }, []); // hanya setup sekali saat mount
 
@@ -16116,9 +16126,9 @@ function NoteModal({
     if (!voiceRef.current) return;
     if (voiceRef.current.getState() === 'listening' || voiceRef.current.getState() === 'paused') {
       voiceRef.current.stop();
-      voiceLastLenRef.current = 0;
+      voiceLastTextRef.current = '';
     } else {
-      voiceLastLenRef.current = 0;
+      voiceLastTextRef.current = '';
       voiceRef.current.start();
     }
   }
