@@ -19018,6 +19018,7 @@ function NotesPage({
   const [navTrail, setNavTrail] = useState([]);
   const [noteTitles, setNoteTitles] = useState([]);
   const [tagsOpen, setTagsOpen] = useState(true);
+  const [publishedOpen, setPublishedOpen] = useState(true);
   const [sortBy, setSortBy] = useState("updated");
   const [pinnedExpanded, setPinnedExpanded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -19563,7 +19564,43 @@ function NotesPage({
         className: "tag-count"
       }, untaggedCount)));
     })()));
-  })())), sharedLists.length > 0 && (() => {
+  })())),
+publishedNotes.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null,
+  /*#__PURE__*/React.createElement("div", {
+    style: { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0', cursor: 'pointer', userSelect: 'none' },
+    onClick: () => setPublishedOpen(o => !o)
+  },
+    /*#__PURE__*/React.createElement("span", { style: { fontSize: 14 } }, "🔗"),
+    /*#__PURE__*/React.createElement("span", { style: { fontWeight: 600, fontSize: 12, color: 'var(--text-primary)' } }, "Published"),
+    /*#__PURE__*/React.createElement("span", { style: { fontSize: 10, color: 'var(--text-light)' } }, "(" + publishedNotes.length + ")"),
+    /*#__PURE__*/React.createElement("span", { style: { marginLeft: 'auto', fontSize: 9, color: '#98A2B3' } }, publishedOpen ? '▲' : '▼')
+  ),
+  publishedOpen && /*#__PURE__*/React.createElement("div", { style: { paddingLeft: 4, marginBottom: 10 } },
+    publishedNotes.map(p => /*#__PURE__*/React.createElement("div", {
+      key: p.note_id,
+      style: { display: 'flex', alignItems: 'center', gap: 4, padding: '3px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)' },
+      onMouseEnter: e => { e.currentTarget.style.background = 'var(--bg-primary)'; e.currentTarget.style.color = 'var(--text-primary)'; },
+      onMouseLeave: e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }
+    },
+      /*#__PURE__*/React.createElement("span", {
+        onClick: () => {
+          const note = allNotes.find(n => n.id === p.note_id);
+          if (note) openTab(note);
+        },
+        style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+      }, (p.password_set ? "🔒 " : "🔗 ") + (p.title || "Untitled")),
+      /*#__PURE__*/React.createElement("span", {
+        onClick: () => {
+          navigator.clipboard.writeText(WEBAPP_URL + '/pub/' + p.slug);
+          showToast('Link disalin');
+        },
+        title: "Copy link",
+        style: { cursor: 'pointer', fontSize: 10, padding: '2px 4px', flexShrink: 0 }
+      }, "📋")
+    ))
+  )
+),
+ sharedLists.length > 0 && (() => {
     const listsWithNotes = sharedLists.filter(l => allNotes.some(n => n.list_id === l.id));
     if (listsWithNotes.length === 0) return null;
     return /*#__PURE__*/React.createElement("div", {
