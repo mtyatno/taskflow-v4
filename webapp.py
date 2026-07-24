@@ -118,7 +118,7 @@ def _today_jkt() -> date:
 
 from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, UploadFile, File as FastAPIFile, BackgroundTasks, Query, Body
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, RedirectResponse
 import io
 import zipfile
 import csv
@@ -2752,6 +2752,76 @@ def _generate_publish_slug(conn) -> str:
             return slug
     raise HTTPException(status_code=500, detail="Gagal generate slug unik — coba lagi")
 
+def _render_published_content(raw_content: str, conn) -> str:
+    """Process raw markdown for public page: strip internal tokens, resolve wikilinks, render to HTML."""
+    import re as _re
+    content = raw_content or ""
+
+    # 1. Strip tasklink tokens
+    content = _re.sub(r'\\?\[tasklink:[0-9a-f-]+\]', '', content)
+
+    # 2. Strip ==highlight== → render as <mark>
+    content = _re.sub(r'==([^=\n]+)==', r'<mark>\1</mark>', content)
+
+    # 3. Build wikilink map: title → slug (only for published notes)
+    published_map = {}
+    for row in conn.execute(
+        "SELECT n.title, p.slug FROM published_notes p JOIN scratchpad_notes n ON n.id = p.note_id"
+    ).fetchall():
+        key = row["title"].strip().lower()
+        published_map[key] = row["slug"]
+
+    # 4. Rewrite [[wikilink]]
+    def _replace_wikilink(m):
+        raw = m.group(1).replace('\\(', '(').replace('\\)', ')')
+        title = raw.split("|")[0].strip()
+        norm = title.strip().lower()
+        # Check by title
+        if norm in published_map:
+            return f'<a href="/pub/{published_map[norm]}">[[{title}]]</a>'
+        # Check by id: prefix
+        m_id = _re.match(r'^(?:id|note)\s*:\s*(\d+)$', norm, _re.IGNORECASE)
+        if m_id:
+            row2 = conn.execute(
+                "SELECT p.slug FROM published_notes p WHERE p.note_id = ?", (int(m_id.group(1)),)
+            ).fetchone()
+            if row2:
+                return f'<a href="/pub/{row2["slug"]}">[[{title}]]</a>'
+        # Check by numeric id
+        if norm.isdigit():
+            row2 = conn.execute(
+                "SELECT p.slug FROM published_notes p WHERE p.note_id = ?", (int(norm),)
+            ).fetchone()
+            if row2:
+                return f'<a href="/pub/{row2["slug"]}">[[{title}]]</a>'
+        # Not published → plain text
+        return f'[[{title}]]'
+
+    content = _re.sub(r'(?:\\?\[){2}([^\[\]\\]+)(?:\\?\]){2}', _replace_wikilink, content)
+
+    # 5. Rewrite attachment URLs
+    content = _re.sub(
+        r'!\[([^\]]*)\]\(/api/scratchpad/attachments/(\d+)/view\)',
+        r'![\1](/pub/attachments/\2)',
+        content
+    )
+
+    # 6. Checklist [ ] / [x] → read-only
+    content = _re.sub(r'^(\s*)- \[ \]', r'\1- ☐', content, flags=_re.MULTILINE)
+    content = _re.sub(r'^(\s*)- \[[xX]\]', r'\1- ☑', content, flags=_re.MULTILINE)
+
+    # 7. Render markdown → HTML via mistune
+    try:
+        import mistune
+        md_renderer = mistune.create_markdown(escape=False)
+        html = md_renderer(content)
+    except ImportError:
+        # Fallback: wrap in <pre> if mistune not installed
+        escaped = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        html = f'<pre style="white-space:pre-wrap;font:inherit">{escaped}</pre>'
+
+    return html
+
 def _resolve_linked_to(titles: list[str], user_id: int, conn) -> list[int]:
     """Resolve note titles/IDs to note IDs. Handles plain titles, id:N, and numeric IDs."""
     if not titles:
@@ -3566,6 +3636,221 @@ async def list_published(user=Depends(get_current_user)):
             "password_set": bool(r["password_hash"]),
             "published_at": r["published_at"]
         } for r in rows]
+
+# ── Public publish pages (/pub/*) ──────────────────────────────────────────────
+
+_PUBLIC_CSS = """<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; line-height: 1.7; color: #1a1a2e; background: #fff; max-width: 720px; margin: 0 auto; padding: 24px 20px 60px; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e2e2e2; background: #1a1a2e; }
+    a { color: #a8c500; }
+    pre, code { background: #2a2a3e; }
+    .pub-header, .pub-footer { color: #888; }
+    hr { border-color: #333; }
+    blockquote { border-left-color: #555; color: #bbb; }
+    table th, table td { border-color: #444; }
+  }
+  .pub-header { font-size: 12px; color: #999; margin-bottom: 24px; }
+  .pub-header a { color: inherit; text-decoration: none; }
+  .pub-header a:hover { text-decoration: underline; }
+  h1 { font-size: 1.8em; margin-bottom: 8px; line-height: 1.3; }
+  .pub-date { font-size: 13px; color: #888; margin-bottom: 28px; }
+  .pub-body h1, .pub-body h2, .pub-body h3 { margin-top: 1.2em; margin-bottom: 0.4em; }
+  .pub-body h2 { font-size: 1.3em; }
+  .pub-body h3 { font-size: 1.1em; }
+  .pub-body p { margin-bottom: 0.8em; }
+  .pub-body a { color: #a8c500; text-decoration: none; }
+  .pub-body a:hover { text-decoration: underline; }
+  .pub-body pre { background: #f5f5f5; padding: 12px 16px; border-radius: 6px; overflow-x: auto; font-size: 0.9em; margin-bottom: 1em; }
+  .pub-body code { font-size: 0.9em; background: #f0f0f0; padding: 2px 5px; border-radius: 3px; }
+  .pub-body pre code { background: none; padding: 0; }
+  .pub-body blockquote { border-left: 3px solid #ddd; padding-left: 16px; color: #666; margin-bottom: 0.8em; }
+  .pub-body ul, .pub-body ol { margin-bottom: 0.8em; padding-left: 1.5em; }
+  .pub-body li { margin-bottom: 0.3em; }
+  .pub-body table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
+  .pub-body table th, .pub-body table td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+  .pub-body table th { background: #f5f5f5; font-weight: 600; }
+  .pub-body img { max-width: 100%%; height: auto; border-radius: 4px; }
+  .pub-body hr { border: none; border-top: 1px solid #eee; margin: 24px 0; }
+  .pub-body mark { background: #fff3b0; color: inherit; padding: 1px 3px; border-radius: 2px; }
+  hr { border: none; border-top: 1px solid #eee; margin: 28px 0; }
+  .pub-footer { text-align: center; font-size: 12px; color: #999; margin-top: 40px; }
+  .pub-footer a { color: inherit; }
+  .pub-password { max-width: 360px; margin: 80px auto; text-align: center; }
+  .pub-password h1 { font-size: 1.2em; margin-bottom: 16px; }
+  .pub-password input { width: 100%%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; margin-bottom: 10px; }
+  .pub-password button { width: 100%%; padding: 10px; background: #a8c500; color: #1a1a2e; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .pub-password button:hover { background: #96b000; }
+  .pub-error { color: #ef4444; font-size: 13px; margin-top: 6px; }
+  .pub-body .math-block, .pub-body .math-inline { /* KaTeX will replace these */ }
+</style>"""
+
+_PUBLIC_PAGE_HTML = """<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title} — TaskFlow Publish</title>
+<meta name="description" content="{description}">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="{description}">
+<meta property="og:type" content="article">
+<meta property="og:url" content="{base_url}/pub/{slug}">
+<link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
+""" + _PUBLIC_CSS + """
+</head>
+<body>
+<div class="pub-header">🔗 Published via <a href="{base_url}">TaskFlow</a></div>
+<h1>{title}</h1>
+<div class="pub-date">{date}</div>
+<div class="pub-body">{body}</div>
+<hr>
+<div class="pub-footer">Powered by <a href="{base_url}">TaskFlow</a></div>
+<script src="/static/vendor/katex/katex.min.js"></script>
+<script src="/static/vendor/katex/auto-render.min.js"></script>
+<script>
+  try {{
+    renderMathInElement(document.body, {{
+      delimiters: [
+        {{left: '$$', right: '$$', display: true}},
+        {{left: '$', right: '$', display: false}}
+      ]
+    }});
+  }} catch(e) {{}}
+</script>
+</body>
+</html>"""
+
+_NOT_FOUND_HTML = """<!DOCTYPE html>
+<html lang="id">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Not Found — TaskFlow</title>""" + _PUBLIC_CSS + """</head>
+<body style="text-align:center;padding-top:80px">
+<h1>404</h1>
+<p>Halaman tidak ditemukan atau sudah di-unpublish.</p>
+</body></html>"""
+
+_PASSWORD_GATE_HTML = """<!DOCTYPE html>
+<html lang="id">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>🔒 Protected — TaskFlow</title>""" + _PUBLIC_CSS + """</head>
+<body>
+<div class="pub-password">
+  <h1>🔒 Halaman ini dilindungi password</h1>
+  <form method="post" action="/pub/{slug}/unlock">
+    <input type="password" name="password" placeholder="Masukkan password" autofocus required>
+    <button type="submit">Buka</button>
+  </form>
+  {error_html}
+</div>
+</body></html>"""
+
+@app.get("/pub/{slug}")
+async def view_published_note(slug: str, request: Request):
+    """Public page for a published note. Server-side rendered HTML with OG meta."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT n.title, n.content, n.updated_at, p.published_at, p.password_hash, p.note_id
+               FROM published_notes p
+               JOIN scratchpad_notes n ON n.id = p.note_id
+               WHERE p.slug = ?""",
+            (slug,)
+        ).fetchone()
+        if not row:
+            return HTMLResponse(
+                content=_NOT_FOUND_HTML,
+                status_code=404
+            )
+
+        # Password gate
+        if row["password_hash"]:
+            cookie_key = f"pub_unlock_{slug}"
+            cookie_val = request.cookies.get(cookie_key, "")
+            if not cookie_val or _verify_cookie(cookie_val) != slug:
+                # Show password form
+                return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
+                    slug=slug,
+                    error_html=""
+                ))
+
+        # Render full page
+        description = (row["content"] or "")[:200].replace('\n', ' ').strip()
+        body_html = _render_published_content(row["content"] or "", conn)
+        date_str = datetime.fromisoformat(row["updated_at"] or row["published_at"]).strftime("%d %B %Y")
+
+        html = _PUBLIC_PAGE_HTML.format(
+            title=row["title"] or "Untitled",
+            description=description,
+            base_url=WEBAPP_URL,
+            slug=slug,
+            date=date_str,
+            body=body_html
+        )
+        return HTMLResponse(content=html)
+
+@app.post("/pub/{slug}/unlock")
+async def unlock_published_note(slug: str, request: Request):
+    """Verify password for a published note, set signed cookie on success."""
+    ip = request.client.host if request.client else "unknown"
+
+    # Check brute-force limits
+    _check_bruteforce(ip, slug)
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT password_hash FROM published_notes WHERE slug = ?", (slug,)
+        ).fetchone()
+        if not row or not row["password_hash"]:
+            # No password set → redirect to page (shouldn't happen normally)
+            return RedirectResponse(url=f"/pub/{slug}", status_code=302)
+
+        # Read password from form
+        form = await request.form()
+        password = (form.get("password") or "").strip()
+
+        if not password or not verify_password(password, row["password_hash"]):
+            _record_failed_attempt(ip, slug)
+            remaining = 5 - len(_ip_attempts.get(ip, deque()))
+            return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
+                slug=slug,
+                error_html=f'<p class="pub-error">Password salah. {max(0, remaining)} percobaan tersisa</p>'
+            ))
+
+        # Success
+        _reset_bruteforce(ip, slug)
+        cookie_key = f"pub_unlock_{slug}"
+        cookie_val = _sign_cookie(slug)
+        response = RedirectResponse(url=f"/pub/{slug}", status_code=302)
+        response.set_cookie(
+            key=cookie_key,
+            value=cookie_val,
+            max_age=30 * 24 * 3600,   # 30 days
+            httponly=True,
+            samesite="lax"
+        )
+        return response
+
+@app.get("/pub/attachments/{att_id}")
+async def view_published_attachment(att_id: int):
+    """Public attachment view — only if the parent note is published."""
+    import requests as _req
+    with get_db() as conn:
+        att = conn.execute(
+            """SELECT a.* FROM note_attachments a
+               JOIN published_notes p ON p.note_id = a.note_id
+               WHERE a.id = ?""",
+            (att_id,)
+        ).fetchone()
+        if not att:
+            raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
+        r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=30, stream=True)
+        if r.status_code != 200:
+            raise HTTPException(status_code=404, detail="File tidak ditemukan")
+        safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')
+        return StreamingResponse(
+            r.iter_content(chunk_size=8192),
+            media_type=att["mime_type"],
+            headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
+        )
 
 @app.get("/api/scratchpad/{note_id}/backlinks")
 async def get_backlinks(note_id: int, user=Depends(get_current_user)):
