@@ -4173,6 +4173,7 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
   setupCopyBtn(document.getElementById('copy-link-btn-2'));
 
   // Search in document
+  var searchInput = document.getElementById('doc-search');
   var _pubBody = document.querySelector('.pub-body');
   var _bodyOriginal = _pubBody ? _pubBody.innerHTML : '';
   if (searchInput) {{
