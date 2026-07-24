@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v193-notes-list-fab-v2";
+const CACHE = "taskflow-v194-voice-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
@@ -20,6 +20,7 @@ const STATIC = [
   "/static/offline/syncconflict.js",
   "/static/offline/listsync.js",
   "/static/review/digest.js",
+  "/static/offline/voicedictate.js",
   "/static/offline/habitlogic.js",
   "/static/offline/habitrepo.js",
   "/static/offline/habitquery.js",
