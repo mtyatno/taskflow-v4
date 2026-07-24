@@ -4546,11 +4546,15 @@ function TaskFormModal({
     }
     // AI slash command: /ai at start of line
     const aiMatch = textBefore.match(/(?:^|\n)\/ai$/);
-    if (aiMatch && aiReviewOn()) {
-      setNoteTagDropdown(null);
-      setNoteTaskDropdown(null);
-      setNoteWikiDropdown(null);
-      setNoteAiDropdown({ top: coords.top, left: coords.left });
+    if (aiMatch) {
+      if (aiReviewOn()) {
+        setNoteTagDropdown(null);
+        setNoteTaskDropdown(null);
+        setNoteWikiDropdown(null);
+        setNoteAiDropdown({ top: coords.top, left: coords.left });
+      } else {
+        window.__showToast?.("AI belum diaktifkan — buka Settings → aktifkan 'AI Weekly Review'", "error");
+      }
       return;
     }
     setNoteAiDropdown(null);
@@ -16326,12 +16330,16 @@ function NoteModal({
 
     // AI slash command: /ai at start of line
     const aiMatch = textBefore.match(/(?:^|\n)\/ai$/);
-    if (aiMatch && aiReviewOn()) {
-      setTagDropdown(null);
-      setTaskDropdown(null);
-      setWikiDropdown(null);
-      const coords = getPos();
-      setNoteAiDropdown({ top: coords.top, left: coords.left });
+    if (aiMatch) {
+      if (aiReviewOn()) {
+        setTagDropdown(null);
+        setTaskDropdown(null);
+        setWikiDropdown(null);
+        const coords = getPos();
+        setNoteAiDropdown({ top: coords.top, left: coords.left });
+      } else {
+        window.__showToast?.("AI belum diaktifkan — buka Settings → aktifkan 'AI Weekly Review'", "error");
+      }
       return;
     }
     setNoteAiDropdown(null);
