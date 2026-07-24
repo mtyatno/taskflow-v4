@@ -16,6 +16,7 @@ import mimetypes
 import asyncio
 import json
 import re
+import html
 from collections import defaultdict
 from datetime import datetime, date, timedelta
 from pathlib import Path
@@ -3773,7 +3774,7 @@ async def view_published_note(slug: str, request: Request):
                 ))
 
         # Render full page
-        description = (row["content"] or "")[:200].replace('\n', ' ').strip()
+        description = html.escape(((row["content"] or "")[:200]).replace('\n', ' ').strip())
         body_html = _render_published_content(row["content"] or "", conn)
         date_str = datetime.fromisoformat(row["updated_at"] or row["published_at"]).strftime("%d %B %Y")
 
@@ -3825,7 +3826,8 @@ async def unlock_published_note(slug: str, request: Request):
             value=cookie_val,
             max_age=30 * 24 * 3600,   # 30 days
             httponly=True,
-            samesite="lax"
+            samesite="lax",
+            secure=True
         )
         return response
 
