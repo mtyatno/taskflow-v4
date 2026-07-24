@@ -19025,6 +19025,7 @@ function NotesPage({
   const [searchTagsCollapsed, setSearchTagsCollapsed] = useState(false);
   const [notesListCollapsed, setNotesListCollapsed] = useState(false);
   const [filterUntagged, setFilterUntagged] = useState(false);
+  const [filterPublished, setFilterPublished] = useState(false);
   const [filterListId, setFilterListId] = useState(null);
   const [publishedNotes, setPublishedNotes] = useState([]);
   React.useEffect(() => {
@@ -19052,7 +19053,8 @@ function NotesPage({
   }, []);
 
   // Static version (no closure dep) used inside async fetchNotes
-  const applyFiltersStatic = (query, tags, base, untagged = false, listId = null) => {
+  const publishedNoteIds = React.useMemo(() => new Set(publishedNotes.map(p => p.note_id)), [publishedNotes]);
+  const applyFiltersStatic = (query, tags, base, untagged = false, listId = null, published = false) => {
     const syntaxTags = [...query.matchAll(/\btag:(\S+)/gi)].map(m => m[1].toLowerCase());
     const cleanQuery = query.replace(/\btag:\S+/gi, "").trim();
     const allTags = [...new Set([...tags, ...syntaxTags])];
@@ -19061,22 +19063,23 @@ function NotesPage({
     if (cleanQuery) result = result.filter(n => n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) || n.content?.toLowerCase().includes(cleanQuery.toLowerCase()));
     if (untagged) result = result.filter(n => (n.tags || []).length === 0);
     if (listId) result = result.filter(n => n.list_id === listId);
+    if (published) result = result.filter(n => publishedNoteIds.has(n.id));
     return result;
   };
-  const fetchNotes = async (filterQ = "", filterTags = [], untagged = false, listId = null) => {
+  const fetchNotes = async (filterQ = "", filterTags = [], untagged = false, listId = null, published = false) => {
     // stale-while-revalidate: show cache immediately, fetch in background
-    const hasFilter = filterQ || filterTags.length || untagged || listId;
+    const hasFilter = filterQ || filterTags.length || untagged || listId || published;
     const cached = (await OfflineDB.cacheGet("scratchpad_notes")) || [];
     if (cached.length) {
       setAllNotes(cached);
-      setNotes(hasFilter ? applyFiltersStatic(filterQ, filterTags, cached, untagged, listId) : cached);
+      setNotes(hasFilter ? applyFiltersStatic(filterQ, filterTags, cached, untagged, listId, published) : cached);
       setLoading(false);
     }
     try {
       const data = await api.get("/api/scratchpad");
       await OfflineDB.cacheSet("scratchpad_notes", data);
       setAllNotes(data);
-      setNotes(hasFilter ? applyFiltersStatic(filterQ, filterTags, data, untagged, listId) : data);
+      setNotes(hasFilter ? applyFiltersStatic(filterQ, filterTags, data, untagged, listId, published) : data);
     } catch (e) {
       if (!cached.length) setNotes([]);
     }
@@ -19177,7 +19180,7 @@ function NotesPage({
       syntaxTags
     };
   };
-  const applyFilters = (query, tags, base, untagged = false, listId = null) => {
+  const applyFilters = (query, tags, base, untagged = false, listId = null, published = false) => {
     const {
       cleanQuery,
       syntaxTags
@@ -19190,28 +19193,34 @@ function NotesPage({
     if (cleanQuery) result = result.filter(n => n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) || n.content?.toLowerCase().includes(cleanQuery.toLowerCase()));
     if (untagged) result = result.filter(n => (n.tags || []).length === 0);
     if (listId) result = result.filter(n => n.list_id === listId);
+    if (published) result = result.filter(n => publishedNoteIds.has(n.id));
     return result;
   };
   const handleSearch = val => {
     setQ(val);
-    setNotes(applyFilters(val, activeTags, allNotes, filterUntagged, filterListId));
+    setNotes(applyFilters(val, activeTags, allNotes, filterUntagged, filterListId, filterPublished));
   };
   const handleTagFilter = tag => {
     setFilterUntagged(false);
     const next = activeTags.includes(tag) ? activeTags.filter(t => t !== tag) : [...activeTags, tag];
     setActiveTags(next);
-    setNotes(applyFilters(q, next, allNotes, false, filterListId));
+    setNotes(applyFilters(q, next, allNotes, false, filterListId, filterPublished));
   };
   const handleUntaggedFilter = () => {
     const next = !filterUntagged;
     setFilterUntagged(next);
     if (next) setActiveTags([]);
-    setNotes(applyFilters(q, [], allNotes, next, filterListId));
+    setNotes(applyFilters(q, [], allNotes, next, filterListId, filterPublished));
   };
   const handleListFilter = listId => {
     const next = filterListId === listId ? null : listId;
     setFilterListId(next);
-    setNotes(applyFilters(q, activeTags, allNotes, filterUntagged, next));
+    setNotes(applyFilters(q, activeTags, allNotes, filterUntagged, next, filterPublished));
+  };
+  const handlePublishedFilter = () => {
+    const next = !filterPublished;
+    setFilterPublished(next);
+    setNotes(applyFilters(q, activeTags, allNotes, filterUntagged, filterListId, next));
   };
   const allTags = tagList.map(t => t.name);
   const maxTagCount = Math.max(...tagList.map(t => t.count || 0), 1);
@@ -19328,7 +19337,7 @@ function NotesPage({
       const updated = await api.patch(`/api/scratchpad/${id}/pin`, {});
       const refresh = allNotes.map(n => n.id === id ? updated : n);
       setAllNotes(refresh);
-      setNotes(applyFilters(q, activeTags, refresh, filterUntagged));
+      setNotes(applyFilters(q, activeTags, refresh, filterUntagged, null, filterPublished));
     } catch (e) {
       showToast(e.message, "error");
     }
@@ -19474,7 +19483,7 @@ function NotesPage({
   }), q && /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       setQ("");
-      setNotes(applyFilters("", activeTags, allNotes, filterUntagged));
+      setNotes(applyFilters("", activeTags, allNotes, filterUntagged, null, filterPublished));
     },
     style: {
       background: 'none',
@@ -19532,7 +19541,7 @@ function NotesPage({
       onClick: () => {
         setActiveTags([]);
         setFilterUntagged(false);
-        setNotes(applyFilters(q, [], allNotes, false));
+        setNotes(applyFilters(q, [], allNotes, false, null, filterPublished));
       },
       style: {
         fontSize: 9,
@@ -19573,6 +19582,15 @@ function NotesPage({
       }, untaggedCount)));
     })()));
   })())),
+publishedNotes.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: { borderTop: '1px solid var(--border)', margin: '8px 0' }
+}), /*#__PURE__*/React.createElement("span", {
+    onClick: handlePublishedFilter,
+    className: `tag-pill${filterPublished ? ' active' : ''}`,
+    style: !filterPublished ? { border: '1px dashed var(--accent)', background: 'transparent', color: 'var(--accent)', fontStyle: 'italic', fontWeight: 600 } : {}
+}, "🔗 Published", /*#__PURE__*/React.createElement("span", {
+    className: "tag-count"
+}, publishedNotes.length))),
 publishedNotes.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null,
   /*#__PURE__*/React.createElement("div", {
     style: { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0', cursor: 'pointer', userSelect: 'none' },
