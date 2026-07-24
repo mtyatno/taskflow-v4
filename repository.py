@@ -439,6 +439,19 @@ class TaskRepository:
                 "CREATE INDEX IF NOT EXISTS idx_habit_templates_kat ON habit_templates(kategori, subkategori)"
             )
 
+            # Published Notes
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS published_notes (
+                    note_id       INTEGER NOT NULL UNIQUE REFERENCES scratchpad_notes(id) ON DELETE CASCADE,
+                    user_id       INTEGER NOT NULL REFERENCES users(id),
+                    slug          TEXT NOT NULL UNIQUE,
+                    password_hash TEXT,
+                    published_at  TEXT NOT NULL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_published_slug ON published_notes(slug)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_published_user ON published_notes(user_id)")
+
     # ── Row to Task mapping ────────────────────────────────────────────────
 
     @staticmethod
