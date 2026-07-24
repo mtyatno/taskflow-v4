@@ -3732,7 +3732,7 @@ _PUBLIC_CSS = """<style>
   }
 
   body {
-    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Nunito Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     line-height: 1.7;
     color: var(--text);
     background: var(--bg);
@@ -4062,6 +4062,7 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 <meta property="og:description" content="{description}">
 <meta property="og:type" content="article">
 <meta property="og:url" content="{base_url}/pub/{username}/{slug}">
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,opsz,wght@0,6..12,400;0,6..12,500;0,6..12,600;0,6..12,700;1,6..12,400;1,6..12,600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
 {css}
 </head>
