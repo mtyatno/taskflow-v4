@@ -3790,12 +3790,13 @@ async def view_published_note(slug: str, request: Request):
         note_title = row["title"] or ""
         backlinks_html = ""
         if note_title.strip():
+            t = note_title.strip()
             backlinks = conn.execute(
                 """SELECT n.title, p2.slug FROM scratchpad_notes n
                    JOIN published_notes p2 ON p2.note_id = n.id
-                   WHERE n.content LIKE ? AND n.id != ?
+                   WHERE (n.content LIKE ? OR n.content LIKE ?) AND n.id != ?
                    ORDER BY n.title""",
-                (f"%[[{note_title.strip()}]]%", row["note_id"])
+                (f"%[[{t}]]%", f"%\\\\[[{t}]]%", row["note_id"])  # both plain and escaped wikilink
             ).fetchall()
             if backlinks:
                 items = "".join(
