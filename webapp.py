@@ -3861,10 +3861,10 @@ _PUBLIC_CSS = """<style>
   }
 
   /* Backlinks */
-  .pub-backlinks ul { list-style: none; padding: 0; }
-  .pub-backlinks li { margin-bottom: 4px; }
-  .pub-backlinks a { color: var(--text-secondary); text-decoration: none; }
-  .pub-backlinks a:hover { color: var(--accent); }
+  .pub-sidebar-left ul { list-style: none; padding: 0; }
+  .pub-sidebar-left li { margin-bottom: 4px; }
+  .pub-sidebar-left a { color: var(--text-secondary); text-decoration: none; }
+  .pub-sidebar-left a:hover { color: var(--accent); }
 
   /* Main content */
   .pub-main { min-width: 0; }
