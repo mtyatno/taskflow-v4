@@ -16063,32 +16063,30 @@ function NoteModal({
     var vd = window.TF.voicedictate.create({
       lang: 'id-ID',
       onInterim: function (text) {
-        // Store interim text for potential commit
+        console.log('[voice] interim:', text.slice(0, 60));
         voiceInterimRef.current = text;
       },
       onFinal: function (text) {
-        // Clear interim tracking
+        console.log('[voice] final:', text.slice(0, 60));
         voiceInterimRef.current = null;
-        // Insert final text at cursor position in Milkdown
         var editor = milkdownEditorRef.current;
-        if (!editor) return;
-        try {
-          editor.action(function (ctx) {
-            var MB = window.MilkdownBundle;
-            var view = ctx.get(MB.editorViewCtx);
-            var from = view.state.selection.from;
-            // Insert with space prefix if not at start of line
-            var before = view.state.doc.textBetween(Math.max(0, from - 1), from);
-            var prefix = (from === 0 || before === '\n' || before === ' ') ? '' : ' ';
-            var tr = view.state.tr.insertText(prefix + text, from, from);
-            view.dispatch(tr);
-          });
-        } catch (e) { /* editor mungkin belum siap */ }
+        if (!editor) { console.warn('[voice] editor ref null — Milkdown belum siap'); return; }
+        editor.action(function (ctx) {
+          var MB = window.MilkdownBundle;
+          var view = ctx.get(MB.editorViewCtx);
+          var from = view.state.selection.from;
+          var before = view.state.doc.textBetween(Math.max(0, from - 1), from);
+          var prefix = (from === 0 || before === '\n' || before === ' ') ? '' : ' ';
+          var tr = view.state.tr.insertText(prefix + text, from, from);
+          view.dispatch(tr);
+        });
       },
       onError: function (msg) {
+        console.error('[voice] error:', msg);
         showToast(msg);
       },
       onStateChange: function (s) {
+        console.log('[voice] state:', s);
         setVoiceState(s);
       }
     });
