@@ -3671,7 +3671,7 @@ _PUBLIC_CSS = """<style>
   .pub-body table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
   .pub-body table th, .pub-body table td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
   .pub-body table th { background: #f5f5f5; font-weight: 600; }
-  .pub-body img { max-width: 100%%; height: auto; border-radius: 4px; }
+  .pub-body img { max-width: 100%; height: auto; border-radius: 4px; }
   .pub-body hr { border: none; border-top: 1px solid #eee; margin: 24px 0; }
   .pub-body mark { background: #fff3b0; color: inherit; padding: 1px 3px; border-radius: 2px; }
   hr { border: none; border-top: 1px solid #eee; margin: 28px 0; }
@@ -3679,8 +3679,8 @@ _PUBLIC_CSS = """<style>
   .pub-footer a { color: inherit; }
   .pub-password { max-width: 360px; margin: 80px auto; text-align: center; }
   .pub-password h1 { font-size: 1.2em; margin-bottom: 16px; }
-  .pub-password input { width: 100%%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; margin-bottom: 10px; }
-  .pub-password button { width: 100%%; padding: 10px; background: #a8c500; color: #1a1a2e; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .pub-password input { width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; margin-bottom: 10px; }
+  .pub-password button { width: 100%; padding: 10px; background: #a8c500; color: #1a1a2e; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
   .pub-password button:hover { background: #96b000; }
   .pub-error { color: #ef4444; font-size: 13px; margin-top: 6px; }
   .pub-body .math-block, .pub-body .math-inline { /* KaTeX will replace these */ }
@@ -3842,12 +3842,13 @@ async def view_published_attachment(att_id: int):
         ).fetchone()
         if not att:
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
-        r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=30, stream=True)
+        r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=30)
         if r.status_code != 200:
+            r.close()
             raise HTTPException(status_code=404, detail="File tidak ditemukan")
         safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')
-        return StreamingResponse(
-            r.iter_content(chunk_size=8192),
+        return Response(
+            content=r.content,
             media_type=att["mime_type"],
             headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
         )
