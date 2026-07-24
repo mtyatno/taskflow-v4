@@ -4195,44 +4195,6 @@ function GoalTab({
     disabled: loading || !goalName.trim() || checkedHabits.length + checkedTasks.length === 0
   }, loading ? "Membuat..." : "Buat Goal")));
 }
-// Shared utility: insert GFM task-list checkbox at cursor.
-// Parameterized with editorRef so both TaskFormModal and NoteModal can use it.
-function insertTaskListAtCursor(editorRef) {
-  const editor = editorRef?.current;
-  if (!editor) return;
-  const MB = window.MilkdownBundle;
-  // Step 1: check if cursor is already inside a list_item
-  let inListItem = false;
-  editor.action(ctx => {
-    const view = ctx.get(MB.editorViewCtx);
-    const { $from } = view.state.selection;
-    for (let i = $from.depth; i >= 0; i--) {
-      if ($from.node(i).type.name === 'list_item') {
-        inListItem = true;
-        break;
-      }
-    }
-  });
-  // Step 2: wrap in bullet list if needed
-  if (!inListItem) editor.action(MB.callCommand(MB.wrapInBulletListCommand.key));
-  // Step 3: set checked: false on the resulting list_item
-  editor.action(ctx => {
-    const view = ctx.get(MB.editorViewCtx);
-    const { $from } = view.state.selection;
-    for (let i = $from.depth; i >= 0; i--) {
-      const n = $from.node(i);
-      if (n.type.name === 'list_item') {
-        view.dispatch(view.state.tr.setNodeMarkup($from.before(i), null, {
-          ...n.attrs,
-          checked: false
-        }));
-        break;
-      }
-    }
-  });
-  editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
-}
-
 function TaskFormModal({
   task,
   onSave,
@@ -4592,7 +4554,7 @@ function TaskFormModal({
       return;
     }
     setNoteAiDropdown(null);
-    // /todo or /task slash command — insert GFM task checkbox langsung
+    // /todo or /task slash command — buka task link dropdown (sama seperti +Task button)
     const todoMatch = textBefore.match(/(?:^|\n)\/(todo|task)$/);
     if (todoMatch) {
       editor.action(ctx => {
@@ -4600,7 +4562,7 @@ function TaskFormModal({
         const { from } = view.state.selection;
         view.dispatch(view.state.tr.delete(from - 5, from));
       });
-      insertTaskListAtCursor(noteMilkdownRef);
+      openNoteTaskDropdown();
       return;
     }
     const taskTriggerMatch = textBefore.match(/\[(task|tasks|todo|todos|tugas)[a-zA-Z0-9 ]*$/i);
@@ -16374,7 +16336,7 @@ function NoteModal({
     }
     setNoteAiDropdown(null);
 
-    // /todo or /task slash command — insert GFM task checkbox langsung
+    // /todo or /task slash command — buka task link dropdown (sama seperti +Task button)
     const todoMatch2 = textBefore.match(/(?:^|\n)\/(todo|task)$/);
     if (todoMatch2) {
       const ed = milkdownEditorRef.current;
@@ -16384,7 +16346,7 @@ function NoteModal({
           const { from } = view.state.selection;
           view.dispatch(view.state.tr.delete(from - 5, from));
         });
-        insertTaskListAtCursor(milkdownEditorRef);
+        openTaskDropdown();
       }
       return;
     }
