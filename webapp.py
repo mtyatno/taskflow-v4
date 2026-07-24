@@ -4173,39 +4173,40 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
   setupCopyBtn(document.getElementById('copy-link-btn-2'));
 
   // Search in document
-  var searchInput = document.getElementById('doc-search');
+  var _pubBody = document.querySelector('.pub-body');
+  var _bodyOriginal = _pubBody ? _pubBody.innerHTML : '';
   if (searchInput) {{
     searchInput.addEventListener('input', function() {{
-      var query = searchInput.value.toLowerCase().trim();
-      document.querySelectorAll('.search-highlight').forEach(function(el) {{
-        el.replaceWith(el.textContent);
-      }});
+      var query = searchInput.value.trim();
+      if (!_pubBody) return;
+      // Reset to original (removes all previous highlights)
+      _pubBody.innerHTML = _bodyOriginal;
       if (!query) return;
-      var body = document.querySelector('.pub-body');
-      if (body) highlightText(body, query);
-    }});
-  }}
-
-  function highlightText(element, query) {{
-    var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
-    var nodes = [];
-    while (walker.nextNode()) nodes.push(walker.currentNode);
-    for (var i = 0; i < nodes.length; i++) {{
-      var node = nodes[i];
-      var text = node.textContent;
-      var idx = text.toLowerCase().indexOf(query);
-      if (idx === -1) continue;
-      var mark = document.createElement('mark');
-      mark.className = 'search-highlight';
-      mark.textContent = text.substring(idx, idx + query.length);
-      var after = document.createTextNode(text.substring(idx + query.length));
-      node.textContent = text.substring(0, idx);
-      var parent = node.parentNode;
-      if (parent) {{
-        parent.insertBefore(mark, node.nextSibling);
-        parent.insertBefore(after, mark.nextSibling);
+      // Walk text nodes and highlight all occurrences
+      var walker = document.createTreeWalker(_pubBody, NodeFilter.SHOW_TEXT);
+      var textNodes = [];
+      while (walker.nextNode()) textNodes.push(walker.currentNode);
+      var lowerQuery = query.toLowerCase();
+      for (var i = textNodes.length - 1; i >= 0; i--) {{
+        var node = textNodes[i];
+        var text = node.textContent;
+        var lower = text.toLowerCase();
+        var idx = 0, lastIdx = 0;
+        var frag = document.createDocumentFragment();
+        while ((idx = lower.indexOf(lowerQuery, lastIdx)) !== -1) {{
+          if (idx > lastIdx) frag.appendChild(document.createTextNode(text.substring(lastIdx, idx)));
+          var mark = document.createElement('mark');
+          mark.className = 'search-highlight';
+          mark.textContent = text.substring(idx, idx + query.length);
+          frag.appendChild(mark);
+          lastIdx = idx + query.length;
+        }}
+        if (lastIdx > 0) {{
+          if (lastIdx < text.length) frag.appendChild(document.createTextNode(text.substring(lastIdx)));
+          node.parentNode.replaceChild(frag, node);
+        }}
       }}
-    }}
+    }});
   }}
 </script>
 </body>
