@@ -19029,7 +19029,10 @@ function NotesPage({
   const [filterListId, setFilterListId] = useState(null);
   const [publishedNotes, setPublishedNotes] = useState([]);
   React.useEffect(() => {
-    api.get('/api/scratchpad/published')
+    const h = {};
+    if (typeof __token !== "undefined" && __token) h["Authorization"] = "Bearer " + __token;
+    fetch('/api/scratchpad/published', { headers: h })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(data => setPublishedNotes(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, [allNotes]);
@@ -19349,10 +19352,15 @@ function NotesPage({
       const rest = prev.filter(p => p.note_id !== noteId);
       return [...rest, { note_id: noteId, title: '', slug: res.slug, password_set: res.password_set, published_at: res.published_at }];
     });
-    // Background: refresh full list with proper titles
+    // Background: refresh full list with proper titles (raw fetch to bypass offline router)
     try {
-      const listData = await api.get('/api/scratchpad/published');
-      setPublishedNotes(Array.isArray(listData) ? listData : []);
+      const h = {};
+      if (typeof __token !== "undefined" && __token) h["Authorization"] = "Bearer " + __token;
+      const r = await fetch('/api/scratchpad/published', { headers: h });
+      if (r.ok) {
+        const listData = await r.json();
+        setPublishedNotes(Array.isArray(listData) ? listData : []);
+      }
     } catch (_) {}
     return res;
   };
