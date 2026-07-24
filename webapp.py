@@ -3778,13 +3778,17 @@ async def view_published_note(slug: str, request: Request):
         body_html = _render_published_content(row["content"] or "", conn)
         date_str = datetime.fromisoformat(row["updated_at"] or row["published_at"]).strftime("%d %B %Y")
 
+        # Escape { } in user content for .format() safety
+        def _esc(s):
+            return str(s).replace('{', '{{').replace('}', '}}')
+
         html = _PUBLIC_PAGE_HTML.format(
-            title=row["title"] or "Untitled",
-            description=description,
+            title=_esc(row["title"] or "Untitled"),
+            description=_esc(description),
             base_url=WEBAPP_URL,
-            slug=slug,
-            date=date_str,
-            body=body_html
+            slug=_esc(slug),
+            date=_esc(date_str),
+            body=_esc(body_html)
         )
         return HTMLResponse(content=html)
 
