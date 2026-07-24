@@ -4297,6 +4297,7 @@ function TaskFormModal({
       noteVoiceRef.current.stop();
       noteVoiceLastTextRef.current = '';
     } else {
+      localStorage.setItem('tf_voice_offline_hint', '1');
       noteVoiceLastTextRef.current = '';
       noteVoiceRef.current.start();
     }
@@ -16192,6 +16193,10 @@ function NoteModal({
       voiceRef.current.stop();
       voiceLastTextRef.current = '';
     } else {
+      if (!localStorage.getItem('tf_voice_offline_hint')) {
+        localStorage.setItem('tf_voice_offline_hint', '1');
+        showToast('💡 Untuk dikte offline: download bahasa Indonesia di Chrome > Settings > Languages', 'info');
+      }
       voiceLastTextRef.current = '';
       voiceRef.current.start();
     }
