@@ -4216,9 +4216,19 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
     }});
   }}
 
-  // Drawing canvas: block editing but allow scroll/zoom via wheel forwarding
+  // Drawing canvas: load data from server + block editing
+  var _drawData = {drawing_data_js};
   var drawOverlay = document.getElementById('drawing-overlay');
   var drawIframe = document.getElementById('drawing-iframe');
+  if (drawIframe) {{
+    window.addEventListener('message', function _onDrawMsg(e) {{
+      if (e.origin !== window.location.origin) return;
+      if (e.data && e.data.type === 'ready' && _drawData) {{
+        drawIframe.contentWindow.postMessage({{ type: 'load', data: _drawData }}, '*');
+        _drawData = null;
+      }}
+    }});
+  }}
   if (drawOverlay && drawIframe) {{
     drawOverlay.addEventListener('mousedown', function(e) {{ e.preventDefault(); }});
     drawOverlay.addEventListener('touchstart', function(e) {{ e.preventDefault(); }});
@@ -4442,8 +4452,15 @@ async def view_published_note(username: str, slug: str, request: Request):
 
         # Drawing canvas (read-only embed)
         drawing_html = ''
+        drawing_data_js = 'null'
         if row["note_id"]:
             did = str(row["note_id"])
+            # Check if drawing data exists
+            draw_row = conn.execute(
+                "SELECT data_json FROM drawings WHERE note_id = ?", (row["note_id"],)
+            ).fetchone()
+            if draw_row:
+                drawing_data_js = draw_row["data_json"]  # JSON string, safe to embed
             drawing_html = f'''<section class="pub-drawing">
 <h3>&#127912; Drawing</h3>
 <div class="pub-drawing-container" id="drawing-container">
@@ -4472,6 +4489,7 @@ async def view_published_note(username: str, slug: str, request: Request):
             cover_html=cover_html,
             attachments_html=attachments_html,
             drawing_html=drawing_html,
+            drawing_data_js=drawing_data_js,
         )
         return HTMLResponse(content=page_html)
 
