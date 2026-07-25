@@ -1129,6 +1129,8 @@
       min-height: inherit;
       padding: 8px 12px;
       outline: none;
+      white-space: pre-wrap;
+      word-wrap: break-word;
     }
     /* Placeholder text */
     .milkdown-editor .ProseMirror p.is-editor-empty:first-child::before {
@@ -17703,7 +17705,7 @@ function NoteModal({
       position: 'fixed',
       inset: 0,
       zIndex: 10000,
-      background: 'var(--bg-card)',
+      background: '#ffffff',
       display: 'flex',
       flexDirection: 'column'
     }
@@ -17714,7 +17716,8 @@ function NoteModal({
       justifyContent: 'space-between',
       padding: 'calc(8px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) 8px calc(16px + env(safe-area-inset-left, 0px))',
       borderBottom: '1px solid var(--border)',
-      flexShrink: 0
+      flexShrink: 0,
+      background: '#ffffff'
     }
   }, /*#__PURE__*/React.createElement(NoteToolbar, {
     milkdownEditorRef: milkdownEditorRef,
