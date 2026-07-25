@@ -16289,6 +16289,7 @@ function NoteModal({
     api.get("/api/tags?entity_type=note").then(data => setExistingTags(data || [])).catch(() => {});
     return () => setTagDropdown(null);
   }, []);
+  const _taskJustOpened = React.useRef(false);
   const handleEditorChange = markdown => {
     setContent(markdown);
     autoConvertWikilinkAtCursor();
@@ -16358,6 +16359,8 @@ function NoteModal({
           view.dispatch(view.state.tr.delete(from - 5, from));
         });
         openTaskDropdown();
+        // Flag to prevent next onChange from closing the dropdown
+        _taskJustOpened.current = true;
       }
       return;
     }
@@ -16381,7 +16384,11 @@ function NoteModal({
         return;
       }
     }
-    setTaskDropdown(null);
+    if (_taskJustOpened.current) {
+      _taskJustOpened.current = false;
+    } else {
+      setTaskDropdown(null);
+    }
 
     // Wikilink autocomplete
     const wikiMatch = textBefore.match(/\[\[([^\]]*)$/);
