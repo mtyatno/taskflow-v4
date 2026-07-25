@@ -3962,8 +3962,6 @@ _PUBLIC_CSS = """<style>
   .pub-drawing h3 { font-size: 14px; margin-bottom: 12px; color: var(--text); }
   .pub-drawing-container { position: relative; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; height: 450px; }
   .pub-drawing-container iframe { width: 100%; height: 100%; border: none; }
-  .pub-drawing-overlay { position: absolute; inset: 0; z-index: 1; background: transparent; cursor: grab; }
-
   /* Right sidebar */
   .pub-about-item { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
   .pub-actions { display: flex; flex-direction: column; gap: 6px; }
@@ -4216,40 +4214,17 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
     }});
   }}
 
-  // Drawing canvas: load data from server + block editing
+  // Drawing canvas: load data from server into iframe
   var _drawData = {drawing_data_js};
-  var drawOverlay = document.getElementById('drawing-overlay');
   var drawIframe = document.getElementById('drawing-iframe');
-  if (drawIframe) {{
+  if (drawIframe && _drawData) {{
     window.addEventListener('message', function _onDrawMsg(e) {{
       if (e.origin !== window.location.origin) return;
-      if (e.data && e.data.type === 'ready' && _drawData) {{
+      if (e.data && e.data.type === 'ready') {{
         drawIframe.contentWindow.postMessage({{ type: 'load', data: _drawData }}, '*');
         _drawData = null;
       }}
     }});
-  }}
-  if (drawOverlay && drawIframe) {{
-    drawOverlay.addEventListener('mousedown', function(e) {{ e.preventDefault(); }});
-    drawOverlay.addEventListener('touchstart', function(e) {{ e.preventDefault(); }});
-    drawOverlay.addEventListener('click', function(e) {{ e.preventDefault(); }});
-    drawOverlay.addEventListener('dblclick', function(e) {{ e.preventDefault(); }});
-    drawOverlay.addEventListener('contextmenu', function(e) {{ e.preventDefault(); }});
-    drawOverlay.addEventListener('wheel', function(e) {{
-      try {{
-        var iframeDoc = drawIframe.contentDocument || drawIframe.contentWindow.document;
-        if (iframeDoc) {{
-          var rect = drawIframe.getBoundingClientRect();
-          var el = iframeDoc.elementFromPoint(e.clientX - rect.left, e.clientY - rect.top);
-          if (el) {{
-            el.dispatchEvent(new WheelEvent('wheel', {{
-              deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode,
-              bubbles: true, cancelable: true
-            }}));
-          }}
-        }}
-      }} catch(_) {{}}
-    }}, {{ passive: false }});
   }}
 </script>
 </body>
@@ -4464,8 +4439,7 @@ async def view_published_note(username: str, slug: str, request: Request):
             drawing_html = f'''<section class="pub-drawing">
 <h3>&#127912; Drawing</h3>
 <div class="pub-drawing-container" id="drawing-container">
-  <iframe src="/static/vendor/tldraw/index.html?noteId={did}" id="drawing-iframe" title="Drawing"></iframe>
-  <div class="pub-drawing-overlay" id="drawing-overlay"></div>
+  <iframe src="/static/vendor/tldraw/index.html?noteId={did}" id="drawing-iframe" title="Drawing" style="width:100%;height:100%;border:none"></iframe>
 </div>
 </section>'''
 
