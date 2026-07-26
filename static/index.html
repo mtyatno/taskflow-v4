@@ -15518,9 +15518,9 @@ function MilkdownEditor({
       return btn;
     };
     tooltipEl.appendChild(makeTbBtn('<b>B</b>', 'Bold', 'strong'));
-    tooltipEl.appendChild(makeTbBtn('<i>I</i>', 'Italic', 'em'));
-    tooltipEl.appendChild(makeTbBtn('<s>S</s>', 'Strikethrough', 'strikethrough'));
-    tooltipEl.appendChild(makeTbBtn('<>', 'Inline Code', 'code'));
+    tooltipEl.appendChild(makeTbBtn('<i>I</i>', 'Italic', 'emphasis'));
+    tooltipEl.appendChild(makeTbBtn('<s>S</s>', 'Strikethrough', 'strike_through'));
+    tooltipEl.appendChild(makeTbBtn('<>', 'Inline Code', 'inlineCode'));
 
     // ── Create factory pairs ────────────────────────────────────────
     const slashPair = MB.slashFactory('note-slash');
