@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v206-mark-names";
+const CACHE = "taskflow-v207-slash-fixes";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

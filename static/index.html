@@ -15417,7 +15417,7 @@ function MilkdownEditor({
             }
             break;
           case 'bullet_list_simple':
-            // Wrap current block in bullet list (same as ordered but bullet)
+            // Wrap current block in bullet list
             tr = state.tr;
             const bNode = state.schema.nodes.bullet_list;
             const bItem = state.schema.nodes.list_item;
@@ -15427,6 +15427,19 @@ function MilkdownEditor({
               const bli = bItem.create(null, bPara.create());
               const bl = bNode.create(null, bli);
               tr = tr.replaceRangeWith(bFrom.before(bFrom.depth > 0 ? bFrom.depth : 0), to, bl);
+            }
+            break;
+          case 'task_list':
+            // GFM task list: bullet_list with list_item having checked: false
+            tr = state.tr;
+            const tkNode = state.schema.nodes.bullet_list;
+            const tkItem = state.schema.nodes.list_item;
+            const tkPara = state.schema.nodes.paragraph;
+            if (tkNode && tkItem) {
+              const tkFrom = state.selection.$from;
+              const tkli = tkItem.create({checked: false}, tkPara.create());
+              const tkbl = tkNode.create(null, tkli);
+              tr = tr.replaceRangeWith(tkFrom.before(tkFrom.depth > 0 ? tkFrom.depth : 0), to, tkbl);
             }
             break;
           case 'blockquote':
@@ -15450,8 +15463,8 @@ function MilkdownEditor({
             }
             break;
           case 'hr':
-            if (state.schema.nodes.horizontal_rule) {
-              const hrNode = state.schema.nodes.horizontal_rule.create();
+            if (state.schema.nodes.hr) {
+              const hrNode = state.schema.nodes.hr.create();
               tr = tr.replaceSelectionWith(hrNode);
             }
             break;
@@ -15478,7 +15491,7 @@ function MilkdownEditor({
     slashMenu.appendChild(makeSlashItem('H3', 'Heading 3', 'heading', 3));
     slashMenu.appendChild(makeSlashItem('•', 'Bullet List', 'bullet_list_simple'));
     slashMenu.appendChild(makeSlashItem('1.', 'Ordered List', 'ordered_list'));
-    slashMenu.appendChild(makeSlashItem('☑', 'Task List', 'bullet_list_simple'));
+    slashMenu.appendChild(makeSlashItem('☑', 'Task List', 'task_list'));
     slashMenu.appendChild(makeSlashItem('"', 'Blockquote', 'blockquote'));
     slashMenu.appendChild(makeSlashItem('⊞', 'Table', 'table'));
     slashMenu.appendChild(makeSlashItem('—', 'Divider', 'hr'));
