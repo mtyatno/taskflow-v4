@@ -33,6 +33,9 @@ export { callCommand, $node, $remark, $inputRule, $prose, replaceAll } from '@mi
 export { math } from '@milkdown/plugin-math';
 export { indent } from '@milkdown/plugin-indent';
 export { emoji } from '@milkdown/plugin-emoji';
+export { slashFactory, SlashProvider } from '@milkdown/plugin-slash';
+export { tooltipFactory, TooltipProvider } from '@milkdown/plugin-tooltip';
+export { trailing } from '@milkdown/plugin-trailing';
 
 // ProseMirror re-exports needed for custom wikilink plugin
 export { InputRule } from '@milkdown/prose/inputrules';

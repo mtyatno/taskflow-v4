@@ -1316,6 +1316,51 @@
       border-color: rgba(203,213,225,0.2);
       color: #94a3b8;
     }
+    /* ── Slash command menu ──────────────────────────────────────── */
+    .milkdown-slash-menu {
+      position: absolute; z-index: 500; top: 0; left: 0;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+      min-width: 200px; max-height: 320px; overflow-y: auto;
+      padding: 6px 0; display: none;
+    }
+    .milkdown-slash-menu[data-show="true"] { display: block; }
+    .milkdown-slash-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 14px; cursor: pointer; font-size: 13px;
+      color: var(--text-primary); transition: background 0.1s;
+    }
+    .milkdown-slash-item:hover,
+    .milkdown-slash-item[aria-selected="true"] { background: var(--bg-primary); }
+    .milkdown-slash-icon {
+      font-size: 15px; font-weight: 700; width: 26px; text-align: center;
+      flex-shrink: 0; color: var(--text-light);
+    }
+    /* ── Selection tooltip ───────────────────────────────────────── */
+    .milkdown-tooltip {
+      position: absolute; z-index: 500; top: 0; left: 0;
+      display: none; align-items: center; gap: 2px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+      padding: 4px 6px;
+    }
+    .milkdown-tooltip[data-show="true"] { display: flex; }
+    .milkdown-tooltip-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 30px; height: 28px; border: none; border-radius: 5px;
+      background: none; cursor: pointer; font-size: 13px;
+      color: var(--text-primary); transition: background 0.1s;
+    }
+    .milkdown-tooltip-btn:hover { background: var(--bg-primary); }
+    /* Dark mode */
+    [data-theme="dark"] .milkdown-slash-menu,
+    [data-theme="dark"] .milkdown-tooltip {
+      background: #1e1e2e; border-color: rgba(255,255,255,0.08);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    [data-theme="dark"] .milkdown-slash-item:hover,
+    [data-theme="dark"] .milkdown-slash-item[aria-selected="true"],
+    [data-theme="dark"] .milkdown-tooltip-btn:hover { background: rgba(255,255,255,0.06); }
     .highlight-mark {
       background: #fef08a;
       border-radius: 2px;
@@ -4327,6 +4372,7 @@ function TaskFormModal({
     content: "",
     tags: []
   });
+  const [titleManuallyEdited, setTitleManuallyEdited] = useState(false);
   const setNote = (k, v) => setNoteForm(f => ({
     ...f,
     [k]: v
@@ -4501,6 +4547,11 @@ function TaskFormModal({
   };
   const handleNoteContentChange = markdown => {
     setNote("content", markdown);
+    // Auto-title: if title is empty and user hasn't manually edited, extract first heading
+    if ((!noteForm.title || noteForm.title.trim() === '') && !titleManuallyEdited) {
+      const m = markdown.match(/^#{1,6}\s+(.+)$/m);
+      if (m?.[1]?.trim()) setNote("title", m[1].trim());
+    }
     autoConvertNoteWikilink();
     const editor = noteMilkdownRef.current;
     if (!editor) {
@@ -5170,7 +5221,7 @@ function TaskFormModal({
     }, "(opsional)")), /*#__PURE__*/React.createElement("input", {
       className: "input",
       value: noteForm.title,
-      onChange: e => setNote("title", e.target.value),
+      onChange: e => { setNote("title", e.target.value); setTitleManuallyEdited(true); },
       placeholder: "Judul catatan...",
       style: {
         marginBottom: 14
@@ -5266,7 +5317,8 @@ function TaskFormModal({
       minHeight: noteTextareaFullscreen ? 'calc(100vh - 100px)' : 140,
       onWikilinkClick: () => {},
       tasksGetter: noteTasksGetterRef.current,
-      onTasklinkClick: () => {}
+      onTasklinkClick: () => {},
+      onImagePaste: null
     }), noteTagDropdown && noteTagDropdown.items.length > 0 && /*#__PURE__*/React.createElement("div", {
       className: "wiki-autocomplete",
       style: {
@@ -15302,7 +15354,8 @@ function MilkdownEditor({
   editorRef,
   onWikilinkClick,
   tasksGetter,
-  onTasklinkClick
+  onTasklinkClick,
+  onImagePaste
 }) {
   const containerRef = React.useRef(null);
   const instanceRef = React.useRef(null);
@@ -15310,12 +15363,65 @@ function MilkdownEditor({
   const [ready, setReady] = React.useState(false);
   const [mathEdit, setMathEdit] = React.useState(null);
   const mathTaRef = React.useRef(null);
+  const onImagePasteRef = React.useRef(onImagePaste);
+  onImagePasteRef.current = onImagePaste;
   React.useEffect(() => {
     if (!containerRef.current) return;
     const MB = window.MilkdownBundle;
     let cancelled = false;
     let pmDom = null;
     let headingEnterHandler = null;
+
+    // ── Slash menu DOM ──────────────────────────────────────────────
+    const slashMenu = document.createElement('div');
+    slashMenu.className = 'milkdown-slash-menu';
+    slashMenu.setAttribute('role', 'listbox');
+    const makeSlashItem = (icon, label, cmd, payload) => {
+      const el = document.createElement('div');
+      el.className = 'milkdown-slash-item';
+      el.setAttribute('role', 'option');
+      el.innerHTML = '<span class="milkdown-slash-icon">' + icon + '</span><span>' + label + '</span>';
+      el.addEventListener('mousedown', e => { e.preventDefault(); });
+      el.addEventListener('click', () => {
+        if (!instanceRef.current) return;
+        instanceRef.current.action(MB.callCommand(cmd, payload));
+      });
+      return el;
+    };
+    slashMenu.appendChild(makeSlashItem('H1', 'Heading 1', MB.wrapInHeadingCommand.key, 1));
+    slashMenu.appendChild(makeSlashItem('H2', 'Heading 2', MB.wrapInHeadingCommand.key, 2));
+    slashMenu.appendChild(makeSlashItem('H3', 'Heading 3', MB.wrapInHeadingCommand.key, 3));
+    slashMenu.appendChild(makeSlashItem('•', 'Bullet List', MB.wrapInBulletListCommand.key));
+    slashMenu.appendChild(makeSlashItem('1.', 'Ordered List', MB.wrapInOrderedListCommand.key));
+    slashMenu.appendChild(makeSlashItem('☑', 'Task List', MB.wrapInBulletListCommand.key));
+    slashMenu.appendChild(makeSlashItem('"', 'Blockquote', MB.wrapInBlockquoteCommand.key));
+    slashMenu.appendChild(makeSlashItem('⊞', 'Table', MB.insertTableCommand.key));
+    slashMenu.appendChild(makeSlashItem('—', 'Divider', MB.insertHrCommand.key));
+
+    // ── Tooltip DOM ─────────────────────────────────────────────────
+    const tooltipEl = document.createElement('div');
+    tooltipEl.className = 'milkdown-tooltip';
+    const makeTbBtn = (icon, label, cmdKey) => {
+      const btn = document.createElement('button');
+      btn.className = 'milkdown-tooltip-btn';
+      btn.title = label;
+      btn.innerHTML = icon;
+      btn.addEventListener('mousedown', e => { e.preventDefault(); });
+      btn.addEventListener('click', () => {
+        if (!instanceRef.current) return;
+        instanceRef.current.action(MB.callCommand(cmdKey));
+      });
+      return btn;
+    };
+    tooltipEl.appendChild(makeTbBtn('<b>B</b>', 'Bold', MB.toggleStrongCommand.key));
+    tooltipEl.appendChild(makeTbBtn('<i>I</i>', 'Italic', MB.toggleEmphasisCommand.key));
+    tooltipEl.appendChild(makeTbBtn('<s>S</s>', 'Strikethrough', MB.toggleStrikethroughCommand.key));
+    tooltipEl.appendChild(makeTbBtn('<>', 'Inline Code', MB.toggleInlineCodeCommand.key));
+
+    // ── Create factory pairs ────────────────────────────────────────
+    const slashPair = MB.slashFactory('note-slash');
+    const tooltipPair = MB.tooltipFactory('note-tooltip');
+
     MB.Editor.make().config(ctx => {
       ctx.set(MB.rootCtx, containerRef.current);
       ctx.set(MB.defaultValueCtx, value || '');
@@ -15324,7 +15430,29 @@ function MilkdownEditor({
           onChange(markdown);
         }
       });
-    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin()).use(createTaskCheckboxPlugin()).create().then(editor => {
+      // Wire slash menu — SlashProvider handles show/hide when user types /
+      ctx.set(slashPair.key, {
+        view(editorView) {
+          const provider = new MB.SlashProvider({ content: slashMenu });
+          provider.update(editorView);
+          return {
+            update: (view, prevState) => provider.update(view, prevState),
+            destroy: () => { provider.destroy(); slashMenu.remove(); }
+          };
+        }
+      });
+      // Wire tooltip — TooltipProvider handles show/hide on text selection
+      ctx.set(tooltipPair.key, {
+        view(editorView) {
+          const provider = new MB.TooltipProvider({ content: tooltipEl });
+          provider.update(editorView);
+          return {
+            update: (view, prevState) => provider.update(view, prevState),
+            destroy: () => { provider.destroy(); tooltipEl.remove(); }
+          };
+        }
+      });
+    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(MB.trailing).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).create().then(editor => {
       if (cancelled) {
         editor.destroy();
         return;
@@ -15818,7 +15946,7 @@ function createHighlightPlugin() {
 // Parse pasted markdown source into real nodes (tables, bold, headings, …).
 // Without this, ProseMirror inserts pasted markdown as literal text — so a
 // pasted GFM table stays as "| a | b |" and **bold** keeps its asterisks.
-function createMarkdownPastePlugin() {
+function createMarkdownPastePlugin(onImagePaste) {
   const MB = window.MilkdownBundle;
   // Only re-parse when the text actually contains block/inline markdown markers,
   // so plain-text pastes keep ProseMirror's default (richer) handling.
@@ -15836,6 +15964,29 @@ function createMarkdownPastePlugin() {
       handlePaste: (view, event) => {
         const cd = event.clipboardData;
         if (!cd) return false;
+        // Clipboard image paste detection — runs before text/markdown check
+        if (onImagePaste) {
+          let imageFile = null;
+          const files = cd.files;
+          if (files && files.length > 0) {
+            for (let i = 0; i < files.length; i++) {
+              if (files[i].type.startsWith('image/')) { imageFile = files[i]; break; }
+            }
+          }
+          if (!imageFile && cd.items) {
+            for (let i = 0; i < cd.items.length; i++) {
+              if (cd.items[i].type && cd.items[i].type.startsWith('image/')) {
+                imageFile = cd.items[i].getAsFile();
+                break;
+              }
+            }
+          }
+          if (imageFile) {
+            event.preventDefault();
+            onImagePaste(imageFile);
+            return true;
+          }
+        }
         const text = cd.getData('text/plain');
         if (!text || !looksLikeMarkdown(text)) return false;
         let doc;
@@ -15963,6 +16114,7 @@ function NoteModal({
   onNavigate
 }) {
   const [title, setTitle] = useState(note?.title || "");
+  const [titleManuallyEdited, setTitleManuallyEdited] = useState(false);
   const [content, setContent] = useState(note?.content || "");
   const [tags, setTags] = useState(note?.tags || []);
   // Multi-task linking
@@ -15977,6 +16129,14 @@ function NoteModal({
   const [creatingInlineTask, setCreatingInlineTask] = useState(false);
   const [saving, setSaving] = useState(false);
   const wordCount = React.useMemo(() => content.trim() ? content.trim().split(/\s+/).length : 0, [content]);
+  const fmtDateLocal = s => {
+    if (!s) return "";
+    return new Date(s).toLocaleString("id-ID", {
+      day: "numeric", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit"
+    });
+  };
+  React.useEffect(() => { setTitleManuallyEdited(false); }, [note?.id]);
   const isDirtyRef = useRef(false);
   const [savedNoteId, setSavedNoteId] = React.useState(note?.id || null);
   const [attachments, setAttachments] = React.useState([]);
@@ -15988,6 +16148,40 @@ function NoteModal({
   const allKnownTasksRef = React.useRef([]);
   const tasksGetterRef = React.useRef(() => allKnownTasksRef.current);
   const taskDropdownRef = React.useRef(null);
+  // NoteModal's own insertText (same pattern as NoteToolbar)
+  const insertText = text => {
+    const editor = milkdownEditorRef?.current;
+    if (!editor) return;
+    editor.action(ctx => {
+      const view = ctx.get(window.MilkdownBundle.editorViewCtx);
+      const { tr, selection } = view.state;
+      view.dispatch(tr.insertText(text, selection.from, selection.to));
+    });
+    editor.action(ctx => ctx.get(window.MilkdownBundle.editorViewCtx).focus());
+  };
+  const handleImagePaste = async file => {
+    if (!savedNoteId) {
+      showToast("Simpan catatan dulu sebelum paste gambar", "error");
+      return;
+    }
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const headers = {};
+      if (typeof __token !== 'undefined' && __token) headers['Authorization'] = 'Bearer ' + __token;
+      const res = await fetch(apiUrl('/api/scratchpad/' + savedNoteId + '/attachments'), {
+        method: 'POST', headers, body: formData
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Upload gagal'); }
+      const att = await res.json();
+      const isImage = att.mime_type && att.mime_type.startsWith('image/');
+      const url = '/api/scratchpad/attachments/' + att.id + '/view';
+      const syntax = isImage ? '![' + att.original_name + '](' + url + ')' : '[' + att.original_name + '](' + url + ')';
+      insertText(syntax);
+    } catch (err) {
+      showToast("Paste gambar gagal: " + err.message, "error");
+    }
+  };
   function getTextBeforeCursor() {
     const editor = milkdownEditorRef.current;
     if (!editor) return '';
@@ -16292,6 +16486,11 @@ function NoteModal({
   const _taskJustOpened = React.useRef(false);
   const handleEditorChange = markdown => {
     setContent(markdown);
+    // Auto-title: if title is empty and user hasn't manually edited, extract first heading
+    if (!title && !titleManuallyEdited) {
+      const m = markdown.match(/^#{1,6}\s+(.+)$/m);
+      if (m?.[1]?.trim()) setTitle(m[1].trim());
+    }
     autoConvertWikilinkAtCursor();
     autoConvertHighlightAtCursor();
 
@@ -16884,7 +17083,7 @@ function NoteModal({
     className: "note-modal-title-input",
     placeholder: "Judul catatan...",
     value: title,
-    onChange: e => setTitle(e.target.value),
+    onChange: e => { setTitle(e.target.value); setTitleManuallyEdited(true); },
     autoFocus: !expanded,
     style: {
       fontSize: expanded ? 22 : undefined
@@ -16963,7 +17162,7 @@ function NoteModal({
       fontSize: 11,
       color: 'var(--text-light)'
     }
-  }, /*#__PURE__*/React.createElement("span", null, wordCount, " kata"), /*#__PURE__*/React.createElement("span", null, "\xB7"), saving ? /*#__PURE__*/React.createElement("span", null, "Menyimpan...") : /*#__PURE__*/React.createElement("span", {
+  }, note?.created_at && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", null, "\u{1F4C5} ", fmtDateLocal(note.created_at)), /*#__PURE__*/React.createElement("span", null, "\xB7")), note?.updated_at && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", null, "\u{1F504} ", fmtDateLocal(note.updated_at)), /*#__PURE__*/React.createElement("span", null, "\xB7")), /*#__PURE__*/React.createElement("span", null, wordCount, " kata"), /*#__PURE__*/React.createElement("span", null, "\xB7"), saving ? /*#__PURE__*/React.createElement("span", null, "Menyimpan...") : /*#__PURE__*/React.createElement("span", {
     style: {
       color: '#22c55e',
       fontWeight: 600
@@ -17012,7 +17211,8 @@ function NoteModal({
       }).catch(() => {});
     },
     tasksGetter: tasksGetterRef.current,
-    onTasklinkClick: handleTasklinkClick
+    onTasklinkClick: handleTasklinkClick,
+    onImagePaste: handleImagePaste
   }), noteAiDropdown && /*#__PURE__*/React.createElement("div", {
     ref: noteAiDropdownRef,
     className: "wiki-autocomplete",
@@ -17785,7 +17985,8 @@ function NoteModal({
       }).catch(() => {});
     },
     tasksGetter: tasksGetterRef.current,
-    onTasklinkClick: handleTasklinkClick
+    onTasklinkClick: handleTasklinkClick,
+    onImagePaste: handleImagePaste
   }), taskDropdown && /*#__PURE__*/React.createElement("div", {
     ref: taskDropdownRef,
     className: "wiki-autocomplete",
@@ -18418,13 +18619,13 @@ function NotePanel({
       color: "var(--text-light)",
       marginTop: 2
     }
-  }, "Diedit oleh ", /*#__PURE__*/React.createElement("b", null, note.last_editor_display_name || note.last_editor_username), " \xB7 ", fmtDate(note.updated_at)), (!note.last_editor_username || note.last_edited_by === note.user_id) && /*#__PURE__*/React.createElement("div", {
+  }, "Diedit oleh ", /*#__PURE__*/React.createElement("b", null, note.last_editor_display_name || note.last_editor_username), " \xB7 Dibuat ", fmtDate(note.created_at), " \xB7 Diperbarui ", fmtDate(note.updated_at)), (!note.last_editor_username || note.last_edited_by === note.user_id) && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: "var(--text-light)",
       marginTop: 2
     }
-  }, fmtDate(note.updated_at))), /*#__PURE__*/React.createElement("div", {
+  }, "Dibuat ", fmtDate(note.created_at), " \xB7 Diperbarui ", fmtDate(note.updated_at))), /*#__PURE__*/React.createElement("div", {
     className: "notes-panel-actions"
   }, note.user_id === currentUserId && sharedLists.length > 0 && /*#__PURE__*/React.createElement("div", {
     ref: shareRef,
