@@ -37,6 +37,19 @@ jobs:
         run: node scripts/build-tauri-dist.js
       - name: Tauri Android init (regenerate gen/android)
         run: npx tauri android init
+      - name: Copy custom launcher icons into Android project
+        run: |
+          set -euo pipefail
+          SRC="src-tauri/icons/android"
+          DST="src-tauri/gen/android/app/src/main/res"
+          for d in "$SRC"/mipmap-*; do
+            dirname="$(basename "$d")"
+            mkdir -p "$DST/$dirname"
+            cp -v "$d"/ic_launcher.png "$DST/$dirname/" 2>/dev/null || true
+            cp -v "$d"/ic_launcher_foreground.png "$DST/$dirname/" 2>/dev/null || true
+            cp -v "$d"/ic_launcher_round.png "$DST/$dirname/" 2>/dev/null || true
+          done
+          echo "Icons copied to gen/android"
       - name: Patch gen/android for share-target
         run: node scripts/patch-android-share.js
       - name: Pin brotli to 8.0.2 (8.0.1/8.0.3 broken on alloc-no-stdlib)
