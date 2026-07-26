@@ -1318,7 +1318,7 @@
     }
     /* ── Slash command menu ──────────────────────────────────────── */
     .milkdown-slash-menu {
-      position: absolute; z-index: 500; top: 0; left: 0;
+      position: absolute; z-index: 2000; top: 0; left: 0;
       background: var(--bg-card); border: 1px solid var(--border);
       border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
       min-width: 200px; max-height: 320px; overflow-y: auto;
@@ -1338,7 +1338,7 @@
     }
     /* ── Selection tooltip ───────────────────────────────────────── */
     .milkdown-tooltip {
-      position: absolute; z-index: 500; top: 0; left: 0;
+      position: absolute; z-index: 2000; top: 0; left: 0;
       display: none; align-items: center; gap: 2px;
       background: var(--bg-card); border: 1px solid var(--border);
       border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.14);
@@ -15550,7 +15550,7 @@ function MilkdownEditor({
       // Wire slash menu — SlashProvider handles show/hide when user types /
       ctx.set(slashPair.key, {
         view(editorView) {
-          const provider = new MB.SlashProvider({ content: slashMenu });
+          const provider = new MB.SlashProvider({ content: slashMenu, root: document.body });
           provider.update(editorView);
           return {
             update: (view, prevState) => provider.update(view, prevState),
@@ -15561,7 +15561,7 @@ function MilkdownEditor({
       // Wire tooltip — TooltipProvider handles show/hide on text selection
       ctx.set(tooltipPair.key, {
         view(editorView) {
-          const provider = new MB.TooltipProvider({ content: tooltipEl });
+          const provider = new MB.TooltipProvider({ content: tooltipEl, root: document.body });
           provider.update(editorView);
           return {
             update: (view, prevState) => provider.update(view, prevState),
