@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v204-prosemirror-direct";
+const CACHE = "taskflow-v205-addmark-create";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
