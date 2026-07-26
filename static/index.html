@@ -18121,7 +18121,7 @@ function NotesPage({
   React.useEffect(() => {
     const h = {};
     if (typeof __token !== "undefined" && __token) h["Authorization"] = "Bearer " + __token;
-    fetch('/api/scratchpad/published', { headers: h })
+    fetch(apiUrl('/api/scratchpad/published'), { headers: h })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(data => setPublishedNotes(Array.isArray(data) ? data : []))
       .catch(() => {});
@@ -18446,7 +18446,7 @@ function NotesPage({
     try {
       const h = {};
       if (typeof __token !== "undefined" && __token) h["Authorization"] = "Bearer " + __token;
-      const r = await fetch('/api/scratchpad/published', { headers: h });
+      const r = await fetch(apiUrl('/api/scratchpad/published'), { headers: h });
       if (r.ok) {
         const listData = await r.json();
         setPublishedNotes(Array.isArray(listData) ? listData : []);
