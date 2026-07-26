@@ -50,1437 +50,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <style>
-    :root {
-      --bg-primary: #FCFCFB;
-      --bg-secondary: #FCFCFB;
-      --bg-card: #ffffff;
-      --bg-page: #FCFCFB;
-      --text-primary: #0f172a;
-      --text-secondary: #64748b;
-      --text-light: #94a3b8;
-      --accent: #A8C500;
-      --accent-hover: #95AD00;
-      --p1: #ef4444; --p2: #f97316; --p3: #eab308; --p4: #22c55e;
-      --q1: #ef4444; --q2: #A8C500; --q3: #f97316; --q4: #94a3b8;
-      --border: #E8E8E0;
-      --success: #22c55e;
-      --sidebar-w: 260px;
-      --pomodoro: #ef4444;
-      --pomodoro-light: #fef2f2;
-      --break: #22c55e;
-      --break-light: #f0fdf4;
-    }
-    [data-theme="dark"] {
-      --bg-page: #171717;
-      --bg-primary: #262626;
-      --bg-secondary: #262626;
-      --bg-card: #262626;
-      --text-primary: #e5e5e5;
-      --text-secondary: #a3a3a3;
-      --text-light: #737373;
-      --border: #404040;
-    }
-    [data-theme="dark"] body { background: #171717; }
-    [data-theme="dark"] .input { background: #171717 !important; color: var(--text-primary); }
-    [data-theme="dark"] select.input { background: #171717 !important; }
-    [data-theme="dark"] .modal-content { background: #262626; }
-    [data-theme="dark"] .task-row:hover { background: #404040; border-color: #525252; }
-    [data-theme="dark"] .mobile-topbar { background: #262626; border-color: #404040; }
-    [data-theme="dark"] .sidebar { border-right-color: #404040; }
-    [data-theme="dark"] .stat-card { background: #262626; }
-    [data-theme="dark"] .eisenhower-cell { background: #262626; border-color: #404040; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
-    [data-theme="dark"] .badge-p1 { background: rgba(220,38,38,0.18); box-shadow: 0 0 0 1px rgba(220,38,38,0.3); }
-    [data-theme="dark"] .badge-p2 { background: rgba(234,88,12,0.18); box-shadow: 0 0 0 1px rgba(234,88,12,0.3); }
-    [data-theme="dark"] .badge-p3 { background: rgba(202,138,4,0.18); }
-    [data-theme="dark"] .badge-p4 { background: rgba(100,116,139,0.18); }
-    [data-theme="dark"] .badge-q1 { background: rgba(220,38,38,0.18); }
-    [data-theme="dark"] .badge-q2 { background: rgba(168,197,0,0.18); }
-    [data-theme="dark"] .badge-q3 { background: rgba(234,88,12,0.18); }
-    [data-theme="dark"] .badge-q4 { background: rgba(100,116,139,0.18); }
-    [data-theme="dark"] .badge-inbox { background: rgba(71,85,105,0.2); color: #94a3b8; }
-    [data-theme="dark"] .badge-next { background: rgba(168,197,0,0.18); color: #A8C500; }
-    [data-theme="dark"] .badge-waiting { background: rgba(202,138,4,0.18); color: #fbbf24; }
-    [data-theme="dark"] .badge-someday { background: rgba(147,51,234,0.18); color: #c084fc; }
-    [data-theme="dark"] .badge-project { background: rgba(5,150,105,0.18); color: #34d399; }
-    [data-theme="dark"] .badge-done { background: rgba(22,163,74,0.18); color: #4ade80; }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 15px; font-optical-sizing: auto; background: var(--bg-page); color: var(--text-primary); }
-    code, .mono { font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace; }
-
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-
-    /* Modern dark scrollbar for note modal */
-    .note-modal-scroll-area { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
-    .note-modal-scroll-area::-webkit-scrollbar { width: 4px; }
-    .note-modal-scroll-area::-webkit-scrollbar-track { background: transparent; }
-    .note-modal-scroll-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 4px; }
-    .note-modal-scroll-area::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
-    .note-modal-content-input { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
-    .note-modal-content-input::-webkit-scrollbar { width: 4px; }
-    .note-modal-content-input::-webkit-scrollbar-track { background: transparent; }
-    .note-modal-content-input::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 4px; }
-    .note-modal-content-input::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
-
-    /* Animations */
-    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    @keyframes slideIn { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
-    @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-    @keyframes bounce { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-    @keyframes checkPop { 0% { transform: scale(0); opacity: 0; } 60% { transform: scale(1.3); } 100% { transform: scale(1); opacity: 1; } }
-    .fade-in { animation: fadeIn 0.3s ease-out; }
-    .slide-in { animation: slideIn 0.3s ease-out; }
-    .scale-in { animation: scaleIn 0.2s ease-out; }
-
-    /* Section title */
-    .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-secondary); margin-bottom: 16px; margin-top: 0; display: flex; align-items: center; gap: 10px; }
-    .section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-
-    /* FAB */
-    .fab { position: fixed; bottom: calc(28px + env(safe-area-inset-bottom, 0px)); right: calc(28px + env(safe-area-inset-right, 0px)); z-index: 50; width: 52px; height: 52px; border-radius: 50%; background: var(--accent); color: white; border: none; font-size: 26px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.18); transition: all 0.2s; display: flex; align-items: center; justify-content: center; line-height: 1; }
-    .fab:hover { background: var(--accent-hover); transform: scale(1.1); box-shadow: 0 6px 24px rgba(0,0,0,0.25); }
-    @media (min-width: 769px) { .fab { display: none; } }
-
-    /* Sidebar */
-    .sidebar { width: var(--sidebar-w); height: 100vh; background: var(--bg-primary); color: var(--text-primary); position: fixed; left: 0; top: 0; z-index: 40; transition: transform 0.3s; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid #DDDDD5; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
-    .sidebar.collapsed { transform: translateX(-100%); }
-    .sidebar-scroll { flex: 1; overflow-y: auto; padding: 8px 0; scrollbar-width: none; }
-    .sidebar-scroll::-webkit-scrollbar { display: none; }
-    .sidebar-link { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #4A4A40; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; border-radius: 8px; margin: 2px 12px; }
-    .sidebar-link:hover { background: rgba(0,0,0,0.05); color: #0f172a; }
-    .sidebar-link.active { background: rgba(168,197,0,0.2); color: #6B8000; }
-    .sidebar-section { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1.8px; color: #aaa89f; padding: 18px 20px 5px; font-weight: 700; }
-    [data-theme="dark"] .sidebar-link { color: #a3a3a3; }
-    [data-theme="dark"] .sidebar-link:hover { background: rgba(255,255,255,0.07); color: #e5e5e5; }
-    [data-theme="dark"] .sidebar-link.active { background: rgba(168,197,0,0.18); color: #A8C500; }
-    [data-theme="dark"] .sidebar-section { color: #737373; }
-
-    /* Dark theme — tags */
-    [data-theme="dark"] .tag-pill { background: #2A2F36; color: #D0D5DD; border-color: #3A4048; }
-    [data-theme="dark"] .tag-pill:hover { background: #343B44; border-color: #4A5058; }
-    [data-theme="dark"] .tag-pill.active { background: #B6D400; color: #fff; border-color: #B6D400; }
-    [data-theme="dark"] .tag-pill.active:hover { background: #A3C100; border-color: #A3C100; }
-    [data-theme="dark"] .tag-count { background: #3A4048; color: #D0D5DD; }
-    [data-theme="dark"] .tag-pill.active .tag-count { background: rgba(0,0,0,0.18); color: #fff; }
-    [data-theme="dark"] .note-tag-untagged { color: #a3a3a3; border-color: #3A4048; }
-    [data-theme="dark"] .tag-section-label { color: #6B7280; }
-
-    /* Dark theme — search box */
-    [data-theme="dark"] .scratchpad-bar { background: #1E2126; border-color: #2F343C; }
-    [data-theme="dark"] .scratchpad-bar input { color: #D0D5DD; }
-    [data-theme="dark"] .scratchpad-bar input::placeholder { color: #98A2B3; }
-
-    /* Main content */
-    .main-content { margin-left: 0; min-height: 100vh; padding: 28px 36px; transition: margin-left 0.3s; }
-    .main-content.sidebar-visible { margin-left: var(--sidebar-w); }
-    .desktop-topbar { position: sticky; top: 0; z-index: 30; background: var(--bg-page); margin: -28px -36px 0; padding: calc(20px + env(safe-area-inset-top, 0px)) 36px 16px; border-bottom: 1px solid var(--border); }
-
-    /* Mobile header */
-    .mobile-topbar { display: none; position: sticky; top: 0; z-index: 30; background: white; border-bottom: 1px solid var(--border); padding: 12px 16px; padding-top: calc(12px + env(safe-area-inset-top, 0px)); align-items: center; gap: 12px; }
-
-    /* Cards */
-    .card { background: var(--bg-card); border-radius: 14px; border: 1px solid rgba(0,0,0,0.06); padding: 20px; min-width: 0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 8px -2px rgba(0,0,0,0.03); }
-    .card-hover { transition: all 0.2s; }
-    .card-hover:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.08); transform: translateY(-1px); }
-
-    /* Stat card */
-    .stat-card { padding: 20px 22px; border-radius: 14px; background: white; border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 8px -2px rgba(0,0,0,0.04); position: relative; overflow: hidden; transition: transform 0.18s, box-shadow 0.18s; cursor: default; }
-    .stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.1); }
-    .stat-number { font-size: 30px; font-weight: 700; line-height: 1; }
-    .stat-label { font-size: 12px; color: var(--text-secondary); margin-top: 5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
-
-    /* Badge */
-    .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; }
-
-    /* Priority badges */
-    .badge-p1 { background: #fef2f2; color: #dc2626; box-shadow: 0 0 0 1px rgba(220,38,38,0.2); font-weight: 700; }
-    .badge-p2 { background: #fff7ed; color: #ea580c; box-shadow: 0 0 0 1px rgba(234,88,12,0.2); font-weight: 700; }
-    .badge-p3 { background: #fefce8; color: #ca8a04; }
-    .badge-p4 { background: #f0fdf4; color: #64748b; }
-
-    /* Quadrant badges */
-    .badge-q1 { background: #fef2f2; color: #dc2626; }
-    .badge-q2 { background: #F4FAD6; color: #6B8000; }
-    .badge-q3 { background: #fff7ed; color: #ea580c; }
-    .badge-q4 { background: #FAFAF7; color: #64748b; }
-
-    /* GTD status badges */
-    .badge-inbox { background: #FAFAF7; color: #475569; }
-    .badge-next { background: #F4FAD6; color: #6B8000; }
-    .badge-waiting { background: #fefce8; color: #ca8a04; }
-    .badge-someday { background: #faf5ff; color: #9333ea; }
-    .badge-project { background: #ecfdf5; color: #059669; }
-    .badge-done { background: #f0fdf4; color: #16a34a; }
-
-    /* Button */
-    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; }
-    .btn-primary { background: var(--accent); color: white; }
-    .btn-primary:hover { background: var(--accent-hover); }
-    .btn-secondary { background: #F0F0E8; color: #475569; }
-    .btn-secondary:hover { background: #e2e8f0; }
-    .btn-danger { background: #fef2f2; color: #dc2626; }
-    .btn-danger:hover { background: #fee2e2; }
-    .btn-success { background: #f0fdf4; color: #16a34a; }
-    .btn-success:hover { background: #dcfce7; }
-    .btn-sm { padding: 5px 12px; font-size: 13px; }
-    /* ── Chat ── */
-    .main-content.no-padding { padding: 0; }
-    .chat-layout { display: flex; height: 100vh; overflow: hidden; padding: 16px; gap: 12px; background: var(--bg-page); }
-    @media (min-width: 769px) {
-      .main-content.no-padding { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-      .main-content.no-padding .desktop-topbar { margin: 0; flex-shrink: 0; }
-      .main-content.no-padding .chat-layout { flex: 1; min-height: 0; height: auto; }
-    }
-    /* Chat list panel */
-    .chat-list-panel { width: 240px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 16px; overflow-y: auto; background: var(--bg-card); transition: width 0.25s ease; }
-    .chat-list-panel.collapsed { width: 60px; overflow: hidden; }
-    .chat-list-item { padding: 12px 14px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.15s; display: flex; align-items: center; gap: 10px; }
-    .chat-list-item:first-child { border-radius: 16px 16px 0 0; }
-    .chat-list-item:hover { background: var(--bg-primary); }
-    .chat-list-item.active { background: rgba(168,197,0,0.10); border-left: 3px solid var(--accent); }
-    .chat-list-avatar { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 15px; font-weight: 700; flex-shrink: 0; }
-    /* Chat room */
-    .chat-room { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; }
-    .chat-messages { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; background: var(--bg-page); }
-    /* Header */
-    .chat-room-header { background: var(--bg-card); padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; border-bottom: 1px solid var(--border); border-radius: 16px 16px 0 0; }
-    .chat-room-header-avatar { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 16px; flex-shrink: 0; }
-    .chat-room-header .header-name { font-weight: 700; color: var(--text-primary); font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .chat-room-header .header-meta { font-size: 11px; color: var(--text-secondary); }
-    /* Bubbles */
-    .chat-bubble-wrap { display: flex; gap: 10px; align-items: flex-start; }
-    .chat-bubble-wrap.self { flex-direction: row-reverse; }
-    .chat-bubble-wrap > div { max-width: 72%; }
-    .chat-avatar { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 13px; font-weight: 700; flex-shrink: 0; }
-    .chat-bubble { padding: 10px 14px; border-radius: 6px 16px 16px 16px; font-size: 14px; line-height: 1.55; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border); }
-    [data-theme="dark"] .chat-bubble { background: #2a2a2a; border-color: #383838; }
-    .chat-bubble.self { border-radius: 16px 10px 16px 16px; background: rgba(182,212,0,0.14); color: #364d00; border-color: rgba(182,212,0,0.35); }
-    [data-theme="dark"] .chat-bubble.self { background: #4a7000; color: #fff; border-color: transparent; }
-    .chat-bubble.mentioned { background: rgba(168,197,0,0.12); border-color: rgba(168,197,0,0.3); }
-    .chat-sender { font-size: 11px; font-weight: 700; color: var(--text-secondary); margin-bottom: 4px; }
-    .chat-time { font-size: 10px; color: var(--text-light); margin-top: 4px; }
-    .chat-task-card { margin-top: 6px; background: rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
-    [data-theme="dark"] .chat-task-card { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.1); }
-    [data-theme="dark"] .chat-task-card { border-color: rgba(253,230,138,0.3); background: rgba(253,230,138,0.05); }
-    .chat-task-card:hover { border-color: var(--accent); }
-    .chat-input-bar { padding: 10px 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-end; background: var(--bg-card); position: relative; border-radius: 0 0 16px 16px; }
-    .chat-input { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 20px; padding: 9px 14px; font-size: 14px; font-family: inherit; outline: none; background: var(--bg-primary); color: var(--text-primary); max-height: 120px; overflow-y: auto; }
-    .chat-input:focus { border-color: var(--accent); }
-    .chat-attach-popup { position: absolute; bottom: 64px; left: 12px; width: 280px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 20; overflow: hidden; }
-    .chat-attach-item { padding: 10px 14px; cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--border); color: var(--text-primary); }
-    .chat-attach-item:hover { background: var(--bg-primary); }
-    .chat-mention-dropdown { position: absolute; bottom: 64px; left: 12px; width: 200px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.1); z-index: 21; overflow: hidden; }
-    .chat-mention-item { padding: 8px 12px; cursor: pointer; font-size: 13px; color: var(--text-primary); }
-    .chat-mention-item:hover { background: var(--bg-primary); }
-    /* ── Chat Reply ── */
-    .chat-bubble-wrap { position: relative; }
-    .chat-reply-btn {
-      position: absolute; bottom: 5px; right: 6px;
-      background: rgba(0,0,0,0.08); border: none; border-radius: 50%;
-      width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
-      font-size: 12px; cursor: pointer;
-      opacity: 0; transition: opacity 0.15s; z-index: 10; color: var(--text-secondary);
-    }
-    .chat-bubble:hover .chat-reply-btn { opacity: 1; }
-    .chat-bubble.self .chat-reply-btn { background: rgba(0,0,0,0.08); color: #364d00; }
-    [data-theme="dark"] .chat-bubble.self .chat-reply-btn { background: rgba(255,255,255,0.18); color: #fff; }
-    .chat-quote-block {
-      border-left: 3px solid var(--accent); border-radius: 4px;
-      background: rgba(0,0,0,0.07); padding: 4px 8px; margin-bottom: 6px; font-size: 12px;
-    }
-    [data-theme="dark"] .chat-quote-block { background: rgba(255,255,255,0.07); }
-    .chat-quote-block .quote-sender { font-weight: 700; color: var(--accent); margin-bottom: 2px; font-size: 11px; }
-    .chat-quote-block .quote-text {
-      color: var(--text-secondary); overflow: hidden;
-      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    }
-    .chat-bubble.self .chat-quote-block { background: rgba(0,0,0,0.06); border-left-color: rgba(54,77,0,0.4); cursor: pointer; }
-    .chat-bubble.self .chat-quote-block .quote-sender { color: #364d00; }
-    .chat-bubble.self .chat-quote-block .quote-text { color: rgba(54,77,0,0.7); }
-    [data-theme="dark"] .chat-bubble.self .chat-quote-block { background: rgba(0,0,0,0.2); border-left-color: rgba(255,255,255,0.5); }
-    [data-theme="dark"] .chat-bubble.self .chat-quote-block .quote-sender { color: rgba(255,255,255,0.95); }
-    [data-theme="dark"] .chat-bubble.self .chat-quote-block .quote-text { color: rgba(255,255,255,0.75); }
-    .chat-quote-block { cursor: pointer; }
-    .chat-quote-block:hover { opacity: 0.82; }
-    /* ── Chat Header (Gradient) ── */
-    .chat-room-header { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); padding: 10px 16px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-    .chat-room-header-avatar { width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.25); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 13px; flex-shrink: 0; }
-    .chat-room-header .header-name { font-weight: 700; color: white; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .chat-room-header .header-meta { font-size: 11px; color: rgba(255,255,255,0.8); }
-    /* ── Chat Send Button ── */
-    .chat-send-btn { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: white; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 2px 6px rgba(168,197,0,0.35); transition: transform 0.15s, box-shadow 0.15s; }
-    .chat-send-btn:hover { transform: scale(1.08); box-shadow: 0 4px 10px rgba(168,197,0,0.45); }
-    .chat-send-btn:disabled { opacity: 0.45; transform: none; box-shadow: none; cursor: default; }
-    .chat-reply-preview {
-      border-left: 3px solid var(--accent); border-top: 1px solid var(--border);
-      padding: 6px 12px; display: flex; align-items: flex-start; gap: 8px;
-      font-size: 12px; background: var(--bg-primary);
-    }
-    .chat-reply-preview .preview-sender { font-weight: 700; color: var(--accent); font-size: 11px; }
-    .chat-reply-preview .preview-text { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
-    .chat-reply-preview .preview-close { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--text-light); font-size: 18px; padding: 0; flex-shrink: 0; line-height: 1; }
-    @media (max-width: 768px) {
-      /* Mobile: full-screen toggle — list OR chat, not side by side */
-      .chat-layout { height: calc(100vh - 112px); position: relative; padding: 8px; gap: 8px; }
-      .chat-list-panel { width: 100%; border-right: none; border-radius: 14px; }
-      .chat-layout.has-selection .chat-list-panel { display: none; }
-      .chat-room { display: none; }
-      .chat-layout.has-selection .chat-room { display: flex; width: 100%; }
-      /* Input bar */
-      .chat-bubble { max-width: 88%; font-size: 13px; }
-      .chat-input-bar { padding: 8px 10px; gap: 6px; }
-      .chat-input { font-size: 13px; padding: 7px 10px; min-width: 0; }
-      .chat-input-bar .btn { padding: 7px 12px; font-size: 12px; }
-      .chat-messages { padding: 12px 16px; }
-      .chat-reply-btn { opacity: 0; width: 22px; height: 22px; font-size: 11px; }
-      .chat-bubble-wrap:not(.self) { flex-wrap: wrap; }
-    }
-
-    /* Pomodoro Button */
-    .btn-pomodoro { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; }
-    .btn-pomodoro:hover { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); transform: scale(1.02); }
-    .btn-break { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: white; }
-    .btn-break:hover { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
-
-    /* Input */
-    .input { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; transition: border-color 0.15s; outline: none; background: white; }
-    .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(168,197,0,0.15); }
-    .input-label { display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
-
-    /* Select */
-    select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
-
-    /* Modal */
-    .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.5); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 50; }
-    .modal-content { background: white; border-radius: 16px; width: 90%; max-width: 520px; max-height: 90vh; overflow-y: auto; padding: 28px; scrollbar-width: none; position: relative; }
-    .modal-content::-webkit-scrollbar { display: none; }
-
-    /* Eisenhower grid */
-    .eisenhower-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .eisenhower-cell { border-radius: 12px; padding: 16px 20px; min-height: 160px; min-width: 0; overflow: hidden; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.06); transition: transform 0.18s, box-shadow 0.18s; }
-    .eisenhower-cell:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.09); }
-    .eq1 { }
-    .eq2 { }
-    .eq3 { }
-    .eq4 { }
-
-    /* Task row */
-    .task-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
-    .task-row:hover { background: var(--bg-primary); border-color: var(--border); }
-    .task-row.focusing { background: linear-gradient(135deg, #fef2f2 0%, #fff7ed 100%); border-color: #fecaca; box-shadow: 0 2px 12px rgba(239,68,68,0.1); }
-    [data-theme="dark"] .task-row.focusing { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.3); }
-    [data-theme="dark"] .focus-card-overdue { background: rgba(239,68,68,0.1) !important; border-color: rgba(239,68,68,0.3) !important; }
-    [data-theme="dark"] .focus-card-focused { background: rgba(245,158,11,0.1) !important; border-color: rgba(245,158,11,0.3) !important; }
-    [data-theme="dark"] .focus-card-normal { background: var(--bg-card) !important; border-color: var(--border) !important; }
-    [data-theme="dark"] .focus-tips-card { background: rgba(245,158,11,0.08) !important; border-color: rgba(245,158,11,0.25) !important; }
-    .task-row-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
-    .task-row-badges { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
-    @media (max-width: 768px) {
-      .task-row-header { flex-direction: column-reverse; gap: 4px; }
-      .task-row-badges { align-self: flex-start; }
-      .task-row { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 6px; }
-      .task-row:hover { background: var(--bg-primary); }
-    }
-
-    /* Toast */
-    .toast { position: fixed; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); right: 24px; padding: 12px 20px; border-radius: 10px; color: white; font-weight: 600; font-size: 14px; z-index: 100; animation: fadeIn 0.3s ease-out; }
-    .toast-success { background: #22c55e; }
-    .toast-error { background: #ef4444; }
-
-    /* Pomodoro Timer Styles */
-    .pomodoro-container {
-      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-      border-radius: 20px;
-      padding: 32px;
-      color: white;
-      margin-bottom: 24px;
-      position: relative;
-      overflow: hidden;
-    }
-    .pomodoro-container::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -50%;
-      width: 100%;
-      height: 100%;
-      background: radial-gradient(circle, rgba(239,68,68,0.1) 0%, transparent 70%);
-      pointer-events: none;
-    }
-    .pomodoro-timer {
-      position: relative;
-      width: 200px;
-      height: 200px;
-      margin: 0 auto;
-    }
-    .pomodoro-circle {
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.05);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-    }
-    .pomodoro-circle svg {
-      position: absolute;
-      top: 0;
-      left: 0;
-      transform: rotate(-90deg);
-    }
-    .pomodoro-time {
-      font-size: 48px;
-      font-weight: 700;
-      font-family: 'JetBrains Mono', monospace;
-      letter-spacing: -2px;
-    }
-    .pomodoro-label {
-      font-size: 13px;
-      color: rgba(255,255,255,0.6);
-      margin-top: 4px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    .pomodoro-controls {
-      display: flex;
-      gap: 12px;
-      justify-content: center;
-      margin-top: 24px;
-    }
-    .pomodoro-btn {
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      border: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      transition: all 0.2s;
-    }
-    .pomodoro-btn:hover { transform: scale(1.1); }
-    .pomodoro-btn-play { background: #ef4444; color: white; }
-    .pomodoro-btn-play.break { background: #22c55e; }
-    .pomodoro-btn-pause { background: #f59e0b; color: white; }
-    .pomodoro-btn-reset { background: rgba(255,255,255,0.1); color: white; }
-    .pomodoro-btn-skip { background: rgba(255,255,255,0.1); color: white; }
-    
-    .pomodoro-stats {
-      display: flex;
-      gap: 24px;
-      justify-content: center;
-      margin-top: 24px;
-      padding-top: 20px;
-      border-top: 1px solid rgba(255,255,255,0.1);
-    }
-    .pomodoro-stat {
-      text-align: center;
-    }
-    .pomodoro-stat-value {
-      font-size: 24px;
-      font-weight: 700;
-    }
-    .pomodoro-stat-label {
-      font-size: 11px;
-      color: rgba(255,255,255,0.75);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-top: 2px;
-    }
-
-    .focus-task-card {
-      background: rgba(255,255,255,0.08);
-      border-radius: 12px;
-      padding: 16px 20px;
-      margin-top: 20px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .focus-task-title {
-      flex: 1;
-      font-size: 15px;
-      font-weight: 600;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .focus-task-pomodoros {
-      font-size: 14px;
-      color: rgba(255,255,255,0.7);
-    }
-
-    /* Task with focus button */
-    .task-focus-btn {
-      padding: 6px 14px;
-      border-radius: 8px;
-      border: none;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.15s;
-      white-space: nowrap;
-    }
-    .task-focus-btn.start {
-      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-      color: white;
-    }
-    .task-focus-btn.start:hover {
-      transform: scale(1.05);
-      box-shadow: 0 2px 8px rgba(239,68,68,0.3);
-    }
-    .task-focus-btn.active {
-      background: #22c55e;
-      color: white;
-      animation: pulse 2s infinite;
-    }
-    .task-focus-btn.disabled {
-      background: rgba(0,0,0,0.05);
-      color: var(--text-light);
-      cursor: not-allowed;
-      opacity: 0.45;
-    }
-    [data-theme="dark"] .task-focus-btn.disabled {
-      background: rgba(255,255,255,0.05);
-    }
-
-    /* Pomodoro history */
-    .pomodoro-history {
-      display: flex;
-      gap: 4px;
-      flex-wrap: wrap;
-    }
-    .pomodoro-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #ef4444;
-    }
-    .pomodoro-dot.empty {
-      background: rgba(239,68,68,0.2);
-      border: 1px dashed rgba(239,68,68,0.4);
-    }
-
-    /* Responsive */
-    @media (max-width: 768px) {
-      .sidebar { transform: translateX(-100%); }
-      .sidebar.open { transform: translateX(0); }
-      .main-content, .main-content.sidebar-visible { margin-left: 0; padding: 16px; padding-top: 8px; padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); padding-left: calc(16px + env(safe-area-inset-left, 0px)); padding-right: calc(16px + env(safe-area-inset-right, 0px)); }
-      .mobile-topbar { display: flex !important; }
-      .desktop-topbar { display: none !important; }
-      .eisenhower-grid { grid-template-columns: 1fr; }
-      .charts-grid { grid-template-columns: 1fr !important; }
-      .gtd-grid { grid-template-columns: 1fr !important; }
-      .eisen-outer { display: flex; flex-direction: column; gap: 12px; }
-      .eisen-outer > div { display: contents; }
-      .eisen-label-col { display: none !important; }
-      .eisen-header-row { display: none !important; }
-      :root { --sidebar-w: 280px; }
-      
-      /* Pomodoro Mobile Styles */
-      .pomodoro-container { 
-        padding: 16px; 
-        border-radius: 16px;
-        margin-bottom: 16px;
-      }
-      .pomodoro-header { 
-        flex-direction: column !important; 
-        align-items: flex-start !important; 
-        gap: 12px !important;
-        margin-bottom: 16px !important;
-      }
-      .pomodoro-header-title { 
-        font-size: 18px !important; 
-      }
-      .pomodoro-header-subtitle {
-        font-size: 12px !important;
-      }
-      .pomodoro-mode-btns { 
-        width: 100%;
-        justify-content: flex-start !important;
-      }
-      .pomodoro-mode-btn {
-        padding: 5px 12px !important;
-        font-size: 12px !important;
-      }
-      .pomodoro-timer { 
-        width: 140px; 
-        height: 140px; 
-        margin: 8px auto 16px;
-      }
-      .pomodoro-time { 
-        font-size: 32px !important; 
-        letter-spacing: -1px !important;
-      }
-      .pomodoro-label {
-        font-size: 10px !important;
-        letter-spacing: 0.5px !important;
-      }
-      .pomodoro-controls { 
-        margin-top: 16px !important;
-        gap: 10px !important;
-      }
-      .pomodoro-btn {
-        width: 42px !important;
-        height: 42px !important;
-        font-size: 18px !important;
-      }
-      .pomodoro-stats { 
-        flex-wrap: nowrap;
-        gap: 12px;
-        margin-top: 16px !important;
-        padding-top: 16px !important;
-      }
-      .pomodoro-stat-value {
-        font-size: 18px !important;
-      }
-      .pomodoro-stat-label {
-        font-size: 9px !important;
-      }
-      .focus-task-card {
-        padding: 12px !important;
-        margin-top: 12px !important;
-        gap: 8px !important;
-      }
-      .focus-task-card span:first-child {
-        font-size: 16px !important;
-      }
-      .focus-task-title {
-        font-size: 13px !important;
-      }
-      .focus-task-pomodoros {
-        font-size: 12px !important;
-      }
-      .focus-layout { flex-direction: column !important; }
-      .focus-layout > div { width: 100% !important; }
-      
-      /* Task focus button mobile */
-      .task-focus-btn {
-        padding: 5px 10px !important;
-        font-size: 11px !important;
-      }
-      
-      /* Focus page mobile */
-      .focus-page-header {
-        margin-bottom: 12px !important;
-      }
-      .focus-page-title {
-        font-size: 20px !important;
-      }
-      .focus-page-subtitle {
-        font-size: 12px !important;
-        margin-top: 2px !important;
-      }
-      .focus-task-list {
-        padding: 12px !important;
-      }
-      .focus-task-list h3 {
-        font-size: 14px !important;
-      }
-      .focus-tips-card {
-        padding: 12px !important;
-        margin-top: 12px !important;
-      }
-      .focus-tips-card span:first-child {
-        font-size: 20px !important;
-      }
-      .focus-tips-card ul {
-        font-size: 12px !important;
-      }
-    }
-
-    /* Overdue pulse */
-    .overdue-indicator { display: inline-block; width: 8px; height: 8px; background: #ef4444; border-radius: 50%; animation: pulse 1.5s infinite; }
-
-    /* Extra small screens */
-    @media (max-width: 400px) {
-      .pomodoro-container { 
-        padding: 14px; 
-      }
-      .pomodoro-header-title { 
-        font-size: 16px !important; 
-      }
-      .pomodoro-mode-btn {
-        padding: 4px 10px !important;
-        font-size: 11px !important;
-      }
-      .pomodoro-timer { 
-        width: 120px !important; 
-        height: 120px !important; 
-      }
-      .pomodoro-time { 
-        font-size: 28px !important; 
-      }
-      .pomodoro-label {
-        font-size: 9px !important;
-      }
-      .pomodoro-btn {
-        width: 38px !important;
-        height: 38px !important;
-        font-size: 16px !important;
-      }
-      .pomodoro-stat-value {
-        font-size: 16px !important;
-      }
-      .pomodoro-stat-label {
-        font-size: 8px !important;
-      }
-    }
-
-    /* Checkbox */
-    .check-btn { width: 22px; height: 22px; border-radius: 6px; border: 2px solid #d1d5db; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0; }
-    .check-btn:hover { border-color: var(--success); background: #f0fdf4; transform: scale(1.1); }
-    .check-btn:active { transform: scale(0.92); }
-    .check-btn .check-icon { animation: checkPop 0.3s ease-out; }
-
-    /* ── Habit Tracker ── */
-    .habit-phase-header { font-weight: 700; font-size: 12px; letter-spacing: 0.05em; padding: 6px 10px; }
-    /* Habit Card Grid Layout */
-    .habit-card { background: var(--bg-card); border-radius: 14px; padding: 16px 18px; margin-bottom: 10px; cursor: pointer; border: 1px solid var(--border); transition: box-shadow 0.15s, transform 0.15s; }
-    .habit-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1px); }
-    .habit-card-inner { display: flex; align-items: center; gap: 16px; }
-    .habit-card-info { flex: 1; min-width: 0; }
-    .habit-card-grid { display: flex; gap: 5px; flex-shrink: 0; }
-    .habit-week-col { display: flex; flex-direction: column; align-items: center; gap: 5px; }
-    .habit-week-label { font-size: 10px; font-weight: 600; color: var(--text-secondary); }
-    .habit-week-label.today { color: #818cf8; font-weight: 700; }
-    .habit-week-box { width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; border: 1.5px solid var(--border); background: var(--bg-primary); font-size: 13px; font-weight: 700; transition: all 0.1s; }
-    .habit-week-box.done { background: #818cf8; border-color: #818cf8; color: #fff; }
-    .habit-week-box.skipped { background: transparent; border: 1.5px dashed #94a3b8; }
-    .habit-week-box.missed { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.25); }
-    .habit-streak { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-left: 8px; border-left: 1px solid var(--border); min-width: 36px; }
-    /* Mobile: stack layout */
-    @media (max-width: 640px) {
-      .habit-card { padding: 12px 14px; }
-      .habit-card-inner { flex-wrap: wrap; gap: 6px 10px; }
-      .habit-card-info { order: 1; flex: 1; min-width: 0; }
-      .habit-streak { order: 2; border-left: none; padding-left: 0; flex-direction: row; gap: 4px; min-width: auto; }
-      .habit-card-menu { order: 3; }
-      .habit-card-grid { order: 4; width: 100%; gap: 3px; justify-content: space-between; }
-      .habit-week-col { flex: 1; }
-      .habit-week-box { width: 100%; max-width: 40px; height: 28px; font-size: 11px; border-radius: 5px; }
-      .habit-week-label { font-size: 9px; }
-    }
-    /* Habit Check-in Modal */
-    .habit-checkin-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-    .habit-checkin-box { background: var(--bg-card); border-radius: 18px; padding: 24px 22px; width: 320px; max-width: calc(100vw - 32px); box-shadow: 0 16px 48px rgba(0,0,0,0.28); animation: scaleIn 0.18s ease-out; }
-    .habit-done-btn { width: 100%; padding: 12px 0; border-radius: 10px; background: var(--accent); color: #fff; border: none; font-size: 15px; font-weight: 700; cursor: pointer; transition: background 0.15s, transform 0.1s; }
-    .habit-done-btn:hover { background: var(--accent-hover); transform: scale(1.01); }
-    .habit-done-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
-    .habit-skip-btn { background: none; border: none; color: var(--text-secondary); font-size: 14px; font-weight: 600; cursor: pointer; padding: 8px 12px; border-radius: 8px; transition: color 0.15s; }
-    .habit-skip-btn:hover { color: var(--text-primary); }
-
-    /* ── Scratchpad / Notes ──────────────────────────────── */
-    .scratchpad-bar { display: flex; align-items: center; gap: 10px; background: var(--bg-card); border: 1.5px solid var(--border); border-radius: 12px; padding: 10px 16px; margin-bottom: 18px; }
-    .scratchpad-bar input { flex: 1; background: none; border: none; outline: none; font-size: 14px; color: var(--text-primary); }
-    .scratchpad-bar input::placeholder { color: var(--text-light); }
-    .notes-layout { display: flex; gap: 0; height: calc(100vh - 112px); min-height: 400px; margin-top: 8px; }
-    .notes-left { min-width: 240px; max-width: 50%; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); padding-right: 0; }
-    .notes-left-inner { flex: 1; overflow-y: auto; padding: 0 16px 16px 0; scrollbar-width: none; }
-    .notes-left-inner::-webkit-scrollbar { display: none; }
-    /* Sidebar expand toggle — visible only when sidebar is collapsed */
-    .sidebar-toggle {
-      position: fixed; left: 0; top: 50%; transform: translateY(-50%);
-      width: 28px; height: 64px;
-      background: var(--accent);
-      color: #111;
-      display: flex; align-items: center; justify-content: center;
-      cursor: pointer; z-index: 200;
-      border-radius: 0 10px 10px 0;
-      opacity: 0; pointer-events: none;
-      transition: opacity 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
-      box-shadow: 0 0 0 0 rgba(168,197,0,0);
-      transform: translateY(-50%) translateX(-28px);
-    }
-    .sidebar-toggle:hover {
-      box-shadow: 2px 0 18px rgba(168,197,0,0.35);
-    }
-    .sidebar-toggle.visible {
-      opacity: 1; pointer-events: auto;
-      transform: translateY(-50%) translateX(0);
-    }
-    .sidebar-toggle svg {
-      width: 16px; height: 16px;
-      transition: transform 0.2s;
-    }
-    .sidebar-toggle:hover svg { transform: scale(1.2); }
-    /* Sidebar collapse button */
-    .sidebar-collapse-btn {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 26px; height: 26px;
-      background: var(--bg-primary);
-      border: 1px solid var(--border);
-      border-radius: 7px;
-      cursor: pointer;
-      color: var(--text-secondary);
-      transition: all 0.18s ease;
-      flex-shrink: 0;
-    }
-    .sidebar-collapse-btn:hover { background: rgba(168,197,0,0.12); border-color: var(--accent); color: var(--accent); }
-    .sidebar-collapse-btn svg { width: 14px; height: 14px; }
-    .pinned-list-expanded { max-height: 220px; overflow-y: auto; scrollbar-width: none; }
-    .pinned-list-expanded::-webkit-scrollbar { display: none; }
-    .pinned-note-item {
-      display: flex; align-items: center; gap: 7px;
-      padding: 7px 10px; border-radius: 10px; margin-bottom: 3px;
-      cursor: pointer; font-size: 12.5px; color: var(--text-secondary);
-      border: 1px solid transparent; background: transparent;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      transition: all 0.18s;
-    }
-    .pinned-note-item:hover { background: var(--bg-primary); border-color: var(--border); color: var(--text-primary); }
-    .pinned-note-item.active { background: rgba(168,197,0,0.08); border-color: var(--accent); color: var(--accent); font-weight: 600; }
-    .pinned-note-icon { font-size: 14px; flex-shrink: 0; opacity: 0.7; line-height: 1; }
-    .pinned-note-item.active .pinned-note-icon { opacity: 1; }
-    .pinned-note-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-    .pinned-note-tags { display: flex; gap: 3px; flex-shrink: 0; }
-    .pinned-note-tag-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); opacity: 0.5; flex-shrink: 0; }
-    .pinned-note-item.active .pinned-note-tag-dot { opacity: 1; }
-    .notes-right { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 2px 14px rgba(15,23,42,0.05); margin-left: 14px; }
-    .notes-right-scroll { flex: 1; overflow-y: auto; padding: 16px 26px 28px; scrollbar-width: none; }
-    .notes-right-scroll::-webkit-scrollbar { display: none; }
-    .notes-panel-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-light); gap: 12px; }
-    .notes-panel-header { display: flex; align-items: flex-start; gap: 8px; padding-bottom: 14px; border-bottom: 2px solid var(--border); margin-bottom: 18px; flex-shrink: 0; flex-wrap: wrap; }
-    .notes-panel-meta { flex: 1; min-width: 0; }
-    .notes-panel-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-start; flex: 0 0 100%; padding-top: 8px; }
-    .notes-panel-title { font-size: 17px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; line-height: 1.35; word-break: break-word; }
-    @media (max-width: 640px) {
-      .notes-panel-meta { width: 100%; }
-      .notes-panel-actions { width: 100%; }
-    }
-    .notes-nav-trail { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 11px; color: var(--text-light); margin-bottom: 6px; background: var(--bg-primary); border-radius: 6px; padding: 4px 8px; }
-    .notes-nav-crumb { cursor: pointer; color: var(--accent); }
-    .notes-nav-crumb:hover { text-decoration: underline; }
-    .notes-section-label { font-size: 11px; font-weight: 700; color: var(--text-light); text-transform: uppercase; letter-spacing: 0.8px; margin: 16px 0 8px; }
-    .notes-link-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text-primary); }
-    .notes-link-item:hover { background: var(--bg-primary); }
-    .note-conn { font-size: 10px; color: var(--text-light); margin-left: auto; flex-shrink: 0; white-space: nowrap; }
-    @media (max-width: 767px) {
-      .notes-layout { display: flex; flex-direction: column; height: calc(100vh - 56px); }
-      .notes-left { flex: 1 1 auto !important; width: 100% !important; max-width: 100% !important; border-right: none; overflow-y: auto !important; flex-direction: column !important; flex-shrink: 1 !important; }
-      .notes-left-inner { padding: 0 14px 84px 0 !important; }
-      .notes-right { display: none; }
-      .notes-layout.note-open .notes-left { display: none; }
-      .notes-layout.note-open .notes-right { display: flex; overflow: hidden; padding: 0; height: calc(100vh - 120px); background: var(--bg-card); border: none; border-radius: 0; box-shadow: none; margin-left: 0; }
-      .notes-layout.note-open .notes-right-scroll { padding: 12px 14px 24px; }
-      .note-toc-sticky { display: none; }
-      .notes-col-search { flex: none !important; width: 100% !important; min-width: 0 !important; border-right: none !important; }
-      .notes-col-list { flex: none !important; width: 100% !important; min-width: 0 !important; }
-      .notes-layout .sidebar-collapse-btn { display: none !important; }
-    }
-    @page { margin: 0; }
-    /* Hidden except during print; @media print sets display:block. Prevents the
-       print DOM lingering visibly if 'afterprint' never fires (e.g. Android webview). */
-    #note-print-area { display: none; }
-    @media print {
-      html, body { background: #fff !important; color: #1f2937 !important; }
-      body > *:not(#note-print-area) { display: none !important; }
-      #note-print-area { display: block !important; background: #fff; font-family: 'Nunito Sans', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937; }
-      #note-print-area .print-container { width: 100%; border-collapse: collapse; }
-      #note-print-area .page-header-space { height: 20mm; display: block; }
-      #note-print-area .page-footer-space { height: 16mm; display: block; }
-      #note-print-area .note-content { padding: 0 15mm; color: #1f2937 !important; }
-      #note-print-area .npa-title { font-size: 24pt; font-weight: 700; margin: 0 0 2mm; color: #111827 !important; }
-      #note-print-area .npa-meta { font-size: 10pt; color: #6b7280 !important; margin-bottom: 8mm; padding-bottom: 4mm; border-bottom: 1px solid #e5e7eb; }
-      #note-print-area .note-rendered { font-size: 11pt; line-height: 1.6; color: #1f2937 !important; }
-      #note-print-area .note-rendered * { color: #1f2937 !important; }
-      #note-print-area .note-rendered p { margin-bottom: 4.5mm; text-align: justify; text-justify: inter-word; break-inside: avoid; page-break-inside: avoid; orphans: 3; widows: 3; }
-      #note-print-area .note-rendered h1 { font-size: 18pt; margin: 16pt 0 6pt; }
-      #note-print-area .note-rendered h2 { font-size: 15pt; margin: 14pt 0 5pt; }
-      #note-print-area .note-rendered h3 { font-size: 13pt; margin: 12pt 0 4pt; }
-      #note-print-area .note-rendered h4, #note-print-area .note-rendered h5, #note-print-area .note-rendered h6 { font-size: 11pt; margin: 10pt 0 4pt; }
-      #note-print-area .note-rendered ul, #note-print-area .note-rendered ol { padding-left: 20pt; }
-      #note-print-area .note-rendered blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 12pt; color: #555 !important; }
-      #note-print-area .note-rendered code { font-family: monospace; background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
-      #note-print-area .note-rendered hr { border: none; border-top: 1px solid #e5e7eb; margin: 14pt 0; }
-      #note-print-area .wikilink, #note-print-area .wikilink-broken { color: #333 !important; border-bottom: none !important; font-style: normal !important; }
-      #note-print-area .check-item { display: flex; gap: 6pt; align-items: baseline; }
-      #note-print-area .tasklink-node, #note-print-area .tasklink-node-fallback { -webkit-print-color-adjust: exact; print-color-adjust: exact; font-size: 9pt; }
-      #note-print-area .tasklink-status-label { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      #note-print-area .tasklink-priority-label { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      #note-print-area .highlight-mark { background: #fef08a !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      #note-print-area .npa-footer { position: fixed; bottom: 0; left: 0; right: 0; padding: 3mm 15mm; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; font-size: 9pt; color: #9ca3af; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    }
-    .note-rendered img { max-width: 100%; border-radius: 6px; margin: 6px 0; display: block; }
-    .note-rendered mark { background: #fef08a; border-radius: 2px; padding: 0 2px; }
-    .img-offline-placeholder { font-size: 12px; color: var(--text-light); font-style: italic; }
-    .note-attachments-panel { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
-    .note-attach-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
-    .note-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 13px 15px; margin-bottom: 6px; cursor: pointer; transition: box-shadow 0.18s, border-color 0.18s, transform 0.12s; }
-    .note-card:hover { box-shadow: 0 4px 20px rgba(168,197,0,0.15); border-color: var(--accent); transform: translateY(-1px); }
-    .note-card-title { font-size: 13.5px; font-weight: 600; color: var(--text-primary); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.1px; }
-    .note-card-preview { font-size: 12px; color: var(--text-light); line-height: 1.55; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin-top: 2px; }
-    .note-tag { display: inline-flex; align-items: center; gap: 4px; background: rgba(168,197,0,0.12); color: var(--accent); border-radius: 20px; padding: 3px 10px; font-size: 11.5px; font-weight: 600; transition: all 0.15s; user-select: none; }
-    .note-tag-untagged { display: inline-block; background: var(--bg-primary); border: 1px dashed var(--border); border-radius: 8px; padding: 1px 7px; font-size: 10px; color: var(--text-light); font-style: italic; cursor: pointer; transition: border-color 0.15s, color 0.15s; }
-    .note-tag-untagged:hover { border-color: var(--accent); color: var(--accent); }
-    /* ── Redesigned tag pills (sidebar filter area) ── */
-    .tag-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px; font-size: 10.5px; font-weight: 500; background: #F3F4F6; color: #475467; border: 1px solid #E4E7EC; cursor: pointer; userSelect: none; transition: all 0.15s; white-space: nowrap; line-height: 1; min-height: 26px; }
-    .tag-pill:hover { background: #E9EEF5; border-color: #D0D5DD; }
-    .tag-pill.active { background: #B6D400; color: #fff; border-color: #B6D400; font-weight: 600; }
-    .tag-pill.active:hover { background: #A3C100; border-color: #A3C100; }
-    .tag-count { font-size: 9px; background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 10px; font-weight: 600; min-width: 16px; text-align: center; line-height: 1.4; }
-    .tag-pill.active .tag-count { background: rgba(255,255,255,0.25); color: #fff; }
-    .tag-section-label { font-size: 9px; font-weight: 700; color: #98A2B3; text-transform: uppercase; letter-spacing: 0.6px; padding: 6px 2px 3px; }
-    /* -- Note tab bar (multi-note viewer) -- */
-    .note-tab-bar {
-      display: flex;
-      align-items: stretch;
-      gap: 4px;
-      padding: 10px 26px 0;
-      overflow-x: auto;
-      scrollbar-width: none;
-      -ms-overflow-style: none;
-      flex-shrink: 0;
-      border-bottom: 1px solid var(--border);
-      background: var(--bg-card);
-      min-height: 36px;
-    }
-    .note-tab-bar::-webkit-scrollbar { display: none; }
-    .note-tab-item {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      padding: 5px 10px;
-      border-radius: 8px 8px 0 0;
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--text-secondary);
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-bottom: none;
-      cursor: pointer;
-      white-space: nowrap;
-      max-width: 180px;
-      min-width: 80px;
-      user-select: none;
-      transition: background 0.15s, color 0.15s;
-      flex-shrink: 0;
-    }
-    .note-tab-item:hover {
-      background: #E9EEF5;
-    }
-    .note-tab-item.active {
-      background: var(--accent);
-      color: #fff;
-      border-color: var(--accent);
-      font-weight: 600;
-    }
-    .note-tab-item.active:hover {
-      background: #A3C100;
-      border-color: #A3C100;
-    }
-    .note-tab-title {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 120px;
-    }
-    .note-tab-close {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      border: none;
-      background: transparent;
-      color: inherit;
-      font-size: 14px;
-      line-height: 1;
-      cursor: pointer;
-      opacity: 0.5;
-      transition: opacity 0.15s, background 0.15s;
-      flex-shrink: 0;
-      padding: 0;
-    }
-    .note-tab-close:hover {
-      opacity: 1;
-      background: rgba(0,0,0,0.12);
-    }
-    .note-tab-item.active .note-tab-close:hover {
-      background: rgba(255,255,255,0.2);
-    }
-    /* Hide tab bar on mobile */
-    @media (max-width: 767px) {
-      .note-tab-bar { display: none !important; }
-    }
-    .tag-scroll { display: flex; flex-wrap: wrap; gap: 5px; }
-    .hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
-    .hide-scrollbar::-webkit-scrollbar { display: none; }
-    .note-tab { flex: 1; text-align: center; padding: 8px 4px; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color 0.15s, border-color 0.15s; }
-    .note-tab:hover { color: var(--text-primary); }
-    .note-tab-active { color: var(--accent); border-bottom-color: var(--accent); }
-    .note-word-count { font-size: 11.5px; color: var(--text-light); display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding: 0 2px; }
-    .note-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
-    .note-modal-box { background: var(--bg-card); border-radius: 18px; padding: 24px; width: 480px; max-width: 100%; max-height: 85vh; overflow: hidden; box-shadow: 0 16px 48px rgba(0,0,0,0.28); animation: scaleIn 0.18s ease-out; display: flex; flex-direction: column; gap: 14px; }
-    .note-modal-scroll-area { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin; }
-    .note-modal-title-input { font-size: 17px; font-weight: 700; background: none; border: none; outline: none; color: var(--text-primary); width: 100%; border-bottom: 1.5px solid var(--border); padding-bottom: 8px; }
-    .note-modal-content-input { font-size: 14px; background: var(--bg-page); border: 1px solid var(--border); border-radius: 10px; padding: 12px; color: var(--text-primary); width: 100%; resize: vertical; min-height: 120px; outline: none; font-family: inherit; line-height: 1.6; }
-    .note-modal-section-label { font-size: 11px; font-weight: 700; color: var(--text-secondary); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px; }
-    .note-toolbar { display: flex; gap: 2px; flex-wrap: nowrap; align-items: center; margin-bottom: 6px; overflow: visible; }
-    .wikilink { color: var(--accent); font-weight: 600; cursor: pointer; border-bottom: 1px dashed var(--accent); transition: opacity 0.15s; }
-    .wikilink:hover { opacity: 0.75; }
-    .wikilink-broken { color: #b45309; background: rgba(245,158,11,0.10); border-radius: 4px; padding: 0 3px; border-bottom: 1px dashed #d97706; cursor: pointer; font-style: italic; }
-    .wikilink-broken:hover { background: rgba(245,158,11,0.20); }
-    /* Read-mode wikilink — higher specificity inside .note-rendered */
-    .note-rendered .wikilink { color: var(--accent); font-weight: 600; cursor: pointer; border-bottom: 1px dashed var(--accent); }
-    .note-rendered .wikilink:hover { opacity: 0.75; }
-    .note-rendered .wikilink-broken { color: #b45309; background: rgba(245,158,11,0.10); border-radius: 4px; padding: 0 3px; border-bottom: 1px dashed #d97706; cursor: pointer; font-style: italic; }
-    .note-rendered .wikilink-broken:hover { background: rgba(245,158,11,0.20); }
-    .note-shared-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; color: var(--text-secondary); background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 1px 6px; vertical-align: middle; }
-    .note-toc-item { display: block; font-size: 10.5px; color: var(--text-secondary); cursor: pointer; padding: 2px 6px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.45; transition: background 0.1s, color 0.1s; }
-    .note-toc-item:hover { background: var(--bg-primary); color: var(--text-primary); }
-    .note-toc-item.active { color: var(--accent); font-weight: 700; }
-    .note-toc-panel::-webkit-scrollbar { display: none; }
-    .wiki-autocomplete { position: fixed; background: var(--bg-card); border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.22); z-index: 2000; min-width: 200px; max-width: 320px; overflow: hidden; }
-    .wiki-autocomplete-item { padding: 8px 14px; font-size: 13px; cursor: pointer; color: var(--text-primary); transition: background 0.1s; }
-    .wiki-autocomplete-item:hover, .wiki-autocomplete-item.active { background: rgba(168,197,0,0.15); color: var(--accent); font-weight: 600; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .backlink-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; background: var(--bg-primary); margin-bottom: 5px; cursor: pointer; font-size: 13px; transition: opacity 0.15s; }
-    .backlink-item:hover { opacity: 0.75; }
-    .note-toolbar button { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 0 9px; height: 28px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.12s; font-family: inherit; white-space: nowrap; }
-    .note-toolbar button:hover { background: var(--bg-primary); border-color: var(--accent); color: var(--text-primary); }
-    .note-toolbar .sep { width: 1px; background: var(--border); margin: 2px 3px; align-self: stretch; }
-    .tpl-dropdown { position: absolute; top: 100%; left: 0; background: white; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); min-width: 220px; z-index: 1000; overflow: hidden; padding: 4px 0; }
-    .tpl-group-label { padding: 6px 14px 3px; font-size: 9px; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.8px; }
-    .tpl-item { padding: 7px 14px; font-size: 13px; cursor: pointer; color: #374151; }
-    .tpl-item:hover { background: #f9fafb; }
-    .tpl-footer { padding: 8px 14px; font-size: 12px; color: #b6d400; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; }
-    .tpl-footer:hover { background: #f9fafb; }
-    .tpl-divider { height: 1px; background: #f3f4f6; margin: 4px 0; }
-    .note-rendered { font-size: 14px; line-height: 1.75; color: var(--text-primary); }
-    .note-rendered h1 { font-size: 20px; font-weight: 800; margin: 10px 0 6px; }
-    .note-rendered h2 { font-size: 16px; font-weight: 700; margin: 8px 0 4px; }
-    .note-rendered h3 { font-size: 14px; font-weight: 700; margin: 6px 0 3px; color: var(--text-secondary); }
-    .note-rendered ul, .note-rendered ol { margin: 4px 0; padding-left: 22px; }
-    .note-rendered ul { list-style-type: disc; }
-    .note-rendered ol { list-style-type: decimal; }
-    .note-rendered ul ul { list-style-type: circle; }
-    .note-rendered ul ul ul { list-style-type: square; }
-    .note-rendered li { margin-bottom: 3px; }
-    .note-rendered .check-item { display: flex; align-items: flex-start; gap: 7px; margin-bottom: 4px; list-style: none; margin-left: 0; }
-    .note-rendered .check-item input[type=checkbox] { margin-top: 3px; accent-color: var(--accent); cursor: default; flex-shrink: 0; }
-    .note-rendered .check-item.done span { text-decoration: line-through; color: var(--text-light); }
-    .note-rendered strong { font-weight: 700; }
-    .note-rendered em { font-style: italic; color: var(--text-secondary); }
-    .note-rendered hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
-    .note-rendered blockquote { border-left: 3px solid var(--accent); padding-left: 10px; color: var(--text-secondary); margin: 6px 0; font-style: italic; }
-
-    /* Mobile Notes Modal */
-    @media (max-width: 768px) {
-      .note-hdr-icon { display: none; }
-      .note-modal-overlay { padding: 12px; }
-      .note-modal-box {
-        width: 100% !important;
-        max-height: 92vh !important;
-        border-radius: 16px;
-        padding: 20px 16px;
-        gap: 10px;
-      }
-      .note-toolbar { 
-        flex-wrap: nowrap; 
-        overflow-x: auto; 
-        padding-bottom: 4px;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-      }
-      .note-toolbar::-webkit-scrollbar { display: none; }
-      .note-toolbar button { flex-shrink: 0; }
-      .note-modal-title-input { font-size: 19px; }
-      .note-modal-content-input { font-size: 15px; flex-grow: 1; }
-      
-      /* Fixed footer for mobile */
-      .note-mobile-footer {
-        position: sticky;
-        bottom: -16px; /* align with box padding */
-        margin: 0 -16px -16px;
-        padding: 12px 16px;
-        background: var(--bg-card);
-        border-top: 1px solid var(--border);
-        display: flex;
-        justify-content: flex-end;
-        gap: 10px;
-        z-index: 10;
-      }
-      .note-modal-scroll-area {
-        display: flex;
-        flex-direction: column;
-        gap: 14px;
-        flex: 1;
-        overflow-y: auto;
-        margin: 0 -4px;
-        padding: 0 4px;
-      }
-    }
-    .milkdown-editor {
-      outline: none;
-      overflow-y: auto;
-      font-size: 14px;
-      line-height: 1.7;
-      color: var(--text-primary);
-    }
-    .milkdown-editor .ProseMirror {
-      min-height: inherit;
-      padding: 8px 12px;
-      outline: none;
-      white-space: pre-wrap;
-      word-wrap: break-word;
-    }
-    /* Placeholder text */
-    .milkdown-editor .ProseMirror p.is-editor-empty:first-child::before {
-      content: attr(data-placeholder);
-      color: var(--text-light);
-      pointer-events: none;
-      float: left;
-      height: 0;
-    }
-    .wikilink-node {
-      color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 12%, transparent);
-      border-radius: 4px;
-      padding: 0 3px;
-      cursor: pointer;
-      text-decoration: none;
-      border-bottom: 1.5px dashed var(--accent);
-      font-size: 0.95em;
-      user-select: all;
-    }
-    .wikilink-node:hover {
-      background: color-mix(in srgb, var(--accent) 22%, transparent);
-      border-bottom-color: var(--accent-hover);
-      opacity: 0.85;
-    }
-    .tasklink-node {
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-      background: #fef9c3;
-      border: 1px solid #fde68a;
-      border-radius: 4px;
-      padding: 1px 7px;
-      font-size: 12px;
-      font-weight: 600;
-      color: #92400e;
-      cursor: pointer;
-      vertical-align: middle;
-      text-decoration: none;
-      transition: opacity 0.15s;
-      user-select: none;
-    }
-    .tasklink-node:hover { opacity: 0.75; }
-    .tasklink-status-label {
-      color: white;
-      font-size: 9px;
-      padding: 0 5px;
-      border-radius: 2px;
-      letter-spacing: 0.3px;
-      font-weight: 700;
-    }
-    .tasklink-priority-label {
-      color: white;
-      font-size: 10px;
-      padding: 0 4px;
-      border-radius: 2px;
-      font-weight: 700;
-    }
-    .tasklink-node-fallback {
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-      background: #f1f5f9;
-      border: 1px solid #cbd5e1;
-      border-radius: 4px;
-      padding: 1px 7px;
-      font-size: 12px;
-      font-weight: 600;
-      color: #64748b;
-      vertical-align: middle;
-      user-select: none;
-    }
-    /* Scoped typography — avoids bleeding into app chrome */
-    .milkdown-editor .ProseMirror h1 { font-size: 1.6em; font-weight: 700; margin: 0.5em 0; }
-    .milkdown-editor .ProseMirror h2 { font-size: 1.3em; font-weight: 700; margin: 0.5em 0; }
-    .milkdown-editor .ProseMirror h3 { font-size: 1.1em; font-weight: 600; margin: 0.4em 0; }
-    .milkdown-editor .ProseMirror h4,
-    .milkdown-editor .ProseMirror h5,
-    .milkdown-editor .ProseMirror h6 { font-size: 1em; font-weight: 600; margin: 0.3em 0; }
-    .milkdown-editor .ProseMirror ul  { list-style: disc; padding-left: 1.5em; margin: 0.3em 0; }
-    .milkdown-editor .ProseMirror ol  { list-style: decimal; padding-left: 1.5em; margin: 0.3em 0; }
-    .milkdown-editor .ProseMirror li  { margin: 0.1em 0; }
-    .milkdown-editor .ProseMirror blockquote {
-      border-left: 3px solid var(--accent);
-      padding-left: 12px;
-      color: var(--text-secondary);
-      margin: 0.5em 0;
-    }
-    .milkdown-editor .ProseMirror code {
-      background: rgba(0,0,0,0.06);
-      border-radius: 3px;
-      padding: 1px 4px;
-      font-family: ui-monospace, Consolas, 'Courier New', monospace;
-      font-size: 0.9em;
-    }
-    .milkdown-editor .ProseMirror pre {
-      background: rgba(0,0,0,0.06);
-      padding: 10px 14px;
-      border-radius: 6px;
-      overflow-x: auto;
-      margin: 0.5em 0;
-    }
-    .milkdown-editor .ProseMirror pre code { background: none; padding: 0; }
-    .milkdown-editor .ProseMirror hr {
-      border: none;
-      border-top: 1px solid var(--border);
-      margin: 1em 0;
-    }
-    .milkdown-editor .ProseMirror table {
-      border-collapse: collapse;
-      width: 100%;
-      margin: 0.5em 0;
-    }
-    .milkdown-editor .ProseMirror th,
-    .milkdown-editor .ProseMirror td {
-      border: 1px solid var(--border);
-      padding: 4px 8px;
-      font-size: 0.9em;
-    }
-    .milkdown-editor .ProseMirror th { background: rgba(0,0,0,0.06); font-weight: 600; }
-    .milkdown-editor .ProseMirror input[type="checkbox"] {
-      margin-right: 6px;
-      accent-color: var(--accent);
-    }
-    /* GFM task list — Milkdown renders <li data-item-type="task"> tanpa <input>,
-       jadi checkbox digambar via ::before; toggle ditangani createTaskCheckboxPlugin */
-    .milkdown-editor .ProseMirror li[data-item-type="task"] { list-style: none; position: relative; }
-    .milkdown-editor .ProseMirror li[data-item-type="task"]::before {
-      content: "";
-      position: absolute;
-      left: -20px;
-      top: 0.28em;
-      width: 14px;
-      height: 14px;
-      box-sizing: border-box;
-      border: 1.5px solid var(--text-light);
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    .milkdown-editor .ProseMirror li[data-item-type="task"][data-checked="true"]::before {
-      content: "✓";
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
-      font-size: 11px;
-      line-height: 12px;
-      font-weight: 700;
-      text-align: center;
-    }
-    .milkdown-editor .ProseMirror li[data-item-type="task"][data-checked="true"] > p:first-of-type {
-      text-decoration: line-through;
-      color: var(--text-light);
-    }
-    .milkdown-editor .ProseMirror p { margin: 0.2em 0; }
-    .milkdown-editor .ProseMirror strong { font-weight: 700; }
-    .milkdown-editor .ProseMirror em { font-style: italic; }
-    .milkdown-editor .ProseMirror del { text-decoration: line-through; opacity: 0.6; }
-    .milkdown-editor .ProseMirror a { color: var(--accent); text-decoration: underline; }
-    .milkdown-editor .ProseMirror .wikilink-node { text-decoration: none; }
-    /* Twemoji inline sizing (from @milkdown/plugin-emoji) */
-    .milkdown-editor .ProseMirror img.emoji,
-    .note-rendered img.emoji { height: 1.2em; width: 1.2em; margin: 0 .05em 0 .1em; vertical-align: -0.2em; display: inline-block; border-radius: 0; }
-    /* Dark mode */
-    [data-theme="dark"] .milkdown-editor .ProseMirror { color: var(--text-primary); }
-    [data-theme="dark"] .milkdown-editor .ProseMirror code,
-    [data-theme="dark"] .milkdown-editor .ProseMirror pre { background: rgba(255,255,255,0.08); }
-    [data-theme="dark"] .milkdown-editor .ProseMirror th { background: rgba(255,255,255,0.08); }
-    /* Dark mode — wikilink editor node */
-    [data-theme="dark"] .wikilink-node {
-      background: color-mix(in srgb, var(--accent) 18%, transparent);
-    }
-    [data-theme="dark"] .wikilink-node:hover {
-      background: color-mix(in srgb, var(--accent) 28%, transparent);
-    }
-    [data-theme="dark"] .tasklink-node {
-      background: rgba(254,249,195,0.12);
-      border-color: rgba(253,230,138,0.3);
-      color: #fde68a;
-    }
-    [data-theme="dark"] .tasklink-node:hover { opacity: 0.75; }
-    [data-theme="dark"] .tasklink-node-fallback {
-      background: rgba(241,245,249,0.08);
-      border-color: rgba(203,213,225,0.2);
-      color: #94a3b8;
-    }
-    /* ── Slash command menu ──────────────────────────────────────── */
-    .milkdown-slash-menu {
-      position: absolute; z-index: 11000; top: 0; left: 0;
-      background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
-      min-width: 200px; max-height: 320px; overflow-y: auto;
-      padding: 6px 0; display: none;
-    }
-    .milkdown-slash-menu[data-show="true"] { display: block; }
-    .milkdown-slash-item {
-      display: flex; align-items: center; gap: 10px;
-      padding: 8px 14px; cursor: pointer; font-size: 13px;
-      color: var(--text-primary); transition: background 0.1s;
-    }
-    .milkdown-slash-item:hover,
-    .milkdown-slash-item[aria-selected="true"] { background: var(--bg-primary); }
-    .milkdown-slash-icon {
-      font-size: 15px; font-weight: 700; width: 26px; text-align: center;
-      flex-shrink: 0; color: var(--text-light);
-    }
-    /* ── Selection tooltip ───────────────────────────────────────── */
-    .milkdown-tooltip {
-      position: absolute; z-index: 11000; top: 0; left: 0;
-      display: none; align-items: center; gap: 2px;
-      background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.14);
-      padding: 4px 6px;
-    }
-    .milkdown-tooltip[data-show="true"] { display: flex; }
-    .milkdown-tooltip-btn {
-      display: flex; align-items: center; justify-content: center;
-      width: 30px; height: 28px; border: none; border-radius: 5px;
-      background: none; cursor: pointer; font-size: 13px;
-      color: var(--text-primary); transition: background 0.1s;
-    }
-    .milkdown-tooltip-btn:hover { background: var(--bg-primary); }
-    /* Dark mode */
-    [data-theme="dark"] .milkdown-slash-menu,
-    [data-theme="dark"] .milkdown-tooltip {
-      background: #1e1e2e; border-color: rgba(255,255,255,0.08);
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-    }
-    [data-theme="dark"] .milkdown-slash-item:hover,
-    [data-theme="dark"] .milkdown-slash-item[aria-selected="true"],
-    [data-theme="dark"] .milkdown-tooltip-btn:hover { background: rgba(255,255,255,0.06); }
-    .highlight-mark {
-      background: #fef08a;
-      border-radius: 2px;
-      padding: 0 2px;
-      color: inherit;
-    }
-    [data-theme="dark"] .highlight-mark {
-      background: rgba(254,240,138,0.28);
-      color: var(--text-primary);
-    }
-    /* Dark mode — wikilink read view */
-    [data-theme="dark"] .wikilink,
-    [data-theme="dark"] .note-rendered .wikilink {
-      border-bottom-color: var(--accent);
-    }
-    [data-theme="dark"] .wikilink:hover,
-    [data-theme="dark"] .note-rendered .wikilink:hover {
-      opacity: 0.8;
-    }
-    /* Dark mode — wikilink-broken (unresolved) */
-    [data-theme="dark"] .wikilink-broken,
-    [data-theme="dark"] .note-rendered .wikilink-broken {
-      color: #fbbf24;
-      background: rgba(251,191,36,0.12);
-      border-bottom-color: #f59e0b;
-    }
-    [data-theme="dark"] .wikilink-broken:hover,
-    [data-theme="dark"] .note-rendered .wikilink-broken:hover {
-      background: rgba(251,191,36,0.22);
-    }
-    /* Math block (display) */
-    .math-block {
-      display: block;
-      overflow-x: auto;
-      padding: 0.75em 1em;
-      margin: 0.75em 0;
-      background: color-mix(in srgb, var(--bg-card) 60%, transparent);
-      border-radius: 6px;
-      border-left: 3px solid var(--accent);
-      text-align: center;
-    }
-    /* Math inline */
-    .math-inline .katex { font-size: 1em; }
-    /* KaTeX error fallback */
-    .math-error {
-      color: #ef4444;
-      font-family: monospace;
-      font-size: 0.85em;
-      background: rgba(239,68,68,0.08);
-      border-radius: 4px;
-      padding: 0 4px;
-    }
-    [data-theme="dark"] .math-block {
-      background: rgba(255,255,255,0.05);
-    }
-    /* Print: render math as-is, no border */
-    #note-print-area .math-block { border-left: none; background: none; text-align: left; }
-    /* Math block in Milkdown editor: clickable to edit */
-    .milkdown-editor div[data-type="math_block"] { cursor: pointer; padding: 6px 10px; border-radius: 6px; transition: background 0.15s, outline 0.15s; }
-    .milkdown-editor div[data-type="math_block"]:hover { background: rgba(99,102,241,0.06); outline: 1px dashed var(--accent); }
-    [data-theme="dark"] .milkdown-editor div[data-type="math_block"]:hover { background: rgba(99,102,241,0.12); }
-    .milkdown-editor span[data-type="math_inline"] { cursor: pointer; padding: 0 2px; border-radius: 3px; }
-    .milkdown-editor span[data-type="math_inline"]:hover { background: rgba(99,102,241,0.1); outline: 1px dashed var(--accent); }
-    /* React-controlled edit overlay */
-    .mk-math-popover { position: absolute; z-index: 100; background: var(--bg-card); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.18); padding: 10px; }
-    .mk-math-popover-ta { width: 100%; padding: 8px 10px; font-family: monospace; font-size: 13px; resize: vertical; min-height: 60px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary); box-sizing: border-box; outline: none; }
-    .mk-math-popover-ta:focus { border-color: var(--accent); }
-    .mk-math-popover-hint { font-size: 11px; color: var(--text-light); margin-top: 4px; }
-    .mk-math-popover-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
-    .mk-math-popover-actions button { padding: 4px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); font-weight: 500; }
-    .mk-math-popover-actions button.primary { background: var(--accent); color: white; border-color: var(--accent); }
-    /* Driver.js tour overrides — match TaskFlow theme */
-    .driver-popover { background: var(--bg-card) !important; border: 1px solid var(--border) !important; border-radius: 12px !important; box-shadow: 0 8px 32px rgba(0,0,0,0.18) !important; max-width: 320px !important; }
-    .driver-popover-title { color: var(--accent) !important; font-size: 15px !important; font-weight: 700 !important; font-family: inherit !important; }
-    .driver-popover-description { color: var(--text-primary) !important; font-size: 13px !important; line-height: 1.6 !important; font-family: inherit !important; }
-    .driver-popover-progress-text { color: var(--text-light) !important; font-size: 11px !important; }
-    .driver-popover-navigation-btns button { background: var(--accent) !important; color: #1a2a00 !important; border: none !important; border-radius: 7px !important; font-weight: 700 !important; font-size: 12px !important; padding: 6px 14px !important; cursor: pointer !important; font-family: inherit !important; text-shadow: none !important; }
-    .driver-popover-navigation-btns button.driver-popover-prev-btn { background: var(--bg-secondary) !important; color: var(--text-secondary) !important; }
-    .driver-popover-close-btn { color: var(--text-light) !important; font-size: 18px !important; }
-    .driver-popover-footer { border-top: 1px solid var(--border) !important; margin-top: 10px !important; padding-top: 10px !important; }
-    [data-theme="dark"] .driver-popover { box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important; }
-    .tour-btn { background: var(--bg-card); border: 1px solid var(--border); border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 13px; font-weight: 700; color: var(--text-secondary); flex-shrink: 0; transition: all 0.15s; }
-    .tour-btn:hover { background: var(--accent); color: #1a2a00; border-color: var(--accent); }
-    /* Voice dictation mic button */
-    @keyframes micPulse {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
-      50%      { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
-    }
-    .note-mic-btn {
-      background: none;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      color: var(--text-secondary);
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      padding: 0 9px;
-      height: 28px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.12s;
-      font-family: inherit;
-      flex-shrink: 0;
-    }
-    .note-mic-btn:hover {
-      background: var(--bg-primary);
-      border-color: var(--accent);
-      color: var(--text-primary);
-    }
-    .note-mic-btn.listening {
-      color: #ef4444;
-      border-color: #ef4444;
-      animation: micPulse 1.5s ease-in-out infinite;
-    }
-    .note-mic-btn.paused {
-      color: #eab308;
-      border-color: #eab308;
-    }
-  </style>
+  <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
   <div id="root"></div>
@@ -1557,7 +127,31 @@
   <script src="/static/offline/syncconflict.js"></script>
   <script src="/static/review/digest.js"></script>
   <script src="/static/offline/voicedictate.js"></script>
+  <script src="/static/ui-components.js"></script>
   <script>
+  // ═══ DEPENDENCIES: Foundation ═══
+  // uses:
+  //   - React (window)
+  //   - window.__API_BASE
+  //   - indexedDB
+  //   - localStorage
+  // emits:
+  //   - _extends
+  //   - __token
+  //   - tokenStore
+  //   - OfflineDB
+  //   - genId
+  //   - API_BASE
+  //   - WEBAPP_URL
+  //   - apiUrl
+  //   - aiReviewOn
+  //   - openAttachment
+  //   - mediaUrl
+  //   - fixAttachmentImg
+  //   - downloadBackup
+  //   - BACKUP_INTERVAL_DAYS
+  // BLOCK LENGTH: ~140 lines (1561-1704) — EXTRACTABLE after api decoupling
+
 function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
 const {
   useState,
@@ -1719,6 +313,17 @@ async function downloadBackup() {
   URL.revokeObjectURL(url);
   try { localStorage.setItem('tf_last_backup', new Date().toISOString()); } catch (_) {}
 }
+  // ═══ DEPENDENCIES: API Client ═══
+  // uses:
+  //   - __token
+  //   - tokenStore
+  //   - apiUrl
+  //   - window.TF.taskroutes
+  //   - schedulePush
+  // emits:
+  //   - api
+  // BLOCK LENGTH: ~78 lines (1722-1800) — depends on schedulePush (defined later!)
+
 const api = {
   async fetch(url, opts = {}) {
     // ── Offline local-first intercept (TF.taskroutes) ──
@@ -1798,6 +403,25 @@ const api = {
     method: "DELETE"
   })
 };
+  // ═══ DEPENDENCIES: Sync Transport ═══
+  // uses:
+  //   - api
+  //   - OfflineDB
+  //   - __token
+  //   - window.TF
+  //   - apiUrl
+  // emits:
+  //   - __syncTransport
+  //   - __pushTimer
+  //   - schedulePush
+  //   - window.__pushNow
+  //   - __syncRawFetch
+  //   - sync
+  //   - renderConflicts
+  //   - window.__syncNow
+  //   - isOfflineErr
+  // BLOCK LENGTH: ~120 lines (1801-1920)
+
 // ── Offline push (TF.syncpush) — raw-fetch transport bypasses the api intercept ──
 const __syncTransport = {
   request: (method, path, body) => window.fetch(apiUrl(path), {
@@ -1920,9 +544,38 @@ window.addEventListener("online", sync);
 const isOfflineErr = err => !navigator.onLine || err?.message === "OFFLINE" || err instanceof TypeError || /failed to fetch|networkerror|name_not_resolved/i.test(err?.message || "");
 
 // ── Context ─────────────────────────────────────────────────
+  // ═══ DEPENDENCIES: AppContext ═══
+  // uses:
+  //   - React (createContext)
+  // emits:
+  //   - AppContext
+  // Single line — shared React context for entire app
+
 const AppContext = createContext();
 
 // ── Toast component ─────────────────────────────────────────
+  // ═══ DEPENDENCIES: UI Atoms ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  // emits:
+  //   - Toast
+  //   - ThemeToggle
+  //   - PRI_LABELS
+  //   - PRI_EMOJI
+  //   - QUAD_LABELS
+  //   - QUAD_ICON
+  //   - GTD_LABELS
+  //   - GTD_ICON
+  //   - PRI_DOT
+  //   - PriBadge
+  //   - QuadBadge
+  //   - StatusBadge
+  //   - formatDate
+  //   - playNotificationSound
+  //   - sendBrowserNotification
+  // BLOCK LENGTH: ~208 lines (1926-2134) — pure UI helpers, no API calls
+
 function Toast({
   message,
   type,
@@ -2131,6 +784,18 @@ function sendBrowserNotification(title, body) {
 }
 
 // ── Login Page ──────────────────────────────────────────────
+  // ═══ DEPENDENCIES: Auth Pages ═══
+  // uses:
+  //   - React
+  //   - api
+  //   - tokenStore
+  //   - API_BASE
+  // emits:
+  //   - LoginPage
+  //   - ResetPasswordPage
+  //   - RegisterPage
+  // BLOCK LENGTH: ~390 lines (2134-2524) — Login + Reset + Register
+
 function LoginPage({
   onLogin,
   onSwitch
@@ -2521,155 +1186,17 @@ function RegisterPage({
 // ── MentionInput ──────────────────────────────────────────────────────────
 // Drop-in replacement for <input> or <textarea> with @mention autocomplete.
 // Props: value, onChange(e), collaborators, as ("input"|"textarea"), ...rest
-function MentionInput({
-  value,
-  onChange,
-  collaborators = [],
-  as: Tag = "input",
-  style,
-  ...rest
-}) {
-  const [mentionState, setMentionState] = useState(null); // { atPos, query }
-  const [filtered, setFiltered] = useState([]);
-  const [highlighted, setHighlighted] = useState(0);
-  const inputRef = useRef();
-  const dropRef = useRef();
-  const handleChange = e => {
-    onChange(e);
-    const val = e.target.value;
-    const cursor = e.target.selectionStart;
-    const before = val.slice(0, cursor);
-    const atMatch = before.match(/@([\w]*)$/);
-    if (atMatch && collaborators.length > 0) {
-      const q = atMatch[1].toLowerCase();
-      const atPos = cursor - atMatch[0].length;
-      const results = collaborators.filter(u => u.username.toLowerCase().startsWith(q) || (u.display_name || "").toLowerCase().startsWith(q) || q.length >= 2 && (u.username.toLowerCase().includes(q) || (u.display_name || "").toLowerCase().includes(q))).slice(0, 6);
-      if (results.length > 0) {
-        setMentionState({
-          atPos,
-          query: q
-        });
-        setFiltered(results);
-        setHighlighted(0);
-        return;
-      }
-    }
-    setMentionState(null);
-    setFiltered([]);
-  };
-  const applyMention = user => {
-    if (!mentionState || !inputRef.current) return;
-    const cursor = inputRef.current.selectionStart;
-    const val = inputRef.current.value;
-    const before = val.slice(0, mentionState.atPos);
-    const after = val.slice(cursor);
-    const inserted = `@${user.username} `;
-    const newVal = before + inserted + after;
-    // Synthesize a change event so controlled input updates correctly
-    const nativeInput = inputRef.current;
-    const nativeSetter = Object.getOwnPropertyDescriptor(Tag === "textarea" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype, "value")?.set;
-    if (nativeSetter) nativeSetter.call(nativeInput, newVal);
-    nativeInput.dispatchEvent(new Event("input", {
-      bubbles: true
-    }));
-    const newCursor = before.length + inserted.length;
-    requestAnimationFrame(() => {
-      nativeInput.focus();
-      nativeInput.setSelectionRange(newCursor, newCursor);
-    });
-    setMentionState(null);
-    setFiltered([]);
-  };
-  const handleKeyDown = e => {
-    if (filtered.length === 0) {
-      rest.onKeyDown?.(e);
-      return;
-    }
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setHighlighted(h => (h + 1) % filtered.length);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setHighlighted(h => (h - 1 + filtered.length) % filtered.length);
-    } else if (e.key === "Enter" || e.key === "Tab") {
-      if (filtered[highlighted]) {
-        e.preventDefault();
-        applyMention(filtered[highlighted]);
-      } else rest.onKeyDown?.(e);
-    } else if (e.key === "Escape") {
-      setMentionState(null);
-      setFiltered([]);
-    } else {
-      rest.onKeyDown?.(e);
-    }
-  };
-  const handleBlur = e => {
-    // Delay to allow mousedown on dropdown to fire first
-    setTimeout(() => {
-      setMentionState(null);
-      setFiltered([]);
-    }, 150);
-    rest.onBlur?.(e);
-  };
-  return /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "relative",
-      ...(Tag === "textarea" ? {} : {
-        display: "block"
-      })
-    }
-  }, /*#__PURE__*/React.createElement(Tag, _extends({
-    ref: inputRef,
-    value: value,
-    onChange: handleChange,
-    onKeyDown: handleKeyDown,
-    onBlur: handleBlur,
-    style: style
-  }, Object.fromEntries(Object.entries(rest).filter(([k]) => !["onKeyDown", "onBlur"].includes(k))))), filtered.length > 0 && /*#__PURE__*/React.createElement("div", {
-    ref: dropRef,
-    style: {
-      position: "absolute",
-      top: "100%",
-      left: 0,
-      zIndex: 400,
-      background: "var(--bg-card)",
-      border: "1px solid var(--border)",
-      borderRadius: 8,
-      boxShadow: "0 4px 16px rgba(0,0,0,0.13)",
-      overflow: "hidden",
-      minWidth: 200,
-      maxWidth: 280
-    }
-  }, filtered.map((u, i) => /*#__PURE__*/React.createElement("div", {
-    key: u.id,
-    onMouseDown: e => {
-      e.preventDefault();
-      applyMention(u);
-    },
-    style: {
-      padding: "8px 14px",
-      cursor: "pointer",
-      fontSize: 13,
-      background: i === highlighted ? "#f0fdf4" : "var(--bg-card)",
-      borderBottom: i < filtered.length - 1 ? "1px solid #f1f5f9" : "none",
-      display: "flex",
-      alignItems: "center",
-      gap: 8
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 600,
-      color: "var(--accent)"
-    }
-  }, "@", u.username), u.display_name && u.display_name !== u.username && /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)",
-      fontSize: 12
-    }
-  }, u.display_name)))));
-}
-
 // ── JoinListModal ──────────────────────────────────────────────────────────
+  // ═══ DEPENDENCIES: Shared Lists ═══
+  // uses:
+  //   - React
+  //   - api
+  //   - AppContext
+  // emits:
+  //   - JoinListModal
+  //   - SharedListsManager
+  // BLOCK LENGTH: ~650 lines (2673-3323)
+
 function JoinListModal({
   code,
   onClose,
@@ -3321,83 +1848,17 @@ function SharedListsManager({
 // Sidebar nav icons — cohesive monochrome line set (Lucide). Stroke = currentColor
 // so each icon inherits the link color: muted by default, lime when active. This
 // replaces the multicolor, platform-dependent emoji that didn't read as a set.
-const ICONS = {
-  dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
-  calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
-  target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
-  repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
-  notes: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>',
-  mindmap: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/>',
-  chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
-  inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
-  next: '<path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/>',
-  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
-  cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
-  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
-  clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
-  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
-  sliders: '<line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="2" x2="6" y1="14" y2="14"/><line x1="10" x2="14" y1="8" y2="8"/><line x1="18" x2="22" y1="16" y2="16"/>',
-  list: '<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>',
-  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/>',
-  check: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
-  settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
-  wrench: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
-  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
-  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
-  help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
-  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
-  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
-  trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>',
-  pin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
-  file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
-  image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
-  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
-  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>',
-  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
-  edit: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>',
-  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
-  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
-  sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z"/>',
-  zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
-  save: '<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/>',
-  tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
-  menu: '<line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/>',
-  compass: '<path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/><circle cx="12" cy="12" r="10"/>',
-  skip: '<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/>',
-  coffee: '<path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/><path d="M6 2v2"/>',
-  bookmark: '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
-  party: '<path d="M5.8 11.3 2 22l10.7-3.79"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10"/><path d="m22 13-.82-.33c-.86-.34-1.82.2-1.98 1.11c-.11.7-.72 1.22-1.43 1.22H17"/><path d="m11 2 .33.82c.34.86-.2 1.82-1.11 1.98C9.52 4.9 9 5.52 9 6.23V7"/><path d="M11 13c1.93 1.93 2.83 4.17 2 5-.83.83-3.07-.07-5-2-1.93-1.93-2.83-4.17-2-5 .83-.83 3.07.07 5 2Z"/>',
-  star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
-  clipboardCheck: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
-  refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
-  maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
-  paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
-  briefcase: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
-  dollar: '<line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
-  book: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/>',
-  heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
-  building: '<rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/>',
-  graduation: '<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
-  target2: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
-  flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
-  wifiOff: '<path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/>'
-};
-// General-purpose inline-SVG icon. `size` lets it sit inline with text where the
-// emoji used to be; stroke is currentColor so it inherits the surrounding color.
-function Icon({ name, size = 16, style, className }) {
-  const inner = ICONS[name];
-  if (!inner) return /*#__PURE__*/React.createElement("span", null, name);
-  return /*#__PURE__*/React.createElement("svg", {
-    width: size, height: size, viewBox: "0 0 24 24", fill: "none",
-    stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round",
-    className: className,
-    style: { flexShrink: 0, display: "inline-block", verticalAlign: "-0.15em", ...(style || {}) },
-    dangerouslySetInnerHTML: { __html: inner }
-  });
-}
-function NavIcon({ name }) {
-  return /*#__PURE__*/React.createElement(Icon, { name: name, size: 18, style: { display: "block", verticalAlign: "baseline" } });
-}
+  // ═══ DEPENDENCIES: Sidebar ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - Icon
+  //   - NavIcon
+  // emits:
+  //   - Sidebar
+  // BLOCK LENGTH: ~287 lines (3401-3687)
+
 function Sidebar({
   page,
   setPage,
@@ -3684,79 +2145,21 @@ function Sidebar({
 }
 
 // ── ComboSelect (dropdown + add new) ───────────────────────
-function ComboSelect({
-  value,
-  onChange,
-  options,
-  placeholder,
-  icon
-}) {
-  const [isNew, setIsNew] = useState(false);
-  const inputRef = useRef(null);
-
-  // If current value is not in options and not empty, show as custom
-  const isCustom = value && !options.includes(value);
-  const handleSelect = e => {
-    const v = e.target.value;
-    if (v === "__new__") {
-      setIsNew(true);
-      onChange("");
-      setTimeout(() => inputRef.current?.focus(), 50);
-    } else {
-      setIsNew(false);
-      onChange(v);
-    }
-  };
-  const handleInputChange = e => {
-    onChange(e.target.value);
-  };
-  const handleBack = () => {
-    setIsNew(false);
-    onChange("");
-  };
-  if (isNew || isCustom) {
-    return /*#__PURE__*/React.createElement("div", {
-      style: {
-        position: "relative"
-      }
-    }, /*#__PURE__*/React.createElement("input", {
-      ref: inputRef,
-      className: "input",
-      value: value,
-      onChange: handleInputChange,
-      placeholder: placeholder,
-      style: {
-        paddingRight: 36
-      }
-    }), /*#__PURE__*/React.createElement("span", {
-      onClick: handleBack,
-      title: "Kembali ke daftar",
-      style: {
-        position: "absolute",
-        right: 10,
-        top: "50%",
-        transform: "translateY(-50%)",
-        cursor: "pointer",
-        fontSize: 16,
-        color: "var(--text-light)"
-      }
-    }, "\u2715"));
-  }
-  return /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: value,
-    onChange: handleSelect
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, placeholder || "— Pilih —"), options.map(o => /*#__PURE__*/React.createElement("option", {
-    key: o,
-    value: o
-  }, icon ? `${icon} ` : "", o)), /*#__PURE__*/React.createElement("option", {
-    value: "__new__"
-  }, "\uFF0B Tambah baru..."));
-}
-
 // ── Task Form Modal ─────────────────────────────────────────
+  // ═══ DEPENDENCIES: Goal System ═══
+  // uses:
+  //   - React
+  //   - api
+  //   - ComboSelect
+  //   - AppContext
+  // emits:
+  //   - FREQ_MAP
+  //   - PRIORITY_MAP
+  //   - CATEGORY_ICONS
+  //   - buildGoalCategories
+  //   - GoalTab
+  // BLOCK LENGTH: ~486 lines (3760-4246)
+
 const FREQ_MAP = {
   daily: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
   monthly: ['mon']
@@ -4243,6 +2646,27 @@ function GoalTab({
     disabled: loading || !goalName.trim() || checkedHabits.length + checkedTasks.length === 0
   }, loading ? "Membuat..." : "Buat Goal")));
 }
+  // ═══ DEPENDENCIES: TaskFormModal ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - tokenStore
+  //   - genId
+  //   - API_BASE
+  //   - ICONS
+  //   - MentionInput
+  //   - ComboSelect
+  //   - PRI_LABELS
+  //   - FREQ_MAP
+  //   - PRIORITY_MAP
+  //   - buildGoalCategories
+  //   - NoteToolbar
+  //   - MilkdownEditor
+  // emits:
+  //   - TaskFormModal
+  // BLOCK LENGTH: ~1887 lines (4246-6133) — LARGEST block in the codebase
+
 function TaskFormModal({
   task,
   onSave,
@@ -6130,6 +4554,16 @@ function TaskFormModal({
 }
 
 // ── Modal Attachments Section ──────────────────────────────
+  // ═══ DEPENDENCIES: ModalAttachments ═══
+  // uses:
+  //   - React
+  //   - api
+  //   - API_BASE
+  //   - openAttachment
+  // emits:
+  //   - ModalAttachments
+  // BLOCK LENGTH: ~143 lines (6133-6276)
+
 function ModalAttachments({
   taskId
 }) {
@@ -6273,6 +4707,17 @@ function ModalAttachments({
 }
 
 // ── Modal Notes Section ─────────────────────────────────────
+  // ═══ DEPENDENCIES: ModalNotes ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - renderWikilinksPreview
+  //   - formatDate
+  // emits:
+  //   - ModalNotes
+  // BLOCK LENGTH: ~159 lines (6276-6435)
+
 function ModalNotes({
   taskId,
   collaborators = []
@@ -6432,6 +4877,28 @@ function ModalNotes({
 }
 
 // ── Task Detail Modal ───────────────────────────────────────
+  // ═══ DEPENDENCIES: TaskDetailModal ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - formatDate
+  //   - PRI_LABELS
+  //   - QUAD_LABELS
+  //   - GTD_LABELS
+  //   - PriBadge
+  //   - QuadBadge
+  //   - StatusBadge
+  //   - ICONS
+  //   - ModalAttachments
+  //   - ModalNotes
+  //   - renderMarkdown
+  //   - renderWikilinksPreview
+  //   - ComboSelect
+  // emits:
+  //   - TaskDetailModal
+  // BLOCK LENGTH: ~960 lines (6435-7395) — complex modal, many sub-component deps
+
 function TaskDetailModal({
   task,
   onClose,
@@ -7393,6 +5860,23 @@ function TaskDetailModal({
 }
 
 // ── Task Row ────────────────────────────────────────────────
+  // ═══ DEPENDENCIES: TaskRow & FocusTaskRow ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - PRI_DOT
+  //   - PriBadge
+  //   - QuadBadge
+  //   - StatusBadge
+  //   - formatDate
+  //   - ICONS
+  //   - playNotificationSound
+  // emits:
+  //   - TaskRow
+  //   - FocusTaskRow
+  // BLOCK LENGTH: ~264 lines (7396-7660)
+
 function TaskRow({
   task,
   onClick,
@@ -7657,33 +6141,19 @@ function FocusTaskRow({
 }
 
 // ── Filter Chip ────────────────────────────────────────────
-function FilterChip({
-  label,
-  active,
-  onClick
-}) {
-  return /*#__PURE__*/React.createElement("span", {
-    onClick: onClick,
-    style: {
-      display: "inline-flex",
-      alignItems: "center",
-      padding: "4px 12px",
-      borderRadius: 20,
-      fontSize: 13,
-      fontWeight: 500,
-      cursor: "pointer",
-      transition: "all 0.15s",
-      whiteSpace: "nowrap",
-      background: active ? "var(--accent)" : "#f1f5f9",
-      color: active ? "white" : "var(--text-secondary)",
-      border: active ? "1px solid var(--accent)" : "1px solid var(--border)"
-    }
-  }, label);
-}
-
 // ══════════════════════════════════════════════════════════════
 //  POMODORO TIMER COMPONENT
 // ══════════════════════════════════════════════════════════════
+  // ═══ DEPENDENCIES: PomodoroTimer ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - playNotificationSound
+  // emits:
+  //   - PomodoroTimer
+  // BLOCK LENGTH: ~326 lines (7687-8013)
+
 function PomodoroTimer({
   focusTask,
   onComplete,
@@ -8010,6 +6480,20 @@ function PomodoroTimer({
 }
 
 // ── Inline Subtask Checklist (for Focus page) ──────────────
+  // ═══ DEPENDENCIES: Focus Views (Subtasks/Notes/Attachments) ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - formatDate
+  //   - ICONS
+  //   - renderWikilinksPreview
+  // emits:
+  //   - FocusSubtasks
+  //   - FocusNotes
+  //   - FocusAttachments
+  // BLOCK LENGTH: ~453 lines (8013-8466)
+
 function FocusSubtasks({
   taskId
 }) {
@@ -8463,6 +6947,24 @@ function FocusAttachments({
 // ══════════════════════════════════════════════════════════════
 //  TODAY FOCUS VIEW (Overhauled with Pomodoro)
 // ══════════════════════════════════════════════════════════════
+  // ═══ DEPENDENCIES: TodayFocusView ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - FocusSubtasks
+  //   - FocusNotes
+  //   - FocusAttachments
+  //   - TaskRow
+  //   - FocusTaskRow
+  //   - PomodoroTimer
+  //   - FilterChip
+  //   - ICONS
+  //   - PRI_DOT
+  // emits:
+  //   - TodayFocusView
+  // BLOCK LENGTH: ~288 lines (8466-8754)
+
 function TodayFocusView({
   tasks,
   onTaskClick,
@@ -8751,6 +7253,20 @@ function TodayFocusView({
 }
 
 // ── Mindmap list item ─────────────────────────────────────────
+  // ═══ DEPENDENCIES: Mindmap ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - ICONS
+  //   - formatDate
+  //   - genId
+  // emits:
+  //   - MindmapListItem
+  //   - LinkPickerModal
+  //   - MindmapPage
+  // BLOCK LENGTH: ~1000 lines (8754-9755) — 3 components
+
 function MindmapListItem({
   m,
   isSelected,
@@ -9752,6 +8268,18 @@ function MindmapPage({
 }
 
 // ── Compact task row (minimal: checkbox + title + date) ──────
+  // ═══ DEPENDENCIES: List View Helpers ═══
+  // uses:
+  //   - React
+  //   - ICONS
+  //   - api
+  //   - formatDate
+  //   - PRI_DOT
+  // emits:
+  //   - CompactRow
+  //   - GroupHeader
+  // BLOCK LENGTH: ~100 lines (9755-9856)
+
 function CompactRow({
   task,
   onTaskClick,
@@ -9853,6 +8381,23 @@ function GroupHeader({
 }
 
 // ── Kanban components ────────────────────────────────────────
+  // ═══ DEPENDENCIES: Kanban View ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - PRI_DOT
+  //   - ICONS
+  //   - formatDate
+  //   - ComboSelect
+  // emits:
+  //   - PRI_COLOR_KANBAN
+  //   - PRI_BG_KANBAN
+  //   - KanbanCard
+  //   - KanbanColumn
+  //   - KanbanView
+  // BLOCK LENGTH: ~276 lines (9856-10132)
+
 const PRI_COLOR_KANBAN = {
   P1: "#ef4444",
   P2: "#f97316",
@@ -10129,6 +8674,22 @@ function KanbanView({
 }
 
 // ── Task List view with filters ─────────────────────────────
+  // ═══ DEPENDENCIES: TaskListView ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - TaskRow
+  //   - CompactRow
+  //   - GroupHeader
+  //   - KanbanView
+  //   - FilterChip
+  //   - ICONS
+  //   - ComboSelect
+  // emits:
+  //   - TaskListView
+  // BLOCK LENGTH: ~517 lines (10132-10649)
+
 function TaskListView({
   tasks,
   allTasks,
@@ -10646,6 +9207,17 @@ function TaskListView({
 }
 
 // ── Chart: Productivity Trend (Line) ────────────────────────
+  // ═══ DEPENDENCIES: Charts ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - Chart.js (window)
+  // emits:
+  //   - ProductivityChart
+  //   - CompletionDonut
+  //   - StatusBarChart
+  // BLOCK LENGTH: ~310 lines (10649-10959) — depends on Chart.js
+
 function ProductivityChart({
   tasks
 }) {
@@ -10956,6 +9528,20 @@ function StatusBarChart({
 }
 
 // ── Recurring Task Helper ───────────────────────────────────────
+  // ═══ DEPENDENCIES: Calendar View ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - ICONS
+  //   - PRI_DOT
+  //   - formatDate
+  //   - PRI_LABELS
+  // emits:
+  //   - computeOccurrences
+  //   - CalendarView
+  // BLOCK LENGTH: ~886 lines (10959-11845)
+
 function computeOccurrences(task, fromDate, toDate) {
   // Returns array of YYYY-MM-DD strings for recurring occurrences in [fromDate, toDate]
   if (!task.recurrence_type || !task.recurrence_end_date) return [];
@@ -11842,6 +10428,25 @@ function CalendarView({
 }
 
 // ── Dashboard ───────────────────────────────────────────────
+  // ═══ DEPENDENCIES: Dashboard ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - ProductivityChart
+  //   - CompletionDonut
+  //   - StatusBarChart
+  //   - FilterChip
+  //   - ICONS
+  //   - TaskRow
+  //   - formatDate
+  //   - PRIORITY_MAP
+  //   - ComboSelect
+  // emits:
+  //   - SORT_PRI
+  //   - Dashboard
+  // BLOCK LENGTH: ~984 lines (11845-12829)
+
 const SORT_PRI = (a, b) => ({
   P1: 0,
   P2: 1,
@@ -12826,6 +11431,27 @@ function Dashboard({
 }
 
 // ── Chat Page ────────────────────────────────────────────────
+  // ═══ DEPENDENCIES: Chat System ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - ICONS
+  //   - formatDate
+  //   - mediaUrl
+  //   - API_BASE
+  // emits:
+  //   - avatarColor
+  //   - ChatListPanel
+  //   - ChatPage
+  //   - renderMessageContent
+  //   - TaskMiniCard
+  //   - NoteMiniCard
+  //   - ChatRoom
+  //   - AttachPopup
+  //   - ChatInputBar
+  // BLOCK LENGTH: ~956 lines (12829-13779) — ChatPage is the main entry
+
 function avatarColor(str) {
   const palette = ["#6366f1", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#f43f5e", "#14b8a6", "#f97316", "#06b6d4"];
   let hash = 0;
@@ -13776,6 +12402,15 @@ function ChatInputBar({
 // ── Note Templates Settings ──────────────────────────────────
 let _tplCache = null; // module-level cache, cleared on mutation
 
+  // ═══ DEPENDENCIES: Note Templates Settings ═══
+  // uses:
+  //   - React
+  //   - api
+  // emits:
+  //   - NoteTemplatesSettings
+  //   - _tplCache
+  // BLOCK LENGTH: ~308 lines (13779-14087)
+
 function NoteTemplatesSettings({
   showToast
 }) {
@@ -14084,6 +12719,19 @@ function NoteTemplatesSettings({
     title: "Hapus"
   }, "Hapus")))))));
 }
+  // ═══ DEPENDENCIES: Settings Page ═══
+  // uses:
+  //   - React
+  //   - api
+  //   - AppContext
+  //   - NoteTemplatesSettings
+  //   - downloadBackup
+  //   - WEBAPP_URL
+  // emits:
+  //   - ExtAuthOverlay
+  //   - SettingsPage
+  // BLOCK LENGTH: ~557 lines (14087-14644)
+
 function ExtAuthOverlay({
   state,
   user,
@@ -14641,6 +13289,25 @@ marked.use({
     }
   }
 });
+  // ═══ DEPENDENCIES: Markdown Rendering ═══
+  // uses:
+  //   - React
+  //   - marked (window)
+  //   - KaTeX (window)
+  //   - mediaUrl
+  //   - _tplCache
+  // emits:
+  //   - normalizeWikiText
+  //   - escapeHtml
+  //   - escapeAttr
+  //   - parseWikilinkRaw
+  //   - normalizeWikiLoose
+  //   - renderWikilinksPreview
+  //   - renderMath
+  //   - renderMarkdown
+  //   - _markedHIdx
+  // BLOCK LENGTH: ~184 lines (14644-14828) — pure functions, no API deps
+
 function normalizeWikiText(s = "") {
   return String(s).replace(/\s+/g, " ").trim().toLowerCase();
 }
@@ -14825,6 +13492,33 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   }
   return html;
 }
+  // ═══ DEPENDENCIES: Note Editor (Milkdown) ═══
+  // uses:
+  //   - React
+  //   - Milkdown (window bundle)
+  //   - api
+  //   - API_BASE
+  //   - __token
+  //   - mediaUrl
+  //   - renderMath
+  //   - extractTaskIdsFromContent
+  //   - extractHeadings
+  // emits:
+  //   - NoteToolbar
+  //   - MilkdownEditor
+  //   - remarkWikilinkPlugin
+  //   - remarkTasklinkPlugin
+  //   - extractTaskIdsFromContent
+  //   - createWikilinkPlugin
+  //   - createTasklinkPlugin
+  //   - remarkHighlightPlugin
+  //   - createHighlightPlugin
+  //   - createMarkdownPastePlugin
+  //   - createTaskCheckboxPlugin
+  //   - extractHeadings
+  //   - NoteToc
+  // BLOCK LENGTH: ~1344 lines (14828-16174) — Milkdown plugins + editor wrapper
+
 function NoteToolbar({
   milkdownEditorRef,
   noteId,
@@ -16217,6 +14911,32 @@ function NoteToc({
     title: item.text
   }, item.text)));
 }
+  // ═══ DEPENDENCIES: NoteModal ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - ICONS
+  //   - formatDate
+  //   - API_BASE
+  //   - __token
+  //   - NoteToolbar
+  //   - MilkdownEditor
+  //   - NoteToc
+  //   - renderMarkdown
+  //   - renderWikilinksPreview
+  //   - normalizeWikiText
+  //   - parseWikilinkRaw
+  //   - createMarkdownPastePlugin
+  //   - ModalAttachments
+  //   - openAttachment
+  //   - mediaUrl
+  //   - extractTaskIdsFromContent
+  //   - extractHeadings
+  // emits:
+  //   - NoteModal
+  // BLOCK LENGTH: ~2074 lines (16220-18294) — 2nd LARGEST block in codebase
+
 function NoteModal({
   note,
   tasks,
@@ -18291,6 +17011,32 @@ function NoteModal({
     className: "note-modal-scroll-area"
   }, inner))), document.body));
 }
+  // ═══ DEPENDENCIES: NotePanel ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - ICONS
+  //   - formatDate
+  //   - API_BASE
+  //   - __token
+  //   - NoteToolbar
+  //   - MilkdownEditor
+  //   - NoteToc
+  //   - renderMarkdown
+  //   - renderWikilinksPreview
+  //   - normalizeWikiText
+  //   - parseWikilinkRaw
+  //   - createMarkdownPastePlugin
+  //   - ModalAttachments
+  //   - openAttachment
+  //   - mediaUrl
+  //   - extractTaskIdsFromContent
+  //   - extractHeadings
+  // emits:
+  //   - NotePanel
+  // BLOCK LENGTH: ~986 lines (18294-19280) — shares same deps as NoteModal
+
 function NotePanel({
   note,
   allNotes,
@@ -19277,6 +18023,19 @@ function NotePanel({
     )
   )));
 }
+  // ═══ DEPENDENCIES: NotesPage ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - NoteModal
+  //   - NotePanel
+  //   - ICONS
+  //   - formatDate
+  // emits:
+  //   - NotesPage
+  // BLOCK LENGTH: ~1046 lines (19280-20326)
+
 function NotesPage({
   tasks,
   showToast,
@@ -20323,6 +19082,20 @@ publishedNotes.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, nu
 
 // ── Habit Tracker Components ───────────────────────────────────
 
+  // ═══ DEPENDENCIES: Habits ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - ICONS
+  //   - formatDate
+  //   - PRI_LABELS
+  // emits:
+  //   - HabitCheckinModal
+  //   - HabitCard
+  //   - HabitEditModal
+  // BLOCK LENGTH: ~597 lines (20326-20923)
+
 function HabitCheckinModal({
   habit,
   onClose,
@@ -20920,6 +19693,20 @@ function HabitEditModal({
     onClick: handleSave
   }, loading ? "Menyimpan..." : "Simpan")))));
 }
+  // ═══ DEPENDENCIES: HabitPage ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - HabitCheckinModal
+  //   - HabitCard
+  //   - HabitEditModal
+  //   - ICONS
+  //   - ComboSelect
+  // emits:
+  //   - HabitPage
+  // BLOCK LENGTH: ~520 lines (20923-21443)
+
 function HabitPage({
   user,
   showToast
@@ -21440,6 +20227,19 @@ function HabitPage({
     }
   }, "\uD83C\uDFAF ", h.micro_target))))));
 }
+  // ═══ DEPENDENCIES: SearchModal ═══
+  // uses:
+  //   - React
+  //   - AppContext
+  //   - api
+  //   - ICONS
+  //   - formatDate
+  //   - PRI_DOT
+  //   - renderWikilinksPreview
+  // emits:
+  //   - SearchModal
+  // BLOCK LENGTH: ~299 lines (21443-21742)
+
 function SearchModal({
   onClose,
   onTaskClick,
@@ -21739,6 +20539,18 @@ function SearchModal({
 // ══════════════════════════════════════════════════════════════
 //  MAIN APP
 // ══════════════════════════════════════════════════════════════
+  // ═══ DEPENDENCIES: Admin Pages ═══
+  // uses:
+  //   - React
+  //   - api
+  //   - ICONS
+  //   - CATEGORY_ICONS
+  //   - FREQ_MAP
+  // emits:
+  //   - AdminTemplateModal
+  //   - AdminPage
+  // BLOCK LENGTH: ~517 lines (21742-22259)
+
 function AdminTemplateModal({
   item,
   kategories,
@@ -22256,6 +21068,17 @@ function AdminPage({
   }))))))));
 }
 // ─── Tour System ──────────────────────────────────────────────────────────────
+  // ═══ DEPENDENCIES: Tour System ═══
+  // uses:
+  //   - React
+  //   - driver.js (window)
+  // emits:
+  //   - TOUR_STEPS
+  //   - isTourVisible
+  //   - startTour
+  //   - TourButton
+  // BLOCK LENGTH: ~103 lines (22259-22362) — depends on driver.js
+
 const TOUR_STEPS = {
   dashboard: [
     { element: '[data-tour="sidebar-general"]', popover: { title: '🗂️ Menu Utama', description: 'Navigasi utama TaskFlow — Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes & Draw, Mindmap, dan Diskusi. Klik salah satu untuk berpindah halaman.' } },
@@ -22359,6 +21182,16 @@ function TourButton({ page }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Weekly Review — full-screen overlay. Listens to "tf-open-review" to open.
 // Gated by aiReviewOn() at the App-root mount site.
+  // ═══ DEPENDENCIES: Weekly Review (AI) ═══
+  // uses:
+  //   - React
+  //   - api
+  //   - aiReviewOn
+  //   - ICONS
+  // emits:
+  //   - WeeklyReview
+  // BLOCK LENGTH: ~128 lines (22362-22490) — only active when aiReviewOn()
+
 function WeeklyReview({ tasks, onTaskClick, showToast, onAddFocus, onReschedule, onClarifyNext, onCreate, onSetDeadline, onComplete }) {
   const [open, setOpen] = React.useState(false);
   React.useEffect(() => {
@@ -22487,6 +21320,17 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onAddFocus, onReschedule,
 // "tf-open-attachment" event instead of handing the file to an external OS app
 // (unreliable on Windows desktop, no way back on Android). This fetches the blob
 // with the token and shows it inline; "Tutup" returns to the note on every platform.
+  // ═══ DEPENDENCIES: AttachmentViewer ═══
+  // uses:
+  //   - React
+  //   - api
+  //   - API_BASE
+  //   - __token
+  //   - ICONS
+  // emits:
+  //   - AttachmentViewer
+  // BLOCK LENGTH: ~133 lines (22490-22623) — in-app attachment viewer overlay
+
 function AttachmentViewer() {
   const [item, setItem] = React.useState(null);
   const [blobUrl, setBlobUrl] = React.useState("");
@@ -22620,6 +21464,16 @@ function AttachmentViewer() {
 // Weekly review nudge banner (gated by AI flag). Shows when >= 7 days since
 // last review and not snoozed today. Dispatches tf-open-review to launch the
 // review flow (handled by a later task).
+  // ═══ DEPENDENCIES: ReviewNudge ═══
+  // uses:
+  //   - React
+  //   - api
+  //   - formatDate
+  //   - AppContext
+  // emits:
+  //   - ReviewNudge
+  // BLOCK LENGTH: ~39 lines (22623-22662) — small reminder component
+
 function ReviewNudge({ tasks, onStart }) {
   const [show, setShow] = React.useState(false);
   React.useEffect(() => {
@@ -22659,6 +21513,17 @@ function ReviewNudge({ tasks, onStart }) {
 // (YYYY-MM-DD). Shows when it's been >= BACKUP_INTERVAL_DAYS since the last
 // backup and not snoozed today. First detection with no prior backup sets the
 // baseline to now so fresh/updated users aren't nagged on day one.
+  // ═══ DEPENDENCIES: BackupReminder ═══
+  // uses:
+  //   - React
+  //   - api
+  //   - OfflineDB
+  //   - BACKUP_INTERVAL_DAYS
+  //   - downloadBackup
+  // emits:
+  //   - BackupReminder
+  // BLOCK LENGTH: ~59 lines (22662-22721) — small reminder component
+
 function BackupReminder({ showToast }) {
   const [show, setShow] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -22717,6 +21582,59 @@ function BackupReminder({ showToast }) {
   );
 }
 // ─────────────────────────────────────────────────────────────────────────────
+
+  // ═══ DEPENDENCIES: App Root ═══
+  // uses:
+  //   - React
+  //   - ReactDOM
+  //   - AppContext
+  //   - ALL components above
+  //   - api
+  //   - tokenStore
+  //   - OfflineDB
+  //   - aiReviewOn
+  //   - isOfflineErr
+  //   - genId
+  //   - ICONS
+  //   - formatDate
+  //   - ThemeToggle
+  //   - Icon
+  //   - NavIcon
+  //   - LoginPage
+  //   - RegisterPage
+  //   - ResetPasswordPage
+  //   - Sidebar
+  //   - TaskFormModal
+  //   - TaskDetailModal
+  //   - TaskListView
+  //   - Dashboard
+  //   - TodayFocusView
+  //   - CalendarView
+  //   - KanbanView
+  //   - NotesPage
+  //   - MindmapPage
+  //   - ChatPage
+  //   - HabitPage
+  //   - SearchModal
+  //   - SettingsPage
+  //   - AdminPage
+  //   - PomodoroTimer
+  //   - GoalTab
+  //   - SharedListsManager
+  //   - JoinListModal
+  //   - AttachmentViewer
+  //   - ReviewNudge
+  //   - BackupReminder
+  //   - WeeklyReview
+  //   - TourButton
+  //   - Toast
+  //   - FilterChip
+  // emits:
+  //   - App
+  //   - window.__logout
+  //   - window.__showToast
+  //   - window.__refreshTasks
+  // BLOCK LENGTH: ~2385 lines (22721-24108) — orchestrates ALL state + routing
 
 function App() {
   const [user, setUser] = useState(null);
