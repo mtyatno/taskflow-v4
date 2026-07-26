@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v208-slash-body-root";
+const CACHE = "taskflow-v209-slash-zindex-focus";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
