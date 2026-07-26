@@ -15376,7 +15376,91 @@ function MilkdownEditor({
     const slashMenu = document.createElement('div');
     slashMenu.className = 'milkdown-slash-menu';
     slashMenu.setAttribute('role', 'listbox');
-    const makeSlashItem = (icon, label, cmd, payload) => {
+    const doSlashAction = (type, payload) => {
+      const inst = instanceRef.current;
+      if (!inst) return;
+      inst.action(ctx => {
+        const view = ctx.get(MB.editorViewCtx);
+        if (!view) return;
+        const { state } = view;
+        const { from, to } = state.selection;
+        let tr = state.tr;
+        switch (type) {
+          case 'heading':
+            tr = tr.setBlockType(from, to, state.schema.nodes.heading, { level: payload });
+            break;
+          case 'bullet_list':
+            tr = MB.wrapInBulletListCommand(payload)(state, tr.dispatch ? undefined : undefined);
+            if (tr === false) return;
+            // wrapInBulletListCommand returns false if not applicable; use setBlockType fallback
+            tr = state.tr;
+            const bulletNode = state.schema.nodes.bullet_list;
+            const listItem = state.schema.nodes.list_item;
+            const para = state.schema.nodes.paragraph;
+            if (bulletNode && listItem) {
+              const $from = state.selection.$from;
+              const listItemBlock = listItem.create(null, para.create());
+              const listBlock = bulletNode.create(null, listItemBlock);
+              tr = tr.replaceRangeWith($from.before($from.depth > 0 ? $from.depth : 0), to, listBlock);
+            }
+            break;
+          case 'ordered_list':
+            tr = state.tr;
+            const oListNode = state.schema.nodes.ordered_list;
+            const oListItem = state.schema.nodes.list_item;
+            const oPara = state.schema.nodes.paragraph;
+            if (oListNode && oListItem) {
+              const oFrom = state.selection.$from;
+              const li = oListItem.create(null, oPara.create());
+              const ol = oListNode.create(null, li);
+              tr = tr.replaceRangeWith(oFrom.before(oFrom.depth > 0 ? oFrom.depth : 0), to, ol);
+            }
+            break;
+          case 'bullet_list_simple':
+            // Wrap current block in bullet list (same as ordered but bullet)
+            tr = state.tr;
+            const bNode = state.schema.nodes.bullet_list;
+            const bItem = state.schema.nodes.list_item;
+            const bPara = state.schema.nodes.paragraph;
+            if (bNode && bItem) {
+              const bFrom = state.selection.$from;
+              const bli = bItem.create(null, bPara.create());
+              const bl = bNode.create(null, bli);
+              tr = tr.replaceRangeWith(bFrom.before(bFrom.depth > 0 ? bFrom.depth : 0), to, bl);
+            }
+            break;
+          case 'blockquote':
+            if (state.schema.nodes.blockquote) {
+              tr = tr.wrap(state.selection.$from.blockRange(state.selection.$to) || undefined, [{ type: state.schema.nodes.blockquote }]);
+            }
+            break;
+          case 'table':
+            if (state.schema.nodes.table) {
+              // Insert a simple 3x3 table
+              const tbl = state.schema.nodes.table;
+              const trow = state.schema.nodes.table_row;
+              const tcell = state.schema.nodes.table_cell;
+              const tpara = state.schema.nodes.paragraph;
+              if (tbl && trow && tcell) {
+                const cells = [tcell.create(null, tpara.create()), tcell.create(null, tpara.create()), tcell.create(null, tpara.create())];
+                const rows = [trow.create(null, cells), trow.create(null, cells), trow.create(null, cells)];
+                const table = tbl.create(null, rows);
+                tr = tr.replaceSelectionWith(table);
+              }
+            }
+            break;
+          case 'hr':
+            if (state.schema.nodes.horizontal_rule) {
+              const hrNode = state.schema.nodes.horizontal_rule.create();
+              tr = tr.replaceSelectionWith(hrNode);
+            }
+            break;
+        }
+        view.dispatch(tr.scrollIntoView());
+        view.focus();
+      });
+    };
+    const makeSlashItem = (icon, label, type, payload) => {
       const el = document.createElement('div');
       el.className = 'milkdown-slash-item';
       el.setAttribute('role', 'option');
@@ -15385,26 +15469,24 @@ function MilkdownEditor({
       el.addEventListener('click', e => {
         e.stopPropagation();
         e.preventDefault();
-        const inst = instanceRef.current;
-        if (!inst) return;
-        inst.action(MB.callCommand(cmd, payload));
+        doSlashAction(type, payload);
       });
       return el;
     };
-    slashMenu.appendChild(makeSlashItem('H1', 'Heading 1', MB.wrapInHeadingCommand.key, 1));
-    slashMenu.appendChild(makeSlashItem('H2', 'Heading 2', MB.wrapInHeadingCommand.key, 2));
-    slashMenu.appendChild(makeSlashItem('H3', 'Heading 3', MB.wrapInHeadingCommand.key, 3));
-    slashMenu.appendChild(makeSlashItem('•', 'Bullet List', MB.wrapInBulletListCommand.key));
-    slashMenu.appendChild(makeSlashItem('1.', 'Ordered List', MB.wrapInOrderedListCommand.key));
-    slashMenu.appendChild(makeSlashItem('☑', 'Task List', MB.wrapInBulletListCommand.key));
-    slashMenu.appendChild(makeSlashItem('"', 'Blockquote', MB.wrapInBlockquoteCommand.key));
-    slashMenu.appendChild(makeSlashItem('⊞', 'Table', MB.insertTableCommand.key));
-    slashMenu.appendChild(makeSlashItem('—', 'Divider', MB.insertHrCommand.key));
+    slashMenu.appendChild(makeSlashItem('H1', 'Heading 1', 'heading', 1));
+    slashMenu.appendChild(makeSlashItem('H2', 'Heading 2', 'heading', 2));
+    slashMenu.appendChild(makeSlashItem('H3', 'Heading 3', 'heading', 3));
+    slashMenu.appendChild(makeSlashItem('•', 'Bullet List', 'bullet_list_simple'));
+    slashMenu.appendChild(makeSlashItem('1.', 'Ordered List', 'ordered_list'));
+    slashMenu.appendChild(makeSlashItem('☑', 'Task List', 'bullet_list_simple'));
+    slashMenu.appendChild(makeSlashItem('"', 'Blockquote', 'blockquote'));
+    slashMenu.appendChild(makeSlashItem('⊞', 'Table', 'table'));
+    slashMenu.appendChild(makeSlashItem('—', 'Divider', 'hr'));
 
     // ── Tooltip DOM ─────────────────────────────────────────────────
     const tooltipEl = document.createElement('div');
     tooltipEl.className = 'milkdown-tooltip';
-    const makeTbBtn = (icon, label, cmdKey) => {
+    const makeTbBtn = (icon, label, markName) => {
       const btn = document.createElement('button');
       btn.className = 'milkdown-tooltip-btn';
       btn.title = label;
@@ -15416,14 +15498,29 @@ function MilkdownEditor({
         e.preventDefault();
         const inst = instanceRef.current;
         if (!inst) return;
-        inst.action(MB.callCommand(cmdKey));
+        // Direct ProseMirror toggleMark — bypasses Milkdown callCommand which fails when context is stale
+        inst.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          if (!view) return;
+          const { state } = view;
+          const { from, to } = state.selection;
+          if (from === to) return;
+          const markType = state.schema.marks[markName];
+          if (!markType) return;
+          const hasMark = state.doc.rangeHasMark(from, to, markType);
+          const tr = hasMark
+            ? state.tr.removeMark(from, to, markType)
+            : state.tr.addMark(from, to, markType);
+          view.dispatch(tr);
+          view.focus();
+        });
       });
       return btn;
     };
-    tooltipEl.appendChild(makeTbBtn('<b>B</b>', 'Bold', MB.toggleStrongCommand.key));
-    tooltipEl.appendChild(makeTbBtn('<i>I</i>', 'Italic', MB.toggleEmphasisCommand.key));
-    tooltipEl.appendChild(makeTbBtn('<s>S</s>', 'Strikethrough', MB.toggleStrikethroughCommand.key));
-    tooltipEl.appendChild(makeTbBtn('<>', 'Inline Code', MB.toggleInlineCodeCommand.key));
+    tooltipEl.appendChild(makeTbBtn('<b>B</b>', 'Bold', 'strong'));
+    tooltipEl.appendChild(makeTbBtn('<i>I</i>', 'Italic', 'em'));
+    tooltipEl.appendChild(makeTbBtn('<s>S</s>', 'Strikethrough', 'strikethrough'));
+    tooltipEl.appendChild(makeTbBtn('<>', 'Inline Code', 'code'));
 
     // ── Create factory pairs ────────────────────────────────────────
     const slashPair = MB.slashFactory('note-slash');
