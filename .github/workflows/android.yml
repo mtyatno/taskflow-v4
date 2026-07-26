@@ -27,6 +27,8 @@ jobs:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
       - name: Install root deps (provides @tauri-apps/cli)
         run: npm install
+      - name: Regenerate platform icons from source
+        run: npx tauri icon src-tauri/icons/icon-source.png
       - name: Pre-compile JSX (no-op if already compiled)
         run: node compile.js
       - name: Build tldraw vendor (draw-app -> static/vendor/tldraw)
