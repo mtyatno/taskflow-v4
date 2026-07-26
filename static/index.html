@@ -15381,10 +15381,13 @@ function MilkdownEditor({
       el.className = 'milkdown-slash-item';
       el.setAttribute('role', 'option');
       el.innerHTML = '<span class="milkdown-slash-icon">' + icon + '</span><span>' + label + '</span>';
-      el.addEventListener('mousedown', e => { e.preventDefault(); });
-      el.addEventListener('click', () => {
-        if (!instanceRef.current) return;
-        instanceRef.current.action(MB.callCommand(cmd, payload));
+      el.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
+      el.addEventListener('click', e => {
+        e.stopPropagation();
+        e.preventDefault();
+        const inst = instanceRef.current;
+        if (!inst) return;
+        inst.action(MB.callCommand(cmd, payload));
       });
       return el;
     };
@@ -15405,11 +15408,15 @@ function MilkdownEditor({
       const btn = document.createElement('button');
       btn.className = 'milkdown-tooltip-btn';
       btn.title = label;
+      btn.type = 'button';
       btn.innerHTML = icon;
-      btn.addEventListener('mousedown', e => { e.preventDefault(); });
-      btn.addEventListener('click', () => {
-        if (!instanceRef.current) return;
-        instanceRef.current.action(MB.callCommand(cmdKey));
+      btn.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        e.preventDefault();
+        const inst = instanceRef.current;
+        if (!inst) return;
+        inst.action(MB.callCommand(cmdKey));
       });
       return btn;
     };

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v202-slash-tooltip";
+const CACHE = "taskflow-v203-tooltip-click-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
