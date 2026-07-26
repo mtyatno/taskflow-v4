@@ -21844,6 +21844,7 @@ function App() {
       else if (shareData.text) content += `\n\n> ${shareData.text}`;
       try {
         await api.post("/api/scratchpad", { title, content, tags: ["bookmark"] });
+        window.dispatchEvent(new CustomEvent("noteSaved"));
         showToast("Tersimpan di Notes! 📎");
       } catch (err) {
         showToast("Gagal menyimpan: " + (err && err.message ? err.message : "Error"), "error");

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v211-published-apk-fix";
+const CACHE = "taskflow-v212-share-note-refresh";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
