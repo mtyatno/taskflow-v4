@@ -2957,6 +2957,19 @@ async def recent_scratchpad(user=Depends(get_current_user)):
         """, access_params).fetchall()
         return [_scratchpad_row(r, conn, uid) for r in rows]
 
+@app.get("/api/scratchpad/pinned")
+async def pinned_scratchpad(user=Depends(get_current_user)):
+    uid = user["sub"]
+    access_clause, access_params = _note_access_clause(uid, prefix="s")
+    with get_db() as conn:
+        rows = conn.execute(f"""
+            SELECT s.* FROM scratchpad_notes s
+            JOIN note_pins np ON np.note_id = s.id AND np.user_id = ?
+            WHERE {access_clause}
+            ORDER BY s.updated_at DESC
+        """, [uid] + access_params).fetchall()
+        return [_scratchpad_row(r, conn, uid) for r in rows]
+
 _NOTE_SELECT = "SELECT * FROM scratchpad_notes WHERE id = ?"
 
 @app.get("/api/scratchpad/titles")
