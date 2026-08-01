@@ -333,7 +333,7 @@ const api = {
       try { _router = api._localRouter || (api._localRouter = _R.buildTaskRouter()); } catch (_) { _router = null; }
       if (_router) {
         const _method = (opts.method || "GET").toUpperCase();
-        if (_router.hasRoute(_method, url) && !_R.isNoteTagsCall(_method, url)) {
+        if (_router.hasRoute(_method, url) && !_R.isNoteTagsCall(_method, url) && url !== "/api/scratchpad/pinned") {
           const _body = opts.body ? JSON.parse(opts.body) : undefined;
           const _res = await _router.dispatch(_method, url, _body)
             .catch(err => { throw new Error(err && err.message ? err.message : "local route error"); });
