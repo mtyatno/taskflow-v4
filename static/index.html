@@ -10652,6 +10652,7 @@ function Dashboard({
     onKeyDown: handleScratch,
     placeholder: "Tulis apa saja... (tekan Enter untuk simpan)"
   })), /*#__PURE__*/ (() => {
+    const [expanded, setExpanded] = useState(false);
     if (!pinnedNotes || pinnedNotes.length === 0) {
       return /*#__PURE__*/React.createElement("div", {
         className: "card",
@@ -10671,7 +10672,6 @@ function Dashboard({
       const mn = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"][parseInt(parts[1]) - 1];
       return `${parseInt(parts[2])} ${mn}`;
     };
-    const [expanded, setExpanded] = useState(false);
     const visible = expanded ? pinnedNotes : pinnedNotes.slice(0, 3);
     const hasMore = pinnedNotes.length > 3;
     return /*#__PURE__*/React.createElement("div", {
