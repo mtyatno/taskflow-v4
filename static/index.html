@@ -3190,7 +3190,7 @@ function TaskFormModal({
       const textBefore = view.state.doc.textBetween(0, sel.from, '\n', '\0');
       const aiMatch = textBefore.match(/(?:\n|^)\/ai$/);
       if (aiMatch) {
-        triggerFrom = textBefore.lastIndexOf('/ai');
+        triggerFrom = sel.from - 3 // absolute position of "/ai";
         triggerTo = sel.from;
         if (!targetText && triggerFrom > 0) {
           const beforeTrigger = view.state.doc.textBetween(0, triggerFrom, '\n', '\0');
@@ -15731,7 +15731,7 @@ function NoteModal({
       const textBefore = view.state.doc.textBetween(0, sel.from, '\n', '\0');
       const aiMatch = textBefore.match(/(?:\n|^)\/ai$/);
       if (aiMatch) {
-        triggerFrom = textBefore.lastIndexOf('/ai');
+        triggerFrom = sel.from - 3 // absolute position of "/ai";
         triggerTo = sel.from;
         if (!targetText && triggerFrom > 0) {
           const beforeTrigger = view.state.doc.textBetween(0, triggerFrom, '\n', '\0');
