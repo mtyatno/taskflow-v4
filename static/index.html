@@ -3210,38 +3210,34 @@ function TaskFormModal({
         view.dispatch(view.state.tr.delete(triggerFrom, triggerTo));
       });
     }
+        let placeholderFrom = 0;
     editor.action(ctx => {
       const view = ctx.get(MB.editorViewCtx);
-      view.dispatch(view.state.tr.insertText('✨ Memproses...', view.state.selection.from));
+      placeholderFrom = view.state.selection.from;
+      view.dispatch(view.state.tr.insertText('✨ Memproses...', placeholderFrom));
     });
+    const PLACEHOLDER_LEN = 16;
     try {
       const data = await api.post('/api/ai/note-action', { instruction: instr, text: targetText });
       const result = (data.result || '').trim();
       editor.action(ctx => {
         const view = ctx.get(MB.editorViewCtx);
-        const full = view.state.doc.textBetween(0, view.state.doc.content.size, '\n', '\0');
-        const idx = full.lastIndexOf('✨ Memproses...');
-        if (idx !== -1) {
-          const placeholderLen = '✨ Memproses...'.length;
-          try {
-            const doc = ctx.get(MB.parserCtx)(result);
-            if (doc && doc.content.size > 0) {
-              const slice = doc.slice(0, doc.content.size);
-              view.dispatch(view.state.tr.replaceRange(idx, idx + placeholderLen, slice));
-            } else {
-              view.dispatch(view.state.tr.insertText('\n' + result + '\n', idx, idx + placeholderLen));
-            }
-          } catch (_) {
-            view.dispatch(view.state.tr.insertText('\n' + result + '\n', idx, idx + placeholderLen));
+        try {
+          const doc = ctx.get(MB.parserCtx)(result);
+          if (doc && doc.content.size > 0) {
+            const slice = doc.slice(0, doc.content.size);
+            view.dispatch(view.state.tr.replaceRange(placeholderFrom, placeholderFrom + PLACEHOLDER_LEN, slice));
+          } else {
+            view.dispatch(view.state.tr.insertText('\n' + result + '\n', placeholderFrom, placeholderFrom + PLACEHOLDER_LEN));
           }
+        } catch (_) {
+          view.dispatch(view.state.tr.insertText('\n' + result + '\n', placeholderFrom, placeholderFrom + PLACEHOLDER_LEN));
         }
       });
     } catch (err) {
       editor.action(ctx => {
         const view = ctx.get(MB.editorViewCtx);
-        const full = view.state.doc.textBetween(0, view.state.doc.content.size, '\n', '\0');
-        const idx = full.lastIndexOf('✨ Memproses...');
-        if (idx !== -1) view.dispatch(view.state.tr.insertText('', idx, idx + '✨ Memproses...'.length));
+        view.dispatch(view.state.tr.insertText('', placeholderFrom, placeholderFrom + PLACEHOLDER_LEN));
       });
       showToast('Gagal AI: ' + (err.message || 'coba lagi'));
     } finally {
@@ -15751,38 +15747,34 @@ function NoteModal({
         view.dispatch(view.state.tr.delete(triggerFrom, triggerTo));
       });
     }
+        let placeholderFrom = 0;
     editor.action(ctx => {
       const view = ctx.get(MB.editorViewCtx);
-      view.dispatch(view.state.tr.insertText('✨ Memproses...', view.state.selection.from));
+      placeholderFrom = view.state.selection.from;
+      view.dispatch(view.state.tr.insertText('✨ Memproses...', placeholderFrom));
     });
+    const PLACEHOLDER_LEN = 16;
     try {
       const data = await api.post('/api/ai/note-action', { instruction: instr, text: targetText });
       const result = (data.result || '').trim();
       editor.action(ctx => {
         const view = ctx.get(MB.editorViewCtx);
-        const full = view.state.doc.textBetween(0, view.state.doc.content.size, '\n', '\0');
-        const idx = full.lastIndexOf('✨ Memproses...');
-        if (idx !== -1) {
-          const placeholderLen = '✨ Memproses...'.length;
-          try {
-            const doc = ctx.get(MB.parserCtx)(result);
-            if (doc && doc.content.size > 0) {
-              const slice = doc.slice(0, doc.content.size);
-              view.dispatch(view.state.tr.replaceRange(idx, idx + placeholderLen, slice));
-            } else {
-              view.dispatch(view.state.tr.insertText('\n' + result + '\n', idx, idx + placeholderLen));
-            }
-          } catch (_) {
-            view.dispatch(view.state.tr.insertText('\n' + result + '\n', idx, idx + placeholderLen));
+        try {
+          const doc = ctx.get(MB.parserCtx)(result);
+          if (doc && doc.content.size > 0) {
+            const slice = doc.slice(0, doc.content.size);
+            view.dispatch(view.state.tr.replaceRange(placeholderFrom, placeholderFrom + PLACEHOLDER_LEN, slice));
+          } else {
+            view.dispatch(view.state.tr.insertText('\n' + result + '\n', placeholderFrom, placeholderFrom + PLACEHOLDER_LEN));
           }
+        } catch (_) {
+          view.dispatch(view.state.tr.insertText('\n' + result + '\n', placeholderFrom, placeholderFrom + PLACEHOLDER_LEN));
         }
       });
     } catch (err) {
       editor.action(ctx => {
         const view = ctx.get(MB.editorViewCtx);
-        const full = view.state.doc.textBetween(0, view.state.doc.content.size, '\n', '\0');
-        const idx = full.lastIndexOf('✨ Memproses...');
-        if (idx !== -1) view.dispatch(view.state.tr.insertText('', idx, idx + '✨ Memproses...'.length));
+        view.dispatch(view.state.tr.insertText('', placeholderFrom, placeholderFrom + PLACEHOLDER_LEN));
       });
       showToast('Gagal AI: ' + (err.message || 'coba lagi'));
     } finally {
