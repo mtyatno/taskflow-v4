@@ -15230,6 +15230,21 @@ function NoteModal({
     });
     editor.action(ctx => ctx.get(window.MilkdownBundle.editorViewCtx).focus());
   };
+  // Parse markdown string and insert as ProseMirror nodes (not raw text)
+  const insertMarkdown = md => {
+    const editor = milkdownEditorRef?.current;
+    if (!editor) return;
+    const MB = window.MilkdownBundle;
+    editor.action(ctx => {
+      const view = ctx.get(MB.editorViewCtx);
+      let doc;
+      try { doc = ctx.get(MB.parserCtx)(md); } catch (_) { return; }
+      if (!doc || !doc.content || doc.content.size === 0) return;
+      const slice = doc.slice(0, doc.content.size);
+      view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
+      view.focus();
+    });
+  };
   const handleImagePaste = async file => {
     if (!savedNoteId) {
       showToast("Simpan catatan dulu sebelum paste gambar", "error");
@@ -15247,8 +15262,9 @@ function NoteModal({
       const att = await res.json();
       const isImage = att.mime_type && att.mime_type.startsWith('image/');
       const url = '/api/scratchpad/attachments/' + att.id + '/view';
-      const syntax = isImage ? '![' + att.original_name + '](' + url + ')' : '[' + att.original_name + '](' + url + ')';
-      insertText(syntax);
+      const md = isImage ? '![' + (att.original_name || 'image') + '](' + url + ')' : '[' + (att.original_name || 'file') + '](' + url + ')';
+      // Use parse+insert to render as real image/link node, not raw markdown text
+      insertMarkdown(md);
     } catch (err) {
       showToast("Paste gambar gagal: " + err.message, "error");
     }
