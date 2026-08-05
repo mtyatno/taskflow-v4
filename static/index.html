@@ -14118,6 +14118,20 @@ function MilkdownEditor({
   const [ready, setReady] = React.useState(false);
   const [mathEdit, setMathEdit] = React.useState(null);
   const mathTaRef = React.useRef(null);
+  // Image resize toolbar — { pos, node, editorView }
+  const [imgResize, setImgResize] = React.useState(null);
+  const applyImgSize = React.useCallback((pct) => {
+    if (!imgResize) return;
+    const { pos, editorView } = imgResize;
+    const title = pct === '100' ? '' : pct + '%';
+    const domImg = editorView.nodeDOM(pos);
+    if (domImg) { domImg.style.width = pct === '100' ? '' : pct + '%'; domImg.style.height = 'auto'; }
+    editorView.dispatch(
+      editorView.state.tr.setNodeMarkup(pos, null, { src: imgResize.node.attrs.src, alt: imgResize.node.attrs.alt || '', title: title })
+    );
+    setImgResize(null);
+  }, [imgResize]);
+  const cancelImgResize = React.useCallback(() => setImgResize(null), []);
   const onImagePasteRef = React.useRef(onImagePaste);
   onImagePasteRef.current = onImagePaste;
   React.useEffect(() => {
@@ -14535,7 +14549,34 @@ function MilkdownEditor({
         }
       }, 0);
     }
-  }, [onWikilinkClick, onTasklinkClick]);
+    // image click → show resize toolbar
+    if (e.target.tagName === 'IMG' && !imgResize) {
+      e.preventDefault();
+      e.stopPropagation();
+      const editor = instanceRef.current;
+      if (!editor) return;
+      const MB = window.MilkdownBundle;
+      let foundPos = null, foundNode = null;
+      try {
+        editor.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          view.state.doc.descendants((node, nodePos) => {
+            if (foundPos !== null) return false;
+            if (node.type && node.type.name === 'image') {
+              const dom = view.nodeDOM(nodePos);
+              if (dom === e.target || (dom && dom.contains && dom.contains(e.target))) {
+                foundPos = nodePos; foundNode = node; return false;
+              }
+            }
+          });
+          if (foundPos !== null) {
+            const rect = e.target.getBoundingClientRect();
+            setImgResize({ pos: foundPos, node: foundNode, editorView: view, top: rect.bottom + 4, left: Math.max(0, rect.left) });
+          }
+        });
+      } catch (_) {}
+    }
+  }, [onWikilinkClick, onTasklinkClick, imgResize]);
   const saveMathEdit = React.useCallback(() => {
     if (!mathEdit) return;
     const newLatex = (mathTaRef.current?.value || '').trim();
@@ -14554,6 +14595,39 @@ function MilkdownEditor({
     setMathEdit(null);
   }, [mathEdit]);
   const cancelMathEdit = React.useCallback(() => setMathEdit(null), []);
+  // ── Image resize toolbar (floating DOM) ────────────────────
+  React.useEffect(() => {
+    if (!imgResize) return;
+    const el = document.createElement('div');
+    el.className = 'img-resize-toolbar';
+    el.style.cssText = 'position:fixed;z-index:9999;display:flex;gap:2px;padding:5px 6px;background:var(--bg-elevated,#fff);border:1px solid var(--border-primary,#ddd);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.15);font-size:11px;';
+    el.style.top = imgResize.top + 'px';
+    el.style.left = imgResize.left + 'px';
+    const makeBtn = (label) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.style.cssText = 'padding:2px 6px;border:1px solid var(--border-primary,#ccc);border-radius:3px;background:var(--bg-primary,#f5f5f5);cursor:pointer;color:var(--text-primary,#333);font-size:11px;min-width:36px;';
+      b.onmouseenter = () => { b.style.background = 'var(--bg-hover,#e0e0e0)'; };
+      b.onmouseleave = () => { b.style.background = 'var(--bg-primary,#f5f5f5)'; };
+      b.onclick = () => applyImgSize(label === '100%' ? '100' : label.replace('%',''));
+      return b;
+    };
+    for (const pct of ['10%','20%','30%','40%','50%','60%','70%','80%','90%','100%']) {
+      el.appendChild(makeBtn(pct));
+    }
+    const resetBtn = document.createElement('button');
+    resetBtn.textContent = '↺ Orig';
+    resetBtn.title = 'Original size';
+    resetBtn.style.cssText = 'padding:2px 6px;border:1px solid var(--border-primary,#ccc);border-radius:3px;background:var(--bg-primary,#f5f5f5);cursor:pointer;color:var(--text-primary,#333);font-size:11px;';
+    resetBtn.onclick = () => applyImgSize('100');
+    el.appendChild(resetBtn);
+    document.body.appendChild(el);
+    // Click outside → dismiss
+    const onDocClick = (e) => { if (!el.contains(e.target)) { setImgResize(null); } };
+    setTimeout(() => document.addEventListener('click', onDocClick), 0);
+    return () => { el.remove(); document.removeEventListener('click', onDocClick); };
+  }, [imgResize, applyImgSize]);
+  // ── End image resize toolbar ───────────────────────────────
   return /*#__PURE__*/React.createElement("div", {
     ref: containerRef,
     className: "milkdown-editor note-modal-content-input",
