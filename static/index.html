@@ -15262,9 +15262,8 @@ function NoteModal({
       const att = await res.json();
       const isImage = att.mime_type && att.mime_type.startsWith('image/');
       const url = '/api/scratchpad/attachments/' + att.id + '/view';
-      const md = isImage ? '![' + (att.original_name || 'image') + '](' + url + ')' : '[' + (att.original_name || 'file') + '](' + url + ')';
-      // Use parse+insert to render as real image/link node, not raw markdown text
-      insertMarkdown(md);
+      const syntax = isImage ? '![' + att.original_name + '](' + url + ')' : '[' + att.original_name + '](' + url + ')';
+      insertText(syntax);
     } catch (err) {
       showToast("Paste gambar gagal: " + err.message, "error");
     }
