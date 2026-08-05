@@ -14122,13 +14122,29 @@ function MilkdownEditor({
   const [imgResize, setImgResize] = React.useState(null);
   const applyImgSize = React.useCallback((pct) => {
     if (!imgResize) return;
-    const { pos, editorView } = imgResize;
-    const title = pct === '100' ? '' : pct + '%';
-    const domImg = editorView.nodeDOM(pos);
-    if (domImg) { domImg.style.width = pct === '100' ? '' : pct + '%'; domImg.style.height = 'auto'; }
-    editorView.dispatch(
-      editorView.state.tr.setNodeMarkup(pos, null, { src: imgResize.node.attrs.src, alt: imgResize.node.attrs.alt || '', title: title })
-    );
+    const inst = instanceRef.current;
+    if (!inst) { setImgResize(null); return; }
+    const MB = window.MilkdownBundle;
+    inst.action(ctx => {
+      const view = ctx.get(MB.editorViewCtx);
+      const title = pct === '100' ? null : pct + '%';
+      // Apply to DOM immediately
+      const domImg = view.nodeDOM(imgResize.pos);
+      if (domImg) {
+        if (pct === '100') { domImg.style.width = ''; domImg.style.height = ''; }
+        else { domImg.style.width = pct + '%'; domImg.style.height = 'auto'; }
+      }
+      // Preserve all original attrs, only change title
+      const attrs = { ...imgResize.node.attrs, title };
+      if (title === null) delete attrs.title;
+      // Use fresh pos from current state (may have shifted)
+      try {
+        const found = view.state.doc.resolve(imgResize.pos);
+        if (found && found.nodeAfter && found.nodeAfter.type.name === 'image') {
+          view.dispatch(view.state.tr.setNodeMarkup(imgResize.pos, null, attrs));
+        }
+      } catch (_) {}
+    });
     setImgResize(null);
   }, [imgResize]);
   const cancelImgResize = React.useCallback(() => setImgResize(null), []);
@@ -14571,7 +14587,7 @@ function MilkdownEditor({
           });
           if (foundPos !== null) {
             const rect = e.target.getBoundingClientRect();
-            setImgResize({ pos: foundPos, node: foundNode, editorView: view, top: rect.bottom + 4, left: Math.max(0, rect.left) });
+            setImgResize({ pos: foundPos, node: foundNode, top: rect.bottom + 4, left: Math.max(0, rect.left) });
           }
         });
       } catch (_) {}
@@ -14600,28 +14616,33 @@ function MilkdownEditor({
     if (!imgResize) return;
     const el = document.createElement('div');
     el.className = 'img-resize-toolbar';
-    el.style.cssText = 'position:fixed;z-index:9999;display:flex;gap:2px;padding:5px 6px;background:var(--bg-elevated,#fff);border:1px solid var(--border-primary,#ddd);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.15);font-size:11px;';
-    el.style.top = imgResize.top + 'px';
-    el.style.left = imgResize.left + 'px';
+    el.style.cssText = 'position:fixed;z-index:9999;display:flex;flex-direction:column;gap:2px;padding:5px 6px;background:var(--bg-elevated,#fff);border:1px solid var(--border-primary,#ddd);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.15);font-size:12px;max-height:80vh;overflow-y:auto;';
+    el.style.top = Math.min(imgResize.top, window.innerHeight - 300) + 'px';
+    el.style.left = Math.min(imgResize.left, window.innerWidth - 80) + 'px';
     const makeBtn = (label) => {
       const b = document.createElement('button');
       b.textContent = label;
-      b.style.cssText = 'padding:2px 6px;border:1px solid var(--border-primary,#ccc);border-radius:3px;background:var(--bg-primary,#f5f5f5);cursor:pointer;color:var(--text-primary,#333);font-size:11px;min-width:36px;';
+      b.style.cssText = 'padding:4px 10px;border:1px solid var(--border-primary,#ccc);border-radius:3px;background:var(--bg-primary,#f5f5f5);cursor:pointer;color:var(--text-primary,#333);font-size:12px;text-align:center;white-space:nowrap;';
       b.onmouseenter = () => { b.style.background = 'var(--bg-hover,#e0e0e0)'; };
       b.onmouseleave = () => { b.style.background = 'var(--bg-primary,#f5f5f5)'; };
       b.onclick = () => applyImgSize(label === '100%' ? '100' : label.replace('%',''));
       return b;
     };
+    const head = document.createElement('div');
+    head.textContent = 'Resize';
+    head.style.cssText = 'font-size:10px;font-weight:600;color:var(--text-light,#888);text-align:center;padding-bottom:2px;border-bottom:1px solid var(--border-primary,#eee);margin-bottom:2px;';
+    el.appendChild(head);
     for (const pct of ['10%','20%','30%','40%','50%','60%','70%','80%','90%','100%']) {
       el.appendChild(makeBtn(pct));
     }
     const resetBtn = document.createElement('button');
     resetBtn.textContent = '↺ Orig';
     resetBtn.title = 'Original size';
-    resetBtn.style.cssText = 'padding:2px 6px;border:1px solid var(--border-primary,#ccc);border-radius:3px;background:var(--bg-primary,#f5f5f5);cursor:pointer;color:var(--text-primary,#333);font-size:11px;';
+    resetBtn.style.cssText = 'padding:4px 10px;border:1px solid var(--border-primary,#ccc);border-radius:3px;background:var(--bg-primary,#f5f5f5);cursor:pointer;color:var(--text-primary,#333);font-size:12px;text-align:center;';
     resetBtn.onclick = () => applyImgSize('100');
     el.appendChild(resetBtn);
     document.body.appendChild(el);
+    el.addEventListener('click', e => e.stopPropagation());
     // Click outside → dismiss
     const onDocClick = (e) => { if (!el.contains(e.target)) { setImgResize(null); } };
     setTimeout(() => document.addEventListener('click', onDocClick), 0);
