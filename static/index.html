@@ -358,6 +358,9 @@ const api = {
       clearTimeout(timer);
       if (res.status === 401 && !url.includes("/api/auth/")) {
         tokenStore.clear();
+        if (typeof API_BASE !== "undefined" && API_BASE && window.__TAURI__?.core?.invoke) {
+          window.__TAURI__.core.invoke("delete_token").catch(() => {});
+        }
         window.__logout?.();
         const e401 = new Error("Unauthorized");
         e401.status = 401;
@@ -21758,6 +21761,10 @@ function App() {
       await api.post("/api/auth/logout", {});
     } catch (e) {}
     tokenStore.clear();
+    // Also remove from native filesystem backup
+    if (API_BASE && window.__TAURI__?.core?.invoke) {
+      window.__TAURI__.core.invoke("delete_token").catch(() => {});
+    }
     setUser(null);
     setTasks([]);
     setSharedLists([]);
@@ -21781,7 +21788,15 @@ function App() {
   // Check existing session on mount
   const [authChecked, setAuthChecked] = useState(!tokenStore.get());
   useEffect(() => {
-    if (tokenStore.get()) {
+    const tryAuth = async () => {
+      let token = tokenStore.get();
+      // Fallback: Android WebView localStorage can be cleared after phone
+      // restart. Try the native filesystem backup before showing login.
+      if (!token && API_BASE && window.__TAURI__?.core?.invoke) {
+        try { token = await window.__TAURI__.core.invoke("get_token"); } catch (_) {}
+        if (token) tokenStore.set(token);
+      }
+      if (token) {
       api.get("/api/auth/me").then(u => {
         setUser(u);
         if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
@@ -21795,6 +21810,10 @@ function App() {
         // server would lock the user out with no way back in.
         if (err && err.status === 401) {
           tokenStore.clear();
+          // Also remove from native filesystem (invalid/expired token)
+          if (API_BASE && window.__TAURI__?.core?.invoke) {
+            window.__TAURI__.core.invoke("delete_token").catch(() => {});
+          }
           setShowForm(false);
           setAuthChecked(true);
           return;
@@ -21813,6 +21832,8 @@ function App() {
         setAuthChecked(true);
       });
     }
+    };
+    tryAuth();
   }, []);
 
   // Handle ?reset_token=<token> dari link email reset password
@@ -22215,6 +22236,10 @@ function App() {
   // Auth handlers
   const handleLogin = data => {
     tokenStore.set(data.token);
+    // Backup to native filesystem — survives Android WebView cache clears
+    if (API_BASE && window.__TAURI__?.core?.invoke) {
+      window.__TAURI__.core.invoke("save_token", { token: data.token }).catch(() => {});
+    }
     setUser({
       id: data.user_id,
       username: data.username,
