@@ -14290,9 +14290,60 @@ function MilkdownEditor({
     tooltipEl.appendChild(makeTbBtn('<s>S</s>', 'Strikethrough', 'strike_through'));
     tooltipEl.appendChild(makeTbBtn('<>', 'Inline Code', 'inlineCode'));
 
+    // ── Table toolbar ─────────────────────────────────────────────
+    const tableToolbarEl = document.createElement('div');
+    tableToolbarEl.className = 'table-toolbar milkdown-tooltip';
+    tableToolbarEl.style.cssText = 'display:none;gap:2px;padding:4px 6px;flex-wrap:wrap;max-width:360px;';
+    const makeTblBtn = (label, title, cmdKey, payload) => {
+      const btn = document.createElement('button');
+      btn.innerHTML = label;
+      btn.title = title;
+      btn.className = 'milkdown-tooltip-btn';
+      btn.onmousedown = e => { e.preventDefault(); e.stopPropagation(); };
+      btn.onclick = e => {
+        e.preventDefault(); e.stopPropagation();
+        const inst = instanceRef.current;
+        if (!inst) return;
+        if (cmdKey === 'deleteRow' || cmdKey === 'deleteCol') {
+          // First select the row/col, then delete
+          inst.action(cmd(MB.selectRowCommand.key));
+          inst.action(cmd(MB.deleteSelectedCellsCommand.key));
+        } else {
+          inst.action(cmd(cmdKey, payload));
+        }
+        // Update toolbar after structure change
+        setTimeout(() => updateTableToolbar(inst), 50);
+      };
+      return btn;
+    };
+    tableToolbarEl.appendChild(makeTblBtn('+⇧', 'Add row above', MB.addRowBeforeCommand.key));
+    tableToolbarEl.appendChild(makeTblBtn('+⇩', 'Add row below', MB.addRowAfterCommand.key));
+    tableToolbarEl.appendChild(makeTblBtn('−⇶', 'Delete row', 'deleteRow'));
+    tableToolbarEl.appendChild(makeTblBtn('+⇦', 'Add col left', MB.addColBeforeCommand.key));
+    tableToolbarEl.appendChild(makeTblBtn('+⇨', 'Add col right', MB.addColAfterCommand.key));
+    tableToolbarEl.appendChild(makeTblBtn('−⇵', 'Delete col', 'deleteCol'));
+    tableToolbarEl.appendChild(document.createTextNode(' ')); // spacer
+    tableToolbarEl.appendChild(makeTblBtn('◧', 'Align left', MB.setAlignCommand.key, 'left'));
+    tableToolbarEl.appendChild(makeTblBtn('◰', 'Align center', MB.setAlignCommand.key, 'center'));
+    tableToolbarEl.appendChild(makeTblBtn('◨', 'Align right', MB.setAlignCommand.key, 'right'));
+    const updateTableToolbar = (inst) => {
+      if (!inst) return;
+      inst.action(ctx => {
+        const view = ctx.get(MB.editorViewCtx);
+        const { selection } = view.state;
+        let inTable = false;
+        for (let d = selection.$from.depth; d > 0; d--) {
+          if (selection.$from.node(d).type.name === 'table') { inTable = true; break; }
+        }
+        tableToolbarEl.style.display = inTable ? 'flex' : 'none';
+      });
+    };
+    // ── End table toolbar ─────────────────────────────────────────
+
     // ── Create factory pairs ────────────────────────────────────────
     const slashPair = MB.slashFactory('note-slash');
     const tooltipPair = MB.tooltipFactory('note-tooltip');
+    const tableToolbarPair = MB.tooltipFactory('table-toolbar');
 
     MB.Editor.make().config(ctx => {
       ctx.set(MB.rootCtx, containerRef.current);
@@ -14324,7 +14375,34 @@ function MilkdownEditor({
           };
         }
       });
-    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(MB.trailing).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).create().then(editor => {
+      // Wire table toolbar — shows when cursor is inside a table
+      ctx.set(tableToolbarPair.key, {
+        view(editorView) {
+          const provider = new MB.TooltipProvider({
+            content: tableToolbarEl,
+            root: document.body,
+            shouldShow: (view) => {
+              const { selection } = view.state;
+              for (let d = selection.$from.depth; d > 0; d--) {
+                if (selection.$from.node(d).type.name === 'table') return true;
+              }
+              return false;
+            },
+            offset: { mainAxis: -8, crossAxis: 0 }
+          });
+          provider.update(editorView);
+          // Update toolbar visibility on every state change
+          updateTableToolbar(instanceRef.current);
+          return {
+            update: (view, prevState) => {
+              provider.update(view, prevState);
+              updateTableToolbar(instanceRef.current);
+            },
+            destroy: () => { provider.destroy(); tableToolbarEl.remove(); }
+          };
+        }
+      });
+    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(tableToolbarPair).use(MB.trailing).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).create().then(editor => {
       if (cancelled) {
         editor.destroy();
         return;

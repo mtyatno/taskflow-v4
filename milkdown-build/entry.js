@@ -13,6 +13,21 @@ export {
   gfm,
   toggleStrikethroughCommand,
   insertTableCommand,
+  // ── Table editing commands ──────────────────────────────────
+  goToPrevTableCellCommand,
+  goToNextTableCellCommand,
+  exitTable,
+  moveRowCommand,
+  moveColCommand,
+  selectRowCommand,
+  selectColCommand,
+  selectTableCommand,
+  deleteSelectedCellsCommand,
+  addColBeforeCommand,
+  addColAfterCommand,
+  addRowBeforeCommand,
+  addRowAfterCommand,
+  setAlignCommand,
 } from '@milkdown/preset-gfm';
 
 export {
@@ -25,6 +40,16 @@ export {
   wrapInOrderedListCommand,
   wrapInBlockquoteCommand,
   insertHrCommand,
+  // ── Additional commands ────────────────────────────────────
+  toggleLinkCommand,
+  updateLinkCommand,
+  insertImageCommand,
+  updateImageCommand,
+  createCodeBlockCommand,
+  insertHardbreakCommand,
+  turnIntoTextCommand,
+  liftListItemCommand,
+  sinkListItemCommand,
 } from '@milkdown/preset-commonmark';
 
 export { listener, listenerCtx } from '@milkdown/plugin-listener';
