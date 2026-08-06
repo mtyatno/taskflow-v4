@@ -14336,8 +14336,42 @@ function MilkdownEditor({
         if (!inst) return;
         const _cmd = MB.callCommand;
         if (cmdKey === 'deleteRow' || cmdKey === 'deleteCol') {
-          inst.action(_cmd(MB.selectRowCommand.key));
-          inst.action(_cmd(MB.deleteSelectedCellsCommand.key));
+          inst.action(ctx => {
+            const view = ctx.get(MB.editorViewCtx);
+            const { $from } = view.state.selection;
+            let tableDepth = -1;
+            for (let d = $from.depth; d > 0; d--) {
+              if ($from.node(d).type.name === 'table') { tableDepth = d; break; }
+            }
+            if (tableDepth < 0) return;
+            const tablePos = $from.before(tableDepth);
+            // Find row index by walking through offsets
+            const tableNode = $from.node(tableDepth);
+            let rowIdx = 0;
+            let offset = tablePos + 1;
+            tableNode.content.forEach((row, _o, idx) => {
+              if ($from.pos >= offset && $from.pos < offset + row.nodeSize) { rowIdx = idx; }
+              offset += row.nodeSize;
+            });
+            if (cmdKey === 'deleteRow') {
+              ctx.get(MB.commandsCtx).call(MB.selectRowCommand.key, { index: rowIdx });
+              ctx.get(MB.commandsCtx).call(MB.deleteSelectedCellsCommand.key);
+            } else {
+              // Find col index within the current row
+              const rowNode = tableNode.child(rowIdx);
+              if (!rowNode) return;
+              let colIdx = 0;
+              let cellOffset = tablePos + 1;
+              // skip rows before target row, then scan cells in target row
+              for (let ri = 0; ri < rowIdx; ri++) cellOffset += tableNode.child(ri).nodeSize;
+              rowNode.content.forEach((cell, _o, idx) => {
+                if ($from.pos >= cellOffset && $from.pos < cellOffset + cell.nodeSize) { colIdx = idx; }
+                cellOffset += cell.nodeSize;
+              });
+              ctx.get(MB.commandsCtx).call(MB.selectColCommand.key, { index: colIdx });
+              ctx.get(MB.commandsCtx).call(MB.deleteSelectedCellsCommand.key);
+            }
+          });
         } else {
           inst.action(_cmd(cmdKey, payload));
         }
