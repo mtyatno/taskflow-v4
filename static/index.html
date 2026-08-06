@@ -15264,20 +15264,17 @@ function NoteModal({
       const url = '/api/scratchpad/attachments/' + att.id + '/view';
       const alt = att.original_name || 'image';
       const md = '![' + alt + '](' + url + ')';
-      // Parse markdown and insert as proper image node (not raw text)
       const editor = milkdownEditorRef?.current;
-      if (!editor) { console.warn('[img-paste] editor ref null'); return; }
+      if (!editor) return;
       const MB = window.MilkdownBundle;
       editor.action(ctx => {
         try {
           const view = ctx.get(MB.editorViewCtx);
           const doc = ctx.get(MB.parserCtx)(md);
-          if (!doc || !doc.content || doc.content.size === 0) { console.warn('[img-paste] empty parse result'); return; }
-          const slice = doc.slice(0, doc.content.size);
-          view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
+          if (!doc || !doc.content || doc.content.size === 0) return;
+          view.dispatch(view.state.tr.replaceSelection(doc.slice(0, doc.content.size)).scrollIntoView());
           view.focus();
-          console.log('[img-paste] inserted image node, size:', doc.content.size);
-        } catch (e) { console.warn('[img-paste] parse error:', e.message); }
+        } catch (_) {}
       });
     } catch (err) {
       showToast("Paste gambar gagal: " + err.message, "error");
