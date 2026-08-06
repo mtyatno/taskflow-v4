@@ -17451,12 +17451,12 @@ function NotePanel({
     return map;
   }, [allNotes]);
   const handlePreviewClick = e => {
-    if (e && typeof e.preventDefault === "function") e.preventDefault();
     const base = e.target && e.target.nodeType === 3 ? e.target.parentElement : e.target;
 
     // Tasklink click — open task modal
     const taskEl = base && base.closest ? base.closest('[data-tasklink]') : null;
     if (taskEl && onTaskClick) {
+      e.preventDefault();
       const rawId = taskEl.getAttribute('data-tasklink-id') || '0';
       const isUuid = rawId.includes('-');
       const taskId = isUuid ? rawId : Number(rawId);
@@ -17472,6 +17472,7 @@ function NotePanel({
       const rawText = base && base.textContent ? String(base.textContent) : "";
       const m = rawText.match(/\[{2,}([^\[\]]+)\]{2,}/);
       if (!m) return;
+      e.preventDefault();
       const parsed = parseWikilinkRaw(m[1]);
       let fallback = notesByNormTitle.get(normalizeWikiText(parsed.title)) || null;
       if (!fallback && parsed.explicitId && notesById.has(String(parsed.explicitId))) {
@@ -17490,6 +17491,8 @@ function NotePanel({
       if (fallback) onNavigate(fallback);
       return;
     }
+    // Wikilink element found — prevent browser default, navigate below
+    e.preventDefault();
     const idAttr = el.getAttribute("data-wiki-id") || "";
     const titleAttr = el.getAttribute("data-wiki-title") || "";
     const rawAttr = el.getAttribute("data-wiki-raw") || "";
@@ -17966,7 +17969,6 @@ function NotePanel({
     style: {
       lineHeight: 1.75
     },
-    onMouseDown: e => { if (e && e.preventDefault) e.preventDefault(); },
     onClick: handlePreviewClick,
     dangerouslySetInnerHTML: {
       __html: renderMarkdown(note.content || "", titleStrings, allNotes, tasks) || '<span style="color:var(--text-light);font-style:italic">Catatan kosong.</span>'
