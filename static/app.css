@@ -1213,6 +1213,37 @@
       font-size: 0.9em;
     }
     .milkdown-editor .ProseMirror th { background: rgba(0,0,0,0.06); font-weight: 600; }
+    /* ── Table rendering in note viewer / published ──────────── */
+    .note-rendered table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.5em 0;
+    }
+    .note-rendered th,
+    .note-rendered td {
+      border: 1px solid var(--border, #d1d5db);
+      padding: 6px 10px;
+      font-size: 0.9em;
+      text-align: left;
+    }
+    .note-rendered th {
+      background: rgba(0,0,0,0.06);
+      font-weight: 600;
+    }
+    .note-rendered tr:nth-child(even) td {
+      background: rgba(0,0,0,0.02);
+    }
+    /* dark mode overrides */
+    [data-theme="dark"] .note-rendered th,
+    [data-theme="dark"] .note-rendered td {
+      border-color: #333;
+    }
+    [data-theme="dark"] .note-rendered th {
+      background: rgba(255,255,255,0.06);
+    }
+    [data-theme="dark"] .note-rendered tr:nth-child(even) td {
+      background: rgba(255,255,255,0.02);
+    }
     .milkdown-editor .ProseMirror input[type="checkbox"] {
       margin-right: 6px;
       accent-color: var(--accent);
