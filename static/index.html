@@ -14334,14 +14334,13 @@ function MilkdownEditor({
         e.preventDefault(); e.stopPropagation();
         const inst = instanceRef.current;
         if (!inst) return;
+        const _cmd = MB.callCommand;
         if (cmdKey === 'deleteRow' || cmdKey === 'deleteCol') {
-          // First select the row/col, then delete
-          inst.action(cmd(MB.selectRowCommand.key));
-          inst.action(cmd(MB.deleteSelectedCellsCommand.key));
+          inst.action(_cmd(MB.selectRowCommand.key));
+          inst.action(_cmd(MB.deleteSelectedCellsCommand.key));
         } else {
-          inst.action(cmd(cmdKey, payload));
+          inst.action(_cmd(cmdKey, payload));
         }
-        // Update toolbar after structure change
         setTimeout(() => updateTableToolbar(inst), 50);
       };
       return btn;
