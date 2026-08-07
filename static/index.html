@@ -16510,9 +16510,9 @@ function NoteModal({
       color: "var(--text-light)",
       marginLeft: 6
     }
-  }, t.count, "\xD7"))))), tocItems.length >= 2 && /*#__PURE__*/React.createElement(NoteToc, {
+  }, t.count, "\xD7"))))), !focusMode && tocItems.length >= 2 && /*#__PURE__*/React.createElement(NoteToc, {
     items: tocItems
-  })), tags.length > 0 && /*#__PURE__*/React.createElement("div", {
+  })), !focusMode && tags.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 4
     }
@@ -16530,7 +16530,7 @@ function NoteModal({
       opacity: 0.8,
       fontSize: 11
     }
-  }, "#", t)))), tagSuggestions.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "#", t)))), !focusMode && tagSuggestions.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       alignItems: 'center',
@@ -16563,7 +16563,7 @@ function NoteModal({
     },
     onMouseEnter: e => e.currentTarget.style.opacity = 1,
     onMouseLeave: e => e.currentTarget.style.opacity = 0.8
-  }, "+ #", t.name))), !drawFullscreen && /*#__PURE__*/React.createElement("button", {
+  }, "+ #", t.name))), !focusMode && !drawFullscreen && /*#__PURE__*/React.createElement("button", {
     type: "button",
     onClick: () => {
       setDrawOpen(o => !o);
@@ -16602,7 +16602,7 @@ function NoteModal({
     } : {
       display: 'none'
     }
-  }, drawFullscreen && /*#__PURE__*/React.createElement("div", {
+  }, !focusMode && drawFullscreen && /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       justifyContent: 'space-between',
@@ -16690,7 +16690,7 @@ function NoteModal({
       color: 'var(--accent)',
       fontWeight: 600
     }
-  }, "\u2922 Expand"))), attachments.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\u2922 Expand"))), !focusMode && attachments.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "note-attachments-panel"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -16742,7 +16742,7 @@ function NoteModal({
       fontSize: 15,
       flexShrink: 0
     }
-  }, "\uD83D\uDDD1")))), linkedTaskIds.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDDD1")))), !focusMode && linkedTaskIds.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "note-modal-section-label"
   }, "Di-link ke Task (", linkedTaskIds.length, ")"), linkedTasks.map(t => /*#__PURE__*/React.createElement("div", {
     key: t.id,
@@ -16789,7 +16789,7 @@ function NoteModal({
       marginTop: 4,
       fontStyle: "italic"
     }
-  }, "Hapus link: klik badge task di dalam teks note.")), backlinks.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, "Hapus link: klik badge task di dalam teks note.")), !focusMode && backlinks.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "note-modal-section-label"
   }, "\uD83D\uDD17 Disebutkan di (", backlinks.length, ")"), backlinks.map(bl => /*#__PURE__*/React.createElement("div", {
     key: bl.id,
@@ -16811,7 +16811,7 @@ function NoteModal({
       fontSize: 11,
       color: "var(--text-light)"
     }
-  }, bl.updated_at?.slice(0, 10))))), /*#__PURE__*/React.createElement("div", {
+  }, bl.updated_at?.slice(0, 10))))), !focusMode && /*#__PURE__*/React.createElement("div", {
     className: "note-mobile-footer",
     style: {
       display: "flex",
@@ -16883,8 +16883,8 @@ function NoteModal({
   }, /*#__PURE__*/React.createElement("span", {
     className: "note-hdr-icon"
   }, "\uD83D\uDDD1 "), "Hapus"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setTextareaFullscreen(true),
-    title: "Focus \u2014 editor fullscreen",
+    onClick: () => setFocusMode(f => !f),
+    title: focusMode ? "Expand \u2014 tampilkan semua" : "Focus \u2014 editor fullscreen",
     style: {
       background: "none",
       border: "1.5px solid var(--accent)",
@@ -16896,27 +16896,11 @@ function NoteModal({
       padding: "2px 10px",
       lineHeight: 1.5
     }
-  }, /*#__PURE__*/React.createElement("span", {
+  }, focusMode ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
     className: "note-hdr-icon"
-  }, "\u25CF "), "Focus"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setExpanded(e => !e),
-    title: expanded ? "Compact" : "Expand",
-    style: {
-      background: "none",
-      border: "1.5px solid var(--border)",
-      borderRadius: 20,
-      cursor: "pointer",
-      fontSize: 12,
-      color: "var(--text-secondary)",
-      fontWeight: 700,
-      padding: "2px 10px",
-      lineHeight: 1.5
-    }
-  }, expanded ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+  }, "\u2922 "), "Expand") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
     className: "note-hdr-icon"
-  }, "\u22A1 "), "Compact") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
-    className: "note-hdr-icon"
-  }, "\u2922 "), "Expand")), note?.id && note.user_id === currentUserId && sharedLists.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\u25CF "), "Focus")), note?.id && note.user_id === currentUserId && sharedLists.length > 0 && /*#__PURE__*/React.createElement("div", {
     ref: shareRef,
     style: {
       position: "relative",
@@ -17007,298 +16991,28 @@ function NoteModal({
     }
   }, "\u2715")));
 
-  // ── Expanded: full-screen panel ───────────────────────────────
-  if (expanded) {
-    return /*#__PURE__*/React.createElement("div", {
-      style: {
-        position: "fixed",
-        inset: 0,
-        background: "var(--bg-card)",
-        zIndex: 1000,
-        display: "flex",
-        flexDirection: "column",
-        padding: "24px 32px"
-      }
-    }, header, topFixed, /*#__PURE__*/React.createElement("div", {
-      style: {
-        flex: 1,
-        overflowY: "auto",
-        minHeight: 0,
-        display: "flex",
-        flexDirection: "column",
-        gap: 14
-      }
-    }, inner));
-  }
-
-  // ── Compact: modal ────────────────────────────────────────────
-  return /*#__PURE__*/React.createElement(React.Fragment, null, textareaFullscreen && /*#__PURE__*/React.createElement("div", {
+  // Always full-screen panel
+  return /*#__PURE__*/React.createElement("div", {
     style: {
-      position: 'fixed',
+      position: "fixed",
       inset: 0,
-      zIndex: 10000,
-      background: '#ffffff',
-      display: 'flex',
-      flexDirection: 'column'
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: 'calc(8px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) 8px calc(16px + env(safe-area-inset-left, 0px))',
-      borderBottom: '1px solid var(--border)',
-      flexShrink: 0,
-      background: '#ffffff'
-    }
-  }, /*#__PURE__*/React.createElement(NoteToolbar, {
-    milkdownEditorRef: milkdownEditorRef,
-    noteId: savedNoteId,
-    onAttachUploaded: function(att) { return setAttachments(function(prev) { return prev.concat([att]); }); },
-    content: content,
-    onApplyTemplate: function(tpl) { return setContent(tpl); },
-    onInsertTask: openTaskDropdown,
-    voiceState: voiceState,
-    onToggleVoice: handleToggleVoice
-  }), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setTextareaFullscreen(false),
-    style: {
-      background: 'none',
-      border: 'none',
-      cursor: 'pointer',
-      fontSize: 13,
-      fontWeight: 600,
-      color: 'var(--accent)',
-      flexShrink: 0,
-      marginLeft: 12
-    }
-  }, "\u2715 Tutup")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      overflow: 'auto',
-      position: 'relative',
-      minHeight: 0
-    }
-  }, /*#__PURE__*/React.createElement(MilkdownEditor, {
-    value: content,
-    onChange: handleEditorChange,
-    editorRef: milkdownEditorRef,
-    minHeight: "calc(100vh - 50px)",
-    onWikilinkClick: t => {
-      setTextareaFullscreen(false);
-      const parsed = parseWikilinkRaw(t);
-      const target = noteTitles.find(n => n.title === parsed.title) || parsed.explicitId && noteTitles.find(n => String(n.id) === parsed.explicitId) || parsed.numericId && noteTitles.find(n => String(n.id) === parsed.numericId);
-      if (target) {
-        onNavigate?.(target);
-        return;
-      }
-      const ct = (parsed.title || "").trim();
-      if (!ct) return;
-      api.post("/api/scratchpad", {
-        title: ct,
-        content: "",
-        tags: [],
-        linked_task_ids: [],
-        linked_task_id: null
-      }).then(created => {
-        setNoteTitles(prev => [{
-          id: created.id,
-          title: created.title
-        }, ...prev]);
-        window.dispatchEvent(new CustomEvent("noteSaved"));
-        onNavigate?.(created);
-      }).catch(() => {});
-    },
-    tasksGetter: tasksGetterRef.current,
-    onTasklinkClick: handleTasklinkClick,
-    onImagePaste: handleImagePaste
-  }), taskDropdown && /*#__PURE__*/React.createElement("div", {
-    ref: taskDropdownRef,
-    className: "wiki-autocomplete",
-    style: {
-      position: "fixed",
-      top: taskDropdown.top,
-      left: taskDropdown.left,
-      zIndex: 10100
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    style: {
-      width: "100%",
-      padding: "5px 8px",
-      fontSize: 12,
-      marginBottom: 4,
-      borderRadius: 5,
-      boxSizing: 'border-box'
-    },
-    placeholder: "Cari task...",
-    value: taskDropdown.query || '',
-    onChange: e => setTaskDropdown(d => ({
-      ...d,
-      query: e.target.value,
-      activeIdx: 0
-    })),
-    autoFocus: true,
-    onMouseDown: e => e.stopPropagation(),
-    onKeyDown: e => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setTaskDropdown(null);
-        return;
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        const chosen = taskDropdownItems[taskDropdown.activeIdx || 0];
-        if (chosen) {
-          insertTasklink(chosen.id);
-          return;
-        }
-        const q = (taskDropdown.query || '').trim();
-        if (q) createAndInsertTask(q);
-        return;
-      }
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setTaskDropdown(d => ({
-          ...d,
-          activeIdx: Math.min((d.activeIdx || 0) + 1, taskDropdownItems.length - 1)
-        }));
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setTaskDropdown(d => ({
-          ...d,
-          activeIdx: Math.max((d.activeIdx || 0) - 1, 0)
-        }));
-        return;
-      }
-    }
-  }), taskDropdownItems.map((t, i) => /*#__PURE__*/React.createElement("div", {
-    key: t.id,
-    className: `wiki-autocomplete-item${i === (taskDropdown.activeIdx || 0) ? " active" : ""}`,
-    onMouseDown: e => {
-      e.preventDefault();
-      insertTasklink(t.id);
-    }
-  }, /*#__PURE__*/React.createElement(PriBadge, {
-    p: t.priority
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      marginLeft: 4
-    }
-  }, t.title))), taskDropdownItems.length === 0 && !(taskDropdown.query || '').trim() && /*#__PURE__*/React.createElement("div", {
-    className: "wiki-autocomplete-item",
-    style: {
-      color: "var(--text-light)",
-      cursor: "default",
-      fontStyle: "italic"
-    }
-  }, "Ketik nama task..."), (taskDropdown.query || '').trim() && /*#__PURE__*/React.createElement("div", {
-    className: "wiki-autocomplete-item",
-    style: {
-      borderTop: taskDropdownItems.length > 0 ? '1px solid var(--border)' : undefined,
-      color: 'var(--accent)',
-      fontWeight: 600,
-      opacity: creatingInlineTask ? 0.5 : 1
-    },
-    onMouseDown: e => {
-      e.preventDefault();
-      if (!creatingInlineTask) createAndInsertTask((taskDropdown.query || '').trim());
-    }
-  }, creatingInlineTask ? 'Membuat...' : `＋ Buat task: "${(taskDropdown.query || '').trim()}"`)), noteAiDropdown && /*#__PURE__*/React.createElement("div", {
-    ref: noteAiDropdownRef,
-    className: "wiki-autocomplete",
-    style: { position: "fixed", top: noteAiDropdown.top, left: noteAiDropdown.left, zIndex: 10100, minWidth: 280, padding: 6 }
-  }, /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-    /*#__PURE__*/React.createElement(Icon, { name: "sparkles", size: 15, style: { color: "var(--accent)", flexShrink: 0 } }),
-    /*#__PURE__*/React.createElement("input", {
-      className: "input",
-      style: { flex: 1, padding: "5px 8px", fontSize: 13, borderRadius: 5, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)" },
-      placeholder: "Instruksi AI... misal: ringkas jadi 3 poin",
-      autoFocus: true,
-      onMouseDown: e => e.stopPropagation(),
-      onKeyDown: e => {
-        if (e.key === 'Escape') { setNoteAiDropdown(null); return; }
-        if (e.key === 'Enter') { e.preventDefault(); executeNoteAi(e.target.value); }
-      }
-    }),
-    noteAiBusy && /*#__PURE__*/React.createElement("span", { style: { display: "inline-block", width: 14, height: 14, border: "2px solid var(--accent)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.6s linear infinite" } })
-  )), wikiDropdown && /*#__PURE__*/React.createElement("div", {
-    ref: wikiDropdownRef,
-    className: "wiki-autocomplete",
-    style: {
-      position: "fixed",
-      top: wikiDropdown.top,
-      left: wikiDropdown.left,
-      zIndex: 10100
-    }
-  }, wikiDropdown.items.map((n, i) => /*#__PURE__*/React.createElement("div", {
-    key: n.id,
-    className: `wiki-autocomplete-item${i === wikiDropdown.activeIdx ? " active" : ""}`,
-    onMouseDown: e => {
-      e.preventDefault();
-      insertWikilink(n.title);
-    }
-  }, "[[", n.title, "]]")), wikiDropdown.canCreate && /*#__PURE__*/React.createElement("div", {
-    className: `wiki-autocomplete-item${wikiDropdown.activeIdx === wikiDropdown.items.length ? " active" : ""}`,
-    style: {
-      borderTop: wikiDropdown.items.length > 0 ? "1px solid var(--border)" : undefined,
-      color: "var(--accent)",
-      fontWeight: 600
-    },
-    onMouseDown: e => {
-      e.preventDefault();
-      createNewNote(wikiDropdown.query.trim());
-    }
-  }, "\u2728 Buat note \"", wikiDropdown.query.trim(), "\""), !wikiDropdown.canCreate && wikiDropdown.items.length === 0 && /*#__PURE__*/React.createElement("div", {
-    className: "wiki-autocomplete-item",
-    style: {
-      color: "var(--text-light)",
-      cursor: "default",
-      fontStyle: "italic"
-    }
-  }, noteTitles.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan")), tagDropdown && tagDropdown.items.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "wiki-autocomplete",
-    style: {
-      position: "fixed",
-      top: tagDropdown.top,
-      left: tagDropdown.left,
-      zIndex: 10100
-    }
-  }, tagDropdown.items.map((t, i) => /*#__PURE__*/React.createElement("div", {
-    key: t.id,
-    className: `wiki-autocomplete-item${i === 0 ? " active" : ""}`,
-    onMouseDown: e => {
-      e.preventDefault();
-      insertTag(t.name);
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--accent)",
-      fontWeight: 700
-    }
-  }, "#"), t.name, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 10,
-      color: "var(--text-light)",
-      marginLeft: 6
-    }
-  }, t.count, "\xD7")))))), ReactDOM.createPortal(/*#__PURE__*/React.createElement("div", {
-    className: "note-modal-overlay",
-    onClick: onClose
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "note-modal-box",
-    style: {
+      background: "var(--bg-card)",
+      zIndex: 1000,
       display: "flex",
       flexDirection: "column",
-      maxHeight: "90vh"
-    },
-    onClick: e => e.stopPropagation()
+      padding: "24px 32px"
+    }
   }, header, topFixed, /*#__PURE__*/React.createElement("div", {
-    className: "note-modal-scroll-area"
-  }, inner))), document.body));
-}
+    style: {
+      flex: 1,
+      overflowY: "auto",
+      minHeight: 0,
+      display: "flex",
+      flexDirection: "column",
+      gap: 14
+    }
+  }, inner));
+
   // ═══ DEPENDENCIES: NotePanel ═══
   // uses:
   //   - React
