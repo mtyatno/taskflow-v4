@@ -3412,6 +3412,262 @@ function TaskFormModal({
     }
     setLoading(false);
   };
+  if (mode === "note") {
+    const detectedTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(t => t.slice(1).toLowerCase().trim()))].filter(Boolean);
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "fixed",
+        inset: 0,
+        background: "var(--bg-card)",
+        zIndex: 1000,
+        display: "flex",
+        flexDirection: "column",
+        padding: "calc(24px + env(safe-area-inset-top, 0px)) calc(32px + env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) calc(32px + env(safe-area-inset-left, 0px))"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 14,
+        flexShrink: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: { fontSize: 13, fontWeight: 700, color: "var(--accent)" }
+    }, "📝 Catatan Baru"), /*#__PURE__*/React.createElement("div", {
+      style: { display: "flex", gap: 6, alignItems: "center" }
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => setNoteFocusMode(f => !f),
+      title: noteFocusMode ? "Expand — tampilkan semua" : "Focus — editor fullscreen",
+      style: {
+        background: "none",
+        border: "1.5px solid var(--accent)",
+        borderRadius: 20,
+        cursor: "pointer",
+        fontSize: 12,
+        color: "var(--accent)",
+        fontWeight: 700,
+        padding: "2px 10px",
+        lineHeight: 1.5
+      }
+    }, noteFocusMode ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+      className: "note-hdr-icon"
+    }, "⤢ "), "Expand") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+      className: "note-hdr-icon"
+    }, "● "), "Focus")), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: onClose,
+      style: {
+        background: "none",
+        border: "none",
+        color: "var(--text-secondary)",
+        fontSize: 20,
+        cursor: "pointer",
+        lineHeight: 1
+      }
+    }, "✕"))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flexShrink: 0,
+        borderBottom: "1px solid var(--border)",
+        paddingBottom: 10,
+        marginBottom: 6
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      className: "input",
+      value: noteForm.title,
+      onChange: e => { setNote("title", e.target.value); setTitleManuallyEdited(true); },
+      placeholder: "Judul catatan...",
+      autoFocus: true,
+      style: { marginBottom: 0, fontSize: 22 }
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        overflowY: "auto",
+        minHeight: 0,
+        display: "flex",
+        flexDirection: "column",
+        gap: 14
+      }
+    }, /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      style: { marginBottom: 4, flexShrink: 0 }
+    }, /*#__PURE__*/React.createElement(NoteToolbar, {
+      milkdownEditorRef: noteMilkdownRef,
+      noteId: null,
+      onAttachUploaded: function() {},
+      content: noteForm.content,
+      onApplyTemplate: function(tpl) { return setNote("content", tpl); },
+      onInsertTask: openNoteTaskDropdown,
+      voiceState: noteVoiceState,
+      onToggleVoice: handleToggleNoteVoice
+    })), /*#__PURE__*/React.createElement("div", {
+      style: { position: "relative", flex: 1, overflow: "auto", minHeight: 0 }
+    }, /*#__PURE__*/React.createElement(MilkdownEditor, {
+      value: noteForm.content,
+      onChange: handleNoteContentChange,
+      editorRef: noteMilkdownRef,
+      minHeight: noteFocusMode ? "calc(100vh - 100px)" : "calc(100vh - 320px)",
+      onWikilinkClick: function() {},
+      tasksGetter: noteTasksGetterRef.current,
+      onTasklinkClick: function() {},
+      onImagePaste: null
+    }), noteTagDropdown && noteTagDropdown.items.length > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "wiki-autocomplete",
+      style: { position: "fixed", top: noteTagDropdown.top, left: noteTagDropdown.left, zIndex: 1050 }
+    }, noteTagDropdown.items.map((t, i) => /*#__PURE__*/React.createElement("div", {
+      key: t.id,
+      className: `wiki-autocomplete-item${i === 0 ? " active" : ""}`,
+      onMouseDown: e => { e.preventDefault(); insertNoteTag(t.name); }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: { color: "var(--accent)", fontWeight: 700 }
+    }, "#"), t.name, /*#__PURE__*/React.createElement("span", {
+      style: { fontSize: 10, color: "var(--text-light)", marginLeft: 6 }
+    }, t.count, "\xD7")))), noteTaskDropdown && /*#__PURE__*/React.createElement("div", {
+      ref: noteTaskDropdownRef,
+      className: "wiki-autocomplete",
+      style: { position: "fixed", top: noteTaskDropdown.top, left: noteTaskDropdown.left, zIndex: 1060 }
+    }, /*#__PURE__*/React.createElement("input", {
+      className: "input",
+      style: { width: "100%", padding: "5px 8px", fontSize: 12, marginBottom: 4, borderRadius: 5, boxSizing: 'border-box' },
+      placeholder: "Cari task...",
+      value: noteTaskDropdown.query || '',
+      onChange: e => setNoteTaskDropdown(d => ({ ...d, query: e.target.value, activeIdx: 0 })),
+      autoFocus: true,
+      onMouseDown: e => e.stopPropagation(),
+      onKeyDown: e => {
+        if (e.key === 'Escape') { e.preventDefault(); setNoteTaskDropdown(null); return; }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault();
+          const chosen = noteTaskDropdownItems[noteTaskDropdown.activeIdx || 0];
+          if (chosen) { insertNoteTasklink(chosen.id); return; }
+          const q = (noteTaskDropdown.query || '').trim();
+          if (q) createAndInsertNoteTask(q);
+          return;
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setNoteTaskDropdown(d => ({ ...d, activeIdx: Math.min((d.activeIdx || 0) + 1, noteTaskDropdownItems.length - 1) }));
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setNoteTaskDropdown(d => ({ ...d, activeIdx: Math.max((d.activeIdx || 0) - 1, 0) }));
+          return;
+        }
+      }
+    }), noteTaskDropdownItems.map((t, i) => /*#__PURE__*/React.createElement("div", {
+      key: t.id,
+      className: `wiki-autocomplete-item${i === (noteTaskDropdown.activeIdx || 0) ? " active" : ""}`,
+      onMouseDown: e => { e.preventDefault(); insertNoteTasklink(t.id); }
+    }, /*#__PURE__*/React.createElement(PriBadge, { p: t.priority }), /*#__PURE__*/React.createElement("span", {
+      style: { marginLeft: 4 }
+    }, t.title))), noteTaskDropdownItems.length === 0 && !(noteTaskDropdown.query || '').trim() && /*#__PURE__*/React.createElement("div", {
+      className: "wiki-autocomplete-item",
+      style: { color: "var(--text-light)", cursor: "default", fontStyle: "italic" }
+    }, "Ketik nama task..."), (noteTaskDropdown.query || '').trim() && /*#__PURE__*/React.createElement("div", {
+      className: "wiki-autocomplete-item",
+      style: {
+        borderTop: noteTaskDropdownItems.length > 0 ? '1px solid var(--border)' : undefined,
+        color: 'var(--accent)',
+        fontWeight: 600,
+        opacity: creatingInlineNoteTask ? 0.5 : 1,
+        cursor: creatingInlineNoteTask ? 'default' : 'pointer'
+      },
+      onMouseDown: e => { e.preventDefault(); if (!creatingInlineNoteTask) createAndInsertNoteTask((noteTaskDropdown.query || '').trim()); }
+    }, creatingInlineNoteTask ? 'Membuat...' : `＋ Buat task: "${(noteTaskDropdown.query || '').trim()}"`))), noteWikiDropdown && /*#__PURE__*/React.createElement("div", {
+      className: "wiki-autocomplete",
+      style: { position: "fixed", top: noteWikiDropdown.top, left: noteWikiDropdown.left, zIndex: 1070 }
+    }, noteWikiDropdown.items.map((n, i) => /*#__PURE__*/React.createElement("div", {
+      key: n.id,
+      className: `wiki-autocomplete-item${i === noteWikiDropdown.activeIdx ? " active" : ""}`,
+      onMouseDown: e => { e.preventDefault(); insertNoteWikilink(n.title); }
+    }, "[[", n.title, "]]")), noteWikiDropdown.canCreate && /*#__PURE__*/React.createElement("div", {
+      className: `wiki-autocomplete-item${noteWikiDropdown.activeIdx === noteWikiDropdown.items.length ? " active" : ""}`,
+      style: { borderTop: noteWikiDropdown.items.length > 0 ? "1px solid var(--border)" : undefined, color: "var(--accent)", fontWeight: 600 },
+      onMouseDown: e => { e.preventDefault(); createNoteWikiTarget(noteWikiDropdown.query.trim()); }
+    }, /*#__PURE__*/React.createElement(Icon, { name: "sparkles", size: 14, style: { marginRight: 5 } }), "Buat note \"", noteWikiDropdown.query.trim(), "\""), !noteWikiDropdown.canCreate && noteWikiDropdown.items.length === 0 && /*#__PURE__*/React.createElement("div", {
+      className: "wiki-autocomplete-item",
+      style: { color: "var(--text-light)", cursor: "default", fontStyle: "italic" }
+    }, noteTitlesList.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan"))), noteAiDropdown && /*#__PURE__*/React.createElement("div", {
+      ref: noteAiDropdownRef,
+      className: "wiki-autocomplete",
+      style: { position: "fixed", top: noteAiDropdown.top, left: noteAiDropdown.left, zIndex: 1080, minWidth: 280, padding: 6 }
+    }, /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } }, /*#__PURE__*/React.createElement(Icon, { name: "sparkles", size: 15, style: { color: "var(--accent)", flexShrink: 0 } }), /*#__PURE__*/React.createElement("input", {
+      className: "input",
+      style: { flex: 1, padding: "5px 8px", fontSize: 13, borderRadius: 5, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)" },
+      placeholder: "Instruksi AI... misal: ringkas jadi 3 poin",
+      autoFocus: true,
+      onMouseDown: e => e.stopPropagation(),
+      onKeyDown: e => {
+        if (e.key === 'Escape') { setNoteAiDropdown(null); return; }
+        if (e.key === 'Enter') { e.preventDefault(); executeNoteAi(e.target.value); }
+      }
+    }), noteAiBusy && /*#__PURE__*/React.createElement("span", { style: { display: "inline-block", width: 14, height: 14, border: "2px solid var(--accent)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.6s linear infinite" } })))), !noteFocusMode && /*#__PURE__*/React.createElement(React.Fragment, null, detectedTags.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: { display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14, alignItems: "center" }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: { fontSize: 11, color: "var(--text-light)" }
+    }, "Tag terdeteksi:"), detectedTags.map(t => /*#__PURE__*/React.createElement("span", {
+      key: t,
+      style: { fontSize: 11, fontWeight: 600, background: "rgba(168,197,0,0.15)", color: "var(--accent)", borderRadius: 6, padding: "2px 8px" }
+    }, "#", t))), /*#__PURE__*/React.createElement("div", {
+      style: { marginTop: 12, marginBottom: 14 }
+    }, !noteDrawFullscreen && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => setNoteDrawOpen(o => !o),
+      style: {
+        width: '100%',
+        padding: '5px 10px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        background: 'var(--bg-primary)',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        cursor: 'pointer',
+        fontSize: 12,
+        color: 'var(--text-secondary)',
+        fontWeight: 600
+      }
+    }, /*#__PURE__*/React.createElement("span", null, "✏️ Canvas"), /*#__PURE__*/React.createElement("span", {
+      style: { fontSize: 10, opacity: 0.6 }
+    }, noteDrawOpen ? '▲' : '▼')), /*#__PURE__*/React.createElement("div", {
+      style: noteDrawFullscreen ? { position: 'fixed', inset: 0, zIndex: 10000, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column' } : noteDrawOpen ? { marginTop: 8 } : { display: 'none' }
+    }, noteDrawFullscreen && /*#__PURE__*/React.createElement("div", {
+      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'calc(10px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) 10px calc(16px + env(safe-area-inset-left, 0px))', borderBottom: '1px solid var(--border)' }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: { fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }
+    }, "Canvas"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => setNoteDrawFullscreen(false),
+      style: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--accent)', fontWeight: 600 }
+    }, "✕ Tutup")), /*#__PURE__*/React.createElement("div", {
+      style: { flex: noteDrawFullscreen ? 1 : undefined, height: noteDrawFullscreen ? undefined : 300, border: '1px solid var(--border)', borderRadius: noteDrawFullscreen ? 0 : 8, overflow: 'hidden' }
+    }, /*#__PURE__*/React.createElement("iframe", {
+      ref: noteDrawIframeRef,
+      src: `/static/vendor/tldraw/index.html?noteId=${noteCanvasId}`,
+      style: { width: '100%', height: '100%', border: 'none' },
+      title: "Drawing canvas"
+    })), !noteDrawFullscreen && /*#__PURE__*/React.createElement("div", {
+      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: { fontSize: 11, color: 'var(--text-light)' }
+    }, "Simpan note untuk sync drawing ke server"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => setNoteDrawFullscreen(true),
+      style: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent)', fontWeight: 600 }
+    }, "⤢ Expand")))), /*#__PURE__*/React.createElement("div", {
+      style: { display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "btn btn-secondary",
+      onClick: onClose
+    }, "Batal"), /*#__PURE__*/React.createElement("button", {
+      type: "submit",
+      className: "btn btn-primary",
+      disabled: loading,
+      onClick: handleSubmit
+    }, loading ? "Menyimpan..." : "Simpan Note"))))));
+  }
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
     onClick: onClose
@@ -3632,432 +3888,7 @@ function TaskFormModal({
     type: "submit",
     className: "btn btn-primary",
     disabled: loading
-  }, loading ? "..." : "Tambah Habit"))), mode === "note" && (() => {
-    const detectedTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(t => t.slice(1).toLowerCase().trim()))].filter(Boolean);
-    return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-      className: "input-label"
-    }, "Judul ", /*#__PURE__*/React.createElement("span", {
-      style: {
-        color: "var(--text-light)",
-        fontWeight: 400
-      }
-    }, "(opsional)")), /*#__PURE__*/React.createElement("input", {
-      className: "input",
-      value: noteForm.title,
-      onChange: e => { setNote("title", e.target.value); setTitleManuallyEdited(true); },
-      placeholder: "Judul catatan...",
-      style: {
-        marginBottom: 14
-      }
-    }), /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 4
-      }
-    }, /*#__PURE__*/React.createElement("label", {
-      className: "input-label",
-      style: {
-        marginBottom: 0
-      }
-    }, "Isi Catatan *"), /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      onClick: () => setNoteFocusMode(true),
-      style: {
-        background: 'none',
-        border: '1.5px solid var(--accent)',
-        borderRadius: 20,
-        cursor: 'pointer',
-        fontSize: 12,
-        color: 'var(--accent)',
-        fontWeight: 700,
-        padding: '2px 10px',
-        lineHeight: 1.5
-      }
-    }, "\u25CF Focus")), /*#__PURE__*/React.createElement("div", {
-      style: noteFocusMode ? {
-        position: 'fixed',
-        inset: 0,
-        zIndex: 10001,
-        background: 'var(--bg-primary)',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: 'calc(16px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) calc(16px + env(safe-area-inset-left, 0px))',
-        overflow: 'hidden'
-      } : {}
-    }, noteFocusMode && /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: 'flex',
-        justifyContent: 'flex-end',
-        marginBottom: 8,
-        flexShrink: 0
-      }
-    }, /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      onClick: () => setNoteFocusMode(false),
-      style: {
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        fontSize: 13,
-        color: 'var(--accent)',
-        fontWeight: 600
-      }
-    }, "\u2715 Tutup")), /*#__PURE__*/React.createElement("div", {
-      style: noteFocusMode ? {
-        marginBottom: 4,
-        flexShrink: 0
-      } : {
-        position: 'sticky',
-        top: -28,
-        background: 'var(--bg-card)',
-        zIndex: 10,
-        paddingTop: 4,
-        paddingBottom: 8,
-        marginBottom: 4
-      }
-    }, /*#__PURE__*/React.createElement(NoteToolbar, {
-      milkdownEditorRef: noteMilkdownRef,
-      noteId: null,
-      onAttachUploaded: function() {},
-      content: noteForm.content,
-      onApplyTemplate: function(tpl) { return setNote("content", tpl); },
-      onInsertTask: openNoteTaskDropdown,
-      voiceState: noteVoiceState,
-      onToggleVoice: handleToggleNoteVoice
-    })), /*#__PURE__*/React.createElement("div", {
-      style: {
-        position: 'relative',
-        flex: noteFocusMode ? 1 : undefined,
-        overflow: noteFocusMode ? 'auto' : undefined,
-        minHeight: noteFocusMode ? 0 : undefined
-      }
-    }, /*#__PURE__*/React.createElement(MilkdownEditor, {
-      value: noteForm.content,
-      onChange: handleNoteContentChange,
-      editorRef: noteMilkdownRef,
-      minHeight: noteFocusMode ? 'calc(100vh - 100px)' : 140,
-      onWikilinkClick: () => {},
-      tasksGetter: noteTasksGetterRef.current,
-      onTasklinkClick: () => {},
-      onImagePaste: null
-    }), noteTagDropdown && noteTagDropdown.items.length > 0 && /*#__PURE__*/React.createElement("div", {
-      className: "wiki-autocomplete",
-      style: {
-        position: "fixed",
-        top: noteTagDropdown.top,
-        left: noteTagDropdown.left,
-        zIndex: 1050
-      }
-    }, noteTagDropdown.items.map((t, i) => /*#__PURE__*/React.createElement("div", {
-      key: t.id,
-      className: `wiki-autocomplete-item${i === 0 ? " active" : ""}`,
-      onMouseDown: e => {
-        e.preventDefault();
-        insertNoteTag(t.name);
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        color: "var(--accent)",
-        fontWeight: 700
-      }
-    }, "#"), t.name, /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 10,
-        color: "var(--text-light)",
-        marginLeft: 6
-      }
-    }, t.count, "\xD7")))), noteTaskDropdown && /*#__PURE__*/React.createElement("div", {
-      ref: noteTaskDropdownRef,
-      className: "wiki-autocomplete",
-      style: {
-        position: "fixed",
-        top: noteTaskDropdown.top,
-        left: noteTaskDropdown.left,
-        zIndex: 1060
-      }
-    }, /*#__PURE__*/React.createElement("input", {
-      className: "input",
-      style: {
-        width: "100%",
-        padding: "5px 8px",
-        fontSize: 12,
-        marginBottom: 4,
-        borderRadius: 5,
-        boxSizing: 'border-box'
-      },
-      placeholder: "Cari task...",
-      value: noteTaskDropdown.query || '',
-      onChange: e => setNoteTaskDropdown(d => ({
-        ...d,
-        query: e.target.value,
-        activeIdx: 0
-      })),
-      autoFocus: true,
-      onMouseDown: e => e.stopPropagation(),
-      onKeyDown: e => {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          setNoteTaskDropdown(null);
-          return;
-        }
-        if (e.key === 'Enter' || e.key === 'Tab') {
-          e.preventDefault();
-          const chosen = noteTaskDropdownItems[noteTaskDropdown.activeIdx || 0];
-          if (chosen) {
-            insertNoteTasklink(chosen.id);
-            return;
-          }
-          const q = (noteTaskDropdown.query || '').trim();
-          if (q) createAndInsertNoteTask(q);
-          return;
-        }
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          setNoteTaskDropdown(d => ({
-            ...d,
-            activeIdx: Math.min((d.activeIdx || 0) + 1, noteTaskDropdownItems.length - 1)
-          }));
-          return;
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          setNoteTaskDropdown(d => ({
-            ...d,
-            activeIdx: Math.max((d.activeIdx || 0) - 1, 0)
-          }));
-          return;
-        }
-      }
-    }), noteTaskDropdownItems.map((t, i) => /*#__PURE__*/React.createElement("div", {
-      key: t.id,
-      className: `wiki-autocomplete-item${i === (noteTaskDropdown.activeIdx || 0) ? " active" : ""}`,
-      onMouseDown: e => {
-        e.preventDefault();
-        insertNoteTasklink(t.id);
-      }
-    }, /*#__PURE__*/React.createElement(PriBadge, {
-      p: t.priority
-    }), /*#__PURE__*/React.createElement("span", {
-      style: {
-        marginLeft: 4
-      }
-    }, t.title))), noteTaskDropdownItems.length === 0 && !(noteTaskDropdown.query || '').trim() && /*#__PURE__*/React.createElement("div", {
-      className: "wiki-autocomplete-item",
-      style: {
-        color: "var(--text-light)",
-        cursor: "default",
-        fontStyle: "italic"
-      }
-    }, "Ketik nama task..."), (noteTaskDropdown.query || '').trim() && /*#__PURE__*/React.createElement("div", {
-      className: "wiki-autocomplete-item",
-      style: {
-        borderTop: noteTaskDropdownItems.length > 0 ? '1px solid var(--border)' : undefined,
-        color: 'var(--accent)',
-        fontWeight: 600,
-        opacity: creatingInlineNoteTask ? 0.5 : 1,
-        cursor: creatingInlineNoteTask ? 'default' : 'pointer'
-      },
-      onMouseDown: e => {
-        e.preventDefault();
-        if (!creatingInlineNoteTask) createAndInsertNoteTask((noteTaskDropdown.query || '').trim());
-      }
-    }, creatingInlineNoteTask ? 'Membuat...' : `＋ Buat task: "${(noteTaskDropdown.query || '').trim()}"`)), noteWikiDropdown && /*#__PURE__*/React.createElement("div", {
-      className: "wiki-autocomplete",
-      style: {
-        position: "fixed",
-        top: noteWikiDropdown.top,
-        left: noteWikiDropdown.left,
-        zIndex: 1070
-      }
-    }, noteWikiDropdown.items.map((n, i) => /*#__PURE__*/React.createElement("div", {
-      key: n.id,
-      className: `wiki-autocomplete-item${i === noteWikiDropdown.activeIdx ? " active" : ""}`,
-      onMouseDown: e => {
-        e.preventDefault();
-        insertNoteWikilink(n.title);
-      }
-    }, "[[", n.title, "]]")), noteWikiDropdown.canCreate && /*#__PURE__*/React.createElement("div", {
-      className: `wiki-autocomplete-item${noteWikiDropdown.activeIdx === noteWikiDropdown.items.length ? " active" : ""}`,
-      style: {
-        borderTop: noteWikiDropdown.items.length > 0 ? "1px solid var(--border)" : undefined,
-        color: "var(--accent)",
-        fontWeight: 600
-      },
-      onMouseDown: e => {
-        e.preventDefault();
-        createNoteWikiTarget(noteWikiDropdown.query.trim());
-      }
-    }, /*#__PURE__*/React.createElement(Icon, { name: "sparkles", size: 14, style: { marginRight: 5 } }), "Buat note \"", noteWikiDropdown.query.trim(), "\""), !noteWikiDropdown.canCreate && noteWikiDropdown.items.length === 0 && /*#__PURE__*/React.createElement("div", {
-      className: "wiki-autocomplete-item",
-      style: {
-        color: "var(--text-light)",
-        cursor: "default",
-        fontStyle: "italic"
-      }
-    }, noteTitlesList.length === 0 ? "Belum ada catatan bertajuk" : "Tidak ditemukan")))), noteAiDropdown && /*#__PURE__*/React.createElement("div", {
-      ref: noteAiDropdownRef,
-      className: "wiki-autocomplete",
-      style: { position: "fixed", top: noteAiDropdown.top, left: noteAiDropdown.left, zIndex: 1080, minWidth: 280, padding: 6 }
-    }, /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-      /*#__PURE__*/React.createElement(Icon, { name: "sparkles", size: 15, style: { color: "var(--accent)", flexShrink: 0 } }),
-      /*#__PURE__*/React.createElement("input", {
-        className: "input",
-        style: { flex: 1, padding: "5px 8px", fontSize: 13, borderRadius: 5, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)" },
-        placeholder: "Instruksi AI... misal: ringkas jadi 3 poin",
-        autoFocus: true,
-        onMouseDown: e => e.stopPropagation(),
-        onKeyDown: e => {
-          if (e.key === 'Escape') { setNoteAiDropdown(null); return; }
-          if (e.key === 'Enter') { e.preventDefault(); executeNoteAi(e.target.value); }
-        }
-      }),
-      noteAiBusy && /*#__PURE__*/React.createElement("span", { style: { display: "inline-block", width: 14, height: 14, border: "2px solid var(--accent)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.6s linear infinite" } })
-    )), detectedTags.length > 0 && /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        flexWrap: "wrap",
-        gap: 5,
-        marginBottom: 14,
-        alignItems: "center"
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 11,
-        color: "var(--text-light)"
-      }
-    }, "Tag terdeteksi:"), detectedTags.map(t => /*#__PURE__*/React.createElement("span", {
-      key: t,
-      style: {
-        fontSize: 11,
-        fontWeight: 600,
-        background: "rgba(168,197,0,0.15)",
-        color: "var(--accent)",
-        borderRadius: 6,
-        padding: "2px 8px"
-      }
-    }, "#", t))), /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginTop: 12,
-        marginBottom: 14
-      }
-    }, !noteDrawFullscreen && /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      onClick: () => setNoteDrawOpen(o => !o),
-      style: {
-        width: '100%',
-        padding: '5px 10px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        background: 'var(--bg-primary)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        cursor: 'pointer',
-        fontSize: 12,
-        color: 'var(--text-secondary)',
-        fontWeight: 600
-      }
-    }, /*#__PURE__*/React.createElement("span", null, "\u270F\uFE0F Canvas"), /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 10,
-        opacity: 0.6
-      }
-    }, noteDrawOpen ? '▲' : '▼')), /*#__PURE__*/React.createElement("div", {
-      style: noteDrawFullscreen ? {
-        position: 'fixed',
-        inset: 0,
-        zIndex: 10000,
-        background: 'var(--bg-primary)',
-        display: 'flex',
-        flexDirection: 'column'
-      } : noteDrawOpen ? {
-        marginTop: 8
-      } : {
-        display: 'none'
-      }
-    }, noteDrawFullscreen && /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: 'calc(10px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) 10px calc(16px + env(safe-area-inset-left, 0px))',
-        borderBottom: '1px solid var(--border)'
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 13,
-        fontWeight: 600,
-        color: 'var(--text-secondary)'
-      }
-    }, "Canvas"), /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      onClick: () => setNoteDrawFullscreen(false),
-      style: {
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        fontSize: 13,
-        color: 'var(--accent)',
-        fontWeight: 600
-      }
-    }, "\u2715 Tutup")), /*#__PURE__*/React.createElement("div", {
-      style: {
-        flex: noteDrawFullscreen ? 1 : undefined,
-        height: noteDrawFullscreen ? undefined : 300,
-        border: '1px solid var(--border)',
-        borderRadius: noteDrawFullscreen ? 0 : 8,
-        overflow: 'hidden'
-      }
-    }, /*#__PURE__*/React.createElement("iframe", {
-      ref: noteDrawIframeRef,
-      src: `/static/vendor/tldraw/index.html?noteId=${noteCanvasId}`,
-      style: {
-        width: '100%',
-        height: '100%',
-        border: 'none'
-      },
-      title: "Drawing canvas"
-    })), !noteDrawFullscreen && /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginTop: 4
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 11,
-        color: 'var(--text-light)'
-      }
-    }, "Simpan note untuk sync drawing ke server"), /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      onClick: () => setNoteDrawFullscreen(true),
-      style: {
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        fontSize: 12,
-        color: 'var(--accent)',
-        fontWeight: 600
-      }
-    }, "\u2922 Expand")))), /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        gap: 10,
-        justifyContent: "flex-end"
-      }
-    }, /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      className: "btn btn-secondary",
-      onClick: onClose
-    }, "Batal"), /*#__PURE__*/React.createElement("button", {
-      type: "submit",
-      className: "btn btn-primary",
-      disabled: loading
-    }, loading ? "Menyimpan..." : "Simpan Note")));
-  })(), mode === "goal" && /*#__PURE__*/React.createElement(GoalTab, {
+  }, loading ? "..." : "Tambah Habit"))), mode === "goal" && /*#__PURE__*/React.createElement(GoalTab, {
     onSave: onSave,
     onClose: onClose
   }), mode === "task" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
