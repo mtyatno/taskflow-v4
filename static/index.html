@@ -15247,7 +15247,7 @@ function NoteModal({
   const autosaveTimerRef = useRef(null);
   const lastKnownAtRef = useRef(note?.updated_at ?? null);
   const [conflictBanner, setConflictBanner] = useState(null);
-  const [expanded, setExpanded] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
   const milkdownEditorRef = React.useRef(null);
   const allKnownTasksRef = React.useRef([]);
   const tasksGetterRef = React.useRef(() => allKnownTasksRef.current);
@@ -15456,8 +15456,6 @@ function NoteModal({
   const [noteAiBusy, setNoteAiBusy] = useState(false);
   const noteAiDropdownRef = React.useRef(null);
 
-  // Textarea fullscreen
-  const [textareaFullscreen, setTextareaFullscreen] = React.useState(false);
   const [voiceState, setVoiceState] = React.useState(
     window.TF && window.TF.voicedictate && window.TF.voicedictate.isSupported() ? 'idle' : 'unsupported'
   );
@@ -16211,9 +16209,9 @@ function NoteModal({
     placeholder: "Judul catatan...",
     value: title,
     onChange: e => { setTitle(e.target.value); setTitleManuallyEdited(true); },
-    autoFocus: !expanded,
+    autoFocus: !focusMode,
     style: {
-      fontSize: expanded ? 22 : undefined
+      fontSize: !focusMode ? 22 : undefined
     }
   }), conflictBanner && /*#__PURE__*/React.createElement("div", {
     style: {
@@ -16311,7 +16309,7 @@ function NoteModal({
   }, /*#__PURE__*/React.createElement(MilkdownEditor, {
     value: content,
     onChange: handleEditorChange,
-    minHeight: expanded ? 'calc(100vh - 320px)' : 120,
+    minHeight: focusMode ? 'calc(100vh - 100px)' : 'calc(100vh - 320px)',
     editorRef: milkdownEditorRef,
     onWikilinkClick: t => {
       const parsed = parseWikilinkRaw(t);
