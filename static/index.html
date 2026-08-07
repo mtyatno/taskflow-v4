@@ -2818,7 +2818,7 @@ function TaskFormModal({
     identity_pillar: ""
   });
   // Note tab — canvas & textarea fullscreen
-  const [noteTextareaFullscreen, setNoteTextareaFullscreen] = React.useState(false);
+  const [noteFocusMode, setNoteFocusMode] = React.useState(false);
   const [noteCanvasId] = React.useState(() => crypto.randomUUID());
   const noteDrawIframeRef = React.useRef(null);
   const [noteDrawOpen, setNoteDrawOpen] = React.useState(false);
@@ -3663,7 +3663,7 @@ function TaskFormModal({
       }
     }, "Isi Catatan *"), /*#__PURE__*/React.createElement("button", {
       type: "button",
-      onClick: () => setNoteTextareaFullscreen(true),
+      onClick: () => setNoteFocusMode(true),
       style: {
         background: 'none',
         border: '1.5px solid var(--accent)',
@@ -3676,7 +3676,7 @@ function TaskFormModal({
         lineHeight: 1.5
       }
     }, "\u25CF Focus")), /*#__PURE__*/React.createElement("div", {
-      style: noteTextareaFullscreen ? {
+      style: noteFocusMode ? {
         position: 'fixed',
         inset: 0,
         zIndex: 10001,
@@ -3686,7 +3686,7 @@ function TaskFormModal({
         padding: 'calc(16px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) calc(16px + env(safe-area-inset-left, 0px))',
         overflow: 'hidden'
       } : {}
-    }, noteTextareaFullscreen && /*#__PURE__*/React.createElement("div", {
+    }, noteFocusMode && /*#__PURE__*/React.createElement("div", {
       style: {
         display: 'flex',
         justifyContent: 'flex-end',
@@ -3695,7 +3695,7 @@ function TaskFormModal({
       }
     }, /*#__PURE__*/React.createElement("button", {
       type: "button",
-      onClick: () => setNoteTextareaFullscreen(false),
+      onClick: () => setNoteFocusMode(false),
       style: {
         background: 'none',
         border: 'none',
@@ -3705,7 +3705,7 @@ function TaskFormModal({
         fontWeight: 600
       }
     }, "\u2715 Tutup")), /*#__PURE__*/React.createElement("div", {
-      style: noteTextareaFullscreen ? {
+      style: noteFocusMode ? {
         marginBottom: 4,
         flexShrink: 0
       } : {
@@ -3729,15 +3729,15 @@ function TaskFormModal({
     })), /*#__PURE__*/React.createElement("div", {
       style: {
         position: 'relative',
-        flex: noteTextareaFullscreen ? 1 : undefined,
-        overflow: noteTextareaFullscreen ? 'auto' : undefined,
-        minHeight: noteTextareaFullscreen ? 0 : undefined
+        flex: noteFocusMode ? 1 : undefined,
+        overflow: noteFocusMode ? 'auto' : undefined,
+        minHeight: noteFocusMode ? 0 : undefined
       }
     }, /*#__PURE__*/React.createElement(MilkdownEditor, {
       value: noteForm.content,
       onChange: handleNoteContentChange,
       editorRef: noteMilkdownRef,
-      minHeight: noteTextareaFullscreen ? 'calc(100vh - 100px)' : 140,
+      minHeight: noteFocusMode ? 'calc(100vh - 100px)' : 140,
       onWikilinkClick: () => {},
       tasksGetter: noteTasksGetterRef.current,
       onTasklinkClick: () => {},
