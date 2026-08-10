@@ -2679,7 +2679,8 @@ function TaskFormModal({
   contexts,
   sharedLists,
   collaborators = [],
-  tasks = []
+  tasks = [],
+  showToast
 }) {
   const isEdit = !!task?.id;
   const [form, setForm] = useState({
@@ -3242,7 +3243,11 @@ function TaskFormModal({
         const view = ctx.get(MB.editorViewCtx);
         view.dispatch(view.state.tr.insertText('', placeholderFrom, placeholderFrom + PLACEHOLDER_LEN));
       });
-      showToast('Gagal AI: ' + (err.message || 'coba lagi'));
+      var _errMsg = (err.message || 'coba lagi');
+      if ((err.name === 'TypeError' && /fetch|network/i.test(_errMsg)) || (err.message && /timeout/i.test(err.message))) {
+        _errMsg = 'AI gagal terhubung — periksa koneksi internet';
+      }
+      typeof showToast === 'function' && showToast('Gagal AI: ' + _errMsg);
     } finally {
       setNoteAiBusy(false);
       editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
@@ -15841,7 +15846,11 @@ function NoteModal({
         const view = ctx.get(MB.editorViewCtx);
         view.dispatch(view.state.tr.insertText('', placeholderFrom, placeholderFrom + PLACEHOLDER_LEN));
       });
-      showToast('Gagal AI: ' + (err.message || 'coba lagi'));
+      var _errMsg = (err.message || 'coba lagi');
+      if ((err.name === 'TypeError' && /fetch|network/i.test(_errMsg)) || (err.message && /timeout/i.test(err.message))) {
+        _errMsg = 'AI gagal terhubung — periksa koneksi internet';
+      }
+      typeof showToast === 'function' && showToast('Gagal AI: ' + _errMsg);
     } finally {
       setNoteAiBusy(false);
       editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
@@ -22800,7 +22809,8 @@ function App() {
     contexts: contexts,
     sharedLists: sharedLists,
     collaborators: collaborators,
-    tasks: tasks
+    tasks: tasks,
+    showToast: showToast
   }), doneConfirm && /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
     onClick: () => setDoneConfirm(null)
