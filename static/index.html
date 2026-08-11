@@ -333,7 +333,7 @@ const api = {
       try { _router = api._localRouter || (api._localRouter = _R.buildTaskRouter()); } catch (_) { _router = null; }
       if (_router) {
         const _method = (opts.method || "GET").toUpperCase();
-        if (_router.hasRoute(_method, url) && !_R.isNoteTagsCall(_method, url) && url.indexOf('/api/scratchpad') !== 0) {
+        if (_router.hasRoute(_method, url) && !_R.isNoteTagsCall(_method, url) && url !== "/api/scratchpad/pinned") {
           const _body = opts.body ? JSON.parse(opts.body) : undefined;
           const _res = await _router.dispatch(_method, url, _body)
             .catch(err => { throw new Error(err && err.message ? err.message : "local route error"); });
@@ -3208,7 +3208,8 @@ function TaskFormModal({
         }
       } catch (_) {}
     }
-    if (noteId) {
+    // Only try server upload for real numeric IDs (not offline UUIDs)
+    if (noteId && /^\d+$/.test(String(noteId))) {
       try {
         var formData = new FormData();
         formData.append('file', file);
@@ -3236,6 +3237,10 @@ function TaskFormModal({
 
   const executeNoteAi = async instruction => {
     if (noteAiBusy || !(instruction || '').trim()) return;
+    if (!navigator.onLine) {
+      typeof showToast === 'function' && showToast('AI hanya tersedia saat online — periksa koneksi internet', 'error');
+      return;
+    }
     const instr = instruction.trim();
     setNoteAiDropdown(null);
     setNoteAiBusy(true);
@@ -15204,7 +15209,8 @@ function NoteModal({
   };
   const handleImagePaste = async file => {
     // Try server upload first (smaller content, permanent storage)
-    if (savedNoteId) {
+    // Only if note has a real server ID (numeric), not offline UUID
+    if (savedNoteId && /^\d+$/.test(String(savedNoteId))) {
       try {
         const formData = new FormData();
         formData.append('file', file);
@@ -15868,6 +15874,10 @@ function NoteModal({
   };
   const executeNoteAi = async instruction => {
     if (noteAiBusy || !(instruction || '').trim()) return;
+    if (!navigator.onLine) {
+      typeof showToast === 'function' && showToast('AI hanya tersedia saat online — periksa koneksi internet', 'error');
+      return;
+    }
     const instr = instruction.trim();
     setNoteAiDropdown(null);
     setNoteAiBusy(true);
@@ -16101,7 +16111,8 @@ function NoteModal({
     return () => document.removeEventListener("mousedown", close);
   }, [noteAiDropdown]);
   React.useEffect(() => {
-    if (!savedNoteId) return;
+    // Skip if note ID is UUID (offline-created, not yet synced to server)
+    if (!savedNoteId || !/^\d+$/.test(String(savedNoteId))) return;
     api.get(`/api/scratchpad/${savedNoteId}/attachments`).then(d => setAttachments(d)).catch(() => {});
   }, [savedNoteId]);
   const saveOnly = async () => {
