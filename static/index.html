@@ -14925,16 +14925,30 @@ function createMarkdownPastePlugin(onImagePaste) {
           const files = cd.files;
           if (files && files.length > 0) {
             for (let i = 0; i < files.length; i++) {
-              if (files[i].type.startsWith('image/')) { imageFile = files[i]; break; }
+              if (files[i].type.startsWith('image/') || files[i].type === '') { imageFile = files[i]; break; }
             }
           }
           if (!imageFile && cd.items) {
             for (let i = 0; i < cd.items.length; i++) {
               var it = cd.items[i];
-              if ((it.type && it.type.startsWith('image/')) || it.kind === 'file') {
-                var f = it.getAsFile();
-                if (f && f.type && f.type.startsWith('image/')) { imageFile = f; break; }
+              var f = it.getAsFile && it.getAsFile();
+              if (f && f.size > 0 && (!f.type || f.type.startsWith('image/') || f.type === '')) {
+                imageFile = new File([f], 'screenshot.png', { type: f.type || 'image/png' });
+                break;
               }
+            }
+          }
+          // Fallback: base64 image in HTML (some screenshot tools)
+          if (!imageFile && cd.types && cd.types.indexOf('text/html') !== -1 && onImagePaste) {
+            var html = cd.getData('text/html');
+            var imgMatch = html && html.match(/<img[^>]+src="data:image\/([^;]+);base64,([^"]+)"/i);
+            if (imgMatch) {
+              var mime = 'image/' + imgMatch[1];
+              var b64 = imgMatch[2];
+              var binary = atob(b64);
+              var bytes = new Uint8Array(binary.length);
+              for (var bi = 0; bi < binary.length; bi++) { bytes[bi] = binary.charCodeAt(bi); }
+              imageFile = new File([bytes], 'screenshot.' + (imgMatch[1] === 'png' ? 'png' : 'jpg'), { type: mime });
             }
           }
           if (imageFile) {
