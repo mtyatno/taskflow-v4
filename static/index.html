@@ -14062,6 +14062,7 @@ function MilkdownEditor({
     let cancelled = false;
     let pmDom = null;
     let headingEnterHandler = null;
+    let listEnterHandler = null;
 
     // ── Slash menu DOM ──────────────────────────────────────────────
     const slashMenu = document.createElement('div');
@@ -14415,6 +14416,29 @@ function MilkdownEditor({
           if (handled) e.preventDefault();
         };
         pmDom.addEventListener('keydown', headingEnterHandler, true);
+        // Enter inside empty list item → lift out to paragraph
+        listEnterHandler = e => {
+          if (e.key !== 'Enter' || e.shiftKey || e.defaultPrevented) return;
+          const inst = instanceRef.current;
+          if (!inst) return;
+          let handled = false;
+          try {
+            inst.action(ctx => {
+              const view = ctx.get(MB.editorViewCtx);
+              const { state } = view;
+              const { $from } = state.selection;
+              if ($from.parent.type.name !== 'list_item') return;
+              // Only lift when the list item is empty (no text content)
+              if ($from.parent.textContent.trim() !== '') return;
+              const range = $from.blockRange($from.depth - 1);
+              if (!range) return;
+              view.dispatch(state.tr.lift(range, $from.depth - 1));
+              handled = true;
+            });
+          } catch (_) {/* editor not ready */}
+          if (handled) e.preventDefault();
+        };
+        pmDom.addEventListener('keydown', listEnterHandler, true);
       }
       setReady(true);
     });
@@ -14422,6 +14446,9 @@ function MilkdownEditor({
       cancelled = true;
       if (pmDom && headingEnterHandler) {
         pmDom.removeEventListener('keydown', headingEnterHandler, true);
+      }
+      if (pmDom && listEnterHandler) {
+        pmDom.removeEventListener('keydown', listEnterHandler, true);
       }
       // Null editorRef BEFORE destroy so any markdownUpdated fired during
       // teardown finds editor=null and exits early (prevents "pm" context error)
