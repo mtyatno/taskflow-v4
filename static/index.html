@@ -2715,6 +2715,7 @@ function TaskFormModal({
   const [habitExistingTags, setHabitExistingTags] = useState([]);
   const noteContentRef = React.useRef(null);
   const noteMilkdownRef = React.useRef(null);
+  const noteSavedIdRef = React.useRef(null);
   // Voice dictation untuk catatan baru
   const [noteVoiceState, setNoteVoiceState] = React.useState(
     window.TF && window.TF.voicedictate && window.TF.voicedictate.isSupported() ? 'idle' : 'unsupported'
@@ -3175,6 +3176,46 @@ function TaskFormModal({
       setCreatingInlineNoteTask(false);
     }
   };
+  const handleNoteImagePaste = async file => {
+    var editor = noteMilkdownRef.current;
+    if (!editor) return;
+    try {
+      // Auto-save note if not yet saved
+      var noteId = noteSavedIdRef.current;
+      if (!noteId) {
+        var autoTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(function(t) { return t.slice(1).toLowerCase().trim(); }))].filter(Boolean);
+        var noteTaskIds = extractTaskIdsFromContent(noteForm.content);
+        var created = await api.post('/api/scratchpad', { title: noteForm.title, content: noteForm.content, tags: autoTags, linked_task_ids: noteTaskIds, linked_task_id: noteTaskIds[0] || null });
+        noteId = created.id;
+        noteSavedIdRef.current = noteId;
+        window.dispatchEvent(new CustomEvent('noteSaved'));
+      }
+      // Upload image attachment
+      var formData = new FormData();
+      formData.append('file', file);
+      var headers = {};
+      if (typeof __token !== 'undefined' && __token) headers['Authorization'] = 'Bearer ' + __token;
+      var res = await fetch(apiUrl('/api/scratchpad/' + noteId + '/attachments'), { method: 'POST', headers: headers, body: formData });
+      if (!res.ok) { var d = await res.json(); throw new Error(d.detail || 'Upload gagal'); }
+      var att = await res.json();
+      var url = '/api/scratchpad/attachments/' + att.id + '/view';
+      var alt = att.original_name || 'image';
+      var md = '![' + alt + '](' + url + ')';
+      var MB = window.MilkdownBundle;
+      editor.action(function(ctx) {
+        try {
+          var view = ctx.get(MB.editorViewCtx);
+          var doc = ctx.get(MB.parserCtx)(md);
+          if (!doc || !doc.content || doc.content.size === 0) return;
+          view.dispatch(view.state.tr.replaceSelection(doc.slice(0, doc.content.size)).scrollIntoView());
+          view.focus();
+        } catch (_) {}
+      });
+    } catch (err) {
+      typeof showToast === 'function' && showToast('Paste gambar gagal: ' + err.message, 'error');
+    }
+  };
+
   const executeNoteAi = async instruction => {
     if (noteAiBusy || !(instruction || '').trim()) return;
     const instr = instruction.trim();
@@ -3515,7 +3556,7 @@ function TaskFormModal({
       onWikilinkClick: function() {},
       tasksGetter: noteTasksGetterRef.current,
       onTasklinkClick: function() {},
-      onImagePaste: null
+      onImagePaste: handleNoteImagePaste
     }), noteTagDropdown && noteTagDropdown.items.length > 0 && /*#__PURE__*/React.createElement("div", {
       className: "wiki-autocomplete",
       style: { position: "fixed", top: noteTagDropdown.top, left: noteTagDropdown.left, zIndex: 1050 }
@@ -14889,9 +14930,10 @@ function createMarkdownPastePlugin(onImagePaste) {
           }
           if (!imageFile && cd.items) {
             for (let i = 0; i < cd.items.length; i++) {
-              if (cd.items[i].type && cd.items[i].type.startsWith('image/')) {
-                imageFile = cd.items[i].getAsFile();
-                break;
+              var it = cd.items[i];
+              if ((it.type && it.type.startsWith('image/')) || it.kind === 'file') {
+                var f = it.getAsFile();
+                if (f && f.type && f.type.startsWith('image/')) { imageFile = f; break; }
               }
             }
           }
