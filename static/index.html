@@ -4247,7 +4247,9 @@ function TaskFormModal({
           recurrence_renew: true
         });
         onSave && onSave(updated);
-      } catch (e) {}
+      } catch (e) {
+        if (isOfflineErr(e)) showToast('Tidak dapat memperbarui — offline', 'error');
+      }
     },
     style: {
       padding: "3px 10px",
@@ -7468,7 +7470,9 @@ function MindmapPage({
       if (found) selectMindmap(found);else api.get(`/api/mindmaps/${id}`).then(full => {
         setMindmaps(prev => prev.find(m => m.id === full.id) ? prev : [full, ...prev]);
         setSelected(full);
-      }).catch(() => {});
+      }).catch(err => {
+        typeof showToast === 'function' && showToast('Mindmap tidak tersedia — offline', 'error');
+      });
     };
     window.addEventListener("openMindmap", handler);
     return () => window.removeEventListener("openMindmap", handler);
@@ -8159,7 +8163,9 @@ function MindmapPage({
       try {
         await api.del(`/api/scratchpad/${id}`);
         setModalNote(null);
-      } catch (e) {}
+      } catch (e) {
+        if (isOfflineErr(e)) showToast('Tidak dapat menghapus — offline', 'error');
+      }
     },
     onTaskClick: onTaskClick,
     showToast: showToast
@@ -21183,7 +21189,9 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onAddFocus, onReschedule,
   const finish = () => {
     try { localStorage.setItem("tf_last_review", new Date().toISOString()); } catch (e) {}
     try {
-      api.post("/api/review/snapshot", { score: score, overdue: r.overdue.length, p1_overdue: p1Overdue, projects_without_next: r.projectsNoNext.length, done_this_week: r.doneThisWeek.length, active: activeCount }).catch(() => {});
+      api.post("/api/review/snapshot", { score: score, overdue: r.overdue.length, p1_overdue: p1Overdue, projects_without_next: r.projectsNoNext.length, done_this_week: r.doneThisWeek.length, active: activeCount }).catch(err => {
+        if (isOfflineErr(err)) showToast && showToast('Snapshot review tidak tersimpan — offline', 'error');
+      });
     } catch (e) {}
     setOpen(false); showToast && showToast("Review selesai ✅");
   };
@@ -22080,7 +22088,9 @@ function App() {
         setNotifications(data);
         await api.post("/api/notifications/read", {});
         setUnreadCount(0);
-      } catch (e) {}
+      } catch (e) {
+        if (isOfflineErr(e)) showToast('Notifikasi tidak tersedia — offline', 'error');
+      }
     }
   };
   const handleSearchMindmapClick = mm => {
@@ -22488,7 +22498,9 @@ function App() {
         user: user,
         sharedLists: sharedLists,
         onTaskClick: setSelectedTask,
-        onNoteOpen: id => api.get(`/api/scratchpad/${id}`).then(setSelectedNote).catch(() => {}),
+        onNoteOpen: id => api.get(`/api/scratchpad/${id}`).then(setSelectedNote).catch(err => {
+          showToast(isOfflineErr(err) ? 'Catatan tidak tersedia — offline' : 'Gagal membuka catatan', 'error');
+        }),
         showToast: showToast
       });
     }
@@ -22885,11 +22897,14 @@ function App() {
     tasks: tasks,
     onClose: () => setSelectedNote(null),
     onSave: updates => {
-      api.put(`/api/scratchpad/${selectedNote.id}`, updates).then(saved => setSelectedNote(saved)).catch(() => {});
+      api.put(`/api/scratchpad/${selectedNote.id}`, updates).then(saved => setSelectedNote(saved)).catch(err => {
+        if (isOfflineErr(err)) showToast('Tidak dapat menyimpan — offline', 'error');
+      });
     },
     onDelete: id => {
-      api.delete(`/api/scratchpad/${id}`).catch(() => {});
-      setSelectedNote(null);
+      api.delete(`/api/scratchpad/${id}`).then(() => setSelectedNote(null)).catch(err => {
+        showToast(isOfflineErr(err) ? 'Tidak dapat menghapus — offline' : 'Gagal menghapus', 'error');
+      });
     },
     onTaskClick: setSelectedTask,
     showToast: showToast,
