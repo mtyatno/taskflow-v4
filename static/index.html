@@ -3180,12 +3180,20 @@ function TaskFormModal({
     var editor = noteMilkdownRef.current;
     if (!editor) return;
     try {
-      // Auto-save note if not yet saved
       var noteId = noteSavedIdRef.current;
       if (!noteId) {
+        // Auto-save: bypass api.post (offline router returns UUID) — use direct fetch for real server int ID
+        if (!noteForm.content.trim() && !noteForm.title.trim()) {
+          typeof showToast === 'function' && showToast('Tulis sesuatu dulu sebelum paste gambar', 'error');
+          return;
+        }
         var autoTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(function(t) { return t.slice(1).toLowerCase().trim(); }))].filter(Boolean);
         var noteTaskIds = extractTaskIdsFromContent(noteForm.content);
-        var created = await api.post('/api/scratchpad', { title: noteForm.title, content: noteForm.content, tags: autoTags, linked_task_ids: noteTaskIds, linked_task_id: noteTaskIds[0] || null });
+        var hdrs = { 'Content-Type': 'application/json' };
+        if (typeof __token !== 'undefined' && __token) hdrs['Authorization'] = 'Bearer ' + __token;
+        var createRes = await fetch(apiUrl('/api/scratchpad'), { method: 'POST', headers: hdrs, body: JSON.stringify({ title: noteForm.title, content: noteForm.content, tags: autoTags, linked_task_ids: noteTaskIds, linked_task_id: noteTaskIds[0] || null }) });
+        if (!createRes.ok) { var cd = await createRes.json(); throw new Error(cd.detail || 'Gagal membuat note'); }
+        var created = await createRes.json();
         noteId = created.id;
         noteSavedIdRef.current = noteId;
         window.dispatchEvent(new CustomEvent('noteSaved'));
@@ -14932,9 +14940,9 @@ function createMarkdownPastePlugin(onImagePaste) {
             for (let i = 0; i < cd.items.length; i++) {
               var it = cd.items[i];
               var f = it.getAsFile && it.getAsFile();
-              if (f && f.size > 0 && (!f.type || f.type.startsWith('image/') || f.type === '')) {
-                imageFile = new File([f], 'screenshot.png', { type: f.type || 'image/png' });
-                break;
+              if (f && f.size > 0) {
+                if (f.type && f.type.startsWith('image/')) { imageFile = f; break; }
+                if (!f.type || f.type === '') { imageFile = new File([f], 'screenshot.png', { type: 'image/png' }); break; }
               }
             }
           }
