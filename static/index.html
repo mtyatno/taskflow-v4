@@ -3179,37 +3179,8 @@ function TaskFormModal({
   const handleNoteImagePaste = async file => {
     var editor = noteMilkdownRef.current;
     if (!editor) return;
-    try {
-      var noteId = noteSavedIdRef.current;
-      if (!noteId) {
-        // Auto-save: bypass api.post (offline router returns UUID) — use direct fetch for real server int ID
-        if (!noteForm.content.trim() && !noteForm.title.trim()) {
-          typeof showToast === 'function' && showToast('Tulis sesuatu dulu sebelum paste gambar', 'error');
-          return;
-        }
-        var autoTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(function(t) { return t.slice(1).toLowerCase().trim(); }))].filter(Boolean);
-        var noteTaskIds = extractTaskIdsFromContent(noteForm.content);
-        var hdrs = { 'Content-Type': 'application/json' };
-        if (typeof __token !== 'undefined' && __token) hdrs['Authorization'] = 'Bearer ' + __token;
-        var createRes = await fetch(apiUrl('/api/scratchpad'), { method: 'POST', headers: hdrs, body: JSON.stringify({ title: noteForm.title, content: noteForm.content, tags: autoTags, linked_task_ids: noteTaskIds, linked_task_id: noteTaskIds[0] || null }) });
-        if (!createRes.ok) { var cd = await createRes.json(); throw new Error(cd.detail || 'Gagal membuat note'); }
-        var created = await createRes.json();
-        noteId = created.id;
-        noteSavedIdRef.current = noteId;
-        window.dispatchEvent(new CustomEvent('noteSaved'));
-      }
-      // Upload image attachment
-      var formData = new FormData();
-      formData.append('file', file);
-      var headers = {};
-      if (typeof __token !== 'undefined' && __token) headers['Authorization'] = 'Bearer ' + __token;
-      var res = await fetch(apiUrl('/api/scratchpad/' + noteId + '/attachments'), { method: 'POST', headers: headers, body: formData });
-      if (!res.ok) { var d = await res.json(); throw new Error(d.detail || 'Upload gagal'); }
-      var att = await res.json();
-      var url = '/api/scratchpad/attachments/' + att.id + '/view';
-      var alt = att.original_name || 'image';
-      var md = '![' + alt + '](' + url + ')';
-      var MB = window.MilkdownBundle;
+    var MB = window.MilkdownBundle;
+    var insertNoteMd = function(md) {
       editor.action(function(ctx) {
         try {
           var view = ctx.get(MB.editorViewCtx);
@@ -3219,8 +3190,47 @@ function TaskFormModal({
           view.focus();
         } catch (_) {}
       });
-    } catch (err) {
-      typeof showToast === 'function' && showToast('Paste gambar gagal: ' + err.message, 'error');
+    };
+    // Try server upload first
+    var noteId = noteSavedIdRef.current;
+    if (!noteId && noteForm.content.trim()) {
+      try {
+        var autoTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(function(t) { return t.slice(1).toLowerCase().trim(); }))].filter(Boolean);
+        var noteTaskIds = extractTaskIdsFromContent(noteForm.content);
+        var hdrs = { 'Content-Type': 'application/json' };
+        if (typeof __token !== 'undefined' && __token) hdrs['Authorization'] = 'Bearer ' + __token;
+        var createRes = await fetch(apiUrl('/api/scratchpad'), { method: 'POST', headers: hdrs, body: JSON.stringify({ title: noteForm.title, content: noteForm.content, tags: autoTags, linked_task_ids: noteTaskIds, linked_task_id: noteTaskIds[0] || null }) });
+        if (createRes.ok) {
+          var created = await createRes.json();
+          noteId = created.id;
+          noteSavedIdRef.current = noteId;
+          window.dispatchEvent(new CustomEvent('noteSaved'));
+        }
+      } catch (_) {}
+    }
+    if (noteId) {
+      try {
+        var formData = new FormData();
+        formData.append('file', file);
+        var uh = {};
+        if (typeof __token !== 'undefined' && __token) uh['Authorization'] = 'Bearer ' + __token;
+        var res = await fetch(apiUrl('/api/scratchpad/' + noteId + '/attachments'), { method: 'POST', headers: uh, body: formData });
+        if (res.ok) {
+          var att = await res.json();
+          insertNoteMd('![' + (att.original_name || 'image') + '](/api/scratchpad/attachments/' + att.id + '/view)');
+          return;
+        }
+      } catch (_) {}
+    }
+    // Offline fallback: base64 data URL
+    try {
+      var reader = new FileReader();
+      reader.onload = function() {
+        insertNoteMd('![' + (file.name || 'screenshot') + '](' + reader.result + ')');
+      };
+      reader.readAsDataURL(file);
+    } catch (_) {
+      typeof showToast === 'function' && showToast('Paste gambar gagal', 'error');
     }
   };
 
@@ -15178,39 +15188,53 @@ function NoteModal({
       view.focus();
     });
   };
+  const insertImageMd = md => {
+    const editor = milkdownEditorRef?.current;
+    if (!editor) return;
+    const MB = window.MilkdownBundle;
+    editor.action(ctx => {
+      try {
+        const view = ctx.get(MB.editorViewCtx);
+        const doc = ctx.get(MB.parserCtx)(md);
+        if (!doc || !doc.content || doc.content.size === 0) return;
+        view.dispatch(view.state.tr.replaceSelection(doc.slice(0, doc.content.size)).scrollIntoView());
+        view.focus();
+      } catch (_) {}
+    });
+  };
   const handleImagePaste = async file => {
-    if (!savedNoteId) {
-      showToast("Simpan catatan dulu sebelum paste gambar", "error");
-      return;
+    // Try server upload first (smaller content, permanent storage)
+    if (savedNoteId) {
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const headers = {};
+        if (typeof __token !== 'undefined' && __token) headers['Authorization'] = 'Bearer ' + __token;
+        const res = await fetch(apiUrl('/api/scratchpad/' + savedNoteId + '/attachments'), {
+          method: 'POST', headers, body: formData
+        });
+        if (res.ok) {
+          const att = await res.json();
+          const url = '/api/scratchpad/attachments/' + att.id + '/view';
+          const alt = att.original_name || 'image';
+          insertImageMd('![' + alt + '](' + url + ')');
+          return;
+        }
+      } catch (_) {
+        // Server unreachable (offline) — fall through to base64
+      }
     }
+    // Offline fallback: convert to base64 data URL, insert directly
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const headers = {};
-      if (typeof __token !== 'undefined' && __token) headers['Authorization'] = 'Bearer ' + __token;
-      const res = await fetch(apiUrl('/api/scratchpad/' + savedNoteId + '/attachments'), {
-        method: 'POST', headers, body: formData
-      });
-      if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Upload gagal'); }
-      const att = await res.json();
-      const isImage = att.mime_type && att.mime_type.startsWith('image/');
-      const url = '/api/scratchpad/attachments/' + att.id + '/view';
-      const alt = att.original_name || 'image';
-      const md = '![' + alt + '](' + url + ')';
-      const editor = milkdownEditorRef?.current;
-      if (!editor) return;
-      const MB = window.MilkdownBundle;
-      editor.action(ctx => {
-        try {
-          const view = ctx.get(MB.editorViewCtx);
-          const doc = ctx.get(MB.parserCtx)(md);
-          if (!doc || !doc.content || doc.content.size === 0) return;
-          view.dispatch(view.state.tr.replaceSelection(doc.slice(0, doc.content.size)).scrollIntoView());
-          view.focus();
-        } catch (_) {}
-      });
-    } catch (err) {
-      showToast("Paste gambar gagal: " + err.message, "error");
+      var reader = new FileReader();
+      reader.onload = function() {
+        var dataUrl = reader.result;
+        var alt = file.name || 'screenshot';
+        insertImageMd('![' + alt + '](' + dataUrl + ')');
+      };
+      reader.readAsDataURL(file);
+    } catch (_) {
+      typeof showToast === 'function' && showToast('Paste gambar gagal', 'error');
     }
   };
   function getTextBeforeCursor() {
