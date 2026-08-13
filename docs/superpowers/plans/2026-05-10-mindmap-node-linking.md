@@ -12,21 +12,23 @@
 
 ## Files
 
-| File | Action | What changes |
-|------|--------|-------------|
-| `static/vendor/mind-elixir/index.html` | Modify | Restructure HTML, add panel div + CSS, add selectNodes/unselectNodes listeners, findNode, renderPanel, addLink handler, removeLink, updateBadges, clearPanel |
-| `static/index.html` | Modify | Add `LinkPickerModal` component (~120 lines before `MindmapPage`), extend `MindmapPage` props/state/message handler, add NoteModal render, wire props in `renderContent` |
+| File                                   | Action | What changes                                                                                                                                                             |
+| -------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `static/vendor/mind-elixir/index.html` | Modify | Restructure HTML, add panel div + CSS, add selectNodes/unselectNodes listeners, findNode, renderPanel, addLink handler, removeLink, updateBadges, clearPanel             |
+| `static/index.html`                    | Modify | Add `LinkPickerModal` component (~120 lines before `MindmapPage`), extend `MindmapPage` props/state/message handler, add NoteModal render, wire props in `renderContent` |
 
 ---
 
 ## Task 1: iframe — Restructure HTML and add panel div + CSS
 
 **Files:**
+
 - Modify: `static/vendor/mind-elixir/index.html`
 
 - [ ] **Step 1: Replace the `<body>` content**
 
 Open `static/vendor/mind-elixir/index.html`. The current body is:
+
 ```html
 <body>
   <div id="map"></div>
@@ -171,6 +173,7 @@ git commit -m "feat: restructure mindmap iframe HTML for link panel"
 ## Task 2: iframe — Node selection listeners + findNode
 
 **Files:**
+
 - Modify: `static/vendor/mind-elixir/index.html` (inside the `<script>` block)
 
 - [ ] **Step 1: Add globals and findNode above `initMind`**
@@ -252,6 +255,7 @@ git commit -m "feat: add node selection postMessage from mindmap iframe"
 ## Task 3: iframe — renderPanel function
 
 **Files:**
+
 - Modify: `static/vendor/mind-elixir/index.html`
 
 - [ ] **Step 1: Add `renderPanel` before `initMind`**
@@ -359,6 +363,7 @@ git commit -m "feat: add link panel renderPanel in mindmap iframe"
 ## Task 4: iframe — addLink handler + updateBadges
 
 **Files:**
+
 - Modify: `static/vendor/mind-elixir/index.html`
 
 - [ ] **Step 1: Replace the `updateBadges` stub with the real implementation**
@@ -441,6 +446,7 @@ git commit -m "feat: add addLink handler and node badges in mindmap iframe"
 ## Task 5: iframe — clearPanel on load + re-init badge on load
 
 **Files:**
+
 - Modify: `static/vendor/mind-elixir/index.html`
 
 - [ ] **Step 1: Handle `clearPanel` message**
@@ -468,6 +474,7 @@ The existing `load` handler calls `initMind(e.data.data)`. After it, add badge u
 ```
 
 Replace the existing:
+
 ```js
       if (e.data && e.data.type === 'load') {
         initMind(e.data.data);
@@ -475,6 +482,7 @@ Replace the existing:
 ```
 
 with:
+
 ```js
       if (e.data && e.data.type === 'load') {
         hidePanel();
@@ -501,6 +509,7 @@ git commit -m "feat: clear link panel on mindmap switch"
 ## Task 6: Parent — LinkPickerModal component
 
 **Files:**
+
 - Modify: `static/index.html`
 
 - [ ] **Step 1: Add `LinkPickerModal` component**
@@ -627,16 +636,19 @@ git commit -m "feat: add LinkPickerModal component for mindmap node linking"
 ## Task 7: Parent — Extend MindmapPage
 
 **Files:**
+
 - Modify: `static/index.html`
 
 - [ ] **Step 1: Update MindmapPage signature and add new state**
 
 Find:
+
 ```js
     function MindmapPage({ showToast }) {
 ```
 
 Replace with:
+
 ```js
     function MindmapPage({ showToast, onTaskClick, tasks = [] }) {
 ```
@@ -688,6 +700,7 @@ Add these new blocks inside the same `handler`, after the existing blocks:
 - [ ] **Step 3: Send `clearPanel` when switching mindmaps**
 
 Find the `selectMindmap` function inside `MindmapPage`:
+
 ```js
       const selectMindmap = async (m) => {
         if (selected?.id === m.id) return;
@@ -759,11 +772,13 @@ git commit -m "feat: extend MindmapPage with link picker and openNote/openTask h
 ## Task 8: Wire MindmapPage props in App
 
 **Files:**
+
 - Modify: `static/index.html`
 
 - [ ] **Step 1: Update the MindmapPage render in `renderContent`**
 
 Find (around line 10279):
+
 ```jsx
         if (page === "mindmap") {
           return <MindmapPage showToast={showToast} />;
@@ -771,6 +786,7 @@ Find (around line 10279):
 ```
 
 Replace with:
+
 ```jsx
         if (page === "mindmap") {
           return <MindmapPage showToast={showToast} onTaskClick={setSelectedTask} tasks={tasks} />;
@@ -782,17 +798,26 @@ Replace with:
 Full flow test:
 
 1. Open app → navigate to Mindmap
-2. Open any mindmap → click a node → link panel appears at bottom of canvas
-3. Click "+ Tambah link" → picker modal opens → search "test" → results appear
-4. Click a Note result → modal closes → panel shows note link with preview
-5. Click ↗ on the note link → NoteModal opens → close it
-6. Click "+ Tambah link" again → search → pick a Task → panel shows task link with priority/deadline
-7. Click ↗ on the task link → TaskDetailModal opens → close it
-8. Click ✕ on a link in the panel → link disappears from panel → autosave triggers
-9. Switch to a different mindmap → panel disappears
-10. Switch back → links are still there (persisted via autosave)
-11. Try fullscreen: press browser fullscreen (F11) → panel remains visible at bottom
 
+2. Open any mindmap → click a node → link panel appears at bottom of canvas
+
+3. Click "+ Tambah link" → picker modal opens → search "test" → results appear
+
+4. Click a Note result → modal closes → panel shows note link with preview
+
+5. Click ↗ on the note link → NoteModal opens → close it
+
+6. Click "+ Tambah link" again → search → pick a Task → panel shows task link with priority/deadline
+
+7. Click ↗ on the task link → TaskDetailModal opens → close it
+
+8. Click ✕ on a link in the panel → link disappears from panel → autosave triggers
+
+9. Switch to a different mindmap → panel disappears
+
+10. Switch back → links are still there (persisted via autosave)
+
+11. Try fullscreen: press browser fullscreen (F11) → panel remains visible at bottom
 - [ ] **Step 3: Commit**
 
 ```bash
@@ -805,6 +830,7 @@ git commit -m "feat: wire onTaskClick and tasks props to MindmapPage"
 ## Self-Review
 
 **Spec coverage:**
+
 - ✅ Data model — links in node `data_json` (Task 1–5)
 - ✅ Panel inside iframe — vanilla HTML/CSS (Task 1)
 - ✅ Panel layout — header + link cards + add button (Task 3)
@@ -823,6 +849,7 @@ git commit -m "feat: wire onTaskClick and tasks props to MindmapPage"
 **Placeholder scan:** No TBDs or incomplete steps found.
 
 **Type consistency:**
+
 - `link` object shape `{type, id, title, preview?, priority?, deadline?, status?}` used consistently in Task 3 `renderPanel`, Task 4 `addLink`, Task 6 `handleSelect`, Task 7 `onSelect`
 - `currentNodeData` is the live reference from `findNode(mind.getData().nodeData, ...)` — refreshed on addLink to avoid stale data
 - `findNode` defined in Task 2, used in Tasks 2 and 4

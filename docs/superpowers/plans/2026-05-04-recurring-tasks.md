@@ -23,28 +23,31 @@
 
 ## File Structure
 
-| File | Perubahan |
-|---|---|
-| `repository.py` | Migrasi DB: 4 kolom baru di tasks + tabel recurring_exceptions |
-| `webapp.py` | Pydantic models + 5 endpoint perubahan/baru |
-| `static/index.html` | computeOccurrences helper, TaskFormModal, CalendarView, TodayFocusView, expiry banner |
-| `static/sw.js` | Bump cache version |
-| `test_recurring_api.py` | Manual test script untuk verifikasi endpoint |
+| File                    | Perubahan                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------- |
+| `repository.py`         | Migrasi DB: 4 kolom baru di tasks + tabel recurring_exceptions                        |
+| `webapp.py`             | Pydantic models + 5 endpoint perubahan/baru                                           |
+| `static/index.html`     | computeOccurrences helper, TaskFormModal, CalendarView, TodayFocusView, expiry banner |
+| `static/sw.js`          | Bump cache version                                                                    |
+| `test_recurring_api.py` | Manual test script untuk verifikasi endpoint                                          |
 
 ---
 
 ## Task 1: Migrasi Database
 
 **Files:**
+
 - Modify: `repository.py` (dalam method `_init_db`)
 
 - [ ] **Step 1: Cari posisi migrasi terakhir di `_init_db`**
 
 Buka `repository.py`. Cari blok migrasi tasks terakhir — sekitar baris 240-260 ada:
+
 ```python
 if "parent_id" not in cols:
     conn.execute("ALTER TABLE tasks ADD COLUMN parent_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL")
 ```
+
 Tambahkan SETELAH blok ini.
 
 - [ ] **Step 2: Tambah migrasi 4 kolom baru ke tasks**
@@ -101,7 +104,9 @@ print('recurring_exceptions' in tables)
 conn.close()
 "
 ```
+
 Expected output:
+
 ```
 Migration OK
 True True
@@ -120,6 +125,7 @@ git commit -m "feat: add recurring task columns and recurring_exceptions table"
 ## Task 2: Backend — Pydantic Models + Update Create/Update Task
 
 **Files:**
+
 - Modify: `webapp.py`
 
 - [ ] **Step 1: Tambah field ke `TaskCreate`**
@@ -185,6 +191,7 @@ Cari fungsi `create_task` (sekitar baris 654). Cari blok INSERT INTO tasks dan t
 ```
 
 Kemudian update INSERT INTO tasks untuk menyertakan kolom baru — cari:
+
 ```python
         cur = conn.execute(
             """INSERT INTO tasks
@@ -197,6 +204,7 @@ Kemudian update INSERT INTO tasks untuk menyertakan kolom baru — cari:
 ```
 
 Ganti dengan:
+
 ```python
         cur = conn.execute(
             """INSERT INTO tasks
@@ -282,9 +290,11 @@ print("ALL PASSED")
 ```
 
 Jalankan (pastikan server aktif):
+
 ```bash
 python test_task_recurrence.py
 ```
+
 Expected: `ALL PASSED`
 
 - [ ] **Step 6: Commit**
@@ -299,6 +309,7 @@ git commit -m "feat: add recurrence fields to TaskCreate/TaskUpdate and create/u
 ## Task 3: Backend — 3 Endpoint Baru
 
 **Files:**
+
 - Modify: `webapp.py`
 
 Tambahkan semua endpoint baru ini setelah endpoint `delete_task` (sekitar baris 901). Cari `@app.delete("/api/tasks/{task_id}")`.
@@ -446,9 +457,11 @@ async def _send_tg_message(tg_id: int, text: str):
 - [ ] **Step 4: Tambah import yang dibutuhkan**
 
 Pastikan di atas `webapp.py` ada import `Query` dari fastapi. Cari baris import fastapi:
+
 ```python
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File as FastAPIFile, BackgroundTasks, Query
 ```
+
 Jika `Query` belum ada, tambahkan ke import tersebut.
 
 - [ ] **Step 5: Test 3 endpoint baru**
@@ -502,9 +515,11 @@ print("ALL PASSED")
 ```
 
 Jalankan:
+
 ```bash
 python test_recurring_endpoints.py
 ```
+
 Expected: `ALL PASSED`
 
 - [ ] **Step 6: Commit**
@@ -519,6 +534,7 @@ git commit -m "feat: add recurring task endpoints (mark occurrence, get exceptio
 ## Task 4: Frontend — Helper `computeOccurrences`
 
 **Files:**
+
 - Modify: `static/index.html`
 
 - [ ] **Step 1: Cari posisi yang tepat untuk menambahkan helper**
@@ -593,7 +609,9 @@ print('computeOccurrences in file:', 'computeOccurrences' in v)
 ```bash
 python patch_recurring_helper.py
 ```
+
 Expected:
+
 ```
 computeOccurrences helper: OK
 computeOccurrences in file: True
@@ -611,11 +629,13 @@ git commit -m "feat: add computeOccurrences helper JS function"
 ## Task 5: Frontend — TaskFormModal Recurring Section
 
 **Files:**
+
 - Modify: `static/index.html`
 
 - [ ] **Step 1: Tambah recurrence state ke TaskFormModal**
 
 Di `static/index.html`, cari dalam `function TaskFormModal` state initialization (sekitar baris 2182):
+
 ```javascript
       const [form, setForm] = useState({
         ...
@@ -624,6 +644,7 @@ Di `static/index.html`, cari dalam `function TaskFormModal` state initialization
 ```
 
 Tambahkan SETELAH state `form`:
+
 ```javascript
       const [recurringOn, setRecurringOn] = useState(!!(task?.recurrence_type));
       const [recurForm, setRecurForm] = useState({
@@ -656,6 +677,7 @@ Dan sertakan `...recurrencePayload` dalam payload API.
 Buat `patch_taskform_recurring.py`. Cari bagian form di TaskFormModal yang menampilkan deadline (field deadline ada di UI). Tambahkan recurring section setelah deadline field.
 
 Cari marker yang unik di dalam TaskFormModal — deadline field UI biasanya terlihat sebagai:
+
 ```
 title="Deadline"
 ```
@@ -791,6 +813,7 @@ git commit -m "feat: add recurring section to TaskFormModal"
 ## Task 6: Frontend — CalendarView Update (Virtual Instances)
 
 **Files:**
+
 - Modify: `static/index.html`
 
 - [ ] **Step 1: Tambah state dan fetch exceptions di CalendarView**
@@ -798,11 +821,13 @@ git commit -m "feat: add recurring section to TaskFormModal"
 Cari `function CalendarView({ tasks, onTaskClick })` di `static/index.html`. Di dalam komponen ini, tambahkan state dan fetch setelah `const [holidays, setHolidays] = useState({})`:
 
 Cari pattern ini di dalam CalendarView:
+
 ```javascript
       const [holidays, setHolidays] = useState({});  // { "YYYY-MM-DD": "Nama Libur" }
 ```
 
 Tambahkan setelah baris itu:
+
 ```javascript
       const [recurExceptions, setRecurExceptions] = useState({});  // { "task_id": [{occurrence_date, status}] }
       const [recurPopup, setRecurPopup] = useState(null); // { task, date, x, y }
@@ -811,12 +836,14 @@ Tambahkan setelah baris itu:
 - [ ] **Step 2: Tambah useEffect fetch exceptions saat month/year berubah**
 
 Cari useEffect yang fetch holidays di CalendarView:
+
 ```javascript
       useEffect(() => {
         const cacheKey = `hl2_${year}`;
 ```
 
 Tambahkan useEffect BARU setelah useEffect holidays tersebut:
+
 ```javascript
       useEffect(() => {
         const recurringTasks = tasks.filter(t => t.recurrence_type && t.recurrence_end_date);
@@ -832,6 +859,7 @@ Tambahkan useEffect BARU setelah useEffect holidays tersebut:
 - [ ] **Step 3: Tambah virtual instance ke `byDay` map**
 
 Di CalendarView, cari blok ini:
+
 ```javascript
       const byDay = {};
       tasksWithDeadline.forEach(t => {
@@ -842,6 +870,7 @@ Di CalendarView, cari blok ini:
 ```
 
 Tambahkan setelah blok tersebut:
+
 ```javascript
       // Add virtual recurring instances
       const recurringTasks = tasks.filter(t => t.recurrence_type && t.recurrence_end_date);
@@ -868,6 +897,7 @@ Tambahkan setelah blok tersebut:
 Cari fungsi `chipColor` di CalendarView. Setelah fungsi itu, cari render chip di kalender grid. Cari pola yang render task chips/dots di dalam cell kalender. Biasanya ada map atas `dayTasks`. Tambahkan badge 🔁 untuk task recurring:
 
 Cari pola render chip (bisa berupa span atau div kecil dengan task title). Tambahkan kondisi:
+
 ```javascript
 {t._isRecurring && <span style={{fontSize:9, marginLeft:2}}>🔁</span>}
 ```
@@ -879,6 +909,7 @@ Dan untuk task yang `_occurrenceStatus === 'done'` tambahkan styling redup/strik
 Cari handler `onClick` di cell kalender (biasanya `setSelectedDay(day)`). Saat user klik chip recurring task (bukan reguler), tampilkan `recurPopup` daripada `selectedDay`.
 
 Tambahkan handler di chip recurring:
+
 ```javascript
 onClick={(e) => {
   e.stopPropagation();
@@ -887,6 +918,7 @@ onClick={(e) => {
 ```
 
 Tambahkan popup component di akhir return CalendarView:
+
 ```jsx
 {recurPopup && (
   <div style={{ position: "fixed", inset: 0, zIndex: 200 }} onClick={() => setRecurPopup(null)}>
@@ -933,13 +965,15 @@ Tambahkan popup component di akhir return CalendarView:
 ```
 
 - [ ] **Step 6: Test di browser**
-
 1. Buat recurring task weekly (Sen, Rab, Jum)
-2. Buka halaman Kalender
-3. Pastikan muncul dots dengan badge 🔁 di hari Senin, Rabu, Jumat bulan ini
-4. Klik salah satu dot → popup muncul dengan tombol "✓ Selesai", "— Lewati", "Lihat Task"
-5. Klik "✓ Selesai" → dot berubah jadi redup/✓
 
+2. Buka halaman Kalender
+
+3. Pastikan muncul dots dengan badge 🔁 di hari Senin, Rabu, Jumat bulan ini
+
+4. Klik salah satu dot → popup muncul dengan tombol "✓ Selesai", "— Lewati", "Lihat Task"
+
+5. Klik "✓ Selesai" → dot berubah jadi redup/✓
 - [ ] **Step 7: Commit**
 
 ```bash
@@ -952,6 +986,7 @@ git commit -m "feat: show recurring task virtual instances in CalendarView"
 ## Task 7: Frontend — Today View + Expiry Banner
 
 **Files:**
+
 - Modify: `static/index.html`
 
 - [ ] **Step 1: Tambah recurring occurrences ke TodayFocusView**
@@ -1056,12 +1091,13 @@ Cari area di App JSX dimana navbar/header dirender. Tambahkan banner setelah nav
 ```
 
 - [ ] **Step 4: Test di browser**
-
 1. Buka halaman "Fokus Hari Ini"
-2. Pastikan recurring task yang occurrence hari ini muncul di section "🔁 RECURRING HARI INI"
-3. Klik "✓ Done" → task hilang dari section
-4. Buat task recurring dengan end_date besok (edit langsung di DB jika perlu), reload app → pastikan banner kuning muncul
 
+2. Pastikan recurring task yang occurrence hari ini muncul di section "🔁 RECURRING HARI INI"
+
+3. Klik "✓ Done" → task hilang dari section
+
+4. Buat task recurring dengan end_date besok (edit langsung di DB jika perlu), reload app → pastikan banner kuning muncul
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -1074,15 +1110,19 @@ git commit -m "feat: show recurring tasks in today view and expiry banner in app
 ## Task 8: Bump SW Cache + Final Push
 
 **Files:**
+
 - Modify: `static/sw.js`
 
 - [ ] **Step 1: Bump SW cache version**
 
 Di `static/sw.js`, ubah:
+
 ```javascript
 const CACHE = "taskflow-v30-offline";
 ```
+
 Menjadi:
+
 ```javascript
 const CACHE = "taskflow-v31-recurring";
 ```
@@ -1094,14 +1134,21 @@ cd "Z:\Todolist Manager V5.0"
 python test_recurring_api.py 2>/dev/null || python test_task_recurrence.py
 python test_recurring_endpoints.py
 ```
+
 Semua harus `ALL PASSED`.
 
 Lakukan manual verification di browser:
+
 - [ ] Buat task recurring daily → muncul di calendar setiap hari bulan ini
+
 - [ ] Buat task recurring weekly Sen/Rab/Jum → muncul di hari yang tepat
+
 - [ ] Buat task recurring monthly tgl 15 → muncul di tgl 15
+
 - [ ] Mark occurrence done via calendar popup → dot berubah
+
 - [ ] Recurring task muncul di Today view jika hari ini adalah occurrence
+
 - [ ] Toggle recurring off di form edit → recurrence hilang
 
 - [ ] **Step 3: Commit dan push**

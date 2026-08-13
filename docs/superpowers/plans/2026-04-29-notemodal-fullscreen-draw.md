@@ -12,8 +12,8 @@
 
 ## Files
 
-| File | Action |
-|------|--------|
+| File                | Action                                                      |
+| ------------------- | ----------------------------------------------------------- |
 | `static/index.html` | Modify — semua perubahan di dalam `function NoteModal(...)` |
 
 ---
@@ -21,6 +21,7 @@
 ### Task 1: Tambah state declarations untuk kedua fitur
 
 **Files:**
+
 - Modify: `static/index.html` — state block di awal `NoteModal`
 
 - [ ] **Step 1: Cari akhir state declarations di NoteModal**
@@ -99,6 +100,7 @@ git commit -m "feat: add state declarations for NoteModal textarea fullscreen an
 ### Task 2: Tambah draw canvas useEffects ke NoteModal
 
 **Files:**
+
 - Modify: `static/index.html` — setelah `shareRef` useEffect di NoteModal
 
 - [ ] **Step 1: Cari akhir shareRef useEffect di NoteModal**
@@ -213,6 +215,7 @@ git commit -m "feat: add draw canvas useEffects to NoteModal"
 ### Task 3: Tambah tombol expand di textarea dan canvas JSX ke inner
 
 **Files:**
+
 - Modify: `static/index.html` — `const inner` JSX di NoteModal
 
 - [ ] **Step 1: Cari textarea dan lokasi setelah wikilink/tag dropdowns**
@@ -241,6 +244,7 @@ EOF
 - [ ] **Step 2: Tambah expand button tepat sebelum textarea**
 
 Find the textarea opening. The current pattern before textarea is:
+
 ```
 ) : (
   <textarea
@@ -393,6 +397,7 @@ git commit -m "feat: add textarea expand button and draw canvas JSX to NoteModal
 ### Task 4: Wrap NoteModal return dalam Fragment + textarea fullscreen overlay
 
 **Files:**
+
 - Modify: `static/index.html` — final `return (...)` di NoteModal
 
 - [ ] **Step 1: Cari dan tampilkan return statement NoteModal**
@@ -490,7 +495,7 @@ else:
     final_ret = modal.rfind('return (')
     print('ACTUAL return:')
     print(repr(modal[final_ret:]))
-    
+
 with open('static/index.html', 'w', encoding='utf-8') as f:
     f.write(html)
 EOF
@@ -517,15 +522,22 @@ Expected: semua `True`.
 - [ ] **Step 4: Verify di browser**
 
 Buka app → Notes & Draw → klik "+ Tambah Baru":
-1. Modal muncul normal ✓
-2. Ada tombol `⤢` kecil di pojok kanan atas textarea ✓
-3. Klik `⤢` → textarea fullscreen overlay muncul (full layar, hanya title + textarea) ✓
-4. Klik `✕ Tutup` → kembali ke modal ✓
-5. Canvas section muncul di bawah textarea dalam modal ✓
-6. Canvas menampilkan tldraw iframe (noteId = UUID karena note baru) ✓
-7. Sync status: "Simpan note untuk sync drawing ke server" ✓
-8. Klik `⤢ Expand` di canvas → canvas fullscreen ✓
 
+1. Modal muncul normal ✓
+
+2. Ada tombol `⤢` kecil di pojok kanan atas textarea ✓
+
+3. Klik `⤢` → textarea fullscreen overlay muncul (full layar, hanya title + textarea) ✓
+
+4. Klik `✕ Tutup` → kembali ke modal ✓
+
+5. Canvas section muncul di bawah textarea dalam modal ✓
+
+6. Canvas menampilkan tldraw iframe (noteId = UUID karena note baru) ✓
+
+7. Sync status: "Simpan note untuk sync drawing ke server" ✓
+
+8. Klik `⤢ Expand` di canvas → canvas fullscreen ✓
 - [ ] **Step 5: Commit**
 
 ```bash

@@ -25,9 +25,9 @@ Add a single PWA home screen shortcut to TaskFlow so users can long-press the ap
 
 ### URL Convention
 
-| URL                 | Action                                        |
-| ------------------- | --------------------------------------------- |
-| `/?action=new-task` | Open TaskFormModal (mode defaults to "task")  |
+| URL                 | Action                                       |
+| ------------------- | -------------------------------------------- |
+| `/?action=new-task` | Open TaskFormModal (mode defaults to "task") |
 
 ### Flow
 
@@ -117,6 +117,7 @@ useEffect(() => {
 ### 4. `static/icon-new-task.svg`
 
 Minimal SVG — plus sign on accent-colored background. SVG format:
+
 - Works for all sizes (`sizes: "any"`)
 - No build step needed
 - Renders crisply at any resolution

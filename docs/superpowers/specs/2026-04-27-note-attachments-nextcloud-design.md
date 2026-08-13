@@ -13,6 +13,7 @@
 ## Section 1: Arsitektur & Alur Data
 
 ### Upload
+
 ```
 Browser → POST /api/scratchpad/{note_id}/attachments
         → webapp.py validasi auth + mime type
@@ -23,6 +24,7 @@ Browser → POST /api/scratchpad/{note_id}/attachments
 ```
 
 ### View / Download
+
 ```
 Browser → GET /api/scratchpad/attachments/{id}/view
         → webapp.py cek auth + ownership
@@ -31,11 +33,13 @@ Browser → GET /api/scratchpad/attachments/{id}/view
 ```
 
 ### Offline Behavior
+
 - Saat offline: note teks tetap terbaca dari cache SW
 - Gambar inline tampil broken image + CSS placeholder "File tidak tersedia offline"
 - Service worker tidak diubah — attachment tidak di-cache
 
 ### Konfigurasi `.env`
+
 ```
 NEXTCLOUD_URL=https://cloud.example.com
 NEXTCLOUD_USER=taskflow-bot
@@ -47,9 +51,11 @@ Credentials menggunakan **Nextcloud App Password** (bukan password login utama).
 App Password dibuat di: Nextcloud → Settings → Security → App Passwords.
 
 ### Nextcloud Path Format
+
 ```
 /TaskFlow/attachments/{uuid4}-{original_filename}
 ```
+
 Flat folder, UUID prefix mencegah nama collision.
 
 ---
@@ -57,6 +63,7 @@ Flat folder, UUID prefix mencegah nama collision.
 ## Section 2: Database
 
 ### Tabel baru `note_attachments`
+
 ```sql
 CREATE TABLE IF NOT EXISTS note_attachments (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,14 +80,16 @@ CREATE TABLE IF NOT EXISTS note_attachments (
 Dibuat via auto-migration di `init_db()` (pola yang sudah ada di webapp.py).
 
 ### Endpoint Baru
-| Method | Path | Fungsi |
-|---|---|---|
-| POST | `/api/scratchpad/{note_id}/attachments` | Upload file |
-| GET | `/api/scratchpad/{note_id}/attachments` | List attachments |
-| DELETE | `/api/scratchpad/attachments/{id}` | Hapus dari DB + Nextcloud |
-| GET | `/api/scratchpad/attachments/{id}/view` | Proxy stream ke browser |
+
+| Method | Path                                    | Fungsi                    |
+| ------ | --------------------------------------- | ------------------------- |
+| POST   | `/api/scratchpad/{note_id}/attachments` | Upload file               |
+| GET    | `/api/scratchpad/{note_id}/attachments` | List attachments          |
+| DELETE | `/api/scratchpad/attachments/{id}`      | Hapus dari DB + Nextcloud |
+| GET    | `/api/scratchpad/attachments/{id}/view` | Proxy stream ke browser   |
 
 ### Validasi Server-side
+
 - Mime type diizinkan: `image/png`, `image/jpeg`, `image/webp`, `application/pdf`
 - Max file size: ikut `MAX_FILE_SIZE` dari config (sama dengan task attachments)
 - Ownership check: user hanya bisa akses attachment milik note yang ia punya
@@ -90,9 +99,11 @@ Dibuat via auto-migration di `init_db()` (pola yang sudah ada di webapp.py).
 ## Section 3: Frontend
 
 ### 3.1 Toolbar Upload (NoteModal)
+
 Tambah tombol 📎 di toolbar editor, sejajar dengan tombol bold/italic/dll.
 
 **Flow klik 📎:**
+
 ```
 Note belum tersimpan (baru)?
   → auto-save silent (tanpa tutup modal, note dapat ID)
@@ -127,6 +138,7 @@ marked.js otomatis render `![alt](url)` menjadi `<img>`. Tambah CSS:
 Saat offline, gambar gagal load dan browser tampilkan broken image icon default — ini acceptable. `img::after` tidak bisa dipakai karena `<img>` adalah replaced element (pseudo-element tidak dirender browser).
 
 Untuk handling error yang lebih baik, marked renderer di-override untuk wrap `<img>` dalam `<span>` agar bisa pakai `onerror` handler:
+
 ```javascript
 // di marked.use({ renderer: { ... } })
 image({ href, text }) {
@@ -141,6 +153,7 @@ PDF render sebagai link — klik buka di tab baru.
 Section di bawah konten note, tampil di **NoteModal** dan **NotePanel**. Fetch saat note dibuka.
 
 **Tampilan:**
+
 ```
 ── Attachments (2) ──────────────────────
   🖼  screenshot.png     120 KB   [🗑]
@@ -157,12 +170,12 @@ Section di bawah konten note, tampil di **NoteModal** dan **NotePanel**. Fetch s
 
 ## Keputusan Desain
 
-| Topik | Keputusan |
-|---|---|
-| Storage | Nextcloud self-hosted VPS terpisah (2TB) |
-| Protokol | WebDAV HTTPS |
-| Auth ke Nextcloud | App Password (bukan password login) |
-| File yang diizinkan | PNG, JPG, WebP, PDF |
-| Offline behavior | Attachment tidak di-cache, tampil placeholder |
-| Upload UX | Auto-save silent jika note belum tersimpan |
-| Akses file | Diproxy TaskFlow, Nextcloud tidak perlu akses publik |
+| Topik               | Keputusan                                            |
+| ------------------- | ---------------------------------------------------- |
+| Storage             | Nextcloud self-hosted VPS terpisah (2TB)             |
+| Protokol            | WebDAV HTTPS                                         |
+| Auth ke Nextcloud   | App Password (bukan password login)                  |
+| File yang diizinkan | PNG, JPG, WebP, PDF                                  |
+| Offline behavior    | Attachment tidak di-cache, tampil placeholder        |
+| Upload UX           | Auto-save silent jika note belum tersimpan           |
+| Akses file          | Diproxy TaskFlow, Nextcloud tidak perlu akses publik |
