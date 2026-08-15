@@ -515,6 +515,13 @@
       }
       if (e.data && e.data.type === 'refresh') {
         if (!mind) return;
+        // mind.refresh clears map selection but not our module-level
+        // currentNodeId/currentNodeData — reset like clearPanel so the link
+        // panel never shows a renamed/removed node's old topic.
+        currentNodeId = null;
+        currentNodeData = null;
+        clearTimeout(unselectTimer);
+        hidePanel();
         try { mind.refresh(e.data.data); } catch (_) {}
         setTimeout(updateBadges, 300);
         return;

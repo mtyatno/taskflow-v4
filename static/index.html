@@ -7442,9 +7442,19 @@ function MindmapOutline({ tree, onChange }) {
   const redoRef = useRef([]);
   const treeRef = useRef(tree);
   treeRef.current = tree;
+  const containerRef = useRef(null);
 
   // Hardening (Task 4 review): legacy mindmaps may have data_json without nodeData
   if (!tree || typeof tree !== "object" || tree.id == null) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: { flex: 1, padding: 24, textAlign: "center", color: "var(--text-light)", fontSize: 13 }
+    }, "Mindmap kosong atau rusak");
+  }
+
+  // Hardening (final review): the outline module may have failed to load
+  // (offline / script error). No error boundary above — render a placeholder
+  // instead of crashing the whole app on the first MO.findNode call.
+  if (!MO) {
     return /*#__PURE__*/React.createElement("div", {
       style: { flex: 1, padding: 24, textAlign: "center", color: "var(--text-light)", fontSize: 13 }
     }, "Mindmap kosong atau rusak");
@@ -7457,7 +7467,7 @@ function MindmapOutline({ tree, onChange }) {
     if (undoRef.current.length > 50) undoRef.current.shift();
     redoRef.current = [];
   };
-  const edit = nextRoot => { pushUndo(); onChange(nextRoot); };
+  const edit = nextRoot => { if (!nextRoot || nextRoot === treeRef.current) return; pushUndo(); onChange(nextRoot); };
   const undo = () => {
     if (!undoRef.current.length) return;
     redoRef.current.push(treeRef.current);
@@ -7493,6 +7503,7 @@ function MindmapOutline({ tree, onChange }) {
     if (editingId == null) return;
     const val = editVal.trim();
     setEditingId(null);
+    if (containerRef.current) containerRef.current.focus();
     if (!val) return;
     edit(MO.renameNode(treeRef.current, editingId, val));
   };
@@ -7585,7 +7596,10 @@ function MindmapOutline({ tree, onChange }) {
         onKeyDown: e => {
           e.stopPropagation();
           if (e.key === "Enter") commitRename();
-          if (e.key === "Escape") setEditingId(null);
+          if (e.key === "Escape") {
+            setEditingId(null);
+            if (containerRef.current) containerRef.current.focus();
+          }
         },
         onBlur: commitRename,
         onMouseDown: e => e.stopPropagation(),
@@ -7621,7 +7635,7 @@ function MindmapOutline({ tree, onChange }) {
     const dropMark = dragOver && dragOver.id === n.id ? dragOver.pos : null;
     return /*#__PURE__*/React.createElement("div", {
       key: n.id,
-      onMouseDown: e => { if (editingId !== n.id) setActiveId(n.id); },
+      onMouseDown: e => { if (editingId !== n.id) setActiveId(n.id); if (containerRef.current) containerRef.current.focus(); },
       onDoubleClick: e => { e.stopPropagation(); if (editingId === n.id) return; startRename(n.id); },
       onContextMenu: e => {
         e.preventDefault();
@@ -7716,6 +7730,7 @@ function MindmapOutline({ tree, onChange }) {
   }, label);
 
   return /*#__PURE__*/React.createElement("div", {
+    ref: containerRef,
     tabIndex: 0,
     onKeyDown,
     style: {
@@ -7799,6 +7814,8 @@ function MindmapPage({
   const [currentNodeLinks, setCurrentNodeLinks] = useState([]);
   const [viewMode, setViewMode] = useState("canvas"); // "canvas" | "outline", session-only
   const [outlineTree, setOutlineTree] = useState(null); // full data object {nodeData, arrows?, summaries?, theme?}
+  const outlineTreeRef = useRef(null); // always-current mirror, for load-path closures
+  outlineTreeRef.current = outlineTree;
 
   // Clear debounce timer on unmount
   useEffect(() => {
@@ -7876,9 +7893,13 @@ function MindmapPage({
     const sendLoad = () => {
       if (!data) return;
       try {
+        // Prefer the current outline tree (may hold edits not yet in
+        // selected.data_json); fall back to the freshly parsed data.
+        const tree = outlineTreeRef.current || data;
+        if (!tree) return;
         iframeRef.current?.contentWindow?.postMessage({
           type: "load",
-          data
+          data: tree
         }, window.location.origin);
       } catch (_) {}
     };
@@ -7926,10 +7947,13 @@ function MindmapPage({
       if (e.origin !== window.location.origin) return;
       if (e.data && e.data.type === "ready" && selected) {
         try {
-          const data = JSON.parse(selected.data_json);
+          // Post the current outline tree if available — selected.data_json is
+          // only refreshed on selectMindmap, so it can be stale after outline edits.
+          const tree = outlineTree || JSON.parse(selected.data_json);
+          if (!tree) return;
           iframeRef.current?.contentWindow?.postMessage({
             type: "load",
-            data
+            data: tree
           }, window.location.origin);
         } catch (_) {}
       }
@@ -7963,7 +7987,7 @@ function MindmapPage({
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [selected?.id]);
+  }, [selected?.id, outlineTree]);
 
   const selectMindmap = async m => {
     if (selected?.id === m.id) return;
@@ -8369,7 +8393,17 @@ function MindmapPage({
       flexShrink: 0
     }
   }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => setViewMode("canvas"),
+    onClick: () => {
+      setViewMode("canvas");
+      // While in outline mode the iframe is display:none, so the refresh posted
+      // by outline edits laid out at 0x0. Re-refresh once visible.
+      setTimeout(() => {
+        if (iframeRef.current?.contentWindow && outlineTree) iframeRef.current.contentWindow.postMessage({
+          type: "refresh",
+          data: outlineTree
+        }, window.location.origin);
+      }, 50);
+    },
     title: "Mode canvas",
     style: {
       border: "none",
