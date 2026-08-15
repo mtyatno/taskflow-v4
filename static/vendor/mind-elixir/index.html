@@ -513,6 +513,12 @@
         initMind(e.data.data);
         setTimeout(updateBadges, 300);
       }
+      if (e.data && e.data.type === 'refresh') {
+        if (!mind) return;
+        try { mind.refresh(e.data.data); } catch (_) {}
+        setTimeout(updateBadges, 300);
+        return;
+      }
       if (e.data && e.data.type === 'clearPanel') {
         currentNodeId = null;
         currentNodeData = null;
