@@ -7790,6 +7790,12 @@ function MindmapOutline({ tree, onChange }) {
 }
 
 // ── Mindmap page ──────────────────────────────────────────────
+const MINDMAP_DIRECTIONS = [
+  { value: 0, label: "←", title: "Arah kiri" },
+  { value: 1, label: "→", title: "Arah kanan" },
+  { value: 2, label: "⇄", title: "Dua arah" },
+  { value: 3, label: "↓", title: "Org chart (atas ke bawah)" }
+];
 function MindmapPage({
   showToast,
   onTaskClick,
@@ -7819,6 +7825,7 @@ function MindmapPage({
   const [currentNodeLinks, setCurrentNodeLinks] = useState([]);
   const [viewMode, setViewMode] = useState("canvas"); // "canvas" | "outline", session-only
   const [outlineTree, setOutlineTree] = useState(null); // full data object {nodeData, arrows?, summaries?, theme?}
+  const [direction, setDirection] = useState(2); // 0=LEFT 1=RIGHT 2=SIDE 3=DOWN (org chart), per-mindmap via data_json.direction
   const outlineTreeRef = useRef(null); // always-current mirror, for load-path closures
   outlineTreeRef.current = outlineTree;
 
@@ -7873,6 +7880,7 @@ function MindmapPage({
   // fire 'operation', so no 'change' comes back — no echo loop.
   const handleOutlineEdit = nextNodeData => {
     if (!selected || !outlineTree) return;
+    if (nextNodeData) nextNodeData.root = true;
     const next = { ...outlineTree, nodeData: nextNodeData };
     setOutlineTree(next);
     scheduleSave(selected.id, JSON.stringify(next));
@@ -7894,7 +7902,9 @@ function MindmapPage({
     setRenaming(false);
     let data = null;
     try { data = JSON.parse(selected.data_json); } catch (_) {}
+    if (data && data.nodeData) data.nodeData.root = true; // 5.x serialization may drop the root flag — outline helpers depend on it
     setOutlineTree(data);
+    setDirection(data && typeof data.direction === "number" ? data.direction : 2);
     const sendLoad = () => {
       if (!data) return;
       try {
@@ -7986,8 +7996,11 @@ function MindmapPage({
         setShowLinkPicker(true);
       }
       if (e.data && e.data.type === "change" && selected) {
-        setOutlineTree(e.data.data);
-        scheduleSave(selected.id, JSON.stringify(e.data.data));
+        const data = e.data.data;
+        if (data && data.nodeData) data.nodeData.root = true;
+        setOutlineTree(data);
+        if (data && typeof data.direction === "number") setDirection(data.direction);
+        scheduleSave(selected.id, JSON.stringify(data));
       }
     };
     window.addEventListener("message", handler);
@@ -8400,12 +8413,13 @@ function MindmapPage({
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       setViewMode("canvas");
-      // While in outline mode the iframe is display:none, so the refresh posted
-      // by outline edits laid out at 0x0. Re-refresh once visible.
+      // While in outline mode the iframe is display:none, so outline-edit
+      // refreshes laid out at 0x0. Re-apply the direction once visible — the
+      // engine's init*() re-layouts and re-centers the canvas.
       setTimeout(() => {
-        if (iframeRef.current?.contentWindow && outlineTree) iframeRef.current.contentWindow.postMessage({
-          type: "refresh",
-          data: outlineTree
+        if (iframeRef.current?.contentWindow && selected) iframeRef.current.contentWindow.postMessage({
+          type: "setDirection",
+          direction
         }, window.location.origin);
       }, 50);
     },
@@ -8433,7 +8447,37 @@ function MindmapPage({
       fontWeight: 600,
       cursor: "pointer"
     }
-  }, "📝 Outline")), /*#__PURE__*/React.createElement("button", {
+  }, "📝 Outline")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 2,
+      background: "var(--bg-primary)",
+      borderRadius: 8,
+      padding: 2,
+      flexShrink: 0
+    }
+  }, MINDMAP_DIRECTIONS.map(d => /*#__PURE__*/React.createElement("button", {
+    key: d.value,
+    onClick: () => {
+      setDirection(d.value);
+      iframeRef.current?.contentWindow?.postMessage({
+        type: "setDirection",
+        direction: d.value
+      }, window.location.origin);
+    },
+    title: d.title,
+    style: {
+      border: "none",
+      background: direction === d.value ? "var(--accent)" : "transparent",
+      color: direction === d.value ? "#000" : "var(--text-light)",
+      borderRadius: 6,
+      padding: "3px 8px",
+      fontSize: 13,
+      fontWeight: 600,
+      cursor: "pointer"
+    }
+  }, d.label))), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
     onClick: () => {
       setRenaming(true);
