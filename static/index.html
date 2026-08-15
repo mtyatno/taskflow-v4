@@ -7443,6 +7443,7 @@ function MindmapOutline({ tree, onChange }) {
   const treeRef = useRef(tree);
   treeRef.current = tree;
   const containerRef = useRef(null);
+  const editingIdRef = useRef(null); // mirrors editingId for re-entrancy-safe commit/cancel (focus->blur race)
 
   // Hardening (Task 4 review): legacy mindmaps may have data_json without nodeData
   if (!tree || typeof tree !== "object" || tree.id == null) {
@@ -7500,16 +7501,19 @@ function MindmapOutline({ tree, onChange }) {
   const visibleIds = () => rows.map(r => r.n.id);
 
   const commitRename = () => {
-    if (editingId == null) return;
+    if (editingIdRef.current == null) return; // re-entrant blur call (after focus below) returns here
+    const id = editingIdRef.current;
     const val = editVal.trim();
+    editingIdRef.current = null;
     setEditingId(null);
     if (containerRef.current) containerRef.current.focus();
     if (!val) return;
-    edit(MO.renameNode(treeRef.current, editingId, val));
+    edit(MO.renameNode(treeRef.current, id, val));
   };
   const startRename = id => {
     const f = find(id);
     if (!f || !f.node) return;
+    editingIdRef.current = id;
     setEditingId(id);
     setEditVal(f.node.topic);
   };
@@ -7597,6 +7601,7 @@ function MindmapOutline({ tree, onChange }) {
           e.stopPropagation();
           if (e.key === "Enter") commitRename();
           if (e.key === "Escape") {
+            editingIdRef.current = null; // clear before focus() so the sync blur can't commit
             setEditingId(null);
             if (containerRef.current) containerRef.current.focus();
           }
