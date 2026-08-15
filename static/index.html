@@ -7545,6 +7545,8 @@ function MindmapOutline({ tree, onChange }) {
 
   const onKeyDown = e => {
     if (editingId != null) return; // inline input handles its own keys
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "BUTTON")) return;
     const ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
     if (ctrl && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
@@ -7620,7 +7622,7 @@ function MindmapOutline({ tree, onChange }) {
     return /*#__PURE__*/React.createElement("div", {
       key: n.id,
       onMouseDown: e => { if (editingId !== n.id) setActiveId(n.id); },
-      onDoubleClick: e => { e.stopPropagation(); startRename(n.id); },
+      onDoubleClick: e => { e.stopPropagation(); if (editingId === n.id) return; startRename(n.id); },
       onContextMenu: e => {
         e.preventDefault();
         e.stopPropagation();
