@@ -7421,6 +7421,22 @@ function LinkPickerModal({
   }, item.priority))))));
 }
 
+// ── Mindmap Outline (minimal scaffold — full component in Task 5) ──
+  // uses: React
+function MindmapOutline({ tree, onChange }) {
+  const rows = [];
+  (function walk(n, depth) {
+    rows.push({ n, depth });
+    (n.children || []).forEach(c => walk(c, depth + 1));
+  })(tree, 0);
+  return /*#__PURE__*/React.createElement("div", {
+    style: { padding: 12, overflowY: "auto", flex: 1 }
+  }, rows.map(r => /*#__PURE__*/React.createElement("div", {
+    key: r.n.id,
+    style: { padding: "4px 0 4px " + r.depth * 18 + "px", fontSize: 13 }
+  }, r.n.topic)));
+}
+
 // ── Mindmap page ──────────────────────────────────────────────
 function MindmapPage({
   showToast,
@@ -7449,6 +7465,8 @@ function MindmapPage({
   const [showLinkPicker, setShowLinkPicker] = useState(false);
   const [pickerNodeId, setPickerNodeId] = useState(null);
   const [currentNodeLinks, setCurrentNodeLinks] = useState([]);
+  const [viewMode, setViewMode] = useState("canvas"); // "canvas" | "outline", session-only
+  const [outlineTree, setOutlineTree] = useState(null); // full data object {nodeData, arrows?, summaries?, theme?}
 
   // Clear debounce timer on unmount
   useEffect(() => {
@@ -7484,17 +7502,48 @@ function MindmapPage({
     localStorage.setItem("tf_mindmap_sidebar", sidebarOpen ? "open" : "collapsed");
   }, [sidebarOpen]);
 
+  // Debounced persist shared by canvas changes and outline edits.
+  const scheduleSave = (mid, dataStr) => {
+    setSyncStatus("saving");
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      api.put(`/api/mindmaps/${mid}`, {
+        data_json: dataStr
+      }).then(() => setSyncStatus("saved"))
+        .catch(() => setSyncStatus("offline"));
+    }, 1000);
+  };
+
+  // Outline edit: update local tree, persist, and re-render the (hidden or
+  // visible) canvas via the iframe 'refresh' message. mind.refresh does not
+  // fire 'operation', so no 'change' comes back — no echo loop.
+  const handleOutlineEdit = nextNodeData => {
+    if (!selected || !outlineTree) return;
+    const next = { ...outlineTree, nodeData: nextNodeData };
+    setOutlineTree(next);
+    scheduleSave(selected.id, JSON.stringify(next));
+    iframeRef.current?.contentWindow?.postMessage({
+      type: "refresh",
+      data: next
+    }, window.location.origin);
+  };
+
   // Send data to iframe when selected mindmap changes
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) {
+      setOutlineTree(null);
+      return;
+    }
     clearTimeout(saveTimerRef.current);
     setSyncStatus("saved");
     setDeleteConfirm(false);
     setRenaming(false);
-    const dataStr = selected.data_json;
+    let data = null;
+    try { data = JSON.parse(selected.data_json); } catch (_) {}
+    setOutlineTree(data);
     const sendLoad = () => {
+      if (!data) return;
       try {
-        const data = JSON.parse(dataStr);
         iframeRef.current?.contentWindow?.postMessage({
           type: "load",
           data
@@ -7576,16 +7625,8 @@ function MindmapPage({
         setShowLinkPicker(true);
       }
       if (e.data && e.data.type === "change" && selected) {
-        const dataStr = JSON.stringify(e.data.data);
-        const mid = selected.id;
-        setSyncStatus("saving");
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = setTimeout(() => {
-          api.put(`/api/mindmaps/${mid}`, {
-            data_json: dataStr
-          }).then(() => setSyncStatus("saved"))
-            .catch(() => setSyncStatus("offline"));
-        }, 1000);
+        setOutlineTree(e.data.data);
+        scheduleSave(selected.id, JSON.stringify(e.data.data));
       }
     };
     window.addEventListener("message", handler);
@@ -7985,7 +8026,43 @@ function MindmapPage({
       color: syncStatus === "offline" ? "#ef4444" : "var(--text-light)",
       flexShrink: 0
     }
-  }, syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : "Tersimpan"), /*#__PURE__*/React.createElement("button", {
+  }, syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : "Tersimpan"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 2,
+      background: "var(--bg-primary)",
+      borderRadius: 8,
+      padding: 2,
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setViewMode("canvas"),
+    title: "Mode canvas",
+    style: {
+      border: "none",
+      background: viewMode === "canvas" ? "var(--accent)" : "transparent",
+      color: viewMode === "canvas" ? "#000" : "var(--text-light)",
+      borderRadius: 6,
+      padding: "3px 10px",
+      fontSize: 11,
+      fontWeight: 600,
+      cursor: "pointer"
+    }
+  }, "🧠 Canvas"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setViewMode("outline"),
+    title: "Mode outline",
+    style: {
+      border: "none",
+      background: viewMode === "outline" ? "var(--accent)" : "transparent",
+      color: viewMode === "outline" ? "#000" : "var(--text-light)",
+      borderRadius: 6,
+      padding: "3px 10px",
+      fontSize: 11,
+      fontWeight: 600,
+      cursor: "pointer"
+    }
+  }, "📝 Outline")), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
     onClick: () => {
       setRenaming(true);
@@ -8121,7 +8198,15 @@ function MindmapPage({
     style: {
       marginTop: 4
     }
-  }, "+ Buat Mindmap Pertama")) : /*#__PURE__*/React.createElement("iframe", {
+  }, "+ Buat Mindmap Pertama")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: viewMode === "canvas" ? "flex" : "none",
+      flexDirection: "column",
+      overflow: "hidden",
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
     src: "/static/vendor/mind-elixir/index.html?v=119",
@@ -8131,7 +8216,20 @@ function MindmapPage({
       width: "100%"
     },
     title: "Mindmap editor"
-  })), showLinkPicker && /*#__PURE__*/React.createElement(LinkPickerModal, {
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: viewMode === "outline" ? "flex" : "none",
+      flexDirection: "column",
+      overflow: "hidden",
+      minWidth: 0,
+      background: "var(--bg-card)"
+    }
+  }, outlineTree && selected ? /*#__PURE__*/React.createElement(MindmapOutline, {
+    key: selected.id,
+    tree: outlineTree.nodeData,
+    onChange: handleOutlineEdit
+  }) : null))), showLinkPicker && /*#__PURE__*/React.createElement(LinkPickerModal, {
     existingLinks: currentNodeLinks,
     onSelect: link => {
       iframeRef.current?.contentWindow?.postMessage({
