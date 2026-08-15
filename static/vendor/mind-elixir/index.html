@@ -439,10 +439,9 @@
 
       mind.init(data);
       setTimeout(updateBadges, 300);
-      mind.bus.addListener('selectNodes', (nodes) => {
+      mind.bus.addListener('selectNewNode', (node) => {
         clearTimeout(unselectTimer);
-        if (!nodes || nodes.length === 0) return;
-        const node = nodes[0];
+        if (!node) return;
         currentNodeId = node.id;
         currentNodeData = node; // live reference to internal nodeObj — not a getData() copy
         renderPanel(node.topic, node.links || []);
@@ -453,7 +452,9 @@
         );
       });
 
-      mind.bus.addListener('unselectNodes', () => {
+      const origUnselectNodes = mind.unselectNodes.bind(mind);
+      mind.unselectNodes = els => {
+        try { origUnselectNodes(els); } catch (_) {}
         unselectTimer = setTimeout(() => {
           currentNodeId = null;
           currentNodeData = null;
@@ -461,7 +462,7 @@
           document.getElementById('node-toolbar').style.display = 'none';
           window.parent.postMessage({ type: 'nodeDeselected' }, window.location.origin);
         }, 50);
-      });
+      };
 
       // Node toolbar button handlers
       document.getElementById('ntb-child').onclick = () => { if (mind.currentNodes) mind.addChild(); };
@@ -512,6 +513,13 @@
         clearTimeout(unselectTimer);
         initMind(e.data.data);
         setTimeout(updateBadges, 300);
+        const d = (e.data.data && typeof e.data.data.direction === 'number') ? e.data.data.direction : 2;
+        try {
+          if (d === 0) mind.initLeft();
+          else if (d === 1) mind.initRight();
+          else if (d === 3) mind.initDown();
+          else mind.initSide();
+        } catch (_) {}
       }
       if (e.data && e.data.type === 'refresh') {
         if (!mind) return;
@@ -525,6 +533,20 @@
         try { mind.refresh(e.data.data); } catch (_) {}
         setTimeout(updateBadges, 300);
         return;
+      }
+      if (e.data && e.data.type === 'setDirection') {
+        if (!mind) return;
+        try {
+          const changed = mind.direction !== e.data.direction;
+          if (e.data.direction === 0) mind.initLeft();
+          else if (e.data.direction === 1) mind.initRight();
+          else if (e.data.direction === 2) mind.initSide();
+          else if (e.data.direction === 3) mind.initDown();
+          else return;
+          if (changed) {
+            window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+          }
+        } catch (_) {}
       }
       if (e.data && e.data.type === 'clearPanel') {
         currentNodeId = null;
