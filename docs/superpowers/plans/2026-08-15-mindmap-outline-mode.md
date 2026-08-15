@@ -390,8 +390,6 @@ Create `static/offline/mindmapoutline.js`:
     return updateNode(root, f.parent.id, (p) => ({ ...p, children }));
   }
 
-  const isAncestor = (root, id, ofId) => ancestorsOf(root, ofId).indexOf(id) !== -1;
-
   function moveSibling(root, id, targetId, pos) {
     if (id === targetId) return root;
     if (ancestorsOf(root, targetId).indexOf(id) !== -1) return root;
@@ -414,7 +412,7 @@ Create `static/offline/mindmapoutline.js`:
     const src = findNode(root, id);
     if (!src || !src.node || src.node.root) return root;
     const tgt = findNode(root, targetId);
-    if (!tgt || !tgt.node) return root;
+    if (!tgt || !tgt.node || tgt.node.root) return root;
     const without = deleteNode(root, id);
     return updateNode(without, targetId, (p) => ({
       ...p,
@@ -443,7 +441,7 @@ Create `static/offline/mindmapoutline.js`:
     if (!parentOfParent) return root; // top-level child
     const without = deleteNode(root, id);
     const pp = findNode(without, parentOfParent.id);
-    const idx = pp.children.findIndex((c) => c.id === f.parent.id) + 1;
+    const idx = pp.node.children.findIndex((c) => c.id === f.parent.id) + 1;
     return updateNode(without, parentOfParent.id, (p) => ({
       ...p,
       children: [...p.children.slice(0, idx), f.node, ...p.children.slice(idx)],
