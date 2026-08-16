@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v224-mindmap-md-nop";
+const CACHE = "taskflow-v225-mindmap-sidebar-theme";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
