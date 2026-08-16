@@ -7663,6 +7663,9 @@ function MindmapOutline({ tree, onChange }) {
       width: 12, flexShrink: 0, textAlign: "center",
       color: "var(--border)", fontFamily: "monospace", fontSize: 12,
       alignSelf: "stretch", display: "flex", alignItems: "center", justifyContent: "center",
+      // rows have 4px vertical padding; stretch only covers the content box,
+      // so extend into the padding zones to keep the vertical line continuous
+      margin: "-4px 0",
       userSelect: "none"
     };
     const branchStyle = {
