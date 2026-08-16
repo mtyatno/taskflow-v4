@@ -70,6 +70,94 @@ fn share_debug(app: tauri::AppHandle) -> String {
         .join("\n")
 }
 
+// ── Native speech dictation bridge (Android) ──────────────────────
+// The APK's SpeechBridge.kt polls `speech_cmd.json` in the app's private
+// filesDir and appends results to `speech_events`. The exact mapping of
+// Tauri's path API to Context.filesDir is not guaranteed (same lesson as
+// pending_share.json), so commands write to / read from every existing
+// candidate directory — one of them is guaranteed to be filesDir.
+
+fn candidate_speech_dirs(app: &tauri::AppHandle) -> Vec<std::path::PathBuf> {
+    let p = app.path();
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    let mut push = |dirs: &mut Vec<std::path::PathBuf>, d: std::path::PathBuf| {
+        if d.exists() && !dirs.contains(&d) {
+            dirs.push(d);
+        }
+    };
+    for base in [
+        p.app_local_data_dir().ok(),
+        p.app_data_dir().ok(),
+        p.app_config_dir().ok(),
+        p.app_cache_dir().ok(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        push(&mut dirs, base.clone());
+        push(&mut dirs, base.join("files"));
+        if let Some(parent) = base.parent() {
+            push(&mut dirs, parent.to_path_buf());
+            push(&mut dirs, parent.join("files"));
+        }
+    }
+    dirs
+}
+
+#[tauri::command]
+fn speech_cmd(app: tauri::AppHandle, cmd: String) -> Result<(), String> {
+    let mut wrote = 0usize;
+    for dir in candidate_speech_dirs(&app) {
+        // Atomic write (coordinator resolution): Kotlin polls-and-parses this
+        // file, so a partial write would make it retry-log every 250 ms.
+        // Write to a temp sibling first, then rename over the real path.
+        let path = dir.join("speech_cmd.json");
+        let tmp = dir.join("speech_cmd.json.tmp");
+        if fs::write(&tmp, &cmd).is_ok() && fs::rename(&tmp, &path).is_ok() {
+            wrote += 1;
+        } else {
+            let _ = fs::remove_file(&tmp);
+        }
+    }
+    if wrote == 0 {
+        return Err("filesDir tidak ditemukan".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn read_speech_events(app: tauri::AppHandle) -> String {
+    let mut out = String::new();
+    for dir in candidate_speech_dirs(&app) {
+        let path = dir.join("speech_events");
+        if path.exists() {
+            if let Ok(data) = fs::read_to_string(&path) {
+                out.push_str(&data);
+            }
+            // Truncate-by-delete: Kotlin's appendText recreates the file on
+            // the next event (tiny race window, accepted in the spec).
+            let _ = fs::remove_file(&path);
+        }
+    }
+    out
+}
+
+#[tauri::command]
+fn speech_debug(app: tauri::AppHandle) -> String {
+    candidate_speech_dirs(&app)
+        .into_iter()
+        .map(|d| {
+            format!(
+                "{} : events={} cmd={}",
+                d.display(),
+                if d.join("speech_events").exists() { "EXISTS" } else { "-" },
+                if d.join("speech_cmd.json").exists() { "EXISTS" } else { "-" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 // ── Token persistence (native filesystem) ──────────────────────
 // Android WebView localStorage is not guaranteed to survive phone
 // restarts — the OS may clear WebView caches.  The auth JWT is
@@ -126,7 +214,7 @@ fn delete_token(app: tauri::AppHandle) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_pending_share, share_debug, save_token, get_token, delete_token])
+        .invoke_handler(tauri::generate_handler![get_pending_share, share_debug, save_token, get_token, delete_token, speech_cmd, read_speech_events, speech_debug])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
