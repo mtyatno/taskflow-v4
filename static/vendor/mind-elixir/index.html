@@ -503,6 +503,10 @@
             <button class="lp-tab" data-tab="tasks">Tasks</button>
           </div>
           <div id="lp-picker-results"><p class="lp-picker-hint">Ketik untuk mencari...</p></div>
+          <div id="lp-picker-create" style="display:flex; gap:6px; flex-shrink:0;">
+            <button id="lp-create-note" class="lp-add-btn" style="flex:1;">➕ Note: <span id="lp-create-note-q"></span></button>
+            <button id="lp-create-task" class="lp-add-btn" style="flex:1;">➕ Task: <span id="lp-create-task-q"></span></button>
+          </div>
         </div>`;
 
       document.getElementById('app').appendChild(overlay);
@@ -559,6 +563,7 @@
 
       input.oninput = () => {
         clearTimeout(debounceTimer);
+        updateCreateBtns();
         const q = input.value.trim();
         if (!q) { searchResults = null; renderResults(); return; }
         resultsEl.innerHTML = '<p class="lp-picker-hint">Mencari...</p>';
@@ -571,6 +576,48 @@
             .catch(() => { resultsEl.innerHTML = '<p class="lp-picker-hint">Gagal mencari</p>'; });
         }, 300);
       };
+
+      const createQ = () => input.value.trim();
+      const updateCreateBtns = () => {
+        const q = createQ();
+        document.getElementById('lp-create-note-q').textContent = q;
+        document.getElementById('lp-create-task-q').textContent = q;
+        const disabled = !q;
+        document.getElementById('lp-create-note').style.opacity = disabled ? '0.5' : '1';
+        document.getElementById('lp-create-task').style.opacity = disabled ? '0.5' : '1';
+        document.getElementById('lp-create-note').style.pointerEvents = disabled ? 'none' : 'auto';
+        document.getElementById('lp-create-task').style.pointerEvents = disabled ? 'none' : 'auto';
+      };
+      updateCreateBtns();
+
+      async function createAndLink(type) {
+        const q = createQ();
+        if (!q) return;
+        const hints = document.getElementById('lp-picker-results');
+        hints.innerHTML = '<p class="lp-picker-hint">Membuat...</p>';
+        try {
+          const r = await fetch(type === 'note' ? '/api/scratchpad' : '/api/tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': 'Bearer ' + token } : {}) },
+            body: JSON.stringify({ title: q })
+          });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          const created = await r.json();
+          const link = type === 'note'
+            ? { type: 'note', id: created.id, title: created.title || q, preview: '' }
+            : { type: 'task', id: created.id, title: created.title || q, priority: created.priority, deadline: created.deadline, status: created.gtd_status };
+          if (!currentNodeData.links) currentNodeData.links = [];
+          currentNodeData.links.push(link);
+          renderPanel(currentNodeData.topic, currentNodeData.links);
+          updateBadges();
+          window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+          overlay.remove();
+        } catch (_) {
+          hints.innerHTML = '<p class="lp-picker-hint">Gagal membuat — coba lagi</p>';
+        }
+      }
+      document.getElementById('lp-create-note').onclick = () => createAndLink('note');
+      document.getElementById('lp-create-task').onclick = () => createAndLink('task');
     }
 
     function updateBadges() {
