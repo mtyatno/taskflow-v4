@@ -590,7 +590,16 @@
           (function walk(node) {
             if (found) return;
             if (node === targetNode) {
-              if (node.nodeType === 3) total += targetOffset;
+              if (node.nodeType === 3) {
+                total += targetOffset;
+              } else {
+                // element anchor (produced by setEditCaret at line starts):
+                // count children before the offset with text/br semantics
+                for (let ci = 0; ci < targetOffset && ci < node.childNodes.length; ci++) {
+                  const ch = node.childNodes[ci];
+                  total += ch.nodeName === 'BR' ? 1 : ch.textContent.length;
+                }
+              }
               found = true;
               return;
             }
