@@ -617,7 +617,8 @@
       }
 
       document.querySelectorAll('#fmt-toolbar button').forEach(btn => {
-        btn.onclick = () => {
+        btn.onmousedown = e => {
+          e.preventDefault(); // keep focus in #input-box (mousedown would blur and the engine removes the box before click fires)
           if (btn.dataset.act === 'align') {
             if (!currentNodeData) return;
             currentNodeData.align = btn.dataset.align;
