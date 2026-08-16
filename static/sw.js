@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v231-mindmap-header-chips";
+const CACHE = "taskflow-v232-native-voice";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
