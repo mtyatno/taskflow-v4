@@ -11,6 +11,31 @@
     #app { display: flex; flex-direction: column; height: 100%; }
     #map { flex: 1; min-height: 0; overflow: hidden; }
 
+    #fmt-toolbar {
+      display: none;
+      flex-shrink: 0;
+      border-bottom: 2px solid #6c7ae0;
+      background: #12122a;
+      padding: 4px 12px;
+      font-family: system-ui, sans-serif;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      flex-wrap: wrap;
+    }
+    #fmt-toolbar button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      border-radius: 20px;
+      padding: 3px 9px;
+      color: #ccc;
+      font-size: 13px;
+      -webkit-tap-highlight-color: transparent;
+      min-width: 28px;
+    }
+    #fmt-toolbar button:hover, #fmt-toolbar button:active { background: rgba(108,122,224,0.18); }
+    #fmt-toolbar .sep { width: 1px; height: 20px; background: #3a3a6a; margin: 0 4px; }
     #node-toolbar {
       display: none;
       flex-shrink: 0;
@@ -180,12 +205,40 @@
       z-index: 10;
     }
 
+    .map-container .text ul, .map-container .text ol { margin: 3px 0 3px 18px; padding: 0; }
+    .map-container .text li { margin: 1px 0; }
+    .map-container .text table { border-collapse: collapse; margin: 4px 0; font-size: 0.92em; }
+    .map-container .text th, .map-container .text td { border: 1px solid #3a3a6a; padding: 2px 6px; }
+    .map-container .text hr { border: none; border-top: 1px solid #3a3a6a; margin: 5px 0; }
+    .map-container .text code { background: #1e1e38; border: 1px solid #3a3a6a; border-radius: 3px; padding: 0 4px; font-size: 0.9em; }
+    .map-container .text a { color: #6c7ae0; }
+
 
 
   </style>
 </head>
 <body>
   <div id="app">
+    <div id="fmt-toolbar">
+      <button data-act="bold" title="Bold (tebal)"><b>B</b></button>
+      <button data-act="italic" title="Italic (miring)"><i>I</i></button>
+      <button data-act="underline" title="Underline (garis bawah)"><u>U</u></button>
+      <button data-act="strike" title="Coret"><s>S</s></button>
+      <button data-act="highlight" title="Highlight">✨</button>
+      <button data-act="heading" title="Heading">H</button>
+      <button data-act="code" title="Inline code">&lt;/&gt;</button>
+      <button data-act="link" title="Link">🔗</button>
+      <button data-act="table" title="Tabel">⊞</button>
+      <div class="sep"></div>
+      <button data-act="ul" title="List •">•</button>
+      <button data-act="ol" title="List angka">1.</button>
+      <button data-act="hr" title="Garis pemisah">─</button>
+      <div class="sep"></div>
+      <button data-act="align" data-align="left" title="Rata kiri">L</button>
+      <button data-act="align" data-align="center" title="Tengah">C</button>
+      <button data-act="align" data-align="right" title="Rata kanan">R</button>
+      <button data-act="align" data-align="justify" title="Rata penuh">J</button>
+    </div>
     <div id="node-toolbar">
       <button id="ntb-child" title="Tambah Child (Tab)">↳<span class="lbl">Child</span></button>
       <button id="ntb-sibling" title="Tambah Sibling (Enter)">↵<span class="lbl">Sibling</span></button>
@@ -205,6 +258,8 @@
     </div>
   </div>
   <script src="MindElixir.iife.js?v=120"></script>
+  <script src="/static/vendor/marked.min.js"></script>
+  <script src="/static/offline/mindmapoutline.js"></script>
   <script>
     let mind = null;
 
@@ -399,23 +454,24 @@
 
     function updateBadges() {
       document.querySelectorAll('.node-link-badge').forEach(el => el.remove());
-      function addBadge(nodeData) {
-        const count = (nodeData.links || []).length;
-        if (count > 0) {
-          const allTopics = document.querySelectorAll('me-tpc');
-          allTopics.forEach(el => {
-            if (el.nodeObj && el.nodeObj.id === nodeData.id) {
+      function apply(nodeData) {
+        const allTopics = document.querySelectorAll('me-tpc');
+        allTopics.forEach(el => {
+          if (el.nodeObj && el.nodeObj.id === nodeData.id) {
+            el.style.textAlign = nodeData.align || '';
+            const count = (nodeData.links || []).length;
+            if (count > 0) {
               el.style.position = 'relative';
               const badge = document.createElement('span');
               badge.className = 'node-link-badge';
               badge.textContent = count;
               el.appendChild(badge);
             }
-          });
-        }
-        (nodeData.children || []).forEach(addBadge);
+          }
+        });
+        (nodeData.children || []).forEach(apply);
       }
-      addBadge(mind.getData().nodeData);
+      apply(mind.getData().nodeData);
     }
 
     function initMind(data) {
@@ -432,6 +488,9 @@
         contextMenu: true,
         toolBar: true,
         keypress: true,
+        markdown: (topic) => (window.TF && window.TF.mindmapoutline && window.TF.mindmapoutline.renderTopicMd)
+          ? window.TF.mindmapoutline.renderTopicMd(topic)
+          : topic,
       });
       // Redirect fullscreen from #map to #app so #link-panel stays visible
       const mapEl = document.getElementById('map');
@@ -503,6 +562,80 @@
         if (confirm('Hapus node ini?')) mind.removeNodes(mind.currentNodes);
       };
 
+      // ── Formatting toolbar ──────────────────────────────────────
+      const FMT_ACTIONS = {
+        bold:      (t, s, e) => window.TF.mindmapoutline.wrapSelection(t, s, e, "**", "**", "teks"),
+        italic:    (t, s, e) => window.TF.mindmapoutline.wrapSelection(t, s, e, "*", "*", "teks"),
+        underline: (t, s, e) => window.TF.mindmapoutline.wrapSelection(t, s, e, "<u>", "</u>", "teks"),
+        strike:    (t, s, e) => window.TF.mindmapoutline.wrapSelection(t, s, e, "~~", "~~", "teks"),
+        highlight: (t, s, e) => window.TF.mindmapoutline.wrapSelection(t, s, e, "__", "__", "sorot"),
+        heading:   (t, s, e) => window.TF.mindmapoutline.prefixLines(t, s, e, "# ", false),
+        code:      (t, s, e) => window.TF.mindmapoutline.wrapSelection(t, s, e, "`", "`", "kode"),
+        link:      (t, s, e) => window.TF.mindmapoutline.wrapSelection(t, s, e, "[", "](https://)", "teks"),
+        table:     (t, s, e) => window.TF.mindmapoutline.insertBlock(t, s, e, "| Kolom 1 | Kolom 2 | Kolom 3 |\n| --- | --- | --- |\n| isi | isi | isi |"),
+        ul:        (t, s, e) => window.TF.mindmapoutline.prefixLines(t, s, e, "- ", false),
+        ol:        (t, s, e) => window.TF.mindmapoutline.prefixLines(t, s, e, "", true),
+        hr:        (t, s, e) => window.TF.mindmapoutline.insertBlock(t, s, e, "---"),
+      };
+
+      function getEditSelection() {
+        const box = document.getElementById('input-box');
+        if (!box) return null;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || !box.contains(sel.anchorNode)) return { box, s: box.textContent.length, e: box.textContent.length };
+        const range = document.createRange();
+        range.selectNodeContents(box);
+        range.setEnd(sel.anchorNode, sel.anchorOffset);
+        const a = range.toString().length;
+        range.selectNodeContents(box);
+        range.setEnd(sel.focusNode, sel.focusOffset);
+        const b = range.toString().length;
+        return { box, s: Math.min(a, b), e: Math.max(a, b) };
+      }
+
+      function setEditCaret(box, start, end) {
+        const sel = window.getSelection();
+        const range = document.createRange();
+        let pos = 0, startNode = null, startOff = 0, endNode = null, endOff = 0;
+        (function walk(node) {
+          if (endNode != null) return;
+          if (node.nodeType === 3) {
+            const len = node.textContent.length;
+            if (startNode == null && pos + len >= start) { startNode = node; startOff = start - pos; }
+            if (pos + len >= end) { endNode = node; endOff = end - pos; }
+            pos += len;
+          } else {
+            for (const ch of node.childNodes) { if (endNode != null) break; walk(ch); }
+          }
+        })(box);
+        if (startNode && endNode) {
+          range.setStart(startNode, Math.max(0, Math.min(startOff, startNode.textContent.length)));
+          range.setEnd(endNode, Math.max(0, Math.min(endOff, endNode.textContent.length)));
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+
+      document.querySelectorAll('#fmt-toolbar button').forEach(btn => {
+        btn.onclick = () => {
+          if (btn.dataset.act === 'align') {
+            if (!currentNodeData) return;
+            currentNodeData.align = btn.dataset.align;
+            updateBadges(); // re-applies textAlign via the post-layout pass
+            window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+            return;
+          }
+          const fn = FMT_ACTIONS[btn.dataset.act];
+          if (!fn) return;
+          const ed = getEditSelection();
+          if (!ed) return;
+          const res = fn(ed.box.textContent, ed.s, ed.e);
+          ed.box.textContent = res.text;
+          setEditCaret(ed.box, res.selStart, res.selEnd);
+          ed.box.focus();
+        };
+      });
+
       document.getElementById('link-panel-close').onclick = () => {
         hidePanel();
         currentNodeId = null;
@@ -510,7 +643,9 @@
         window.parent.postMessage({ type: 'nodeDeselected' }, window.location.origin);
       };
 
-      mind.bus.addListener('operation', () => {
+      mind.bus.addListener('operation', (op) => {
+        if (op && op.name === 'beginEdit') document.getElementById('fmt-toolbar').style.display = 'flex';
+        if (op && op.name === 'finishEdit') document.getElementById('fmt-toolbar').style.display = 'none';
         window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
       });
 
