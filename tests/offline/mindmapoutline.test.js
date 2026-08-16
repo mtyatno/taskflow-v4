@@ -187,6 +187,75 @@ test("export surface is complete", () => {
     "findNode", "addChild", "addSibling", "renameNode", "deleteNode", "duplicateNode",
     "moveNode", "moveSibling", "moveInto", "indentNode", "outdentNode", "toggleExpand",
     "expandAll", "collapseAll", "cloneSubtree", "insertSubtree", "searchNodes", "ancestorsOf",
+    "renderTopicMd", "wrapSelection", "prefixLines", "insertBlock", "setNodeAlign",
   ].sort();
   assert.deepEqual(Object.keys(MO).sort(), expected);
+});
+
+test("renderTopicMd renders bold, italic, highlight, underline, strike", () => {
+  assert.match(MO.renderTopicMd("**tebal**"), /<strong>tebal<\/strong>/);
+  assert.match(MO.renderTopicMd("*miring*"), /<em>miring<\/em>/);
+  assert.match(MO.renderTopicMd("__sorot__"), /underscore-emphasis/);
+  assert.match(MO.renderTopicMd("<u>garis</u>"), /<u>garis<\/u>/);
+  assert.match(MO.renderTopicMd("~~coret~~"), /<del>coret<\/del>/);
+});
+
+test("renderTopicMd renders heading, code, link", () => {
+  assert.match(MO.renderTopicMd("# Judul"), /<h1[^>]*>Judul<\/h1>/);
+  assert.match(MO.renderTopicMd("`kode`"), /<code>kode<\/code>/);
+  assert.match(MO.renderTopicMd("[x](https://a)"), /<a href="https:\/\/a">x<\/a>/);
+});
+
+test("renderTopicMd renders lists, divider, table", () => {
+  assert.match(MO.renderTopicMd("- a\n- b"), /<ul>/);
+  assert.match(MO.renderTopicMd("1. a\n2. b"), /<ol>/);
+  assert.match(MO.renderTopicMd("---"), /<hr/);
+  assert.match(MO.renderTopicMd("| a | b |\n| - | - |\n| 1 | 2 |"), /<table>/);
+});
+
+test("renderTopicMd leaves plain text unchanged and handles mixed content", () => {
+  // marked wraps plain text in <p> and appends a trailing block newline;
+  // assert the text itself is unchanged apart from that wrapper.
+  assert.equal(MO.renderTopicMd("halo dunia").replace(/<\/?p>/g, "").replace(/\n$/, ""), "halo dunia");
+  const mixed = MO.renderTopicMd("__sorot__ dan **tebal**");
+  assert.match(mixed, /underscore-emphasis/);
+  assert.match(mixed, /<strong>tebal<\/strong>/);
+});
+
+test("wrapSelection wraps selection and inserts placeholder when empty", () => {
+  const w = MO.wrapSelection("halo dunia", 5, 10, "**", "**", "teks");
+  assert.equal(w.text, "halo **dunia**");
+  assert.equal(w.selStart, 7);
+  assert.equal(w.selEnd, 12);
+  const p = MO.wrapSelection("abc", 1, 1, "[", "](https://)", "teks");
+  assert.equal(p.text, "a[teks](https://)bc");
+  assert.equal(p.selStart, 2);
+  assert.equal(p.selEnd, 6);
+});
+
+test("prefixLines prefixes each selected line; numbered counts sequentially", () => {
+  const u = MO.prefixLines("a\nb", 0, 3, "- ", false);
+  assert.equal(u.text, "- a\n- b");
+  const o = MO.prefixLines("a\nb\nc", 0, 5, "", true);
+  assert.equal(o.text, "1. a\n2. b\n3. c");
+  const e = MO.prefixLines("ab", 1, 1, "- ", false);
+  assert.equal(e.text, "a- b");
+});
+
+test("insertBlock puts block on its own line and places caret after it", () => {
+  const b = MO.insertBlock("a\nb", 2, 2, "---");
+  assert.equal(b.text, "a\n---\nb");
+  assert.equal(b.selStart, 5);
+  assert.equal(b.selEnd, 5);
+  const e2 = MO.insertBlock("", 0, 0, "---");
+  assert.equal(e2.text, "---");
+});
+
+test("setNodeAlign sets align and preserves fields; invalid no-op", () => {
+  const t = fixture();
+  const r = MO.setNodeAlign(t, "b", "center");
+  assert.equal(MO.findNode(r, "b").node.align, "center");
+  assert.deepEqual(MO.findNode(r, "a").node.links, [{ type: "note", id: 1, title: "N" }]);
+  assert.equal(MO.setNodeAlign(t, "b", "banana"), t);
+  assert.equal(MO.setNodeAlign(t, "zzz", "center"), t);
 });

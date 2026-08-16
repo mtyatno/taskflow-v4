@@ -8,6 +8,10 @@
 })(typeof self !== "undefined" ? self : globalThis, function (root) {
   "use strict";
 
+  const isNode = (typeof module !== "undefined" && module.exports);
+  const req = (m, g) => (isNode ? require(m) : g);
+  const markedLib = req("../vendor/marked.min.js", root.marked);
+
   const uid = () =>
     (typeof crypto !== "undefined" && crypto.randomUUID)
       ? crypto.randomUUID()
@@ -231,9 +235,61 @@
     return out.reverse();
   }
 
+  function renderTopicMd(topic) {
+    const t = String(topic == null ? "" : topic);
+    const pre = t.replace(/__([^_]+?)__/g, '<strong class="underscore-emphasis">$1</strong>');
+    try {
+      if (markedLib && typeof markedLib.parse === "function") return markedLib.parse(pre, { gfm: true, breaks: true });
+      if (markedLib) return markedLib(pre);
+      return pre.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    } catch (_) {
+      return pre.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+  }
+
+  function wrapSelection(text, start, end, before, after, placeholder) {
+    const s = Math.max(0, start);
+    const e = end == null || end <= s ? s : end;
+    const sel = text.slice(s, e);
+    const insert = sel || placeholder;
+    const next = text.slice(0, s) + before + insert + after + text.slice(e);
+    return { text: next, selStart: s + before.length, selEnd: s + before.length + insert.length };
+  }
+
+  function prefixLines(text, start, end, prefix, numbered) {
+    const s = Math.max(0, start);
+    const e = end == null || end <= s ? s : end;
+    const sel = text.slice(s, e);
+    const lines = sel.split("\n");
+    const out = lines.map((l, i) => (numbered ? (i + 1) + ". " : prefix) + l).join("\n");
+    const next = text.slice(0, s) + out + text.slice(e);
+    return { text: next, selStart: s, selEnd: s + out.length };
+  }
+
+  function insertBlock(text, start, end, block) {
+    const s = Math.max(0, start);
+    const e = end == null || end <= s ? s : end;
+    const before = text.slice(0, s);
+    const after = text.slice(e);
+    const needNLBefore = before !== "" && !before.endsWith("\n");
+    const needNLAfter = after !== "" && !after.startsWith("\n");
+    const ins = (needNLBefore ? "\n" : "") + block + (needNLAfter ? "\n" : "");
+    const next = before + ins + after;
+    const caret = s + (needNLBefore ? 1 : 0) + block.length;
+    return { text: next, selStart: caret, selEnd: caret };
+  }
+
+  function setNodeAlign(root, id, align) {
+    if (align !== "left" && align !== "center" && align !== "right" && align !== "justify") return root;
+    const f = findNode(root, id);
+    if (!f || !f.node) return root;
+    return updateNode(root, id, (n) => ({ ...n, align }));
+  }
+
   return {
     findNode, addChild, addSibling, renameNode, deleteNode, duplicateNode,
     moveNode, moveSibling, moveInto, indentNode, outdentNode, toggleExpand,
     expandAll, collapseAll, cloneSubtree, insertSubtree, searchNodes, ancestorsOf,
+    renderTopicMd, wrapSelection, prefixLines, insertBlock, setNodeAlign,
   };
 });
