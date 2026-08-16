@@ -439,18 +439,26 @@
 
       mind.init(data);
       setTimeout(updateBadges, 300);
-      mind.bus.addListener('selectNewNode', (node) => {
+      // 5.15.1 only fires the 'selectNewNode' bus event for PROGRAMMATIC
+      // selections (post-creation etc.) — a plain user click calls
+      // selectNode(el) with no flag, so the event never fires. Wrap the
+      // public selectNode method instead: it covers every selection path
+      // (click, dblclick, keyboard nav, post-creation).
+      const origSelectNode = mind.selectNode.bind(mind);
+      mind.selectNode = el => {
+        origSelectNode(el);
         clearTimeout(unselectTimer);
-        if (!node) return;
-        currentNodeId = node.id;
-        currentNodeData = node; // live reference to internal nodeObj — not a getData() copy
-        renderPanel(node.topic, node.links || []);
+        const nodeObj = el && el.nodeObj;
+        if (!nodeObj) return;
+        currentNodeId = nodeObj.id;
+        currentNodeData = nodeObj; // live reference to internal nodeObj — not a getData() copy
+        renderPanel(nodeObj.topic, nodeObj.links || []);
         document.getElementById('node-toolbar').style.display = 'flex';
         window.parent.postMessage(
-          { type: 'nodeSelected', nodeId: node.id, topic: node.topic, links: node.links || [] },
+          { type: 'nodeSelected', nodeId: nodeObj.id, topic: nodeObj.topic, links: nodeObj.links || [] },
           window.location.origin
         );
-      });
+      };
 
       const origUnselectNodes = mind.unselectNodes.bind(mind);
       mind.unselectNodes = els => {

@@ -7593,13 +7593,25 @@ function MindmapOutline({ tree, onChange }) {
 
   const renderTopic = n => {
     if (editingId === n.id) {
-      return /*#__PURE__*/React.createElement("input", {
+      return /*#__PURE__*/React.createElement("textarea", {
         autoFocus: true,
+        rows: 1,
         value: editVal,
         onChange: e => setEditVal(e.target.value),
+        onInput: e => {
+          // auto-grow to fit content (min 1 row, cap ~6 rows)
+          const t = e.currentTarget;
+          t.style.height = "auto";
+          t.style.height = Math.min(t.scrollHeight, 110) + "px";
+        },
         onKeyDown: e => {
           e.stopPropagation();
-          if (e.key === "Enter") commitRename();
+          // Enter commits; Shift+Enter inserts a newline (default) — same
+          // semantics as the canvas editor (input-box, pre-wrap topics).
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            commitRename();
+          }
           if (e.key === "Escape") {
             editingIdRef.current = null; // clear before focus() so the sync blur can't commit
             setEditingId(null);
@@ -7609,9 +7621,12 @@ function MindmapOutline({ tree, onChange }) {
         onBlur: commitRename,
         onMouseDown: e => e.stopPropagation(),
         style: {
-          flex: 1, fontSize: 13, padding: "2px 6px", borderRadius: 6,
+          flex: 1, fontSize: 13, fontFamily: "inherit", lineHeight: 1.4,
+          padding: "2px 6px", borderRadius: 6, resize: "none",
+          overflowY: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word",
           border: "1px solid var(--accent)", background: "var(--bg-primary)",
-          color: "var(--text-primary)", outline: "none"
+          color: "var(--text-primary)", outline: "none",
+          minHeight: 24, maxHeight: 110
         }
       });
     }
@@ -7684,7 +7699,8 @@ function MindmapOutline({ tree, onChange }) {
       }
     }, "▼"), /*#__PURE__*/React.createElement("span", {
       style: {
-        flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        flex: 1, minWidth: 0, whiteSpace: "pre-wrap", wordBreak: "break-word",
+        alignSelf: "flex-start", paddingTop: 1,
         fontWeight: isRoot ? 700 : 400,
         color: isRoot ? "var(--accent)" : "var(--text-primary)"
       }
