@@ -88,25 +88,25 @@
     #app.side-collapsed #side-toggle { right: 0; }
 
     /* ── Format pane (vertical button list) ──────────────────── */
-    #fmt-panel { display: none; flex-direction: column; padding: 8px; gap: 2px; }
+    #fmt-panel { display: none; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 10px; align-content: start; }
     #fmt-panel button {
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: center;
+      aspect-ratio: 1;
       width: 100%;
-      background: none;
-      border: none;
+      padding: 0;
+      background: var(--side-card);
+      border: 1px solid var(--side-border);
       cursor: pointer;
-      padding: 8px 12px;
       border-radius: 8px;
       color: var(--side-text);
-      font-size: 13px;
+      font-size: 15px;
       font-family: inherit;
-      text-align: left;
       -webkit-tap-highlight-color: transparent;
     }
-    #fmt-panel button:hover, #fmt-panel button:active { background: var(--side-hover); }
-    #fmt-panel .sep { height: 1px; background: var(--side-border); margin: 4px 8px; }
+    #fmt-panel button:hover, #fmt-panel button:active { background: var(--side-hover); border-color: var(--side-accent); }
+    #fmt-panel .sep { display: none; }
 
     /* ── Node ops pane (vertical button list) ────────────────── */
     #node-ops-panel { display: none; flex-direction: column; padding: 8px; gap: 2px; }
@@ -335,7 +335,7 @@
   </div>
   <script src="MindElixir.iife.js?v=120"></script>
   <script src="/static/vendor/marked.min.js?v=124"></script>
-  <script src="/static/offline/mindmapoutline.js?v=124"></script>
+  <script src="/static/offline/mindmapoutline.js?v=125"></script>
   <script>
     let mind = null;
 
@@ -347,7 +347,7 @@
 
     // ── Right sidebar: tabs + collapse ─────────────────────────
     const SIDE_PANES = { font: 'fmt-panel', ops: 'node-ops-panel', links: 'link-panel' };
-    const SIDE_PANE_DISPLAY = { 'fmt-panel': 'flex', 'node-ops-panel': 'flex', 'link-panel': 'block' };
+    const SIDE_PANE_DISPLAY = { 'fmt-panel': 'grid', 'node-ops-panel': 'flex', 'link-panel': 'block' };
 
     function switchTab(name) {
       const paneId = SIDE_PANES[name] || null;
