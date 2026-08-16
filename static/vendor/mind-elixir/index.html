@@ -8,72 +8,113 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; }
-    #app { display: flex; flex-direction: column; height: 100%; }
+    #app { position: relative; display: flex; flex-direction: row; height: 100%; }
+    #main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     #map { flex: 1; min-height: 0; overflow: hidden; }
 
-    #fmt-toolbar {
-      display: none;
+    /* ── Right sidebar: collapsible panel + tabs ─────────────── */
+    #side-panel {
+      width: 220px;
       flex-shrink: 0;
-      border-bottom: 2px solid #6c7ae0;
-      background: #12122a;
-      padding: 4px 12px;
-      font-family: system-ui, sans-serif;
-      align-items: center;
-      justify-content: center;
-      gap: 2px;
-      flex-wrap: wrap;
-    }
-    #fmt-toolbar button {
-      background: none;
-      border: none;
-      cursor: pointer;
-      border-radius: 20px;
-      padding: 3px 9px;
-      color: #ccc;
-      font-size: 13px;
-      -webkit-tap-highlight-color: transparent;
-      min-width: 28px;
-    }
-    #fmt-toolbar button:hover, #fmt-toolbar button:active { background: rgba(108,122,224,0.18); }
-    #fmt-toolbar .sep { width: 1px; height: 20px; background: #3a3a6a; margin: 0 4px; }
-    #node-toolbar {
-      display: none;
-      flex-shrink: 0;
-      border-bottom: 2px solid #6c7ae0;
-      background: #12122a;
-      padding: 6px 12px;
-      font-family: system-ui, sans-serif;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-    }
-    #node-toolbar button {
-      background: none;
-      border: none;
-      cursor: pointer;
-      border-radius: 24px;
-      padding: 6px 12px;
-      color: #ccc;
-      font-size: 16px;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      gap: 2px;
+      background: #12122a;
+      border-left: 2px solid #6c7ae0;
+      overflow: hidden;
+      transition: width .25s ease;
+      font-family: system-ui, sans-serif;
+    }
+    #app.side-collapsed #side-panel { width: 0; border-left-width: 0; }
+    #side-tabs { display: flex; flex-shrink: 0; border-bottom: 1px solid #3a3a6a; }
+    .side-tab {
+      flex: 1;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      padding: 9px 4px;
+      color: #aaa;
+      font-size: 12px;
+      font-family: inherit;
+      white-space: nowrap;
       -webkit-tap-highlight-color: transparent;
     }
-    #node-toolbar button .lbl { font-size: 9px; color: #888; font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; }
-    #node-toolbar button:hover, #node-toolbar button:active { background: rgba(108,122,224,0.18); }
-    #node-toolbar button.danger { color: #e06c6c; }
-    #node-toolbar button.danger:hover, #node-toolbar button.danger:active { background: rgba(224,108,108,0.18); }
-    #node-toolbar .sep { width: 1px; height: 28px; background: #3a3a6a; margin: 0 4px; }
+    .side-tab:hover { background: rgba(108,122,224,0.18); color: #ccc; }
+    .side-tab.active { background: rgba(108,122,224,0.12); color: #ccc; border-bottom-color: #6c7ae0; }
+    #side-content { flex: 1; min-height: 0; overflow-y: auto; }
+    #side-hint { padding: 16px 12px; color: #666; font-size: 12px; text-align: center; }
+    #side-toggle {
+      position: absolute;
+      top: 50%;
+      right: 220px;
+      transform: translateY(-50%);
+      z-index: 5;
+      width: 18px;
+      height: 44px;
+      padding: 0;
+      background: #1e1e38;
+      border: 1px solid #3a3a6a;
+      border-right: none;
+      border-radius: 8px 0 0 8px;
+      color: #ccc;
+      font-size: 12px;
+      cursor: pointer;
+      transition: right .25s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #side-toggle:hover { background: rgba(108,122,224,0.25); }
+    #app.side-collapsed #side-toggle { right: 0; }
+
+    /* ── Format pane (vertical button list) ──────────────────── */
+    #fmt-panel { display: none; flex-direction: column; padding: 8px; gap: 2px; }
+    #fmt-panel button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 8px 12px;
+      border-radius: 8px;
+      color: #ccc;
+      font-size: 13px;
+      font-family: inherit;
+      text-align: left;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #fmt-panel button:hover, #fmt-panel button:active { background: rgba(108,122,224,0.18); }
+    #fmt-panel .sep { height: 1px; background: #3a3a6a; margin: 4px 8px; }
+
+    /* ── Node ops pane (vertical button list) ────────────────── */
+    #node-ops-panel { display: none; flex-direction: column; padding: 8px; gap: 2px; }
+    #node-ops-panel button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 8px 12px;
+      border-radius: 8px;
+      color: #ccc;
+      font-size: 13px;
+      font-family: inherit;
+      text-align: left;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #node-ops-panel button .lbl { font-size: 12px; color: #ccc; font-weight: 500; }
+    #node-ops-panel button:hover, #node-ops-panel button:active { background: rgba(108,122,224,0.18); }
+    #node-ops-panel button.danger { color: #e06c6c; }
+    #node-ops-panel button.danger .lbl { color: #e06c6c; }
+    #node-ops-panel button.danger:hover, #node-ops-panel button.danger:active { background: rgba(224,108,108,0.18); }
+    #node-ops-panel .sep { height: 1px; background: #3a3a6a; margin: 4px 8px; }
 
     #link-panel {
       display: none;
-      flex-shrink: 0;
-      border-top: 2px solid #6c7ae0;
       background: #12122a;
       padding: 8px 12px;
-      max-height: 160px;
       font-family: system-ui, sans-serif;
       font-size: 12px;
       color: #ccc;
@@ -96,9 +137,9 @@
     #link-panel-close:hover { color: #aaa; }
     #link-panel-items {
       display: flex;
+      flex-direction: column;
       gap: 8px;
       align-items: stretch;
-      overflow-x: auto;
     }
     .lp-card {
       background: #1e1e38;
@@ -219,43 +260,56 @@
 </head>
 <body>
   <div id="app">
-    <div id="fmt-toolbar">
-      <button data-act="bold" title="Bold (tebal)"><b>B</b></button>
-      <button data-act="italic" title="Italic (miring)"><i>I</i></button>
-      <button data-act="underline" title="Underline (garis bawah)"><u>U</u></button>
-      <button data-act="strike" title="Coret"><s>S</s></button>
-      <button data-act="highlight" title="Highlight">✨</button>
-      <button data-act="heading" title="Heading">H</button>
-      <button data-act="code" title="Inline code">&lt;/&gt;</button>
-      <button data-act="link" title="Link">🔗</button>
-      <button data-act="table" title="Tabel">⊞</button>
-      <div class="sep"></div>
-      <button data-act="ul" title="List •">•</button>
-      <button data-act="ol" title="List angka">1.</button>
-      <button data-act="hr" title="Garis pemisah">─</button>
-      <div class="sep"></div>
-      <button data-act="align" data-align="left" title="Rata kiri">L</button>
-      <button data-act="align" data-align="center" title="Tengah">C</button>
-      <button data-act="align" data-align="right" title="Rata kanan">R</button>
-      <button data-act="align" data-align="justify" title="Rata penuh">J</button>
+    <div id="main-col">
+      <div id="map"></div>
     </div>
-    <div id="node-toolbar">
-      <button id="ntb-child" title="Tambah Child (Tab)">↳<span class="lbl">Child</span></button>
-      <button id="ntb-sibling" title="Tambah Sibling (Enter)">↵<span class="lbl">Sibling</span></button>
-      <button id="ntb-promote" title="Naikan level — jadi sibling dari parent">↑<span class="lbl">Promote</span></button>
-      <div class="sep"></div>
-      <button id="ntb-edit" title="Edit teks node (F2)">✏️<span class="lbl">Edit</span></button>
-      <div class="sep"></div>
-      <button id="ntb-delete" class="danger" title="Hapus node (Delete)">🗑️<span class="lbl">Hapus</span></button>
-    </div>
-    <div id="map"></div>
-    <div id="link-panel">
-      <div id="link-panel-header">
-        <span id="link-panel-title">🔗 Links</span>
-        <span id="link-panel-close" title="Tutup">✕</span>
+    <div id="side-panel">
+      <div id="side-tabs">
+        <button class="side-tab" data-tab="font">🎨 Font</button>
+        <button class="side-tab" data-tab="ops">🔧 Ops</button>
+        <button class="side-tab" data-tab="links">🔗 Links</button>
       </div>
-      <div id="link-panel-items"></div>
+      <div id="side-content">
+        <div id="side-hint">Pilih node untuk mulai</div>
+        <div id="fmt-panel">
+          <button data-act="bold" title="Bold (tebal)"><b>B</b></button>
+          <button data-act="italic" title="Italic (miring)"><i>I</i></button>
+          <button data-act="underline" title="Underline (garis bawah)"><u>U</u></button>
+          <button data-act="strike" title="Coret"><s>S</s></button>
+          <button data-act="highlight" title="Highlight">✨</button>
+          <button data-act="heading" title="Heading">H</button>
+          <button data-act="code" title="Inline code">&lt;/&gt;</button>
+          <button data-act="link" title="Link">🔗</button>
+          <button data-act="table" title="Tabel">⊞</button>
+          <div class="sep"></div>
+          <button data-act="ul" title="List •">•</button>
+          <button data-act="ol" title="List angka">1.</button>
+          <button data-act="hr" title="Garis pemisah">─</button>
+          <div class="sep"></div>
+          <button data-act="align" data-align="left" title="Rata kiri">L</button>
+          <button data-act="align" data-align="center" title="Tengah">C</button>
+          <button data-act="align" data-align="right" title="Rata kanan">R</button>
+          <button data-act="align" data-align="justify" title="Rata penuh">J</button>
+        </div>
+        <div id="node-ops-panel">
+          <button id="ntb-child" title="Tambah Child (Tab)">↳<span class="lbl">Child</span></button>
+          <button id="ntb-sibling" title="Tambah Sibling (Enter)">↵<span class="lbl">Sibling</span></button>
+          <button id="ntb-promote" title="Naikan level — jadi sibling dari parent">↑<span class="lbl">Promote</span></button>
+          <div class="sep"></div>
+          <button id="ntb-edit" title="Edit teks node (F2)">✏️<span class="lbl">Edit</span></button>
+          <div class="sep"></div>
+          <button id="ntb-delete" class="danger" title="Hapus node (Delete)">🗑️<span class="lbl">Hapus</span></button>
+        </div>
+        <div id="link-panel">
+          <div id="link-panel-header">
+            <span id="link-panel-title">🔗 Links</span>
+            <span id="link-panel-close" title="Tutup">✕</span>
+          </div>
+          <div id="link-panel-items"></div>
+        </div>
+      </div>
     </div>
+    <button id="side-toggle" title="Tutup panel samping">◂</button>
   </div>
   <script src="MindElixir.iife.js?v=120"></script>
   <script src="/static/vendor/marked.min.js?v=124"></script>
@@ -266,6 +320,48 @@
     let currentNodeId = null;
     let currentNodeData = null;
     let unselectTimer = null;
+
+    // ── Right sidebar: tabs + collapse ─────────────────────────
+    const SIDE_PANES = { font: 'fmt-panel', ops: 'node-ops-panel', links: 'link-panel' };
+    const SIDE_PANE_DISPLAY = { 'fmt-panel': 'flex', 'node-ops-panel': 'flex', 'link-panel': 'block' };
+
+    function switchTab(name) {
+      const paneId = SIDE_PANES[name] || null;
+      ['fmt-panel', 'node-ops-panel', 'link-panel'].forEach(id => {
+        document.getElementById(id).style.display = id === paneId ? SIDE_PANE_DISPLAY[id] : 'none';
+      });
+      document.getElementById('side-hint').style.display = paneId ? 'none' : 'block';
+      document.querySelectorAll('#side-tabs .side-tab').forEach(btn => {
+        btn.classList.toggle('active', !!paneId && btn.dataset.tab === name);
+      });
+    }
+
+    const appEl = document.getElementById('app');
+    const sideToggleEl = document.getElementById('side-toggle');
+    function setSideCollapsed(collapsed) {
+      appEl.classList.toggle('side-collapsed', collapsed);
+      sideToggleEl.textContent = collapsed ? '▸' : '◂';
+      sideToggleEl.title = collapsed ? 'Buka panel samping' : 'Tutup panel samping';
+      try { localStorage.setItem('tf_mindmap_side', collapsed ? 'collapsed' : 'open'); } catch (_) {}
+      // MindElixir re-fits the map on window resize; nudge it after the width transition.
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 270);
+    }
+    (function initSideCollapsed() {
+      let collapsed = window.innerWidth < 768;
+      try {
+        const stored = localStorage.getItem('tf_mindmap_side');
+        if (stored === 'open') collapsed = false;
+        else if (stored === 'collapsed') collapsed = true;
+      } catch (_) {}
+      setSideCollapsed(collapsed);
+    })();
+
+    document.querySelectorAll('#side-tabs .side-tab').forEach(btn => {
+      btn.onclick = () => switchTab(btn.dataset.tab);
+    });
+    sideToggleEl.onclick = () => setSideCollapsed(!appEl.classList.contains('side-collapsed'));
+
+    switchTab(null);
 
     function findNode(node, id) {
       if (node.id === id) return node;
@@ -492,7 +588,7 @@
           ? window.TF.mindmapoutline.renderTopicMd(topic)
           : topic,
       });
-      // Redirect fullscreen from #map to #app so #link-panel stays visible
+      // Redirect fullscreen from #map to #app so the sidebar stays visible
       const mapEl = document.getElementById('map');
       mapEl.requestFullscreen = () => document.getElementById('app').requestFullscreen();
 
@@ -512,7 +608,7 @@
         currentNodeId = nodeObj.id;
         currentNodeData = nodeObj; // live reference to internal nodeObj — not a getData() copy
         renderPanel(nodeObj.topic, nodeObj.links || []);
-        document.getElementById('node-toolbar').style.display = 'flex';
+        switchTab('ops');
         window.parent.postMessage(
           { type: 'nodeSelected', nodeId: nodeObj.id, topic: nodeObj.topic, links: nodeObj.links || [] },
           window.location.origin
@@ -526,7 +622,7 @@
           currentNodeId = null;
           currentNodeData = null;
           hidePanel();
-          document.getElementById('node-toolbar').style.display = 'none';
+          switchTab(null);
           window.parent.postMessage({ type: 'nodeDeselected' }, window.location.origin);
         }, 50);
       };
@@ -643,7 +739,7 @@
         }
       }
 
-      document.querySelectorAll('#fmt-toolbar button').forEach(btn => {
+      document.querySelectorAll('#fmt-panel button').forEach(btn => {
         btn.onpointerdown = e => {
           e.preventDefault(); // keep focus in #input-box
           if (btn.dataset.act === 'align') {
@@ -664,16 +760,14 @@
         };
       });
 
+      // ✕ closes only the links pane — the node stays selected.
       document.getElementById('link-panel-close').onclick = () => {
-        hidePanel();
-        currentNodeId = null;
-        currentNodeData = null;
-        window.parent.postMessage({ type: 'nodeDeselected' }, window.location.origin);
+        switchTab('ops');
       };
 
       mind.bus.addListener('operation', (op) => {
-        if (op && op.name === 'beginEdit') document.getElementById('fmt-toolbar').style.display = 'flex';
-        else document.getElementById('fmt-toolbar').style.display = 'none';
+        if (op && op.name === 'beginEdit') switchTab('font');
+        else switchTab('ops');
         window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
       });
 
@@ -688,10 +782,15 @@
         }
       });
 
-      // Re-render panel after fullscreen exits so links stay visible
+      // Re-render panel after fullscreen exits so links stay visible;
+      // renderPanel() shows the links pane, so restore the active tab after.
       document.addEventListener('fullscreenchange', () => {
         if (!document.fullscreenElement && currentNodeId && currentNodeData) {
-          setTimeout(() => renderPanel(currentNodeData.topic, currentNodeData.links || []), 100);
+          setTimeout(() => {
+            renderPanel(currentNodeData.topic, currentNodeData.links || []);
+            const activeTab = document.querySelector('#side-tabs .side-tab.active');
+            switchTab(activeTab ? activeTab.dataset.tab : null);
+          }, 100);
         }
       });
     }
@@ -700,6 +799,7 @@
       if (e.origin !== window.location.origin) return;
       if (e.data && e.data.type === 'load') {
         hidePanel();
+        switchTab(null);
         currentNodeId = null;
         currentNodeData = null;
         clearTimeout(unselectTimer);
@@ -722,6 +822,7 @@
         currentNodeData = null;
         clearTimeout(unselectTimer);
         hidePanel();
+        switchTab(null);
         try { mind.refresh(e.data.data); } catch (_) {}
         setTimeout(updateBadges, 300);
         return;
@@ -745,6 +846,7 @@
         currentNodeData = null;
         clearTimeout(unselectTimer);
         hidePanel();
+        switchTab(null);
       }
       if (e.data && e.data.type === 'addLink') {
         if (!currentNodeId || e.data.nodeId !== currentNodeId || !currentNodeData) return;
@@ -755,6 +857,7 @@
         if (alreadyLinked) return;
         currentNodeData.links.push(e.data.link);
         renderPanel(currentNodeData.topic, currentNodeData.links);
+        switchTab('links');
         updateBadges();
         window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
       }
