@@ -8115,6 +8115,20 @@ function MindmapPage({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [shareOpen]);
+
+  // Keep the mindmap iframe's sidebar in sync with the app theme.
+  useEffect(() => {
+    const postTheme = () => {
+      iframeRef.current?.contentWindow?.postMessage({
+        type: "setTheme",
+        theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"
+      }, window.location.origin);
+    };
+    postTheme();
+    const mo = new MutationObserver(postTheme);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => mo.disconnect();
+  }, []);
   const handleShare = async listId => {
     if (!selected) return;
     try {
@@ -8150,6 +8164,10 @@ function MindmapPage({
           iframeRef.current?.contentWindow?.postMessage({
             type: "load",
             data: tree
+          }, window.location.origin);
+          iframeRef.current?.contentWindow?.postMessage({
+            type: "setTheme",
+            theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"
           }, window.location.origin);
         } catch (_) {}
       }

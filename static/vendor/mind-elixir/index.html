@@ -6,6 +6,28 @@
   <title>Mindmap</title>
   <link rel="stylesheet" href="MindElixir.css?v=120">
   <style>
+    :root {
+      --side-bg: #ffffff;
+      --side-border: #E8E8E0;
+      --side-text: #0f172a;
+      --side-muted: #64748b;
+      --side-card: #FCFCFB;
+      --side-hover: rgba(168,197,0,0.10);
+      --side-accent: #A8C500;
+      --side-accent-ink: #000000;
+      --side-danger: #e06c6c;
+    }
+    [data-theme="dark"] {
+      --side-bg: #12122a;
+      --side-border: #3a3a6a;
+      --side-text: #cccccc;
+      --side-muted: #888888;
+      --side-card: #1e1e38;
+      --side-hover: rgba(108,122,224,0.18);
+      --side-accent: #A8C500;
+      --side-accent-ink: #000000;
+      --side-danger: #e06c6c;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; }
     #app { position: relative; display: flex; flex-direction: row; height: 100%; }
@@ -18,14 +40,14 @@
       flex-shrink: 0;
       display: flex;
       flex-direction: column;
-      background: #12122a;
-      border-left: 2px solid #6c7ae0;
+      background: var(--side-bg);
+      border-left: 2px solid var(--side-accent);
       overflow: hidden;
       transition: width .25s ease;
       font-family: system-ui, sans-serif;
     }
     #app.side-collapsed #side-panel { width: 0; border-left-width: 0; }
-    #side-tabs { display: flex; flex-shrink: 0; border-bottom: 1px solid #3a3a6a; }
+    #side-tabs { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--side-border); }
     .side-tab {
       flex: 1;
       background: none;
@@ -33,16 +55,16 @@
       border-bottom: 2px solid transparent;
       cursor: pointer;
       padding: 9px 4px;
-      color: #aaa;
+      color: var(--side-muted);
       font-size: 12px;
       font-family: inherit;
       white-space: nowrap;
       -webkit-tap-highlight-color: transparent;
     }
-    .side-tab:hover { background: rgba(108,122,224,0.18); color: #ccc; }
-    .side-tab.active { background: rgba(108,122,224,0.12); color: #ccc; border-bottom-color: #6c7ae0; }
+    .side-tab:hover { background: var(--side-hover); color: var(--side-text); }
+    .side-tab.active { background: var(--side-hover); color: var(--side-text); border-bottom-color: var(--side-accent); }
     #side-content { flex: 1; min-height: 0; overflow-y: auto; }
-    #side-hint { padding: 16px 12px; color: #666; font-size: 12px; text-align: center; }
+    #side-hint { padding: 16px 12px; color: var(--side-muted); font-size: 12px; text-align: center; }
     #side-toggle {
       position: absolute;
       top: 50%;
@@ -52,17 +74,17 @@
       width: 18px;
       height: 44px;
       padding: 0;
-      background: #1e1e38;
-      border: 1px solid #3a3a6a;
+      background: var(--side-card);
+      border: 1px solid var(--side-border);
       border-right: none;
       border-radius: 8px 0 0 8px;
-      color: #ccc;
+      color: var(--side-text);
       font-size: 12px;
       cursor: pointer;
       transition: right .25s ease;
       -webkit-tap-highlight-color: transparent;
     }
-    #side-toggle:hover { background: rgba(108,122,224,0.25); }
+    #side-toggle:hover { background: var(--side-hover); }
     #app.side-collapsed #side-toggle { right: 0; }
 
     /* ── Format pane (vertical button list) ──────────────────── */
@@ -77,14 +99,14 @@
       cursor: pointer;
       padding: 8px 12px;
       border-radius: 8px;
-      color: #ccc;
+      color: var(--side-text);
       font-size: 13px;
       font-family: inherit;
       text-align: left;
       -webkit-tap-highlight-color: transparent;
     }
-    #fmt-panel button:hover, #fmt-panel button:active { background: rgba(108,122,224,0.18); }
-    #fmt-panel .sep { height: 1px; background: #3a3a6a; margin: 4px 8px; }
+    #fmt-panel button:hover, #fmt-panel button:active { background: var(--side-hover); }
+    #fmt-panel .sep { height: 1px; background: var(--side-border); margin: 4px 8px; }
 
     /* ── Node ops pane (vertical button list) ────────────────── */
     #node-ops-panel { display: none; flex-direction: column; padding: 8px; gap: 2px; }
@@ -98,26 +120,26 @@
       cursor: pointer;
       padding: 8px 12px;
       border-radius: 8px;
-      color: #ccc;
+      color: var(--side-text);
       font-size: 13px;
       font-family: inherit;
       text-align: left;
       -webkit-tap-highlight-color: transparent;
     }
-    #node-ops-panel button .lbl { font-size: 12px; color: #ccc; font-weight: 500; }
-    #node-ops-panel button:hover, #node-ops-panel button:active { background: rgba(108,122,224,0.18); }
-    #node-ops-panel button.danger { color: #e06c6c; }
-    #node-ops-panel button.danger .lbl { color: #e06c6c; }
+    #node-ops-panel button .lbl { font-size: 12px; color: var(--side-text); font-weight: 500; }
+    #node-ops-panel button:hover, #node-ops-panel button:active { background: var(--side-hover); }
+    #node-ops-panel button.danger { color: var(--side-danger); }
+    #node-ops-panel button.danger .lbl { color: var(--side-danger); }
     #node-ops-panel button.danger:hover, #node-ops-panel button.danger:active { background: rgba(224,108,108,0.18); }
-    #node-ops-panel .sep { height: 1px; background: #3a3a6a; margin: 4px 8px; }
+    #node-ops-panel .sep { height: 1px; background: var(--side-border); margin: 4px 8px; }
 
     #link-panel {
       display: none;
-      background: #12122a;
+      background: var(--side-bg);
       padding: 8px 12px;
       font-family: system-ui, sans-serif;
       font-size: 12px;
-      color: #ccc;
+      color: var(--side-text);
     }
     #link-panel-header {
       display: flex;
@@ -125,16 +147,16 @@
       align-items: center;
       margin-bottom: 8px;
       font-weight: 700;
-      color: #ddd;
+      color: var(--side-text);
     }
     #link-panel-close {
       cursor: pointer;
-      color: #666;
+      color: var(--side-muted);
       font-size: 14px;
       line-height: 1;
       padding: 0 4px;
     }
-    #link-panel-close:hover { color: #aaa; }
+    #link-panel-close:hover { color: var(--side-text); }
     #link-panel-items {
       display: flex;
       flex-direction: column;
@@ -142,8 +164,8 @@
       align-items: stretch;
     }
     .lp-card {
-      background: #1e1e38;
-      border: 1px solid #3a3a6a;
+      background: var(--side-card);
+      border: 1px solid var(--side-border);
       border-radius: 7px;
       padding: 7px 10px;
       min-width: 160px;
@@ -153,30 +175,30 @@
       flex-direction: column;
       gap: 3px;
     }
-    .lp-card:hover { border-color: #6c7ae0; }
+    .lp-card:hover { border-color: var(--side-accent); }
     .lp-card-row { display: flex; align-items: center; gap: 5px; }
     .lp-badge {
       border-radius: 3px;
       padding: 1px 5px;
       font-size: 9px;
       font-weight: 700;
-      color: white;
+      color: var(--side-accent-ink);
       flex-shrink: 0;
     }
-    .lp-badge-note { background: #6c7ae0; }
+    .lp-badge-note { background: var(--side-accent); }
     .lp-badge-task { background: #e0a06c; }
-    .lp-title { font-weight: 600; font-size: 11px; color: #ddd; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .lp-open { color: #6c7ae0; font-size: 14px; cursor: pointer; flex-shrink: 0; }
-    .lp-open:hover { color: #9aa7f0; }
-    .lp-remove { color: #e06c6c; font-size: 11px; cursor: pointer; flex-shrink: 0; }
-    .lp-remove:hover { color: #ff9a9a; }
-    .lp-preview { font-size: 10px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lp-title { font-weight: 600; font-size: 11px; color: var(--side-text); flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .lp-open { color: var(--side-accent); font-size: 14px; cursor: pointer; flex-shrink: 0; }
+    .lp-open:hover { color: var(--side-accent); }
+    .lp-remove { color: var(--side-danger); font-size: 11px; cursor: pointer; flex-shrink: 0; }
+    .lp-remove:hover { color: var(--side-danger); }
+    .lp-preview { font-size: 10px; color: var(--side-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .lp-add-btn {
       background: transparent;
-      border: 1.5px dashed #3a3a6a;
+      border: 1.5px dashed var(--side-border);
       border-radius: 7px;
       padding: 7px 14px;
-      color: #6c7ae0;
+      color: var(--side-accent);
       font-size: 11px;
       font-weight: 600;
       cursor: pointer;
@@ -185,7 +207,7 @@
       display: flex;
       align-items: center;
     }
-    .lp-add-btn:hover { border-color: #6c7ae0; }
+    .lp-add-btn:hover { border-color: var(--side-accent); }
 
     #lp-picker-overlay {
       position: fixed; inset: 0; background: rgba(0,0,0,0.55);
@@ -193,47 +215,47 @@
       z-index: 9999; font-family: system-ui, sans-serif;
     }
     #lp-picker-box {
-      background: #1a1a2e; border: 1px solid #3a3a6a; border-radius: 12px;
+      background: var(--side-bg); border: 1px solid var(--side-border); border-radius: 12px;
       padding: 20px; width: 420px; max-width: 95vw; max-height: 70vh;
       display: flex; flex-direction: column; gap: 12px;
       box-shadow: 0 8px 32px rgba(0,0,0,0.5);
     }
     #lp-picker-header { display: flex; justify-content: space-between; align-items: center; }
-    #lp-picker-title { font-weight: 700; font-size: 15px; color: #ddd; }
-    #lp-picker-close { cursor: pointer; color: #666; font-size: 20px; line-height: 1; padding: 0 4px; }
-    #lp-picker-close:hover { color: #aaa; }
+    #lp-picker-title { font-weight: 700; font-size: 15px; color: var(--side-text); }
+    #lp-picker-close { cursor: pointer; color: var(--side-muted); font-size: 20px; line-height: 1; padding: 0 4px; }
+    #lp-picker-close:hover { color: var(--side-text); }
     #lp-picker-input {
       width: 100%; padding: 9px 13px; border-radius: 8px;
-      border: 1px solid #3a3a6a; background: #12122a;
-      color: #ddd; font-size: 13px; outline: none; box-sizing: border-box;
+      border: 1px solid var(--side-border); background: var(--side-bg);
+      color: var(--side-text); font-size: 13px; outline: none; box-sizing: border-box;
     }
-    #lp-picker-input:focus { border-color: #6c7ae0; }
+    #lp-picker-input:focus { border-color: var(--side-accent); }
     #lp-picker-tabs { display: flex; gap: 6px; }
     .lp-tab {
       padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
-      cursor: pointer; border: 1px solid #3a3a6a; color: #aaa; background: transparent;
+      cursor: pointer; border: 1px solid var(--side-border); color: var(--side-muted); background: transparent;
     }
-    .lp-tab.active { background: #6c7ae0; color: white; border-color: #6c7ae0; }
+    .lp-tab.active { background: var(--side-accent); color: var(--side-accent-ink); border-color: var(--side-accent); }
     #lp-picker-results { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
     .lp-result-item {
       display: flex; align-items: center; gap: 8px; padding: 8px 10px;
-      border-radius: 8px; border: 1px solid #3a3a6a; cursor: pointer;
+      border-radius: 8px; border: 1px solid var(--side-border); cursor: pointer;
     }
-    .lp-result-item:hover { border-color: #6c7ae0; background: #1e1e38; }
+    .lp-result-item:hover { border-color: var(--side-accent); background: var(--side-card); }
     .lp-result-badge {
       border-radius: 3px; padding: 1px 6px; font-size: 10px; font-weight: 700;
-      color: white; flex-shrink: 0;
+      color: var(--side-accent-ink); flex-shrink: 0;
     }
-    .lp-result-title { font-size: 13px; font-weight: 600; color: #ddd; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .lp-result-meta { font-size: 10px; color: #666; flex-shrink: 0; }
-    .lp-picker-hint { color: #555; font-size: 13px; text-align: center; padding: 20px; }
+    .lp-result-title { font-size: 13px; font-weight: 600; color: var(--side-text); flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .lp-result-meta { font-size: 10px; color: var(--side-muted); flex-shrink: 0; }
+    .lp-picker-hint { color: var(--side-muted); font-size: 13px; text-align: center; padding: 20px; }
 
     .node-link-badge {
       position: absolute;
       top: -5px;
       right: -5px;
       background: #e0a06c;
-      color: white;
+      color: var(--side-accent-ink);
       border-radius: 50%;
       width: 14px;
       height: 14px;
@@ -249,10 +271,10 @@
     .map-container .text ul, .map-container .text ol { margin: 3px 0 3px 18px; padding: 0; }
     .map-container .text li { margin: 1px 0; }
     .map-container .text table { border-collapse: collapse; margin: 4px 0; font-size: 0.92em; }
-    .map-container .text th, .map-container .text td { border: 1px solid #3a3a6a; padding: 2px 6px; }
-    .map-container .text hr { border: none; border-top: 1px solid #3a3a6a; margin: 5px 0; }
-    .map-container .text code { background: #1e1e38; border: 1px solid #3a3a6a; border-radius: 3px; padding: 0 4px; font-size: 0.9em; }
-    .map-container .text a { color: #6c7ae0; }
+    .map-container .text th, .map-container .text td { border: 1px solid var(--side-border); padding: 2px 6px; }
+    .map-container .text hr { border: none; border-top: 1px solid var(--side-border); margin: 5px 0; }
+    .map-container .text code { background: var(--side-card); border: 1px solid var(--side-border); border-radius: 3px; padding: 0 4px; font-size: 0.9em; }
+    .map-container .text a { color: var(--side-accent); }
 
 
 
@@ -316,6 +338,8 @@
   <script src="/static/offline/mindmapoutline.js?v=124"></script>
   <script>
     let mind = null;
+
+    document.documentElement.setAttribute('data-theme', 'light');
 
     let currentNodeId = null;
     let currentNodeData = null;
@@ -510,7 +534,7 @@
         items.forEach(item => {
           const el = document.createElement('div');
           el.className = 'lp-result-item';
-          const color = item._type === 'note' ? '#6c7ae0' : '#e0a06c';
+          const color = item._type === 'note' ? 'var(--side-accent)' : '#e0a06c';
           const label = item._type === 'note' ? 'NOTE' : 'TASK';
           const meta = item._type === 'task' && item.priority ? item.priority : '';
           el.innerHTML = `<span class="lp-result-badge" style="background:${color}">${label}</span>
@@ -798,6 +822,9 @@
 
     window.addEventListener('message', (e) => {
       if (e.origin !== window.location.origin) return;
+      if (e.data && e.data.type === 'setTheme') {
+        document.documentElement.setAttribute('data-theme', e.data.theme === 'dark' ? 'dark' : 'light');
+      }
       if (e.data && e.data.type === 'load') {
         hidePanel();
         switchTab(null);
