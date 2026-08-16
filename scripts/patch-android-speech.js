@@ -79,6 +79,15 @@ function patchMainActivity(androidDir, log = console.log) {
     kt = kt.replace(/}\s*$/, override + "}\n");
   }
 
+  if (!kt.includes("onDestroy")) {
+    const destroy =
+      "\n  override fun onDestroy() {\n" +
+      "    SpeechBridge.destroy()\n" +
+      "    super.onDestroy()\n" +
+      "  }\n";
+    kt = kt.replace(/}\s*$/, destroy + "}\n");
+  }
+
   if (!kt.includes("companion object")) {
     const companion = "\n  companion object {\n    var instance: MainActivity? = null\n  }\n";
     kt = kt.replace(/}\s*$/, companion + "}\n");

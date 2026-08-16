@@ -80,3 +80,29 @@ test("patchAll menjalankan ketiganya", () => {
   assert.ok(fs.existsSync(path.join(root, "app/src/main/SpeechBridge.kt")));
   assert.ok(fs.readFileSync(path.join(root, "app/src/main/MainActivity.kt"), "utf8").includes("SpeechBridge.init(this)"));
 });
+
+test("patch speech setelah patch share (urutan CI nyata)", () => {
+  const root = makeFixture();
+  // Simulasikan output scripts/patch-android-share.js: handleShare(intent)
+  // dipanggil tepat setelah super.onCreate(savedInstanceState).
+  const kt =
+    "package id.web.yatno.taskflow\n\n" +
+    "class MainActivity : TauriActivity() {\n" +
+    "  override fun onCreate(savedInstanceState: Bundle?) {\n" +
+    "    super.onCreate(savedInstanceState)\n" +
+    "    handleShare(intent)\n" +
+    "  }\n" +
+    "}\n";
+  fs.writeFileSync(path.join(root, "app/src/main/MainActivity.kt"), kt);
+  patch.patchMainActivity(root, () => {});
+  const out = fs.readFileSync(path.join(root, "app/src/main/MainActivity.kt"), "utf8");
+  assert.ok(out.includes("instance = this"));
+  assert.ok(out.includes("SpeechBridge.init(this)"));
+  assert.ok(out.includes("handleShare(intent)"));
+  assert.ok(out.includes("onDestroy"));
+  const iSuper = out.indexOf("super.onCreate(savedInstanceState)");
+  const iInstance = out.indexOf("instance = this");
+  const iInit = out.indexOf("SpeechBridge.init(this)");
+  const iShare = out.indexOf("handleShare(intent)");
+  assert.ok(iSuper < iInstance && iInstance < iInit && iInit < iShare);
+});
