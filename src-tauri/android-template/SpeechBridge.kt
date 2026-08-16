@@ -88,6 +88,10 @@ object SpeechBridge {
                         when (cmd.optString("cmd")) {
                             "start" -> {
                                 currentLang = cmd.optString("lang", "id-ID")
+                                // Reset guard hanya saat sesi baru dimulai (bukan tiap
+                                // restart internal via maybeRestart) agar cap benar-benar
+                                // terakumulasi antar-restart.
+                                restartCount = 0
                                 startListening()
                             }
                             "stop" -> stopListening()
@@ -113,7 +117,6 @@ object SpeechBridge {
             return
         }
         userStopped = false
-        restartCount = 0
         try {
             try { recognizer?.destroy() } catch (e: Exception) { Log.w(TAG, "destroy previous recognizer failed", e) }
             val sr = SpeechRecognizer.createSpeechRecognizer(act)

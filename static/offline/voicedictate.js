@@ -204,7 +204,10 @@
     var currentState = "idle";
     var pollTimer = null;
     var silentCycles = 0;
-    var SILENT_LIMIT = 20; // ~6 detik tanpa event saat listening → diagnostik path
+    var gotAnyEvent = false;
+    var diagnosticFired = false;
+    var silentLimit = opts.silentLimit || 20; // ~6 detik tanpa event saat listening → diagnostik path
+    var pollIntervalMs = opts.pollIntervalMs || 300;
 
     function setState(state) {
       if (currentState !== state) {
@@ -234,13 +237,22 @@
             silentCycles = 0;
             setState("idle");
             if (msg) onError(msg);
+            if (pollTimer) {
+              clearInterval(pollTimer);
+              pollTimer = null;
+            }
           }
         });
+        if (n > 0) gotAnyEvent = true;
         if (n === 0) {
           silentCycles++;
           // Diagnostik: kemungkinan mapping filesDir tidak cocok — tampilkan
-          // lokasi yang dicek Rust (pola share_debug).
-          if (silentCycles >= SILENT_LIMIT && currentState === "listening") {
+          // lokasi yang dicek Rust (pola share_debug). Hanya fire SEKALI per
+          // sesi dan hanya jika sama sekali belum ada event (pause berpikir
+          // normal tidak boleh memicunya).
+          if (silentCycles >= silentLimit && currentState === "listening" &&
+              !gotAnyEvent && !diagnosticFired) {
+            diagnosticFired = true;
             silentCycles = 0;
             invoke("speech_debug", {}).then(function (dbg) {
               onError("Dikte tidak merespons.\nLokasi yang dicek:\n\n" + dbg);
@@ -253,14 +265,20 @@
     function start() {
       setState("listening");
       silentCycles = 0;
+      gotAnyEvent = false;
+      diagnosticFired = false;
       // Buang event stale dari sesi sebelumnya (mis. app crash saat recording).
       invoke("read_speech_events", {}).catch(function () {});
       invoke("speech_cmd", { cmd: JSON.stringify({ cmd: "start", lang: lang }) }).catch(function (e) {
         setState("idle");
         onError("Gagal memulai dikte: " + String(e));
+        if (pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
       });
       if (pollTimer) clearInterval(pollTimer);
-      pollTimer = setInterval(poll, 300);
+      pollTimer = setInterval(poll, pollIntervalMs);
     }
 
     function stop() {

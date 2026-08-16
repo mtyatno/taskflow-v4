@@ -97,3 +97,63 @@ test("start/stop kirim command yang benar, stop bersihkan poller", () => {
 test("tanpa Tauri/Android di node → isSupported false (fallback web impl)", () => {
   assert.equal(TF.voicedictate.isSupported(), false);
 });
+
+test("diagnostic fire SEKALI jika tidak ada event sama sekali", async () => {
+  mockTauri(); // semua invoke resolve "" → poll selamanya tanpa event
+  mockAndroid();
+  const errs = [];
+  const impl = TF.voicedictate.create({
+    onError: (m) => errs.push(m),
+    silentLimit: 2,
+    pollIntervalMs: 5,
+  });
+  impl.start();
+  await new Promise((r) => setTimeout(r, 80));
+  impl.stop();
+  assert.equal(errs.length, 1);
+  assert.ok(errs[0].startsWith("Dikte tidak merespons"));
+});
+
+test("diagnostic TIDAK fire jika ada event diterima", async () => {
+  mockTauri((cmd) =>
+    cmd === "read_speech_events"
+      ? Promise.resolve('{"type":"state","state":"listening"}')
+      : Promise.resolve("")
+  );
+  mockAndroid();
+  const errs = [];
+  const impl = TF.voicedictate.create({
+    onError: (m) => errs.push(m),
+    silentLimit: 2,
+    pollIntervalMs: 5,
+  });
+  impl.start();
+  await new Promise((r) => setTimeout(r, 80));
+  impl.stop();
+  assert.equal(errs.length, 0);
+});
+
+test("error → idle menghentikan poller (tidak ada IPC lanjutan)", async () => {
+  let readCount = 0;
+  // Panggilan read_speech_events PERTAMA adalah drain event stale di start()
+  // (hasilnya sengaja dibuang) — error tiba di poll pertama (baca ke-2).
+  mockTauri((cmd) => {
+    if (cmd === "read_speech_events") {
+      readCount++;
+      return Promise.resolve(readCount === 2 ? '{"type":"error","message":"boom"}' : "");
+    }
+    return Promise.resolve("");
+  });
+  mockAndroid();
+  const impl = TF.voicedictate.create({
+    onError: () => {},
+    onStateChange: () => {},
+    pollIntervalMs: 5,
+  });
+  impl.start();
+  await new Promise((r) => setTimeout(r, 60));
+  const countAfterError = readCount;
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(readCount, countAfterError);
+  assert.equal(impl.getState(), "idle");
+});
