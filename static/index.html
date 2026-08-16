@@ -7660,18 +7660,19 @@ function MindmapOutline({ tree, onChange }) {
     const isDragging = dragId === n.id;
     const dropMark = dragOver && dragOver.id === n.id ? dragOver.pos : null;
     const guideSegStyle = {
-      width: 12, flexShrink: 0, textAlign: "center",
-      color: "var(--border)", fontFamily: "monospace", fontSize: 12,
-      alignSelf: "stretch", display: "flex", alignItems: "center", justifyContent: "center",
+      width: 12, flexShrink: 0, alignSelf: "stretch",
       // rows have 4px vertical padding; stretch only covers the content box,
       // so extend into the padding zones to keep the vertical line continuous
       margin: "-4px 0",
+      borderLeft: "1px solid var(--border)",
       userSelect: "none"
     };
-    const branchStyle = {
-      width: 14, flexShrink: 0, textAlign: "center",
-      color: "var(--border)", fontFamily: "monospace", fontSize: 12,
-      alignSelf: "flex-start", paddingTop: 3, userSelect: "none"
+    const guideSegGapStyle = {
+      width: 12, flexShrink: 0, userSelect: "none"
+    };
+    const elbowWrapStyle = {
+      width: 14, flexShrink: 0, alignSelf: "stretch",
+      margin: "-4px 0", position: "relative", userSelect: "none"
     };
     return /*#__PURE__*/React.createElement("div", {
       key: n.id,
@@ -7711,10 +7712,15 @@ function MindmapOutline({ tree, onChange }) {
       }
     }, guides.slice(0, -1).map((g, i) => /*#__PURE__*/React.createElement("span", {
       key: "g" + i,
-      style: guideSegStyle
-    }, g ? "│" : " ")), depth > 0 && /*#__PURE__*/React.createElement("span", {
-      style: branchStyle
-    }, isLast ? "└─" : "├─"), /*#__PURE__*/React.createElement("span", {
+      style: g ? guideSegStyle : guideSegGapStyle
+    })), depth > 0 && /*#__PURE__*/React.createElement("span", {
+      key: "eb",
+      style: elbowWrapStyle
+    }, /*#__PURE__*/React.createElement("span", {
+      style: { position: "absolute", left: 0, top: 0, height: 13, width: 14, borderLeft: "1px solid var(--border)", borderBottom: "1px solid var(--border)", borderBottomLeftRadius: 3 }
+    }), !isLast && /*#__PURE__*/React.createElement("span", {
+      style: { position: "absolute", left: 0, top: 13, bottom: 0, borderLeft: "1px solid var(--border)" }
+    })), /*#__PURE__*/React.createElement("span", {
       onClick: e => { e.stopPropagation(); if (hasKids) toggleOp(n.id); },
       title: hasKids ? "Lipat/Buka cabang" : undefined,
       style: {
