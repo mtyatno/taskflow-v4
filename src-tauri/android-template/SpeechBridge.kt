@@ -1,0 +1,187 @@
+package id.web.yatno.taskflow
+
+// SpeechBridge — native offline voice dictation for the Tauri APK.
+// The JS frontend (static/offline/voicedictate.js native impl) drives this via
+// two files in the app's private filesDir:
+//   speech_cmd.json  — written by the Rust `speech_cmd` command:
+//                      {"cmd":"start","lang":"id-ID"} | {"cmd":"stop"}
+//   speech_events    — appended here (one JSON line per event), read by the
+//                      Rust `read_speech_events` command
+// Events: {"type":"state","state":...} | {"type":"partial","text":...} |
+//         {"type":"final","text":...} | {"type":"error","message":...} | {"type":"end"}
+// The command file is deleted after consumption so a command never runs twice.
+
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import org.json.JSONObject
+import java.io.File
+
+object SpeechBridge {
+    private const val MAX_RESTARTS = 50
+    private const val POLL_MS = 250L
+    private const val RESTART_MS = 300L
+    const val REQUEST_RECORD_AUDIO = 1400
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var activity: MainActivity? = null
+    private var recognizer: SpeechRecognizer? = null
+    private var userStopped = true
+    private var restartCount = 0
+    private var currentLang = "id-ID"
+
+    fun init(act: MainActivity) {
+        activity = act
+        startPoller()
+    }
+
+    fun onPermissionResult(requestCode: Int, grantResults: IntArray) {
+        if (requestCode != REQUEST_RECORD_AUDIO) return
+        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startListening()
+        } else {
+            userStopped = true
+            appendEvent(JSONObject().put("type", "error")
+                .put("message", "Mikrofon tidak diizinkan. Buka pengaturan aplikasi."))
+            appendEvent(JSONObject().put("type", "state").put("state", "idle"))
+        }
+    }
+
+    fun stopListening() {
+        userStopped = true
+        try { recognizer?.stopListening() } catch (_: Exception) {}
+        try { recognizer?.destroy() } catch (_: Exception) {}
+        recognizer = null
+        appendEvent(JSONObject().put("type", "state").put("state", "idle"))
+    }
+
+    private fun startPoller() {
+        val r = object : Runnable {
+            override fun run() {
+                try {
+                    val f = cmdFile()
+                    if (f != null && f.exists()) {
+                        val raw = f.readText()
+                        f.delete()
+                        val cmd = JSONObject(raw)
+                        when (cmd.optString("cmd")) {
+                            "start" -> {
+                                currentLang = cmd.optString("lang", "id-ID")
+                                startListening()
+                            }
+                            "stop" -> stopListening()
+                        }
+                    }
+                } catch (_: Exception) {
+                } finally {
+                    handler.postDelayed(this, POLL_MS)
+                }
+            }
+        }
+        handler.post(r)
+    }
+
+    private fun startListening() {
+        val act = activity ?: return
+        if (act.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            act.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_RECORD_AUDIO)
+            appendEvent(JSONObject().put("type", "state").put("state", "waiting"))
+            return
+        }
+        userStopped = false
+        restartCount = 0
+        try { recognizer?.destroy() } catch (_: Exception) {}
+        val sr = SpeechRecognizer.createSpeechRecognizer(act)
+        recognizer = sr
+        sr.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) {
+                appendEvent(JSONObject().put("type", "state").put("state", "listening"))
+            }
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() {
+                appendEvent(JSONObject().put("type", "state").put("state", "paused"))
+            }
+            override fun onError(error: Int) {
+                val networkMsg = "Perlu internet atau paket offline: download Bahasa Indonesia di Google app → Voice → Offline speech recognition"
+                val msg = when (error) {
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
+                        "Mikrofon tidak diizinkan. Buka pengaturan aplikasi."
+                    SpeechRecognizer.ERROR_CLIENT, SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
+                        "Engine suara tidak tersedia. Pastikan Google app terpasang dan paket offline Bahasa Indonesia sudah di-download."
+                    SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> networkMsg
+                    SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "silence"
+                    else -> "Engine suara error (kode $error)"
+                }
+                if (msg == "silence") {
+                    appendEvent(JSONObject().put("type", "end"))
+                    maybeRestart()
+                } else {
+                    userStopped = true
+                    appendEvent(JSONObject().put("type", "error").put("message", msg))
+                    appendEvent(JSONObject().put("type", "state").put("state", "idle"))
+                }
+            }
+            override fun onResults(results: Bundle?) {
+                restartCount = 0
+                val txt = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull() ?: ""
+                appendEvent(JSONObject().put("type", "final").put("text", txt))
+                maybeRestart()
+            }
+            override fun onPartialResults(partialResults: Bundle?) {
+                restartCount = 0
+                val txt = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull() ?: ""
+                appendEvent(JSONObject().put("type", "partial").put("text", txt))
+            }
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+        })
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, currentLang)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        }
+        try {
+            sr.startListening(intent)
+        } catch (e: Exception) {
+            userStopped = true
+            appendEvent(JSONObject().put("type", "error")
+                .put("message", "Gagal memulai dikte: ${e.message}"))
+            appendEvent(JSONObject().put("type", "state").put("state", "idle"))
+        }
+    }
+
+    private fun maybeRestart() {
+        if (userStopped) return
+        restartCount++
+        if (restartCount > MAX_RESTARTS) {
+            userStopped = true
+            appendEvent(JSONObject().put("type", "error")
+                .put("message", "Sesi terlalu lama. Silakan mulai ulang."))
+            appendEvent(JSONObject().put("type", "state").put("state", "idle"))
+            return
+        }
+        handler.postDelayed({ if (!userStopped) startListening() }, RESTART_MS)
+    }
+
+    private fun cmdFile(): File? = activity?.filesDir?.let { File(it, "speech_cmd.json") }
+    private fun eventsFile(): File? = activity?.filesDir?.let { File(it, "speech_events") }
+
+    private fun appendEvent(obj: JSONObject) {
+        try {
+            eventsFile()?.appendText(obj.toString() + "\n")
+        } catch (_: Exception) {
+        }
+    }
+}

@@ -52,6 +52,8 @@ jobs:
           echo "Icons copied to gen/android"
       - name: Patch gen/android for share-target
         run: node scripts/patch-android-share.js
+      - name: Patch gen/android for native speech recognition
+        run: node scripts/patch-android-speech.js
       - name: Pin brotli to 8.0.2 (8.0.1/8.0.3 broken on alloc-no-stdlib)
         run: |
           cd src-tauri
