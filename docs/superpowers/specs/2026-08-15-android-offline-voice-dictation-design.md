@@ -32,7 +32,7 @@ Kesimpulan: bukan bug kode — fondasi fitur (browser-native recognition) dicabu
 ### Alur data
 
 ```
-JS (NoteEditor 15422 / TaskFormModal 2725) → TF.voicedictate.create()
+JS (NoteEditor ~16331 / TaskFormModal ~2727 — baris bergeser oleh commit mindmap) → TF.voicedictate.create()
   ├─ deteksi Android-Tauri (window.__TAURI__.core.invoke + UA Android) → native impl
   ├─ start: invoke('speech_cmd', {cmd:'start', lang:'id-ID'})
   │     → Rust tulis speech_cmd.json (path-probe seperti get_pending_share)
