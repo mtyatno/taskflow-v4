@@ -7607,13 +7607,14 @@ function MindmapOutline({ tree, onChange }) {
   const renderTopic = n => {
     if (editingId === n.id) {
       const applyFmt = fn => {
-        const start = editVal.length;
-        const end = editVal.length;
+        const el = editAreaRef.current;
+        const start = el ? el.selectionStart : editVal.length;
+        const end = el ? el.selectionEnd : editVal.length;
         const res = fn(editVal, start, end);
         setEditVal(res.text);
         requestAnimationFrame(() => {
-          const el = editAreaRef.current;
-          if (el) el.setSelectionRange(res.selStart, res.selEnd);
+          const t = editAreaRef.current;
+          if (t) t.setSelectionRange(res.selStart, res.selEnd);
         });
       };
       const setAlign = align => {
@@ -7621,72 +7622,89 @@ function MindmapOutline({ tree, onChange }) {
         if (next !== treeRef.current) edit(next);
       };
       return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         style: { display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap", marginBottom: 4 }
       }, /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => applyFmt((t, s, e) => MO.wrapSelection(t, s, e, "**", "**", "teks")),
         title: "Bold", style: fmtBtn
       }, /*#__PURE__*/React.createElement("b", null, "B")), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => applyFmt((t, s, e) => MO.wrapSelection(t, s, e, "*", "*", "teks")),
         title: "Italic", style: fmtBtn
       }, /*#__PURE__*/React.createElement("i", null, "I")), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => applyFmt((t, s, e) => MO.wrapSelection(t, s, e, "<u>", "</u>", "teks")),
         title: "Underline", style: fmtBtn
       }, /*#__PURE__*/React.createElement("u", null, "U")), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => applyFmt((t, s, e) => MO.wrapSelection(t, s, e, "~~", "~~", "teks")),
         title: "Coret", style: fmtBtn
       }, /*#__PURE__*/React.createElement("s", null, "S")), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => applyFmt((t, s, e) => MO.wrapSelection(t, s, e, "__", "__", "sorot")),
         title: "Highlight", style: fmtBtn
       }, "✨"), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => applyFmt((t, s, e) => MO.prefixLines(t, s, e, "# ", false)),
         title: "Heading", style: fmtBtn
       }, "H"), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => applyFmt((t, s, e) => MO.wrapSelection(t, s, e, "`", "`", "kode")),
         title: "Inline code", style: fmtBtn
       }, "</>"), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => applyFmt((t, s, e) => MO.wrapSelection(t, s, e, "[", "](https://)", "teks")),
         title: "Link", style: fmtBtn
       }, "🔗"), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => applyFmt((t, s, e) => MO.insertBlock(t, s, e, "| Kolom 1 | Kolom 2 | Kolom 3 |\n| --- | --- | --- |\n| isi | isi | isi |")),
         title: "Tabel", style: fmtBtn
       }, "⊞"), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => applyFmt((t, s, e) => MO.prefixLines(t, s, e, "- ", false)),
         title: "List •", style: fmtBtn
       }, "•"), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => applyFmt((t, s, e) => MO.prefixLines(t, s, e, "", true)),
         title: "List angka", style: fmtBtn
       }, "1."), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => applyFmt((t, s, e) => MO.insertBlock(t, s, e, "---")),
         title: "Garis pemisah", style: fmtBtn
       }, "─"), /*#__PURE__*/React.createElement("span", {
         style: { width: 1, height: 16, background: "var(--border)", margin: "0 4px", alignSelf: "center" }
       }), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => setAlign("left"),
         title: "Rata kiri", style: fmtBtn
       }, "L"), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => setAlign("center"),
         title: "Tengah", style: fmtBtn
       }, "C"), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => setAlign("right"),
         title: "Rata kanan", style: fmtBtn
       }, "R"), /*#__PURE__*/React.createElement("button", {
-        onMouseDown: e => e.preventDefault(),
+        onMouseDown: e => { e.preventDefault(); e.stopPropagation(); },
+        onPointerDown: e => { e.preventDefault(); e.stopPropagation(); },
         onClick: () => setAlign("justify"),
         title: "Rata penuh", style: fmtBtn
       }, "J")), /*#__PURE__*/React.createElement("textarea", {
