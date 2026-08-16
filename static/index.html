@@ -7661,9 +7661,10 @@ function MindmapOutline({ tree, onChange }) {
     const dropMark = dragOver && dragOver.id === n.id ? dragOver.pos : null;
     const guideSegStyle = {
       width: 12, flexShrink: 0, alignSelf: "stretch",
-      // rows have 4px vertical padding; stretch only covers the content box,
-      // so extend into the padding zones to keep the vertical line continuous
-      margin: "-4px 0",
+      // rows have 4px vertical padding AND 2px transparent borders (drop
+      // indicator); stretch only covers the content box, so extend through
+      // padding + border zones to keep the vertical line continuous
+      margin: "-6px 0",
       borderLeft: "1px solid var(--border)",
       userSelect: "none"
     };
@@ -7672,7 +7673,7 @@ function MindmapOutline({ tree, onChange }) {
     };
     const elbowWrapStyle = {
       width: 14, flexShrink: 0, alignSelf: "stretch",
-      margin: "-4px 0", position: "relative", userSelect: "none"
+      margin: "-6px 0", position: "relative", userSelect: "none"
     };
     return /*#__PURE__*/React.createElement("div", {
       key: n.id,
