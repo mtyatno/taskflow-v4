@@ -290,3 +290,13 @@ test("renderTopicMd output has no trailing newline (phantom line fix)", () => {
   assert.ok(!MO.renderTopicMd("halo dunia").endsWith("\n"));
   assert.ok(!MO.renderTopicMd("| a | b |\n| - | - |\n| 1 | 2 |").endsWith("\n"));
 });
+
+test("renderTopicMd strips the single-paragraph <p> wrapper (no phantom block)", () => {
+  assert.equal(MO.renderTopicMd("halo dunia"), "halo dunia");
+  assert.equal(MO.renderTopicMd("**tebal**"), "<strong>tebal</strong>");
+  assert.ok(!MO.renderTopicMd("*miring* dan __sorot__").includes("<p>"));
+  // multi-paragraph topics keep their block structure
+  const multi = MO.renderTopicMd("para1\n\npara2");
+  assert.match(multi, /<p>para1<\/p>/);
+  assert.match(multi, /<p>para2<\/p>/);
+});

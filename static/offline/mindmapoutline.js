@@ -264,9 +264,15 @@
           .replace(/&gt;/g, "%3E");
         return (/^[a-z][a-z0-9+.-]*:/i.test(clean) && !/^(https?|mailto|tel):/i.test(clean)) ? 'href="#"' : 'href="' + clean + '"';
       });
-      // marked appends a trailing \n; topics render with white-space: pre-wrap,
-      // so that newline would draw as a phantom blank line inside the node.
-      return cleaned.replace(/\n$/, "");
+      // marked appends a trailing \n and wraps single paragraphs in <p> —
+      // inside pre-wrap topic boxes both draw as phantom blank lines / extra
+      // block height. Strip the trailing newline always; strip the outer <p>
+      // when the output is exactly ONE paragraph (the common case, pure
+      // inline HTML like before markdown). Multi-block output (lists/tables/
+      // multiple paras) keeps its structure.
+      const noNL = cleaned.replace(/\n$/, "");
+      const flat = noNL.replace(/^<p>/, "").replace(/<\/p>$/, "");
+      return (/<p[\s>]/i.test(flat)) ? noNL : flat;
     } catch (_) {
       return pre;
     }
