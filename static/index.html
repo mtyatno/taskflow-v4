@@ -7665,7 +7665,7 @@ function MindmapOutline({ tree, onChange }) {
       // indicator); stretch only covers the content box, so extend through
       // padding + border zones to keep the vertical line continuous
       margin: "-6px 0",
-      borderLeft: "1px solid var(--border)",
+      borderLeft: "1px solid var(--outline-guide)",
       userSelect: "none"
     };
     const guideSegGapStyle = {
@@ -7697,7 +7697,7 @@ function MindmapOutline({ tree, onChange }) {
         e.preventDefault();
         e.stopPropagation();
         const r = e.currentTarget.getBoundingClientRect();
-        setDragOver({ id: n.id, pos: (e.clientY - r.top) < r.height / 2 ? "before" : "after" });
+        setDragOver({ id: n.id, pos: e.shiftKey ? "into" : (e.clientY - r.top) < r.height / 2 ? "before" : "after" });
       },
       onDrop: e => { e.preventDefault(); e.stopPropagation(); handleDrop(n.id, e.shiftKey); },
       onDragEnd: () => { setDragId(null); setDragOver(null); },
@@ -7705,7 +7705,8 @@ function MindmapOutline({ tree, onChange }) {
         display: "flex", alignItems: "center", gap: 4,
         padding: "4px 8px 4px 2px",
         borderRadius: 6, cursor: "pointer", fontSize: 13,
-        background: isActive ? "rgba(168,197,0,0.10)" : "transparent",
+        background: dropMark === "into" ? "rgba(168,197,0,0.22)" : isActive ? "rgba(168,197,0,0.10)" : "transparent",
+        boxShadow: dropMark === "into" ? "inset 0 0 0 2px var(--accent)" : "none",
         borderTop: dropMark === "before" ? "2px solid var(--accent)" : "2px solid transparent",
         borderBottom: dropMark === "after" ? "2px solid var(--accent)" : "2px solid transparent",
         opacity: isDragging ? 0.45 : 1,
@@ -7718,9 +7719,9 @@ function MindmapOutline({ tree, onChange }) {
       key: "eb",
       style: elbowWrapStyle
     }, /*#__PURE__*/React.createElement("span", {
-      style: { position: "absolute", left: 0, top: 0, height: 13, width: 14, borderLeft: "1px solid var(--border)", borderBottom: "1px solid var(--border)", borderBottomLeftRadius: 3 }
+      style: { position: "absolute", left: 0, top: 0, height: 13, width: 14, borderLeft: "1px solid var(--outline-guide)", borderBottom: "1px solid var(--outline-guide)", borderBottomLeftRadius: 3 }
     }), !isLast && /*#__PURE__*/React.createElement("span", {
-      style: { position: "absolute", left: 0, top: 13, bottom: 0, borderLeft: "1px solid var(--border)" }
+      style: { position: "absolute", left: 0, top: 13, bottom: 0, borderLeft: "1px solid var(--outline-guide)" }
     })), /*#__PURE__*/React.createElement("span", {
       onClick: e => { e.stopPropagation(); if (hasKids) toggleOp(n.id); },
       title: hasKids ? "Lipat/Buka cabang" : undefined,
@@ -7813,7 +7814,13 @@ function MindmapOutline({ tree, onChange }) {
     className: "btn btn-secondary btn-sm",
     onClick: collapseAllOp,
     style: { fontSize: 11 }
-  }, "Collapse all")), /*#__PURE__*/React.createElement("div", {
+  }, "Collapse all"), /*#__PURE__*/React.createElement("span", {
+    title: "Drag node ke node lain: tepi atas/bawah = urutkan sibling. Tahan Shift = jadikan child dari node target.",
+    style: {
+      fontSize: 10, color: "var(--text-light)", flexShrink: 0, cursor: "help",
+      border: "1px solid var(--border)", borderRadius: 10, padding: "1px 7px"
+    }
+  }, "ⓘ Shift+drag = child")), /*#__PURE__*/React.createElement("div", {
     style: { flex: 1, overflowY: "auto", padding: 8, minHeight: 0 }
   }, rows.map(renderRow), rows.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: { color: "var(--text-light)", fontSize: 12, padding: 16, textAlign: "center" }

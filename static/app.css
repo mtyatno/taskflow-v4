@@ -11,6 +11,7 @@
       --p1: #ef4444; --p2: #f97316; --p3: #eab308; --p4: #22c55e;
       --q1: #ef4444; --q2: #A8C500; --q3: #f97316; --q4: #94a3b8;
       --border: #E8E8E0;
+      --outline-guide: #94a3b8;
       --success: #22c55e;
       --sidebar-w: 260px;
       --pomodoro: #ef4444;
@@ -27,6 +28,7 @@
       --text-secondary: #a3a3a3;
       --text-light: #737373;
       --border: #404040;
+      --outline-guide: #555555;
     }
     [data-theme="dark"] body { background: #171717; }
     [data-theme="dark"] .input { background: #171717 !important; color: var(--text-primary); }
