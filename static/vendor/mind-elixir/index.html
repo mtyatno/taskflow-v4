@@ -590,9 +590,12 @@
       };
       updateCreateBtns();
 
+      let creating = false;
       async function createAndLink(type) {
+        if (creating) return;
         const q = createQ();
         if (!q) return;
+        creating = true;
         const hints = document.getElementById('lp-picker-results');
         hints.innerHTML = '<p class="lp-picker-hint">Membuat...</p>';
         try {
@@ -613,6 +616,7 @@
           window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
           overlay.remove();
         } catch (_) {
+          creating = false;
           hints.innerHTML = '<p class="lp-picker-hint">Gagal membuat — coba lagi</p>';
         }
       }
