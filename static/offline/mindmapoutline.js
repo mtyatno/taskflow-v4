@@ -317,10 +317,26 @@
     return updateNode(root, id, (n) => ({ ...n, align }));
   }
 
+  function addNodeLink(root, id, link) {
+    const f = findNode(root, id);
+    if (!f || !f.node || !link) return root;
+    const links = (f.node.links || []).filter(l => !(l && l.type === link.type && l.id === link.id));
+    return updateNode(root, id, (n) => ({ ...n, links: [...links, link] }));
+  }
+
+  function removeNodeLink(root, id, index) {
+    const f = findNode(root, id);
+    if (!f || !f.node) return root;
+    const links = (f.node.links || []);
+    if (index < 0 || index >= links.length) return root;
+    return updateNode(root, id, (n) => ({ ...n, links: links.filter((_, i) => i !== index) }));
+  }
+
   return {
     findNode, addChild, addSibling, renameNode, deleteNode, duplicateNode,
     moveNode, moveSibling, moveInto, indentNode, outdentNode, toggleExpand,
     expandAll, collapseAll, cloneSubtree, insertSubtree, searchNodes, ancestorsOf,
     renderTopicMd, wrapSelection, prefixLines, insertBlock, setNodeAlign,
+    addNodeLink, removeNodeLink,
   };
 });

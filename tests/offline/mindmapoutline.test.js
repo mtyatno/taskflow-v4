@@ -188,8 +188,30 @@ test("export surface is complete", () => {
     "moveNode", "moveSibling", "moveInto", "indentNode", "outdentNode", "toggleExpand",
     "expandAll", "collapseAll", "cloneSubtree", "insertSubtree", "searchNodes", "ancestorsOf",
     "renderTopicMd", "wrapSelection", "prefixLines", "insertBlock", "setNodeAlign",
+    "addNodeLink", "removeNodeLink",
   ].sort();
   assert.deepEqual(Object.keys(MO).sort(), expected);
+});
+
+test("addNodeLink appends and dedupes by type+id; preserves fields", () => {
+  const t = fixture();
+  const link = { type: "task", id: 9, title: "T", priority: "P1", deadline: "2026-08-20", status: "open" };
+  const r = MO.addNodeLink(t, "b", link);
+  assert.equal(MO.findNode(r, "b").node.links.length, 1);
+  assert.deepEqual(MO.findNode(r, "b").node.links[0], link);
+  const dup = MO.addNodeLink(r, "b", { type: "task", id: 9, title: "T2" });
+  assert.equal(MO.findNode(dup, "b").node.links.length, 1); // deduped, original kept
+  assert.deepEqual(MO.findNode(dup, "a").node.links, [{ type: "note", id: 1, title: "N" }]);
+  assert.equal(MO.addNodeLink(t, "zzz", link), t);
+});
+
+test("removeNodeLink removes by index; guards out of range", () => {
+  const t = fixture();
+  const r = MO.removeNodeLink(t, "a", 0);
+  assert.deepEqual(MO.findNode(r, "a").node.links, []);
+  assert.equal(MO.removeNodeLink(t, "a", 5), t);
+  assert.equal(MO.removeNodeLink(t, "a", -1), t);
+  assert.equal(MO.removeNodeLink(t, "zzz", 0), t);
 });
 
 test("renderTopicMd renders bold, italic, highlight, underline, strike", () => {
