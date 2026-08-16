@@ -7225,6 +7225,8 @@ function LinkPickerModal({
   const [tab, setTab] = React.useState("all");
   const [results, setResults] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
+  const [creating, setCreating] = React.useState(false);
+  const [createError, setCreateError] = React.useState(null);
   const debounceRef = React.useRef(null);
   const inputRef = React.useRef(null);
   React.useEffect(() => {
@@ -7278,6 +7280,32 @@ function LinkPickerModal({
       status: item.gtd_status
     };
     onSelect(link);
+  };
+  const handleCreate = async type => {
+    const q = query.trim();
+    if (!q || creating) return;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const created = await api.post(type === 'note' ? '/api/scratchpad' : '/api/tasks', { title: q });
+      const link = type === 'note' ? {
+        type: 'note',
+        id: created.id,
+        title: created.title || q,
+        preview: ''
+      } : {
+        type: 'task',
+        id: created.id,
+        title: created.title || q,
+        priority: created.priority,
+        deadline: created.deadline,
+        status: created.gtd_status
+      };
+      onSelect(link);
+    } catch (_) {
+      setCreateError('Gagal membuat — coba lagi');
+      setCreating(false);
+    }
   };
   return /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
@@ -7418,7 +7446,64 @@ function LinkPickerModal({
       color: 'var(--text-secondary)',
       flexShrink: 0
     }
-  }, item.priority))))));
+  }, item.priority)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flexShrink: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 6,
+      marginTop: 8
+    }
+  }, createError && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: '#ef4444',
+      fontSize: 12
+    }
+  }, createError), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 6,
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    disabled: !query.trim() || creating,
+    onClick: () => handleCreate('note'),
+    style: {
+      flex: 1,
+      padding: '7px 10px',
+      borderRadius: 7,
+      fontSize: 12,
+      fontWeight: 600,
+      cursor: query.trim() && !creating ? 'pointer' : 'default',
+      border: '1.5px dashed var(--border)',
+      background: 'transparent',
+      color: 'var(--accent)',
+      opacity: !query.trim() ? 0.5 : 1,
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      minWidth: 0
+    }
+  }, "➕ Note: " + (query.trim() || '')), /*#__PURE__*/React.createElement("button", {
+    disabled: !query.trim() || creating,
+    onClick: () => handleCreate('task'),
+    style: {
+      flex: 1,
+      padding: '7px 10px',
+      borderRadius: 7,
+      fontSize: 12,
+      fontWeight: 600,
+      cursor: query.trim() && !creating ? 'pointer' : 'default',
+      border: '1.5px dashed var(--border)',
+      background: 'transparent',
+      color: 'var(--accent)',
+      opacity: !query.trim() ? 0.5 : 1,
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      minWidth: 0
+    }
+  }, "➕ Task: " + (query.trim() || ''))))))
 }
 
 // ── Mindmap Outline (text-hierarchy view of a mindmap) ──────
