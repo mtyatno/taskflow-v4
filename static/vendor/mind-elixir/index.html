@@ -582,15 +582,27 @@
         const box = document.getElementById('input-box');
         if (!box) return null;
         const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0 || !box.contains(sel.anchorNode)) return { box, s: box.textContent.length, e: box.textContent.length };
-        const range = document.createRange();
-        range.selectNodeContents(box);
-        range.setEnd(sel.anchorNode, sel.anchorOffset);
-        const a = range.toString().length;
-        range.selectNodeContents(box);
-        range.setEnd(sel.focusNode, sel.focusOffset);
-        const b = range.toString().length;
-        return { box, s: Math.min(a, b), e: Math.max(a, b) };
+        if (!sel || sel.rangeCount === 0 || !box.contains(sel.anchorNode)) return { box, text: box.innerText, s: box.innerText.length, e: box.innerText.length };
+        const walkOffsets = (targetNode, targetOffset) => {
+          // sum lengths of nodes before targetNode inside box, then partial text
+          let total = 0;
+          let found = false;
+          (function walk(node) {
+            if (found) return;
+            if (node === targetNode) {
+              if (node.nodeType === 3) total += targetOffset;
+              found = true;
+              return;
+            }
+            if (node.nodeType === 3) { total += node.textContent.length; return; }
+            if (node.nodeName === 'BR') { total += 1; return; }
+            for (const ch of node.childNodes) walk(ch);
+          })(box);
+          return total;
+        };
+        const a = walkOffsets(sel.anchorNode, sel.anchorOffset);
+        const b = walkOffsets(sel.focusNode, sel.focusOffset);
+        return { box, text: box.innerText, s: Math.min(a, b), e: Math.max(a, b) };
       }
 
       function setEditCaret(box, start, end) {
@@ -599,26 +611,32 @@
         let pos = 0, startNode = null, startOff = 0, endNode = null, endOff = 0;
         (function walk(node) {
           if (endNode != null) return;
+          if (node.nodeName === 'BR') {
+            pos += 1;
+            if (startNode == null && pos >= start) { startNode = node.parentNode; startOff = Array.prototype.indexOf.call(node.parentNode.childNodes, node) + 1; }
+            if (pos >= end) { endNode = node.parentNode; endOff = Array.prototype.indexOf.call(node.parentNode.childNodes, node) + 1; }
+            return;
+          }
           if (node.nodeType === 3) {
             const len = node.textContent.length;
-            if (startNode == null && pos + len >= start) { startNode = node; startOff = start - pos; }
-            if (pos + len >= end) { endNode = node; endOff = end - pos; }
+            if (startNode == null && pos + len >= start) { startNode = node; startOff = Math.max(0, start - pos); }
+            if (pos + len >= end) { endNode = node; endOff = Math.max(0, end - pos); }
             pos += len;
           } else {
             for (const ch of node.childNodes) { if (endNode != null) break; walk(ch); }
           }
         })(box);
         if (startNode && endNode) {
-          range.setStart(startNode, Math.max(0, Math.min(startOff, startNode.textContent.length)));
-          range.setEnd(endNode, Math.max(0, Math.min(endOff, endNode.textContent.length)));
+          range.setStart(startNode, Math.max(0, Math.min(startOff, startNode.nodeType === 3 ? startNode.textContent.length : startNode.childNodes.length)));
+          range.setEnd(endNode, Math.max(0, Math.min(endOff, endNode.nodeType === 3 ? endNode.textContent.length : endNode.childNodes.length)));
           sel.removeAllRanges();
           sel.addRange(range);
         }
       }
 
       document.querySelectorAll('#fmt-toolbar button').forEach(btn => {
-        btn.onmousedown = e => {
-          e.preventDefault(); // keep focus in #input-box (mousedown would blur and the engine removes the box before click fires)
+        btn.onpointerdown = e => {
+          e.preventDefault(); // keep focus in #input-box
           if (btn.dataset.act === 'align') {
             if (!currentNodeData) return;
             currentNodeData.align = btn.dataset.align;
@@ -630,8 +648,8 @@
           if (!fn) return;
           const ed = getEditSelection();
           if (!ed) return;
-          const res = fn(ed.box.textContent, ed.s, ed.e);
-          ed.box.textContent = res.text;
+          const res = fn(ed.text, ed.s, ed.e);
+          ed.box.innerText = res.text;
           setEditCaret(ed.box, res.selStart, res.selEnd);
           ed.box.focus();
         };
@@ -646,7 +664,7 @@
 
       mind.bus.addListener('operation', (op) => {
         if (op && op.name === 'beginEdit') document.getElementById('fmt-toolbar').style.display = 'flex';
-        if (op && op.name === 'finishEdit') document.getElementById('fmt-toolbar').style.display = 'none';
+        else document.getElementById('fmt-toolbar').style.display = 'none';
         window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
       });
 
