@@ -472,6 +472,16 @@
         }, 50);
       };
 
+      // Every layout() rebuilds the node DOM from scratch (nodes.innerHTML = ""),
+      // which wipes the .node-link-badge children added by updateBadges. Re-apply
+      // after every layout so badges survive init/refresh/direction changes/edits.
+      // (Badges are position:absolute — they don't change layout, so no loop.)
+      const origLayout = mind.layout.bind(mind);
+      mind.layout = () => {
+        origLayout();
+        setTimeout(updateBadges, 0);
+      };
+
       // Node toolbar button handlers
       document.getElementById('ntb-child').onclick = () => { if (mind.currentNodes) mind.addChild(); };
       document.getElementById('ntb-sibling').onclick = () => { if (mind.currentNodes) mind.insertSibling('after'); };
