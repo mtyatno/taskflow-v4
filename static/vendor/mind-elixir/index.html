@@ -871,10 +871,26 @@
       });
     }
 
+    // The engine ships two built-in themes (Latte light / Dark) keyed by the
+    // theme object's `type` — passing a minimal object with the right type makes
+    // changeTheme apply the full internal palette. Follows the app theme.
+    function applyMapTheme(dark) {
+      if (!mind) return;
+      try {
+        mind.changeTheme({
+          name: dark ? 'Dark' : 'Latte',
+          type: dark ? 'dark' : 'light',
+          palette: [],
+          cssVar: {}
+        });
+      } catch (_) {}
+    }
+
     window.addEventListener('message', (e) => {
       if (e.origin !== window.location.origin) return;
       if (e.data && e.data.type === 'setTheme') {
         document.documentElement.setAttribute('data-theme', e.data.theme === 'dark' ? 'dark' : 'light');
+        applyMapTheme(e.data.theme === 'dark');
       }
       if (e.data && e.data.type === 'load') {
         hidePanel();
@@ -891,6 +907,7 @@
           else if (d === 3) mind.initDown();
           else mind.initSide();
         } catch (_) {}
+        applyMapTheme(document.documentElement.getAttribute('data-theme') === 'dark');
       }
       if (e.data && e.data.type === 'refresh') {
         if (!mind) return;
