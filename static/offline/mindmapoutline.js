@@ -254,8 +254,16 @@
       else return pre;
       // marked does not strip dangerous URL schemes — block anything that has a
       // scheme other than the safe allowlist (relative, #, /, mailto, tel ok).
-      return out.replace(/href="([^"]*)"/gi, (m, url) =>
-        (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^(https?|mailto|tel):/i.test(url)) ? 'href="#"' : m);
+      // The escape-first step turned raw &, <, > in URLs into entities; write
+      // them back as percent-encodings so the attribute never entity-decodes
+      // (keeps query strings intact and entity-obfuscated schemes inert).
+      return out.replace(/href="([^"]*)"/gi, (m, url) => {
+        const clean = url
+          .replace(/&amp;/g, "%26")
+          .replace(/&lt;/g, "%3C")
+          .replace(/&gt;/g, "%3E");
+        return (/^[a-z][a-z0-9+.-]*:/i.test(clean) && !/^(https?|mailto|tel):/i.test(clean)) ? 'href="#"' : 'href="' + clean + '"';
+      });
     } catch (_) {
       return pre;
     }

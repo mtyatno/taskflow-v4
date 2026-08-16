@@ -241,6 +241,12 @@ test("renderTopicMd escapes raw HTML but keeps underline and highlight", () => {
   assert.match(MO.renderTopicMd("[x](https://a)"), /href="https:\/\/a"/); // safe schemes kept
 });
 
+test("renderTopicMd keeps query-string links intact", () => {
+  const out = MO.renderTopicMd("[x](https://a.com/?a=1&b=2)");
+  assert.match(out, /https:\/\/a\.com\/\?a=1%26b=2/);
+  assert.ok(!out.includes("?a=1&amp;b=2"));
+});
+
 test("wrapSelection wraps selection and inserts placeholder when empty", () => {
   const w = MO.wrapSelection("halo dunia", 5, 10, "**", "**", "teks");
   assert.equal(w.text, "halo **dunia**");
