@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v229-mindmap-picker-create";
+const CACHE = "taskflow-v230-mindmap-nav-collapse";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
