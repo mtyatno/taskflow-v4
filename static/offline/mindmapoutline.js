@@ -237,13 +237,27 @@
 
   function renderTopicMd(topic) {
     const t = String(topic == null ? "" : topic);
-    const pre = t.replace(/__([^_]+?)__/g, '<strong class="underscore-emphasis">$1</strong>');
+    // Escape all raw HTML first (topics render in innerHTML on two surfaces;
+    // shared mindmaps would otherwise allow stored XSS). Re-allow only the
+    // feature's own underline tag, then the highlight preprocess emits its
+    // own controlled <strong> after the escaping step.
+    const escaped = t
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/&lt;(\/?)u&gt;/g, "<$1u>");
+    const pre = escaped.replace(/__([^_]+?)__/g, '<strong class="underscore-emphasis">$1</strong>');
     try {
-      if (markedLib && typeof markedLib.parse === "function") return markedLib.parse(pre, { gfm: true, breaks: true });
-      if (markedLib) return markedLib(pre);
-      return pre.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      let out;
+      if (markedLib && typeof markedLib.parse === "function") out = markedLib.parse(pre, { gfm: true, breaks: true });
+      else if (markedLib) out = markedLib(pre);
+      else return pre;
+      // marked does not strip dangerous URL schemes — block anything that has a
+      // scheme other than the safe allowlist (relative, #, /, mailto, tel ok).
+      return out.replace(/href="([^"]*)"/gi, (m, url) =>
+        (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^(https?|mailto|tel):/i.test(url)) ? 'href="#"' : m);
     } catch (_) {
-      return pre.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return pre;
     }
   }
 

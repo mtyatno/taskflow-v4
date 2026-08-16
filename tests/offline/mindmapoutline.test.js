@@ -222,6 +222,25 @@ test("renderTopicMd leaves plain text unchanged and handles mixed content", () =
   assert.match(mixed, /<strong>tebal<\/strong>/);
 });
 
+test("renderTopicMd escapes raw HTML but keeps underline and highlight", () => {
+  const xss = MO.renderTopicMd('<img src=x onerror="alert(1)">');
+  assert.ok(!xss.includes("<img"));
+  assert.match(xss, /&lt;img/); // img fully entity-escaped (inert text)
+  assert.ok(!/<[^>]*onerror/i.test(xss)); // no live tag carries an event handler
+  const script = MO.renderTopicMd("<script>alert(1)</script>");
+  assert.ok(!script.includes("<script"));
+  assert.match(script, /&lt;script&gt;/);
+  assert.match(MO.renderTopicMd("<u>garis</u>"), /<u>garis<\/u>/);
+  assert.match(MO.renderTopicMd("__sorot__"), /underscore-emphasis/);
+  const xss2 = MO.renderTopicMd("<u><img src=x onerror=alert(1)></u>");
+  assert.ok(!xss2.includes("<img"));
+  assert.ok(!/<[^>]*onerror/i.test(xss2));
+  assert.match(xss2, /<u>/); // underline still renders around escaped payload
+  const jslink = MO.renderTopicMd("[x](javascript:alert(1))");
+  assert.ok(!/href="javascript:/i.test(jslink)); // dangerous URL schemes neutralized
+  assert.match(MO.renderTopicMd("[x](https://a)"), /href="https:\/\/a"/); // safe schemes kept
+});
+
 test("wrapSelection wraps selection and inserts placeholder when empty", () => {
   const w = MO.wrapSelection("halo dunia", 5, 10, "**", "**", "teks");
   assert.equal(w.text, "halo **dunia**");
