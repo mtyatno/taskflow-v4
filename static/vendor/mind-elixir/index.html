@@ -343,8 +343,9 @@
       sideToggleEl.textContent = collapsed ? '▸' : '◂';
       sideToggleEl.title = collapsed ? 'Buka panel samping' : 'Tutup panel samping';
       try { localStorage.setItem('tf_mindmap_side', collapsed ? 'collapsed' : 'open'); } catch (_) {}
-      // MindElixir re-fits the map on window resize; nudge it after the width transition.
-      setTimeout(() => window.dispatchEvent(new Event('resize')), 270);
+      // The engine has no resize listener — re-layout and re-center manually
+      // after the width transition (mind.layout is wrapped: badges re-apply too).
+      setTimeout(() => { if (mind) { try { mind.layout(); mind.toCenter(); } catch (_) {} } }, 270);
     }
     (function initSideCollapsed() {
       let collapsed = window.innerWidth < 768;
