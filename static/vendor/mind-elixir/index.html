@@ -677,6 +677,17 @@
         window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
       });
 
+      // Links inside topics must open in a new browser tab, not navigate
+      // the iframe itself.
+      document.addEventListener('click', e => {
+        const a = e.target && e.target.closest ? e.target.closest('me-tpc a') : null;
+        if (a && a.href) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.open(a.href, '_blank', 'noopener');
+        }
+      });
+
       // Re-render panel after fullscreen exits so links stay visible
       document.addEventListener('fullscreenchange', () => {
         if (!document.fullscreenElement && currentNodeId && currentNodeData) {

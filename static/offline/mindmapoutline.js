@@ -257,13 +257,16 @@
       // The escape-first step turned raw &, <, > in URLs into entities; write
       // them back as percent-encodings so the attribute never entity-decodes
       // (keeps query strings intact and entity-obfuscated schemes inert).
-      return out.replace(/href="([^"]*)"/gi, (m, url) => {
+      const cleaned = out.replace(/href="([^"]*)"/gi, (m, url) => {
         const clean = url
           .replace(/&amp;/g, "%26")
           .replace(/&lt;/g, "%3C")
           .replace(/&gt;/g, "%3E");
         return (/^[a-z][a-z0-9+.-]*:/i.test(clean) && !/^(https?|mailto|tel):/i.test(clean)) ? 'href="#"' : 'href="' + clean + '"';
       });
+      // marked appends a trailing \n; topics render with white-space: pre-wrap,
+      // so that newline would draw as a phantom blank line inside the node.
+      return cleaned.replace(/\n$/, "");
     } catch (_) {
       return pre;
     }

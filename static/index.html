@@ -7937,7 +7937,15 @@ function MindmapOutline({ tree, onChange }) {
       border: "1px solid var(--border)", borderRadius: 10, padding: "1px 7px"
     }
   }, "ⓘ Shift+drag = child")), /*#__PURE__*/React.createElement("div", {
-    style: { flex: 1, overflowY: "auto", padding: 8, minHeight: 0 }
+    style: { flex: 1, overflowY: "auto", padding: 8, minHeight: 0 },
+    onClick: e => {
+      const a = e.target && e.target.closest ? e.target.closest("a") : null;
+      if (a && a.href) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.open(a.href, "_blank", "noopener");
+      }
+    }
   }, rows.map(renderRow), rows.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: { color: "var(--text-light)", fontSize: 12, padding: 16, textAlign: "center" }
   }, "Tidak ada node cocok")), ctxMenu && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
@@ -8797,7 +8805,7 @@ function MindmapPage({
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
-    src: "/static/vendor/mind-elixir/index.html?v=124",
+    src: "/static/vendor/mind-elixir/index.html?v=125",
     style: {
       flex: 1,
       border: "none",

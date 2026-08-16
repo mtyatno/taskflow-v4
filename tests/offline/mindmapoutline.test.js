@@ -284,3 +284,9 @@ test("setNodeAlign sets align and preserves fields; invalid no-op", () => {
   assert.equal(MO.setNodeAlign(t, "b", "banana"), t);
   assert.equal(MO.setNodeAlign(t, "zzz", "center"), t);
 });
+
+test("renderTopicMd output has no trailing newline (phantom line fix)", () => {
+  assert.ok(!MO.renderTopicMd("**tebal**").endsWith("\n"));
+  assert.ok(!MO.renderTopicMd("halo dunia").endsWith("\n"));
+  assert.ok(!MO.renderTopicMd("| a | b |\n| - | - |\n| 1 | 2 |").endsWith("\n"));
+});
