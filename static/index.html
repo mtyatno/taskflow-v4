@@ -2723,31 +2723,61 @@ function TaskFormModal({
   );
   const noteVoiceRef = React.useRef(null);
   const noteVoiceLastTextRef = React.useRef('');
+  const noteVoiceLastRangeRef = React.useRef(null); // {from, to} segmen ter-insert utterance saat ini
   React.useEffect(function () {
     if (!window.TF || !window.TF.voicedictate || !window.TF.voicedictate.isSupported()) return;
-    function insert(text) {
+    function insert(text, noPrefix) {
       var editor = noteMilkdownRef.current;
-      if (!editor || !text) return;
+      if (!editor || !text) return null;
+      var out = null;
       editor.action(function (ctx) {
         var MB = window.MilkdownBundle;
         var view = ctx.get(MB.editorViewCtx);
         var from = view.state.selection.from;
         var before = view.state.doc.textBetween(Math.max(0, from - 1), from);
-        var prefix = (from === 0 || before === '\n' || before === ' ') ? '' : ' ';
+        var prefix = (noPrefix || from === 0 || before === '\n' || before === ' ') ? '' : ' ';
         var tr = view.state.tr.insertText(prefix + text, from, from);
         view.dispatch(tr);
+        out = { from: from + prefix.length, to: from + prefix.length + text.length };
+      });
+      return out;
+    }
+    function replaceRangeWithText(range, text) {
+      var editor = noteMilkdownRef.current;
+      if (!editor || !text) return;
+      editor.action(function (ctx) {
+        var MB = window.MilkdownBundle;
+        var view = ctx.get(MB.editorViewCtx);
+        var from = range.from;
+        var to = Math.min(range.to, view.state.doc.content.size);
+        var before = view.state.doc.textBetween(Math.max(0, from - 1), from);
+        var prefix = (from === 0 || before === '\n' || before === ' ') ? '' : ' ';
+        var tr = view.state.tr.delete(from, to);
+        tr.insertText(prefix + text, from, from);
+        view.dispatch(tr);
+        noteVoiceLastRangeRef.current = { from: from + prefix.length, to: from + prefix.length + text.length };
       });
     }
     function handle(text) {
       var prev = noteVoiceLastTextRef.current;
-      if (text === prev) return;
-      if (text.length > prev.length && text.slice(0, prev.length) === prev) {
-        var delta = text.slice(prev.length);
-        insert(delta);
+      var plan = window.TF.voicedictate.planInsert(prev, text);
+      if (plan.kind === 'skip') return;
+      if (plan.kind === 'append') {
+        // lanjutan kata/utterance — sisipkan delta TANPA spasi prefix
+        // (fix regresi "sela mat pagi": delta bukan kata baru)
+        var r = insert(plan.delta, true);
+        if (r && noteVoiceLastRangeRef.current) noteVoiceLastRangeRef.current.to = r.to;
         noteVoiceLastTextRef.current = text;
         return;
       }
-      insert(text);
+      if (plan.kind === 'replace' && noteVoiceLastRangeRef.current) {
+        // recognizer merevisi hipotesis → GANTI segmen ter-insert, jangan duplikasi
+        replaceRangeWithText(noteVoiceLastRangeRef.current, plan.text);
+        noteVoiceLastTextRef.current = text;
+        return;
+      }
+      var r2 = insert(plan.text, false);
+      if (r2) noteVoiceLastRangeRef.current = r2;
       noteVoiceLastTextRef.current = text;
     }
     var finalReset = null;
@@ -2757,7 +2787,10 @@ function TaskFormModal({
       onFinal: function (text) {
         clearTimeout(finalReset);
         handle(text);
-        finalReset = setTimeout(function () { noteVoiceLastTextRef.current = ''; }, 1000);
+        finalReset = setTimeout(function () {
+          noteVoiceLastTextRef.current = '';
+          noteVoiceLastRangeRef.current = null;
+        }, 1000);
       },
       onError: function (msg) { console.error('[voice]', msg); },
       onStateChange: function (s) { setNoteVoiceState(s); }
@@ -2766,6 +2799,7 @@ function TaskFormModal({
     return function () {
       if (noteVoiceRef.current) { noteVoiceRef.current.stop(); noteVoiceRef.current = null; }
       noteVoiceLastTextRef.current = '';
+      noteVoiceLastRangeRef.current = null;
       clearTimeout(finalReset);
     };
   }, []);
@@ -2774,9 +2808,11 @@ function TaskFormModal({
     if (noteVoiceRef.current.getState() === 'listening' || noteVoiceRef.current.getState() === 'paused') {
       noteVoiceRef.current.stop();
       noteVoiceLastTextRef.current = '';
+      noteVoiceLastRangeRef.current = null;
     } else {
       localStorage.setItem('tf_voice_offline_hint', '1');
       noteVoiceLastTextRef.current = '';
+      noteVoiceLastRangeRef.current = null;
       noteVoiceRef.current.start();
     }
   }
@@ -16332,36 +16368,63 @@ function NoteModal({
   );
   const voiceRef = React.useRef(null);
   const voiceLastTextRef = React.useRef(''); // track full text terakhir — deteksi utterance baru vs duplikat
+  const voiceLastRangeRef = React.useRef(null); // {from, to} segmen ter-insert utterance saat ini
 
   // Voice dictation setup + cleanup
   React.useEffect(function () {
     if (!window.TF || !window.TF.voicedictate || !window.TF.voicedictate.isSupported()) return;
-    function insertTextAtCursor(text) {
+    function insertTextAtCursor(text, noPrefix) {
       var editor = milkdownEditorRef.current;
-      if (!editor || !text) return;
+      if (!editor || !text) return null;
+      var out = null;
       editor.action(function (ctx) {
         var MB = window.MilkdownBundle;
         var view = ctx.get(MB.editorViewCtx);
         var from = view.state.selection.from;
         var before = view.state.doc.textBetween(Math.max(0, from - 1), from);
-        var prefix = (from === 0 || before === '\n' || before === ' ') ? '' : ' ';
+        var prefix = (noPrefix || from === 0 || before === '\n' || before === ' ') ? '' : ' ';
         var tr = view.state.tr.insertText(prefix + text, from, from);
         view.dispatch(tr);
+        out = { from: from + prefix.length, to: from + prefix.length + text.length };
+      });
+      return out;
+    }
+    function replaceVoiceRange(range, text) {
+      var editor = milkdownEditorRef.current;
+      if (!editor || !text) return;
+      editor.action(function (ctx) {
+        var MB = window.MilkdownBundle;
+        var view = ctx.get(MB.editorViewCtx);
+        var from = range.from;
+        var to = Math.min(range.to, view.state.doc.content.size);
+        var before = view.state.doc.textBetween(Math.max(0, from - 1), from);
+        var prefix = (from === 0 || before === '\n' || before === ' ') ? '' : ' ';
+        var tr = view.state.tr.delete(from, to);
+        tr.insertText(prefix + text, from, from);
+        view.dispatch(tr);
+        voiceLastRangeRef.current = { from: from + prefix.length, to: from + prefix.length + text.length };
       });
     }
     function handleVoiceText(text) {
       var prev = voiceLastTextRef.current;
-      // Exact duplicate — skip (auto-restart atau event ganda)
-      if (text === prev) return;
-      // Text lebih panjang dan diawali prev → lanjutan utterance, insert delta aja
-      if (text.length > prev.length && text.slice(0, prev.length) === prev) {
-        var delta = text.slice(prev.length);
-        insertTextAtCursor(delta);
+      var plan = window.TF.voicedictate.planInsert(prev, text);
+      if (plan.kind === 'skip') return;
+      if (plan.kind === 'append') {
+        // lanjutan kata/utterance — sisipkan delta TANPA spasi prefix
+        // (fix regresi "sela mat pagi": delta bukan kata baru)
+        var r = insertTextAtCursor(plan.delta, true);
+        if (r && voiceLastRangeRef.current) voiceLastRangeRef.current.to = r.to;
         voiceLastTextRef.current = text;
         return;
       }
-      // Utterance baru (text berbeda total atau lebih pendek)
-      insertTextAtCursor(text);
+      if (plan.kind === 'replace' && voiceLastRangeRef.current) {
+        // recognizer merevisi hipotesis → GANTI segmen ter-insert, jangan duplikasi
+        replaceVoiceRange(voiceLastRangeRef.current, plan.text);
+        voiceLastTextRef.current = text;
+        return;
+      }
+      var r2 = insertTextAtCursor(plan.text, false);
+      if (r2) voiceLastRangeRef.current = r2;
       voiceLastTextRef.current = text;
     }
     var finalResetTimer = null;
@@ -16379,6 +16442,7 @@ function NoteModal({
         // Reset tracker after 1 detik — biar utterance baru dgn text sama tetap masuk
         finalResetTimer = setTimeout(function () {
           voiceLastTextRef.current = '';
+          voiceLastRangeRef.current = null;
         }, 1000);
         showToast('✅ ' + text.slice(0, 50), 'success');
       },
@@ -16395,6 +16459,7 @@ function NoteModal({
     return function () {
       if (voiceRef.current) { voiceRef.current.stop(); voiceRef.current = null; }
       voiceLastTextRef.current = '';
+      voiceLastRangeRef.current = null;
       clearTimeout(finalResetTimer);
     };
   }, []); // hanya setup sekali saat mount
@@ -16404,12 +16469,14 @@ function NoteModal({
     if (voiceRef.current.getState() === 'listening' || voiceRef.current.getState() === 'paused') {
       voiceRef.current.stop();
       voiceLastTextRef.current = '';
+      voiceLastRangeRef.current = null;
     } else {
       if (!localStorage.getItem('tf_voice_offline_hint')) {
         localStorage.setItem('tf_voice_offline_hint', '1');
         showToast('💡 Untuk dikte offline: download bahasa Indonesia di Chrome > Settings > Languages', 'info');
       }
       voiceLastTextRef.current = '';
+      voiceLastRangeRef.current = null;
       voiceRef.current.start();
     }
   }

@@ -166,6 +166,27 @@
     return events;
   }
 
+  // Pure: rencanakan aksi insert untuk satu potong teks dikte.
+  // prev = full text utterance terakhir yang sudah di-insert;
+  // text = full text utterance saat ini (partial/final hasil recognizer).
+  // Kasus:
+  //   skip    — teks sama dengan prev (event ganda) atau kosong
+  //   append  — text adalah perpanjangan prev → cukup sisipkan delta
+  //             TANPA spasi prefix (delta = lanjutan kata yang sama)
+  //   replace — recognizer merevisi hipotesis (text bukan perpanjangan
+  //             prev) → segmen yang sudah ter-insert harus DIGANTI,
+  //             bukan diduplikasi
+  //   insert  — utterance baru (prev kosong/ter-reset) → insert utuh
+  function planInsert(prev, text) {
+    if (!text) return { kind: "skip" };
+    if (text === prev) return { kind: "skip" };
+    if (prev && text.length > prev.length && text.slice(0, prev.length) === prev) {
+      return { kind: "append", delta: text.slice(prev.length) };
+    }
+    if (prev) return { kind: "replace", text: text };
+    return { kind: "insert", text: text };
+  }
+
   // Pure: dispatch event → handler. "waiting" dipetakan ke "paused" agar
   // tombol tetap menampilkan state menunggu (konsisten dgn UI lama).
   // Return jumlah event yang diproses (0 = tidak ada event baru).
@@ -301,7 +322,8 @@
     isSupported: isSupported,
     create: create,
     parseSpeechEvents: parseSpeechEvents,
-    dispatchEvents: dispatchEvents
+    dispatchEvents: dispatchEvents,
+    planInsert: planInsert
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.voicedictate = exported; }
   return exported;

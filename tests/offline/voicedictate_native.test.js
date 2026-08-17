@@ -157,3 +157,37 @@ test("error → idle menghentikan poller (tidak ada IPC lanjutan)", async () => 
   assert.equal(readCount, countAfterError);
   assert.equal(impl.getState(), "idle");
 });
+
+// ── planInsert: logika insert teks dikte (regresi "kata terpisah") ──
+
+test("planInsert: skip duplikat & teks kosong", () => {
+  assert.deepEqual(TF.voicedictate.planInsert("sela", "sela"), { kind: "skip" });
+  assert.deepEqual(TF.voicedictate.planInsert("sela", ""), { kind: "skip" });
+});
+
+test("planInsert: append delta saat text memperpanjang prev (tanpa spasi)", () => {
+  // Regresi bug "sela mat pagi": partial "sela" lalu final "selamat pagi"
+  // harus append delta "mat pagi" — BUKAN " mat pagi" dengan spasi.
+  const p = TF.voicedictate.planInsert("sela", "selamat pagi");
+  assert.deepEqual(p, { kind: "append", delta: "mat pagi" });
+  assert.equal(p.delta.charAt(0), "m");
+});
+
+test("planInsert: replace saat recognizer merevisi hipotesis", () => {
+  assert.deepEqual(TF.voicedictate.planInsert("selamat pagi", "selamat malam"), {
+    kind: "replace",
+    text: "selamat malam",
+  });
+  // revisi ke teks lebih pendek juga = replace, bukan duplikasi
+  assert.deepEqual(TF.voicedictate.planInsert("selamat pagi semua", "selamat"), {
+    kind: "replace",
+    text: "selamat",
+  });
+});
+
+test("planInsert: insert utuh saat utterance baru (prev kosong)", () => {
+  assert.deepEqual(TF.voicedictate.planInsert("", "halo dunia"), {
+    kind: "insert",
+    text: "halo dunia",
+  });
+});
