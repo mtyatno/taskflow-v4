@@ -1,0 +1,46 @@
+;(function (root, factory) {
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = factory(root);
+  } else {
+    root.TF = root.TF || {};
+    root.TF.mindmapops = factory(root);
+  }
+})(typeof self !== "undefined" ? self : globalThis, function (root) {
+  "use strict";
+
+  // Pure helpers for the iframe Ops panel (context-menu mirror).
+
+  // The engine's context menu allows createArrow only when the click target
+  // is a node topic (me-tpc) whose parent element is ME-PARENT or ME-ROOT.
+  function isNodeTopicTarget(el) {
+    if (!el || el.tagName !== "ME-TPC" || !el.parentElement) return false;
+    const t = el.parentElement.tagName;
+    return t === "ME-PARENT" || t === "ME-ROOT";
+  }
+
+  // Walk up from a map click target to the enclosing me-tpc, then apply the
+  // engine's exact parent check. (Improvement over the engine's raw
+  // parentElement check: taps landing on text inside a topic still resolve.)
+  function resolveTopicTarget(el) {
+    let cur = el;
+    while (cur && cur.tagName !== "ME-TPC") cur = cur.parentElement;
+    return cur && isNodeTopicTarget(cur) ? cur : null;
+  }
+
+  // Buttons the engine's context menu disables when the selected node is
+  // the root (its C flag): addParent, focus, moveUp, moveDown.
+  function opsDisabledStates(isRoot) {
+    return {
+      parent: !!isRoot,
+      focus: !!isRoot,
+      moveUp: !!isRoot,
+      moveDown: !!isRoot,
+    };
+  }
+
+  return {
+    isNodeTopicTarget: isNodeTopicTarget,
+    resolveTopicTarget: resolveTopicTarget,
+    opsDisabledStates: opsDisabledStates,
+  };
+});
