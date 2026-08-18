@@ -864,6 +864,10 @@
 
       // ── Export PNG/SVG (engine built-in) ─────────────────────────
       let exporting = false;
+      const setExportDisabled = (disabled) => {
+        document.getElementById("export-png").disabled = disabled;
+        document.getElementById("export-svg").disabled = disabled;
+      };
       const downloadBlob = (blob, filename) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -877,12 +881,22 @@
       const doExport = async (kind) => {
         if (!mind || exporting) return;
         exporting = true;
+        setExportDisabled(true);
         try {
-          const blob = kind === "png" ? await mind.exportPng() : mind.exportSvg();
+          let blob;
+          if (kind === "png") {
+            blob = await Promise.race([
+              mind.exportPng(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error("export timeout")), 15000)),
+            ]);
+          } else {
+            blob = mind.exportSvg();
+          }
           downloadBlob(blob, window.TF.mindmapops.safeExportName(currentMindmapTitle, kind));
         } catch (_) {
-          // engine export gagal — diam saja (tanpa toast; iframe tak punya toast)
+          // engine export gagal (termasuk timeout canvas taint) — diam saja (iframe tak punya toast)
         } finally {
+          setExportDisabled(false);
           exporting = false;
         }
       };
