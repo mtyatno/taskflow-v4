@@ -34,6 +34,7 @@ const STATIC = [
   "/static/offline/drawingrepo.js",
   "/static/offline/drawingroutes.js",
   "/static/offline/mindmapoutline.js",
+  "/static/offline/mindmaptabs.js",
   "/static/offline/mindmaprepo.js",
   "/static/offline/mindmaproutes.js",
   "/static/offline/chatrepo.js",
