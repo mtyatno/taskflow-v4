@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v235-mindmap-ops-context-actions";
+const CACHE = "taskflow-v236-mindmap-export";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
