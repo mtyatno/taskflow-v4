@@ -8175,81 +8175,39 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onRequestLinkP
     menuItem("🗑 Hapus", () => deleteOp(activeId), true, menuIsRoot))));
 }
 
-// ── Mindmap page ──────────────────────────────────────────────
-const MINDMAP_DIRECTIONS = [
-  { value: 0, label: "←", title: "Arah kiri" },
-  { value: 1, label: "→", title: "Arah kanan" },
-  { value: 2, label: "⇄", title: "Dua arah" },
-  { value: 3, label: "↓", title: "Org chart (atas ke bawah)" }
-];
-function MindmapPage({
+function MindmapTabInstance({
+  tab,
+  isActive,
   showToast,
   onTaskClick,
   tasks = [],
-  sharedLists = []
+  sharedLists = [],
+  onUpdateTitle,
+  onDeleteMindmap,
+  onUpdateListId
 }) {
-  const [mindmaps, setMindmaps] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(() => (localStorage.getItem("tf_mindmap_sidebar") || "open") === "open");
-  const [searchQ, setSearchQ] = useState("");
-  const [filterListId, setFilterListId] = useState(null);
-  const [creating, setCreating] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [renameVal, setRenameVal] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [syncStatus, setSyncStatus] = useState("saved");
-  const [mmListId, setMmListId] = useState(null);
   const [shareOpen, setShareOpen] = useState(false);
-  const shareRef = React.useRef(null);
+  const shareRef = useRef(null);
   const iframeRef = useRef(null);
   const saveTimerRef = useRef(null);
   const [modalNote, setModalNote] = useState(null);
   const [showLinkPicker, setShowLinkPicker] = useState(false);
   const [pickerNodeId, setPickerNodeId] = useState(null);
   const [currentNodeLinks, setCurrentNodeLinks] = useState([]);
-  const [viewMode, setViewMode] = useState("canvas"); // "canvas" | "outline", session-only
-  const [outlineTree, setOutlineTree] = useState(null); // full data object {nodeData, arrows?, summaries?, theme?}
-  const [direction, setDirection] = useState(2); // 0=LEFT 1=RIGHT 2=SIDE 3=DOWN (org chart), per-mindmap via data_json.direction
-  const outlineTreeRef = useRef(null); // always-current mirror, for load-path closures
+  const [viewMode, setViewMode] = useState("canvas");
+  const [outlineTree, setOutlineTree] = useState(null);
+  const [direction, setDirection] = useState(2);
+  const outlineTreeRef = useRef(null);
   outlineTreeRef.current = outlineTree;
 
-  // Clear debounce timer on unmount
   useEffect(() => {
     return () => clearTimeout(saveTimerRef.current);
   }, []);
 
-  // Load list on mount (local-first: api.get resolves from IndexedDB via intercept)
-  useEffect(() => {
-    api.get("/api/mindmaps")
-      .then(data => setMindmaps(data || []))
-      .catch(() => setMindmaps([]))
-      .finally(() => setLoading(false));
-  }, []);
-
-  // Open specific mindmap via global search
-  useEffect(() => {
-    const handler = e => {
-      const id = e.detail;
-      const found = mindmaps.find(m => m.id === id);
-      if (found) selectMindmap(found);else api.get(`/api/mindmaps/${id}`).then(full => {
-        setMindmaps(prev => prev.find(m => m.id === full.id) ? prev : [full, ...prev]);
-        setSelected(full);
-      }).catch(err => {
-        typeof showToast === 'function' && showToast('Mindmap tidak tersedia — offline', 'error');
-      });
-    };
-    window.addEventListener("openMindmap", handler);
-    return () => window.removeEventListener("openMindmap", handler);
-  }, [mindmaps]);
-
-  // Persist sidebar state
-  useEffect(() => {
-    localStorage.setItem("tf_mindmap_sidebar", sidebarOpen ? "open" : "collapsed");
-  }, [sidebarOpen]);
-
-  // Debounced persist shared by canvas changes and outline edits.
   const scheduleSave = (mid, dataStr) => {
     setSyncStatus("saving");
     clearTimeout(saveTimerRef.current);
@@ -8261,58 +8219,46 @@ function MindmapPage({
     }, 1000);
   };
 
-  // Outline edit: update local tree, persist, and re-render the (hidden or
-  // visible) canvas via the iframe 'refresh' message. mind.refresh does not
-  // fire 'operation', so no 'change' comes back — no echo loop.
   const handleOutlineEdit = nextNodeData => {
-    if (!selected || !outlineTree) return;
+    if (!tab || !outlineTree) return;
     if (nextNodeData) nextNodeData.root = true;
     const next = { ...outlineTree, nodeData: nextNodeData };
     setOutlineTree(next);
-    scheduleSave(selected.id, JSON.stringify(next));
+    scheduleSave(tab.id, JSON.stringify(next));
     iframeRef.current?.contentWindow?.postMessage({
       type: "refresh",
       data: next
     }, window.location.origin);
   };
 
-  // Send data to iframe when selected mindmap changes
   useEffect(() => {
-    if (!selected) {
-      setOutlineTree(null);
-      return;
-    }
+    if (!tab) return;
     clearTimeout(saveTimerRef.current);
     setSyncStatus("saved");
     setDeleteConfirm(false);
     setRenaming(false);
     let data = null;
-    try { data = JSON.parse(selected.data_json); } catch (_) {}
-    if (data && data.nodeData) data.nodeData.root = true; // 5.x serialization may drop the root flag — outline helpers depend on it
+    try { data = JSON.parse(tab.data_json); } catch (_) {}
+    if (data && data.nodeData) data.nodeData.root = true;
     setOutlineTree(data);
     setDirection(data && typeof data.direction === "number" ? data.direction : 2);
     const sendLoad = () => {
       if (!data) return;
       try {
-        // Prefer the current outline tree (may hold edits not yet in
-        // selected.data_json); fall back to the freshly parsed data.
         const tree = outlineTreeRef.current || data;
         if (!tree) return;
         iframeRef.current?.contentWindow?.postMessage({
           type: "load",
           data: tree,
-          title: selected?.title || ""
+          title: tab?.title || ""
         }, window.location.origin);
       } catch (_) {}
     };
     if (iframeRef.current?.contentWindow) {
       setTimeout(sendLoad, 200);
     }
-    setMmListId(selected?.list_id ?? null);
-    setShareOpen(false);
-  }, [selected?.id]);
+  }, [tab?.id]);
 
-  // Close share dropdown on outside click
   useEffect(() => {
     if (!shareOpen) return;
     const handler = e => {
@@ -8322,7 +8268,6 @@ function MindmapPage({
     return () => document.removeEventListener("mousedown", handler);
   }, [shareOpen]);
 
-  // Keep the mindmap iframe's sidebar in sync with the app theme.
   useEffect(() => {
     const postTheme = () => {
       iframeRef.current?.contentWindow?.postMessage({
@@ -8335,21 +8280,12 @@ function MindmapPage({
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     return () => mo.disconnect();
   }, []);
+
   const handleShare = async listId => {
-    if (!selected) return;
+    if (!tab) return;
     try {
-      const updated = await api.patch(`/api/mindmaps/${selected.id}/share`, {
-        list_id: listId
-      });
-      setMmListId(updated.list_id);
-      setMindmaps(prev => prev.map(m => m.id === updated.id ? {
-        ...m,
-        list_id: updated.list_id
-      } : m));
-      setSelected(prev => prev ? {
-        ...prev,
-        list_id: updated.list_id
-      } : prev);
+      const updated = await api.patch(`/api/mindmaps/${tab.id}/share`, { list_id: listId });
+      onUpdateListId && onUpdateListId(tab.id, updated.list_id);
       setShareOpen(false);
       showToast(listId ? "✅ Mindmap dibagikan" : "Berbagi dibatalkan");
     } catch {
@@ -8357,8 +8293,6 @@ function MindmapPage({
     }
   };
 
-  // Shared open handlers: used by both the canvas iframe messages and the
-  // outline links popover.
   const openOutlineNote = id => api.get(`/api/scratchpad/${id}`).then(note => setModalNote(note)).catch(() => showToast("Gagal memuat note", "error"));
   const openOutlineTask = id => {
     if (typeof onTaskClick !== "function") return;
@@ -8372,29 +8306,24 @@ function MindmapPage({
   const requestOutlineLinkPicker = nodeId => {
     setPickerNodeId(nodeId);
     setShowLinkPicker(true);
-    // The picker's existingLinks is fed by iframe nodeSelected events, which
-    // never fire in outline mode — sync it from the outline tree instead so
-    // already-linked items are hidden correctly.
     if (outlineTree && window.TF && window.TF.mindmapoutline) {
       const f = window.TF.mindmapoutline.findNode(outlineTree.nodeData, nodeId);
       setCurrentNodeLinks((f && f.node && f.node.links) || []);
     }
   };
 
-  // iframe message handler: ready + change events
   useEffect(() => {
     const handler = e => {
       if (e.origin !== window.location.origin) return;
-      if (e.data && e.data.type === "ready" && selected) {
+      if (e.source !== iframeRef.current?.contentWindow) return;
+      if (e.data && e.data.type === "ready" && tab) {
         try {
-          // Post the current outline tree if available — selected.data_json is
-          // only refreshed on selectMindmap, so it can be stale after outline edits.
-          const tree = outlineTree || JSON.parse(selected.data_json);
+          const tree = outlineTree || JSON.parse(tab.data_json);
           if (!tree) return;
           iframeRef.current?.contentWindow?.postMessage({
             type: "load",
             data: tree,
-            title: selected?.title || ""
+            title: tab?.title || ""
           }, window.location.origin);
           iframeRef.current?.contentWindow?.postMessage({
             type: "setTheme",
@@ -8418,609 +8347,52 @@ function MindmapPage({
         setPickerNodeId(e.data.nodeId);
         setShowLinkPicker(true);
       }
-      if (e.data && e.data.type === "change" && selected) {
+      if (e.data && e.data.type === "change" && tab) {
         const data = e.data.data;
         if (data && data.nodeData) data.nodeData.root = true;
         setOutlineTree(data);
         if (data && typeof data.direction === "number") setDirection(data.direction);
-        scheduleSave(selected.id, JSON.stringify(data));
+        scheduleSave(tab.id, JSON.stringify(data));
       }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [selected?.id, outlineTree]);
+  }, [tab?.id, outlineTree]);
 
-  const selectMindmap = async m => {
-    if (selected?.id === m.id) return;
-    iframeRef.current?.contentWindow?.postMessage({
-      type: 'clearPanel'
-    }, window.location.origin);
-    setCurrentNodeLinks([]);
-    try {
-      const full = await api.get(`/api/mindmaps/${m.id}`);
-      setSelected(full);
-    } catch (e) {
-      showToast("Gagal memuat mindmap", "error");
-    }
-  };
-  const handleCreate = async () => {
-    const title = newTitle.trim() || "Untitled";
-    const defaultData = JSON.stringify({
-      nodeData: {
-        id: "root",
-        topic: title,
-        root: true,
-        children: []
-      }
-    });
-    try {
-      const created = await api.post("/api/mindmaps", {
-        title,
-        data_json: defaultData
-      });
-      setMindmaps(prev => [created, ...prev]);
-      setSelected(created);
-      setNewTitle("");
-      setCreating(false);
-      showToast("✅ Mindmap dibuat");
-    } catch (e) {
-      showToast("Gagal membuat mindmap", "error");
-    }
-  };
   const handleRename = async () => {
-    if (!selected || !renameVal.trim()) return;
+    if (!renameVal.trim() || !tab) return;
     try {
-      const updated = await api.put(`/api/mindmaps/${selected.id}`, {
-        title: renameVal.trim()
+      const updated = await api.put(`/api/mindmaps/${tab.id}`, {
+        title: renameVal.trim(),
+        data_json: tab.data_json
       });
-      setMindmaps(prev => prev.map(m => m.id === updated.id ? {
-        ...m,
-        title: updated.title
-      } : m));
-      setSelected(s => ({
-        ...s,
-        title: updated.title
-      }));
+      onUpdateTitle && onUpdateTitle(tab.id, updated.title);
       setRenaming(false);
-      showToast("✅ Mindmap diubah");
-    } catch (e) {
-      showToast("Gagal rename", "error");
+    } catch {
+      showToast("Gagal merename mindmap", "error");
     }
   };
+
   const handleDelete = async () => {
-    if (!selected) return;
+    if (!tab) return;
     try {
-      await api.del(`/api/mindmaps/${selected.id}`);
-      setMindmaps(mindmaps.filter(m => m.id !== selected.id));
-      setSelected(null);
-      setDeleteConfirm(false);
-      showToast("🗑 Mindmap dihapus");
-    } catch (e) {
-      showToast("Gagal hapus", "error");
+      await api.del(`/api/mindmaps/${tab.id}`);
+      onDeleteMindmap && onDeleteMindmap(tab.id);
+    } catch {
+      showToast("Gagal menghapus mindmap", "error");
     }
   };
-  const handlePin = async m => {
-    try {
-      const updated = await api.patch(`/api/mindmaps/${m.id}/pin`, {});
-      setMindmaps(prev => prev.map(x => x.id === updated.id ? {
-        ...x,
-        is_pinned: updated.is_pinned
-      } : x).sort((a, b) => b.is_pinned - a.is_pinned || new Date(b.updated_at) - new Date(a.updated_at)));
-    } catch (e) {
-      showToast("Gagal pin/unpin", "error");
-    }
-  };
-  const q = searchQ.trim().toLowerCase();
-  const filtered = mindmaps.filter(m => !q || m.title.toLowerCase().includes(q)).filter(m => !filterListId || m.list_id === filterListId);
-  const pinned = filtered.filter(m => m.is_pinned);
-  const unpinned = filtered.filter(m => !m.is_pinned);
-  const hasPinnedSection = pinned.length > 0;
+
   return /*#__PURE__*/React.createElement("div", {
-    className: "fade-in",
-    style: {
-      display: "flex",
-      height: "calc(100vh - 112px)",
-      overflow: "hidden",
-      marginTop: 8
-    }
+    className: "mindmap-tab-view-instance",
+    style: { display: isActive ? "flex" : "none", flex: 1, flexDirection: "column", overflow: "hidden" }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      width: sidebarOpen ? 200 : 0,
-      minWidth: sidebarOpen ? undefined : 0,
-      flexShrink: 0,
-      transition: "width 0.25s ease, min-width 0.25s ease",
-      overflow: sidebarOpen ? undefined : "hidden",
-      borderRight: sidebarOpen ? "1px solid var(--border)" : "none",
-      display: "flex",
-      flexDirection: "column",
-      background: "var(--bg-card)"
-    }
-  }, sidebarOpen && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 4,
-      alignItems: "center",
-      padding: "8px 8px 4px",
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    value: searchQ,
-    onChange: e => setSearchQ(e.target.value),
-    placeholder: "\uD83D\uDD0D Cari...",
-    style: {
-      flex: 1,
-      fontSize: 11,
-      padding: "4px 8px",
-      borderRadius: 6,
-      border: "1px solid var(--border)",
-      background: "var(--bg-primary)",
-      color: "var(--text-primary)",
-      outline: "none"
-    }
-  }), searchQ && /*#__PURE__*/React.createElement("span", {
-    onClick: () => setSearchQ(""),
-    style: {
-      cursor: "pointer",
-      fontSize: 11,
-      color: "var(--text-light)",
-      flexShrink: 0
-    }
-  }, "\u2715"), /*#__PURE__*/React.createElement("button", {
-    className: "sidebar-collapse-btn",
-    onClick: () => setSidebarOpen(false),
-    title: "Sembunyikan sidebar"
-  }, /*#__PURE__*/React.createElement("svg", {
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: "2.5",
-    strokeLinecap: "round",
-    strokeLinejoin: "round"
-  }, /*#__PURE__*/React.createElement("polyline", {
-    points: "15 18 9 12 15 6"
-  })))), sharedLists.filter(l => mindmaps.some(m => m.list_id === l.id)).length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "4px 8px 0",
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 10,
-      fontWeight: 700,
-      color: "var(--text-light)",
-      textTransform: "uppercase",
-      letterSpacing: "0.6px",
-      marginBottom: 4
-    }
-  }, "\uD83D\uDD17 Shared List"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 4
-    }
-  }, sharedLists.filter(l => mindmaps.some(m => m.list_id === l.id)).map(l => {
-    const count = mindmaps.filter(m => m.list_id === l.id).length;
-    const isActive = filterListId === l.id;
-    return /*#__PURE__*/React.createElement("span", {
-      key: l.id,
-      onClick: () => setFilterListId(isActive ? null : l.id),
-      style: {
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 3,
-        padding: "2px 8px",
-        borderRadius: 20,
-        fontSize: 11,
-        fontWeight: isActive ? 700 : 500,
-        cursor: "pointer",
-        whiteSpace: "nowrap",
-        background: isActive ? "var(--accent)" : "var(--bg-primary)",
-        color: isActive ? "#111" : "var(--text-secondary)",
-        border: `1px solid ${isActive ? "var(--accent)" : "var(--border)"}`
-      }
-    }, l.name, /*#__PURE__*/React.createElement("span", {
-      className: "tag-count"
-    }, count));
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "4px 8px",
-      flexShrink: 0
-    }
-  }, creating ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("input", {
-    autoFocus: true,
-    value: newTitle,
-    onChange: e => setNewTitle(e.target.value),
-    placeholder: "Nama mindmap...",
-    onKeyDown: e => {
-      if (e.key === "Enter") handleCreate();
-      if (e.key === "Escape") {
-        setCreating(false);
-        setNewTitle("");
-      }
-    },
-    style: {
-      width: "100%",
-      fontSize: 12,
-      padding: "4px 8px",
-      borderRadius: 6,
-      border: "1px solid var(--accent)",
-      background: "var(--bg-primary)",
-      color: "var(--text-primary)",
-      outline: "none",
-      marginBottom: 4
-    }
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 4
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary btn-sm",
-    onClick: handleCreate,
-    style: {
-      flex: 1,
-      fontSize: 11
-    }
-  }, "Buat"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    onClick: () => {
-      setCreating(false);
-      setNewTitle("");
-    },
-    style: {
-      fontSize: 11
-    }
-  }, "\u2715"))) : /*#__PURE__*/React.createElement("button", {
-    onClick: () => setCreating(true),
-    "data-tour": "mindmap-new",
-    style: {
-      width: "100%",
-      padding: "5px 8px",
-      borderRadius: 6,
-      border: "1px dashed var(--border)",
-      background: "none",
-      color: "var(--accent)",
-      cursor: "pointer",
-      fontSize: 11,
-      fontWeight: 600,
-      textAlign: "left"
-    }
-  }, "+ Baru")), /*#__PURE__*/React.createElement("div", {
-    className: "hide-scrollbar",
-    "data-tour": "mindmap-list",
-    style: {
-      flex: 1,
-      overflowY: "auto",
-      margin: "4px 8px 8px",
-      borderRadius: 10,
-      border: "1px solid var(--border)",
-      background: "var(--bg-primary)"
-    }
-  }, loading ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "8px 12px",
-      color: "var(--text-light)",
-      fontSize: 11
-    }
-  }, "Memuat...") : filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "8px 12px",
-      color: "var(--text-light)",
-      fontSize: 11
-    }
-  }, q ? "Tidak ditemukan" : "Belum ada mindmap") : /*#__PURE__*/React.createElement(React.Fragment, null, hasPinnedSection && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "4px 10px 2px",
-      fontSize: 10,
-      fontWeight: 700,
-      color: "var(--text-light)",
-      textTransform: "uppercase",
-      letterSpacing: "0.6px"
-    }
-  }, "\u2605 Pinned"), pinned.map(m => /*#__PURE__*/React.createElement(MindmapListItem, {
-    key: m.id,
-    m: m,
-    isSelected: selected?.id === m.id,
-    onSelect: () => selectMindmap(m),
-    onPin: handlePin
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: 1,
-      background: "var(--border)",
-      margin: "4px 0"
-    }
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "4px 10px 2px",
-      fontSize: 10,
-      fontWeight: 700,
-      color: "var(--text-light)",
-      textTransform: "uppercase",
-      letterSpacing: "0.6px"
-    }
-  }, "Semua")), unpinned.map(m => /*#__PURE__*/React.createElement(MindmapListItem, {
-    key: m.id,
-    m: m,
-    isSelected: selected?.id === m.id,
-    onSelect: () => selectMindmap(m),
-    onPin: handlePin
-  })))))), !sidebarOpen && /*#__PURE__*/React.createElement("div", {
-    className: "sidebar-toggle visible",
-    onClick: () => setSidebarOpen(true),
-    title: "Tampilkan sidebar"
-  }, /*#__PURE__*/React.createElement("svg", {
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: "2.5",
-    strokeLinecap: "round",
-    strokeLinejoin: "round"
-  }, /*#__PURE__*/React.createElement("polyline", {
-    points: "9 18 15 12 9 6"
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      display: "flex",
-      flexDirection: "column",
-      overflow: "hidden"
-    }
-  }, selected && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      padding: "6px 14px",
-      borderBottom: "1px solid var(--border)",
-      background: "var(--bg-card)",
-      flexShrink: 0,
-      flexWrap: "wrap",
-      minHeight: 38
+      display: "flex", alignItems: "center", gap: 8, padding: "6px 14px",
+      borderBottom: "1px solid var(--border)", background: "var(--bg-card)",
+      flexShrink: 0, flexWrap: "wrap", minHeight: 38
     }
   }, renaming ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
-    autoFocus: true,
-    value: renameVal,
-    onChange: e => setRenameVal(e.target.value),
-    onKeyDown: e => {
-      if (e.key === "Enter") handleRename();
-      if (e.key === "Escape") setRenaming(false);
-    },
-    style: {
-      flex: 1,
-      maxWidth: 280,
-      fontSize: 13,
-      fontWeight: 600,
-      padding: "2px 8px",
-      borderRadius: 6,
-      border: "1px solid var(--accent)",
-      background: "var(--bg-primary)",
-      color: "var(--text-primary)",
-      outline: "none"
-    }
-  }), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary btn-sm",
-    onClick: handleRename,
-    style: {
-      fontSize: 11
-    }
-  }, "Simpan"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    onClick: () => setRenaming(false),
-    style: {
-      fontSize: 11
-    }
-  }, "Batal")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 600,
-      color: "var(--text-primary)",
-      flex: 1,
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      whiteSpace: "nowrap"
-    }
-  }, "\uD83E\uDDE0 ", selected.title), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11,
-      color: syncStatus === "offline" ? "#ef4444" : "var(--text-light)",
-      flexShrink: 0
-    }
-  }, syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : "Tersimpan"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 2,
-      background: "var(--bg-primary)",
-      borderRadius: 8,
-      padding: 2,
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      setViewMode("canvas");
-      // While in outline mode the iframe is display:none, so outline-edit
-      // refreshes laid out at 0x0. Re-apply the direction once visible — the
-      // engine's init*() re-layouts and re-centers the canvas.
-      setTimeout(() => {
-        if (iframeRef.current?.contentWindow && selected) iframeRef.current.contentWindow.postMessage({
-          type: "setDirection",
-          direction
-        }, window.location.origin);
-      }, 50);
-    },
-    title: "Mode canvas",
-    style: {
-      border: viewMode === "canvas" ? "1px solid var(--accent)" : "1px solid var(--border)",
-      background: viewMode === "canvas" ? "var(--accent)" : "var(--bg-card)",
-      color: viewMode === "canvas" ? "#000" : "var(--text-secondary)",
-      borderRadius: 6,
-      padding: "3px 10px",
-      fontSize: 11,
-      fontWeight: 600,
-      cursor: "pointer"
-    }
-  }, "🧠 Canvas"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setViewMode("outline"),
-    title: "Mode outline",
-    style: {
-      border: viewMode === "outline" ? "1px solid var(--accent)" : "1px solid var(--border)",
-      background: viewMode === "outline" ? "var(--accent)" : "var(--bg-card)",
-      color: viewMode === "outline" ? "#000" : "var(--text-secondary)",
-      borderRadius: 6,
-      padding: "3px 10px",
-      fontSize: 11,
-      fontWeight: 600,
-      cursor: "pointer"
-    }
-  }, "📝 Outline")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 2,
-      background: "var(--bg-primary)",
-      borderRadius: 8,
-      padding: 2,
-      flexShrink: 0
-    }
-  }, MINDMAP_DIRECTIONS.map(d => /*#__PURE__*/React.createElement("button", {
-    key: d.value,
-    onClick: () => {
-      setDirection(d.value);
-      iframeRef.current?.contentWindow?.postMessage({
-        type: "setDirection",
-        direction: d.value
-      }, window.location.origin);
-    },
-    title: d.title,
-    style: {
-      border: direction === d.value ? "1px solid var(--accent)" : "1px solid var(--border)",
-      background: direction === d.value ? "var(--accent)" : "var(--bg-card)",
-      color: direction === d.value ? "#000" : "var(--text-secondary)",
-      borderRadius: 6,
-      padding: "3px 8px",
-      fontSize: 13,
-      fontWeight: 600,
-      cursor: "pointer"
-    }
-  }, d.label))), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    onClick: () => {
-      setRenaming(true);
-      setRenameVal(selected.title);
-    },
-    style: {
-      fontSize: 11
-    }
-  }, "Rename"), sharedLists.length > 0 && /*#__PURE__*/React.createElement("div", {
-    ref: shareRef,
-    style: {
-      position: "relative",
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    onClick: () => setShareOpen(o => !o),
-    style: {
-      fontSize: 11,
-      color: mmListId ? "var(--accent)" : undefined,
-      borderColor: mmListId ? "var(--accent)" : undefined
-    }
-  }, "\uD83D\uDC65 ", mmListId ? sharedLists.find(l => l.id === mmListId)?.name || "Shared" : "Share"), shareOpen && /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "absolute",
-      top: "calc(100% + 4px)",
-      left: 0,
-      zIndex: 300,
-      background: "var(--bg-card)",
-      border: "1px solid var(--border)",
-      borderRadius: 10,
-      boxShadow: "0 6px 20px rgba(0,0,0,0.18)",
-      minWidth: 180,
-      maxWidth: "calc(100vw - 32px)",
-      padding: "4px 0"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 10,
-      fontWeight: 700,
-      color: "var(--text-light)",
-      textTransform: "uppercase",
-      letterSpacing: 1,
-      padding: "6px 14px 4px"
-    }
-  }, "Bagikan ke List"), sharedLists.map(l => /*#__PURE__*/React.createElement("div", {
-    key: l.id,
-    onMouseDown: e => {
-      e.preventDefault();
-      handleShare(mmListId === l.id ? null : l.id);
-    },
-    style: {
-      padding: "7px 14px",
-      fontSize: 13,
-      cursor: "pointer",
-      color: mmListId === l.id ? "var(--accent)" : "var(--text-primary)",
-      fontWeight: mmListId === l.id ? 700 : 400
-    },
-    onMouseEnter: e => e.currentTarget.style.background = "var(--bg-primary)",
-    onMouseLeave: e => e.currentTarget.style.background = "transparent"
-  }, mmListId === l.id ? "✓ " : "", l.name)), mmListId && /*#__PURE__*/React.createElement("div", {
-    onMouseDown: e => {
-      e.preventDefault();
-      handleShare(null);
-    },
-    style: {
-      padding: "7px 14px",
-      fontSize: 13,
-      cursor: "pointer",
-      color: "#ef4444",
-      borderTop: "1px solid var(--border)"
-    },
-    onMouseEnter: e => e.currentTarget.style.background = "var(--bg-primary)",
-    onMouseLeave: e => e.currentTarget.style.background = "transparent"
-  }, "Batal berbagi"))), deleteConfirm ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11,
-      color: "#ef4444",
-      flexShrink: 0
-    }
-  }, "Hapus?"), /*#__PURE__*/React.createElement("button", {
-    onClick: handleDelete,
-    style: {
-      padding: "3px 8px",
-      borderRadius: 6,
-      border: "none",
-      cursor: "pointer",
-      background: "#ef4444",
-      color: "#fff",
-      fontSize: 11
-    }
-  }, "Ya"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    onClick: () => setDeleteConfirm(false),
-    style: {
-      fontSize: 11
-    }
-  }, "Batal")) : /*#__PURE__*/React.createElement("button", {
-    onClick: () => setDeleteConfirm(true),
-    style: {
-      padding: "3px 8px",
-      borderRadius: 6,
-      cursor: "pointer",
-      fontSize: 11,
-      background: "none",
-      border: "1px solid #ef4444",
-      color: "#ef4444"
-    }
-  }, "Hapus"))), !selected ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 10
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
       fontSize: 40
     }
   }, "\uD83E\uDDE0"), /*#__PURE__*/React.createElement("span", {
