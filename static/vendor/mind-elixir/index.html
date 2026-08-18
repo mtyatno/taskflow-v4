@@ -389,6 +389,18 @@
   <script>
     let mind = null;
     let currentMindmapTitle = "mindmap";
+    let isJustifyActive = false;
+
+    function applyJustifyLayout() {
+      if (!mind || !mind.map) return;
+      const isVertical = mind.direction === 3;
+      if (window.TF && window.TF.mindmapjustify) {
+        window.TF.mindmapjustify.applyLevelJustify(mind.map, isJustifyActive, isVertical);
+      }
+      try {
+        mind.linkDiv();
+      } catch (_) {}
+    }
 
     document.documentElement.setAttribute('data-theme', 'light');
 
@@ -807,6 +819,13 @@
         }, 50);
       };
 
+      const origGetData = mind.getData.bind(mind);
+      mind.getData = () => {
+        const d = origGetData();
+        d.justify = isJustifyActive;
+        return d;
+      };
+
       // Every layout() rebuilds the node DOM from scratch (nodes.innerHTML = ""),
       // which wipes the .node-link-badge children added by updateBadges. Re-apply
       // after every layout so badges survive init/refresh/direction changes/edits.
@@ -814,6 +833,9 @@
       const origLayout = mind.layout.bind(mind);
       mind.layout = () => {
         origLayout();
+        if (isJustifyActive) {
+          applyJustifyLayout();
+        }
         setTimeout(updateBadges, 0);
       };
 
@@ -1014,7 +1036,16 @@
       mind.bus.addListener('operation', (op) => {
         if (op && op.name === 'beginEdit') switchTab('font');
         else switchTab('ops');
+        if (isJustifyActive) {
+          setTimeout(applyJustifyLayout, 0);
+        }
         window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+      });
+
+      mind.bus.addListener('changeDirection', () => {
+        if (isJustifyActive) {
+          setTimeout(applyJustifyLayout, 0);
+        }
       });
 
       // Links inside topics must open in a new browser tab, not navigate
@@ -1069,6 +1100,7 @@
         currentNodeData = null;
         clearTimeout(unselectTimer);
         cancelLinkFlow();
+        isJustifyActive = Boolean(e.data.data && e.data.data.justify);
         initMind(e.data.data);
         currentMindmapTitle = (typeof e.data.title === "string" && e.data.title.trim()) ? e.data.title.trim() : "mindmap";
         setTimeout(updateBadges, 300);
@@ -1080,6 +1112,15 @@
           else mind.initSide();
         } catch (_) {}
         applyMapTheme(document.documentElement.getAttribute('data-theme') === 'dark');
+        if (isJustifyActive) {
+          setTimeout(applyJustifyLayout, 50);
+        }
+      }
+      if (e.data && e.data.type === 'setJustify') {
+        if (!mind) return;
+        isJustifyActive = Boolean(e.data.justify);
+        applyJustifyLayout();
+        window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
       }
       if (e.data && e.data.type === 'refresh') {
         if (!mind) return;
