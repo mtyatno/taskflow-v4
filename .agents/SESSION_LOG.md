@@ -116,3 +116,45 @@ Chronological history of work performed by AI agents in this workspace.
 - **Changes:** Semua fitur di atas SELESAI, TER-REVIEW (subagent-driven, fix loop), DIPLOY & LIVE-VERIFIED; user menutup sesi. Final state: SW `taskflow-v231-mindmap-header-chips`, iframe `?v=132`, tests 32/32 targeted + 384/384 full. Pelajaran penting dicatat di memory: SW cache-first + ?v bump; quirk engine 5.15.1 (selectNewNode, layout rebuild, no resize listener); Fase 2 node style (bg/font/icon/image) = NEXT.
 - **Files Touch:** `static/offline/mindmapoutline.js`, `tests/offline/mindmapoutline.test.js`, `static/vendor/mind-elixir/{index.html,MindElixir.iife.js,MindElixir.css}`, `static/index.html`, `static/app.css`, `static/sw.js`, `docs/superpowers/{specs,plans}/*mindmap*`, `.agents/*`
 - **Status:** Completed — handover siap untuk sesi berikutnya
+
+## [2026-08-17 01:00] - Claude Code (SDD voice dictation — Task 2)
+- **Task:** Rust commands untuk bridge dikte suara native Android — `speech_cmd` / `read_speech_events` / `speech_debug` di `src-tauri/src/lib.rs`.
+- **Changes:** `candidate_speech_dirs()` (mirror `candidate_share_paths`, hanya dir yang exists) + 3 command baru terdaftar di `generate_handler!`. Deviasi coordinator: `speech_cmd` tulis ATOMIK (temp `speech_cmd.json.tmp` → `fs::rename`) karena SpeechBridge.kt poll+parse tiap 250ms — write torn bikin retry-log. Verifikasi: cargo TIDAK tersedia lokal (cargo/rustc/rustup tak ada) → fallback review baris-per-baris diff; gate compile = CI APK build. Commit `c5ee35d` (hanya lib.rs). Report: `.superpowers/sdd/2026-08-16-android-offline-voice-dictation/task-2-report.md`.
+- **Files Touch:** `src-tauri/src/lib.rs` (commit); `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md` (uncommitted)
+- **Status:** Completed — Task 3 (JS voicedictate.js) = next.
+
+## [2026-08-17 01:30] - Claude Code (SDD voice dictation — Task 3)
+- **Task:** Impl native Android speech bridge di `static/offline/voicedictate.js` + unit test (TDD).
+- **Changes:** 3a-3e verbatim dari brief: deteksi isTauri/isAndroid, `isSupported()` inklusif, `create()` rute ke `createNativeAndroid` (poll 300ms read_speech_events, speech_cmd start/stop, waiting→paused, silent-limit diagnostic speech_debug), export `parseSpeechEvents`/`dispatchEvents`. Satu deviasi wajib: wrapper CommonJS node-branch diubah `module.exports = factory(root)` → `{ voicedictate: factory(root) }` karena test verbatim akses `TF.voicedictate.*` (RED asli = "Cannot read properties of undefined", bukan error yang diharapkan brief). TDD: RED 6/6 fail → GREEN 6/6 pass → full suite 395/395 pass (384 baseline + 5 patch + 6 voice), 0 fail. Commit `44d797f` (hanya 2 file). Report: `.superpowers/sdd/2026-08-16-android-offline-voice-dictation/task-3-report.md`.
+- **Files Touch:** `static/offline/voicedictate.js`, `tests/offline/voicedictate_native.test.js` (commit); `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md` (uncommitted)
+- **Status:** Completed — Task 4 (SW cache bump + verifikasi) = next.
+
+## [2026-08-17 01:45] - Claude Code (SDD voice dictation — Task 4)
+- **Task:** SW cache bump + verifikasi akhir untuk dikte suara native Android.
+- **Changes:** `static/sw.js` baris 1: CACHE `taskflow-v231-mindmap-header-chips` → `taskflow-v232-native-voice` (wajib — SW cache-first, tanpa bump device sajikan voicedictate.js lama). Verifikasi: 3× `node --check` (voicedictate.js, sw.js, patch-android-speech.js) exit 0; `npm test` 395/395 pass 0 fail; `git diff --stat HEAD~3..HEAD -- static/index.html` kosong (index.html tak tersentuh fitur ini). Commit `14ebdf3` HANYA `static/sw.js` (1 insertion, 1 deletion). Post-plan (push + trigger CI APK + device-test checklist) = koordinator/Task 5.
+- **Files Touch:** `static/sw.js` (commit); `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md` (uncommitted); report `.superpowers/sdd/2026-08-16-android-offline-voice-dictation/task-4-report.md`
+- **Status:** Completed — Task 5 (final review whole-branch) = next.
+
+## [2026-08-17 02:30] - Claude Code (SDD voice dictation — Final Fix Wave)
+- **Task:** Whole-branch review fix wave: dead MAX_RESTARTS guard di SpeechBridge.kt, diagnostik false-positive + interval leak di voicedictate.js, 3 unit test review-mandated.
+- **Changes:** Kotlin: `restartCount = 0` dipindah dari `startListening()` ke poller "start" branch (cap 50 restart kini terakumulasi → "Sesi terlalu lama" bisa fire). JS native impl: flag `gotAnyEvent`/`diagnosticFired` (gate diagnostik sekali per sesi, hanya saat nol event), clear interval di onError poll + catch speech_cmd, seam `opts.silentLimit`/`opts.pollIntervalMs`. Test: 3 baru (diagnostic sekali / tidak fire saat ada event / error→idle hentikan poller). Verifikasi foreground: target 9/9 + patch 5/5, full suite 398/398 0 fail, node --check OK. Deviasi test 3: error dikirim di baca ke-2 (bukan ke-1) karena baca ke-1 = drain stale-event di start() yang hasilnya dibuang. Commit `31f112c` (hanya 3 file). Kotlin tanpa compile lokal → gate = CI APK build.
+- **Files Touch:** `src-tauri/android-template/SpeechBridge.kt`, `static/offline/voicedictate.js`, `tests/offline/voicedictate_native.test.js` (commit); report `.superpowers/sdd/2026-08-16-android-offline-voice-dictation/task-final-fix-report.md`; `.agents/*` (uncommitted)
+- **Status:** Completed — next: coordinator push + trigger CI APK + device-test.
+
+## [2026-08-17 02:15] - Claude Code (SDD voice dictation — coordinator)
+- **Task:** Eksekusi plan Android offline voice dictation (spec b80a64c) — subagent-driven otonom penuh, 4 task + final review.
+- **Changes:** Task 1 (`25ba3aa` + fix `ba4509d`): patch-android-speech.js + SpeechBridge.kt + android.yml + 5 test; fix round review (silent catches, parse-before-delete, pendingPermission race, onDestroy). Task 2 (`c5ee35d`): 3 command Rust + atomic tmp-rename write (kontrak review). Task 3 (`44d797f`): impl native voicedictate.js + 6 test; deviasi dicatat: node export jadi `{voicedictate}`. Task 4 (`14ebdf3`): SW v232. Final whole-branch review (opus) → 2 Important (restart-guard Kotlin dead-code, diagnostik JS false-positive) → fix wave `31f112c` + 3 test baru → re-review bersih (1 minor deferred: stale rejection race). Full suite 398/398. Workspace SDD dihapus — record = git history.
+- **Files Touch:** `scripts/patch-android-speech.js`, `src-tauri/android-template/SpeechBridge.kt`, `.github/workflows/android.yml`, `src-tauri/src/lib.rs`, `static/offline/voicedictate.js`, `static/sw.js`, `tests/offline/patch_android_speech.test.js`, `tests/offline/voicedictate_native.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (pending user: push + trigger APK build + device-test checklist)
+
+## [2026-08-17 03:00] - Claude Code (voice dictation — quality fix)
+- **Task:** User melapor hasil dikte "kata terpisah" → root cause & fix.
+- **Changes:** Root cause: insert delta partial→final menambah spasi prefix di tengah kata (`insertTextAtCursor` menganggap delta kata baru) → "sela"+"mat pagi"="sela mat pagi"; plus revisi hipotesis recognizer menduplikasi teks (branch else insert utuh). Fix (`07915d8`, LIVE terverifikasi SW v233): `planInsert()` murni di voicedictate.js (skip/append/replace/insert) + 4 unit test; kedua call site index.html melacak range ter-insert (`voiceLastRangeRef`) — append delta TANPA spasi, revisi → GANTI segmen (bukan duplikasi); reset range di final/stop/cleanup. Full suite 402/402. Push → deploy live.
+- **Files Touch:** `static/offline/voicedictate.js`, `static/index.html` (2 call site), `static/sw.js` (v233), `tests/offline/voicedictate_native.test.js`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (PENDING user: rebuild APK + device-test ulang kualitas transkrip)
+
+## [2026-08-18 09:00] - Claude Code (mindmap — mobile header overflow fix)
+- **Task:** User lapor toolbox atas mindmap (Canvas/Outline + arah + Rename/Share) terpotong di layar ponsel kecil, tak bisa di-scroll, sebagian button tak bisa diakses.
+- **Changes:** Root cause (systematic-debugging): header `MindmapPage` (static/index.html ~L8764) = flex row tanpa `flexWrap`/`overflowX`, semua grup tombol `flexShrink: 0`, ancestor `overflow: hidden` → di viewport sempit konten melebihi lebar dan ter-clip tanpa scroll. Regresi dari commit `b669b46` (4-direction picker menambah ~140px tombol fixed). Fix 1 baris: `flexWrap: "wrap"` di style header (di desktop tak berubah — semua item tetap 1 baris, title flex:1 menyerap sisa ruang). SW cache bump `taskflow-v233-voice-delta-fix` → `taskflow-v234-mindmap-header-wrap` (wajib, cache-first). Verifikasi: 5 inline script index.html parse bersih (one-off checker), full suite 402/402 pass 0 fail, diff = 1 line + SW. Belum commit — CSS layout tak bisa di-verifikasi node test; butuh device/browser narrow-viewport.
+- **Files Touch:** `static/index.html`, `static/sw.js`, `temporary_files/check_inline_scripts.js` (baru, uncommitted); `.agents/*`
+- **Status:** Completed — PENDING user: commit+push → deploy → device-test layar kecil
