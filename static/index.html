@@ -8202,6 +8202,7 @@ function MindmapTabInstance({
   const [viewMode, setViewMode] = useState("canvas");
   const [outlineTree, setOutlineTree] = useState(null);
   const [direction, setDirection] = useState(2);
+  const [justify, setJustify] = useState(false);
   const outlineTreeRef = useRef(null);
   outlineTreeRef.current = outlineTree;
 
@@ -8218,6 +8219,20 @@ function MindmapTabInstance({
       }).then(() => setSyncStatus("saved"))
         .catch(() => setSyncStatus("offline"));
     }, 1000);
+  };
+
+  const handleToggleJustify = () => {
+    const next = !justify;
+    setJustify(next);
+    if (outlineTree) {
+      const updatedTree = { ...outlineTree, justify: next };
+      setOutlineTree(updatedTree);
+      scheduleSave(tab.id, JSON.stringify(updatedTree));
+    }
+    iframeRef.current?.contentWindow?.postMessage({
+      type: "setJustify",
+      justify: next
+    }, window.location.origin);
   };
 
   const handleOutlineEdit = nextNodeData => {
@@ -8243,6 +8258,7 @@ function MindmapTabInstance({
     if (data && data.nodeData) data.nodeData.root = true;
     setOutlineTree(data);
     setDirection(data && typeof data.direction === "number" ? data.direction : 2);
+    setJustify(Boolean(data && data.justify));
     const sendLoad = () => {
       if (!data) return;
       try {
@@ -8353,6 +8369,7 @@ function MindmapTabInstance({
         if (data && data.nodeData) data.nodeData.root = true;
         setOutlineTree(data);
         if (data && typeof data.direction === "number") setDirection(data.direction);
+        if (data && typeof data.justify === "boolean") setJustify(data.justify);
         scheduleSave(tab.id, JSON.stringify(data));
       }
     };
@@ -8450,6 +8467,21 @@ function MindmapTabInstance({
           borderRadius: 6, padding: "3px 8px", fontSize: 13, fontWeight: 600, cursor: "pointer"
         }
       }, d.label))),
+      /*#__PURE__*/React.createElement("button", {
+        onClick: handleToggleJustify,
+        title: justify ? "Matikan perataan kolom (Justify)" : "Ratakan kolom/baris per level (Justify)",
+        style: {
+          border: justify ? "1px solid var(--accent)" : "1px solid var(--border)",
+          background: justify ? "var(--accent)" : "var(--bg-card)",
+          color: justify ? "#000" : "var(--text-secondary)",
+          borderRadius: 6,
+          padding: "3px 8px",
+          fontSize: 11,
+          fontWeight: 600,
+          cursor: "pointer",
+          flexShrink: 0
+        }
+      }, "⇤⇥ Justify"),
       /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => { setRenaming(true); setRenameVal(tab.title); }, style: { fontSize: 11 } }, "Rename"),
       sharedLists.length > 0 && /*#__PURE__*/React.createElement("div", { ref: shareRef, style: { position: "relative", flexShrink: 0 } },
         /*#__PURE__*/React.createElement("button", {
