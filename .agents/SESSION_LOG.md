@@ -158,3 +158,51 @@ Chronological history of work performed by AI agents in this workspace.
 - **Changes:** Root cause (systematic-debugging): header `MindmapPage` (static/index.html ~L8764) = flex row tanpa `flexWrap`/`overflowX`, semua grup tombol `flexShrink: 0`, ancestor `overflow: hidden` → di viewport sempit konten melebihi lebar dan ter-clip tanpa scroll. Regresi dari commit `b669b46` (4-direction picker menambah ~140px tombol fixed). Fix 1 baris: `flexWrap: "wrap"` di style header (di desktop tak berubah — semua item tetap 1 baris, title flex:1 menyerap sisa ruang). SW cache bump `taskflow-v233-voice-delta-fix` → `taskflow-v234-mindmap-header-wrap` (wajib, cache-first). Verifikasi: 5 inline script index.html parse bersih (one-off checker), full suite 402/402 pass 0 fail, diff = 1 line + SW. Belum commit — CSS layout tak bisa di-verifikasi node test; butuh device/browser narrow-viewport.
 - **Files Touch:** `static/index.html`, `static/sw.js`, `temporary_files/check_inline_scripts.js` (baru, uncommitted); `.agents/*`
 - **Status:** Completed — PENDING user: commit+push → deploy → device-test layar kecil
+
+## [2026-08-18 09:30] - Claude Code (mindmap header fix — verifikasi user)
+- **Task:** Konfirmasi fix header mindmap di device.
+- **Changes:** Commit `de9750f` di-push ke main; live-verifikasi curl: SW v234 + baris `flexWrap: "wrap"` di header sudah tersaji VPS. User device-test: semua tombol terlihat di layar kecil, wrap jadi 2 baris. BUGFIX SELESAI & TERVERIFIKASI.
+- **Files Touch:** `.agents/*` (uncommitted)
+- **Status:** Completed
+
+## [2026-08-18 09:45] - Claude Code (SDD mindmap ops panel — Task 3 iframe wiring)
+- **Task:** Wire 8 tombol baru Ops-panel mirror di iframe mind-elixir: handler + root-guard + link flow 2 langkah.
+- **Changes:** Commit `10cc0eb` (hanya `static/vendor/mind-elixir/index.html`, +76): 3 var module-level (`linkFlowActive`/`linkClickHandler`/`linkHintEl`); helper `showLinkHint`/`hideLinkHint` (div `#ops-link-hint` dibuat lazy, CSS sudah ada dari Task 2), `cancelLinkFlow` (remove listener + hide hint), `startLinkFlow` (source = currentNodes[0], klik target → `resolveTopicTarget` → `createArrow` bidirectional sesuai tombol), `refreshOpsDisabled` (root-guard via `opsDisabledStates`); dipanggil di wrapped selectNode (setelah switchTab('ops')) + baris pertama unselectTimer + 3 cabang message (load/refresh/clearPanel); 8 handler baru setelah ntb-delete (guard empty/root untuk parent/focus/moveup/movedown; summary guard non-empty; cancelfocus unguarded engine-safe). Verifikasi: `check_inline_scripts.js` parse bersih + npm test 405/405 pass 0 fail. Catatan diterima: focusNode clearSelection → panel Ops sembunyi (mirror desktop).
+- **Files Touch:** `static/vendor/mind-elixir/index.html` (commit); report `.superpowers/sdd/2026-08-18-mindmap-ops-panel-context-menu-mirror/task-3-report.md`; `.agents/*` (uncommitted)
+- **Status:** Completed — next: Task 4 version bumps + Task 5 final verification/push.
+
+## [2026-08-18 11:15] - Claude Code (mindmap Ops panel — context-menu mirror, SDD otonom penuh)
+- **Task:** User minta item context menu desktop (Focus Mode, Cancel Focus Mode, Summary, Link, Bidirectional Link, dll) tampil di tab Ops sidebar iframe agar bisa diakses tablet/HP. Proses penuh: brainstorming (user pilih "Lengkap") → spec → plan → SDD subagent-driven otonom (tanpa approval, user pre-otorisasi).
+- **Changes:** 5 task SDD, 5 commit `c972645`..`78a08c4` di main: (1) module murni `static/offline/mindmapops.js` (UMD, `isNodeTopicTarget`/`resolveTopicTarget`/`opsDisabledStates`) + 3 test TDD; (2) markup iframe: 8 tombol baru (total Ops 13: +Parent/Focus/Cancel Focus/Move up/down/Summary/Link/Bidirectional) + CSS `#ops-link-hint` + `:disabled`; (3) wiring: handler 8 tombol + root-guard `refreshOpsDisabled` + link flow 2-langkah (hint → tap target → `createArrow`, once-listener, cancel di unselect/load/refresh/clearPanel); (4) bump iframe `?v=132→133` + SW `v234→v235`; (5) final review opus → fix wave: root-guard 6 item (engine C-flag asli disable addParent/focus/moveUp/moveDown/addSibling/remove — spec awal keliru 4 item) + guard module-missing. Review per-task semua Approved; final 0 Critical. Live terverifikasi curl. 405/405 test.
+- **Files Touch:** `static/offline/mindmapops.js` (baru), `tests/offline/mindmap_ops.test.js` (baru), `static/vendor/mind-elixir/index.html`, `static/index.html`, `static/sw.js`, `temporary_files/check_inline_scripts.js` (generalize file arg), spec+plan `docs/superpowers/{specs,plans}/2026-08-18-mindmap-ops-panel-context-menu-mirror*.md`, `.agents/*` (uncommitted)
+- **Status:** Completed — PENDING user device-test checklist (7 item, lihat CURRENT_STATE)
+
+## [2026-08-18 13:15] - Claude Code (SDD mindmap export — Task 2, iframe markup)
+- **Task:** Markup export-row di iframe mindmap (CSS + HTML, tanpa logic) — bagian dari plan export PNG/SVG.
+- **Changes:** Commit `22fcf39` (HANYA `static/vendor/mind-elixir/index.html`, +20): CSS `#export-row` (flex row, tombol `flex:1` pakai var `--side-*` tema, hover/active, `:disabled`) disisipkan sebelum rule `#side-tabs`; HTML `<div id="export-row">` dengan 2 tombol `#export-png` (title "Ekspor PNG (gambar)") / `#export-svg` (title "Ekspor SVG (vektor)") di dalam `#side-panel` SEBELUM `<div id="side-tabs">`. Verbatim dari brief. Verifikasi: `check_inline_scripts.js` parse bersih + npm test 406/406 pass 0 fail (dijalankan sebelum commit). Tanpa logic — wiring = Task 3. `MindElixir.iife.js`/`MindElixir.css` tak tersentuh.
+- **Files Touch:** `static/vendor/mind-elixir/index.html` (commit); report `.superpowers/sdd/2026-08-18-mindmap-export/task-2-report.md`; `.agents/*` (uncommitted)
+- **Status:** Completed — next: Task 3 (wiring JS export PNG/SVG di iframe)
+
+## [2026-08-18 14:00] - Claude Code (SDD mindmap export — final-review fix wave)
+- **Task:** 2 Minor finding dari final review plan export mindmap: (1) `exportPng` bisa menggantung permanen di canvas taint (`<img>` cross-origin dari markdown topik) — Promise engine tak settle → `exporting` stuck true → kedua tombol mati sampai reload iframe; (2) tombol tak pernah tampil disabled selama export PNG lambat (CSS `:disabled` ada, tak ada yang set).
+- **Changes:** Commit `00367b8` (HANYA `static/vendor/mind-elixir/index.html`, +16/−2): PNG path dibungkus `Promise.race` vs timeout 15 detik (reject → catch diam → finally reset guard; discarded engine promise aman); helper `setExportDisabled` set disabled kedua tombol (termasuk SVG) saat export + reset di baris pertama finally. Verifikasi: `check_inline_scripts.js` parse bersih + npm test 406/406 pass 0 fail.
+- **Files Touch:** `static/vendor/mind-elixir/index.html` (commit); report `.superpowers/sdd/2026-08-18-mindmap-export/task-final-fix-report.md`; `.agents/*` (uncommitted)
+- **Status:** Completed — PENDING push + verifikasi live + device-test export
+
+## [2026-08-18 15:20] - Claude Code (mindmap export PNG/SVG, SDD otonom penuh)
+- **Task:** User tanya apakah mind-elixir punya export → terverifikasi engine 5.15.1 punya `exportSvg`/`exportPng` bawaan (tanpa UI). User setuju tambah tombol (opsi 1: baris atas sidebar iframe, PNG + SVG). Proses penuh: spec → plan → SDD subagent-driven otonom.
+- **Changes:** 6 commit `8ad5c73`..`00367b8` di main: `safeExportName` helper di mindmapops.js (+1 test, 406 total); markup `#export-row` (2 tombol di atas tabs); wiring (blob download + title dari parent via load message — TERMASUK ready-handler, fix `807271a` dari review Important: ready-handler kirim load tanpa title → filename jatuh ke "mindmap" di cold-start); bump `?v=2`/`?v=134`/SW v236; final review (sonnet; opus gagal koneksi 2x) → fix wave `00367b8`: Promise.race timeout 15s (canvas taint bisa hang permanen) + disabled state saat export. Semua review Approved/ADDRESSED. LIVE terverifikasi curl.
+- **Files Touch:** `static/offline/mindmapops.js`, `tests/offline/mindmap_ops.test.js`, `static/vendor/mind-elixir/index.html`, `static/index.html`, `static/sw.js`, spec+plan `docs/superpowers/{specs,plans}/2026-08-18-mindmap-export*.md`, `.agents/*` (uncommitted)
+- **Status:** Completed — PENDING user device-test: (1) tombol PNG/SVG di atas tabs; (2) PNG/SVG ter-download nama = judul mindmap; (3) tema diikuti; (4) judul aneh → nama file aman; (5) focus mode → export subtree (wajar); (6) Tauri native download = known limitation
+
+## [2026-08-18 20:20] - Antigravity (Gemini 3.6 Flash - SDD Mindmap Multi-Tab View)
+- **Task:** Impl fitur baru Multi-Tab View Mindmap (buka hingga 5 mindmap sekaligus di tab bar atas).
+- **Changes:** Brainstorming → Spec (`2026-08-18-mindmap-tab-view-design.md`) → Plan (`2026-08-18-mindmap-tab-view.md`) → Subagent-Driven Development 5 task otonom:
+  1. Modul UMD `static/offline/mindmaptabs.js` (`openTab`, `closeTab`, `updateTabTitle`, cap 5 tab + 6 test TDD di `tests/offline/mindmaptabs.test.js`, commit `0fc68d9`).
+  2. Registrasi script tag di `static/index.html` dan SW `STATIC` di `static/sw.js` (commit `9494a65`).
+  3. CSS `.mindmap-tab-bar` dan `.mindmap-tab-item` di `static/app.css` (commit `158a2d6`).
+  4. Refactoring `MindmapPage` di `static/index.html` dengan komponen `MindmapTabInstance` (multi-instance DOM rendering hidden/visible per tab, 0ms tab switch delay, message listener disambiguation via `e.source`, commit `dfa52fb`).
+  5. SW cache bump ke `taskflow-v237-mindmap-multi-tab` di `static/sw.js` (commit `5d3d5da`).
+  - Full suite test: 412 pass / 0 fail.
+- **Files Touch:** `static/offline/mindmaptabs.js` (baru), `tests/offline/mindmaptabs.test.js` (baru), `static/index.html`, `static/sw.js`, `static/app.css`, spec+plan `docs/superpowers/{specs,plans}/2026-08-18-mindmap-tab-view*.md`, `.agents/*`
+- **Status:** Completed — PENDING user device-test.
