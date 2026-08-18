@@ -4,7 +4,10 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const html = fs.readFileSync(path.join(__dirname, '..', 'static', 'index.html'), 'utf8');
+const htmlPath = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.join(__dirname, '..', 'static', 'index.html');
+const html = fs.readFileSync(htmlPath, 'utf8');
 const re = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g;
 let m, i = 0, fail = false;
 const dir = path.join(__dirname, 'tmp_scripts');

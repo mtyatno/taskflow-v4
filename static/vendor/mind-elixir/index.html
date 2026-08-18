@@ -132,6 +132,25 @@
     #node-ops-panel button.danger .lbl { color: var(--side-danger); }
     #node-ops-panel button.danger:hover, #node-ops-panel button.danger:active { background: rgba(224,108,108,0.18); }
     #node-ops-panel .sep { height: 1px; background: var(--side-border); margin: 4px 8px; }
+    #node-ops-panel button:disabled { opacity: 0.4; cursor: default; }
+    #node-ops-panel button:disabled:hover, #node-ops-panel button:disabled:active { background: none; }
+    #ops-link-hint {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--side-accent);
+      color: var(--side-accent-ink);
+      padding: 8px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: system-ui, sans-serif;
+      z-index: 9999;
+      pointer-events: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      display: none;
+    }
 
     #link-panel {
       display: none;
@@ -317,8 +336,17 @@
           <button id="ntb-child" title="Tambah Child (Tab)">↳<span class="lbl">Child</span></button>
           <button id="ntb-sibling" title="Tambah Sibling (Enter)">↵<span class="lbl">Sibling</span></button>
           <button id="ntb-promote" title="Naikan level — jadi sibling dari parent">↑<span class="lbl">Promote</span></button>
+          <button id="ntb-parent" title="Tambah Parent (Ctrl+Enter)">⤴<span class="lbl">Parent</span></button>
           <div class="sep"></div>
           <button id="ntb-edit" title="Edit teks node (F2)">✏️<span class="lbl">Edit</span></button>
+          <div class="sep"></div>
+          <button id="ntb-focus" title="Focus Mode — tampilkan hanya subtree node ini">🎯<span class="lbl">Focus Mode</span></button>
+          <button id="ntb-cancelfocus" title="Cancel Focus Mode — kembalikan peta penuh">🎯<span class="lbl">Cancel Focus Mode</span></button>
+          <button id="ntb-moveup" title="Move up (PgUp)">⇧<span class="lbl">Move up</span></button>
+          <button id="ntb-movedown" title="Move down (PgDn)">⇩<span class="lbl">Move down</span></button>
+          <button id="ntb-summary" title="Summary — buat node ringkasan dari seleksi">⧉<span class="lbl">Summary</span></button>
+          <button id="ntb-link" title="Link — hubungkan panah ke node lain (tap target)">🔗<span class="lbl">Link</span></button>
+          <button id="ntb-linkbi" title="Bidirectional Link — panah dua arah (tap target)">⇄<span class="lbl">Bidirectional Link</span></button>
           <div class="sep"></div>
           <button id="ntb-delete" class="danger" title="Hapus node (Delete)">🗑️<span class="lbl">Hapus</span></button>
         </div>
@@ -336,6 +364,7 @@
   <script src="MindElixir.iife.js?v=120"></script>
   <script src="/static/vendor/marked.min.js?v=124"></script>
   <script src="/static/offline/mindmapoutline.js?v=125"></script>
+  <script src="/static/offline/mindmapops.js?v=1"></script>
   <script>
     let mind = null;
 
