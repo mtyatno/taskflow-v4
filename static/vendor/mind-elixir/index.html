@@ -387,6 +387,7 @@
   <script src="/static/offline/mindmapops.js?v=1"></script>
   <script>
     let mind = null;
+    let currentMindmapTitle = "mindmap";
 
     document.documentElement.setAttribute('data-theme', 'light');
 
@@ -861,6 +862,33 @@
       document.getElementById('ntb-link').onclick = () => startLinkFlow(false);
       document.getElementById('ntb-linkbi').onclick = () => startLinkFlow(true);
 
+      // ── Export PNG/SVG (engine built-in) ─────────────────────────
+      let exporting = false;
+      const downloadBlob = (blob, filename) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      };
+      const doExport = async (kind) => {
+        if (!mind || exporting) return;
+        exporting = true;
+        try {
+          const blob = kind === "png" ? await mind.exportPng() : mind.exportSvg();
+          downloadBlob(blob, window.TF.mindmapops.safeExportName(currentMindmapTitle, kind));
+        } catch (_) {
+          // engine export gagal — diam saja (tanpa toast; iframe tak punya toast)
+        } finally {
+          exporting = false;
+        }
+      };
+      document.getElementById("export-png").onclick = () => doExport("png");
+      document.getElementById("export-svg").onclick = () => doExport("svg");
+
       // ── Formatting toolbar ──────────────────────────────────────
       const FMT_ACTIONS = {
         bold:      (t, s, e) => window.TF.mindmapoutline.wrapSelection(t, s, e, "**", "**", "teks"),
@@ -1027,6 +1055,7 @@
         clearTimeout(unselectTimer);
         cancelLinkFlow();
         initMind(e.data.data);
+        currentMindmapTitle = (typeof e.data.title === "string" && e.data.title.trim()) ? e.data.title.trim() : "mindmap";
         setTimeout(updateBadges, 300);
         const d = (e.data.data && typeof e.data.data.direction === 'number') ? e.data.data.direction : 2;
         try {

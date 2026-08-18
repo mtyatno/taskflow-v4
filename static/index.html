@@ -8299,7 +8299,8 @@ function MindmapPage({
         if (!tree) return;
         iframeRef.current?.contentWindow?.postMessage({
           type: "load",
-          data: tree
+          data: tree,
+          title: selected?.title || ""
         }, window.location.origin);
       } catch (_) {}
     };
