@@ -8393,103 +8393,393 @@ function MindmapTabInstance({
       flexShrink: 0, flexWrap: "wrap", minHeight: 38
     }
   }, renaming ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
-      fontSize: 40
-    }
-  }, "\uD83E\uDDE0"), /*#__PURE__*/React.createElement("span", {
+    autoFocus: true, value: renameVal, onChange: e => setRenameVal(e.target.value),
+    onKeyDown: e => { if (e.key === "Enter") handleRename(); if (e.key === "Escape") setRenaming(false); },
     style: {
-      color: "var(--text-light)",
-      fontSize: 13
+      flex: 1, maxWidth: 280, fontSize: 13, fontWeight: 600, padding: "2px 8px",
+      borderRadius: 6, border: "1px solid var(--accent)", background: "var(--bg-primary)",
+      color: "var(--text-primary)", outline: "none"
     }
-  }, mindmaps.length === 0 && !loading ? "Buat mindmap pertamamu" : "Pilih mindmap dari daftar"), mindmaps.length === 0 && !loading && !creating && /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary",
-    onClick: () => {
-      setSidebarOpen(true);
-      setCreating(true);
-    },
-    style: {
-      marginTop: 4
-    }
-  }, "+ Buat Mindmap Pertama")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      display: viewMode === "canvas" ? "flex" : "none",
-      flexDirection: "column",
-      overflow: "hidden",
-      minWidth: 0
-    }
+  }), /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleRename, style: { fontSize: 11 } }, "Simpan"),
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setRenaming(false), style: { fontSize: 11 } }, "Batal")
+  ) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    style: { fontSize: 13, fontWeight: 600, color: "var(--text-primary)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+  }, "🧠 ", tab.title), /*#__PURE__*/React.createElement("span", {
+    style: { fontSize: 11, color: syncStatus === "offline" ? "#ef4444" : "var(--text-light)", flexShrink: 0 }
+  }, syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : "Tersimpan"),
+      /*#__PURE__*/React.createElement("div", {
+        style: { display: "flex", alignItems: "center", gap: 2, background: "var(--bg-primary)", borderRadius: 8, padding: 2, flexShrink: 0 }
+      }, /*#__PURE__*/React.createElement("button", {
+        onClick: () => {
+          setViewMode("canvas");
+          setTimeout(() => {
+            if (iframeRef.current?.contentWindow && tab) iframeRef.current.contentWindow.postMessage({ type: "setDirection", direction }, window.location.origin);
+          }, 50);
+        },
+        title: "Mode canvas",
+        style: {
+          border: viewMode === "canvas" ? "1px solid var(--accent)" : "1px solid var(--border)",
+          background: viewMode === "canvas" ? "var(--accent)" : "var(--bg-card)",
+          color: viewMode === "canvas" ? "#000" : "var(--text-secondary)",
+          borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer"
+        }
+      }, "🧠 Canvas"), /*#__PURE__*/React.createElement("button", {
+        onClick: () => setViewMode("outline"),
+        title: "Mode outline",
+        style: {
+          border: viewMode === "outline" ? "1px solid var(--accent)" : "1px solid var(--border)",
+          background: viewMode === "outline" ? "var(--accent)" : "var(--bg-card)",
+          color: viewMode === "outline" ? "#000" : "var(--text-secondary)",
+          borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer"
+        }
+      }, "📝 Outline")),
+      /*#__PURE__*/React.createElement("div", {
+        style: { display: "flex", alignItems: "center", gap: 2, background: "var(--bg-primary)", borderRadius: 8, padding: 2, flexShrink: 0 }
+      }, MINDMAP_DIRECTIONS.map(d => /*#__PURE__*/React.createElement("button", {
+        key: d.value,
+        onClick: () => {
+          setDirection(d.value);
+          iframeRef.current?.contentWindow?.postMessage({ type: "setDirection", direction: d.value }, window.location.origin);
+        },
+        title: d.title,
+        style: {
+          border: direction === d.value ? "1px solid var(--accent)" : "1px solid var(--border)",
+          background: direction === d.value ? "var(--accent)" : "var(--bg-card)",
+          color: direction === d.value ? "#000" : "var(--text-secondary)",
+          borderRadius: 6, padding: "3px 8px", fontSize: 13, fontWeight: 600, cursor: "pointer"
+        }
+      }, d.label))),
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => { setRenaming(true); setRenameVal(tab.title); }, style: { fontSize: 11 } }, "Rename"),
+      sharedLists.length > 0 && /*#__PURE__*/React.createElement("div", { ref: shareRef, style: { position: "relative", flexShrink: 0 } },
+        /*#__PURE__*/React.createElement("button", {
+          className: "btn btn-secondary btn-sm",
+          onClick: () => setShareOpen(o => !o),
+          style: { fontSize: 11, color: tab.list_id ? "var(--accent)" : undefined, borderColor: tab.list_id ? "var(--accent)" : undefined }
+        }, "👥 ", tab.list_id ? sharedLists.find(l => l.id === tab.list_id)?.name || "Shared" : "Share"),
+        shareOpen && /*#__PURE__*/React.createElement("div", {
+          style: { position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 300, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", minWidth: 180, maxWidth: "calc(100vw - 32px)", padding: "4px 0" }
+        }, /*#__PURE__*/React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, padding: "6px 14px 4px" } }, "Bagikan ke List"),
+          sharedLists.map(l => /*#__PURE__*/React.createElement("div", {
+            key: l.id,
+            onMouseDown: e => { e.preventDefault(); handleShare(tab.list_id === l.id ? null : l.id); },
+            style: { padding: "7px 14px", fontSize: 13, cursor: "pointer", color: tab.list_id === l.id ? "var(--accent)" : "var(--text-primary)", fontWeight: tab.list_id === l.id ? 700 : 400 },
+            onMouseEnter: e => e.currentTarget.style.background = "var(--bg-primary)",
+            onMouseLeave: e => e.currentTarget.style.background = "transparent"
+          }, tab.list_id === l.id ? "✓ " : "", l.name)),
+          tab.list_id && /*#__PURE__*/React.createElement("div", {
+            onMouseDown: e => { e.preventDefault(); handleShare(null); },
+            style: { padding: "7px 14px", fontSize: 13, cursor: "pointer", color: "#ef4444", borderTop: "1px solid var(--border)" },
+            onMouseEnter: e => e.currentTarget.style.background = "var(--bg-primary)",
+            onMouseLeave: e => e.currentTarget.style.background = "transparent"
+          }, "Batal berbagi")
+        )
+      ),
+      deleteConfirm ? /*#__PURE__*/React.createElement(React.Fragment, null,
+        /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "#ef4444", flexShrink: 0 } }, "Hapus?"),
+        /*#__PURE__*/React.createElement("button", { onClick: handleDelete, style: { padding: "3px 8px", borderRadius: 6, border: "none", cursor: "pointer", background: "#ef4444", color: "#fff", fontSize: 11 } }, "Ya"),
+        /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setDeleteConfirm(false), style: { fontSize: 11 } }, "Batal")
+      ) : /*#__PURE__*/React.createElement("button", {
+        onClick: () => setDeleteConfirm(true),
+        style: { padding: "3px 8px", borderRadius: 6, cursor: "pointer", fontSize: 11, background: "none", border: "1px solid #ef4444", color: "#ef4444" }
+      }, "Hapus")
+  )), /*#__PURE__*/React.createElement("div", {
+    style: { flex: 1, display: viewMode === "canvas" ? "flex" : "none", flexDirection: "column", overflow: "hidden", minWidth: 0 }
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
     src: "/static/vendor/mind-elixir/index.html?v=135",
-    style: {
-      flex: 1,
-      border: "none",
-      width: "100%"
-    },
+    style: { flex: 1, border: "none", width: "100%" },
     title: "Mindmap editor"
   })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      display: viewMode === "outline" ? "flex" : "none",
-      flexDirection: "column",
-      overflow: "hidden",
-      minWidth: 0,
-      background: "var(--bg-card)"
-    }
-  }, outlineTree && selected ? /*#__PURE__*/React.createElement(MindmapOutline, {
-    key: selected.id,
+    style: { flex: 1, display: viewMode === "outline" ? "flex" : "none", flexDirection: "column", overflow: "hidden", minWidth: 0, background: "var(--bg-card)" }
+  }, outlineTree && tab ? /*#__PURE__*/React.createElement(MindmapOutline, {
+    key: tab.id,
     tree: outlineTree.nodeData,
     onChange: handleOutlineEdit,
     onOpenNote: openOutlineNote,
     onOpenTask: openOutlineTask,
     onRequestLinkPicker: requestOutlineLinkPicker
-  }) : null))), showLinkPicker && /*#__PURE__*/React.createElement(LinkPickerModal, {
+  }) : null),
+  showLinkPicker && /*#__PURE__*/React.createElement(LinkPickerModal, {
     existingLinks: currentNodeLinks,
     onSelect: link => {
       if (viewMode === "outline" && outlineTree) {
-        // Outline mode: apply the link directly to the outline tree (the
-        // iframe is hidden and not authoritative here).
         const nextRoot = (window.TF && window.TF.mindmapoutline) ? window.TF.mindmapoutline.addNodeLink(outlineTree.nodeData, pickerNodeId, link) : outlineTree.nodeData;
         if (nextRoot !== outlineTree.nodeData) handleOutlineEdit(nextRoot);
       } else {
-        iframeRef.current?.contentWindow?.postMessage({
-          type: 'addLink',
-          nodeId: pickerNodeId,
-          link
-        }, window.location.origin);
+        iframeRef.current?.contentWindow?.postMessage({ type: 'addLink', nodeId: pickerNodeId, link }, window.location.origin);
         setCurrentNodeLinks(prev => [...prev, link]);
       }
-      setShowLinkPicker(false);
-      setPickerNodeId(null);
+      setShowLinkPicker(false); setPickerNodeId(null);
     },
-    onClose: () => {
-      setShowLinkPicker(false);
-      setPickerNodeId(null);
-    }
-  }), modalNote && /*#__PURE__*/React.createElement(NoteModal, {
-    note: modalNote,
-    tasks: tasks,
+    onClose: () => { setShowLinkPicker(false); setPickerNodeId(null); }
+  }),
+  modalNote && /*#__PURE__*/React.createElement(NoteModal, {
+    note: modalNote, tasks: tasks,
     onClose: () => setModalNote(null),
     onSave: async updates => {
       try {
         const saved = await api.put(`/api/scratchpad/${modalNote.id}`, updates);
-        setModalNote(null);
-        return saved;
-      } catch (e) {
-        showToast("Gagal simpan", "error");
-      }
+        setModalNote(null); return saved;
+      } catch (e) { showToast("Gagal simpan", "error"); }
     },
     onDelete: async id => {
       try {
-        await api.del(`/api/scratchpad/${id}`);
-        setModalNote(null);
-      } catch (e) {
-        if (isOfflineErr(e)) showToast('Tidak dapat menghapus — offline', 'error');
+        await api.del(`/api/scratchpad/${id}`); setModalNote(null);
+      } catch (e) { if (isOfflineErr(e)) showToast('Tidak dapat menghapus — offline', 'error'); }
+    },
+    onTaskClick: onTaskClick, showToast: showToast
+  })
+  );
+}
+
+const MINDMAP_DIRECTIONS = [
+  { value: 0, label: "←", title: "Arah kiri" },
+  { value: 1, label: "→", title: "Arah kanan" },
+  { value: 2, label: "⇄", title: "Dua arah" },
+  { value: 3, label: "↓", title: "Org chart (atas ke bawah)" }
+];
+
+function MindmapPage({
+  showToast,
+  onTaskClick,
+  tasks = [],
+  sharedLists = []
+}) {
+  const [mindmaps, setMindmaps] = useState([]);
+  const [openTabs, setOpenTabs] = useState([]);
+  const [activeTabId, setActiveTabId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => (localStorage.getItem("tf_mindmap_sidebar") || "open") === "open");
+  const [searchQ, setSearchQ] = useState("");
+  const [filterListId, setFilterListId] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+
+  const selected = openTabs.find(t => t.id === activeTabId) || null;
+
+  useEffect(() => {
+    api.get("/api/mindmaps")
+      .then(data => setMindmaps(data || []))
+      .catch(() => setMindmaps([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const selectMindmap = async m => {
+    try {
+      const full = (await api.get(`/api/mindmaps/${m.id}`)) || m;
+      setOpenTabs(prev => {
+        const helper = (window.TF && window.TF.mindmaptabs) || (typeof mindmaptabs !== "undefined" ? mindmaptabs : null);
+        if (!helper) return prev;
+        const res = helper.openTab(prev, full, 5);
+        setActiveTabId(res.activeTabId);
+        return res.tabs;
+      });
+    } catch (e) {
+      showToast("Gagal memuat mindmap", "error");
+    }
+  };
+
+  const closeTab = targetId => {
+    setOpenTabs(prev => {
+      const helper = (window.TF && window.TF.mindmaptabs) || (typeof mindmaptabs !== "undefined" ? mindmaptabs : null);
+      if (!helper) return prev;
+      const res = helper.closeTab(prev, activeTabId, targetId);
+      setActiveTabId(res.activeTabId);
+      return res.tabs;
+    });
+  };
+
+  useEffect(() => {
+    const handler = e => {
+      const id = e.detail;
+      const found = mindmaps.find(m => m.id === id);
+      if (found) selectMindmap(found);
+      else {
+        api.get(`/api/mindmaps/${id}`).then(full => {
+          setMindmaps(prev => prev.find(m => m.id === full.id) ? prev : [full, ...prev]);
+          selectMindmap(full);
+        }).catch(err => {
+          typeof showToast === 'function' && showToast('Mindmap tidak tersedia — offline', 'error');
+        });
+      }
+    };
+    window.addEventListener("openMindmap", handler);
+    return () => window.removeEventListener("openMindmap", handler);
+  }, [mindmaps]);
+
+  useEffect(() => {
+    localStorage.setItem("tf_mindmap_sidebar", sidebarOpen ? "open" : "collapsed");
+  }, [sidebarOpen]);
+
+  const handleCreate = async () => {
+    const title = newTitle.trim() || "Untitled";
+    const defaultData = JSON.stringify({
+      nodeData: { id: "root", topic: title, root: true, children: [] }
+    });
+    try {
+      const created = await api.post("/api/mindmaps", { title, data_json: defaultData });
+      setMindmaps(prev => [created, ...prev]);
+      setCreating(false);
+      setNewTitle("");
+      selectMindmap(created);
+    } catch (e) {
+      showToast("Gagal membuat mindmap", "error");
+    }
+  };
+
+  const handlePin = async m => {
+    try {
+      const updated = await api.patch(`/api/mindmaps/${m.id}/pin`, {});
+      setMindmaps(prev => prev.map(item => item.id === updated.id ? updated : item));
+    } catch (e) {
+      showToast("Gagal mem-pin mindmap", "error");
+    }
+  };
+
+  const handleUpdateTitle = (id, newTitle) => {
+    setMindmaps(prev => prev.map(m => m.id === id ? { ...m, title: newTitle } : m));
+    setOpenTabs(prev => {
+      const helper = (window.TF && window.TF.mindmaptabs) || (typeof mindmaptabs !== "undefined" ? mindmaptabs : null);
+      return helper ? helper.updateTabTitle(prev, id, newTitle) : prev;
+    });
+  };
+
+  const handleDeleteMindmap = id => {
+    setMindmaps(prev => prev.filter(m => m.id !== id));
+    closeTab(id);
+  };
+
+  const handleUpdateListId = (id, newListId) => {
+    setMindmaps(prev => prev.map(m => m.id === id ? { ...m, list_id: newListId } : m));
+    setOpenTabs(prev => prev.map(t => t.id === id ? { ...t, list_id: newListId } : t));
+  };
+
+  const q = searchQ.trim().toLowerCase();
+  const filtered = mindmaps
+    .filter(m => !q || m.title.toLowerCase().includes(q))
+    .filter(m => !filterListId || m.list_id === filterListId);
+  const pinned = filtered.filter(m => m.is_pinned);
+  const unpinned = filtered.filter(m => !m.is_pinned);
+  const hasPinnedSection = pinned.length > 0;
+
+  return /*#__PURE__*/React.createElement("div", {
+    className: "mindmap-container",
+    style: { display: "flex", height: "100%", overflow: "hidden", position: "relative" }
+  },
+    /*#__PURE__*/React.createElement("div", {
+      className: `mindmap-sidebar ${sidebarOpen ? "open" : "collapsed"}`,
+      style: {
+        width: sidebarOpen ? 260 : 0, transition: "width 0.2s ease",
+        display: "flex", flexDirection: "column", borderRight: "1px solid var(--border)",
+        background: "var(--bg-card)", overflow: "hidden", flexShrink: 0
       }
     },
-    onTaskClick: onTaskClick,
-    showToast: showToast
-  }));
+      /*#__PURE__*/React.createElement("div", {
+        style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderBottom: "1px solid var(--border)" }
+      },
+        /*#__PURE__*/React.createElement("span", { style: { fontWeight: 700, fontSize: 14 } }, "🧠 Mindmaps"),
+        /*#__PURE__*/React.createElement("button", {
+          className: "btn btn-icon btn-sm",
+          onClick: () => setSidebarOpen(false),
+          title: "Sembunyikan sidebar"
+        }, "✕")
+      ),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "8px 8px 4px" } },
+        /*#__PURE__*/React.createElement("input", {
+          className: "form-control form-control-sm",
+          placeholder: "Cari mindmap...",
+          value: searchQ,
+          onChange: e => setSearchQ(e.target.value),
+          style: { width: "100%", fontSize: 12 }
+        })
+      ),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "4px 8px" } },
+        creating ? /*#__PURE__*/React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
+          /*#__PURE__*/React.createElement("input", {
+            className: "form-control form-control-sm",
+            placeholder: "Nama mindmap...",
+            value: newTitle,
+            onChange: e => setNewTitle(e.target.value),
+            onKeyDown: e => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setCreating(false); },
+            autoFocus: true
+          }),
+          /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 4 } },
+            /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleCreate, style: { flex: 1, fontSize: 11 } }, "Buat"),
+            /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => { setCreating(false); setNewTitle(""); }, style: { fontSize: 11 } }, "✕")
+          )
+        ) : /*#__PURE__*/React.createElement("button", {
+          onClick: () => setCreating(true),
+          "data-tour": "mindmap-new",
+          style: { width: "100%", padding: "5px 8px", borderRadius: 6, border: "1px dashed var(--border)", background: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, textAlign: "left" }
+        }, "+ Baru")
+      ),
+      /*#__PURE__*/React.createElement("div", {
+        className: "hide-scrollbar", "data-tour": "mindmap-list",
+        style: { flex: 1, overflowY: "auto", margin: "4px 8px 8px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-primary)" }
+      }, loading ? /*#__PURE__*/React.createElement("div", { style: { padding: "8px 12px", color: "var(--text-light)", fontSize: 11 } }, "Memuat...") :
+        filtered.length === 0 ? /*#__PURE__*/React.createElement("div", { style: { padding: "8px 12px", color: "var(--text-light)", fontSize: 11 } }, searchQ ? "Tidak ditemukan" : "Belum ada mindmap") :
+        /*#__PURE__*/React.createElement(React.Fragment, null,
+          hasPinnedSection && /*#__PURE__*/React.createElement(React.Fragment, null,
+            /*#__PURE__*/React.createElement("div", { style: { padding: "4px 10px 2px", fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.6px" } }, "★ Pinned"),
+            pinned.map(m => /*#__PURE__*/React.createElement(MindmapListItem, { key: m.id, m: m, isSelected: selected?.id === m.id, onSelect: () => selectMindmap(m), onPin: handlePin })),
+            /*#__PURE__*/React.createElement("div", { style: { height: 1, background: "var(--border)", margin: "4px 0" } }),
+            /*#__PURE__*/React.createElement("div", { style: { padding: "4px 10px 2px", fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.6px" } }, "Semua")
+          ),
+          unpinned.map(m => /*#__PURE__*/React.createElement(MindmapListItem, { key: m.id, m: m, isSelected: selected?.id === m.id, onSelect: () => selectMindmap(m), onPin: handlePin }))
+        )
+      )
+    ),
+    !sidebarOpen && /*#__PURE__*/React.createElement("div", {
+      className: "sidebar-toggle visible", onClick: () => setSidebarOpen(true), title: "Tampilkan sidebar"
+    }, /*#__PURE__*/React.createElement("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", strokeLinecap: "round", strokeLinejoin: "round" },
+      /*#__PURE__*/React.createElement("polyline", { points: "9 18 15 12 9 6" })
+    )),
+    /*#__PURE__*/React.createElement("div", {
+      style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }
+    },
+      openTabs.length > 0 && /*#__PURE__*/React.createElement("div", { className: "mindmap-tab-bar" },
+        openTabs.map(tab => {
+          const isActive = tab.id === activeTabId;
+          return /*#__PURE__*/React.createElement("div", {
+            key: tab.id,
+            className: `mindmap-tab-item${isActive ? ' active' : ''}`,
+            onClick: () => setActiveTabId(tab.id),
+            title: tab.title || "(tanpa judul)"
+          },
+            /*#__PURE__*/React.createElement("span", { className: "mindmap-tab-title" }, tab.title || "(tanpa judul)"),
+            /*#__PURE__*/React.createElement("button", {
+              className: "mindmap-tab-close",
+              onClick: e => { e.stopPropagation(); closeTab(tab.id); },
+              title: "Tutup tab"
+            }, "×")
+          );
+        })
+      ),
+      openTabs.length === 0 ? /*#__PURE__*/React.createElement("div", {
+        style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }
+      },
+        /*#__PURE__*/React.createElement("span", { style: { fontSize: 40 } }, "🧠"),
+        /*#__PURE__*/React.createElement("span", { style: { color: "var(--text-light)", fontSize: 13 } }, mindmaps.length === 0 && !loading ? "Buat mindmap pertamamu" : "Pilih mindmap dari daftar"),
+        mindmaps.length === 0 && !loading && !creating && /*#__PURE__*/React.createElement("button", {
+          className: "btn btn-primary", onClick: () => { setSidebarOpen(true); setCreating(true); }, style: { marginTop: 4 }
+        }, "+ Buat Mindmap Pertama")
+      ) : /*#__PURE__*/React.createElement("div", { className: "mindmap-tab-contents", style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" } },
+        openTabs.map(tab => /*#__PURE__*/React.createElement(MindmapTabInstance, {
+          key: tab.id,
+          tab: tab,
+          isActive: tab.id === activeTabId,
+          showToast: showToast,
+          onTaskClick: onTaskClick,
+          tasks: tasks,
+          sharedLists: sharedLists,
+          onUpdateTitle: handleUpdateTitle,
+          onDeleteMindmap: handleDeleteMindmap,
+          onUpdateListId: handleUpdateListId
+        }))
+      )
+    )
+  );
 }
 
 // ── Compact task row (minimal: checkbox + title + date) ──────
