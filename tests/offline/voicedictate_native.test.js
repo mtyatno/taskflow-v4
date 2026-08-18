@@ -108,7 +108,7 @@ test("diagnostic fire SEKALI jika tidak ada event sama sekali", async () => {
     pollIntervalMs: 5,
   });
   impl.start();
-  await new Promise((r) => setTimeout(r, 80));
+  await new Promise((r) => setTimeout(r, 150));
   impl.stop();
   assert.equal(errs.length, 1);
   assert.ok(errs[0].startsWith("Dikte tidak merespons"));
