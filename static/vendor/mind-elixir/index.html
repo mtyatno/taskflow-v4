@@ -699,6 +699,7 @@
       hideLinkHint();
     }
     function startLinkFlow(bidirectional) {
+      if (!window.TF || !window.TF.mindmapops) return;
       const sourceEl = mind.currentNodes && mind.currentNodes.length ? mind.currentNodes[0] : null;
       if (!sourceEl || linkFlowActive) return;
       linkFlowActive = true;
@@ -707,18 +708,22 @@
       linkClickHandler = (E) => {
         E.preventDefault();
         cancelLinkFlow();
-        const tpc = window.TF.mindmapops.resolveTopicTarget(E.target);
+        const ops = window.TF && window.TF.mindmapops;
+        const tpc = ops ? ops.resolveTopicTarget(E.target) : null;
         if (tpc) mind.createArrow(sourceEl, tpc, { bidirectional: bidirectional });
       };
       mapEl.addEventListener('click', linkClickHandler, { once: true });
     }
     function refreshOpsDisabled() {
+      if (!window.TF || !window.TF.mindmapops) return;
       const isRoot = !!(currentNodeData && !currentNodeData.parent);
       const d = window.TF.mindmapops.opsDisabledStates(isRoot);
       document.getElementById('ntb-parent').disabled = d.parent;
       document.getElementById('ntb-focus').disabled = d.focus;
       document.getElementById('ntb-moveup').disabled = d.moveUp;
       document.getElementById('ntb-movedown').disabled = d.moveDown;
+      document.getElementById('ntb-sibling').disabled = d.sibling;
+      document.getElementById('ntb-delete').disabled = d.remove;
     }
 
     function initMind(data) {

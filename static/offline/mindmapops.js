@@ -28,13 +28,16 @@
   }
 
   // Buttons the engine's context menu disables when the selected node is
-  // the root (its C flag): addParent, focus, moveUp, moveDown.
+  // the root (its C flag): addParent, focus, moveUp, moveDown, addSibling,
+  // removeNode — six items. addChild stays enabled for root.
   function opsDisabledStates(isRoot) {
     return {
       parent: !!isRoot,
       focus: !!isRoot,
       moveUp: !!isRoot,
       moveDown: !!isRoot,
+      sibling: !!isRoot,
+      remove: !!isRoot,
     };
   }
 

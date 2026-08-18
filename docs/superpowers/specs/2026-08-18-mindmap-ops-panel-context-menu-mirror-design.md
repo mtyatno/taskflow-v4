@@ -37,7 +37,7 @@ New button order (all vertical list, existing CSS applies):
 ```
 
 - **Labels mirror the desktop context menu** (English) so users recognize the same actions; the panel already mixes EN/ID.
-- **Root-guard (mirror engine context menu):** when the selected node is the root, disable Parent, Focus Mode, Move up, Move down (same set the engine disables via its `C` flag). Child, Summary, Link, Bidirectional Link stay enabled for root (engine behavior). Buttons render `disabled` attribute + reduced opacity (CSS `.disabled`-like styling via existing `#node-ops-panel button` rules; add a `:disabled` style).
+- **Root-guard (mirror engine context menu):** when the selected node is the root, disable Parent, Focus Mode, Move up, Move down, Sibling, Remove — the same six items the engine disables via its `C` flag. Child stays enabled for root, as do Summary, Link and Bidirectional Link (engine behavior). Buttons render `disabled` attribute + reduced opacity (CSS `.disabled`-like styling via existing `#node-ops-panel button` rules; add a `:disabled` style).
 - No-selection state: unchanged — Ops panel is not shown; the hint appears (existing `switchTab(null)` flow).
 
 ## 4. Link / Bidirectional Link — two-step flow
@@ -64,7 +64,7 @@ The engine's `createArrow(fromEl, toEl, {bidirectional})` needs a target node; t
 - **Summary with no selection** — engine `createSummary` returns early when `currentNodes` empty; Ops panel only shows when a node is selected, so this is belt-and-suspenders.
 - **Arrow to self / duplicates** — engine allows whatever the context menu allows; we do not add extra validation (mirror).
 - **Focus mode + panel state** — after `focusNode`, the wrapper's `currentNodeData` still references the live nodeObj (it exists in the focused subtree); Ops stays functional. Selection may be cleared by the engine (existing behavior).
-- **Panel after Summary** — context menu calls `unselectNodes` after summary; the wrapper's wrapped `unselectNodes` hides the panel (existing behavior, unchanged).
+- **Panel after Summary** — context menu calls `unselectNodes` after summary; the wrapper's wrapped `unselectNodes` hides the panel (existing behavior, unchanged). Deliberate touch-friendly deviation: the Ops button does NOT call `unselectNodes` after `createSummary` — the panel stays open (the desktop context menu closes it).
 
 ## 7. Versioning & Deployment
 
@@ -81,7 +81,7 @@ The engine's `createArrow(fromEl, toEl, {bidirectional})` needs a target node; t
   3. Move up/down reorder siblings; Summary creates a summary node.
   4. Link → hint appears → tap another node → arrow drawn; reload page → arrow persists (saved in `data_json`).
   5. Bidirectional Link → arrows both ways, persists after reload.
-  6. Root node selected → Parent/Focus/Move up/Move down disabled.
+  6. Root node selected → Parent/Focus Mode/Move up/Move down/Sibling/Remove disabled (Child enabled).
   7. Desktop regression: right-click context menu unchanged and still works.
 
 ## 9. Non-Goals

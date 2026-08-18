@@ -28,7 +28,7 @@ test("resolveTopicTarget: walk dari inner text ke me-tpc", () => {
 
 test("opsDisabledStates mirror flag root context menu engine", () => {
   assert.deepEqual(OPS.opsDisabledStates(true),
-    { parent: true, focus: true, moveUp: true, moveDown: true });
+    { parent: true, focus: true, moveUp: true, moveDown: true, sibling: true, remove: true });
   assert.deepEqual(OPS.opsDisabledStates(false),
-    { parent: false, focus: false, moveUp: false, moveDown: false });
+    { parent: false, focus: false, moveUp: false, moveDown: false, sibling: false, remove: false });
 });
