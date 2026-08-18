@@ -32,3 +32,12 @@ test("opsDisabledStates mirror flag root context menu engine", () => {
   assert.deepEqual(OPS.opsDisabledStates(false),
     { parent: false, focus: false, moveUp: false, moveDown: false, sibling: false, remove: false });
 });
+
+test("safeExportName: sanitasi karakter path-hostile, fallback, ekstensi", () => {
+  assert.equal(OPS.safeExportName("Rencana Q3: /v1", "png"), "Rencana Q3- -v1.png");
+  assert.equal(OPS.safeExportName('a\\b/c:d*e?f"g<h>i|j', "svg"), "a-b-c-d-e-f-g-h-i-j.svg");
+  assert.equal(OPS.safeExportName("   ", "png"), "mindmap.png");
+  assert.equal(OPS.safeExportName("", "svg"), "mindmap.svg");
+  assert.equal(OPS.safeExportName(null, "png"), "mindmap.png");
+  assert.equal(OPS.safeExportName("  Rencana   Akhir\tTahun  ", "png"), "Rencana Akhir-Tahun.png");
+});

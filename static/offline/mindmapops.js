@@ -41,9 +41,23 @@
     };
   }
 
+  // safeExportName(title, ext): sanitasi judul mindmap jadi nama file yang
+  // aman di semua OS (ganti karakter path-hostile dan kontrol dengan "-"),
+  // fallback "mindmap" kalau kosong, lalu tambahkan ekstensi.
+  function safeExportName(title, ext) {
+    const raw = typeof title === "string" ? title : "";
+    const cleaned = raw
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-")
+      .replace(/\s+/g, " ")
+      .trim();
+    const name = cleaned || "mindmap";
+    return name + "." + ext;
+  }
+
   return {
     isNodeTopicTarget: isNodeTopicTarget,
     resolveTopicTarget: resolveTopicTarget,
     opsDisabledStates: opsDisabledStates,
+    safeExportName: safeExportName,
   };
 });
