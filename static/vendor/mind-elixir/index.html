@@ -47,6 +47,22 @@
       font-family: system-ui, sans-serif;
     }
     #app.side-collapsed #side-panel { width: 0; border-left-width: 0; }
+    #export-row { display: flex; gap: 4px; padding: 8px 8px 4px; flex-shrink: 0; }
+    #export-row button {
+      flex: 1;
+      background: var(--side-card);
+      border: 1px solid var(--side-border);
+      border-radius: 6px;
+      color: var(--side-text);
+      font-size: 11px;
+      font-weight: 600;
+      font-family: system-ui, sans-serif;
+      padding: 5px 0;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #export-row button:hover, #export-row button:active { background: var(--side-hover); border-color: var(--side-accent); }
+    #export-row button:disabled { opacity: 0.4; cursor: default; }
     #side-tabs { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--side-border); }
     .side-tab {
       flex: 1;
@@ -305,6 +321,10 @@
       <div id="map"></div>
     </div>
     <div id="side-panel">
+      <div id="export-row">
+        <button id="export-png" title="Ekspor PNG (gambar)">🖼 PNG</button>
+        <button id="export-svg" title="Ekspor SVG (vektor)">📄 SVG</button>
+      </div>
       <div id="side-tabs">
         <button class="side-tab" data-tab="font">🎨 Font</button>
         <button class="side-tab" data-tab="ops">🔧 Ops</button>
