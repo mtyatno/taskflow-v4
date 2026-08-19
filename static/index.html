@@ -8743,6 +8743,7 @@ function MindmapPage({
       setCreating(false);
       setNewTitle("");
       selectMindmap(created);
+      window.dispatchEvent(new CustomEvent("mindmapSaved"));
     } catch (e) {
       showToast("Gagal membuat mindmap", "error");
     }
@@ -8752,6 +8753,7 @@ function MindmapPage({
     try {
       const updated = await api.patch(`/api/mindmaps/${m.id}/pin`, {});
       setMindmaps(prev => prev.map(item => item.id === updated.id ? updated : item));
+      window.dispatchEvent(new CustomEvent("mindmapSaved"));
     } catch (e) {
       showToast("Gagal mem-pin mindmap", "error");
     }
@@ -8763,11 +8765,13 @@ function MindmapPage({
       const helper = (window.TF && window.TF.mindmaptabs) || (typeof mindmaptabs !== "undefined" ? mindmaptabs : null);
       return helper ? helper.updateTabTitle(prev, id, newTitle) : prev;
     });
+    window.dispatchEvent(new CustomEvent("mindmapSaved"));
   };
 
   const handleDeleteMindmap = id => {
     setMindmaps(prev => prev.filter(m => m.id !== id));
     closeTab(id);
+    window.dispatchEvent(new CustomEvent("mindmapSaved"));
   };
 
   const handleUpdateListId = (id, newListId) => {
@@ -11100,6 +11104,7 @@ function Dashboard({
   onDone,
   onNav,
   onNoteClick,
+  onMindmapClick,
   showToast
 }) {
   const q1Tasks = tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done").sort(SORT_PRI);
@@ -11110,6 +11115,7 @@ function Dashboard({
   const [scratchInput, setScratchInput] = useState("");
   const [recentNotes, setRecentNotes] = useState([]);
   const [pinnedNotes, setPinnedNotes] = useState([]);
+  const [pinnedMindmaps, setPinnedMindmaps] = useState([]);
   useEffect(() => {
     api.get("/api/scratchpad/recent").then(setRecentNotes).catch(() => {});
     const handler = () => api.get("/api/scratchpad/recent").then(setRecentNotes).catch(() => {});
@@ -11121,6 +11127,17 @@ function Dashboard({
     const handler = () => api.get("/api/scratchpad/pinned").then(setPinnedNotes).catch(() => {});
     window.addEventListener("noteSaved", handler);
     return () => window.removeEventListener("noteSaved", handler);
+  }, []);
+  useEffect(() => {
+    const loadPinnedMindmaps = () => {
+      api.get("/api/mindmaps").then(data => {
+        const list = (data || []).filter(m => Boolean(m.is_pinned));
+        setPinnedMindmaps(list);
+      }).catch(() => {});
+    };
+    loadPinnedMindmaps();
+    window.addEventListener("mindmapSaved", loadPinnedMindmaps);
+    return () => window.removeEventListener("mindmapSaved", loadPinnedMindmaps);
   }, []);
   const handleScratch = async e => {
     if (e.key !== "Enter" || !scratchInput.trim()) return;
@@ -11287,60 +11304,131 @@ function Dashboard({
     onKeyDown: handleScratch,
     placeholder: "Tulis apa saja... (tekan Enter untuk simpan)"
   })), /*#__PURE__*/ (() => {
-    const [expanded, setExpanded] = useState(false);
-    if (!pinnedNotes || pinnedNotes.length === 0) {
-      return /*#__PURE__*/React.createElement("div", {
-        className: "card",
-        style: { marginBottom: 28, padding: "18px 22px", textAlign: "center" }
-      }, /*#__PURE__*/React.createElement("div", {
-        style: { fontSize: 15, fontWeight: 700, marginBottom: 10, textAlign: "left" }
-      }, "📌 Notes Disematkan"), /*#__PURE__*/React.createElement("p", {
-        style: { fontSize: 13, color: "var(--text-secondary)", margin: "12px 0" }
-      }, "Belum ada note yang disematkan."), /*#__PURE__*/React.createElement("span", {
-        onClick: () => onNav("notes"),
-        style: { fontSize: 13, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }
-      }, "Pin note dari halaman Notes & Draw →"));
-    }
+    const [expandedNotes, setExpandedNotes] = useState(false);
+    const [expandedMaps, setExpandedMaps] = useState(false);
+
     const fmtDate = d => {
       if (!d) return "";
       const parts = d.slice(0, 10).split("-");
       const mn = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"][parseInt(parts[1]) - 1];
       return `${parseInt(parts[2])} ${mn}`;
     };
-    const visible = expanded ? pinnedNotes : pinnedNotes.slice(0, 3);
-    const hasMore = pinnedNotes.length > 3;
+
+    const renderNotesCard = () => {
+      if (!pinnedNotes || pinnedNotes.length === 0) {
+        return /*#__PURE__*/React.createElement("div", {
+          className: "card",
+          style: { padding: "18px 22px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "space-between" }
+        }, /*#__PURE__*/React.createElement("div", null,
+          /*#__PURE__*/React.createElement("div", {
+            style: { fontSize: 15, fontWeight: 700, marginBottom: 10, textAlign: "left", display: "flex", alignItems: "center", gap: 7 }
+          }, "📌 Notes Disematkan"),
+          /*#__PURE__*/React.createElement("p", {
+            style: { fontSize: 13, color: "var(--text-secondary)", margin: "14px 0" }
+          }, "Belum ada note yang disematkan.")
+        ), /*#__PURE__*/React.createElement("span", {
+          onClick: () => onNav("notes"),
+          style: { fontSize: 13, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }
+        }, "Pin note dari halaman Notes & Draw →"));
+      }
+      const visible = expandedNotes ? pinnedNotes : pinnedNotes.slice(0, 3);
+      const hasMore = pinnedNotes.length > 3;
+      return /*#__PURE__*/React.createElement("div", {
+        className: "card",
+        style: { padding: "18px 22px", display: "flex", flexDirection: "column" }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: { fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }
+      }, "📌 Notes Disematkan"), /*#__PURE__*/React.createElement("span", {
+        onClick: () => onNav("notes"),
+        style: { fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 600, flexShrink: 0 }
+      }, "Lihat semua →")), visible.map((n, i) => /*#__PURE__*/React.createElement(React.Fragment, { key: n.id },
+        /*#__PURE__*/React.createElement("div", {
+          onClick: () => onNoteClick ? onNoteClick(n) : onNav("notes"),
+          style: {
+            display: "flex", alignItems: "center", gap: 9,
+            padding: "7px 0",
+            borderBottom: i < visible.length - 1 || hasMore ? "1px solid var(--border)" : "none",
+            cursor: "pointer"
+          }
+        },
+          /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 15, style: { color: "var(--accent)", flexShrink: 0 } }),
+          /*#__PURE__*/React.createElement("span", {
+            style: { flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+          }, n.title || (n.content && n.content.slice(0, 60)) || "Tanpa judul"),
+          /*#__PURE__*/React.createElement("span", {
+            style: { fontSize: 11, flexShrink: 0, color: "var(--text-light)", background: "var(--bg-primary)", padding: "2px 6px", borderRadius: 4 }
+          }, fmtDate(n.updated_at || n.created_at))
+        )
+      )), hasMore && /*#__PURE__*/React.createElement("div", {
+        onClick: () => setExpandedNotes(e => !e),
+        style: { fontSize: 12, color: "var(--accent)", marginTop: 8, cursor: "pointer", fontWeight: 600, textAlign: "right" }
+      }, expandedNotes ? "Sembunyikan ▲" : `+${pinnedNotes.length - 3} lainnya ▼`));
+    };
+
+    const renderMindmapsCard = () => {
+      if (!pinnedMindmaps || pinnedMindmaps.length === 0) {
+        return /*#__PURE__*/React.createElement("div", {
+          className: "card",
+          style: { padding: "18px 22px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "space-between" }
+        }, /*#__PURE__*/React.createElement("div", null,
+          /*#__PURE__*/React.createElement("div", {
+            style: { fontSize: 15, fontWeight: 700, marginBottom: 10, textAlign: "left", display: "flex", alignItems: "center", gap: 7 }
+          }, "🧠 Mindmap Disematkan"),
+          /*#__PURE__*/React.createElement("p", {
+            style: { fontSize: 13, color: "var(--text-secondary)", margin: "14px 0" }
+          }, "Belum ada mindmap yang disematkan.")
+        ), /*#__PURE__*/React.createElement("span", {
+          onClick: () => onNav("mindmap"),
+          style: { fontSize: 13, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }
+        }, "Pin mindmap dari halaman Mindmap →"));
+      }
+      const visible = expandedMaps ? pinnedMindmaps : pinnedMindmaps.slice(0, 3);
+      const hasMore = pinnedMindmaps.length > 3;
+      return /*#__PURE__*/React.createElement("div", {
+        className: "card",
+        style: { padding: "18px 22px", display: "flex", flexDirection: "column" }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: { fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }
+      }, "🧠 Mindmap Disematkan"), /*#__PURE__*/React.createElement("span", {
+        onClick: () => onNav("mindmap"),
+        style: { fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 600, flexShrink: 0 }
+      }, "Lihat semua →")), visible.map((m, i) => /*#__PURE__*/React.createElement(React.Fragment, { key: m.id },
+        /*#__PURE__*/React.createElement("div", {
+          onClick: () => onMindmapClick ? onMindmapClick(m) : onNav("mindmap"),
+          style: {
+            display: "flex", alignItems: "center", gap: 9,
+            padding: "7px 0",
+            borderBottom: i < visible.length - 1 || hasMore ? "1px solid var(--border)" : "none",
+            cursor: "pointer"
+          }
+        },
+          /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 15, style: { color: "#8b5cf6", flexShrink: 0 } }),
+          /*#__PURE__*/React.createElement("span", {
+            style: { flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+          }, m.title || "Mindmap tanpa judul"),
+          /*#__PURE__*/React.createElement("span", {
+            style: { fontSize: 11, flexShrink: 0, color: "var(--text-light)", background: "var(--bg-primary)", padding: "2px 6px", borderRadius: 4 }
+          }, fmtDate(m.updated_at || m.created_at))
+        )
+      )), hasMore && /*#__PURE__*/React.createElement("div", {
+        onClick: () => setExpandedMaps(e => !e),
+        style: { fontSize: 12, color: "var(--accent)", marginTop: 8, cursor: "pointer", fontWeight: 600, textAlign: "right" }
+      }, expandedMaps ? "Sembunyikan ▲" : `+${pinnedMindmaps.length - 3} lainnya ▼`));
+    };
+
     return /*#__PURE__*/React.createElement("div", {
-      className: "card",
-      style: { marginBottom: 28, padding: "18px 22px" }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: { fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }
-    }, "📌 Notes Disematkan"), /*#__PURE__*/React.createElement("span", {
-      onClick: () => onNav("notes"),
-      style: { fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 600, flexShrink: 0 }
-    }, "Lihat semua →")), visible.map((n, i) => /*#__PURE__*/React.createElement(React.Fragment, { key: n.id },
-      /*#__PURE__*/React.createElement("div", {
-        onClick: () => onNoteClick ? onNoteClick(n) : onNav("notes"),
-        style: {
-          display: "flex", alignItems: "center", gap: 9,
-          padding: "7px 0",
-          borderBottom: i < visible.length - 1 || hasMore ? "1px solid var(--border)" : "none",
-          cursor: "pointer"
-        }
-      },
-        /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 15, style: { color: "var(--accent)", flexShrink: 0 } }),
-        /*#__PURE__*/React.createElement("span", {
-          style: { flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
-        }, n.title || n.content.slice(0, 60)),
-        /*#__PURE__*/React.createElement("span", {
-          style: { fontSize: 11, flexShrink: 0, color: "var(--text-light)", background: "#f1f5f9", padding: "2px 6px", borderRadius: 4 }
-        }, fmtDate(n.updated_at || n.created_at))
-      )
-    )), hasMore && /*#__PURE__*/React.createElement("div", {
-      onClick: () => setExpanded(e => !e),
-      style: { fontSize: 12, color: "var(--accent)", marginTop: 8, cursor: "pointer", fontWeight: 600, textAlign: "right" }
-    }, expanded ? "Sembunyikan ▲" : `+${pinnedNotes.length - 3} lainnya ▼`));
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+        gap: 16,
+        marginBottom: 28,
+        alignItems: "stretch"
+      }
+    }, renderNotesCard(), renderMindmapsCard());
   })(), (() => {
     const todayStr = new Date().toISOString().split("T")[0];
     const fmtDate = d => {
@@ -23270,6 +23358,7 @@ function App() {
         onDone: handleDone,
         onNav: setPage,
         onNoteClick: handleSearchNoteClick,
+        onMindmapClick: handleSearchMindmapClick,
         showToast: showToast
       });
     }
