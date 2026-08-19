@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v243-mindmap-node-badge-popover";
+const CACHE = "taskflow-v244-mindmap-badge-click-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

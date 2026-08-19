@@ -286,57 +286,65 @@
     .lp-result-meta { font-size: 10px; color: var(--side-muted); flex-shrink: 0; }
     .lp-picker-hint { color: var(--side-muted); font-size: 13px; text-align: center; padding: 20px; }
 
+    .map-container me-tpc .node-link-badge,
     .node-link-badge {
       position: absolute;
-      top: -7px;
-      right: -7px;
+      top: -8px;
+      right: -8px;
       background: #e0a06c;
-      color: #fff;
-      border: 1.5px solid var(--side-card, #fff);
+      color: #ffffff !important;
+      border: 1.5px solid var(--side-bg, #ffffff);
       border-radius: 10px;
-      min-width: 16px;
-      height: 16px;
+      min-width: 18px;
+      height: 18px;
       padding: 0 4px;
-      font-size: 9px;
+      font-size: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: 700;
-      pointer-events: auto;
-      cursor: pointer;
-      z-index: 10;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      pointer-events: auto !important;
+      cursor: pointer !important;
+      z-index: 100 !important;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
       transition: transform 0.15s ease;
       line-height: 1;
+      user-select: none;
     }
+    .map-container me-tpc .node-link-badge:hover,
     .node-link-badge:hover {
-      transform: scale(1.2);
+      transform: scale(1.25);
+      filter: brightness(1.1);
     }
+    .map-container me-tpc .node-link-badge-mindmap,
     .node-link-badge-mindmap {
-      background: #8b5cf6;
-      color: #fff;
+      background: #8b5cf6 !important;
+      color: #ffffff !important;
     }
+    .map-container me-tpc .node-link-badge-mixed,
     .node-link-badge-mixed {
-      background: linear-gradient(135deg, #8b5cf6 50%, #e0a06c 50%);
-      color: #fff;
+      background: linear-gradient(135deg, #8b5cf6 50%, #e0a06c 50%) !important;
+      color: #ffffff !important;
     }
 
     /* Floating Node Links Popover */
     .node-links-popover {
-      position: fixed;
-      z-index: 10000;
-      background: var(--side-bg, #1e1e2e);
-      border: 1px solid var(--side-border, #3b3b4f);
-      border-radius: 9px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-      padding: 8px;
-      width: 240px;
-      max-width: 90vw;
-      font-family: inherit;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      animation: popoverFadeIn 0.15s ease-out;
+      position: fixed !important;
+      z-index: 99999 !important;
+      background: var(--side-bg, #ffffff) !important;
+      color: var(--side-text, #0f172a) !important;
+      border: 1.5px solid var(--side-border, #cbd5e1) !important;
+      border-radius: 9px !important;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35) !important;
+      padding: 8px !important;
+      width: 250px !important;
+      max-width: 90vw !important;
+      font-family: inherit !important;
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 6px !important;
+      animation: popoverFadeIn 0.15s ease-out !important;
+      pointer-events: auto !important;
     }
     @keyframes popoverFadeIn {
       from { opacity: 0; transform: translateY(-4px); }
@@ -348,12 +356,12 @@
       justify-content: space-between;
       gap: 6px;
       padding-bottom: 4px;
-      border-bottom: 1px solid var(--side-border, #3b3b4f);
+      border-bottom: 1px solid var(--side-border, #e2e8f0);
     }
     .nlp-topic {
       font-size: 11px;
       font-weight: 700;
-      color: var(--side-text, #e2e8f0);
+      color: var(--side-text, #0f172a);
       overflow: hidden;
       white-space: nowrap;
       text-overflow: ellipsis;
@@ -361,10 +369,10 @@
     .nlp-close {
       background: transparent;
       border: none;
-      color: var(--side-muted, #94a3b8);
-      font-size: 11px;
+      color: var(--side-muted, #64748b);
+      font-size: 12px;
       cursor: pointer;
-      padding: 0 3px;
+      padding: 0 4px;
       line-height: 1;
     }
     .nlp-close:hover { color: var(--side-danger, #ef4444); }
@@ -379,32 +387,32 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 5px 6px;
+      padding: 6px 8px;
       border-radius: 6px;
-      background: var(--side-card, #28283d);
-      border: 1px solid var(--side-border, #3b3b4f);
+      background: var(--side-card, #f8fafc);
+      border: 1px solid var(--side-border, #e2e8f0);
       cursor: pointer;
       transition: border-color 0.15s, background 0.15s;
     }
     .nlp-item:hover {
       border-color: var(--side-accent, #6366f1);
-      background: var(--side-border, #3b3b4f);
+      background: var(--side-hover, rgba(168,197,0,0.1));
     }
     .nlp-badge {
       border-radius: 3px;
-      padding: 1px 4px;
+      padding: 1px 5px;
       font-size: 8px;
       font-weight: 700;
       flex-shrink: 0;
       color: #fff;
     }
-    .nlp-badge-note { background: var(--side-accent, #6366f1); color: var(--side-accent-ink, #fff); }
+    .nlp-badge-note { background: var(--side-accent, #6366f1); color: var(--side-accent-ink, #000); }
     .nlp-badge-task { background: #e0a06c; color: #fff; }
     .nlp-badge-mindmap { background: #8b5cf6; color: #fff; }
     .nlp-title {
       font-size: 11px;
       font-weight: 600;
-      color: var(--side-text, #e2e8f0);
+      color: var(--side-text, #0f172a);
       flex: 1;
       overflow: hidden;
       white-space: nowrap;
@@ -412,7 +420,7 @@
     }
     .nlp-open {
       color: var(--side-accent, #6366f1);
-      font-size: 12px;
+      font-size: 13px;
       flex-shrink: 0;
       cursor: pointer;
     }
@@ -836,14 +844,21 @@
     }
 
     let activePopover = null;
+    let activeBadgeNodeId = null;
+
     function hideNodeLinksPopover() {
       if (activePopover) {
         activePopover.remove();
         activePopover = null;
+        activeBadgeNodeId = null;
       }
     }
 
     function showNodeLinksPopover(nodeData, badgeEl) {
+      if (activePopover && activeBadgeNodeId === nodeData.id) {
+        hideNodeLinksPopover();
+        return;
+      }
       hideNodeLinksPopover();
       const links = nodeData.links || [];
       if (links.length === 0) return;
@@ -902,6 +917,7 @@
       popover.append(header, list);
       document.body.appendChild(popover);
       activePopover = popover;
+      activeBadgeNodeId = nodeData.id;
 
       // Position popover
       const badgeRect = badgeEl.getBoundingClientRect();
@@ -945,10 +961,17 @@
               }
 
               badge.title = links.map(l => `${l.type === 'mindmap' ? '🧠' : '🔗'} ${l.title}`).join('\n');
-              badge.onclick = (e) => {
+              badge.addEventListener('mousedown', (e) => {
                 e.stopPropagation();
+              });
+              badge.addEventListener('pointerdown', (e) => {
+                e.stopPropagation();
+              });
+              badge.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
                 showNodeLinksPopover(nodeData, badge);
-              };
+              });
               el.appendChild(badge);
             }
           }
