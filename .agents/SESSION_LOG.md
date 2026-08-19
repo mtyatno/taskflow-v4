@@ -238,9 +238,11 @@ Chronological history of work performed by AI agents in this workspace.
   3. Integrasi Parent & Outline (`static/index.html`): `LinkPickerModal` tab `mindmaps` + create `➕ Map`, `MindmapOutline` badge `MAP` + `onOpenMindmap`, multi-tab auto-open & tab switching (commit `a9920e4`).
   4. SW cache bump ke `taskflow-v241-mindmap-submap-linking` & iframe bump ke `?v=137` (commit `af26ef4`).
   5. Fix event listener `openMindmap` di `MindmapTabInstance` message handler + buat judul link & badge di panel samping kanan bisa langsung diklik untuk navigasi, SW cache bump ke `taskflow-v242-mindmap-submap-click-fix` & iframe ke `?v=138` (commit `e305513`).
+  6. Interactive Node Link Badge & Floating Quick Popover: Klik badge `🧠` di pojok node langsung memunculkan mini card melayang di dekat node berisi daftar link dan tombol `↗` untuk navigasi 1-klik tanpa perlu membuka panel kanan. SW cache bump ke `taskflow-v243-mindmap-node-badge-popover` & iframe ke `?v=139` (commit `f7490af`).
   - Full suite test: 420 pass / 0 fail (JS), 38 pass / 0 fail (Python).
 - **Files Touch:** `static/vendor/mind-elixir/index.html`, `static/index.html`, `static/sw.js`, `tests/offline/mindmapoutline.test.js`, spec+plan `docs/superpowers/{specs,plans}/2026-08-19-mindmap-submap-linking*.md`, `.agents/*`
 - **Status:** Completed — PENDING user device-test.
+
 
 
 

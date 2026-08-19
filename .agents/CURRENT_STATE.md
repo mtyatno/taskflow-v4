@@ -6,13 +6,14 @@
 ---
 
 ## 📌 Active Task
-- **Mindmap Sub-Map & Inter-Mindmap Linking SELESAI 2026-08-19 (commit `e305513`):**
-  - Data model link diperluas: `{ type: 'mindmap', id, title }`.
-  - Canvas iframe (`static/vendor/mind-elixir/index.html`): link picker modal mendukung tab `Mindmaps`, badge `MAP` (ungu `#8b5cf6`), tombol aksi `↗` serta klik langsung pada judul/badge via `postMessage({ type: 'openMindmap', id })`, dan quick-create `➕ Map: "{q}"`.
-  - Parent App & Outline (`static/index.html`): `MindmapTabInstance` message handler menangani `openMindmap` event untuk membuka tab secara instan; `LinkPickerModal` mendukung tab `mindmaps` + quick-create `➕ Map`, `MindmapOutline` merender badge `MAP` dan membuka target mindmap di tab bar atas.
-  - SW Cache di-bump ke **`taskflow-v242-mindmap-submap-click-fix`**, iframe di-bump ke **`?v=138`**.
+- **Mindmap Node Interactive Badge & Quick Floating Popover SELESAI 2026-08-19 (commit `f7490af`):**
+  - Interactive Node Badge di canvas: Node dengan tautan mindmap menampilkan badge ungu `🧠` (atau gradien ungu-oranye jika ada campuran note/task) yang responsif dengan efek hover zoom.
+  - Floating Quick Popover: Mengklik badge di pojok node akan langsung memunculkan kartu popover melayang tepat di dekat node tanpa perlu membuka panel kanan.
+  - Quick Drill-Down: Popover menampilkan daftar tautan (judul + badge tipe `MAP`/`NOTE`/`TASK` + tombol `↗`). Mengklik baris link atau tombol `↗` langsung membuka sub-mindmap di tab baru / switch tab instan.
+  - Auto Dismiss: Popover otomatis tertutup saat klik di luar area, tombol ✕, tombol `Escape`, atau saat manipulasi canvas (pan/zoom/edit).
+  - SW Cache di-bump ke **`taskflow-v243-mindmap-node-badge-popover`**, iframe di-bump ke **`?v=139`**.
   - All tests passed: 420/420 JS unit tests + 38/38 pytest (0 fail).
-  - **PENDING user device-test:** (1) Buka mindmap -> pilih node (misal: "Ibu") -> tambah link -> pilih mindmap atau buat mindmap baru via "➕ Map"; (2) Klik judul link mindmap atau tombol `↗` pada panel kanan -> mindmap target langsung terbuka di tab baru / switch tab instan.
+  - **PENDING user device-test:** Buka mindmap -> perhatikan node yang memiliki link (misal: "Ibu") -> klik badge `🧠` di pojok node -> popover mini muncul menampilkan nama mindmap -> klik untuk langsung berpindah/membuka mindmap tersebut.
 
 ## 📌 Active Task
 - **Global Search (Ctrl+K) Mindmap Integration SELESAI 2026-08-18 (commit `b1fe23c`):**
