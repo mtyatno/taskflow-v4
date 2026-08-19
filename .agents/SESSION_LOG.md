@@ -4,6 +4,18 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-20 05:55] - Antigravity (Gemini)
+- **Task:** Fix Draw page and drawing list area taking up only partial vertical space with unused bottom screen.
+- **Root Cause:** In `static/app.css`, `.draw-container` and `.mindmap-container` were missing explicit CSS height rules, and their parent `.main-content` had `min-height: 100vh; padding: 28px 36px` without fixed viewport calculation. As a result, child percentage heights defaulted to `height: auto` and collapsed to minimal content height, leaving the lower viewport blank.
+- **Changes:**
+  - Added full-height container and sidebar styling for `.draw-container`, `.mindmap-container`, `.mindmap-sidebar`, and `.draw-sidebar` in `static/app.css` (`height: calc(100vh - 112px); min-height: 480px`, and mobile `calc(100vh - 64px)`).
+  - Updated `DrawPage` and `MindmapPage` in `static/index.html` to use responsive `.draw-container` and `.mindmap-container` classes and added `height: 100%` to iframe wrapper and sidebar.
+  - Bumped Service Worker cache version in `static/sw.js` to `taskflow-v249-draw-full-height-layout`.
+- **Files Modified:** `static/app.css`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 39/39 Python tests pass, syntax verified)
+
+---
+
 ## [2026-08-20 05:45] - Antigravity (Gemini)
 - **Task:** Fix Draw UI visibility, `/draw` slash command, and `+Gambar` button loading issue reported by user.
 - **Root Cause:** In `static/index.html`, `TaskFormModal` had a JSX/createElement nesting syntax error (`missing ) after argument list` where `modal-overlay` was not properly closed before the fragment modals), which prevented browser JavaScript runtime from parsing Script 3. This caused the UI to fail to load the new React components and fall back to stale cached scripts.

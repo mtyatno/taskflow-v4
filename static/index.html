@@ -8845,14 +8845,14 @@ function MindmapPage({
 
   return /*#__PURE__*/React.createElement("div", {
     className: "mindmap-container",
-    style: { display: "flex", height: "100%", overflow: "hidden", position: "relative" }
+    style: { display: "flex", overflow: "hidden", position: "relative" }
   },
     /*#__PURE__*/React.createElement("div", {
       className: `mindmap-sidebar ${sidebarOpen ? "open" : "collapsed"}`,
       style: {
         width: sidebarOpen ? 260 : 0, transition: "width 0.2s ease",
         display: "flex", flexDirection: "column", borderRight: "1px solid var(--border)",
-        background: "var(--bg-card)", overflow: "hidden", flexShrink: 0
+        background: "var(--bg-card)", overflow: "hidden", flexShrink: 0, height: "100%"
       }
     },
       /*#__PURE__*/React.createElement("div", {
@@ -9129,7 +9129,7 @@ function DrawingTabInstance({
     }, "Hapus")
   )),
   /*#__PURE__*/React.createElement("div", {
-    style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }
+    style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, height: "100%" }
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     src: `/static/vendor/tldraw/index.html?noteId=${tab.id}&v=141`,
@@ -9290,15 +9290,15 @@ function DrawPage({
   const hasPinnedSection = pinned.length > 0;
 
   return /*#__PURE__*/React.createElement("div", {
-    className: "mindmap-container",
-    style: { display: "flex", height: "100%", overflow: "hidden", position: "relative" }
+    className: "draw-container mindmap-container",
+    style: { display: "flex", overflow: "hidden", position: "relative" }
   },
     /*#__PURE__*/React.createElement("div", {
-      className: `mindmap-sidebar ${sidebarOpen ? "open" : "collapsed"}`,
+      className: `mindmap-sidebar draw-sidebar ${sidebarOpen ? "open" : "collapsed"}`,
       style: {
         width: sidebarOpen ? 260 : 0, transition: "width 0.2s ease",
         display: "flex", flexDirection: "column", borderRight: "1px solid var(--border)",
-        background: "var(--bg-card)", overflow: "hidden", flexShrink: 0
+        background: "var(--bg-card)", overflow: "hidden", flexShrink: 0, height: "100%"
       }
     },
       /*#__PURE__*/React.createElement("div", {
