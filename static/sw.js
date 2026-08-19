@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v245-dashboard-pinned-mindmaps";
+const CACHE = "taskflow-v247-standalone-draw-page";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
@@ -31,6 +31,7 @@ const STATIC = [
   "/static/offline/notequery.js",
   "/static/offline/notehydrate.js",
   "/static/offline/noteroutes.js",
+  "/static/offline/drawingtabs.js",
   "/static/offline/drawingrepo.js",
   "/static/offline/drawingroutes.js",
   "/static/offline/mindmapoutline.js",
