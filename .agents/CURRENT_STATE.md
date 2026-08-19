@@ -6,14 +6,14 @@
 ---
 
 ## 📌 Active Task
-- **Mindmap Node Interactive Badge & Quick Floating Popover SELESAI 2026-08-19 (commit `f7490af`):**
-  - Interactive Node Badge di canvas: Node dengan tautan mindmap menampilkan badge ungu `🧠` (atau gradien ungu-oranye jika ada campuran note/task) yang responsif dengan efek hover zoom.
-  - Floating Quick Popover: Mengklik badge di pojok node akan langsung memunculkan kartu popover melayang tepat di dekat node tanpa perlu membuka panel kanan.
+- **Mindmap Node Interactive Badge & Quick Floating Popover SELESAI 2026-08-19 (commit `020dad7`):**
+  - Fix Click Interception: Engine Mind-Elixir bawaan memiliki aturan CSS `.map-container me-tpc > * { pointer-events: none }` yang menonaktifkan klik pada elemen anak di dalam node. Aturan CSS diperbaiki dengan selektor spesifisitas tinggi `.map-container me-tpc .node-link-badge { pointer-events: auto !important; cursor: pointer !important; z-index: 100 !important; }` serta penanganan event `mousedown`, `pointerdown`, dan `click` (`stopPropagation`).
+  - Floating Quick Popover: Mengklik badge `🧠` di pojok node langsung memunculkan kartu popover melayang tepat di dekat node tanpa perlu membuka panel kanan.
   - Quick Drill-Down: Popover menampilkan daftar tautan (judul + badge tipe `MAP`/`NOTE`/`TASK` + tombol `↗`). Mengklik baris link atau tombol `↗` langsung membuka sub-mindmap di tab baru / switch tab instan.
   - Auto Dismiss: Popover otomatis tertutup saat klik di luar area, tombol ✕, tombol `Escape`, atau saat manipulasi canvas (pan/zoom/edit).
-  - SW Cache di-bump ke **`taskflow-v243-mindmap-node-badge-popover`**, iframe di-bump ke **`?v=139`**.
+  - SW Cache di-bump ke **`taskflow-v244-mindmap-badge-click-fix`**, iframe di-bump ke **`?v=140`**.
   - All tests passed: 420/420 JS unit tests + 38/38 pytest (0 fail).
-  - **PENDING user device-test:** Buka mindmap -> perhatikan node yang memiliki link (misal: "Ibu") -> klik badge `🧠` di pojok node -> popover mini muncul menampilkan nama mindmap -> klik untuk langsung berpindah/membuka mindmap tersebut.
+  - **PENDING user device-test:** Buka mindmap -> klik badge `🧠` di pojok node -> popover mini muncul menampilkan nama mindmap -> klik untuk langsung berpindah/membuka mindmap tersebut.
 
 ## 📌 Active Task
 - **Global Search (Ctrl+K) Mindmap Integration SELESAI 2026-08-18 (commit `b1fe23c`):**
