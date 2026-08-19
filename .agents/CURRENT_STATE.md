@@ -6,13 +6,13 @@
 ---
 
 ## 📌 Active Task
-- **Mindmap Sub-Map & Inter-Mindmap Linking SELESAI 2026-08-19 (commit `af26ef4`):**
+- **Mindmap Sub-Map & Inter-Mindmap Linking SELESAI 2026-08-19 (commit `e305513`):**
   - Data model link diperluas: `{ type: 'mindmap', id, title }`.
-  - Canvas iframe (`static/vendor/mind-elixir/index.html`): link picker modal mendukung tab `Mindmaps`, badge `MAP` (ungu `#8b5cf6`), tombol aksi `↗` via `postMessage({ type: 'openMindmap', id })`, dan quick-create `➕ Map: "{q}"`.
-  - Parent App & Outline (`static/index.html`): `LinkPickerModal` mendukung tab `mindmaps` + quick-create `➕ Map`, `MindmapOutline` merender badge `MAP` dan membuka target mindmap di tab bar atas.
-  - SW Cache di-bump ke **`taskflow-v241-mindmap-submap-linking`**, iframe di-bump ke **`?v=137`**.
+  - Canvas iframe (`static/vendor/mind-elixir/index.html`): link picker modal mendukung tab `Mindmaps`, badge `MAP` (ungu `#8b5cf6`), tombol aksi `↗` serta klik langsung pada judul/badge via `postMessage({ type: 'openMindmap', id })`, dan quick-create `➕ Map: "{q}"`.
+  - Parent App & Outline (`static/index.html`): `MindmapTabInstance` message handler menangani `openMindmap` event untuk membuka tab secara instan; `LinkPickerModal` mendukung tab `mindmaps` + quick-create `➕ Map`, `MindmapOutline` merender badge `MAP` dan membuka target mindmap di tab bar atas.
+  - SW Cache di-bump ke **`taskflow-v242-mindmap-submap-click-fix`**, iframe di-bump ke **`?v=138`**.
   - All tests passed: 420/420 JS unit tests + 38/38 pytest (0 fail).
-  - **PENDING user device-test:** (1) Buka mindmap -> pilih node (misal: "Ibu") -> tambah link -> pilih mindmap atau buat mindmap baru via "➕ Map"; (2) Klik tombol `↗` pada badge MAP -> mindmap target otomatis terbuka di tab baru / switch tab instan.
+  - **PENDING user device-test:** (1) Buka mindmap -> pilih node (misal: "Ibu") -> tambah link -> pilih mindmap atau buat mindmap baru via "➕ Map"; (2) Klik judul link mindmap atau tombol `↗` pada panel kanan -> mindmap target langsung terbuka di tab baru / switch tab instan.
 
 ## 📌 Active Task
 - **Global Search (Ctrl+K) Mindmap Integration SELESAI 2026-08-18 (commit `b1fe23c`):**
