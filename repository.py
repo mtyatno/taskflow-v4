@@ -334,16 +334,17 @@ class TaskRepository:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS drawings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    note_id INTEGER NOT NULL UNIQUE,
                     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    data_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY (note_id) REFERENCES scratchpad_notes(id) ON DELETE CASCADE
+                    title TEXT NOT NULL DEFAULT 'Untitled Drawing',
+                    data_json TEXT NOT NULL DEFAULT '{}',
+                    svg_preview TEXT DEFAULT '',
+                    is_pinned INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_drawings_note ON drawings(note_id)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_drawings_user_updated ON drawings(user_id, updated_at DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_drawings_user_pinned ON drawings(user_id, is_pinned DESC)")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS note_attachments (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -380,7 +381,7 @@ class TaskRepository:
                 CREATE TABLE IF NOT EXISTS entity_tags (
                     tag_id      INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
                     user_id     INTEGER NOT NULL,
-                    entity_type TEXT NOT NULL CHECK(entity_type IN ('note','task','habit','goal','message')),
+                    entity_type TEXT NOT NULL CHECK(entity_type IN ('note','task','habit','goal','message','drawing','mindmap')),
                     entity_id   INTEGER NOT NULL,
                     created_at  TEXT DEFAULT (datetime('now')),
                     PRIMARY KEY (tag_id, entity_type, entity_id)

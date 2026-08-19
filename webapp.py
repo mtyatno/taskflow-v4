@@ -345,6 +345,95 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Ensure drawings table exists and migrate legacy schema if needed
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        table = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='drawings'").fetchone()
+        if table:
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(drawings)").fetchall()]
+            if "title" not in cols or "note_id" in cols:
+                conn.execute("ALTER TABLE drawings RENAME TO drawings_old")
+                conn.execute("""
+                    CREATE TABLE drawings (
+                        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        title      TEXT NOT NULL DEFAULT 'Untitled Drawing',
+                        data_json  TEXT NOT NULL DEFAULT '{}',
+                        svg_preview TEXT DEFAULT '',
+                        is_pinned  INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                """)
+                old_rows = conn.execute("SELECT * FROM drawings_old").fetchall()
+                for old in old_rows:
+                    old_dict = dict(old)
+                    note_title = "Untitled"
+                    if "note_id" in old_dict and old_dict["note_id"]:
+                        n = conn.execute("SELECT title FROM scratchpad_notes WHERE id = ?", (old_dict["note_id"],)).fetchone()
+                        if n and n["title"]:
+                            note_title = n["title"]
+                    title = old_dict.get("title") or f"Gambar - {note_title}"
+                    created_at = old_dict.get("created_at") or old_dict.get("updated_at") or datetime.now(_TZ_JKT).isoformat()
+                    updated_at = old_dict.get("updated_at") or created_at
+                    is_pinned = old_dict.get("is_pinned") or 0
+                    svg_preview = old_dict.get("svg_preview") or ""
+                    conn.execute(
+                        "INSERT INTO drawings (id, user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (old_dict["id"], old_dict["user_id"], title, old_dict.get("data_json", "{}"), svg_preview, is_pinned, created_at, updated_at)
+                    )
+                conn.execute("DROP TABLE drawings_old")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_drawings_user_updated ON drawings(user_id, updated_at DESC)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_drawings_user_pinned ON drawings(user_id, is_pinned DESC)")
+                conn.commit()
+        else:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS drawings (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    title      TEXT NOT NULL DEFAULT 'Untitled Drawing',
+                    data_json  TEXT NOT NULL DEFAULT '{}',
+                    svg_preview TEXT DEFAULT '',
+                    is_pinned  INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_drawings_user_updated ON drawings(user_id, updated_at DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_drawings_user_pinned ON drawings(user_id, is_pinned DESC)")
+            conn.commit()
+    finally:
+        conn.close()
+
+    # Widen entity_tags CHECK constraint to include 'drawing' and 'mindmap'
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        et = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='entity_tags'").fetchone()
+        if et and "'drawing'" not in (et["sql"] or ""):
+            conn.execute("ALTER TABLE entity_tags RENAME TO entity_tags_old")
+            conn.execute("""
+                CREATE TABLE entity_tags (
+                    tag_id      INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                    user_id     INTEGER NOT NULL,
+                    entity_type TEXT NOT NULL CHECK(entity_type IN ('note','task','habit','goal','message','drawing','mindmap')),
+                    entity_id   INTEGER NOT NULL,
+                    created_at  TEXT DEFAULT (datetime('now')),
+                    PRIMARY KEY (tag_id, entity_type, entity_id)
+                )
+            """)
+            conn.execute("INSERT OR IGNORE INTO entity_tags SELECT * FROM entity_tags_old")
+            conn.execute("DROP TABLE entity_tags_old")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_entity_tags_lookup   ON entity_tags(entity_type, entity_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_entity_tags_tag      ON entity_tags(tag_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_entity_tags_user     ON entity_tags(user_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_entity_tags_tag_user ON entity_tags(tag_id, user_id)")
+            conn.commit()
+    finally:
+        conn.close()
+
     # Migrate scratchpad_notes.tags (JSON array) → tags + entity_tags
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -667,6 +756,37 @@ class DrawingUpsert(BaseModel):
             json.loads(v)
         except ValueError:
             raise ValueError("data_json must be valid JSON")
+        return v
+
+class DrawingCreate(BaseModel):
+    title: str = Field(default="Untitled Drawing", min_length=1)
+    data_json: str = Field(default="{}", max_length=5_000_000)
+    svg_preview: str = Field(default="", max_length=5_000_000)
+    tags: Optional[list[str]] = None
+
+    @field_validator("data_json")
+    @classmethod
+    def must_be_valid_json(cls, v: str) -> str:
+        try:
+            json.loads(v)
+        except ValueError:
+            raise ValueError("data_json must be valid JSON")
+        return v
+
+class DrawingUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1)
+    data_json: Optional[str] = Field(default=None, max_length=5_000_000)
+    svg_preview: Optional[str] = Field(default=None, max_length=5_000_000)
+    tags: Optional[list[str]] = None
+
+    @field_validator("data_json")
+    @classmethod
+    def must_be_valid_json_if_present(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            try:
+                json.loads(v)
+            except ValueError:
+                raise ValueError("data_json must be valid JSON")
         return v
 
 class MindmapCreate(BaseModel):
@@ -3281,49 +3401,7 @@ async def export_user_data(user=Depends(get_current_user)):
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
 
-@app.get("/api/drawings/{note_id}")
-async def get_drawing(note_id: int, user=Depends(get_current_user)):
-    uid = user["sub"]
-    access_clause, access_params = _note_access_clause(uid)
-    with get_db() as conn:
-        note = conn.execute(
-            f"SELECT id, user_id FROM scratchpad_notes WHERE id = ? AND {access_clause}",
-            [note_id] + access_params
-        ).fetchone()
-        if not note:
-            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
-        row = conn.execute(
-            "SELECT data_json, updated_at FROM drawings WHERE note_id = ?",
-            (note_id,)
-        ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Drawing belum ada")
-        return {"data_json": row["data_json"], "updated_at": row["updated_at"]}
 
-
-@app.put("/api/drawings/{note_id}")
-async def upsert_drawing(note_id: int, req: DrawingUpsert, user=Depends(get_current_user)):
-    uid = user["sub"]
-    now = datetime.now(_TZ_JKT).isoformat()
-    access_clause, access_params = _note_access_clause(uid)
-    with get_db() as conn:
-        note = conn.execute(
-            f"SELECT id, user_id FROM scratchpad_notes WHERE id = ? AND {access_clause}",
-            [note_id] + access_params
-        ).fetchone()
-        if not note:
-            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
-        if note["user_id"] != uid:
-            raise HTTPException(status_code=403, detail="Hanya pemilik note yang bisa mengedit drawing")
-        conn.execute(
-            """INSERT INTO drawings (note_id, user_id, data_json, updated_at)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(note_id) DO UPDATE SET
-                 data_json = excluded.data_json,
-                 updated_at = excluded.updated_at""",
-            (note_id, uid, req.data_json, now)
-        )
-        return {"updated_at": now}
 
 
 @app.get("/api/scratchpad/published")
@@ -4704,6 +4782,15 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
             LIMIT 8
         """, mm_ap + [like, like]).fetchall()
 
+        # Drawings
+        drawing_rows = conn.execute("""
+            SELECT id, title, updated_at
+            FROM drawings
+            WHERE user_id = ? AND title LIKE ?
+            ORDER BY is_pinned DESC, updated_at DESC
+            LIMIT 8
+        """, (uid, like)).fetchall()
+
     def snippet(text, length=80):
         if not text:
             return ""
@@ -4718,6 +4805,7 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
             for r in note_rows
         ],
         "mindmaps": [dict(r) for r in mindmap_rows],
+        "drawings": [dict(r) for r in drawing_rows],
     }
 
 
@@ -4996,6 +5084,128 @@ async def delete_mindmap(mid: int, user=Depends(get_current_user)):
             raise HTTPException(status_code=403, detail="Hanya pemilik yang bisa menghapus mindmap ini")
         conn.execute("DELETE FROM mindmaps WHERE id = ?", (mid,))
     return {"ok": True}
+
+
+# ── Standalone Drawings endpoints ────────────────────────────────────────────
+
+def _drawing_enrich(row_dict: dict, conn) -> dict:
+    did = row_dict["id"]
+    tag_rows = conn.execute(
+        "SELECT t.name FROM tags t JOIN entity_tags et ON t.id = et.tag_id "
+        "WHERE et.entity_type = 'drawing' AND et.entity_id = ? ORDER BY t.name",
+        (did,)
+    ).fetchall()
+    row_dict["tags"] = [r["name"] for r in tag_rows]
+    uid = row_dict.get("user_id")
+    if uid:
+        note_rows = conn.execute(
+            "SELECT id, title FROM scratchpad_notes WHERE content LIKE ? AND user_id = ? ORDER BY updated_at DESC LIMIT 5",
+            (f"%::draw[{did}]%", uid)
+        ).fetchall()
+        row_dict["linked_notes"] = [dict(nr) for nr in note_rows]
+    else:
+        row_dict["linked_notes"] = []
+    return row_dict
+
+
+@app.get("/api/drawings")
+async def list_drawings(user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, user_id, title, svg_preview, is_pinned, created_at, updated_at FROM drawings "
+            "WHERE user_id = ? ORDER BY is_pinned DESC, updated_at DESC",
+            (uid,)
+        ).fetchall()
+        return [_drawing_enrich(dict(r), conn) for r in rows]
+
+
+@app.post("/api/drawings")
+async def create_drawing(req: DrawingCreate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO drawings (user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?)",
+            (uid, req.title, req.data_json, req.svg_preview, now, now)
+        )
+        did = cur.lastrowid
+        if req.tags:
+            _upsert_tags_for_entity(conn, did, uid, "drawing", req.tags)
+        row = conn.execute("SELECT * FROM drawings WHERE id = ?", (did,)).fetchone()
+        return _drawing_enrich(dict(row), conn)
+
+
+@app.get("/api/drawings/{did}")
+async def get_drawing_detail(did: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM drawings WHERE id = ? AND user_id = ?",
+            (did, uid)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        return _drawing_enrich(dict(row), conn)
+
+
+@app.put("/api/drawings/{did}")
+async def update_drawing_detail(did: int, req: DrawingUpdate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM drawings WHERE id = ? AND user_id = ?",
+            (did, uid)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        new_title = req.title if req.title is not None else row["title"]
+        new_data = req.data_json if req.data_json is not None else row["data_json"]
+        new_svg = req.svg_preview if req.svg_preview is not None else row["svg_preview"]
+        conn.execute(
+            "UPDATE drawings SET title = ?, data_json = ?, svg_preview = ?, updated_at = ? WHERE id = ?",
+            (new_title, new_data, new_svg, now, did)
+        )
+        if req.tags is not None:
+            conn.execute("DELETE FROM entity_tags WHERE entity_type = 'drawing' AND entity_id = ?", (did,))
+            if req.tags:
+                _upsert_tags_for_entity(conn, did, uid, "drawing", req.tags)
+        updated = conn.execute("SELECT * FROM drawings WHERE id = ?", (did,)).fetchone()
+        return _drawing_enrich(dict(updated), conn)
+
+
+@app.patch("/api/drawings/{did}/pin")
+async def toggle_pin_drawing(did: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, is_pinned FROM drawings WHERE id = ? AND user_id = ?",
+            (did, uid)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        new_pin = 0 if row["is_pinned"] else 1
+        conn.execute("UPDATE drawings SET is_pinned = ? WHERE id = ?", (new_pin, did))
+        updated = conn.execute("SELECT * FROM drawings WHERE id = ?", (did,)).fetchone()
+        return dict(updated)
+
+
+@app.delete("/api/drawings/{did}")
+async def delete_drawing_detail(did: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id FROM drawings WHERE id = ? AND user_id = ?",
+            (did, uid)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        conn.execute("DELETE FROM entity_tags WHERE entity_type = 'drawing' AND entity_id = ?", (did,))
+        conn.execute("DELETE FROM drawings WHERE id = ?", (did,))
+    return {"ok": True}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 
