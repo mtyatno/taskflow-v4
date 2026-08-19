@@ -230,3 +230,15 @@ Chronological history of work performed by AI agents in this workspace.
 - **Files Touch:** `webapp.py`, `static/index.html`, `static/sw.js`, `.agents/*`
 - **Status:** Completed — PENDING user device-test.
 
+## [2026-08-19 09:55] - Antigravity (Gemini 3.7 Flash - Mindmap Sub-Map & Inter-Mindmap Linking)
+- **Task:** Impl fitur baru Mindmap Sub-Map & Inter-Mindmap Linking (menautkan node ke mindmap lain dengan tab `Mindmaps` di link picker, quick-create `➕ Map`, dan drill-down membuka tab baru).
+- **Changes:** Brainstorming → Spec (`2026-08-19-mindmap-submap-linking-design.md`) → Plan (`2026-08-19-mindmap-submap-linking.md`) → SDD 4 task otonom:
+  1. Unit test node link mindmap di `tests/offline/mindmapoutline.test.js` (commit `ddd6670`).
+  2. Integrasi Canvas Iframe (`static/vendor/mind-elixir/index.html`): modal link picker dengan tab `Mindmaps`, quick create `➕ Map: "{q}"`, badge `MAP` (#8b5cf6), tombol buka `↗` kirim `openMindmap` ke parent (commit `bf9f9e9`).
+  3. Integrasi Parent & Outline (`static/index.html`): `LinkPickerModal` tab `mindmaps` + create `➕ Map`, `MindmapOutline` badge `MAP` + `onOpenMindmap`, multi-tab auto-open & tab switching (commit `a9920e4`).
+  4. SW cache bump ke `taskflow-v241-mindmap-submap-linking` & iframe bump ke `?v=137` (commit `af26ef4`).
+  - Full suite test: 420 pass / 0 fail (JS), 38 pass / 0 fail (Python).
+- **Files Touch:** `static/vendor/mind-elixir/index.html`, `static/index.html`, `static/sw.js`, `tests/offline/mindmapoutline.test.js`, spec+plan `docs/superpowers/{specs,plans}/2026-08-19-mindmap-submap-linking*.md`, `.agents/*`
+- **Status:** Completed — PENDING user device-test.
+
+

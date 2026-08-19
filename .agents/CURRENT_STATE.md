@@ -1,9 +1,18 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-18 22:45  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Global Search Ctrl+K Mindmap Integration)
+**Last Updated:** 2026-08-19 09:55  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Mindmap Sub-Map & Inter-Mindmap Linking SELESAI)
 
 ---
+
+## 📌 Active Task
+- **Mindmap Sub-Map & Inter-Mindmap Linking SELESAI 2026-08-19 (commit `af26ef4`):**
+  - Data model link diperluas: `{ type: 'mindmap', id, title }`.
+  - Canvas iframe (`static/vendor/mind-elixir/index.html`): link picker modal mendukung tab `Mindmaps`, badge `MAP` (ungu `#8b5cf6`), tombol aksi `↗` via `postMessage({ type: 'openMindmap', id })`, dan quick-create `➕ Map: "{q}"`.
+  - Parent App & Outline (`static/index.html`): `LinkPickerModal` mendukung tab `mindmaps` + quick-create `➕ Map`, `MindmapOutline` merender badge `MAP` dan membuka target mindmap di tab bar atas.
+  - SW Cache di-bump ke **`taskflow-v241-mindmap-submap-linking`**, iframe di-bump ke **`?v=137`**.
+  - All tests passed: 420/420 JS unit tests + 38/38 pytest (0 fail).
+  - **PENDING user device-test:** (1) Buka mindmap -> pilih node (misal: "Ibu") -> tambah link -> pilih mindmap atau buat mindmap baru via "➕ Map"; (2) Klik tombol `↗` pada badge MAP -> mindmap target otomatis terbuka di tab baru / switch tab instan.
 
 ## 📌 Active Task
 - **Global Search (Ctrl+K) Mindmap Integration SELESAI 2026-08-18 (commit `b1fe23c`):**
