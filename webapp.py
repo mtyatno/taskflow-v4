@@ -4694,14 +4694,15 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
             LIMIT 8
         """, note_ap + [like, like]).fetchall()
 
-        # Mindmaps
-        mindmap_rows = conn.execute("""
+        # Mindmaps (personal + shared)
+        mm_ac, mm_ap = _mindmap_access_clause(uid)
+        mindmap_rows = conn.execute(f"""
             SELECT id, title, updated_at
             FROM mindmaps
-            WHERE user_id = ? AND title LIKE ?
+            WHERE {mm_ac} AND (title LIKE ? OR data_json LIKE ?)
             ORDER BY updated_at DESC
-            LIMIT 5
-        """, (uid, like)).fetchall()
+            LIMIT 8
+        """, mm_ap + [like, like]).fetchall()
 
     def snippet(text, length=80):
         if not text:

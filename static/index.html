@@ -8577,7 +8577,9 @@ function MindmapPage({
   showToast,
   onTaskClick,
   tasks = [],
-  sharedLists = []
+  sharedLists = [],
+  initialMindmapId = null,
+  onInitialMindmapConsumed = null
 }) {
   const [mindmaps, setMindmaps] = useState([]);
   const [openTabs, setOpenTabs] = useState([]);
@@ -8590,13 +8592,6 @@ function MindmapPage({
   const [newTitle, setNewTitle] = useState("");
 
   const selected = openTabs.find(t => t.id === activeTabId) || null;
-
-  useEffect(() => {
-    api.get("/api/mindmaps")
-      .then(data => setMindmaps(data || []))
-      .catch(() => setMindmaps([]))
-      .finally(() => setLoading(false));
-  }, []);
 
   const selectMindmap = async m => {
     try {
@@ -8612,6 +8607,42 @@ function MindmapPage({
       showToast("Gagal memuat mindmap", "error");
     }
   };
+
+  useEffect(() => {
+    api.get("/api/mindmaps")
+      .then(data => {
+        const list = data || [];
+        setMindmaps(list);
+        if (initialMindmapId) {
+          const found = list.find(m => m.id === initialMindmapId);
+          if (found) {
+            selectMindmap(found);
+          } else {
+            api.get(`/api/mindmaps/${initialMindmapId}`).then(full => {
+              setMindmaps(prev => prev.find(m => m.id === full.id) ? prev : [full, ...prev]);
+              selectMindmap(full);
+            }).catch(() => {});
+          }
+          onInitialMindmapConsumed && onInitialMindmapConsumed();
+        }
+      })
+      .catch(() => setMindmaps([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!initialMindmapId) return;
+    const found = mindmaps.find(m => m.id === initialMindmapId);
+    if (found) {
+      selectMindmap(found);
+    } else {
+      api.get(`/api/mindmaps/${initialMindmapId}`).then(full => {
+        setMindmaps(prev => prev.find(m => m.id === full.id) ? prev : [full, ...prev]);
+        selectMindmap(full);
+      }).catch(() => {});
+    }
+    onInitialMindmapConsumed && onInitialMindmapConsumed();
+  }, [initialMindmapId]);
 
   const closeTab = targetId => {
     setOpenTabs(prev => {
@@ -20973,7 +21004,7 @@ function SearchModal({
     ref: inputRef,
     value: query,
     onChange: e => search(e.target.value),
-    placeholder: "Cari task, catatan, atau tag\u2026",
+    placeholder: "Cari task, catatan, mindmap, atau tag…",
     style: {
       flex: 1,
       border: "none",
@@ -22317,6 +22348,7 @@ function App() {
   const [selectedTask, setSelectedTask] = useState(null);
   const [selectedNote, setSelectedNote] = useState(null);
   const [pendingNoteId, setPendingNoteId] = useState(null);
+  const [pendingMindmapId, setPendingMindmapId] = useState(null);
   const [showForm, setShowForm] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("action") === "new-task" && !!tokenStore.get();
@@ -22796,14 +22828,11 @@ function App() {
   };
   const handleSearchMindmapClick = mm => {
     setShowSearch(false);
+    setPendingMindmapId(mm.id);
     setPage("mindmap");
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        window.dispatchEvent(new CustomEvent("openMindmap", {
-          detail: mm.id
-        }));
-      });
-    });
+    window.dispatchEvent(new CustomEvent("openMindmap", {
+      detail: mm.id
+    }));
   };
   const handleSearchNoteClick = note => {
     // Set the target before navigating; NotesPage opens it on mount via the
@@ -23159,7 +23188,9 @@ function App() {
         showToast: showToast,
         onTaskClick: setSelectedTask,
         tasks: tasks,
-        sharedLists: sharedLists
+        sharedLists: sharedLists,
+        initialMindmapId: pendingMindmapId,
+        onInitialMindmapConsumed: () => setPendingMindmapId(null)
       });
     }
     if (page === "admin" && user?.is_admin) {

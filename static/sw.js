@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v239-mindmap-level-justify";
+const CACHE = "taskflow-v240-global-search-mindmaps";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
