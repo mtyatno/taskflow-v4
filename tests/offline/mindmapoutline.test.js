@@ -214,6 +214,31 @@ test("removeNodeLink removes by index; guards out of range", () => {
   assert.equal(MO.removeNodeLink(t, "zzz", 0), t);
 });
 
+test("addNodeLink and removeNodeLink support mindmap type links correctly", () => {
+  const t = fixture();
+  const mindmapLink = { type: "mindmap", id: 99, title: "Sub Family Tree" };
+  const r1 = MO.addNodeLink(t, "b", mindmapLink);
+  assert.equal(MO.findNode(r1, "b").node.links.length, 1);
+  assert.deepEqual(MO.findNode(r1, "b").node.links[0], mindmapLink);
+
+  // Coexists with other link types
+  const taskLink = { type: "task", id: 5, title: "Task link" };
+  const r2 = MO.addNodeLink(r1, "b", taskLink);
+  assert.equal(MO.findNode(r2, "b").node.links.length, 2);
+  assert.deepEqual(MO.findNode(r2, "b").node.links, [mindmapLink, taskLink]);
+
+  // Dedupes by type and id
+  const dup = MO.addNodeLink(r2, "b", { type: "mindmap", id: 99, title: "Sub Family Tree Renamed" });
+  assert.equal(MO.findNode(dup, "b").node.links.length, 2);
+  assert.equal(MO.findNode(dup, "b").node.links[1].id, 99);
+  assert.equal(MO.findNode(dup, "b").node.links[1].title, "Sub Family Tree Renamed");
+
+  // Remove by index
+  const removed = MO.removeNodeLink(r2, "b", 0);
+  assert.equal(MO.findNode(removed, "b").node.links.length, 1);
+  assert.deepEqual(MO.findNode(removed, "b").node.links[0], taskLink);
+});
+
 test("renderTopicMd renders bold, italic, highlight, underline, strike", () => {
   assert.match(MO.renderTopicMd("**tebal**"), /<strong>tebal<\/strong>/);
   assert.match(MO.renderTopicMd("*miring*"), /<em>miring<\/em>/);
