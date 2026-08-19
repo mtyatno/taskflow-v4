@@ -4536,7 +4536,7 @@ function TaskFormModal({
     type: "submit",
     className: "btn btn-primary",
     disabled: loading
-  }, loading ? "Saving..." : isEdit ? "Update" : "Tambah"))))), noteDrawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
+  }, loading ? "Saving..." : isEdit ? "Update" : "Tambah")))))), noteDrawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
     noteTitle: noteForm.title,
     onSelectDrawing: handleNoteDrawingSelected,
     onClose: () => setNoteDrawingInsertOpen(false),
@@ -24219,16 +24219,22 @@ function App() {
     }
     const titles = {
       dashboard: "Dashboard",
+      calendar: "Kalender",
+      today: "Fokus Hari Ini",
+      habit: "Habit Tracker",
+      notes: "Notes",
+      draw: "Draw",
+      mindmap: "Mindmap",
+      chat: "Diskusi",
       inbox: "Inbox",
       next: "Next Actions",
       waiting: "Waiting For",
       someday: "Someday / Maybe",
       overdue: "Overdue",
       done: "Done",
-      today: "Fokus Hari Ini",
       all: "Semua Task",
       settings: "Pengaturan",
-      habit: "Habit Tracker"
+      admin: "Admin"
     };
     return titles[page] || "Tasks";
   };
@@ -24237,16 +24243,22 @@ function App() {
     if (page.startsWith("slist_")) return "users";
     const icons = {
       dashboard: "dashboard",
+      calendar: "calendar",
+      today: "target",
+      habit: "repeat",
+      notes: "notes",
+      draw: "draw",
+      mindmap: "mindmap",
+      chat: "chat",
       inbox: "inbox",
       next: "next",
       waiting: "clock",
       someday: "cloud",
       overdue: "alert",
       done: "check",
-      today: "target",
       all: "list",
       settings: "settings",
-      habit: "repeat"
+      admin: "wrench"
     };
     return icons[page] || "list";
   };
