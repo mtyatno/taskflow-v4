@@ -8169,10 +8169,14 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
         borderRadius: 3, padding: "1px 5px", fontSize: 9, fontWeight: 700, flexShrink: 0
       }
     }, l.type === "note" ? "NOTE" : l.type === "mindmap" ? "MAP" : "TASK"), /*#__PURE__*/React.createElement("span", {
-      title: l.title,
+      title: "Buka " + (l.title || ''),
+      onClick: () => {
+        const open = l.type === "note" ? onOpenNote : l.type === "mindmap" ? onOpenMindmap : onOpenTask;
+        if (typeof open === "function") open(l.id);
+      },
       style: {
         flex: 1, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap",
-        textOverflow: "ellipsis", fontWeight: 600
+        textOverflow: "ellipsis", fontWeight: 600, cursor: "pointer"
       }
     }, l.title), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
@@ -8569,7 +8573,7 @@ function MindmapTabInstance({
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
-    src: "/static/vendor/mind-elixir/index.html?v=138",
+    src: "/static/vendor/mind-elixir/index.html?v=139",
     style: { flex: 1, border: "none", width: "100%" },
     title: "Mindmap editor"
   })), /*#__PURE__*/React.createElement("div", {

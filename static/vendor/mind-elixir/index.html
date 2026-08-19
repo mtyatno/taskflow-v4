@@ -288,20 +288,133 @@
 
     .node-link-badge {
       position: absolute;
-      top: -5px;
-      right: -5px;
+      top: -7px;
+      right: -7px;
       background: #e0a06c;
-      color: var(--side-accent-ink);
-      border-radius: 50%;
-      width: 14px;
-      height: 14px;
-      font-size: 8px;
+      color: #fff;
+      border: 1.5px solid var(--side-card, #fff);
+      border-radius: 10px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      font-size: 9px;
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: 700;
-      pointer-events: none;
+      pointer-events: auto;
+      cursor: pointer;
       z-index: 10;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      transition: transform 0.15s ease;
+      line-height: 1;
+    }
+    .node-link-badge:hover {
+      transform: scale(1.2);
+    }
+    .node-link-badge-mindmap {
+      background: #8b5cf6;
+      color: #fff;
+    }
+    .node-link-badge-mixed {
+      background: linear-gradient(135deg, #8b5cf6 50%, #e0a06c 50%);
+      color: #fff;
+    }
+
+    /* Floating Node Links Popover */
+    .node-links-popover {
+      position: fixed;
+      z-index: 10000;
+      background: var(--side-bg, #1e1e2e);
+      border: 1px solid var(--side-border, #3b3b4f);
+      border-radius: 9px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+      padding: 8px;
+      width: 240px;
+      max-width: 90vw;
+      font-family: inherit;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      animation: popoverFadeIn 0.15s ease-out;
+    }
+    @keyframes popoverFadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .nlp-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--side-border, #3b3b4f);
+    }
+    .nlp-topic {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--side-text, #e2e8f0);
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .nlp-close {
+      background: transparent;
+      border: none;
+      color: var(--side-muted, #94a3b8);
+      font-size: 11px;
+      cursor: pointer;
+      padding: 0 3px;
+      line-height: 1;
+    }
+    .nlp-close:hover { color: var(--side-danger, #ef4444); }
+    .nlp-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+    .nlp-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 6px;
+      border-radius: 6px;
+      background: var(--side-card, #28283d);
+      border: 1px solid var(--side-border, #3b3b4f);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .nlp-item:hover {
+      border-color: var(--side-accent, #6366f1);
+      background: var(--side-border, #3b3b4f);
+    }
+    .nlp-badge {
+      border-radius: 3px;
+      padding: 1px 4px;
+      font-size: 8px;
+      font-weight: 700;
+      flex-shrink: 0;
+      color: #fff;
+    }
+    .nlp-badge-note { background: var(--side-accent, #6366f1); color: var(--side-accent-ink, #fff); }
+    .nlp-badge-task { background: #e0a06c; color: #fff; }
+    .nlp-badge-mindmap { background: #8b5cf6; color: #fff; }
+    .nlp-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--side-text, #e2e8f0);
+      flex: 1;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .nlp-open {
+      color: var(--side-accent, #6366f1);
+      font-size: 12px;
+      flex-shrink: 0;
+      cursor: pointer;
     }
 
     .map-container .text ul, .map-container .text ol { margin: 3px 0 3px 18px; padding: 0; }
@@ -722,6 +835,89 @@
       document.getElementById('lp-create-mindmap').onclick = () => createAndLink('mindmap');
     }
 
+    let activePopover = null;
+    function hideNodeLinksPopover() {
+      if (activePopover) {
+        activePopover.remove();
+        activePopover = null;
+      }
+    }
+
+    function showNodeLinksPopover(nodeData, badgeEl) {
+      hideNodeLinksPopover();
+      const links = nodeData.links || [];
+      if (links.length === 0) return;
+
+      const popover = document.createElement('div');
+      popover.className = 'node-links-popover';
+
+      const header = document.createElement('div');
+      header.className = 'nlp-header';
+      const topicEl = document.createElement('span');
+      topicEl.className = 'nlp-topic';
+      topicEl.textContent = '🔗 ' + (nodeData.topic || 'Links');
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'nlp-close';
+      closeBtn.textContent = '✕';
+      closeBtn.onclick = (e) => { e.stopPropagation(); hideNodeLinksPopover(); };
+      header.append(topicEl, closeBtn);
+
+      const list = document.createElement('div');
+      list.className = 'nlp-list';
+
+      links.forEach(link => {
+        const item = document.createElement('div');
+        item.className = 'nlp-item';
+        item.title = 'Buka ' + (link.title || '');
+
+        const badge = document.createElement('span');
+        badge.className = 'nlp-badge nlp-badge-' + (link.type || 'note');
+        badge.textContent = link.type === 'note' ? 'NOTE' : link.type === 'mindmap' ? 'MAP' : 'TASK';
+
+        const title = document.createElement('span');
+        title.className = 'nlp-title';
+        title.textContent = link.title;
+
+        const openBtn = document.createElement('span');
+        openBtn.className = 'nlp-open';
+        openBtn.textContent = '↗';
+
+        item.append(badge, title, openBtn);
+
+        item.onclick = (e) => {
+          e.stopPropagation();
+          const msgType = link.type === 'note' ? 'openNote' : link.type === 'mindmap' ? 'openMindmap' : 'openTask';
+          const send = () => window.parent.postMessage({ type: msgType, id: link.id }, window.location.origin);
+          if (document.fullscreenElement) {
+            document.exitFullscreen().finally(send);
+          } else {
+            send();
+          }
+          hideNodeLinksPopover();
+        };
+
+        list.appendChild(item);
+      });
+
+      popover.append(header, list);
+      document.body.appendChild(popover);
+      activePopover = popover;
+
+      // Position popover
+      const badgeRect = badgeEl.getBoundingClientRect();
+      const popRect = popover.getBoundingClientRect();
+
+      let top = badgeRect.bottom + 6;
+      let left = Math.max(10, Math.min(window.innerWidth - popRect.width - 10, badgeRect.left - (popRect.width / 2) + (badgeRect.width / 2)));
+
+      if (top + popRect.height > window.innerHeight - 10) {
+        top = Math.max(10, badgeRect.top - popRect.height - 6);
+      }
+
+      popover.style.top = `${top}px`;
+      popover.style.left = `${left}px`;
+    }
+
     function updateBadges() {
       document.querySelectorAll('.node-link-badge').forEach(el => el.remove());
       function apply(nodeData) {
@@ -729,12 +925,30 @@
         allTopics.forEach(el => {
           if (el.nodeObj && el.nodeObj.id === nodeData.id) {
             el.style.textAlign = nodeData.align || '';
-            const count = (nodeData.links || []).length;
+            const links = nodeData.links || [];
+            const count = links.length;
             if (count > 0) {
               el.style.position = 'relative';
               const badge = document.createElement('span');
-              badge.className = 'node-link-badge';
-              badge.textContent = count;
+              const hasMindmap = links.some(l => l.type === 'mindmap');
+              const hasOther = links.some(l => l.type !== 'mindmap');
+              
+              if (hasMindmap && hasOther) {
+                badge.className = 'node-link-badge node-link-badge-mixed';
+                badge.textContent = '🧠 ' + count;
+              } else if (hasMindmap) {
+                badge.className = 'node-link-badge node-link-badge-mindmap';
+                badge.textContent = count === 1 ? '🧠' : '🧠 ' + count;
+              } else {
+                badge.className = 'node-link-badge';
+                badge.textContent = count === 1 ? '🔗' : count;
+              }
+
+              badge.title = links.map(l => `${l.type === 'mindmap' ? '🧠' : '🔗'} ${l.title}`).join('\n');
+              badge.onclick = (e) => {
+                e.stopPropagation();
+                showNodeLinksPopover(nodeData, badge);
+              };
               el.appendChild(badge);
             }
           }
@@ -1066,6 +1280,7 @@
       };
 
       mind.bus.addListener('operation', (op) => {
+        hideNodeLinksPopover();
         if (op && op.name === 'beginEdit') switchTab('font');
         else switchTab('ops');
         if (isJustifyActive) {
@@ -1075,19 +1290,28 @@
       });
 
       mind.bus.addListener('changeDirection', () => {
+        hideNodeLinksPopover();
         if (isJustifyActive) {
           setTimeout(applyJustifyLayout, 0);
         }
       });
 
-      // Links inside topics must open in a new browser tab, not navigate
-      // the iframe itself.
+      // Dismiss node links popover on click outside or escape key
       document.addEventListener('click', e => {
+        if (activePopover && !activePopover.contains(e.target) && !e.target.closest('.node-link-badge')) {
+          hideNodeLinksPopover();
+        }
         const a = e.target && e.target.closest ? e.target.closest('me-tpc a') : null;
         if (a && a.href) {
           e.preventDefault();
           e.stopPropagation();
           window.open(a.href, '_blank', 'noopener');
+        }
+      });
+
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+          hideNodeLinksPopover();
         }
       });
 
@@ -1126,6 +1350,7 @@
         applyMapTheme(e.data.theme === 'dark');
       }
       if (e.data && e.data.type === 'load') {
+        hideNodeLinksPopover();
         hidePanel();
         switchTab(null);
         currentNodeId = null;
@@ -1156,6 +1381,7 @@
       }
       if (e.data && e.data.type === 'refresh') {
         if (!mind) return;
+        hideNodeLinksPopover();
         // mind.refresh clears map selection but not our module-level
         // currentNodeId/currentNodeData — reset like clearPanel so the link
         // panel never shows a renamed/removed node's old topic.
@@ -1184,6 +1410,7 @@
         } catch (_) {}
       }
       if (e.data && e.data.type === 'clearPanel') {
+        hideNodeLinksPopover();
         currentNodeId = null;
         currentNodeData = null;
         clearTimeout(unselectTimer);
