@@ -254,3 +254,31 @@ Chronological history of work performed by AI agents in this workspace.
   - Full suite test: 420 pass / 0 fail (JS), 38 pass / 0 fail (Python).
 - **Files Touch:** `static/index.html`, `static/sw.js`, `.agents/*`
 - **Status:** Completed — PENDING user device-test.
+
+## [2026-08-19 16:30] - Antigravity (Gemini 3.7 Flash - Draw Canvas Export Bugfix)
+- **Task:** Memperbaiki menu export (PNG, SVG, JSON) di drawing canvas (tldraw) yang tidak berfungsi.
+- **Changes:**
+  1. Root cause: implementasi bawaan `tldraw` 2.4.6 pada `downloadFile` membuat elemen `<a download>` tanpa menyisipkannya ke `document.body` dan langsung memanggil `URL.revokeObjectURL(url)` secara sinkronis pada baris berikutnya, sehingga download manager di browser / iframe membatalkan proses download secara instan.
+  2. Implementasi action overrides (`uiOverrides`) di `draw-app/src/App.jsx` untuk seluruh action export (`export-as-svg`, `export-as-png`, `export-as-json`, `export-all-as-svg`, `export-all-as-png`, `export-all-as-json`).
+  3. Fungsi helper `downloadBlob` yang aman (`document.body.appendChild`, trigger `.click()`, cleanup element, dan delay penarikan URL objek 10 detik).
+  4. Penanganan empty canvas state dengan notifikasi toast informatif ("Kanvas kosong — tidak ada objek untuk diekspor").
+  5. Vite build `draw-app` berhasil memperbarui bundle `static/vendor/tldraw/assets/index.js`.
+  6. Bump query versioning iframe tldraw `?v=141` di `static/index.html` dan bump SW cache ke `taskflow-v246-draw-export-fix` di `static/sw.js`.
+  - Full suite test: 420 pass / 0 fail (JS), 38 pass / 0 fail (Python).
+- **Files Touch:** `draw-app/src/App.jsx`, `static/vendor/tldraw/assets/index.js`, `static/index.html`, `static/sw.js`, `.agents/*`
+- **Status:** Completed — PENDING user device-test.
+
+## [2026-08-19 23:15] - Antigravity (Gemini 3.7 Flash - Standalone Draw Page & Note Embedding)
+- **Task:** Implementasi Standalone Drawing Workspace (Draw Page dengan multi-tab canvas) dan Note Editor Drawing Embedding (`/draw`, `+Gambar`, Quick-Draw Modal, preview card) end-to-end.
+- **Changes:**
+  1. **Backend Drawing Entity:** Tabel `drawings`, model Pydantic `DrawingCreate`/`DrawingUpdate`/`DrawingOut`, router `/api/drawings` dengan multi-tenant CRUD + pin toggle, dan perluasan `/api/search` untuk mencari `drawings` (commit `66589da`..`990d1f0`).
+  2. **Offline Store, Router & DB Migration v11:** Schema IndexedDB v11 di `db.js`, repository `drawingrepo.js`, router `drawingroutes.js`, dan outbox sync handler (commit `990d1f0`..`047aee2`).
+  3. **Multi-Tab Workspace State Machine:** Module UMD `static/offline/drawingtabs.js` dengan FIFO cap 5 tab + 7 unit test TDD di `tests/offline/drawingtabs.test.js` (commit `047aee2`..`9db6391`).
+  4. **DrawPage UI Component:** 2-column layout (sidebar + tabbed canvas area), Lucide `draw` icon, navigasi `Draw` di sidebar utama, responsive styles di `static/app.css` (commit `9db6391`..`ac77682`).
+  5. **Note Editor Embedding:** Syntax block `::draw[id]{title="..."}`, markdown parser & SVG auto-hydrator di `renderMarkdown`, toolbar button `🎨 +Gambar`, Milkdown slash item `🎨 Gambar / Sketsa (/draw)`, slash triggers (`/draw`, `/canvas`, `/gambar`, `/sketsa`), serta modal `QuickDrawModal` & `DrawingInsertModal` (commit `ac77682`..`1bde1db`).
+  6. **Search & Dashboard Integration & SW Bump:** Hasil pencarian `SearchModal` menampilkan kategori `🎨 Drawings`, card "🎨 Gambar Disematkan" di `Dashboard`, dan SW cache di-bump ke `taskflow-v247-standalone-draw-page` (commit `1bde1db`..`af56910`).
+  - Full suite test: 433 pass / 0 fail (JS), 39 pass / 0 fail (Python).
+- **Files Touch:** `webapp.py`, `models.py`, `static/offline/db.js`, `static/offline/drawingrepo.js`, `static/offline/drawingroutes.js`, `static/offline/drawingtabs.js`, `static/offline/syncpush.js`, `static/offline/syncpull.js`, `static/index.html`, `static/app.css`, `static/ui-components.js`, `static/sw.js`, `tests/test_drawings.py`, `tests/offline/drawingtabs.test.js`, `.agents/*`
+- **Status:** Completed — PENDING user device-test.
+
+

@@ -1,19 +1,28 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-19 16:00  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Dashboard Pinned Mindmaps Card SELESAI)
+**Last Updated:** 2026-08-19 23:15  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Standalone Draw Page & Note Embedding SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Dashboard Pinned Mindmaps Card (50%-50% Split) SELESAI 2026-08-19 (commit `272550c`):**
-  - Card "🧠 Mindmap Disematkan" baru ditambahkan ke halaman Dashboard berdampingan dengan card "📌 Notes Disematkan" dalam layout 50%-50% responsive grid.
-  - Menampilkan daftar mindmap yang di-pin (`is_pinned`), icon pin ungu, judul, badge tanggal update, serta tombol expandable `+X lainnya ▼` / `Sembunyikan ▲`.
-  - Klik pada baris mindmap langsung bernavigasi ke halaman Mindmap dan membuka tab mindmap yang bersangkutan.
-  - Sinkronisasi otomatis saat pin/unpin/buat/edit mindmap via event `mindmapSaved`.
-  - SW Cache di-bump ke **`taskflow-v245-dashboard-pinned-mindmaps`**.
-  - All tests passed: 420/420 JS unit tests + 38/38 pytest (0 fail).
-  - **PENDING user device-test:** Buka Dashboard -> lihat card "🧠 Mindmap Disematkan" berdampingan 50%-50% dengan "📌 Notes Disematkan" -> klik item untuk membuka mindmap terkait.
+- **Standalone Draw Page & Note Embedding SELESAI 2026-08-19:**
+  - 6 task SDD (spec `2026-08-19-standalone-draw-page-and-note-embedding-design.md`, plan `2026-08-19-standalone-draw-page-and-note-embedding.md`) commits `66589da`..`af56910`:
+    1. **Backend Drawing Entity & Multi-Tenant CRUD:** Menambahkan tabel `drawings` (id, user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at), router `/api/drawings` (GET, POST, GET/:id, PUT/:id, DELETE/:id, PATCH/:id/pin), serta perluasan endpoint `/api/search` (mencari `drawings` per user).
+    2. **Offline Store, Router & DB Schema Migration v11:** Schema IndexedDB v11 di `db.js` dengan object store `drawings`, repository `drawingrepo.js`, offline router `drawingroutes.js`, dan outbox sync handler.
+    3. **Multi-Tab Workspace State Machine:** Module UMD `static/offline/drawingtabs.js` (openTab, closeTab, updateTabTitle dengan aturan FIFO cap 5 tab) + 7 unit test TDD di `tests/offline/drawingtabs.test.js`.
+    4. **DrawPage UI Component (2-Column & Multi-Tab):** Left sidebar (pencarian, filter tag, daftar pinned/all, inline rename, delete confirmation, pin toggle, new drawing creator) + Right canvas multi-tab bar (instant switching tanpa reload iframe, fullscreen toggle, export actions). Navigasi `Draw` terintegrasi di Sidebar utama.
+    5. **Note Editor Embedding:** Syntax block `::draw[id]{title="..."}` di-render menjadi interactive `.note-draw-card` dengan auto-hydrate SVG preview, tombol `🎨 +Gambar` di `NoteToolbar`, item `🎨 Gambar / Sketsa (/draw)` di Milkdown slash menu, keyboard slash trigger `/draw`, `/canvas`, `/gambar`, `/sketsa`, serta dialog `QuickDrawModal` dan `DrawingInsertModal`.
+    6. **Search & Dashboard Integration & SW Cache Bump:** Hasil pencarian `SearchModal` menyertakan `🎨 Drawings`, card "🎨 Gambar Disematkan" di halaman `Dashboard`, dan SW cache di-bump ke **`taskflow-v247-standalone-draw-page`**.
+  - All tests passed: 433/433 JS unit tests + 39/39 pytest (0 failures).
+  - **Device-test checklist:** (1) Buka menu "Draw" di sidebar -> buat/buka beberapa canvas drawing -> tab bar di atas canvas menampilkan tab aktif dan bisa ditukar instan tanpa reload; (2) Pin drawing -> buka Dashboard -> card "🎨 Gambar Disematkan" menampilkan daftar gambar ter-pin; (3) Buka note editor -> ketik `/draw` atau klik `🎨 +Gambar` -> buat/pilih drawing -> tersisip block `::draw[...]` yang menampilkan kartu preview interaktif dan dapat diklik untuk mengedit.
+
+## 📌 Active Task
+- **Draw Canvas Export (PNG, SVG, JSON) Bugfix SELESAI 2026-08-19:**
+  - Root cause: Implementasi bawaan tldraw `downloadFile` tidak meng-append anchor `<a download>` ke DOM dan langsung memanggil `URL.revokeObjectURL` secara sinkronis pada baris berikutnya sehingga browser membatalkan proses download blob secara instan.
+  - Perbaikan: Mengimplementasikan custom action overrides (`uiOverrides`) di `draw-app/src/App.jsx` untuk menu dan context menu (`export-as-svg`, `export-as-png`, `export-as-json`, `export-all-as-svg`, `export-all-as-png`, `export-all-as-json`) dengan helper `downloadBlob` yang aman (append ke body, delay revoke 10s), deteksi canvas kosong dengan toast informatif, serta resolusi nama file timestamp.
+  - Build & Deploy: Vite build `draw-app` selesai meng-update `static/vendor/tldraw/assets/index.js`, iframe query versioning di-bump `?v=141` di `static/index.html`.
+  - All tests passed: 433/433 JS unit tests + 39/39 pytest (0 fail).
 
 ## 📌 Active Task
 - **Global Search (Ctrl+K) Mindmap Integration SELESAI 2026-08-18 (commit `b1fe23c`):**
