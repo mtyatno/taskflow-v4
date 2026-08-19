@@ -243,6 +243,14 @@ Chronological history of work performed by AI agents in this workspace.
 - **Files Touch:** `static/vendor/mind-elixir/index.html`, `static/index.html`, `static/sw.js`, `tests/offline/mindmapoutline.test.js`, spec+plan `docs/superpowers/{specs,plans}/2026-08-19-mindmap-submap-linking*.md`, `.agents/*`
 - **Status:** Completed — PENDING user device-test.
 
-
-
-
+## [2026-08-19 15:15] - Antigravity (Gemini 3.7 Flash - Dashboard Pinned Mindmaps Card)
+- **Task:** Menambahkan card "🧠 Mindmap Disematkan" di Dashboard yang berbagi area horizontal 50%-50% dengan card "📌 Notes Disematkan".
+- **Changes:**
+  1. Integrasi state `pinnedMindmaps` dan listener `mindmapSaved` di `Dashboard` (`static/index.html`).
+  2. Implementasi layout grid 50%-50% responsif (`display: grid, gridTemplateColumns: repeat(auto-fit, minmax(300px, 1fr))`).
+  3. Card "🧠 Mindmap Disematkan" dengan list item (icon pin ungu `#8b5cf6`, judul, badge tanggal update, tombol toggle `+X lainnya`), empty state, navigasi langsung `onMindmapClick` yang membuka tab mindmap di multi-tab bar atas.
+  4. Dispatch event `mindmapSaved` saat pin/unpin/create/rename/delete di `MindmapPage`.
+  5. Bump SW Cache ke `taskflow-v245-dashboard-pinned-mindmaps` di `static/sw.js` (commit `272550c`).
+  - Full suite test: 420 pass / 0 fail (JS), 38 pass / 0 fail (Python).
+- **Files Touch:** `static/index.html`, `static/sw.js`, `.agents/*`
+- **Status:** Completed — PENDING user device-test.

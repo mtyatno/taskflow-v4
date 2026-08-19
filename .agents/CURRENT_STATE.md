@@ -6,14 +6,14 @@
 ---
 
 ## 📌 Active Task
-- **Mindmap Node Interactive Badge & Quick Floating Popover SELESAI 2026-08-19 (commit `020dad7`):**
-  - Fix Click Interception: Engine Mind-Elixir bawaan memiliki aturan CSS `.map-container me-tpc > * { pointer-events: none }` yang menonaktifkan klik pada elemen anak di dalam node. Aturan CSS diperbaiki dengan selektor spesifisitas tinggi `.map-container me-tpc .node-link-badge { pointer-events: auto !important; cursor: pointer !important; z-index: 100 !important; }` serta penanganan event `mousedown`, `pointerdown`, dan `click` (`stopPropagation`).
-  - Floating Quick Popover: Mengklik badge `🧠` di pojok node langsung memunculkan kartu popover melayang tepat di dekat node tanpa perlu membuka panel kanan.
-  - Quick Drill-Down: Popover menampilkan daftar tautan (judul + badge tipe `MAP`/`NOTE`/`TASK` + tombol `↗`). Mengklik baris link atau tombol `↗` langsung membuka sub-mindmap di tab baru / switch tab instan.
-  - Auto Dismiss: Popover otomatis tertutup saat klik di luar area, tombol ✕, tombol `Escape`, atau saat manipulasi canvas (pan/zoom/edit).
-  - SW Cache di-bump ke **`taskflow-v244-mindmap-badge-click-fix`**, iframe di-bump ke **`?v=140`**.
+- **Dashboard Pinned Mindmaps Card (50%-50% Split) SELESAI 2026-08-19 (commit `272550c`):**
+  - Card "🧠 Mindmap Disematkan" baru ditambahkan ke halaman Dashboard berdampingan dengan card "📌 Notes Disematkan" dalam layout 50%-50% responsive grid.
+  - Menampilkan daftar mindmap yang di-pin (`is_pinned`), icon pin ungu, judul, badge tanggal update, serta tombol expandable `+X lainnya ▼` / `Sembunyikan ▲`.
+  - Klik pada baris mindmap langsung bernavigasi ke halaman Mindmap dan membuka tab mindmap yang bersangkutan.
+  - Sinkronisasi otomatis saat pin/unpin/buat/edit mindmap via event `mindmapSaved`.
+  - SW Cache di-bump ke **`taskflow-v245-dashboard-pinned-mindmaps`**.
   - All tests passed: 420/420 JS unit tests + 38/38 pytest (0 fail).
-  - **PENDING user device-test:** Buka mindmap -> klik badge `🧠` di pojok node -> popover mini muncul menampilkan nama mindmap -> klik untuk langsung berpindah/membuka mindmap tersebut.
+  - **PENDING user device-test:** Buka Dashboard -> lihat card "🧠 Mindmap Disematkan" berdampingan 50%-50% dengan "📌 Notes Disematkan" -> klik item untuk membuka mindmap terkait.
 
 ## 📌 Active Task
 - **Global Search (Ctrl+K) Mindmap Integration SELESAI 2026-08-18 (commit `b1fe23c`):**
