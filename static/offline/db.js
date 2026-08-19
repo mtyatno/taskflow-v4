@@ -29,7 +29,10 @@
       ["server_id", "server_id"], ["updated_at", "updated_at"],
       ["linked_task_cids", "linked_task_cids", { multiEntry: true }], ["dirty", "dirty"],
     ],
-    drawings: [["note_cid", "note_cid"]],
+    drawings: [
+      ["server_id", "server_id"], ["note_cid", "note_cid"],
+      ["updated_at", "updated_at"], ["is_pinned", "is_pinned"], ["dirty", "dirty"],
+    ],
     note_attachments: [["note_cid", "note_cid"]],
     note_pins: [["note_cid", "note_cid"]],
     mindmaps: [["server_id", "server_id"], ["updated_at", "updated_at"], ["dirty", "dirty"]],

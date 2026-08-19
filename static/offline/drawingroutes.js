@@ -13,6 +13,9 @@
   const TFdb = req("./db.js", root.TF && root.TF.db);
   const TFrepo = req("./drawingrepo.js", root.TF && root.TF.drawingrepo);
 
+  function notFound() { return Promise.reject(new Error("Drawing not found")); }
+  const onlineNow = () => (typeof navigator !== "undefined" ? navigator.onLine : true);
+
   function allNotes() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const r = db.transaction("scratchpad_notes", "readonly").objectStore("scratchpad_notes").getAll();
@@ -20,6 +23,7 @@
       r.onerror = () => reject(r.error);
     }));
   }
+
   function resolveNoteCid(idOrCid) {
     return allNotes().then((all) => {
       for (const n of all) if (n.cid === idOrCid) return n.cid;
@@ -27,15 +31,53 @@
       return null;
     });
   }
-  function notFound() { return Promise.reject(new Error("Drawing not found")); }
-  const onlineNow = () => (typeof navigator !== "undefined" ? navigator.onLine : true);
 
   function registerDrawingRoutes(router) {
-    router.register("GET", "/api/drawings/:id", ({ params }) =>
-      resolveNoteCid(params.id).then((cid) => (cid ? TFrepo.getDrawing(cid, { online: onlineNow() }) : null))
-        .then((d) => (d ? d : notFound())));
-    router.register("PUT", "/api/drawings/:id", ({ params, body }) =>
-      resolveNoteCid(params.id).then((cid) => (cid ? TFrepo.putDrawing(cid, (body || {}).data_json, {}).then((rec) => ({ updated_at: rec.updated_at })) : notFound())));
+    // List drawings (standalone)
+    router.register("GET", "/api/drawings", ({ query }) => {
+      return TFrepo.listDrawings(query || {});
+    });
+
+    // Create drawing (standalone)
+    router.register("POST", "/api/drawings", ({ body }) => {
+      return TFrepo.createDrawing(body || {});
+    });
+
+    // Get single drawing (standalone or note drawing)
+    router.register("GET", "/api/drawings/:id", ({ params }) => {
+      return TFrepo.getDrawing(params.id, { online: onlineNow() }).then((d) => {
+        if (d) return d;
+        return resolveNoteCid(params.id).then((noteCid) => {
+          if (!noteCid) return notFound();
+          return TFrepo.getDrawing(noteCid, { online: onlineNow() }).then((nd) => (nd ? nd : notFound()));
+        });
+      });
+    });
+
+    // Update drawing (standalone or note drawing)
+    router.register("PUT", "/api/drawings/:id", ({ params, body }) => {
+      return TFrepo.getRaw(params.id).then((raw) => {
+        if (raw && raw.note_cid === undefined) {
+          return TFrepo.updateDrawing(params.id, body || {});
+        }
+        return resolveNoteCid(params.id).then((noteCid) => {
+          if (noteCid) {
+            return TFrepo.putDrawing(noteCid, (body || {}).data_json, {}).then((rec) => ({ updated_at: rec.updated_at }));
+          }
+          return TFrepo.updateDrawing(params.id, body || {});
+        });
+      });
+    });
+
+    // Toggle pin
+    router.register("PATCH", "/api/drawings/:id/pin", ({ params }) => {
+      return TFrepo.togglePin(params.id);
+    });
+
+    // Delete drawing
+    router.register("DELETE", "/api/drawings/:id", ({ params }) => {
+      return TFrepo.deleteDrawing(params.id);
+    });
   }
 
   const exported = { registerDrawingRoutes };
