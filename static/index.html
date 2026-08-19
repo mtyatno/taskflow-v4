@@ -7290,18 +7290,25 @@ function LinkPickerModal({
   const existingSet = new Set(existingLinks.map(l => `${l.type}-${l.id}`));
   const notes = (results?.notes || []).filter(n => !existingSet.has(`note-${n.id}`));
   const tasks = (results?.tasks || []).filter(t => !existingSet.has(`task-${t.id}`));
+  const mindmaps = (results?.mindmaps || []).filter(m => !existingSet.has(`mindmap-${m.id}`));
   const allItems = tab === 'notes' ? notes.map(n => ({
     ...n,
     _type: 'note'
   })) : tab === 'tasks' ? tasks.map(t => ({
     ...t,
     _type: 'task'
+  })) : tab === 'mindmaps' ? mindmaps.map(m => ({
+    ...m,
+    _type: 'mindmap'
   })) : [...notes.map(n => ({
     ...n,
     _type: 'note'
   })), ...tasks.map(t => ({
     ...t,
     _type: 'task'
+  })), ...mindmaps.map(m => ({
+    ...m,
+    _type: 'mindmap'
   }))];
   const handleSelect = item => {
     const link = item._type === 'note' ? {
@@ -7309,6 +7316,10 @@ function LinkPickerModal({
       id: item.id,
       title: item.title,
       preview: (item.content || '').slice(0, 60)
+    } : item._type === 'mindmap' ? {
+      type: 'mindmap',
+      id: item.id,
+      title: item.title
     } : {
       type: 'task',
       id: item.id,
@@ -7325,12 +7336,28 @@ function LinkPickerModal({
     setCreating(true);
     setCreateError(null);
     try {
-      const created = await api.post(type === 'note' ? '/api/scratchpad' : '/api/tasks', { title: q });
+      let created = null;
+      if (type === 'note') {
+        created = await api.post('/api/scratchpad', { title: q });
+      } else if (type === 'mindmap') {
+        created = await api.post('/api/mindmaps', {
+          title: q,
+          data_json: JSON.stringify({
+            nodeData: { id: 'root', topic: q, root: true, children: [] }
+          })
+        });
+      } else {
+        created = await api.post('/api/tasks', { title: q });
+      }
       const link = type === 'note' ? {
         type: 'note',
         id: created.id,
         title: created.title || q,
         preview: ''
+      } : type === 'mindmap' ? {
+        type: 'mindmap',
+        id: created.id,
+        title: created.title || q
       } : {
         type: 'task',
         id: created.id,
@@ -7380,7 +7407,7 @@ function LinkPickerModal({
     ref: inputRef,
     value: query,
     onChange: e => setQuery(e.target.value),
-    placeholder: "Cari note atau task...",
+    placeholder: "Cari note, task, atau mindmap...",
     style: {
       width: '100%',
       padding: '8px 12px',
@@ -7398,7 +7425,7 @@ function LinkPickerModal({
       gap: 6,
       marginBottom: 10
     }
-  }, ['all', 'notes', 'tasks'].map(t => /*#__PURE__*/React.createElement("button", {
+  }, ['all', 'notes', 'tasks', 'mindmaps'].map(t => /*#__PURE__*/React.createElement("button", {
     key: t,
     onClick: () => setTab(t),
     style: {
@@ -7411,7 +7438,7 @@ function LinkPickerModal({
       color: tab === t ? 'white' : 'var(--text-secondary)',
       border: '1px solid var(--border)'
     }
-  }, t === 'all' ? 'Semua' : t === 'notes' ? 'Notes' : 'Tasks'))), /*#__PURE__*/React.createElement("div", {
+  }, t === 'all' ? 'Semua' : t === 'notes' ? 'Notes' : t === 'tasks' ? 'Tasks' : 'Mindmaps'))), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
       overflowY: 'auto',
@@ -7457,7 +7484,7 @@ function LinkPickerModal({
     onMouseOut: e => e.currentTarget.style.borderColor = 'var(--border)'
   }, /*#__PURE__*/React.createElement("span", {
     style: {
-      background: item._type === 'note' ? '#6c7ae0' : '#e0a06c',
+      background: item._type === 'note' ? '#6c7ae0' : item._type === 'mindmap' ? '#8b5cf6' : '#e0a06c',
       color: 'white',
       borderRadius: 3,
       padding: '1px 6px',
@@ -7465,7 +7492,7 @@ function LinkPickerModal({
       fontWeight: 700,
       flexShrink: 0
     }
-  }, item._type === 'note' ? 'NOTE' : 'TASK'), /*#__PURE__*/React.createElement("span", {
+  }, item._type === 'note' ? 'NOTE' : item._type === 'mindmap' ? 'MAP' : 'TASK'), /*#__PURE__*/React.createElement("span", {
     style: {
       fontWeight: 600,
       fontSize: 13,
@@ -7541,7 +7568,26 @@ function LinkPickerModal({
       textOverflow: 'ellipsis',
       minWidth: 0
     }
-  }, "➕ Task: " + (query.trim() || ''))))))
+  }, "➕ Task: " + (query.trim() || '')), /*#__PURE__*/React.createElement("button", {
+    disabled: !query.trim() || creating,
+    onClick: () => handleCreate('mindmap'),
+    style: {
+      flex: 1,
+      padding: '7px 10px',
+      borderRadius: 7,
+      fontSize: 12,
+      fontWeight: 600,
+      cursor: query.trim() && !creating ? 'pointer' : 'default',
+      border: '1.5px dashed var(--border)',
+      background: 'transparent',
+      color: 'var(--accent)',
+      opacity: !query.trim() ? 0.5 : 1,
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      minWidth: 0
+    }
+  }, "➕ Map: " + (query.trim() || ''))))))
 }
 
 // ── Mindmap Outline (text-hierarchy view of a mindmap) ──────
@@ -7551,7 +7597,7 @@ function LinkPickerModal({
   //   - window.TF.mindmapoutline
   // emits:
   //   - MindmapOutline
-function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onRequestLinkPicker }) {
+function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap, onRequestLinkPicker }) {
   const MO = window.TF && window.TF.mindmapoutline;
   const [activeId, setActiveId] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -8118,11 +8164,11 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onRequestLinkP
       style: { display: "flex", alignItems: "center", gap: 6, padding: "4px 2px", fontSize: 12 }
     }, /*#__PURE__*/React.createElement("span", {
       style: {
-        background: l.type === "note" ? "var(--accent)" : "#e0a06c",
+        background: l.type === "note" ? "var(--accent)" : l.type === "mindmap" ? "#8b5cf6" : "#e0a06c",
         color: l.type === "note" ? "#1a2a00" : "white",
         borderRadius: 3, padding: "1px 5px", fontSize: 9, fontWeight: 700, flexShrink: 0
       }
-    }, l.type === "note" ? "NOTE" : "TASK"), /*#__PURE__*/React.createElement("span", {
+    }, l.type === "note" ? "NOTE" : l.type === "mindmap" ? "MAP" : "TASK"), /*#__PURE__*/React.createElement("span", {
       title: l.title,
       style: {
         flex: 1, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap",
@@ -8130,10 +8176,10 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onRequestLinkP
       }
     }, l.title), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
-        const open = l.type === "note" ? onOpenNote : onOpenTask;
+        const open = l.type === "note" ? onOpenNote : l.type === "mindmap" ? onOpenMindmap : onOpenTask;
         if (typeof open === "function") open(l.id);
       },
-      title: l.type === "note" ? "Buka note" : "Buka task",
+      title: l.type === "note" ? "Buka note" : l.type === "mindmap" ? "Buka mindmap" : "Buka task",
       style: hovBtn
     }, "↗"), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
@@ -8531,6 +8577,9 @@ function MindmapTabInstance({
     onChange: handleOutlineEdit,
     onOpenNote: openOutlineNote,
     onOpenTask: openOutlineTask,
+    onOpenMindmap: id => {
+      window.dispatchEvent(new CustomEvent("openMindmap", { detail: id }));
+    },
     onRequestLinkPicker: requestOutlineLinkPicker
   }) : null),
   showLinkPicker && /*#__PURE__*/React.createElement(LinkPickerModal, {
