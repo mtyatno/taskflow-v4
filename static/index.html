@@ -2724,6 +2724,34 @@ function TaskFormModal({
   const noteContentRef = React.useRef(null);
   const noteMilkdownRef = React.useRef(null);
   const noteSavedIdRef = React.useRef(null);
+  const [noteDrawingInsertOpen, setNoteDrawingInsertOpen] = useState(false);
+  const [noteQuickDrawState, setNoteQuickDrawState] = useState(null);
+
+  useEffect(() => {
+    const handler = e => {
+      const detail = e.detail;
+      if (typeof detail === 'object' && detail !== null) {
+        setNoteQuickDrawState({ id: detail.id, title: detail.title });
+      } else {
+        setNoteQuickDrawState({ id: detail, title: '' });
+      }
+    };
+    window.addEventListener('editDrawingModal', handler);
+    return () => window.removeEventListener('editDrawingModal', handler);
+  }, []);
+
+  const handleOpenNoteInsertDrawing = () => setNoteDrawingInsertOpen(true);
+  const handleNoteDrawingSelected = (did, dtitle) => {
+    const editor = noteMilkdownRef.current;
+    if (editor) {
+      editor.action(ctx => {
+        const view = ctx.get(window.MilkdownBundle.editorViewCtx);
+        const { from } = view.state.selection;
+        view.dispatch(view.state.tr.insertText(`\n\n::draw[${did}]{title="${dtitle}"}\n\n`, from, from));
+      });
+    }
+    setNoteQuickDrawState({ id: did, title: dtitle });
+  };
   // Voice dictation untuk catatan baru
   const [noteVoiceState, setNoteVoiceState] = React.useState(
     window.TF && window.TF.voicedictate && window.TF.voicedictate.isSupported() ? 'idle' : 'unsupported'
@@ -3094,6 +3122,17 @@ function TaskFormModal({
         view.dispatch(view.state.tr.delete(from - 5, from));
       });
       openNoteTaskDropdown();
+      return;
+    }
+    // /draw, /canvas, /gambar, /sketsa slash command — buka drawing insert modal
+    const drawMatch = textBefore.match(/(?:^|\n)\/(draw|canvas|gambar|sketsa)$/i);
+    if (drawMatch) {
+      editor.action(ctx => {
+        const view = ctx.get(MB.editorViewCtx);
+        const { from } = view.state.selection;
+        view.dispatch(view.state.tr.delete(from - (drawMatch[1].length + 1), from));
+      });
+      handleOpenNoteInsertDrawing();
       return;
     }
     const taskTriggerMatch = textBefore.match(/\[(task|tasks|todo|todos|tugas)[a-zA-Z0-9 ]*$/i);
@@ -3611,6 +3650,7 @@ function TaskFormModal({
       content: noteForm.content,
       onApplyTemplate: function(tpl) { return setNote("content", tpl); },
       onInsertTask: openNoteTaskDropdown,
+      onInsertDrawing: handleOpenNoteInsertDrawing,
       voiceState: noteVoiceState,
       onToggleVoice: handleToggleNoteVoice
     })), /*#__PURE__*/React.createElement("div", {
@@ -3623,7 +3663,8 @@ function TaskFormModal({
       onWikilinkClick: function() {},
       tasksGetter: noteTasksGetterRef.current,
       onTasklinkClick: function() {},
-      onImagePaste: handleNoteImagePaste
+      onImagePaste: handleNoteImagePaste,
+      onInsertDrawing: handleOpenNoteInsertDrawing
     }), noteTagDropdown && noteTagDropdown.items.length > 0 && /*#__PURE__*/React.createElement("div", {
       className: "wiki-autocomplete",
       style: { position: "fixed", top: noteTagDropdown.top, left: noteTagDropdown.left, zIndex: 1050 }
@@ -4495,7 +4536,17 @@ function TaskFormModal({
     type: "submit",
     className: "btn btn-primary",
     disabled: loading
-  }, loading ? "Saving..." : isEdit ? "Update" : "Tambah")))))));
+  }, loading ? "Saving..." : isEdit ? "Update" : "Tambah"))))), noteDrawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
+    noteTitle: noteForm.title,
+    onSelectDrawing: handleNoteDrawingSelected,
+    onClose: () => setNoteDrawingInsertOpen(false),
+    showToast: showToast
+  }), noteQuickDrawState && /*#__PURE__*/React.createElement(QuickDrawModal, {
+    drawingId: noteQuickDrawState.id,
+    drawingTitle: noteQuickDrawState.title,
+    onClose: () => setNoteQuickDrawState(null),
+    showToast: showToast
+  }));
 }
 
 // ── Modal Attachments Section ──────────────────────────────
@@ -14731,7 +14782,30 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
     hlMap[key] = `<mark class="highlight-mark">${escapeHtml(val)}</mark>`;
     return key;
   });
-  let html = marked.parse(processed3);
+
+  // Pre-process ::draw[id]{title="..."} tokens before marked.parse
+  const drawMap = {};
+  let di = 0;
+  const processed4 = processed3.replace(/::draw\[([0-9a-zA-Z_-]+)\](?:\{title="([^"]*)"\})?/g, (_, idStr, titleStr) => {
+    const key = `DRWBLK${di++}DRWBLKEND`;
+    const safeId = escapeAttr(idStr);
+    const safeTitle = escapeHtml(titleStr || 'Gambar');
+    drawMap[key] = `<div class="note-draw-card" data-drawing-id="${safeId}">
+      <div class="note-draw-header">
+        <span>🎨 ${safeTitle}</span>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleStr || 'Gambar')}' } }))" style="font-size:11px;padding:2px 8px;cursor:pointer;">✏️ Edit</button>
+          <button class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('openDrawing', { detail: '${safeId}' }))" style="font-size:11px;padding:2px 8px;cursor:pointer;" title="Buka di halaman Draw">↗️ Buka</button>
+        </div>
+      </div>
+      <div class="note-draw-preview-container" data-drawing-preview="${safeId}" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleStr || 'Gambar')}' } }))" title="Klik untuk mengedit gambar">
+        <div class="drawing-preview-placeholder" style="color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;">🎨 Klik untuk membuka / mengedit gambar</div>
+      </div>
+    </div>`;
+    return key;
+  });
+
+  let html = marked.parse(processed4);
   for (const [k, v] of Object.entries(wikiMap)) {
     html = html.split(k).join(v);
   }
@@ -14744,8 +14818,30 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   for (const [k, v] of Object.entries(mathMap)) {
     html = html.split(k).join(v);
   }
+  for (const [k, v] of Object.entries(drawMap)) {
+    html = html.split(k).join(v);
+  }
+  if (typeof window !== 'undefined' && Object.keys(drawMap).length > 0) {
+    setTimeout(() => { if (typeof window.hydrateDrawingPreviews === 'function') window.hydrateDrawingPreviews(); }, 60);
+  }
   return html;
 }
+
+window.hydrateDrawingPreviews = function(root) {
+  if (typeof document === 'undefined') return;
+  const containers = (root || document).querySelectorAll('[data-drawing-preview]');
+  containers.forEach(async el => {
+    const did = el.getAttribute('data-drawing-preview');
+    if (!did || el.getAttribute('data-hydrated') === 'true') return;
+    el.setAttribute('data-hydrated', 'true');
+    try {
+      const d = await api.get(`/api/drawings/${did}`);
+      if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {
+        el.innerHTML = d.svg_preview;
+      }
+    } catch (_) {}
+  });
+};
   // ═══ DEPENDENCIES: Note Editor (Milkdown) ═══
   // uses:
   //   - React
@@ -14780,6 +14876,7 @@ function NoteToolbar({
   content,
   onApplyTemplate,
   onInsertTask,
+  onInsertDrawing,
   voiceState,
   onToggleVoice
 }) {
@@ -15177,6 +15274,29 @@ function NoteToolbar({
     }
   }, "+ Task"), /*#__PURE__*/React.createElement("div", {
     className: "sep"
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onMouseDown: e => {
+      e.preventDefault();
+      onInsertDrawing?.();
+    },
+    title: "Sisipkan atau buat gambar / sketsa baru (/draw)",
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      color: '#6b21a8',
+      background: 'rgba(243,232,255,0.8)',
+      border: '1px solid #d8b4fe',
+      borderRadius: 5,
+      padding: '2px 7px',
+      cursor: 'pointer',
+      height: 28,
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 3
+    }
+  }, "🎨 +Gambar"), /*#__PURE__*/React.createElement("div", {
+    className: "sep"
   }), /*#__PURE__*/React.createElement("div", {
     ref: moreRef,
     style: {
@@ -15303,10 +15423,13 @@ function MilkdownEditor({
   onWikilinkClick,
   tasksGetter,
   onTasklinkClick,
-  onImagePaste
+  onImagePaste,
+  onInsertDrawing
 }) {
   const containerRef = React.useRef(null);
   const instanceRef = React.useRef(null);
+  const onInsertDrawingRef = React.useRef(onInsertDrawing);
+  React.useEffect(() => { onInsertDrawingRef.current = onInsertDrawing; }, [onInsertDrawing]);
   const isExternalUpdate = React.useRef(false);
   const [ready, setReady] = React.useState(false);
   const [mathEdit, setMathEdit] = React.useState(null);
@@ -15447,6 +15570,9 @@ function MilkdownEditor({
               tr = tr.replaceSelectionWith(hrNode);
             }
             break;
+          case 'draw':
+            onInsertDrawingRef.current?.();
+            break;
         }
         view.dispatch(tr.scrollIntoView());
         view.focus();
@@ -15474,6 +15600,7 @@ function MilkdownEditor({
     slashMenu.appendChild(makeSlashItem('"', 'Blockquote', 'blockquote'));
     slashMenu.appendChild(makeSlashItem('⊞', 'Table', 'table'));
     slashMenu.appendChild(makeSlashItem('—', 'Divider', 'hr'));
+    slashMenu.appendChild(makeSlashItem('🎨', 'Gambar / Sketsa (/draw)', 'draw'));
 
     // ── Tooltip DOM ─────────────────────────────────────────────────
     const tooltipEl = document.createElement('div');
@@ -16439,6 +16566,185 @@ function NoteToc({
   //   - NoteModal
   // BLOCK LENGTH: ~2074 lines (16220-18294) — 2nd LARGEST block in codebase
 
+// ── Quick-Draw Modal & Drawing Insert Dialog ────────────────
+function QuickDrawModal({
+  drawingId,
+  drawingTitle = "",
+  onClose,
+  showToast
+}) {
+  const iframeRef = useRef(null);
+  const [title, setTitle] = useState(drawingTitle || "Gambar");
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleInput, setTitleInput] = useState(drawingTitle || "Gambar");
+
+  useEffect(() => {
+    if (drawingId) {
+      api.get(`/api/drawings/${drawingId}`).then(d => {
+        if (d && d.title) {
+          setTitle(d.title);
+          setTitleInput(d.title);
+        }
+      }).catch(() => {});
+    }
+  }, [drawingId]);
+
+  const handleSaveTitle = async () => {
+    const next = titleInput.trim() || "Gambar";
+    try {
+      await api.put(`/api/drawings/${drawingId}`, { title: next });
+      setTitle(next);
+      setIsEditingTitle(false);
+    } catch {
+      showToast && showToast("Gagal menyimpan judul", "error");
+    }
+  };
+
+  const handleOpenStandalone = () => {
+    onClose && onClose();
+    window.dispatchEvent(new CustomEvent("openDrawing", { detail: drawingId }));
+  };
+
+  return /*#__PURE__*/React.createElement("div", {
+    className: "modal-overlay",
+    onClick: onClose,
+    style: { zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)" }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal-content scale-in",
+    onClick: e => e.stopPropagation(),
+    style: { width: "94vw", height: "90vh", maxWidth: 1200, display: "flex", flexDirection: "column", padding: 0, borderRadius: 12, overflow: "hidden", background: "var(--bg-primary)" }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: "var(--bg-card)", borderBottom: "1px solid var(--border)" }
+  }, isEditingTitle ? /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
+      /*#__PURE__*/React.createElement("input", {
+        autoFocus: true, value: titleInput, onChange: e => setTitleInput(e.target.value),
+        onKeyDown: e => { if (e.key === "Enter") handleSaveTitle(); if (e.key === "Escape") setIsEditingTitle(false); },
+        className: "form-control form-control-sm", style: { fontSize: 13, fontWeight: 600, width: 240 }
+      }),
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleSaveTitle, style: { fontSize: 11 } }, "Simpan"),
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setIsEditingTitle(false), style: { fontSize: 11 } }, "Batal")
+  ) : /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+      /*#__PURE__*/React.createElement("span", { style: { fontWeight: 700, fontSize: 14, color: "var(--text-primary)" } }, "🎨 ", title),
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setIsEditingTitle(true), style: { fontSize: 11, padding: "2px 6px" } }, "✏️ Ubah Judul")
+  ),
+  /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+    /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: handleOpenStandalone, style: { fontSize: 12 } }, "↗️ Buka di Halaman Draw"),
+    /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: onClose, style: { fontSize: 12 } }, "✓ Selesai")
+  )),
+  /*#__PURE__*/React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" } },
+    /*#__PURE__*/React.createElement("iframe", {
+      ref: iframeRef,
+      src: `/static/vendor/tldraw/index.html?noteId=${drawingId}&v=141`,
+      style: { flex: 1, border: "none", width: "100%", height: "100%" },
+      title: "Quick Draw editor"
+    })
+  )));
+}
+
+function DrawingInsertModal({
+  noteTitle = "",
+  onSelectDrawing,
+  onClose,
+  showToast
+}) {
+  const [tab, setTab] = useState("new");
+  const [newTitle, setNewTitle] = useState(`Gambar - ${noteTitle || "Catatan"}`);
+  const [gallery, setGallery] = useState([]);
+  const [searchQ, setSearchQ] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    if (tab === "gallery") {
+      setLoading(true);
+      api.get("/api/drawings").then(data => {
+        setGallery(Array.isArray(data) ? data : []);
+      }).catch(() => setGallery([])).finally(() => setLoading(false));
+    }
+  }, [tab]);
+
+  const handleCreate = async () => {
+    const t = newTitle.trim() || `Gambar - ${noteTitle || "Catatan"}`;
+    setCreating(true);
+    try {
+      const created = await api.post("/api/drawings", { title: t, data_json: "{}" });
+      onSelectDrawing && onSelectDrawing(created.id, created.title);
+      onClose && onClose();
+    } catch {
+      showToast && showToast("Gagal membuat gambar baru", "error");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const filtered = gallery.filter(d => !searchQ.trim() || (d.title || "").toLowerCase().includes(searchQ.trim().toLowerCase()));
+
+  return /*#__PURE__*/React.createElement("div", {
+    className: "modal-overlay",
+    onClick: onClose,
+    style: { zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal-content scale-in",
+    onClick: e => e.stopPropagation(),
+    style: { width: 440, maxWidth: "90vw", padding: 20, borderRadius: 12, background: "var(--bg-card)", border: "1px solid var(--border)" }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }
+  }, /*#__PURE__*/React.createElement("span", { style: { fontWeight: 700, fontSize: 16 } }, "🎨 Sisipkan Gambar"),
+     /*#__PURE__*/React.createElement("button", { className: "btn btn-icon btn-sm", onClick: onClose }, "✕")),
+  /*#__PURE__*/React.createElement("div", {
+    style: { display: "flex", gap: 4, marginBottom: 16, background: "var(--bg-primary)", padding: 3, borderRadius: 8 }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: () => setTab("new"),
+    style: { flex: 1, fontSize: 12, fontWeight: 600, background: tab === "new" ? "var(--accent)" : "transparent", color: tab === "new" ? "#fff" : "var(--text-secondary)" }
+  }, "+ Gambar Baru"),
+     /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-sm",
+    onClick: () => setTab("gallery"),
+    style: { flex: 1, fontSize: 12, fontWeight: 600, background: tab === "gallery" ? "var(--accent)" : "transparent", color: tab === "gallery" ? "#fff" : "var(--text-secondary)" }
+  }, "🖼️ Pilih Dari Galeri")),
+  tab === "new" ? /*#__PURE__*/React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+    /*#__PURE__*/React.createElement("label", { className: "input-label", style: { fontSize: 12 } }, "Judul Gambar"),
+    /*#__PURE__*/React.createElement("input", {
+      className: "input",
+      value: newTitle,
+      onChange: e => setNewTitle(e.target.value),
+      onKeyDown: e => { if (e.key === "Enter") handleCreate(); },
+      placeholder: "Contoh: Diagram Alur Flowchart",
+      autoFocus: true
+    }),
+    /*#__PURE__*/React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 } },
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: onClose }, "Batal"),
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleCreate, disabled: creating }, creating ? "Membuat..." : "Buat & Buka Editor")
+    )
+  ) : /*#__PURE__*/React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
+    /*#__PURE__*/React.createElement("input", {
+      className: "input",
+      value: searchQ,
+      onChange: e => setSearchQ(e.target.value),
+      placeholder: "Cari gambar yang sudah ada...",
+      autoFocus: true,
+      style: { fontSize: 12 }
+    }),
+    /*#__PURE__*/React.createElement("div", {
+      className: "hide-scrollbar",
+      style: { maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4, border: "1px solid var(--border)", borderRadius: 8, padding: 4 }
+    }, loading ? /*#__PURE__*/React.createElement("div", { style: { padding: 12, textAlign: "center", fontSize: 12, color: "var(--text-light)" } }, "Memuat galeri...") :
+       filtered.length === 0 ? /*#__PURE__*/React.createElement("div", { style: { padding: 12, textAlign: "center", fontSize: 12, color: "var(--text-light)" } }, "Tidak ada gambar ditemukan") :
+       filtered.map(d => /*#__PURE__*/React.createElement("div", {
+         key: d.id,
+         onClick: () => {
+           onSelectDrawing && onSelectDrawing(d.id, d.title);
+           onClose && onClose();
+         },
+         style: { padding: "8px 10px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-primary)" },
+         onMouseEnter: e => e.currentTarget.style.background = "var(--bg-secondary)",
+         onMouseLeave: e => e.currentTarget.style.background = "var(--bg-primary)"
+       }, /*#__PURE__*/React.createElement("span", { style: { fontSize: 13, fontWeight: 500 } }, "🎨 ", d.title || "(tanpa judul)"),
+          /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "var(--text-light)" } }, d.updated_at ? formatDate(d.updated_at.slice(0, 10)) : ""))))
+  )));
+}
+
 function NoteModal({
   note,
   tasks,
@@ -16483,10 +16789,34 @@ function NoteModal({
   const lastKnownAtRef = useRef(note?.updated_at ?? null);
   const [conflictBanner, setConflictBanner] = useState(null);
   const [focusMode, setFocusMode] = useState(false);
+  const [drawingInsertOpen, setDrawingInsertOpen] = useState(false);
+  const [quickDrawState, setQuickDrawState] = useState(null);
+
+  useEffect(() => {
+    const handler = e => {
+      const detail = e.detail;
+      if (typeof detail === 'object' && detail !== null) {
+        setQuickDrawState({ id: detail.id, title: detail.title });
+      } else {
+        setQuickDrawState({ id: detail, title: '' });
+      }
+    };
+    window.addEventListener('editDrawingModal', handler);
+    return () => window.removeEventListener('editDrawingModal', handler);
+  }, []);
+
   const milkdownEditorRef = React.useRef(null);
   const allKnownTasksRef = React.useRef([]);
   const tasksGetterRef = React.useRef(() => allKnownTasksRef.current);
   const taskDropdownRef = React.useRef(null);
+
+  const handleOpenInsertDrawing = () => {
+    setDrawingInsertOpen(true);
+  };
+  const handleDrawingSelected = (did, dtitle) => {
+    insertText(`\n\n::draw[${did}]{title="${dtitle}"}\n\n`);
+    setQuickDrawState({ id: did, title: dtitle });
+  };
   // NoteModal's own insertText (same pattern as NoteToolbar)
   const insertText = text => {
     const editor = milkdownEditorRef?.current;
@@ -16970,6 +17300,22 @@ function NoteModal({
         openTaskDropdown();
         // Flag to prevent next onChange from closing the dropdown
         _taskJustOpened.current = true;
+      }
+      return;
+    }
+
+    // /draw, /canvas, /gambar, /sketsa slash command — buka drawing insert modal
+    const drawMatch = textBefore.match(/(?:^|\n)\/(draw|canvas|gambar|sketsa)$/i);
+    if (drawMatch) {
+      const ed = milkdownEditorRef.current;
+      if (ed) {
+        const cmdLen = drawMatch[1].length + 1;
+        ed.action(ctx => {
+          const view = ctx.get(window.MilkdownBundle.editorViewCtx);
+          const { from } = view.state.selection;
+          view.dispatch(view.state.tr.delete(from - cmdLen, from));
+        });
+        handleOpenInsertDrawing();
       }
       return;
     }
@@ -17567,6 +17913,7 @@ function NoteModal({
     content: content,
     onApplyTemplate: function(tpl) { return setContent(tpl); },
     onInsertTask: openTaskDropdown,
+    onInsertDrawing: handleOpenInsertDrawing,
     voiceState: voiceState,
     onToggleVoice: handleToggleVoice
   })), /*#__PURE__*/React.createElement("div", {
@@ -17627,7 +17974,8 @@ function NoteModal({
     },
     tasksGetter: tasksGetterRef.current,
     onTasklinkClick: handleTasklinkClick,
-    onImagePaste: handleImagePaste
+    onImagePaste: handleImagePaste,
+    onInsertDrawing: handleOpenInsertDrawing
   }), noteAiDropdown && /*#__PURE__*/React.createElement("div", {
     ref: noteAiDropdownRef,
     className: "wiki-autocomplete",
@@ -18301,7 +18649,17 @@ function NoteModal({
       flexDirection: "column",
       gap: 14
     }
-  }, inner));
+  }, inner), drawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
+    noteTitle: title,
+    onSelectDrawing: handleDrawingSelected,
+    onClose: () => setDrawingInsertOpen(false),
+    showToast: showToast
+  }), quickDrawState && /*#__PURE__*/React.createElement(QuickDrawModal, {
+    drawingId: quickDrawState.id,
+    drawingTitle: quickDrawState.title,
+    onClose: () => setQuickDrawState(null),
+    showToast: showToast
+  }));
 }
 
   // ═══ DEPENDENCIES: NotePanel ═══
