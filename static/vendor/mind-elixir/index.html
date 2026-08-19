@@ -483,15 +483,7 @@
         badge.className = 'lp-badge ' + (link.type === 'note' ? 'lp-badge-note' : link.type === 'mindmap' ? 'lp-badge-mindmap' : 'lp-badge-task');
         badge.textContent = link.type === 'note' ? 'NOTE' : link.type === 'mindmap' ? 'MAP' : 'TASK';
 
-        const title = document.createElement('span');
-        title.className = 'lp-title';
-        title.textContent = link.title;
-
-        const openBtn = document.createElement('span');
-        openBtn.className = 'lp-open';
-        openBtn.textContent = '↗';
-        openBtn.title = 'Buka';
-        openBtn.onclick = () => {
+        const handleOpen = () => {
           const msgType = link.type === 'note' ? 'openNote' : link.type === 'mindmap' ? 'openMindmap' : 'openTask';
           const send = () => window.parent.postMessage({ type: msgType, id: link.id }, window.location.origin);
           if (document.fullscreenElement) {
@@ -500,6 +492,21 @@
             send();
           }
         };
+
+        const title = document.createElement('span');
+        title.className = 'lp-title';
+        title.textContent = link.title;
+        title.style.cursor = 'pointer';
+        title.title = 'Buka ' + (link.title || '');
+        title.onclick = handleOpen;
+        badge.style.cursor = 'pointer';
+        badge.onclick = handleOpen;
+
+        const openBtn = document.createElement('span');
+        openBtn.className = 'lp-open';
+        openBtn.textContent = '↗';
+        openBtn.title = 'Buka';
+        openBtn.onclick = handleOpen;
 
         const removeBtn = document.createElement('span');
         removeBtn.className = 'lp-remove';

@@ -8406,6 +8406,9 @@ function MindmapTabInstance({
       if (e.data && e.data.type === "openTask") {
         openOutlineTask(e.data.id);
       }
+      if (e.data && e.data.type === "openMindmap") {
+        window.dispatchEvent(new CustomEvent("openMindmap", { detail: e.data.id }));
+      }
       if (e.data && e.data.type === "requestLinkPicker") {
         setPickerNodeId(e.data.nodeId);
         setShowLinkPicker(true);
@@ -8566,7 +8569,7 @@ function MindmapTabInstance({
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
-    src: "/static/vendor/mind-elixir/index.html?v=137",
+    src: "/static/vendor/mind-elixir/index.html?v=138",
     style: { flex: 1, border: "none", width: "100%" },
     title: "Mindmap editor"
   })), /*#__PURE__*/React.createElement("div", {
