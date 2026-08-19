@@ -1,9 +1,18 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-18 22:25  
-**Updated By:** Antigravity (Gemini 3.7 Flash — SDD Mindmap Level-Justify SELESAI)
+**Last Updated:** 2026-08-18 22:45  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Global Search Ctrl+K Mindmap Integration)
 
 ---
+
+## 📌 Active Task
+- **Global Search (Ctrl+K) Mindmap Integration SELESAI 2026-08-18 (commit `b1fe23c`):**
+  - Backend `GET /api/search` di `webapp.py` diperluas: mendukung pencarian `mindmaps` (personal + shared via `_mindmap_access_clause(uid)`) mencakup pencarian judul (`title LIKE ?`) dan isi topik node (`data_json LIKE ?`).
+  - Frontend `SearchModal` di `static/index.html`: placeholder diperbarui menjadi "Cari task, catatan, mindmap, atau tag…".
+  - Navigasi mulus ke mindmap via `pendingMindmapId` prop di `MindmapPage` dan multi-tab auto-open.
+  - SW Cache di-bump ke **`taskflow-v240-global-search-mindmaps`**.
+  - All tests passed: 419/419 JS unit tests + 38/38 pytest.
+  - **PENDING user device-test:** Tekan `Ctrl+K` -> ketik kata kunci judul mindmap atau topik node -> hasil 🧠 Mindmaps muncul -> klik hasil -> mindmap terbuka instan di tab bar.
 
 ## 📌 Active Task
 - **SDD Mindmap Level-Justify SELESAI 2026-08-18.** 5 task (spec `2026-08-18-mindmap-level-justify-design.md`, plan `2026-08-18-mindmap-level-justify.md`) di commit `3e68dee`..`41d4678`:
