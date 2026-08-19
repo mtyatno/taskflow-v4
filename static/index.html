@@ -14893,17 +14893,25 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   return html;
 }
 
-window.hydrateDrawingPreviews = function(root) {
+window.hydrateDrawingPreviews = function(root, force) {
   if (typeof document === 'undefined') return;
   const containers = (root || document).querySelectorAll('[data-drawing-preview]');
   containers.forEach(async el => {
     const did = el.getAttribute('data-drawing-preview');
-    if (!did || el.getAttribute('data-hydrated') === 'true') return;
+    if (!did) return;
+    if (el.getAttribute('data-hydrated') === 'true' && !force) return;
     el.setAttribute('data-hydrated', 'true');
     try {
       const d = await api.get(`/api/drawings/${did}`);
       if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {
         el.innerHTML = d.svg_preview;
+        const svgEl = el.querySelector('svg');
+        if (svgEl) {
+          svgEl.style.width = '100%';
+          svgEl.style.height = 'auto';
+          svgEl.style.maxHeight = '360px';
+          svgEl.style.display = 'block';
+        }
       }
     } catch (_) {}
   });
@@ -16666,14 +16674,27 @@ function QuickDrawModal({
     }
   };
 
+  const handleClose = () => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage({ type: 'requestSnapshot' }, window.location.origin);
+    }
+    setTimeout(() => {
+      onClose && onClose();
+      window.dispatchEvent(new CustomEvent("drawingSaved", { detail: { id: drawingId } }));
+      if (typeof window.hydrateDrawingPreviews === 'function') {
+        window.hydrateDrawingPreviews(null, true);
+      }
+    }, 120);
+  };
+
   const handleOpenStandalone = () => {
-    onClose && onClose();
+    handleClose();
     window.dispatchEvent(new CustomEvent("openDrawing", { detail: drawingId }));
   };
 
   return /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
-    onClick: onClose,
+    onClick: handleClose,
     style: { zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)" }
   }, /*#__PURE__*/React.createElement("div", {
     className: "modal-content scale-in",
@@ -16695,7 +16716,7 @@ function QuickDrawModal({
   ),
   /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
     /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: handleOpenStandalone, style: { fontSize: 12 } }, "↗️ Buka di Halaman Draw"),
-    /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: onClose, style: { fontSize: 12 } }, "✓ Selesai")
+    /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleClose, style: { fontSize: 12 } }, "✓ Selesai")
   )),
   /*#__PURE__*/React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" } },
     /*#__PURE__*/React.createElement("iframe", {
@@ -19048,6 +19069,12 @@ function NotePanel({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [openDropdownIdx]);
+
+  useEffect(() => {
+    if (typeof window.hydrateDrawingPreviews === 'function') {
+      setTimeout(() => window.hydrateDrawingPreviews(null, true), 50);
+    }
+  }, [note?.id, note?.content]);
   return /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -23428,6 +23455,7 @@ function App() {
   const [pendingNoteId, setPendingNoteId] = useState(null);
   const [pendingMindmapId, setPendingMindmapId] = useState(null);
   const [pendingDrawingId, setPendingDrawingId] = useState(null);
+  const [activeQuickDraw, setActiveQuickDraw] = useState(null);
   const [showForm, setShowForm] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("action") === "new-task" && !!tokenStore.get();
@@ -23865,6 +23893,48 @@ function App() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
+  }, []);
+
+  // Global event listeners for drawing modal, navigation, and iframe auto-save
+  useEffect(() => {
+    const handleEditDrawingModal = e => {
+      const detail = e.detail;
+      if (typeof detail === 'object' && detail !== null) {
+        setActiveQuickDraw({ id: detail.id, title: detail.title || '' });
+      } else {
+        setActiveQuickDraw({ id: detail, title: '' });
+      }
+    };
+    const handleOpenDrawing = e => {
+      const id = typeof e.detail === 'object' && e.detail !== null ? e.detail.id : e.detail;
+      setPendingDrawingId(id);
+      setPage("draw");
+    };
+    const handleIframeMessage = async e => {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type === 'change' && e.data.data && e.data.noteId && e.data.noteId !== 'default') {
+        const did = e.data.noteId;
+        const payload = { data_json: e.data.data };
+        if (e.data.svg !== undefined && e.data.svg !== null) {
+          payload.svg_preview = e.data.svg;
+        }
+        try {
+          await api.put(`/api/drawings/${did}`, payload);
+          window.dispatchEvent(new CustomEvent("drawingSaved", { detail: { id: did } }));
+          if (typeof window.hydrateDrawingPreviews === 'function') {
+            window.hydrateDrawingPreviews(null, true);
+          }
+        } catch (_) {}
+      }
+    };
+    window.addEventListener("editDrawingModal", handleEditDrawingModal);
+    window.addEventListener("openDrawing", handleOpenDrawing);
+    window.addEventListener("message", handleIframeMessage);
+    return () => {
+      window.removeEventListener("editDrawingModal", handleEditDrawingModal);
+      window.removeEventListener("openDrawing", handleOpenDrawing);
+      window.removeEventListener("message", handleIframeMessage);
+    };
   }, []);
 
   // Trigger processQueue saat isOnline berubah false → true
@@ -24828,6 +24898,16 @@ function App() {
       fetchAll();
       setPage("manage_lists");
     }
+  }), activeQuickDraw && /*#__PURE__*/React.createElement(QuickDrawModal, {
+    drawingId: activeQuickDraw.id,
+    drawingTitle: activeQuickDraw.title,
+    onClose: () => {
+      setActiveQuickDraw(null);
+      if (typeof window.hydrateDrawingPreviews === 'function') {
+        window.hydrateDrawingPreviews(null, true);
+      }
+    },
+    showToast: showToast
   }), page !== "chat" && /*#__PURE__*/React.createElement("button", {
     className: "fab",
     "data-tour": "task-add",

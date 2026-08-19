@@ -4,6 +4,25 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-20 06:12] - Antigravity (Gemini)
+- **Task:** Fix inline drawing in saved notes not showing preview (only frame visible) and frame card click/edit not working.
+- **Root Causes:**
+  1. `draw-app` iframe was only posting `{ type: 'change', data: snapshot }` without SVG export, and `QuickDrawModal` / `App` were not persisting `data_json` / `svg_preview` back to `/api/drawings/${noteId}`. As a result, `svg_preview` remained empty in the database and could not be rendered inside the note preview container.
+  2. Clicking the drawing embed card or "✏️ Edit" button dispatched `editDrawingModal`, but neither `App` nor `NotePanel` had a listener mounted to display `QuickDrawModal`. Similarly, "↗️ Buka" dispatched `openDrawing`, which was only listened to inside `DrawPage` when that page was active.
+- **Changes:**
+  - In `draw-app/src/App.jsx`, added automated SVG generation via `exportToBlob({ format: 'svg' })` on change and on `requestSnapshot`, and included `noteId`, `snapshot`, and `svg` in the `postMessage`.
+  - Re-built `draw-app` via `vite build` into `static/vendor/tldraw/assets/index.js`.
+  - In `static/index.html`:
+    - Added global listeners in `App` for `editDrawingModal`, `openDrawing`, and iframe `message` to persist drawing snapshots & SVG previews, open `QuickDrawModal`, and navigate to `draw` page.
+    - Enhanced `window.hydrateDrawingPreviews` to support force rehydration and auto-scale SVG width/max-height.
+    - Added hydration `useEffect` in `NotePanel` to automatically hydrate previews on note render.
+    - Updated `QuickDrawModal` to request snapshot and trigger preview rehydration on close.
+  - Bumped Service Worker cache version in `static/sw.js` to `taskflow-v250-draw-inline-preview-and-modal-fix`.
+- **Files Modified:** `draw-app/src/App.jsx`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 39/39 Python tests pass, syntax verified)
+
+---
+
 ## [2026-08-20 05:55] - Antigravity (Gemini)
 - **Task:** Fix Draw page and drawing list area taking up only partial vertical space with unused bottom screen.
 - **Root Cause:** In `static/app.css`, `.draw-container` and `.mindmap-container` were missing explicit CSS height rules, and their parent `.main-content` had `min-height: 100vh; padding: 28px 36px` without fixed viewport calculation. As a result, child percentage heights defaulted to `height: auto` and collapsed to minimal content height, leaving the lower viewport blank.

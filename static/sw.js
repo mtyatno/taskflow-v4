@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v249-draw-full-height-layout";
+const CACHE = "taskflow-v250-draw-inline-preview-and-modal-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

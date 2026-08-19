@@ -153,7 +153,7 @@ export default function App() {
 
   useEffect(() => {
     // Beritahu parent bahwa iframe siap
-    window.parent.postMessage({ type: 'ready' }, '*')
+    window.parent.postMessage({ type: 'ready', noteId }, '*')
 
     const handler = (e) => {
       if (e.origin !== window.location.origin) return;
@@ -164,8 +164,26 @@ export default function App() {
         } catch (_) {}
       }
       if (e.data?.type === 'requestSnapshot' && editorRef.current) {
-        const snapshot = JSON.stringify(editorRef.current.store.getSnapshot())
-        window.parent.postMessage({ type: 'change', data: snapshot }, '*')
+        (async () => {
+          const editor = editorRef.current;
+          const snapshot = JSON.stringify(editor.store.getSnapshot());
+          let svg = '';
+          try {
+            const shapeIds = Array.from(editor.getCurrentPageShapeIds().values());
+            if (shapeIds.length > 0) {
+              const svgBlob = await exportToBlob({
+                editor,
+                ids: shapeIds,
+                format: 'svg',
+                opts: { scale: 1, background: true }
+              });
+              if (svgBlob) {
+                svg = await svgBlob.text();
+              }
+            }
+          } catch (_) {}
+          window.parent.postMessage({ type: 'change', noteId, data: snapshot, svg }, '*');
+        })();
       }
       if (e.data?.type === 'export' && editorRef.current) {
         doExport(editorRef.current, null, e.data.format || 'png', null);
@@ -173,18 +191,50 @@ export default function App() {
     }
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
-  }, [])
+  }, [noteId])
 
   const handleMount = (editor) => {
     editorRef.current = editor
 
+    // Load existing data from server if noteId is not default
+    if (noteId && noteId !== 'default') {
+      fetch(`/api/drawings/${noteId}`)
+        .then(res => res.ok ? res.json() : null)
+        .then(doc => {
+          if (doc && doc.data_json && doc.data_json !== '{}') {
+            try {
+              const snapshot = JSON.parse(doc.data_json);
+              editor.store.loadSnapshot(snapshot);
+            } catch (_) {}
+          }
+        })
+        .catch(() => {});
+    }
+
     let debounceTimer
-    editor.store.listen(() => {
+    editor.store.listen(async () => {
       clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(() => {
-        const snapshot = JSON.stringify(editor.store.getSnapshot())
-        window.parent.postMessage({ type: 'change', data: snapshot }, '*')
-      }, 1000)
+      debounceTimer = setTimeout(async () => {
+        try {
+          const snapshot = JSON.stringify(editor.store.getSnapshot());
+          let svg = '';
+          const shapeIds = Array.from(editor.getCurrentPageShapeIds().values());
+          if (shapeIds.length > 0) {
+            const svgBlob = await exportToBlob({
+              editor,
+              ids: shapeIds,
+              format: 'svg',
+              opts: { scale: 1, background: true }
+            });
+            if (svgBlob) {
+              svg = await svgBlob.text();
+            }
+          }
+          window.parent.postMessage({ type: 'change', noteId, data: snapshot, svg }, '*');
+        } catch (err) {
+          console.error('Error generating drawing snapshot/svg:', err);
+        }
+      }, 800)
     }, { scope: 'document' })
   }
 
