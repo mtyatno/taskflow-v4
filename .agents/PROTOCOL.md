@@ -10,6 +10,7 @@ Before executing any edits, code changes, or running diagnostic commands:
 1. **Read Current State:** Read [.agents/CURRENT_STATE.md](file:///.agents/CURRENT_STATE.md) to understand current active tasks, system health, and known issues.
 2. **Read Recent Logs:** Check the last 3 entries in [.agents/SESSION_LOG.md](file:///.agents/SESSION_LOG.md).
 3. **Read Architecture Decisions:** Read [.agents/DECISIONS.md](file:///.agents/DECISIONS.md) to ensure your changes align with previous architectural decisions.
+4. **Read Project Map:** Read [.agents/PROJECT_MAP.md](file:///.agents/PROJECT_MAP.md) — single source of truth untuk mapping domain/proyek ↔ lokasi codebase. Proyek yang tidak ada di tabel = JANGAN diasumsikan repo ini, tanya user dulu.
 
 ---
 

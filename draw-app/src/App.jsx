@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { Tldraw } from 'tldraw'
+import { useEffect, useRef, useMemo } from 'react'
+import { Tldraw, exportToBlob } from 'tldraw'
 import 'tldraw/tldraw.css'
 
 // Self-hosted tldraw assets (offline-first). Di-vendor dari cdn.tldraw.com/2.4.6 ke
@@ -24,9 +24,132 @@ const assetUrls = {
   embedIcons: fromList(EMBEDS, (t) => `${TLD_BASE}/embed-icons/${t}.png`),
 }
 
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+function getExportFilename(format) {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const ext = format === 'jpeg' ? 'jpg' : format;
+  return `drawing_${ts}.${ext}`;
+}
+
+async function doExport(editor, shapeIds, format, helpers) {
+  try {
+    let ids = shapeIds;
+    if (!ids || ids.length === 0) {
+      ids = editor.getSelectedShapeIds();
+    }
+    if (!ids || ids.length === 0) {
+      ids = Array.from(editor.getCurrentPageShapeIds().values());
+    }
+    if (!ids || ids.length === 0) {
+      if (helpers?.addToast) {
+        helpers.addToast({
+          title: 'Kanvas kosong',
+          description: 'Tidak ada objek atau gambar di kanvas untuk diekspor.',
+          severity: 'info',
+        });
+      }
+      return;
+    }
+
+    const background = editor.getInstanceState().exportBackground ?? true;
+    const blob = await exportToBlob({
+      editor,
+      ids,
+      format,
+      opts: {
+        scale: format === 'png' ? 2 : 1,
+        background,
+      },
+    });
+
+    if (!blob) {
+      throw new Error('Gagal membuat file export.');
+    }
+
+    const mimeType = format === 'json' ? 'application/json' : format === 'svg' ? 'image/svg+xml' : 'image/png';
+    const typedBlob = blob.type ? blob : new Blob([blob], { type: mimeType });
+    const filename = getExportFilename(format);
+
+    downloadBlob(typedBlob, filename);
+
+    if (helpers?.addToast) {
+      helpers.addToast({
+        title: 'Export Berhasil',
+        description: `${filename} berhasil didownload.`,
+        severity: 'success',
+      });
+    }
+  } catch (err) {
+    console.error('Export error:', err);
+    if (helpers?.addToast) {
+      helpers.addToast({
+        title: 'Export Gagal',
+        description: err?.message || 'Terjadi kesalahan saat mengekspor gambar.',
+        severity: 'error',
+      });
+    }
+  }
+}
+
 export default function App() {
   const noteId = new URLSearchParams(window.location.search).get('noteId') || 'default'
   const editorRef = useRef(null)
+
+  const uiOverrides = useMemo(() => ({
+    actions(editor, actions, defaultHelpers) {
+      return {
+        ...actions,
+        'export-as-svg': {
+          ...actions['export-as-svg'],
+          onSelect() {
+            doExport(editor, editor.getSelectedShapeIds(), 'svg', defaultHelpers);
+          },
+        },
+        'export-as-png': {
+          ...actions['export-as-png'],
+          onSelect() {
+            doExport(editor, editor.getSelectedShapeIds(), 'png', defaultHelpers);
+          },
+        },
+        'export-as-json': {
+          ...actions['export-as-json'],
+          onSelect() {
+            doExport(editor, editor.getSelectedShapeIds(), 'json', defaultHelpers);
+          },
+        },
+        'export-all-as-svg': {
+          ...actions['export-all-as-svg'],
+          onSelect() {
+            doExport(editor, Array.from(editor.getCurrentPageShapeIds().values()), 'svg', defaultHelpers);
+          },
+        },
+        'export-all-as-png': {
+          ...actions['export-all-as-png'],
+          onSelect() {
+            doExport(editor, Array.from(editor.getCurrentPageShapeIds().values()), 'png', defaultHelpers);
+          },
+        },
+        'export-all-as-json': {
+          ...actions['export-all-as-json'],
+          onSelect() {
+            doExport(editor, Array.from(editor.getCurrentPageShapeIds().values()), 'json', defaultHelpers);
+          },
+        },
+      };
+    },
+  }), []);
 
   useEffect(() => {
     // Beritahu parent bahwa iframe siap
@@ -43,6 +166,9 @@ export default function App() {
       if (e.data?.type === 'requestSnapshot' && editorRef.current) {
         const snapshot = JSON.stringify(editorRef.current.store.getSnapshot())
         window.parent.postMessage({ type: 'change', data: snapshot }, '*')
+      }
+      if (e.data?.type === 'export' && editorRef.current) {
+        doExport(editorRef.current, null, e.data.format || 'png', null);
       }
     }
     window.addEventListener('message', handler)
@@ -68,6 +194,7 @@ export default function App() {
         assetUrls={assetUrls}
         persistenceKey={`tldraw-note-${noteId}`}
         onMount={handleMount}
+        overrides={uiOverrides}
       />
     </div>
   )
