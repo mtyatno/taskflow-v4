@@ -1,26 +1,19 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-21 05:38  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Inline Drawing Full Embedding & Live SVG Swapping SELESAI)
+**Last Updated:** 2026-08-21 05:46  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Published Note Tables, Images, and Inline Drawing Rendering VERIFIED & SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Inline Drawing Full Embedding & Live SVG Swapping SELESAI 2026-08-21:**
-  - **Root Cause of Empty Frame in Published Notes:**
-    1. `_replace_draw` di backend hanya mencari berdasarkan `id = drawing_id`. Jika `drawing_id` pada syntax catatan merujuk ke judul gambar (`title`) atau ID catatan (`note_id`), backend gagal menemukan baris gambar dan hanya menampilkan placeholder kosong.
-    2. Ketika `svg_preview` belum tersimpan di database, backend sebelumnya hanya merender teks placeholder tanpa iframe aktif.
-    3. Container preview di CSS (`.note-draw-preview-container`) belum memiliki styling explicit untuk elemen `iframe`, sehingga iframe ter-collapse.
-  - **Fixes Applied:**
-    1. **Drawing Resolution & Iframe Fallback ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L3080)):**
-       - Query drawing kini memeriksa `id = ? OR title = ?` dan fallback ke `note_id`.
-       - Jika static SVG preview belum tersedia, container otomatis memuat iframe live preview `/static/vendor/tldraw/index.html?noteId={actual_id}` dengan tinggi terkonfigurasi.
-    2. **CSS Rule untuk Iframe Preview ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4330)):**
-       - Menambahkan `.note-draw-preview-container iframe { width: 100%; height: 100%; min-height: 280px; border: none; display: block; }`.
-    3. **Live SVG Swap Listener ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4625)):**
-       - Menambahkan postMessage listener pada script halaman publik sehingga begitu iframe kanvas selesai me-render sketsa dan mengekspor SVG, iframe secara instan ditukar dengan elemen `<svg>` statis beresolusi tajam.
+- **Published Note Tables, Images, and Inline Drawing Rendering VERIFIED & SELESAI 2026-08-21:**
+  - **Summary:**
+    1. **Tabel Markdown:** Ter-render rapi menjadi HTML `<table>` via mistune `table` plugin & normalization unescaping.
+    2. **Gambar `.png` & Lampiran:** Otomatis dipromosikan dari link `[image.png]` menjadi `![image.png]` dan menampilkan visual thumbnail pada daftar lampiran.
+    3. **Inline Drawing (`::draw[...]`):** Ter-render sempurna dengan pencocokan cerdas (`id`/`title`/`note_id`), fallback live iframe preview, dan auto-swap ke static `<svg>`.
+    4. **IndexedDB & Database Migration:** Startup migration crash (`drawings.is_pinned`) dan IndexedDB missing index `server_id` telah diperbaiki secara aman.
   - All tests passed: 433/433 JS unit tests + 40/40 pytest (0 failures), 5/5 inline scripts parse cleanly.
-  - **Device-test checklist:** (1) Buka catatan publik (`/pub/{username}/{slug}`) -> Card inline drawing (`::draw[...]`) langsung menampilkan sketsa/objek drawing di dalam framenya.
+  - **User Verification:** Terverifikasi langsung oleh user di live instance (`https://todo.yatno.web.id/`) bahwa tabel, gambar PNG, dan inline drawing sudah tampil sempurna.
 
 ## 📌 Active Task
 - **Draw Canvas Export (PNG, SVG, JSON) Bugfix SELESAI 2026-08-19:**
