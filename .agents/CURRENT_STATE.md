@@ -1,26 +1,28 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-20 12:15  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Draw List Mindmap Style Alignment SELESAI)
+**Last Updated:** 2026-08-20 14:55  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Inline Note Draw Frame Resizing & Print Optimization SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Standalone Draw Page & Note Embedding (Draw List Mindmap Styling & SW v255 SELESAI 2026-08-20):**
-  - 6 task SDD (spec `2026-08-19-standalone-draw-page-and-note-embedding-design.md`, plan `2026-08-19-standalone-draw-page-and-note-embedding.md`) commits `66589da`..`f4613e0`:
+- **Standalone Draw Page & Note Embedding (Resizable Draw Frames & SW v256 SELESAI 2026-08-20):**
+  - 6 task SDD (spec `2026-08-19-standalone-draw-page-and-note-embedding-design.md`, plan `2026-08-19-standalone-draw-page-and-note-embedding.md`) commits `66589da`..`f176915`:
     1. **Backend Drawing Entity & Multi-Tenant CRUD:** Menambahkan tabel `drawings` (id, user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at), router `/api/drawings` (GET, POST, GET/:id, PUT/:id, DELETE/:id, PATCH/:id/pin), serta perluasan endpoint `/api/search` (mencari `drawings` per user).
     2. **Offline Store, Router & DB Schema Migration v11:** Schema IndexedDB v11 di `db.js` dengan object store `drawings`, repository `drawingrepo.js`, offline router `drawingroutes.js`, dan outbox sync handler.
     3. **Multi-Tab Workspace State Machine:** Module UMD `static/offline/drawingtabs.js` (openTab, closeTab, updateTabTitle dengan aturan FIFO cap 5 tab) + 7 unit test TDD di `tests/offline/drawingtabs.test.js`.
     4. **DrawPage UI Component (2-Column & Multi-Tab):** Left sidebar (pencarian, filter tag, daftar pinned/all, inline rename, delete confirmation, pin toggle, new drawing creator) + Right canvas multi-tab bar (instant switching tanpa reload iframe, fullscreen toggle, export actions). Navigasi `Draw` terintegrasi di Sidebar utama.
     5. **Note Editor Embedding:** Syntax block `::draw[id]{title="..."}` di-render menjadi interactive `.note-draw-card` dengan auto-hydrate SVG preview, tombol `🎨 +Gambar` di `NoteToolbar`, item `🎨 Gambar / Sketsa (/draw)` di Milkdown slash menu, keyboard slash trigger `/draw`, `/canvas`, `/gambar`, `/sketsa`, serta dialog `QuickDrawModal` dan `DrawingInsertModal`.
     6. **Search & Dashboard Integration & SW Cache Bump:** Hasil pencarian `SearchModal` menyertakan `🎨 Drawings`, card "🎨 Gambar Disematkan" di halaman `Dashboard`.
-    7. **Draw List Item Styling Alignment with Mindmap List:**
-       - Menghapus tampilan tanggal pada list item gambar di sidebar `DrawPage`.
-       - Menyamakan style `DrawingListItem` persis dengan `MindmapListItem` (single line dengan ellipsis, padding `7px 10px`, background highlight `rgba(168,197,0,0.1)` saat selected, teks accent).
-       - Mengganti icon pin pada item list dengan icon star (`<Icon name="star" />`), yang muncul saat hover atau saat berstatus pinned.
-       - Bump SW Cache ke **`taskflow-v255-draw-list-mindmap-style`**.
+    7. **Resizable Inline Note Drawing Frames & Print-to-PDF Fitting:**
+       - Menambahkan parser atribut direktif `parseDirectiveAttrs` untuk mendukung `size="S|M|L"`, `width="50%|75%|100%"`, dan `height="..."` pada token `::draw[...]`.
+       - Menambahkan tombol pil ukuran frame (`S` [50%], `M` [75%], `L` [100%]) pada header kartu gambar di dalam catatan.
+       - Menambahkan CSS vertical drag handle (`resize: vertical; overflow: auto;`) pada `.note-draw-preview-container` sehingga tinggi frame dapat ditarik manual secara interaktif.
+       - Menambahkan listener `changeDrawingSize` di `NotePanel` untuk langsung meng-update ukuran frame dan menyimpan atribut ke dalam konten catatan (`::draw[id]{title="..." width="50%" size="S"}`).
+       - Mengoptimalkan `@media print` dan `handlePrint` di mana kartu gambar otomatis menyesuaikan lebar (50%, 75%, atau 100%) dan membatasi tinggi maksimum SVG (180px untuk S, 280px untuk M, 380px untuk L) sehingga dokumen catatan dengan gambar dapat pas di 1 halaman PDF.
+       - Bump SW Cache ke **`taskflow-v256-resizable-draw-frames`**.
   - All tests passed: 433/433 JS unit tests + 39/39 pytest (0 failures), 5/5 inline scripts parse cleanly.
-  - **Device-test checklist:** (1) Hard refresh (Ctrl+F5) di browser -> Buka halaman Draw -> Daftar gambar tampil rapi persis seperti daftar Mindmap (tanpa tanggal, dengan star icon untuk pin, dan highlight accent saat aktif).
+  - **Device-test checklist:** (1) Hard refresh (Ctrl+F5) di browser -> Buka catatan dengan gambar inline -> Klik tombol pill `S` atau `M` di header gambar -> Ukuran frame langsung mengecil -> Klik tombol Cetak / Print to PDF -> Preview PDF kini ramping dan muat dalam 1 halaman.
 
 ## 📌 Active Task
 - **Draw Canvas Export (PNG, SVG, JSON) Bugfix SELESAI 2026-08-19:**

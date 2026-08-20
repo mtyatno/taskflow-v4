@@ -855,11 +855,16 @@
       #note-print-area .tasklink-status-label { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       #note-print-area .tasklink-priority-label { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       #note-print-area .highlight-mark { background: #fef08a !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      #note-print-area .note-draw-card { border: 1px solid #d1d5db !important; background: #ffffff !important; border-radius: 6px !important; margin: 10pt 0 !important; overflow: hidden !important; break-inside: avoid !important; page-break-inside: avoid !important; }
-      #note-print-area .note-draw-header { display: flex !important; align-items: center !important; justify-content: space-between !important; padding: 4pt 8pt !important; background: #f9fafb !important; border-bottom: 1px solid #e5e7eb !important; font-size: 9.5pt !important; font-weight: 600 !important; color: #374151 !important; }
-      #note-print-area .note-draw-header button { display: none !important; }
-      #note-print-area .note-draw-preview-container { padding: 8pt !important; background: #ffffff !important; display: flex !important; align-items: center !important; justify-content: center !important; min-height: auto !important; max-height: none !important; }
-      #note-print-area .note-draw-preview-container svg { width: 100% !important; max-width: 100% !important; height: auto !important; max-height: 480px !important; display: block !important; }
+      #note-print-area .note-draw-card { border: 1px solid #d1d5db !important; background: #ffffff !important; border-radius: 6px !important; margin: 8pt auto !important; overflow: hidden !important; break-inside: avoid !important; page-break-inside: avoid !important; box-sizing: border-box !important; }
+      #note-print-area .note-draw-card[data-size="S"] { width: 50% !important; max-width: 50% !important; margin: 6pt auto !important; }
+      #note-print-area .note-draw-card[data-size="M"] { width: 75% !important; max-width: 75% !important; margin: 6pt auto !important; }
+      #note-print-area .note-draw-card[data-size="L"], #note-print-area .note-draw-card[data-size="FULL"] { width: 100% !important; max-width: 100% !important; margin: 8pt 0 !important; }
+      #note-print-area .note-draw-header { display: flex !important; align-items: center !important; justify-content: space-between !important; padding: 3pt 6pt !important; background: #f9fafb !important; border-bottom: 1px solid #e5e7eb !important; font-size: 9pt !important; font-weight: 600 !important; color: #374151 !important; }
+      #note-print-area .note-draw-header button, #note-print-area .note-draw-size-pills { display: none !important; }
+      #note-print-area .note-draw-preview-container { padding: 6pt !important; background: #ffffff !important; display: flex !important; align-items: center !important; justify-content: center !important; min-height: auto !important; overflow: hidden !important; }
+      #note-print-area .note-draw-card[data-size="S"] .note-draw-preview-container svg { max-height: 180px !important; width: 100% !important; height: auto !important; display: block !important; }
+      #note-print-area .note-draw-card[data-size="M"] .note-draw-preview-container svg { max-height: 280px !important; width: 100% !important; height: auto !important; display: block !important; }
+      #note-print-area .note-draw-card[data-size="L"] .note-draw-preview-container svg, #note-print-area .note-draw-card .note-draw-preview-container svg { max-height: 380px !important; width: 100% !important; height: auto !important; display: block !important; }
       #note-print-area .drawing-preview-placeholder { display: none !important; }
       #note-print-area .npa-footer { position: fixed; bottom: 0; left: 0; right: 0; padding: 3mm 15mm; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; font-size: 9pt; color: #9ca3af; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
@@ -1730,7 +1735,24 @@
   overflow: hidden;
   margin: 12px 0;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, width 0.2s ease;
+  box-sizing: border-box;
+}
+.note-draw-card[data-size="S"] {
+  width: 50%;
+  max-width: 50%;
+  margin: 12px auto;
+}
+.note-draw-card[data-size="M"] {
+  width: 75%;
+  max-width: 75%;
+  margin: 12px auto;
+}
+.note-draw-card[data-size="L"],
+.note-draw-card[data-size="FULL"] {
+  width: 100%;
+  max-width: 100%;
+  margin: 12px 0;
 }
 .note-draw-card:hover {
   border-color: var(--accent);
@@ -1740,21 +1762,60 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 6px 12px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   font-size: 13px;
   font-weight: 600;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.note-draw-size-pills {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--bg-primary);
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.note-draw-size-btn {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  line-height: 1.2;
+  transition: all 0.15s ease;
+}
+.note-draw-size-btn:hover {
+  background: var(--bg-hover, rgba(0,0,0,0.06));
+  color: var(--text-primary);
+}
+.note-draw-size-btn.active {
+  background: var(--accent);
+  color: #fff;
 }
 .note-draw-preview-container {
   padding: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 140px;
+  min-height: 120px;
   max-height: 380px;
-  overflow: hidden;
+  overflow: auto;
+  resize: vertical;
   background: var(--bg-primary);
   cursor: pointer;
+  box-sizing: border-box;
+}
+.note-draw-preview-container svg {
+  max-width: 100%;
+  max-height: 100%;
+  width: 100%;
+  height: auto;
+  display: block;
 }
 

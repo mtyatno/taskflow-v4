@@ -14970,23 +14970,48 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
     return key;
   });
 
-  // Pre-process ::draw[id]{title="..."} tokens before marked.parse
+function parseDirectiveAttrs(attrStr) {
+  const attrs = {};
+  if (!attrStr) return attrs;
+  const unescaped = attrStr.replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\(.)/g, '$1');
+  const regex = /([a-zA-Z0-9_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s\}]+))/g;
+  let m;
+  while ((m = regex.exec(unescaped)) !== null) {
+    const key = m[1].toLowerCase();
+    const val = (m[2] || m[3] || m[4] || '');
+    attrs[key] = val;
+  }
+  return attrs;
+}
+
+  // Pre-process ::draw[id]{...} tokens before marked.parse
   const drawMap = {};
   let di = 0;
-  const processed4 = processed3.replace(/\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{\s*title\s*=\s*(?:\\?"([^"\\]*(?:\\.[^"\\]*)*)\\?"|'([^'\\]*(?:\\.[^'\\]*)*)'|([^\}\s]+))\s*\\?\})?/gi, (_, idStr, tDouble, tSingle, tBare) => {
+  const processed4 = processed3.replace(/\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?/gi, (rawMatch, idStr, attrRaw) => {
     const key = `DRWBLK${di++}DRWBLKEND`;
     const safeId = escapeAttr(idStr);
-    const titleRaw = (tDouble || tSingle || tBare || '').replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\(.)/g, '$1');
-    const safeTitle = escapeHtml(titleRaw || 'Gambar');
-    drawMap[key] = `<div class="note-draw-card" data-drawing-id="${safeId}">
+    const attrs = parseDirectiveAttrs(attrRaw);
+    const titleRaw = attrs.title || 'Gambar';
+    const safeTitle = escapeHtml(titleRaw);
+    const size = (attrs.size || (attrs.width === '40%' || attrs.width === '50%' || attrs.width === 'small' ? 'S' : attrs.width === '70%' || attrs.width === '75%' || attrs.width === 'medium' ? 'M' : 'L')).toUpperCase();
+    const widthVal = attrs.width || (size === 'S' ? '50%' : size === 'M' ? '75%' : '100%');
+    const heightVal = attrs.height || (size === 'S' ? '200px' : size === 'M' ? '300px' : '400px');
+    const cardWidthStyle = widthVal && widthVal !== '100%' ? `width:${widthVal};max-width:${widthVal};margin:10px auto;` : `width:100%;margin:10px 0;`;
+
+    drawMap[key] = `<div class="note-draw-card" data-drawing-id="${safeId}" data-size="${size}" style="${cardWidthStyle}">
       <div class="note-draw-header">
         <span>🎨 ${safeTitle}</span>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw || 'Gambar')}' } }))" style="font-size:11px;padding:2px 8px;cursor:pointer;">✏️ Edit</button>
-          <button class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('openDrawing', { detail: '${safeId}' }))" style="font-size:11px;padding:2px 8px;cursor:pointer;" title="Buka di halaman Draw">↗️ Buka</button>
+          <div class="note-draw-size-pills" title="Ubah ukuran frame gambar">
+            <button type="button" class="note-draw-size-btn ${size === 'S' ? 'active' : ''}" onclick="window.dispatchEvent(new CustomEvent('changeDrawingSize', { detail: { id: '${safeId}', size: 'S', width: '50%' } }))" title="Kecil (50%)">S</button>
+            <button type="button" class="note-draw-size-btn ${size === 'M' ? 'active' : ''}" onclick="window.dispatchEvent(new CustomEvent('changeDrawingSize', { detail: { id: '${safeId}', size: 'M', width: '75%' } }))" title="Sedang (75%)">M</button>
+            <button type="button" class="note-draw-size-btn ${size === 'L' || size === 'FULL' ? 'active' : ''}" onclick="window.dispatchEvent(new CustomEvent('changeDrawingSize', { detail: { id: '${safeId}', size: 'L', width: '100%' } }))" title="Penuh (100%)">L</button>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw)}' } }))" style="font-size:11px;padding:2px 8px;cursor:pointer;">✏️ Edit</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('openDrawing', { detail: '${safeId}' }))" style="font-size:11px;padding:2px 8px;cursor:pointer;" title="Buka di halaman Draw">↗️ Buka</button>
         </div>
       </div>
-      <div class="note-draw-preview-container" data-drawing-preview="${safeId}" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw || 'Gambar')}' } }))" title="Klik untuk mengedit gambar">
+      <div class="note-draw-preview-container" data-drawing-preview="${safeId}" style="max-height:${heightVal};resize:vertical;overflow:auto;" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw)}' } }))" title="Klik untuk mengedit gambar (bisa ditarik ke bawah untuk memperbesar)">
         <div class="drawing-preview-placeholder" style="color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;">🎨 Klik untuk membuka / mengedit gambar</div>
       </div>
     </div>`;
@@ -15031,13 +15056,44 @@ window.hydrateDrawingPreviews = function(root, force) {
         if (svgEl) {
           svgEl.style.width = '100%';
           svgEl.style.height = 'auto';
-          svgEl.style.maxHeight = '360px';
+          svgEl.style.maxHeight = '100%';
           svgEl.style.display = 'block';
         }
       }
     } catch (_) {}
   });
 };
+
+if (typeof window !== 'undefined') {
+  window.parseDirectiveAttrs = parseDirectiveAttrs;
+  window.addEventListener('changeDrawingSize', e => {
+    const { id, size, width } = e.detail || {};
+    if (!id) return;
+    document.querySelectorAll(`.note-draw-card[data-drawing-id="${id}"]`).forEach(card => {
+      card.setAttribute('data-size', size);
+      if (width && width !== '100%') {
+        card.style.width = width;
+        card.style.maxWidth = width;
+        card.style.margin = '10px auto';
+      } else {
+        card.style.width = '100%';
+        card.style.maxWidth = '100%';
+        card.style.margin = '10px 0';
+      }
+      card.querySelectorAll('.note-draw-size-btn').forEach(btn => {
+        if (btn.textContent.trim() === size || (size === 'FULL' && btn.textContent.trim() === 'L')) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+      const preview = card.querySelector('.note-draw-preview-container');
+      if (preview) {
+        preview.style.maxHeight = size === 'S' ? '200px' : size === 'M' ? '300px' : '400px';
+      }
+    });
+  });
+}
   // ═══ DEPENDENCIES: Note Editor (Milkdown) ═══
   // uses:
   //   - React
@@ -18990,6 +19046,35 @@ function NotePanel({
       window.removeEventListener('message', handler);
     };
   }, [note?.id]);
+
+  React.useEffect(() => {
+    const sizeHandler = async e => {
+      const { id, size, width } = e.detail || {};
+      if (!id || !note?.id || !note.content) return;
+      const re = new RegExp(`\\\\?::draw\\\\?\\[${id}\\\\?\\](?:\\s*\\\\?\\{([^}]*)\\\\?\\})?`, 'gi');
+      if (!re.test(note.content)) return;
+      const updatedContent = note.content.replace(re, (_, attrRaw) => {
+        const attrs = typeof parseDirectiveAttrs === 'function' ? parseDirectiveAttrs(attrRaw) : {};
+        attrs.width = width || (size === 'S' ? '50%' : size === 'M' ? '75%' : '100%');
+        attrs.size = size;
+        const attrStr = Object.entries(attrs).map(([k, v]) => `${k}="${v}"`).join(' ');
+        return `::draw[${id}]{${attrStr}}`;
+      });
+      if (updatedContent !== note.content) {
+        try {
+          await api.put(`/api/scratchpad/${note.id}`, {
+            ...note,
+            content: updatedContent
+          });
+          note.content = updatedContent;
+          window.dispatchEvent(new CustomEvent("noteSaved"));
+        } catch (_) {}
+      }
+    };
+    window.addEventListener('changeDrawingSize', sizeHandler);
+    return () => window.removeEventListener('changeDrawingSize', sizeHandler);
+  }, [note?.id, note?.content]);
+
   React.useEffect(() => {
     if (iframeReady && pendingDrawData && iframeRef.current) {
       iframeRef.current.contentWindow.postMessage({
@@ -19184,11 +19269,13 @@ function NotePanel({
           const d = await api.get(`/api/drawings/${did}`);
           if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {
             c.innerHTML = d.svg_preview;
+            const cardEl = c.closest('.note-draw-card');
+            const cardSize = cardEl ? (cardEl.getAttribute('data-size') || 'L') : 'L';
             const svgEl = c.querySelector('svg');
             if (svgEl) {
               svgEl.style.width = '100%';
               svgEl.style.height = 'auto';
-              svgEl.style.maxHeight = '480px';
+              svgEl.style.maxHeight = cardSize === 'S' ? '180px' : cardSize === 'M' ? '280px' : '380px';
               svgEl.style.display = 'block';
             }
           }

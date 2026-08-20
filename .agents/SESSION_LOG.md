@@ -4,6 +4,19 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-20 14:55] - Antigravity (Gemini)
+- **Task:** Make inline drawing frames resizable in note viewer, editor, and print-to-PDF output to fit 1-page PDF layouts.
+- **Changes:**
+  - Added `parseDirectiveAttrs` parser supporting `size="S|M|L"`, `width="50%|75%|100%"`, and `height="..."` on `::draw[...]` blocks.
+  - Added size selector pill buttons (`S`, `M`, `L`) in `.note-draw-header` and CSS `resize: vertical; overflow: auto;` handle on `.note-draw-preview-container`.
+  - Added `changeDrawingSize` event and listener in `NotePanel` to update DOM immediately and persist attribute changes to note content on the server.
+  - Updated `@media print` and `handlePrint` in `static/app.css` & `static/index.html` so drawing SVG previews scale proportionally (50% / 180px for S, 75% / 280px for M, 100% / 380px for L) to fit neatly on 1 printed page.
+  - Bumped Service Worker cache version in `static/sw.js` to `taskflow-v256-resizable-draw-frames`.
+- **Files Modified:** `static/app.css`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 39/39 Python tests pass, syntax verified)
+
+---
+
 ## [2026-08-20 12:15] - Antigravity (Gemini)
 - **Task:** Align drawing list item in `DrawPage` sidebar with `MindmapListItem` styling (remove dates, match selection background, use star icon for pinning).
 - **Changes:**
