@@ -20521,83 +20521,51 @@ function NotesPage({
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      display: 'flex',
-      justifyContent: 'flex-end',
-      padding: '8px 8px 4px 0',
-      alignItems: 'center'
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "10px 12px",
+      borderBottom: "1px solid var(--border)"
     }
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "sidebar-collapse-btn",
+  }, /*#__PURE__*/React.createElement("span", {
+    style: { fontWeight: 700, fontSize: 14 }
+  }, "\uD83D\uDCDD Catatan"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-icon btn-sm",
     onClick: () => setSidebarCollapsed(true),
     title: "Sembunyikan sidebar"
-  }, /*#__PURE__*/React.createElement("svg", {
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: "2.5",
-    strokeLinecap: "round",
-    strokeLinejoin: "round"
-  }, /*#__PURE__*/React.createElement("polyline", {
-    points: "15 18 9 12 15 6"
-  })))), /*#__PURE__*/React.createElement("div", {
-    onClick: () => setSearchTagsCollapsed(c => !c),
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 6,
-      padding: '4px 8px',
-      cursor: 'pointer',
-      userSelect: 'none'
-    }
-  }, !searchTagsCollapsed && /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11,
-      fontWeight: 700,
-      color: 'var(--text-light)',
-      textTransform: 'uppercase',
-      letterSpacing: '0.8px',
-      flex: 1
-    }
-  }, "\uD83D\uDD0D Pencarian"), /*#__PURE__*/React.createElement("svg", {
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "var(--text-light)",
-    strokeWidth: "2",
-    strokeLinecap: "round",
-    strokeLinejoin: "round",
-    style: {
-      width: 14,
-      height: 14,
-      transform: searchTagsCollapsed ? 'rotate(180deg)' : 'rotate(0deg)',
-      transition: 'transform 0.2s',
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement("polyline", {
-    points: "9 18 15 12 9 6"
-  }))), !searchTagsCollapsed && /*#__PURE__*/React.createElement("div", {
+  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
     className: "hide-scrollbar",
     style: {
       flex: 1,
       overflow: 'auto',
-      padding: '0 8px'
+      padding: '8px 8px 4px'
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "scratchpad-bar",
     style: {
       marginBottom: 6,
-      marginTop: 0
+      marginTop: 0,
+      padding: "7px 12px",
+      borderRadius: 10,
+      border: "1.5px solid var(--border)",
+      background: "var(--bg-primary)",
+      display: "flex",
+      alignItems: "center"
     }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 14,
-      color: 'var(--text-secondary)'
-    }
-  }, "\uD83D\uDD0D"), /*#__PURE__*/React.createElement("input", {
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    className: "scratchpad-search-input",
     value: q,
     onChange: e => handleSearch(e.target.value),
     placeholder: "Cari...",
     style: {
-      fontSize: 13
+      width: "100%",
+      background: "transparent",
+      border: "none",
+      outline: "none",
+      fontSize: 13,
+      color: "var(--text-primary)",
+      padding: 0
     }
   }), q && /*#__PURE__*/React.createElement("button", {
     onClick: () => {
@@ -20609,7 +20577,9 @@ function NotesPage({
       border: 'none',
       color: 'var(--text-secondary)',
       cursor: 'pointer',
-      fontSize: 14
+      fontSize: 14,
+      padding: "0 0 0 4px",
+      lineHeight: 1
     }
   }, "\u2715")), allTags.length > 0 && /*#__PURE__*/React.createElement("div", null, (() => {
     const sorted = [...tagList].sort((a, b) => (b.count || 0) - (a.count || 0));

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v260-idb-drawingrepo-index-fix";
+const CACHE = "taskflow-v261-notes-page-search-and-header-unification";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
