@@ -2933,10 +2933,14 @@ def _render_published_content(raw_content: str, conn) -> str:
 
     content = _re.sub(r'(?:\\?\[){2}([^\[\]\\]+)(?:\\?\]){2}', _replace_wikilink, content)
 
-    # 5. Rewrite attachment URLs
+    # 5. Unescape markdown image / link escapes that serializer might produce
+    content = _re.sub(r'!\\\[([^\]]*)\\\]\\\(([^)]*)\\\)', r'![\1](\2)', content)
+    content = _re.sub(r'\\\[([^\]]*)\\\]\\\(([^)]*)\\\)', r'[\1](\2)', content)
+
+    # 5.1 Rewrite all attachment URLs to public endpoint
     content = _re.sub(
-        r'!\[([^\]]*)\]\(/api/scratchpad/attachments/(\d+)/view\)',
-        r'![\1](/pub/attachments/\2)',
+        r'/api/scratchpad/attachments/(\d+)/view',
+        r'/pub/attachments/\1',
         content
     )
 
@@ -3009,15 +3013,20 @@ def _render_published_content(raw_content: str, conn) -> str:
 
     content = _re.sub(r'\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?', _replace_draw, content)
 
-    # 7. Render markdown → HTML via mistune
+    # 7. Render markdown → HTML via mistune (with table & common plugins)
     try:
         import mistune
-        md_renderer = mistune.create_markdown(escape=False)
+        plugins = ['table', 'url', 'strikethrough', 'task_lists']
+        md_renderer = mistune.create_markdown(escape=False, plugins=plugins)
         rendered_html = md_renderer(content)
-    except ImportError:
-        # Fallback: wrap in <pre> if mistune not installed
-        escaped = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        rendered_html = f'<pre style="white-space:pre-wrap;font:inherit">{escaped}</pre>'
+    except Exception:
+        try:
+            import mistune
+            md_renderer = mistune.create_markdown(escape=False)
+            rendered_html = md_renderer(content)
+        except ImportError:
+            escaped = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            rendered_html = f'<pre style="white-space:pre-wrap;font:inherit">{escaped}</pre>'
 
     # 8. Restore drawing blocks
     for k, v in draw_map.items():
@@ -4568,16 +4577,18 @@ async def view_published_note(username: str, slug: str, request: Request):
                 f'<h3>&#128206; Attachments</h3>{att_items}</section>'
             )
 
-        # Cover image — extract first <img> from body_html
+        # Cover image — only if the note content starts with an image on the very first line
         cover_html = ""
-        cover_match = _re.search(r'<img[^>]+src="([^"]+)"[^>]*>', body_html)
-        if cover_match:
-            cover_img = cover_match.group(0).replace(
-                '<img',
-                '<img style="width:100%;max-height:300px;object-fit:cover;border-radius:8px"'
-            )
-            cover_html = _esc(f'<div class="pub-cover">{cover_img}</div>')
-            body_html = body_html.replace(cover_match.group(0), '', 1)
+        first_line = (raw_content or "").strip().split('\n')[0].strip() if raw_content else ""
+        if _re.match(r'^!\[.*?\]\(.*?\)$', first_line):
+            cover_match = _re.search(r'<img[^>]+src="([^"]+)"[^>]*>', body_html)
+            if cover_match:
+                cover_img = cover_match.group(0).replace(
+                    '<img',
+                    '<img style="width:100%;max-height:300px;object-fit:cover;border-radius:8px"'
+                )
+                cover_html = _esc(f'<div class="pub-cover">{cover_img}</div>')
+                body_html = body_html.replace(cover_match.group(0), '', 1)
 
         # TOC — parse h1-h3 from raw content, generate slugs, add ids to body_html
         toc_html = ""

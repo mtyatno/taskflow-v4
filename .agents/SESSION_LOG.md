@@ -4,6 +4,21 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-20 16:21] - Antigravity (Gemini)
+- **Task:** Fix markdown table syntax and `image.png` attachments not rendering in published notes (`/pub/{username}/{slug}`).
+- **Root Cause:**
+  - `mistune.create_markdown(escape=False)` was used without the `table` plugin enabled by default in mistune v2+, leaving table syntax as raw markdown `<p>| col1 | col2 |</p>`.
+  - Attachment URL rewriting used a strict regex `!\[([^\]]*)\]\(/api/scratchpad/attachments/(\d+)/view\)` which missed escaped brackets, quotes, or direct links, and `view_published_note` was stripping in-body `<img>` tags to place as cover banners.
+- **Changes:**
+  - Configured `mistune.create_markdown(escape=False, plugins=['table', 'url', 'strikethrough', 'task_lists'])` in `_render_published_content`.
+  - Added universal `/api/scratchpad/attachments/(\d+)/view` → `/pub/attachments/\1` rewriting and markdown escape cleanup.
+  - Refined cover image extraction in `view_published_note` to preserve in-body illustrations and screenshots within `body_html`.
+  - Added comprehensive table and image assertions in `tests/test_drawings.py`.
+- **Files Modified:** `webapp.py`, `tests/test_drawings.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 40/40 Python tests pass, syntax verified)
+
+---
+
 ## [2026-08-20 16:03] - Antigravity (Gemini)
 - **Task:** Fix inline drawing blocks in published public notes (`/pub/{username}/{slug}`) appearing as raw syntax `::draw[...]`.
 - **Root Cause:**

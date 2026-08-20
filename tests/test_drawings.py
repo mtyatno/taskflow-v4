@@ -88,12 +88,23 @@ def test_published_note_inline_draw_rendering(client):
     assert create_draw.status_code == 200
     drawing_id = create_draw.json()["id"]
 
-    # 3. Create note with inline draw syntax
+    # 3. Create note with inline draw syntax, markdown table, and image attachment
     note_content = f"""# Catatan Dokumentasi
+
+Berikut adalah tabel fitur:
+
+| Fitur | Status | Keterangan |
+| :--- | :---: | ---: |
+| Drawing | Aktif | Vektor SVG |
+| Publish | Aktif | Publik HTML |
 
 Berikut adalah diagram alur proses:
 
 ::draw[{drawing_id}]{{title="Diagram Alur Proses" size="S"}}
+
+Dan gambar arsitektur:
+
+![Arsitektur](/api/scratchpad/attachments/99/view)
 
 Selesai.
 """
@@ -120,4 +131,13 @@ Selesai.
     assert "data-size=\"S\"" in html_body
     assert "Diagram Alur Proses" in html_body
     assert '<circle cx="50" cy="50" r="40" fill="blue"' in html_body
+
+    # 7. Verify that markdown table is rendered to <table>, not raw | markdown
+    assert "<table>" in html_body
+    assert "<th>Fitur</th>" in html_body or "<th style=\"text-align:left\">Fitur</th>" in html_body
+    assert "<td>Drawing</td>" in html_body or "<td style=\"text-align:left\">Drawing</td>" in html_body
+
+    # 8. Verify that attachment image is rewritten to public /pub/attachments/99
+    assert '<img src="/pub/attachments/99" alt="Arsitektur"' in html_body
+
 
