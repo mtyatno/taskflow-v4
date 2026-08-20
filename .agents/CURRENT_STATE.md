@@ -1,26 +1,27 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-20 22:02  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Published Note Image Link Promotion & Drawing Hydration SELESAI)
+**Last Updated:** 2026-08-20 22:15  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Published Note Tldraw Canvas Public Loading & Attachment Image Thumbnails SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Published Note Image Link Promotion & Drawing Hydration SELESAI 2026-08-20:**
+- **Published Note Tldraw Canvas Public Loading & Attachment Image Thumbnails SELESAI 2026-08-20:**
   - **Root Causes:**
-    1. **Gambar Hanya Tampil Sebagai Nama File:** Ketika file gambar di-attach atau di-link dalam format `[image.png](/pub/attachments/123)` atau `[image.png]` (tanpa tanda seru `!`), parser markdown merendernya sebagai tautan teks `<a href="...">image.png</a>` sehingga di browser hanya muncul nama file saja.
-    2. **Frame Drawing Kosong:** Ketika catatan publik memuat `::draw[id]`, jika data gambar belum pernah diekspor sebagai static SVG preview (`svg_preview` kosong di database), container hanya menampilkan placeholder. Selain itu, endpoint `/api/drawings/{id}` memerlukan auth sehingga client browser tidak dapat mengambil data secara publik.
+    1. **Tldraw Iframe Memuat Kanvas Kosong (Blank/Frame Saja):** Iframe tldraw (`draw-app`) saat di-mount memanggil `fetch('/api/drawings/' + noteId)`. Pada halaman publik `/pub/...`, request ini ditolak dengan `401 Unauthorized` karena tidak ada token auth. Akibatnya tldraw tidak memuat data gambar dan hanya menampilkan frame kanvas kosong.
+    2. **Inline Data JSON Syntax Error:** Variabel `_drawData` di HTML publik diinjeksi langsung tanpa serialisasi `json.dumps()`, sehingga berisiko menimbulkan syntax error di script browser.
+    3. **Lampiran Gambar di Bawah Halaman:** Daftar lampiran hanya menampilkan teks link download tanpa preview gambar visual.
   - **Fixes Applied:**
-    1. **Image Link Promotion ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L2955) & [`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L15030)):**
-       - Setiap link markdown `[label](target)` yang memiliki ekstensi file gambar (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.bmp`, `.ico`) atau merujuk ke `/pub/attachments/` / attachment catatan otomatis dipromosikan menjadi syntax gambar `![label](target)` sehingga langsung dirender sebagai tag `<img>`.
-       - Nama file gambar standalone (`image.png` atau `[image.png]`) yang ada di attachment catatan otomatis dikonversi menjadi `![name](/pub/attachments/{id})`.
-    2. **Public Drawing Endpoint & Hydration ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4948)):**
-       - Menambahkan endpoint publik `@app.get("/pub/drawings/{drawing_id}")` untuk mengambil snapshot dan SVG preview secara publik.
-       - Pada rendering backend, jika `svg_preview` kosong tetapi `data_json` ada, render iframe langsung.
-       - Menambahkan script hidrasi client-side di `_PUBLIC_PAGE_HTML` yang otomatis mem-fetch `/pub/drawings/{id}` jika container preview belum memiliki elemen SVG.
-    3. SW cache di-bump ke **`taskflow-v259-image-link-promotion-and-drawing-preview`**.
+    1. **Tldraw Iframe Public Fallback ([`draw-app/src/App.jsx`](file:///Z:/Todolist%20Manager%20V5.0/draw-app/src/App.jsx#L231)):**
+       - Menambahkan fallback: jika `fetch('/api/drawings/' + noteId)` gagal/401, iframe otomatis mem-fetch dari endpoint publik `fetch('/pub/drawings/' + noteId)`.
+       - Handler pesan `load` kini mendukung data berbentuk string JSON maupun objek secara aman (`typeof data === 'string' ? JSON.parse(data) : data`).
+       - `draw-app` berhasil di-build ulang (`vite build`).
+    2. **Safe JSON Serialization ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4845)):**
+       - Menambahkan `json.dumps(draw_row["data_json"])` untuk embedding data drawing yang 100% aman tanpa merusak JavaScript halaman.
+    3. **Visual Thumbnails pada Daftar Lampiran ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4755)):**
+       - Lampiran bertipe gambar (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.svg` atau MIME `image/*`) kini otomatis merender tag preview `<img>` langsung di bawah item lampiran.
   - All tests passed: 433/433 JS unit tests + 40/40 pytest (0 failures), 5/5 inline scripts parse cleanly.
-  - **Device-test checklist:** (1) Buka note publik (`/pub/{username}/{slug}`) -> Gambar `.png` tampil langsung sebagai foto/gambar (bukan nama file/link), frame drawing menampilkan objek/sketsa gambar utuh.
+  - **Device-test checklist:** (1) Buka note publik (`/pub/{username}/{slug}`) -> Gambar PNG dan gambar sketsa tldraw termuat utuh di dalam framenya; (2) Di bagian bawah, lampiran gambar menampilkan thumbnail foto.utuh.
 
 ## 📌 Active Task
 - **Draw Canvas Export (PNG, SVG, JSON) Bugfix SELESAI 2026-08-19:**

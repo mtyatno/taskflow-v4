@@ -208,8 +208,8 @@ export default function App() {
       if (e.origin !== window.location.origin) return;
       if (e.data?.type === 'load' && editorRef.current && e.data.data) {
         try {
-          const snapshot = JSON.parse(e.data.data)
-          editorRef.current.store.loadSnapshot(snapshot)
+          const snapshot = typeof e.data.data === 'string' ? JSON.parse(e.data.data) : e.data.data;
+          editorRef.current.store.loadSnapshot(snapshot);
         } catch (_) {}
       }
       if (e.data?.type === 'requestSnapshot' && editorRef.current) {
@@ -229,11 +229,11 @@ export default function App() {
     // Load existing data from server if noteId is not default
     if (noteId && noteId !== 'default') {
       fetch(`/api/drawings/${noteId}`)
-        .then(res => res.ok ? res.json() : null)
+        .then(res => res.ok ? res.json() : fetch(`/pub/drawings/${noteId}`).then(r => r.ok ? r.json() : null))
         .then(async doc => {
           if (doc && doc.data_json && doc.data_json !== '{}') {
             try {
-              const snapshot = JSON.parse(doc.data_json);
+              const snapshot = typeof doc.data_json === 'string' ? JSON.parse(doc.data_json) : doc.data_json;
               editor.store.loadSnapshot(snapshot);
             } catch (_) {}
           }

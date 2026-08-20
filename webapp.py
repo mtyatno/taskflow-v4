@@ -4749,17 +4749,26 @@ async def view_published_note(username: str, slug: str, request: Request):
             att_items = ""
             for a in atts:
                 mime = a["mime_type"] or ""
+                orig_name = a["original_name"] or "file"
+                is_img = mime.startswith("image/") or any(orig_name.lower().endswith(ext) for ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'))
                 icon = '&#128206;'
                 for prefix, ico in mime_icons.items():
                     if mime.startswith(prefix):
                         icon = ico
                         break
+                img_preview = (
+                    f'<div style="margin-top:8px"><img src="/pub/attachments/{a["id"]}" alt="{_esc(orig_name)}" style="max-height:180px;max-width:100%;border-radius:6px;object-fit:contain;background:var(--code-bg);border:1px solid var(--border);display:block;" loading="lazy"></div>'
+                    if is_img else ''
+                )
                 att_items += (
-                    f'<a href="/pub/attachments/{a["id"]}" class="pub-attachment-item">'
+                    f'<div class="pub-attachment-item" style="display:block;margin-bottom:12px;">'
+                    f'<a href="/pub/attachments/{a["id"]}" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit;">'
                     f'<span class="pub-attachment-icon">{icon}</span>'
-                    f'<div><div class="pub-attachment-name">{_esc(a["original_name"] or "file")}</div>'
+                    f'<div><div class="pub-attachment-name">{_esc(orig_name)}</div>'
                     f'<div class="pub-attachment-meta">{_esc(mime)}</div></div>'
                     f'</a>'
+                    f'{img_preview}'
+                    f'</div>'
                 )
             attachments_html = (
                 f'<section class="pub-attachments">'
@@ -4839,8 +4848,9 @@ async def view_published_note(username: str, slug: str, request: Request):
             draw_row = conn.execute(
                 "SELECT data_json FROM drawings WHERE id = ?", (did,)
             ).fetchone()
-            if draw_row and draw_row["data_json"]:
-                drawing_data_js = draw_row["data_json"]  # JSON string, safe to embed
+            if draw_row and draw_row["data_json"] and draw_row["data_json"].strip() not in ('{}', ''):
+                import json as _json
+                drawing_data_js = _json.dumps(draw_row["data_json"])
                 drawing_html = f'''<section class="pub-drawing">
 <h3>&#127912; Drawing</h3>
 <div class="pub-drawing-container" id="drawing-container">

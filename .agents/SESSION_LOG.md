@@ -4,22 +4,18 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
-## [2026-08-20 22:02] - Antigravity (Gemini)
-- **Task:** Fix image.png only showing filename (not rendering image) and fix drawing frame appearing empty in published notes.
+## [2026-08-20 22:15] - Antigravity (Gemini)
+- **Task:** Fix tldraw canvas iframe rendering empty frame on published notes and add image thumbnails to attachment section.
 - **Root Causes:**
-  1. Image attachments/links formatted as `[image.png](/pub/attachments/123)` or `[image.png]` without `!` were parsed as text links `<a href="...">image.png</a>`, displaying only the filename.
-  2. Drawings without pre-rendered static `svg_preview` in the DB rendered only placeholder containers, and public visitors could not access `/api/drawings/{id}` due to auth requirement.
+  1. The tldraw iframe called `fetch('/api/drawings/' + noteId)` on mount, which returned 401 Unauthorized for public visitors, preventing the canvas from loading the snapshot.
+  2. Inline `_drawData` in published note template was inserted without `json.dumps()`, risking JS syntax errors.
+  3. Image attachments at the bottom of published notes only displayed download link text without visual image thumbnails.
 - **Changes:**
-  - In `_render_published_content` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L2955)):
-    - Promoted all links with image extensions (`.png`, `.jpg`, etc.) or pointing to attachment URLs to image syntax `![label](target)`.
-    - Auto-converted standalone `image.png` or `[image.png]` in note text to `![image.png](/pub/attachments/{id})`.
-    - Enhanced `_replace_draw` to render live iframe fallback if `data_json` exists when `svg_preview` is empty.
-  - Added public endpoint `@app.get("/pub/drawings/{drawing_id}")` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4948)).
-  - Added client-side drawing preview hydrator in `_PUBLIC_PAGE_HTML`.
-  - Added image link promotion in `renderMarkdown` ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L15030)).
-  - Bumped SW cache in [`static/sw.js`](file:///Z:/Todolist%20Manager%20V5.0/static/sw.js#L1) to `taskflow-v259-image-link-promotion-and-drawing-preview`.
-- **Files Modified:** `webapp.py`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
-- **Status:** Completed (40/40 Python tests pass, 433/433 JS tests pass, 5/5 inline scripts parse cleanly)
+  - Added fallback in [`draw-app/src/App.jsx`](file:///Z:/Todolist%20Manager%20V5.0/draw-app/src/App.jsx#L231) to fetch from `/pub/drawings/${noteId}` on 401 and handled string/object snapshot payloads. Rebuilt bundle with `vite build`.
+  - Used `json.dumps(draw_row["data_json"])` in `view_published_note` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4845)).
+  - Rendered inline visual `<img>` thumbnails for image attachments in the attachments list ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4755)).
+- **Files Modified:** `draw-app/src/App.jsx`, `webapp.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (40/40 Python tests pass, 433/433 JS tests pass, vite build succeeded)
 
 ---
 
