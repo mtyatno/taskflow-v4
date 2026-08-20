@@ -4,6 +4,19 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-20 10:51] - Antigravity (Gemini)
+- **Task:** Check and enhance Global Search (Ctrl+K) to find and navigate to drawings.
+- **Root Causes:**
+  - `GET /api/search` in `webapp.py` only queried `title LIKE ?` for drawings (not inspecting `data_json`), and `SearchModal` placeholder did not advertise searching drawings.
+- **Changes:**
+  - Updated `GET /api/search` in `webapp.py` to search drawings by `title` and `data_json` (`WHERE user_id = ? AND (title LIKE ? OR data_json LIKE ?)`).
+  - Updated `SearchModal` in `static/index.html` placeholder to "Cari task, catatan, mindmap, gambar, atau tag…" and section title to "🎨 Gambar / Drawings".
+  - Bumped Service Worker cache version in `static/sw.js` to `taskflow-v253-global-search-drawings-fix`.
+- **Files Modified:** `webapp.py`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 39/39 Python tests pass, syntax verified)
+
+---
+
 ## [2026-08-20 09:43] - Antigravity (Gemini)
 - **Task:** Fix inline drawing in note viewer not showing preview image directly (requiring popup click).
 - **Root Causes:**

@@ -4786,10 +4786,10 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
         drawing_rows = conn.execute("""
             SELECT id, title, updated_at
             FROM drawings
-            WHERE user_id = ? AND title LIKE ?
+            WHERE user_id = ? AND (title LIKE ? OR data_json LIKE ?)
             ORDER BY is_pinned DESC, updated_at DESC
             LIMIT 8
-        """, (uid, like)).fetchall()
+        """, (uid, like, like)).fetchall()
 
     def snippet(text, length=80):
         if not text:

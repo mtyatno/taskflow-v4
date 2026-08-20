@@ -22092,7 +22092,7 @@ function SearchModal({
     ref: inputRef,
     value: query,
     onChange: e => search(e.target.value),
-    placeholder: "Cari task, catatan, mindmap, atau tag…",
+    placeholder: "Cari task, catatan, mindmap, gambar, atau tag…",
     style: {
       flex: 1,
       border: "none",
@@ -22312,7 +22312,7 @@ function SearchModal({
       letterSpacing: 1,
       padding: "6px 16px 4px"
     }
-  }, "\uD83C\uDFA8 Drawings"), results.drawings.map(d => /*#__PURE__*/React.createElement("div", {
+  }, "🎨 Gambar / Drawings"), results.drawings.map(d => /*#__PURE__*/React.createElement("div", {
     key: d.id,
     onClick: () => {
       onClose();

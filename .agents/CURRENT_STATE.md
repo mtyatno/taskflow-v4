@@ -1,26 +1,25 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-20 09:43  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Draw SVG Sync & Live Preview Fix SELESAI)
+**Last Updated:** 2026-08-20 10:51  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Global Search Drawings Integration SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Standalone Draw Page & Note Embedding (SVG Sync & Preview Fix & SW v252 SELESAI 2026-08-20):**
-  - 6 task SDD (spec `2026-08-19-standalone-draw-page-and-note-embedding-design.md`, plan `2026-08-19-standalone-draw-page-and-note-embedding.md`) commits `66589da`..`9098ea0`:
+- **Standalone Draw Page & Note Embedding (Global Search Drawings & SW v253 SELESAI 2026-08-20):**
+  - 6 task SDD (spec `2026-08-19-standalone-draw-page-and-note-embedding-design.md`, plan `2026-08-19-standalone-draw-page-and-note-embedding.md`) commits `66589da`..`777e6b1`:
     1. **Backend Drawing Entity & Multi-Tenant CRUD:** Menambahkan tabel `drawings` (id, user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at), router `/api/drawings` (GET, POST, GET/:id, PUT/:id, DELETE/:id, PATCH/:id/pin), serta perluasan endpoint `/api/search` (mencari `drawings` per user).
     2. **Offline Store, Router & DB Schema Migration v11:** Schema IndexedDB v11 di `db.js` dengan object store `drawings`, repository `drawingrepo.js`, offline router `drawingroutes.js`, dan outbox sync handler.
     3. **Multi-Tab Workspace State Machine:** Module UMD `static/offline/drawingtabs.js` (openTab, closeTab, updateTabTitle dengan aturan FIFO cap 5 tab) + 7 unit test TDD di `tests/offline/drawingtabs.test.js`.
     4. **DrawPage UI Component (2-Column & Multi-Tab):** Left sidebar (pencarian, filter tag, daftar pinned/all, inline rename, delete confirmation, pin toggle, new drawing creator) + Right canvas multi-tab bar (instant switching tanpa reload iframe, fullscreen toggle, export actions). Navigasi `Draw` terintegrasi di Sidebar utama.
     5. **Note Editor Embedding:** Syntax block `::draw[id]{title="..."}` di-render menjadi interactive `.note-draw-card` dengan auto-hydrate SVG preview, tombol `🎨 +Gambar` di `NoteToolbar`, item `🎨 Gambar / Sketsa (/draw)` di Milkdown slash menu, keyboard slash trigger `/draw`, `/canvas`, `/gambar`, `/sketsa`, serta dialog `QuickDrawModal` dan `DrawingInsertModal`.
     6. **Search & Dashboard Integration & SW Cache Bump:** Hasil pencarian `SearchModal` menyertakan `🎨 Drawings`, card "🎨 Gambar Disematkan" di halaman `Dashboard`.
-    7. **SVG Sync & Note Viewer Live Preview Fix:**
-       - Menambahkan helper `generateSvgString` di `draw-app/src/App.jsx` yang secara otomatis mengekspor SVG vektor menggunakan `editor.getSvg()`, `editor.getSvgString()`, dan `exportToBlob()`, serta mem-post pesan `{ type: 'change', noteId, data, svg }` saat canvas dimuat dan saat digambar.
-       - Memperbaiki `NoteModal` dan `NotePanel` agar tidak menimpa / memotong pesan sinkronisasi gambar standalone/inline (`!e.data.noteId || String(e.data.noteId) === String(note.id)`).
-       - Memperbarui seluruh URL query iframe tldraw ke `?noteId=...&v=142` untuk cache-busting.
-       - Bump SW Cache ke **`taskflow-v252-draw-svg-sync-and-preview-fix`**.
+    7. **Global Search (Ctrl+K) Drawings Enhancement:**
+       - Memperluas query `GET /api/search` di `webapp.py` untuk mencari pada `title` dan isi `data_json` sketsa gambar (`WHERE user_id = ? AND (title LIKE ? OR data_json LIKE ?)`).
+       - Memperbarui placeholder dan label di `SearchModal` (`static/index.html`) menjadi "Cari task, catatan, mindmap, gambar, atau tag…" dan "🎨 Gambar / Drawings".
+       - Bump SW Cache ke **`taskflow-v253-global-search-drawings-fix`**.
   - All tests passed: 433/433 JS unit tests + 39/39 pytest (0 failures), 5/5 inline scripts parse cleanly.
-  - **Device-test checklist:** (1) Hard refresh (Ctrl+F5) di browser -> Buka catatan dengan gambar inline -> Gambar sketsa SVG langsung terlihat utuh di note viewer tanpa harus membuka modal popup; (2) Mengedit gambar di popup / Draw page langsung memperbarui preview SVG secara real-time.
+  - **Device-test checklist:** (1) Hard refresh (Ctrl+F5) di browser -> Tekan `Ctrl + K` -> Ketik nama/judul gambar -> Gambar muncul di bagian "🎨 Gambar / Drawings" -> Klik item -> Otomatis berpindah ke halaman Draw dan membuka tab gambar yang dipilih.
 
 ## 📌 Active Task
 - **Draw Canvas Export (PNG, SVG, JSON) Bugfix SELESAI 2026-08-19:**
