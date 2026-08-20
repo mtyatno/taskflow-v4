@@ -1,21 +1,26 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-20 22:25  
-**Updated By:** Antigravity (Gemini 3.7 Flash — IndexedDB drawingrepo Index NotFoundError Fix SELESAI)
+**Last Updated:** 2026-08-21 05:38  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Inline Drawing Full Embedding & Live SVG Swapping SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **IndexedDB drawingrepo Index NotFoundError Fix SELESAI 2026-08-20:**
-  - **Root Causes:**
-    1. **`Uncaught NotFoundError: Failed to execute 'index' on 'IDBObjectStore'`:** Pada `getRaw()` dan `getByNoteCid()` di [`static/offline/drawingrepo.js`](file:///Z:/Todolist%20Manager%20V5.0/static/offline/drawingrepo.js#L44), kode memanggil `os.index("server_id")` dan `os.index("note_cid")` secara langsung. Jika IndexedDB klien berada di versi lawas yang belum membuat index tersebut, IndexedDB langsung melempar error unhandled exception, menghentikan eksekusi script dan menyebabkan local router crash.
-    2. **DB_VERSION Outdated:** `DB_VERSION` di [`static/offline/db.js`](file:///Z:/Todolist%20Manager%20V5.0/static/offline/db.js#L12) masih berada di versi 4 sehingga browser tidak memicu `onupgradeneeded` untuk membuat index yang hilang.
+- **Inline Drawing Full Embedding & Live SVG Swapping SELESAI 2026-08-21:**
+  - **Root Cause of Empty Frame in Published Notes:**
+    1. `_replace_draw` di backend hanya mencari berdasarkan `id = drawing_id`. Jika `drawing_id` pada syntax catatan merujuk ke judul gambar (`title`) atau ID catatan (`note_id`), backend gagal menemukan baris gambar dan hanya menampilkan placeholder kosong.
+    2. Ketika `svg_preview` belum tersimpan di database, backend sebelumnya hanya merender teks placeholder tanpa iframe aktif.
+    3. Container preview di CSS (`.note-draw-preview-container`) belum memiliki styling explicit untuk elemen `iframe`, sehingga iframe ter-collapse.
   - **Fixes Applied:**
-    1. Di [`static/offline/drawingrepo.js`](file:///Z:/Todolist%20Manager%20V5.0/static/offline/drawingrepo.js#L40), ditambahkan pengecekan `os.indexNames.contains("server_id")` serta try-catch dan fallback memindai seluruh record jika index tidak ditemukan.
-    2. Di [`static/offline/db.js`](file:///Z:/Todolist%20Manager%20V5.0/static/offline/db.js#L12), `DB_VERSION` dinaikkan ke versi `5` sehingga browser klien otomatis melakukan upgrade skema dan membuat semua index store `drawings`.
-    3. Di [`static/sw.js`](file:///Z:/Todolist%20Manager%20V5.0/static/sw.js#L1), cache di-bump ke **`taskflow-v260-idb-drawingrepo-index-fix`**.
+    1. **Drawing Resolution & Iframe Fallback ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L3080)):**
+       - Query drawing kini memeriksa `id = ? OR title = ?` dan fallback ke `note_id`.
+       - Jika static SVG preview belum tersedia, container otomatis memuat iframe live preview `/static/vendor/tldraw/index.html?noteId={actual_id}` dengan tinggi terkonfigurasi.
+    2. **CSS Rule untuk Iframe Preview ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4330)):**
+       - Menambahkan `.note-draw-preview-container iframe { width: 100%; height: 100%; min-height: 280px; border: none; display: block; }`.
+    3. **Live SVG Swap Listener ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4625)):**
+       - Menambahkan postMessage listener pada script halaman publik sehingga begitu iframe kanvas selesai me-render sketsa dan mengekspor SVG, iframe secara instan ditukar dengan elemen `<svg>` statis beresolusi tajam.
   - All tests passed: 433/433 JS unit tests + 40/40 pytest (0 failures), 5/5 inline scripts parse cleanly.
-  - **Device-test checklist:** (1) Buka / view catatan (misal note #203) -> Tidak ada error console `NotFoundError: Failed to execute 'index' on 'IDBObjectStore'`.
+  - **Device-test checklist:** (1) Buka catatan publik (`/pub/{username}/{slug}`) -> Card inline drawing (`::draw[...]`) langsung menampilkan sketsa/objek drawing di dalam framenya.
 
 ## 📌 Active Task
 - **Draw Canvas Export (PNG, SVG, JSON) Bugfix SELESAI 2026-08-19:**

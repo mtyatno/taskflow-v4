@@ -4,16 +4,19 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
-## [2026-08-20 22:25] - Antigravity (Gemini)
-- **Task:** Fix `Uncaught NotFoundError: Failed to execute 'index' on 'IDBObjectStore': The specified index was not found` on opening notes.
-- **Root Cause:**
-  - `drawingrepo.js` called `os.index("server_id")` and `os.index("note_cid")` without verifying that the index exists in the user's local IndexedDB instance, and `DB_VERSION` had not been bumped to trigger schema index creation on existing client databases.
+## [2026-08-21 05:38] - Antigravity (Gemini)
+- **Task:** Ensure inline drawings (`::draw[...]`) in published notes always render full drawing canvas/preview instead of an empty frame.
+- **Root Causes:**
+  1. `_replace_draw` only searched by `id = drawing_id`. If the token referenced a drawing title or note ID, query failed and rendered a static text placeholder.
+  2. If static `svg_preview` was not yet in the DB, it rendered an empty placeholder instead of loading the drawing iframe.
+  3. CSS lacked explicit dimensions for `iframe` inside `.note-draw-preview-container`.
 - **Changes:**
-  - Added safe index existence check `os.indexNames.contains(...)` and fallback record scanning in [`static/offline/drawingrepo.js`](file:///Z:/Todolist%20Manager%20V5.0/static/offline/drawingrepo.js#L40).
-  - Bumped `DB_VERSION` to `5` in [`static/offline/db.js`](file:///Z:/Todolist%20Manager%20V5.0/static/offline/db.js#L12) and updated tests in `chatdb.test.js` and `db.test.js`.
-  - Bumped SW cache in [`static/sw.js`](file:///Z:/Todolist%20Manager%20V5.0/static/sw.js#L1) to `taskflow-v260-idb-drawingrepo-index-fix`.
-- **Files Modified:** `static/offline/drawingrepo.js`, `static/offline/db.js`, `static/sw.js`, `tests/offline/chatdb.test.js`, `tests/offline/db.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
-- **Status:** Completed (433/433 JS tests pass, 40/40 pytest pass)
+  - Expanded `_replace_draw` in [`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L3080) to query `id = ? OR title = ?` with `note_id` fallback, and default to the interactive drawing iframe if SVG is missing.
+  - Added CSS rule for `.note-draw-preview-container iframe` in [`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4330).
+  - Added live SVG swap listener in `_PUBLIC_PAGE_HTML` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4625)).
+  - Re-built `draw-app` bundle with `vite build`.
+- **Files Modified:** `webapp.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (40/40 Python tests pass, 433/433 JS tests pass)
 
 ---
 

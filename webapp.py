@@ -3077,12 +3077,19 @@ def _render_published_content(raw_content: str, conn, note_id: int = None) -> st
         width_val = width or ('50%' if size == 'S' else '75%' if size == 'M' else '100%')
         height_val = height or ('200px' if size == 'S' else '300px' if size == 'M' else '400px')
 
-        # Fetch drawing from database
+        # Fetch drawing from database by id or title, with note_id fallback
         d_row = conn.execute(
-            "SELECT id, title, svg_preview, data_json FROM drawings WHERE id = ?",
-            (drawing_id,)
+            "SELECT id, title, svg_preview, data_json FROM drawings WHERE id = ? OR title = ?",
+            (drawing_id, drawing_id)
         ).fetchone()
 
+        if not d_row and note_id:
+            d_row = conn.execute(
+                "SELECT id, title, svg_preview, data_json FROM drawings WHERE id = ?",
+                (note_id,)
+            ).fetchone()
+
+        actual_id = d_row["id"] if d_row else drawing_id
         if d_row and not title:
             title = d_row["title"]
         if not title:
@@ -3091,17 +3098,15 @@ def _render_published_content(raw_content: str, conn, note_id: int = None) -> st
         safe_title = html.escape(title)
         if d_row and d_row["svg_preview"] and d_row["svg_preview"].strip().startswith("<svg"):
             svg_html = d_row["svg_preview"]
-        elif d_row and d_row["data_json"] and d_row["data_json"].strip() not in ('{}', ''):
-            svg_html = f'<iframe src="/static/vendor/tldraw/index.html?noteId={drawing_id}" style="width:100%;height:{height_val};border:none;" title="Drawing"></iframe>'
         else:
-            svg_html = '<div style="color:var(--text-secondary);font-size:13px;padding:24px;text-align:center;">🎨 Gambar / Sketsa</div>'
+            svg_html = f'<iframe src="/static/vendor/tldraw/index.html?noteId={html.escape(str(actual_id))}" style="width:100%;height:{height_val};border:none;" title="Drawing"></iframe>'
 
         card_style = f"width:{width_val};max-width:{width_val};margin:16px auto;" if width_val != '100%' else "width:100%;margin:16px 0;"
 
         draw_map[key] = (
-            f'<div class="note-draw-card" data-drawing-id="{html.escape(str(drawing_id))}" data-size="{size}" style="{card_style}">'
+            f'<div class="note-draw-card" data-drawing-id="{html.escape(str(actual_id))}" data-size="{size}" style="{card_style}">'
             f'<div class="note-draw-header"><span>🎨 {safe_title}</span></div>'
-            f'<div class="note-draw-preview-container" data-drawing-preview="{html.escape(str(drawing_id))}" style="max-height:{height_val};">{svg_html}</div>'
+            f'<div class="note-draw-preview-container" data-drawing-preview="{html.escape(str(actual_id))}" style="height:{height_val};max-height:{height_val};">{svg_html}</div>'
             f'</div>'
         )
         return key
@@ -4324,6 +4329,13 @@ _PUBLIC_CSS = """<style>
     height: auto;
     display: block;
   }
+  .note-draw-preview-container iframe {
+    width: 100%;
+    height: 100%;
+    min-height: 280px;
+    border: none;
+    display: block;
+  }
   .pub-drawing { margin-top: 32px; }
   .pub-drawing h3 { font-size: 14px; margin-bottom: 12px; color: var(--text); }
   .pub-drawing-container { position: relative; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; height: 450px; }
@@ -4611,6 +4623,24 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
       }}
     }});
   }} catch(e) {{}}
+
+  // Swap iframe with rendered SVG when ready
+  window.addEventListener('message', function(e) {{
+    if (e.origin !== window.location.origin) return;
+    if (e.data && e.data.type === 'change' && e.data.noteId && e.data.svg && e.data.svg.trim().startsWith('<svg')) {{
+      var container = document.querySelector('.note-draw-preview-container[data-drawing-preview="' + e.data.noteId + '"]');
+      if (container) {{
+        container.innerHTML = e.data.svg;
+        var svgEl = container.querySelector('svg');
+        if (svgEl) {{
+          svgEl.style.width = '100%';
+          svgEl.style.height = 'auto';
+          svgEl.style.maxHeight = '100%';
+          svgEl.style.display = 'block';
+        }}
+      }}
+    }}
+  }});
 </script>
 </body>
 </html>"""
