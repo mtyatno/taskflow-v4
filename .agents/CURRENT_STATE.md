@@ -1,28 +1,27 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-20 15:07  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Scope Fix for parseDirectiveAttrs & SW v257 SELESAI)
+**Last Updated:** 2026-08-20 16:03  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Published Note Inline Drawing Rendering Fix SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Standalone Draw Page & Note Embedding (Resizable Draw Frames & SW v257 SELESAI 2026-08-20):**
-  - 6 task SDD (spec `2026-08-19-standalone-draw-page-and-note-embedding-design.md`, plan `2026-08-19-standalone-draw-page-and-note-embedding.md`) commits `66589da`..`d7a3a23`:
+- **Standalone Draw Page & Note Embedding (Published Notes Inline Draw Fix & SW v257 SELESAI 2026-08-20):**
+  - 6 task SDD (spec `2026-08-19-standalone-draw-page-and-note-embedding-design.md`, plan `2026-08-19-standalone-draw-page-and-note-embedding.md`) commits `66589da`..`8de2fc0`:
     1. **Backend Drawing Entity & Multi-Tenant CRUD:** Menambahkan tabel `drawings` (id, user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at), router `/api/drawings` (GET, POST, GET/:id, PUT/:id, DELETE/:id, PATCH/:id/pin), serta perluasan endpoint `/api/search` (mencari `drawings` per user).
     2. **Offline Store, Router & DB Schema Migration v11:** Schema IndexedDB v11 di `db.js` dengan object store `drawings`, repository `drawingrepo.js`, offline router `drawingroutes.js`, dan outbox sync handler.
     3. **Multi-Tab Workspace State Machine:** Module UMD `static/offline/drawingtabs.js` (openTab, closeTab, updateTabTitle dengan aturan FIFO cap 5 tab) + 7 unit test TDD di `tests/offline/drawingtabs.test.js`.
     4. **DrawPage UI Component (2-Column & Multi-Tab):** Left sidebar (pencarian, filter tag, daftar pinned/all, inline rename, delete confirmation, pin toggle, new drawing creator) + Right canvas multi-tab bar (instant switching tanpa reload iframe, fullscreen toggle, export actions). Navigasi `Draw` terintegrasi di Sidebar utama.
     5. **Note Editor Embedding:** Syntax block `::draw[id]{title="..."}` di-render menjadi interactive `.note-draw-card` dengan auto-hydrate SVG preview, tombol `🎨 +Gambar` di `NoteToolbar`, item `🎨 Gambar / Sketsa (/draw)` di Milkdown slash menu, keyboard slash trigger `/draw`, `/canvas`, `/gambar`, `/sketsa`, serta dialog `QuickDrawModal` dan `DrawingInsertModal`.
     6. **Search & Dashboard Integration & SW Cache Bump:** Hasil pencarian `SearchModal` menyertakan `🎨 Drawings`, card "🎨 Gambar Disematkan" di halaman `Dashboard`.
-    7. **Resizable Inline Note Drawing Frames & Print-to-PDF Fitting:**
-       - Menambahkan parser atribut direktif `parseDirectiveAttrs` di global/top-level scope untuk mendukung `size="S|M|L"`, `width="50%|75%|100%"`, dan `height="..."` pada token `::draw[...]` (memperbaiki ReferenceError sebelumnya).
-       - Menambahkan tombol pil ukuran frame (`S` [50%], `M` [75%], `L` [100%]) pada header kartu gambar di dalam catatan.
-       - Menambahkan CSS vertical drag handle (`resize: vertical; overflow: auto;`) pada `.note-draw-preview-container` sehingga tinggi frame dapat ditarik manual secara interaktif.
-       - Menambahkan listener `changeDrawingSize` di `NotePanel` untuk langsung meng-update ukuran frame dan menyimpan atribut ke dalam konten catatan (`::draw[id]{title="..." width="50%" size="S"}`).
-       - Mengoptimalkan `@media print` dan `handlePrint` di mana kartu gambar otomatis menyesuaikan lebar (50%, 75%, atau 100%) dan membatasi tinggi maksimum SVG (180px untuk S, 280px untuk M, 380px untuk L) sehingga dokumen catatan dengan gambar dapat pas di 1 halaman PDF.
-       - Bump SW Cache ke **`taskflow-v257-fix-parse-directive-attrs-scope`**.
-  - All tests passed: 433/433 JS unit tests + 39/39 pytest (0 failures), 5/5 inline scripts parse cleanly.
-  - **Device-test checklist:** (1) Hard refresh (Ctrl+F5) di browser -> Halaman terbuka normal tanpa console error -> Buka catatan dengan gambar inline -> Klik tombol pill `S` atau `M` di header gambar -> Ukuran frame langsung mengecil -> Klik tombol Cetak / Print to PDF -> Preview PDF kini ramping dan muat dalam 1 halaman.
+    7. **Published Notes Inline Drawing Rendering & Meta Cleanup:**
+       - Memperbarui `_render_published_content` di `webapp.py` untuk mengurai token `::draw[id]{...}`, mengambil `svg_preview` dari tabel `drawings`, dan merender kartu `.note-draw-card` dengan SVG inline pada halaman publik.
+       - Menambahkan CSS `.note-draw-card` dan kontainer preview di `_PUBLIC_CSS` pada halaman publik (`/pub/{username}/{slug}`).
+       - Memperbaiki pembersihan teks meta tag `<meta name="description">` agar tidak menyisakan teks direktif mentah.
+       - Memperbaiki query legacy canvas di `view_published_note` (`WHERE id = ?`).
+       - Unit test baru `test_published_note_inline_draw_rendering` di `tests/test_drawings.py` terverifikasi lulus.
+  - All tests passed: 433/433 JS unit tests + 40/40 pytest (0 failures), 5/5 inline scripts parse cleanly.
+  - **Device-test checklist:** (1) Buka link publik note yang dipublish (`/pub/{username}/{slug}`) -> Gambar inline tampil sempurna sebagai kartu gambar dengan visualisasi SVG vektor utuh tanpa teks mentah `::draw[...]`.
 
 ## 📌 Active Task
 - **Draw Canvas Export (PNG, SVG, JSON) Bugfix SELESAI 2026-08-19:**

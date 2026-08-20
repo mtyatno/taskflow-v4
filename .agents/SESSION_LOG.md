@@ -4,6 +4,21 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-20 16:03] - Antigravity (Gemini)
+- **Task:** Fix inline drawing blocks in published public notes (`/pub/{username}/{slug}`) appearing as raw syntax `::draw[...]`.
+- **Root Cause:**
+  - `_render_published_content` in `webapp.py` was not processing `::draw[...]` blocks or querying the `drawings` table for SVG previews, and `_PUBLIC_CSS` lacked `.note-draw-card` styles.
+  - Additionally, `view_published_note` had a legacy query using non-existent column `WHERE note_id = ?` instead of `WHERE id = ?`.
+- **Changes:**
+  - Implemented `::draw[...]` token processing and SVG preview embed inside `_render_published_content` in `webapp.py`.
+  - Added `.note-draw-card` responsive and dark-mode styles in `_PUBLIC_CSS`.
+  - Cleaned meta description generation in `view_published_note`.
+  - Added unit test `test_published_note_inline_draw_rendering` in `tests/test_drawings.py`.
+- **Files Modified:** `webapp.py`, `tests/test_drawings.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 40/40 Python tests pass, syntax verified)
+
+---
+
 ## [2026-08-20 15:07] - Antigravity (Gemini)
 - **Task:** Fix `ReferenceError: parseDirectiveAttrs is not defined` on page load.
 - **Root Cause:**

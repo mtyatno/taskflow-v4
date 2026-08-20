@@ -2944,17 +2944,86 @@ def _render_published_content(raw_content: str, conn) -> str:
     content = _re.sub(r'^(\s*)- \[ \]', r'\1- ☐', content, flags=_re.MULTILINE)
     content = _re.sub(r'^(\s*)- \[[xX]\]', r'\1- ☑', content, flags=_re.MULTILINE)
 
+    # 6.5. Process ::draw[id]{...} tokens → extract and replace with placeholder
+    draw_map = {}
+    di = 0
+
+    def _replace_draw(m):
+        nonlocal di
+        key = f"TFMDRAWBLK{di}END"
+        di += 1
+        drawing_id = m.group(1)
+        attr_raw = m.group(2) or ""
+
+        # Parse attributes (title, width, height, size)
+        attrs = {}
+        if attr_raw:
+            unescaped = _re.sub(r'\\(["\'])', r'\1', attr_raw)
+            for am in _re.finditer(r'([a-zA-Z0-9_-]+)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s\}]+))', unescaped):
+                k = am.group(1).lower()
+                v = am.group(2) or am.group(3) or am.group(4) or ''
+                attrs[k] = v
+
+        title = attrs.get('title')
+        size = attrs.get('size', '').upper()
+        width = attrs.get('width', '')
+        height = attrs.get('height', '')
+
+        if not size:
+            if width in ('40%', '50%', 'small'):
+                size = 'S'
+            elif width in ('70%', '75%', 'medium'):
+                size = 'M'
+            else:
+                size = 'L'
+
+        width_val = width or ('50%' if size == 'S' else '75%' if size == 'M' else '100%')
+        height_val = height or ('200px' if size == 'S' else '300px' if size == 'M' else '400px')
+
+        # Fetch drawing from database
+        d_row = conn.execute(
+            "SELECT id, title, svg_preview FROM drawings WHERE id = ?",
+            (drawing_id,)
+        ).fetchone()
+
+        if d_row and not title:
+            title = d_row["title"]
+        if not title:
+            title = "Gambar"
+
+        safe_title = html.escape(title)
+        if d_row and d_row["svg_preview"] and d_row["svg_preview"].strip().startswith("<svg"):
+            svg_html = d_row["svg_preview"]
+        else:
+            svg_html = '<div style="color:var(--text-secondary);font-size:13px;padding:24px;text-align:center;">🎨 Gambar / Sketsa</div>'
+
+        card_style = f"width:{width_val};max-width:{width_val};margin:16px auto;" if width_val != '100%' else "width:100%;margin:16px 0;"
+
+        draw_map[key] = (
+            f'<div class="note-draw-card" data-size="{size}" style="{card_style}">'
+            f'<div class="note-draw-header"><span>🎨 {safe_title}</span></div>'
+            f'<div class="note-draw-preview-container" style="max-height:{height_val};">{svg_html}</div>'
+            f'</div>'
+        )
+        return key
+
+    content = _re.sub(r'\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?', _replace_draw, content)
+
     # 7. Render markdown → HTML via mistune
     try:
         import mistune
         md_renderer = mistune.create_markdown(escape=False)
-        html = md_renderer(content)
+        rendered_html = md_renderer(content)
     except ImportError:
         # Fallback: wrap in <pre> if mistune not installed
         escaped = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        html = f'<pre style="white-space:pre-wrap;font:inherit">{escaped}</pre>'
+        rendered_html = f'<pre style="white-space:pre-wrap;font:inherit">{escaped}</pre>'
 
-    return html
+    # 8. Restore drawing blocks
+    for k, v in draw_map.items():
+        rendered_html = rendered_html.replace(f'<p>{k}</p>', v).replace(k, v)
+
+    return rendered_html
 
 def _resolve_linked_to(titles: list[str], user_id: int, conn) -> list[int]:
     """Resolve note titles/IDs to note IDs. Handles plain titles, id:N, and numeric IDs."""
@@ -4049,6 +4118,47 @@ _PUBLIC_CSS = """<style>
   .pub-attachment-icon { font-size: 20px; flex-shrink: 0; }
   .pub-attachment-name { font-size: 13px; font-weight: 500; word-break: break-all; }
   .pub-attachment-meta { font-size: 11px; color: var(--text-secondary); }
+  /* Inline Note Drawing Card */
+  .note-draw-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card-bg);
+    overflow: hidden;
+    margin: 16px 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    box-sizing: border-box;
+  }
+  .note-draw-card[data-size="S"] { width: 50%; max-width: 50%; margin: 16px auto; }
+  .note-draw-card[data-size="M"] { width: 75%; max-width: 75%; margin: 16px auto; }
+  .note-draw-card[data-size="L"], .note-draw-card[data-size="FULL"] { width: 100%; max-width: 100%; margin: 16px 0; }
+  .note-draw-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--code-bg);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .note-draw-preview-container {
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    overflow: hidden;
+    background: var(--bg);
+    box-sizing: border-box;
+  }
+  .note-draw-preview-container svg {
+    max-width: 100%;
+    max-height: 100%;
+    width: 100%;
+    height: auto;
+    display: block;
+  }
   .pub-drawing { margin-top: 32px; }
   .pub-drawing h3 { font-size: 14px; margin-bottom: 12px; color: var(--text); }
   .pub-drawing-container { position: relative; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; height: 450px; }
@@ -4396,7 +4506,11 @@ async def view_published_note(username: str, slug: str, request: Request):
             return str(s).replace('{', '{{').replace('}', '}}')
 
         raw_content = row["content"] or ""
-        description = html.escape(raw_content[:200].replace('\n', ' ').strip())
+        desc_clean = _re.sub(r'\\?::draw\\?\[[^\]]*\](?:\s*\\?\{[^}]*\\?\})?', '', raw_content)
+        desc_clean = _re.sub(r'\\?\[tasklink:[^\]]*\]', '', desc_clean)
+        desc_clean = _re.sub(r'==([^=\n]+)==', r'\1', desc_clean)
+        desc_clean = _re.sub(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]', r'\1', desc_clean)
+        description = html.escape(desc_clean[:200].replace('\n', ' ').strip())
         body_html = _render_published_content(raw_content, conn)
 
         # Dates
@@ -4516,18 +4630,18 @@ async def view_published_note(username: str, slug: str, request: Request):
                 )
                 backlinks_html = f'<section><h3>&#128279; Related</h3><ul>{items}</ul></section>'
 
-        # Drawing canvas (read-only embed)
+        # Drawing canvas (read-only embed for legacy per-note canvas)
         drawing_html = ''
         drawing_data_js = 'null'
         if row["note_id"]:
             did = str(row["note_id"])
             # Check if drawing data exists
             draw_row = conn.execute(
-                "SELECT data_json FROM drawings WHERE note_id = ?", (row["note_id"],)
+                "SELECT data_json FROM drawings WHERE id = ?", (did,)
             ).fetchone()
-            if draw_row:
+            if draw_row and draw_row["data_json"]:
                 drawing_data_js = draw_row["data_json"]  # JSON string, safe to embed
-            drawing_html = f'''<section class="pub-drawing">
+                drawing_html = f'''<section class="pub-drawing">
 <h3>&#127912; Drawing</h3>
 <div class="pub-drawing-container" id="drawing-container">
   <iframe src="/static/vendor/tldraw/index.html?noteId={did}" id="drawing-iframe" title="Drawing" style="width:100%;height:100%;border:none"></iframe>

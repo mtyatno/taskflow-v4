@@ -71,3 +71,53 @@ def test_drawings_crud_flow(client):
     # 9. Verify 404 after delete
     get_after_del = client.get(f"/api/drawings/{drawing_id}", headers=headers)
     assert get_after_del.status_code == 404
+
+
+def test_published_note_inline_draw_rendering(client):
+    # 1. Register & login
+    user = register_user(client, "pubdrawuser", "pubdraw@test.id")
+    token = user.get("token") or user.get("access_token")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+    # 2. Create drawing
+    create_draw = client.post("/api/drawings", json={
+        "title": "Diagram Alur",
+        "data_json": '{"shapes":{}}',
+        "svg_preview": '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="blue" /></svg>'
+    }, headers=headers)
+    assert create_draw.status_code == 200
+    drawing_id = create_draw.json()["id"]
+
+    # 3. Create note with inline draw syntax
+    note_content = f"""# Catatan Dokumentasi
+
+Berikut adalah diagram alur proses:
+
+::draw[{drawing_id}]{{title="Diagram Alur Proses" size="S"}}
+
+Selesai.
+"""
+    create_note = client.post("/api/scratchpad", json={
+        "title": "Doc Note",
+        "content": note_content
+    }, headers=headers)
+    assert create_note.status_code == 200
+    note_id = create_note.json()["id"]
+
+    # 4. Publish note
+    pub_res = client.post(f"/api/scratchpad/{note_id}/publish", json={}, headers=headers)
+    assert pub_res.status_code == 200
+    slug = pub_res.json()["slug"]
+
+    # 5. Access public published note page
+    view_res = client.get(f"/pub/pubdrawuser/{slug}")
+    assert view_res.status_code == 200
+    html_body = view_res.text
+
+    # 6. Verify that ::draw syntax is NOT raw text, but rendered as note-draw-card with SVG
+    assert f"::draw[{drawing_id}]" not in html_body
+    assert "note-draw-card" in html_body
+    assert "data-size=\"S\"" in html_body
+    assert "Diagram Alur Proses" in html_body
+    assert '<circle cx="50" cy="50" r="40" fill="blue"' in html_body
+
