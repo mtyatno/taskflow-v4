@@ -15028,6 +15028,15 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
     return '[' + label.replace(/\\\]/g, ']').replace(/\\\[/g, '[').trim() + '](' + url.replace(/\\\)/g, ')').replace(/\\\(/g, '(').trim() + ')';
   });
 
+  // Promote any link pointing to an image or image attachment to an image tag
+  const IMG_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'];
+  processed5 = processed5.replace(/(!?\[)([^\]]*?)\]\(([^)]*?)\)/g, (m, pfx, label, target) => {
+    const lLower = label.toLowerCase().trim();
+    const tLower = target.toLowerCase().trim();
+    const isImg = pfx.startsWith('!') || IMG_EXTS.some(ext => lLower.endsWith(ext) || tLower.endsWith(ext)) || tLower.includes('/attachments/');
+    return (isImg ? '![' : pfx) + label + '](' + target + ')';
+  });
+
   // Unescape & normalize markdown tables for marked
   const mdLines = processed5.split('\n');
   const cleanLines = [];

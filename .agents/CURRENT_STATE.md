@@ -1,21 +1,26 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-20 21:50  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Startup Migration Crash Fix & Schema Auto-Migration SELESAI)
+**Last Updated:** 2026-08-20 22:02  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Published Note Image Link Promotion & Drawing Hydration SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Startup Migration Crash Fix (`drawings.is_pinned`) SELESAI 2026-08-20:**
-  - **Root Cause of 500 Error across entire site (`/`):**
-    - Saat aplikasi startup di VPS, `migrate_db()` memanggil `TaskRepository._init_db()`.
-    - Di `_init_db()` ([`repository.py`](file:///Z:/Todolist%20Manager%20V5.0/repository.py#L347)), perintah `CREATE INDEX IF NOT EXISTS idx_drawings_user_pinned ON drawings(user_id, is_pinned DESC)` dijalankan tanpa memeriksa apakah tabel `drawings` (yang mungkin sudah ada dari versi sebelumnya) memiliki kolom `is_pinned`.
-    - Hal ini melempar `sqlite3.OperationalError: no such column: is_pinned` saat server startup, menyebabkan proses Uvicorn crash dan web server / reverse proxy menampilkan 500 Internal Server Error untuk semua request termasuk `https://todo.yatno.web.id/`.
-  - **Fix Applied:**
-    - Di [`repository.py`](file:///Z:/Todolist%20Manager%20V5.0/repository.py#L346), ditambahkan schema auto-migration menggunakan `PRAGMA table_info(drawings)` untuk menambahkan kolom `is_pinned`, `svg_preview`, dan `data_json` jika belum ada sebelum membuat index.
-    - Diverifikasi: `migrate_db()` dan `seed_habit_templates()` kini berjalan 100% sukses tanpa error.
+- **Published Note Image Link Promotion & Drawing Hydration SELESAI 2026-08-20:**
+  - **Root Causes:**
+    1. **Gambar Hanya Tampil Sebagai Nama File:** Ketika file gambar di-attach atau di-link dalam format `[image.png](/pub/attachments/123)` atau `[image.png]` (tanpa tanda seru `!`), parser markdown merendernya sebagai tautan teks `<a href="...">image.png</a>` sehingga di browser hanya muncul nama file saja.
+    2. **Frame Drawing Kosong:** Ketika catatan publik memuat `::draw[id]`, jika data gambar belum pernah diekspor sebagai static SVG preview (`svg_preview` kosong di database), container hanya menampilkan placeholder. Selain itu, endpoint `/api/drawings/{id}` memerlukan auth sehingga client browser tidak dapat mengambil data secara publik.
+  - **Fixes Applied:**
+    1. **Image Link Promotion ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L2955) & [`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L15030)):**
+       - Setiap link markdown `[label](target)` yang memiliki ekstensi file gambar (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.bmp`, `.ico`) atau merujuk ke `/pub/attachments/` / attachment catatan otomatis dipromosikan menjadi syntax gambar `![label](target)` sehingga langsung dirender sebagai tag `<img>`.
+       - Nama file gambar standalone (`image.png` atau `[image.png]`) yang ada di attachment catatan otomatis dikonversi menjadi `![name](/pub/attachments/{id})`.
+    2. **Public Drawing Endpoint & Hydration ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4948)):**
+       - Menambahkan endpoint publik `@app.get("/pub/drawings/{drawing_id}")` untuk mengambil snapshot dan SVG preview secara publik.
+       - Pada rendering backend, jika `svg_preview` kosong tetapi `data_json` ada, render iframe langsung.
+       - Menambahkan script hidrasi client-side di `_PUBLIC_PAGE_HTML` yang otomatis mem-fetch `/pub/drawings/{id}` jika container preview belum memiliki elemen SVG.
+    3. SW cache di-bump ke **`taskflow-v259-image-link-promotion-and-drawing-preview`**.
   - All tests passed: 433/433 JS unit tests + 40/40 pytest (0 failures), 5/5 inline scripts parse cleanly.
-  - **Device-test checklist:** (1) Buka `https://todo.yatno.web.id/` -> Halaman TaskFlow termuat normal; (2) Buka catatan publik (`/pub/{username}/{slug}`) -> Tabel HTML dan gambar termuat rapi.
+  - **Device-test checklist:** (1) Buka note publik (`/pub/{username}/{slug}`) -> Gambar `.png` tampil langsung sebagai foto/gambar (bukan nama file/link), frame drawing menampilkan objek/sketsa gambar utuh.
 
 ## 📌 Active Task
 - **Draw Canvas Export (PNG, SVG, JSON) Bugfix SELESAI 2026-08-19:**

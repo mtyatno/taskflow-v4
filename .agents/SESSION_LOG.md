@@ -4,15 +4,22 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
-## [2026-08-20 21:50] - Antigravity (Gemini)
-- **Task:** Fix 500 Internal Server Error across root application (`/`) caused by startup migration crash.
-- **Root Cause:**
-  - `TaskRepository._init_db()` in [`repository.py`](file:///Z:/Todolist%20Manager%20V5.0/repository.py#L347) executed `CREATE INDEX IF NOT EXISTS idx_drawings_user_pinned ON drawings(user_id, is_pinned DESC)` directly.
-  - Existing databases had the `drawings` table without the `is_pinned` column, causing `sqlite3.OperationalError: no such column: is_pinned` on application startup, crashing Uvicorn and making Nginx return 500 Internal Server Error on all endpoints.
+## [2026-08-20 22:02] - Antigravity (Gemini)
+- **Task:** Fix image.png only showing filename (not rendering image) and fix drawing frame appearing empty in published notes.
+- **Root Causes:**
+  1. Image attachments/links formatted as `[image.png](/pub/attachments/123)` or `[image.png]` without `!` were parsed as text links `<a href="...">image.png</a>`, displaying only the filename.
+  2. Drawings without pre-rendered static `svg_preview` in the DB rendered only placeholder containers, and public visitors could not access `/api/drawings/{id}` due to auth requirement.
 - **Changes:**
-  - Added schema auto-migration for `drawings` table in `repository.py` checking `PRAGMA table_info(drawings)` and adding missing `is_pinned`, `svg_preview`, and `data_json` columns prior to creating the indexes.
-- **Files Modified:** `repository.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
-- **Status:** Completed (40/40 Python tests pass, 433/433 JS tests pass, migrate_db verified cleanly)
+  - In `_render_published_content` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L2955)):
+    - Promoted all links with image extensions (`.png`, `.jpg`, etc.) or pointing to attachment URLs to image syntax `![label](target)`.
+    - Auto-converted standalone `image.png` or `[image.png]` in note text to `![image.png](/pub/attachments/{id})`.
+    - Enhanced `_replace_draw` to render live iframe fallback if `data_json` exists when `svg_preview` is empty.
+  - Added public endpoint `@app.get("/pub/drawings/{drawing_id}")` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4948)).
+  - Added client-side drawing preview hydrator in `_PUBLIC_PAGE_HTML`.
+  - Added image link promotion in `renderMarkdown` ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L15030)).
+  - Bumped SW cache in [`static/sw.js`](file:///Z:/Todolist%20Manager%20V5.0/static/sw.js#L1) to `taskflow-v259-image-link-promotion-and-drawing-preview`.
+- **Files Modified:** `webapp.py`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (40/40 Python tests pass, 433/433 JS tests pass, 5/5 inline scripts parse cleanly)
 
 ---
 

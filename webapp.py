@@ -2952,29 +2952,57 @@ def _render_published_content(raw_content: str, conn, note_id: int = None) -> st
         content
     )
 
-    # 5.2 Resolve local attachment filenames to /pub/attachments/{id} if note_id provided
+    # 5.2 Promote image links and resolve local attachment filenames
+    IMAGE_EXTS = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico')
     att_map = {}
     if note_id:
-        for a in conn.execute("SELECT id, original_name FROM note_attachments WHERE note_id = ?", (note_id,)).fetchall():
-            if a["original_name"]:
-                att_map[a["original_name"].strip().lower()] = a["id"]
-    if att_map:
-        import os as _os
-        def _replace_img_target(m):
-            prefix = m.group(1)
-            label = m.group(2)
-            target = m.group(3).strip()
-            if target.startswith('/pub/attachments/') or target.startswith('http://') or target.startswith('https://') or target.startswith('data:'):
-                return f'{prefix}{label}]({target})'
-            bname = _os.path.basename(target).lower()
-            if bname in att_map:
-                return f'{prefix}{label}](/pub/attachments/{att_map[bname]})'
-            label_clean = label.replace('\\', '').strip().lower()
-            if label_clean in att_map and (not target or target == bname):
-                return f'{prefix}{label}](/pub/attachments/{att_map[label_clean]})'
-            return f'{prefix}{label}]({target})'
+        try:
+            for a in conn.execute("SELECT id, original_name FROM note_attachments WHERE note_id = ?", (note_id,)).fetchall():
+                name = a["original_name"] if isinstance(a, sqlite3.Row) or isinstance(a, dict) else a[1]
+                aid = a["id"] if isinstance(a, sqlite3.Row) or isinstance(a, dict) else a[0]
+                if name:
+                    att_map[str(name).strip().lower()] = aid
+        except Exception:
+            pass
 
-        content = _re.sub(r'(!?\[)([^\]]*?)\]\(([^)]*?)\)', _replace_img_target, content)
+    import os as _os
+    def _replace_img_target(m):
+        prefix = m.group(1)
+        label = m.group(2)
+        target = m.group(3).strip()
+
+        bname = _os.path.basename(target).lower()
+        label_clean = label.replace('\\', '').strip().lower()
+
+        is_image_file = (
+            prefix.startswith('!') or
+            any(label_clean.endswith(ext) for ext in IMAGE_EXTS) or
+            any(bname.endswith(ext) for ext in IMAGE_EXTS) or
+            bname in att_map or
+            label_clean in att_map
+        )
+        pfx = '![' if is_image_file else prefix
+
+        if target.startswith('/pub/attachments/') or target.startswith('http://') or target.startswith('https://') or target.startswith('data:'):
+            return f'{pfx}{label}]({target})'
+
+        if bname in att_map:
+            return f'{pfx}{label}](/pub/attachments/{att_map[bname]})'
+
+        if label_clean in att_map and (not target or target == bname or target == label_clean):
+            return f'{pfx}{label}](/pub/attachments/{att_map[label_clean]})'
+
+        return f'{pfx}{label}]({target})'
+
+    content = _re.sub(r'(!?\[)([^\]]*?)\]\(([^)]*?)\)', _replace_img_target, content)
+
+    if att_map:
+        for name, aid in att_map.items():
+            if any(name.endswith(ext) for ext in IMAGE_EXTS):
+                # Replace [name.png] without URL
+                content = _re.sub(rf'(?<!\!)\[\s*{_re.escape(name)}\s*\](?!\()', f'![{name}](/pub/attachments/{aid})', content, flags=_re.IGNORECASE)
+                # Replace standalone name.png on its own line
+                content = _re.sub(rf'(?m)^\s*{_re.escape(name)}\s*$', f'![{name}](/pub/attachments/{aid})', content, flags=_re.IGNORECASE)
 
     # 5.3 Normalize and unescape markdown tables for mistune
     lines = content.split('\n')
@@ -3051,7 +3079,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None) -> st
 
         # Fetch drawing from database
         d_row = conn.execute(
-            "SELECT id, title, svg_preview FROM drawings WHERE id = ?",
+            "SELECT id, title, svg_preview, data_json FROM drawings WHERE id = ?",
             (drawing_id,)
         ).fetchone()
 
@@ -3063,15 +3091,17 @@ def _render_published_content(raw_content: str, conn, note_id: int = None) -> st
         safe_title = html.escape(title)
         if d_row and d_row["svg_preview"] and d_row["svg_preview"].strip().startswith("<svg"):
             svg_html = d_row["svg_preview"]
+        elif d_row and d_row["data_json"] and d_row["data_json"].strip() not in ('{}', ''):
+            svg_html = f'<iframe src="/static/vendor/tldraw/index.html?noteId={drawing_id}" style="width:100%;height:{height_val};border:none;" title="Drawing"></iframe>'
         else:
             svg_html = '<div style="color:var(--text-secondary);font-size:13px;padding:24px;text-align:center;">🎨 Gambar / Sketsa</div>'
 
         card_style = f"width:{width_val};max-width:{width_val};margin:16px auto;" if width_val != '100%' else "width:100%;margin:16px 0;"
 
         draw_map[key] = (
-            f'<div class="note-draw-card" data-size="{size}" style="{card_style}">'
+            f'<div class="note-draw-card" data-drawing-id="{html.escape(str(drawing_id))}" data-size="{size}" style="{card_style}">'
             f'<div class="note-draw-header"><span>🎨 {safe_title}</span></div>'
-            f'<div class="note-draw-preview-container" style="max-height:{height_val};">{svg_html}</div>'
+            f'<div class="note-draw-preview-container" data-drawing-preview="{html.escape(str(drawing_id))}" style="max-height:{height_val};">{svg_html}</div>'
             f'</div>'
         )
         return key
@@ -4562,6 +4592,25 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
       }}
     }});
   }}
+
+  // Hydrate inline drawing previews if needed
+  try {{
+    document.querySelectorAll('.note-draw-preview-container[data-drawing-preview]').forEach(function(el) {{
+      var did = el.getAttribute('data-drawing-preview');
+      if (!did) return;
+      if (!el.querySelector('svg') && !el.querySelector('iframe')) {{
+        fetch('/pub/drawings/' + did)
+          .then(function(r) {{ return r.ok ? r.json() : null; }})
+          .then(function(d) {{
+            if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {{
+              el.innerHTML = d.svg_preview;
+            }} else if (d && d.data_json && d.data_json.trim() !== '{{}}') {{
+              el.innerHTML = '<iframe src="/static/vendor/tldraw/index.html?noteId=' + encodeURIComponent(did) + '" style="width:100%;height:300px;border:none;" title="Drawing"></iframe>';
+            }}
+          }}).catch(function() {{}});
+      }}
+    }});
+  }} catch(e) {{}}
 </script>
 </body>
 </html>"""
@@ -4915,6 +4964,23 @@ async def view_published_attachment(att_id: int):
 
         # If not found in Nextcloud or local, return 404 cleanly
         raise HTTPException(status_code=404, detail="File tidak ditemukan")
+
+@app.get("/pub/drawings/{drawing_id}")
+async def get_published_drawing(drawing_id: int):
+    """Public drawing retrieval for published notes."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, title, data_json, svg_preview FROM drawings WHERE id = ?",
+            (drawing_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        return {
+            "id": row["id"],
+            "title": row["title"],
+            "data_json": row["data_json"] or "{}",
+            "svg_preview": row["svg_preview"] or ""
+        }
 
 @app.get("/api/scratchpad/{note_id}/backlinks")
 async def get_backlinks(note_id: int, user=Depends(get_current_user)):
