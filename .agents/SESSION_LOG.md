@@ -4,6 +4,18 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-20 15:07] - Antigravity (Gemini)
+- **Task:** Fix `ReferenceError: parseDirectiveAttrs is not defined` on page load.
+- **Root Cause:**
+  - `parseDirectiveAttrs` function declaration was accidentally enclosed inside `renderMarkdown` function scope while being referenced in top-level `window.parseDirectiveAttrs` assignment.
+- **Changes:**
+  - Hoisted `parseDirectiveAttrs` to top-level module scope before `renderMarkdown`.
+  - Bumped Service Worker cache version in `static/sw.js` to `taskflow-v257-fix-parse-directive-attrs-scope`.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 39/39 Python tests pass, syntax verified)
+
+---
+
 ## [2026-08-20 14:55] - Antigravity (Gemini)
 - **Task:** Make inline drawing frames resizable in note viewer, editor, and print-to-PDF output to fit 1-page PDF layouts.
 - **Changes:**

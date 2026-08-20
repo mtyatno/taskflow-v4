@@ -14878,6 +14878,20 @@ function renderMath(latex, displayMode) {
   }
 }
 
+function parseDirectiveAttrs(attrStr) {
+  const attrs = {};
+  if (!attrStr) return attrs;
+  const unescaped = attrStr.replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\(.)/g, '$1');
+  const regex = /([a-zA-Z0-9_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s\}]+))/g;
+  let m;
+  while ((m = regex.exec(unescaped)) !== null) {
+    const key = m[1].toLowerCase();
+    const val = (m[2] || m[3] || m[4] || '');
+    attrs[key] = val;
+  }
+  return attrs;
+}
+
 function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   if (!text) return "";
   _markedHIdx = 0;
@@ -14969,20 +14983,6 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
     hlMap[key] = `<mark class="highlight-mark">${escapeHtml(val)}</mark>`;
     return key;
   });
-
-function parseDirectiveAttrs(attrStr) {
-  const attrs = {};
-  if (!attrStr) return attrs;
-  const unescaped = attrStr.replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\(.)/g, '$1');
-  const regex = /([a-zA-Z0-9_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s\}]+))/g;
-  let m;
-  while ((m = regex.exec(unescaped)) !== null) {
-    const key = m[1].toLowerCase();
-    const val = (m[2] || m[3] || m[4] || '');
-    attrs[key] = val;
-  }
-  return attrs;
-}
 
   // Pre-process ::draw[id]{...} tokens before marked.parse
   const drawMap = {};

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v256-resizable-draw-frames";
+const CACHE = "taskflow-v257-fix-parse-directive-attrs-scope";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
