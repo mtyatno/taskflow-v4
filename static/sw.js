@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v254-searchbox-styling-and-multi-draw-fix";
+const CACHE = "taskflow-v255-draw-list-mindmap-style";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

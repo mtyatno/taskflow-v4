@@ -1,26 +1,26 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-20 11:37  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Sidebar Searchbox Styling & Multi-Draw Embedding Fix SELESAI)
+**Last Updated:** 2026-08-20 12:15  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Draw List Mindmap Style Alignment SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Standalone Draw Page & Note Embedding (Sidebar Searchbox & Multi-Draw & SW v254 SELESAI 2026-08-20):**
-  - 6 task SDD (spec `2026-08-19-standalone-draw-page-and-note-embedding-design.md`, plan `2026-08-19-standalone-draw-page-and-note-embedding.md`) commits `66589da`..`c3e293e`:
+- **Standalone Draw Page & Note Embedding (Draw List Mindmap Styling & SW v255 SELESAI 2026-08-20):**
+  - 6 task SDD (spec `2026-08-19-standalone-draw-page-and-note-embedding-design.md`, plan `2026-08-19-standalone-draw-page-and-note-embedding.md`) commits `66589da`..`f4613e0`:
     1. **Backend Drawing Entity & Multi-Tenant CRUD:** Menambahkan tabel `drawings` (id, user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at), router `/api/drawings` (GET, POST, GET/:id, PUT/:id, DELETE/:id, PATCH/:id/pin), serta perluasan endpoint `/api/search` (mencari `drawings` per user).
     2. **Offline Store, Router & DB Schema Migration v11:** Schema IndexedDB v11 di `db.js` dengan object store `drawings`, repository `drawingrepo.js`, offline router `drawingroutes.js`, dan outbox sync handler.
     3. **Multi-Tab Workspace State Machine:** Module UMD `static/offline/drawingtabs.js` (openTab, closeTab, updateTabTitle dengan aturan FIFO cap 5 tab) + 7 unit test TDD di `tests/offline/drawingtabs.test.js`.
     4. **DrawPage UI Component (2-Column & Multi-Tab):** Left sidebar (pencarian, filter tag, daftar pinned/all, inline rename, delete confirmation, pin toggle, new drawing creator) + Right canvas multi-tab bar (instant switching tanpa reload iframe, fullscreen toggle, export actions). Navigasi `Draw` terintegrasi di Sidebar utama.
     5. **Note Editor Embedding:** Syntax block `::draw[id]{title="..."}` di-render menjadi interactive `.note-draw-card` dengan auto-hydrate SVG preview, tombol `🎨 +Gambar` di `NoteToolbar`, item `🎨 Gambar / Sketsa (/draw)` di Milkdown slash menu, keyboard slash trigger `/draw`, `/canvas`, `/gambar`, `/sketsa`, serta dialog `QuickDrawModal` dan `DrawingInsertModal`.
     6. **Search & Dashboard Integration & SW Cache Bump:** Hasil pencarian `SearchModal` menyertakan `🎨 Drawings`, card "🎨 Gambar Disematkan" di halaman `Dashboard`.
-    7. **Sidebar Searchbox / Create New Styling & Multi-Draw Fix:**
-       - Menyamakan style search box pada sidebar `MindmapPage` dan `DrawPage` dengan `.scratchpad-bar` (background card, border rapi, tanpa icon, dengan placeholder `Cari...` dan tombol reset `✕`).
-       - Mempercantik input create new mindmap dan draw menjadi action card & button modern.
-       - Memperbarui regex tokenizer `renderNoteMarkdown` di `static/index.html` menjadi resilient (`/\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{\s*title\s*=\s*(?:\\?"([^"\\]*(?:\\.[^"\\]*)*)\\?"|'([^'\\]*(?:\\.[^'\\]*)*)'|([^\}\s]+))\s*\\?\})?/gi`) sehingga mendukung multiple inline gambar berurutan dalam satu catatan meskipun ada karakter escape dari markdown serializer.
-       - Bump SW Cache ke **`taskflow-v254-searchbox-styling-and-multi-draw-fix`**.
+    7. **Draw List Item Styling Alignment with Mindmap List:**
+       - Menghapus tampilan tanggal pada list item gambar di sidebar `DrawPage`.
+       - Menyamakan style `DrawingListItem` persis dengan `MindmapListItem` (single line dengan ellipsis, padding `7px 10px`, background highlight `rgba(168,197,0,0.1)` saat selected, teks accent).
+       - Mengganti icon pin pada item list dengan icon star (`<Icon name="star" />`), yang muncul saat hover atau saat berstatus pinned.
+       - Bump SW Cache ke **`taskflow-v255-draw-list-mindmap-style`**.
   - All tests passed: 433/433 JS unit tests + 39/39 pytest (0 failures), 5/5 inline scripts parse cleanly.
-  - **Device-test checklist:** (1) Hard refresh (Ctrl+F5) di browser -> Buka catatan dengan 2+ gambar inline -> Seluruh gambar ter-render sempurna menjadi card preview; (2) Buka sidebar Mindmap dan Draw -> Kotak pencarian tampil modern dengan placeholder `Cari...` dan tombol create tampil rapi.
+  - **Device-test checklist:** (1) Hard refresh (Ctrl+F5) di browser -> Buka halaman Draw -> Daftar gambar tampil rapi persis seperti daftar Mindmap (tanpa tanggal, dengan star icon untuk pin, dan highlight accent saat aktif).
 
 ## 📌 Active Task
 - **Draw Canvas Export (PNG, SVG, JSON) Bugfix SELESAI 2026-08-19:**
