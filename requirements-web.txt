@@ -4,3 +4,4 @@ PyJWT==2.*
 python-multipart==0.0.*
 sse-starlette==2.*
 requests==2.*
+mistune==3.*

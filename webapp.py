@@ -3090,8 +3090,69 @@ def _render_published_content(raw_content: str, conn, note_id: int = None) -> st
             md_renderer = mistune.create_markdown(escape=False)
             rendered_html = md_renderer(content)
         except Exception:
-            escaped = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            rendered_html = f'<pre style="white-space:pre-wrap;font:inherit">{escaped}</pre>'
+            # Fallback renderer: convert tables, headings, images, links to HTML
+            def _fallback_render(text):
+                lines = text.split('\n')
+                out = []
+                in_tbl = False
+                tbl_rows = []
+
+                def _flush_tbl():
+                    nonlocal in_tbl, tbl_rows
+                    if not tbl_rows:
+                        return ''
+                    res = ['<table>']
+                    has_header = len(tbl_rows) >= 2 and all(c in '-: |' for c in tbl_rows[1])
+                    start_idx = 0
+                    if has_header:
+                        res.append('<thead><tr>')
+                        for col in [c.strip() for c in tbl_rows[0].strip('|').split('|')]:
+                            res.append(f'<th>{html.escape(col)}</th>')
+                        res.append('</tr></thead>')
+                        start_idx = 2
+                    res.append('<tbody>')
+                    for r in tbl_rows[start_idx:]:
+                        res.append('<tr>')
+                        for col in [c.strip() for c in r.strip('|').split('|')]:
+                            res.append(f'<td>{html.escape(col)}</td>')
+                        res.append('</tr>')
+                    res.append('</tbody></table>')
+                    tbl_rows = []
+                    in_tbl = False
+                    return ''.join(res)
+
+                for line in lines:
+                    stripped = line.strip()
+                    is_t = stripped.startswith('|') and (stripped.endswith('|') or '|' in stripped[1:])
+                    if is_t:
+                        in_tbl = True
+                        tbl_rows.append(stripped)
+                        continue
+                    elif in_tbl:
+                        out.append(_flush_tbl())
+
+                    if not stripped:
+                        continue
+                    elif stripped.startswith('### '):
+                        out.append(f'<h3>{html.escape(stripped[4:])}</h3>')
+                    elif stripped.startswith('## '):
+                        out.append(f'<h2>{html.escape(stripped[3:])}</h2>')
+                    elif stripped.startswith('# '):
+                        out.append(f'<h1>{html.escape(stripped[2:])}</h1>')
+                    else:
+                        l = line
+                        l = _re.sub(r'!\[([^\]]*)\]\(([^)]*)\)', r'<img src="\2" alt="\1">', l)
+                        l = _re.sub(r'\[([^\]]*)\]\(([^)]*)\)', r'<a href="\2">\1</a>', l)
+                        l = _re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', l)
+                        l = _re.sub(r'\*([^*]+)\*', r'<em>\1</em>', l)
+                        out.append(f'<p>{l}</p>')
+
+                if in_tbl:
+                    out.append(_flush_tbl())
+
+                return '\n'.join(out)
+
+            rendered_html = _fallback_render(content)
 
     # 8. Restore drawing blocks
     for k, v in draw_map.items():

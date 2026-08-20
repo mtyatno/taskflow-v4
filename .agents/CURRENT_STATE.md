@@ -1,7 +1,7 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-20 21:15  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Published Note Table & Image Rendering Fix SELESAI)
+**Last Updated:** 2026-08-20 21:33  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Published Note Table & Image Rendering Fix & CI Dep Fix SELESAI)
 
 ---
 
@@ -11,15 +11,18 @@
     1. Remark-stringify / serializer meng-escape bracket gambar (`!\[image.png\](...)`) dan pipes tabel (`\| ... \|`, `\| \:--- \|`). Regex unescape sebelumnya mengasumsikan kurung kurawal juga di-escape `\(` `\)`, sehingga gambar tetap escaped dan mistune merendernya sebagai teks biasa `<p>![image.png](...)</p>`.
     2. Mistune gagal mengenali tabel ketika delimiter atau barisnya memiliki karakter escape backslash (`\|`, `\---`, `\:`) atau tidak diawali blank line pemisah dari paragraf sebelumnya.
     3. Referensi gambar yang menggunakan nama file langsung (seperti `![image.png](image.png)`) tidak otomatis terpetakan ke ID attachment catatan (`/pub/attachments/{id}`).
+    4. `mistune` tidak ada di `requirements-web.txt` dan `.github/workflows/test.yml`, menyebabkan CI Linux dan environment web yang hanya meng-install `requirements-web.txt` gagal meng-import `mistune` dan jatuh ke fallback `<pre>`.
   - **Fixes Applied:**
-    1. `_render_published_content` di [`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py):
+    1. Menambahkan `mistune==3.*` ke [`requirements-web.txt`](file:///Z:/Todolist%20Manager%20V5.0/requirements-web.txt) dan [`.github/workflows/test.yml`](file:///Z:/Todolist%20Manager%20V5.0/.github/workflows/test.yml).
+    2. `_render_published_content` di [`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py):
        - Unescape komprehensif untuk semua variasi escaping gambar `!\[alt\](...)` dan link `\[label\](...)`.
        - Pembersihan dan normalisasi baris tabel markdown (`\|`, `\---`, `\:`) serta auto-insert newline pemisah blok tabel agar mistune merender tabel sebagai HTML `<table>`.
        - Pemetaan otomatis nama file gambar attachment catatan ke URL publik `/pub/attachments/{id}` via `att_map`.
        - Menambahkan fallback local storage di `/pub/attachments/{att_id}` jika Nextcloud tidak dikonfigurasi / offline.
-    2. `renderMarkdown` di [`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html):
+       - Menambahkan built-in fallback parser `_fallback_render` (tabel, heading, gambar, link, bold/italic) jika `mistune` tidak tersedia.
+    3. `renderMarkdown` di [`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html):
        - Ditambahkan unescape markdown image, link, dan normalisasi baris tabel sebelum diparse oleh `marked.parse` di sisi client.
-    3. SW cache di-bump ke **`taskflow-v258-published-note-tables-and-images-fix`**.
+    4. SW cache di-bump ke **`taskflow-v258-published-note-tables-and-images-fix`**.
   - All tests passed: 433/433 JS unit tests + 40/40 pytest (0 failures), 5/5 inline scripts parse cleanly.
   - **Device-test checklist:** (1) Buka note terpublikasi (`/pub/{username}/{slug}`) -> Tabel markdown tampil rapi sebagai tabel HTML (`<table>`), gambar `image.png` dan lampiran attachment tampil langsung sebagai gambar; (2) Di note viewer/preview in-app, tabel dan gambar juga terender rapi.
 
