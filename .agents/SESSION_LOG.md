@@ -4,6 +4,23 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-20 09:43] - Antigravity (Gemini)
+- **Task:** Fix inline drawing in note viewer not showing preview image directly (requiring popup click).
+- **Root Causes:**
+  1. `draw-app` only exported SVG on debounce after a draw event and did not auto-export when mounting or loading shapes; also `editor.getSvg()` was not serialized safely on mount.
+  2. `NoteModal` and `NotePanel` had unrestricted `change` message listeners that overwrote `/api/drawings/${note.id}` with no `svg_preview` whenever an inline drawing updated.
+  3. `iframe` src URLs were still using query `v=141`, potentially causing browsers to execute cached tldraw scripts.
+- **Changes:**
+  - Added robust `generateSvgString` in `draw-app/src/App.jsx` using `editor.getSvg()`, `editor.getSvgString()`, and `exportToBlob()`, with auto-sync on mount (`syncToParent`) and debounce.
+  - Re-built `draw-app` with Vite to `static/vendor/tldraw/assets/index.js`.
+  - Guarded message listeners in `NoteModal` and `NotePanel` so they only handle the note's own legacy canvas (`!e.data.noteId || String(e.data.noteId) === String(note.id)`).
+  - Updated all iframe query versions to `v=142` in `static/index.html`.
+  - Bumped Service Worker cache version in `static/sw.js` to `taskflow-v252-draw-svg-sync-and-preview-fix`.
+- **Files Modified:** `draw-app/src/App.jsx`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 39/39 Python tests pass, syntax verified)
+
+---
+
 ## [2026-08-20 06:18] - Antigravity (Gemini)
 - **Task:** Fix inline drawings not rendering in Print to PDF dialog (only showing empty frame).
 - **Root Causes:**

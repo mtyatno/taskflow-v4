@@ -43,6 +43,43 @@ function getExportFilename(format) {
   return `drawing_${ts}.${ext}`;
 }
 
+async function generateSvgString(editor) {
+  try {
+    const shapeIds = Array.from(editor.getCurrentPageShapeIds().values());
+    if (!shapeIds || shapeIds.length === 0) return '';
+
+    // 1. Try editor.getSvg (DOM element)
+    try {
+      if (typeof editor.getSvg === 'function') {
+        const svgEl = await editor.getSvg(shapeIds, { scale: 1, background: true });
+        if (svgEl) {
+          return new XMLSerializer().serializeToString(svgEl);
+        }
+      }
+    } catch (_) {}
+
+    // 2. Try editor.getSvgString
+    try {
+      if (typeof editor.getSvgString === 'function') {
+        const res = await editor.getSvgString(shapeIds, { scale: 1, background: true });
+        if (res?.svg) return res.svg;
+      }
+    } catch (_) {}
+
+    // 3. Try exportToBlob
+    try {
+      const blob = await exportToBlob({ editor, ids: shapeIds, format: 'svg', opts: { scale: 1, background: true } });
+      if (blob) {
+        const text = await blob.text();
+        if (text && text.includes('<svg')) return text;
+      }
+    } catch (_) {}
+  } catch (err) {
+    console.error('generateSvgString error:', err);
+  }
+  return '';
+}
+
 async function doExport(editor, shapeIds, format, helpers) {
   try {
     let ids = shapeIds;
@@ -151,6 +188,18 @@ export default function App() {
     },
   }), []);
 
+  const syncToParent = async () => {
+    if (!editorRef.current) return;
+    try {
+      const editor = editorRef.current;
+      const snapshot = JSON.stringify(editor.store.getSnapshot());
+      const svg = await generateSvgString(editor);
+      window.parent.postMessage({ type: 'change', noteId, data: snapshot, svg }, '*');
+    } catch (err) {
+      console.error('syncToParent error:', err);
+    }
+  };
+
   useEffect(() => {
     // Beritahu parent bahwa iframe siap
     window.parent.postMessage({ type: 'ready', noteId }, '*')
@@ -164,26 +213,7 @@ export default function App() {
         } catch (_) {}
       }
       if (e.data?.type === 'requestSnapshot' && editorRef.current) {
-        (async () => {
-          const editor = editorRef.current;
-          const snapshot = JSON.stringify(editor.store.getSnapshot());
-          let svg = '';
-          try {
-            const shapeIds = Array.from(editor.getCurrentPageShapeIds().values());
-            if (shapeIds.length > 0) {
-              const svgBlob = await exportToBlob({
-                editor,
-                ids: shapeIds,
-                format: 'svg',
-                opts: { scale: 1, background: true }
-              });
-              if (svgBlob) {
-                svg = await svgBlob.text();
-              }
-            }
-          } catch (_) {}
-          window.parent.postMessage({ type: 'change', noteId, data: snapshot, svg }, '*');
-        })();
+        syncToParent();
       }
       if (e.data?.type === 'export' && editorRef.current) {
         doExport(editorRef.current, null, e.data.format || 'png', null);
@@ -200,41 +230,27 @@ export default function App() {
     if (noteId && noteId !== 'default') {
       fetch(`/api/drawings/${noteId}`)
         .then(res => res.ok ? res.json() : null)
-        .then(doc => {
+        .then(async doc => {
           if (doc && doc.data_json && doc.data_json !== '{}') {
             try {
               const snapshot = JSON.parse(doc.data_json);
               editor.store.loadSnapshot(snapshot);
             } catch (_) {}
           }
+          // After loading snapshot or if shapes exist, generate SVG preview immediately!
+          setTimeout(syncToParent, 400);
         })
-        .catch(() => {});
+        .catch(() => {
+          setTimeout(syncToParent, 400);
+        });
+    } else {
+      setTimeout(syncToParent, 400);
     }
 
     let debounceTimer
-    editor.store.listen(async () => {
+    editor.store.listen(() => {
       clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(async () => {
-        try {
-          const snapshot = JSON.stringify(editor.store.getSnapshot());
-          let svg = '';
-          const shapeIds = Array.from(editor.getCurrentPageShapeIds().values());
-          if (shapeIds.length > 0) {
-            const svgBlob = await exportToBlob({
-              editor,
-              ids: shapeIds,
-              format: 'svg',
-              opts: { scale: 1, background: true }
-            });
-            if (svgBlob) {
-              svg = await svgBlob.text();
-            }
-          }
-          window.parent.postMessage({ type: 'change', noteId, data: snapshot, svg }, '*');
-        } catch (err) {
-          console.error('Error generating drawing snapshot/svg:', err);
-        }
-      }, 800)
+      debounceTimer = setTimeout(syncToParent, 600)
     }, { scope: 'document' })
   }
 

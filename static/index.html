@@ -3798,7 +3798,7 @@ function TaskFormModal({
       style: { flex: noteDrawFullscreen ? 1 : undefined, height: noteDrawFullscreen ? undefined : 300, border: '1px solid var(--border)', borderRadius: noteDrawFullscreen ? 0 : 8, overflow: 'hidden' }
     }, /*#__PURE__*/React.createElement("iframe", {
       ref: noteDrawIframeRef,
-      src: `/static/vendor/tldraw/index.html?noteId=${noteCanvasId}&v=141`,
+      src: `/static/vendor/tldraw/index.html?noteId=${noteCanvasId}&v=142`,
       style: { width: '100%', height: '100%', border: 'none' },
       title: "Drawing canvas"
     })), !noteDrawFullscreen && /*#__PURE__*/React.createElement("div", {
@@ -9132,7 +9132,7 @@ function DrawingTabInstance({
     style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, height: "100%" }
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
-    src: `/static/vendor/tldraw/index.html?noteId=${tab.id}&v=141`,
+    src: `/static/vendor/tldraw/index.html?noteId=${tab.id}&v=142`,
     style: { flex: 1, border: "none", width: "100%", height: "100%" },
     title: "Draw editor"
   }))
@@ -16721,7 +16721,7 @@ function QuickDrawModal({
   /*#__PURE__*/React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" } },
     /*#__PURE__*/React.createElement("iframe", {
       ref: iframeRef,
-      src: `/static/vendor/tldraw/index.html?noteId=${drawingId}&v=141`,
+      src: `/static/vendor/tldraw/index.html?noteId=${drawingId}&v=142`,
       style: { flex: 1, border: "none", width: "100%", height: "100%" },
       title: "Quick Draw editor"
     })
@@ -17075,11 +17075,11 @@ function NoteModal({
     const handler = e => {
       if (e.origin !== window.location.origin) return;
       if (e.data?.type === 'ready') setDrawIframeReady(true);
-      if (e.data?.type === 'change' && e.data.data && note?.id) {
+      if (e.data?.type === 'change' && e.data.data && note?.id && (!e.data.noteId || String(e.data.noteId) === String(note.id))) {
         setDrawSyncStatus(navigator.onLine ? 'saving' : 'offline');
-        api.put(`/api/drawings/${note.id}`, {
-          data_json: e.data.data
-        }).then(() => setDrawSyncStatus(navigator.onLine ? 'saved' : 'offline'))
+        const payload = { data_json: e.data.data };
+        if (e.data.svg) payload.svg_preview = e.data.svg;
+        api.put(`/api/drawings/${note.id}`, payload).then(() => setDrawSyncStatus(navigator.onLine ? 'saved' : 'offline'))
           .catch(() => setDrawSyncStatus('offline'));
       }
     };
@@ -18364,7 +18364,7 @@ function NoteModal({
     ref: drawContainerRef
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: drawIframeRef,
-    src: `/static/vendor/tldraw/index.html?noteId=${canvasNoteId}&v=141`,
+    src: `/static/vendor/tldraw/index.html?noteId=${canvasNoteId}&v=142`,
     style: {
       width: '100%',
       height: '100%',
@@ -18855,11 +18855,11 @@ function NotePanel({
       if (e.data?.type === 'ready') {
         setIframeReady(true);
       }
-      if (e.data?.type === 'change' && e.data.data) {
+      if (e.data?.type === 'change' && e.data.data && note?.id && (!e.data.noteId || String(e.data.noteId) === String(note.id))) {
         setSyncStatus(navigator.onLine ? 'saving' : 'offline');
-        api.put(`/api/drawings/${note.id}`, {
-          data_json: e.data.data
-        }).then(() => setSyncStatus(navigator.onLine ? 'saved' : 'offline'))
+        const payload = { data_json: e.data.data };
+        if (e.data.svg) payload.svg_preview = e.data.svg;
+        api.put(`/api/drawings/${note.id}`, payload).then(() => setSyncStatus(navigator.onLine ? 'saved' : 'offline'))
           .catch(() => setSyncStatus('offline'));
       }
     };
@@ -19655,7 +19655,7 @@ function NotePanel({
     ref: canvasContainerRef
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
-    src: `/static/vendor/tldraw/index.html?noteId=${note.id}&v=141`,
+    src: `/static/vendor/tldraw/index.html?noteId=${note.id}&v=142`,
     style: {
       width: '100%',
       height: '100%',
