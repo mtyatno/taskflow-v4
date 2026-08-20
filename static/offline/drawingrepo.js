@@ -37,25 +37,56 @@
 
   function getRaw(idOrCid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const os = db.transaction("drawings", "readonly").objectStore("drawings");
-      const r = os.get(idOrCid);
-      r.onsuccess = () => {
-        if (r.result) return resolve(r.result);
-        const idx = os.index("server_id");
-        const numericId = Number(idOrCid);
-        const reqIdx = !isNaN(numericId) ? idx.get(numericId) : idx.get(idOrCid);
-        reqIdx.onsuccess = () => resolve(reqIdx.result || null);
-        reqIdx.onerror = () => resolve(null);
-      };
-      r.onerror = () => reject(r.error);
+      try {
+        const os = db.transaction("drawings", "readonly").objectStore("drawings");
+        const r = os.get(idOrCid);
+        r.onsuccess = () => {
+          if (r.result) return resolve(r.result);
+          if (os.indexNames.contains("server_id")) {
+            try {
+              const idx = os.index("server_id");
+              const numericId = Number(idOrCid);
+              const reqIdx = !isNaN(numericId) ? idx.get(numericId) : idx.get(idOrCid);
+              reqIdx.onsuccess = () => resolve(reqIdx.result || null);
+              reqIdx.onerror = () => resolve(null);
+              return;
+            } catch (_) {}
+          }
+          // Fallback scan if index doesn't exist
+          const allReq = os.getAll();
+          allReq.onsuccess = () => {
+            const num = Number(idOrCid);
+            const found = (allReq.result || []).find(d => d && (d.server_id == idOrCid || (!isNaN(num) && d.server_id == num)));
+            resolve(found || null);
+          };
+          allReq.onerror = () => resolve(null);
+        };
+        r.onerror = () => reject(r.error);
+      } catch (err) {
+        resolve(null);
+      }
     }));
   }
 
   function getByNoteCid(noteCid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const r = db.transaction("drawings", "readonly").objectStore("drawings").index("note_cid").get(noteCid);
-      r.onsuccess = () => resolve(r.result || null);
-      r.onerror = () => reject(r.error);
+      try {
+        const os = db.transaction("drawings", "readonly").objectStore("drawings");
+        if (os.indexNames.contains("note_cid")) {
+          const r = os.index("note_cid").get(noteCid);
+          r.onsuccess = () => resolve(r.result || null);
+          r.onerror = () => resolve(null);
+        } else {
+          const allReq = os.getAll();
+          allReq.onsuccess = () => {
+            const found = (allReq.result || []).find(d => d && d.note_cid === noteCid);
+            resolve(found || null);
+          };
+          allReq.onerror = () => resolve(null);
+        }
+      } catch (err) {
+        resolve(null);
+      }
     }));
   }
 

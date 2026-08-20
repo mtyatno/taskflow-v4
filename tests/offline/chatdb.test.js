@@ -6,8 +6,8 @@ const { DB_NAME, DB_VERSION, _reset, openDB } = require("../../static/offline/db
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
 
-test("DB_VERSION is 4", () => {
-  assert.equal(DB_VERSION, 4);
+test("DB_VERSION is 5", () => {
+  assert.equal(DB_VERSION, 5);
 });
 
 test("chat_messages store exists with list_id, created_at, server_id, client_id indexes", async () => {

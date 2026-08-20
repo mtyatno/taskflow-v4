@@ -1,27 +1,21 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-20 22:15  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Published Note Tldraw Canvas Public Loading & Attachment Image Thumbnails SELESAI)
+**Last Updated:** 2026-08-20 22:25  
+**Updated By:** Antigravity (Gemini 3.7 Flash — IndexedDB drawingrepo Index NotFoundError Fix SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Published Note Tldraw Canvas Public Loading & Attachment Image Thumbnails SELESAI 2026-08-20:**
+- **IndexedDB drawingrepo Index NotFoundError Fix SELESAI 2026-08-20:**
   - **Root Causes:**
-    1. **Tldraw Iframe Memuat Kanvas Kosong (Blank/Frame Saja):** Iframe tldraw (`draw-app`) saat di-mount memanggil `fetch('/api/drawings/' + noteId)`. Pada halaman publik `/pub/...`, request ini ditolak dengan `401 Unauthorized` karena tidak ada token auth. Akibatnya tldraw tidak memuat data gambar dan hanya menampilkan frame kanvas kosong.
-    2. **Inline Data JSON Syntax Error:** Variabel `_drawData` di HTML publik diinjeksi langsung tanpa serialisasi `json.dumps()`, sehingga berisiko menimbulkan syntax error di script browser.
-    3. **Lampiran Gambar di Bawah Halaman:** Daftar lampiran hanya menampilkan teks link download tanpa preview gambar visual.
+    1. **`Uncaught NotFoundError: Failed to execute 'index' on 'IDBObjectStore'`:** Pada `getRaw()` dan `getByNoteCid()` di [`static/offline/drawingrepo.js`](file:///Z:/Todolist%20Manager%20V5.0/static/offline/drawingrepo.js#L44), kode memanggil `os.index("server_id")` dan `os.index("note_cid")` secara langsung. Jika IndexedDB klien berada di versi lawas yang belum membuat index tersebut, IndexedDB langsung melempar error unhandled exception, menghentikan eksekusi script dan menyebabkan local router crash.
+    2. **DB_VERSION Outdated:** `DB_VERSION` di [`static/offline/db.js`](file:///Z:/Todolist%20Manager%20V5.0/static/offline/db.js#L12) masih berada di versi 4 sehingga browser tidak memicu `onupgradeneeded` untuk membuat index yang hilang.
   - **Fixes Applied:**
-    1. **Tldraw Iframe Public Fallback ([`draw-app/src/App.jsx`](file:///Z:/Todolist%20Manager%20V5.0/draw-app/src/App.jsx#L231)):**
-       - Menambahkan fallback: jika `fetch('/api/drawings/' + noteId)` gagal/401, iframe otomatis mem-fetch dari endpoint publik `fetch('/pub/drawings/' + noteId)`.
-       - Handler pesan `load` kini mendukung data berbentuk string JSON maupun objek secara aman (`typeof data === 'string' ? JSON.parse(data) : data`).
-       - `draw-app` berhasil di-build ulang (`vite build`).
-    2. **Safe JSON Serialization ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4845)):**
-       - Menambahkan `json.dumps(draw_row["data_json"])` untuk embedding data drawing yang 100% aman tanpa merusak JavaScript halaman.
-    3. **Visual Thumbnails pada Daftar Lampiran ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4755)):**
-       - Lampiran bertipe gambar (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.svg` atau MIME `image/*`) kini otomatis merender tag preview `<img>` langsung di bawah item lampiran.
+    1. Di [`static/offline/drawingrepo.js`](file:///Z:/Todolist%20Manager%20V5.0/static/offline/drawingrepo.js#L40), ditambahkan pengecekan `os.indexNames.contains("server_id")` serta try-catch dan fallback memindai seluruh record jika index tidak ditemukan.
+    2. Di [`static/offline/db.js`](file:///Z:/Todolist%20Manager%20V5.0/static/offline/db.js#L12), `DB_VERSION` dinaikkan ke versi `5` sehingga browser klien otomatis melakukan upgrade skema dan membuat semua index store `drawings`.
+    3. Di [`static/sw.js`](file:///Z:/Todolist%20Manager%20V5.0/static/sw.js#L1), cache di-bump ke **`taskflow-v260-idb-drawingrepo-index-fix`**.
   - All tests passed: 433/433 JS unit tests + 40/40 pytest (0 failures), 5/5 inline scripts parse cleanly.
-  - **Device-test checklist:** (1) Buka note publik (`/pub/{username}/{slug}`) -> Gambar PNG dan gambar sketsa tldraw termuat utuh di dalam framenya; (2) Di bagian bawah, lampiran gambar menampilkan thumbnail foto.utuh.
+  - **Device-test checklist:** (1) Buka / view catatan (misal note #203) -> Tidak ada error console `NotFoundError: Failed to execute 'index' on 'IDBObjectStore'`.
 
 ## 📌 Active Task
 - **Draw Canvas Export (PNG, SVG, JSON) Bugfix SELESAI 2026-08-19:**

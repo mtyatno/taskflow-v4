@@ -9,7 +9,7 @@
   "use strict";
 
   const DB_NAME = "taskflow-offline";
-  const DB_VERSION = 4;
+  const DB_VERSION = 5;
 
   // Each entity store keyed by `cid`. Indexes: [name, keyPath, options].
   const ENTITY_STORES = {

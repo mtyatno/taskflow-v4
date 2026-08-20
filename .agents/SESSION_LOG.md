@@ -4,18 +4,16 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
-## [2026-08-20 22:15] - Antigravity (Gemini)
-- **Task:** Fix tldraw canvas iframe rendering empty frame on published notes and add image thumbnails to attachment section.
-- **Root Causes:**
-  1. The tldraw iframe called `fetch('/api/drawings/' + noteId)` on mount, which returned 401 Unauthorized for public visitors, preventing the canvas from loading the snapshot.
-  2. Inline `_drawData` in published note template was inserted without `json.dumps()`, risking JS syntax errors.
-  3. Image attachments at the bottom of published notes only displayed download link text without visual image thumbnails.
+## [2026-08-20 22:25] - Antigravity (Gemini)
+- **Task:** Fix `Uncaught NotFoundError: Failed to execute 'index' on 'IDBObjectStore': The specified index was not found` on opening notes.
+- **Root Cause:**
+  - `drawingrepo.js` called `os.index("server_id")` and `os.index("note_cid")` without verifying that the index exists in the user's local IndexedDB instance, and `DB_VERSION` had not been bumped to trigger schema index creation on existing client databases.
 - **Changes:**
-  - Added fallback in [`draw-app/src/App.jsx`](file:///Z:/Todolist%20Manager%20V5.0/draw-app/src/App.jsx#L231) to fetch from `/pub/drawings/${noteId}` on 401 and handled string/object snapshot payloads. Rebuilt bundle with `vite build`.
-  - Used `json.dumps(draw_row["data_json"])` in `view_published_note` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4845)).
-  - Rendered inline visual `<img>` thumbnails for image attachments in the attachments list ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4755)).
-- **Files Modified:** `draw-app/src/App.jsx`, `webapp.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
-- **Status:** Completed (40/40 Python tests pass, 433/433 JS tests pass, vite build succeeded)
+  - Added safe index existence check `os.indexNames.contains(...)` and fallback record scanning in [`static/offline/drawingrepo.js`](file:///Z:/Todolist%20Manager%20V5.0/static/offline/drawingrepo.js#L40).
+  - Bumped `DB_VERSION` to `5` in [`static/offline/db.js`](file:///Z:/Todolist%20Manager%20V5.0/static/offline/db.js#L12) and updated tests in `chatdb.test.js` and `db.test.js`.
+  - Bumped SW cache in [`static/sw.js`](file:///Z:/Todolist%20Manager%20V5.0/static/sw.js#L1) to `taskflow-v260-idb-drawingrepo-index-fix`.
+- **Files Modified:** `static/offline/drawingrepo.js`, `static/offline/db.js`, `static/sw.js`, `tests/offline/chatdb.test.js`, `tests/offline/db.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 40/40 pytest pass)
 
 ---
 
