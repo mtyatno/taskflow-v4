@@ -4,6 +4,20 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-20 06:18] - Antigravity (Gemini)
+- **Task:** Fix inline drawings not rendering in Print to PDF dialog (only showing empty frame).
+- **Root Causes:**
+  1. `handlePrint` in `NotePanel` was synchronous and immediately invoked `window.print()` before async fetch of SVG previews (`/api/drawings/${id}`) could complete, causing the print DOM (`#note-print-area`) to contain only placeholder text.
+  2. `@media print` CSS lacked specific styling for `.note-draw-card`, leaving UI buttons visible and SVG layout unoptimized for print.
+- **Changes:**
+  - Made `handlePrint` async in `NotePanel` (`static/index.html`), awaiting all `data-drawing-preview` SVG fetches and rendering them into the print DOM before triggering `window.print()`.
+  - Added dedicated `@media print` CSS rules in `static/app.css` for `.note-draw-card`, `.note-draw-header` (hiding buttons), and `.note-draw-preview-container svg` (full width vector rendering).
+  - Bumped Service Worker cache version in `static/sw.js` to `taskflow-v251-draw-print-pdf-fix`.
+- **Files Modified:** `static/app.css`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 39/39 Python tests pass, syntax verified)
+
+---
+
 ## [2026-08-20 06:12] - Antigravity (Gemini)
 - **Task:** Fix inline drawing in saved notes not showing preview (only frame visible) and frame card click/edit not working.
 - **Root Causes:**

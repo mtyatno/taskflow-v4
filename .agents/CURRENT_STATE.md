@@ -1,26 +1,25 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-20 06:12  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Draw Inline Preview & Click Modal Fix SELESAI)
+**Last Updated:** 2026-08-20 06:18  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Note Print-to-PDF Inline Drawing Fix SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Standalone Draw Page & Note Embedding (Inline Preview & Click Modal & SW v250 SELESAI 2026-08-20):**
-  - 6 task SDD (spec `2026-08-19-standalone-draw-page-and-note-embedding-design.md`, plan `2026-08-19-standalone-draw-page-and-note-embedding.md`) commits `66589da`..`afa1946`:
+- **Standalone Draw Page & Note Embedding (Print to PDF Drawing Fix & SW v251 SELESAI 2026-08-20):**
+  - 6 task SDD (spec `2026-08-19-standalone-draw-page-and-note-embedding-design.md`, plan `2026-08-19-standalone-draw-page-and-note-embedding.md`) commits `66589da`..`db520a3`:
     1. **Backend Drawing Entity & Multi-Tenant CRUD:** Menambahkan tabel `drawings` (id, user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at), router `/api/drawings` (GET, POST, GET/:id, PUT/:id, DELETE/:id, PATCH/:id/pin), serta perluasan endpoint `/api/search` (mencari `drawings` per user).
     2. **Offline Store, Router & DB Schema Migration v11:** Schema IndexedDB v11 di `db.js` dengan object store `drawings`, repository `drawingrepo.js`, offline router `drawingroutes.js`, dan outbox sync handler.
     3. **Multi-Tab Workspace State Machine:** Module UMD `static/offline/drawingtabs.js` (openTab, closeTab, updateTabTitle dengan aturan FIFO cap 5 tab) + 7 unit test TDD di `tests/offline/drawingtabs.test.js`.
     4. **DrawPage UI Component (2-Column & Multi-Tab):** Left sidebar (pencarian, filter tag, daftar pinned/all, inline rename, delete confirmation, pin toggle, new drawing creator) + Right canvas multi-tab bar (instant switching tanpa reload iframe, fullscreen toggle, export actions). Navigasi `Draw` terintegrasi di Sidebar utama.
     5. **Note Editor Embedding:** Syntax block `::draw[id]{title="..."}` di-render menjadi interactive `.note-draw-card` dengan auto-hydrate SVG preview, tombol `🎨 +Gambar` di `NoteToolbar`, item `🎨 Gambar / Sketsa (/draw)` di Milkdown slash menu, keyboard slash trigger `/draw`, `/canvas`, `/gambar`, `/sketsa`, serta dialog `QuickDrawModal` dan `DrawingInsertModal`.
     6. **Search & Dashboard Integration & SW Cache Bump:** Hasil pencarian `SearchModal` menyertakan `🎨 Drawings`, card "🎨 Gambar Disematkan" di halaman `Dashboard`.
-    7. **Inline SVG Preview & QuickDrawModal Click Fix:**
-       - Menambahkan SVG export otomatis di `draw-app/src/App.jsx` saat kanvas digambar/diubah, serta mem-post pesan `{ type: 'change', noteId, data: snapshot, svg }` ke window parent.
-       - Menambahkan global event listener di `App` (`static/index.html`) untuk menyimpan `data_json` dan `svg_preview` ke `/api/drawings/${noteId}`, me-render `QuickDrawModal` saat card/tombol Edit diklik (`editDrawingModal`), dan menavigasi ke halaman Draw saat tombol Buka diklik (`openDrawing`).
-       - Memperbaiki `window.hydrateDrawingPreviews` dan `NotePanel` agar memuat SVG preview saat catatan dibuka/disimpan, dan me-request snapshot saat modal QuickDraw ditutup.
-       - Bump SW Cache ke **`taskflow-v250-draw-inline-preview-and-modal-fix`**.
+    7. **Note Print-to-PDF Inline Drawing Fix:**
+       - Menjadikan `handlePrint` di `NotePanel` fungsi `async` yang melakukan `await Promise.all` untuk mengambil seluruh SVG `svg_preview` gambar dan me-rendernya ke dalam DOM cetak `#note-print-area` sebelum memanggil dialog `window.print()`.
+       - Menambahkan styling `@media print` untuk `.note-draw-card` dan container SVG di `static/app.css` (menyembunyikan tombol Edit/Buka, menyembunyikan placeholder text, mempertahankan border dan vektor gambar utuh).
+       - Bump SW Cache ke **`taskflow-v251-draw-print-pdf-fix`**.
   - All tests passed: 433/433 JS unit tests + 39/39 pytest (0 failures), 5/5 inline scripts parse cleanly.
-  - **Device-test checklist:** (1) Hard refresh (Ctrl+F5) di browser -> Buka catatan yang memiliki embed `::draw[...]` -> gambar SVG preview tampil jelas di dalam card; (2) Klik card gambar atau tombol "✏️ Edit" -> modal QuickDraw terbuka untuk mengedit gambar secara instan; (3) Klik "↗️ Buka" -> berpindah ke halaman Draw mandiri.
+  - **Device-test checklist:** (1) Hard refresh (Ctrl+F5) di browser -> Buka catatan dengan gambar inline -> Klik tombol Print (Cetak) -> Di print preview / PDF, gambar sketsa tampil penuh dan tajam di dalam kartu catatan tanpa tombol-tombol antarmuka yang mengganggu.
 
 ## 📌 Active Task
 - **Draw Canvas Export (PNG, SVG, JSON) Bugfix SELESAI 2026-08-19:**

@@ -855,6 +855,12 @@
       #note-print-area .tasklink-status-label { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       #note-print-area .tasklink-priority-label { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       #note-print-area .highlight-mark { background: #fef08a !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      #note-print-area .note-draw-card { border: 1px solid #d1d5db !important; background: #ffffff !important; border-radius: 6px !important; margin: 10pt 0 !important; overflow: hidden !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+      #note-print-area .note-draw-header { display: flex !important; align-items: center !important; justify-content: space-between !important; padding: 4pt 8pt !important; background: #f9fafb !important; border-bottom: 1px solid #e5e7eb !important; font-size: 9.5pt !important; font-weight: 600 !important; color: #374151 !important; }
+      #note-print-area .note-draw-header button { display: none !important; }
+      #note-print-area .note-draw-preview-container { padding: 8pt !important; background: #ffffff !important; display: flex !important; align-items: center !important; justify-content: center !important; min-height: auto !important; max-height: none !important; }
+      #note-print-area .note-draw-preview-container svg { width: 100% !important; max-width: 100% !important; height: auto !important; max-height: 480px !important; display: block !important; }
+      #note-print-area .drawing-preview-placeholder { display: none !important; }
       #note-print-area .npa-footer { position: fixed; bottom: 0; left: 0; right: 0; padding: 3mm 15mm; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; font-size: 9pt; color: #9ca3af; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
     .note-rendered img { max-width: 100%; border-radius: 6px; margin: 6px 0; display: block; }

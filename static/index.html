@@ -19041,7 +19041,7 @@ function NotePanel({
   };
   const titleStrings = useMemo(() => noteTitles.map(n => n.title), [noteTitles]);
   const tocItems = useMemo(() => extractHeadings(note.content || ""), [note.content]);
-  const handlePrint = () => {
+  const handlePrint = async () => {
     // Remove any stale print area (e.g. from a previous print whose afterprint
     // never fired on a mobile webview).
     const stale = document.getElementById("note-print-area");
@@ -19051,6 +19051,29 @@ function NotePanel({
     el.id = "note-print-area";
     el.innerHTML = `<table class="print-container"><thead><tr><td><div class="page-header-space"></div></td></tr></thead><tfoot><tr><td><div class="page-footer-space"></div></td></tr></tfoot><tbody><tr><td class="note-content"><div class="npa-title">${note.title || "(tanpa judul)"}</div><div class="npa-meta">${fmtDate(note.updated_at)}</div><div class="note-rendered">${html}</div></td></tr></tbody></table><div class="npa-footer"><span>${note.title || ""}</span><span>TaskFlow V4</span></div>`;
     document.body.appendChild(el);
+
+    // Hydrate all drawing SVG previews before printing
+    const drawContainers = el.querySelectorAll('[data-drawing-preview]');
+    if (drawContainers.length > 0) {
+      await Promise.all(Array.from(drawContainers).map(async c => {
+        const did = c.getAttribute('data-drawing-preview');
+        if (!did) return;
+        try {
+          const d = await api.get(`/api/drawings/${did}`);
+          if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {
+            c.innerHTML = d.svg_preview;
+            const svgEl = c.querySelector('svg');
+            if (svgEl) {
+              svgEl.style.width = '100%';
+              svgEl.style.height = 'auto';
+              svgEl.style.maxHeight = '480px';
+              svgEl.style.display = 'block';
+            }
+          }
+        } catch (_) {}
+      }));
+    }
+
     let done = false;
     const cleanup = () => {
       if (done) return;
