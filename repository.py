@@ -343,6 +343,14 @@ class TaskRepository:
                     updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
+            draw_cols = [r["name"] for r in conn.execute("PRAGMA table_info(drawings)").fetchall()]
+            if "is_pinned" not in draw_cols:
+                conn.execute("ALTER TABLE drawings ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0")
+            if "svg_preview" not in draw_cols:
+                conn.execute("ALTER TABLE drawings ADD COLUMN svg_preview TEXT DEFAULT ''")
+            if "data_json" not in draw_cols:
+                conn.execute("ALTER TABLE drawings ADD COLUMN data_json TEXT NOT NULL DEFAULT '{}'")
+
             conn.execute("CREATE INDEX IF NOT EXISTS idx_drawings_user_updated ON drawings(user_id, updated_at DESC)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_drawings_user_pinned ON drawings(user_id, is_pinned DESC)")
             conn.execute("""

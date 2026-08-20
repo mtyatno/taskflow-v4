@@ -1,23 +1,21 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-20 21:42  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Published Note 500 Error Hardening & Resilience SELESAI)
+**Last Updated:** 2026-08-20 21:50  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Startup Migration Crash Fix & Schema Auto-Migration SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Published Note 500 Error Hardening & Table/Image Fix SELESAI 2026-08-20:**
-  - **Root Causes of 500:**
-    1. `view_published_attachment` tidak menangani exception saat Nextcloud tidak dapat diakses atau timeout (`requests.exceptions.RequestException`), atau saat `nextcloud_path` / `original_name` bernilai `None`.
-    2. `datetime.fromisoformat` pada tanggal catatan publik (`published_at`/`updated_at`) berpotensi gagal pada format waktu database non-ISO.
-    3. `_PUBLIC_PAGE_HTML.format(...)` tidak memiliki fallback exception boundary jika terjadi kesalahan format string.
-  - **Fixes Applied:**
-    1. Meng-harden `view_published_attachment` dengan multi-level fallback (local storage check, Nextcloud try-except dengan timeout 15s, dan clean 404 response jika file tidak ditemukan).
-    2. Menambahkan safe date parsing `_safe_date` di `view_published_note` untuk menangani semua format timestamp database.
-    3. Menambahkan error boundary fallback HTML di `view_published_note` untuk mencegah 500 error jika rendering template utama gagal.
-    4. Memperbaiki escape JS regex di `_PUBLIC_PAGE_HTML` untuk menghilangkan warning Python 3.12.
+- **Startup Migration Crash Fix (`drawings.is_pinned`) SELESAI 2026-08-20:**
+  - **Root Cause of 500 Error across entire site (`/`):**
+    - Saat aplikasi startup di VPS, `migrate_db()` memanggil `TaskRepository._init_db()`.
+    - Di `_init_db()` ([`repository.py`](file:///Z:/Todolist%20Manager%20V5.0/repository.py#L347)), perintah `CREATE INDEX IF NOT EXISTS idx_drawings_user_pinned ON drawings(user_id, is_pinned DESC)` dijalankan tanpa memeriksa apakah tabel `drawings` (yang mungkin sudah ada dari versi sebelumnya) memiliki kolom `is_pinned`.
+    - Hal ini melempar `sqlite3.OperationalError: no such column: is_pinned` saat server startup, menyebabkan proses Uvicorn crash dan web server / reverse proxy menampilkan 500 Internal Server Error untuk semua request termasuk `https://todo.yatno.web.id/`.
+  - **Fix Applied:**
+    - Di [`repository.py`](file:///Z:/Todolist%20Manager%20V5.0/repository.py#L346), ditambahkan schema auto-migration menggunakan `PRAGMA table_info(drawings)` untuk menambahkan kolom `is_pinned`, `svg_preview`, dan `data_json` jika belum ada sebelum membuat index.
+    - Diverifikasi: `migrate_db()` dan `seed_habit_templates()` kini berjalan 100% sukses tanpa error.
   - All tests passed: 433/433 JS unit tests + 40/40 pytest (0 failures), 5/5 inline scripts parse cleanly.
-  - **Device-test checklist:** (1) Buka note terpublikasi (`/pub/{username}/{slug}`) -> Halaman ter-load bersih tanpa 500, tabel HTML rapi (`<table>`), gambar tampil langsung; (2) Akses `/pub/attachments/{id}` mengembalikan file atau 404 tanpa 500.
+  - **Device-test checklist:** (1) Buka `https://todo.yatno.web.id/` -> Halaman TaskFlow termuat normal; (2) Buka catatan publik (`/pub/{username}/{slug}`) -> Tabel HTML dan gambar termuat rapi.
 
 ## 📌 Active Task
 - **Draw Canvas Export (PNG, SVG, JSON) Bugfix SELESAI 2026-08-19:**

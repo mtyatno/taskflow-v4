@@ -4,19 +4,15 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
-## [2026-08-20 21:42] - Antigravity (Gemini)
-- **Task:** Fix 500 Internal Server Error in published notes / attachment endpoints and add error boundaries.
-- **Root Causes:**
-  1. `view_published_attachment` did not catch exceptions from `_req.get(...)` (e.g. Nextcloud timeout, connection error) or `None` paths/names, causing FastAPI to return 500 Internal Server Error.
-  2. `datetime.fromisoformat` could throw ValueError if note timestamps in SQLite have non-standard formats.
-  3. `_PUBLIC_PAGE_HTML.format(...)` lacked a fallback error boundary.
+## [2026-08-20 21:50] - Antigravity (Gemini)
+- **Task:** Fix 500 Internal Server Error across root application (`/`) caused by startup migration crash.
+- **Root Cause:**
+  - `TaskRepository._init_db()` in [`repository.py`](file:///Z:/Todolist%20Manager%20V5.0/repository.py#L347) executed `CREATE INDEX IF NOT EXISTS idx_drawings_user_pinned ON drawings(user_id, is_pinned DESC)` directly.
+  - Existing databases had the `drawings` table without the `is_pinned` column, causing `sqlite3.OperationalError: no such column: is_pinned` on application startup, crashing Uvicorn and making Nginx return 500 Internal Server Error on all endpoints.
 - **Changes:**
-  - Hardened `view_published_attachment` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4870)) with try-except for Nextcloud and local storage, returning clean 404 instead of 500.
-  - Added `_safe_date` helper in `view_published_note` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4642)).
-  - Added top-level try-except with clean fallback HTML response in `view_published_note`.
-  - Fixed regex escaping in `_PUBLIC_PAGE_HTML`.
-- **Files Modified:** `webapp.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
-- **Status:** Completed (40/40 Python tests pass, 433/433 JS tests pass)
+  - Added schema auto-migration for `drawings` table in `repository.py` checking `PRAGMA table_info(drawings)` and adding missing `is_pinned`, `svg_preview`, and `data_json` columns prior to creating the indexes.
+- **Files Modified:** `repository.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (40/40 Python tests pass, 433/433 JS tests pass, migrate_db verified cleanly)
 
 ---
 
