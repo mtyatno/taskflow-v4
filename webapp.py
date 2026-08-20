@@ -2883,7 +2883,7 @@ def _generate_publish_slug(conn, title: str = "") -> str:
             return slug
     raise HTTPException(status_code=500, detail="Gagal generate slug unik — coba lagi")
 
-def _render_published_content(raw_content: str, conn) -> str:
+def _render_published_content(raw_content: str, conn, note_id: int = None) -> str:
     """Process raw markdown for public page: strip internal tokens, resolve wikilinks, render to HTML."""
     import re as _re
     content = raw_content or ""
@@ -2892,7 +2892,7 @@ def _render_published_content(raw_content: str, conn) -> str:
     content = _re.sub(r'\\?\[tasklink:[0-9a-f-]+\]', '', content)
 
     # 2. Strip ==highlight== → render as <mark>
-    content = _re.sub(r'==([^=\n]+)==', r'<mark>\1</mark>', content)
+    content = _re.sub(r'\\?==([^=\n]+)==', r'<mark>\1</mark>', content)
 
     # 3. Build wikilink map: title → (username, slug) for published notes
     published_map = {}
@@ -2934,15 +2934,80 @@ def _render_published_content(raw_content: str, conn) -> str:
     content = _re.sub(r'(?:\\?\[){2}([^\[\]\\]+)(?:\\?\]){2}', _replace_wikilink, content)
 
     # 5. Unescape markdown image / link escapes that serializer might produce
-    content = _re.sub(r'!\\\[([^\]]*)\\\]\\\(([^)]*)\\\)', r'![\1](\2)', content)
-    content = _re.sub(r'\\\[([^\]]*)\\\]\\\(([^)]*)\\\)', r'[\1](\2)', content)
+    content = _re.sub(
+        r'\\?!\s*\\?\[\s*(.*?)\s*\\?\]\s*\\?\(\s*(.*?)\s*\\?\)',
+        lambda m: '![' + m.group(1).replace(r'\]', ']').replace(r'\[', '[').strip() + '](' + m.group(2).replace(r'\)', ')').replace(r'\(', '(').strip() + ')',
+        content
+    )
+    content = _re.sub(
+        r'(?<!\!)(\[|\\\[)\s*(.*?)\s*\\?\]\s*\\?\(\s*(.*?)\s*\\?\)',
+        lambda m: '[' + m.group(2).replace(r'\]', ']').replace(r'\[', '[').strip() + '](' + m.group(3).replace(r'\)', ')').replace(r'\(', '(').strip() + ')',
+        content
+    )
 
     # 5.1 Rewrite all attachment URLs to public endpoint
     content = _re.sub(
-        r'/api/scratchpad/attachments/(\d+)/view',
+        r'/api/scratchpad/attachments/(\d+)(?:/view|/download)?',
         r'/pub/attachments/\1',
         content
     )
+
+    # 5.2 Resolve local attachment filenames to /pub/attachments/{id} if note_id provided
+    att_map = {}
+    if note_id:
+        for a in conn.execute("SELECT id, original_name FROM note_attachments WHERE note_id = ?", (note_id,)).fetchall():
+            if a["original_name"]:
+                att_map[a["original_name"].strip().lower()] = a["id"]
+    if att_map:
+        import os as _os
+        def _replace_img_target(m):
+            prefix = m.group(1)
+            label = m.group(2)
+            target = m.group(3).strip()
+            if target.startswith('/pub/attachments/') or target.startswith('http://') or target.startswith('https://') or target.startswith('data:'):
+                return f'{prefix}{label}]({target})'
+            bname = _os.path.basename(target).lower()
+            if bname in att_map:
+                return f'{prefix}{label}](/pub/attachments/{att_map[bname]})'
+            label_clean = label.replace('\\', '').strip().lower()
+            if label_clean in att_map and (not target or target == bname):
+                return f'{prefix}{label}](/pub/attachments/{att_map[label_clean]})'
+            return f'{prefix}{label}]({target})'
+
+        content = _re.sub(r'(!?\[)([^\]]*?)\]\(([^)]*?)\)', _replace_img_target, content)
+
+    # 5.3 Normalize and unescape markdown tables for mistune
+    lines = content.split('\n')
+    new_lines = []
+    in_table = False
+
+    for line in lines:
+        stripped = line.strip()
+        is_table_row = bool(
+            _re.search(r'^\s*\\?\|', stripped) or
+            _re.search(r'\\?\|\s*$', stripped) or
+            _re.search(r'\\?\|.*\\?\|', stripped)
+        ) and bool(_re.search(r'\\?\|', stripped))
+
+        is_delimiter = bool(_re.search(r'\\?\|\s*\\?:?-{2,}\\?:?\s*\\?\|', stripped)) or bool(_re.search(r'^\s*\\?:?-{2,}\\?:?\s*\\?\|\s*\\?:?-{2,}\\?:?', stripped))
+
+        if is_delimiter or (is_table_row and ('\\|' in line or '\\-' in line or '\\:' in line)):
+            line = _re.sub(r'\\([|:\-])', r'\1', line)
+            stripped = line.strip()
+
+        is_now_table = bool(_re.search(r'^\s*\|', stripped)) and bool(_re.search(r'\|\s*$', stripped) or '|' in stripped[1:])
+        if is_now_table and not in_table:
+            if new_lines and new_lines[-1].strip() != '':
+                new_lines.append('')
+            in_table = True
+        elif not is_now_table and in_table:
+            if stripped != '':
+                new_lines.append('')
+            in_table = False
+
+        new_lines.append(line)
+
+    content = '\n'.join(new_lines)
 
     # 6. Checklist [ ] / [x] → read-only
     content = _re.sub(r'^(\s*)- \[ \]', r'\1- ☐', content, flags=_re.MULTILINE)
@@ -3024,7 +3089,7 @@ def _render_published_content(raw_content: str, conn) -> str:
             import mistune
             md_renderer = mistune.create_markdown(escape=False)
             rendered_html = md_renderer(content)
-        except ImportError:
+        except Exception:
             escaped = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             rendered_html = f'<pre style="white-space:pre-wrap;font:inherit">{escaped}</pre>'
 
@@ -4520,7 +4585,7 @@ async def view_published_note(username: str, slug: str, request: Request):
         desc_clean = _re.sub(r'==([^=\n]+)==', r'\1', desc_clean)
         desc_clean = _re.sub(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]', r'\1', desc_clean)
         description = html.escape(desc_clean[:200].replace('\n', ' ').strip())
-        body_html = _render_published_content(raw_content, conn)
+        body_html = _render_published_content(raw_content, conn, note_id=row["note_id"])
 
         # Dates
         created_date = datetime.fromisoformat(row["published_at"]).strftime("%d %B %Y")
@@ -4701,9 +4766,9 @@ async def unlock_published_note(username: str, slug: str, request: Request):
 
         # Read password from form
         form = await request.form()
-        password = (form.get("password") or "").strip()
+        password = str(form.get("password", ""))
 
-        if not password or not verify_password(password, row["password_hash"]):
+        if not _verify_password(password, row["password_hash"]):
             _record_failed_attempt(ip, slug)
             remaining = 5 - len(_ip_attempts.get(ip, deque()))
             return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
@@ -4741,8 +4806,20 @@ async def view_published_attachment(att_id: int):
         ).fetchone()
         if not att:
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
+
+        # Local storage fallback if NEXTCLOUD is not configured
+        if not NEXTCLOUD_URL:
+            local_path = os.path.join(UPLOAD_DIR, os.path.basename(att["nextcloud_path"]))
+            if os.path.exists(local_path):
+                safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')
+                return FileResponse(local_path, filename=safe_name, media_type=att["mime_type"])
+
         r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=30)
         if r.status_code != 200:
+            local_path = os.path.join(UPLOAD_DIR, os.path.basename(att["nextcloud_path"]))
+            if os.path.exists(local_path):
+                safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')
+                return FileResponse(local_path, filename=safe_name, media_type=att["mime_type"])
             r.close()
             raise HTTPException(status_code=404, detail="File tidak ditemukan")
         safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')

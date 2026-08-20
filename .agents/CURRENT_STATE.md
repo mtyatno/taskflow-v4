@@ -1,26 +1,27 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-20 16:21  
+**Last Updated:** 2026-08-20 21:15  
 **Updated By:** Antigravity (Gemini 3.7 Flash — Published Note Table & Image Rendering Fix SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Standalone Draw Page & Note Embedding (Published Notes Table, Image & Draw Fix SELESAI 2026-08-20):**
-  - 6 task SDD (spec `2026-08-19-standalone-draw-page-and-note-embedding-design.md`, plan `2026-08-19-standalone-draw-page-and-note-embedding.md`) commits `66589da`..`97b5cf9`:
-    1. **Backend Drawing Entity & Multi-Tenant CRUD:** Menambahkan tabel `drawings` (id, user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at), router `/api/drawings` (GET, POST, GET/:id, PUT/:id, DELETE/:id, PATCH/:id/pin), serta perluasan endpoint `/api/search` (mencari `drawings` per user).
-    2. **Offline Store, Router & DB Schema Migration v11:** Schema IndexedDB v11 di `db.js` dengan object store `drawings`, repository `drawingrepo.js`, offline router `drawingroutes.js`, dan outbox sync handler.
-    3. **Multi-Tab Workspace State Machine:** Module UMD `static/offline/drawingtabs.js` (openTab, closeTab, updateTabTitle dengan aturan FIFO cap 5 tab) + 7 unit test TDD di `tests/offline/drawingtabs.test.js`.
-    4. **DrawPage UI Component (2-Column & Multi-Tab):** Left sidebar (pencarian, filter tag, daftar pinned/all, inline rename, delete confirmation, pin toggle, new drawing creator) + Right canvas multi-tab bar (instant switching tanpa reload iframe, fullscreen toggle, export actions). Navigasi `Draw` terintegrasi di Sidebar utama.
-    5. **Note Editor Embedding:** Syntax block `::draw[id]{title="..."}` di-render menjadi interactive `.note-draw-card` dengan auto-hydrate SVG preview, tombol `🎨 +Gambar` di `NoteToolbar`, item `🎨 Gambar / Sketsa (/draw)` di Milkdown slash menu, keyboard slash trigger `/draw`, `/canvas`, `/gambar`, `/sketsa`, serta dialog `QuickDrawModal` dan `DrawingInsertModal`.
-    6. **Search & Dashboard Integration & SW Cache Bump:** Hasil pencarian `SearchModal` menyertakan `🎨 Drawings`, card "🎨 Gambar Disematkan" di halaman `Dashboard`.
-    7. **Published Notes Table, Image Attachment & Inline Drawing Rendering:**
-       - Menambahkan plugin `table`, `url`, `strikethrough`, `task_lists` pada mistune di `_render_published_content` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L3010)) agar sintaks tabel markdown di-render sempurna menjadi HTML `<table>`.
-       - Menambahkan unescape untuk markdown escape pada link/gambar dan rewrite universal semua `/api/scratchpad/attachments/(\d+)/view` ke endpoint publik `/pub/attachments/\1`.
-       - Memperbaiki logika cover image di `view_published_note` agar gambar di dalam teks catatan tidak terhapus dari `body_html`.
-       - Memperbarui pengujian di `tests/test_drawings.py` untuk memvalidasi tabel HTML dan tautan gambar publik.
+- **Published Note Table & Image Rendering Fix SELESAI 2026-08-20:**
+  - **Root Causes:**
+    1. Remark-stringify / serializer meng-escape bracket gambar (`!\[image.png\](...)`) dan pipes tabel (`\| ... \|`, `\| \:--- \|`). Regex unescape sebelumnya mengasumsikan kurung kurawal juga di-escape `\(` `\)`, sehingga gambar tetap escaped dan mistune merendernya sebagai teks biasa `<p>![image.png](...)</p>`.
+    2. Mistune gagal mengenali tabel ketika delimiter atau barisnya memiliki karakter escape backslash (`\|`, `\---`, `\:`) atau tidak diawali blank line pemisah dari paragraf sebelumnya.
+    3. Referensi gambar yang menggunakan nama file langsung (seperti `![image.png](image.png)`) tidak otomatis terpetakan ke ID attachment catatan (`/pub/attachments/{id}`).
+  - **Fixes Applied:**
+    1. `_render_published_content` di [`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py):
+       - Unescape komprehensif untuk semua variasi escaping gambar `!\[alt\](...)` dan link `\[label\](...)`.
+       - Pembersihan dan normalisasi baris tabel markdown (`\|`, `\---`, `\:`) serta auto-insert newline pemisah blok tabel agar mistune merender tabel sebagai HTML `<table>`.
+       - Pemetaan otomatis nama file gambar attachment catatan ke URL publik `/pub/attachments/{id}` via `att_map`.
+       - Menambahkan fallback local storage di `/pub/attachments/{att_id}` jika Nextcloud tidak dikonfigurasi / offline.
+    2. `renderMarkdown` di [`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html):
+       - Ditambahkan unescape markdown image, link, dan normalisasi baris tabel sebelum diparse oleh `marked.parse` di sisi client.
+    3. SW cache di-bump ke **`taskflow-v258-published-note-tables-and-images-fix`**.
   - All tests passed: 433/433 JS unit tests + 40/40 pytest (0 failures), 5/5 inline scripts parse cleanly.
-  - **Device-test checklist:** (1) Buka link publik note yang dipublish (`/pub/{username}/{slug}`) -> Tabel terender rapi dengan border/header (`<table>`), gambar `.png`/`.jpg` tampil di posisi aslinya, dan drawing inline tampil dengan kartu SVG tajam.
+  - **Device-test checklist:** (1) Buka note terpublikasi (`/pub/{username}/{slug}`) -> Tabel markdown tampil rapi sebagai tabel HTML (`<table>`), gambar `image.png` dan lampiran attachment tampil langsung sebagai gambar; (2) Di note viewer/preview in-app, tabel dan gambar juga terender rapi.
 
 ## 📌 Active Task
 - **Draw Canvas Export (PNG, SVG, JSON) Bugfix SELESAI 2026-08-19:**

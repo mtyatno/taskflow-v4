@@ -88,7 +88,7 @@ def test_published_note_inline_draw_rendering(client):
     assert create_draw.status_code == 200
     drawing_id = create_draw.json()["id"]
 
-    # 3. Create note with inline draw syntax, markdown table, and image attachment
+    # 3. Create note with inline draw syntax, markdown table, escaped table, and image attachments
     note_content = f"""# Catatan Dokumentasi
 
 Berikut adalah tabel fitur:
@@ -98,6 +98,13 @@ Berikut adalah tabel fitur:
 | Drawing | Aktif | Vektor SVG |
 | Publish | Aktif | Publik HTML |
 
+Berikut adalah tabel escaped dari serializer:
+
+\\| Modul \\| Versi \\|
+\\| \\:--- \\| ---: \\|
+\\| Table \\| v2.0 \\|
+\\| Image \\| v2.0 \\|
+
 Berikut adalah diagram alur proses:
 
 ::draw[{drawing_id}]{{title="Diagram Alur Proses" size="S"}}
@@ -105,6 +112,10 @@ Berikut adalah diagram alur proses:
 Dan gambar arsitektur:
 
 ![Arsitektur](/api/scratchpad/attachments/99/view)
+
+Dan gambar escaped:
+
+!\\[DiagramEscaped\\](/api/scratchpad/attachments/100/view)
 
 Selesai.
 """
@@ -132,12 +143,16 @@ Selesai.
     assert "Diagram Alur Proses" in html_body
     assert '<circle cx="50" cy="50" r="40" fill="blue"' in html_body
 
-    # 7. Verify that markdown table is rendered to <table>, not raw | markdown
+    # 7. Verify that markdown tables are rendered to <table>, not raw | markdown
     assert "<table>" in html_body
     assert "<th>Fitur</th>" in html_body or "<th style=\"text-align:left\">Fitur</th>" in html_body
     assert "<td>Drawing</td>" in html_body or "<td style=\"text-align:left\">Drawing</td>" in html_body
+    assert "<th>Modul</th>" in html_body or "<th style=\"text-align:left\">Modul</th>" in html_body
+    assert "<td>Table</td>" in html_body or "<td style=\"text-align:left\">Table</td>" in html_body
+    assert "\\| Modul \\|" not in html_body
 
-    # 8. Verify that attachment image is rewritten to public /pub/attachments/99
+    # 8. Verify that attachment images are rewritten to public /pub/attachments/
     assert '<img src="/pub/attachments/99" alt="Arsitektur"' in html_body
+    assert '<img src="/pub/attachments/100" alt="DiagramEscaped"' in html_body
 
 

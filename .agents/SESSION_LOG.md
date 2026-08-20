@@ -4,6 +4,27 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-20 21:15] - Antigravity (Gemini)
+- **Task:** Fix table markdown syntax and `image.png` / attachment images not rendering in published notes (`/pub/{username}/{slug}`) and in-app note preview.
+- **Root Causes:**
+  1. Remark-stringify / serializer meng-escape square bracket pada markdown image `!\[image.png\](...)` dan pipes tabel `\| ... \|`. Regex unescape sebelumnya mengasumsikan kurung kurawal juga di-escape `\(` `\)`, sehingga gambar tetap escaped dan mistune merendernya sebagai teks biasa `<p>![image.png](...)</p>`.
+  2. Mistune gagal mengenali tabel ketika delimiter atau barisnya memiliki karakter escape backslash (`\|`, `\---`, `\:`) atau tidak diawali blank line pemisah dari paragraf sebelumnya.
+  3. Referensi gambar yang menggunakan nama file langsung (seperti `![image.png](image.png)`) tidak otomatis terpetakan ke ID attachment catatan (`/pub/attachments/{id}`).
+- **Changes:**
+  - In `_render_published_content` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L2886)):
+    - Ditambahkan unescape komprehensif untuk semua variasi markdown image `!\[alt\](...)` dan link `\[label\](...)`.
+    - Ditambahkan normalisasi baris tabel markdown (unescape `\|`, `\---`, `\:`) dan auto-insert newline pemisah blok tabel agar mistune merender tabel sebagai HTML `<table>`.
+    - Ditambahkan pemetaan nama file gambar (seperti `image.png`) ke endpoint publik `/pub/attachments/{id}` via `att_map`.
+    - Ditambahkan fallback local storage di `/pub/attachments/{att_id}` jika Nextcloud tidak dikonfigurasi / offline.
+  - In `renderMarkdown` ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L15020)):
+    - Ditambahkan unescape markdown image, link, dan normalisasi baris tabel sebelum diparse oleh `marked.parse` di sisi client.
+  - Bumped Service Worker cache version in [`static/sw.js`](file:///Z:/Todolist%20Manager%20V5.0/static/sw.js#L1) to `taskflow-v258-published-note-tables-and-images-fix`.
+  - Updated tests in [`tests/test_drawings.py`](file:///Z:/Todolist%20Manager%20V5.0/tests/test_drawings.py).
+- **Files Modified:** `webapp.py`, `static/index.html`, `static/sw.js`, `tests/test_drawings.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 40/40 Python tests pass, 5/5 inline scripts parse cleanly)
+
+---
+
 ## [2026-08-20 16:21] - Antigravity (Gemini)
 - **Task:** Fix markdown table syntax and `image.png` attachments not rendering in published notes (`/pub/{username}/{slug}`).
 - **Root Cause:**

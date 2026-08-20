@@ -15018,7 +15018,41 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
     return key;
   });
 
-  let html = marked.parse(processed4);
+  // Unescape markdown image syntax
+  let processed5 = processed4.replace(/\\?!\s*\\?\[\s*(.*?)\s*\\?\]\s*\\?\(\s*(.*?)\s*\\?\)/g, (m, alt, url) => {
+    return '![' + alt.replace(/\\\]/g, ']').replace(/\\\[/g, '[').trim() + '](' + url.replace(/\\\)/g, ')').replace(/\\\(/g, '(').trim() + ')';
+  });
+
+  // Unescape markdown link syntax
+  processed5 = processed5.replace(/(?<!\!)(\[|\\\[)\s*(.*?)\s*\\?\]\s*\\?\(\s*(.*?)\s*\\?\)/g, (m, pfx, label, url) => {
+    return '[' + label.replace(/\\\]/g, ']').replace(/\\\[/g, '[').trim() + '](' + url.replace(/\\\)/g, ')').replace(/\\\(/g, '(').trim() + ')';
+  });
+
+  // Unescape & normalize markdown tables for marked
+  const mdLines = processed5.split('\n');
+  const cleanLines = [];
+  let inTbl = false;
+  for (let i = 0; i < mdLines.length; i++) {
+    let line = mdLines[i];
+    const stripped = line.trim();
+    const isTblRow = (stripped.startsWith('|') || stripped.startsWith('\\|') || stripped.endsWith('|') || stripped.endsWith('\\|') || (/\\?\|.*\\?\|/.test(stripped))) && (/\\?\|/.test(stripped));
+    const isDelimiter = /\\?\|\s*\\?:?-{2,}\\?:?\s*\\?\|/.test(stripped) || /^\s*\\?:?-{2,}\\?:?\s*\\?\|\s*\\?:?-{2,}\\?:?/.test(stripped);
+    if (isDelimiter || (isTblRow && (line.includes('\\|') || line.includes('\\-') || line.includes('\\:')))) {
+      line = line.replace(/\\\|/g, '|').replace(/\\:/g, ':').replace(/\\-/g, '-');
+    }
+    const isNowTbl = /^\s*\|/.test(line.trim()) && (/\|\s*$/.test(line.trim()) || line.trim().slice(1).includes('|'));
+    if (isNowTbl && !inTbl) {
+      if (cleanLines.length && cleanLines[cleanLines.length - 1].trim() !== '') cleanLines.push('');
+      inTbl = true;
+    } else if (!isNowTbl && inTbl) {
+      if (line.trim() !== '') cleanLines.push('');
+      inTbl = false;
+    }
+    cleanLines.push(line);
+  }
+  const cleanMd = cleanLines.join('\n');
+
+  let html = marked.parse(cleanMd);
   for (const [k, v] of Object.entries(wikiMap)) {
     html = html.split(k).join(v);
   }
