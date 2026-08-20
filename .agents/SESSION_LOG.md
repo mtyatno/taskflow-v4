@@ -4,27 +4,21 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
-## [2026-08-20 21:33] - Antigravity (Gemini)
-- **Task:** Fix table markdown syntax and `image.png` not rendering in published notes (`/pub/{username}/{slug}`) and fix CI dependency failure.
+## [2026-08-20 21:42] - Antigravity (Gemini)
+- **Task:** Fix 500 Internal Server Error in published notes / attachment endpoints and add error boundaries.
 - **Root Causes:**
-  1. Remark-stringify / serializer meng-escape square bracket pada markdown image `!\[image.png\](...)` dan pipes tabel `\| ... \|`. Regex unescape sebelumnya mengasumsikan kurung kurawal juga di-escape `\(` `\)`, sehingga gambar tetap escaped dan mistune merendernya sebagai teks biasa `<p>![image.png](...)</p>`.
-  2. Mistune gagal mengenali tabel ketika delimiter atau barisnya memiliki karakter escape backslash (`\|`, `\---`, `\:`) atau tidak diawali blank line pemisah dari paragraf sebelumnya.
-  3. Referensi gambar yang menggunakan nama file langsung (seperti `![image.png](image.png)`) tidak otomatis terpetakan ke ID attachment catatan (`/pub/attachments/{id}`).
-  4. `mistune` tidak ada di `requirements-web.txt` dan `.github/workflows/test.yml`, sehingga lingkungan CI (dan web runner) gagal meng-import `mistune` dan jatuh ke fallback `<pre>` yang tidak merender tag `<table>`.
+  1. `view_published_attachment` did not catch exceptions from `_req.get(...)` (e.g. Nextcloud timeout, connection error) or `None` paths/names, causing FastAPI to return 500 Internal Server Error.
+  2. `datetime.fromisoformat` could throw ValueError if note timestamps in SQLite have non-standard formats.
+  3. `_PUBLIC_PAGE_HTML.format(...)` lacked a fallback error boundary.
 - **Changes:**
-  - Added `mistune==3.*` to `requirements-web.txt` and `.github/workflows/test.yml`.
-  - In `_render_published_content` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L2886)):
-    - Ditambahkan unescape komprehensif untuk semua variasi markdown image `!\[alt\](...)` dan link `\[label\](...)`.
-    - Ditambahkan normalisasi baris tabel markdown (unescape `\|`, `\---`, `\:`) dan auto-insert newline pemisah blok tabel agar mistune merender tabel sebagai HTML `<table>`.
-    - Ditambahkan pemetaan nama file gambar (seperti `image.png`) ke endpoint publik `/pub/attachments/{id}` via `att_map`.
-    - Ditambahkan fallback local storage di `/pub/attachments/{att_id}` jika Nextcloud tidak dikonfigurasi / offline.
-    - Ditambahkan built-in fallback parser `_fallback_render` (tabel, heading, gambar, link) jika `mistune` tidak tersedia agar tidak pernah jatuh ke `<pre>`.
-  - In `renderMarkdown` ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L15020)):
-    - Ditambahkan unescape markdown image, link, dan normalisasi baris tabel sebelum diparse oleh `marked.parse` di sisi client.
-  - Bumped Service Worker cache version in [`static/sw.js`](file:///Z:/Todolist%20Manager%20V5.0/static/sw.js#L1) to `taskflow-v258-published-note-tables-and-images-fix`.
-  - Updated tests in [`tests/test_drawings.py`](file:///Z:/Todolist%20Manager%20V5.0/tests/test_drawings.py).
-- **Files Modified:** `requirements-web.txt`, `.github/workflows/test.yml`, `webapp.py`, `static/index.html`, `static/sw.js`, `tests/test_drawings.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
-- **Status:** Completed (433/433 JS tests pass, 40/40 Python tests pass, 5/5 inline scripts parse cleanly)
+  - Hardened `view_published_attachment` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4870)) with try-except for Nextcloud and local storage, returning clean 404 instead of 500.
+  - Added `_safe_date` helper in `view_published_note` ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L4642)).
+  - Added top-level try-except with clean fallback HTML response in `view_published_note`.
+  - Fixed regex escaping in `_PUBLIC_PAGE_HTML`.
+- **Files Modified:** `webapp.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (40/40 Python tests pass, 433/433 JS tests pass)
+
+---
 
 ---
 

@@ -4468,11 +4468,11 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
     if (body && window.katex) {{
       var html = body.innerHTML;
       // Display math: $$ ... $$
-      html = html.replace(/\$\$([\s\S]*?)\$\$/g, function(_, tex) {{
+      html = html.replace(/\\$\\$([\\s\\S]*?)\\$\\$/g, function(_, tex) {{
         try {{ return katex.renderToString(tex.trim(), {{ displayMode: true, throwOnError: false }}); }} catch(e) {{ return _; }}
       }});
       // Inline math: $ ... $
-      html = html.replace(/\$([^$]+?)\$/g, function(_, tex) {{
+      html = html.replace(/\\$([^$]+?)\\$/g, function(_, tex) {{
         try {{ return katex.renderToString(tex.trim(), {{ displayMode: false, throwOnError: false }}); }} catch(e) {{ return _; }}
       }});
       body.innerHTML = html;
@@ -4638,7 +4638,21 @@ async def view_published_note(username: str, slug: str, request: Request):
 
         # Helper: escape { } for .format() safety
         def _esc(s):
-            return str(s).replace('{', '{{').replace('}', '}}')
+            return str(s or "").replace('{', '{{').replace('}', '}}')
+
+        def _safe_date(d_str):
+            if not d_str:
+                return ""
+            try:
+                clean = str(d_str).replace('Z', '+00:00')
+                return datetime.fromisoformat(clean).strftime("%d %B %Y")
+            except Exception:
+                try:
+                    import dateparser
+                    d = dateparser.parse(str(d_str))
+                    return d.strftime("%d %B %Y") if d else str(d_str)[:10]
+                except Exception:
+                    return str(d_str)[:10]
 
         raw_content = row["content"] or ""
         desc_clean = _re.sub(r'\\?::draw\\?\[[^\]]*\](?:\s*\\?\{[^}]*\\?\})?', '', raw_content)
@@ -4649,9 +4663,9 @@ async def view_published_note(username: str, slug: str, request: Request):
         body_html = _render_published_content(raw_content, conn, note_id=row["note_id"])
 
         # Dates
-        created_date = datetime.fromisoformat(row["published_at"]).strftime("%d %B %Y")
-        updated_date = datetime.fromisoformat(row["updated_at"] or row["published_at"]).strftime("%d %B %Y")
-        date_str = updated_date  # most recent date for meta line
+        created_date = _safe_date(row["published_at"])
+        updated_date = _safe_date(row["updated_at"] or row["published_at"])
+        date_str = updated_date or created_date
 
         # Reading time & word count
         word_count = len(raw_content.split())
@@ -4722,8 +4736,8 @@ async def view_published_note(username: str, slug: str, request: Request):
         for m in _re.finditer(r'^(#{1,3})\s+(.+)$', raw_content, _re.MULTILINE):
             level = len(m.group(1))
             title = m.group(2).strip()
-            slug = _re.sub(r'[^\w-]', '', title.lower().replace(' ', '-'))[:50]
-            toc_items.append((level, title, slug))
+            slug_heading = _re.sub(r'[^\w-]', '', title.lower().replace(' ', '-'))[:50]
+            toc_items.append((level, title, slug_heading))
 
         if toc_items:
             # Add id attributes to heading tags in body_html (assumes same order as raw content)
@@ -4738,9 +4752,9 @@ async def view_published_note(username: str, slug: str, request: Request):
 
             # Build TOC list
             toc_list = ""
-            for level, title, slug in toc_items:
+            for level, title, slug_heading in toc_items:
                 cls = f"toc-h{level}" if level > 1 else ""
-                toc_list += f'<li class="{cls}"><a href="#{slug}">{_esc(title)}</a></li>'
+                toc_list += f'<li class="{cls}"><a href="#{slug_heading}">{_esc(title)}</a></li>'
             toc_html = f'<section class="pub-toc"><h3>&#128211; Contents</h3><ul>{toc_list}</ul></section>'
 
         # Build backlinks: other published notes that link to this note
@@ -4785,29 +4799,33 @@ async def view_published_note(username: str, slug: str, request: Request):
 </div>
 </section>'''
 
-        page_html = _PUBLIC_PAGE_HTML.format(
-            title=_esc(row["title"] or "Untitled"),
-            description=_esc(description),
-            base_url=WEBAPP_URL,
-            username=_esc(username),
-            slug=_esc(slug),
-            date=_esc(date_str),
-            body=_esc(body_html),
-            backlinks=backlinks_html,
-            css=_PUBLIC_CSS,
-            author=_esc(author),
-            created_date=_esc(created_date),
-            updated_date=_esc(updated_date),
-            reading_time=str(reading_time),
-            word_count=str(word_count),
-            toc_html=toc_html,
-            tags_html=tags_html,
-            cover_html=cover_html,
-            attachments_html=attachments_html,
-            drawing_html=drawing_html,
-            drawing_data_js=drawing_data_js,
-        )
-        return HTMLResponse(content=page_html)
+        try:
+            page_html = _PUBLIC_PAGE_HTML.format(
+                title=_esc(row["title"] or "Untitled"),
+                description=_esc(description),
+                base_url=WEBAPP_URL,
+                username=_esc(username),
+                slug=_esc(slug),
+                date=_esc(date_str),
+                body=_esc(body_html),
+                backlinks=backlinks_html,
+                css=_PUBLIC_CSS,
+                author=_esc(author),
+                created_date=_esc(created_date),
+                updated_date=_esc(updated_date),
+                reading_time=str(reading_time),
+                word_count=str(word_count),
+                toc_html=toc_html,
+                tags_html=tags_html,
+                cover_html=cover_html,
+                attachments_html=attachments_html,
+                drawing_html=drawing_html,
+                drawing_data_js=drawing_data_js,
+            )
+            return HTMLResponse(content=page_html)
+        except Exception:
+            # Fallback simple HTML response if formatting fails
+            return HTMLResponse(content=f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>{html.escape(row["title"] or "Untitled")}</title>{_PUBLIC_CSS}</head><body style="padding:24px;max-width:800px;margin:0 auto;"><div class="pub-body">{body_html}</div></body></html>""")
 
 @app.post("/pub/{username}/{slug}/unlock")
 async def unlock_published_note(username: str, slug: str, request: Request):
@@ -4868,27 +4886,35 @@ async def view_published_attachment(att_id: int):
         if not att:
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
 
-        # Local storage fallback if NEXTCLOUD is not configured
-        if not NEXTCLOUD_URL:
-            local_path = os.path.join(UPLOAD_DIR, os.path.basename(att["nextcloud_path"]))
-            if os.path.exists(local_path):
-                safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')
-                return FileResponse(local_path, filename=safe_name, media_type=att["mime_type"])
+        safe_name = (att["original_name"] or "file").replace('"', '_').replace('\r', '').replace('\n', '')
+        mime_type = att["mime_type"] or "application/octet-stream"
+        nc_path = att["nextcloud_path"] or ""
 
-        r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=30)
-        if r.status_code != 200:
-            local_path = os.path.join(UPLOAD_DIR, os.path.basename(att["nextcloud_path"]))
-            if os.path.exists(local_path):
-                safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')
-                return FileResponse(local_path, filename=safe_name, media_type=att["mime_type"])
-            r.close()
-            raise HTTPException(status_code=404, detail="File tidak ditemukan")
-        safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')
-        return Response(
-            content=r.content,
-            media_type=att["mime_type"],
-            headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
-        )
+        # Local storage fallback
+        if nc_path:
+            try:
+                local_path = os.path.join(UPLOAD_DIR, os.path.basename(nc_path))
+                if os.path.exists(local_path):
+                    return FileResponse(local_path, filename=safe_name, media_type=mime_type)
+            except Exception:
+                pass
+
+        # Nextcloud storage check
+        if NEXTCLOUD_URL and nc_path:
+            try:
+                r = _req.get(_nc_dav_url(nc_path), auth=_nc_auth(), timeout=15)
+                if r.status_code == 200:
+                    return Response(
+                        content=r.content,
+                        media_type=mime_type,
+                        headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
+                    )
+                r.close()
+            except Exception:
+                pass
+
+        # If not found in Nextcloud or local, return 404 cleanly
+        raise HTTPException(status_code=404, detail="File tidak ditemukan")
 
 @app.get("/api/scratchpad/{note_id}/backlinks")
 async def get_backlinks(note_id: int, user=Depends(get_current_user)):
