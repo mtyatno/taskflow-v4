@@ -8866,33 +8866,100 @@ function MindmapPage({
         }, "✕")
       ),
       /*#__PURE__*/React.createElement("div", { style: { padding: "8px 8px 4px" } },
-        /*#__PURE__*/React.createElement("input", {
-          className: "form-control form-control-sm",
-          placeholder: "Cari mindmap...",
-          value: searchQ,
-          onChange: e => setSearchQ(e.target.value),
-          style: { width: "100%", fontSize: 12 }
-        })
-      ),
-      /*#__PURE__*/React.createElement("div", { style: { padding: "4px 8px" } },
-        creating ? /*#__PURE__*/React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
+        /*#__PURE__*/React.createElement("div", {
+          className: "scratchpad-bar",
+          style: {
+            marginBottom: 0,
+            marginTop: 0,
+            padding: "7px 12px",
+            borderRadius: 10,
+            border: "1.5px solid var(--border)",
+            background: "var(--bg-primary)",
+            display: "flex",
+            alignItems: "center"
+          }
+        },
           /*#__PURE__*/React.createElement("input", {
-            className: "form-control form-control-sm",
-            placeholder: "Nama mindmap...",
+            value: searchQ,
+            onChange: e => setSearchQ(e.target.value),
+            placeholder: "Cari...",
+            style: {
+              fontSize: 12.5,
+              width: "100%",
+              border: "none",
+              background: "transparent",
+              color: "var(--text-primary)",
+              outline: "none"
+            }
+          }),
+          searchQ && /*#__PURE__*/React.createElement("button", {
+            className: "btn btn-icon btn-sm",
+            onClick: () => setSearchQ(""),
+            style: { padding: 0, width: 18, height: 18, fontSize: 11, border: "none", background: "none", color: "var(--text-light)", cursor: "pointer" }
+          }, "✕")
+        )
+      ),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "4px 8px 6px" } },
+        creating ? /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            padding: "8px",
+            background: "var(--bg-primary)",
+            border: "1.5px solid var(--accent)",
+            borderRadius: 10
+          }
+        },
+          /*#__PURE__*/React.createElement("input", {
+            placeholder: "Nama mindmap baru...",
             value: newTitle,
             onChange: e => setNewTitle(e.target.value),
             onKeyDown: e => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setCreating(false); },
-            autoFocus: true
+            autoFocus: true,
+            style: {
+              width: "100%",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              padding: "6px 10px",
+              fontSize: 12,
+              background: "var(--bg-card)",
+              color: "var(--text-primary)",
+              outline: "none"
+            }
           }),
-          /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 4 } },
-            /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleCreate, style: { flex: 1, fontSize: 11 } }, "Buat"),
-            /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => { setCreating(false); setNewTitle(""); }, style: { fontSize: 11 } }, "✕")
+          /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 6, justifyContent: "flex-end" } },
+            /*#__PURE__*/React.createElement("button", {
+              className: "btn btn-secondary btn-sm",
+              onClick: () => { setCreating(false); setNewTitle(""); },
+              style: { fontSize: 11, padding: "3px 10px", borderRadius: 6 }
+            }, "Batal"),
+            /*#__PURE__*/React.createElement("button", {
+              className: "btn btn-primary btn-sm",
+              onClick: handleCreate,
+              style: { fontSize: 11, padding: "3px 12px", borderRadius: 6, fontWeight: 600 }
+            }, "Buat")
           )
         ) : /*#__PURE__*/React.createElement("button", {
           onClick: () => setCreating(true),
           "data-tour": "mindmap-new",
-          style: { width: "100%", padding: "5px 8px", borderRadius: 6, border: "1px dashed var(--border)", background: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, textAlign: "left" }
-        }, "+ Baru")
+          style: {
+            width: "100%",
+            padding: "7px 12px",
+            borderRadius: 8,
+            border: "1.5px dashed var(--border)",
+            background: "var(--bg-primary)",
+            color: "var(--accent)",
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            transition: "all 0.15s ease"
+          }
+        }, "+ Mindmap Baru")
       ),
       /*#__PURE__*/React.createElement("div", {
         className: "hide-scrollbar", "data-tour": "mindmap-list",
@@ -9312,13 +9379,38 @@ function DrawPage({
         }, "✕")
       ),
       /*#__PURE__*/React.createElement("div", { style: { padding: "8px 8px 4px" } },
-        /*#__PURE__*/React.createElement("input", {
-          className: "form-control form-control-sm",
-          placeholder: "Cari gambar...",
-          value: searchQ,
-          onChange: e => setSearchQ(e.target.value),
-          style: { width: "100%", fontSize: 12 }
-        })
+        /*#__PURE__*/React.createElement("div", {
+          className: "scratchpad-bar",
+          style: {
+            marginBottom: 0,
+            marginTop: 0,
+            padding: "7px 12px",
+            borderRadius: 10,
+            border: "1.5px solid var(--border)",
+            background: "var(--bg-primary)",
+            display: "flex",
+            alignItems: "center"
+          }
+        },
+          /*#__PURE__*/React.createElement("input", {
+            value: searchQ,
+            onChange: e => setSearchQ(e.target.value),
+            placeholder: "Cari...",
+            style: {
+              fontSize: 12.5,
+              width: "100%",
+              border: "none",
+              background: "transparent",
+              color: "var(--text-primary)",
+              outline: "none"
+            }
+          }),
+          searchQ && /*#__PURE__*/React.createElement("button", {
+            className: "btn btn-icon btn-sm",
+            onClick: () => setSearchQ(""),
+            style: { padding: 0, width: 18, height: 18, fontSize: 11, border: "none", background: "none", color: "var(--text-light)", cursor: "pointer" }
+          }, "✕")
+        )
       ),
       allTags.length > 0 && /*#__PURE__*/React.createElement("div", {
         className: "hide-scrollbar",
@@ -9342,23 +9434,65 @@ function DrawPage({
           }
         }, "#", t))
       ),
-      /*#__PURE__*/React.createElement("div", { style: { padding: "4px 8px" } },
-        creating ? /*#__PURE__*/React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
+      /*#__PURE__*/React.createElement("div", { style: { padding: "4px 8px 6px" } },
+        creating ? /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            padding: "8px",
+            background: "var(--bg-primary)",
+            border: "1.5px solid var(--accent)",
+            borderRadius: 10
+          }
+        },
           /*#__PURE__*/React.createElement("input", {
-            className: "form-control form-control-sm",
-            placeholder: "Nama gambar...",
+            placeholder: "Nama gambar baru...",
             value: newTitle,
             onChange: e => setNewTitle(e.target.value),
             onKeyDown: e => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setCreating(false); },
-            autoFocus: true
+            autoFocus: true,
+            style: {
+              width: "100%",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              padding: "6px 10px",
+              fontSize: 12,
+              background: "var(--bg-card)",
+              color: "var(--text-primary)",
+              outline: "none"
+            }
           }),
-          /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 4 } },
-            /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleCreate, style: { flex: 1, fontSize: 11 } }, "Buat"),
-            /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => { setCreating(false); setNewTitle(""); }, style: { fontSize: 11 } }, "✕")
+          /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 6, justifyContent: "flex-end" } },
+            /*#__PURE__*/React.createElement("button", {
+              className: "btn btn-secondary btn-sm",
+              onClick: () => { setCreating(false); setNewTitle(""); },
+              style: { fontSize: 11, padding: "3px 10px", borderRadius: 6 }
+            }, "Batal"),
+            /*#__PURE__*/React.createElement("button", {
+              className: "btn btn-primary btn-sm",
+              onClick: handleCreate,
+              style: { fontSize: 11, padding: "3px 12px", borderRadius: 6, fontWeight: 600 }
+            }, "Buat")
           )
         ) : /*#__PURE__*/React.createElement("button", {
           onClick: () => setCreating(true),
-          style: { width: "100%", padding: "5px 8px", borderRadius: 6, border: "1px dashed var(--border)", background: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, textAlign: "left" }
+          style: {
+            width: "100%",
+            padding: "7px 12px",
+            borderRadius: 8,
+            border: "1.5px dashed var(--border)",
+            background: "var(--bg-primary)",
+            color: "var(--accent)",
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            transition: "all 0.15s ease"
+          }
         }, "+ Gambar Baru")
       ),
       /*#__PURE__*/React.createElement("div", {
@@ -14852,19 +14986,20 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   // Pre-process ::draw[id]{title="..."} tokens before marked.parse
   const drawMap = {};
   let di = 0;
-  const processed4 = processed3.replace(/::draw\[([0-9a-zA-Z_-]+)\](?:\{title="([^"]*)"\})?/g, (_, idStr, titleStr) => {
+  const processed4 = processed3.replace(/\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{\s*title\s*=\s*(?:\\?"([^"\\]*(?:\\.[^"\\]*)*)\\?"|'([^'\\]*(?:\\.[^'\\]*)*)'|([^\}\s]+))\s*\\?\})?/gi, (_, idStr, tDouble, tSingle, tBare) => {
     const key = `DRWBLK${di++}DRWBLKEND`;
     const safeId = escapeAttr(idStr);
-    const safeTitle = escapeHtml(titleStr || 'Gambar');
+    const titleRaw = (tDouble || tSingle || tBare || '').replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\(.)/g, '$1');
+    const safeTitle = escapeHtml(titleRaw || 'Gambar');
     drawMap[key] = `<div class="note-draw-card" data-drawing-id="${safeId}">
       <div class="note-draw-header">
         <span>🎨 ${safeTitle}</span>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleStr || 'Gambar')}' } }))" style="font-size:11px;padding:2px 8px;cursor:pointer;">✏️ Edit</button>
+          <button class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw || 'Gambar')}' } }))" style="font-size:11px;padding:2px 8px;cursor:pointer;">✏️ Edit</button>
           <button class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('openDrawing', { detail: '${safeId}' }))" style="font-size:11px;padding:2px 8px;cursor:pointer;" title="Buka di halaman Draw">↗️ Buka</button>
         </div>
       </div>
-      <div class="note-draw-preview-container" data-drawing-preview="${safeId}" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleStr || 'Gambar')}' } }))" title="Klik untuk mengedit gambar">
+      <div class="note-draw-preview-container" data-drawing-preview="${safeId}" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw || 'Gambar')}' } }))" title="Klik untuk mengedit gambar">
         <div class="drawing-preview-placeholder" style="color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;">🎨 Klik untuk membuka / mengedit gambar</div>
       </div>
     </div>`;

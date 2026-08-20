@@ -4,6 +4,21 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-20 11:37] - Antigravity (Gemini)
+- **Task:** Style searchbox and create new box on Mindmap/Draw sidebars, and fix rendering of multiple inline drawings in a single note.
+- **Root Causes:**
+  1. `MindmapPage` and `DrawPage` sidebars used basic bootstrap-like form-control inputs instead of the clean `.scratchpad-bar` style used by `NotesPage`.
+  2. In `renderNoteMarkdown`, the regex token parser `/::draw\[([0-9a-zA-Z_-]+)\](?:\{title="([^"]*)"\})?/g` was fragile: if markdown serializers escaped brackets (`\[`, `\]`), colons (`\::`), or quotes (`\"`), or if attributes differed, the parser failed on preceding blocks and only caught unescaped ones, leaving raw syntax `::draw[...]` in note viewer.
+- **Changes:**
+  - Standardized search boxes in `MindmapPage` and `DrawPage` to `.scratchpad-bar` with placeholder `Cari...`, no icon, and clear button `✕`.
+  - Modernized "Create New" buttons and input cards for mindmap and drawing creation in sidebars.
+  - Replaced `renderNoteMarkdown` draw token regex with a resilient regex supporting optional backslashes, double/single quotes, unquoted titles, and escaped characters across multiple occurrences.
+  - Bumped Service Worker cache version in `static/sw.js` to `taskflow-v254-searchbox-styling-and-multi-draw-fix`.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 39/39 Python tests pass, syntax verified)
+
+---
+
 ## [2026-08-20 10:51] - Antigravity (Gemini)
 - **Task:** Check and enhance Global Search (Ctrl+K) to find and navigate to drawings.
 - **Root Causes:**
