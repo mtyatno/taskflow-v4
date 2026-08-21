@@ -258,12 +258,14 @@ def _clean_markdown_text(text: str) -> str:
 def _add_styled_runs(paragraph, text: str, image_resolver=None):
     """Parse inline markdown (bold, italic, strikethrough, code, links) and add formatted runs."""
     token_pattern = re.compile(
-        r'(`[^`]+`)'
+        r'(!\[[^\]]*\]\([^)]+\))'
+        r'|(![^\s\[\]\(\)]+(?:\.png|\.jpg|\.jpeg|\.gif|\.webp|\.bmp|\.svg|\.ico)?)'
+        r'|([^]+)'
         r'|(\*\*[^*]+\*\*|__[^_]+__)'
         r'|(\*[^*]+\*|_[^_]+_)'
         r'|(~~[^~]+~~)'
         r'|(\[[^\]]+\]\([^)]+\))'
-        r'|(\\[\[\]\(\)*_~`#])'
+        r'|(\[\[\]\(\)*_~#])'
     )
 
     def _unescape_plain(s: str) -> str:
