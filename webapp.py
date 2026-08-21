@@ -3835,35 +3835,53 @@ class NoteExportLiveRequest(BaseModel):
     title: Optional[str] = "Catatan"
     content: Optional[str] = ""
     drawings: Optional[dict[str, Any]] = None
+    images: Optional[dict[str, Any]] = None
 
 
 @app.post("/api/scratchpad/export/docx")
 async def export_scratchpad_docx_live(req: NoteExportLiveRequest, user=Depends(get_current_user)):
     """Export live unsaved note content as Microsoft Word (.docx) document."""
     uid = user["sub"]
-    from docx_exporter import markdown_to_docx
+    from docx_exporter import markdown_to_docx, _resolve_image_bytes
     title = req.title or "Catatan"
     content = req.content or ""
     client_drawings = req.drawings or {}
+    client_images = req.images or {}
 
     db_draw_res = _make_drawing_resolver(uid, note_id=req.note_id)
 
     def combined_drawing_res(did, title=None):
         if client_drawings:
             did_str = str(did)
-            if did_str in client_drawings and client_drawings[did_str].get("svg"):
+            if did_str in client_drawings and (client_drawings[did_str].get("png") or client_drawings[did_str].get("svg")):
                 return client_drawings[did_str]
             if title:
                 t_clean = title.strip().lower()
                 for k, v in client_drawings.items():
                     vt = (v.get("title") or "").strip().lower()
                     if vt and (t_clean in vt or vt in t_clean):
-                        if v.get("svg"):
+                        if v.get("png") or v.get("svg"):
                             return v
         return db_draw_res(did, title=title)
 
-    image_res = _make_image_resolver(uid, note_id=req.note_id)
-    doc_io = markdown_to_docx(title, content, drawing_resolver=combined_drawing_res, image_resolver=image_res)
+    db_img_res = _make_image_resolver(uid, note_id=req.note_id)
+
+    def combined_image_res(src, alt=None):
+        if client_images:
+            if src in client_images and client_images[src]:
+                return _resolve_image_bytes(client_images[src])
+            if alt and alt in client_images and client_images[alt]:
+                return _resolve_image_bytes(client_images[alt])
+            clean_s = src.replace('\\', '').strip()
+            if clean_s in client_images and client_images[clean_s]:
+                return _resolve_image_bytes(client_images[clean_s])
+            bname = os.path.basename(clean_s).lower()
+            for k, v in client_images.items():
+                if v and (bname == k.lower() or bname == os.path.basename(k).lower()):
+                    return _resolve_image_bytes(v)
+        return db_img_res(src, alt=alt)
+
+    doc_io = markdown_to_docx(title, content, drawing_resolver=combined_drawing_res, image_resolver=combined_image_res)
     safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
     return Response(
         content=doc_io.getvalue(),

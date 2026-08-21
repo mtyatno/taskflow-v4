@@ -1,12 +1,25 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-21 15:40  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX Client-Side Canvas Rasterizer & Pure Python Dependencies SELESAI)
+**Last Updated:** 2026-08-21 15:56  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX Client Images & Attachments Hydration SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Note DOCX Export Client-Side Canvas Rasterizer & Pure Python Dependencies SELESAI 2026-08-21:**
+- **Note DOCX Export Client Images & Attachments Hydration SELESAI 2026-08-21:**
+  - **Problem / Root Cause:**
+    - Sebelumnya, gambar lampiran Nextcloud (`note_attachments`) dan image URL hanya di-resolve di backend. Jika Nextcloud backend sedang lambat / auth loopback gagal, gambar tidak dapat diunduh oleh server dan muncul sebagai teks `!image.png`.
+  - **Solusi / Perbaikan:**
+    1. **Client-Side Images & Attachments Hydration ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L19406)):**
+       - Saat export DOCX dipicu, browser secara otomatis mengambil semua lampiran catatan (`/api/scratchpad/:id/attachments`) dan gambar (`![alt](url)`, `<img src="...">`, `!image.png`, `[image.png]`) menggunakan sesi login aktif pengguna di browser.
+       - Browser mengonversinya menjadi Base64 Data URL dan mengirimkannya dalam `images: { [src]: base64Data }` via `POST /api/scratchpad/export/docx`.
+    2. **Combined Backend Image Resolver ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L3840)):**
+       - Backend menerima data Base64 gambar langsung dari browser dan menyematkannya ke file `.docx` dengan 0 dependensi eksternal.
+    3. **Clean Image Captioning ([`docx_exporter.py`](file:///Z:/Todolist%20Manager%20V5.0/docx_exporter.py)):**
+       - Menghilangkan pencetakan caption teks redundan jika `alt_text` hanyalah nama file mentah (seperti `image.png`, `foto.jpg`).
+    4. **SW Cache:** Di-bump ke **`taskflow-v267-docx-client-images-hydration`**.
+  - All tests passed: 433/433 JS unit tests + 43/43 pytest (0 failures).
+  - **Device-test checklist:** (1) Buka catatan dengan gambar lampiran / `!image.png` -> Export Word (.docx) -> Buka di Word -> Seluruh gambar dan diagram canvas ter-render visual dengan utuh.
   - **Problem / Root Cause:**
     - Pada VPS Linux (Ubuntu 24.04), `pip install -r requirements.txt` gagal saat kompilasi `pycairo` via Meson karena dependensi sistem `libcairo2-dev` dan `pkg-config` belum terinstall.
   - **Solusi / Perbaikan:**

@@ -19456,6 +19456,28 @@ function NotePanel({
       });
     };
 
+    // Helper: fetch any image URL or attachment and convert to Base64 Data URL
+    const urlToBase64 = async (url) => {
+      try {
+        if (!url || typeof url !== 'string') return null;
+        if (url.startsWith('data:image/')) return url;
+        const targetUrl = url.startsWith('http') ? url : apiUrl(url);
+        const headers = {};
+        if (typeof __token !== 'undefined' && __token) headers['Authorization'] = 'Bearer ' + __token;
+        const res = await fetch(targetUrl, { headers });
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+      } catch (_) {
+        return null;
+      }
+    };
+
     // 1. Collect all drawing SVGs and render high-res PNG previews from client
     const drawingsMap = {};
     const contentStr = note.content || "";
@@ -19480,7 +19502,44 @@ function NotePanel({
       }));
     }
 
-    // 2. Send POST with live content + client drawings map
+    // 2. Collect all images and attachments referenced in note
+    const imagesMap = {};
+    if (note.id) {
+      try {
+        const attList = await api.get(`/api/scratchpad/${note.id}/attachments`);
+        if (Array.isArray(attList)) {
+          await Promise.all(attList.map(async (att) => {
+            const attUrl = `/api/scratchpad/attachments/${att.id}/view`;
+            const b64 = await urlToBase64(attUrl);
+            if (b64) {
+              imagesMap[attUrl] = b64;
+              imagesMap[`/pub/attachments/${att.id}`] = b64;
+              if (att.original_name) {
+                imagesMap[att.original_name] = b64;
+                imagesMap[`!${att.original_name}`] = b64;
+              }
+            }
+          }));
+        }
+      } catch (_) {}
+    }
+
+    const imgMatches = Array.from(contentStr.matchAll(/!\[([^\]]*)\]\(([^)]+)\)|<img\s+[^>]*src=["']([^"']+)["']|!?\[([^\s\]]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))\]|!([^\s\[\]\(\)]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))/gi));
+    if (imgMatches.length > 0) {
+      await Promise.all(imgMatches.map(async (m) => {
+        const src = m[2] || m[3] || m[4] || m[5] || m[6];
+        if (src && !imagesMap[src]) {
+          if (src.startsWith('data:image/')) {
+            imagesMap[src] = src;
+          } else if (src.startsWith('/') || src.startsWith('http')) {
+            const b64 = await urlToBase64(src);
+            if (b64) imagesMap[src] = b64;
+          }
+        }
+      }));
+    }
+
+    // 3. Send POST with live content + client drawings and images maps
     if (navigator.onLine) {
       try {
         const h = { "Content-Type": "application/json" };
@@ -19492,7 +19551,8 @@ function NotePanel({
             note_id: note.id,
             title: note.title || "Catatan",
             content: note.content || "",
-            drawings: drawingsMap
+            drawings: drawingsMap,
+            images: imagesMap
           })
         });
         if (res.ok) {

@@ -4,6 +4,20 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-21 15:56] - Antigravity (Gemini)
+- **Task:** Hydrate all images and Nextcloud attachments on client before Word (.docx) export to ensure zero missing images in Word document.
+- **Root Cause:**
+  - When notes reference images (`!image.png`, `![alt](url)`, or attachment IDs), server-side Nextcloud DAV fetch could fail or timeout without browser session context.
+- **Changes:**
+  - In `static/index.html` `handleExportDocx`, added automatic hydration of all note attachments and markdown images via authenticated browser fetch and Base64 conversion (`imagesMap`).
+  - Updated `webapp.py` `export_scratchpad_docx_live` to resolve client-supplied images directly.
+  - Refined caption output in `docx_exporter.py` to prevent redundant raw filenames from showing under images.
+  - Bumped SW cache to `taskflow-v267-docx-client-images-hydration`.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `docx_exporter.py`, `webapp.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-21 15:40] - Antigravity (Gemini)
 - **Task:** Eliminate C compilation (`pycairo`/Meson) failure on Linux VPS by using browser HTML5 canvas SVG-to-PNG rasterization and pure Python decoding.
 - **Root Cause:**

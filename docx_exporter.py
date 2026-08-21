@@ -214,11 +214,13 @@ def _add_raster_image_to_doc(doc, img_bytes: bytes, alt_text="", max_width_in=5.
         run = p.add_run()
         run.add_picture(io.BytesIO(img_bytes), width=Inches(width_in), height=Inches(height_in))
 
-        if alt_text and alt_text.strip() and not alt_text.strip().startswith("http"):
+        alt_clean = alt_text.strip() if alt_text else ""
+        is_raw_fn = alt_clean.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico')) or alt_clean.lower() in ('image', 'screenshot', 'photo', 'foto', 'img')
+        if alt_clean and not alt_clean.startswith("http") and not alt_clean.startswith("/") and not is_raw_fn:
             p_cap = doc.add_paragraph()
             p_cap.paragraph_format.space_before = Pt(0)
             p_cap.paragraph_format.space_after = Pt(8)
-            r_cap = p_cap.add_run(alt_text.strip())
+            r_cap = p_cap.add_run(alt_clean)
             r_cap.font.size = Pt(9)
             r_cap.font.color.rgb = RGBColor(100, 116, 139)
             r_cap.italic = True
