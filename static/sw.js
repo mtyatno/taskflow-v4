@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v267-docx-client-images-hydration";
+const CACHE = "taskflow-v268-docx-fast-export-timeout-cap";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

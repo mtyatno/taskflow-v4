@@ -3741,9 +3741,17 @@ def _make_drawing_resolver(uid: int, note_id: int = None):
 
 
 def _make_image_resolver(uid: int, note_id: int = None):
+    _img_cache: dict[str, Optional[bytes]] = {}
+    _nc_disabled = False
+
     def _resolve_image(src: str, alt: str = None):
+        nonlocal _nc_disabled
         if not src:
             return None
+        cache_key = f"{src}|{alt or ''}"
+        if cache_key in _img_cache:
+            return _img_cache[cache_key]
+
         clean_src = src.replace('\\', '').strip()
         m = re.search(r'/(?:api/scratchpad/attachments|pub/attachments)/(\d+)', clean_src)
         att_id = int(m.group(1)) if m else None
@@ -3762,14 +3770,18 @@ def _make_image_resolver(uid: int, note_id: int = None):
                         att = row
                         break
 
-            if att and att["nextcloud_path"]:
+            if att and att["nextcloud_path"] and not _nc_disabled:
                 try:
                     import requests as _req
-                    r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=15)
+                    r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=3)
                     if r.status_code == 200:
+                        _img_cache[cache_key] = r.content
                         return r.content
                 except Exception as e:
+                    _nc_disabled = True  # Avoid further delays on unreachable Nextcloud
                     logger.warning(f"Error fetching attachment {att['id']} from Nextcloud: {e}")
+
+        _img_cache[cache_key] = None
         return None
     return _resolve_image
 

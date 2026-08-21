@@ -4,6 +4,22 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-21 16:13] - Antigravity (Gemini)
+- **Task:** Eliminate 5-minute export latency by adding instant UI toast, 2.5s image fetch timeout, 4s global prefetch cap, and memoized backend resolver.
+- **Root Cause:**
+  - `fetch` calls on unreachable or slow URLs / Nextcloud DAV endpoints had no timeout cap, causing browser and server requests to hang sequentially for up to 300 seconds.
+- **Changes:**
+  - Added instant UI toast `Menyiapkan dokumen Word...` in `handleExportDocx`.
+  - Added `AbortController` timeout (2.5s) per image URL in `urlToBase64`.
+  - Added global 4-second timeout cap on entire client prefetch step using `Promise.race`.
+  - Added `_img_cache` memoization and 3-second timeout with failure circuit-breaker in `webapp.py` `_make_image_resolver`.
+  - Reduced external HTTP requests timeout in `docx_exporter.py` from 8s to 3s.
+  - Bumped SW cache to `taskflow-v268-docx-fast-export-timeout-cap`.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `docx_exporter.py`, `webapp.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-21 15:56] - Antigravity (Gemini)
 - **Task:** Hydrate all images and Nextcloud attachments on client before Word (.docx) export to ensure zero missing images in Word document.
 - **Root Cause:**

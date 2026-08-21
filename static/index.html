@@ -19408,6 +19408,8 @@ function NotePanel({
     const title = (note.title || "Catatan").replace(/[\\/*?:"<>|]/g, "").trim() || "Catatan";
     const filename = `${title}.docx`;
 
+    if (typeof showToast === "function") showToast("Menyiapkan dokumen Word...", "info");
+
     // Helper: Convert SVG string to high-resolution PNG data URL via HTML5 Canvas
     const svgToPngDataUrl = (svgString) => {
       return new Promise((resolve) => {
@@ -19456,7 +19458,7 @@ function NotePanel({
       });
     };
 
-    // Helper: fetch any image URL or attachment and convert to Base64 Data URL
+    // Helper: fetch any image URL with 2.5s timeout and convert to Base64 Data URL
     const urlToBase64 = async (url) => {
       try {
         if (!url || typeof url !== 'string') return null;
@@ -19464,7 +19466,10 @@ function NotePanel({
         const targetUrl = url.startsWith('http') ? url : apiUrl(url);
         const headers = {};
         if (typeof __token !== 'undefined' && __token) headers['Authorization'] = 'Bearer ' + __token;
-        const res = await fetch(targetUrl, { headers });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const res = await fetch(targetUrl, { headers, signal: controller.signal });
+        clearTimeout(timeoutId);
         if (!res.ok) return null;
         const blob = await res.blob();
         return new Promise((resolve) => {
@@ -19478,66 +19483,75 @@ function NotePanel({
       }
     };
 
-    // 1. Collect all drawing SVGs and render high-res PNG previews from client
     const drawingsMap = {};
+    const imagesMap = {};
     const contentStr = note.content || "";
-    const drawMatches = Array.from(contentStr.matchAll(/\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?/gi));
-    if (drawMatches.length > 0) {
-      await Promise.all(drawMatches.map(async m => {
-        const did = m[1];
-        const attrRaw = m[2] || "";
-        const titleM = attrRaw.match(/title\s*=\s*(?:"([^"]*)"|'([^']*)')/);
-        const dtitle = titleM ? (titleM[1] || titleM[2]) : "";
+
+    // Fast parallel collection with max 4s timeout cap
+    const prefetchTask = async () => {
+      const drawMatches = Array.from(contentStr.matchAll(/\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?/gi));
+      if (drawMatches.length > 0) {
+        await Promise.all(drawMatches.map(async m => {
+          const did = m[1];
+          const attrRaw = m[2] || "";
+          const titleM = attrRaw.match(/title\s*=\s*(?:"([^"]*)"|'([^']*)')/);
+          const dtitle = titleM ? (titleM[1] || titleM[2]) : "";
+          try {
+            const d = await api.get(`/api/drawings/${did}`);
+            if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {
+              const pngData = await svgToPngDataUrl(d.svg_preview);
+              drawingsMap[did] = {
+                title: d.title || dtitle,
+                svg: d.svg_preview,
+                png: pngData
+              };
+            }
+          } catch (_) {}
+        }));
+      }
+
+      if (note.id) {
         try {
-          const d = await api.get(`/api/drawings/${did}`);
-          if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {
-            const pngData = await svgToPngDataUrl(d.svg_preview);
-            drawingsMap[did] = {
-              title: d.title || dtitle,
-              svg: d.svg_preview,
-              png: pngData
-            };
+          const attList = await api.get(`/api/scratchpad/${note.id}/attachments`);
+          if (Array.isArray(attList)) {
+            await Promise.all(attList.map(async (att) => {
+              const attUrl = `/api/scratchpad/attachments/${att.id}/view`;
+              const b64 = await urlToBase64(attUrl);
+              if (b64) {
+                imagesMap[attUrl] = b64;
+                imagesMap[`/pub/attachments/${att.id}`] = b64;
+                if (att.original_name) {
+                  imagesMap[att.original_name] = b64;
+                  imagesMap[`!${att.original_name}`] = b64;
+                }
+              }
+            }));
           }
         } catch (_) {}
-      }));
-    }
+      }
 
-    // 2. Collect all images and attachments referenced in note
-    const imagesMap = {};
-    if (note.id) {
-      try {
-        const attList = await api.get(`/api/scratchpad/${note.id}/attachments`);
-        if (Array.isArray(attList)) {
-          await Promise.all(attList.map(async (att) => {
-            const attUrl = `/api/scratchpad/attachments/${att.id}/view`;
-            const b64 = await urlToBase64(attUrl);
-            if (b64) {
-              imagesMap[attUrl] = b64;
-              imagesMap[`/pub/attachments/${att.id}`] = b64;
-              if (att.original_name) {
-                imagesMap[att.original_name] = b64;
-                imagesMap[`!${att.original_name}`] = b64;
-              }
+      const imgMatches = Array.from(contentStr.matchAll(/!\[([^\]]*)\]\(([^)]+)\)|<img\s+[^>]*src=["']([^"']+)["']|!?\[([^\s\]]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))\]|!([^\s\[\]\(\)]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))/gi));
+      if (imgMatches.length > 0) {
+        await Promise.all(imgMatches.map(async (m) => {
+          const src = m[2] || m[3] || m[4] || m[5] || m[6];
+          if (src && !imagesMap[src]) {
+            if (src.startsWith('data:image/')) {
+              imagesMap[src] = src;
+            } else if (src.startsWith('/') || src.startsWith('http')) {
+              const b64 = await urlToBase64(src);
+              if (b64) imagesMap[src] = b64;
             }
-          }));
-        }
-      } catch (_) {}
-    }
-
-    const imgMatches = Array.from(contentStr.matchAll(/!\[([^\]]*)\]\(([^)]+)\)|<img\s+[^>]*src=["']([^"']+)["']|!?\[([^\s\]]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))\]|!([^\s\[\]\(\)]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))/gi));
-    if (imgMatches.length > 0) {
-      await Promise.all(imgMatches.map(async (m) => {
-        const src = m[2] || m[3] || m[4] || m[5] || m[6];
-        if (src && !imagesMap[src]) {
-          if (src.startsWith('data:image/')) {
-            imagesMap[src] = src;
-          } else if (src.startsWith('/') || src.startsWith('http')) {
-            const b64 = await urlToBase64(src);
-            if (b64) imagesMap[src] = b64;
           }
-        }
-      }));
-    }
+        }));
+      }
+    };
+
+    try {
+      await Promise.race([
+        prefetchTask(),
+        new Promise(r => setTimeout(r, 4000))
+      ]);
+    } catch (_) {}
 
     // 3. Send POST with live content + client drawings and images maps
     if (navigator.onLine) {

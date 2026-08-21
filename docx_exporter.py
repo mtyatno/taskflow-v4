@@ -268,7 +268,7 @@ def _resolve_image_bytes(src: str, image_resolver: Optional[Callable[..., Option
     if src.startswith("http://") or src.startswith("https://"):
         try:
             import requests
-            r = requests.get(src, timeout=8)
+            r = requests.get(src, timeout=3)
             if r.status_code == 200:
                 return r.content
         except Exception:

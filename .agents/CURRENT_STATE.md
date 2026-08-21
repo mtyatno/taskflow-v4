@@ -1,12 +1,25 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-21 15:56  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX Client Images & Attachments Hydration SELESAI)
+**Last Updated:** 2026-08-21 16:13  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX Fast Latency & Timeout Cap SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Note DOCX Export Client Images & Attachments Hydration SELESAI 2026-08-21:**
+- **Note DOCX Export Fast Latency & Timeout Cap SELESAI 2026-08-21:**
+  - **Problem / Root Cause:**
+    - Sebelumnya, export Word membutuhkan waktu lama (~5 menit) jika terjadi timeout jaringan saat fetching gambar/Nextcloud tanpa batas waktu atau tanpa caching di server. Selain itu, UI tidak memberikan feedback instan saat sedang menyiapkan file.
+  - **Solusi / Perbaikan:**
+    1. **Instant UI Feedback & Fast Parallel Prefetch ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L19406)):**
+       - Menampilkan toast `Menyiapkan dokumen Word...` secara instan saat tombol diklik.
+       - Setiap pengambilan gambar diberikan `AbortController` timeout maksimal 2.5 detik.
+       - Seluruh proses pre-fetch client dibatasi maksimal 4 detik dengan `Promise.race`, sehingga proses export langsung berjalan tanpa pernah menunggu lama.
+    2. **Memoized Backend Image Resolver ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L3743)):**
+       - Menambahkan in-memory cache `_img_cache` untuk menghindari duplicate query/request.
+       - Mengurangi timeout Nextcloud dari 15s menjadi 3s, dan otomatis men-disable request berikutnya jika backend Nextcloud tidak merespons.
+    3. **SW Cache:** Di-bump ke **`taskflow-v268-docx-fast-export-timeout-cap`**.
+  - All tests passed: 433/433 JS unit tests + 43/43 pytest (0 failures).
+  - **Device-test checklist:** (1) Klik Export > Word (.docx) -> Toast "Menyiapkan dokumen Word..." langsung muncul -> File Word terunduh instan dalam 1-2 detik.
   - **Problem / Root Cause:**
     - Sebelumnya, gambar lampiran Nextcloud (`note_attachments`) dan image URL hanya di-resolve di backend. Jika Nextcloud backend sedang lambat / auth loopback gagal, gambar tidak dapat diunduh oleh server dan muncul sebagai teks `!image.png`.
   - **Solusi / Perbaikan:**
