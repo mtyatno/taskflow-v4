@@ -3868,10 +3868,9 @@ class NoteExportLiveRequest(BaseModel):
 @app.post("/api/scratchpad/export/docx")
 async def export_scratchpad_docx_live(req: NoteExportLiveRequest, user=Depends(get_current_user)):
     """Export live unsaved note content as Microsoft Word (.docx) document."""
-    try:
-        uid = user["sub"]
-        from docx_exporter import markdown_to_docx, _resolve_image_bytes
-        title = req.title or "Catatan"
+    uid = user["sub"]
+    from docx_exporter import markdown_to_docx, _resolve_image_bytes
+    title = req.title or "Catatan"
     content = req.content or ""
     client_drawings = req.drawings or {}
     client_images = req.images or {}
