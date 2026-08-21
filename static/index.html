@@ -15223,22 +15223,28 @@ function NoteToolbar({
 
   // Milkdown command caller
   const cmd = (commandKey, payload) => {
+    if (!commandKey) return;
     const editor = milkdownEditorRef?.current;
-    if (!editor) return;
-    editor.action(window.MilkdownBundle.callCommand(commandKey, payload));
+    if (!editor || !window.MilkdownBundle?.callCommand) return;
+    try {
+      editor.action(window.MilkdownBundle.callCommand(commandKey, payload));
+    } catch (_) {}
   };
   const insertText = text => {
     const editor = milkdownEditorRef?.current;
-    if (!editor) return;
-    editor.action(ctx => {
-      const view = ctx.get(window.MilkdownBundle.editorViewCtx);
-      const {
-        tr,
-        selection
-      } = view.state;
-      view.dispatch(tr.insertText(text, selection.from, selection.to));
-    });
-    editor.action(ctx => ctx.get(window.MilkdownBundle.editorViewCtx).focus());
+    if (!editor || !window.MilkdownBundle?.editorViewCtx) return;
+    try {
+      editor.action(ctx => {
+        const view = ctx.get(window.MilkdownBundle.editorViewCtx);
+        if (!view) return;
+        const {
+          tr,
+          selection
+        } = view.state;
+        view.dispatch(tr.insertText(text, selection.from, selection.to));
+      });
+      editor.action(ctx => ctx.get(window.MilkdownBundle.editorViewCtx)?.focus?.());
+    } catch (_) {}
   };
   const insertTaskList = () => {
     const editor = milkdownEditorRef?.current;
@@ -15456,7 +15462,7 @@ function NoteToolbar({
     key: h.level,
     onPointerDown: e => {
       e.preventDefault();
-      cmd(window.MilkdownBundle.wrapInHeadingCommand.key, h.level);
+      cmd(window.MilkdownBundle?.wrapInHeadingCommand?.key, h.level);
       setHOpen(false);
     },
     style: {
@@ -15487,7 +15493,7 @@ function NoteToolbar({
   }), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
-      cmd(window.MilkdownBundle.toggleStrongCommand.key);
+      cmd(window.MilkdownBundle?.toggleStrongCommand?.key);
     },
     title: "Bold",
     style: {
@@ -15498,7 +15504,7 @@ function NoteToolbar({
   }, "B"), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
-      cmd(window.MilkdownBundle.toggleEmphasisCommand.key);
+      cmd(window.MilkdownBundle?.toggleEmphasisCommand?.key);
     },
     title: "Italic",
     style: {
@@ -15509,7 +15515,7 @@ function NoteToolbar({
   }, "I"), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
-      cmd(window.MilkdownBundle.toggleInlineCodeCommand.key);
+      cmd(window.MilkdownBundle?.toggleInlineCodeCommand?.key);
     },
     title: "Inline code",
     style: {
@@ -15521,7 +15527,7 @@ function NoteToolbar({
   }), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
-      cmd(window.MilkdownBundle.wrapInBulletListCommand.key);
+      cmd(window.MilkdownBundle?.wrapInBulletListCommand?.key);
     },
     title: "Bullet list",
     style: {
@@ -15539,7 +15545,7 @@ function NoteToolbar({
   }, "\u2611"), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
-      cmd(window.MilkdownBundle.wrapInBlockquoteCommand.key);
+      cmd(window.MilkdownBundle?.wrapInBlockquoteCommand?.key);
     },
     title: "Blockquote",
     style: {
@@ -15629,7 +15635,7 @@ function NoteToolbar({
   }, /*#__PURE__*/React.createElement("button", {
     onPointerDown: e => {
       e.preventDefault();
-      cmd(window.MilkdownBundle.wrapInOrderedListCommand.key);
+      cmd(window.MilkdownBundle?.wrapInOrderedListCommand?.key);
       setMoreOpen(false);
     },
     title: "Numbered list",
@@ -15640,7 +15646,7 @@ function NoteToolbar({
   }, "1."), /*#__PURE__*/React.createElement("button", {
     onPointerDown: e => {
       e.preventDefault();
-      cmd(window.MilkdownBundle.toggleStrikethroughCommand.key);
+      cmd(window.MilkdownBundle?.toggleStrikethroughCommand?.key);
       setMoreOpen(false);
     },
     title: "Strikethrough",
@@ -15653,7 +15659,7 @@ function NoteToolbar({
   }), /*#__PURE__*/React.createElement("button", {
     onPointerDown: e => {
       e.preventDefault();
-      cmd(window.MilkdownBundle.insertTableCommand.key);
+      cmd(window.MilkdownBundle?.insertTableCommand?.key);
       setMoreOpen(false);
     },
     title: "Insert table",
@@ -15676,7 +15682,7 @@ function NoteToolbar({
   }), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
-      cmd(window.MilkdownBundle.insertHrCommand.key);
+      cmd(window.MilkdownBundle?.insertHrCommand?.key);
     },
     title: "Horizontal rule",
     style: {
@@ -15764,6 +15770,7 @@ function MilkdownEditor({
   React.useEffect(() => {
     if (!containerRef.current) return;
     const MB = window.MilkdownBundle;
+    if (!MB || !MB.Editor) return;
     let cancelled = false;
     let pmDom = null;
     let headingEnterHandler = null;
@@ -15787,7 +15794,7 @@ function MilkdownEditor({
             tr = tr.setBlockType(from, to, state.schema.nodes.heading, { level: payload });
             break;
           case 'bullet_list':
-            tr = MB.wrapInBulletListCommand(payload)(state, tr.dispatch ? undefined : undefined);
+            tr = MB.wrapInBulletListCommand ? MB.wrapInBulletListCommand(payload)(state, tr.dispatch ? undefined : undefined) : false;
             if (tr === false) return;
             // wrapInBulletListCommand returns false if not applicable; use setBlockType fallback
             tr = state.tr;
@@ -15970,8 +15977,8 @@ function MilkdownEditor({
               offset += row.nodeSize;
             });
             if (cmdKey === 'deleteRow') {
-              ctx.get(MB.commandsCtx).call(MB.selectRowCommand.key, { index: rowIdx });
-              ctx.get(MB.commandsCtx).call(MB.deleteSelectedCellsCommand.key);
+              if (MB.selectRowCommand?.key) ctx.get(MB.commandsCtx)?.call(MB.selectRowCommand.key, { index: rowIdx });
+              if (MB.deleteSelectedCellsCommand?.key) ctx.get(MB.commandsCtx)?.call(MB.deleteSelectedCellsCommand.key);
             } else {
               // Find col index within the current row
               const rowNode = tableNode.child(rowIdx);
@@ -15984,27 +15991,29 @@ function MilkdownEditor({
                 if ($from.pos >= cellOffset && $from.pos < cellOffset + cell.nodeSize) { colIdx = idx; }
                 cellOffset += cell.nodeSize;
               });
-              ctx.get(MB.commandsCtx).call(MB.selectColCommand.key, { index: colIdx });
-              ctx.get(MB.commandsCtx).call(MB.deleteSelectedCellsCommand.key);
+              if (MB.selectColCommand?.key) ctx.get(MB.commandsCtx)?.call(MB.selectColCommand.key, { index: colIdx });
+              if (MB.deleteSelectedCellsCommand?.key) ctx.get(MB.commandsCtx)?.call(MB.deleteSelectedCellsCommand.key);
             }
           });
-        } else {
+        } else if (_cmd) {
           inst.action(_cmd(cmdKey, payload));
         }
         setTimeout(() => updateTableToolbar(inst), 50);
       };
       return btn;
     };
-    tableToolbarEl.appendChild(makeTblBtn('+⇧', 'Add row above', MB.addRowBeforeCommand.key));
-    tableToolbarEl.appendChild(makeTblBtn('+⇩', 'Add row below', MB.addRowAfterCommand.key));
+    if (MB.addRowBeforeCommand?.key) tableToolbarEl.appendChild(makeTblBtn('+⇧', 'Add row above', MB.addRowBeforeCommand.key));
+    if (MB.addRowAfterCommand?.key) tableToolbarEl.appendChild(makeTblBtn('+⇩', 'Add row below', MB.addRowAfterCommand.key));
     tableToolbarEl.appendChild(makeTblBtn('−⇶', 'Delete row', 'deleteRow'));
-    tableToolbarEl.appendChild(makeTblBtn('+⇦', 'Add col left', MB.addColBeforeCommand.key));
-    tableToolbarEl.appendChild(makeTblBtn('+⇨', 'Add col right', MB.addColAfterCommand.key));
+    if (MB.addColBeforeCommand?.key) tableToolbarEl.appendChild(makeTblBtn('+⇦', 'Add col left', MB.addColBeforeCommand.key));
+    if (MB.addColAfterCommand?.key) tableToolbarEl.appendChild(makeTblBtn('+⇨', 'Add col right', MB.addColAfterCommand.key));
     tableToolbarEl.appendChild(makeTblBtn('−⇵', 'Delete col', 'deleteCol'));
     tableToolbarEl.appendChild(document.createTextNode(' ')); // spacer
-    tableToolbarEl.appendChild(makeTblBtn('◧', 'Align left', MB.setAlignCommand.key, 'left'));
-    tableToolbarEl.appendChild(makeTblBtn('◰', 'Align center', MB.setAlignCommand.key, 'center'));
-    tableToolbarEl.appendChild(makeTblBtn('◨', 'Align right', MB.setAlignCommand.key, 'right'));
+    if (MB.setAlignCommand?.key) {
+      tableToolbarEl.appendChild(makeTblBtn('◧', 'Align left', MB.setAlignCommand.key, 'left'));
+      tableToolbarEl.appendChild(makeTblBtn('◰', 'Align center', MB.setAlignCommand.key, 'center'));
+      tableToolbarEl.appendChild(makeTblBtn('◨', 'Align right', MB.setAlignCommand.key, 'right'));
+    }
     const updateTableToolbar = (inst) => {
       if (!inst) return;
       inst.action(ctx => {
@@ -16020,9 +16029,9 @@ function MilkdownEditor({
     // ── End table toolbar ─────────────────────────────────────────
 
     // ── Create factory pairs ────────────────────────────────────────
-    const slashPair = MB.slashFactory('note-slash');
-    const tooltipPair = MB.tooltipFactory('note-tooltip');
-    const tableToolbarPair = MB.tooltipFactory('table-toolbar');
+    const slashPair = MB.slashFactory ? MB.slashFactory('note-slash') : null;
+    const tooltipPair = MB.tooltipFactory ? MB.tooltipFactory('note-tooltip') : null;
+    const tableToolbarPair = MB.tooltipFactory ? MB.tooltipFactory('table-toolbar') : null;
 
     MB.Editor.make().config(ctx => {
       ctx.set(MB.rootCtx, containerRef.current);
@@ -16324,6 +16333,35 @@ function MilkdownEditor({
     return () => { el.remove(); document.removeEventListener('click', onDocClick); };
   }, [imgResize, applyImgSize]);
   // ── End image resize toolbar ───────────────────────────────
+  if (!window.MilkdownBundle) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "note-modal-content-input",
+      style: {
+        minHeight: minHeight || 240,
+        position: "relative",
+        width: "100%"
+      }
+    }, /*#__PURE__*/React.createElement("textarea", {
+      className: "input",
+      style: {
+        width: "100%",
+        minHeight: minHeight || 240,
+        fontFamily: "monospace",
+        fontSize: 14,
+        padding: "12px 14px",
+        lineHeight: 1.6,
+        boxSizing: "border-box",
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: "var(--bg-card)",
+        color: "var(--text-primary)",
+        resize: "vertical"
+      },
+      value: value || "",
+      onChange: e => onChange(e.target.value),
+      placeholder: "Tulis catatan di sini (Markdown)..."
+    }));
+  }
   return /*#__PURE__*/React.createElement("div", {
     ref: containerRef,
     className: "milkdown-editor note-modal-content-input",
@@ -17128,13 +17166,16 @@ function NoteModal({
   // NoteModal's own insertText (same pattern as NoteToolbar)
   const insertText = text => {
     const editor = milkdownEditorRef?.current;
-    if (!editor) return;
-    editor.action(ctx => {
-      const view = ctx.get(window.MilkdownBundle.editorViewCtx);
-      const { tr, selection } = view.state;
-      view.dispatch(tr.insertText(text, selection.from, selection.to));
-    });
-    editor.action(ctx => ctx.get(window.MilkdownBundle.editorViewCtx).focus());
+    if (!editor || !window.MilkdownBundle?.editorViewCtx) return;
+    try {
+      editor.action(ctx => {
+        const view = ctx.get(window.MilkdownBundle.editorViewCtx);
+        if (!view) return;
+        const { tr, selection } = view.state;
+        view.dispatch(tr.insertText(text, selection.from, selection.to));
+      });
+      editor.action(ctx => ctx.get(window.MilkdownBundle.editorViewCtx)?.focus?.());
+    } catch (_) {}
   };
   // Parse markdown string and insert as ProseMirror nodes (not raw text)
   const insertMarkdown = md => {
@@ -17599,12 +17640,15 @@ function NoteModal({
     const todoMatch2 = textBefore.match(/(?:^|\n)\/(todo|task)$/);
     if (todoMatch2) {
       const ed = milkdownEditorRef.current;
-      if (ed) {
-        ed.action(ctx => {
-          const view = ctx.get(window.MilkdownBundle.editorViewCtx);
-          const { from } = view.state.selection;
-          view.dispatch(view.state.tr.delete(from - 5, from));
-        });
+      if (ed && window.MilkdownBundle?.editorViewCtx) {
+        try {
+          ed.action(ctx => {
+            const view = ctx.get(window.MilkdownBundle.editorViewCtx);
+            if (!view) return;
+            const { from } = view.state.selection;
+            view.dispatch(view.state.tr.delete(from - 5, from));
+          });
+        } catch (_) {}
         openTaskDropdown();
         // Flag to prevent next onChange from closing the dropdown
         _taskJustOpened.current = true;
@@ -17616,13 +17660,16 @@ function NoteModal({
     const drawMatch = textBefore.match(/(?:^|\n)\/(draw|canvas|gambar|sketsa)$/i);
     if (drawMatch) {
       const ed = milkdownEditorRef.current;
-      if (ed) {
-        const cmdLen = drawMatch[1].length + 1;
-        ed.action(ctx => {
-          const view = ctx.get(window.MilkdownBundle.editorViewCtx);
-          const { from } = view.state.selection;
-          view.dispatch(view.state.tr.delete(from - cmdLen, from));
-        });
+      if (ed && window.MilkdownBundle?.editorViewCtx) {
+        try {
+          const cmdLen = drawMatch[1].length + 1;
+          ed.action(ctx => {
+            const view = ctx.get(window.MilkdownBundle.editorViewCtx);
+            if (!view) return;
+            const { from } = view.state.selection;
+            view.dispatch(view.state.tr.delete(from - cmdLen, from));
+          });
+        } catch (_) {}
         handleOpenInsertDrawing();
       }
       return;

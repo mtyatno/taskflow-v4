@@ -4,6 +4,21 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-21 11:05] - Antigravity (Gemini)
+- **Task:** Fix error when clicking "Edit" on a note (`TypeError: Cannot read properties of undefined (reading 'addRowBeforeCommand')`).
+- **Root Cause:**
+  - If `milkdown.bundle.js` fails to load due to connection reset or slow network, `window.MilkdownBundle` is `undefined`.
+  - `MilkdownEditor` accessed `MB.addRowBeforeCommand.key` directly without checking if `MB` exists, crashing React during component mount.
+- **Changes:**
+  - Added safe initialization guard `if (!MB || !MB.Editor) return;` inside `MilkdownEditor`.
+  - Applied optional chaining (`?.key`) to all Milkdown table, toolbar, and slash commands.
+  - Added resilient fallback `<textarea>` Markdown editor in `MilkdownEditor` so note editing always works smoothly regardless of network status.
+  - Bumped SW cache to `taskflow-v264-fix-note-edit-milkdown-guard`.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 42/42 pytest pass)
+
+---
+
 ## [2026-08-21 10:29] - Antigravity (Gemini)
 - **Task:** Integrate Microsoft Word (`.docx`) and Markdown (`.md`) export for Scratchpad Notes.
 - **Changes:**

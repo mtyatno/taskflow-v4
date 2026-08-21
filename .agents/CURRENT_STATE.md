@@ -1,9 +1,22 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-21 10:29  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Note Export to Word (.docx) & Markdown (.md) SELESAI)
+**Last Updated:** 2026-08-21 11:05  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Note Edit & Milkdown Safety Guard Fix SELESAI)
 
 ---
+
+## 📌 Active Task
+- **Fix Error when Clicking "Edit" on a Note SELESAI 2026-08-21:**
+  - **Problem / Root Cause:**
+    - Saat `milkdown.bundle.js` mengalami gangguan jaringan / slow load / `ERR_CONNECTION_RESET`, objek global `window.MilkdownBundle` bernilai `undefined`.
+    - Ketika user membuka modal edit note, `MilkdownEditor` mengakses `MB.addRowBeforeCommand.key` tanpa safe check / optional chaining, memicu crash: `TypeError: Cannot read properties of undefined (reading 'addRowBeforeCommand')`.
+  - **Solusi / Perbaikan ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L15764)):**
+    1. **Initialization Guard:** Menambahkan guard `if (!MB || !MB.Editor) return;` di awal `useEffect` `MilkdownEditor`.
+    2. **Table & Toolbar Command Safe Optional Chaining:** Menggunakan `MB.addRowBeforeCommand?.key`, `MB.addColBeforeCommand?.key`, `MB.setAlignCommand?.key`, `MB.slashFactory`, dll. serta try/catch di `NoteToolbar` dan `NoteModal`.
+    3. **Resilient Fallback Editor:** Menambahkan fallback editor `<textarea>` Markdown yang responsif dan siap pakai jika `MilkdownBundle` belum/gagal dimuat, sehingga modal edit catatan 100% tidak pernah crash dan selalu bisa mengedit catatan secara instan dalam kondisi jaringan apa pun.
+    4. **SW Cache Bump:** SW cache di-bump ke **`taskflow-v264-fix-note-edit-milkdown-guard`**.
+  - All tests passed: 433/433 JS unit tests + 42/42 pytest (0 failures).
+  - **Device-test checklist:** (1) Buka catatan -> Klik tombol `Edit` -> Modal editor terbuka dengan mulus tanpa error konsol.
 
 ## 📌 Active Task
 - **Note Export to Word (.docx) & Markdown (.md) SELESAI 2026-08-21:**
