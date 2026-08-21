@@ -19103,6 +19103,7 @@ function NotePanel({
   const [publishWorking, setPublishWorking] = React.useState(false);
   const [publishError, setPublishError] = React.useState('');
   const [exportMenuOpen, setExportMenuOpen] = React.useState(false);
+  const [isExporting, setIsExporting] = React.useState(false);
   React.useEffect(() => {
     if (!note) return;
     setPanelAttachments([]);
@@ -19404,6 +19405,13 @@ function NotePanel({
   };
 
   const handleExportDocx = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    setExportMenuOpen(false);
+    try { await _handleExportDocxInner(); }
+    finally { setIsExporting(false); }
+  };
+  const _handleExportDocxInner = async () => {
     setExportMenuOpen(false);
     const title = (note.title || "Catatan").replace(/[\\/*?:"<>|]/g, "").trim() || "Catatan";
     const filename = `${title}.docx`;
@@ -19675,7 +19683,13 @@ function NotePanel({
       display: "flex",
       gap: 0
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, isExporting && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 99999,
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      color: "#fff", fontSize: 16, fontWeight: 600, backdropFilter: "blur(2px)"
+    }
+  }, /*#__PURE__*/React.createElement("div", { style: { fontSize: 40, marginBottom: 16 } }, "⏳"), "Menyiapkan file Word (sedang memproses gambar, harap tunggu)..."), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
       minWidth: 0
