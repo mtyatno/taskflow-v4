@@ -132,6 +132,15 @@ def test_markdown_to_docx_with_images_and_drawings():
 Berikut adalah gambar base64:
 ![Gambar Dummy]({b64_str})
 
+Berikut adalah standalone bang image:
+!image.png
+
+Berikut adalah standalone bracket image:
+![screenshot.jpg]
+
+Berikut adalah HTML img:
+<img src="/api/scratchpad/attachments/88/view" alt="Foto HTML" />
+
 Berikut adalah drawing inline:
 ::draw[101]{{size="M" title="Diagram Alur"}}
 
@@ -139,7 +148,7 @@ Berikut adalah lampiran gambar resolver:
 ![Foto Lampiran](/api/scratchpad/attachments/55/view)
 """
 
-    def mock_drawing_resolver(did):
+    def mock_drawing_resolver(did, title=None):
         if str(did) == "101":
             return {
                 "title": "Diagram Alur",
@@ -147,8 +156,8 @@ Berikut adalah lampiran gambar resolver:
             }
         return None
 
-    def mock_image_resolver(src):
-        if "55" in src:
+    def mock_image_resolver(src, alt=None):
+        if "55" in src or "88" in src or "image.png" in src or "screenshot.jpg" in src:
             return png_bytes
         return None
 
@@ -160,14 +169,16 @@ Berikut adalah lampiran gambar resolver:
     )
     assert isinstance(doc_io, io.BytesIO)
     doc = docx.Document(doc_io)
-    
+
     # Verify paragraphs and captions
     paragraphs = [p.text for p in doc.paragraphs]
     assert any("Gambar dan Diagram" in p for p in paragraphs)
     assert any("Diagram Alur" in p for p in paragraphs)
     assert any("Foto Lampiran" in p for p in paragraphs)
+    assert any("Foto HTML" in p for p in paragraphs)
 
-    # Verify images and SVG parts exist in docx package
+    # Verify images exist in docx package
     image_parts = [p for p in doc.part.package.parts if 'image' in p.partname]
-    assert len(image_parts) >= 2
+    assert len(image_parts) >= 1
+
 

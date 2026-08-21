@@ -4,6 +4,22 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-21 15:20] - Antigravity (Gemini)
+- **Task:** Fix blank white boxes for SVG drawings and unrendered `!image.png` image references in Note `.docx` export.
+- **Root Cause:**
+  - Word on Windows renders bitmap raster parts (not live SVGs) when displaying drawings.
+  - Standalone image references formatted as `!image.png`, `![image.png]`, `[image.png]`, and `<img ...>` were not recognized by the URL-only `![alt](url)` regex.
+- **Changes:**
+  - Implemented `_svg_to_png_bytes` using `svglib` + `reportlab` + `rlPyCairo` to convert SVG drawings into real high-resolution PNG pictures embedded into `.docx`.
+  - Implemented `_parse_standalone_image` supporting `!image.png`, `![image.png]`, `[image.png]`, `![alt](url)`, `<img src="..." />`, and standalone image filenames.
+  - Upgraded `_make_image_resolver` in `webapp.py` to match filenames against `note_attachments` and fetch from Nextcloud.
+  - Added `svglib>=1.5.0`, `reportlab>=4.0.0`, `rlPyCairo>=0.3.0` to `requirements.txt` and `requirements-web.txt`.
+  - Updated automated test suite in `tests/test_docx_export.py`.
+- **Files Modified:** `docx_exporter.py`, `webapp.py`, `requirements.txt`, `requirements-web.txt`, `tests/test_docx_export.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-21 14:38] - Antigravity (Gemini)
 - **Task:** Ensure inline drawings and images always render visual in Note Word (.docx) export via client-side SVG map pre-fetch and robust image resolving.
 - **Root Cause:**

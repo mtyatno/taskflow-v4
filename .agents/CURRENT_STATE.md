@@ -1,12 +1,31 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-21 14:38  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX Client Drawing Map & Image Resolving SELESAI)
+**Last Updated:** 2026-08-21 15:20  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX SVG-to-PNG Rasterizer & Image Syntax Support SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Note DOCX Export Client Drawing Map & Image Resolving SELESAI 2026-08-21:**
+- **Note DOCX Export SVG-to-PNG Rasterizer & Image Syntax Support SELESAI 2026-08-21:**
+  - **Problem / Root Cause:**
+    - **Area Draw Kotak Putih:** Microsoft Word Desktop pada Windows mengandalkan representasi raster bitmap (PNG) saat membuka dokumen docx. Karena fallback sebelumnya berupa PNG 1x1 transparan, Word menampilkan kotak putih kosong.
+    - **Image Menampilkan Teks `!image.png`:** Parser regex sebelumnya hanya mencocokkan pola markdown dengan tanda kurung `![alt](url)`, sehingga penulisan gambar standalone seperti `!image.png`, `![image.png]`, `[image.png]`, dan `<img ... />` terlewat dan dianggap teks biasa.
+  - **Solusi / Perbaikan:**
+    1. **SVG-to-PNG Rasterizer ([`docx_exporter.py`](file:///Z:/Todolist%20Manager%20V5.0/docx_exporter.py)):**
+       - Menambahkan fungsi `_svg_to_png_bytes` menggunakan `svglib` + `reportlab` + `rlPyCairo` (dengan fallback `cairosvg`) untuk merasterisasi SVG menjadi PNG bitmap resolusi tinggi asli.
+       - Disematkan langsung sebagai raster picture di file `.docx` sehingga 100% kompatibel dan tampil visual jelas di semua versi Microsoft Word, LibreOffice, WPS Office, dan Google Docs.
+    2. **Comprehensive Image Syntax Parser ([`docx_exporter.py`](file:///Z:/Todolist%20Manager%20V5.0/docx_exporter.py)):**
+       - Menambahkan `_parse_standalone_image` yang mendukung:
+         - `!filename.png` / `!filename.jpg`
+         - `![filename.png]` / `[filename.png]`
+         - `![alt](url)` / `[filename.png](url)`
+         - HTML `<img src="..." alt="..." />`
+    3. **Backend Image Filename Resolver ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L3740)):**
+       - Mencocokkan `src`/`alt` nama file dengan database Nextcloud `note_attachments` (berdasarkan `note_id` dan `user_id`) untuk mengambil byte gambar asli secara otomatis.
+    4. **Dependencies:**
+       - Menambahkan `svglib>=1.5.0`, `reportlab>=4.0.0`, dan `rlPyCairo>=0.3.0` pada `requirements.txt` dan `requirements-web.txt`.
+  - All tests passed: 433/433 JS unit tests + 43/43 pytest (0 failures).
+  - **Device-test checklist:** (1) Buka catatan yang memiliki inline draw dan format gambar `!image.png` / `![alt](url)` -> Export Word (.docx) -> Buka di Microsoft Word -> Seluruh gambar dan diagram canvas ter-render visual dengan jelas (bukan kotak putih dan bukan teks mentah).
   - **Problem / Root Cause:**
     - Sebelumnya, inline drawing (`::draw[...]`) hanya dicari di server database SQLite berdasarkan ID. Jika drawing baru dibuat / berada di client cache/IndexedDB (`drawingrepo`), server tidak menemukan SVG sehingga menghasilkan placeholder teks saja `🎨 [Gambar/Canvas: ...]`.
     - Gambar lampiran Nextcloud dan HTML `<img>` tag belum memiliki fallback unescaping dan filename matching.

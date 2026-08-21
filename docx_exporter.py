@@ -68,9 +68,41 @@ def _extract_svg_dimensions(svg_str: str, max_width_in=5.5, max_height_in=6.0):
     return width_in, height_in
 
 
-def _add_svg_to_doc(doc, svg_str: str, title="Drawing"):
-    """Embed a native SVG drawing into a python-docx Document with Word-standard OpenXML SVG markup."""
+def _svg_to_png_bytes(svg_str: str) -> Optional[bytes]:
+    """Convert SVG string to high-quality PNG bytes using svglib/reportlab or cairosvg."""
+    if not svg_str or not svg_str.strip().startswith("<svg"):
+        return None
     try:
+        from svglib.svglib import svg2rlg
+        from reportlab.graphics import renderPM
+        drawing = svg2rlg(io.StringIO(svg_str))
+        if drawing:
+            png_bytes = renderPM.drawToString(drawing, fmt='PNG')
+            if png_bytes and len(png_bytes) > 50:
+                return png_bytes
+    except Exception:
+        pass
+
+    try:
+        import cairosvg
+        png_bytes = cairosvg.svg2png(bytestring=svg_str.encode('utf-8'))
+        if png_bytes and len(png_bytes) > 50:
+            return png_bytes
+    except Exception:
+        pass
+
+    return None
+
+
+def _add_svg_to_doc(doc, svg_str: str, title="Drawing"):
+    """Embed an SVG drawing into a python-docx Document as high-fidelity PNG and/or native SVG."""
+    try:
+        # 1. Rasterize to PNG first for universal Microsoft Word / LibreOffice compatibility
+        png_bytes = _svg_to_png_bytes(svg_str)
+        if png_bytes:
+            return _add_raster_image_to_doc(doc, png_bytes, alt_text=f"🎨 {title}" if title else "")
+
+        # 2. Fallback to OpenXML SVG markup
         width_in, height_in = _extract_svg_dimensions(svg_str)
         svg_bytes = svg_str.encode('utf-8') if isinstance(svg_str, str) else svg_str
         fallback_png_bytes = _create_fallback_png()
@@ -239,6 +271,54 @@ def _resolve_image_bytes(src: str, image_resolver: Optional[Callable[..., Option
                 return r.content
         except Exception:
             pass
+
+def _parse_standalone_image(line: str) -> Optional[tuple[str, str]]:
+    """Detect if line is a standalone image reference. Returns (src, alt) or None."""
+    line = line.strip()
+    if not line:
+        return None
+
+    # 1. HTML <img> Tag: <img src="..." alt="..." />
+    m_html = re.search(r'<img\s+[^>]*src\s*=\s*(?:"([^"]*)"|\'([^\']*)\')[^>]*>', line, re.IGNORECASE)
+    if m_html:
+        src = m_html.group(1) or m_html.group(2) or ""
+        alt_m = re.search(r'alt\s*=\s*(?:"([^"]*)"|\'([^\']*)\')', line, re.IGNORECASE)
+        alt = (alt_m.group(1) or alt_m.group(2)) if alt_m else ""
+        return src.strip(), alt.strip()
+
+    # 2. Markdown Image with URL: ![alt](src) or \!\[alt\]\(src\)
+    m_md = re.match(r'^\s*\\?!\s*\\?\[\s*([^\]]*)\s*\\?\]\s*\\?\(\s*([^)]*)\s*\\?\)\s*$', line)
+    if m_md:
+        return m_md.group(2).strip(), m_md.group(1).strip()
+
+    # 3. Standalone image link with URL: [image.png](src)
+    m_link_img = re.match(r'^\s*\\?\[\s*([^\]]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))\s*\\?\]\s*\\?\(\s*([^)]*)\s*\\?\)\s*$', line, re.IGNORECASE)
+    if m_link_img:
+        return m_link_img.group(2).strip(), m_link_img.group(1).strip()
+
+    # 4. Standalone !image.png or \!image.png
+    m_bang_img = re.match(r'^\s*\\?!([^\s\[\]\(\)]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))\s*$', line, re.IGNORECASE)
+    if m_bang_img:
+        fn = m_bang_img.group(1).strip()
+        return fn, fn
+
+    # 5. Standalone ![image.png] without URL
+    m_bracket_bang = re.match(r'^\s*\\?!\s*\\?\[\s*([^\]]+)\s*\\?\]\s*$', line, re.IGNORECASE)
+    if m_bracket_bang:
+        fn = m_bracket_bang.group(1).strip()
+        return fn, fn
+
+    # 6. Standalone [image.png] without URL
+    m_bracket_img = re.match(r'^\s*\\?\[\s*([^\]]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))\s*\\?\]\s*$', line, re.IGNORECASE)
+    if m_bracket_img:
+        fn = m_bracket_img.group(1).strip()
+        return fn, fn
+
+    # 7. Standalone image filename on its own line (e.g. image.png)
+    m_raw_img = re.match(r'^\s*([^\s\[\]\(\)]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))\s*$', line, re.IGNORECASE)
+    if m_raw_img:
+        fn = m_raw_img.group(1).strip()
+        return fn, fn
 
     return None
 
@@ -632,11 +712,10 @@ def markdown_to_docx(
             i += 1
             continue
 
-        # 5. Markdown Image: ![alt](url)
-        img_m = re.match(r'^\s*\\?!\s*\\?\[\s*([^\]]*)\s*\\?\]\s*\\?\(\s*([^)]*)\s*\\?\)\s*$', line)
-        if img_m:
-            alt_text = img_m.group(1)
-            img_src = img_m.group(2)
+        # 5. Standalone Image (matches ![alt](url), !image.png, ![image.png], [image.png], <img...>, etc.)
+        img_info = _parse_standalone_image(line)
+        if img_info:
+            img_src, alt_text = img_info
             img_bytes = _resolve_image_bytes(img_src, image_resolver, alt=alt_text)
             if img_bytes:
                 _add_raster_image_to_doc(doc, img_bytes, alt_text=alt_text)
@@ -644,38 +723,6 @@ def markdown_to_docx(
                 p_img = doc.add_paragraph()
                 r_img = p_img.add_run(f"🖼️ [{alt_text or 'Gambar'}]")
                 r_img.font.color.rgb = RGBColor(100, 116, 139)
-            i += 1
-            continue
-
-        # 5.1 HTML <img> Tag: <img src="..." alt="..." />
-        html_img_m = re.search(r'<img\s+[^>]*src\s*=\s*(?:"([^"]*)"|\'([^\']*)\')[^>]*>', line, re.IGNORECASE)
-        if html_img_m:
-            img_src = html_img_m.group(1) or html_img_m.group(2) or ""
-            alt_m = re.search(r'alt\s*=\s*(?:"([^"]*)"|\'([^\']*)\')', line, re.IGNORECASE)
-            alt_text = (alt_m.group(1) or alt_m.group(2)) if alt_m else ""
-            img_bytes = _resolve_image_bytes(img_src, image_resolver, alt=alt_text)
-            if img_bytes:
-                _add_raster_image_to_doc(doc, img_bytes, alt_text=alt_text)
-            else:
-                p_img = doc.add_paragraph()
-                r_img = p_img.add_run(f"🖼️ [{alt_text or 'Gambar'}]")
-                r_img.font.color.rgb = RGBColor(100, 116, 139)
-            i += 1
-            continue
-
-        # 6. Standalone Image Attachment Link: [image.png](url)
-        att_img_m = re.match(r'^\s*\\?\[\s*([^\]]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg))\s*\\?\]\s*\\?\(\s*([^)]*)\s*\\?\)\s*$', line, re.IGNORECASE)
-        if att_img_m:
-            alt_text = att_img_m.group(1)
-            img_src = att_img_m.group(2)
-            img_bytes = _resolve_image_bytes(img_src, image_resolver, alt=alt_text)
-            if img_bytes:
-                _add_raster_image_to_doc(doc, img_bytes, alt_text=alt_text)
-            else:
-                p_img = doc.add_paragraph()
-                r_img = p_img.add_run(f"📎 [{alt_text}]")
-                r_img.font.color.rgb = RGBColor(37, 99, 235)
-                r_img.underline = True
             i += 1
             continue
 
