@@ -275,6 +275,11 @@ class TaskRepository:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_rec_exc_task_date ON recurring_exceptions(task_id, occurrence_date)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_rec_exc_user ON recurring_exceptions(user_id)")
 
+            # Migrate: add meta_json to scratchpad_notes if missing
+            note_cols = [row["name"] for row in conn.execute("PRAGMA table_info(scratchpad_notes)").fetchall()]
+            if "meta_json" not in note_cols:
+                conn.execute("ALTER TABLE scratchpad_notes ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}'")
+
             # Migrate: add author_id and client_id to task_notes if missing
             note_cols = [row["name"] for row in conn.execute("PRAGMA table_info(task_notes)").fetchall()]
             if "author_id" not in note_cols:

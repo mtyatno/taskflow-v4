@@ -51,6 +51,30 @@
   <script src="/static/vendor/milkdown.bundle.js"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
   <link rel="stylesheet" href="/static/app.css">
+
+<style>
+.paper-mode-active {
+    background-color: #e5e7eb !important;
+    padding: 2rem 0 !important;
+    overflow-y: auto !important;
+    display: flex !important;
+    justify-content: center !important;
+}
+.paper-mode-active .milkdown-editor-container {
+    background-color: white !important;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15) !important;
+    margin: 0 auto !important;
+    width: var(--paper-width, 210mm) !important;
+    min-height: var(--paper-height, 297mm) !important;
+    padding: 20mm !important;
+    transition: width 0.3s ease, min-height 0.3s ease !important;
+}
+.paper-mode-active .milkdown-editor-container .ProseMirror {
+    padding: 0 !important;
+    min-height: calc(var(--paper-height, 297mm) - 40mm) !important;
+}
+</style>
+
 </head>
 <body>
   <div id="root"></div>
@@ -19696,7 +19720,31 @@ function NotePanel({
     // 4. Offline client fallback: Word HTML MIME blob
     try {
       const htmlContent = renderMarkdown(note.content || "", titleStrings, allNotes, tasks);
-      const wordHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:Segoe UI,sans-serif;line-height:1.6;color:#1e293b;}h1{font-size:22pt;color:#0f172a;}h2{font-size:16pt;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #cbd5e1;padding:8px;}</style></head><body><h1>${title}</h1>${htmlContent}</body></html>`;
+      const wordHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:Segoe UI,sans-serif;line-height:1.6;color:#1e293b;}h1{font-size:22pt;color:#0f172a;}h2{font-size:16pt;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #cbd5e1;padding:8px;}</style>
+<style>
+.paper-mode-active {
+    background-color: #e5e7eb !important;
+    padding: 2rem 0 !important;
+    overflow-y: auto !important;
+    display: flex !important;
+    justify-content: center !important;
+}
+.paper-mode-active .milkdown-editor-container {
+    background-color: white !important;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15) !important;
+    margin: 0 auto !important;
+    width: var(--paper-width, 210mm) !important;
+    min-height: var(--paper-height, 297mm) !important;
+    padding: 20mm !important;
+    transition: width 0.3s ease, min-height 0.3s ease !important;
+}
+.paper-mode-active .milkdown-editor-container .ProseMirror {
+    padding: 0 !important;
+    min-height: calc(var(--paper-height, 297mm) - 40mm) !important;
+}
+</style>
+
+</head><body><h1>${title}</h1>${htmlContent}</body></html>`;
       const blob = new Blob(['\ufeff', wordHtml], { type: 'application/msword;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
