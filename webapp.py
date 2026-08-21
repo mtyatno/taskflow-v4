@@ -3753,6 +3753,9 @@ def _make_image_resolver(uid: int, note_id: int = None):
             return _img_cache[cache_key]
 
         clean_src = src.replace('\\', '').strip()
+        clean_fn = re.sub(r'^[!\[\]\(\)\s]+|[!\[\]\(\)\s]+$', '', clean_src).strip().lower()
+        clean_alt = re.sub(r'^[!\[\]\(\)\s]+|[!\[\]\(\)\s]+$', '', (alt or '')).strip().lower()
+
         m = re.search(r'/(?:api/scratchpad/attachments|pub/attachments)/(\d+)', clean_src)
         att_id = int(m.group(1)) if m else None
 
@@ -3760,15 +3763,23 @@ def _make_image_resolver(uid: int, note_id: int = None):
             att = None
             if att_id:
                 att = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
-            elif note_id:
-                # Try finding attachment by filename (basename of src or alt text)
-                bname = os.path.basename(clean_src).strip().lower()
-                alt_name = (alt or "").strip().lower()
-                for row in conn.execute("SELECT * FROM note_attachments WHERE note_id = ?", (note_id,)).fetchall():
-                    orig = (row["original_name"] or "").strip().lower()
-                    if orig in (bname, alt_name) or (orig and bname and (orig.endswith(bname) or bname.endswith(orig))):
-                        att = row
-                        break
+            else:
+                # 1. Look in attachments of this note
+                if note_id:
+                    for row in conn.execute("SELECT * FROM note_attachments WHERE note_id = ?", (note_id,)).fetchall():
+                        orig = (row["original_name"] or "").strip().lower()
+                        no_ext = os.path.splitext(orig)[0]
+                        if orig in (clean_fn, clean_alt) or no_ext in (clean_fn, clean_alt) or (clean_fn and (clean_fn.endswith(orig) or orig.endswith(clean_fn))):
+                            att = row
+                            break
+                # 2. Fallback: look across all user's attachments
+                if not att and uid:
+                    for row in conn.execute("SELECT * FROM note_attachments WHERE user_id = ? ORDER BY id DESC LIMIT 50", (uid,)).fetchall():
+                        orig = (row["original_name"] or "").strip().lower()
+                        no_ext = os.path.splitext(orig)[0]
+                        if orig in (clean_fn, clean_alt) or no_ext in (clean_fn, clean_alt) or (clean_fn and (clean_fn.endswith(orig) or orig.endswith(clean_fn))):
+                            att = row
+                            break
 
             if att and att["nextcloud_path"] and not _nc_disabled:
                 try:

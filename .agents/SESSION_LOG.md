@@ -4,6 +4,19 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-21 16:59] - Antigravity (Gemini)
+- **Task:** Strip leading `!` and formatting symbols from image filenames before querying `note_attachments` and add user-level attachment fallback.
+- **Root Cause:**
+  - `clean_src` passed `!image.png` with the leading `!` to SQLite query comparison, which never matched `image.png` stored in the database.
+- **Changes:**
+  - Sanitized `clean_fn` using `re.sub(r'^[!\[\]\(\)\s]+|[!\[\]\(\)\s]+$', '', clean_src)` in `webapp.py` `_make_image_resolver`.
+  - Added fallback search across all user's attachments (`WHERE user_id = ?`).
+  - Bumped SW cache to `taskflow-v270-docx-stripped-fn-and-user-fallback`.
+- **Files Modified:** `webapp.py`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-21 16:30] - Antigravity (Gemini)
 - **Task:** Support `!image` and `![image]` without file extension and map all attachment alias permutations into `imagesMap`.
 - **Root Cause:**

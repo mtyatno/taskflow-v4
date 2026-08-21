@@ -1,12 +1,22 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-21 16:30  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX No-Extension & Name Alias Support SELESAI)
+**Last Updated:** 2026-08-21 16:59  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX Stripped Filename & User Fallback SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Note DOCX Export No-Extension & Name Alias Support SELESAI 2026-08-21:**
+- **Note DOCX Export Stripped Filename & User Fallback SELESAI 2026-08-21:**
+  - **Problem / Root Cause:**
+    - Saat mencocokkan nama file di database `note_attachments`, string `clean_src` masih mempertahankan awalan tanda seru (misal `!image.png`), sedangkan `original_name` di database tersimpan tanpa tanda seru (`image.png`). Akibatnya pencocokan selalu bernilai `False` dan gambar gagal di-load dari Nextcloud.
+  - **Solusi / Perbaikan:**
+    1. **Sanitized Name Matching ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L3743)):**
+       - Membersihkan karakter tanda seru, bracket, dan spasi (`re.sub(r'^[!\[\]\(\)\s]+|[!\[\]\(\)\s]+$', '', clean_src)`) menjadi `clean_fn`.
+       - Mencocokkan `clean_fn`, `clean_alt`, nama file tanpa ekstensi (`no_ext`), dan substring.
+       - Menambahkan fallback pencarian ke seluruh lampiran milik user (`WHERE user_id = ?`) jika `note_id` belum terisi.
+    2. **SW Cache:** Di-bump ke **`taskflow-v270-docx-stripped-fn-and-user-fallback`**.
+  - All tests passed: 433/433 JS unit tests + 43/43 pytest (0 failures).
+  - **Device-test checklist:** (1) Buka catatan dengan gambar `!image.png` -> Export Word (.docx) -> Gambar visual otomatis ter-embed di file Word.
   - **Problem / Root Cause:**
     - Regex sebelumnya mewajibkan ekstensi file (`\.(?:png|jpg|...)`) pada pola `!image.png`, sehingga penulisan seperti `!image` atau `![image]` (tanpa ekstensi eksplisit atau alias lampiran) tidak cocok dan dicetak sebagai teks mentah.
   - **Solusi / Perbaikan:**
