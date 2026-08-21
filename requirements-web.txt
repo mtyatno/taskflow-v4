@@ -6,3 +6,5 @@ sse-starlette==2.*
 requests==2.*
 mistune==3.*
 python-docx==1.*
+Pillow>=9.0.0
+

@@ -4,6 +4,21 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-21 13:36] - Antigravity (Gemini)
+- **Task:** Add full rendering support for inline drawings (`::draw[...]`) and images in Note `.docx` exports.
+- **Root Cause:**
+  - `docx_exporter.py` previously only inserted a text placeholder `🎨 [Gambar/Canvas: ...]` for `::draw[...]` and did not parse Markdown images `![alt](url)` or resolve attachment image bytes.
+- **Changes:**
+  - Implemented OpenXML `asvg:svgBlip` native SVG drawing embedding in `docx_exporter.py`.
+  - Added raster image resolver and embedding (PNG, JPEG, WebP, GIF, Base64) with auto-proportions in `docx_exporter.py`.
+  - Added `_make_drawing_resolver` and `_make_image_resolver` in `webapp.py` to query drawings SVG and Nextcloud attachments for docx export endpoints.
+  - Added `Pillow>=9.0.0` to `requirements.txt` and `requirements-web.txt`.
+  - Added automated test in `tests/test_docx_export.py` verifying image and SVG parts in DOCX package.
+- **Files Modified:** `docx_exporter.py`, `webapp.py`, `requirements.txt`, `requirements-web.txt`, `tests/test_docx_export.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-21 11:05] - Antigravity (Gemini)
 - **Task:** Fix error when clicking "Edit" on a note (`TypeError: Cannot read properties of undefined (reading 'addRowBeforeCommand')`).
 - **Root Cause:**

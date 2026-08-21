@@ -1,13 +1,18 @@
 import io
 import re
+import base64
 from datetime import datetime
+from typing import Callable, Optional
+
 import docx
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
-from docx.oxml import OxmlElement
+from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn, nsdecls
-from docx.oxml import parse_xml
+from docx.opc.part import Part
+from docx.opc.packuri import PackURI
+from PIL import Image
 
 
 def _set_cell_background(cell, hex_color: str):
@@ -29,14 +34,210 @@ def _set_cell_margins(cell, top=100, bottom=100, left=150, right=150):
     tcPr.append(tcMar)
 
 
+def _create_fallback_png() -> bytes:
+    """Create a 1x1 transparent PNG for Word OpenXML fallback."""
+    img = Image.new('RGBA', (1, 1), (255, 255, 255, 0))
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    return buf.getvalue()
+
+
+def _extract_svg_dimensions(svg_str: str, max_width_in=5.5, max_height_in=6.0):
+    """Calculate width and height in inches from SVG attributes or viewBox."""
+    w, h = 600.0, 350.0
+    vb_m = re.search(r'viewBox=["\']([^"\']+)["\']', svg_str, re.IGNORECASE)
+    if vb_m:
+        parts = [float(x) for x in re.split(r'[\s,]+', vb_m.group(1).strip()) if x]
+        if len(parts) >= 4 and parts[2] > 0 and parts[3] > 0:
+            w, h = parts[2], parts[3]
+    else:
+        w_m = re.search(r'width=["\']([0-9.]+)(?:px)?["\']', svg_str, re.IGNORECASE)
+        h_m = re.search(r'height=["\']([0-9.]+)(?:px)?["\']', svg_str, re.IGNORECASE)
+        if w_m and h_m:
+            try:
+                w, h = float(w_m.group(1)), float(h_m.group(1))
+            except ValueError:
+                pass
+
+    aspect = h / max(w, 1.0)
+    width_in = min(max_width_in, 5.5)
+    height_in = width_in * aspect
+    if height_in > max_height_in:
+        height_in = max_height_in
+        width_in = height_in / aspect
+    return width_in, height_in
+
+
+def _add_svg_to_doc(doc, svg_str: str, title="Drawing"):
+    """Embed a native SVG drawing into a python-docx Document with Word-standard OpenXML SVG markup."""
+    try:
+        width_in, height_in = _extract_svg_dimensions(svg_str)
+        svg_bytes = svg_str.encode('utf-8') if isinstance(svg_str, str) else svg_str
+        fallback_png_bytes = _create_fallback_png()
+
+        doc_part = doc.part
+        package = doc_part.package
+
+        # 1. Add SVG image part
+        svg_num = len([p for p in package.parts if 'image' in p.partname]) + 1
+        svg_partname = PackURI(f'/word/media/image_svg_{svg_num}.svg')
+        svg_part = Part(svg_partname, 'image/svg+xml', svg_bytes, package)
+        package.parts.append(svg_part)
+        svg_rId = doc_part.relate_to(svg_part, 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image')
+
+        # 2. Add fallback PNG image part
+        png_partname = PackURI(f'/word/media/image_png_{svg_num}.png')
+        png_part = Part(png_partname, 'image/png', fallback_png_bytes, package)
+        package.parts.append(png_part)
+        png_rId = doc_part.relate_to(png_part, 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image')
+
+        # Dimensions in EMUs (1 inch = 914400 EMUs)
+        cx = int(width_in * 914400)
+        cy = int(height_in * 914400)
+
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(8)
+        p.paragraph_format.space_after = Pt(2)
+
+        drawing_xml = f'''
+        <w:drawing {nsdecls("w")}>
+          <wp:inline distT="0" distB="0" distL="0" distR="0" {nsdecls("wp")}>
+            <wp:extent cx="{cx}" cy="{cy}"/>
+            <wp:docPr id="{svg_num + 300}" name="{title}"/>
+            <a:graphic {nsdecls("a")}>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic {nsdecls("pic")}>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="{title}"/>
+                    <pic:cNvPicPr/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="{png_rId}" {nsdecls("r")}>
+                      <a:extLst>
+                        <a:ext uri="{{96DAC542-7B16-430E-8263-3401B00B12A0}}">
+                          <asvg:svgBlip r:embed="{svg_rId}" xmlns:asvg="http://schemas.microsoft.com/office/drawing/2016/SVG/main"/>
+                        </a:ext>
+                      </a:extLst>
+                    </a:blip>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="{cx}" cy="{cy}"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect">
+                      <a:avLst/>
+                    </a:prstGeom>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+        '''
+        run = p.add_run()
+        run._r.append(parse_xml(drawing_xml))
+
+        if title and title.strip():
+            p_cap = doc.add_paragraph()
+            p_cap.paragraph_format.space_before = Pt(0)
+            p_cap.paragraph_format.space_after = Pt(8)
+            r_cap = p_cap.add_run(f"🎨 {title.strip()}")
+            r_cap.font.size = Pt(9)
+            r_cap.font.color.rgb = RGBColor(100, 116, 139)
+            r_cap.italic = True
+        return p
+    except Exception as e:
+        p_err = doc.add_paragraph()
+        r_err = p_err.add_run(f"🎨 [Gambar/Canvas: {title}]")
+        r_err.font.color.rgb = RGBColor(100, 116, 139)
+        return p_err
+
+
+def _add_raster_image_to_doc(doc, img_bytes: bytes, alt_text="", max_width_in=5.5, max_height_in=6.0):
+    """Add a raster image (PNG, JPEG, WebP, etc.) to Word document."""
+    try:
+        pil_img = Image.open(io.BytesIO(img_bytes))
+        w, h = pil_img.size
+        fmt = (pil_img.format or 'PNG').upper()
+        if fmt not in ('PNG', 'JPEG', 'JPG', 'BMP', 'GIF'):
+            # Convert WebP or other unsupported formats to PNG in memory
+            out_buf = io.BytesIO()
+            pil_img.save(out_buf, format='PNG')
+            img_bytes = out_buf.getvalue()
+
+        aspect = h / max(w, 1.0)
+        width_in = min(max_width_in, 5.5)
+        height_in = width_in * aspect
+        if height_in > max_height_in:
+            height_in = max_height_in
+            width_in = height_in / aspect
+
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(8)
+        p.paragraph_format.space_after = Pt(2)
+        run = p.add_run()
+        run.add_picture(io.BytesIO(img_bytes), width=Inches(width_in), height=Inches(height_in))
+
+        if alt_text and alt_text.strip() and not alt_text.strip().startswith("http"):
+            p_cap = doc.add_paragraph()
+            p_cap.paragraph_format.space_before = Pt(0)
+            p_cap.paragraph_format.space_after = Pt(8)
+            r_cap = p_cap.add_run(alt_text.strip())
+            r_cap.font.size = Pt(9)
+            r_cap.font.color.rgb = RGBColor(100, 116, 139)
+            r_cap.italic = True
+        return p
+    except Exception as e:
+        if alt_text and alt_text.strip():
+            p_alt = doc.add_paragraph()
+            r_alt = p_alt.add_run(f"🖼️ [{alt_text.strip()}]")
+            r_alt.font.color.rgb = RGBColor(100, 116, 139)
+            return p_alt
+        return None
+
+
+def _resolve_image_bytes(src: str, image_resolver: Optional[Callable[[str], Optional[bytes]]] = None) -> Optional[bytes]:
+    """Resolve image source (base64 data URI, resolver callback, or HTTP URL) into bytes."""
+    if not src:
+        return None
+
+    src = src.strip()
+    # 1. Base64 Data URI
+    if src.startswith("data:image/") and ";base64," in src:
+        try:
+            _, b64_data = src.split(";base64,", 1)
+            return base64.b64decode(b64_data)
+        except Exception:
+            return None
+
+    # 2. Custom Resolver callback (e.g. Nextcloud attachments / local DB)
+    if image_resolver:
+        try:
+            resolved = image_resolver(src)
+            if resolved:
+                return resolved
+        except Exception:
+            pass
+
+    # 3. HTTP / HTTPS external URL
+    if src.startswith("http://") or src.startswith("https://"):
+        try:
+            import requests
+            r = requests.get(src, timeout=8)
+            if r.status_code == 200:
+                return r.content
+        except Exception:
+            pass
+
+    return None
+
+
 def _add_styled_runs(paragraph, text: str):
     """Parse inline markdown (bold, italic, strikethrough, code, links) and add formatted runs."""
-    # Pattern for inline tokens:
-    # 1. `code`
-    # 2. **bold** or __bold__
-    # 3. *italic* or _italic_
-    # 4. ~~strike~~
-    # 5. [text](url)
     token_pattern = re.compile(
         r'(`[^`]+`)'
         r'|(\*\*[^*]+\*\*|__[^_]+__)'
@@ -49,7 +250,6 @@ def _add_styled_runs(paragraph, text: str):
     for m in token_pattern.finditer(text):
         start, end = m.span()
         if start > last_idx:
-            # Plain text before token
             paragraph.add_run(text[last_idx:start])
 
         token = m.group(0)
@@ -88,8 +288,14 @@ def _add_styled_runs(paragraph, text: str):
         paragraph.add_run(text[last_idx:])
 
 
-def markdown_to_docx(title: str, content: str, meta: dict = None) -> io.BytesIO:
-    """Convert Markdown content and metadata into a formatted Word (.docx) document."""
+def markdown_to_docx(
+    title: str,
+    content: str,
+    meta: dict = None,
+    drawing_resolver: Optional[Callable[[str], Optional[dict]]] = None,
+    image_resolver: Optional[Callable[[str], Optional[bytes]]] = None
+) -> io.BytesIO:
+    """Convert Markdown content and metadata into a formatted Word (.docx) document with images and drawings."""
     doc = docx.Document()
 
     # Configure default document styles
@@ -173,7 +379,6 @@ def markdown_to_docx(title: str, content: str, meta: dict = None) -> io.BytesIO:
             p_code.paragraph_format.space_before = Pt(6)
             p_code.paragraph_format.space_after = Pt(6)
 
-            # Code background shading
             shd = parse_xml(f'<w:shd {nsdecls("w")} w:fill="F1F5F9"/>')
             p_code._element.get_or_add_pPr().append(shd)
 
@@ -192,7 +397,6 @@ def markdown_to_docx(title: str, content: str, meta: dict = None) -> io.BytesIO:
 
             rows_data = []
             for tl in tbl_lines:
-                # Skip separator lines like |---|---|
                 if re.match(r'^\|(?:\s*:?-+:?\s*\|)+$', tl):
                     continue
                 cells = [c.strip() for c in tl.split('|')[1:-1]]
@@ -225,7 +429,6 @@ def markdown_to_docx(title: str, content: str, meta: dict = None) -> io.BytesIO:
                                 r.bold = True
                                 r.font.color.rgb = RGBColor(15, 23, 42)
 
-                # Add a space after table
                 p_after_tbl = doc.add_paragraph()
                 p_after_tbl.paragraph_format.space_after = Pt(8)
             continue
@@ -293,7 +496,6 @@ def markdown_to_docx(title: str, content: str, meta: dict = None) -> io.BytesIO:
             p_q.paragraph_format.space_before = Pt(4)
             p_q.paragraph_format.space_after = Pt(4)
 
-            # Add left border to paragraph
             pBdr = parse_xml(f'<w:pBdr {nsdecls("w")}><w:left w:val="single" w:sz="18" w:space="10" w:color="94A3B8"/></w:pBdr>')
             p_q._element.get_or_add_pPr().append(pBdr)
 
@@ -340,7 +542,7 @@ def markdown_to_docx(title: str, content: str, meta: dict = None) -> io.BytesIO:
             i += 1
             continue
 
-        # Inline Drawing Directive: ::draw[id]{...}
+        # 4. Inline Drawing Directive: ::draw[id]{...}
         if re.search(r'::draw\[', line):
             draw_m = re.search(r'::draw\[([^\]]+)\](?:\s*\{([^}]*)\})?', line)
             if draw_m:
@@ -349,23 +551,92 @@ def markdown_to_docx(title: str, content: str, meta: dict = None) -> io.BytesIO:
                 title_m = re.search(r'title="([^"]+)"', attr_raw)
                 draw_title = title_m.group(1) if title_m else f"Gambar {draw_id}"
 
-                p_draw = doc.add_paragraph()
-                p_draw.paragraph_format.space_before = Pt(8)
-                p_draw.paragraph_format.space_after = Pt(8)
-                p_draw.paragraph_format.left_indent = Inches(0.2)
-                p_draw.paragraph_format.right_indent = Inches(0.2)
+                resolved_svg = None
+                if drawing_resolver:
+                    try:
+                        d_info = drawing_resolver(draw_id)
+                        if d_info:
+                            draw_title = d_info.get("title") or draw_title
+                            resolved_svg = d_info.get("svg")
+                    except Exception:
+                        pass
 
-                shd = parse_xml(f'<w:shd {nsdecls("w")} w:fill="F8FAFC"/>')
-                p_draw._element.get_or_add_pPr().append(shd)
+                if resolved_svg and resolved_svg.strip().startswith("<svg"):
+                    _add_svg_to_doc(doc, resolved_svg, title=draw_title)
+                else:
+                    p_draw = doc.add_paragraph()
+                    p_draw.paragraph_format.space_before = Pt(8)
+                    p_draw.paragraph_format.space_after = Pt(8)
+                    p_draw.paragraph_format.left_indent = Inches(0.2)
+                    p_draw.paragraph_format.right_indent = Inches(0.2)
 
-                r_d = p_draw.add_run(f"🎨 [Gambar/Canvas: {draw_title}]")
-                r_d.bold = True
-                r_d.font.color.rgb = RGBColor(100, 116, 139)
+                    shd = parse_xml(f'<w:shd {nsdecls("w")} w:fill="F8FAFC"/>')
+                    p_draw._element.get_or_add_pPr().append(shd)
+
+                    r_d = p_draw.add_run(f"🎨 [Gambar/Canvas: {draw_title}]")
+                    r_d.bold = True
+                    r_d.font.color.rgb = RGBColor(100, 116, 139)
 
             i += 1
             continue
 
-        # Standard Paragraph
+        # 5. Markdown Image: ![alt](url)
+        img_m = re.match(r'^!\[([^\]]*)\]\(([^)]+)\)$', line)
+        if img_m:
+            alt_text = img_m.group(1)
+            img_src = img_m.group(2)
+            img_bytes = _resolve_image_bytes(img_src, image_resolver)
+            if img_bytes:
+                _add_raster_image_to_doc(doc, img_bytes, alt_text=alt_text)
+            else:
+                p_img = doc.add_paragraph()
+                r_img = p_img.add_run(f"🖼️ [{alt_text or 'Gambar'}]")
+                r_img.font.color.rgb = RGBColor(100, 116, 139)
+            i += 1
+            continue
+
+        # 6. Standalone Image Attachment Link: [image.png](url)
+        att_img_m = re.match(r'^\[([^\]]+\.(?:png|jpg|jpeg|gif|webp|bmp))\]\(([^)]+)\)$', line, re.IGNORECASE)
+        if att_img_m:
+            alt_text = att_img_m.group(1)
+            img_src = att_img_m.group(2)
+            img_bytes = _resolve_image_bytes(img_src, image_resolver)
+            if img_bytes:
+                _add_raster_image_to_doc(doc, img_bytes, alt_text=alt_text)
+            else:
+                p_img = doc.add_paragraph()
+                r_img = p_img.add_run(f"📎 [{alt_text}]")
+                r_img.font.color.rgb = RGBColor(37, 99, 235)
+                r_img.underline = True
+            i += 1
+            continue
+
+        # 7. Standard Paragraph (with potential inline images or styled runs)
+        if '![' in line and '](' in line:
+            segments = re.split(r'(!\[[^\]]*\]\([^)]+\))', line)
+            for seg in segments:
+                if not seg:
+                    continue
+                sub_img_m = re.match(r'^!\[([^\]]*)\]\(([^)]+)\)$', seg)
+                if sub_img_m:
+                    alt_text = sub_img_m.group(1)
+                    img_src = sub_img_m.group(2)
+                    img_bytes = _resolve_image_bytes(img_src, image_resolver)
+                    if img_bytes:
+                        _add_raster_image_to_doc(doc, img_bytes, alt_text=alt_text)
+                    else:
+                        p_sub = doc.add_paragraph()
+                        r_sub = p_sub.add_run(f"🖼️ [{alt_text or 'Gambar'}]")
+                        r_sub.font.color.rgb = RGBColor(100, 116, 139)
+                else:
+                    p = doc.add_paragraph()
+                    p.paragraph_format.space_before = Pt(3)
+                    p.paragraph_format.space_after = Pt(5)
+                    _add_styled_runs(p, seg)
+            i += 1
+            continue
+
+        # Regular Paragraph
         p = doc.add_paragraph()
         p.paragraph_format.space_before = Pt(3)
         p.paragraph_format.space_after = Pt(5)

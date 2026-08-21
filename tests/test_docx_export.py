@@ -111,3 +111,63 @@ def test_export_endpoints():
     assert post_res.status_code == 200
     assert "wordprocessingml.document" in post_res.headers.get("content-type", "")
     assert 'filename="Catatan Langsung.docx"' in post_res.headers.get("content-disposition", "")
+
+
+def test_markdown_to_docx_with_images_and_drawings():
+    import base64
+    from PIL import Image
+
+    # Create dummy PNG bytes
+    img = Image.new('RGB', (100, 50), color=(16, 185, 129))
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    png_bytes = buf.getvalue()
+    b64_str = f"data:image/png;base64,{base64.b64encode(png_bytes).decode('ascii')}"
+
+    svg_preview_str = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200"><rect width="400" height="200" fill="#fef3c7"/><text x="200" y="100">Diagram</text></svg>'
+
+    title = "Catatan dengan Gambar & Canvas"
+    content = f"""# Gambar dan Diagram
+
+Berikut adalah gambar base64:
+![Gambar Dummy]({b64_str})
+
+Berikut adalah drawing inline:
+::draw[101]{{size="M" title="Diagram Alur"}}
+
+Berikut adalah lampiran gambar resolver:
+![Foto Lampiran](/api/scratchpad/attachments/55/view)
+"""
+
+    def mock_drawing_resolver(did):
+        if str(did) == "101":
+            return {
+                "title": "Diagram Alur",
+                "svg": svg_preview_str
+            }
+        return None
+
+    def mock_image_resolver(src):
+        if "55" in src:
+            return png_bytes
+        return None
+
+    doc_io = markdown_to_docx(
+        title,
+        content,
+        drawing_resolver=mock_drawing_resolver,
+        image_resolver=mock_image_resolver
+    )
+    assert isinstance(doc_io, io.BytesIO)
+    doc = docx.Document(doc_io)
+    
+    # Verify paragraphs and captions
+    paragraphs = [p.text for p in doc.paragraphs]
+    assert any("Gambar dan Diagram" in p for p in paragraphs)
+    assert any("Diagram Alur" in p for p in paragraphs)
+    assert any("Foto Lampiran" in p for p in paragraphs)
+
+    # Verify images and SVG parts exist in docx package
+    image_parts = [p for p in doc.part.package.parts if 'image' in p.partname]
+    assert len(image_parts) >= 2
+

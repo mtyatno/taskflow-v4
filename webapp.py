@@ -3681,6 +3681,55 @@ async def get_scratchpad_note(note_id: int, user=Depends(get_current_user)):
         return _scratchpad_row(row, conn, uid)
 
 
+def _make_drawing_resolver(uid: int):
+    def _resolve_drawing(did):
+        with get_db() as conn:
+            row = None
+            if str(did).isdigit():
+                row = conn.execute(
+                    "SELECT title, svg_preview FROM drawings WHERE id = ? AND (user_id = ? OR is_pinned = 1)",
+                    (int(did), uid)
+                ).fetchone()
+                if not row:
+                    row = conn.execute(
+                        "SELECT title, svg_preview FROM drawings WHERE id = ?",
+                        (int(did),)
+                    ).fetchone()
+            if not row:
+                row = conn.execute(
+                    "SELECT title, svg_preview FROM drawings WHERE cid = ? OR title = ?",
+                    (str(did), str(did))
+                ).fetchone()
+            if row:
+                return {
+                    "title": row["title"] or f"Gambar {did}",
+                    "svg": row["svg_preview"] or ""
+                }
+        return None
+    return _resolve_drawing
+
+
+def _make_image_resolver(uid: int):
+    def _resolve_image(src: str):
+        if not src:
+            return None
+        m = re.search(r'/(?:api/scratchpad/attachments|pub/attachments)/(\d+)', src)
+        if m:
+            att_id = int(m.group(1))
+            with get_db() as conn:
+                att = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
+                if att and att["nextcloud_path"]:
+                    try:
+                        import requests as _req
+                        r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=15)
+                        if r.status_code == 200:
+                            return r.content
+                    except Exception:
+                        pass
+        return None
+    return _resolve_image
+
+
 @app.get("/api/scratchpad/{note_id}/export/docx")
 async def export_scratchpad_docx(note_id: int, user=Depends(get_current_user)):
     """Export note as Microsoft Word (.docx) document."""
@@ -3702,7 +3751,9 @@ async def export_scratchpad_docx(note_id: int, user=Depends(get_current_user)):
         "tags": note_dict.get("tags") or [],
         "updated_at": note_dict.get("updated_at")
     }
-    doc_io = markdown_to_docx(title, content, meta)
+    drawing_res = _make_drawing_resolver(uid)
+    image_res = _make_image_resolver(uid)
+    doc_io = markdown_to_docx(title, content, meta, drawing_resolver=drawing_res, image_resolver=image_res)
     safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
     return Response(
         content=doc_io.getvalue(),
@@ -3743,10 +3794,13 @@ class NoteExportLiveRequest(BaseModel):
 @app.post("/api/scratchpad/export/docx")
 async def export_scratchpad_docx_live(req: NoteExportLiveRequest, user=Depends(get_current_user)):
     """Export live unsaved note content as Microsoft Word (.docx) document."""
+    uid = user["sub"]
     from docx_exporter import markdown_to_docx
     title = req.title or "Catatan"
     content = req.content or ""
-    doc_io = markdown_to_docx(title, content)
+    drawing_res = _make_drawing_resolver(uid)
+    image_res = _make_image_resolver(uid)
+    doc_io = markdown_to_docx(title, content, drawing_resolver=drawing_res, image_resolver=image_res)
     safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
     return Response(
         content=doc_io.getvalue(),
