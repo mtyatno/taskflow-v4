@@ -3899,8 +3899,13 @@ async def export_scratchpad_docx_live(req: NoteExportLiveRequest, user=Depends(g
             if clean_s in client_images and client_images[clean_s]:
                 return _resolve_image_bytes(client_images[clean_s])
             bname = os.path.basename(clean_s).lower()
+            if bname and bname != 'view':
+                for k, v in client_images.items():
+                    if v and (bname == k.lower() or bname == os.path.basename(k).lower()):
+                        return _resolve_image_bytes(v)
+            # fallback for absolute urls matching path
             for k, v in client_images.items():
-                if v and (bname == k.lower() or bname == os.path.basename(k).lower()):
+                if v and (k in clean_s or clean_s in k):
                     return _resolve_image_bytes(v)
         return db_img_res(src, alt=alt)
 
