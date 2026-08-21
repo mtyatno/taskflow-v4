@@ -299,7 +299,8 @@ class TaskRepository:
                     tags        TEXT    NOT NULL DEFAULT '[]',
                     linked_task_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL,
                     created_at  TEXT    DEFAULT (datetime('now')),
-                    updated_at  TEXT    DEFAULT (datetime('now'))
+                    updated_at  TEXT    DEFAULT (datetime('now')),
+                    meta_json   TEXT    NOT NULL DEFAULT '{}'
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_scratchpad_user ON scratchpad_notes(user_id, updated_at)")

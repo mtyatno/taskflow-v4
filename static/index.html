@@ -15173,7 +15173,9 @@ function NoteToolbar({
   onInsertTask,
   onInsertDrawing,
   voiceState,
-  onToggleVoice
+  onToggleVoice,
+paperConfig,
+onPaperConfigChange
 }) {
   const [hOpen, setHOpen] = React.useState(false);
   const hRef = React.useRef(null);
@@ -15714,7 +15716,41 @@ function NoteToolbar({
     className: "note-mic-btn" + (voiceState === 'listening' ? ' listening' : '') + (voiceState === 'paused' ? ' paused' : ''),
     title: voiceState === 'listening' ? 'Stop rekaman' : voiceState === 'paused' ? 'Menunggu suara...' : 'Mulai dikte suara',
     style: { marginLeft: 4 }
-  }, voiceState === 'listening' ? "\uD83D\uDD34" : voiceState === 'paused' ? "\uD83D\uDFE1" : "\uD83C\uDF99\uFE0F") : null);
+  }, voiceState === 'listening' ? "\uD83D\uDD34" : voiceState === 'paused' ? "\uD83D\uDFE1" : "\uD83C\uDF99\uFE0F") : null,
+    
+    // --- PAPER MODE BUTTONS ---
+    onPaperConfigChange && React.createElement("div", { style: { display: 'inline-flex', alignItems: 'center', marginLeft: 8, paddingLeft: 8, borderLeft: '1px solid var(--border)' } },
+      React.createElement("button", {
+        className: "icon-btn " + (paperConfig?.enabled ? "active" : ""),
+        style: { 
+          background: paperConfig?.enabled ? 'var(--primary-light)' : 'transparent',
+          color: paperConfig?.enabled ? 'var(--primary)' : 'inherit',
+          padding: '2px 6px', fontSize: 13, borderRadius: 4,
+          border: 'none', cursor: 'pointer'
+        },
+        onPointerDown: (e) => { e.preventDefault(); onPaperConfigChange(p => ({ ...p, enabled: !p.enabled })); },
+        title: "Mode Kertas"
+      }, "📄 Kertas"),
+      paperConfig?.enabled && React.createElement("select", {
+        value: paperConfig.size,
+        onChange: e => onPaperConfigChange(p => ({ ...p, size: e.target.value })),
+        style: { marginLeft: 4, padding: '1px 4px', fontSize: 12, borderRadius: 3, border: '1px solid var(--border)', background: 'white' }
+      },
+        React.createElement("option", { value: "A4" }, "A4"),
+        React.createElement("option", { value: "Letter" }, "Letter"),
+        React.createElement("option", { value: "A3" }, "A3"),
+        React.createElement("option", { value: "Legal" }, "Legal")
+      ),
+      paperConfig?.enabled && React.createElement("select", {
+        value: paperConfig.orientation,
+        onChange: e => onPaperConfigChange(p => ({ ...p, orientation: e.target.value })),
+        style: { marginLeft: 4, padding: '1px 4px', fontSize: 12, borderRadius: 3, border: '1px solid var(--border)', background: 'white' }
+      },
+        React.createElement("option", { value: "portrait" }, "Portrait"),
+        React.createElement("option", { value: "landscape" }, "Landscape")
+      )
+    )
+  );
 }
 function MilkdownEditor({
   value,
@@ -17137,6 +17173,16 @@ function NoteModal({
   const [focusMode, setFocusMode] = useState(false);
   const [drawingInsertOpen, setDrawingInsertOpen] = useState(false);
   const [quickDrawState, setQuickDrawState] = useState(null);
+  
+  const initPaperConfig = () => {
+    try {
+      const meta = JSON.parse(note?.meta_json || "{}");
+      return meta.paper_mode || { enabled: false, size: 'A4', orientation: 'portrait' };
+    } catch {
+      return { enabled: false, size: 'A4', orientation: 'portrait' };
+    }
+  };
+  const [paperConfig, setPaperConfig] = useState(initPaperConfig);
 
   useEffect(() => {
     const handler = e => {
@@ -17516,7 +17562,8 @@ function NoteModal({
           content,
           tags,
           linked_task_ids: linkedTaskIds.filter(id => typeof id === 'number'),
-          linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null
+          linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null,
+          meta_json: JSON.stringify({ paper_mode: paperConfig })
         });
         isDirtyRef.current = false;
       } catch (e) {
@@ -18175,7 +18222,8 @@ function NoteModal({
       content,
       tags,
       linked_task_ids: linkedTaskIds.filter(id => typeof id === 'number'),
-      linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null
+      linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null,
+      meta_json: JSON.stringify({ paper_mode: paperConfig })
     });
     if (saved?.id && !savedNoteId) setSavedNoteId(saved.id);
     isDirtyRef.current = false;
@@ -18270,7 +18318,9 @@ function NoteModal({
     onInsertTask: openTaskDropdown,
     onInsertDrawing: handleOpenInsertDrawing,
     voiceState: voiceState,
-    onToggleVoice: handleToggleVoice
+    onToggleVoice: handleToggleVoice,
+    paperConfig: paperConfig,
+    onPaperConfigChange: setPaperConfig
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -18293,10 +18343,19 @@ function NoteModal({
       marginTop: 0
     }
   }, /*#__PURE__*/React.createElement("div", {
+    className: paperConfig?.enabled ? "paper-mode-active" : "",
     style: {
       position: "relative",
       flex: 1,
-      minWidth: 0
+      minWidth: 0,
+      ...(paperConfig?.enabled ? {
+         "--paper-width": paperConfig.orientation === 'landscape' ? 
+                          (paperConfig.size === 'A4' ? '297mm' : paperConfig.size === 'A3' ? '420mm' : '279.4mm') : 
+                          (paperConfig.size === 'A4' ? '210mm' : paperConfig.size === 'A3' ? '297mm' : '215.9mm'),
+         "--paper-height": paperConfig.orientation === 'landscape' ? 
+                          (paperConfig.size === 'A4' ? '210mm' : paperConfig.size === 'A3' ? '297mm' : '215.9mm') : 
+                          (paperConfig.size === 'A4' ? '297mm' : paperConfig.size === 'A3' ? '420mm' : '279.4mm')
+      } : {})
     }
   }, /*#__PURE__*/React.createElement(MilkdownEditor, {
     value: content,

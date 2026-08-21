@@ -826,6 +826,7 @@ class ScratchpadCreate(BaseModel):
     linked_task_id: Optional[int] = None
     linked_task_ids: list[int] = []
     list_id: Optional[int] = None
+    meta_json: str = '{}'
 
 class ScratchpadUpdate(BaseModel):
     title: str = ""
@@ -834,6 +835,7 @@ class ScratchpadUpdate(BaseModel):
     linked_task_id: Optional[int] = None
     linked_task_ids: list[int] = []
     list_id: Optional[int] = None
+    meta_json: str = '{}'
 
 class ExtAuthConfirmReq(BaseModel):
     state: str
@@ -3943,11 +3945,11 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
         conn.execute(
             """INSERT INTO scratchpad_notes
                (user_id, title, content, tags, linked_task_id, linked_task_ids, linked_to,
-                list_id, last_edited_by, created_at, updated_at)
+                list_id, last_edited_by, created_at, updated_at, meta_json)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (uid, req.title, req.content, "[]",
              task_ids[0] if task_ids else None, json.dumps(task_ids),
-             json.dumps(linked_ids), req.list_id, uid, now, now)
+             json.dumps(linked_ids), req.list_id, uid, now, now, req.meta_json)
         )
         note_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         _upsert_tags_for_note(conn, note_id, uid, tag_names)
@@ -4122,11 +4124,11 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
         conn.execute(
             """UPDATE scratchpad_notes
                SET title=?, content=?, tags=?, linked_task_id=?, linked_task_ids=?,
-                   linked_to=?, list_id=?, last_edited_by=?, updated_at=?
+                   linked_to=?, list_id=?, last_edited_by=?, updated_at=?, meta_json=?
                WHERE id=?""",
             (req.title, req.content, "[]",
              task_ids[0] if task_ids else None, json.dumps(task_ids),
-             json.dumps(linked_ids), new_list_id, uid, now, note_id)
+             json.dumps(linked_ids), new_list_id, uid, now, req.meta_json, note_id)
         )
         conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=? AND user_id=?", (note_id, uid))
         _upsert_tags_for_note(conn, note_id, uid, tag_names)
