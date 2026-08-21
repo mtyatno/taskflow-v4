@@ -449,6 +449,52 @@
     }));
   }
 
+  function opDrawingCreate(op, transport, result) {
+    return getDrawingRaw(op.cid).then((rec) => {
+      if (!rec) return TFoutbox.outboxRemove(op.qid);
+      const payload = op.payload || {};
+      return send(transport, "POST", "/api/drawings", { title: payload.title || "Untitled Drawing", data_json: payload.data_json || "{}", svg_preview: payload.svg_preview || "", is_pinned: payload.is_pinned ? 1 : 0, tags: payload.tags || [] }).then((res) => {
+        if (ok(res) && res.data && res.data.id != null) {
+          return TFidmap.mapId(rec.cid, res.data.id).then(() => {
+            return putDrawingRaw(Object.assign({}, rec, { server_id: res.data.id, dirty: 0, base_rev: res.data.updated_at }))
+              .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+          });
+        }
+        result.failed++;
+        return TFoutbox.outboxRemove(op.qid);
+      });
+    });
+  }
+
+  function opDrawingUpdate(op, transport, result) {
+    return getDrawingRaw(op.cid).then((rec) => {
+      if (!rec) return TFoutbox.outboxRemove(op.qid);
+      return TFidmap.serverIdOf(rec.cid).then((sid) => {
+        if (sid == null) return; // hold: create not pushed yet
+        const payload = op.payload || {};
+        return send(transport, "PUT", "/api/drawings/" + sid, { title: payload.title, data_json: payload.data_json, svg_preview: payload.svg_preview, is_pinned: payload.is_pinned ? 1 : 0, tags: payload.tags }).then((res) => {
+          if (ok(res)) {
+            return putDrawingRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev }))
+              .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+          }
+          result.failed++;
+          return TFoutbox.outboxRemove(op.qid);
+        });
+      });
+    });
+  }
+
+  function opDrawingDelete(op, transport, result) {
+    return TFidmap.serverIdOf(op.cid).then((sid) => {
+      if (sid == null) return TFoutbox.outboxRemove(op.qid);
+      return send(transport, "DELETE", "/api/drawings/" + sid, undefined).then((res) => {
+        if (ok(res)) { return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); }
+        result.failed++;
+        return TFoutbox.outboxRemove(op.qid);
+      });
+    });
+  }
+
   function opDrawingUpsert(op, transport, result) {
     return getDrawingRaw(op.cid).then((rec) => {
       if (!rec) return TFoutbox.outboxRemove(op.qid);
@@ -702,6 +748,9 @@
     if (op.entity_type === "note" && op.op === "update") return opNoteUpdate(op, transport, result);
     if (op.entity_type === "note" && op.op === "delete") return opNoteDelete(op, transport, result);
     if (op.entity_type === "note" && op.op === "pin") return opNotePin(op, transport, result);
+    if (op.entity_type === "drawing" && op.op === "create") return opDrawingCreate(op, transport, result);
+    if (op.entity_type === "drawing" && op.op === "update") return opDrawingUpdate(op, transport, result);
+    if (op.entity_type === "drawing" && op.op === "delete") return opDrawingDelete(op, transport, result);
     if (op.entity_type === "drawing" && op.op === "upsert") return opDrawingUpsert(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "create") return opMindmapCreate(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "update") return opMindmapUpdate(op, transport, result);

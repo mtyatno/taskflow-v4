@@ -642,3 +642,8 @@ Chronological history of work performed by AI agents in this workspace.
  -   P u s h e d   t o   m a i n . 
   
  
+
+## 2026-08-21: Fix syncpush for standalone drawings (Antigravity)
+- Discovered a critical flaw: syncpush.js entirely lacked push handlers (create, update, delete) for standalone drawings. This caused any drawing created (inline or via Gallery) to be permanently trapped in the local TFoutbox and never reach the server.
+- Wrote and injected opDrawingCreate, opDrawingUpdate, and opDrawingDelete into syncpush.js.
+- Explained to the user that their 5 inline drawings are safe but stranded on the original device/browser where they were created. They just need to open that device to trigger the now-fixed push.
