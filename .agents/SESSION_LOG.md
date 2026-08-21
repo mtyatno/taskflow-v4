@@ -647,3 +647,19 @@ Chronological history of work performed by AI agents in this workspace.
 - Discovered a critical flaw: syncpush.js entirely lacked push handlers (create, update, delete) for standalone drawings. This caused any drawing created (inline or via Gallery) to be permanently trapped in the local TFoutbox and never reach the server.
 - Wrote and injected opDrawingCreate, opDrawingUpdate, and opDrawingDelete into syncpush.js.
 - Explained to the user that their 5 inline drawings are safe but stranded on the original device/browser where they were created. They just need to open that device to trigger the now-fixed push.
+
+
+## 2026-08-21: Fix HTTP2 Protocol Error (Antigravity)
+- User reported ERR_HTTP2_PROTOCOL_ERROR on all static files after git pull.
+- Diagnosed as Nginx/Uvicorn caching the Content-Length or file descriptors of the static files that were updated in-place. Because the file sizes changed, the mismatch caused the HTTP/2 stream to crash.
+- Advised user to restart 	askflow-web and Nginx to flush the cache.
+
+
+## 2026-08-21: Brainstorming Note Paper Mode (Antigravity)
+- Brainstormed adding a Continuous Paper Mode to the Note Editor.
+- Explored Dual View vs Paginated View vs Continuous Paper (Pageless) mode.
+- Proposed and wrote design spec for Continuous Paper Mode to docs/superpowers/specs/2026-08-21-note-paper-mode-design.md.
+- Waiting for user approval on the spec before writing the implementation plan.
+
+- Successfully implemented Continuous Paper Mode for Note Editor (backend schemas, offline sync logic, UI toolbars, and dynamic CSS styling).
+- Executed all tasks inline sequentially without human intervention as requested.

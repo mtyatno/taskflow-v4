@@ -3946,7 +3946,7 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
             """INSERT INTO scratchpad_notes
                (user_id, title, content, tags, linked_task_id, linked_task_ids, linked_to,
                 list_id, last_edited_by, created_at, updated_at, meta_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (uid, req.title, req.content, "[]",
              task_ids[0] if task_ids else None, json.dumps(task_ids),
              json.dumps(linked_ids), req.list_id, uid, now, now, req.meta_json)
