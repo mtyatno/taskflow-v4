@@ -20,7 +20,7 @@ import html
 from collections import defaultdict
 from datetime import datetime, date, timedelta
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Optional, Literal, Any, Dict
 from contextlib import contextmanager
 
 from collections import deque
@@ -3740,23 +3740,36 @@ def _make_drawing_resolver(uid: int, note_id: int = None):
     return _resolve_drawing
 
 
-def _make_image_resolver(uid: int):
-    def _resolve_image(src: str):
+def _make_image_resolver(uid: int, note_id: int = None):
+    def _resolve_image(src: str, alt: str = None):
         if not src:
             return None
-        m = re.search(r'/(?:api/scratchpad/attachments|pub/attachments)/(\d+)', src)
-        if m:
-            att_id = int(m.group(1))
-            with get_db() as conn:
+        clean_src = src.replace('\\', '').strip()
+        m = re.search(r'/(?:api/scratchpad/attachments|pub/attachments)/(\d+)', clean_src)
+        att_id = int(m.group(1)) if m else None
+
+        with get_db() as conn:
+            att = None
+            if att_id:
                 att = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
-                if att and att["nextcloud_path"]:
-                    try:
-                        import requests as _req
-                        r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=15)
-                        if r.status_code == 200:
-                            return r.content
-                    except Exception:
-                        pass
+            elif note_id:
+                # Try finding attachment by filename (basename of src or alt text)
+                bname = os.path.basename(clean_src).strip().lower()
+                alt_name = (alt or "").strip().lower()
+                for row in conn.execute("SELECT * FROM note_attachments WHERE note_id = ?", (note_id,)).fetchall():
+                    orig = (row["original_name"] or "").strip().lower()
+                    if orig in (bname, alt_name) or (orig and bname and (orig.endswith(bname) or bname.endswith(orig))):
+                        att = row
+                        break
+
+            if att and att["nextcloud_path"]:
+                try:
+                    import requests as _req
+                    r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=15)
+                    if r.status_code == 200:
+                        return r.content
+                except Exception as e:
+                    logger.warning(f"Error fetching attachment {att['id']} from Nextcloud: {e}")
         return None
     return _resolve_image
 
@@ -3783,7 +3796,7 @@ async def export_scratchpad_docx(note_id: int, user=Depends(get_current_user)):
         "updated_at": note_dict.get("updated_at")
     }
     drawing_res = _make_drawing_resolver(uid, note_id=note_id)
-    image_res = _make_image_resolver(uid)
+    image_res = _make_image_resolver(uid, note_id=note_id)
     doc_io = markdown_to_docx(title, content, meta, drawing_resolver=drawing_res, image_resolver=image_res)
     safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
     return Response(
@@ -3818,8 +3831,10 @@ async def export_scratchpad_md(note_id: int, user=Depends(get_current_user)):
 
 
 class NoteExportLiveRequest(BaseModel):
+    note_id: Optional[int] = None
     title: Optional[str] = "Catatan"
     content: Optional[str] = ""
+    drawings: Optional[dict[str, Any]] = None
 
 
 @app.post("/api/scratchpad/export/docx")
@@ -3829,9 +3844,26 @@ async def export_scratchpad_docx_live(req: NoteExportLiveRequest, user=Depends(g
     from docx_exporter import markdown_to_docx
     title = req.title or "Catatan"
     content = req.content or ""
-    drawing_res = _make_drawing_resolver(uid)
-    image_res = _make_image_resolver(uid)
-    doc_io = markdown_to_docx(title, content, drawing_resolver=drawing_res, image_resolver=image_res)
+    client_drawings = req.drawings or {}
+
+    db_draw_res = _make_drawing_resolver(uid, note_id=req.note_id)
+
+    def combined_drawing_res(did, title=None):
+        if client_drawings:
+            did_str = str(did)
+            if did_str in client_drawings and client_drawings[did_str].get("svg"):
+                return client_drawings[did_str]
+            if title:
+                t_clean = title.strip().lower()
+                for k, v in client_drawings.items():
+                    vt = (v.get("title") or "").strip().lower()
+                    if vt and (t_clean in vt or vt in t_clean):
+                        if v.get("svg"):
+                            return v
+        return db_draw_res(did, title=title)
+
+    image_res = _make_image_resolver(uid, note_id=req.note_id)
+    doc_io = markdown_to_docx(title, content, drawing_resolver=combined_drawing_res, image_resolver=image_res)
     safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
     return Response(
         content=doc_io.getvalue(),

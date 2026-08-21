@@ -200,12 +200,12 @@ def _add_raster_image_to_doc(doc, img_bytes: bytes, alt_text="", max_width_in=5.
         return None
 
 
-def _resolve_image_bytes(src: str, image_resolver: Optional[Callable[[str], Optional[bytes]]] = None) -> Optional[bytes]:
+def _resolve_image_bytes(src: str, image_resolver: Optional[Callable[..., Optional[bytes]]] = None, alt: str = None) -> Optional[bytes]:
     """Resolve image source (base64 data URI, resolver callback, or HTTP URL) into bytes."""
     if not src:
         return None
 
-    src = src.strip()
+    src = src.replace('\\', '').strip()
     # 1. Base64 Data URI
     if src.startswith("data:image/") and ";base64," in src:
         try:
@@ -214,12 +214,19 @@ def _resolve_image_bytes(src: str, image_resolver: Optional[Callable[[str], Opti
         except Exception:
             return None
 
-    # 2. Custom Resolver callback (e.g. Nextcloud attachments / local DB)
+    # 2. Custom Resolver callback (e.g. Nextcloud attachments / local DB / filename match)
     if image_resolver:
         try:
-            resolved = image_resolver(src)
+            resolved = image_resolver(src, alt=alt)
             if resolved:
                 return resolved
+        except TypeError:
+            try:
+                resolved = image_resolver(src)
+                if resolved:
+                    return resolved
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -630,7 +637,23 @@ def markdown_to_docx(
         if img_m:
             alt_text = img_m.group(1)
             img_src = img_m.group(2)
-            img_bytes = _resolve_image_bytes(img_src, image_resolver)
+            img_bytes = _resolve_image_bytes(img_src, image_resolver, alt=alt_text)
+            if img_bytes:
+                _add_raster_image_to_doc(doc, img_bytes, alt_text=alt_text)
+            else:
+                p_img = doc.add_paragraph()
+                r_img = p_img.add_run(f"🖼️ [{alt_text or 'Gambar'}]")
+                r_img.font.color.rgb = RGBColor(100, 116, 139)
+            i += 1
+            continue
+
+        # 5.1 HTML <img> Tag: <img src="..." alt="..." />
+        html_img_m = re.search(r'<img\s+[^>]*src\s*=\s*(?:"([^"]*)"|\'([^\']*)\')[^>]*>', line, re.IGNORECASE)
+        if html_img_m:
+            img_src = html_img_m.group(1) or html_img_m.group(2) or ""
+            alt_m = re.search(r'alt\s*=\s*(?:"([^"]*)"|\'([^\']*)\')', line, re.IGNORECASE)
+            alt_text = (alt_m.group(1) or alt_m.group(2)) if alt_m else ""
+            img_bytes = _resolve_image_bytes(img_src, image_resolver, alt=alt_text)
             if img_bytes:
                 _add_raster_image_to_doc(doc, img_bytes, alt_text=alt_text)
             else:
@@ -641,11 +664,11 @@ def markdown_to_docx(
             continue
 
         # 6. Standalone Image Attachment Link: [image.png](url)
-        att_img_m = re.match(r'^\s*\\?\[\s*([^\]]+\.(?:png|jpg|jpeg|gif|webp|bmp))\s*\\?\]\s*\\?\(\s*([^)]*)\s*\\?\)\s*$', line, re.IGNORECASE)
+        att_img_m = re.match(r'^\s*\\?\[\s*([^\]]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg))\s*\\?\]\s*\\?\(\s*([^)]*)\s*\\?\)\s*$', line, re.IGNORECASE)
         if att_img_m:
             alt_text = att_img_m.group(1)
             img_src = att_img_m.group(2)
-            img_bytes = _resolve_image_bytes(img_src, image_resolver)
+            img_bytes = _resolve_image_bytes(img_src, image_resolver, alt=alt_text)
             if img_bytes:
                 _add_raster_image_to_doc(doc, img_bytes, alt_text=alt_text)
             else:

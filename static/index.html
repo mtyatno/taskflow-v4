@@ -19408,7 +19408,62 @@ function NotePanel({
     const title = (note.title || "Catatan").replace(/[\\/*?:"<>|]/g, "").trim() || "Catatan";
     const filename = `${title}.docx`;
 
-    // 1. Try server API by note id if online
+    // 1. Collect all drawing SVGs referenced in note from client router / IndexedDB cache
+    const drawingsMap = {};
+    const contentStr = note.content || "";
+    const drawMatches = Array.from(contentStr.matchAll(/\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?/gi));
+    if (drawMatches.length > 0) {
+      await Promise.all(drawMatches.map(async m => {
+        const did = m[1];
+        const attrRaw = m[2] || "";
+        const titleM = attrRaw.match(/title\s*=\s*(?:"([^"]*)"|'([^']*)')/);
+        const dtitle = titleM ? (titleM[1] || titleM[2]) : "";
+        try {
+          const d = await api.get(`/api/drawings/${did}`);
+          if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {
+            drawingsMap[did] = {
+              title: d.title || dtitle,
+              svg: d.svg_preview
+            };
+          }
+        } catch (_) {}
+      }));
+    }
+
+    // 2. Send POST with live content + client drawings map
+    if (navigator.onLine) {
+      try {
+        const h = { "Content-Type": "application/json" };
+        if (typeof __token !== "undefined" && __token) h["Authorization"] = "Bearer " + __token;
+        const res = await fetch(apiUrl(`/api/scratchpad/export/docx`), {
+          method: "POST",
+          headers: h,
+          body: JSON.stringify({
+            note_id: note.id,
+            title: note.title || "Catatan",
+            content: note.content || "",
+            drawings: drawingsMap
+          })
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            if (a.parentNode) document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }, 300);
+          if (typeof showToast === "function") showToast("Dokumen Word (.docx) berhasil diunduh");
+          return;
+        }
+      } catch (_) {}
+    }
+
+    // 3. Fallback: GET by note id if POST fails
     if (navigator.onLine && note.id) {
       try {
         const h = {};
@@ -19432,35 +19487,7 @@ function NotePanel({
       } catch (_) {}
     }
 
-    // 2. Fallback: POST live content if online
-    if (navigator.onLine) {
-      try {
-        const h = { "Content-Type": "application/json" };
-        if (typeof __token !== "undefined" && __token) h["Authorization"] = "Bearer " + __token;
-        const res = await fetch(apiUrl(`/api/scratchpad/export/docx`), {
-          method: "POST",
-          headers: h,
-          body: JSON.stringify({ title: note.title || "Catatan", content: note.content || "" })
-        });
-        if (res.ok) {
-          const blob = await res.blob();
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(() => {
-            if (a.parentNode) document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          }, 300);
-          if (typeof showToast === "function") showToast("Dokumen Word (.docx) berhasil diunduh");
-          return;
-        }
-      } catch (_) {}
-    }
-
-    // 3. Offline client fallback: Word HTML MIME blob
+    // 4. Offline client fallback: Word HTML MIME blob
     try {
       const htmlContent = renderMarkdown(note.content || "", titleStrings, allNotes, tasks);
       const wordHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:Segoe UI,sans-serif;line-height:1.6;color:#1e293b;}h1{font-size:22pt;color:#0f172a;}h2{font-size:16pt;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #cbd5e1;padding:8px;}</style></head><body><h1>${title}</h1>${htmlContent}</body></html>`;
@@ -19468,16 +19495,16 @@ function NotePanel({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${title}.doc`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       setTimeout(() => {
         if (a.parentNode) document.body.removeChild(a);
         URL.revokeObjectURL(url);
       }, 300);
-      if (typeof showToast === "function") showToast("Dokumen Word (.doc) berhasil diunduh");
+      if (typeof showToast === "function") showToast("Dokumen Word (.docx) berhasil diunduh (Offline mode)");
     } catch (e) {
-      if (typeof showToast === "function") showToast("Gagal mengunduh dokumen Word", "error");
+      if (typeof showToast === "function") showToast("Export Word (.docx) gagal", "error");
     }
   };
 

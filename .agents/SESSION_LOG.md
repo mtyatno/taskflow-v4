@@ -4,6 +4,22 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-21 14:38] - Antigravity (Gemini)
+- **Task:** Ensure inline drawings and images always render visual in Note Word (.docx) export via client-side SVG map pre-fetch and robust image resolving.
+- **Root Cause:**
+  - When notes reference newly created or offline inline drawings (or drawings saved in browser IndexedDB/router), server database query did not have the SVG preview yet.
+  - Image links and HTML `<img>` tags had escaped URL paths and needed filename fallback against `note_attachments`.
+- **Changes:**
+  - Updated `handleExportDocx` in `static/index.html` to pre-fetch all `::draw` SVGs from IndexedDB / API router and submit them in the export request payload.
+  - Enhanced `NoteExportLiveRequest` and combined drawing resolver in `webapp.py` to prioritize client-supplied SVG drawing maps.
+  - Added HTML `<img>` parsing and enhanced `_make_image_resolver` in `docx_exporter.py` / `webapp.py` with Nextcloud DAV fetcher and filename matching.
+  - Included `svg_preview` in `syncpush.js` drawing synchronization.
+  - Bumped SW cache in `static/sw.js` to `taskflow-v265-docx-drawings-and-images-support`.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `static/offline/syncpush.js`, `docx_exporter.py`, `webapp.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-21 14:10] - Antigravity (Gemini)
 - **Task:** Fix unrendered escaped draw directives (`::draw\[...\]{title="..."}`), tag `<br />`, and escaped brackets in Note `.docx` export.
 - **Root Cause:**

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v264-fix-note-edit-milkdown-guard";
+const CACHE = "taskflow-v265-docx-drawings-and-images-support";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

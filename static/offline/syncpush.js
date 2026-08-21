@@ -455,7 +455,7 @@
       return TFidmap.serverIdOf(rec.note_cid).then((noteSid) => {
         if (noteSid == null) return; // hold: note not pushed yet (FIFO → note create runs first; retry next drain)
         return Promise.resolve(_BlobStore.getBytes(rec.blob_ref)).then((dataJson) =>
-          send(transport, "PUT", "/api/drawings/" + noteSid, { data_json: dataJson }).then((res) => {
+          send(transport, "PUT", "/api/drawings/" + noteSid, { data_json: dataJson, svg_preview: rec.svg_preview || "" }).then((res) => {
             if (ok(res)) {
               return putDrawingRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev }))
                 .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
