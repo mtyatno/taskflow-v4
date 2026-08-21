@@ -236,6 +236,17 @@ def _resolve_image_bytes(src: str, image_resolver: Optional[Callable[[str], Opti
     return None
 
 
+def _clean_markdown_text(text: str) -> str:
+    """Preprocess markdown text: normalize line breaks, clean HTML tags, and normalize escapes."""
+    if not text:
+        return ""
+    # Replace <br>, <br/>, <br /> with newlines
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+    # Remove excessive blank lines (> 2 in a row)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text
+
+
 def _add_styled_runs(paragraph, text: str):
     """Parse inline markdown (bold, italic, strikethrough, code, links) and add formatted runs."""
     token_pattern = re.compile(
@@ -244,16 +255,23 @@ def _add_styled_runs(paragraph, text: str):
         r'|(\*[^*]+\*|_[^_]+_)'
         r'|(~~[^~]+~~)'
         r'|(\[[^\]]+\]\([^)]+\))'
+        r'|(\\[\[\]\(\)*_~`#])'
     )
+
+    def _unescape_plain(s: str) -> str:
+        return re.sub(r'\\([\[\]\(\)*_~`#])', r'\1', s)
 
     last_idx = 0
     for m in token_pattern.finditer(text):
         start, end = m.span()
         if start > last_idx:
-            paragraph.add_run(text[last_idx:start])
+            paragraph.add_run(_unescape_plain(text[last_idx:start]))
 
         token = m.group(0)
-        if token.startswith('`') and token.endswith('`'):
+        if token.startswith('\\') and len(token) == 2:
+            # Escaped character
+            paragraph.add_run(token[1])
+        elif token.startswith('`') and token.endswith('`'):
             # Inline code
             r = paragraph.add_run(token[1:-1])
             r.font.name = 'Consolas'
@@ -261,38 +279,38 @@ def _add_styled_runs(paragraph, text: str):
             r.font.color.rgb = RGBColor(180, 40, 40)
         elif (token.startswith('**') and token.endswith('**')) or (token.startswith('__') and token.endswith('__')):
             # Bold
-            r = paragraph.add_run(token[2:-2])
+            r = paragraph.add_run(_unescape_plain(token[2:-2]))
             r.bold = True
         elif (token.startswith('*') and token.endswith('*')) or (token.startswith('_') and token.endswith('_')):
             # Italic
-            r = paragraph.add_run(token[1:-1])
+            r = paragraph.add_run(_unescape_plain(token[1:-1]))
             r.italic = True
         elif token.startswith('~~') and token.endswith('~~'):
             # Strikethrough
-            r = paragraph.add_run(token[2:-2])
+            r = paragraph.add_run(_unescape_plain(token[2:-2]))
             r.font.strike = True
         elif token.startswith('[') and '](' in token and token.endswith(')'):
             # Link [text](url)
             link_m = re.match(r'\[([^\]]+)\]\(([^)]+)\)', token)
             if link_m:
                 link_text, _ = link_m.groups()
-                r = paragraph.add_run(link_text)
+                r = paragraph.add_run(_unescape_plain(link_text))
                 r.font.color.rgb = RGBColor(37, 99, 235)  # Blue
                 r.underline = True
             else:
-                paragraph.add_run(token)
+                paragraph.add_run(_unescape_plain(token))
 
         last_idx = end
 
     if last_idx < len(text):
-        paragraph.add_run(text[last_idx:])
+        paragraph.add_run(_unescape_plain(text[last_idx:]))
 
 
 def markdown_to_docx(
     title: str,
     content: str,
     meta: dict = None,
-    drawing_resolver: Optional[Callable[[str], Optional[dict]]] = None,
+    drawing_resolver: Optional[Callable[..., Optional[dict]]] = None,
     image_resolver: Optional[Callable[[str], Optional[bytes]]] = None
 ) -> io.BytesIO:
     """Convert Markdown content and metadata into a formatted Word (.docx) document with images and drawings."""
@@ -349,8 +367,9 @@ def markdown_to_docx(
     p_div_border = parse_xml(f'<w:pBdr {nsdecls("w")}><w:bottom w:val="single" w:sz="6" w:space="1" w:color="E2E8F0"/></w:pBdr>')
     p_div._element.get_or_add_pPr().append(p_div_border)
 
-    # 3. Parse Content Line by Line
-    lines = (content or "").split('\n')
+    # 3. Clean and normalize content
+    cleaned_content = _clean_markdown_text(content or "")
+    lines = cleaned_content.split('\n')
     i = 0
     n = len(lines)
 
@@ -542,17 +561,34 @@ def markdown_to_docx(
             i += 1
             continue
 
-        # 4. Inline Drawing Directive: ::draw[id]{...}
-        if re.search(r'::draw\[', line):
-            draw_m = re.search(r'::draw\[([^\]]+)\](?:\s*\{([^}]*)\})?', line)
-            if draw_m:
-                draw_id = draw_m.group(1)
-                attr_raw = draw_m.group(2) or ""
-                title_m = re.search(r'title="([^"]+)"', attr_raw)
-                draw_title = title_m.group(1) if title_m else f"Gambar {draw_id}"
+        # 4. Inline Drawing Directive: ::draw[id]{...} or ::draw\[id\]{...}
+        draw_match = re.search(r'\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?', line)
+        if draw_match:
+            # Check if there is text before the draw directive
+            prefix_text = line[:draw_match.start()].strip()
+            if prefix_text:
+                p_pre = doc.add_paragraph()
+                p_pre.paragraph_format.space_before = Pt(3)
+                p_pre.paragraph_format.space_after = Pt(3)
+                _add_styled_runs(p_pre, prefix_text)
 
-                resolved_svg = None
-                if drawing_resolver:
+            draw_id = draw_match.group(1)
+            attr_raw = draw_match.group(2) or ""
+
+            # Extract title attribute if present
+            title_m = re.search(r'title\s*=\s*(?:"([^"]*)"|\'([^\']*)\')', attr_raw)
+            draw_title = title_m.group(1) or title_m.group(2) if title_m else f"Gambar {draw_id}"
+
+            resolved_svg = None
+            if drawing_resolver:
+                try:
+                    # Pass both draw_id and title to resolver
+                    d_info = drawing_resolver(draw_id, title=draw_title)
+                    if d_info:
+                        draw_title = d_info.get("title") or draw_title
+                        resolved_svg = d_info.get("svg")
+                except TypeError:
+                    # Fallback if resolver only accepts 1 argument
                     try:
                         d_info = drawing_resolver(draw_id)
                         if d_info:
@@ -560,28 +596,37 @@ def markdown_to_docx(
                             resolved_svg = d_info.get("svg")
                     except Exception:
                         pass
+                except Exception:
+                    pass
 
-                if resolved_svg and resolved_svg.strip().startswith("<svg"):
-                    _add_svg_to_doc(doc, resolved_svg, title=draw_title)
-                else:
-                    p_draw = doc.add_paragraph()
-                    p_draw.paragraph_format.space_before = Pt(8)
-                    p_draw.paragraph_format.space_after = Pt(8)
-                    p_draw.paragraph_format.left_indent = Inches(0.2)
-                    p_draw.paragraph_format.right_indent = Inches(0.2)
+            if resolved_svg and resolved_svg.strip().startswith("<svg"):
+                _add_svg_to_doc(doc, resolved_svg, title=draw_title)
+            else:
+                p_draw = doc.add_paragraph()
+                p_draw.paragraph_format.space_before = Pt(8)
+                p_draw.paragraph_format.space_after = Pt(8)
+                p_draw.paragraph_format.left_indent = Inches(0.2)
+                p_draw.paragraph_format.right_indent = Inches(0.2)
 
-                    shd = parse_xml(f'<w:shd {nsdecls("w")} w:fill="F8FAFC"/>')
-                    p_draw._element.get_or_add_pPr().append(shd)
+                shd = parse_xml(f'<w:shd {nsdecls("w")} w:fill="F8FAFC"/>')
+                p_draw._element.get_or_add_pPr().append(shd)
 
-                    r_d = p_draw.add_run(f"🎨 [Gambar/Canvas: {draw_title}]")
-                    r_d.bold = True
-                    r_d.font.color.rgb = RGBColor(100, 116, 139)
+                r_d = p_draw.add_run(f"🎨 [Gambar/Canvas: {draw_title}]")
+                r_d.bold = True
+                r_d.font.color.rgb = RGBColor(100, 116, 139)
+
+            suffix_text = line[draw_match.end():].strip()
+            if suffix_text:
+                p_suf = doc.add_paragraph()
+                p_suf.paragraph_format.space_before = Pt(3)
+                p_suf.paragraph_format.space_after = Pt(3)
+                _add_styled_runs(p_suf, suffix_text)
 
             i += 1
             continue
 
         # 5. Markdown Image: ![alt](url)
-        img_m = re.match(r'^!\[([^\]]*)\]\(([^)]+)\)$', line)
+        img_m = re.match(r'^\s*\\?!\s*\\?\[\s*([^\]]*)\s*\\?\]\s*\\?\(\s*([^)]*)\s*\\?\)\s*$', line)
         if img_m:
             alt_text = img_m.group(1)
             img_src = img_m.group(2)
@@ -596,7 +641,7 @@ def markdown_to_docx(
             continue
 
         # 6. Standalone Image Attachment Link: [image.png](url)
-        att_img_m = re.match(r'^\[([^\]]+\.(?:png|jpg|jpeg|gif|webp|bmp))\]\(([^)]+)\)$', line, re.IGNORECASE)
+        att_img_m = re.match(r'^\s*\\?\[\s*([^\]]+\.(?:png|jpg|jpeg|gif|webp|bmp))\s*\\?\]\s*\\?\(\s*([^)]*)\s*\\?\)\s*$', line, re.IGNORECASE)
         if att_img_m:
             alt_text = att_img_m.group(1)
             img_src = att_img_m.group(2)

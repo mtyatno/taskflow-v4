@@ -4,6 +4,19 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-21 14:10] - Antigravity (Gemini)
+- **Task:** Fix unrendered escaped draw directives (`::draw\[...\]{title="..."}`), tag `<br />`, and escaped brackets in Note `.docx` export.
+- **Root Cause:**
+  - Markdown editor produced escaped bracket tokens (`::draw\[...\]`) and `<br />` HTML tags, which bypassed the literal parser in `docx_exporter.py`.
+- **Changes:**
+  - Added HTML `<br>` normalizer and bracket unescaper in `docx_exporter.py`.
+  - Upgraded draw directive regex in `docx_exporter.py` to match escaped syntax and attribute payloads.
+  - Enhanced `_make_drawing_resolver` in `webapp.py` to look up drawings by attribute `title` (exact and fuzzy) as well as fallback `note_id`.
+- **Files Modified:** `docx_exporter.py`, `webapp.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-21 13:36] - Antigravity (Gemini)
 - **Task:** Add full rendering support for inline drawings (`::draw[...]`) and images in Note `.docx` exports.
 - **Root Cause:**

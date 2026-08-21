@@ -3681,28 +3681,59 @@ async def get_scratchpad_note(note_id: int, user=Depends(get_current_user)):
         return _scratchpad_row(row, conn, uid)
 
 
-def _make_drawing_resolver(uid: int):
-    def _resolve_drawing(did):
+def _make_drawing_resolver(uid: int, note_id: int = None):
+    def _resolve_drawing(did, title=None):
         with get_db() as conn:
             row = None
+            # 1. By numeric ID
             if str(did).isdigit():
                 row = conn.execute(
-                    "SELECT title, svg_preview FROM drawings WHERE id = ? AND (user_id = ? OR is_pinned = 1)",
+                    "SELECT id, title, svg_preview FROM drawings WHERE id = ? AND (user_id = ? OR is_pinned = 1)",
                     (int(did), uid)
                 ).fetchone()
                 if not row:
                     row = conn.execute(
-                        "SELECT title, svg_preview FROM drawings WHERE id = ?",
+                        "SELECT id, title, svg_preview FROM drawings WHERE id = ?",
                         (int(did),)
                     ).fetchone()
+
+            # 2. By title parameter
+            if not row and title:
+                row = conn.execute(
+                    "SELECT id, title, svg_preview FROM drawings WHERE title = ? AND user_id = ?",
+                    (title.strip(), uid)
+                ).fetchone()
+                if not row:
+                    row = conn.execute(
+                        "SELECT id, title, svg_preview FROM drawings WHERE title = ?",
+                        (title.strip(),)
+                    ).fetchone()
+                if not row:
+                    clean_t = re.sub(r'^(?:gambar|canvas)\s*[-:]*\s*', '', title, flags=re.IGNORECASE).strip()
+                    if clean_t:
+                        row = conn.execute(
+                            "SELECT id, title, svg_preview FROM drawings WHERE title LIKE ? AND user_id = ?",
+                            (f"%{clean_t}%", uid)
+                        ).fetchone()
+
+            # 3. By string did (title or cid)
             if not row:
                 row = conn.execute(
-                    "SELECT title, svg_preview FROM drawings WHERE cid = ? OR title = ?",
+                    "SELECT id, title, svg_preview FROM drawings WHERE title = ? OR id = ?",
                     (str(did), str(did))
                 ).fetchone()
+
+            # 4. Fallback by note_id
+            if not row and note_id:
+                row = conn.execute(
+                    "SELECT id, title, svg_preview FROM drawings WHERE id = ?",
+                    (note_id,)
+                ).fetchone()
+
             if row:
                 return {
-                    "title": row["title"] or f"Gambar {did}",
+                    "id": row["id"],
+                    "title": row["title"] or title or f"Gambar {did}",
                     "svg": row["svg_preview"] or ""
                 }
         return None
@@ -3751,7 +3782,7 @@ async def export_scratchpad_docx(note_id: int, user=Depends(get_current_user)):
         "tags": note_dict.get("tags") or [],
         "updated_at": note_dict.get("updated_at")
     }
-    drawing_res = _make_drawing_resolver(uid)
+    drawing_res = _make_drawing_resolver(uid, note_id=note_id)
     image_res = _make_image_resolver(uid)
     doc_io = markdown_to_docx(title, content, meta, drawing_resolver=drawing_res, image_resolver=image_res)
     safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
