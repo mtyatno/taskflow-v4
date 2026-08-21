@@ -163,61 +163,125 @@
     const online = opts.online != null ? opts.online : true;
 
     return getRaw(idOrCid).then((rec) => {
-      if (rec && !rec.deleted && rec.note_cid === undefined) {
-        // Standalone drawing
-        return Promise.resolve(BlobStore.getBytes(rec.blob_ref)).then((bytes) => {
-          const tagP = (TFtag && TFtag.getEntityTags)
-            ? TFtag.getEntityTags("drawing", rec.cid).then((tags) => tags.map((t) => t.name))
-            : Promise.resolve([]);
-          return tagP.then((tagNames) => ({
-            id: rec.server_id != null ? rec.server_id : rec.cid,
-            cid: rec.cid,
-            server_id: rec.server_id,
-            title: rec.title || "Untitled Drawing",
-            data_json: bytes || "{}",
-            svg_preview: rec.svg_preview || "",
-            is_pinned: rec.is_pinned || 0,
-            tags: tagNames,
-            created_at: rec.created_at,
-            updated_at: rec.updated_at,
-          }));
-        });
-      }
+      // If we don't have it locally or we want to sync it, we should fetch it if online
+      const doFetch = (fetcher && online) ? Promise.resolve(fetcher(idOrCid)).catch(()=>null) : Promise.resolve(null);
 
-      // Legacy / Note-attached drawing lookup
-      return getDrawingLocal(idOrCid).then((local) => {
-        const refreshP = (fetcher && online)
-          ? Promise.resolve(fetcher(idOrCid)).then((srv) => {
-              if (!srv || srv.data_json == null) return;
-              if (!local || (local.dirty === 0 && tsEpoch(srv.updated_at) > tsEpoch(local.base_rev))) {
-                return cacheServerDrawing(idOrCid, srv.data_json, srv.updated_at);
+      return doFetch.then((srv) => {
+        if (srv && srv.title !== undefined) {
+           // It's a standalone drawing from the server!
+           const newTitle = srv.title;
+           const newSvg = srv.svg_preview || "";
+           const isPinned = srv.is_pinned || 0;
+           const tags = srv.tags || [];
+
+           if (!rec) {
+              // Create local record for standalone drawing
+              return BlobStore.put(srv.data_json, { mime: "application/json" }).then((ref) => {
+                 const newRec = {
+                    cid: TFids.newCid(),
+                    server_id: srv.id,
+                    blob_ref: ref,
+                    title: newTitle,
+                    svg_preview: newSvg,
+                    is_pinned: isPinned,
+                    updated_at: srv.updated_at,
+                    created_at: srv.created_at || srv.updated_at,
+                    deleted: false,
+                    dirty: 0,
+                    base_rev: srv.updated_at
+                 };
+                 return putRec(newRec).then(() => {
+                    const tagP = (TFtag && TFtag.setEntityTags) ? TFtag.setEntityTags("drawing", newRec.cid, tags) : Promise.resolve();
+                    return tagP.then(() => newRec);
+                 });
+              });
+           } else {
+              // Update existing local record if not dirty or server is newer
+              if (rec.dirty === 0 || tsEpoch(srv.updated_at) > tsEpoch(rec.base_rev)) {
+                 return BlobStore.put(srv.data_json, { mime: "application/json" }).then((ref) => {
+                    const oldRef = rec.blob_ref;
+                    if (oldRef && oldRef !== ref) BlobStore.delete(oldRef);
+                    rec.server_id = srv.id;
+                    rec.blob_ref = ref;
+                    rec.title = newTitle;
+                    rec.svg_preview = newSvg;
+                    rec.is_pinned = isPinned;
+                    rec.updated_at = srv.updated_at;
+                    rec.base_rev = srv.updated_at;
+                    // Note: intentionally keeping rec.dirty as is if there's an outbox conflict, but updating base_rev might be dangerous if dirty.
+                    // For now, simple LWW:
+                    rec.dirty = 0;
+                    return putRec(rec).then(() => {
+                       const tagP = (TFtag && TFtag.setEntityTags) ? TFtag.setEntityTags("drawing", rec.cid, tags) : Promise.resolve();
+                       return tagP.then(() => {
+                           return TFoutbox.outboxByEntity("drawing", rec.cid).then(ops => {
+                               return Promise.all(ops.map(o => TFoutbox.outboxDelete(o.id)));
+                           }).then(() => rec);
+                       });
+                    });
+                 });
               }
-            }).catch(() => {})
-          : Promise.resolve();
+              return rec; // keep local dirty changes
+           }
+        } else if (srv && srv.data_json != null) {
+           // Legacy note-attached drawing fetched from server
+           return getDrawingLocal(idOrCid).then((local) => {
+              if (!local || (local.dirty === 0 && tsEpoch(srv.updated_at) > tsEpoch(local.base_rev))) {
+                 return cacheServerDrawing(idOrCid, srv.data_json, srv.updated_at).then(() => getByNoteCid(idOrCid));
+              }
+              return local;
+           });
+        }
 
-        return refreshP.then(() => getDrawingLocal(idOrCid)).then((finalRec) => {
-          if (!finalRec) return null;
-          return Promise.resolve(BlobStore.getBytes(finalRec.blob_ref)).then((bytes) => ({
-            data_json: bytes,
-            updated_at: finalRec.updated_at,
-          }));
-        });
+        // Fetch failed or not online, fallback to whatever we have locally
+        if (rec && !rec.deleted && rec.note_cid === undefined) {
+           return rec;
+        }
+        return getDrawingLocal(idOrCid);
+      }).then((finalRec) => {
+         if (!finalRec || finalRec.deleted) return null;
+         
+         if (finalRec.note_cid === undefined) {
+            // Standalone drawing format
+            return Promise.resolve(BlobStore.getBytes(finalRec.blob_ref)).then((bytes) => {
+              const tagP = (typeof TFtag !== "undefined" && TFtag.getEntityTags)
+                ? TFtag.getEntityTags("drawing", finalRec.cid).then((tags) => tags.map((t) => t.name))
+                : Promise.resolve([]);
+              return tagP.then((tagNames) => ({
+                id: finalRec.server_id != null ? finalRec.server_id : finalRec.cid,
+                cid: finalRec.cid,
+                server_id: finalRec.server_id,
+                title: finalRec.title || "Untitled Drawing",
+                data_json: bytes || "{}",
+                svg_preview: finalRec.svg_preview || "",
+                is_pinned: finalRec.is_pinned || 0,
+                tags: tagNames,
+                created_at: finalRec.created_at,
+                updated_at: finalRec.updated_at,
+              }));
+            });
+         } else {
+            // Legacy Note-attached format
+            return Promise.resolve(BlobStore.getBytes(finalRec.blob_ref)).then((bytes) => ({
+              data_json: bytes,
+              updated_at: finalRec.updated_at,
+            }));
+         }
       });
     });
   }
 
   function listDrawings(opts) {
     opts = opts || {};
-    return getAllRaw().then((all) => {
+    const fetchOnline = (typeof navigator !== "undefined" && navigator.onLine && window.__token)
+      ? window.fetch("/api/drawings", { headers: { Authorization: "Bearer " + window.__token } }).then(r => r.ok ? r.json() : []).catch(()=>[])
+      : Promise.resolve([]);
+
+    return Promise.all([fetchOnline, getAllRaw()]).then(([serverData, all]) => {
       const active = all.filter((r) => !r.deleted && r.note_cid === undefined);
-      active.sort((a, b) => {
-        const pinDiff = (b.is_pinned || 0) - (a.is_pinned || 0);
-        if (pinDiff !== 0) return pinDiff;
-        return tsEpoch(b.updated_at) - tsEpoch(a.updated_at);
-      });
 
       const promises = active.map((r) => {
-        const tagP = (TFtag && TFtag.getEntityTags)
+        const tagP = (typeof TFtag !== "undefined" && TFtag.getEntityTags)
           ? TFtag.getEntityTags("drawing", r.cid).then((tags) => tags.map((t) => t.name))
           : Promise.resolve([]);
         return tagP.then((tagNames) => ({
@@ -233,10 +297,34 @@
         }));
       });
 
-      return Promise.all(promises).then((list) => {
+      return Promise.all(promises).then((localList) => {
+        const map = new Map();
+        for (const d of serverData) map.set(String(d.id), d);
+        for (const d of localList) {
+          const sid = d.server_id != null ? String(d.server_id) : null;
+          if (sid && map.has(sid)) {
+             if (new Date(d.updated_at).getTime() > new Date(map.get(sid).updated_at).getTime()) {
+                map.set(sid, d);
+             }
+          } else {
+             map.set(sid || String(d.id || d.cid), d);
+          }
+        }
+        let list = Array.from(map.values());
+        list.sort((a, b) => {
+          const pinDiff = (b.is_pinned || 0) - (a.is_pinned || 0);
+          if (pinDiff !== 0) return pinDiff;
+          const tsA = new Date(a.updated_at).getTime() || 0;
+          const tsB = new Date(b.updated_at).getTime() || 0;
+          return tsB - tsA;
+        });
+
         if (opts.tag) {
           const filterTag = String(opts.tag).toLowerCase();
-          return list.filter((d) => (d.tags || []).some((t) => t.toLowerCase() === filterTag));
+          list = list.filter((d) => (d.tags || []).some((t) => String(t).toLowerCase() === filterTag));
+        }
+        if (opts.is_pinned) {
+          list = list.filter((d) => String(d.is_pinned) === "1" || d.is_pinned === true || d.is_pinned === 1);
         }
         return list;
       });
