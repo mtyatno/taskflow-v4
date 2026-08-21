@@ -632,3 +632,13 @@ Chronological history of work performed by AI agents in this workspace.
 ## 2026-08-21 (Gemini)
 - **Task**: Fixed DOCX table image export bug where images rendered as text. Fixed duplicate image mapping for attachment URLs. Recovered from a corrupted VPS deployment by rebuilding the venv and restoring missing FastAPI dependencies to requirements.txt.
 - **Status**: Completed and LIVE.
+
+ # #   2 0 2 6 - 0 8 - 2 1 :   F i x   M i s s i n g   D r a w i n g s   S y n c   ( A n t i g r a v i t y ) 
+ -   D i a g n o s e d   w h y   u s e r   d r a w i n g s   w e r e   m i s s i n g   a f t e r   d e p l o y i n g   t o   a   n e w   d e v i c e   o r   c l e a r i n g   c a c h e . 
+ -   R o o t   c a u s e :   T F . r o u t e r   i n t e r c e p t e d   G E T   / a p i / d r a w i n g s   t o   o n l y   r e a d   f r o m   I n d e x e d D B ,   b u t   s y n c p u l l . j s   i n t e n t i o n a l l y   d o e s   n o t   p u l l   d r a w i n g s   ( b e c a u s e   t h e y   a r e   h u g e   J S O N   f i l e s ) . 
+ -   F i x :   M o d i f i e d   T F r e p o . l i s t D r a w i n g s   i n   s t a t i c / o f f l i n e / d r a w i n g r e p o . j s   t o   f e t c h   t h e   l i s t   o f   d r a w i n g s   f r o m   t h e   s e r v e r   w h e n   o n l i n e ,   a n d   m e r g e   i t   s e a m l e s s l y   w i t h   t h e   I n d e x e d D B   r e c o r d s . 
+ -   F i x :   M o d i f i e d   T F r e p o . g e t D r a w i n g   t o   c o r r e c t l y   c a c h e   a n d   h a n d l e   s t a n d a l o n e   d r a w i n g s   f e t c h e d   f r o m   t h e   s e r v e r . 
+ -   B u m p e d   S e r v i c e   W o r k e r   c a c h e   i n   s t a t i c / s w . j s   t o   t a s k f l o w - v 2 7 4 - d r a w i n g - s y n c . 
+ -   P u s h e d   t o   m a i n . 
+  
+ 

@@ -273,8 +273,9 @@
 
   function listDrawings(opts) {
     opts = opts || {};
-    const fetchOnline = (typeof navigator !== "undefined" && navigator.onLine && window.__token)
-      ? window.fetch("/api/drawings", { headers: { Authorization: "Bearer " + window.__token } }).then(r => r.ok ? r.json() : []).catch(()=>[])
+    const token = typeof localStorage !== "undefined" ? localStorage.getItem("tf_token") : null;
+    const fetchOnline = (typeof navigator !== "undefined" && navigator.onLine && token)
+      ? window.fetch("/api/drawings", { headers: { Authorization: "Bearer " + token } }).then(r => r.ok ? r.json() : []).catch(()=>[])
       : Promise.resolve([]);
 
     return Promise.all([fetchOnline, getAllRaw()]).then(([serverData, all]) => {
