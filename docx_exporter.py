@@ -260,12 +260,12 @@ def _add_styled_runs(paragraph, text: str, image_resolver=None):
     token_pattern = re.compile(
         r'(!\[[^\]]*\]\([^)]+\))'
         r'|(![^\s\[\]\(\)]+(?:\.png|\.jpg|\.jpeg|\.gif|\.webp|\.bmp|\.svg|\.ico)?)'
-        r'|([^]+)'
+        r'|(`[^`]+`)'
         r'|(\*\*[^*]+\*\*|__[^_]+__)'
         r'|(\*[^*]+\*|_[^_]+_)'
         r'|(~~[^~]+~~)'
         r'|(\[[^\]]+\]\([^)]+\))'
-        r'|(\[\[\]\(\)*_~#])'
+        r'|(\\[\[\]\(\)*_~`#])'
     )
 
     def _unescape_plain(s: str) -> str:
