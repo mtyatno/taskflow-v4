@@ -1,9 +1,29 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-21 05:58  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Desktop Topbar Slim Height Optimization SELESAI)
+**Last Updated:** 2026-08-21 10:29  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Note Export to Word (.docx) & Markdown (.md) SELESAI)
 
 ---
+
+## 📌 Active Task
+- **Note Export to Word (.docx) & Markdown (.md) SELESAI 2026-08-21:**
+  - **Summary:** Menambahkan kemampuan export lengkap untuk Scratchpad Notes ke format Microsoft Word (`.docx`) dan raw Markdown (`.md`) selain fitur cetak/simpan PDF yang sudah ada:
+    1. **Converter Module ([`docx_exporter.py`](file:///Z:/Todolist%20Manager%20V5.0/docx_exporter.py)):**
+       - Mengonversi Markdown (Headings H1-H4, inline runs bold/italic/strike/code/links, tabel dengan header background & borders, code blocks dengan monospace font & shading, checklists `☐`/`☑`, blockquotes) menjadi file `.docx` native yang bersih dan rapi via `python-docx`.
+    2. **Backend API Endpoints ([`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L3684)):**
+       - `GET /api/scratchpad/{note_id}/export/docx`: Mengunduh dokumen `.docx` dengan filename ter-sanitasi.
+       - `GET /api/scratchpad/{note_id}/export/md`: Mengunduh file `.md` raw UTF-8.
+       - `POST /api/scratchpad/export/docx`: Mengunduh dokumen Word dari konten live unsaved di editor.
+    3. **Frontend UI Dropdown ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L19730)):**
+       - Mengganti tombol `PDF` tunggal menjadi menu dropdown **`Export ▾`** dengan 3 opsi:
+         - 📄 **PDF (Cetak)**: Membuka print preview browser untuk menyimpan PDF.
+         - 📘 **Word (.docx)**: Mengunduh file Microsoft Word `.docx` terformat (dengan fallback client-side Word HTML saat offline).
+         - 📝 **Markdown (.md)**: Mengunduh file teks Markdown murni `.md` secara instan (100% offline-ready).
+    4. **Cache & Dependencies:**
+       - Menambahkan `python-docx==1.*` pada `requirements.txt` dan `requirements-web.txt`.
+       - SW cache di-bump ke **`taskflow-v263-note-export-docx-and-md`**.
+  - All tests passed: 433/433 JS unit tests + 42/42 pytest (0 failures), 5/5 inline scripts parse cleanly.
+  - **Device-test checklist:** (1) Buka modal catatan -> Klik tombol `Export ▾` -> Pilih `Word (.docx)` -> File `.docx` terunduh dan terbuka dengan rapi di Microsoft Word / Google Docs / LibreOffice; (2) Pilih `Markdown (.md)` -> File `.md` terunduh instan; (3) Pilih `PDF (Cetak)` -> Dialog print PDF terbuka normal.
 
 ## 📌 Active Task
 - **Desktop Topbar Slim Height Optimization SELESAI 2026-08-21:**

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v262-slim-desktop-topbar";
+const CACHE = "taskflow-v263-note-export-docx-and-md";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

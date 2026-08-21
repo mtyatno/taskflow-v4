@@ -4,3 +4,4 @@ dateparser==1.*
 requests==2.*
 trafilatura==1.*
 mistune==3.*
+python-docx==1.*

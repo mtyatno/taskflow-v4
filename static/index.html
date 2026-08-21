@@ -19055,6 +19055,7 @@ function NotePanel({
   const [publishShowPassword, setPublishShowPassword] = React.useState(false);
   const [publishWorking, setPublishWorking] = React.useState(false);
   const [publishError, setPublishError] = React.useState('');
+  const [exportMenuOpen, setExportMenuOpen] = React.useState(false);
   React.useEffect(() => {
     if (!note) return;
     setPanelAttachments([]);
@@ -19336,6 +19337,112 @@ function NotePanel({
     window.addEventListener("afterprint", cleanup);
     window.print();
   };
+
+  const handleExportMd = () => {
+    setExportMenuOpen(false);
+    const title = (note.title || "Catatan").replace(/[\\/*?:"<>|]/g, "").trim() || "Catatan";
+    const content = note.content || "";
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title}.md`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      if (a.parentNode) document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 300);
+    if (typeof showToast === "function") showToast("File Markdown (.md) berhasil diunduh");
+  };
+
+  const handleExportDocx = async () => {
+    setExportMenuOpen(false);
+    const title = (note.title || "Catatan").replace(/[\\/*?:"<>|]/g, "").trim() || "Catatan";
+    const filename = `${title}.docx`;
+
+    // 1. Try server API by note id if online
+    if (navigator.onLine && note.id) {
+      try {
+        const h = {};
+        if (typeof __token !== "undefined" && __token) h["Authorization"] = "Bearer " + __token;
+        const res = await fetch(apiUrl(`/api/scratchpad/${note.id}/export/docx`), { headers: h });
+        if (res.ok) {
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            if (a.parentNode) document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }, 300);
+          if (typeof showToast === "function") showToast("Dokumen Word (.docx) berhasil diunduh");
+          return;
+        }
+      } catch (_) {}
+    }
+
+    // 2. Fallback: POST live content if online
+    if (navigator.onLine) {
+      try {
+        const h = { "Content-Type": "application/json" };
+        if (typeof __token !== "undefined" && __token) h["Authorization"] = "Bearer " + __token;
+        const res = await fetch(apiUrl(`/api/scratchpad/export/docx`), {
+          method: "POST",
+          headers: h,
+          body: JSON.stringify({ title: note.title || "Catatan", content: note.content || "" })
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            if (a.parentNode) document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }, 300);
+          if (typeof showToast === "function") showToast("Dokumen Word (.docx) berhasil diunduh");
+          return;
+        }
+      } catch (_) {}
+    }
+
+    // 3. Offline client fallback: Word HTML MIME blob
+    try {
+      const htmlContent = renderMarkdown(note.content || "", titleStrings, allNotes, tasks);
+      const wordHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:Segoe UI,sans-serif;line-height:1.6;color:#1e293b;}h1{font-size:22pt;color:#0f172a;}h2{font-size:16pt;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #cbd5e1;padding:8px;}</style></head><body><h1>${title}</h1>${htmlContent}</body></html>`;
+      const blob = new Blob(['\ufeff', wordHtml], { type: 'application/msword;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${title}.doc`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (a.parentNode) document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 300);
+      if (typeof showToast === "function") showToast("Dokumen Word (.doc) berhasil diunduh");
+    } catch (e) {
+      if (typeof showToast === "function") showToast("Gagal mengunduh dokumen Word", "error");
+    }
+  };
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const handler = e => {
+      if (!e.target.closest("[data-export-dropdown]")) setExportMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [exportMenuOpen]);
+
   useEffect(() => {
     if (openDropdownIdx === null) return;
     const handler = e => {
@@ -19623,20 +19730,55 @@ function NotePanel({
       alignItems: "center",
       gap: 3
     }
-  }, publishedMeta?.password_set ? "🔗🔒 Publish" : "🔗 Publish"), /*#__PURE__*/React.createElement("button", {
-    onClick: handlePrint,
-    title: "Cetak / Simpan PDF",
+  }, publishedMeta?.password_set ? "🔗🔒 Publish" : "🔗 Publish"), /*#__PURE__*/React.createElement("div", {
+    "data-export-dropdown": true,
+    style: { position: "relative", display: "inline-block" }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setExportMenuOpen(o => !o),
+    title: "Export Catatan",
     style: {
-      background: "none",
+      background: exportMenuOpen ? "var(--bg-primary)" : "none",
       border: "1px solid var(--border)",
       borderRadius: 7,
       fontSize: 12,
       fontWeight: 600,
-      color: "var(--text-light)",
+      color: "var(--text-primary)",
       cursor: "pointer",
-      padding: "4px 10px"
+      padding: "4px 10px",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4
     }
-  }, "PDF"), /*#__PURE__*/React.createElement("button", {
+  }, "Export ", /*#__PURE__*/React.createElement("span", { style: { fontSize: 8, transform: exportMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" } }, "▼")), exportMenuOpen && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      top: "calc(100% + 4px)",
+      right: 0,
+      background: "var(--bg-card)",
+      border: "1px solid var(--border)",
+      borderRadius: 8,
+      boxShadow: "0 6px 20px rgba(0,0,0,0.14)",
+      zIndex: 150,
+      minWidth: 165,
+      padding: "4px 0",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    onClick: () => { setExportMenuOpen(false); handlePrint(); },
+    style: { padding: "8px 12px", fontSize: 12.5, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, color: "var(--text-primary)" },
+    onMouseEnter: e => e.currentTarget.style.background = "var(--bg-primary)",
+    onMouseLeave: e => e.currentTarget.style.background = "transparent"
+  }, /*#__PURE__*/React.createElement("span", null, "📄"), "PDF (Cetak)"), /*#__PURE__*/React.createElement("div", {
+    onClick: handleExportDocx,
+    style: { padding: "8px 12px", fontSize: 12.5, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, color: "var(--text-primary)" },
+    onMouseEnter: e => e.currentTarget.style.background = "var(--bg-primary)",
+    onMouseLeave: e => e.currentTarget.style.background = "transparent"
+  }, /*#__PURE__*/React.createElement("span", null, "📘"), "Word (.docx)"), /*#__PURE__*/React.createElement("div", {
+    onClick: handleExportMd,
+    style: { padding: "8px 12px", fontSize: 12.5, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, color: "var(--text-primary)" },
+    onMouseEnter: e => e.currentTarget.style.background = "var(--bg-primary)",
+    onMouseLeave: e => e.currentTarget.style.background = "transparent"
+  }, /*#__PURE__*/React.createElement("span", null, "📝"), "Markdown (.md)"))), /*#__PURE__*/React.createElement("button", {
     onClick: onEdit,
     style: {
       background: "none",

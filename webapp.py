@@ -3680,6 +3680,81 @@ async def get_scratchpad_note(note_id: int, user=Depends(get_current_user)):
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
         return _scratchpad_row(row, conn, uid)
 
+
+@app.get("/api/scratchpad/{note_id}/export/docx")
+async def export_scratchpad_docx(note_id: int, user=Depends(get_current_user)):
+    """Export note as Microsoft Word (.docx) document."""
+    uid = user["sub"]
+    access_clause, access_params = _note_access_clause(uid)
+    with get_db() as conn:
+        row = conn.execute(f"""
+            SELECT * FROM scratchpad_notes
+            WHERE id = ? AND {access_clause}
+        """, [note_id] + access_params).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        note_dict = _scratchpad_row(row, conn, uid)
+
+    from docx_exporter import markdown_to_docx
+    title = note_dict.get("title") or "Catatan"
+    content = note_dict.get("content") or ""
+    meta = {
+        "tags": note_dict.get("tags") or [],
+        "updated_at": note_dict.get("updated_at")
+    }
+    doc_io = markdown_to_docx(title, content, meta)
+    safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
+    return Response(
+        content=doc_io.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.docx"'}
+    )
+
+
+@app.get("/api/scratchpad/{note_id}/export/md")
+async def export_scratchpad_md(note_id: int, user=Depends(get_current_user)):
+    """Export note as raw Markdown (.md) file."""
+    uid = user["sub"]
+    access_clause, access_params = _note_access_clause(uid)
+    with get_db() as conn:
+        row = conn.execute(f"""
+            SELECT * FROM scratchpad_notes
+            WHERE id = ? AND {access_clause}
+        """, [note_id] + access_params).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        note_dict = _scratchpad_row(row, conn, uid)
+
+    title = note_dict.get("title") or "Catatan"
+    content = note_dict.get("content") or ""
+    safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.md"'}
+    )
+
+
+class NoteExportLiveRequest(BaseModel):
+    title: Optional[str] = "Catatan"
+    content: Optional[str] = ""
+
+
+@app.post("/api/scratchpad/export/docx")
+async def export_scratchpad_docx_live(req: NoteExportLiveRequest, user=Depends(get_current_user)):
+    """Export live unsaved note content as Microsoft Word (.docx) document."""
+    from docx_exporter import markdown_to_docx
+    title = req.title or "Catatan"
+    content = req.content or ""
+    doc_io = markdown_to_docx(title, content)
+    safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
+    return Response(
+        content=doc_io.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.docx"'}
+    )
+
+
 @app.post("/api/scratchpad")
 async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user)):
     uid = user["sub"]

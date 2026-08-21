@@ -4,14 +4,17 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
-## [2026-08-21 05:58] - Antigravity (Gemini)
-- **Task:** Make the top header area of the desktop view slimmer and more compact in height.
+## [2026-08-21 10:29] - Antigravity (Gemini)
+- **Task:** Integrate Microsoft Word (`.docx`) and Markdown (`.md`) export for Scratchpad Notes.
 - **Changes:**
-  - In [`static/app.css`](file:///Z:/Todolist%20Manager%20V5.0/static/app.css#L127): Reduced `.desktop-topbar` padding from `20px .. 16px` to `8px .. 8px`, adjusted `.main-content` padding to `16px 28px`, and updated `.notes-layout`, `.draw-container`, `.mindmap-container` height to `calc(100vh - 84px)`.
-  - In [`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L24840): Compacted heights of menu button, global search box, notification bell, theme toggle, and "+ Buat Baru" button to `32px` with `7px` border radius.
-  - Bumped SW cache in [`static/sw.js`](file:///Z:/Todolist%20Manager%20V5.0/static/sw.js#L1) to `taskflow-v262-slim-desktop-topbar`.
-- **Files Modified:** `static/app.css`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
-- **Status:** Completed (433/433 JS tests pass, 40/40 pytest pass)
+  - Added `docx_exporter.py` module using `python-docx` to parse Markdown headings, formatted text runs, tables with styled headers, code blocks, checklists, and blockquotes into native `.docx` files.
+  - Added endpoints in [`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L3684): `GET /api/scratchpad/{id}/export/docx`, `GET /api/scratchpad/{id}/export/md`, and `POST /api/scratchpad/export/docx`.
+  - Replaced the single `PDF` button in `NoteModal` ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L19730)) with an `Export ▾` dropdown menu containing PDF, Word (.docx), and Markdown (.md) options with offline fallbacks.
+  - Added `python-docx==1.*` to `requirements.txt` and `requirements-web.txt`.
+  - Bumped SW cache in [`static/sw.js`](file:///Z:/Todolist%20Manager%20V5.0/static/sw.js#L1) to `taskflow-v263-note-export-docx-and-md`.
+  - Added unit and endpoint tests in `tests/test_docx_export.py`.
+- **Files Modified:** `docx_exporter.py`, `webapp.py`, `static/index.html`, `static/sw.js`, `requirements.txt`, `requirements-web.txt`, `tests/test_docx_export.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 42/42 pytest pass)
 
 ---
 
