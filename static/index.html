@@ -19408,7 +19408,55 @@ function NotePanel({
     const title = (note.title || "Catatan").replace(/[\\/*?:"<>|]/g, "").trim() || "Catatan";
     const filename = `${title}.docx`;
 
-    // 1. Collect all drawing SVGs referenced in note from client router / IndexedDB cache
+    // Helper: Convert SVG string to high-resolution PNG data URL via HTML5 Canvas
+    const svgToPngDataUrl = (svgString) => {
+      return new Promise((resolve) => {
+        try {
+          if (!svgString || !svgString.trim().startsWith('<svg')) {
+            return resolve(null);
+          }
+          const img = new Image();
+          const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+          const url = URL.createObjectURL(svgBlob);
+          img.onload = () => {
+            try {
+              let w = img.naturalWidth || 800;
+              let h = img.naturalHeight || 400;
+              const vbMatch = svgString.match(/viewBox\s*=\s*["']([^"']+)["']/i);
+              if (vbMatch) {
+                const parts = vbMatch[1].trim().split(/[\s,]+/).map(Number);
+                if (parts.length >= 4 && parts[2] > 0 && parts[3] > 0) {
+                  w = parts[2];
+                  h = parts[3];
+                }
+              }
+              const scale = Math.max(1, Math.min(2, 1200 / Math.max(w, 1)));
+              const canvas = document.createElement('canvas');
+              canvas.width = Math.round(w * scale);
+              canvas.height = Math.round(h * scale);
+              const ctx = canvas.getContext('2d');
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              URL.revokeObjectURL(url);
+              resolve(canvas.toDataURL('image/png'));
+            } catch (_) {
+              URL.revokeObjectURL(url);
+              resolve(null);
+            }
+          };
+          img.onerror = () => {
+            URL.revokeObjectURL(url);
+            resolve(null);
+          };
+          img.src = url;
+        } catch (_) {
+          resolve(null);
+        }
+      });
+    };
+
+    // 1. Collect all drawing SVGs and render high-res PNG previews from client
     const drawingsMap = {};
     const contentStr = note.content || "";
     const drawMatches = Array.from(contentStr.matchAll(/\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?/gi));
@@ -19421,9 +19469,11 @@ function NotePanel({
         try {
           const d = await api.get(`/api/drawings/${did}`);
           if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {
+            const pngData = await svgToPngDataUrl(d.svg_preview);
             drawingsMap[did] = {
               title: d.title || dtitle,
-              svg: d.svg_preview
+              svg: d.svg_preview,
+              png: pngData
             };
           }
         } catch (_) {}

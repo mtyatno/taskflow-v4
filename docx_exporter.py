@@ -667,6 +667,7 @@ def markdown_to_docx(
             draw_title = title_m.group(1) or title_m.group(2) if title_m else f"Gambar {draw_id}"
 
             resolved_svg = None
+            resolved_png = None
             if drawing_resolver:
                 try:
                     # Pass both draw_id and title to resolver
@@ -674,6 +675,7 @@ def markdown_to_docx(
                     if d_info:
                         draw_title = d_info.get("title") or draw_title
                         resolved_svg = d_info.get("svg")
+                        resolved_png = d_info.get("png")
                 except TypeError:
                     # Fallback if resolver only accepts 1 argument
                     try:
@@ -681,12 +683,19 @@ def markdown_to_docx(
                         if d_info:
                             draw_title = d_info.get("title") or draw_title
                             resolved_svg = d_info.get("svg")
+                            resolved_png = d_info.get("png")
                     except Exception:
                         pass
                 except Exception:
                     pass
 
-            if resolved_svg and resolved_svg.strip().startswith("<svg"):
+            if resolved_png:
+                png_bytes = _resolve_image_bytes(resolved_png) if isinstance(resolved_png, str) else resolved_png
+                if png_bytes:
+                    _add_raster_image_to_doc(doc, png_bytes, alt_text=f"🎨 {draw_title}")
+                elif resolved_svg and resolved_svg.strip().startswith("<svg"):
+                    _add_svg_to_doc(doc, resolved_svg, title=draw_title)
+            elif resolved_svg and resolved_svg.strip().startswith("<svg"):
                 _add_svg_to_doc(doc, resolved_svg, title=draw_title)
             else:
                 p_draw = doc.add_paragraph()

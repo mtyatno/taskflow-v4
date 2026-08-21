@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v265-docx-drawings-and-images-support";
+const CACHE = "taskflow-v266-docx-client-canvas-rasterizer";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

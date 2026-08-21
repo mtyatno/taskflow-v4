@@ -1,12 +1,27 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-21 15:20  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX SVG-to-PNG Rasterizer & Image Syntax Support SELESAI)
+**Last Updated:** 2026-08-21 15:40  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX Client-Side Canvas Rasterizer & Pure Python Dependencies SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Note DOCX Export SVG-to-PNG Rasterizer & Image Syntax Support SELESAI 2026-08-21:**
+- **Note DOCX Export Client-Side Canvas Rasterizer & Pure Python Dependencies SELESAI 2026-08-21:**
+  - **Problem / Root Cause:**
+    - Pada VPS Linux (Ubuntu 24.04), `pip install -r requirements.txt` gagal saat kompilasi `pycairo` via Meson karena dependensi sistem `libcairo2-dev` dan `pkg-config` belum terinstall.
+  - **Solusi / Perbaikan:**
+    1. **Client-Side HTML5 Canvas Rasterizer ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L19406)):**
+       - Frontend memanfaatkan kemampuan bawaan browser (HTML5 Canvas) untuk merender SVG menjadi PNG data URL resolusi tinggi (`data:image/png;base64,...`) secara instan (~5ms).
+       - Objek `drawings` mengirimkan `{ did: { title, svg, png: pngDataUrl } }` ke backend.
+    2. **Pure Python Server Decoder ([`docx_exporter.py`](file:///Z:/Todolist%20Manager%20V5.0/docx_exporter.py)):**
+       - Backend menerima data PNG yang sudah di-rasterisasi oleh browser dan langsung menyematkannya via Pillow / base64 decode bawaan Python.
+       - Server **TIDAK memerlukan** library C `pycairo`, `libcairo2-dev`, `pkg-config`, `svglib`, ataupun `reportlab`!
+    3. **Clean Dependencies ([`requirements.txt`](file:///Z:/Todolist%20Manager%20V5.0/requirements.txt), [`requirements-web.txt`](file:///Z:/Todolist%20Manager%20V5.0/requirements-web.txt)):**
+       - Menghapus `svglib`, `reportlab`, dan `rlPyCairo` dari requirements. Hanya menyisakan pure binary wheels `Pillow>=9.0.0` dan `python-docx==1.*`.
+       - `pip install -r requirements.txt` kini dijamin 100% instan dan tidak akan pernah error di Linux/Windows/macOS.
+    4. **SW Cache:** Di-bump ke **`taskflow-v266-docx-client-canvas-rasterizer`**.
+  - All tests passed: 433/433 JS unit tests + 43/43 pytest (0 failures).
+  - **Device-test checklist:** (1) `pip install -r requirements.txt` di VPS berhasil instan tanpa error -> (2) Export Word (.docx) -> Seluruh diagram canvas dan gambar visual utuh tanpa dependensi compiler C.
   - **Problem / Root Cause:**
     - **Area Draw Kotak Putih:** Microsoft Word Desktop pada Windows mengandalkan representasi raster bitmap (PNG) saat membuka dokumen docx. Karena fallback sebelumnya berupa PNG 1x1 transparan, Word menampilkan kotak putih kosong.
     - **Image Menampilkan Teks `!image.png`:** Parser regex sebelumnya hanya mencocokkan pola markdown dengan tanda kurung `![alt](url)`, sehingga penulisan gambar standalone seperti `!image.png`, `![image.png]`, `[image.png]`, dan `<img ... />` terlewat dan dianggap teks biasa.

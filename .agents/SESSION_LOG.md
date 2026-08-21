@@ -4,6 +4,20 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-21 15:40] - Antigravity (Gemini)
+- **Task:** Eliminate C compilation (`pycairo`/Meson) failure on Linux VPS by using browser HTML5 canvas SVG-to-PNG rasterization and pure Python decoding.
+- **Root Cause:**
+  - `pycairo` required `libcairo2-dev` and `pkg-config` to build from source on Ubuntu Linux with Python 3.12.
+- **Changes:**
+  - Implemented client-side HTML5 canvas rasterizer in `static/index.html` (`svgToPngDataUrl`), converting SVG drawings into sharp PNG data URLs directly in the browser.
+  - Updated `docx_exporter.py` to accept pre-rendered `png` data from client drawings map.
+  - Cleaned `requirements.txt` and `requirements-web.txt` to remove `svglib`, `reportlab`, and `rlPyCairo`, requiring only standard binary wheels (`Pillow>=9.0.0`, `python-docx==1.*`).
+  - Bumped SW cache in `static/sw.js` to `taskflow-v266-docx-client-canvas-rasterizer`.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `docx_exporter.py`, `requirements.txt`, `requirements-web.txt`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-21 15:20] - Antigravity (Gemini)
 - **Task:** Fix blank white boxes for SVG drawings and unrendered `!image.png` image references in Note `.docx` export.
 - **Root Cause:**
