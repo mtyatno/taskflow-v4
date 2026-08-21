@@ -19417,8 +19417,12 @@ function NotePanel({
           if (!svgString || !svgString.trim().startsWith('<svg')) {
             return resolve(null);
           }
+          let safeSvg = svgString;
+          if (!safeSvg.match(/width\s*=/i)) safeSvg = safeSvg.replace('<svg', '<svg width="800" ');
+          if (!safeSvg.match(/height\s*=/i)) safeSvg = safeSvg.replace('<svg', '<svg height="600" ');
+          
           const img = new Image();
-          const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+          const svgBlob = new Blob([safeSvg], { type: 'image/svg+xml;charset=utf-8' });
           const url = URL.createObjectURL(svgBlob);
           img.onload = () => {
             try {

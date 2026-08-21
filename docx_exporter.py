@@ -255,7 +255,7 @@ def _clean_markdown_text(text: str) -> str:
     return text
 
 
-def _add_styled_runs(paragraph, text: str):
+def _add_styled_runs(paragraph, text: str, image_resolver=None):
     """Parse inline markdown (bold, italic, strikethrough, code, links) and add formatted runs."""
     token_pattern = re.compile(
         r'(`[^`]+`)'
@@ -276,7 +276,60 @@ def _add_styled_runs(paragraph, text: str):
             paragraph.add_run(_unescape_plain(text[last_idx:start]))
 
         token = m.group(0)
-        if token.startswith('\\') and len(token) == 2:
+        if token.startswith('![') and '](' in token:
+            m_sub = re.match(r'^!\[([^\]]*)\]\(([^)]+)\)$', token)
+            if m_sub:
+                alt = m_sub.group(1)
+                src = m_sub.group(2)
+                img_b = _resolve_image_bytes(src, image_resolver, alt=alt) if image_resolver else None
+                if img_b:
+                    try:
+                        from PIL import Image
+                        import io
+                        from docx.shared import Inches
+                        pil_img = Image.open(io.BytesIO(img_b))
+                        w, h = pil_img.size
+                        fmt = (pil_img.format or 'PNG').upper()
+                        if fmt not in ('PNG', 'JPEG', 'JPG', 'BMP', 'GIF'):
+                            out_buf = io.BytesIO()
+                            pil_img.save(out_buf, format='PNG')
+                            img_b = out_buf.getvalue()
+                        aspect = h / max(w, 1.0)
+                        width_in = min(3.0, w / 96.0)
+                        height_in = width_in * aspect
+                        r = paragraph.add_run()
+                        r.add_picture(io.BytesIO(img_b), width=Inches(width_in), height=Inches(height_in))
+                    except Exception:
+                        r = paragraph.add_run(f'🖼️ [{alt or src}]')
+                else:
+                    r = paragraph.add_run(f'🖼️ [{alt or src}]')
+                    r.font.color.rgb = RGBColor(100, 116, 139)
+        elif token.startswith('!') and not token.startswith('!['):
+            fn = token[1:]
+            img_b = _resolve_image_bytes(fn, image_resolver, alt=fn) if image_resolver else None
+            if img_b:
+                try:
+                    from PIL import Image
+                    import io
+                    from docx.shared import Inches
+                    pil_img = Image.open(io.BytesIO(img_b))
+                    w, h = pil_img.size
+                    fmt = (pil_img.format or 'PNG').upper()
+                    if fmt not in ('PNG', 'JPEG', 'JPG', 'BMP', 'GIF'):
+                        out_buf = io.BytesIO()
+                        pil_img.save(out_buf, format='PNG')
+                        img_b = out_buf.getvalue()
+                    aspect = h / max(w, 1.0)
+                    width_in = min(3.0, w / 96.0)
+                    height_in = width_in * aspect
+                    r = paragraph.add_run()
+                    r.add_picture(io.BytesIO(img_b), width=Inches(width_in), height=Inches(height_in))
+                except Exception:
+                    r = paragraph.add_run(f'🖼️ [{fn}]')
+            else:
+                r = paragraph.add_run(f'🖼️ [{fn}]')
+                r.font.color.rgb = RGBColor(100, 116, 139)
+        elif token.startswith('\\') and len(token) == 2:
             # Escaped character
             paragraph.add_run(token[1])
         elif token.startswith('`') and token.endswith('`'):
@@ -450,7 +503,7 @@ def markdown_to_docx(
                         p_cell = cell.paragraphs[0]
                         p_cell.paragraph_format.space_before = Pt(0)
                         p_cell.paragraph_format.space_after = Pt(0)
-                        _add_styled_runs(p_cell, cell_text)
+                        _add_styled_runs(p_cell, cell_text, image_resolver=image_resolver)
                         if is_header:
                             for r in p_cell.runs:
                                 r.bold = True
@@ -506,7 +559,7 @@ def markdown_to_docx(
             r_sym.bold = True
             r_sym.font.color.rgb = RGBColor(16, 185, 129) if is_checked else RGBColor(100, 116, 139)
 
-            _add_styled_runs(p_chk, item_text)
+            _add_styled_runs(p_chk, item_text, image_resolver=image_resolver)
             if is_checked:
                 for r in p_chk.runs[1:]:
                     r.font.strike = True
@@ -526,7 +579,7 @@ def markdown_to_docx(
             pBdr = parse_xml(f'<w:pBdr {nsdecls("w")}><w:left w:val="single" w:sz="18" w:space="10" w:color="94A3B8"/></w:pBdr>')
             p_q._element.get_or_add_pPr().append(pBdr)
 
-            _add_styled_runs(p_q, quote_text)
+            _add_styled_runs(p_q, quote_text, image_resolver=image_resolver)
             for r in p_q.runs:
                 r.italic = True
                 r.font.color.rgb = RGBColor(71, 85, 105)
@@ -547,7 +600,7 @@ def markdown_to_docx(
             r_bullet.bold = True
             r_bullet.font.color.rgb = RGBColor(100, 116, 139)
 
-            _add_styled_runs(p_b, item_text)
+            _add_styled_runs(p_b, item_text, image_resolver=image_resolver)
             i += 1
             continue
 
@@ -565,7 +618,7 @@ def markdown_to_docx(
             r_n.bold = True
             r_n.font.color.rgb = RGBColor(100, 116, 139)
 
-            _add_styled_runs(p_num, item_text)
+            _add_styled_runs(p_num, item_text, image_resolver=image_resolver)
             i += 1
             continue
 
@@ -578,7 +631,7 @@ def markdown_to_docx(
                 p_pre = doc.add_paragraph()
                 p_pre.paragraph_format.space_before = Pt(3)
                 p_pre.paragraph_format.space_after = Pt(3)
-                _add_styled_runs(p_pre, prefix_text)
+                _add_styled_runs(p_pre, prefix_text, image_resolver=image_resolver)
 
             draw_id = draw_match.group(1)
             attr_raw = draw_match.group(2) or ""
@@ -637,7 +690,7 @@ def markdown_to_docx(
                 p_suf = doc.add_paragraph()
                 p_suf.paragraph_format.space_before = Pt(3)
                 p_suf.paragraph_format.space_after = Pt(3)
-                _add_styled_runs(p_suf, suffix_text)
+                _add_styled_runs(p_suf, suffix_text, image_resolver=image_resolver)
 
             i += 1
             continue
@@ -677,7 +730,7 @@ def markdown_to_docx(
                     p = doc.add_paragraph()
                     p.paragraph_format.space_before = Pt(3)
                     p.paragraph_format.space_after = Pt(5)
-                    _add_styled_runs(p, seg)
+                    _add_styled_runs(p, seg, image_resolver=image_resolver)
             i += 1
             continue
 
@@ -685,7 +738,7 @@ def markdown_to_docx(
         p = doc.add_paragraph()
         p.paragraph_format.space_before = Pt(3)
         p.paragraph_format.space_after = Pt(5)
-        _add_styled_runs(p, line)
+        _add_styled_runs(p, line, image_resolver=image_resolver)
         i += 1
 
     out_io = io.BytesIO()

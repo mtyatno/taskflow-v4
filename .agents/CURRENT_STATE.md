@@ -1,7 +1,7 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-21 19:07  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX Universal Word XML & Timeout Fix SELESAI)
+**Last Updated:** 2026-08-21 19:40  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX Table Images & Canvas Fix SELESAI)
 
 ---
 
@@ -16,7 +16,7 @@
        - Menghapus seluruh manipulasi XML manual `<asvg:svgBlip>` dan menggantinya dengan `run.add_picture(...)` standar dari library `python-docx`. File `.docx` kini 100% valid dan kompatibel di semua versi Microsoft Word (Word 2010–2024, Microsoft 365, LibreOffice).
     2. **Reliable Nextcloud Stream Timeouts ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L19460), [`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L3787)):**
        - Memperpanjang timeout fetch gambar di frontend menjadi 10 detik (dan race cap 15 detik) serta backend Nextcloud timeout menjadi 15 detik.
-    3. **SW Cache:** Di-bump ke **`taskflow-v271-docx-safe-drawing-and-stream-timeout`**.
+    3. **SW Cache:** Di-bump ke **`taskflow-v272-docx-table-images-fix`**.
   - All tests passed: 433/433 JS unit tests + 43/43 pytest (0 failures).
   - **Device-test checklist:** (1) Buka catatan dengan drawing dan gambar `!image.png` -> Export Word (.docx) -> Buka di Word -> Terbuka lancar tanpa error corrupt dan gambar tertanam utuh.
   - **Problem / Root Cause:**
