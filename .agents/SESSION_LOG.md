@@ -628,3 +628,7 @@ Chronological history of work performed by AI agents in this workspace.
 - **Status:** Completed — PENDING user device-test.
 
 
+
+## 2026-08-21 (Gemini)
+- **Task**: Fixed DOCX table image export bug where images rendered as text. Fixed duplicate image mapping for attachment URLs. Recovered from a corrupted VPS deployment by rebuilding the venv and restoring missing FastAPI dependencies to requirements.txt.
+- **Status**: Completed and LIVE.

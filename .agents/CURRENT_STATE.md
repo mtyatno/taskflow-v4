@@ -1,3 +1,7 @@
+## 🟢 Active Task
+- **BUGFIX DOCX Table Images & venv Recovery (2026-08-21)**: Fixed !image.png inline markdown images rendering as plain text inside markdown tables during Word document export by refactoring _add_styled_runs to support inline picture embedding. Fixed duplicate image bug where attachments ending in /view caused all images to map to the first image. Fixed uvicorn and astapi disappearing from VPS deployment due to 
+equirements.txt previously only containing Telegram Bot packages. Tested and confirmed LIVE by user.
+
 # Current Workspace State & Handover
 
 **Last Updated:** 2026-08-21 19:40  
