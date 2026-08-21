@@ -19458,7 +19458,7 @@ function NotePanel({
       });
     };
 
-    // Helper: fetch any image URL with 2.5s timeout and convert to Base64 Data URL
+    // Helper: fetch any image URL with 10s timeout and convert to Base64 Data URL
     const urlToBase64 = async (url) => {
       try {
         if (!url || typeof url !== 'string') return null;
@@ -19467,7 +19467,7 @@ function NotePanel({
         const headers = {};
         if (typeof __token !== 'undefined' && __token) headers['Authorization'] = 'Bearer ' + __token;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
         const res = await fetch(targetUrl, { headers, signal: controller.signal });
         clearTimeout(timeoutId);
         if (!res.ok) return null;
@@ -19487,7 +19487,7 @@ function NotePanel({
     const imagesMap = {};
     const contentStr = note.content || "";
 
-    // Fast parallel collection with max 4s timeout cap
+    // Parallel collection with max 15s timeout cap
     const prefetchTask = async () => {
       const drawMatches = Array.from(contentStr.matchAll(/\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?/gi));
       if (drawMatches.length > 0) {
@@ -19560,7 +19560,7 @@ function NotePanel({
     try {
       await Promise.race([
         prefetchTask(),
-        new Promise(r => setTimeout(r, 4000))
+        new Promise(r => setTimeout(r, 15000))
       ]);
     } catch (_) {}
 

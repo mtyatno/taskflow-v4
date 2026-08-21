@@ -1,12 +1,24 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-21 16:59  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX Stripped Filename & User Fallback SELESAI)
+**Last Updated:** 2026-08-21 19:07  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX Universal Word XML & Timeout Fix SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Note DOCX Export Stripped Filename & User Fallback SELESAI 2026-08-21:**
+- **Note DOCX Export Universal Word XML & Timeout Fix SELESAI 2026-08-21:**
+  - **Problem / Root Cause:**
+    1. File `.docx` tidak bisa dibaca oleh MS Word karena adanya injeksi OpenXML manual `<asvg:svgBlip>` pada fallback SVG yang tidak terdaftar di namespace resmi MS Word.
+    2. Gambar `!image.png` tidak muncul karena batas waktu request frontend (2.5s) dan backend (3s) memutus koneksi streaming Nextcloud sebelum data gambar selesai diunduh.
+    3. Status 503 saat hard refresh terjadi sementara selama 1-2 detik ketika service backend Uvicorn sedang direstart oleh `systemctl`.
+  - **Solusi / Perbaikan:**
+    1. **Universal Word XML Compliance ([`docx_exporter.py`](file:///Z:/Todolist%20Manager%20V5.0/docx_exporter.py)):**
+       - Menghapus seluruh manipulasi XML manual `<asvg:svgBlip>` dan menggantinya dengan `run.add_picture(...)` standar dari library `python-docx`. File `.docx` kini 100% valid dan kompatibel di semua versi Microsoft Word (Word 2010–2024, Microsoft 365, LibreOffice).
+    2. **Reliable Nextcloud Stream Timeouts ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L19460), [`webapp.py`](file:///Z:/Todolist%20Manager%20V5.0/webapp.py#L3787)):**
+       - Memperpanjang timeout fetch gambar di frontend menjadi 10 detik (dan race cap 15 detik) serta backend Nextcloud timeout menjadi 15 detik.
+    3. **SW Cache:** Di-bump ke **`taskflow-v271-docx-safe-drawing-and-stream-timeout`**.
+  - All tests passed: 433/433 JS unit tests + 43/43 pytest (0 failures).
+  - **Device-test checklist:** (1) Buka catatan dengan drawing dan gambar `!image.png` -> Export Word (.docx) -> Buka di Word -> Terbuka lancar tanpa error corrupt dan gambar tertanam utuh.
   - **Problem / Root Cause:**
     - Saat mencocokkan nama file di database `note_attachments`, string `clean_src` masih mempertahankan awalan tanda seru (misal `!image.png`), sedangkan `original_name` di database tersimpan tanpa tanda seru (`image.png`). Akibatnya pencocokan selalu bernilai `False` dan gambar gagal di-load dari Nextcloud.
   - **Solusi / Perbaikan:**

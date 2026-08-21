@@ -3784,7 +3784,7 @@ def _make_image_resolver(uid: int, note_id: int = None):
             if att and att["nextcloud_path"] and not _nc_disabled:
                 try:
                     import requests as _req
-                    r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=3)
+                    r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=15)
                     if r.status_code == 200:
                         _img_cache[cache_key] = r.content
                         return r.content

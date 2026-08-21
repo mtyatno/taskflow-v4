@@ -4,6 +4,21 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-21 19:07] - Antigravity (Gemini)
+- **Task:** Eliminate MS Word document corruption error by replacing manual OpenXML `<asvg:svgBlip>` with standard `python-docx` `run.add_picture`, and extend Nextcloud streaming timeouts.
+- **Root Cause:**
+  - `_add_svg_to_doc` previously appended manual XML with `<asvg:svgBlip>` into docx parts, causing Microsoft Word to flag the document as invalid/corrupted.
+  - Aggressive 2.5s/3s timeouts were aborting image stream fetches from Nextcloud before completion.
+- **Changes:**
+  - Replaced manual XML manipulation in `_add_svg_to_doc` with standard `_add_raster_image_to_doc` (`run.add_picture`) in `docx_exporter.py`.
+  - Extended frontend image fetch timeout to 10s (race cap 15s) in `static/index.html`.
+  - Extended backend Nextcloud DAV fetch timeout to 15s in `webapp.py`.
+  - Bumped SW cache to `taskflow-v271-docx-safe-drawing-and-stream-timeout`.
+- **Files Modified:** `docx_exporter.py`, `static/index.html`, `webapp.py`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-21 16:59] - Antigravity (Gemini)
 - **Task:** Strip leading `!` and formatting symbols from image filenames before querying `note_attachments` and add user-level attachment fallback.
 - **Root Cause:**

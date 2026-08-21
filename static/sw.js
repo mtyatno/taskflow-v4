@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v270-docx-stripped-fn-and-user-fallback";
+const CACHE = "taskflow-v271-docx-safe-drawing-and-stream-timeout";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

@@ -95,93 +95,12 @@ def _svg_to_png_bytes(svg_str: str) -> Optional[bytes]:
 
 
 def _add_svg_to_doc(doc, svg_str: str, title="Drawing"):
-    """Embed an SVG drawing into a python-docx Document as high-fidelity PNG and/or native SVG."""
+    """Embed an SVG drawing into a python-docx Document as high-fidelity PNG."""
     try:
-        # 1. Rasterize to PNG first for universal Microsoft Word / LibreOffice compatibility
         png_bytes = _svg_to_png_bytes(svg_str)
-        if png_bytes:
-            return _add_raster_image_to_doc(doc, png_bytes, alt_text=f"🎨 {title}" if title else "")
-
-        # 2. Fallback to OpenXML SVG markup
-        width_in, height_in = _extract_svg_dimensions(svg_str)
-        svg_bytes = svg_str.encode('utf-8') if isinstance(svg_str, str) else svg_str
-        fallback_png_bytes = _create_fallback_png()
-
-        doc_part = doc.part
-        package = doc_part.package
-
-        # 1. Add SVG image part
-        svg_num = len([p for p in package.parts if 'image' in p.partname]) + 1
-        svg_partname = PackURI(f'/word/media/image_svg_{svg_num}.svg')
-        svg_part = Part(svg_partname, 'image/svg+xml', svg_bytes, package)
-        package.parts.append(svg_part)
-        svg_rId = doc_part.relate_to(svg_part, 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image')
-
-        # 2. Add fallback PNG image part
-        png_partname = PackURI(f'/word/media/image_png_{svg_num}.png')
-        png_part = Part(png_partname, 'image/png', fallback_png_bytes, package)
-        package.parts.append(png_part)
-        png_rId = doc_part.relate_to(png_part, 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image')
-
-        # Dimensions in EMUs (1 inch = 914400 EMUs)
-        cx = int(width_in * 914400)
-        cy = int(height_in * 914400)
-
-        p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(8)
-        p.paragraph_format.space_after = Pt(2)
-
-        drawing_xml = f'''
-        <w:drawing {nsdecls("w")}>
-          <wp:inline distT="0" distB="0" distL="0" distR="0" {nsdecls("wp")}>
-            <wp:extent cx="{cx}" cy="{cy}"/>
-            <wp:docPr id="{svg_num + 300}" name="{title}"/>
-            <a:graphic {nsdecls("a")}>
-              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
-                <pic:pic {nsdecls("pic")}>
-                  <pic:nvPicPr>
-                    <pic:cNvPr id="0" name="{title}"/>
-                    <pic:cNvPicPr/>
-                  </pic:nvPicPr>
-                  <pic:blipFill>
-                    <a:blip r:embed="{png_rId}" {nsdecls("r")}>
-                      <a:extLst>
-                        <a:ext uri="{{96DAC542-7B16-430E-8263-3401B00B12A0}}">
-                          <asvg:svgBlip r:embed="{svg_rId}" xmlns:asvg="http://schemas.microsoft.com/office/drawing/2016/SVG/main"/>
-                        </a:ext>
-                      </a:extLst>
-                    </a:blip>
-                    <a:stretch>
-                      <a:fillRect/>
-                    </a:stretch>
-                  </pic:blipFill>
-                  <pic:spPr>
-                    <a:xfrm>
-                      <a:off x="0" y="0"/>
-                      <a:ext cx="{cx}" cy="{cy}"/>
-                    </a:xfrm>
-                    <a:prstGeom prst="rect">
-                      <a:avLst/>
-                    </a:prstGeom>
-                  </pic:spPr>
-                </pic:pic>
-              </a:graphicData>
-            </a:graphic>
-          </wp:inline>
-        </w:drawing>
-        '''
-        run = p.add_run()
-        run._r.append(parse_xml(drawing_xml))
-
-        if title and title.strip():
-            p_cap = doc.add_paragraph()
-            p_cap.paragraph_format.space_before = Pt(0)
-            p_cap.paragraph_format.space_after = Pt(8)
-            r_cap = p_cap.add_run(f"🎨 {title.strip()}")
-            r_cap.font.size = Pt(9)
-            r_cap.font.color.rgb = RGBColor(100, 116, 139)
-            r_cap.italic = True
-        return p
+        if not png_bytes:
+            png_bytes = _create_fallback_png()
+        return _add_raster_image_to_doc(doc, png_bytes, alt_text=f"🎨 {title}" if title else "")
     except Exception as e:
         p_err = doc.add_paragraph()
         r_err = p_err.add_run(f"🎨 [Gambar/Canvas: {title}]")
