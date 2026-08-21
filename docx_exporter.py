@@ -298,20 +298,20 @@ def _parse_standalone_image(line: str) -> Optional[tuple[str, str]]:
     if m_link_img:
         return m_link_img.group(2).strip(), m_link_img.group(1).strip()
 
-    # 4. Standalone !image.png or \!image.png
-    m_bang_img = re.match(r'^\s*\\?!([^\s\[\]\(\)]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))\s*$', line, re.IGNORECASE)
+    # 4. Standalone !image or !image.png or \!image.png
+    m_bang_img = re.match(r'^\s*\\?!([^\s\[\]\(\)]+)\s*$', line, re.IGNORECASE)
     if m_bang_img:
         fn = m_bang_img.group(1).strip()
         return fn, fn
 
-    # 5. Standalone ![image.png] without URL
+    # 5. Standalone ![image] or ![image.png] without URL
     m_bracket_bang = re.match(r'^\s*\\?!\s*\\?\[\s*([^\]]+)\s*\\?\]\s*$', line, re.IGNORECASE)
     if m_bracket_bang:
         fn = m_bracket_bang.group(1).strip()
         return fn, fn
 
-    # 6. Standalone [image.png] without URL
-    m_bracket_img = re.match(r'^\s*\\?\[\s*([^\]]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))\s*\\?\]\s*$', line, re.IGNORECASE)
+    # 6. Standalone [image.png] or [image] without URL
+    m_bracket_img = re.match(r'^\s*\\?\[\s*([^\]]+)\s*\\?\]\s*$', line, re.IGNORECASE)
     if m_bracket_img:
         fn = m_bracket_img.group(1).strip()
         return fn, fn

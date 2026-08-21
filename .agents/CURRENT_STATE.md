@@ -1,12 +1,23 @@
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-21 16:13  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX Fast Latency & Timeout Cap SELESAI)
+**Last Updated:** 2026-08-21 16:30  
+**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX No-Extension & Name Alias Support SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Note DOCX Export Fast Latency & Timeout Cap SELESAI 2026-08-21:**
+- **Note DOCX Export No-Extension & Name Alias Support SELESAI 2026-08-21:**
+  - **Problem / Root Cause:**
+    - Regex sebelumnya mewajibkan ekstensi file (`\.(?:png|jpg|...)`) pada pola `!image.png`, sehingga penulisan seperti `!image` atau `![image]` (tanpa ekstensi eksplisit atau alias lampiran) tidak cocok dan dicetak sebagai teks mentah.
+  - **Solusi / Perbaikan:**
+    1. **Flexible Standalone Image Parser ([`docx_exporter.py`](file:///Z:/Todolist%20Manager%20V5.0/docx_exporter.py)):**
+       - Menghapus kewajiban ekstensi pada pola `!name`, `![name]`, dan `[name]` sehingga format `!image` langsung dikenali sebagai gambar.
+    2. **Comprehensive Attachment Aliases ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L19406)):**
+       - Mendaftarkan semua variasi nama lampiran ke `imagesMap`: nama asli (`image.png`), lowercase (`image.png`), tanpa ekstensi (`image`), dengan tanda seru (`!image`, `!image.png`), dan URL attachment.
+       - Menggunakan cache `panelAttachments` yang sudah ada di memori `NotePanel` untuk instan response.
+    3. **SW Cache:** Di-bump ke **`taskflow-v269-docx-image-alias-and-no-ext-support`**.
+  - All tests passed: 433/433 JS unit tests + 43/43 pytest (0 failures).
+  - **Device-test checklist:** (1) Buka catatan dengan format `!image` / `!image.png` -> Export Word (.docx) -> Gambar visual tertanam langsung di dokumen Word.
   - **Problem / Root Cause:**
     - Sebelumnya, export Word membutuhkan waktu lama (~5 menit) jika terjadi timeout jaringan saat fetching gambar/Nextcloud tanpa batas waktu atau tanpa caching di server. Selain itu, UI tidak memberikan feedback instan saat sedang menyiapkan file.
   - **Solusi / Perbaikan:**

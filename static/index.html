@@ -19510,30 +19510,41 @@ function NotePanel({
         }));
       }
 
-      if (note.id) {
-        try {
-          const attList = await api.get(`/api/scratchpad/${note.id}/attachments`);
-          if (Array.isArray(attList)) {
-            await Promise.all(attList.map(async (att) => {
-              const attUrl = `/api/scratchpad/attachments/${att.id}/view`;
-              const b64 = await urlToBase64(attUrl);
-              if (b64) {
-                imagesMap[attUrl] = b64;
-                imagesMap[`/pub/attachments/${att.id}`] = b64;
-                if (att.original_name) {
-                  imagesMap[att.original_name] = b64;
-                  imagesMap[`!${att.original_name}`] = b64;
+      try {
+        const allAtts = (panelAttachments && panelAttachments.length > 0) ? panelAttachments : (note.id ? await api.get(`/api/scratchpad/${note.id}/attachments`).catch(() => []) : []);
+        if (Array.isArray(allAtts) && allAtts.length > 0) {
+          await Promise.all(allAtts.map(async (att) => {
+            const attUrl = `/api/scratchpad/attachments/${att.id}/view`;
+            const b64 = await urlToBase64(attUrl);
+            if (b64) {
+              imagesMap[attUrl] = b64;
+              imagesMap[`/pub/attachments/${att.id}`] = b64;
+              if (att.original_name) {
+                const orig = att.original_name;
+                imagesMap[orig] = b64;
+                imagesMap[orig.toLowerCase()] = b64;
+                imagesMap[`!${orig}`] = b64;
+                imagesMap[`!${orig.toLowerCase()}`] = b64;
+                imagesMap[`![${orig}]`] = b64;
+                imagesMap[`[${orig}]`] = b64;
+                const noExt = orig.replace(/\.[^/.]+$/, "");
+                if (noExt) {
+                  imagesMap[noExt] = b64;
+                  imagesMap[noExt.toLowerCase()] = b64;
+                  imagesMap[`!${noExt}`] = b64;
+                  imagesMap[`!${noExt.toLowerCase()}`] = b64;
+                  imagesMap[`![${noExt}]`] = b64;
                 }
               }
-            }));
-          }
-        } catch (_) {}
-      }
+            }
+          }));
+        }
+      } catch (_) {}
 
-      const imgMatches = Array.from(contentStr.matchAll(/!\[([^\]]*)\]\(([^)]+)\)|<img\s+[^>]*src=["']([^"']+)["']|!?\[([^\s\]]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))\]|!([^\s\[\]\(\)]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|ico))/gi));
+      const imgMatches = Array.from(contentStr.matchAll(/!\[([^\]]*)\]\(([^)]+)\)|<img\s+[^>]*src=["']([^"']+)["']|!?\[([^\s\]]+)\]|!([^\s\[\]\(\)]+)/gi));
       if (imgMatches.length > 0) {
         await Promise.all(imgMatches.map(async (m) => {
-          const src = m[2] || m[3] || m[4] || m[5] || m[6];
+          const src = m[2] || m[3] || m[4] || m[5];
           if (src && !imagesMap[src]) {
             if (src.startsWith('data:image/')) {
               imagesMap[src] = src;

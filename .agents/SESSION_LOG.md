@@ -4,6 +4,19 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-21 16:30] - Antigravity (Gemini)
+- **Task:** Support `!image` and `![image]` without file extension and map all attachment alias permutations into `imagesMap`.
+- **Root Cause:**
+  - `_parse_standalone_image` previously required explicit file extensions (`.png`, `.jpg`, etc.) for bang image syntax, causing `!image` to be treated as plain paragraph text.
+- **Changes:**
+  - Removed strict extension requirement on `!name`, `![name]`, and `[name]` patterns in `docx_exporter.py`.
+  - Added alias permutations (with/without extension, lowercase, with bang prefix) for note attachments in `static/index.html`.
+  - Bumped SW cache to `taskflow-v269-docx-image-alias-and-no-ext-support`.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `docx_exporter.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-21 16:13] - Antigravity (Gemini)
 - **Task:** Eliminate 5-minute export latency by adding instant UI toast, 2.5s image fetch timeout, 4s global prefetch cap, and memoized backend resolver.
 - **Root Cause:**
