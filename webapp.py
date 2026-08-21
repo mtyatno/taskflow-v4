@@ -3820,13 +3820,17 @@ async def export_scratchpad_docx(note_id: int, user=Depends(get_current_user)):
     }
     drawing_res = _make_drawing_resolver(uid, note_id=note_id)
     image_res = _make_image_resolver(uid, note_id=note_id)
-    doc_io = markdown_to_docx(title, content, meta, drawing_resolver=drawing_res, image_resolver=image_res)
-    safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
-    return Response(
-        content=doc_io.getvalue(),
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}.docx"'}
-    )
+    try:
+        doc_io = markdown_to_docx(title, content, meta, drawing_resolver=drawing_res, image_resolver=image_res)
+        safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
+        return Response(
+            content=doc_io.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.docx"'}
+        )
+    except Exception as e:
+        import traceback
+        return Response(content=traceback.format_exc(), status_code=500, media_type="text/plain")
 
 
 @app.get("/api/scratchpad/{note_id}/export/md")
@@ -3909,13 +3913,18 @@ async def export_scratchpad_docx_live(req: NoteExportLiveRequest, user=Depends(g
                     return _resolve_image_bytes(v)
         return db_img_res(src, alt=alt)
 
-    doc_io = markdown_to_docx(title, content, drawing_resolver=combined_drawing_res, image_resolver=combined_image_res)
-    safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
-    return Response(
-        content=doc_io.getvalue(),
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}.docx"'}
-    )
+    try:
+        doc_io = markdown_to_docx(title, content, drawing_resolver=combined_drawing_res, image_resolver=combined_image_res)
+        safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
+        return Response(
+            content=doc_io.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.docx"'}
+        )
+    except Exception as e:
+        import traceback
+        err_msg = traceback.format_exc()
+        return Response(content=err_msg, status_code=200, media_type="text/plain")
 
 
 @app.post("/api/scratchpad")
