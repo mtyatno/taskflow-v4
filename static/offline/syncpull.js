@@ -295,6 +295,7 @@
         cid: cid, server_id: s.id, title: s.title != null ? s.title : "", content: s.content != null ? s.content : "",
         linked_to_cids: JSON.stringify(toCids), linked_task_cids: JSON.stringify(taskCids),
         pinned: !!s.pinned,
+        meta_json: s.meta_json != null ? s.meta_json : '{}',
         list_id: s.list_id != null ? s.list_id : null,
         user_id: s.user_id != null ? s.user_id : null,
         last_edited_by: s.last_edited_by != null ? s.last_edited_by : null,

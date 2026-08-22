@@ -91,6 +91,7 @@
         linked_task_cids: JSON.stringify(taskCids),
         linked_to_cids: JSON.stringify(toCids),
         pinned: false,
+        meta_json: input.meta_json != null ? input.meta_json : '{}',
         list_id: input.list_id != null ? input.list_id : null,
         user_id: curUid(),
         last_edited_by: curUid(),
@@ -113,6 +114,7 @@
       return Promise.all([resolveLinkedTo(content), resolveLinkedTasks(taskIds)]).then(([toCids, taskCids]) => {
         const next = Object.assign({}, rec, {
           title: patch.title != null ? patch.title : rec.title,
+          meta_json: patch.meta_json !== undefined ? patch.meta_json : (rec.meta_json || '{}'),
           content: content,
           linked_to_cids: JSON.stringify(toCids),
           linked_task_cids: JSON.stringify(taskCids),

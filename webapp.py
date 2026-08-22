@@ -835,7 +835,7 @@ class ScratchpadUpdate(BaseModel):
     linked_task_id: Optional[int] = None
     linked_task_ids: list[int] = []
     list_id: Optional[int] = None
-    meta_json: str = '{}'
+    meta_json: Optional[str] = None
 
 class ExtAuthConfirmReq(BaseModel):
     state: str
@@ -4124,7 +4124,7 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
         conn.execute(
             """UPDATE scratchpad_notes
                SET title=?, content=?, tags=?, linked_task_id=?, linked_task_ids=?,
-                   linked_to=?, list_id=?, last_edited_by=?, updated_at=?, meta_json=?
+                   linked_to=?, list_id=?, last_edited_by=?, updated_at=?, meta_json=COALESCE(?, meta_json)
                WHERE id=?""",
             (req.title, req.content, "[]",
              task_ids[0] if task_ids else None, json.dumps(task_ids),
