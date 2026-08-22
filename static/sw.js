@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v282-paper-dropdown-dark-fix";
+const CACHE = "taskflow-v283-milkdown-inline-draw-card";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
@@ -21,6 +21,7 @@ const STATIC = [
   "/static/offline/listsync.js",
   "/static/review/digest.js",
   "/static/offline/voicedictate.js",
+  "/static/offline/drawdirective.js",
   "/static/offline/habitlogic.js",
   "/static/offline/habitrepo.js",
   "/static/offline/habitquery.js",
