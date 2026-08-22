@@ -284,7 +284,12 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
-## ✅ FIX Continuous Paper Mode — fase 4: teks dark theme (2026-08-22, Claude — belum di-commit)
+## ✅ FIX Continuous Paper Mode — fase 5: styling toolbar paper (2026-08-22, Claude — belum di-commit)
+- Fase 4 (4acad99) LIVE: teks paper mode dark theme fix via selector .ProseMirror.
+- Request user: tombol 📄 Kertas + select ukuran/orientasi diseragamkan dengan tombol toolbar lain (Heading/Template).
+- Fix (belum di-commit): buang class icon-btn + inline style; tombol = .note-toolbar button standar + class `paper-btn-active` (tint accent 14% + border/teks accent, pola badge aktif); select = class `paper-select` (border var(--border), radius 6, tinggi 28px, teks var(--text-primary), hover accent) — CSS di head style block. SW → taskflow-v281-paper-toolbar-style.
+- Verifikasi: 5/5 inline OK, JS 433/433. PENDING commit+push → deploy → user-verify visual.
+
 - Fase 3 (9976239) LIVE: tombol OK kedua tema; tapi teks paper mode di dark theme MASIH abu-abu.
 - ROOT CAUSE: app.css punya `[data-theme="dark"] .milkdown-editor .ProseMirror { color: var(--text-primary) }` — set warna LANGSUNG di .ProseMirror, mengalahkan warna warisan dari override .milkdown-editor (cascade: direct > inherited, walau parent !important).
 - Fix (belum di-commit): tambah .ProseMirror di rule color #1e293b + th bg #f1f5f9 + tasklink-node-fallback terang. SW → taskflow-v280-paper-dark-text.

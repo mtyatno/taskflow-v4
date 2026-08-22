@@ -682,3 +682,6 @@ Chronological history of work performed by AI agents in this workspace.
 
 ## 2026-08-22: Paper mode fase 4 — teks dark theme (Claude) — belum di-commit
 - Root cause: [data-theme=dark] .ProseMirror color langsung mengalahkan override warisan. Fix selector + th + tasklink-fallback. SW v280. 433/433.
+
+## 2026-08-22: Paper mode fase 5 — toolbar styling seragam (Claude) — belum di-commit
+- Tombol kertas + select jadi .note-toolbar style standar (paper-btn-active / paper-select). SW v281. 433/433.
