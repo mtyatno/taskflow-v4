@@ -663,3 +663,13 @@ Chronological history of work performed by AI agents in this workspace.
 
 - Successfully implemented Continuous Paper Mode for Note Editor (backend schemas, offline sync logic, UI toolbars, and dynamic CSS styling).
 - Executed all tasks inline sequentially without human intervention as requested.
+
+
+## 2026-08-22: Paper Mode review Q&A (Claude, sesi tanya-jawab)
+- User bertanya soal Continuous Paper Mode (dikerjakan sesi Gemini Pro 3.1, 08-22 pagi).
+- Review cepat 5 commit d36fc40..252c72d: implementasi sesuai spec (meta_json + toolbar + CSS paper).
+- Temuan: (1) SW cache TIDAK di-bump (masih taskflow-v276) padahal index.html berubah; (2) setPaperConfig tidak set isDirtyRef -> setting kertas bisa hilang kalau tak ada save lain; (3) .agents/* belum di-update sesi Gemini, deploy VPS belum terkonfirmasi.
+
+## 2026-08-22: FIX Paper Mode follow-up (Claude) — belum di-commit
+- SW bump ke taskflow-v277-paper-mode; paperConfig masuk deps autosave (index.html:17598); buang meta_json dari payload task/mindmap di syncpush.js (regresi 7d35d4b).
+- Verifikasi: node --test 433/433, pytest 43/43. PENDING commit/push + deploy VPS + verifikasi live.
