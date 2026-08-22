@@ -4,6 +4,23 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-22 21:10] - Antigravity (Gemini)
+- **Task:** Implement Milkdown Inline Interactive Drawing Card (`::draw[...]`) inside Note Editor using Subagent-Driven Development.
+- **Problem:**
+  - In the note editor, `::draw[...]` directives previously appeared only as raw markdown text, while the visual frame with its rendered SVG preview only appeared in the read-only note viewer.
+- **Changes:**
+  - Created `static/offline/drawdirective.js` with `parseDirective`, `formatDirective`, and `remarkDrawPlugin` for MDAST AST transformation.
+  - Added unit test suite `tests/offline/drawdirective.test.js` (9/9 pass).
+  - Defined `drawingNode` (Block Atom Node) and `drawingRemark` in `static/index.html` and registered into Milkdown's `.use(...)` chain.
+  - Implemented live SVG hydration from IndexedDB `window.TF.drawingrepo` and server fallback.
+  - Implemented inline S/M/L size switcher via ProseMirror transactions, direct ✏️ Edit modal canvas triggers, and live SVG preview sync on save.
+  - Added CSS styling in `static/app.css` for `.editor-draw-card`.
+  - Bumped SW cache to `taskflow-v283-milkdown-inline-draw-card` in `static/sw.js`.
+- **Files Modified:** `static/offline/drawdirective.js`, `tests/offline/drawdirective.test.js`, `static/index.html`, `static/app.css`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (442/442 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-22 10:17] - Antigravity (Gemini)
 - **Task:** Fix dark mode paper selector dropdown contrast bug using systematic-debugging.
 - **Root Cause:**

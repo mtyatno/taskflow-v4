@@ -292,6 +292,16 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
+## ✅ FEAT Milkdown Inline Interactive Drawing Card (2026-08-22, Antigravity — SELESAI)
+- **Ringkasan**: Menjadikan sintaks gambar/kanvas `::draw[id]{title="..." size="..."}` sebagai kartu visual interaktif (`.note-draw-card`) langsung di dalam editor Milkdown WYSIWYG.
+- **Komponen & Arsitektur**:
+  1. `static/offline/drawdirective.js`: Modul parsing dan serialisasi MDAST AST (`remarkDrawPlugin`) dan atribut directive.
+  2. `static/index.html`: Mendaftarkan `drawingNode` (Block Atom Node) & `drawingRemark` ke Milkdown `.use(...)` chain.
+  3. Hidrasi SVG & Interaksi Editor: Preview SVG otomatis ter-hydrate dari IndexedDB `TF.drawingrepo` / API, tombol ukuran **S** / **M** / **L** langsung mengubah lebar via ProseMirror transaction, tombol **✏️ Edit** & klik preview memicu modal kanvas `editDrawingModal` dan auto-sync SVG seketika saat disimpan.
+  4. Kompatibilitas Roundtrip: Diserialisasi kembali menjadi string Markdown `::draw[...]` yang 100% kompatibel dengan database dan export Word (.docx)/PDF/Markdown.
+- **SW Cache**: Di-bump ke `taskflow-v283-milkdown-inline-draw-card`.
+- **Verifikasi**: JS 442/442 unit tests pass (0 fail), Pytest 43/43 pass (0 fail), `node --check` pass.
+
 ## ✅ FIX Paper Selector Dropdown Dark Mode Contrast — fase 6 (2026-08-22, Antigravity — SELESAI)
 - ROOT CAUSE: `.note-toolbar select.paper-select` menggunakan `background: none` dan `color: var(--text-primary)`. Di dark mode, `--text-primary` bernilai `#e5e5e5` (abu-abu terang), dan dropdown options `<option>` mewarisi warna teks tersebut namun merender background default putih bawaan browser karena tidak memiliki styling eksplisit dan `color-scheme: dark`.
 - SOLUSI: Menambahkan styling `.note-toolbar select.paper-select option { background: var(--bg-primary); color: var(--text-primary); }` dan `[data-theme="dark"] .note-toolbar select.paper-select { color-scheme: dark; background: #262626; }` di `static/index.html`.
