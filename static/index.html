@@ -16853,8 +16853,6 @@ function createDrawingPlugin(MB) {
     group: 'inline',
     inline: true,
     atom: true,
-    selectable: true,
-    draggable: true,
     attrs: {
       id: { default: '' },
       title: { default: 'Gambar' },
@@ -16866,18 +16864,18 @@ function createDrawingPlugin(MB) {
       const { id, title, size, width, height } = node.attrs;
       const widthVal = width || (size === 'S' ? '50%' : size === 'M' ? '75%' : '100%');
       const heightVal = height || (size === 'S' ? '200px' : size === 'M' ? '300px' : '400px');
-      const cardWidthStyle = widthVal && widthVal !== '100%' ? `width:${widthVal};max-width:${widthVal};margin:10px auto;` : `width:100%;margin:10px 0;`;
+      const cardWidthStyle = widthVal && widthVal !== '100%' ? `display:block;width:${widthVal};max-width:${widthVal};margin:10px auto;` : `display:block;width:100%;margin:10px 0;`;
 
-      return ['div', {
+      return ['span', {
         class: 'note-draw-card editor-draw-card',
         'data-drawing-id': id,
         'data-size': size,
         style: cardWidthStyle
       },
-        ['div', { class: 'note-draw-header' },
+        ['span', { class: 'note-draw-header', style: 'display:flex;' },
           ['span', null, `🎨 ${title || 'Gambar'}`],
-          ['div', { style: 'display:flex;gap:6px;align-items:center;' },
-            ['div', { class: 'note-draw-size-pills' },
+          ['span', { style: 'display:flex;gap:6px;align-items:center;' },
+            ['span', { class: 'note-draw-size-pills', style: 'display:inline-flex;' },
               ['button', { type: 'button', class: `note-draw-size-btn ${size === 'S' ? 'active' : ''}`, 'data-size-btn': 'S' }, 'S'],
               ['button', { type: 'button', class: `note-draw-size-btn ${size === 'M' ? 'active' : ''}`, 'data-size-btn': 'M' }, 'M'],
               ['button', { type: 'button', class: `note-draw-size-btn ${size === 'L' || size === 'FULL' ? 'active' : ''}`, 'data-size-btn': 'L' }, 'L']
@@ -16886,18 +16884,18 @@ function createDrawingPlugin(MB) {
             ['button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-action': 'open', style: 'font-size:11px;padding:2px 8px;cursor:pointer;' }, '↗️ Buka']
           ]
         ],
-        ['div', {
+        ['span', {
           class: 'note-draw-preview-container',
           'data-drawing-preview': id,
-          style: `max-height:${heightVal};resize:vertical;overflow:auto;cursor:pointer;`,
+          style: `display:flex;max-height:${heightVal};resize:vertical;overflow:auto;cursor:pointer;`,
           title: 'Klik untuk membuka / mengedit gambar'
         },
-          ['div', { class: 'drawing-preview-placeholder', style: 'color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;' }, '🎨 Memuat gambar...']
+          ['span', { class: 'drawing-preview-placeholder', style: 'color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;' }, '🎨 Memuat gambar...']
         ]
       ];
     },
     parseDOM: [{
-      tag: 'div.note-draw-card[data-drawing-id]',
+      tag: '[data-drawing-id]',
       getAttrs: dom => ({
         id: dom.getAttribute('data-drawing-id') || '',
         size: dom.getAttribute('data-size') || 'L',

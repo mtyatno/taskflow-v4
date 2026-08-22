@@ -147,4 +147,127 @@ describe('Drawing Directive Module', () => {
     assert.equal(tree.children[0].children.length, 1);
     assert.equal(tree.children[0].children[0].value, 'Just ordinary markdown text without draw directive');
   });
+
+  it('remark transformer handles empty tree and nodes without text/children gracefully', () => {
+    const emptyTree = { type: 'root', children: [] };
+    const transformer = remarkDrawPlugin();
+    transformer(emptyTree);
+    assert.deepEqual(emptyTree.children, []);
+
+    const nonTextTree = {
+      type: 'root',
+      children: [
+        { type: 'thematicBreak' },
+        { type: 'code', lang: 'javascript', value: 'const x = 1;' }
+      ]
+    };
+    transformer(nonTextTree);
+    assert.equal(nonTextTree.children.length, 2);
+    assert.equal(nonTextTree.children[0].type, 'thematicBreak');
+    assert.equal(nonTextTree.children[1].type, 'code');
+  });
+
+  it('remark transformer handles mixed markdown structure (headings, lists, bold, blockquotes, and draw directives)', () => {
+    const tree = {
+      type: 'root',
+      children: [
+        {
+          type: 'heading',
+          depth: 2,
+          children: [{ type: 'text', value: 'Dokumen Proyek' }]
+        },
+        {
+          type: 'paragraph',
+          children: [
+            { type: 'text', value: 'Pengantar dokumen dengan diagram berikut:' },
+            { type: 'break' }
+          ]
+        },
+        {
+          type: 'paragraph',
+          children: [
+            { type: 'text', value: '::draw[arch-001]{title="Arsitektur Utama" size="M" width="75%"}' }
+          ]
+        },
+        {
+          type: 'list',
+          ordered: false,
+          children: [
+            {
+              type: 'listItem',
+              children: [
+                {
+                  type: 'paragraph',
+                  children: [
+                    { type: 'text', value: 'Item 1 dengan kanvas: ' },
+                    { type: 'text', value: '::draw[item-002]{title="Sub Diagram" size="S" width="50%"}' }
+                  ]
+                }
+              ]
+            },
+            {
+              type: 'listItem',
+              children: [
+                {
+                  type: 'paragraph',
+                  children: [
+                    { type: 'text', value: 'Item 2 teks biasa' }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          type: 'blockquote',
+          children: [
+            {
+              type: 'paragraph',
+              children: [
+                { type: 'text', value: 'Catatan penting: ::draw[note-003]{title="Flowchart" size="L" width="100%"} - harap ditinjau.' }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    const transformer = remarkDrawPlugin();
+    transformer(tree);
+
+    // Heading untouched
+    assert.equal(tree.children[0].type, 'heading');
+    assert.equal(tree.children[0].children[0].value, 'Dokumen Proyek');
+
+    // Standalone draw directive paragraph
+    const drawP = tree.children[2];
+    assert.equal(drawP.children.length, 1);
+    assert.equal(drawP.children[0].type, 'drawingDirective');
+    assert.equal(drawP.children[0].id, 'arch-001');
+    assert.equal(drawP.children[0].title, 'Arsitektur Utama');
+    assert.equal(drawP.children[0].size, 'M');
+    assert.equal(drawP.children[0].width, '75%');
+    assert.equal(drawP.children[0].height, '300px');
+
+    // List item containing draw directive
+    const listItemP = tree.children[3].children[0].children[0];
+    assert.equal(listItemP.children.length, 2);
+    assert.equal(listItemP.children[0].value, 'Item 1 dengan kanvas: ');
+    assert.equal(listItemP.children[1].type, 'drawingDirective');
+    assert.equal(listItemP.children[1].id, 'item-002');
+    assert.equal(listItemP.children[1].title, 'Sub Diagram');
+    assert.equal(listItemP.children[1].size, 'S');
+    assert.equal(listItemP.children[1].width, '50%');
+    assert.equal(listItemP.children[1].height, '200px');
+
+    // Blockquote containing draw directive with prefix and suffix text
+    const bqP = tree.children[4].children[0];
+    assert.equal(bqP.children.length, 3);
+    assert.equal(bqP.children[0].value, 'Catatan penting: ');
+    assert.equal(bqP.children[1].type, 'drawingDirective');
+    assert.equal(bqP.children[1].id, 'note-003');
+    assert.equal(bqP.children[1].title, 'Flowchart');
+    assert.equal(bqP.children[1].size, 'L');
+    assert.equal(bqP.children[2].value, ' - harap ditinjau.');
+  });
 });

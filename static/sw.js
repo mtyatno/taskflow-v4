@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v284-milkdown-inline-draw-fix";
+const CACHE = "taskflow-v285-editor-draw-card-dom-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

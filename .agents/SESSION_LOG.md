@@ -4,6 +4,20 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-22 21:55] - Antigravity (Gemini)
+- **Task:** Fix Milkdown Editor Blank / Shrinking DOM Fix (`drawingNode` `toDOM` span migration).
+- **Root Cause:**
+  - `drawingNode` returned `<div>` elements inside an `inline: true` node within a ProseMirror paragraph `<p>`. In HTML5, `<p>` cannot contain `<div>`, causing the browser to split the paragraph DOM and crash ProseMirror's DOM reconciliation on mount.
+- **Changes:**
+  - `static/index.html`: Replaced all `div` tags in `drawingNode.toDOM` with `span` tags with `display: block` / `display: flex`; removed `selectable: true, draggable: true`; updated `parseDOM` tag selector to `'[data-drawing-id]'`.
+  - `static/app.css`: Added explicit `display: block` to `.note-draw-card` and `.editor-draw-card`.
+  - `tests/offline/drawdirective.test.js`: Added comprehensive unit tests for mixed markdown AST transformations (headings, lists, blockquotes, code blocks) (13/13 pass).
+  - `static/sw.js`: Bumped SW cache to `taskflow-v285-editor-draw-card-dom-fix`.
+- **Files Modified:** `static/index.html`, `static/app.css`, `tests/offline/drawdirective.test.js`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (446/446 JS tests pass, 43/43 pytest pass, 5/5 inline scripts OK)
+
+---
+
 ## [2026-08-22 21:40] - Antigravity (Gemini)
 - **Task:** Fix Milkdown Inline Drawing Card Schema & Preview Hydration Bug using systematic-debugging and Subagent-Driven Development.
 - **Root Causes:**

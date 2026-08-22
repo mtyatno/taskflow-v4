@@ -292,6 +292,16 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
+## ✅ FIX Milkdown Editor Blank / Shrinking DOM Fix (2026-08-22, Antigravity — SELESAI)
+- **Ringkasan**: Memperbaiki bug editor blank / 0 height saat membuka catatan dengan mengganti tag `div` pada `toDOM` `drawingNode` menjadi `span` dengan styling display yang sesuai, menghapus `selectable/draggable`, serta memperbarui selector `parseDOM`.
+- **Root Cause & Fixes**:
+  1. *DOM Reconciliation Crash*: `drawingNode` merupakan node `inline: true` di dalam paragraph `<p>`. Namun `toDOM` menghasilkan tag `<div>` yang tidak valid di dalam `<p>` HTML5. Browser memecah paragraph dan merusak mapping DOM ProseMirror saat reconciliation, menyebabkan editor crash dan render blank/ciut.
+  2. *Valid Inline Container*: Mengganti seluruh `div` di `drawingNode.toDOM` menjadi `span` dengan inline style `display: block` pada kartu dan `display: flex` pada header & preview.
+  3. *Clean Node Spec*: Menghapus `selectable: true, draggable: true` dari `drawingNode` (selaras dengan `wikilinkNode` & `tasklinkNode`) dan memperbarui `parseDOM` tag ke `'[data-drawing-id]'`.
+  4. *CSS Enforcement*: Memastikan `.note-draw-card` dan `.editor-draw-card` memiliki `display: block; box-sizing: border-box;`.
+- **SW Cache**: Di-bump ke `taskflow-v285-editor-draw-card-dom-fix`.
+- **Verifikasi**: JS 446/446 unit tests pass (0 fail), Pytest 43/43 pass (0 fail), 5/5 inline scripts parse cleanly.
+
 ## ✅ FIX & FEAT Milkdown Inline Interactive Drawing Card (2026-08-22, Antigravity — SELESAI)
 - **Ringkasan**: Menjadikan sintaks gambar/kanvas `::draw[id]{title="..." size="..."}` sebagai kartu visual interaktif (`.note-draw-card`) langsung di dalam editor Milkdown WYSIWYG & memperbaiki hidrasi preview di viewer.
 - **Root Cause & Fixes**:

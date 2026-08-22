@@ -1729,6 +1729,7 @@
 
 /* Note Inline Draw Card Embed */
 .note-draw-card {
+  display: block;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-card);
@@ -1739,6 +1740,7 @@
   box-sizing: border-box;
 }
 .editor-draw-card {
+  display: block;
   user-select: none;
 }
 .editor-draw-card .note-draw-header {
