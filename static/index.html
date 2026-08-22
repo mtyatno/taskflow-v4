@@ -56,20 +56,20 @@
 .paper-mode-active {
     background-color: #e5e7eb !important;
     padding: 2rem 0 !important;
-    overflow-y: auto !important;
-    display: flex !important;
-    justify-content: center !important;
+    overflow: auto !important;
+    display: block !important;
 }
-.paper-mode-active .milkdown-editor-container {
+.paper-mode-active .paper-inner-wrap .milkdown-editor {
     background-color: white !important;
     box-shadow: 0 4px 10px rgba(0,0,0,0.15) !important;
     margin: 0 auto !important;
     width: var(--paper-width, 210mm) !important;
     min-height: var(--paper-height, 297mm) !important;
     padding: 20mm !important;
+    box-sizing: border-box !important;
     transition: width 0.3s ease, min-height 0.3s ease !important;
 }
-.paper-mode-active .milkdown-editor-container .ProseMirror {
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror {
     padding: 0 !important;
     min-height: calc(var(--paper-height, 297mm) - 40mm) !important;
 }
@@ -17151,6 +17151,89 @@ function DrawingInsertModal({
   )));
 }
 
+// ── Paper Mode: page-break guide overlay ──────────────────────────
+// Mengukur alur konten nyata ProseMirror lalu menggambar garis putus
+// + label "Halaman N" di tiap batas halaman (overlay, tidak menyentuh dokumen).
+function PaperPageGuides({ rootRef, paperConfig }) {
+  const [guides, setGuides] = useState([]);
+  const lastSigRef = useRef("");
+  useEffect(() => {
+    const MM_TO_PX = 96 / 25.4;
+    const heightMm = paperConfig.orientation === 'landscape'
+      ? (paperConfig.size === 'A4' ? 210 : paperConfig.size === 'A3' ? 297 : 215.9)
+      : (paperConfig.size === 'A4' ? 297 : paperConfig.size === 'A3' ? 420 : 279.4);
+    const padPx = 20 * MM_TO_PX;
+    const capacityPx = (heightMm - 40) * MM_TO_PX;
+    const compute = () => {
+      const root = rootRef.current;
+      if (!root) return;
+      const pm = root.querySelector('.ProseMirror');
+      if (!pm) { if (lastSigRef.current !== "[]") { lastSigRef.current = "[]"; setGuides([]); } return; }
+      const pmRect = pm.getBoundingClientRect();
+      if (!pmRect.height) { if (lastSigRef.current !== "[]") { lastSigRef.current = "[]"; setGuides([]); } return; }
+      const lines = [];
+      let prevBottom = 0;
+      for (const b of pm.children) {
+        if (b.nodeType !== 1) continue;
+        const r = b.getBoundingClientRect();
+        const top = r.top - pmRect.top;
+        const bottom = r.bottom - pmRect.top;
+        if (bottom <= 0) continue;
+        const solid = b.tagName === 'IMG' || b.tagName === 'TABLE' || b.tagName === 'IFRAME' || b.tagName === 'PRE' ||
+          (b.querySelector && b.querySelector('img, iframe, table, pre, .draw-embed'));
+        for (let k = 1; ; k++) {
+          const lineY = k * capacityPx;
+          if (lineY >= bottom) break;
+          if (lineY < top) {
+            // batas jatuh di margin/jarak antar blok — pasang di posisi grid
+            if (lineY >= prevBottom) {
+              lines.push({ y: padPx + lineY, page: k + 1 });
+            }
+            continue;
+          }
+          // batas memotong blok ini; kalau blok berisi media solid, geser ke atas blok
+          const y = solid ? top : lineY;
+          if (lines.length && lines[lines.length - 1].y === padPx + y) continue;
+          lines.push({ y: padPx + y, page: k + 1 });
+        }
+        prevBottom = bottom;
+      }
+      // guard: hindari render-loop dari MutationObserver (hanya setState saat berubah)
+      const sig = JSON.stringify(lines);
+      if (sig !== lastSigRef.current) {
+        lastSigRef.current = sig;
+        setGuides(lines);
+      }
+    };
+    compute();
+    const root = rootRef.current;
+    if (!root) return;
+    let t = null;
+    const debounced = () => { clearTimeout(t); t = setTimeout(compute, 150); };
+    const mo = new MutationObserver(debounced);
+    mo.observe(root, { childList: true, subtree: true, characterData: true, attributes: true });
+    const ro = new ResizeObserver(debounced);
+    ro.observe(root);
+    window.addEventListener('resize', debounced);
+    return () => { clearTimeout(t); mo.disconnect(); ro.disconnect(); window.removeEventListener('resize', debounced); };
+  }, [rootRef, paperConfig]);
+  if (!guides.length) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "paper-page-guides",
+    style: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, pointerEvents: "none", zIndex: 3 }
+  }, guides.map((g, i) => /*#__PURE__*/React.createElement("div", {
+    key: g.page + "_" + Math.round(g.y),
+    style: { position: "absolute", top: g.y, left: 0, right: 0, borderTop: "2px dashed #94a3b8", opacity: 0.9 }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      position: "absolute", top: -11, left: "50%", transform: "translateX(-50%)",
+      background: "#fff", color: "#64748b", fontSize: 11, fontWeight: 600,
+      padding: "1px 10px", borderRadius: 10, border: "1px solid #cbd5e1",
+      whiteSpace: "nowrap"
+    }
+  }, "Halaman ", g.page))));
+}
+
 function NoteModal({
   note,
   tasks,
@@ -17207,6 +17290,7 @@ function NoteModal({
     }
   };
   const [paperConfig, setPaperConfig] = useState(initPaperConfig);
+  const paperWrapRef = React.useRef(null);
 
   useEffect(() => {
     const handler = e => {
@@ -18381,6 +18465,15 @@ function NoteModal({
                           (paperConfig.size === 'A4' ? '297mm' : paperConfig.size === 'A3' ? '420mm' : '279.4mm')
       } : {})
     }
+  }, /*#__PURE__*/React.createElement("div", {
+    ref: paperWrapRef,
+    className: "paper-inner-wrap",
+    style: paperConfig?.enabled ? {
+      position: "relative",
+      width: "var(--paper-width, 210mm)",
+      margin: "0 auto",
+      flexShrink: 0
+    } : { position: "relative" }
   }, /*#__PURE__*/React.createElement(MilkdownEditor, {
     value: content,
     onChange: handleEditorChange,
@@ -18414,7 +18507,10 @@ function NoteModal({
     onTasklinkClick: handleTasklinkClick,
     onImagePaste: handleImagePaste,
     onInsertDrawing: handleOpenInsertDrawing
-  }), noteAiDropdown && /*#__PURE__*/React.createElement("div", {
+  }), paperConfig?.enabled && /*#__PURE__*/React.createElement(PaperPageGuides, {
+    rootRef: paperWrapRef,
+    paperConfig: paperConfig
+  })), noteAiDropdown && /*#__PURE__*/React.createElement("div", {
     ref: noteAiDropdownRef,
     className: "wiki-autocomplete",
     style: { position: "fixed", top: noteAiDropdown.top, left: noteAiDropdown.left, zIndex: 1080, minWidth: 280, padding: 6 }
@@ -19721,29 +19817,6 @@ function NotePanel({
     try {
       const htmlContent = renderMarkdown(note.content || "", titleStrings, allNotes, tasks);
       const wordHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:Segoe UI,sans-serif;line-height:1.6;color:#1e293b;}h1{font-size:22pt;color:#0f172a;}h2{font-size:16pt;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #cbd5e1;padding:8px;}</style>
-<style>
-.paper-mode-active {
-    background-color: #e5e7eb !important;
-    padding: 2rem 0 !important;
-    overflow-y: auto !important;
-    display: flex !important;
-    justify-content: center !important;
-}
-.paper-mode-active .milkdown-editor-container {
-    background-color: white !important;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.15) !important;
-    margin: 0 auto !important;
-    width: var(--paper-width, 210mm) !important;
-    min-height: var(--paper-height, 297mm) !important;
-    padding: 20mm !important;
-    transition: width 0.3s ease, min-height 0.3s ease !important;
-}
-.paper-mode-active .milkdown-editor-container .ProseMirror {
-    padding: 0 !important;
-    min-height: calc(var(--paper-height, 297mm) - 40mm) !important;
-}
-</style>
-
 </head><body><h1>${title}</h1>${htmlContent}</body></html>`;
       const blob = new Blob(['\ufeff', wordHtml], { type: 'application/msword;charset=utf-8' });
       const url = URL.createObjectURL(blob);

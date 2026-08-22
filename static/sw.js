@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v277-paper-mode";
+const CACHE = "taskflow-v278-paper-guides";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
