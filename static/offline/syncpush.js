@@ -32,7 +32,6 @@
       gtd_status: record.gtd_status || "inbox",
       waiting_for: record.waiting_for != null ? record.waiting_for : "",
       list_id: record.list_id != null ? record.list_id : null,
-      meta_json: record.meta_json != null ? record.meta_json : '{}',
       assigned_to: record.assigned_to != null ? record.assigned_to : null,
       parent_id: parentServerId != null ? parentServerId : null,
       recurrence_type: record.recurrence_type != null ? record.recurrence_type : null,
@@ -101,7 +100,6 @@
       title: record.title != null ? record.title : "Untitled",
       data_json: record.data_json != null ? record.data_json : MM_DEFAULT_DATA,
       list_id: record.list_id != null ? record.list_id : null,
-      meta_json: record.meta_json != null ? record.meta_json : '{}',
     };
   }
   function mindmapToUpdatePayload(record) {

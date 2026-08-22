@@ -17595,7 +17595,7 @@ function NoteModal({
       }
     }, 2500);
     return () => clearTimeout(autosaveTimerRef.current);
-  }, [title, content, tags, linkedTaskIds]);
+  }, [title, content, tags, linkedTaskIds, paperConfig]);
 
   // Polling: setiap 5 detik untuk shared notes saja
   useEffect(() => {
