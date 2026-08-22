@@ -116,6 +116,30 @@
     border-color: #cbd5e1 !important;
     color: #475569 !important;
 }
+/* Toolbar paper controls — seragam dengan .note-toolbar button */
+.note-toolbar button.paper-btn-active {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.note-toolbar select.paper-select {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    height: 28px;
+    padding: 0 4px;
+    margin-left: 4px;
+    font-family: inherit;
+    transition: all 0.12s;
+}
+.note-toolbar select.paper-select:hover {
+    background: var(--bg-primary);
+    border-color: var(--accent);
+}
 </style>
 
 </head>
@@ -15788,21 +15812,14 @@ onPaperConfigChange
     // --- PAPER MODE BUTTONS ---
     onPaperConfigChange && React.createElement("div", { style: { display: 'inline-flex', alignItems: 'center', marginLeft: 8, paddingLeft: 8, borderLeft: '1px solid var(--border)' } },
       React.createElement("button", {
-        className: "icon-btn " + (paperConfig?.enabled ? "active" : ""),
-        style: {
-          background: paperConfig?.enabled ? 'var(--accent)' : 'transparent',
-          color: paperConfig?.enabled ? '#1d2400' : 'var(--text-primary)',
-          padding: '2px 6px', fontSize: 13, borderRadius: 4,
-          border: paperConfig?.enabled ? 'none' : '1px solid var(--border)',
-          cursor: 'pointer', fontWeight: 600
-        },
+        className: paperConfig?.enabled ? "paper-btn-active" : "",
         onPointerDown: (e) => { e.preventDefault(); onPaperConfigChange(p => ({ ...p, enabled: !p.enabled })); },
         title: "Mode Kertas"
       }, "📄 Kertas"),
       paperConfig?.enabled && React.createElement("select", {
+        className: "paper-select",
         value: paperConfig.size,
-        onChange: e => onPaperConfigChange(p => ({ ...p, size: e.target.value })),
-        style: { marginLeft: 4, padding: '1px 4px', fontSize: 12, borderRadius: 3, border: '1px solid var(--border)', background: 'white', color: '#0f172a' }
+        onChange: e => onPaperConfigChange(p => ({ ...p, size: e.target.value }))
       },
         React.createElement("option", { value: "A4" }, "A4"),
         React.createElement("option", { value: "Letter" }, "Letter"),
@@ -15810,9 +15827,9 @@ onPaperConfigChange
         React.createElement("option", { value: "Legal" }, "Legal")
       ),
       paperConfig?.enabled && React.createElement("select", {
+        className: "paper-select",
         value: paperConfig.orientation,
-        onChange: e => onPaperConfigChange(p => ({ ...p, orientation: e.target.value })),
-        style: { marginLeft: 4, padding: '1px 4px', fontSize: 12, borderRadius: 3, border: '1px solid var(--border)', background: 'white', color: '#0f172a' }
+        onChange: e => onPaperConfigChange(p => ({ ...p, orientation: e.target.value }))
       },
         React.createElement("option", { value: "portrait" }, "Portrait"),
         React.createElement("option", { value: "landscape" }, "Landscape")
