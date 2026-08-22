@@ -673,3 +673,6 @@ Chronological history of work performed by AI agents in this workspace.
 ## 2026-08-22: FIX Paper Mode follow-up (Claude) — belum di-commit
 - SW bump ke taskflow-v277-paper-mode; paperConfig masuk deps autosave (index.html:17598); buang meta_json dari payload task/mindmap di syncpush.js (regresi 7d35d4b).
 - Verifikasi: node --test 433/433, pytest 43/43. PENDING commit/push + deploy VPS + verifikasi live.
+
+## 2026-08-22: Paper mode fase 2 — page guides (Claude) — belum di-commit
+- Root cause design: selector CSS .milkdown-editor-container tidak ada di DOM → kertas tak pernah tampil; fixed + PaperPageGuides overlay (garis + label Halaman N) + SW v278. 433/433 + 43/43 hijau, simulasi algoritma OK.

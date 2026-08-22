@@ -284,7 +284,11 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
-## ✅ FIX Continuous Paper Mode (2026-08-22, Claude — belum di-commit)
+## ✅ FIX Continuous Paper Mode — fase 2: page-break guides (2026-08-22, Claude — belum di-commit)
+- Fase 1: SW bump v277 + autosave paperConfig + buang meta_json task/mindmap (sudah di-commit 7097bf9).
+- Fase 2 (belum di-commit): (1) FIX root cause design: CSS paper menarget `.milkdown-editor-container` yang TIDAK ADA di DOM (editor = `.milkdown-editor`) → kertas tak pernah tampil; ganti selector + box-sizing:border-box; (2) komponen baru `PaperPageGuides` di index.html — overlay pointer-events:none mengukur alur blok ProseMirror (getBoundingClientRect), garis putus 2px dashed + label pill "Halaman N" tiap batas kapasitas (tinggi mm − 40mm margin); solid media (img/table/iframe/pre/.draw-embed) → garis digeser ke atas blok; MutationObserver+ResizeObserver debounce 150ms + guard lastSig anti render-loop; (3) wrapper baru `.paper-inner-wrap` (width var + margin auto); (4) SW bump taskflow-v278-paper-guides; (5) hapus duplikat CSS mati di template Word fallback.
+- Verifikasi: 5/5 inline script node --check OK; JS 433/433; pytest 43/43; simulasi algoritma 3 kasus benar.
+- PENDING: commit+push → git pull VPS → restart → hard refresh → device-test (lihat batas Halaman 2/3 saat konten > 1 halaman, ubah ukuran kertas, cek gambar besar).
 - (1) SW cache di-bump `taskflow-v276-syncpush-drawings` → `taskflow-v277-paper-mode` (sw.js).
 - (2) `paperConfig` ditambah ke deps autosave effect di static/index.html:17598 — ganti kertas kini ikut alur autosave 2.5s (sudah kirim meta_json) + set dirty via effect.
 - (3) TEMUAN BARU: syncpush.js kirim `meta_json: '{}'` ke payload TASK & MINDMAP (regresi 7d35d4b) — backend tak punya kolom itu; dihapus, sisakan note saja. Test 433/433 JS + 43/43 pytest HIJAU.
