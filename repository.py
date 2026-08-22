@@ -277,12 +277,12 @@ class TaskRepository:
 
             # Migrate: add meta_json to scratchpad_notes if missing
             note_cols = [row["name"] for row in conn.execute("PRAGMA table_info(scratchpad_notes)").fetchall()]
-            if "meta_json" not in note_cols:
+            if note_cols and "meta_json" not in note_cols:
                 conn.execute("ALTER TABLE scratchpad_notes ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}'")
 
             # Migrate: add author_id and client_id to task_notes if missing
             note_cols = [row["name"] for row in conn.execute("PRAGMA table_info(task_notes)").fetchall()]
-            if "author_id" not in note_cols:
+            if note_cols and "author_id" not in note_cols:
                 conn.execute("ALTER TABLE task_notes ADD COLUMN author_id INTEGER DEFAULT NULL")
             if "client_id" not in note_cols:
                 conn.execute("ALTER TABLE task_notes ADD COLUMN client_id TEXT DEFAULT NULL")
