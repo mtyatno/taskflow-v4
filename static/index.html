@@ -230,6 +230,7 @@
   <script src="/static/offline/syncconflict.js"></script>
   <script src="/static/review/digest.js"></script>
   <script src="/static/offline/voicedictate.js"></script>
+  <script src="/static/offline/drawdirective.js"></script>
   <script src="/static/ui-components.js"></script>
   <script>
   // ═══ DEPENDENCIES: Foundation ═══
@@ -16219,7 +16220,7 @@ function MilkdownEditor({
           };
         }
       });
-    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(tableToolbarPair).use(MB.trailing).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).create().then(editor => {
+    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(tableToolbarPair).use(MB.trailing).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).use(createDrawingPlugin(MB)).create().then(editor => {
       if (cancelled) {
         editor.destroy();
         return;
@@ -16747,6 +16748,88 @@ function createTasklinkPlugin(tasksGetter) {
   }));
   const tasklinkRemark = MB.$remark('tasklink-remark', () => remarkTasklinkPlugin);
   return [tasklinkRemark, tasklinkNode];
+}
+function createDrawingPlugin(MB) {
+  if (!MB || !MB.$node) return [];
+  const DD = window.TF && window.TF.drawdirective ? window.TF.drawdirective : null;
+  if (!DD) return [];
+
+  const drawingNode = MB.$node('drawing', () => ({
+    group: 'block',
+    atom: true,
+    selectable: true,
+    draggable: true,
+    attrs: {
+      id: { default: '' },
+      title: { default: 'Gambar' },
+      size: { default: 'L' },
+      width: { default: '100%' },
+      height: { default: '400px' }
+    },
+    toDOM: node => {
+      const { id, title, size, width, height } = node.attrs;
+      const widthVal = width || (size === 'S' ? '50%' : size === 'M' ? '75%' : '100%');
+      const heightVal = height || (size === 'S' ? '200px' : size === 'M' ? '300px' : '400px');
+      const cardWidthStyle = widthVal && widthVal !== '100%' ? `width:${widthVal};max-width:${widthVal};margin:10px auto;` : `width:100%;margin:10px 0;`;
+
+      return ['div', {
+        class: 'note-draw-card editor-draw-card',
+        'data-drawing-id': id,
+        'data-size': size,
+        style: cardWidthStyle
+      },
+        ['div', { class: 'note-draw-header' },
+          ['span', null, `🎨 ${title || 'Gambar'}`],
+          ['div', { style: 'display:flex;gap:6px;align-items:center;' },
+            ['div', { class: 'note-draw-size-pills' },
+              ['button', { type: 'button', class: `note-draw-size-btn ${size === 'S' ? 'active' : ''}`, 'data-size-btn': 'S' }, 'S'],
+              ['button', { type: 'button', class: `note-draw-size-btn ${size === 'M' ? 'active' : ''}`, 'data-size-btn': 'M' }, 'M'],
+              ['button', { type: 'button', class: `note-draw-size-btn ${size === 'L' || size === 'FULL' ? 'active' : ''}`, 'data-size-btn': 'L' }, 'L']
+            ],
+            ['button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-action': 'edit', style: 'font-size:11px;padding:2px 8px;cursor:pointer;' }, '✏️ Edit'],
+            ['button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-action': 'open', style: 'font-size:11px;padding:2px 8px;cursor:pointer;' }, '↗️ Buka']
+          ]
+        ],
+        ['div', {
+          class: 'note-draw-preview-container',
+          'data-drawing-preview': id,
+          style: `max-height:${heightVal};resize:vertical;overflow:auto;cursor:pointer;`,
+          title: 'Klik untuk membuka / mengedit gambar'
+        },
+          ['div', { class: 'drawing-preview-placeholder', style: 'color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;' }, '🎨 Memuat gambar...']
+        ]
+      ];
+    },
+    parseDOM: [{
+      tag: 'div.note-draw-card[data-drawing-id]',
+      getAttrs: dom => ({
+        id: dom.getAttribute('data-drawing-id') || '',
+        size: dom.getAttribute('data-size') || 'L',
+        title: dom.querySelector('.note-draw-header span')?.textContent?.replace(/^🎨\s*/, '') || 'Gambar'
+      })
+    }],
+    parseMarkdown: {
+      match: node => node.type === 'drawingDirective',
+      runner: (state, node, type) => {
+        state.addNode(type, {
+          id: node.id,
+          title: node.title,
+          size: node.size,
+          width: node.width,
+          height: node.height
+        });
+      }
+    },
+    toMarkdown: {
+      match: node => node.type.name === 'drawing',
+      runner: (state, node) => {
+        state.addNode('text', undefined, DD.formatDirective(node.attrs));
+      }
+    }
+  }));
+
+  const drawingRemark = MB.$remark('drawing-remark', () => DD.remarkDrawPlugin);
+  return [drawingRemark, drawingNode];
 }
 function remarkHighlightPlugin() {
   return function transformer(tree) {
