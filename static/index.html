@@ -15189,12 +15189,20 @@ window.hydrateDrawingPreviews = function(root, force) {
   containers.forEach(async el => {
     const did = el.getAttribute('data-drawing-preview');
     if (!did) return;
-    if (el.getAttribute('data-hydrated') === 'true' && !force) return;
+    if (el.getAttribute('data-hydrated') === 'true' && !force && el.querySelector('svg')) return;
     el.setAttribute('data-hydrated', 'true');
     try {
-      const d = await api.get(`/api/drawings/${did}`);
-      if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {
-        el.innerHTML = d.svg_preview;
+      let svg = null;
+      if (window.TF && window.TF.drawingrepo) {
+        const local = await window.TF.drawingrepo.get(did);
+        if (local && local.svg_preview) svg = local.svg_preview;
+      }
+      if (!svg && typeof api !== 'undefined') {
+        const d = await api.get(`/api/drawings/${did}`);
+        if (d && d.svg_preview) svg = d.svg_preview;
+      }
+      if (svg && svg.trim().startsWith('<svg')) {
+        el.innerHTML = svg;
         const svgEl = el.querySelector('svg');
         if (svgEl) {
           svgEl.style.width = '100%';
@@ -16335,6 +16343,65 @@ function MilkdownEditor({
       onTasklinkClick(rawId.includes('-') ? rawId : Number(rawId));
       return;
     }
+    // drawing card actions (S/M/L size buttons, ✏️ Edit, ↗️ Buka, or preview click)
+    const drawCard = e.target.closest('.editor-draw-card');
+    if (drawCard) {
+      const did = drawCard.getAttribute('data-drawing-id');
+      const dtitle = drawCard.querySelector('.note-draw-header span')?.textContent?.replace(/^🎨\s*/, '') || 'Gambar';
+      
+      const sizeBtn = e.target.closest('[data-size-btn]');
+      if (sizeBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const newSize = sizeBtn.getAttribute('data-size-btn');
+        const newWidth = newSize === 'S' ? '50%' : newSize === 'M' ? '75%' : '100%';
+        const newHeight = newSize === 'S' ? '200px' : newSize === 'M' ? '300px' : '400px';
+        const editor = instanceRef.current;
+        if (editor) {
+          const MB = window.MilkdownBundle;
+          try {
+            editor.action(ctx => {
+              const view = ctx.get(MB.editorViewCtx);
+              let foundPos = null;
+              view.state.doc.descendants((node, nodePos) => {
+                if (foundPos !== null) return false;
+                if (node.type && node.type.name === 'drawing' && node.attrs.id === did) {
+                  foundPos = nodePos;
+                  return false;
+                }
+              });
+              if (foundPos !== null) {
+                view.dispatch(view.state.tr.setNodeMarkup(foundPos, null, {
+                  id: did,
+                  title: dtitle,
+                  size: newSize,
+                  width: newWidth,
+                  height: newHeight
+                }));
+              }
+            });
+          } catch (_) {}
+        }
+        return;
+      }
+
+      const openBtn = e.target.closest('[data-action="open"]');
+      if (openBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.dispatchEvent(new CustomEvent('openDrawing', { detail: did }));
+        return;
+      }
+
+      const editBtn = e.target.closest('[data-action="edit"]');
+      const previewArea = e.target.closest('[data-drawing-preview]');
+      if (editBtn || previewArea) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: did, title: dtitle } }));
+        return;
+      }
+    }
     // math_block click → show inline edit overlay
     const mathTarget = e.target.closest('[data-type="math_block"]');
     if (mathTarget) {
@@ -16407,6 +16474,18 @@ function MilkdownEditor({
       } catch (_) {}
     }
   }, [onWikilinkClick, onTasklinkClick, imgResize]);
+
+  // Hydrate drawings inside Milkdown editor
+  React.useEffect(() => {
+    if (!ready || !containerRef.current) return;
+    if (typeof window.hydrateDrawingPreviews === 'function') {
+      window.hydrateDrawingPreviews(containerRef.current, false);
+      const timer = setTimeout(() => {
+        window.hydrateDrawingPreviews(containerRef.current, false);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [value, ready]);
   const saveMathEdit = React.useCallback(() => {
     if (!mathEdit) return;
     const newLatex = (mathTaRef.current?.value || '').trim();

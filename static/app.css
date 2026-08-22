@@ -1738,6 +1738,12 @@
   transition: border-color 0.15s ease, box-shadow 0.15s ease, width 0.2s ease;
   box-sizing: border-box;
 }
+.editor-draw-card {
+  user-select: none;
+}
+.editor-draw-card .note-draw-header {
+  cursor: default;
+}
 .note-draw-card[data-size="S"] {
   width: 50%;
   max-width: 50%;
