@@ -2843,11 +2843,21 @@ function TaskFormModal({
   const handleOpenNoteInsertDrawing = () => setNoteDrawingInsertOpen(true);
   const handleNoteDrawingSelected = (did, dtitle) => {
     const editor = noteMilkdownRef.current;
-    if (editor) {
+    if (editor && window.MilkdownBundle) {
+      const MB = window.MilkdownBundle;
       editor.action(ctx => {
-        const view = ctx.get(window.MilkdownBundle.editorViewCtx);
-        const { from } = view.state.selection;
-        view.dispatch(view.state.tr.insertText(`\n\n::draw[${did}]{title="${dtitle}"}\n\n`, from, from));
+        const view = ctx.get(MB.editorViewCtx);
+        if (!view) return;
+        let doc;
+        try {
+          doc = ctx.get(MB.parserCtx)(`\n\n::draw[${did}]{title="${dtitle}"}\n\n`);
+        } catch (_) {
+          return;
+        }
+        if (!doc || !doc.content || doc.content.size === 0) return;
+        const slice = doc.slice(0, doc.content.size);
+        view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
+        view.focus();
       });
     }
     setNoteQuickDrawState({ id: did, title: dtitle });
@@ -15190,15 +15200,20 @@ window.hydrateDrawingPreviews = function(root, force) {
     const did = el.getAttribute('data-drawing-preview');
     if (!did) return;
     if (el.getAttribute('data-hydrated') === 'true' && !force && el.querySelector('svg')) return;
-    el.setAttribute('data-hydrated', 'true');
     try {
       let svg = null;
       if (window.TF && window.TF.drawingrepo) {
-        const local = await window.TF.drawingrepo.get(did);
+        let local = null;
+        if (typeof window.TF.drawingrepo.getDrawing === 'function') {
+          local = await window.TF.drawingrepo.getDrawing(did, { online: false }).catch(() => null);
+        }
+        if (!local && typeof window.TF.drawingrepo.getRaw === 'function') {
+          local = await window.TF.drawingrepo.getRaw(did).catch(() => null);
+        }
         if (local && local.svg_preview) svg = local.svg_preview;
       }
-      if (!svg && typeof api !== 'undefined') {
-        const d = await api.get(`/api/drawings/${did}`);
+      if (!svg && typeof api !== 'undefined' && api.get) {
+        const d = await api.get(`/api/drawings/${did}`).catch(() => null);
         if (d && d.svg_preview) svg = d.svg_preview;
       }
       if (svg && svg.trim().startsWith('<svg')) {
@@ -15210,6 +15225,7 @@ window.hydrateDrawingPreviews = function(root, force) {
           svgEl.style.maxHeight = '100%';
           svgEl.style.display = 'block';
         }
+        el.setAttribute('data-hydrated', 'true');
       }
     } catch (_) {}
   });
@@ -16834,7 +16850,8 @@ function createDrawingPlugin(MB) {
   if (!DD) return [];
 
   const drawingNode = MB.$node('drawing', () => ({
-    group: 'block',
+    group: 'inline',
+    inline: true,
     atom: true,
     selectable: true,
     draggable: true,
@@ -17545,7 +17562,7 @@ function NoteModal({
     setDrawingInsertOpen(true);
   };
   const handleDrawingSelected = (did, dtitle) => {
-    insertText(`\n\n::draw[${did}]{title="${dtitle}"}\n\n`);
+    insertMarkdown(`\n\n::draw[${did}]{title="${dtitle}"}\n\n`);
     setQuickDrawState({ id: did, title: dtitle });
   };
   // NoteModal's own insertText (same pattern as NoteToolbar)

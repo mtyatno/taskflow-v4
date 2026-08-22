@@ -4,6 +4,21 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-22 21:40] - Antigravity (Gemini)
+- **Task:** Fix Milkdown Inline Drawing Card Schema & Preview Hydration Bug using systematic-debugging and Subagent-Driven Development.
+- **Root Causes:**
+  1. `drawingNode` was registered with `group: 'block'`, causing ProseMirror to drop it when inside a `paragraph` AST node.
+  2. `window.hydrateDrawingPreviews` called `window.TF.drawingrepo.get(did)` which threw TypeError (`getDrawing`/`getRaw` is the actual method), causing the fallback `api.get` to be skipped.
+  3. `handleDrawingSelected` and `handleNoteDrawingSelected` used raw text insertion instead of parsing markdown AST via `parserCtx`.
+- **Changes:**
+  - `static/offline/drawdirective.js` & `tests/offline/drawdirective.test.js`: Refactored `remarkDrawPlugin` to use `(node, parent, index)` tree-walker with AST splicing; added tests for nested structures (11/11 pass).
+  - `static/index.html`: Set `drawingNode` to `group: 'inline', inline: true, atom: true`; fixed `window.hydrateDrawingPreviews` repo calls & fallback; updated drawing selection handlers to use `parserCtx` + `replaceSelection`.
+  - `static/sw.js`: Bumped SW cache to `taskflow-v284-milkdown-inline-draw-fix`.
+- **Files Modified:** `static/offline/drawdirective.js`, `tests/offline/drawdirective.test.js`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved by Subagent Reviewer (444/444 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-22 21:10] - Antigravity (Gemini)
 - **Task:** Implement Milkdown Inline Interactive Drawing Card (`::draw[...]`) inside Note Editor using Subagent-Driven Development.
 - **Problem:**

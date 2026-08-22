@@ -41,37 +41,50 @@
 
   function remarkDrawPlugin() {
     return function transformer(tree) {
-      function walk(node) {
-        if (!node || !node.children) return;
-        const nextChildren = [];
-        for (const child of node.children) {
-          if (child.type === 'text' && child.value && DRAW_REGEX.test(child.value)) {
-            let val = child.value;
-            let m;
-            while ((m = DRAW_REGEX.exec(val)) !== null) {
-              const before = val.slice(0, m.index);
-              if (before) nextChildren.push({ type: 'text', value: before });
-              const parsed = parseDirective(m[0]);
-              nextChildren.push({
-                type: 'drawingDirective',
-                id: parsed.id,
-                title: parsed.title,
-                size: parsed.size,
-                width: parsed.width,
-                height: parsed.height
+      function walk(node, parent, index) {
+        if (node.type === 'text' && typeof node.value === 'string') {
+          const regex = /\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?/gi;
+          const parts = [];
+          let lastIndex = 0;
+          let match;
+          while ((match = regex.exec(node.value)) !== null) {
+            if (match.index > lastIndex) {
+              parts.push({
+                type: 'text',
+                value: node.value.slice(lastIndex, match.index)
               });
-              val = val.slice(m.index + m[0].length);
-              DRAW_REGEX.lastIndex = 0;
             }
-            if (val) nextChildren.push({ type: 'text', value: val });
-          } else {
-            walk(child);
-            nextChildren.push(child);
+            const parsed = parseDirective(match[0]);
+            parts.push({
+              type: 'drawingDirective',
+              id: parsed.id,
+              title: parsed.title,
+              size: parsed.size,
+              width: parsed.width,
+              height: parsed.height
+            });
+            lastIndex = regex.lastIndex;
+          }
+          if (parts.length > 0) {
+            if (lastIndex < node.value.length) {
+              parts.push({
+                type: 'text',
+                value: node.value.slice(lastIndex)
+              });
+            }
+            parent.children.splice(index, 1, ...parts);
+            return index + parts.length;
           }
         }
-        node.children = nextChildren;
+        if (node.children && Array.isArray(node.children)) {
+          let i = 0;
+          while (i < node.children.length) {
+            const next = walk(node.children[i], node, i);
+            i = next !== undefined ? next : i + 1;
+          }
+        }
       }
-      walk(tree);
+      walk(tree, null, 0);
     };
   }
 

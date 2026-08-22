@@ -103,4 +103,48 @@ describe('Drawing Directive Module', () => {
     assert.equal(p.children[3].id, 'id-2');
     assert.equal(p.children[4].value, ' done.');
   });
+
+  it('remark transformer handles directive inside nested tree structures (e.g. blockquote / list)', () => {
+    const tree = {
+      type: 'root',
+      children: [
+        {
+          type: 'blockquote',
+          children: [
+            {
+              type: 'paragraph',
+              children: [
+                { type: 'text', value: '::draw[nested-1]{title="Nested Drawing"}' }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+    const transformer = remarkDrawPlugin();
+    transformer(tree);
+    const p = tree.children[0].children[0];
+    assert.equal(p.children.length, 1);
+    assert.equal(p.children[0].type, 'drawingDirective');
+    assert.equal(p.children[0].id, 'nested-1');
+    assert.equal(p.children[0].title, 'Nested Drawing');
+  });
+
+  it('remark transformer leaves unaffected text nodes untouched', () => {
+    const tree = {
+      type: 'root',
+      children: [
+        {
+          type: 'paragraph',
+          children: [
+            { type: 'text', value: 'Just ordinary markdown text without draw directive' }
+          ]
+        }
+      ]
+    };
+    const transformer = remarkDrawPlugin();
+    transformer(tree);
+    assert.equal(tree.children[0].children.length, 1);
+    assert.equal(tree.children[0].children[0].value, 'Just ordinary markdown text without draw directive');
+  });
 });

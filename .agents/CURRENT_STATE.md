@@ -292,15 +292,14 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
-## ✅ FEAT Milkdown Inline Interactive Drawing Card (2026-08-22, Antigravity — SELESAI)
-- **Ringkasan**: Menjadikan sintaks gambar/kanvas `::draw[id]{title="..." size="..."}` sebagai kartu visual interaktif (`.note-draw-card`) langsung di dalam editor Milkdown WYSIWYG.
-- **Komponen & Arsitektur**:
-  1. `static/offline/drawdirective.js`: Modul parsing dan serialisasi MDAST AST (`remarkDrawPlugin`) dan atribut directive.
-  2. `static/index.html`: Mendaftarkan `drawingNode` (Block Atom Node) & `drawingRemark` ke Milkdown `.use(...)` chain.
-  3. Hidrasi SVG & Interaksi Editor: Preview SVG otomatis ter-hydrate dari IndexedDB `TF.drawingrepo` / API, tombol ukuran **S** / **M** / **L** langsung mengubah lebar via ProseMirror transaction, tombol **✏️ Edit** & klik preview memicu modal kanvas `editDrawingModal` dan auto-sync SVG seketika saat disimpan.
-  4. Kompatibilitas Roundtrip: Diserialisasi kembali menjadi string Markdown `::draw[...]` yang 100% kompatibel dengan database dan export Word (.docx)/PDF/Markdown.
-- **SW Cache**: Di-bump ke `taskflow-v283-milkdown-inline-draw-card`.
-- **Verifikasi**: JS 442/442 unit tests pass (0 fail), Pytest 43/43 pass (0 fail), `node --check` pass.
+## ✅ FIX & FEAT Milkdown Inline Interactive Drawing Card (2026-08-22, Antigravity — SELESAI)
+- **Ringkasan**: Menjadikan sintaks gambar/kanvas `::draw[id]{title="..." size="..."}` sebagai kartu visual interaktif (`.note-draw-card`) langsung di dalam editor Milkdown WYSIWYG & memperbaiki hidrasi preview di viewer.
+- **Root Cause & Fixes**:
+  1. *Editor Frame Drop*: `drawingNode` sebelumnya didaftarkan sebagai `group: 'block'` sehingga ditolak oleh parser ProseMirror di dalam blok paragraph. Diperbaiki menjadi `group: 'inline', inline: true, atom: true` dan AST splicing di `remarkDrawPlugin` disesuaikan dengan pola walker `(node, parent, index)`.
+  2. *Viewer SVG Missing*: `hydrateDrawingPreviews` sebelumnya memanggil `window.TF.drawingrepo.get(did)` yang tidak eksis (nama method sebenarnya adalah `getDrawing` / `getRaw`), memicu TypeError yang membuat fallback `api.get` terlewati. Diperbaiki dengan memanggil `getDrawing`/`getRaw` dan fallback `api.get`, serta hanya menandai `data-hydrated="true"` saat SVG sukses di-render.
+  3. *ProseMirror Insertion*: Mengubah `handleNoteDrawingSelected` & `handleDrawingSelected` agar mengurai markdown via `parserCtx` + `replaceSelection` alih-alih raw text insertion.
+- **SW Cache**: Di-bump ke `taskflow-v284-milkdown-inline-draw-fix`.
+- **Verifikasi**: JS 444/444 unit tests pass (0 fail), Pytest 43/43 pass (0 fail), `node --check` pass, Subagent Code Reviewer APPROVED.
 
 ## ✅ FIX Paper Selector Dropdown Dark Mode Contrast — fase 6 (2026-08-22, Antigravity — SELESAI)
 - ROOT CAUSE: `.note-toolbar select.paper-select` menggunakan `background: none` dan `color: var(--text-primary)`. Di dark mode, `--text-primary` bernilai `#e5e5e5` (abu-abu terang), dan dropdown options `<option>` mewarisi warna teks tersebut namun merender background default putih bawaan browser karena tidak memiliki styling eksplisit dan `color-scheme: dark`.
