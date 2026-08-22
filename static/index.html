@@ -75,7 +75,8 @@
 }
 /* Paper mode: paksa palet dokumen gelap-di-atas-putih (kertas selalu putih,
    walau tema app dark — mencegah teks abu-abu tak terbaca) */
-.paper-mode-active .paper-inner-wrap .milkdown-editor {
+.paper-mode-active .paper-inner-wrap .milkdown-editor,
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror {
     color: #1e293b !important;
 }
 .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror p.is-editor-empty:first-child::before {
@@ -97,6 +98,9 @@
 .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror td {
     border-color: #cbd5e1 !important;
 }
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror th {
+    background: #f1f5f9 !important;
+}
 .paper-mode-active .paper-inner-wrap .wikilink-node {
     color: #4d7c0f !important;
     background: rgba(168,197,0,0.18) !important;
@@ -106,6 +110,11 @@
     background: #fef9c3 !important;
     border-color: #fde68a !important;
     color: #92400e !important;
+}
+.paper-mode-active .paper-inner-wrap .tasklink-node-fallback {
+    background: #f1f5f9 !important;
+    border-color: #cbd5e1 !important;
+    color: #475569 !important;
 }
 </style>
 
