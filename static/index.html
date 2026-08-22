@@ -73,6 +73,40 @@
     padding: 0 !important;
     min-height: calc(var(--paper-height, 297mm) - 40mm) !important;
 }
+/* Paper mode: paksa palet dokumen gelap-di-atas-putih (kertas selalu putih,
+   walau tema app dark — mencegah teks abu-abu tak terbaca) */
+.paper-mode-active .paper-inner-wrap .milkdown-editor {
+    color: #1e293b !important;
+}
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror p.is-editor-empty:first-child::before {
+    color: #94a3b8 !important;
+}
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror blockquote {
+    color: #475569 !important;
+    border-left-color: #94a3b8 !important;
+}
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror pre,
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror code {
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+}
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror a {
+    color: #2563eb !important;
+}
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror th,
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror td {
+    border-color: #cbd5e1 !important;
+}
+.paper-mode-active .paper-inner-wrap .wikilink-node {
+    color: #4d7c0f !important;
+    background: rgba(168,197,0,0.18) !important;
+    border-bottom-color: #4d7c0f !important;
+}
+.paper-mode-active .paper-inner-wrap .tasklink-node {
+    background: #fef9c3 !important;
+    border-color: #fde68a !important;
+    color: #92400e !important;
+}
 </style>
 
 </head>
@@ -15746,11 +15780,12 @@ onPaperConfigChange
     onPaperConfigChange && React.createElement("div", { style: { display: 'inline-flex', alignItems: 'center', marginLeft: 8, paddingLeft: 8, borderLeft: '1px solid var(--border)' } },
       React.createElement("button", {
         className: "icon-btn " + (paperConfig?.enabled ? "active" : ""),
-        style: { 
-          background: paperConfig?.enabled ? 'var(--primary-light)' : 'transparent',
-          color: paperConfig?.enabled ? 'var(--primary)' : 'inherit',
+        style: {
+          background: paperConfig?.enabled ? 'var(--accent)' : 'transparent',
+          color: paperConfig?.enabled ? '#1d2400' : 'var(--text-primary)',
           padding: '2px 6px', fontSize: 13, borderRadius: 4,
-          border: 'none', cursor: 'pointer'
+          border: paperConfig?.enabled ? 'none' : '1px solid var(--border)',
+          cursor: 'pointer', fontWeight: 600
         },
         onPointerDown: (e) => { e.preventDefault(); onPaperConfigChange(p => ({ ...p, enabled: !p.enabled })); },
         title: "Mode Kertas"
@@ -15758,7 +15793,7 @@ onPaperConfigChange
       paperConfig?.enabled && React.createElement("select", {
         value: paperConfig.size,
         onChange: e => onPaperConfigChange(p => ({ ...p, size: e.target.value })),
-        style: { marginLeft: 4, padding: '1px 4px', fontSize: 12, borderRadius: 3, border: '1px solid var(--border)', background: 'white' }
+        style: { marginLeft: 4, padding: '1px 4px', fontSize: 12, borderRadius: 3, border: '1px solid var(--border)', background: 'white', color: '#0f172a' }
       },
         React.createElement("option", { value: "A4" }, "A4"),
         React.createElement("option", { value: "Letter" }, "Letter"),
@@ -15768,7 +15803,7 @@ onPaperConfigChange
       paperConfig?.enabled && React.createElement("select", {
         value: paperConfig.orientation,
         onChange: e => onPaperConfigChange(p => ({ ...p, orientation: e.target.value })),
-        style: { marginLeft: 4, padding: '1px 4px', fontSize: 12, borderRadius: 3, border: '1px solid var(--border)', background: 'white' }
+        style: { marginLeft: 4, padding: '1px 4px', fontSize: 12, borderRadius: 3, border: '1px solid var(--border)', background: 'white', color: '#0f172a' }
       },
         React.createElement("option", { value: "portrait" }, "Portrait"),
         React.createElement("option", { value: "landscape" }, "Landscape")
