@@ -19,6 +19,8 @@ Before executing any edits, code changes, or running diagnostic commands:
 1. **Preserve Integrity:** Maintain existing code conventions, documentation, and docstrings.
 2. **Record Decisions:** If you make an important architectural choice (e.g. changing database schema, choosing offline fallback strategy, selecting library/framework), append a record to [.agents/DECISIONS.md](file:///.agents/DECISIONS.md).
 3. **Verify Empirical Evidence:** Never claim a fix works without running test/verification commands.
+4. **Superpowers Discipline:** You MUST strictly adhere to the Superpowers skills (Subagent-Driven Development, Test-Driven Development, Systematic Debugging). NEVER write implementation code inline. ALWAYS dispatch subagents for coding and reviewing.
+5. **No Cowboy Coding:** NEVER push code and claim "It's done" without manually running the full test suite (`python -m pytest` or equivalent) and verifying the output yourself.
 
 ---
 
