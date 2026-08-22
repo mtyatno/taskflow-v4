@@ -292,6 +292,12 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
+## ✅ FIX Paper Selector Dropdown Dark Mode Contrast — fase 6 (2026-08-22, Antigravity — SELESAI)
+- ROOT CAUSE: `.note-toolbar select.paper-select` menggunakan `background: none` dan `color: var(--text-primary)`. Di dark mode, `--text-primary` bernilai `#e5e5e5` (abu-abu terang), dan dropdown options `<option>` mewarisi warna teks tersebut namun merender background default putih bawaan browser karena tidak memiliki styling eksplisit dan `color-scheme: dark`.
+- SOLUSI: Menambahkan styling `.note-toolbar select.paper-select option { background: var(--bg-primary); color: var(--text-primary); }` dan `[data-theme="dark"] .note-toolbar select.paper-select { color-scheme: dark; background: #262626; }` di `static/index.html`.
+- SW CACHE: Di-bump ke `taskflow-v282-paper-dropdown-dark-fix` di `static/sw.js`.
+- VERIFIKASI: JS 433/433 pass, pytest 43/43 pass (0 fail), `node --check static/sw.js` OK. PENDING deploy VPS & verifikasi user.
+
 ## ✅ FIX Continuous Paper Mode — fase 5: styling toolbar paper (2026-08-22, Claude — belum di-commit)
 - Fase 4 (4acad99) LIVE: teks paper mode dark theme fix via selector .ProseMirror.
 - Request user: tombol 📄 Kertas + select ukuran/orientasi diseragamkan dengan tombol toolbar lain (Heading/Template).

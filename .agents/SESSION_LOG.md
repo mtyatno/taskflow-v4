@@ -4,6 +4,19 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-22 10:17] - Antigravity (Gemini)
+- **Task:** Fix dark mode paper selector dropdown contrast bug using systematic-debugging.
+- **Root Cause:**
+  - `.note-toolbar select.paper-select` had `background: none` and `color: var(--text-primary)`. In dark mode, `--text-primary` evaluates to `#e5e5e5` (light gray).
+  - Without explicit `background` on `.paper-select option` or `color-scheme: dark`, Chromium/Windows rendered the dropdown popup menu with a white background (`#ffffff`), producing light gray text on a white background.
+- **Changes:**
+  - Added `.note-toolbar select.paper-select option { background: var(--bg-primary); color: var(--text-primary); }` and `[data-theme="dark"] .note-toolbar select.paper-select { color-scheme: dark; background: #262626; }` in `static/index.html`.
+  - Bumped SW cache to `taskflow-v282-paper-dropdown-dark-fix` in `static/sw.js`.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (433/433 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-21 19:07] - Antigravity (Gemini)
 - **Task:** Eliminate MS Word document corruption error by replacing manual OpenXML `<asvg:svgBlip>` with standard `python-docx` `run.add_picture`, and extend Nextcloud streaming timeouts.
 - **Root Cause:**
