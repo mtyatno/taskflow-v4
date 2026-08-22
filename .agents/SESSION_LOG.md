@@ -679,3 +679,6 @@ Chronological history of work performed by AI agents in this workspace.
 
 ## 2026-08-22: Paper mode fase 3 — kontras teks & tombol (Claude) — belum di-commit
 - Palet dokumen paksa di paper mode (fix abu-abu dark theme) + tombol Kertas/select kontras (var --primary tak terdefinisi). SW v279. 433/433 hijau.
+
+## 2026-08-22: Paper mode fase 4 — teks dark theme (Claude) — belum di-commit
+- Root cause: [data-theme=dark] .ProseMirror color langsung mengalahkan override warisan. Fix selector + th + tasklink-fallback. SW v280. 433/433.

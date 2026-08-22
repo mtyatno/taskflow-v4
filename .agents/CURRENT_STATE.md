@@ -284,7 +284,12 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
-## ✅ FIX Continuous Paper Mode — fase 3: kontras teks (2026-08-22, Claude — belum di-commit)
+## ✅ FIX Continuous Paper Mode — fase 4: teks dark theme (2026-08-22, Claude — belum di-commit)
+- Fase 3 (9976239) LIVE: tombol OK kedua tema; tapi teks paper mode di dark theme MASIH abu-abu.
+- ROOT CAUSE: app.css punya `[data-theme="dark"] .milkdown-editor .ProseMirror { color: var(--text-primary) }` — set warna LANGSUNG di .ProseMirror, mengalahkan warna warisan dari override .milkdown-editor (cascade: direct > inherited, walau parent !important).
+- Fix (belum di-commit): tambah .ProseMirror di rule color #1e293b + th bg #f1f5f9 + tasklink-node-fallback terang. SW → taskflow-v280-paper-dark-text.
+- Verifikasi: 5/5 inline OK, JS 433/433. PENDING commit+push → deploy → user-verify dark theme.
+
 - Fase 2 (238bb9d) LIVE & user-verify OK. Keluhan lanjutan: teks di kertas abu-abu sulit dibaca (dark theme: --text-primary #e5e5e5 di atas kertas putih) + tombol kertas sulit dibaca (var --primary/--primary-light TIDAK TERDEFINISI di CSS).
 - Fix (belum di-commit): blok CSS palet dokumen paksa utk paper mode (teks #1e293b, blockquote, pre/code, link #2563eb, border tabel, wikilink olive, tasklink kuning) + tombol Kertas pakai var(--accent)+#1d2400 & border saat nonaktif + select putih dgn color #0f172a. SW → taskflow-v279-paper-contrast.
 - Verifikasi: 5/5 inline script OK, JS 433/433. PENDING commit+push → deploy VPS → user-verify kedua tema (light & dark).
