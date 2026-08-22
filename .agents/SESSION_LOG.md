@@ -676,3 +676,6 @@ Chronological history of work performed by AI agents in this workspace.
 
 ## 2026-08-22: Paper mode fase 2 — page guides (Claude) — belum di-commit
 - Root cause design: selector CSS .milkdown-editor-container tidak ada di DOM → kertas tak pernah tampil; fixed + PaperPageGuides overlay (garis + label Halaman N) + SW v278. 433/433 + 43/43 hijau, simulasi algoritma OK.
+
+## 2026-08-22: Paper mode fase 3 — kontras teks & tombol (Claude) — belum di-commit
+- Palet dokumen paksa di paper mode (fix abu-abu dark theme) + tombol Kertas/select kontras (var --primary tak terdefinisi). SW v279. 433/433 hijau.
