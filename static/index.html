@@ -16313,6 +16313,8 @@ function MilkdownEditor({
         pmDom.addEventListener('keydown', listEnterHandler, true);
       }
       setReady(true);
+    }).catch(err => {
+      console.error('Milkdown init error:', err);
     });
     return () => {
       cancelled = true;
@@ -16873,7 +16875,7 @@ function createDrawingPlugin(MB) {
         style: cardWidthStyle
       },
         ['span', { class: 'note-draw-header', style: 'display:flex;' },
-          ['span', null, `🎨 ${title || 'Gambar'}`],
+          ['span', { class: 'note-draw-title' }, `🎨 ${title || 'Gambar'}`],
           ['span', { style: 'display:flex;gap:6px;align-items:center;' },
             ['span', { class: 'note-draw-size-pills', style: 'display:inline-flex;' },
               ['button', { type: 'button', class: `note-draw-size-btn ${size === 'S' ? 'active' : ''}`, 'data-size-btn': 'S' }, 'S'],

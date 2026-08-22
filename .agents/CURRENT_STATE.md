@@ -12,12 +12,28 @@ equirements.txt previously only containing Telegram Bot packages. Tested and con
 
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-21 19:40  
-**Updated By:** Antigravity (Gemini 3.7 Flash — Note DOCX Table Images & Canvas Fix SELESAI)
+**Last Updated:** 2026-08-22 22:15  
+**Updated By:** Antigravity (Gemini — Code Reviewer toDOM null fix in Milkdown drawingNode SELESAI)
 
 ---
 
 ## 📌 Active Task
+- **Milkdown toDOM null Attribute TypeError Fix SELESAI 2026-08-22:**
+  - **Problem / Root Cause:**
+    - `drawingNode.toDOM` menghasilkan `['span', null, ...]` pada judul gambar di dalam `DOMOutputSpec`. Dalam parser DOM ProseMirror (`DOMSerializer.renderSpec`), nilai `null` di index 1 tidak terdeteksi sebagai objek attribute melainkan diperlakukan sebagai child node pertama, yang kemudian memicu `TypeError: Failed to execute 'appendChild' on 'Node': parameter 1 is not of type 'Node'`.
+    - `MilkdownEditor` `MB.Editor.make().create()` tidak memiliki handler `.catch()` pada promise chain inisialisasinya.
+  - **Solusi / Perbaikan:**
+    1. **Valid DOMOutputSpec Attributes ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L16878)):**
+       - Mengganti `['span', null, ...]` menjadi `['span', { class: 'note-draw-title' }, ...]` sehingga seluruh elemen `toDOM` memiliki attribute object non-null yang valid.
+    2. **Resilient Error Logging ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html#L16316)):**
+       - Menambahkan `.catch(err => console.error('Milkdown init error:', err))` pada promise chain inisialisasi Milkdown editor.
+    3. **DOMOutputSpec Unit Tests ([`tests/offline/drawdirective.test.js`](file:///Z:/Todolist%20Manager%20V5.0/tests/offline/drawdirective.test.js#L274)):**
+       - Menambahkan unit test suite untuk memvalidasi keamanan `DOMOutputSpec` dan mencegah regresi `null` attributes di ProseMirror DOMSerializer.
+    4. **SW Cache Bump:** Di-bump ke **`taskflow-v286-todom-null-fix`** di `static/sw.js`.
+  - All tests passed: 448/448 JS unit tests + 43/43 pytest (0 failures), 4/4 inline scripts parse cleanly.
+  - **Status:** APPROVED.
+
+---
 - **Note DOCX Export Universal Word XML & Timeout Fix SELESAI 2026-08-21:**
   - **Problem / Root Cause:**
     1. File `.docx` tidak bisa dibaca oleh MS Word karena adanya injeksi OpenXML manual `<asvg:svgBlip>` pada fallback SVG yang tidak terdaftar di namespace resmi MS Word.
@@ -291,6 +307,16 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - Fixed bug where standalone drawings were missing on new devices or cleared IndexedDB because \syncpull.js\ intentionally skips pulling drawings (too large), but \listDrawings\ intercepted the network call forever.
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
+
+## ✅ FIX Milkdown Editor toDOM null Attribute TypeError (2026-08-22, Antigravity — SELESAI)
+- **Ringkasan**: Memperbaiki bug editor blank / tidak ada teks saat membuka catatan akibat `TypeError: Failed to execute 'appendChild' on 'Node': parameter 1 is not of type 'Node'`.
+- **Root Cause & Fixes**:
+  1. *Null Attributes in DOMOutputSpec*: Pada `drawingNode.toDOM`, elemen judul dirender dengan `['span', null, '🎨 ...']`. Dalam `DOMSerializer.renderSpec` milik ProseMirror, keberadaan `null` pada indeks ke-2 membuat parser menganggap `null` sebagai *child node*, sehingga mengeksekusi `appendChild(null)` dan melempar TypeError fatal yang membatalkan inisialisasi dokumen.
+  2. *Safe Object Attributes*: Mengganti `null` dengan objek atribut valid `{ class: 'note-draw-title' }`.
+  3. *Editor Creation Error Logging*: Menambahkan handler `.catch(err => { console.error('Milkdown init error:', err); })` pada promise `.create()` Milkdown.
+  4. *Safety Unit Tests*: Menambahkan suite pengujian DOMOutputSpec di `tests/offline/drawdirective.test.js` untuk memvalidasi algoritma render DOMSerializer terhadap seluruh kemungkinan variasi atribut node drawing.
+- **SW Cache**: Di-bump ke `taskflow-v286-todom-null-fix`.
+- **Verifikasi**: JS 448/448 unit tests pass (0 fail), Pytest 43/43 pass (0 fail), Subagent Code Reviewer APPROVED.
 
 ## ✅ FIX Milkdown Editor Blank / Shrinking DOM Fix (2026-08-22, Antigravity — SELESAI)
 - **Ringkasan**: Memperbaiki bug editor blank / 0 height saat membuka catatan dengan mengganti tag `div` pada `toDOM` `drawingNode` menjadi `span` dengan styling display yang sesuai, menghapus `selectable/draggable`, serta memperbarui selector `parseDOM`.

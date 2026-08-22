@@ -270,4 +270,128 @@ describe('Drawing Directive Module', () => {
     assert.equal(bqP.children[1].size, 'L');
     assert.equal(bqP.children[2].value, ' - harap ditinjau.');
   });
+
+  describe('DOMOutputSpec Safety for Milkdown / ProseMirror Drawing Node', () => {
+    function generateDrawingToDOM(nodeAttrs) {
+      const { id = '', title = 'Gambar', size = 'L', width = '100%', height = '400px' } = nodeAttrs;
+      const widthVal = width || (size === 'S' ? '50%' : size === 'M' ? '75%' : '100%');
+      const heightVal = height || (size === 'S' ? '200px' : size === 'M' ? '300px' : '400px');
+      const cardWidthStyle = widthVal && widthVal !== '100%' ? `display:block;width:${widthVal};max-width:${widthVal};margin:10px auto;` : `display:block;width:100%;margin:10px 0;`;
+
+      return ['span', {
+        class: 'note-draw-card editor-draw-card',
+        'data-drawing-id': id,
+        'data-size': size,
+        style: cardWidthStyle
+      },
+        ['span', { class: 'note-draw-header', style: 'display:flex;' },
+          ['span', { class: 'note-draw-title' }, `🎨 ${title || 'Gambar'}`],
+          ['span', { style: 'display:flex;gap:6px;align-items:center;' },
+            ['span', { class: 'note-draw-size-pills', style: 'display:inline-flex;' },
+              ['button', { type: 'button', class: `note-draw-size-btn ${size === 'S' ? 'active' : ''}`, 'data-size-btn': 'S' }, 'S'],
+              ['button', { type: 'button', class: `note-draw-size-btn ${size === 'M' ? 'active' : ''}`, 'data-size-btn': 'M' }, 'M'],
+              ['button', { type: 'button', class: `note-draw-size-btn ${size === 'L' || size === 'FULL' ? 'active' : ''}`, 'data-size-btn': 'L' }, 'L']
+            ],
+            ['button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-action': 'edit', style: 'font-size:11px;padding:2px 8px;cursor:pointer;' }, '✏️ Edit'],
+            ['button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-action': 'open', style: 'font-size:11px;padding:2px 8px;cursor:pointer;' }, '↗️ Buka']
+          ]
+        ],
+        ['span', {
+          class: 'note-draw-preview-container',
+          'data-drawing-preview': id,
+          style: `display:flex;max-height:${heightVal};resize:vertical;overflow:auto;cursor:pointer;`,
+          title: 'Klik untuk membuka / mengedit gambar'
+        },
+          ['span', { class: 'drawing-preview-placeholder', style: 'color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;' }, '🎨 Memuat gambar...']
+        ]
+      ];
+    }
+
+    function assertDOMOutputSpecSafe(spec) {
+      if (typeof spec === 'string') return;
+      assert.ok(Array.isArray(spec), 'Spec must be array or string');
+      assert.ok(typeof spec[0] === 'string', 'Tag name must be string');
+      let startIdx = 1;
+      if (spec.length > 1) {
+        const second = spec[1];
+        assert.notEqual(second, null, `Array element [1] for <${spec[0]}> must not be null in DOMOutputSpec`);
+        if (typeof second === 'object' && !Array.isArray(second)) {
+          startIdx = 2;
+        }
+      }
+      for (let i = startIdx; i < spec.length; i++) {
+        const child = spec[i];
+        assert.notEqual(child, null, `Child element at index ${i} in <${spec[0]}> must not be null`);
+        if (Array.isArray(child)) {
+          assertDOMOutputSpecSafe(child);
+        }
+      }
+    }
+
+    // Emulates ProseMirror DOMSerializer.renderSpec algorithm
+    function mockProseMirrorRenderSpec(spec) {
+      if (typeof spec === 'string') return { type: 'text', text: spec };
+      if (!Array.isArray(spec)) throw new TypeError('Invalid spec');
+      const tag = spec[0];
+      let attrs = null;
+      let start = 1;
+      if (spec.length > 1 && spec[1] && typeof spec[1] === 'object' && !Array.isArray(spec[1])) {
+        attrs = spec[1];
+        start = 2;
+      }
+      const children = [];
+      for (let i = start; i < spec.length; i++) {
+        const child = spec[i];
+        if (child === null || child === undefined) {
+          throw new TypeError("Failed to execute 'appendChild' on 'Node': parameter 1 is not of type 'Node'.");
+        }
+        if (typeof child === 'string') {
+          children.push({ type: 'text', text: child });
+        } else if (Array.isArray(child)) {
+          children.push(mockProseMirrorRenderSpec(child));
+        }
+      }
+      return { tag, attrs, children };
+    }
+
+    it('verifies drawingNode toDOM output has valid object attributes on every level (no null attributes)', () => {
+      const testCases = [
+        { id: 'draw-1', title: 'Diagram Flow', size: 'M', width: '75%', height: '300px' },
+        { id: 'draw-2', title: '', size: 'S', width: '50%', height: '200px' },
+        { id: 'draw-3', title: 'Special 🎨 Symbols', size: 'L', width: '100%', height: '400px' }
+      ];
+
+      for (const tc of testCases) {
+        const domSpec = generateDrawingToDOM(tc);
+        assertDOMOutputSpecSafe(domSpec);
+        const rendered = mockProseMirrorRenderSpec(domSpec);
+        assert.equal(rendered.tag, 'span');
+        assert.equal(rendered.attrs.class, 'note-draw-card editor-draw-card');
+        assert.equal(rendered.attrs['data-drawing-id'], tc.id);
+
+        // Header and title check
+        const header = rendered.children[0];
+        assert.equal(header.tag, 'span');
+        assert.equal(header.attrs.class, 'note-draw-header');
+        const titleSpan = header.children[0];
+        assert.equal(titleSpan.tag, 'span');
+        assert.deepEqual(titleSpan.attrs, { class: 'note-draw-title' });
+        assert.equal(titleSpan.children[0].text, `🎨 ${tc.title || 'Gambar'}`);
+      }
+    });
+
+    it('catches TypeError if null attribute is reintroduced to DOMOutputSpec', () => {
+      const buggySpec = ['span', { class: 'card' },
+        ['span', { class: 'header' },
+          ['span', null, '🎨 Title']
+        ]
+      ];
+      assert.throws(() => {
+        mockProseMirrorRenderSpec(buggySpec);
+      }, {
+        name: 'TypeError',
+        message: /Failed to execute 'appendChild' on 'Node'/
+      });
+    });
+  });
 });
