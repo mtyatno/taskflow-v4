@@ -21,8 +21,17 @@
 
 
 ## 🟢 Active Task
-- **FIX Table Toolbar Offset menutupi teks cell — SELESAI & LIVE 2026-08-23 (Claude)**: Toolbar tabel Milkdown (`tableToolbarPair` TooltipProvider) menutupi teks cell tabel tempat kursor. Root cause: tanda offset terbalik — `offset: { mainAxis: -8 }` di `static/index.html:16238`; Floating UI placement default "top" (mainAxis positif = naik menjauh dari reference), jadi -8 justru turun 8px menutupi teks. Fix: `mainAxis: 6` → toolbar 6px DI ATAS cell. Commit `fc00552`; SW cache **`taskflow-v302-table-toolbar-offset`** — LIVE terverifikasi curl (SW v302 + `mainAxis: 6`). TDD: 1 subtest baru `tests/offline/table_resizing.test.js` (RED `-8 !== 6` → GREEN 26/26); JS penuh 513/513 pass 0 fail; pytest 43/43; check_inline 5/5. Report: `.superpowers/sdd/2026-08-23-table-toolbar-offset/report.md`.
-  - **PENDING user:** hard refresh (Ctrl+Shift+R) → buka note → klik dalam cell tabel → toolbar muncul DI ATAS teks cell (gap ~6px), tidak menutupi.
+- **SDD Rebrand TaskFlow → Alurik — SELESAI & LIVE 2026-08-23 (Claude, 7 commit `b4acbe9`..`f4f5e7b` di-push)**: semua string user-visible "TaskFlow" → "Alurik": frontend (`static/index.html` title/brand/export-file, `static/manifest.json` name/short_name/description, deskripsi tour `static/app.css`), backend (`webapp.py` 16 titik, `bot.py` 8 titik, `mailer.py`, `docx_exporter.py`, `ai_review.py`, `config.py` default SMTP_FROM), `.env.example` (SMTP_FROM + header box), `src-tauri/tauri.conf.json` productName/title (display-only), README + PROJECT_MAP + CLAUDE.md, ikon placeholder monogram "A" lime #a8c500 di bg #0f172a (4 PNG: favicon 48px + icon-32/192/512). SW **`taskflow-v303-rebrand-alurik`** — **LIVE terverifikasi curl** (SW v303, `<title>Alurik</title>`, manifest `"name": "Alurik"`, ikon baru tersaji byte-identik). Yang DIPERTAHANKAN (internal): identifier `id.web.yatno.taskflow`, `taskflow-legacy-cache`, `taskflow.db`, `/TaskFlow/attachments`, `logging.getLogger("taskflow")`, nama service VPS `taskflow`/`taskflow-web` (perintah systemctl di README tetap akurat), path `taskflow-v4/`. Verifikasi: JS 519/519 pass 0 fail; pytest 47/47; check_inline 5/5. Report: `.superpowers/sdd/2026-08-23-rebrand-alurik/task-3-report.md`.
+  - **PENDING user:**
+    1. Hard refresh browser (Ctrl+Shift+R) → tab title & favicon jadi "Alurik", ikon placeholder baru tampil.
+    2. Restart service VPS: `sudo systemctl restart taskflow taskflow-web` — perubahan **webapp.py/bot.py baru aktif setelah restart** (bagian static sudah aktif seketika); kalau VPS `.env` set `SMTP_FROM` eksplisit dengan display name lama, update juga di sana.
+    3. Cek bot Telegram `/start` menampilkan "⚡ Alurik".
+    4. Ikon native Tauri (`src-tauri/icons/*`) menyusul saat build native berikutnya (di luar scope task ini).
+    5. Logo placeholder monogram bisa diganti desain kapan saja (regenerasi 4 file PNG: favicon, icon-32/192/512).
+    6. URL tetap `todo.yatno.web.id` (domain alurik.com belum di-pointing — DNS/HTTPS VPS = langkah terpisah butuh akses user ke Cloudflare/registrar & VPS).
+
+## ✅ FIX Table Toolbar Offset — SELESAI & LIVE 2026-08-23 (Claude, commit `fc00552`, SW v302)
+- Toolbar tabel Milkdown menutupi teks cell; fix `offset.mainAxis: -8 → 6` di `static/index.html:16238` (toolbar 6px DI ATAS cell). JS 513/513 pass 0 fail; pytest 43/43; check_inline 5/5. PENDING user: hard refresh → klik dalam cell tabel → toolbar DI ATAS teks (gap ~6px). Report: `.superpowers/sdd/2026-08-23-table-toolbar-offset/report.md`.
 
 ## ✅ SDD Floating ToC — Task 1 CSS SELESAI 2026-08-23 (Claude, commit `d719c4a`)
 - Konsolidasi CSS floating ToC ala Medium di `static/app.css` (anchor fixed, trigger lingkaran 44/40px, popover absolute buka atas/kiri, `toc-pop-in` opacity-only, `.note-toc-item.active` unscoped tint) + tulis ulang `tests/offline/note_toc.test.js` (TDD: RED 7/7 fail → GREEN 8/8 pass; regresi targeted 3 file app.css 41/41 pass).
@@ -42,8 +51,8 @@
 
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-23 (Claude — SDD Floating ToC Task 3 deploy, commit `bc3601f`)
-**Updated By:** Claude — SDD Floating ToC Task 3 SW bump + deploy + handover (semua commit SDD di-push & LIVE)
+**Last Updated:** 2026-08-23 (Claude — SDD Rebrand Alurik Task 3 deploy, commit `f4f5e7b`)
+**Updated By:** Claude — SDD Rebrand Alurik Task 3 icons + docs + deploy + handover (7 commit rebrand di-push & LIVE, SW v303)
 
 ---
 
