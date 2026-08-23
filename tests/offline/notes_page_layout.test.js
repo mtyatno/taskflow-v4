@@ -115,11 +115,11 @@ test("NotesPage Tablet and Desktop Layout Redesign", async (t) => {
       "NotesPage should render scratchpad-search-input"
     );
 
-    // [ Semua ] chip
+    // "Semua Tags" heading inside the tag popover (the "Semua" chip was removed)
     assert.match(
       notesPageCode,
-      /Semua/,
-      "Filter strip should render 'Semua' filter chip"
+      /Semua Tags/,
+      "Tag popover should render 'Semua Tags' heading"
     );
 
     // Tag Popover toggle button and popover container
@@ -152,43 +152,17 @@ test("NotesPage Tablet and Desktop Layout Redesign", async (t) => {
     );
   });
 
-  await t.test("4. Published & Shared Filter Chips", () => {
-    assert.match(
-      notesPageCode,
-      /Published\s*\(\$\{publishedNotes\.length\}\)|🔗 Published/,
-      "Filter strip should display Published filter chip with count"
-    );
-    assert.match(
-      notesPageCode,
-      /filterPublished/,
-      "NotesPage should have filterPublished state and handling"
-    );
-    assert.match(
-      notesPageCode,
-      /Shared\s*\(\$\{listsWithNotes\.length\}\)|👥 Shared|Shared List/,
-      "Filter strip should display Shared filter chip or list filters"
-    );
-
-    // Published chip should precede Semua chip in the filter strip
-    const publishedIdx = notesPageCode.indexOf("🔗 Published");
-    const semuaIdx = notesPageCode.indexOf('"Semua"');
-    assert.ok(publishedIdx !== -1, "Published chip should exist");
-    assert.ok(semuaIdx !== -1, "Semua chip should exist");
-    assert.ok(publishedIdx < semuaIdx, "Published filter chip should be placed before 'Semua' chip in filter strip");
+  await t.test("4. Published & Shared Filter Pills Removed (replaced by tabs)", () => {
+    assert.strictEqual(notesPageCode.includes("filterPublished"), false, "filterPublished state should be removed");
+    assert.strictEqual(notesPageCode.includes("filterListId"), false, "filterListId state should be removed");
+    assert.strictEqual(notesPageCode.includes("🔗 Published"), false, "Published pill should be removed");
+    assert.strictEqual(notesPageCode.includes("👥 Shared"), false, "Shared pill should be removed");
   });
 
-  await t.test("5. Pinned Notes Accordion", () => {
-    // Disematkan accordion header and count
-    assert.match(
-      notesPageCode,
-      /📌 Disematkan\s*\(\$\{pinned\.length\}\)|Disematkan\s*\(\$\{pinned\.length\}\)|Disematkan/,
-      "Pinned section should render header with pinned count"
-    );
-    assert.match(
-      notesPageCode,
-      /pinnedExpanded/,
-      "NotesPage should manage pinnedExpanded state"
-    );
+  await t.test("5. Pinned Accordion Removed (replaced by Pinned tab)", () => {
+    assert.strictEqual(notesPageCode.includes("pinnedExpanded"), false, "pinnedExpanded state should be removed");
+    assert.strictEqual(notesPageCode.includes("pinned-note-item"), false, "pinned accordion items should be removed");
+    assert.strictEqual(notesPageCode.includes("📌 Disematkan"), false, "Disematkan accordion header should be removed");
   });
 
   await t.test("6. Full-Width Collapse Behavior & Sidebar Toggle", () => {
@@ -256,5 +230,53 @@ test("Notes sidebar tabs — CSS segmented & flex zone", async (t) => {
   await t.test("zona kontrol tidak menyusut, list dapat sisa ruang", () => {
     assert.match(appCss, /\.notes-left\s*>\s*\*:not\(\.notes-left-inner\)\s*\{\s*flex-shrink:\s*0/, "zona kontrol flex-shrink: 0");
     assert.match(appCss, /\.notes-left-inner\s*\{[^}]*min-height:\s*0/, ".notes-left-inner wajib min-height: 0");
+  });
+});
+
+test("Notes sidebar tabs — struktur JSX & state", async (t) => {
+  // Extract NotesPage component code (anchored to the NotesPage definition)
+  const notesPageMatch = indexHtml.match(/function NotesPage\(\{[\s\S]*?^function /m);
+  const notesPageCode = notesPageMatch ? notesPageMatch[0] : "";
+  assert.ok(notesPageCode.length > 0, "NotesPage function should be present in static/index.html");
+
+  await t.test("state notesTab menggantikan filter lama", () => {
+    assert.match(notesPageCode, /const \[notesTab, setNotesTab\] = React\.useState\("all"\)/, "state notesTab default all");
+    assert.strictEqual(notesPageCode.includes("filterPublished"), false, "filterPublished harus hilang");
+    assert.strictEqual(notesPageCode.includes("filterListId"), false, "filterListId harus hilang");
+    assert.strictEqual(notesPageCode.includes("pinnedExpanded"), false, "pinnedExpanded harus hilang");
+  });
+
+  await t.test("4 tab segmented dengan label benar", () => {
+    assert.ok(notesPageCode.includes('className: "notes-tabs"'), "baris .notes-tabs ada");
+    for (const label of ["All", "Pinned", "Pub", "Shared"]) {
+      assert.ok(notesPageCode.includes(`"${label}"`), `label tab ${label} ada`);
+    }
+    assert.match(notesPageCode, /handleTabChange\(/, "handler handleTabChange terpakai");
+  });
+
+  await t.test("pills lama hilang dari baris tags", () => {
+    assert.strictEqual(notesPageCode.includes("isAllActive"), false, "pill Semua hilang");
+    assert.strictEqual(notesPageCode.includes("filterPublished ? ' active'"), false, "pill Published hilang");
+    assert.strictEqual(notesPageCode.includes("pinned-note-item"), false, "accordion pinned hilang");
+  });
+
+  await t.test("applyFilters tab-aware (tab ∩ tags ∩ search)", () => {
+    assert.match(notesPageCode, /tab === "pinned"\)\s*result = result\.filter\(n => n\.pinned\)/, "tab pinned filter n.pinned");
+    assert.match(notesPageCode, /tab === "pub"\)\s*result = result\.filter\(n => publishedNoteIds\.has\(n\.id\)\)/, "tab pub pakai publishedNoteIds");
+    assert.match(notesPageCode, /tab === "shared"\)\s*result = result\.filter\(n => n\.list_id\s*&&\s*sharedListIds\.has\(n\.list_id\)\)/, "tab shared pakai sharedListIds");
+  });
+
+  await t.test("empty state per tab", () => {
+    assert.ok(notesPageCode.includes("Belum ada catatan yang di-pin"), "empty pinned");
+    assert.ok(notesPageCode.includes("Belum ada catatan yang di-publish"), "empty pub");
+    assert.ok(notesPageCode.includes("Belum ada catatan yang di-share"), "empty shared");
+  });
+
+  await t.test("header berisi count + sort (subheader lama hilang)", () => {
+    assert.match(notesPageCode, /Catatan \(\$\{sortedNotes\.length\}\)/, "count di header");
+    // subheader lama: pattern lama `marginBottom: 6` + sort select sebagai baris sendiri dihapus —
+    // asersi: hanya SATU kemunculan select sort (regex count):
+    const sortCount = (notesPageCode.match(/value:\s*sortBy/g) || []).length;
+    assert.strictEqual(sortCount, 1, "select sort hanya 1 (di header)");
   });
 });

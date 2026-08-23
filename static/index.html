@@ -20631,13 +20631,11 @@ function NotesPage({
   const [tagsOpen, setTagsOpen] = useState(true);
   const [publishedOpen, setPublishedOpen] = useState(true);
   const [sortBy, setSortBy] = useState("updated");
-  const [pinnedExpanded, setPinnedExpanded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchTagsCollapsed, setSearchTagsCollapsed] = useState(false);
   const [notesListCollapsed, setNotesListCollapsed] = useState(false);
   const [filterUntagged, setFilterUntagged] = useState(false);
-  const [filterPublished, setFilterPublished] = useState(false);
-  const [filterListId, setFilterListId] = useState(null);
+  const [notesTab, setNotesTab] = React.useState("all");
   const [publishedNotes, setPublishedNotes] = useState([]);
   const [allTagsPopoverOpen, setAllTagsPopoverOpen] = useState(false);
   const tagPopoverRef = useRef(null);
@@ -20682,7 +20680,9 @@ function NotesPage({
 
   // Static version (no closure dep) used inside async fetchNotes
   const publishedNoteIds = React.useMemo(() => new Set(publishedNotes.map(p => p.note_id)), [publishedNotes]);
-  const applyFiltersStatic = (query, tags, base, untagged = false, listId = null, published = false) => {
+  const listsWithNotes = sharedLists.filter(l => allNotes.some(n => n.list_id === l.id));
+  const sharedListIds = React.useMemo(() => new Set(listsWithNotes.map(l => l.id)), [listsWithNotes]);
+  const applyFiltersStatic = (query, tags, base, untagged = false, tab = "all") => {
     const syntaxTags = [...query.matchAll(/\btag:(\S+)/gi)].map(m => m[1].toLowerCase());
     const cleanQuery = query.replace(/\btag:\S+/gi, "").trim();
     const allTags = [...new Set([...tags, ...syntaxTags])];
@@ -20690,24 +20690,25 @@ function NotesPage({
     for (const tag of allTags) result = result.filter(n => (n.tags || []).map(t => t.toLowerCase()).includes(tag));
     if (cleanQuery) result = result.filter(n => n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) || n.content?.toLowerCase().includes(cleanQuery.toLowerCase()));
     if (untagged) result = result.filter(n => (n.tags || []).length === 0);
-    if (listId) result = result.filter(n => n.list_id === listId);
-    if (published) result = result.filter(n => publishedNoteIds.has(n.id));
+    if (tab === "pinned") result = result.filter(n => n.pinned);
+    if (tab === "pub") result = result.filter(n => publishedNoteIds.has(n.id));
+    if (tab === "shared") result = result.filter(n => n.list_id && sharedListIds.has(n.list_id));
     return result;
   };
-  const fetchNotes = async (filterQ = "", filterTags = [], untagged = false, listId = null, published = false) => {
+  const fetchNotes = async (filterQ = "", filterTags = [], untagged = false, tab = "all") => {
     // stale-while-revalidate: show cache immediately, fetch in background
-    const hasFilter = filterQ || filterTags.length || untagged || listId || published;
+    const hasFilter = filterQ || filterTags.length || untagged || tab !== "all";
     const cached = (await OfflineDB.cacheGet("scratchpad_notes")) || [];
     if (cached.length) {
       setAllNotes(cached);
-      setNotes(hasFilter ? applyFiltersStatic(filterQ, filterTags, cached, untagged, listId, published) : cached);
+      setNotes(hasFilter ? applyFiltersStatic(filterQ, filterTags, cached, untagged, tab) : cached);
       setLoading(false);
     }
     try {
       const data = await api.get("/api/scratchpad");
       await OfflineDB.cacheSet("scratchpad_notes", data);
       setAllNotes(data);
-      setNotes(hasFilter ? applyFiltersStatic(filterQ, filterTags, data, untagged, listId, published) : data);
+      setNotes(hasFilter ? applyFiltersStatic(filterQ, filterTags, data, untagged, tab) : data);
     } catch (e) {
       if (!cached.length) setNotes([]);
     }
@@ -20742,10 +20743,10 @@ function NotesPage({
     setPanelOutlinks(outs);
   }, [activeTabId, getActiveNote()?.content, allNotes]);
   useEffect(() => {
-    const handler = () => fetchNotes(q, activeTags, filterUntagged);
+    const handler = () => fetchNotes(q, activeTags, filterUntagged, notesTab);
     window.addEventListener("noteSaved", handler);
     return () => window.removeEventListener("noteSaved", handler);
-  }, [q, activeTags, filterUntagged]);
+  }, [q, activeTags, filterUntagged, notesTab]);
   useEffect(() => {
     const handler = () => {
       const active = getActiveNote();
@@ -20808,7 +20809,7 @@ function NotesPage({
       syntaxTags
     };
   };
-  const applyFilters = (query, tags, base, untagged = false, listId = null, published = false) => {
+  const applyFilters = (query, tags, base, untagged = false, tab = "all") => {
     const {
       cleanQuery,
       syntaxTags
@@ -20820,35 +20821,30 @@ function NotesPage({
     }
     if (cleanQuery) result = result.filter(n => n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) || n.content?.toLowerCase().includes(cleanQuery.toLowerCase()));
     if (untagged) result = result.filter(n => (n.tags || []).length === 0);
-    if (listId) result = result.filter(n => n.list_id === listId);
-    if (published) result = result.filter(n => publishedNoteIds.has(n.id));
+    if (tab === "pinned") result = result.filter(n => n.pinned);
+    if (tab === "pub") result = result.filter(n => publishedNoteIds.has(n.id));
+    if (tab === "shared") result = result.filter(n => n.list_id && sharedListIds.has(n.list_id));
     return result;
   };
   const handleSearch = val => {
     setQ(val);
-    setNotes(applyFilters(val, activeTags, allNotes, filterUntagged, filterListId, filterPublished));
+    setNotes(applyFilters(val, activeTags, allNotes, filterUntagged, notesTab));
   };
   const handleTagFilter = tag => {
     setFilterUntagged(false);
     const next = activeTags.includes(tag) ? activeTags.filter(t => t !== tag) : [...activeTags, tag];
     setActiveTags(next);
-    setNotes(applyFilters(q, next, allNotes, false, filterListId, filterPublished));
+    setNotes(applyFilters(q, next, allNotes, false, notesTab));
   };
   const handleUntaggedFilter = () => {
     const next = !filterUntagged;
     setFilterUntagged(next);
     if (next) setActiveTags([]);
-    setNotes(applyFilters(q, [], allNotes, next, filterListId, filterPublished));
+    setNotes(applyFilters(q, [], allNotes, next, notesTab));
   };
-  const handleListFilter = listId => {
-    const next = filterListId === listId ? null : listId;
-    setFilterListId(next);
-    setNotes(applyFilters(q, activeTags, allNotes, filterUntagged, next, filterPublished));
-  };
-  const handlePublishedFilter = () => {
-    const next = !filterPublished;
-    setFilterPublished(next);
-    setNotes(applyFilters(q, activeTags, allNotes, filterUntagged, filterListId, next));
+  const handleTabChange = tab => {
+    setNotesTab(tab);
+    setNotes(applyFilters(q, activeTags, allNotes, filterUntagged, tab));
   };
   const allTags = tagList.map(t => t.name);
   const maxTagCount = Math.max(...tagList.map(t => t.count || 0), 1);
@@ -20875,7 +20871,7 @@ function NotesPage({
         showToast("✅ Catatan dibuat");
         result = created;
       }
-      await fetchNotes(q, activeTags, filterUntagged);
+      await fetchNotes(q, activeTags, filterUntagged, notesTab);
       window.dispatchEvent(new CustomEvent("noteSaved"));
       return result;
     } catch (e) {
@@ -20926,7 +20922,7 @@ function NotesPage({
     try {
       await api.del(`/api/scratchpad/${id}`);
       showToast("🗑 Catatan dihapus");
-      fetchNotes(q, activeTags, filterUntagged);
+      fetchNotes(q, activeTags, filterUntagged, notesTab);
       setActiveTags([]);
     } catch (e) {
       if (isOfflineErr(e)) {
@@ -20965,7 +20961,7 @@ function NotesPage({
       const updated = await api.patch(`/api/scratchpad/${id}/pin`, {});
       const refresh = allNotes.map(n => n.id === id ? updated : n);
       setAllNotes(refresh);
-      setNotes(applyFilters(q, activeTags, refresh, filterUntagged, null, filterPublished));
+      setNotes(applyFilters(q, activeTags, refresh, filterUntagged, notesTab));
     } catch (e) {
       showToast(e.message, "error");
     }
@@ -21045,6 +21041,25 @@ function NotesPage({
           onClick: openNew,
           style: { padding: "4px 10px", fontSize: 12, height: 28, display: "inline-flex", alignItems: "center" }
         }, "+ Baru"),
+        /*#__PURE__*/React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", flex: 1, marginLeft: 4, whiteSpace: "nowrap" } }, `Catatan (${sortedNotes.length})`),
+        /*#__PURE__*/React.createElement("select", {
+          value: sortBy,
+          onChange: e => setSortBy(e.target.value),
+          style: {
+            fontSize: 11,
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            padding: "2px 6px",
+            background: "var(--bg-primary)",
+            color: "var(--text-secondary)",
+            cursor: "pointer"
+          }
+        },
+          /*#__PURE__*/React.createElement("option", { value: "updated" }, "Terbaru"),
+          /*#__PURE__*/React.createElement("option", { value: "created" }, "Terlama"),
+          /*#__PURE__*/React.createElement("option", { value: "alpha" }, "A–Z"),
+          /*#__PURE__*/React.createElement("option", { value: "links" }, "Terbanyak link")
+        ),
         /*#__PURE__*/React.createElement("button", {
           className: "btn btn-icon btn-sm",
           onClick: () => setSidebarCollapsed(true),
@@ -21098,7 +21113,7 @@ function NotesPage({
         q && /*#__PURE__*/React.createElement("button", {
           onClick: () => {
             setQ("");
-            setNotes(applyFilters("", activeTags, allNotes, filterUntagged, filterListId, filterPublished));
+            setNotes(applyFilters("", activeTags, allNotes, filterUntagged, notesTab));
           },
           style: {
             background: 'none',
@@ -21112,12 +21127,10 @@ function NotesPage({
         }, "✕")
       ),
       (() => {
-        const isAllActive = activeTags.length === 0 && !filterUntagged && !filterPublished && !filterListId;
         const sorted = [...tagList].sort((a, b) => (b.count || 0) - (a.count || 0));
         const topTags = sorted.slice(0, 2);
         const remainingTags = sorted.slice(2);
         const untaggedCount = allNotes.filter(n => (n.tags || []).length === 0).length;
-        const listsWithNotes = sharedLists.filter(l => allNotes.some(n => n.list_id === l.id));
 
         return /*#__PURE__*/React.createElement("div", {
           style: { position: "relative", marginBottom: 6, flexShrink: 0 },
@@ -21137,26 +21150,6 @@ function NotesPage({
               alignItems: "center"
             }
           },
-            publishedNotes.length > 0 && /*#__PURE__*/React.createElement("span", {
-              onClick: handlePublishedFilter,
-              className: `tag-pill${filterPublished ? ' active' : ''}`,
-              style: {
-                cursor: 'pointer',
-                flexShrink: 0,
-                ...(!filterPublished ? { border: '1px dashed var(--accent)', background: 'transparent', color: 'var(--accent)', fontWeight: 600 } : {})
-              }
-            }, `🔗 Published (${publishedNotes.length})`),
-            /*#__PURE__*/React.createElement("span", {
-              onClick: () => {
-                setActiveTags([]);
-                setFilterUntagged(false);
-                setFilterPublished(false);
-                setFilterListId(null);
-                setNotes(applyFilters(q, [], allNotes, false, null, false));
-              },
-              className: `tag-pill${isAllActive ? ' active' : ''}`,
-              style: { cursor: 'pointer', flexShrink: 0 }
-            }, "Semua"),
             topTags.map(t => {
               const isActive = activeTags.includes(t.name) || parseQuery(q).syntaxTags.includes(t.name);
               return /*#__PURE__*/React.createElement("span", {
@@ -21178,18 +21171,7 @@ function NotesPage({
                 color: allTagsPopoverOpen ? '#111' : undefined,
                 border: '1px solid var(--border)'
               }
-            }, `🏷️ +${remainingTags.length} Tags ▾`),
-            listsWithNotes.length > 0 && /*#__PURE__*/React.createElement("span", {
-              onClick: () => {
-                if (filterListId) {
-                  handleListFilter(filterListId);
-                } else {
-                  handleListFilter(listsWithNotes[0].id);
-                }
-              },
-              className: `tag-pill${filterListId ? ' active' : ''}`,
-              style: { cursor: 'pointer', flexShrink: 0 }
-            }, `👥 Shared (${listsWithNotes.length})`)
+            }, `🏷️ +${remainingTags.length} Tags ▾`)
           ),
           allTagsPopoverOpen && /*#__PURE__*/React.createElement("div", {
             ref: tagPopoverRef,
@@ -21224,7 +21206,7 @@ function NotesPage({
                 onClick: () => {
                   setActiveTags([]);
                   setFilterUntagged(false);
-                  setNotes(applyFilters(q, [], allNotes, false, null, filterPublished));
+                  setNotes(applyFilters(q, [], allNotes, false, notesTab));
                 },
                 style: { cursor: "pointer", color: "var(--accent)" }
               }, "Reset")
@@ -21267,111 +21249,13 @@ function NotesPage({
           )
         );
       })(),
-      (() => {
-        const pinned = allNotes.filter(n => n.pinned);
-        if (pinned.length === 0) return null;
-        const visible = pinnedExpanded ? pinned : pinned.slice(0, 3);
-        const hasMore = pinned.length > 3;
-        return /*#__PURE__*/React.createElement("div", {
-          style: {
-            flexShrink: 0,
-            marginBottom: 8,
-            borderBottom: "1px solid var(--border)",
-            paddingBottom: 8
-          }
-        },
-          /*#__PURE__*/React.createElement("div", {
-            onClick: () => setPinnedExpanded(e => !e),
-            style: {
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              fontSize: 10,
-              fontWeight: 700,
-              color: "var(--text-light)",
-              textTransform: "uppercase",
-              letterSpacing: 1,
-              marginBottom: 4,
-              cursor: "pointer",
-              userSelect: "none"
-            }
-          },
-            /*#__PURE__*/React.createElement("span", null,
-              /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 12, style: { marginRight: 5 } }),
-              `📌 Disematkan (${pinned.length})`
-            ),
-            /*#__PURE__*/React.createElement("span", { style: { fontSize: 9 } }, pinnedExpanded ? "▲" : "▼")
-          ),
-          /*#__PURE__*/React.createElement("div", {
-            className: pinnedExpanded ? "pinned-list-expanded" : ""
-          }, visible.map(n => /*#__PURE__*/React.createElement("div", {
-            key: n.id,
-            className: `pinned-note-item${getActiveNote()?.id === n.id ? " active" : ""}`,
-            onClick: () => openTab(n),
-            title: n.title || "(tanpa judul)"
-          },
-            /*#__PURE__*/React.createElement("span", { className: "pinned-note-icon" },
-              /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 13 })
-            ),
-            /*#__PURE__*/React.createElement("span", { className: "pinned-note-text" },
-              n.title || n.content.slice(0, 50) || "(tanpa judul)"
-            ),
-            (n.tags || []).length > 0 && /*#__PURE__*/React.createElement("span", { className: "pinned-note-tags" },
-              (n.tags || []).slice(0, 2).map(tag => /*#__PURE__*/React.createElement("span", {
-                key: tag,
-                className: "pinned-note-tag-dot",
-                title: `#${tag}`
-              }))
-            )
-          ))),
-          hasMore && /*#__PURE__*/React.createElement("span", {
-            onClick: () => setPinnedExpanded(e => !e),
-            style: {
-              fontSize: 11,
-              color: "var(--accent)",
-              cursor: "pointer",
-              marginTop: 4,
-              display: "inline-block"
-            }
-          }, pinnedExpanded ? "Sembunyikan ▲" : `+${pinned.length - 3} lainnya ▼`)
-        );
-      })(),
       /*#__PURE__*/React.createElement("div", {
-        style: {
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 6,
-          flexShrink: 0
-        }
+        className: "notes-tabs"
       },
-        /*#__PURE__*/React.createElement("span", {
-          style: {
-            fontSize: 11,
-            fontWeight: 700,
-            color: "var(--text-light)",
-            textTransform: "uppercase",
-            letterSpacing: "0.8px"
-          }
-        }, `Catatan (${sortedNotes.length})`),
-        /*#__PURE__*/React.createElement("select", {
-          value: sortBy,
-          onChange: e => setSortBy(e.target.value),
-          style: {
-            fontSize: 11,
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            padding: "2px 6px",
-            background: "var(--bg-primary)",
-            color: "var(--text-secondary)",
-            cursor: "pointer"
-          }
-        },
-          /*#__PURE__*/React.createElement("option", { value: "updated" }, "Terbaru"),
-          /*#__PURE__*/React.createElement("option", { value: "created" }, "Terlama"),
-          /*#__PURE__*/React.createElement("option", { value: "alpha" }, "A–Z"),
-          /*#__PURE__*/React.createElement("option", { value: "links" }, "Terbanyak link")
-        )
+        /*#__PURE__*/React.createElement("button", { type: "button", className: `notes-tab${notesTab === "all" ? " active" : ""}`, onClick: () => handleTabChange("all") }, "All"),
+        /*#__PURE__*/React.createElement("button", { type: "button", className: `notes-tab${notesTab === "pinned" ? " active" : ""}`, onClick: () => handleTabChange("pinned") }, "Pinned"),
+        /*#__PURE__*/React.createElement("button", { type: "button", className: `notes-tab${notesTab === "pub" ? " active" : ""}`, onClick: () => handleTabChange("pub") }, "Pub"),
+        /*#__PURE__*/React.createElement("button", { type: "button", className: `notes-tab${notesTab === "shared" ? " active" : ""}`, onClick: () => handleTabChange("shared") }, "Shared")
       ),
       /*#__PURE__*/React.createElement("div", {
         className: "notes-left-inner",
@@ -21390,7 +21274,7 @@ function NotesPage({
             padding: 40,
             fontSize: 13
           }
-        }, filterUntagged ? "Tidak ada catatan tanpa tag." : activeTags.length > 0 ? `Tidak ada catatan dengan tag ${activeTags.map(t => "#" + t).join(" + ")}` : q ? "Tidak ada catatan yang cocok." : "Belum ada catatan. Tulis sesuatu!") : sortedNotes.map(n => {
+        }, filterUntagged ? "Tidak ada catatan tanpa tag." : activeTags.length > 0 ? `Tidak ada catatan dengan tag ${activeTags.map(t => "#" + t).join(" + ")}` : q ? "Tidak ada catatan yang cocok." : notesTab === "pinned" ? "Belum ada catatan yang di-pin." : notesTab === "pub" ? "Belum ada catatan yang di-publish." : notesTab === "shared" ? "Belum ada catatan yang di-share." : "Belum ada catatan. Tulis sesuatu!") : sortedNotes.map(n => {
           const outCount = (n.linked_to || []).length;
           const inCount = inCountMap[n.id] || 0;
           const isSelected = getActiveNote()?.id === n.id;
