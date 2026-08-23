@@ -6,6 +6,11 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🔴 SDD Rebrand TaskFlow → Alurik — Task 1 frontend strings SELESAI 2026-08-23 (Claude, commit `b4acbe9`)
+- Semua string user-visible "TaskFlow" → "Alurik": `static/index.html` (title, apple-title, nama file export `alurik-export-`, 4× header auth "⚡ Alurik", brand sidebar, footer print note, deskripsi tour), `static/manifest.json` (name/short_name/description), komentar Driver.js di `static/app.css`. SW bump **`taskflow-v303-rebrand-alurik`**.
+- Identifier internal TETAP: `taskflow-legacy-cache` (index.html:290), DB `taskflow-offline`, package id `id.web.yatno.taskflow`. Test regresi baru `tests/offline/rebrand.test.js` (6/6) — TDD RED (5 fail/1 pass) → GREEN; check_inline 5/5; full suite 519/519 pass 0 fail.
+- **TIDAK di-push** (push/deploy = Task 3). NEXT = Task 2 (backend strings — independen). Report: `.superpowers/sdd/2026-08-23-rebrand-alurik/task-1-report.md`.
+
 ## 🟢 Active Task
 - **FIX Table Toolbar Offset menutupi teks cell — SELESAI & LIVE 2026-08-23 (Claude)**: Toolbar tabel Milkdown (`tableToolbarPair` TooltipProvider) menutupi teks cell tabel tempat kursor. Root cause: tanda offset terbalik — `offset: { mainAxis: -8 }` di `static/index.html:16238`; Floating UI placement default "top" (mainAxis positif = naik menjauh dari reference), jadi -8 justru turun 8px menutupi teks. Fix: `mainAxis: 6` → toolbar 6px DI ATAS cell. Commit `fc00552`; SW cache **`taskflow-v302-table-toolbar-offset`** — LIVE terverifikasi curl (SW v302 + `mainAxis: 6`). TDD: 1 subtest baru `tests/offline/table_resizing.test.js` (RED `-8 !== 6` → GREEN 26/26); JS penuh 513/513 pass 0 fail; pytest 43/43; check_inline 5/5. Report: `.superpowers/sdd/2026-08-23-table-toolbar-offset/report.md`.
   - **PENDING user:** hard refresh (Ctrl+Shift+R) → buka note → klik dalam cell tabel → toolbar muncul DI ATAS teks cell (gap ~6px), tidak menutupi.
