@@ -7,18 +7,8 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
-- **SDD Floating ToC ala Medium — SELESAI & LIVE 2026-08-23 (Claude)**: ToC note kini floating ala Medium di NotePanel — kolom TOC statis lama dihapus, artikel full-width. Commits: `d719c4a` (CSS), `6e23e93` (NotePanel JSX + scroll-spy), `bc3601f` (SW bump). SW cache live: **`taskflow-v301-toc-zindex-fix`**. (Blank-page fix `38cd66f` sebelumnya — duplikat baris pembuka + paren imbalance — sudah selesai & ter-inkorporasi.)
-  - **Final review FIX WAVE SELESAI 2026-08-23 (commit `62cbb4b`, LIVE, Claude)**: F1 z-index anchor 60→45 (di bawah modal-overlay 50 / fab 50, di atas sidebar 40 — tombol ToC tak lagi di atas backdrop modal); F2 scroll-spy reset `setTocActiveIdx(null)` baris pertama effect (anti stale highlight saat ganti note). TDD: 2 test baru (RED 14 pass/4 fail → GREEN 18/18); JS penuh 512/512 (0 fail); pytest 43/43; check_inline 5/5; live curl: SW v301 + `z-index: 45` + reset line 1×. Report: `.superpowers/sdd/2026-08-23-floating-toc-fly/task-fix-wave-report.md`. Semua finding final review (1 Important + 1 minor) ADDRESSED — fitur dianggap SELESAI penuh.
-  - Trigger lingkaran 📑 (44/40px) fixed di kanan-tengah layar; popover `floating-toc-popover` membuka ke kiri (desktop) / ke atas (mobile), animasi `toc-pop-in` opacity-only; scroll-spy IntersectionObserver (rootMargin -15%/-60%) menandai `.note-toc-item.active` mengikuti section; klik item → smooth scroll + popover tutup; klik luar → tutup.
-  - Verifikasi: node --check sw.js OK; JS suite penuh 510/510 pass 0 fail (exit 0); pytest tests/ 43/43; check_inline 5/5; live curl: SW v300 + `floating-toc-anchor` (1×) + `toc-pop-in` (2×).
-  - **PENDING user device-test checklist:**
-    1. Desktop buka note dengan ≥2 heading → lingkaran 📑 muncul di kanan-tengah layar; artikel full-width (tidak ada baris tombol inline).
-    2. Klik lingkaran → popover membuka ke kiri; scroll artikel → item aktif ter-highlight mengikuti section.
-    3. Klik item → lompat mulus ke section, popover tertutup.
-    4. Klik di luar popover → menutup.
-    5. Mobile → FAB 📑 kecil di atas FAB + Buat Baru; popover membuka ke atas.
-    6. Dark mode → tombol & popover konsisten (bg-card/border).
-    7. Hard refresh (Ctrl+Shift+R) — SW cache lama menyajikan aset lama sampai SW baru aktif.
+- **FIX Table Toolbar Offset menutupi teks cell — SELESAI & LIVE 2026-08-23 (Claude)**: Toolbar tabel Milkdown (`tableToolbarPair` TooltipProvider) menutupi teks cell tabel tempat kursor. Root cause: tanda offset terbalik — `offset: { mainAxis: -8 }` di `static/index.html:16238`; Floating UI placement default "top" (mainAxis positif = naik menjauh dari reference), jadi -8 justru turun 8px menutupi teks. Fix: `mainAxis: 6` → toolbar 6px DI ATAS cell. Commit `fc00552`; SW cache **`taskflow-v302-table-toolbar-offset`** — LIVE terverifikasi curl (SW v302 + `mainAxis: 6`). TDD: 1 subtest baru `tests/offline/table_resizing.test.js` (RED `-8 !== 6` → GREEN 26/26); JS penuh 513/513 pass 0 fail; pytest 43/43; check_inline 5/5. Report: `.superpowers/sdd/2026-08-23-table-toolbar-offset/report.md`.
+  - **PENDING user:** hard refresh (Ctrl+Shift+R) → buka note → klik dalam cell tabel → toolbar muncul DI ATAS teks cell (gap ~6px), tidak menutupi.
 
 ## ✅ SDD Floating ToC — Task 1 CSS SELESAI 2026-08-23 (Claude, commit `d719c4a`)
 - Konsolidasi CSS floating ToC ala Medium di `static/app.css` (anchor fixed, trigger lingkaran 44/40px, popover absolute buka atas/kiri, `toc-pop-in` opacity-only, `.note-toc-item.active` unscoped tint) + tulis ulang `tests/offline/note_toc.test.js` (TDD: RED 7/7 fail → GREEN 8/8 pass; regresi targeted 3 file app.css 41/41 pass).
