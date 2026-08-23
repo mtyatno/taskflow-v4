@@ -4,6 +4,19 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-24 02:41] - Claude Code (fix clip 1px note card)
+- **Task:** Fix clip ~1px tepi atas kartu note pertama di list panel kiri saat hover/selected (TDD).
+- **Root Cause:** `.note-card:hover { transform: translateY(-1px) }` mengangkat kartu 1px; `.notes-left-inner` padding-top 0 + `overflow-y: auto` → kartu pertama menempel batas clip scroll container, tepi atasnya terpotong (jelas di border accent kartu selected).
+- **Changes:**
+  - `static/app.css`: 2 baris — `.notes-left-inner` base `padding: 0 16px 16px 0` → `6px 16px 16px 0` (baris 735); override mobile `padding: 0 14px 84px 0 !important` → `6px 14px 84px 0 !important` (baris 852). Tidak ada perubahan lain.
+  - `tests/offline/notes_page_layout.test.js`: subtest baru "scroll list punya padding atas (anti-clip hover lift)" — RED (18 pass/2 fail) → GREEN (20/20).
+  - `static/sw.js`: CACHE bump `taskflow-v306-remove-notes-new-button` → **`taskflow-v307-note-card-clip-fix`** (`node --check` OK).
+  - Verifikasi: full suite `node --test "tests/offline/*.test.js"` **531/531 pass 0 fail** (~152s); LIVE terverifikasi curl (SW v307 + `padding: 6px 16px 16px 0` dan `6px 14px 84px 0 !important` ada di live app.css).
+- **Files Touch:** `static/app.css`, `tests/offline/notes_page_layout.test.js`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed — commit `b4e20d7` (fix) di-push & LIVE; commit `docs(agents)` menyusul untuk `.agents/*`. PENDING user: hard refresh → hover/klik kartu note pertama → border atas utuh.
+
+---
+
 ## [2026-08-23 15:26] - Claude Code (SDD Floating ToC Task 1)
 - **Task:** SDD Floating ToC ala Medium — Task 1: konsolidasi CSS floating ToC di `static/app.css` (TDD).
 - **Changes:**

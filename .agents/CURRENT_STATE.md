@@ -32,6 +32,7 @@
 
 
 ## 🟢 Active Task
+- **Fix clip 1px kartu note pertama — SELESAI & LIVE 2026-08-24 (Claude, commit `b4e20d7` di-push)**: `.note-card:hover { translateY(-1px) }` mengangkat kartu hover 1px; `.notes-left-inner` padding-top 0 + `overflow-y: auto` → tepi atas kartu pertama ter-clip ~1px (jelas di border accent kartu selected). Fix 2 baris `static/app.css`: `.notes-left-inner` base padding `6px 16px 16px 0` (baris 735) + override mobile `6px 14px 84px 0 !important` (baris 852). SW **`taskflow-v307-note-card-clip-fix`** — **LIVE terverifikasi curl** (SW v307; kedua rule padding ada di live app.css). TDD: subtest baru "scroll list punya padding atas (anti-clip hover lift)" di `tests/offline/notes_page_layout.test.js` (RED 18/20 → GREEN 20/20); full suite JS **531/531 pass 0 fail** (~152s). PENDING user: hard refresh (Ctrl+Shift+R) → hover/klik kartu note pertama → border atas utuh.
 - **Hapus tombol + Baru header NotesPage — SELESAI & LIVE 2026-08-24 (Claude, commit `f8ea23f` di-push)**: tombol + Baru di header panel NotesPage dihapus, SW **`taskflow-v306-remove-notes-new-button`**. Topbar global "+ Buat Baru", FAB mobile, dan CTA empty-state `＋ Catatan Baru` TETAP (pembuatan note tak terpengaruh; `openNew` masih terpakai di empty-state). Test: notes_page_layout 19/19 (subtest baru absensi tombol; assertion keberadaan lama dihapus); full suite JS 530/530 pass 0 fail (~145s); check_inline 5/5; LIVE terverifikasi curl (SW v306; `btn btn-sm btn-primary` di live index.html = 0). Report: `.superpowers/sdd/2026-08-24-notes-header-button/report.md`. PENDING user: hard refresh (Ctrl+Shift+R) → header kiri Catatan = `📝 Catatan` + count + sort + ✕.
 - **SDD Notes Sidebar 3-Baris + Tabs — SELESAI & LIVE 2026-08-23 (Claude, 4 commit `d68be18`..`6031293` di-push)**: panel kiri NotesPage jadi 3 baris operasi (header+search, tags, tabs) + daftar note full-scroll. State `filterPublished`/`filterListId`/`pinnedExpanded` → satu **`notesTab`** ("all", component-local tanpa persist); `applyFilters`/`applyFiltersStatic`/`fetchNotes` tab-aware (kombinasi **`tab ∩ tags ∩ search`**, param `tab = "all"`); tab **All/Pinned/Pub/Shared** menggantikan pill Published/Shared + accordion pinned (dihapus total); empty state per tab; header count tunggal `Catatan (${sortedNotes.length})` (title `📝 Catatan` tanpa count); `sharedListIds` Set biasa (useMemo no-op dihapus). CSS: `.notes-tabs`/`.notes-tab`/`.active` segmented (flex:1) + `.notes-left > *:not(.notes-left-inner) { flex-shrink: 0 }` + `.notes-left-inner { min-height: 0 }`. SW **`taskflow-v305-notes-sidebar-tabs`** — **LIVE terverifikasi curl** (SW v305; index.html: container `notes-tabs` + 4 tombol `notes-tab${notesTab === "all"/"pinned"/"pub"/"shared"}`; app.css `notes-tab` ×4). Verifikasi: JS **529/529 pass 0 fail** (~165s); pytest 47/47; check_inline 5/5. Report: `.superpowers/sdd/2026-08-23-notes-sidebar-tabs/task-3-report.md`.
   - **PENDING user (device-test):**
@@ -64,8 +65,8 @@
 
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-23 (Claude — SDD Notes Sidebar 3-Baris + Tabs Task 3 deploy, commit `6031293`)
-**Updated By:** Claude — SDD Notes Sidebar Tabs Task 3 SW bump + deploy + handover (4 commit di-push & LIVE, SW v305)
+**Last Updated:** 2026-08-24 (Claude — fix clip 1px kartu note pertama, commit `b4e20d7`, SW v307 LIVE)
+**Updated By:** Claude — fix clip 1px note card (TDD, SW bump v307, push + live-verified)
 
 ---
 
