@@ -2826,6 +2826,8 @@ function TaskFormModal({
   const noteSavedIdRef = React.useRef(null);
   const [noteDrawingInsertOpen, setNoteDrawingInsertOpen] = useState(false);
   const [noteQuickDrawState, setNoteQuickDrawState] = useState(null);
+  const [notePaperConfig, setNotePaperConfig] = useState({ enabled: false, size: 'A4', orientation: 'portrait' });
+  const notePaperWrapRef = React.useRef(null);
 
   useEffect(() => {
     const handler = e => {
@@ -3392,7 +3394,7 @@ function TaskFormModal({
         var noteTaskIds = extractTaskIdsFromContent(noteForm.content);
         var hdrs = { 'Content-Type': 'application/json' };
         if (typeof __token !== 'undefined' && __token) hdrs['Authorization'] = 'Bearer ' + __token;
-        var createRes = await fetch(apiUrl('/api/scratchpad'), { method: 'POST', headers: hdrs, body: JSON.stringify({ title: noteForm.title, content: noteForm.content, tags: autoTags, linked_task_ids: noteTaskIds, linked_task_id: noteTaskIds[0] || null }) });
+        var createRes = await fetch(apiUrl('/api/scratchpad'), { method: 'POST', headers: hdrs, body: JSON.stringify({ title: noteForm.title, content: noteForm.content, tags: autoTags, linked_task_ids: noteTaskIds, linked_task_id: noteTaskIds[0] || null, meta_json: JSON.stringify({ paper_mode: notePaperConfig }) }) });
         if (createRes.ok) {
           var created = await createRes.json();
           noteId = created.id;
@@ -3595,7 +3597,8 @@ function TaskFormModal({
           content: noteForm.content,
           tags: autoTags,
           linked_task_ids: noteTaskIds,
-          linked_task_id: noteTaskIds[0] || null
+          linked_task_id: noteTaskIds[0] || null,
+          meta_json: JSON.stringify({ paper_mode: notePaperConfig })
         });
         window.dispatchEvent(new CustomEvent("noteSaved"));
         onSave();
@@ -3762,9 +3765,34 @@ function TaskFormModal({
       onInsertTask: openNoteTaskDropdown,
       onInsertDrawing: handleOpenNoteInsertDrawing,
       voiceState: noteVoiceState,
-      onToggleVoice: handleToggleNoteVoice
+      onToggleVoice: handleToggleNoteVoice,
+      paperConfig: notePaperConfig,
+      onPaperConfigChange: setNotePaperConfig
     })), /*#__PURE__*/React.createElement("div", {
-      style: { position: "relative", flex: 1, overflow: "auto", minHeight: 0 }
+      className: notePaperConfig?.enabled ? "paper-mode-active" : "",
+      style: {
+        position: "relative",
+        flex: 1,
+        overflow: "auto",
+        minHeight: 0,
+        ...(notePaperConfig?.enabled ? {
+          "--paper-width": notePaperConfig.orientation === 'landscape' ? 
+                           (notePaperConfig.size === 'A4' ? '297mm' : notePaperConfig.size === 'A3' ? '420mm' : '279.4mm') : 
+                           (notePaperConfig.size === 'A4' ? '210mm' : notePaperConfig.size === 'A3' ? '297mm' : '215.9mm'),
+          "--paper-height": notePaperConfig.orientation === 'landscape' ? 
+                           (notePaperConfig.size === 'A4' ? '210mm' : notePaperConfig.size === 'A3' ? '297mm' : '215.9mm') : 
+                           (notePaperConfig.size === 'A4' ? '297mm' : notePaperConfig.size === 'A3' ? '420mm' : '279.4mm')
+        } : {})
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      ref: notePaperWrapRef,
+      className: "paper-inner-wrap",
+      style: notePaperConfig?.enabled ? {
+        position: "relative",
+        width: "var(--paper-width, 210mm)",
+        margin: "0 auto",
+        flexShrink: 0
+      } : { position: "relative" }
     }, /*#__PURE__*/React.createElement(MilkdownEditor, {
       value: noteForm.content,
       onChange: handleNoteContentChange,
@@ -3775,7 +3803,10 @@ function TaskFormModal({
       onTasklinkClick: function() {},
       onImagePaste: handleNoteImagePaste,
       onInsertDrawing: handleOpenNoteInsertDrawing
-    }), noteTagDropdown && noteTagDropdown.items.length > 0 && /*#__PURE__*/React.createElement("div", {
+    }), notePaperConfig?.enabled && /*#__PURE__*/React.createElement(PaperPageGuides, {
+      rootRef: notePaperWrapRef,
+      paperConfig: notePaperConfig
+    })), noteTagDropdown && noteTagDropdown.items.length > 0 && /*#__PURE__*/React.createElement("div", {
       className: "wiki-autocomplete",
       style: { position: "fixed", top: noteTagDropdown.top, left: noteTagDropdown.left, zIndex: 1050 }
     }, noteTagDropdown.items.map((t, i) => /*#__PURE__*/React.createElement("div", {

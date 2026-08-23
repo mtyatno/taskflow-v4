@@ -7,17 +7,33 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
-- **Milkdown Table Column Resizing & Selection (2026-08-23)**: Added ProseMirror column resizing handles, tableWrapper horizontal scroll overflow, and cell selection styles for WYSIWYG markdown tables in Milkdown note editor. Tested and verified across all unit tests.
+- **TaskFormModal Note Tab Paper Selector & Paper Guides (2026-08-23)**: Added paper mode toggle, paper size/orientation dropdowns (`A4`, `Letter`, `A3`, `Legal`, `portrait`, `landscape`), paper page guides, and `meta_json.paper_mode` persistence to "+ Buat Baru" Note tab (`TaskFormModal`). Verified across full unit test suite.
 
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-23 08:45  
-**Updated By:** Antigravity (Gemini — SDD Implementer Task 2 Table Column Resizing SELESAI)
+**Last Updated:** 2026-08-23 10:25  
+**Updated By:** Antigravity (Gemini — SDD Implementer TaskFormModal Note Paper Selector SELESAI)
 
 ---
 
 ## 📌 Active Task
-- **Milkdown Table Column Resizing & Cell Selection SELESAI 2026-08-23:**
+- **TaskFormModal Note Tab Paper Selector & Paper Guides SELESAI 2026-08-23:**
+  - **Problem / Root Cause:**
+    - Saat membuat catatan baru melalui tombol "+ Buat Baru" di topbar (`TaskFormModal`), komponen `NoteToolbar` dipanggil tanpa props `paperConfig` dan `onPaperConfigChange`. Karena `NoteToolbar` meng-guard tombol `📄 Kertas` dan dropdown ukuran/orientasi kertas dengan `onPaperConfigChange && ...`, opsi mode kertas tidak muncul sama sekali di modal "+ Buat Baru".
+    - Kontainer editor `MilkdownEditor` di `TaskFormModal` juga belum dibungkus styling `paper-mode-active`, `paper-inner-wrap`, CSS variables `--paper-width`/`--paper-height`, dan komponen `PaperPageGuides`.
+    - Penyimpanan catatan baru di `TaskFormModal` belum menyertakan `meta_json: JSON.stringify({ paper_mode: notePaperConfig })`.
+  - **Solusi / Perbaikan:**
+    1. **TaskFormModal State ([`static/index.html`](file:///Z:/Todolist%20Manager%20V5.0/static/index.html)):**
+       - Menambahkan state `notePaperConfig` (`{ enabled: false, size: 'A4', orientation: 'portrait' }`) dan `notePaperWrapRef`.
+       - Meneruskan `paperConfig: notePaperConfig` dan `onPaperConfigChange: setNotePaperConfig` ke `NoteToolbar`.
+       - Membungkus `MilkdownEditor` dengan class `paper-mode-active`, CSS variables `--paper-width`/`--paper-height`, wrapper `paper-inner-wrap` bertarget `notePaperWrapRef`, serta rendering kondisional `PaperPageGuides`.
+       - Menyimpan `meta_json: JSON.stringify({ paper_mode: notePaperConfig })` pada `handleSubmit` dan image-paste fallback creation.
+    2. **TDD Unit Tests ([`tests/offline/note_paper_mode.test.js`](file:///Z:/Todolist%20Manager%20V5.0/tests/offline/note_paper_mode.test.js)):**
+       - Membuat test suite (7/7 tests) yang memvalidasi `TaskFormModal` state, props passing, CSS variables, `paper-inner-wrap`, `PaperPageGuides`, dan `meta_json` saving.
+    3. **SW Cache Bump ([`static/sw.js`](file:///Z:/Todolist%20Manager%20V5.0/static/sw.js)):**
+       - Bump cache ke **`taskflow-v292-taskform-note-paper-selector`**.
+  - All tests passed: 484/484 JS unit tests + 43/43 pytest (0 failures).
+  - **Status:** SELESAI.
   - **Problem / Context:**
     - Di editor Milkdown WYSIWYG, tabel markdown sebelumnya belum memiliki visual column resize handle dan cell selection overlay yang rapi, sehingga pengguna tidak dapat mengatur lebar kolom secara visual atau melihat highlight seleksi sel saat mengedit tabel.
   - **Solusi / Perbaikan:**

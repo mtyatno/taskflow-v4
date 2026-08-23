@@ -4,6 +4,21 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-23 10:25] - Antigravity (Gemini)
+- **Task:** Implement Missing Paper Selector and Paper Guides in `TaskFormModal` Note Tab ("+ Buat Baru") using Subagent-Driven Development.
+- **Summary:**
+  - `static/index.html`:
+    - Added `notePaperConfig` (`{ enabled: false, size: 'A4', orientation: 'portrait' }`) state and `notePaperWrapRef` in `TaskFormModal`.
+    - Passed `paperConfig: notePaperConfig` and `onPaperConfigChange: setNotePaperConfig` to `NoteToolbar`.
+    - Wrapped `MilkdownEditor` with `paper-mode-active` class, CSS custom variables `--paper-width`/`--paper-height`, `paper-inner-wrap` ref wrapper, and rendered `PaperPageGuides`.
+    - Included `meta_json: JSON.stringify({ paper_mode: notePaperConfig })` in scratchpad API creation calls.
+  - `tests/offline/note_paper_mode.test.js`: Created comprehensive unit test suite (7/7 passed).
+  - `static/sw.js`: Bumped SW cache to `taskflow-v292-taskform-note-paper-selector`.
+- **Files Modified:** `static/index.html`, `tests/offline/note_paper_mode.test.js`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (484/484 JS unit tests pass, 43/43 pytest pass, inline scripts syntax OK)
+
+---
+
 ## [2026-08-23 10:05] - Antigravity (Gemini)
 - **Task:** Remove Redundant Bottom Canvas Accordion from Note Editor (`NoteModal`) and Note Viewer (`NoteViewerModal`/`NotePanel`) using Subagent-Driven Development.
 - **Summary:**
