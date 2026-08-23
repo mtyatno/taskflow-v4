@@ -16235,7 +16235,7 @@ function MilkdownEditor({
               const isCellSelection = selection.isRowSelection?.() || selection.isColSelection?.() || (selection.constructor && selection.constructor.name === 'CellSelection');
               return selection.empty || isCellSelection;
             },
-            offset: { mainAxis: -8, crossAxis: 0 }
+            offset: { mainAxis: 6, crossAxis: 0 }
           });
           provider.update(editorView);
           // Update toolbar visibility on every state change

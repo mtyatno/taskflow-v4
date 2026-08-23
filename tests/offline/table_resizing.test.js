@@ -210,6 +210,12 @@ test("static/index.html integrates milkdown.bundle.js and registers columnResizi
       "Expected updateTableToolbar to synchronize visibility with show = inTable && (selection.empty || isCellSelection)"
     );
   });
+
+  await t.test("tableToolbarPair TooltipProvider uses positive mainAxis offset so toolbar floats above the cell text", () => {
+    const m = indexContent.match(/tableToolbarPair\.key[\s\S]*?new\s+MB\.TooltipProvider\(\{[\s\S]*?offset:\s*\{\s*mainAxis:\s*(-?\d+),\s*crossAxis:\s*0\s*\}/);
+    assert.ok(m, "tableToolbarPair harus punya offset mainAxis");
+    assert.strictEqual(parseInt(m[1], 10), 6, "mainAxis harus 6 (positif = naik utk placement top; negatif turun menutupi teks)");
+  });
 });
 
 test("Tooltip and table toolbar shouldShow functional logic", async (t) => {
