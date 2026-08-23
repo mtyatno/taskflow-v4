@@ -340,6 +340,14 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
+## ✅ ADJUSTMENT Reorder Published Filter Button di NotesPage Filter Strip (2026-08-23, Antigravity — SELESAI)
+- **Ringkasan**: Menggeser posisi tombol chip filter `🔗 Published` ke posisi paling kiri di baris filter strip (sebelum tombol `Semua`).
+- **Changes**:
+  - `static/index.html`: Memindahkan elemen chip `🔗 Published` sebelum `Semua` di `NotesPage` dan memperbarui cache stylesheet ke `app.css?v=296`.
+  - `tests/offline/notes_page_layout.test.js`: Menambahkan assertion bahwa `Published` mendahului `Semua`.
+- **SW Cache**: Di-bump ke `taskflow-v296-published-chip-reorder`.
+- **Verifikasi**: JS 494/494 unit tests pass (0 fail), Pytest 43/43 pass (0 fail), Subagent Code Reviewer APPROVED.
+
 ## ✅ FEAT Redesign Halaman Catatan (NotesPage) untuk Tablet & Desktop (2026-08-23, Antigravity — SELESAI)
 - **Ringkasan**: Menata ulang layout `NotesPage` menjadi arsitektur 2-kolom terpadu (Unified Sidebar + Viewer) yang dioptimalkan untuk iPad Pro (vertikal/portrait 768px–1024px), desktop, dan mobile.
 - **Key Improvements**:

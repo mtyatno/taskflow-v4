@@ -4,6 +4,18 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-23 11:55] - Antigravity (Gemini)
+- **Task:** Reorder Published Filter Button in NotesPage Filter Strip.
+- **Summary:**
+  - `static/index.html`: Moved the `🔗 Published` chip to the first (leftmost) position in the filter chip strip, before the `Semua` chip.
+  - `static/index.html`: Updated stylesheet link cache version to `/static/app.css?v=296`.
+  - `tests/offline/notes_page_layout.test.js`: Added assertion confirming `Published` button appears before `Semua` in the filter strip (494/494 passed).
+  - `static/sw.js`: Bumped SW cache to `taskflow-v296-published-chip-reorder`.
+- **Files Modified:** `static/index.html`, `tests/offline/notes_page_layout.test.js`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved by Subagent Reviewer (494/494 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-23 11:30] - Antigravity (Gemini)
 - **Task:** Redesign Notes Page (`NotesPage`) for Tablet & Desktop with Unified Sidebar and Compact Filter Strip.
 - **Summary:**

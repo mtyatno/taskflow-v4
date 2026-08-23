@@ -151,6 +151,13 @@ test("NotesPage Tablet and Desktop Layout Redesign", async (t) => {
       /Shared\s*\(\$\{listsWithNotes\.length\}\)|👥 Shared|Shared List/,
       "Filter strip should display Shared filter chip or list filters"
     );
+
+    // Published chip should precede Semua chip in the filter strip
+    const publishedIdx = notesPageCode.indexOf("🔗 Published");
+    const semuaIdx = notesPageCode.indexOf('"Semua"');
+    assert.ok(publishedIdx !== -1, "Published chip should exist");
+    assert.ok(semuaIdx !== -1, "Semua chip should exist");
+    assert.ok(publishedIdx < semuaIdx, "Published filter chip should be placed before 'Semua' chip in filter strip");
   });
 
   await t.test("5. Pinned Notes Accordion", () => {

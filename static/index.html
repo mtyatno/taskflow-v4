@@ -50,7 +50,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=288"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v=296">
 
 <style>
 .paper-mode-active {
@@ -21072,6 +21072,15 @@ function NotesPage({
               alignItems: "center"
             }
           },
+            publishedNotes.length > 0 && /*#__PURE__*/React.createElement("span", {
+              onClick: handlePublishedFilter,
+              className: `tag-pill${filterPublished ? ' active' : ''}`,
+              style: {
+                cursor: 'pointer',
+                flexShrink: 0,
+                ...(!filterPublished ? { border: '1px dashed var(--accent)', background: 'transparent', color: 'var(--accent)', fontWeight: 600 } : {})
+              }
+            }, `🔗 Published (${publishedNotes.length})`),
             /*#__PURE__*/React.createElement("span", {
               onClick: () => {
                 setActiveTags([]);
@@ -21105,15 +21114,6 @@ function NotesPage({
                 border: '1px solid var(--border)'
               }
             }, `🏷️ +${remainingTags.length} Tags ▾`),
-            publishedNotes.length > 0 && /*#__PURE__*/React.createElement("span", {
-              onClick: handlePublishedFilter,
-              className: `tag-pill${filterPublished ? ' active' : ''}`,
-              style: {
-                cursor: 'pointer',
-                flexShrink: 0,
-                ...(!filterPublished ? { border: '1px dashed var(--accent)', background: 'transparent', color: 'var(--accent)', fontWeight: 600 } : {})
-              }
-            }, `🔗 Published (${publishedNotes.length})`),
             listsWithNotes.length > 0 && /*#__PURE__*/React.createElement("span", {
               onClick: () => {
                 if (filterListId) {
