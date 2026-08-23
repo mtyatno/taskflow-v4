@@ -20410,7 +20410,6 @@ function NotePanel({
       flexShrink: 0
     }
   }, att.file_size > 1048576 ? (att.file_size / 1048576).toFixed(1) + 'MB' : Math.round(att.file_size / 1024) + 'KB'))))), tocItems.length >= 2 && /*#__PURE__*/React.createElement("div", {
-  tocItems.length >= 2 && /*#__PURE__*/React.createElement("div", {
     ref: tocRef,
     style: { position: "relative", display: "inline-block" }
   }, /*#__PURE__*/React.createElement("button", {
@@ -20453,7 +20452,7 @@ function NotePanel({
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     },
     title: item.text
-  }, item.text))))), publishOpen && /*#__PURE__*/React.createElement("div", {
+  }, item.text)))), publishOpen && /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
     onClick: () => setPublishOpen(false)
   }, /*#__PURE__*/React.createElement("div", {
