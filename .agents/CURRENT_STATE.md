@@ -340,6 +340,15 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
+## ✅ FIX Aksesibilitas Filter Strip & Tag Popover di Desktop (2026-08-23, Antigravity — SELESAI)
+- **Ringkasan**: Memperbaiki aksesibilitas tombol `🏷️ +X Tags ▾` dan chip filter lainnya di sidebar desktop yang sebelumnya terpotong dan tidak bisa di-scroll dengan mouse wheel biasa.
+- **Root Cause & Fix**:
+  - Pada browser desktop, mouse wheel standar mengeluarkan event sumbu vertikal (`deltaY`). Container dengan `overflow-x: auto` tanpa scrollbar (`scrollbarWidth: none`) mengabaikan event scroll mouse vertikal.
+  - Menerapkan `flexWrap: "wrap"` pada container filter chip dan membatasi tag teratas ke 2 tag (`sorted.slice(0, 2)`), sehingga seluruh chip filter (Published, Semua, #Tag1, #Tag2, `+X Tags ▾`, Shared) selalu tampak utuh dalam 1–2 baris rapi tanpa tersembunyi.
+  - Menambahkan listener `onWheel` untuk scroll horizontal otomatis dari putaran roda mouse.
+- **SW Cache**: Di-bump ke `taskflow-v297-desktop-filter-wrap-fix`.
+- **Verifikasi**: JS 494/494 unit tests pass (0 fail), Pytest 43/43 pass (0 fail), Subagent Code Reviewer APPROVED.
+
 ## ✅ ADJUSTMENT Reorder Published Filter Button di NotesPage Filter Strip (2026-08-23, Antigravity — SELESAI)
 - **Ringkasan**: Menggeser posisi tombol chip filter `🔗 Published` ke posisi paling kiri di baris filter strip (sebelum tombol `Semua`).
 - **Changes**:

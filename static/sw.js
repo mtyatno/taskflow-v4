@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v296-published-chip-reorder";
+const CACHE = "taskflow-v297-desktop-filter-wrap-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

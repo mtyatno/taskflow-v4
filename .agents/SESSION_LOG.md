@@ -4,6 +4,19 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-23 12:40] - Antigravity (Gemini)
+- **Task:** Fix NotesPage Filter Strip Accessibility & Mouse Wheel Scrolling on Desktop using Subagent-Driven Development.
+- **Root Cause:**
+  - Standard desktop mouse wheels emit vertical `deltaY` events. A single-line container with `overflow-x: auto` and hidden scrollbar (`scrollbarWidth: none`) prevented desktop mouse users from reaching the `🏷️ +X Tags ▾` popover button.
+- **Changes:**
+  - `static/index.html`: Added `flexWrap: "wrap"` so all filter chips (Published, Semua, #Tag1, #Tag2, `+X Tags ▾`, Shared) are always cleanly visible and directly clickable in 1–2 neat compact rows. Added defensive `onWheel` horizontal scroll handler.
+  - `tests/offline/notes_page_layout.test.js`: Added unit tests verifying `flexWrap: "wrap"`, `onWheel` handler, and top 2 tag slice (494/494 passed).
+  - `static/sw.js`: Bumped SW cache to `taskflow-v297-desktop-filter-wrap-fix`.
+- **Files Modified:** `static/index.html`, `tests/offline/notes_page_layout.test.js`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved by Subagent Reviewer (494/494 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-23 11:55] - Antigravity (Gemini)
 - **Task:** Reorder Published Filter Button in NotesPage Filter Strip.
 - **Summary:**

@@ -133,6 +133,23 @@ test("NotesPage Tablet and Desktop Layout Redesign", async (t) => {
       /ref:\s*tagPopoverRef/,
       "Tag popover container should attach tagPopoverRef"
     );
+
+    // Filter strip wrapping and wheel scrolling support
+    assert.match(
+      notesPageCode,
+      /flexWrap:\s*["']wrap["']/,
+      "Filter strip should use flexWrap: 'wrap' for accessibility on desktop sidebars"
+    );
+    assert.match(
+      notesPageCode,
+      /onWheel:\s*\(e\)\s*=>\s*\{[\s\S]*?e\.deltaY[\s\S]*?e\.currentTarget\.scrollLeft\s*\+=\s*e\.deltaY/,
+      "Filter strip should handle onWheel to support horizontal scrolling via vertical mouse wheel"
+    );
+    assert.match(
+      notesPageCode,
+      /const\s+topTags\s*=\s*sorted\.slice\(0,\s*2\)/,
+      "NotesPage should slice top 2 tags to keep filter strip compact"
+    );
   });
 
   await t.test("4. Published & Shared Filter Chips", () => {

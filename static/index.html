@@ -21053,8 +21053,8 @@ function NotesPage({
       (() => {
         const isAllActive = activeTags.length === 0 && !filterUntagged && !filterPublished && !filterListId;
         const sorted = [...tagList].sort((a, b) => (b.count || 0) - (a.count || 0));
-        const topTags = sorted.slice(0, 3);
-        const remainingTags = sorted.slice(3);
+        const topTags = sorted.slice(0, 2);
+        const remainingTags = sorted.slice(2);
         const untaggedCount = allNotes.filter(n => (n.tags || []).length === 0).length;
         const listsWithNotes = sharedLists.filter(l => allNotes.some(n => n.list_id === l.id));
 
@@ -21063,12 +21063,16 @@ function NotesPage({
           "data-tour": "notes-tags"
         },
           /*#__PURE__*/React.createElement("div", {
+            onWheel: (e) => {
+              if (e.deltaY !== 0 && e.currentTarget.scrollWidth > e.currentTarget.clientWidth) {
+                e.currentTarget.scrollLeft += e.deltaY;
+              }
+            },
             style: {
               display: "flex",
+              flexWrap: "wrap",
               gap: 4,
-              overflowX: "auto",
               padding: "2px 0 4px",
-              scrollbarWidth: "none",
               alignItems: "center"
             }
           },
