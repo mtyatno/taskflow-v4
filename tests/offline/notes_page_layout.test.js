@@ -242,3 +242,19 @@ test("NotesPage Tablet and Desktop Layout Redesign", async (t) => {
     );
   });
 });
+
+test("Notes sidebar tabs — CSS segmented & flex zone", async (t) => {
+  await t.test("baris tabs segmented tersedia", () => {
+    assert.ok(appCss.includes(".notes-tabs"), "harus ada .notes-tabs");
+    const m = /\.notes-tab \{([^}]*)\}/.exec(appCss);
+    assert.ok(m, "rule .notes-tab ada");
+    assert.ok(/flex:\s*1/.test(m[1]), "tab flex:1 (equal width segmented)");
+    assert.ok(/cursor:\s*pointer/.test(m[1]), "tab clickable");
+    assert.ok(appCss.includes(".notes-tab.active"), "ada state .notes-tab.active");
+  });
+
+  await t.test("zona kontrol tidak menyusut, list dapat sisa ruang", () => {
+    assert.match(appCss, /\.notes-left\s*>\s*\*:not\(\.notes-left-inner\)\s*\{\s*flex-shrink:\s*0/, "zona kontrol flex-shrink: 0");
+    assert.match(appCss, /\.notes-left-inner\s*\{[^}]*min-height:\s*0/, ".notes-left-inner wajib min-height: 0");
+  });
+});
