@@ -1482,7 +1482,7 @@
     .mk-math-popover-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
     .mk-math-popover-actions button { padding: 4px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); font-weight: 500; }
     .mk-math-popover-actions button.primary { background: var(--accent); color: white; border-color: var(--accent); }
-    /* Driver.js tour overrides — match TaskFlow theme */
+    /* Driver.js tour overrides — match Alurik theme */
     .driver-popover { background: var(--bg-card) !important; border: 1px solid var(--border) !important; border-radius: 12px !important; box-shadow: 0 8px 32px rgba(0,0,0,0.18) !important; max-width: 320px !important; }
     .driver-popover-title { color: var(--accent) !important; font-size: 15px !important; font-weight: 700 !important; font-family: inherit !important; }
     .driver-popover-description { color: var(--text-primary) !important; font-size: 13px !important; line-height: 1.6 !important; font-family: inherit !important; }

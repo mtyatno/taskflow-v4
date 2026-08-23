@@ -1,7 +1,7 @@
 {
-  "name": "TaskFlow V4",
-  "short_name": "TaskFlow",
-  "description": "GTD Task Manager",
+  "name": "Alurik",
+  "short_name": "Alurik",
+  "description": "Semua alur kerjamu — task, catatan, mindmap, & canvas",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

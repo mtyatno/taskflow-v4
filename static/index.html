@@ -6,12 +6,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,opsz,wght@0,6..12,400;0,6..12,500;0,6..12,600;0,6..12,700;1,6..12,400;1,6..12,600&display=swap" rel="stylesheet">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>TaskFlow V4</title>
+  <title>Alurik</title>
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="TaskFlow">
+  <meta name="apple-mobile-web-app-title" content="Alurik">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/icon-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
   <link rel="apple-touch-icon" sizes="192x192" href="/static/icon-192.png">
@@ -410,7 +410,7 @@ async function downloadBackup() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'taskflow-export-' + today + '.zip';
+  a.download = 'alurik-export-' + today + '.zip';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -951,7 +951,7 @@ function LoginPage({
       style: { textAlign: "center", marginBottom: 28 }
     }, /*#__PURE__*/React.createElement("div", {
       style: { fontSize: 32, fontWeight: 700, color: "var(--bg-primary)" }
-    }, "⚡ TaskFlow"), /*#__PURE__*/React.createElement("div", {
+    }, "⚡ Alurik"), /*#__PURE__*/React.createElement("div", {
       style: { fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }
     }, "Lupa Password")), forgotMsg ? /*#__PURE__*/React.createElement("div", {
       style: { textAlign: "center", fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.6 }
@@ -1007,7 +1007,7 @@ function LoginPage({
       fontWeight: 700,
       color: "var(--bg-primary)"
     }
-  }, "\u26A1 TaskFlow"), /*#__PURE__*/React.createElement("div", {
+  }, "\u26A1 Alurik"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 14,
       color: "var(--text-secondary)",
@@ -1110,7 +1110,7 @@ function ResetPasswordPage({
     style: { textAlign: "center", marginBottom: 28 }
   }, /*#__PURE__*/React.createElement("div", {
     style: { fontSize: 32, fontWeight: 700, color: "var(--bg-primary)" }
-  }, "⚡ TaskFlow"), /*#__PURE__*/React.createElement("div", {
+  }, "⚡ Alurik"), /*#__PURE__*/React.createElement("div", {
     style: { fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }
   }, "Reset Password")), done ? /*#__PURE__*/React.createElement("div", {
     style: { textAlign: "center" }
@@ -1204,7 +1204,7 @@ function RegisterPage({
       fontWeight: 700,
       color: "var(--bg-primary)"
     }
-  }, "\u26A1 TaskFlow"), /*#__PURE__*/React.createElement("div", {
+  }, "\u26A1 Alurik"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 14,
       color: "var(--text-secondary)",
@@ -2218,7 +2218,7 @@ function Sidebar({
       alignItems: "center",
       gap: 7
     }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "zap", size: 20, style: { color: "var(--accent)", fill: "var(--accent)" } }), "TaskFlow"), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "zap", size: 20, style: { color: "var(--accent)", fill: "var(--accent)" } }), "Alurik"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: "#888880",
@@ -19580,7 +19580,7 @@ function NotePanel({
     const html = renderMarkdown(note.content || "", titleStrings, allNotes, tasks);
     const el = document.createElement("div");
     el.id = "note-print-area";
-    el.innerHTML = `<table class="print-container"><thead><tr><td><div class="page-header-space"></div></td></tr></thead><tfoot><tr><td><div class="page-footer-space"></div></td></tr></tfoot><tbody><tr><td class="note-content"><div class="npa-title">${note.title || "(tanpa judul)"}</div><div class="npa-meta">${fmtDate(note.updated_at)}</div><div class="note-rendered">${html}</div></td></tr></tbody></table><div class="npa-footer"><span>${note.title || ""}</span><span>TaskFlow V4</span></div>`;
+    el.innerHTML = `<table class="print-container"><thead><tr><td><div class="page-header-space"></div></td></tr></thead><tfoot><tr><td><div class="page-footer-space"></div></td></tr></tfoot><tbody><tr><td class="note-content"><div class="npa-title">${note.title || "(tanpa judul)"}</div><div class="npa-meta">${fmtDate(note.updated_at)}</div><div class="note-rendered">${html}</div></td></tr></tbody></table><div class="npa-footer"><span>${note.title || ""}</span><span>Alurik</span></div>`;
     document.body.appendChild(el);
 
     // Hydrate all drawing SVG previews before printing
@@ -23645,7 +23645,7 @@ function AdminPage({
 
 const TOUR_STEPS = {
   dashboard: [
-    { element: '[data-tour="sidebar-general"]', popover: { title: '🗂️ Menu Utama', description: 'Navigasi utama TaskFlow — Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes & Draw, Mindmap, dan Diskusi. Klik salah satu untuk berpindah halaman.' } },
+    { element: '[data-tour="sidebar-general"]', popover: { title: '🗂️ Menu Utama', description: 'Navigasi utama Alurik — Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes & Draw, Mindmap, dan Diskusi. Klik salah satu untuk berpindah halaman.' } },
     { element: '[data-tour="sidebar-collapse"]', popover: { title: '◀ Collapse Menu', description: 'Klik tombol × ini untuk menyembunyikan sidebar dan mendapatkan area kerja yang lebih luas. Klik tombol ☰ di topbar untuk membukanya kembali.' } },
     { element: '[data-tour="task-gtd"]', popover: { title: '🔄 GTD Menu', description: 'Bagian GTD (Getting Things Done) — Inbox, Next Actions, Waiting For, dan Someday. Metodologi GTD membantu mengelola task berdasarkan konteks dan prioritas.' } },
     { element: '[data-tour="sidebar-shared"]', popover: { title: '👥 Shared List', description: 'Kelola daftar task bersama — buat Shared List baru, undang anggota, atau bergabung ke list milik orang lain. Cocok untuk kolaborasi tim atau keluarga.' } },
