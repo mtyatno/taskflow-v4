@@ -142,5 +142,51 @@ test("static/index.html integrates milkdown.bundle.js and registers columnResizi
       "Expected .use(MB.columnResizingPlugin || []) in MilkdownEditor chain"
     );
   });
+
+  await t.test("unconditionally creates all 9 table toolbar buttons with canonical string command keys", () => {
+    const expectedButtons = [
+      "makeTblBtn('+⇧', 'Add row above', 'AddRowBefore')",
+      "makeTblBtn('+⇩', 'Add row below', 'AddRowAfter')",
+      "makeTblBtn('−⇶', 'Delete row', 'deleteRow')",
+      "makeTblBtn('+⇦', 'Add col left', 'AddColBefore')",
+      "makeTblBtn('+⇨', 'Add col right', 'AddColAfter')",
+      "makeTblBtn('−⇵', 'Delete col', 'deleteCol')",
+      "makeTblBtn('◧', 'Align left', 'SetAlign', 'left')",
+      "makeTblBtn('◰', 'Align center', 'SetAlign', 'center')",
+      "makeTblBtn('◨', 'Align right', 'SetAlign', 'right')",
+    ];
+
+    for (const btn of expectedButtons) {
+      assert.ok(
+        indexContent.includes(btn),
+        `Expected tableToolbarEl to contain button: ${btn}`
+      );
+    }
+
+    // Ensure no ?.key conditional gating exists for table toolbar button creation
+    assert.doesNotMatch(
+      indexContent,
+      /if\s*\(\s*MB\.(?:addRowBeforeCommand|addRowAfterCommand|addColBeforeCommand|addColAfterCommand|setAlignCommand)\?\.key\s*\)/,
+      "Table toolbar buttons should not be conditionally gated with MB.xxxCommand?.key"
+    );
+
+    // Ensure delete action uses string command keys
+    assert.match(
+      indexContent,
+      /ctx\.get\(MB\.commandsCtx\)\?\.call\('SelectRow',\s*\{\s*index:\s*rowIdx\s*\}\)/,
+      "Expected SelectRow string key in deleteRow action"
+    );
+    assert.match(
+      indexContent,
+      /ctx\.get\(MB\.commandsCtx\)\?\.call\('SelectCol',\s*\{\s*index:\s*colIdx\s*\}\)/,
+      "Expected SelectCol string key in deleteCol action"
+    );
+    assert.match(
+      indexContent,
+      /ctx\.get\(MB\.commandsCtx\)\?\.call\('DeleteSelectedCells'\)/,
+      "Expected DeleteSelectedCells string key in delete action"
+    );
+  });
 });
+
 

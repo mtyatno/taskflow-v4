@@ -325,14 +325,14 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 
 
 ## ✅ FIX & FEAT Milkdown Table Interactive Column Resizing & Toolbar Fix (2026-08-23, Antigravity — SELESAI)
-- **Ringkasan**: Memperbaiki hilangnya tombol table toolbar dan mengaktifkan fitur drag-to-resize kolom tabel secara interaktif di editor Milkdown.
+- **Ringkasan**: Memperbaiki hilangnya tombol table toolbar (sebelumnya hanya muncul 2 tombol delete) dan mengaktifkan fitur drag-to-resize kolom tabel secara interaktif di editor Milkdown.
 - **Root Cause & Fixes**:
-  1. *Bundle Rollback Overwrite*: File `static/vendor/milkdown.bundle.js` sebelumnya ter-overwrite oleh bundle versi lama saat debug paste (`commit 92aa125`). Bundle lama tersebut tidak meng-export perintah tabel (`addRowBeforeCommand`, `addRowAfterCommand`, `addColBeforeCommand`, `addColAfterCommand`, `setAlignCommand`) dan `columnResizingPlugin`.
-  2. *Toolbar Icon Visibility*: Pemeriksaan `if (MB.xxxCommand?.key)` pada toolbar tabel sebelumnya bernilai `undefined`, menyembunyikan semua tombol penambahan baris/kolom dan perataan teks.
-  3. *Rebuild & Explicit Registration*: Me-rebuild bundle dari `milkdown-build/entry.js` yang meng-export seluruh perintah dan plugin `prosemirror-tables`, mendaftarkan `.use(MB.columnResizingPlugin || [])` di `MilkdownEditor`, dan menambahkan cache buster `?v=288` pada script tag di `static/index.html`.
+  1. *Lazy Command Key Evaluation*: Di Milkdown v7, `$command(key, cmd)` menghasilkan fungsi plugin async yang mengisi properti `.key` secara lazy saat pipeline editor dijalankan. Pemeriksaan `if (MB.xxxCommand?.key)` pada saat pembuatan DOM toolbar bernilai `undefined`, menyebabkan 7 tombol (tambah baris atas/bawah, tambah kolom kiri/kanan, dan perataan teks) tidak ter-append ke toolbar DOM.
+  2. *Unconditional Canonical String Keys*: Mengganti guard conditional dengan inisialisasi tombol langsung menggunakan string key kanonikal Milkdown (`'AddRowBefore'`, `'AddRowAfter'`, `'AddColBefore'`, `'AddColAfter'`, `'SetAlign'`, `'SelectRow'`, `'SelectCol'`, `'DeleteSelectedCells'`), sehingga ke-9 tombol selalu ter-render dan berfungsi 100%.
+  3. *Vendor Bundle & Plugin Rebuild*: Me-rebuild bundle dari `milkdown-build/entry.js` yang meng-export seluruh perintah dan plugin `prosemirror-tables`, mendaftarkan `.use(MB.columnResizingPlugin || [])` di `MilkdownEditor`, dan menambahkan cache buster `?v=288` pada script tag di `static/index.html`.
   4. *CSS Grip Styling*: Menambahkan styling `.column-resize-handle`, `.resize-cursor`, `.tableWrapper`, dan `.selectedCell:after` di `static/app.css`.
-- **SW Cache**: Di-bump ke `taskflow-v288-milkdown-table-bundle-fix`.
-- **Verifikasi**: JS 463/463 unit tests pass (0 fail), Pytest 43/43 pass (0 fail), Subagent Code Reviewer APPROVED.
+- **SW Cache**: Di-bump ke `taskflow-v289-table-toolbar-buttons-fix`.
+- **Verifikasi**: JS 464/464 unit tests pass (0 fail), Pytest 43/43 pass (0 fail), Subagent Code Reviewer APPROVED.
 
 ## ✅ FIX Milkdown Editor toDOM null Attribute TypeError (2026-08-22, Antigravity — SELESAI)
 - **Ringkasan**: Memperbaiki bug editor blank / tidak ada teks saat membuka catatan akibat `TypeError: Failed to execute 'appendChild' on 'Node': parameter 1 is not of type 'Node'`.

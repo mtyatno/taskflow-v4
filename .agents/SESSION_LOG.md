@@ -4,6 +4,19 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-23 09:25] - Antigravity (Gemini)
+- **Task:** Fix Milkdown Table Toolbar Buttons (Restore All 9 Table Action Buttons) using systematic-debugging and Subagent-Driven Development.
+- **Root Cause:**
+  - `tableToolbarEl` conditionally appended buttons with `if (MB.addRowBeforeCommand?.key)`. In Milkdown v7, `$command` populates `.key` lazily during editor startup, so at initial DOM creation time `MB.addRowBeforeCommand.key` evaluated to `undefined`, hiding 7 buttons and leaving only 2 delete buttons.
+- **Changes:**
+  - `static/index.html`: Unconditionally created all 9 table buttons using canonical string command keys (`'AddRowBefore'`, `'AddRowAfter'`, `'AddColBefore'`, `'AddColAfter'`, `'SetAlign'`, `'SelectRow'`, `'SelectCol'`, `'DeleteSelectedCells'`).
+  - `tests/offline/table_resizing.test.js`: Added unit tests verifying all 9 table toolbar button definitions are present in `static/index.html` without `?.key` conditional gating.
+  - `static/sw.js`: Bumped SW cache to `taskflow-v289-table-toolbar-buttons-fix`.
+- **Files Modified:** `static/index.html`, `tests/offline/table_resizing.test.js`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved by Subagent Reviewer (464/464 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-23 09:10] - Antigravity (Gemini)
 - **Task:** Fix Milkdown Table Bundle Exports & Column Resizing Activation using systematic-debugging and Subagent-Driven Development.
 - **Root Causes:**

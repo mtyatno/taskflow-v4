@@ -16131,8 +16131,8 @@ function MilkdownEditor({
               offset += row.nodeSize;
             });
             if (cmdKey === 'deleteRow') {
-              if (MB.selectRowCommand?.key) ctx.get(MB.commandsCtx)?.call(MB.selectRowCommand.key, { index: rowIdx });
-              if (MB.deleteSelectedCellsCommand?.key) ctx.get(MB.commandsCtx)?.call(MB.deleteSelectedCellsCommand.key);
+              ctx.get(MB.commandsCtx)?.call('SelectRow', { index: rowIdx });
+              ctx.get(MB.commandsCtx)?.call('DeleteSelectedCells');
             } else {
               // Find col index within the current row
               const rowNode = tableNode.child(rowIdx);
@@ -16145,8 +16145,8 @@ function MilkdownEditor({
                 if ($from.pos >= cellOffset && $from.pos < cellOffset + cell.nodeSize) { colIdx = idx; }
                 cellOffset += cell.nodeSize;
               });
-              if (MB.selectColCommand?.key) ctx.get(MB.commandsCtx)?.call(MB.selectColCommand.key, { index: colIdx });
-              if (MB.deleteSelectedCellsCommand?.key) ctx.get(MB.commandsCtx)?.call(MB.deleteSelectedCellsCommand.key);
+              ctx.get(MB.commandsCtx)?.call('SelectCol', { index: colIdx });
+              ctx.get(MB.commandsCtx)?.call('DeleteSelectedCells');
             }
           });
         } else if (_cmd) {
@@ -16156,18 +16156,16 @@ function MilkdownEditor({
       };
       return btn;
     };
-    if (MB.addRowBeforeCommand?.key) tableToolbarEl.appendChild(makeTblBtn('+⇧', 'Add row above', MB.addRowBeforeCommand.key));
-    if (MB.addRowAfterCommand?.key) tableToolbarEl.appendChild(makeTblBtn('+⇩', 'Add row below', MB.addRowAfterCommand.key));
+    tableToolbarEl.appendChild(makeTblBtn('+⇧', 'Add row above', 'AddRowBefore'));
+    tableToolbarEl.appendChild(makeTblBtn('+⇩', 'Add row below', 'AddRowAfter'));
     tableToolbarEl.appendChild(makeTblBtn('−⇶', 'Delete row', 'deleteRow'));
-    if (MB.addColBeforeCommand?.key) tableToolbarEl.appendChild(makeTblBtn('+⇦', 'Add col left', MB.addColBeforeCommand.key));
-    if (MB.addColAfterCommand?.key) tableToolbarEl.appendChild(makeTblBtn('+⇨', 'Add col right', MB.addColAfterCommand.key));
+    tableToolbarEl.appendChild(makeTblBtn('+⇦', 'Add col left', 'AddColBefore'));
+    tableToolbarEl.appendChild(makeTblBtn('+⇨', 'Add col right', 'AddColAfter'));
     tableToolbarEl.appendChild(makeTblBtn('−⇵', 'Delete col', 'deleteCol'));
     tableToolbarEl.appendChild(document.createTextNode(' ')); // spacer
-    if (MB.setAlignCommand?.key) {
-      tableToolbarEl.appendChild(makeTblBtn('◧', 'Align left', MB.setAlignCommand.key, 'left'));
-      tableToolbarEl.appendChild(makeTblBtn('◰', 'Align center', MB.setAlignCommand.key, 'center'));
-      tableToolbarEl.appendChild(makeTblBtn('◨', 'Align right', MB.setAlignCommand.key, 'right'));
-    }
+    tableToolbarEl.appendChild(makeTblBtn('◧', 'Align left', 'SetAlign', 'left'));
+    tableToolbarEl.appendChild(makeTblBtn('◰', 'Align center', 'SetAlign', 'center'));
+    tableToolbarEl.appendChild(makeTblBtn('◨', 'Align right', 'SetAlign', 'right'));
     const updateTableToolbar = (inst) => {
       if (!inst) return;
       inst.action(ctx => {
