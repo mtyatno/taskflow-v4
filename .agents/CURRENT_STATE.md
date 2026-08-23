@@ -11,6 +11,13 @@
 - Identifier internal TETAP: `taskflow-legacy-cache` (index.html:290), DB `taskflow-offline`, package id `id.web.yatno.taskflow`. Test regresi baru `tests/offline/rebrand.test.js` (6/6) — TDD RED (5 fail/1 pass) → GREEN; check_inline 5/5; full suite 519/519 pass 0 fail.
 - **TIDAK di-push** (push/deploy = Task 3). NEXT = Task 2 (backend strings — independen). Report: `.superpowers/sdd/2026-08-23-rebrand-alurik/task-1-report.md`.
 
+## 🔴 SDD Rebrand TaskFlow → Alurik — Task 2 backend strings SELESAI 2026-08-23 (Claude, commit `3511091`)
+- `webapp.py` 16 titik + `bot.py` 8 titik user-visible → "Alurik" (docstring, FastAPI title, 3× "Buka Alurik untuk", static-not-found h1, `alurik-export-`, `AlurikBookmark/1.0`, prompt AI "di Alurik", "Alurik Note AI", publish page ("Alurik Publish", "Published via Alurik", footer), 404/Protected titles, bot welcome/help/DASHBOARD/login/not-found/startup-log).
+- Identifier internal TETAP: `webapp.py:179` komentar `/TaskFlow/attachments`, `bot.py:79` `logging.getLogger("taskflow")`. Final grep sisa HANYA 2 baris itu.
+- Test regresi baru `tests/test_rebrand.py` (3/3) — TDD RED (2 fail/1 pass) → GREEN; full suite **46/46 pass 0 fail** (43 existing + 3 baru); `py_compile` webapp.py + bot.py OK.
+- **TIDAK di-push** (push/deploy = Task 3). **PENTING:** perubahan webapp.py/bot.py baru aktif setelah restart service VPS (taskflow-web + bot) — di luar kendali kita, dicatat utk Task 3. NEXT = Task 3 (icons + docs + deploy). Report: `.superpowers/sdd/2026-08-23-rebrand-alurik/task-2-report.md`.
+
+
 ## 🟢 Active Task
 - **FIX Table Toolbar Offset menutupi teks cell — SELESAI & LIVE 2026-08-23 (Claude)**: Toolbar tabel Milkdown (`tableToolbarPair` TooltipProvider) menutupi teks cell tabel tempat kursor. Root cause: tanda offset terbalik — `offset: { mainAxis: -8 }` di `static/index.html:16238`; Floating UI placement default "top" (mainAxis positif = naik menjauh dari reference), jadi -8 justru turun 8px menutupi teks. Fix: `mainAxis: 6` → toolbar 6px DI ATAS cell. Commit `fc00552`; SW cache **`taskflow-v302-table-toolbar-offset`** — LIVE terverifikasi curl (SW v302 + `mainAxis: 6`). TDD: 1 subtest baru `tests/offline/table_resizing.test.js` (RED `-8 !== 6` → GREEN 26/26); JS penuh 513/513 pass 0 fail; pytest 43/43; check_inline 5/5. Report: `.superpowers/sdd/2026-08-23-table-toolbar-offset/report.md`.
   - **PENDING user:** hard refresh (Ctrl+Shift+R) → buka note → klik dalam cell tabel → toolbar muncul DI ATAS teks cell (gap ~6px), tidak menutupi.
