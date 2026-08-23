@@ -19317,6 +19317,18 @@ function NotePanel({
 }) {
   const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
   const [panelAttachments, setPanelAttachments] = React.useState([]);
+  const [tocOpen, setTocOpen] = React.useState(false);
+  const tocRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!tocOpen) return;
+    const onDown = e => {
+      if (tocRef.current && !tocRef.current.contains(e.target)) {
+        setTocOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [tocOpen]);
 
   const [shareOpen, setShareOpen] = React.useState(false);
   const shareRef = React.useRef(null);
@@ -20398,17 +20410,50 @@ function NotePanel({
       flexShrink: 0
     }
   }, att.file_size > 1048576 ? (att.file_size / 1048576).toFixed(1) + 'MB' : Math.round(att.file_size / 1024) + 'KB'))))), tocItems.length >= 2 && /*#__PURE__*/React.createElement("div", {
-    className: "note-toc-sticky",
+  tocItems.length >= 2 && /*#__PURE__*/React.createElement("div", {
+    ref: tocRef,
+    style: { position: "relative", display: "inline-block" }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setTocOpen(o => !o),
+    className: `floating-toc-trigger${tocOpen ? " active" : ""}`,
+    title: "Daftar Isi Catatan"
+  }, /*#__PURE__*/React.createElement("span", null, "📑"), `Isi (${tocItems.length})`, /*#__PURE__*/React.createElement("span", { style: { fontSize: 9, opacity: 0.7 } }, tocOpen ? "▲" : "▼")),
+  tocOpen && /*#__PURE__*/React.createElement("div", {
+    className: "floating-toc-popover scale-in",
     style: {
-      position: "sticky",
-      top: 0,
-      alignSelf: "flex-start",
-      marginTop: 54,
-      marginLeft: 4
+      position: "absolute",
+      top: "calc(100% + 6px)",
+      right: 0,
+      zIndex: 200
     }
-  }, /*#__PURE__*/React.createElement(NoteToc, {
-    items: tocItems
-  })), publishOpen && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 8,
+      paddingBottom: 4,
+      borderBottom: "1px solid var(--border)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: { fontSize: 11, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1 }
+  }, `📑 DAFTAR ISI (${tocItems.length})`), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setTocOpen(false),
+    style: { background: "none", border: "none", cursor: "pointer", color: "var(--text-light)", fontSize: 14 }
+  }, "✕")),
+  tocItems.map(item => /*#__PURE__*/React.createElement("span", {
+    key: item.idx,
+    className: "note-toc-item",
+    style: { paddingLeft: 6 + (item.level - 1) * 10 },
+    onClick: () => {
+      setTocOpen(false);
+      const el = document.getElementById(`note-h-${item.idx}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    title: item.text
+  }, item.text))))), publishOpen && /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
     onClick: () => setPublishOpen(false)
   }, /*#__PURE__*/React.createElement("div", {

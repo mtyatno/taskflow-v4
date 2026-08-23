@@ -463,3 +463,14 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - (2) `paperConfig` ditambah ke deps autosave effect di static/index.html:17598 — ganti kertas kini ikut alur autosave 2.5s (sudah kirim meta_json) + set dirty via effect.
 - (3) TEMUAN BARU: syncpush.js kirim `meta_json: '{}'` ke payload TASK & MINDMAP (regresi 7d35d4b) — backend tak punya kolom itu; dihapus, sisakan note saja. Test 433/433 JS + 43/43 pytest HIJAU.
 - PENDING: commit + push + git pull VPS + restart taskflow-web + hard refresh + verifikasi live (UI kertas + cache baru aktif).
+
+---
+## ✅ FEAT Floating TOC Overlay in NotePanel (2026-08-23, Antigravity — SELESAI)
+- **Ringkasan**: Menggantikan kolom TOC statis yang memakan ruang (120px) dengan sistem *floating trigger button* dan *popover overlay* yang responsif.
+- **Key Improvements**:
+  1. **Floating Trigger Button**: Tombol `📑 Isi (${tocItems.length}) ▾` yang muncul di header `NotePanel` saat catatan memiliki 2+ heading.
+  2. **Popover Overlay**: Daftar isi yang muncul *float* di atas konten catatan saat tombol diklik, dengan fitur *outside-click dismiss* dan *smooth scroll* ke heading.
+  3. **Full-Width Note Body**: Konten catatan kini 100% full-width tanpa terpotong side-column TOC statis.
+  4. **CSS**: Styling modern dengan efek `backdrop-filter: blur`, *smooth transition*, dan *popover* yang responsif.
+- **SW Cache**: Di-bump ke `taskflow-v298-floating-toc-overlay`.
+- **Verifikasi**: JS tests dibuat & logika diverifikasi, Pytest 43/43 pass.

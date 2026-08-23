@@ -906,3 +906,13 @@ Chronological history of work performed by AI agents in this workspace.
 
 ## 2026-08-22: Paper mode fase 5 — toolbar styling seragam (Claude) — belum di-commit
 - Tombol kertas + select jadi .note-toolbar style standar (paper-btn-active / paper-select). SW v281. 433/433.
+
+## [2026-08-23 13:36] - Antigravity (Gemini)
+- **Task:** Implement Floating TOC Overlay feature in NotePanel.
+- **Changes:**
+  - Created `tests/offline/note_toc.test.js` validating floating TOC trigger, popover, dismissals, and full-width content.
+  - `static/index.html`: Added `tocOpen` state and `tocRef`, removed static `.note-toc-sticky` column, implemented floating TOC trigger button and popover overlay.
+  - `static/app.css`: Added styling for `.floating-toc-trigger` and `.floating-toc-popover`.
+  - `static/sw.js`: Bumped SW cache to `taskflow-v298-floating-toc-overlay`.
+- **Files Touch:** `tests/offline/note_toc.test.js`, `static/index.html`, `static/app.css`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved by Subagent Reviewer (43/43 pytest pass)
