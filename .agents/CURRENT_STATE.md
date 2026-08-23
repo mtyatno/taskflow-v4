@@ -340,6 +340,17 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
+## ✅ FEAT Redesign Halaman Catatan (NotesPage) untuk Tablet & Desktop (2026-08-23, Antigravity — SELESAI)
+- **Ringkasan**: Menata ulang layout `NotesPage` menjadi arsitektur 2-kolom terpadu (Unified Sidebar + Viewer) yang dioptimalkan untuk iPad Pro (vertikal/portrait 768px–1024px), desktop, dan mobile.
+- **Key Improvements**:
+  1. *Unified Sidebar Layout*: Menghapus pemisahan sub-kolom 200px kaku. Sidebar kini menyatu utuh dengan lebar nyaman (320px di tablet / 340px di desktop) sehingga judul dan preview kartu catatan tidak terpotong.
+  2. *Header & Collapse 100%*: Dilengkapi tombol `+ Baru` dan tombol `✕` di header sidebar untuk menyembunyikan sidebar (`sidebarCollapsed`) sehingga panel baca/viewer menjadi 100% full-width. Tombol floating `.sidebar-toggle` di tepi layar memudahkan pengembalian sidebar kapan saja.
+  3. *Searchbox Lebar Penuh*: Input pencarian modern 100% lebar dengan ikon kaca pembesar dan tombol hapus `✕`.
+  4. *Filter Strip Ringkas & Tag Popover*: Menghilangkan tumpukan vertikal tag yang semrawut. Menampilkan baris chip horizontal ringkas (`[ Semua ]`, 2–3 tag terpopuler dengan hitungan, `[ 🔗 Published ]`, `[ 👥 Shared ]`) dan tombol `[ 🏷️ +X Tags ▾ ]` yang membuka popover dropdown elegan untuk seluruh tag dan `⬜ Tanpa Tag`.
+  5. *Pinned Notes Accordion*: Catatan yang disematkan disajikan dalam akordeon rapi `📌 Disematkan (N)` yang dapat dilipat/dibuka.
+- **SW Cache**: Di-bump ke `taskflow-v295-notes-page-tablet-redesign`.
+- **Verifikasi**: JS 486/486 unit tests pass (0 fail, termasuk 7 tests baru di `tests/offline/notes_page_layout.test.js`), Pytest 43/43 pass (0 fail), Subagent Code Reviewer APPROVED.
+
 ## ✅ FIX Mounting Drawing Modals di TaskFormModal Note Mode (2026-08-23, Antigravity — SELESAI)
 - **Ringkasan**: Memperbaiki tombol `🎨 +Gambar` dan slash command `/draw` yang tidak memicu popup pada form catatan baru di `TaskFormModal` (+ Buat Baru).
 - **Root Cause & Fix**:

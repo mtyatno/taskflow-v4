@@ -20578,6 +20578,20 @@ function NotesPage({
   const [filterPublished, setFilterPublished] = useState(false);
   const [filterListId, setFilterListId] = useState(null);
   const [publishedNotes, setPublishedNotes] = useState([]);
+  const [allTagsPopoverOpen, setAllTagsPopoverOpen] = useState(false);
+  const tagPopoverRef = useRef(null);
+
+  useEffect(() => {
+    if (!allTagsPopoverOpen) return;
+    const handleClickOutside = e => {
+      if (tagPopoverRef.current && !tagPopoverRef.current.contains(e.target)) {
+        setAllTagsPopoverOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handleClickOutside);
+    return () => document.removeEventListener("pointerdown", handleClickOutside);
+  }, [allTagsPopoverOpen]);
+
   React.useEffect(() => {
     const h = {};
     if (typeof __token !== "undefined" && __token) h["Authorization"] = "Bearer " + __token;
@@ -20937,464 +20951,478 @@ function NotesPage({
   }, /*#__PURE__*/React.createElement("div", {
     className: "notes-left",
     style: {
-      width: sidebarCollapsed ? 0 : '40%',
-      minWidth: sidebarCollapsed ? 0 : undefined,
-      maxWidth: sidebarCollapsed ? 0 : undefined,
-      overflow: sidebarCollapsed ? 'hidden' : undefined,
-      transition: 'width 0.25s, minWidth 0.25s',
-      flexShrink: 0,
-      flexDirection: 'row',
-      gap: 0
-    }
-  }, !sidebarCollapsed && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    className: "notes-col-search",
-    style: {
+      width: sidebarCollapsed ? 0 : '340px',
+      minWidth: sidebarCollapsed ? 0 : '280px',
+      maxWidth: sidebarCollapsed ? 0 : '380px',
+      overflow: sidebarCollapsed ? 'hidden' : 'hidden',
+      transition: 'width 0.25s ease, min-width 0.25s ease',
       display: 'flex',
       flexDirection: 'column',
-      flex: searchTagsCollapsed ? '0 0 auto' : '0 0 200px',
-      minWidth: searchTagsCollapsed ? 36 : undefined,
-      overflow: 'hidden',
-      transition: 'flex 0.25s, min-width 0.25s',
-      borderRight: searchTagsCollapsed ? 'none' : '1px solid var(--border)',
+      borderRight: sidebarCollapsed ? 'none' : '1px solid var(--border)',
+      flexShrink: 0,
       position: 'relative'
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "10px 12px",
-      borderBottom: "1px solid var(--border)"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: { fontWeight: 700, fontSize: 14 }
-  }, "\uD83D\uDCDD Catatan"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-icon btn-sm",
-    onClick: () => setSidebarCollapsed(true),
-    title: "Sembunyikan sidebar"
-  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
-    className: "hide-scrollbar",
-    style: {
-      flex: 1,
-      overflow: 'auto',
-      padding: '8px 8px 4px'
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "scratchpad-bar",
-    style: {
-      marginBottom: 6,
-      marginTop: 0,
-      padding: "7px 12px",
-      borderRadius: 10,
-      border: "1.5px solid var(--border)",
-      background: "var(--bg-primary)",
-      display: "flex",
-      alignItems: "center"
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "text",
-    className: "scratchpad-search-input",
-    value: q,
-    onChange: e => handleSearch(e.target.value),
-    placeholder: "Cari...",
-    style: {
-      width: "100%",
-      background: "transparent",
-      border: "none",
-      outline: "none",
-      fontSize: 13,
-      color: "var(--text-primary)",
-      padding: 0
-    }
-  }), q && /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      setQ("");
-      setNotes(applyFilters("", activeTags, allNotes, filterUntagged, null, filterPublished));
-    },
-    style: {
-      background: 'none',
-      border: 'none',
-      color: 'var(--text-secondary)',
-      cursor: 'pointer',
-      fontSize: 14,
-      padding: "0 0 0 4px",
-      lineHeight: 1
-    }
-  }, "\u2715")), allTags.length > 0 && /*#__PURE__*/React.createElement("div", null, (() => {
-    const sorted = [...tagList].sort((a, b) => (b.count || 0) - (a.count || 0));
-    const pinned = sorted.slice(0, 4);
-    const rest = sorted.slice(4);
-    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-      className: "tag-section-label",
-    "data-tour": "notes-tags"
-    }, "\uD83D\uDCCC Sering Digunakan"), /*#__PURE__*/React.createElement("div", {
-      className: "tag-scroll"
-    }, pinned.map(t => {
-      const isActive = activeTags.includes(t.name) || parseQuery(q).syntaxTags.includes(t.name);
-      return /*#__PURE__*/React.createElement("span", {
-        key: t.name,
-        onClick: () => handleTagFilter(t.name),
-        className: `tag-pill${isActive ? ' active' : ''}`
-      }, "#", t.name, /*#__PURE__*/React.createElement("span", {
-        className: "tag-count"
-      }, t.count || 0));
-    })), /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginTop: 8
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-        marginBottom: 4
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      className: "tag-section-label",
-      style: {
-        padding: 0
-      }
-    }, "Semua Tags"), /*#__PURE__*/React.createElement("button", {
-      onClick: () => setTagsOpen(o => !o),
-      style: {
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        fontSize: 9,
-        color: '#98A2B3',
-        padding: 0,
-        lineHeight: 1
-      }
-    }, tagsOpen ? '▲' : '▼'), (activeTags.length > 0 || filterUntagged) && /*#__PURE__*/React.createElement("span", {
-      onClick: () => {
-        setActiveTags([]);
-        setFilterUntagged(false);
-        setNotes(applyFilters(q, [], allNotes, false, null, filterPublished));
-      },
-      style: {
-        fontSize: 9,
-        color: '#98A2B3',
-        cursor: 'pointer',
-        marginLeft: 'auto'
-      }
-    }, "\u2715 reset")), tagsOpen && /*#__PURE__*/React.createElement("div", {
-      className: "tag-scroll"
-    }, rest.map(t => {
-      const isActive = activeTags.includes(t.name) || parseQuery(q).syntaxTags.includes(t.name);
-      return /*#__PURE__*/React.createElement("span", {
-        key: t.name,
-        onClick: () => handleTagFilter(t.name),
-        className: `tag-pill${isActive ? ' active' : ''}`
-      }, "#", t.name, /*#__PURE__*/React.createElement("span", {
-        className: "tag-count"
-      }, t.count || 0));
-    })), (() => {
-      const untaggedCount = allNotes.filter(n => (n.tags || []).length === 0).length;
-      if (untaggedCount === 0) return null;
-      return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-        style: {
-          borderTop: '1px solid var(--border)',
-          margin: '8px 0'
-        }
-      }), /*#__PURE__*/React.createElement("span", {
-        onClick: handleUntaggedFilter,
-        className: `tag-pill${filterUntagged ? ' active' : ''}`,
-        style: !filterUntagged ? {
-          border: '1px dashed var(--border)',
-          background: 'transparent',
-          color: 'var(--text-light)',
-          fontStyle: 'italic'
-        } : {}
-      }, "\u2B1C Tanpa Tag", /*#__PURE__*/React.createElement("span", {
-        className: "tag-count"
-      }, untaggedCount)));
-    })()));
-  })())),
-/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: { borderTop: '1px solid var(--border)', margin: '8px 0' }
-}), /*#__PURE__*/React.createElement("span", {
-    onClick: handlePublishedFilter,
-    className: `tag-pill${filterPublished ? ' active' : ''}`,
-    style: !filterPublished ? { border: '1px dashed var(--accent)', background: 'transparent', color: 'var(--accent)', fontStyle: 'italic', fontWeight: 600 } : {}
-}, "🔗 Published", /*#__PURE__*/React.createElement("span", {
-    className: "tag-count"
-}, publishedNotes.length))),
-publishedNotes.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null,
-  /*#__PURE__*/React.createElement("div", {
-    style: { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0', cursor: 'pointer', userSelect: 'none' },
-    onClick: () => setPublishedOpen(o => !o)
-  },
-    /*#__PURE__*/React.createElement("span", { style: { fontSize: 14 } }, "🔗"),
-    /*#__PURE__*/React.createElement("span", { style: { fontWeight: 600, fontSize: 12, color: 'var(--text-primary)' } }, "Published"),
-    /*#__PURE__*/React.createElement("span", { style: { fontSize: 10, color: 'var(--text-light)' } }, "(" + publishedNotes.length + ")"),
-    /*#__PURE__*/React.createElement("span", { style: { marginLeft: 'auto', fontSize: 9, color: '#98A2B3' } }, publishedOpen ? '▲' : '▼')
-  ),
-  publishedOpen && /*#__PURE__*/React.createElement("div", { style: { paddingLeft: 4, marginBottom: 10 } },
-    publishedNotes.map(p => /*#__PURE__*/React.createElement("div", {
-      key: p.note_id,
-      style: { display: 'flex', alignItems: 'center', gap: 4, padding: '3px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)' },
-      onMouseEnter: e => { e.currentTarget.style.background = 'var(--bg-primary)'; e.currentTarget.style.color = 'var(--text-primary)'; },
-      onMouseLeave: e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }
-    },
-      /*#__PURE__*/React.createElement("span", {
-        onClick: () => {
-          const note = allNotes.find(n => n.id === p.note_id);
-          if (note) openTab(note);
-        },
-        style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-      }, (p.password_set ? "🔒 " : "🔗 ") + (p.title || "Untitled")),
-      /*#__PURE__*/React.createElement("span", {
-        onClick: () => {
-          navigator.clipboard.writeText(WEBAPP_URL + '/pub/' + (p.username || '') + '/' + p.slug);
-          showToast('Link disalin');
-        },
-        title: "Copy link",
-        style: { cursor: 'pointer', fontSize: 10, padding: '2px 4px', flexShrink: 0 }
-      }, "📋")
-    ))
-  )
-),
- sharedLists.length > 0 && (() => {
-    const listsWithNotes = sharedLists.filter(l => allNotes.some(n => n.list_id === l.id));
-    if (listsWithNotes.length === 0) return null;
-    return /*#__PURE__*/React.createElement("div", {
-      style: {
-        padding: '8px 0 4px'
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "tag-section-label"
-    }, "\uD83D\uDD17 Shared List"), /*#__PURE__*/React.createElement("div", {
-      className: "tag-scroll"
-    }, listsWithNotes.map(l => {
-      const count = allNotes.filter(n => n.list_id === l.id).length;
-      const isActive = filterListId === l.id;
-      return /*#__PURE__*/React.createElement("span", {
-        key: l.id,
-        onClick: () => handleListFilter(l.id),
-        className: `tag-pill${isActive ? ' active' : ''}`
-      }, l.name, /*#__PURE__*/React.createElement("span", {
-        className: "tag-count"
-      }, count));
-    })));
-  })()), /*#__PURE__*/React.createElement("div", {
-    className: "notes-col-list",
-    "data-tour": "notes-list",
-    style: {
-      flex: 1,
-      display: 'flex',
-      flexDirection: 'column',
-      overflow: 'hidden',
-      minWidth: 0,
-      paddingLeft: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    onClick: () => setNotesListCollapsed(c => !c),
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 6,
-      padding: '8px 8px 4px',
-      cursor: 'pointer',
-      userSelect: 'none',
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11,
-      fontWeight: 700,
-      color: 'var(--text-light)',
-      textTransform: 'uppercase',
-      letterSpacing: '0.8px',
-      flex: 1
-    }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "notes", size: 13, style: { marginRight: 5 } }), "Catatan"), /*#__PURE__*/React.createElement("svg", {
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "var(--text-light)",
-    strokeWidth: "2",
-    strokeLinecap: "round",
-    strokeLinejoin: "round",
-    style: {
-      width: 14,
-      height: 14,
-      transform: notesListCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
-      transition: 'transform 0.2s'
-    }
-  }, /*#__PURE__*/React.createElement("polyline", {
-    points: "6 9 12 15 18 9"
-  }))), !notesListCollapsed && /*#__PURE__*/React.createElement(React.Fragment, null, (() => {
-    const pinned = allNotes.filter(n => n.pinned);
-    if (pinned.length === 0) return null;
-    const visible = pinnedExpanded ? pinned : pinned.slice(0, 3);
-    const hasMore = pinned.length > 3;
-    return /*#__PURE__*/React.createElement("div", {
-      style: {
-        flexShrink: 0,
-        paddingRight: 16,
-        marginBottom: 10,
-        borderBottom: "1px solid var(--border)",
-        paddingBottom: 10
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 10,
-        fontWeight: 700,
-        color: "var(--text-light)",
-        textTransform: "uppercase",
-        letterSpacing: 1,
-        marginBottom: 6
-      }
-    }, /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 12, style: { marginRight: 5 } }), "Disematkan"), /*#__PURE__*/React.createElement("div", {
-      className: pinnedExpanded ? "pinned-list-expanded" : ""
-    }, visible.map(n => /*#__PURE__*/React.createElement("div", {
-      key: n.id,
-      className: `pinned-note-item${getActiveNote()?.id === n.id ? " active" : ""}`,
-      onClick: () => {
-        openTab(n);
-      },
-      title: n.title || "(tanpa judul)"
-    }, /*#__PURE__*/React.createElement("span", {
-      className: "pinned-note-icon"
-    }, /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 13 })), /*#__PURE__*/React.createElement("span", {
-      className: "pinned-note-text"
-    }, n.title || n.content.slice(0, 50) || "(tanpa judul)"), (n.tags || []).length > 0 && /*#__PURE__*/React.createElement("span", {
-      className: "pinned-note-tags"
-    }, (n.tags || []).slice(0, 2).map(tag => /*#__PURE__*/React.createElement("span", {
-      key: tag,
-      className: "pinned-note-tag-dot",
-      title: `#${tag}`
-    })))))), hasMore && /*#__PURE__*/React.createElement("span", {
-      onClick: () => setPinnedExpanded(e => !e),
-      style: {
-        fontSize: 11,
-        color: "var(--accent)",
-        cursor: "pointer",
-        marginTop: 4,
-        display: "inline-block"
-      }
-    }, pinnedExpanded ? "Sembunyikan ▲" : `+${pinned.length - 3} lainnya ▼`));
-  })(), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 8,
-      flexShrink: 0,
-      paddingRight: 16
-    }
-  }, /*#__PURE__*/React.createElement("select", {
-    value: sortBy,
-    onChange: e => setSortBy(e.target.value),
-    style: {
-      fontSize: 11,
-      border: "1px solid var(--border)",
-      borderRadius: 6,
-      padding: "4px 8px",
-      background: "var(--bg-primary)",
-      color: "var(--text-secondary)",
-      cursor: "pointer",
-      width: "100%"
-    }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: "updated"
-  }, "Terbaru"), /*#__PURE__*/React.createElement("option", {
-    value: "created"
-  }, "Terlama"), /*#__PURE__*/React.createElement("option", {
-    value: "alpha"
-  }, "A\u2013Z"), /*#__PURE__*/React.createElement("option", {
-    value: "links"
-  }, "Terbanyak link"))), /*#__PURE__*/React.createElement("div", {
-    className: "notes-left-inner"
-  }, loading ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      color: "var(--text-secondary)",
-      textAlign: "center",
-      padding: 40
-    }
-  }, "Memuat...") : sortedNotes.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      color: "var(--text-secondary)",
-      textAlign: "center",
-      padding: 40,
-      fontSize: 13
-    }
-  }, filterUntagged ? "Tidak ada catatan tanpa tag." : activeTags.length > 0 ? `Tidak ada catatan dengan tag ${activeTags.map(t => "#" + t).join(" + ")}` : q ? "Tidak ada catatan yang cocok." : "Belum ada catatan. Tulis sesuatu!") : sortedNotes.map(n => {
-    const outCount = (n.linked_to || []).length;
-    const inCount = inCountMap[n.id] || 0;
-    const isSelected = getActiveNote()?.id === n.id;
-    return /*#__PURE__*/React.createElement("div", {
-      key: n.id,
-      className: "note-card",
-      onClick: () => {
-        openTab(n);
-      },
-      style: {
-        borderColor: isSelected ? "var(--accent)" : undefined,
-        background: isSelected ? "rgba(168,197,0,0.06)" : undefined
-      }
-    }, /*#__PURE__*/React.createElement("div", {
+  }, !sidebarCollapsed && /*#__PURE__*/React.createElement(React.Fragment, null,
+    /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
+        alignItems: "center",
         justifyContent: "space-between",
-        alignItems: "flex-start",
-        gap: 8
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "note-card-title"
-    }, n.pinned && /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 11,
-        marginRight: 4,
-        opacity: 0.8
-      }
-    }, "\uD83D\uDCCC"), n.list_id && /*#__PURE__*/React.createElement("span", {
-      className: "note-shared-badge",
-      style: {
-        marginRight: 4
-      }
-    }, "\uD83D\uDC65"), n.title || n.content.slice(0, 60)), /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 11,
-        color: "var(--text-light)",
+        padding: "10px 12px 8px",
+        borderBottom: "1px solid var(--border)",
         flexShrink: 0
       }
-    }, fmtDate(n.updated_at))), n.title && /*#__PURE__*/React.createElement("div", {
-      className: "note-card-preview",
-      dangerouslySetInnerHTML: {
-        __html: renderWikilinksPreview(n.content, 200)
-      }
-    }), /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        gap: 6,
-        flexWrap: "wrap",
-        marginTop: 6,
-        alignItems: "center"
-      }
-    }, (n.tags || []).map(tag => /*#__PURE__*/React.createElement("span", {
-      key: tag,
-      className: "note-tag",
-      style: {
-        cursor: "pointer",
-        fontSize: 11,
-        background: activeTags.includes(tag) ? "var(--accent)" : undefined,
-        color: activeTags.includes(tag) ? "#111" : undefined
+    },
+      /*#__PURE__*/React.createElement("span", {
+        style: { fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }
+      }, `📝 Catatan (${allNotes.length})`),
+      /*#__PURE__*/React.createElement("div", {
+        style: { display: "flex", alignItems: "center", gap: 6 }
       },
-      onClick: e => {
-        e.stopPropagation();
-        handleTagFilter(tag);
+        /*#__PURE__*/React.createElement("button", {
+          className: "btn btn-sm btn-primary",
+          onClick: openNew,
+          style: { padding: "4px 10px", fontSize: 12, height: 28, display: "inline-flex", alignItems: "center" }
+        }, "+ Baru"),
+        /*#__PURE__*/React.createElement("button", {
+          className: "btn btn-icon btn-sm",
+          onClick: () => setSidebarCollapsed(true),
+          title: "Sembunyikan sidebar (Layar penuh)",
+          style: { height: 28, width: 28 }
+        }, "✕")
+      )
+    ),
+    /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "8px 10px 4px",
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        overflow: "hidden",
+        minHeight: 0
       }
-    }, "#", tag)), (n.tags || []).length === 0 && /*#__PURE__*/React.createElement("span", {
-      className: "note-tag-untagged",
-      style: filterUntagged ? {
-        borderColor: 'var(--accent)',
-        color: 'var(--accent)'
-      } : undefined,
-      onClick: e => {
-        e.stopPropagation();
-        handleUntaggedFilter();
-      }
-    }, "\u2B1C tanpa tag"), (outCount > 0 || inCount > 0) && /*#__PURE__*/React.createElement("span", {
-      className: "note-conn"
-    }, outCount > 0 && `🔗${outCount}`, outCount > 0 && inCount > 0 && " ", inCount > 0 && `←${inCount}`)));
-  })))))), sidebarCollapsed && /*#__PURE__*/React.createElement("div", {
+    },
+      /*#__PURE__*/React.createElement("div", {
+        className: "scratchpad-bar",
+        style: {
+          marginBottom: 6,
+          marginTop: 0,
+          padding: "6px 10px",
+          borderRadius: 8,
+          border: "1.5px solid var(--border)",
+          background: "var(--bg-primary)",
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          flexShrink: 0
+        }
+      },
+        /*#__PURE__*/React.createElement("span", { style: { fontSize: 12, opacity: 0.6 } }, "🔍"),
+        /*#__PURE__*/React.createElement("input", {
+          type: "text",
+          className: "scratchpad-search-input",
+          value: q,
+          onChange: e => handleSearch(e.target.value),
+          placeholder: "Cari...",
+          style: {
+            width: "100%",
+            background: "transparent",
+            border: "none",
+            outline: "none",
+            fontSize: 13,
+            color: "var(--text-primary)",
+            padding: 0
+          }
+        }),
+        q && /*#__PURE__*/React.createElement("button", {
+          onClick: () => {
+            setQ("");
+            setNotes(applyFilters("", activeTags, allNotes, filterUntagged, filterListId, filterPublished));
+          },
+          style: {
+            background: 'none',
+            border: 'none',
+            color: 'var(--text-secondary)',
+            cursor: 'pointer',
+            fontSize: 14,
+            padding: "0 0 0 4px",
+            lineHeight: 1
+          }
+        }, "✕")
+      ),
+      (() => {
+        const isAllActive = activeTags.length === 0 && !filterUntagged && !filterPublished && !filterListId;
+        const sorted = [...tagList].sort((a, b) => (b.count || 0) - (a.count || 0));
+        const topTags = sorted.slice(0, 3);
+        const remainingTags = sorted.slice(3);
+        const untaggedCount = allNotes.filter(n => (n.tags || []).length === 0).length;
+        const listsWithNotes = sharedLists.filter(l => allNotes.some(n => n.list_id === l.id));
+
+        return /*#__PURE__*/React.createElement("div", {
+          style: { position: "relative", marginBottom: 6, flexShrink: 0 },
+          "data-tour": "notes-tags"
+        },
+          /*#__PURE__*/React.createElement("div", {
+            style: {
+              display: "flex",
+              gap: 4,
+              overflowX: "auto",
+              padding: "2px 0 4px",
+              scrollbarWidth: "none",
+              alignItems: "center"
+            }
+          },
+            /*#__PURE__*/React.createElement("span", {
+              onClick: () => {
+                setActiveTags([]);
+                setFilterUntagged(false);
+                setFilterPublished(false);
+                setFilterListId(null);
+                setNotes(applyFilters(q, [], allNotes, false, null, false));
+              },
+              className: `tag-pill${isAllActive ? ' active' : ''}`,
+              style: { cursor: 'pointer', flexShrink: 0 }
+            }, "Semua"),
+            topTags.map(t => {
+              const isActive = activeTags.includes(t.name) || parseQuery(q).syntaxTags.includes(t.name);
+              return /*#__PURE__*/React.createElement("span", {
+                key: t.name,
+                onClick: () => handleTagFilter(t.name),
+                className: `tag-pill${isActive ? ' active' : ''}`,
+                style: { cursor: 'pointer', flexShrink: 0 }
+              }, "#", t.name, /*#__PURE__*/React.createElement("span", {
+                className: "tag-count"
+              }, t.count || 0));
+            }),
+            (remainingTags.length > 0 || untaggedCount > 0) && /*#__PURE__*/React.createElement("button", {
+              onClick: () => setAllTagsPopoverOpen(o => !o),
+              className: `tag-pill${(activeTags.some(t => remainingTags.some(r => r.name === t)) || filterUntagged || allTagsPopoverOpen) ? ' active' : ''}`,
+              style: {
+                cursor: 'pointer',
+                flexShrink: 0,
+                background: allTagsPopoverOpen ? 'var(--accent)' : undefined,
+                color: allTagsPopoverOpen ? '#111' : undefined,
+                border: '1px solid var(--border)'
+              }
+            }, `🏷️ +${remainingTags.length} Tags ▾`),
+            publishedNotes.length > 0 && /*#__PURE__*/React.createElement("span", {
+              onClick: handlePublishedFilter,
+              className: `tag-pill${filterPublished ? ' active' : ''}`,
+              style: {
+                cursor: 'pointer',
+                flexShrink: 0,
+                ...(!filterPublished ? { border: '1px dashed var(--accent)', background: 'transparent', color: 'var(--accent)', fontWeight: 600 } : {})
+              }
+            }, `🔗 Published (${publishedNotes.length})`),
+            listsWithNotes.length > 0 && /*#__PURE__*/React.createElement("span", {
+              onClick: () => {
+                if (filterListId) {
+                  handleListFilter(filterListId);
+                } else {
+                  handleListFilter(listsWithNotes[0].id);
+                }
+              },
+              className: `tag-pill${filterListId ? ' active' : ''}`,
+              style: { cursor: 'pointer', flexShrink: 0 }
+            }, `👥 Shared (${listsWithNotes.length})`)
+          ),
+          allTagsPopoverOpen && /*#__PURE__*/React.createElement("div", {
+            ref: tagPopoverRef,
+            style: {
+              position: "absolute",
+              top: "100%",
+              left: 0,
+              right: 0,
+              background: "var(--bg-card)",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.14)",
+              padding: "8px 10px",
+              zIndex: 50,
+              maxHeight: 240,
+              overflowY: "auto"
+            }
+          },
+            /*#__PURE__*/React.createElement("div", {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 6,
+                fontSize: 11,
+                fontWeight: 700,
+                color: "var(--text-light)"
+              }
+            },
+              /*#__PURE__*/React.createElement("span", null, "Semua Tags"),
+              (activeTags.length > 0 || filterUntagged) && /*#__PURE__*/React.createElement("span", {
+                onClick: () => {
+                  setActiveTags([]);
+                  setFilterUntagged(false);
+                  setNotes(applyFilters(q, [], allNotes, false, null, filterPublished));
+                },
+                style: { cursor: "pointer", color: "var(--accent)" }
+              }, "Reset")
+            ),
+            /*#__PURE__*/React.createElement("div", {
+              style: { display: "flex", flexWrap: "wrap", gap: 4, marginBottom: untaggedCount > 0 ? 6 : 0 }
+            },
+              sorted.map(t => {
+                const isActive = activeTags.includes(t.name) || parseQuery(q).syntaxTags.includes(t.name);
+                return /*#__PURE__*/React.createElement("span", {
+                  key: t.name,
+                  onClick: () => handleTagFilter(t.name),
+                  className: `tag-pill${isActive ? ' active' : ''}`,
+                  style: { cursor: 'pointer' }
+                }, "#", t.name, /*#__PURE__*/React.createElement("span", {
+                  className: "tag-count"
+                }, t.count || 0));
+              })
+            ),
+            untaggedCount > 0 && /*#__PURE__*/React.createElement(React.Fragment, null,
+              /*#__PURE__*/React.createElement("div", {
+                style: { borderTop: "1px solid var(--border)", margin: "6px 0" }
+              }),
+              /*#__PURE__*/React.createElement("span", {
+                onClick: handleUntaggedFilter,
+                className: `tag-pill${filterUntagged ? ' active' : ''}`,
+                style: {
+                  cursor: 'pointer',
+                  ...(!filterUntagged ? {
+                    border: '1px dashed var(--border)',
+                    background: 'transparent',
+                    color: 'var(--text-light)',
+                    fontStyle: 'italic'
+                  } : {})
+                }
+              }, `⬜ Tanpa Tag`, /*#__PURE__*/React.createElement("span", {
+                className: "tag-count"
+              }, untaggedCount))
+            )
+          )
+        );
+      })(),
+      (() => {
+        const pinned = allNotes.filter(n => n.pinned);
+        if (pinned.length === 0) return null;
+        const visible = pinnedExpanded ? pinned : pinned.slice(0, 3);
+        const hasMore = pinned.length > 3;
+        return /*#__PURE__*/React.createElement("div", {
+          style: {
+            flexShrink: 0,
+            marginBottom: 8,
+            borderBottom: "1px solid var(--border)",
+            paddingBottom: 8
+          }
+        },
+          /*#__PURE__*/React.createElement("div", {
+            onClick: () => setPinnedExpanded(e => !e),
+            style: {
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--text-light)",
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              marginBottom: 4,
+              cursor: "pointer",
+              userSelect: "none"
+            }
+          },
+            /*#__PURE__*/React.createElement("span", null,
+              /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 12, style: { marginRight: 5 } }),
+              `📌 Disematkan (${pinned.length})`
+            ),
+            /*#__PURE__*/React.createElement("span", { style: { fontSize: 9 } }, pinnedExpanded ? "▲" : "▼")
+          ),
+          /*#__PURE__*/React.createElement("div", {
+            className: pinnedExpanded ? "pinned-list-expanded" : ""
+          }, visible.map(n => /*#__PURE__*/React.createElement("div", {
+            key: n.id,
+            className: `pinned-note-item${getActiveNote()?.id === n.id ? " active" : ""}`,
+            onClick: () => openTab(n),
+            title: n.title || "(tanpa judul)"
+          },
+            /*#__PURE__*/React.createElement("span", { className: "pinned-note-icon" },
+              /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 13 })
+            ),
+            /*#__PURE__*/React.createElement("span", { className: "pinned-note-text" },
+              n.title || n.content.slice(0, 50) || "(tanpa judul)"
+            ),
+            (n.tags || []).length > 0 && /*#__PURE__*/React.createElement("span", { className: "pinned-note-tags" },
+              (n.tags || []).slice(0, 2).map(tag => /*#__PURE__*/React.createElement("span", {
+                key: tag,
+                className: "pinned-note-tag-dot",
+                title: `#${tag}`
+              }))
+            )
+          ))),
+          hasMore && /*#__PURE__*/React.createElement("span", {
+            onClick: () => setPinnedExpanded(e => !e),
+            style: {
+              fontSize: 11,
+              color: "var(--accent)",
+              cursor: "pointer",
+              marginTop: 4,
+              display: "inline-block"
+            }
+          }, pinnedExpanded ? "Sembunyikan ▲" : `+${pinned.length - 3} lainnya ▼`)
+        );
+      })(),
+      /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 6,
+          flexShrink: 0
+        }
+      },
+        /*#__PURE__*/React.createElement("span", {
+          style: {
+            fontSize: 11,
+            fontWeight: 700,
+            color: "var(--text-light)",
+            textTransform: "uppercase",
+            letterSpacing: "0.8px"
+          }
+        }, `Catatan (${sortedNotes.length})`),
+        /*#__PURE__*/React.createElement("select", {
+          value: sortBy,
+          onChange: e => setSortBy(e.target.value),
+          style: {
+            fontSize: 11,
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            padding: "2px 6px",
+            background: "var(--bg-primary)",
+            color: "var(--text-secondary)",
+            cursor: "pointer"
+          }
+        },
+          /*#__PURE__*/React.createElement("option", { value: "updated" }, "Terbaru"),
+          /*#__PURE__*/React.createElement("option", { value: "created" }, "Terlama"),
+          /*#__PURE__*/React.createElement("option", { value: "alpha" }, "A–Z"),
+          /*#__PURE__*/React.createElement("option", { value: "links" }, "Terbanyak link")
+        )
+      ),
+      /*#__PURE__*/React.createElement("div", {
+        className: "notes-left-inner",
+        "data-tour": "notes-list"
+      },
+        loading ? /*#__PURE__*/React.createElement("div", {
+          style: {
+            color: "var(--text-secondary)",
+            textAlign: "center",
+            padding: 40
+          }
+        }, "Memuat...") : sortedNotes.length === 0 ? /*#__PURE__*/React.createElement("div", {
+          style: {
+            color: "var(--text-secondary)",
+            textAlign: "center",
+            padding: 40,
+            fontSize: 13
+          }
+        }, filterUntagged ? "Tidak ada catatan tanpa tag." : activeTags.length > 0 ? `Tidak ada catatan dengan tag ${activeTags.map(t => "#" + t).join(" + ")}` : q ? "Tidak ada catatan yang cocok." : "Belum ada catatan. Tulis sesuatu!") : sortedNotes.map(n => {
+          const outCount = (n.linked_to || []).length;
+          const inCount = inCountMap[n.id] || 0;
+          const isSelected = getActiveNote()?.id === n.id;
+          return /*#__PURE__*/React.createElement("div", {
+            key: n.id,
+            className: "note-card",
+            onClick: () => {
+              openTab(n);
+            },
+            style: {
+              borderColor: isSelected ? "var(--accent)" : undefined,
+              background: isSelected ? "rgba(168,197,0,0.06)" : undefined
+            }
+          },
+            /*#__PURE__*/React.createElement("div", {
+              style: {
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: 8
+              }
+            },
+              /*#__PURE__*/React.createElement("div", {
+                className: "note-card-title"
+              },
+                n.pinned && /*#__PURE__*/React.createElement("span", {
+                  style: {
+                    fontSize: 11,
+                    marginRight: 4,
+                    opacity: 0.8
+                  }
+                }, "📌"),
+                n.list_id && /*#__PURE__*/React.createElement("span", {
+                  className: "note-shared-badge",
+                  style: {
+                    marginRight: 4
+                  }
+                }, "👥"),
+                n.title || n.content.slice(0, 60)
+              ),
+              /*#__PURE__*/React.createElement("span", {
+                style: {
+                  fontSize: 11,
+                  color: "var(--text-light)",
+                  flexShrink: 0
+                }
+              }, fmtDate(n.updated_at))
+            ),
+            n.title && /*#__PURE__*/React.createElement("div", {
+              className: "note-card-preview",
+              dangerouslySetInnerHTML: {
+                __html: renderWikilinksPreview(n.content, 200)
+              }
+            }),
+            /*#__PURE__*/React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 6,
+                flexWrap: "wrap",
+                marginTop: 6,
+                alignItems: "center"
+              }
+            },
+              (n.tags || []).map(tag => /*#__PURE__*/React.createElement("span", {
+                key: tag,
+                className: "note-tag",
+                style: {
+                  cursor: "pointer",
+                  fontSize: 11,
+                  background: activeTags.includes(tag) ? "var(--accent)" : undefined,
+                  color: activeTags.includes(tag) ? "#111" : undefined
+                },
+                onClick: e => {
+                  e.stopPropagation();
+                  handleTagFilter(tag);
+                }
+              }, "#", tag)),
+              (n.tags || []).length === 0 && /*#__PURE__*/React.createElement("span", {
+                className: "note-tag-untagged",
+                style: filterUntagged ? {
+                  borderColor: 'var(--accent)',
+                  color: 'var(--accent)'
+                } : undefined,
+                onClick: e => {
+                  e.stopPropagation();
+                  handleUntaggedFilter();
+                }
+              }, "⬜ tanpa tag"),
+              (outCount > 0 || inCount > 0) && /*#__PURE__*/React.createElement("span", {
+                className: "note-conn"
+              }, outCount > 0 && `🔗${outCount}`, outCount > 0 && inCount > 0 && " ", inCount > 0 && `←${inCount}`)
+            )
+          );
+        })
+      )
+    )
+  )), sidebarCollapsed && /*#__PURE__*/React.createElement("div", {
     className: "sidebar-toggle visible",
     onClick: () => setSidebarCollapsed(false),
     title: "Tampilkan sidebar"
