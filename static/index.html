@@ -3910,7 +3910,17 @@ function TaskFormModal({
       className: "btn btn-primary",
       disabled: loading,
       onClick: handleSubmit
-    }, loading ? "Menyimpan..." : "Simpan Note")))));
+    }, loading ? "Menyimpan..." : "Simpan Note")))), noteDrawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
+      noteTitle: noteForm.title,
+      onSelectDrawing: handleNoteDrawingSelected,
+      onClose: () => setNoteDrawingInsertOpen(false),
+      showToast: showToast
+    }), noteQuickDrawState && /*#__PURE__*/React.createElement(QuickDrawModal, {
+      drawingId: noteQuickDrawState.id,
+      drawingTitle: noteQuickDrawState.title,
+      onClose: () => setNoteQuickDrawState(null),
+      showToast: showToast
+    }));
   }
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",

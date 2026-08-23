@@ -469,6 +469,15 @@ describe('Drawing Directive Module', () => {
       assert.match(notePanelSource, /window\.hydrateDrawingPreviews/, 'NotePanel must keep hydrateDrawingPreviews call');
     });
 
+    it('verifies TaskFormModal renders DrawingInsertModal and QuickDrawModal in mode === "note" branch', () => {
+      assert.ok(taskFormModalSource.length > 0, 'TaskFormModal component must be found in static/index.html');
+      const noteBranchMatch = taskFormModalSource.match(/if\s*\(\s*mode\s*===\s*["']note["']\s*\)\s*\{([\s\S]*?)\}\s*return\s+\/\*#__PURE__\*\/React\.createElement/);
+      assert.ok(noteBranchMatch, 'Note branch in TaskFormModal must be found');
+      const noteBranchCode = noteBranchMatch[1];
+      assert.match(noteBranchCode, /noteDrawingInsertOpen\s*&&\s*\/\*#__PURE__\*\/React\.createElement\(DrawingInsertModal/, 'Note mode return fragment must include DrawingInsertModal');
+      assert.match(noteBranchCode, /noteQuickDrawState\s*&&\s*\/\*#__PURE__\*\/React\.createElement\(QuickDrawModal/, 'Note mode return fragment must include QuickDrawModal');
+    });
+
     it('verifies QuickDrawModal and DrawingsPage drawing features are preserved intact', () => {
       // QuickDrawModal (inline drawing editor modal) should retain its tldraw iframe
       assert.match(indexHtml, /function QuickDrawModal[\s\S]*?tldraw\/index\.html\?noteId=\$\{drawingId\}/, 'QuickDrawModal must preserve tldraw iframe');

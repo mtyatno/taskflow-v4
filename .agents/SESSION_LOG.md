@@ -4,6 +4,19 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-23 10:55] - Antigravity (Gemini)
+- **Task:** Fix Drawing Modals Mounting in `TaskFormModal` Note Mode using Subagent-Driven Development.
+- **Root Cause:**
+  - `TaskFormModal` returned early in the `mode === "note"` branch, but `DrawingInsertModal` and `QuickDrawModal` were placed only in the bottom task form return fragment. Clicking `+ Gambar` or typing `/draw` updated state (`noteDrawingInsertOpen: true`), but the modals were never rendered to DOM.
+- **Changes:**
+  - `static/index.html`: Rendered `DrawingInsertModal` and `QuickDrawModal` inside the `mode === "note"` return tree in `TaskFormModal`.
+  - `tests/offline/drawdirective.test.js`: Added unit tests verifying both modals are rendered in the `mode === "note"` branch (486/486 passed).
+  - `static/sw.js`: Bumped SW cache to `taskflow-v294-taskform-note-drawing-modals`.
+- **Files Modified:** `static/index.html`, `tests/offline/drawdirective.test.js`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved by Subagent Reviewer (486/486 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-23 10:45] - Antigravity (Gemini)
 - **Task:** Remove Bottom Canvas Accordion from `TaskFormModal` Note Tab ("+ Buat Baru") using Subagent-Driven Development.
 - **Summary:**

@@ -340,6 +340,14 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
+## ✅ FIX Mounting Drawing Modals di TaskFormModal Note Mode (2026-08-23, Antigravity — SELESAI)
+- **Ringkasan**: Memperbaiki tombol `🎨 +Gambar` dan slash command `/draw` yang tidak memicu popup pada form catatan baru di `TaskFormModal` (+ Buat Baru).
+- **Root Cause & Fix**:
+  - Pada `TaskFormModal`, cabang `if (mode === "note")` mengembalikan JSX secara *early return*, namun komponen modal `DrawingInsertModal` dan `QuickDrawModal` sebelumnya hanya diletakkan pada return utama bagian bawah (mode task).
+  - Menempatkan `DrawingInsertModal` dan `QuickDrawModal` di dalam fragment return cabang `mode === "note"`, sehingga tombol `+ Gambar`, slash command `/draw`, dan klik card inline drawing untuk mengedit gambar berfungsi 100%.
+- **SW Cache**: Di-bump ke `taskflow-v294-taskform-note-drawing-modals`.
+- **Verifikasi**: JS 486/486 unit tests pass (0 fail), Pytest 43/43 pass (0 fail), Subagent Code Reviewer APPROVED.
+
 ## ✅ CLEANUP Hapus Section Canvas Bawah di TaskFormModal Note Tab (+ Buat Baru) (2026-08-23, Antigravity — SELESAI)
 - **Ringkasan**: Menghapus sisa section/accordion canvas terpisah (`noteCanvasId`, `noteDrawIframeRef`, `noteDrawOpen`, `noteDrawFullscreen`, `noteDrawIframeReady`, tombol `✏️ Canvas` dan iframe `tldraw`) yang masih tersisa di tab Note pada modal terpadu `TaskFormModal` (+ Buat Baru).
 - **Changes**:
