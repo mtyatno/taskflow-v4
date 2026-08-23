@@ -2,11 +2,11 @@
 
 > **SINGLE SOURCE OF TRUTH** untuk memetakan proyek/domain yang disebut user ke lokasi codebase-nya. Wajib dibaca saat pre-flight (lihat `.agents/PROTOCOL.md`). Semua agent (Claude, Gemini, OpenAI, dll.) menggunakan file ini — versi repo ini yang berlaku, bukan catatan pribadi agent mana pun.
 
-**Workspace ini (Z:\Todolist Manager V5.0) HANYA berisi TaskFlow.**
+**Workspace ini (Z:\Todolist Manager V5.0) HANYA berisi Alurik (dulu TaskFlow).**
 
 | Proyek / domain                  | Apa                                                                              | Lokasi codebase                                   | Catatan                                                                                                                                                 |
 | -------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| TaskFlow (Todolist Manager V5.0) | Todolist + notes + bot Telegram, rencana SaaS                                    | Z:\Todolist Manager V5.0 (repo ini)               | Belum punya forgot password; tabel users TANPA kolom email (terverifikasi 2026-08-13)                                                                   |
+| Alurik — dulu TaskFlow (Todolist Manager V5.0) | Todolist + notes + bot Telegram, rencana SaaS                                    | Z:\Todolist Manager V5.0 (repo ini)               | Belum punya forgot password; tabel users TANPA kolom email (terverifikasi 2026-08-13)                                                                   |
 | jatahku.com                      | Proyek TERPISAH dari TaskFlow (muncul sebagai folder task "Jatahku" di TaskFlow) | **BELUM DIKETAHUI — tanya user sebelum analisis** | Catatan 2026-07-04: user sempat salah sebut "jatahku" padahal maksudnya TaskFlow — kalau nama proyek terasa tidak cocok dengan konteks, konfirmasi dulu |
 
 ## Aturan

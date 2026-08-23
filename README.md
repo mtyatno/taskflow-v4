@@ -1,8 +1,8 @@
-# 🚀 TaskFlow V4
+# 🚀 Alurik
 
 **Personal GTD + Eisenhower + Priority Todo System — Telegram Bot**
 
-TaskFlow V4 adalah sistem manajemen task pribadi yang menggabungkan tiga metodologi produktivitas:
+Alurik adalah sistem manajemen task pribadi yang menggabungkan tiga metodologi produktivitas:
 
 - **GTD (Getting Things Done)** — Workflow status: inbox → next/waiting/someday/project → done
 - **Priority P1-P4** — User-defined importance level (static, set manual)
@@ -45,7 +45,7 @@ taskflow-v4/
 
 1. Buka Telegram, cari **@BotFather**
 2. Kirim `/newbot`
-3. Ikuti instruksi, beri nama bot (misal: "TaskFlow V4")
+3. Ikuti instruksi, beri nama bot (misal: "Alurik")
 4. Simpan **Bot Token** yang diberikan
 5. Opsional: cari tahu Telegram User ID kamu via **@userinfobot**
 
@@ -177,7 +177,7 @@ python bot.py
 
 ## 🧠 Cara Kerja Eisenhower Auto-Calc
 
-Setiap 15 menit (configurable), TaskFlow menghitung ulang quadrant semua task aktif:
+Setiap 15 menit (configurable), Alurik menghitung ulang quadrant semua task aktif:
 
 **Importance** (dari Priority):
 - P1 Critical → skor 10 → **Important**
@@ -258,4 +258,4 @@ sudo systemctl start taskflow
 
 ---
 
-**TaskFlow V4** — Built with ❤️ for productivity
+**Alurik** — Built with ❤️ for productivity

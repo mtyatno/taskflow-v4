@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "TaskFlow",
+  "productName": "Alurik",
   "version": "4.0.0",
   "identifier": "id.web.yatno.taskflow",
   "build": {
@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "TaskFlow",
+        "title": "Alurik",
         "label": "main",
         "width": 1280,
         "height": 800,
