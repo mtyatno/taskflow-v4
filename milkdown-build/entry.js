@@ -28,6 +28,8 @@ export {
   addRowBeforeCommand,
   addRowAfterCommand,
   setAlignCommand,
+  columnResizingPlugin,
+  tableEditingPlugin,
 } from '@milkdown/preset-gfm';
 
 export {
@@ -67,3 +69,5 @@ export { InputRule } from '@milkdown/prose/inputrules';
 export { TextSelection } from '@milkdown/prose/state';
 // ProseMirror Plugin needed for custom markdown-paste plugin
 export { Plugin, PluginKey } from '@milkdown/prose/state';
+// ProseMirror tables re-exports
+export { columnResizing, tableEditing, TableView, CellSelection } from '@milkdown/prose/tables';

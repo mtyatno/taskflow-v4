@@ -4,6 +4,22 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-23 09:10] - Antigravity (Gemini)
+- **Task:** Fix Milkdown Table Bundle Exports & Column Resizing Activation using systematic-debugging and Subagent-Driven Development.
+- **Root Causes:**
+  1. In commit `92aa125`, `static/vendor/milkdown.bundle.js` was overwritten with an old bundle build that lacked table editing commands (`addRowBeforeCommand`, `addRowAfterCommand`, `addColBeforeCommand`, `addColAfterCommand`, `setAlignCommand`) and `columnResizingPlugin`.
+  2. The table popup toolbar in `static/index.html` checked `if (MB.addRowBeforeCommand?.key)` which evaluated to undefined, causing all row/column addition and alignment buttons to not be appended to DOM.
+  3. `columnResizingPlugin` was not registered in the editor state.
+- **Changes:**
+  - `milkdown-build/entry.js`: Exported `columnResizingPlugin`, `tableEditingPlugin`, all table commands, and `prosemirror-tables` primitives (`TableView`, `CellSelection`, etc.). Rebuilt `static/vendor/milkdown.bundle.js`.
+  - `static/index.html`: Cache-busted script tag to `/static/vendor/milkdown.bundle.js?v=288`; registered `.use(MB.columnResizingPlugin || [])` in `MilkdownEditor`.
+  - `tests/offline/table_resizing.test.js`: Added assertions for bundle exports, cache query string, and plugin registration (15/15 passed).
+  - `static/sw.js`: Bumped SW cache to `taskflow-v288-milkdown-table-bundle-fix`.
+- **Files Modified:** `milkdown-build/entry.js`, `static/vendor/milkdown.bundle.js`, `static/index.html`, `tests/offline/table_resizing.test.js`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved by Subagent Reviewer (463/463 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-23 08:45] - Antigravity (Gemini)
 - **Task:** Milkdown Table Column Resizing (SDD Task 2: SW Cache Bump & Regression Suite).
 - **Summary:**

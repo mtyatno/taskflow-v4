@@ -324,6 +324,16 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
+## ✅ FIX & FEAT Milkdown Table Interactive Column Resizing & Toolbar Fix (2026-08-23, Antigravity — SELESAI)
+- **Ringkasan**: Memperbaiki hilangnya tombol table toolbar dan mengaktifkan fitur drag-to-resize kolom tabel secara interaktif di editor Milkdown.
+- **Root Cause & Fixes**:
+  1. *Bundle Rollback Overwrite*: File `static/vendor/milkdown.bundle.js` sebelumnya ter-overwrite oleh bundle versi lama saat debug paste (`commit 92aa125`). Bundle lama tersebut tidak meng-export perintah tabel (`addRowBeforeCommand`, `addRowAfterCommand`, `addColBeforeCommand`, `addColAfterCommand`, `setAlignCommand`) dan `columnResizingPlugin`.
+  2. *Toolbar Icon Visibility*: Pemeriksaan `if (MB.xxxCommand?.key)` pada toolbar tabel sebelumnya bernilai `undefined`, menyembunyikan semua tombol penambahan baris/kolom dan perataan teks.
+  3. *Rebuild & Explicit Registration*: Me-rebuild bundle dari `milkdown-build/entry.js` yang meng-export seluruh perintah dan plugin `prosemirror-tables`, mendaftarkan `.use(MB.columnResizingPlugin || [])` di `MilkdownEditor`, dan menambahkan cache buster `?v=288` pada script tag di `static/index.html`.
+  4. *CSS Grip Styling*: Menambahkan styling `.column-resize-handle`, `.resize-cursor`, `.tableWrapper`, dan `.selectedCell:after` di `static/app.css`.
+- **SW Cache**: Di-bump ke `taskflow-v288-milkdown-table-bundle-fix`.
+- **Verifikasi**: JS 463/463 unit tests pass (0 fail), Pytest 43/43 pass (0 fail), Subagent Code Reviewer APPROVED.
+
 ## ✅ FIX Milkdown Editor toDOM null Attribute TypeError (2026-08-22, Antigravity — SELESAI)
 - **Ringkasan**: Memperbaiki bug editor blank / tidak ada teks saat membuka catatan akibat `TypeError: Failed to execute 'appendChild' on 'Node': parameter 1 is not of type 'Node'`.
 - **Root Cause & Fixes**:

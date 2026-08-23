@@ -67,3 +67,80 @@ test("static/app.css contains table column resizing and selection rules", async 
     );
   });
 });
+
+test("static/vendor/milkdown.bundle.js exports table commands and column resizing plugin", async (t) => {
+  const vm = require("node:vm");
+  const bundlePath = path.resolve(__dirname, "../../static/vendor/milkdown.bundle.js");
+  const bundleContent = fs.readFileSync(bundlePath, "utf8");
+
+  const win = {
+    navigator: { userAgent: "Node.js", platform: "Win32" },
+    document: {
+      documentElement: { style: {} },
+      createElement: () => ({ setAttribute: () => {}, querySelector: () => null }),
+      createRange: () => ({ setStart: () => {}, setEnd: () => {}, detach: () => {} }),
+      head: { appendChild: () => {} },
+      body: { appendChild: () => {} }
+    },
+    customElements: { get: () => null, define: () => {} },
+    HTMLElement: class {},
+    CSS: { supports: () => false }
+  };
+  win.window = win;
+  win.self = win;
+  win.globalThis = win;
+
+  const ctx = vm.createContext(win);
+  vm.runInContext(bundleContent, ctx);
+  const MB = ctx.MilkdownBundle;
+
+  await t.test("MilkdownBundle is loaded and defined", () => {
+    assert.ok(MB, "MilkdownBundle should be defined");
+    assert.equal(typeof MB.Editor, "function", "MB.Editor should be a function/class");
+  });
+
+  await t.test("MilkdownBundle exports columnResizingPlugin and tableEditingPlugin", () => {
+    assert.ok(MB.columnResizingPlugin, "MB.columnResizingPlugin should be exported");
+    assert.ok(MB.tableEditingPlugin, "MB.tableEditingPlugin should be exported");
+  });
+
+  await t.test("MilkdownBundle exports table editing commands", () => {
+    assert.ok(MB.addRowBeforeCommand, "MB.addRowBeforeCommand should be exported");
+    assert.ok(MB.addRowAfterCommand, "MB.addRowAfterCommand should be exported");
+    assert.ok(MB.addColBeforeCommand, "MB.addColBeforeCommand should be exported");
+    assert.ok(MB.addColAfterCommand, "MB.addColAfterCommand should be exported");
+    assert.ok(MB.setAlignCommand, "MB.setAlignCommand should be exported");
+    assert.ok(MB.selectRowCommand, "MB.selectRowCommand should be exported");
+    assert.ok(MB.selectColCommand, "MB.selectColCommand should be exported");
+    assert.ok(MB.selectTableCommand, "MB.selectTableCommand should be exported");
+    assert.ok(MB.deleteSelectedCellsCommand, "MB.deleteSelectedCellsCommand should be exported");
+    assert.ok(MB.insertTableCommand, "MB.insertTableCommand should be exported");
+  });
+
+  await t.test("MilkdownBundle exports prosemirror-tables primitives", () => {
+    assert.ok(MB.columnResizing, "MB.columnResizing should be exported");
+    assert.ok(MB.tableEditing, "MB.tableEditing should be exported");
+  });
+});
+
+test("static/index.html integrates milkdown.bundle.js and registers columnResizingPlugin", async (t) => {
+  const indexPath = path.resolve(__dirname, "../../static/index.html");
+  const indexContent = fs.readFileSync(indexPath, "utf8");
+
+  await t.test("loads milkdown.bundle.js with ?v=288 cache query", () => {
+    assert.match(
+      indexContent,
+      /<script\s+src="\/static\/vendor\/milkdown\.bundle\.js\?v=288"><\/script>/i,
+      "Expected milkdown.bundle.js?v=288 script tag in static/index.html"
+    );
+  });
+
+  await t.test("registers MB.columnResizingPlugin in MilkdownEditor .use() chain", () => {
+    assert.match(
+      indexContent,
+      /\.use\(MB\.columnResizingPlugin\s*\|\|\s*\[\]\)/,
+      "Expected .use(MB.columnResizingPlugin || []) in MilkdownEditor chain"
+    );
+  });
+});
+

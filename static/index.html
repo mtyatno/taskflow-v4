@@ -48,7 +48,7 @@
       });
     })();
   </script>
-  <script src="/static/vendor/milkdown.bundle.js"></script>
+  <script src="/static/vendor/milkdown.bundle.js?v=288"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
   <link rel="stylesheet" href="/static/app.css">
 
@@ -16244,7 +16244,7 @@ function MilkdownEditor({
           };
         }
       });
-    }).use(MB.commonmark).use(MB.gfm).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(tableToolbarPair).use(MB.trailing).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).use(createDrawingPlugin(MB)).create().then(editor => {
+    }).use(MB.commonmark).use(MB.gfm).use(MB.columnResizingPlugin || []).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(tableToolbarPair).use(MB.trailing).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).use(createDrawingPlugin(MB)).create().then(editor => {
       if (cancelled) {
         editor.destroy();
         return;
