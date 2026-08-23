@@ -1216,7 +1216,9 @@
     }
     .milkdown-editor .ProseMirror table {
       border-collapse: collapse;
+      table-layout: fixed;
       width: 100%;
+      overflow: hidden;
       margin: 0.5em 0;
     }
     .milkdown-editor .ProseMirror th,
@@ -1226,6 +1228,45 @@
       font-size: 0.9em;
     }
     .milkdown-editor .ProseMirror th { background: rgba(0,0,0,0.06); font-weight: 600; }
+    /* ── Milkdown Table Column Resizing & Selection ── */
+    .milkdown-editor .ProseMirror .tableWrapper {
+      overflow-x: auto;
+      margin: 12px 0;
+      max-width: 100%;
+    }
+    .milkdown-editor .ProseMirror td,
+    .milkdown-editor .ProseMirror th {
+      vertical-align: top;
+      box-sizing: border-box;
+      position: relative;
+    }
+    .milkdown-editor .ProseMirror .column-resize-handle {
+      position: absolute;
+      right: -2px;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      z-index: 20;
+      background-color: var(--accent, #3b82f6);
+      opacity: 0.85;
+      pointer-events: none;
+      border-radius: 2px;
+    }
+    .milkdown-editor .ProseMirror.resize-cursor,
+    .milkdown-editor .ProseMirror.resize-cursor * {
+      cursor: col-resize !important;
+    }
+    .milkdown-editor .ProseMirror .selectedCell:after {
+      z-index: 2;
+      position: absolute;
+      content: '';
+      left: 0;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      background: rgba(59, 130, 246, 0.2);
+      pointer-events: none;
+    }
     /* ── Table rendering in note viewer / published ──────────── */
     .note-rendered table {
       border-collapse: collapse;
