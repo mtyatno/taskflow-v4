@@ -60,19 +60,12 @@ test("NotesPage Tablet and Desktop Layout Redesign", async (t) => {
     );
   });
 
-  await t.test("2. Sidebar Header (+ Baru button, ✕ collapse button, and Title)", () => {
+  await t.test("2. Sidebar Header (✕ collapse button, and Title)", () => {
     // Title with notes count
     assert.match(
       notesPageCode,
       /📝 Catatan|Catatan\s*\(\$\{allNotes\.length\}\)/,
       "Header should display Catatan title"
-    );
-
-    // + Baru button triggering openNew
-    assert.match(
-      notesPageCode,
-      /onClick:\s*openNew[\s\S]*?\+ Baru|\+ Baru[\s\S]*?onClick:\s*openNew/,
-      "Header should have + Baru button triggering openNew"
     );
 
     // ✕ collapse button triggering setSidebarCollapsed(true)
@@ -278,5 +271,10 @@ test("Notes sidebar tabs — struktur JSX & state", async (t) => {
     // asersi: hanya SATU kemunculan select sort (regex count):
     const sortCount = (notesPageCode.match(/value:\s*sortBy/g) || []).length;
     assert.strictEqual(sortCount, 1, "select sort hanya 1 (di header)");
+  });
+
+  await t.test("tombol + Baru dihapus dari header panel", () => {
+    assert.strictEqual(notesPageCode.includes('className: "btn btn-sm btn-primary"'), false, 'button "+ Baru" harus hilang dari NotesPage');
+    assert.strictEqual(notesPageCode.includes('"+ Baru"'), false, 'teks "+ Baru" tidak boleh ada di NotesPage');
   });
 });
