@@ -7,12 +7,12 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
-- **TaskFormModal Note Tab Paper Selector & Paper Guides (2026-08-23)**: Added paper mode toggle, paper size/orientation dropdowns (`A4`, `Letter`, `A3`, `Legal`, `portrait`, `landscape`), paper page guides, and `meta_json.paper_mode` persistence to "+ Buat Baru" Note tab (`TaskFormModal`). Verified across full unit test suite.
+- **FIX Blank Page — Floating TOC Duplicate Line & Paren Imbalance (2026-08-23, Claude)**: Commit `38cd66f` di main, LIVE & terverifikasi curl. Root cause: commit TOC (`b2ba698`) meninggalkan baris pembuka lama (`tocItems.length >= 2 && React.createElement("div", {`) sehingga duplikat → `SyntaxError: Unexpected token '.'` di (index):20413 → blank page. Hapus duplikat saja tidak cukup — penutup blok `item.text)))))` (5 kurung) kelebihan 1: menutup container parent lebih awal. Fix: 4 kurung (span → map → popover → trigger wrapper). SW bump `taskflow-v299-fix-toc-syntax`. Verifikasi: 5/5 inline script parse clean, JS 497/497, pytest tests/ 43/43, live curl bersih. **PENDING user: hard refresh browser (Ctrl+Shift+R) — SW lama masih cache index.html rusak; restart service TIDAK diperlukan (fix static-only).**
 
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-23 10:25  
-**Updated By:** Antigravity (Gemini — SDD Implementer TaskFormModal Note Paper Selector SELESAI)
+**Last Updated:** 2026-08-23 (Claude — FIX blank page TOC)
+**Updated By:** Claude — blank page fix (commit `38cd66f`, LIVE)
 
 ---
 

@@ -916,3 +916,11 @@ Chronological history of work performed by AI agents in this workspace.
   - `static/sw.js`: Bumped SW cache to `taskflow-v298-floating-toc-overlay`.
 - **Files Touch:** `tests/offline/note_toc.test.js`, `static/index.html`, `static/app.css`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed & Approved by Subagent Reviewer (43/43 pytest pass)
+
+## [2026-08-23] - Claude (fix blank page)
+- **Task:** Aplikasi blank page — `Uncaught SyntaxError: Unexpected token '.'` di (index):20413.
+- **Root cause:** Commit floating TOC (`b2ba698`) menyisakan baris pembuka lama → duplikat `tocItems.length >= 2 && React.createElement("div", {`. Menghapus duplikat (edit user) memunculkan error kedua `Unexpected token ')'` di 20528 — penutup blok TOC kelebihan 1 kurung (5 → harusnya 4: span/map/popover/wrapper).
+- **Changes:** `static/index.html` hapus duplikat + `item.text)))))` → `item.text))))`; SW bump `taskflow-v299-fix-toc-syntax`. Commit `38cd66f`, pushed, auto-deploy via Actions, live terverifikasi curl (SW v299 + 5/5 inline parse + baris 20413 bersih).
+- **Verifikasi:** JS 497/497, pytest tests/ 43/43 (catatan: `python -m pytest` bare gagal collection karena `test_ext_auth.py`/`test_task_recurrence.py` di repo root butuh server localhost:8080 — jalankan `pytest tests/`).
+- **Files Touch:** `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed; PENDING user hard-refresh browser (SW cache-first masih sajikan index lama sampai SW baru aktif).
