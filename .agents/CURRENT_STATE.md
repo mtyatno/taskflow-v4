@@ -7,17 +7,33 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
-- **BUGFIX DOCX Table Images & venv Recovery (2026-08-21)**: Fixed !image.png inline markdown images rendering as plain text inside markdown tables during Word document export by refactoring _add_styled_runs to support inline picture embedding. Fixed duplicate image bug where attachments ending in /view caused all images to map to the first image. Fixed uvicorn and astapi disappearing from VPS deployment due to 
-equirements.txt previously only containing Telegram Bot packages. Tested and confirmed LIVE by user.
+- **Milkdown Table Column Resizing & Selection (2026-08-23)**: Added ProseMirror column resizing handles, tableWrapper horizontal scroll overflow, and cell selection styles for WYSIWYG markdown tables in Milkdown note editor. Tested and verified across all unit tests.
 
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-22 22:15  
-**Updated By:** Antigravity (Gemini — Code Reviewer toDOM null fix in Milkdown drawingNode SELESAI)
+**Last Updated:** 2026-08-23 08:45  
+**Updated By:** Antigravity (Gemini — SDD Implementer Task 2 Table Column Resizing SELESAI)
 
 ---
 
 ## 📌 Active Task
+- **Milkdown Table Column Resizing & Cell Selection SELESAI 2026-08-23:**
+  - **Problem / Context:**
+    - Di editor Milkdown WYSIWYG, tabel markdown sebelumnya belum memiliki visual column resize handle dan cell selection overlay yang rapi, sehingga pengguna tidak dapat mengatur lebar kolom secara visual atau melihat highlight seleksi sel saat mengedit tabel.
+  - **Solusi / Perbaikan:**
+    1. **ProseMirror Column Resizing & Selection Styles ([`static/app.css`](file:///Z:/Todolist%20Manager%20V5.0/static/app.css)):**
+       - Menambahkan styling `.tableWrapper` dengan `overflow-x: auto; max-width: 100%`.
+       - Menambahkan styling `table` dengan `table-layout: fixed; overflow: hidden`.
+       - Menambahkan styling `td, th` dengan `vertical-align: top; box-sizing: border-box; position: relative`.
+       - Menambahkan `.column-resize-handle` dengan positioning presisi, lebar responsif, accent color, dan hover cursor `col-resize`.
+       - Menambahkan `.selectedCell:after` selection overlay semi-transparan.
+    2. **TDD Unit Tests ([`tests/offline/table_resizing.test.js`](file:///Z:/Todolist%20Manager%20V5.0/tests/offline/table_resizing.test.js)):**
+       - Menambahkan unit test suite (7/7 tests) untuk memvalidasi keberadaan dan aturan selector CSS table resizing.
+    3. **SW Cache Bump:** Di-bump ke **`taskflow-v287-table-column-resizing`** di `static/sw.js`.
+  - All tests passed: 455/455 JS unit tests + 43/43 pytest (0 failures).
+  - **Status:** SELESAI.
+
+---
 - **Milkdown toDOM null Attribute TypeError Fix SELESAI 2026-08-22:**
   - **Problem / Root Cause:**
     - `drawingNode.toDOM` menghasilkan `['span', null, ...]` pada judul gambar di dalam `DOMOutputSpec`. Dalam parser DOM ProseMirror (`DOMSerializer.renderSpec`), nilai `null` di index 1 tidak terdeteksi sebagai objek attribute melainkan diperlakukan sebagai child node pertama, yang kemudian memicu `TypeError: Failed to execute 'appendChild' on 'Node': parameter 1 is not of type 'Node'`.

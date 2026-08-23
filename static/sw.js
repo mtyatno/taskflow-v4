@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v286-todom-null-fix";
+const CACHE = "taskflow-v287-table-column-resizing";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

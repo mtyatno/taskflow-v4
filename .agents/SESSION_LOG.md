@@ -4,6 +4,17 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-23 08:45] - Antigravity (Gemini)
+- **Task:** Milkdown Table Column Resizing (SDD Task 2: SW Cache Bump & Regression Suite).
+- **Summary:**
+  1. Bumped Service Worker cache to `taskflow-v287-table-column-resizing` in `static/sw.js`.
+  2. Documented Table Column Resizing and Cell Selection styling feature in `.agents/CURRENT_STATE.md` and `.agents/SESSION_LOG.md`.
+  3. Ran all regression suites: `node --check static/sw.js` (OK), `node --test tests/offline/*.test.js` (455/455 passed), `python -m pytest tests/` (43/43 passed).
+- **Files Modified:** `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed
+
+---
+
 ## [2026-08-22 22:15] - Antigravity (Gemini)
 - **Task:** Code Review for Milkdown `drawingNode` `toDOM` null attribute TypeError fix and Promise `.catch` handling.
 - **Review Summary:**
