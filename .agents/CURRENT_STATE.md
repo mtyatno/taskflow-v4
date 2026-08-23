@@ -16,6 +16,8 @@
 - Identifier internal TETAP: `webapp.py:179` komentar `/TaskFlow/attachments`, `bot.py:79` `logging.getLogger("taskflow")`. Final grep sisa HANYA 2 baris itu.
 - Test regresi baru `tests/test_rebrand.py` (3/3) — TDD RED (2 fail/1 pass) → GREEN; full suite **46/46 pass 0 fail** (43 existing + 3 baru); `py_compile` webapp.py + bot.py OK.
 - **TIDAK di-push** (push/deploy = Task 3). **PENTING:** perubahan webapp.py/bot.py baru aktif setelah restart service VPS (taskflow-web + bot) — di luar kendali kita, dicatat utk Task 3. NEXT = Task 3 (icons + docs + deploy). Report: `.superpowers/sdd/2026-08-23-rebrand-alurik/task-2-report.md`.
+- **FIX ROUND review (Important — gap rebrand di luar scope brief) SELESAI, commit `ce820eb`:** `mailer.py` (subject/body reset password, docstring, komentar From-header), `docx_exporter.py:396` ("Catatan Alurik"), `ai_review.py` (X-Title "Alurik"/"Alurik Weekly Review" + bare "TaskFlow" = nol), `config.py` (SMTP_FROM default "Alurik <noreply@localhost>" + docstring; `taskflow.db` & `/TaskFlow/attachments` internal TETAP). Test `test_rebrand.py` diperkuat (3 absences webapp + fungsi `test_other_modules_visible_strings_rebranded`). TDD RED (1 fail/3 pass) → GREEN 4/4; full suite **47/47 pass 0 fail**; grep 3 file = nol. TIDAK di-push. Deploy-note: kalau VPS set SMTP_FROM eksplisit via .env, update juga.
+
 
 
 ## 🟢 Active Task
