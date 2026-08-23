@@ -1,5 +1,5 @@
 """
-TaskFlow V4 - Configuration
+Alurik - Configuration
 """
 import os
 from pathlib import Path
@@ -61,4 +61,4 @@ SMTP_HOST = os.getenv("SMTP_HOST", "")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_FROM = os.getenv("SMTP_FROM", "TaskFlow <noreply@localhost>")
+SMTP_FROM = os.getenv("SMTP_FROM", "Alurik <noreply@localhost>")

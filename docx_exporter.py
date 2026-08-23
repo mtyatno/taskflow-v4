@@ -393,7 +393,7 @@ def markdown_to_docx(
         s.right_margin = Inches(1.0)
 
     # 1. Document Title
-    doc_title = title.strip() if title else "Catatan TaskFlow"
+    doc_title = title.strip() if title else "Catatan Alurik"
     p_title = doc.add_paragraph()
     r_title = p_title.add_run(doc_title)
     r_title.font.name = 'Segoe UI Semibold'

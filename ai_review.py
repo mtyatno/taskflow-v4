@@ -138,7 +138,7 @@ PROVIDERS = {
         "url": "https://openrouter.ai/api/v1/chat/completions",
         "key_env": "OPENROUTER_API_KEY",
         "default_model": "anthropic/claude-sonnet-5",
-        "extra_headers": {"X-Title": "TaskFlow"},
+        "extra_headers": {"X-Title": "Alurik"},
     },
     "deepseek": {
         "url": "https://api.deepseek.com/v1/chat/completions",
@@ -246,7 +246,7 @@ def generate_review(payload: dict) -> dict:
         max_tokens=6000,
         timeout=60,
         response_format={"type": "json_object"},
-        extra_headers={"X-Title": "TaskFlow Weekly Review"},
+        extra_headers={"X-Title": "Alurik Weekly Review"},
     )
     # DeepSeek doesn't have a reasoning field, so reasoning is always empty
     return parse_review_content(content, reasoning="")
