@@ -20681,7 +20681,7 @@ function NotesPage({
   // Static version (no closure dep) used inside async fetchNotes
   const publishedNoteIds = React.useMemo(() => new Set(publishedNotes.map(p => p.note_id)), [publishedNotes]);
   const listsWithNotes = sharedLists.filter(l => allNotes.some(n => n.list_id === l.id));
-  const sharedListIds = React.useMemo(() => new Set(listsWithNotes.map(l => l.id)), [listsWithNotes]);
+  const sharedListIds = new Set(listsWithNotes.map(l => l.id));
   const applyFiltersStatic = (query, tags, base, untagged = false, tab = "all") => {
     const syntaxTags = [...query.matchAll(/\btag:(\S+)/gi)].map(m => m[1].toLowerCase());
     const cleanQuery = query.replace(/\btag:\S+/gi, "").trim();
@@ -21032,7 +21032,7 @@ function NotesPage({
     },
       /*#__PURE__*/React.createElement("span", {
         style: { fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }
-      }, `📝 Catatan (${allNotes.length})`),
+      }, `📝 Catatan`),
       /*#__PURE__*/React.createElement("div", {
         style: { display: "flex", alignItems: "center", gap: 6 }
       },
