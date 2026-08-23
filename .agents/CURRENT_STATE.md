@@ -40,7 +40,7 @@
     4. Mobile: baris & tab rapi, list scroll.
     5. Dark mode konsisten.
     6. Hard refresh (Ctrl+Shift+R) — SW v305.
-  - **Masih PENDING dari rebrand Alurik (tetap berlaku):** hard refresh browser; `sudo systemctl restart taskflow taskflow-web` (perubahan webapp.py/bot.py/mailer.py baru aktif setelah restart; cek SMTP_FROM di .env VPS bila set eksplisit nama lama); cek bot Telegram `/start` menampilkan "⚡ Alurik".
+  - **Masih PENDING dari rebrand Alurik (tetap berlaku):** hard refresh browser; `sudo systemctl restart taskflow taskflow-web` (perubahan webapp.py/bot.py/mailer.py baru aktif setelah restart; cek SMTP_FROM di .env VPS bila set eksplisit nama lama); cek bot Telegram `/start` menampilkan "⚡ Alurik". URL aplikasi tetap `todo.yatno.web.id` sampai domain `alurik.com` di-pointing (DNS/HTTPS — langkah terpisah, butuh akses registrar + Nginx VPS).
 
 ## ✅ FIX Table Toolbar Offset — SELESAI & LIVE 2026-08-23 (Claude, commit `fc00552`, SW v302)
 - Toolbar tabel Milkdown menutupi teks cell; fix `offset.mainAxis: -8 → 6` di `static/index.html:16238` (toolbar 6px DI ATAS cell). JS 513/513 pass 0 fail; pytest 43/43; check_inline 5/5. PENDING user: hard refresh → klik dalam cell tabel → toolbar DI ATAS teks (gap ~6px). Report: `.superpowers/sdd/2026-08-23-table-toolbar-offset/report.md`.
