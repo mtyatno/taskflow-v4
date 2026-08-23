@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v289-table-toolbar-buttons-fix";
+const CACHE = "taskflow-v290-table-tooltip-overlap-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

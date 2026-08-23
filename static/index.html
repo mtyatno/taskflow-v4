@@ -16175,7 +16175,9 @@ function MilkdownEditor({
         for (let d = selection.$from.depth; d > 0; d--) {
           if (selection.$from.node(d).type.name === 'table') { inTable = true; break; }
         }
-        tableToolbarEl.style.display = inTable ? 'flex' : 'none';
+        const isCellSelection = selection.isRowSelection?.() || selection.isColSelection?.() || (selection.constructor && selection.constructor.name === 'CellSelection');
+        const show = inTable && (selection.empty || isCellSelection);
+        tableToolbarEl.style.display = show ? 'flex' : 'none';
       });
     };
     // ── End table toolbar ─────────────────────────────────────────
@@ -16207,7 +16209,16 @@ function MilkdownEditor({
       // Wire tooltip — TooltipProvider handles show/hide on text selection
       ctx.set(tooltipPair.key, {
         view(editorView) {
-          const provider = new MB.TooltipProvider({ content: tooltipEl, root: document.body });
+          const provider = new MB.TooltipProvider({
+            content: tooltipEl,
+            root: document.body,
+            shouldShow: (view) => {
+              const { selection } = view.state;
+              if (selection.empty) return false;
+              const isCellSelection = selection.isRowSelection?.() || selection.isColSelection?.() || (selection.constructor && selection.constructor.name === 'CellSelection');
+              return !isCellSelection;
+            }
+          });
           provider.update(editorView);
           return {
             update: (view, prevState) => provider.update(view, prevState),
@@ -16223,10 +16234,16 @@ function MilkdownEditor({
             root: document.body,
             shouldShow: (view) => {
               const { selection } = view.state;
+              let inTable = false;
               for (let d = selection.$from.depth; d > 0; d--) {
-                if (selection.$from.node(d).type.name === 'table') return true;
+                if (selection.$from.node(d).type.name === 'table') {
+                  inTable = true;
+                  break;
+                }
               }
-              return false;
+              if (!inTable) return false;
+              const isCellSelection = selection.isRowSelection?.() || selection.isColSelection?.() || (selection.constructor && selection.constructor.name === 'CellSelection');
+              return selection.empty || isCellSelection;
             },
             offset: { mainAxis: -8, crossAxis: 0 }
           });

@@ -187,6 +187,112 @@ test("static/index.html integrates milkdown.bundle.js and registers columnResizi
       "Expected DeleteSelectedCells string key in delete action"
     );
   });
+
+  await t.test("enforces mutually exclusive shouldShow guards between text tooltip and table toolbar", () => {
+    // 1. TooltipProvider for text formatting should check !isCellSelection and !selection.empty
+    assert.match(
+      indexContent,
+      /tooltipPair\.key[\s\S]*?new\s+MB\.TooltipProvider\(\{[\s\S]*?shouldShow:\s*\(view\)\s*=>\s*\{[\s\S]*?if\s*\(\s*selection\.empty\s*\)\s*return\s+false;[\s\S]*?return\s+!isCellSelection;/,
+      "Expected tooltipPair shouldShow to hide when selection is empty or isCellSelection"
+    );
+
+    // 2. Table toolbar should check inTable and (selection.empty || isCellSelection)
+    assert.match(
+      indexContent,
+      /tableToolbarPair\.key[\s\S]*?new\s+MB\.TooltipProvider\(\{[\s\S]*?shouldShow:\s*\(view\)\s*=>\s*\{[\s\S]*?return\s+selection\.empty\s*\|\|\s*isCellSelection;/,
+      "Expected tableToolbarPair shouldShow to return selection.empty || isCellSelection"
+    );
+
+    // 3. updateTableToolbar should also check inTable && (selection.empty || isCellSelection)
+    assert.match(
+      indexContent,
+      /const\s+show\s*=\s*inTable\s*&&\s*\(\s*selection\.empty\s*\|\|\s*isCellSelection\s*\);[\s\S]*?tableToolbarEl\.style\.display\s*=\s*show\s*\?\s*'flex'\s*:\s*'none';/,
+      "Expected updateTableToolbar to synchronize visibility with show = inTable && (selection.empty || isCellSelection)"
+    );
+  });
 });
+
+test("Tooltip and table toolbar shouldShow functional logic", async (t) => {
+  const createMockView = ({ empty, inTable, isCellSelection = false, selectionType = "TextSelection" }) => {
+    return {
+      state: {
+        selection: {
+          empty: !!empty,
+          isRowSelection: () => selectionType === "RowSelection",
+          isColSelection: () => selectionType === "ColSelection",
+          constructor: { name: selectionType },
+          $from: {
+            depth: inTable ? 2 : 1,
+            node: (d) => (d === 2 && inTable ? { type: { name: "table" } } : { type: { name: "paragraph" } })
+          }
+        }
+      }
+    };
+  };
+
+  const tooltipShouldShow = (view) => {
+    const { selection } = view.state;
+    if (selection.empty) return false;
+    const isCellSelection = selection.isRowSelection?.() || selection.isColSelection?.() || (selection.constructor && selection.constructor.name === 'CellSelection');
+    return !isCellSelection;
+  };
+
+  const tableToolbarShouldShow = (view) => {
+    const { selection } = view.state;
+    let inTable = false;
+    for (let d = selection.$from.depth; d > 0; d--) {
+      if (selection.$from.node(d).type.name === 'table') {
+        inTable = true;
+        break;
+      }
+    }
+    if (!inTable) return false;
+    const isCellSelection = selection.isRowSelection?.() || selection.isColSelection?.() || (selection.constructor && selection.constructor.name === 'CellSelection');
+    return selection.empty || isCellSelection;
+  };
+
+  await t.test("outside table: collapsed cursor hides both tooltip and table toolbar", () => {
+    const view = createMockView({ empty: true, inTable: false });
+    assert.equal(tooltipShouldShow(view), false, "Text tooltip should be hidden");
+    assert.equal(tableToolbarShouldShow(view), false, "Table toolbar should be hidden");
+  });
+
+  await t.test("outside table: selected text shows text tooltip and hides table toolbar", () => {
+    const view = createMockView({ empty: false, inTable: false });
+    assert.equal(tooltipShouldShow(view), true, "Text tooltip should be shown");
+    assert.equal(tableToolbarShouldShow(view), false, "Table toolbar should be hidden");
+  });
+
+  await t.test("inside table: collapsed cursor hides text tooltip and shows table toolbar", () => {
+    const view = createMockView({ empty: true, inTable: true });
+    assert.equal(tooltipShouldShow(view), false, "Text tooltip should be hidden");
+    assert.equal(tableToolbarShouldShow(view), true, "Table toolbar should be shown");
+  });
+
+  await t.test("inside table: selected text shows text tooltip and hides table toolbar (prevents overlap)", () => {
+    const view = createMockView({ empty: false, inTable: true });
+    assert.equal(tooltipShouldShow(view), true, "Text tooltip should be shown for formatting");
+    assert.equal(tableToolbarShouldShow(view), false, "Table toolbar should be hidden to avoid overlap");
+  });
+
+  await t.test("inside table: CellSelection shows table toolbar and hides text tooltip", () => {
+    const view = createMockView({ empty: false, inTable: true, isCellSelection: true, selectionType: "CellSelection" });
+    assert.equal(tooltipShouldShow(view), false, "Text tooltip should be hidden on cell selection");
+    assert.equal(tableToolbarShouldShow(view), true, "Table toolbar should be shown on cell selection");
+  });
+
+  await t.test("inside table: RowSelection shows table toolbar and hides text tooltip", () => {
+    const view = createMockView({ empty: false, inTable: true, isCellSelection: true, selectionType: "RowSelection" });
+    assert.equal(tooltipShouldShow(view), false, "Text tooltip should be hidden on row selection");
+    assert.equal(tableToolbarShouldShow(view), true, "Table toolbar should be shown on row selection");
+  });
+
+  await t.test("inside table: ColSelection shows table toolbar and hides text tooltip", () => {
+    const view = createMockView({ empty: false, inTable: true, isCellSelection: true, selectionType: "ColSelection" });
+    assert.equal(tooltipShouldShow(view), false, "Text tooltip should be hidden on col selection");
+    assert.equal(tableToolbarShouldShow(view), true, "Table toolbar should be shown on col selection");
+  });
+});
+
 
 

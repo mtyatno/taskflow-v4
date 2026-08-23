@@ -4,6 +4,22 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-23 09:40] - Antigravity (Gemini)
+- **Task:** Fix Table Toolbar and Text Formatting Tooltip Overlap in Milkdown Note Editor using systematic-debugging and Subagent-Driven Development.
+- **Root Cause:**
+  - `tooltipPair` (`tooltipEl`: Bold, Italic, Strikethrough, Code) triggered on any non-empty selection (`!selection.empty`), while `tableToolbarPair` (`tableToolbarEl`) triggered whenever inside a table node. When text inside a table was selected, both providers anchored to the exact same selection bounding box, rendering on top of each other.
+- **Changes:**
+  - `static/index.html`: Enforced mutual exclusivity:
+    - `tooltipPair.shouldShow`: Displays only when `!selection.empty && !isCellSelection`.
+    - `tableToolbarPair.shouldShow`: Displays only when `inTable && (selection.empty || isCellSelection)`.
+    - `updateTableToolbar`: Synchronized with `inTable && (selection.empty || isCellSelection)`.
+  - `tests/offline/table_resizing.test.js`: Added 9 new unit tests covering all 5 selection states (outside/inside table, collapsed/selected/cell-selection) and code invariants (25/25 passed).
+  - `static/sw.js`: Bumped SW cache to `taskflow-v290-table-tooltip-overlap-fix`.
+- **Files Modified:** `static/index.html`, `tests/offline/table_resizing.test.js`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved by Subagent Reviewer (473/473 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-23 09:25] - Antigravity (Gemini)
 - **Task:** Fix Milkdown Table Toolbar Buttons (Restore All 9 Table Action Buttons) using systematic-debugging and Subagent-Driven Development.
 - **Root Cause:**
