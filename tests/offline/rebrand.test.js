@@ -24,6 +24,11 @@ test("Rebrand Alurik — user-visible strings", async (t) => {
     // kapital-quoted '"TaskFlow"' yang tersisa pasti string UI — wajib nol.
     assert.strictEqual(indexHtml.includes('"TaskFlow"'), false, 'literal UI "TaskFlow" (kapital, quoted) tidak boleh ada');
     assert.strictEqual(indexHtml.includes("TaskFlow V4"), false, '"TaskFlow V4" tidak boleh ada');
+    // Guard total: tidak boleh ada "TaskFlow" kapital dalam bentuk APA PUN (termasuk
+    // escaped auth-header `"⚡ TaskFlow"` — quote mendahului emoji sehingga lolos dari
+    // dua assertion di atas). Aman karena index.html TIDAK punya identifier internal
+    // ber-kapital (semua lowercase "taskflow-...", terverifikasi saat rebrand).
+    assert.strictEqual(indexHtml.includes("TaskFlow"), false, 'tidak boleh ada "TaskFlow" (kapital, bentuk apa pun)');
   });
 
   await t.test("brand baru muncul di UI & ekspor", () => {
