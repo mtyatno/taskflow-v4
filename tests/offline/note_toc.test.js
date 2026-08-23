@@ -70,3 +70,54 @@ test("Floating ToC CSS — tombol melayang ala Medium", async (t) => {
     assert.strictEqual(appCss.includes(".note-toc-sticky"), false, ".note-toc-sticky tidak boleh ada");
   });
 });
+
+const indexPath = path.resolve(__dirname, "../../static/index.html");
+const indexHtml = fs.readFileSync(indexPath, "utf8");
+
+test("Floating ToC JSX — markup NotePanel", async (t) => {
+  const notePanelMatch = indexHtml.match(/function NotePanel\(\{[\s\S]*?^function /m);
+  const notePanelCode = notePanelMatch ? notePanelMatch[0] : "";
+  assert.ok(notePanelCode.length > 0, "NotePanel harus ada di static/index.html");
+
+  await t.test("trigger jadi anchor fixed (tanpa inline relative)", () => {
+    assert.ok(notePanelCode.includes('className: "floating-toc-anchor"'), "wrapper pakai class floating-toc-anchor");
+    assert.strictEqual(/ref: tocRef,\s*style: \{ position: "relative", display: "inline-block" \}/.test(notePanelCode), false, "inline style relative di wrapper ToC harus dihapus (dropdown export lain tetap boleh inline)");
+  });
+
+  await t.test("tombol lingkaran ikon saja (label Isi (N) hilang)", () => {
+    assert.ok(notePanelCode.includes('React.createElement("span", null, "📑")'), "ikon 📑 ada");
+    assert.strictEqual(notePanelCode.includes("`Isi (${tocItems.length})`"), false, "label teks Isi (N) harus hilang");
+    assert.strictEqual(notePanelCode.includes('"▲" : "▼"'), false, "indikator panah harus hilang");
+  });
+
+  await t.test("popover tanpa positioning inline (CSS yang pegang)", () => {
+    assert.strictEqual(notePanelCode.includes('top: "calc(100% + 6px)"'), false, "inline top popover lama harus hilang");
+    assert.strictEqual(notePanelCode.includes('zIndex: 200'), false, "inline zIndex 200 popover harus hilang");
+    assert.ok(notePanelCode.includes('className: "floating-toc-popover"'), "popover hanya pakai class");
+  });
+
+  await t.test("state tocActiveIdx + ref tocSpyRef + observer wiring", () => {
+    assert.match(notePanelCode, /const \[tocActiveIdx, setTocActiveIdx\] = React\.useState\(null\)/, "state tocActiveIdx ada");
+    assert.match(notePanelCode, /const tocSpyRef = React\.useRef\(null\)/, "ref tocSpyRef ada");
+    assert.match(notePanelCode, /typeof IntersectionObserver === "undefined"/, "guard IntersectionObserver ada");
+    assert.match(notePanelCode, /querySelectorAll\('\[id\^="note-h-"\]'\)/, "scope observer ke heading dalam container");
+    assert.match(notePanelCode, /rootMargin: "-15% 0px -60% 0px"/, "band scroll-spy 15%–60%");
+    assert.match(notePanelCode, /setTocActiveIdx\(parseInt\(m\[1\], 10\)\)/, "parse idx dari id heading");
+  });
+
+  await t.test("effect observer SETELAH deklarasi tocItems (regresi TDZ)", () => {
+    const tocItemsIdx = notePanelCode.indexOf('const tocItems = useMemo(() => extractHeadings(note.content || ""), [note.content]);');
+    const observerIdx = notePanelCode.indexOf("new IntersectionObserver");
+    assert.ok(tocItemsIdx > -1 && observerIdx > -1, "kedua penanda ada");
+    assert.ok(observerIdx > tocItemsIdx, "observer WAJIB setelah deklarasi tocItems (TDZ)");
+  });
+
+  await t.test("tocSpyRef terpasang di .note-rendered milik panel", () => {
+    assert.match(notePanelCode, /className: "note-rendered",\s*ref: tocSpyRef/, "ref tocSpyRef di div note-rendered");
+  });
+
+  await t.test("item aktif via template class + klik set aktif instan", () => {
+    assert.match(notePanelCode, /className: `note-toc-item\$\{tocActiveIdx === item\.idx \? " active" : ""\}`/, "class active pada item yang cocok");
+    assert.match(notePanelCode, /setTocOpen\(false\);\s*setTocActiveIdx\(item\.idx\)/, "klik item langsung set active idx");
+  });
+});

@@ -19551,6 +19551,26 @@ function NotePanel({
   };
   const titleStrings = useMemo(() => noteTitles.map(n => n.title), [noteTitles]);
   const tocItems = useMemo(() => extractHeadings(note.content || ""), [note.content]);
+  const [tocActiveIdx, setTocActiveIdx] = React.useState(null);
+  const tocSpyRef = React.useRef(null);
+  React.useEffect(() => {
+    const container = tocSpyRef.current;
+    if (!container || tocItems.length < 2 || typeof IntersectionObserver === "undefined") return;
+    const headings = container.querySelectorAll('[id^="note-h-"]');
+    if (!headings.length) return;
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries.filter(e => e.isIntersecting);
+      if (!visible.length) return;
+      let top = visible[0];
+      for (let i = 1; i < visible.length; i++) {
+        if (visible[i].boundingClientRect.top < top.boundingClientRect.top) top = visible[i];
+      }
+      const m = /note-h-(\d+)$/.exec(top.target.id);
+      if (m) setTocActiveIdx(parseInt(m[1], 10));
+    }, { root: null, rootMargin: "-15% 0px -60% 0px", threshold: 0 });
+    headings.forEach(h => observer.observe(h));
+    return () => observer.disconnect();
+  }, [tocItems, note.id]);
   const handlePrint = async () => {
     // Remove any stale print area (e.g. from a previous print whose afterprint
     // never fired on a mobile webview).
@@ -20276,6 +20296,7 @@ function NotePanel({
     }
   }, "#", t))), /*#__PURE__*/React.createElement("div", {
     className: "note-rendered",
+    ref: tocSpyRef,
     style: {
       lineHeight: 1.75
     },
@@ -20411,21 +20432,15 @@ function NotePanel({
     }
   }, att.file_size > 1048576 ? (att.file_size / 1048576).toFixed(1) + 'MB' : Math.round(att.file_size / 1024) + 'KB'))))), tocItems.length >= 2 && /*#__PURE__*/React.createElement("div", {
     ref: tocRef,
-    style: { position: "relative", display: "inline-block" }
+    className: "floating-toc-anchor"
   }, /*#__PURE__*/React.createElement("button", {
     type: "button",
     onClick: () => setTocOpen(o => !o),
     className: `floating-toc-trigger${tocOpen ? " active" : ""}`,
     title: "Daftar Isi Catatan"
-  }, /*#__PURE__*/React.createElement("span", null, "📑"), `Isi (${tocItems.length})`, /*#__PURE__*/React.createElement("span", { style: { fontSize: 9, opacity: 0.7 } }, tocOpen ? "▲" : "▼")),
+  }, /*#__PURE__*/React.createElement("span", null, "📑")),
   tocOpen && /*#__PURE__*/React.createElement("div", {
-    className: "floating-toc-popover scale-in",
-    style: {
-      position: "absolute",
-      top: "calc(100% + 6px)",
-      right: 0,
-      zIndex: 200
-    }
+    className: "floating-toc-popover"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -20444,10 +20459,11 @@ function NotePanel({
   }, "✕")),
   tocItems.map(item => /*#__PURE__*/React.createElement("span", {
     key: item.idx,
-    className: "note-toc-item",
+    className: `note-toc-item${tocActiveIdx === item.idx ? " active" : ""}`,
     style: { paddingLeft: 6 + (item.level - 1) * 10 },
     onClick: () => {
       setTocOpen(false);
+      setTocActiveIdx(item.idx);
       const el = document.getElementById(`note-h-${item.idx}`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     },
