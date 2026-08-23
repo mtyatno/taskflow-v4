@@ -6,6 +6,17 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🔴 SDD Notes Sidebar 3-Baris + Tabs — Task 1 CSS SELESAI 2026-08-23 (Claude, commit `d68be18`)
+- `static/app.css` (area umum baris 734-766, BUKAN di @media): `.notes-tabs`/`.notes-tab`(+`:hover`/`.active`) verbatim dari brief; `.notes-left > *:not(.notes-left-inner) { flex-shrink: 0; }`; `min-height: 0;` DITAMBAH ke rule `.notes-left-inner` yang sudah ada (bukan rule baru). CRLF app.css terjaga.
+- TDD di `tests/offline/notes_page_layout.test.js` (suite baru dari brief): RED 11 tests/8 pass/3 fail → GREEN 11/11; full suite `node --test "tests/offline/*.test.js"` **522/522 pass 0 fail** (~149.5s).
+- **TIDAK di-push** (push/deploy = Task 3). Report: `.superpowers/sdd/2026-08-23-notes-sidebar-tabs/task-1-report.md`.
+
+## 🔴 SDD Notes Sidebar 3-Baris + Tabs — Task 2 JSX + state SELESAI 2026-08-23 (Claude, commit `58fcbeb`)
+- `static/index.html` (NotesPage, compiled output diedit langsung): state `filterPublished`/`filterListId`/`pinnedExpanded` → `notesTab` ("all"); `applyFilters`/`applyFiltersStatic`/`fetchNotes` tab-aware (`tab ∩ tags ∩ search`, param `tab = "all"`); `handleListFilter`/`handlePublishedFilter` dihapus, `handleTabChange` baru; header merged (span count `Catatan (${sortedNotes.length})` + select sort di row header, row subheader dihapus); tags row dirampingkan (pill Published/Semua/Shared + `isAllActive` dihapus; 2 top tags + pill 🏷️ + popover lengkap dipertahankan); baris tabs `.notes-tabs` (All/Pinned/Pub/Shared, className template `notes-tab${notesTab === x ? " active" : ""}`) disisipkan setelah tags row; accordion pinned IIFE dihapus total; empty state per tab (Belum ada catatan yang di-pin/di-publish/di-share).
+- `listsWithNotes` di-hoist ke component scope sebelum memo `sharedListIds` (TDZ-safe). Semua call-site lama di-update ke `notesTab` (handlePin, ✕ clear-search, Reset popover, handleSave, handleDelete, handler noteSaved + deps). Deviasi: 2 sisa `filterListId` di MindmapPage (fitur filter list mindmap, sengaja dipertahankan — di luar scope); title `📝 Catatan (${allNotes.length})` header dipertahankan (brief tak instruksikan hapus).
+- Verifikasi: TDD RED (18 tests/9 pass/9 fail) → GREEN 18/18; rebrand 6/6; check_inline 5/5 (3×); full suite `node --test "tests/offline/*.test.js"` **529/529 pass 0 fail** (~171s); grep NotesPage-scoped untuk 4 identifier lama = nol; CRLF index.html terjaga.
+- **TIDAK di-push.** NEXT = Task 3 (SW bump `taskflow-v305-notes-sidebar-tabs` + push + deploy + verifikasi live + handover). Report: `.superpowers/sdd/2026-08-23-notes-sidebar-tabs/task-2-report.md`.
+
 ## 🔴 SDD Rebrand TaskFlow → Alurik — Task 1 frontend strings SELESAI 2026-08-23 (Claude, commit `b4acbe9`)
 - Semua string user-visible "TaskFlow" → "Alurik": `static/index.html` (title, apple-title, nama file export `alurik-export-`, 4× header auth "⚡ Alurik", brand sidebar, footer print note, deskripsi tour), `static/manifest.json` (name/short_name/description), komentar Driver.js di `static/app.css`. SW bump **`taskflow-v303-rebrand-alurik`**.
 - Identifier internal TETAP: `taskflow-legacy-cache` (index.html:290), DB `taskflow-offline`, package id `id.web.yatno.taskflow`. Test regresi baru `tests/offline/rebrand.test.js` (6/6) — TDD RED (5 fail/1 pass) → GREEN; check_inline 5/5; full suite 519/519 pass 0 fail.
@@ -21,14 +32,15 @@
 
 
 ## 🟢 Active Task
-- **SDD Rebrand TaskFlow → Alurik — SELESAI & LIVE 2026-08-23 (Claude, 7 commit `b4acbe9`..`f4f5e7b` di-push)**: semua string user-visible "TaskFlow" → "Alurik": frontend (`static/index.html` title/brand/export-file, `static/manifest.json` name/short_name/description, deskripsi tour `static/app.css`), backend (`webapp.py` 16 titik, `bot.py` 8 titik, `mailer.py`, `docx_exporter.py`, `ai_review.py`, `config.py` default SMTP_FROM), `.env.example` (SMTP_FROM + header box), `src-tauri/tauri.conf.json` productName/title (display-only), README + PROJECT_MAP + CLAUDE.md, ikon placeholder monogram "A" lime #a8c500 di bg #0f172a (4 PNG: favicon 48px + icon-32/192/512). SW **`taskflow-v303-rebrand-alurik`** — **LIVE terverifikasi curl** (SW v303, `<title>Alurik</title>`, manifest `"name": "Alurik"`, ikon baru tersaji byte-identik). Yang DIPERTAHANKAN (internal): identifier `id.web.yatno.taskflow`, `taskflow-legacy-cache`, `taskflow.db`, `/TaskFlow/attachments`, `logging.getLogger("taskflow")`, nama service VPS `taskflow`/`taskflow-web` (perintah systemctl di README tetap akurat), path `taskflow-v4/`. Verifikasi: JS 519/519 pass 0 fail; pytest 47/47; check_inline 5/5. Report: `.superpowers/sdd/2026-08-23-rebrand-alurik/task-3-report.md`.
-  - **PENDING user:**
-    1. Hard refresh browser (Ctrl+Shift+R) → tab title & favicon jadi "Alurik", ikon placeholder baru tampil.
-    2. Restart service VPS: `sudo systemctl restart taskflow taskflow-web` — perubahan **webapp.py/bot.py baru aktif setelah restart** (bagian static sudah aktif seketika); kalau VPS `.env` set `SMTP_FROM` eksplisit dengan display name lama, update juga di sana.
-    3. Cek bot Telegram `/start` menampilkan "⚡ Alurik".
-    4. Ikon native Tauri (`src-tauri/icons/*`) menyusul saat build native berikutnya (di luar scope task ini).
-    5. Logo placeholder monogram bisa diganti desain kapan saja (regenerasi 4 file PNG: favicon, icon-32/192/512).
-    6. URL tetap `todo.yatno.web.id` (domain alurik.com belum di-pointing — DNS/HTTPS VPS = langkah terpisah butuh akses user ke Cloudflare/registrar & VPS).
+- **SDD Notes Sidebar 3-Baris + Tabs — SELESAI & LIVE 2026-08-23 (Claude, 4 commit `d68be18`..`6031293` di-push)**: panel kiri NotesPage jadi 3 baris operasi (header+search, tags, tabs) + daftar note full-scroll. State `filterPublished`/`filterListId`/`pinnedExpanded` → satu **`notesTab`** ("all", component-local tanpa persist); `applyFilters`/`applyFiltersStatic`/`fetchNotes` tab-aware (kombinasi **`tab ∩ tags ∩ search`**, param `tab = "all"`); tab **All/Pinned/Pub/Shared** menggantikan pill Published/Shared + accordion pinned (dihapus total); empty state per tab; header count tunggal `Catatan (${sortedNotes.length})` (title `📝 Catatan` tanpa count); `sharedListIds` Set biasa (useMemo no-op dihapus). CSS: `.notes-tabs`/`.notes-tab`/`.active` segmented (flex:1) + `.notes-left > *:not(.notes-left-inner) { flex-shrink: 0 }` + `.notes-left-inner { min-height: 0 }`. SW **`taskflow-v305-notes-sidebar-tabs`** — **LIVE terverifikasi curl** (SW v305; index.html: container `notes-tabs` + 4 tombol `notes-tab${notesTab === "all"/"pinned"/"pub"/"shared"}`; app.css `notes-tab` ×4). Verifikasi: JS **529/529 pass 0 fail** (~165s); pytest 47/47; check_inline 5/5. Report: `.superpowers/sdd/2026-08-23-notes-sidebar-tabs/task-3-report.md`.
+  - **PENDING user (device-test):**
+    1. Desktop: panel kiri = header + search + tags + tabs + list scroll penuh — banyak kartu terlihat.
+    2. Tab All/Pinned/Pub/Shared menampilkan subset benar; kombinasi dengan tag & search; count "Catatan (N)" berubah.
+    3. Tab Pinned: klik card membuka note; accordion lama tidak ada.
+    4. Mobile: baris & tab rapi, list scroll.
+    5. Dark mode konsisten.
+    6. Hard refresh (Ctrl+Shift+R) — SW v305.
+  - **Masih PENDING dari rebrand Alurik (tetap berlaku):** hard refresh browser; `sudo systemctl restart taskflow taskflow-web` (perubahan webapp.py/bot.py/mailer.py baru aktif setelah restart; cek SMTP_FROM di .env VPS bila set eksplisit nama lama); cek bot Telegram `/start` menampilkan "⚡ Alurik".
 
 ## ✅ FIX Table Toolbar Offset — SELESAI & LIVE 2026-08-23 (Claude, commit `fc00552`, SW v302)
 - Toolbar tabel Milkdown menutupi teks cell; fix `offset.mainAxis: -8 → 6` di `static/index.html:16238` (toolbar 6px DI ATAS cell). JS 513/513 pass 0 fail; pytest 43/43; check_inline 5/5. PENDING user: hard refresh → klik dalam cell tabel → toolbar DI ATAS teks (gap ~6px). Report: `.superpowers/sdd/2026-08-23-table-toolbar-offset/report.md`.
@@ -51,8 +63,8 @@
 
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-23 (Claude — SDD Rebrand Alurik Task 3 deploy, commit `f4f5e7b`)
-**Updated By:** Claude — SDD Rebrand Alurik Task 3 icons + docs + deploy + handover (7 commit rebrand di-push & LIVE, SW v303)
+**Last Updated:** 2026-08-23 (Claude — SDD Notes Sidebar 3-Baris + Tabs Task 3 deploy, commit `6031293`)
+**Updated By:** Claude — SDD Notes Sidebar Tabs Task 3 SW bump + deploy + handover (4 commit di-push & LIVE, SW v305)
 
 ---
 
