@@ -224,6 +224,11 @@ test("Notes sidebar tabs — CSS segmented & flex zone", async (t) => {
     assert.match(appCss, /\.notes-left\s*>\s*\*:not\(\.notes-left-inner\)\s*\{\s*flex-shrink:\s*0/, "zona kontrol flex-shrink: 0");
     assert.match(appCss, /\.notes-left-inner\s*\{[^}]*min-height:\s*0/, ".notes-left-inner wajib min-height: 0");
   });
+
+  await t.test("scroll list punya padding atas (anti-clip hover lift)", () => {
+    assert.match(appCss, /\.notes-left-inner\s*\{[^}]*padding:\s*6px\s+16px\s+16px\s+0/, "base rule padding-top 6px");
+    assert.match(appCss, /\.notes-left-inner\s*\{[^}]*padding:\s*6px\s+14px\s+84px\s+0\s*!important/, "mobile override padding-top 6px");
+  });
 });
 
 test("Notes sidebar tabs — struktur JSX & state", async (t) => {

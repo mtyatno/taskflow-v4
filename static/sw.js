@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v306-remove-notes-new-button";
+const CACHE = "taskflow-v307-note-card-clip-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
