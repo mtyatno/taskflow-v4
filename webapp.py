@@ -1,5 +1,5 @@
 """
-TaskFlow V4 — Web Application (FastAPI)
+Alurik — Web Application (FastAPI)
 
 Multi-user web interface with JWT auth, REST API, and React SPA frontend.
 Runs alongside the Telegram bot, sharing the same SQLite database.
@@ -960,7 +960,7 @@ async def _send_tg_message(tg_id: int, text: str):
 #  APP
 # ══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title="TaskFlow V4", docs_url="/api/docs")
+app = FastAPI(title="Alurik", docs_url="/api/docs")
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -1748,15 +1748,15 @@ async def check_recurring_expiry(background_tasks: BackgroundTasks, user=Depends
         if days_left < 0 and current_level in (None, "week", "day"):
             new_level = "expired"
             msg = f'🔄 Recurring task "{t["title"]}" telah berakhir. Buat ulang jika masih diperlukan.'
-            tg_msg = f'🔄 <b>Recurring Task Berakhir</b>\n"{t["title"]}" telah berakhir.\nBuka TaskFlow untuk membuat ulang.'
+            tg_msg = f'🔄 <b>Recurring Task Berakhir</b>\n"{t["title"]}" telah berakhir.\nBuka Alurik untuk membuat ulang.'
         elif days_left <= 1 and current_level == "week":
             new_level = "day"
             msg = f'⚠️ Recurring task "{t["title"]}" berakhir besok. Perpanjang jika masih diperlukan.'
-            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" berakhir besok.\nBuka TaskFlow untuk memperpanjang.'
+            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" berakhir besok.\nBuka Alurik untuk memperpanjang.'
         elif days_left <= 7 and current_level is None:
             new_level = "week"
             msg = f'⚠️ Recurring task "{t["title"]}" akan berakhir dalam {days_left} hari. Perpanjang jika masih diperlukan.'
-            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" akan berakhir dalam {days_left} hari.\nBuka TaskFlow untuk memperpanjang.'
+            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" akan berakhir dalam {days_left} hari.\nBuka Alurik untuk memperpanjang.'
         else:
             continue
 
@@ -2523,7 +2523,7 @@ async def serve_spa():
                 "Expires": "0",
             },
         )
-    return HTMLResponse("<h1>TaskFlow V4</h1><p>Static files not found.</p>")
+    return HTMLResponse("<h1>Alurik</h1><p>Static files not found.</p>")
 
 
 @app.get("/sw.js")
@@ -3635,7 +3635,7 @@ async def export_user_data(user=Depends(get_current_user)):
         zf.writestr("habits.csv", csv_buf2.getvalue().encode("utf-8"))
 
     buf.seek(0)
-    filename = f"taskflow-export-{today}.zip"
+    filename = f"alurik-export-{today}.zip"
     return StreamingResponse(
         buf,
         media_type="application/zip",
@@ -3968,7 +3968,7 @@ async def bookmark_extract(body: BookmarkExtractIn, user=Depends(get_current_use
     err = bookmark.validate_bookmark_url(url)
     if err:
         raise HTTPException(status_code=400, detail=err)
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; TaskFlowBookmark/1.0)"}
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; AlurikBookmark/1.0)"}
     # Follow redirects manually, re-validating every hop — otherwise a public URL
     # could 30x-redirect to an internal host and bypass the SSRF guard.
     from urllib.parse import urljoin
@@ -4038,7 +4038,7 @@ async def ai_note_action(req: NoteAiRequest, user=Depends(get_current_user)):
 def _call_note_ai(instruction: str, text: str) -> str:
     """AI note transform via the configured provider (see config.AI_PROVIDER)."""
     system = (
-        "Kamu adalah asisten penulisan catatan di TaskFlow. "
+        "Kamu adalah asisten penulisan catatan di Alurik. "
         "Ikuti instruksi pengguna untuk mengubah TEKS INPUT menjadi output. "
         "Instruksi bisa berupa: ringkas, perbaiki grammar, terjemahkan, "
         "ubah tone, ekstrak action items, expand, atau instruksi bebas lainnya. "
@@ -4054,7 +4054,7 @@ def _call_note_ai(instruction: str, text: str) -> str:
         ],
         max_tokens=4000,
         timeout=45,
-        extra_headers={"X-Title": "TaskFlow Note AI"},
+        extra_headers={"X-Title": "Alurik Note AI"},
     )
 
 
@@ -4685,7 +4685,7 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} — TaskFlow Publish</title>
+<title>{title} — Alurik Publish</title>
 <meta name="description" content="{description}">
 <meta property="og:title" content="{title}">
 <meta property="og:description" content="{description}">
@@ -4697,7 +4697,7 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <header class="pub-header">
-  <div class="pub-header-left">&#128279; <a href="{base_url}">Published via TaskFlow</a></div>
+  <div class="pub-header-left">&#128279; <a href="{base_url}">Published via Alurik</a></div>
   <div class="pub-header-right">
     <div class="pub-search-wrap">
       <input type="text" id="doc-search" placeholder="Search in document...">
@@ -4748,7 +4748,7 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 </div>
 
 <footer class="pub-footer">
-  Published with &#10084; by <a href="{base_url}">TaskFlow</a>
+  Published with &#10084; by <a href="{base_url}">Alurik</a>
 </footer>
 
 <script src="/static/vendor/katex/katex.min.js"></script>
@@ -4896,18 +4896,18 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 
 _NOT_FOUND_HTML = """<!DOCTYPE html>
 <html lang="id">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Not Found — TaskFlow</title>""" + _PUBLIC_CSS + """</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Not Found — Alurik</title>""" + _PUBLIC_CSS + """</head>
 <body>
 <div class="pub-notfound">
 <h1>404</h1>
 <p>Halaman tidak ditemukan atau sudah di-unpublish.</p>
-<p style="margin-top:16px"><a href="/" style="color:var(--accent);text-decoration:none">&#8592; Back to TaskFlow</a></p>
+<p style="margin-top:16px"><a href="/" style="color:var(--accent);text-decoration:none">&#8592; Back to Alurik</a></p>
 </div>
 </body></html>"""
 
 _PASSWORD_GATE_HTML = """<!DOCTYPE html>
 <html lang="id">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>🔒 Protected — TaskFlow</title>{css}</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>🔒 Protected — Alurik</title>{css}</head>
 <body>
 <div class="pub-password">
   <h1>🔒 Halaman ini dilindungi password</h1>
