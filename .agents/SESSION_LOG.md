@@ -1000,3 +1000,11 @@ Chronological history of work performed by AI agents in this workspace.
 - **Verifikasi:** rebrand.test.js 6/6 pass; pytest tests/ 47/47 pass.
 - **Files Touch:** `src-tauri/Cargo.toml`, `tests/offline/rebrand.test.js`, `AGENTS.md`, `GEMINI.md`
 - **Status:** Completed; deferred (final review): banner install.sh/install-web.sh/backup.sh/restore.sh (operator-only), docs lama historis.
+
+## [2026-08-23] - Claude (apply Alurik brand icons dari desainer)
+- **Task:** Terapkan aset brand asli Alurik dari `temporary_files/logo/` (buatan desainer) menggantikan placeholder monogram "A".
+- **Pemetaan:** master = `06_favicon_512x512.png` (374px, ikon kanonik desainer) → static/favicon.png (48), icon-32/192/512 (PWA + apple-touch), src-tauri/icons/* (set lengkap: icon.png, 32/64/128/128@2x, Square30–310, StoreLogo, icon-source.png), icon.ico (Windows multi-size 16–256) + static/favicon.ico. icon.icns (macOS) TIDAK bisa ditulis Pillow — menyusul via `tauri icon` saat build mac.
+- **Catatan:** 03_icon_app_dark & 04_icon_app_accent tersedia di folder kalau mau ganti varian — tinggal ganti master & regenerasi (skrip sekali pakai sudah dihapus).
+- **Verifikasi:** rebrand.test 6/6, pytest 47/47, live curl: SW `taskflow-v304-alurik-brand-icons` + icon-192 40305 bytes = file baru.
+- **Files Touch:** `static/{favicon.png,favicon.ico,icon-32,icon-192,icon-512}.png`, `static/sw.js`, `src-tauri/icons/*`
+- **Status:** Completed; PENDING user: hard refresh (Ctrl+Shift+R) → lihat favicon & PWA icon baru di tab/home screen.
