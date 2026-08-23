@@ -19554,6 +19554,7 @@ function NotePanel({
   const [tocActiveIdx, setTocActiveIdx] = React.useState(null);
   const tocSpyRef = React.useRef(null);
   React.useEffect(() => {
+    setTocActiveIdx(null);
     const container = tocSpyRef.current;
     if (!container || tocItems.length < 2 || typeof IntersectionObserver === "undefined") return;
     const headings = container.querySelectorAll('[id^="note-h-"]');

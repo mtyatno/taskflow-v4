@@ -69,6 +69,13 @@ test("Floating ToC CSS — tombol melayang ala Medium", async (t) => {
   await t.test("ToC statis lama benar-benar hilang", () => {
     assert.strictEqual(appCss.includes(".note-toc-sticky"), false, ".note-toc-sticky tidak boleh ada");
   });
+
+  await t.test("base anchor z-index 45 (di bawah modal-overlay 50)", () => {
+    // Match PERTAMA di file = rule base mobile (bukan override di @media min-width: 769px).
+    const base = /\.floating-toc-anchor \{([^}]*)\}/.exec(appCss);
+    assert.ok(base, "rule .floating-toc-anchor base ada");
+    assert.ok(/z-index:\s*45/.test(base[1]), "base anchor z-index harus 45 (di bawah modal-overlay 50, di atas sidebar 40)");
+  });
 });
 
 const indexPath = path.resolve(__dirname, "../../static/index.html");
@@ -119,5 +126,9 @@ test("Floating ToC JSX — markup NotePanel", async (t) => {
   await t.test("item aktif via template class + klik set aktif instan", () => {
     assert.match(notePanelCode, /className: `note-toc-item\$\{tocActiveIdx === item\.idx \? " active" : ""\}`/, "class active pada item yang cocok");
     assert.match(notePanelCode, /setTocOpen\(false\);\s*setTocActiveIdx\(item\.idx\)/, "klik item langsung set active idx");
+  });
+
+  await t.test("scroll-spy reset tocActiveIdx saat note berganti (anti highlight stale)", () => {
+    assert.match(notePanelCode, /React\.useEffect\(\(\) => \{\s*setTocActiveIdx\(null\);/, "setTocActiveIdx(null) harus statement PERTAMA di body effect scroll-spy");
   });
 });

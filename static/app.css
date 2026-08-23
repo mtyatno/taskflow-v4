@@ -1872,7 +1872,7 @@
   position: fixed;
   right: 16px;
   bottom: calc(92px + env(safe-area-inset-bottom, 0px));
-  z-index: 60;
+  z-index: 45;
 }
 .floating-toc-trigger {
   display: flex;

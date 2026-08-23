@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v300-floating-toc-fab";
+const CACHE = "taskflow-v301-toc-zindex-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
