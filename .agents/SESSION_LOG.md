@@ -4,6 +4,17 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-23 10:45] - Antigravity (Gemini)
+- **Task:** Remove Bottom Canvas Accordion from `TaskFormModal` Note Tab ("+ Buat Baru") using Subagent-Driven Development.
+- **Summary:**
+  - `static/index.html`: Cleanly removed `noteCanvasId`, `noteDrawIframeRef`, `noteDrawOpen`, `noteDrawFullscreen`, `noteDrawIframeReady`, and the `✏️ Canvas` accordion/iframe markup from `TaskFormModal` Note tab.
+  - `tests/offline/drawdirective.test.js`: Added unit tests asserting clean removal of bottom canvas components from `TaskFormModal` (485/485 passed).
+  - `static/sw.js`: Bumped SW cache to `taskflow-v293-remove-taskform-note-bottom-canvas`.
+- **Files Modified:** `static/index.html`, `tests/offline/drawdirective.test.js`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved by Subagent Reviewer (485/485 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-23 10:25] - Antigravity (Gemini)
 - **Task:** Implement Missing Paper Selector and Paper Guides in `TaskFormModal` Note Tab ("+ Buat Baru") using Subagent-Driven Development.
 - **Summary:**

@@ -395,7 +395,7 @@ describe('Drawing Directive Module', () => {
     });
   });
 
-  describe('NoteModal and NoteViewerModal (NotePanel) Bottom Canvas Removal Verification', () => {
+  describe('NoteModal, NoteViewerModal (NotePanel), and TaskFormModal Bottom Canvas Removal Verification', () => {
     const fs = require('fs');
     const path = require('path');
     const indexPath = path.resolve(__dirname, '../../static/index.html');
@@ -407,6 +407,9 @@ describe('Drawing Directive Module', () => {
 
     const notePanelMatch = indexHtml.match(/function NotePanel\([\s\S]*?\nfunction NotesPage\(/);
     const notePanelSource = notePanelMatch ? notePanelMatch[0] : '';
+
+    const taskFormModalMatch = indexHtml.match(/function TaskFormModal\([\s\S]*?\nfunction TaskDetailModal\(/);
+    const taskFormModalSource = taskFormModalMatch ? taskFormModalMatch[0] : '';
 
     it('verifies NoteModal cleanly removes bottom canvas state, effects, and JSX', () => {
       assert.ok(noteModalSource.length > 0, 'NoteModal component must be found in static/index.html');
@@ -445,20 +448,33 @@ describe('Drawing Directive Module', () => {
       assert.doesNotMatch(notePanelSource, /Klik untuk menggambar/, 'NotePanel should not contain drawing placeholder');
     });
 
+    it('verifies TaskFormModal cleanly removes bottom canvas state, iframe, and accordion JSX', () => {
+      assert.ok(taskFormModalSource.length > 0, 'TaskFormModal component must be found in static/index.html');
+
+      // State and refs removal
+      assert.doesNotMatch(taskFormModalSource, /noteCanvasId/, 'TaskFormModal should not contain noteCanvasId');
+      assert.doesNotMatch(taskFormModalSource, /noteDrawIframeRef/, 'TaskFormModal should not contain noteDrawIframeRef');
+      assert.doesNotMatch(taskFormModalSource, /noteDrawOpen/, 'TaskFormModal should not contain noteDrawOpen');
+      assert.doesNotMatch(taskFormModalSource, /noteDrawFullscreen/, 'TaskFormModal should not contain noteDrawFullscreen');
+      assert.doesNotMatch(taskFormModalSource, /noteDrawIframeReady/, 'TaskFormModal should not contain noteDrawIframeReady');
+
+      // Iframe and accordion JSX removal
+      assert.doesNotMatch(taskFormModalSource, /tldraw\/index\.html/, 'TaskFormModal should not contain tldraw iframe');
+      assert.doesNotMatch(taskFormModalSource, /✏️ Canvas/, 'TaskFormModal should not contain Canvas accordion button');
+      assert.doesNotMatch(taskFormModalSource, /Simpan note untuk sync drawing ke server/, 'TaskFormModal should not contain drawing helper text');
+    });
+
     it('verifies NotePanel retains changeDrawingSize listener and hydrateDrawingPreviews effect for inline drawings', () => {
       assert.match(notePanelSource, /window\.addEventListener\(['"]changeDrawingSize['"]/, 'NotePanel must keep changeDrawingSize listener');
       assert.match(notePanelSource, /window\.hydrateDrawingPreviews/, 'NotePanel must keep hydrateDrawingPreviews call');
     });
 
-    it('verifies QuickDrawModal, DrawingsPage, and TaskDetailModal drawing features are preserved intact', () => {
+    it('verifies QuickDrawModal and DrawingsPage drawing features are preserved intact', () => {
       // QuickDrawModal (inline drawing editor modal) should retain its tldraw iframe
       assert.match(indexHtml, /function QuickDrawModal[\s\S]*?tldraw\/index\.html\?noteId=\$\{drawingId\}/, 'QuickDrawModal must preserve tldraw iframe');
 
       // DrawingsPage / DrawingTabInstance should retain its tldraw iframe
       assert.match(indexHtml, /tldraw\/index\.html\?noteId=\$\{tab\.id\}/, 'DrawingsPage tab instance must preserve tldraw iframe');
-
-      // TaskDetailModal should retain its tldraw iframe
-      assert.match(indexHtml, /tldraw\/index\.html\?noteId=\$\{noteCanvasId\}/, 'TaskDetailModal must preserve tldraw iframe');
     });
   });
 });

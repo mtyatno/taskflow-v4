@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v292-taskform-note-paper-selector";
+const CACHE = "taskflow-v293-remove-taskform-note-bottom-canvas";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

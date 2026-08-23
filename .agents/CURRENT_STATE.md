@@ -340,6 +340,14 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
+## ✅ CLEANUP Hapus Section Canvas Bawah di TaskFormModal Note Tab (+ Buat Baru) (2026-08-23, Antigravity — SELESAI)
+- **Ringkasan**: Menghapus sisa section/accordion canvas terpisah (`noteCanvasId`, `noteDrawIframeRef`, `noteDrawOpen`, `noteDrawFullscreen`, `noteDrawIframeReady`, tombol `✏️ Canvas` dan iframe `tldraw`) yang masih tersisa di tab Note pada modal terpadu `TaskFormModal` (+ Buat Baru).
+- **Changes**:
+  1. *TaskFormModal Cleanup*: Menghapus deklarasi state/ref canvas per-note dan elemen DOM accordion canvas di bawah editor catatan `TaskFormModal`.
+  2. *Testing & Coverage*: Menambahkan unit test di `tests/offline/drawdirective.test.js` yang memverifikasi tidak ada lagi sisa state, refs, atau iframe canvas lama di `TaskFormModal`.
+- **SW Cache**: Di-bump ke `taskflow-v293-remove-taskform-note-bottom-canvas`.
+- **Verifikasi**: JS 485/485 unit tests pass (0 fail), Pytest 43/43 pass (0 fail), Subagent Code Reviewer APPROVED.
+
 ## ✅ CLEANUP Hapus Section Canvas Bawah Note Editor & Note Viewer (2026-08-23, Antigravity — SELESAI)
 - **Ringkasan**: Menghapus section/accordion canvas terpisah yang sebelumnya menempel di bagian bawah Note Editor (`NoteModal`) dan Note Viewer (`NoteViewerModal`/`NotePanel`). Fitur gambar/sketsa kini sepenuhnya terintegrasi secara *inline* via directif `::draw[...]`, slash command `/draw`, dan tombol toolbar `+ Gambar`.
 - **Changes**:
