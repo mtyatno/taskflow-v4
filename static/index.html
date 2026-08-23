@@ -17720,63 +17720,7 @@ function NoteModal({
     return () => document.removeEventListener("mousedown", close);
   }, [shareOpen]);
 
-  // Draw canvas — state (must be declared before the useEffects below)
-  const [canvasNoteId] = React.useState(() => note?.id ? String(note.id) : crypto.randomUUID());
-  const drawIframeRef = React.useRef(null);
-  const [drawActive, setDrawActive] = React.useState(false);
-  const drawContainerRef = React.useRef(null);
-  React.useEffect(() => {
-    if (!drawActive) return;
-    const hdl = e => {
-      if (drawContainerRef.current && !drawContainerRef.current.contains(e.target)) setDrawActive(false);
-    };
-    document.addEventListener('mousedown', hdl);
-    return () => document.removeEventListener('mousedown', hdl);
-  }, [drawActive]);
-  const [drawOpen, setDrawOpen] = React.useState(false);
-  const [drawFullscreen, setDrawFullscreen] = React.useState(false);
-  const [drawSyncStatus, setDrawSyncStatus] = React.useState('saved');
-  const [drawIframeReady, setDrawIframeReady] = React.useState(false);
-  const [drawPendingData, setDrawPendingData] = React.useState(null);
 
-  // Draw canvas — fetch + postMessage sync
-  React.useEffect(() => {
-    setDrawIframeReady(false);
-    setDrawPendingData(null);
-    setDrawSyncStatus('saved');
-    if (note?.id) {
-      // Drawing reads/writes go through api.* which the LocalRouter intercepts
-      // (local-first + outbox); offline persistence is handled there, not localStorage.
-      api.get(`/api/drawings/${note.id}`).then(data => {
-        setDrawPendingData(data.data_json);
-      }).catch(() => { setDrawPendingData(null); });
-    }
-    const handler = e => {
-      if (e.origin !== window.location.origin) return;
-      if (e.data?.type === 'ready') setDrawIframeReady(true);
-      if (e.data?.type === 'change' && e.data.data && note?.id && (!e.data.noteId || String(e.data.noteId) === String(note.id))) {
-        setDrawSyncStatus(navigator.onLine ? 'saving' : 'offline');
-        const payload = { data_json: e.data.data };
-        if (e.data.svg) payload.svg_preview = e.data.svg;
-        api.put(`/api/drawings/${note.id}`, payload).then(() => setDrawSyncStatus(navigator.onLine ? 'saved' : 'offline'))
-          .catch(() => setDrawSyncStatus('offline'));
-      }
-    };
-    window.addEventListener('message', handler);
-    return () => {
-      window.removeEventListener('message', handler);
-    };
-  }, [note?.id]);
-
-  // Draw canvas — load snapshot to iframe
-  React.useEffect(() => {
-    if (drawIframeReady && drawPendingData && drawIframeRef.current) {
-      drawIframeRef.current.contentWindow.postMessage({
-        type: 'load',
-        data: drawPendingData
-      }, '*');
-    }
-  }, [drawIframeReady, drawPendingData]);
   const [noteListId, setNoteListId] = useState(note?.list_id ?? null);
   const handleModalShare = async listId => {
     setShareOpen(false);
@@ -18998,134 +18942,7 @@ function NoteModal({
     },
     onMouseEnter: e => e.currentTarget.style.opacity = 1,
     onMouseLeave: e => e.currentTarget.style.opacity = 0.8
-  }, "+ #", t.name))), !focusMode && !drawFullscreen && /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    onClick: () => {
-      setDrawOpen(o => !o);
-      if (drawOpen) setDrawActive(false);
-    },
-    style: {
-      width: '100%',
-      marginTop: 8,
-      padding: '5px 10px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      background: 'var(--bg-primary)',
-      border: '1px solid var(--border)',
-      borderRadius: 8,
-      cursor: 'pointer',
-      fontSize: 12,
-      color: 'var(--text-secondary)',
-      fontWeight: 600
-    }
-  }, /*#__PURE__*/React.createElement("span", null, "\u270F\uFE0F Canvas"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 10,
-      opacity: 0.6
-    }
-  }, drawOpen ? '▲' : '▼')), /*#__PURE__*/React.createElement("div", {
-    style: drawFullscreen ? {
-      position: 'fixed',
-      inset: 0,
-      zIndex: 10000,
-      background: 'var(--bg-primary)',
-      display: 'flex',
-      flexDirection: 'column'
-    } : drawOpen ? {
-      marginTop: 8
-    } : {
-      display: 'none'
-    }
-  }, !focusMode && drawFullscreen && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: 'calc(10px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) 10px calc(16px + env(safe-area-inset-left, 0px))',
-      borderBottom: '1px solid var(--border)'
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 600,
-      color: 'var(--text-secondary)'
-    }
-  }, "Canvas"), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    onClick: () => setDrawFullscreen(false),
-    style: {
-      background: 'none',
-      border: 'none',
-      cursor: 'pointer',
-      fontSize: 13,
-      color: 'var(--accent)',
-      fontWeight: 600
-    }
-  }, "\u2715 Tutup")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: drawFullscreen ? 1 : undefined,
-      height: drawFullscreen ? undefined : 360,
-      border: '1px solid var(--border)',
-      borderRadius: drawFullscreen ? 0 : 8,
-      overflow: 'hidden',
-      position: 'relative'
-    },
-    ref: drawContainerRef
-  }, /*#__PURE__*/React.createElement("iframe", {
-    ref: drawIframeRef,
-    src: `/static/vendor/tldraw/index.html?noteId=${canvasNoteId}&v=142`,
-    style: {
-      width: '100%',
-      height: '100%',
-      border: 'none',
-      pointerEvents: drawActive ? 'auto' : 'none'
-    },
-    title: "Drawing canvas"
-  }), !drawActive && /*#__PURE__*/React.createElement("div", {
-    onClick: () => setDrawActive(true),
-    style: {
-      position: 'absolute',
-      inset: 0,
-      cursor: 'pointer',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center'
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      background: 'rgba(168,197,0,0.15)',
-      color: 'var(--accent)',
-      padding: '5px 14px',
-      borderRadius: 20,
-      fontSize: 12,
-      fontWeight: 600,
-      backdropFilter: 'blur(2px)'
-    }
-  }, "\u270F\uFE0F Klik untuk menggambar"))), !drawFullscreen && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginTop: 4
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11,
-      color: drawSyncStatus === 'saved' ? '#27ae60' : drawSyncStatus === 'offline' ? '#f39c12' : 'var(--text-light)'
-    }
-  }, note?.id ? drawSyncStatus === 'saved' ? 'Tersimpan' : drawSyncStatus === 'saving' ? 'Menyimpan...' : 'Offline — tersimpan lokal' : 'Simpan note untuk sync drawing ke server'), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    onClick: () => setDrawFullscreen(true),
-    style: {
-      background: 'none',
-      border: 'none',
-      cursor: 'pointer',
-      fontSize: 12,
-      color: 'var(--accent)',
-      fontWeight: 600
-    }
-  }, "\u2922 Expand"))), !focusMode && attachments.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "+ #", t.name))), !focusMode && attachments.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "note-attachments-panel"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -19510,22 +19327,7 @@ function NotePanel({
 }) {
   const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
   const [panelAttachments, setPanelAttachments] = React.useState([]);
-  const [canvasActive, setCanvasActive] = React.useState(false);
-  const canvasContainerRef = React.useRef(null);
-  React.useEffect(() => {
-    if (!canvasActive) return;
-    const h = e => {
-      if (canvasContainerRef.current && !canvasContainerRef.current.contains(e.target)) setCanvasActive(false);
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [canvasActive]);
-  const iframeRef = React.useRef(null);
-  const [drawOpen, setDrawOpen] = React.useState(false);
-  const [drawFullscreen, setDrawFullscreen] = React.useState(false);
-  const [syncStatus, setSyncStatus] = React.useState('saved');
-  const [iframeReady, setIframeReady] = React.useState(false);
-  const [pendingDrawData, setPendingDrawData] = React.useState(null);
+
   const [shareOpen, setShareOpen] = React.useState(false);
   const shareRef = React.useRef(null);
   React.useEffect(() => {
@@ -19551,35 +19353,7 @@ function NotePanel({
     setPanelAttachments([]);
     api.get(`/api/scratchpad/${note.id}/attachments`).then(d => setPanelAttachments(d)).catch(() => {});
   }, [note?.id]);
-  React.useEffect(() => {
-    if (!note) return;
-    setDrawFullscreen(false);
-    setIframeReady(false);
-    setPendingDrawData(null);
-    setSyncStatus('saved');
-    // Drawing reads/writes go through api.* (LocalRouter intercept = local-first + outbox);
-    // offline persistence handled there, not localStorage.
-    api.get(`/api/drawings/${note.id}`).then(data => {
-      setPendingDrawData(data.data_json);
-    }).catch(() => { setPendingDrawData(null); });
-    const handler = e => {
-      if (e.origin !== window.location.origin) return;
-      if (e.data?.type === 'ready') {
-        setIframeReady(true);
-      }
-      if (e.data?.type === 'change' && e.data.data && note?.id && (!e.data.noteId || String(e.data.noteId) === String(note.id))) {
-        setSyncStatus(navigator.onLine ? 'saving' : 'offline');
-        const payload = { data_json: e.data.data };
-        if (e.data.svg) payload.svg_preview = e.data.svg;
-        api.put(`/api/drawings/${note.id}`, payload).then(() => setSyncStatus(navigator.onLine ? 'saved' : 'offline'))
-          .catch(() => setSyncStatus('offline'));
-      }
-    };
-    window.addEventListener('message', handler);
-    return () => {
-      window.removeEventListener('message', handler);
-    };
-  }, [note?.id]);
+
 
   React.useEffect(() => {
     const sizeHandler = async e => {
@@ -19609,14 +19383,7 @@ function NotePanel({
     return () => window.removeEventListener('changeDrawingSize', sizeHandler);
   }, [note?.id, note?.content]);
 
-  React.useEffect(() => {
-    if (iframeReady && pendingDrawData && iframeRef.current) {
-      iframeRef.current.contentWindow.postMessage({
-        type: 'load',
-        data: pendingDrawData
-      }, '*');
-    }
-  }, [iframeReady, pendingDrawData]);
+
   const handleShare = async listId => {
     setShareOpen(false);
     try {
@@ -20640,137 +20407,7 @@ function NotePanel({
       color: 'var(--text-light)',
       flexShrink: 0
     }
-  }, att.file_size > 1048576 ? (att.file_size / 1048576).toFixed(1) + 'MB' : Math.round(att.file_size / 1024) + 'KB')))), note && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 24
-    }
-  }, !drawFullscreen && /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    onClick: () => {
-      setDrawOpen(o => !o);
-      if (drawOpen) setCanvasActive(false);
-    },
-    style: {
-      width: '100%',
-      padding: '5px 10px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      background: 'var(--bg-primary)',
-      border: '1px solid var(--border)',
-      borderRadius: 8,
-      cursor: 'pointer',
-      fontSize: 12,
-      color: 'var(--text-secondary)',
-      fontWeight: 600
-    }
-  }, /*#__PURE__*/React.createElement("span", null, "\u270F\uFE0F Canvas"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 10,
-      opacity: 0.6
-    }
-  }, drawOpen ? '▲' : '▼')), /*#__PURE__*/React.createElement("div", {
-    style: drawFullscreen ? {
-      position: 'fixed',
-      inset: 0,
-      zIndex: 9999,
-      background: 'var(--bg-primary)',
-      display: 'flex',
-      flexDirection: 'column'
-    } : drawOpen ? {
-      marginTop: 8
-    } : {
-      display: 'none'
-    }
-  }, drawFullscreen && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: 'calc(10px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) 10px calc(16px + env(safe-area-inset-left, 0px))',
-      borderBottom: '1px solid var(--border)'
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 600,
-      color: 'var(--text-secondary)'
-    }
-  }, "Canvas"), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    onClick: () => setDrawFullscreen(false),
-    style: {
-      background: 'none',
-      border: 'none',
-      cursor: 'pointer',
-      fontSize: 13,
-      color: 'var(--accent)',
-      fontWeight: 600
-    }
-  }, "\u2715 Tutup")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: drawFullscreen ? 1 : undefined,
-      height: drawFullscreen ? undefined : 360,
-      border: '1px solid var(--border)',
-      borderRadius: drawFullscreen ? 0 : 8,
-      overflow: 'hidden',
-      position: 'relative'
-    },
-    ref: canvasContainerRef
-  }, /*#__PURE__*/React.createElement("iframe", {
-    ref: iframeRef,
-    src: `/static/vendor/tldraw/index.html?noteId=${note.id}&v=142`,
-    style: {
-      width: '100%',
-      height: '100%',
-      border: 'none',
-      pointerEvents: canvasActive ? 'auto' : 'none'
-    },
-    title: "Drawing canvas"
-  }), !canvasActive && /*#__PURE__*/React.createElement("div", {
-    onClick: () => setCanvasActive(true),
-    style: {
-      position: 'absolute',
-      inset: 0,
-      cursor: 'pointer',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center'
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      background: 'rgba(168,197,0,0.15)',
-      color: 'var(--accent)',
-      padding: '5px 14px',
-      borderRadius: 20,
-      fontSize: 12,
-      fontWeight: 600,
-      backdropFilter: 'blur(2px)'
-    }
-  }, "\u270F\uFE0F Klik untuk menggambar"))), !drawFullscreen && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginTop: 4
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11,
-      color: syncStatus === 'saved' ? '#27ae60' : syncStatus === 'offline' ? '#f39c12' : 'var(--text-light)'
-    }
-  }, syncStatus === 'saved' ? 'Tersimpan' : syncStatus === 'saving' ? 'Menyimpan...' : 'Offline — tersimpan lokal'), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    onClick: () => setDrawFullscreen(true),
-    style: {
-      background: 'none',
-      border: 'none',
-      cursor: 'pointer',
-      fontSize: 12,
-      color: 'var(--accent)',
-      fontWeight: 600
-    }
-  }, "\u2922 Expand"))))), tocItems.length >= 2 && /*#__PURE__*/React.createElement("div", {
+  }, att.file_size > 1048576 ? (att.file_size / 1048576).toFixed(1) + 'MB' : Math.round(att.file_size / 1024) + 'KB'))))), tocItems.length >= 2 && /*#__PURE__*/React.createElement("div", {
     className: "note-toc-sticky",
     style: {
       position: "sticky",

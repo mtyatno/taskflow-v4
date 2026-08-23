@@ -324,6 +324,15 @@ Semua di main, semua LIVE di todo.yatno.web.id. **SW: `taskflow-v231-mindmap-hea
 - User needs to \git pull origin main\ on VPS and do a hard refresh (Ctrl+Shift+R) in their browser to see the drawings sync down from the server correctly.
 
 
+## ✅ CLEANUP Hapus Section Canvas Bawah Note Editor & Note Viewer (2026-08-23, Antigravity — SELESAI)
+- **Ringkasan**: Menghapus section/accordion canvas terpisah yang sebelumnya menempel di bagian bawah Note Editor (`NoteModal`) dan Note Viewer (`NoteViewerModal`/`NotePanel`). Fitur gambar/sketsa kini sepenuhnya terintegrasi secara *inline* via directif `::draw[...]`, slash command `/draw`, dan tombol toolbar `+ Gambar`.
+- **Changes**:
+  1. *NoteModal Cleanup*: Menghapus state `canvasNoteId`, `drawIframeRef`, `drawActive`, `drawContainerRef`, `drawFullscreen`, `drawSyncStatus`, `drawIframeReady`, `drawPendingData`, hook sync drawing per-note, serta tombol accordion `✏️ Canvas` dan iframe `tldraw`.
+  2. *NoteViewerModal / NotePanel Cleanup*: Menghapus state `canvasActive`, `canvasContainerRef`, `iframeRef`, `drawOpen`, `drawFullscreen`, `syncStatus`, `iframeReady`, `pendingDrawData`, hook sync drawing per-note, serta tombol accordion `✏️ Canvas` dan iframe `tldraw`.
+  3. *Inline Drawings Preservation*: Mempertahankan handler `changeDrawingSize` dan efek `hydrateDrawingPreviews` pada viewer, modal `QuickDrawModal` pada editor, halaman mandiri `DrawingsPage`, serta canvas task pada `TaskDetailModal`.
+- **SW Cache**: Di-bump ke `taskflow-v291-remove-note-bottom-canvas`.
+- **Verifikasi**: JS 473/473 unit tests pass (0 fail), Pytest 43/43 pass (0 fail), Subagent Code Reviewer APPROVED.
+
 ## ✅ FIX & FEAT Milkdown Table Interactive Column Resizing & Toolbar Fix (2026-08-23, Antigravity — SELESAI)
 - **Ringkasan**: Memperbaiki hilangnya tombol table toolbar, mengaktifkan fitur drag-to-resize kolom tabel secara interaktif, dan mengatasi bug tumpang tindih antara Table Toolbar dan Text Formatting Tooltip saat teks di dalam tabel diblok/diseleksi.
 - **Root Cause & Fixes**:

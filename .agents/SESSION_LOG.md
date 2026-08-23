@@ -4,6 +4,17 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-23 10:05] - Antigravity (Gemini)
+- **Task:** Remove Redundant Bottom Canvas Accordion from Note Editor (`NoteModal`) and Note Viewer (`NoteViewerModal`/`NotePanel`) using Subagent-Driven Development.
+- **Summary:**
+  - `static/index.html`: Cleanly removed per-note bottom canvas state, effects, and JSX (`✏️ Canvas` accordion button and `tldraw` iframe) from both `NoteModal` and `NoteViewerModal` (`NotePanel`), while keeping inline drawings features (`changeDrawingSize`, `hydrateDrawingPreviews`, `QuickDrawModal`, `DrawingsPage`, and `TaskDetailModal`).
+  - `tests/offline/drawdirective.test.js`: Added 4 unit tests verifying complete removal of bottom canvas components and retention of inline drawing mechanisms (19/19 passed).
+  - `static/sw.js`: Bumped SW cache to `taskflow-v291-remove-note-bottom-canvas`.
+- **Files Modified:** `static/index.html`, `tests/offline/drawdirective.test.js`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved by Subagent Reviewer (473/473 JS tests pass, 43/43 pytest pass)
+
+---
+
 ## [2026-08-23 09:40] - Antigravity (Gemini)
 - **Task:** Fix Table Toolbar and Text Formatting Tooltip Overlap in Milkdown Note Editor using systematic-debugging and Subagent-Driven Development.
 - **Root Cause:**

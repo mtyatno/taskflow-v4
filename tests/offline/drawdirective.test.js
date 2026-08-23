@@ -394,4 +394,71 @@ describe('Drawing Directive Module', () => {
       });
     });
   });
+
+  describe('NoteModal and NoteViewerModal (NotePanel) Bottom Canvas Removal Verification', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const indexPath = path.resolve(__dirname, '../../static/index.html');
+    const indexHtml = fs.readFileSync(indexPath, 'utf8');
+
+    // Extract component sources
+    const noteModalMatch = indexHtml.match(/function NoteModal\([\s\S]*?\nfunction NotePanel\(/);
+    const noteModalSource = noteModalMatch ? noteModalMatch[0] : '';
+
+    const notePanelMatch = indexHtml.match(/function NotePanel\([\s\S]*?\nfunction NotesPage\(/);
+    const notePanelSource = notePanelMatch ? notePanelMatch[0] : '';
+
+    it('verifies NoteModal cleanly removes bottom canvas state, effects, and JSX', () => {
+      assert.ok(noteModalSource.length > 0, 'NoteModal component must be found in static/index.html');
+
+      // State and refs removal
+      assert.doesNotMatch(noteModalSource, /canvasNoteId/, 'NoteModal should not contain canvasNoteId');
+      assert.doesNotMatch(noteModalSource, /drawIframeRef/, 'NoteModal should not contain drawIframeRef');
+      assert.doesNotMatch(noteModalSource, /drawActive/, 'NoteModal should not contain drawActive');
+      assert.doesNotMatch(noteModalSource, /drawContainerRef/, 'NoteModal should not contain drawContainerRef');
+      assert.doesNotMatch(noteModalSource, /drawFullscreen/, 'NoteModal should not contain drawFullscreen');
+      assert.doesNotMatch(noteModalSource, /drawSyncStatus/, 'NoteModal should not contain drawSyncStatus');
+      assert.doesNotMatch(noteModalSource, /drawIframeReady/, 'NoteModal should not contain drawIframeReady');
+      assert.doesNotMatch(noteModalSource, /drawPendingData/, 'NoteModal should not contain drawPendingData');
+
+      // Iframe and accordion JSX removal
+      assert.doesNotMatch(noteModalSource, /tldraw\/index\.html/, 'NoteModal should not contain tldraw iframe');
+      assert.doesNotMatch(noteModalSource, /\\u270F\\uFE0F Canvas/, 'NoteModal should not contain Canvas accordion button');
+      assert.doesNotMatch(noteModalSource, /Klik untuk menggambar/, 'NoteModal should not contain drawing placeholder');
+    });
+
+    it('verifies NoteViewerModal (NotePanel) cleanly removes bottom canvas state, effects, and JSX', () => {
+      assert.ok(notePanelSource.length > 0, 'NotePanel component must be found in static/index.html');
+
+      // State and refs removal
+      assert.doesNotMatch(notePanelSource, /canvasActive/, 'NotePanel should not contain canvasActive');
+      assert.doesNotMatch(notePanelSource, /canvasContainerRef/, 'NotePanel should not contain canvasContainerRef');
+      assert.doesNotMatch(notePanelSource, /iframeReady/, 'NotePanel should not contain iframeReady');
+      assert.doesNotMatch(notePanelSource, /pendingDrawData/, 'NotePanel should not contain pendingDrawData');
+      assert.doesNotMatch(notePanelSource, /drawFullscreen/, 'NotePanel should not contain drawFullscreen');
+      assert.doesNotMatch(notePanelSource, /syncStatus/, 'NotePanel should not contain syncStatus');
+      assert.doesNotMatch(notePanelSource, /drawOpen/, 'NotePanel should not contain drawOpen');
+
+      // Iframe and accordion JSX removal
+      assert.doesNotMatch(notePanelSource, /tldraw\/index\.html/, 'NotePanel should not contain tldraw iframe');
+      assert.doesNotMatch(notePanelSource, /\\u270F\\uFE0F Canvas/, 'NotePanel should not contain Canvas accordion button');
+      assert.doesNotMatch(notePanelSource, /Klik untuk menggambar/, 'NotePanel should not contain drawing placeholder');
+    });
+
+    it('verifies NotePanel retains changeDrawingSize listener and hydrateDrawingPreviews effect for inline drawings', () => {
+      assert.match(notePanelSource, /window\.addEventListener\(['"]changeDrawingSize['"]/, 'NotePanel must keep changeDrawingSize listener');
+      assert.match(notePanelSource, /window\.hydrateDrawingPreviews/, 'NotePanel must keep hydrateDrawingPreviews call');
+    });
+
+    it('verifies QuickDrawModal, DrawingsPage, and TaskDetailModal drawing features are preserved intact', () => {
+      // QuickDrawModal (inline drawing editor modal) should retain its tldraw iframe
+      assert.match(indexHtml, /function QuickDrawModal[\s\S]*?tldraw\/index\.html\?noteId=\$\{drawingId\}/, 'QuickDrawModal must preserve tldraw iframe');
+
+      // DrawingsPage / DrawingTabInstance should retain its tldraw iframe
+      assert.match(indexHtml, /tldraw\/index\.html\?noteId=\$\{tab\.id\}/, 'DrawingsPage tab instance must preserve tldraw iframe');
+
+      // TaskDetailModal should retain its tldraw iframe
+      assert.match(indexHtml, /tldraw\/index\.html\?noteId=\$\{noteCanvasId\}/, 'TaskDetailModal must preserve tldraw iframe');
+    });
+  });
 });
