@@ -993,3 +993,10 @@ Chronological history of work performed by AI agents in this workspace.
 - **Deploy:** `git push origin main` → `9aa5c61..f4f5e7b` (7 commit rebrand ter-push) → Actions auto-deploy → **LIVE terverifikasi curl**: poll #1 (20:16:16) masih v302, poll #2 (20:16:37) SW `taskflow-v303-rebrand-alurik`; `<title>Alurik</title>`; manifest `"name": "Alurik"`; favicon/icon-192/icon-512 tersaji byte-identik dengan file lokal (653/2380/7140 bytes).
 - **Files Touch:** 4 PNG `static/*`, `src-tauri/tauri.conf.json`, `README.md`, `.agents/PROJECT_MAP.md`, `CLAUDE.md`, `.env.example`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`, report `.superpowers/sdd/2026-08-23-rebrand-alurik/task-3-report.md`
 - **Status:** Completed — commit `f4f5e7b` + docs(agents) di-push & LIVE (SW v303). PENDING user: hard refresh; `sudo systemctl restart taskflow taskflow-web` (webapp.py/bot.py aktif setelah restart); cek bot Telegram /start "⚡ Alurik"; update SMTP_FROM di .env VPS bila set eksplisit nama lama; ikon native Tauri menyusul saat build native.
+
+## [2026-08-23] - Claude (rebrand final fix wave)
+- **Task:** Terapkan 3 fix-now dari final whole-branch review (opus, APPROVE): F1 `src-tauri/Cargo.toml:4` description "TaskFlow V4 desktop app" → "Alurik desktop app" (metadata .exe Windows); F2 perkuat guard test `tests/offline/rebrand.test.js` — asersi total `indexHtml.includes("TaskFlow") === false` (menutup celah form escape `"⚡ TaskFlow"` yang lolos dari 2 asersi lama); F4 `AGENTS.md` + `GEMINI.md` → "ONLY Alurik (dulu TaskFlow)" (selaras CLAUDE.md).
+- **Catatan:** agent fix-wave mati karena API 402 Insufficient Balance SETELAH edit diterapkan; fix diterapkan & diverifikasi langsung dari sesi koordinator.
+- **Verifikasi:** rebrand.test.js 6/6 pass; pytest tests/ 47/47 pass.
+- **Files Touch:** `src-tauri/Cargo.toml`, `tests/offline/rebrand.test.js`, `AGENTS.md`, `GEMINI.md`
+- **Status:** Completed; deferred (final review): banner install.sh/install-web.sh/backup.sh/restore.sh (operator-only), docs lama historis.
