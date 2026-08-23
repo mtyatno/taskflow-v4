@@ -7,12 +7,38 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
-- **FIX Blank Page — Floating TOC Duplicate Line & Paren Imbalance (2026-08-23, Claude)**: Commit `38cd66f` di main, LIVE & terverifikasi curl. Root cause: commit TOC (`b2ba698`) meninggalkan baris pembuka lama (`tocItems.length >= 2 && React.createElement("div", {`) sehingga duplikat → `SyntaxError: Unexpected token '.'` di (index):20413 → blank page. Hapus duplikat saja tidak cukup — penutup blok `item.text)))))` (5 kurung) kelebihan 1: menutup container parent lebih awal. Fix: 4 kurung (span → map → popover → trigger wrapper). SW bump `taskflow-v299-fix-toc-syntax`. Verifikasi: 5/5 inline script parse clean, JS 497/497, pytest tests/ 43/43, live curl bersih. **PENDING user: hard refresh browser (Ctrl+Shift+R) — SW lama masih cache index.html rusak; restart service TIDAK diperlukan (fix static-only).**
+- **SDD Floating ToC ala Medium — SELESAI & LIVE 2026-08-23 (Claude)**: ToC note kini floating ala Medium di NotePanel — kolom TOC statis lama dihapus, artikel full-width. Commits: `d719c4a` (CSS), `6e23e93` (NotePanel JSX + scroll-spy), `bc3601f` (SW bump). SW cache live: **`taskflow-v300-floating-toc-fab`**. (Blank-page fix `38cd66f` sebelumnya — duplikat baris pembuka + paren imbalance — sudah selesai & ter-inkorporasi.)
+  - Trigger lingkaran 📑 (44/40px) fixed di kanan-tengah layar; popover `floating-toc-popover` membuka ke kiri (desktop) / ke atas (mobile), animasi `toc-pop-in` opacity-only; scroll-spy IntersectionObserver (rootMargin -15%/-60%) menandai `.note-toc-item.active` mengikuti section; klik item → smooth scroll + popover tutup; klik luar → tutup.
+  - Verifikasi: node --check sw.js OK; JS suite penuh 510/510 pass 0 fail (exit 0); pytest tests/ 43/43; check_inline 5/5; live curl: SW v300 + `floating-toc-anchor` (1×) + `toc-pop-in` (2×).
+  - **PENDING user device-test checklist:**
+    1. Desktop buka note dengan ≥2 heading → lingkaran 📑 muncul di kanan-tengah layar; artikel full-width (tidak ada baris tombol inline).
+    2. Klik lingkaran → popover membuka ke kiri; scroll artikel → item aktif ter-highlight mengikuti section.
+    3. Klik item → lompat mulus ke section, popover tertutup.
+    4. Klik di luar popover → menutup.
+    5. Mobile → FAB 📑 kecil di atas FAB + Buat Baru; popover membuka ke atas.
+    6. Dark mode → tombol & popover konsisten (bg-card/border).
+    7. Hard refresh (Ctrl+Shift+R) — SW cache lama menyajikan aset lama sampai SW baru aktif.
+
+## ✅ SDD Floating ToC — Task 1 CSS SELESAI 2026-08-23 (Claude, commit `d719c4a`)
+- Konsolidasi CSS floating ToC ala Medium di `static/app.css` (anchor fixed, trigger lingkaran 44/40px, popover absolute buka atas/kiri, `toc-pop-in` opacity-only, `.note-toc-item.active` unscoped tint) + tulis ulang `tests/offline/note_toc.test.js` (TDD: RED 7/7 fail → GREEN 8/8 pass; regresi targeted 3 file app.css 41/41 pass).
+- Deviasi terdokumentasi di report: 3 adaptasi regex test (brief inkonsisten dengan CSS brief-nya sendiri: count 1→2 + guard gaya pill, mediaDup di-scope ke braces, desktop lazy→greedy); hapus `.note-toc-sticky` (dituntut test, tidak terpakai di index.html); pertahankan `.note-toc-panel::-webkit-scrollbar` (masih dipakai `static/index.html:17159`).
+- Report: `.superpowers/sdd/2026-08-23-floating-toc-fly/task-1-report.md`. TIDAK di-push (push/deploy = Task 3). NEXT = Task 2 (NotePanel JSX + scroll-spy). Intermediate visual: trigger lingkaran baru langsung berlaku di tombol lama (teks "Isi (N)" bisa tampak sesak) sampai Task 2 ganti FAB icon-only; popover terlindungi inline style sampai Task 2.
+
+## ✅ SDD Floating ToC — Task 2 NotePanel JSX + scroll-spy SELESAI 2026-08-23 (Claude, commit `6e23e93`)
+- 7 edit di `static/index.html` (compiled output, diedit langsung; NEW text verbatim dari brief): wrapper ToC `className: "floating-toc-anchor"` (inline relative dihapus), tombol icon-only 📑 (label "Isi (N)" + panah ▲/▼ dihapus), popover tanpa inline positioning (`className: "floating-toc-popover"` saja, scale-in dihapus), item class template `` `note-toc-item${tocActiveIdx === item.idx ? " active" : ""}` ``, klik item `setTocActiveIdx(item.idx)`, `ref: tocSpyRef` di `.note-rendered`, state `tocActiveIdx` + effect IntersectionObserver (rootMargin "-15% 0px -60% 0px") SETELAH deklarasi `tocItems` (TDZ-safe, diregresi-tes).
+- Test `tests/offline/note_toc.test.js`: tambah suite markup JSX (TDD: RED 7/7 fail → GREEN). 2 adaptasi assertion test (dokumentasi di report): (1) inline-relative di-scope ke wrapper ToC (dropdown export di NotePanel sah pakai inline yang sama); (2) regex querySelectorAll ditambah `\^` (brief regex tak cocok dengan kode brief sendiri `[id^="note-h-"]`).
+- Verifikasi: check_inline 5/5 OK, targeted 16/16 pass, FULL suite 510/510 pass 0 fail (exit 0). CRLF index.html utuh. TIDAK di-push (push/deploy = Task 3).
+- Report: `.superpowers/sdd/2026-08-23-floating-toc-fly/task-2-report.md`. NEXT = Task 3 (SW bump + push + deploy).
+
+## ✅ SDD Floating ToC — Task 3 SW bump + deploy + handover SELESAI 2026-08-23 (Claude, commit `bc3601f`)
+- SW cache `taskflow-v299-fix-toc-syntax` → **`taskflow-v300-floating-toc-fab`** (1 baris di `static/sw.js`); push `bc3601f` → Actions auto-deploy → LIVE terverifikasi curl (SW v300 + `floating-toc-anchor` ≥1 di index.html + `toc-pop-in` ≥2 di app.css).
+- Verifikasi penuh: node --check sw.js OK; JS suite `node --test "tests/offline/*.test.js"` 510/510 pass 0 fail (exit 0, ~152s); `python -m pytest tests/` 43/43; `node scratch/check_inline.js` 5/5.
+- Report: `.superpowers/sdd/2026-08-23-floating-toc-fly/task-3-report.md`. Handover `.agents/*` di-commit+push terpisah (docs(agents)). NEXT = Final review + fix wave (bila perlu).
 
 # Current Workspace State & Handover
 
-**Last Updated:** 2026-08-23 (Claude — FIX blank page TOC)
-**Updated By:** Claude — blank page fix (commit `38cd66f`, LIVE)
+**Last Updated:** 2026-08-23 (Claude — SDD Floating ToC Task 3 deploy, commit `bc3601f`)
+**Updated By:** Claude — SDD Floating ToC Task 3 SW bump + deploy + handover (semua commit SDD di-push & LIVE)
 
 ---
 

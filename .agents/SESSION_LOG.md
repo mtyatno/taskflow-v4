@@ -4,6 +4,17 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-23 15:26] - Claude Code (SDD Floating ToC Task 1)
+- **Task:** SDD Floating ToC ala Medium — Task 1: konsolidasi CSS floating ToC di `static/app.css` (TDD).
+- **Changes:**
+  - `static/app.css`: hapus 8 baris duplikat lama (note-toc-item + floating-toc di ~1014–1022) + hapus `.note-toc-sticky` (dituntut test, tidak terpakai di JSX); ganti blok umum (~1879–1913) dengan blok konsolidasi verbatim brief: `.floating-toc-anchor` fixed (bottom `calc(92px + env(safe-area-inset-bottom, 0px))`, z-60), `.floating-toc-trigger` lingkaran 44px/40px, `.floating-toc-popover` absolute buka atas (mobile) / kiri (desktop 769px), `@keyframes toc-pop-in` opacity-only, `.note-toc-item.active` unscoped tint `rgba(168,197,0,0.12)`. `.note-toc-panel::-webkit-scrollbar` dipertahankan (masih dipakai `static/index.html:17159`).
+  - `tests/offline/note_toc.test.js`: tulis ulang per brief + 3 adaptasi regex terdokumentasi (brief inkonsisten dengan CSS-nya sendiri: count 1→2 + guard gaya pill lama, mediaDup di-scope braces, regex desktop lazy→greedy agar menangkap override media-scoped).
+  - Verifikasi: RED 7/7 fail (sebelum implementasi) → GREEN 8/8 pass; regresi targeted 3 file test pembaca app.css 41/41 pass, 0 fail.
+- **Files Touch:** `static/app.css`, `tests/offline/note_toc.test.js`, `.superpowers/sdd/2026-08-23-floating-toc-fly/task-1-report.md`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed — commit `d719c4a` (main, TIDAK di-push; push/deploy = Task 3). NEXT = Task 2 (NotePanel JSX + scroll-spy).
+
+---
+
 ## [2026-08-23 12:40] - Antigravity (Gemini)
 - **Task:** Fix NotesPage Filter Strip Accessibility & Mouse Wheel Scrolling on Desktop using Subagent-Driven Development.
 - **Root Cause:**
@@ -924,3 +935,17 @@ Chronological history of work performed by AI agents in this workspace.
 - **Verifikasi:** JS 497/497, pytest tests/ 43/43 (catatan: `python -m pytest` bare gagal collection karena `test_ext_auth.py`/`test_task_recurrence.py` di repo root butuh server localhost:8080 — jalankan `pytest tests/`).
 - **Files Touch:** `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed; PENDING user hard-refresh browser (SW cache-first masih sajikan index lama sampai SW baru aktif).
+
+## [2026-08-23 16:00] - Claude (SDD Floating ToC — Task 2 NotePanel JSX + scroll-spy)
+- **Task:** 7 edit kecil di NotePanel (compiled `static/index.html`): anchor class wrapper ToC, tombol icon-only, popover tanpa inline positioning, item class aktif, klik set aktif, `tocSpyRef` di `.note-rendered`, state + effect IntersectionObserver scroll-spy (SETELAH deklarasi `tocItems`, TDZ-safe).
+- **TDD:** tambah suite markup JSX ke `tests/offline/note_toc.test.js` (RED 7/7 fail → GREEN). 2 adaptasi assertion test (brief inkonsisten dengan kode implementasinya sendiri + dropdown export NotePanel pakai inline style yang sama — detail di task-2-report.md).
+- **Verifikasi:** check_inline 5/5 OK; targeted note_toc 16/16 pass; FULL suite `node --test "tests/offline/*.test.js"` 510/510 pass, 0 fail (exit 0, ~203s). CRLF index.html utuh (0 LF-only).
+- **Files Touch:** `static/index.html`, `tests/offline/note_toc.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`, report `.superpowers/sdd/2026-08-23-floating-toc-fly/task-2-report.md`
+- **Status:** Completed. Commit `6e23e93` di main, BELUM di-push (push/deploy = Task 3: SW bump + push).
+
+## [2026-08-23 16:09] - Claude (SDD Floating ToC — Task 3 SW bump + deploy + handover)
+- **Task:** Bump SW cache ke `taskflow-v300-floating-toc-fab`, verifikasi penuh, push + deploy, verifikasi live, update handover `.agents/*`.
+- **Changes:** `static/sw.js` 1 baris (CACHE `taskflow-v299-fix-toc-syntax` → `taskflow-v300-floating-toc-fab`); commit `bc3601f` + push (`6bdd30b..bc3601f` mencakup `d719c4a` + `6e23e93` Task 1–2) → Actions auto-deploy → LIVE terverifikasi curl: SW v300, `floating-toc-anchor` 1× di index.html, `toc-pop-in` 2× di app.css. `.agents/CURRENT_STATE.md` blok Active Task diganti ringkasan fitur + device-test checklist 7 langkah + entri Task 3 SDD; `SESSION_LOG.md` entri ini; di-commit+push terpisah docs(agents).
+- **Verifikasi:** `node --check static/sw.js` OK; JS suite penuh `node --test "tests/offline/*.test.js"` 510/510 pass, 0 fail (exit 0, ~152s); `python -m pytest tests/` 43/43 pass (5.67s); `node scratch/check_inline.js static/index.html scratch/tmp_check` 5/5 OK.
+- **Files Touch:** `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`, report `.superpowers/sdd/2026-08-23-floating-toc-fly/task-3-report.md`
+- **Status:** Completed; PENDING user hard-refresh (Ctrl+Shift+R) + device-test checklist 7 langkah (di CURRENT_STATE.md).
