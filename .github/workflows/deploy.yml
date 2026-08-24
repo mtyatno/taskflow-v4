@@ -15,10 +15,13 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
           script: |
+            set -e
             cd /home/yatno/todo-system/taskflow-v4
             git checkout -- static/index.html package-lock.json
             git pull origin main
             npm install --prefer-offline
             node compile.js
+            rm -rf draw-app/node_modules
             cd draw-app && npm ci --prefer-offline && npx vite build && cd ..
+            cd /home/yatno/todo-system/taskflow-v4
             venv/bin/pip install -r requirements.txt
