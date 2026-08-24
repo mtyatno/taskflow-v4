@@ -9312,7 +9312,31 @@ function DrawPage({
 
   const selectDrawing = async d => {
     try {
-      const full = (await api.get(`/api/drawings/${d.id}`)) || d;
+      let full = d;
+      if (d.server_id == null) {
+        // Baris lokal belum tersinkron (id = cid UUID) — GET /api/drawings/{uuid} pasti 422.
+        // Sync-on-open: push dengan client_id (idempoten — retry aman, tak menduplikasi).
+        const repo = window.TF && window.TF.drawingrepo;
+        const raw = repo && typeof repo.getRaw === "function" ? await repo.getRaw(d.cid || d.id) : null;
+        if (raw) {
+          const res = await api.post("/api/drawings", {
+            title: raw.title || "Untitled Drawing",
+            data_json: raw.data_json || "{}",
+            svg_preview: raw.svg_preview || "",
+            is_pinned: raw.is_pinned ? 1 : 0,
+            client_id: raw.cid || null
+          });
+          full = res;
+          if (window.TF && window.TF.idmap && window.TF.idmap.mapId) {
+            window.TF.idmap.mapId(raw.cid, full.id).catch(() => {});
+          }
+          setDrawings(prev => prev.map(x => x.cid === raw.cid ? { ...x, id: full.id, server_id: full.id } : x));
+        } else {
+          full = (await api.get(`/api/drawings/${d.id}`)) || d;
+        }
+      } else {
+        full = (await api.get(`/api/drawings/${d.id}`)) || d;
+      }
       setOpenTabs(prev => {
         const helper = (window.TF && window.TF.drawingtabs) || (typeof drawingtabs !== "undefined" ? drawingtabs : null);
         if (!helper) return prev;

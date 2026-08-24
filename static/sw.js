@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v308-draw-sync-idempotency";
+const CACHE = "taskflow-v309-draw-sync-on-open";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
