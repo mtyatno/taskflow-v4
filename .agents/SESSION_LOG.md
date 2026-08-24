@@ -1046,3 +1046,11 @@ Chronological history of work performed by AI agents in this workspace.
 - **Deploy:** commit `f8ea23f` di-push (`fd0085d..f8ea23f`) → Actions auto-deploy → **LIVE terverifikasi curl**: poll #2 SW `taskflow-v306-remove-notes-new-button`; live index.html `btn btn-sm btn-primary` = 0 (sanity `btn btn-secondary btn-sm` = 48 — konten tersaji, bukan blank).
 - **Files Touch:** `static/index.html`, `static/sw.js`, `tests/offline/notes_page_layout.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`, report `.superpowers/sdd/2026-08-24-notes-header-button/report.md`
 - **Status:** Completed — commit `f8ea23f` di-push & LIVE (SW v306). PENDING user: hard refresh → tombol "+ Baru" hilang dari header panel kiri Catatan (header = `📝 Catatan` + count + sort + ✕).
+
+## [2026-08-24] - Claude (fix draw sync idempoten + slash + dedup tool)
+- **Task:** Root cause duplikat draw list (~800 baris server: 700× "design notes page" dll) + "/Draw" literal di konten note + sebagian drawing tak bisa dibuka.
+- **Root cause:** (1) POST /api/drawings tidak idempoten; send() throw saat 503 → op outbox bertahan → retry sukses = baris duplikat baru (era sebelum kolom client_id); (2) doSlashAction 'draw' tak pernah menghapus teks query slash → "/Draw" (autocap Android) menetap di konten; APK build lama juga men-drop node drawing saat save (fix a7c5592 datang setelah era build APK); (3) baris "tak bisa dibuka" = baris kosong (data_json '{}' + svg kosong) hasil retry payload tak lengkap.
+- **Changes:** webapp.py (migrasi client_id + upsert idempoten + test `test_create_drawing_idempotent_by_client_id`), syncpush.js (client_id), index.html (hapus query slash di case 'draw' + test slash_draw_query.test.js), scripts/dedup_drawings.py (dry-run-first, aman terhadap referensi note & pin), SW `taskflow-v308-draw-sync-idempotency`.
+- **Verifikasi:** JS 534/534 (0 fail), pytest 48/48, check_inline 5/5, live curl SW v308 + slashIdx2×3. Dikerjakan inline koordinator (API subagent 402 flaky — transparansi).
+- **Files Touch:** webapp.py, tests/test_drawings.py, static/offline/syncpush.js, static/index.html, tests/offline/slash_draw_query.test.js, scripts/dedup_drawings.py, static/sw.js
+- **Status:** Completed & LIVE; PENDING user: restart service VPS + dedup script + rebuild APK + hard refresh.
