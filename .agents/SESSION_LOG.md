@@ -1054,3 +1054,9 @@ Chronological history of work performed by AI agents in this workspace.
 - **Verifikasi:** JS 534/534 (0 fail), pytest 48/48, check_inline 5/5, live curl SW v308 + slashIdx2×3. Dikerjakan inline koordinator (API subagent 402 flaky — transparansi).
 - **Files Touch:** webapp.py, tests/test_drawings.py, static/offline/syncpush.js, static/index.html, tests/offline/slash_draw_query.test.js, scripts/dedup_drawings.py, static/sw.js
 - **Status:** Completed & LIVE; PENDING user: restart service VPS + dedup script + rebuild APK + hard refresh.
+
+## [2026-08-24] - Claude (fix dedup script — scratchpad_notes + parser non-regex)
+- **Task:** Script dedup crash di VPS: `no such table: scratchpad` → nama tabel benar `scratchpad_notes`. Plus bug parser: bentuk escaped `::draw\[id\]` tidak terdeteksi (backslash kurung tutup masuk body). Solusi: parser teks polos `_find_draw_refs` (tanpa regex — kebal escaping backslash antar platform/quoting shell), tangani `\[`/`\]`.
+- **Verifikasi:** pytest `tests/test_dedup_drawings.py` 2/2 (dry-run tidak mengubah apa pun; referensi plain+escaped dipertahankan; dup & kosong dihapus; pin & terbaru grup aman); full pytest 50/50.
+- **Files Touch:** `scripts/dedup_drawings.py`, `tests/test_dedup_drawings.py`
+- **Status:** Completed; PENDING user: `git pull origin main` di VPS → jalankan ulang `venv/bin/python scripts/dedup_drawings.py` (dry-run) → review → `--run`.
