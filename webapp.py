@@ -407,6 +407,18 @@ def migrate_db():
     finally:
         conn.close()
 
+    # client_id: idempotensi retry sync drawings — client mengirim cid; retry POST tidak menduplikasi baris
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        try:
+            conn.execute("ALTER TABLE drawings ADD COLUMN client_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # kolom sudah ada
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_drawings_user_client ON drawings(user_id, client_id) WHERE client_id IS NOT NULL")
+        conn.commit()
+    finally:
+        conn.close()
+
     # Widen entity_tags CHECK constraint to include 'drawing' and 'mindmap'
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -763,6 +775,7 @@ class DrawingCreate(BaseModel):
     data_json: str = Field(default="{}", max_length=5_000_000)
     svg_preview: str = Field(default="", max_length=5_000_000)
     tags: Optional[list[str]] = None
+    client_id: Optional[str] = None
 
     @field_validator("data_json")
     @classmethod
@@ -5769,10 +5782,27 @@ async def create_drawing(req: DrawingCreate, user=Depends(get_current_user)):
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
     with get_db() as conn:
+        # Idempotensi retry sync: client yang sama (client_id) + user yang sama → baris yang sama,
+        # tidak pernah menduplikasi walau POST diulang (503/putus jaringan → retry).
+        if req.client_id:
+            existing = conn.execute(
+                "SELECT id FROM drawings WHERE user_id = ? AND client_id = ?",
+                (uid, req.client_id)
+            ).fetchone()
+            if existing:
+                did = existing["id"]
+                conn.execute(
+                    "UPDATE drawings SET title = ?, data_json = ?, svg_preview = ?, updated_at = ? WHERE id = ?",
+                    (req.title, req.data_json, req.svg_preview, now, did)
+                )
+                if req.tags:
+                    _upsert_tags_for_entity(conn, did, uid, "drawing", req.tags)
+                row = conn.execute("SELECT * FROM drawings WHERE id = ?", (did,)).fetchone()
+                return _drawing_enrich(dict(row), conn)
         cur = conn.execute(
-            "INSERT INTO drawings (user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, 0, ?, ?)",
-            (uid, req.title, req.data_json, req.svg_preview, now, now)
+            "INSERT INTO drawings (user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at, client_id) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
+            (uid, req.title, req.data_json, req.svg_preview, now, now, req.client_id)
         )
         did = cur.lastrowid
         if req.tags:

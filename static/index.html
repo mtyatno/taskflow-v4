@@ -16017,7 +16017,16 @@ function MilkdownEditor({
             }
             break;
           case 'draw':
-            onInsertDrawingRef.current?.();
+            {
+              // Hapus teks query slash ("/draw" dst) — sebelumnya nyasar permanen di konten note
+              const qFrom2 = state.selection.$from;
+              const qText2 = qFrom2.parent.textBetween(0, qFrom2.parentOffset, null, "￼");
+              const slashIdx2 = qText2.lastIndexOf("/");
+              if (slashIdx2 >= 0) {
+                view.dispatch(state.tr.delete(qFrom2.start() + slashIdx2, qFrom2.pos));
+              }
+              onInsertDrawingRef.current?.();
+            }
             break;
         }
         view.dispatch(tr.scrollIntoView());

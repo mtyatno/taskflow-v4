@@ -156,3 +156,37 @@ Selesai.
     assert '<img src="/pub/attachments/100" alt="DiagramEscaped"' in html_body
 
 
+
+
+def test_create_drawing_idempotent_by_client_id(client):
+    """POST ulang dengan client_id sama TIDAK boleh menduplikasi baris (retry sync aman)."""
+    user = register_user(client, "drawuser2", "draw2@test.id")
+    token = user.get("token") or user.get("access_token")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+    payload = {
+        "title": "Gambar Retry",
+        "data_json": '{"shapes":{"a":{"type":"geo"}}}',
+        "svg_preview": "<svg>retry</svg>",
+        "client_id": "cid-retry-abc-123"
+    }
+    first = client.post("/api/drawings", json=payload, headers=headers)
+    assert first.status_code == 200, first.text
+    first_id = first.json()["id"]
+
+    # retry dengan client_id sama (payload judul berbeda utk membuktikan upsert)
+    payload2 = dict(payload, title="Gambar Retry v2")
+    second = client.post("/api/drawings", json=payload2, headers=headers)
+    assert second.status_code == 200, second.text
+    second_id = second.json()["id"]
+    assert second_id == first_id, "retry dengan client_id sama harus mengembalikan baris yang sama"
+    assert second.json()["title"] == "Gambar Retry v2", "upsert memperbarui judul"
+
+    lst = client.get("/api/drawings", headers=headers).json()
+    matches = [d for d in lst if d["id"] == first_id]
+    assert len(matches) == 1, "hanya boleh ada SATU baris untuk satu client_id"
+
+    # client_id berbeda → baris baru
+    third = client.post("/api/drawings", json=dict(payload, client_id="cid-lain-456"), headers=headers)
+    assert third.status_code == 200
+    assert third.json()["id"] != first_id

@@ -454,7 +454,7 @@
     return getDrawingRaw(op.cid).then((rec) => {
       if (!rec) return TFoutbox.outboxRemove(op.qid);
       const payload = op.payload || {};
-      return send(transport, "POST", "/api/drawings", { title: payload.title || "Untitled Drawing", data_json: payload.data_json || "{}", svg_preview: payload.svg_preview || "", is_pinned: payload.is_pinned ? 1 : 0, tags: payload.tags || [] }).then((res) => {
+      return send(transport, "POST", "/api/drawings", { title: payload.title || "Untitled Drawing", data_json: payload.data_json || "{}", svg_preview: payload.svg_preview || "", is_pinned: payload.is_pinned ? 1 : 0, tags: payload.tags || [], client_id: rec.cid || null }).then((res) => {
         if (ok(res) && res.data && res.data.id != null) {
           return TFidmap.mapId(rec.cid, res.data.id).then(() => {
             return putDrawingRaw(Object.assign({}, rec, { server_id: res.data.id, dirty: 0, base_rev: res.data.updated_at }))
