@@ -1060,3 +1060,10 @@ Chronological history of work performed by AI agents in this workspace.
 - **Verifikasi:** pytest `tests/test_dedup_drawings.py` 2/2 (dry-run tidak mengubah apa pun; referensi plain+escaped dipertahankan; dup & kosong dihapus; pin & terbaru grup aman); full pytest 50/50.
 - **Files Touch:** `scripts/dedup_drawings.py`, `tests/test_dedup_drawings.py`
 - **Status:** Completed; PENDING user: `git pull origin main` di VPS → jalankan ulang `venv/bin/python scripts/dedup_drawings.py` (dry-run) → review → `--run`.
+
+## [2026-08-24] - Claude (fix draw sync-on-open + diagnosa backend down)
+- **Task:** Draw page "gagal memuat gambar" semua drawing. Diagnosa: ERR_CONNECTION_TIMED_OUT di SEMUA API (tasks/notifications/drawings) = backend down → app offline → list dari cache. Dedup SUDAH benar (dump user: satu survivor per grup + baris ber-data utuh, tersisa ~12 entri).
+- **Changes:** `selectDrawing` DrawPage — baris lokal (server_id null, id=cid UUID) kini sync-on-open: getRaw → POST /api/drawings dengan client_id (idempoten) → idmap.mapId → buka server id; list di-update in-memory. SW `taskflow-v309-draw-sync-on-open`. Verifikasi: check_inline 5/5, JS 534/534.
+- **PENDING user:** cek VPS `sudo systemctl status taskflow-web taskflow` + `journalctl -u taskflow-web -n 50` — backend TIMEOUT (bukan 503); kirim hasilnya. Kemungkinan crash saat restart (migrasi client_id saat DB dikunci proses lain) atau masalah VPS.
+- **Files Touch:** `static/index.html`, `static/sw.js`
+- **Status:** Code fix LIVE; BLOKER infra di sisi user (backend down) — menunggu hasil status service.
