@@ -19,7 +19,6 @@ Pakai:
   venv/bin/python scripts/dedup_drawings.py --run      # eksekusi
 """
 import argparse
-import re
 import sqlite3
 import sys
 from collections import defaultdict
@@ -28,7 +27,29 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import DB_PATH  # noqa: E402
 
-DRAW_REF_RE = re.compile(r"::draw\\?\[([0-9]+)\\]", re.IGNORECASE)
+def _find_draw_refs(content):
+    """Kumpulan id drawing yang direferensikan token ::draw[id] / ::draw\\[id\\] dalam konten.
+    Parser teks polos (tanpa regex) — kebal terhadap masalah escaping backslash antar platform."""
+    ids = set()
+    marker = "::draw"
+    i = 0
+    text = content or ""
+    while True:
+        i = text.find(marker, i)
+        if i < 0:
+            break
+        j = i + len(marker)
+        if j < len(text) and text[j] == "\\":
+            j += 1
+        if j < len(text) and text[j] == "[":
+            k = text.find("]", j + 1)
+            body = text[j + 1:k] if k > j + 1 else ""
+            if body.endswith(chr(92)):
+                body = body[:-1]  # bentuk escaped ::draw\[id\] — backslash kurung tutup
+            if body.isdigit():
+                ids.add(int(body))
+        i += len(marker)
+    return ids
 
 
 def main() -> None:
@@ -46,13 +67,13 @@ def main() -> None:
         drawings = conn.execute(
             "SELECT id, user_id, title, data_json, svg_preview, is_pinned, updated_at FROM drawings"
         ).fetchall()
-        notes = conn.execute("SELECT user_id, content FROM scratchpad").fetchall()
+        notes = conn.execute("SELECT user_id, content FROM scratchpad_notes").fetchall()
 
         # id yang direferensikan ::draw[id] di konten note, per user
         referenced: dict[int, set[int]] = defaultdict(set)
         for n in notes:
-            for m in DRAW_REF_RE.finditer(n["content"] or ""):
-                referenced[n["user_id"]].add(int(m.group(1)))
+            for did in _find_draw_refs(n["content"]):
+                referenced[n["user_id"]].add(did)
 
         by_group: dict[tuple, list[sqlite3.Row]] = defaultdict(list)
         for d in drawings:
