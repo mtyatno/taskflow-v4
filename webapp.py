@@ -5747,6 +5747,10 @@ async def delete_mindmap(mid: int, user=Depends(get_current_user)):
 
 def _drawing_enrich(row_dict: dict, conn) -> dict:
     did = row_dict["id"]
+    # Penanda baris server: client mengecek d.server_id == null untuk mengenali baris
+    # LOKAL yang belum tersinkron (junk-row guard di selectDrawing). Semua baris yang
+    # berasal dari DB server membawa server_id == id.
+    row_dict["server_id"] = row_dict["id"]
     tag_rows = conn.execute(
         "SELECT t.name FROM tags t JOIN entity_tags et ON t.id = et.tag_id "
         "WHERE et.entity_type = 'drawing' AND et.entity_id = ? ORDER BY t.name",

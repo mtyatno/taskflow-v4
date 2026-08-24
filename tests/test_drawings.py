@@ -190,3 +190,31 @@ def test_create_drawing_idempotent_by_client_id(client):
     third = client.post("/api/drawings", json=dict(payload, client_id="cid-lain-456"), headers=headers)
     assert third.status_code == 200
     assert third.json()["id"] != first_id
+
+
+def test_drawing_responses_include_server_id(client):
+    """List & detail drawing wajib membawa field server_id == id (penanda baris server utk client)."""
+    user = register_user(client, "serveriduser", "serverid@test.id")
+    token = user.get("token") or user.get("access_token")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+    create_res = client.post("/api/drawings", json={
+        "title": "Gambar Server ID",
+        "data_json": '{"shapes":{}}',
+        "svg_preview": "<svg>sid</svg>"
+    }, headers=headers)
+    assert create_res.status_code == 200, create_res.text
+    drawing = create_res.json()
+    assert drawing["server_id"] == drawing["id"], "response create harus membawa server_id == id"
+
+    lst = client.get("/api/drawings", headers=headers).json()
+    assert len(lst) >= 1
+    for row in lst:
+        assert "server_id" in row, "setiap baris list drawing wajib punya server_id"
+        assert row["server_id"] == row["id"], "server_id harus sama dengan id"
+
+    detail = client.get(f"/api/drawings/{drawing['id']}", headers=headers).json()
+    assert detail["server_id"] == detail["id"], "detail drawing harus membawa server_id == id"
+
+    upd = client.put(f"/api/drawings/{drawing['id']}", json={"title": "Gambar Server ID v2"}, headers=headers).json()
+    assert upd["server_id"] == upd["id"], "response update harus membawa server_id == id"
