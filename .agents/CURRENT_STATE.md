@@ -7,6 +7,38 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
+- **DrawPage Real-time Drawing List Refresh on `drawingSaved` Event — SELESAI 2026-08-25 (Antigravity/Gemini):**
+  - **Problem / Context:**
+    - Saat background sync (`sync()`) selesai mem-pull gambar terbaru dari perangkat lain dan memicu event `drawingSaved`, komponen `DrawPage` belum mendengarkan event tersebut sehingga daftar gambar di sidebar `DrawPage` tidak ter-refresh secara real-time tanpa refresh browser (F5).
+  - **Solusi / Perbaikan:**
+    - `static/index.html`:
+      - Di dalam komponen `DrawPage`, mengekstrak fungsi pengambilan daftar gambar menjadi helper `fetchDrawingsList`.
+      - Menambahkan `useEffect` listener untuk event `drawingSaved` yang secara otomatis memanggil `api.get("/api/drawings")` dan mengupdate `setDrawings(data || [])`.
+  - **Verifikasi:**
+    - Syntax inline scripts: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - JS test suite: `node --test tests/offline/*.test.js` ➡️ **574/574 tests pass (0 fail)**.
+
+- **Fix Drawing Sync Engine & Comprehensive Offline Drawing Sync Tests — SELESAI 2026-08-25 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    1. Di `static/offline/syncpush.js` pada `opDrawingCreate`, pemanggilan `TFidmap.mapId(rec.cid, res.data.id)` memicu `TypeError: TFidmap.mapId is not a function` (karena method sesungguhnya di `TFidmap` adalah `mapPut(type, serverId, cid)`). Akibatnya `putDrawingRaw` tidak mengupdate `server_id` dan membiarkan data drawing lokal tetap `server_id: null, dirty: 1`, memicu duplicate rows saat `DrawPage` memuat daftar gambar.
+    2. Belum ada `healStrandedDrawings` untuk memulihkan gambar lokal standalone yang tertinggal (`server_id: null`, `!deleted`, tanpa pending outbox op).
+    3. `static/offline/syncpull.js` belum memiliki fungsi pull & rekonsiliasi drawing (`pullDrawings`, `pullDrawingsAndReconcile`, `ensureDrawingCid`, `drawingFromServer`, `writeDrawing`, `writeDrawingFull`, `getAllDrawings`, `putDrawingRec`, `deleteDrawingRec`).
+  - **Solusi / Perbaikan:**
+    - `static/offline/syncpush.js`:
+      - Mengganti `TFidmap.mapId` menjadi `TFidmap.mapPut("drawing", sid, rec.cid)` dan mengupdate record dengan `server_id: sid, dirty: 0, base_rev: res.data.updated_at`.
+      - Menambahkan `deleteDrawingRaw(cid)` untuk handling error 403.
+      - Menambahkan `getAllDrawingsRaw()` dan `healStrandedDrawings()` untuk mengantrekan op create otomatis pada drawing unpushed yang tertinggal.
+      - Menghubungkan `healStrandedDrawings()` di dalam `pushOutbox` dan mengekspornya.
+    - `static/offline/syncpull.js`:
+      - Mengimpor `TFblob` & `BlobStore`.
+      - Mengimplementasikan `getAllDrawings`, `putDrawingRec`, `deleteDrawingRec`.
+      - Mengimplementasikan `ensureDrawingCid(serverId, cache)` dengan multi-tier lookup (cache -> `TFidmap.cidOf` -> fallback `getAllDrawings` by `server_id` + auto-repair idmap -> `TFids.newCid`).
+      - Mengimplementasikan `drawingFromServer`, `writeDrawing`, `writeDrawingFull`, `pullDrawings` (multi-pass sync: CID resolution, outbox-aware upsert, phantom duplicate cleanup, remote deletions, pin adoption), dan `pullDrawingsAndReconcile`.
+    - `static/index.html`: Menghubungkan `pullDrawingsAndReconcile` di `sync()` dan memicu event `window.dispatchEvent(new CustomEvent("drawingSaved"))` saat ada perubahan drawing.
+    - `static/sw.js`: SW cache di-bump ke **`taskflow-v314-drawing-sync-engine`**.
+    - `tests/offline/drawingsync.test.js`: Membuat test suite komprehensif 14 unit test mencakup semua edge case sinkronisasi drawing (14/14 tests).
+  - Verifikasi: Subagent code review **APPROVED**.
+
 - **Fix Sync Stale Tombstone Restore (Notes, Tasks, Mindmaps) — SELESAI 2026-08-25 (Antigravity/Gemini):**
   - **Problem / Root Cause:**
     - Ketika sebuah catatan/task/mindmap lokal di IndexedDB memiliki flag `deleted: true, dirty: 1` (namun outbox queue sudah kehilangan pending op dari sesi lama), atau `deleted: true, dirty: 0`, namun masih AKTIF di server (dikirim dengan `updated_at == base_rev`), `pullNotes`, `pullTasks`, dan `pullMindmaps` sebelumnya melewati item tersebut. Akibatnya `deleted: true` tidak pernah di-reset menjadi `false` dan item tetap tersembunyi.

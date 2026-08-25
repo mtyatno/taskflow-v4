@@ -16,6 +16,8 @@
   const TFhydrate = req("./hydrate.js", root.TF && root.TF.hydrate);
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
   const TFtag = req("./tagrepo.js", root.TF && root.TF.tagrepo);
+  const TFblob = req("./blobstore.js", root.TF && root.TF.blobstore);
+  const BlobStore = TFblob ? TFblob.makeBlobStore() : null;
 
   function getAllTasks() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -527,7 +529,210 @@
       .then((listRows) => pullMindmaps(listRows || [], fetchOne));
   }
 
-  const exported = { pullTasks, pullAndReconcile, pullHabits, pullHabitLogs, pullHabitsAndLogs, pullNotes, pullNotesAndReconcile, pullMindmaps, pullMindmapsAndReconcile };
+  function getAllDrawings() {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("drawings", "readonly").objectStore("drawings").getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function putDrawingRec(rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("drawings", "readwrite");
+      tx.objectStore("drawings").put(rec);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function deleteDrawingRec(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("drawings", "readwrite");
+      tx.objectStore("drawings").delete(cid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function ensureDrawingCid(serverId, cache) {
+    if (cache[serverId]) return Promise.resolve(cache[serverId]);
+    return TFidmap.cidOf("drawing", serverId).then((cid) => {
+      if (cid) { cache[serverId] = cid; return cid; }
+      return getAllDrawings().then((allDrawings) => {
+        const existing = allDrawings.find((d) => d.server_id === serverId && d.note_cid === undefined);
+        if (existing && existing.cid) {
+          cache[serverId] = existing.cid;
+          return TFidmap.mapPut("drawing", serverId, existing.cid).then(() => existing.cid);
+        }
+        const fresh = TFids.newCid();
+        cache[serverId] = fresh;
+        return TFidmap.mapPut("drawing", serverId, fresh).then(() => fresh);
+      });
+    });
+  }
+
+  function drawingFromServer(s, cid) {
+    return {
+      cid: cid,
+      server_id: s.id,
+      title: s.title != null ? s.title : "Untitled Drawing",
+      svg_preview: s.svg_preview != null ? s.svg_preview : "",
+      is_pinned: s.is_pinned ? 1 : 0,
+      created_at: s.created_at != null ? s.created_at : null,
+      updated_at: s.updated_at != null ? s.updated_at : null,
+      deleted: false,
+      dirty: 0,
+      base_rev: s.updated_at != null ? s.updated_at : null,
+    };
+  }
+
+  function writeDrawing(s, cid, localRec) {
+    const dataJson = s.data_json;
+    let blobP;
+    if (dataJson != null) {
+      blobP = BlobStore ? BlobStore.put(dataJson, { mime: "application/json" }) : Promise.resolve(null);
+    } else if (localRec && localRec.blob_ref) {
+      blobP = Promise.resolve(localRec.blob_ref);
+    } else {
+      blobP = BlobStore ? BlobStore.put("{}", { mime: "application/json" }) : Promise.resolve(null);
+    }
+    return blobP.then((ref) => {
+      const rec = Object.assign(drawingFromServer(s, cid), { blob_ref: ref });
+      return putDrawingRec(rec).then(() => {
+        if (s.tags && TFtag && TFtag.setEntityTags) {
+          return TFtag.setEntityTags("drawing", cid, s.tags);
+        }
+      });
+    });
+  }
+
+  function writeDrawingFull(s, cid, fetchOne, localRec) {
+    if (!fetchOne) {
+      return writeDrawing(s, cid, localRec);
+    }
+    return Promise.resolve(fetchOne(s.id)).then((full) => {
+      const merged = Object.assign({}, s, full || {});
+      return writeDrawing(merged, cid, localRec);
+    });
+  }
+
+  function pullDrawings(serverDrawings, fetchOne) {
+    const list = serverDrawings || [];
+    const cache = {};
+    return list.reduce((p, s) => p.then(() => ensureDrawingCid(s.id, cache)), Promise.resolve())
+      .then(() => Promise.all([getAllDrawings(), TFoutbox.outboxAll()]))
+      .then(([localAll, outboxOps]) => {
+        const pendingDrawingOps = new Set(
+          outboxOps.filter((o) => o.entity_type === "drawing").map((o) => o.cid)
+        );
+        const byCid = {};
+        for (const r of localAll) {
+          if (r.note_cid === undefined) byCid[r.cid] = r;
+        }
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0 };
+        let chain = Promise.resolve();
+
+        // Pass 2: Upsert server records
+        for (const s of list) {
+          const cid = cache[s.id];
+          const local = byCid[cid];
+          chain = chain.then(() => {
+            if (!local || (local.deleted && !pendingDrawingOps.has(cid))) {
+              result.created++;
+              return writeDrawingFull(s, cid, fetchOne, local);
+            }
+            if (local.conflict) {
+              result.skipped++;
+              return;
+            }
+            if (local.dirty && pendingDrawingOps.has(cid)) {
+              if (s.updated_at !== local.base_rev) {
+                result.lwwResolved++;
+                if (tsEpoch(s.updated_at) > tsEpoch(local.updated_at)) {
+                  return dropOutbox("drawing", cid).then(() =>
+                    writeDrawingFull(s, cid, fetchOne, local)
+                  );
+                }
+                return;
+              }
+              result.skipped++;
+              return;
+            }
+            if (s.updated_at !== local.base_rev || local.deleted || (local.dirty && !pendingDrawingOps.has(cid))) {
+              result.updated++;
+              return writeDrawingFull(s, cid, fetchOne, local);
+            }
+            return;
+          });
+        }
+
+        // Pass 3 & 4: Clean phantom duplicate rows and remote deletions
+        const serverIds = new Set(list.map((s) => String(s.id)));
+        for (const r of localAll) {
+          if (r.note_cid !== undefined) continue;
+          if (r.server_id == null) continue;
+          const expectedCid = cache[r.server_id];
+          if (expectedCid && r.cid !== expectedCid) {
+            chain = chain.then(() => deleteDrawingRec(r.cid));
+            continue;
+          }
+          if (serverIds.has(String(r.server_id))) continue;
+          chain = chain.then(() => {
+            if (r.dirty && pendingDrawingOps.has(r.cid)) {
+              result.skipped++;
+              return;
+            }
+            result.deleted++;
+            return deleteDrawingRec(r.cid).then(() => TFidmap.mapDelete("drawing", r.server_id));
+          });
+        }
+
+        // Pass 5: Adopt server pinned status if no pending pin op
+        chain = chain.then(() => {
+          const pendingPin = new Set(
+            outboxOps.filter((o) => o.entity_type === "drawing" && o.op === "pin").map((o) => o.cid)
+          );
+          return getAllDrawings().then((fresh) => {
+            const freshByCid = {};
+            for (const r of fresh) {
+              if (r.note_cid === undefined) freshByCid[r.cid] = r;
+            }
+            let c2 = Promise.resolve();
+            for (const s of list) {
+              const cid = cache[s.id];
+              const local = freshByCid[cid];
+              if (!local || pendingPin.has(cid)) continue;
+              const serverPinned = s.is_pinned ? 1 : 0;
+              const localPinned = local.is_pinned ? 1 : 0;
+              if (localPinned !== serverPinned) {
+                c2 = c2.then(() => {
+                  result.pinned++;
+                  return putDrawingRec(Object.assign({}, local, { is_pinned: serverPinned }));
+                });
+              }
+            }
+            return c2;
+          });
+        });
+
+        return chain.then(() => result);
+      });
+  }
+
+  function pullDrawingsAndReconcile(rawFetch) {
+    const fetchOne = (sid) => Promise.resolve(rawFetch("/api/drawings/" + sid))
+      .then((res) => (res && typeof res.json === "function" ? res.json() : res))
+      .catch(() => null);
+    return Promise.resolve(rawFetch("/api/drawings"))
+      .then((res) => (res && typeof res.json === "function" ? res.json() : res))
+      .then((list) => pullDrawings(list || [], fetchOne));
+  }
+
+  const exported = {
+    pullTasks, pullAndReconcile,
+    pullHabits, pullHabitLogs, pullHabitsAndLogs,
+    pullNotes, pullNotesAndReconcile,
+    pullMindmaps, pullMindmapsAndReconcile,
+    pullDrawings, pullDrawingsAndReconcile,
+  };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpull = exported; }
   return exported;
 });

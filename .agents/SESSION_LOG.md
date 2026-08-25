@@ -2,6 +2,34 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-08-26 00:05] - Antigravity (Gemini)
+- **Task:** Extract `fetchDrawingsList` helper and add `drawingSaved` event listener in `DrawPage` for real-time list refresh.
+- **Changes:**
+  - `static/index.html`:
+    - Extracted drawings list fetching logic into helper function `fetchDrawingsList` in `DrawPage`.
+    - Added `useEffect` listening for `window.addEventListener("drawingSaved", handler)` to immediately update drawings state without requiring manual page reload (F5) when sync pulls fresh drawings.
+- **Verification:**
+  - Syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - JS Test Suite: `node --test tests/offline/*.test.js` ➡️ **574/574 tests pass (0 fail)**.
+- **Files Modified:** `static/index.html`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
+---
+
+## [2026-08-25 23:55] - Antigravity (Gemini)
+- **Task:** Implement Robust Drawing Sync Engine in `static/offline/syncpush.js` and `static/offline/syncpull.js` with Full 14/14 Test Coverage.
+- **Root Cause & Requirements:**
+  1. `syncpush.js`: Fixed `opDrawingCreate` to use `TFidmap.mapPut("drawing", sid, rec.cid)`, updated records with `server_id`, `dirty: 0`, and `base_rev`, added robust `data_json` / `tags` extraction and client_id payload, added `deleteDrawingRaw(cid)` for 403 handling, implemented `getAllDrawingsRaw()`, and added `healStrandedDrawings()` chained into `pushOutbox`.
+  2. `syncpull.js`: Integrated `TFblob` & `BlobStore`, implemented `getAllDrawings`, `putDrawingRec`, `deleteDrawingRec`, `ensureDrawingCid` with multi-tier lookup and automatic `_idmap` repair, `drawingFromServer`, `writeDrawing` (with BlobStore json storage and tag associations), `writeDrawingFull`, `pullDrawings` (with outbox-aware upsert, phantom duplicate cleanup, remote deletion, and pin adoption), and `pullDrawingsAndReconcile`.
+- **Verification:**
+  - JS Tests: `node --test tests/offline/drawingsync.test.js` ➡️ **14/14 pass (0 fail)**.
+  - Full JS Test Suite: `node --test tests/offline/*.test.js` ➡️ **574/574 pass (0 fail)**.
+  - Python Tests: `python -m pytest tests/` ➡️ **55/55 pass (0 fail)**.
+- **Files Modified:** `static/offline/syncpush.js`, `static/offline/syncpull.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
+---
+
 ## [2026-08-25 22:15] - Antigravity (Gemini)
 - **Task:** Outbox-Aware Stale Tombstone (`deleted: true, dirty: 1` without pending outbox op) Restoration in Offline Sync (`pullNotes`, `pullTasks`, `pullMindmaps`).
 - **Root Cause:**

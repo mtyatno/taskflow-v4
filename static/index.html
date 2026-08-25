@@ -569,6 +569,15 @@ function sync() {
       });
     })
     .then(() => (window.TF.syncpull.pullMindmapsAndReconcile ? window.TF.syncpull.pullMindmapsAndReconcile(__syncRawFetch) : null))
+    .then(() => {
+      if (!window.TF.syncpull.pullDrawingsAndReconcile) return null;
+      return window.TF.syncpull.pullDrawingsAndReconcile(__syncRawFetch).then((drawRes) => {
+        if (drawRes && (drawRes.created > 0 || drawRes.updated > 0 || drawRes.deleted > 0 || drawRes.pinned > 0)) {
+          window.dispatchEvent(new CustomEvent("drawingSaved"));
+        }
+        return drawRes;
+      });
+    })
     .then(() => window.TF.syncpush.pushOutbox(__syncTransport))
     .then((r) => { renderConflicts(); return r; })
     .catch(() => { renderConflicts(); return null; });
@@ -9336,11 +9345,22 @@ function DrawPage({
     }
   };
 
-  useEffect(() => {
-    api.get("/api/drawings")
+  const fetchDrawingsList = () => {
+    return api.get("/api/drawings")
       .then(data => {
         const list = data || [];
         setDrawings(list);
+        return list;
+      })
+      .catch(() => {
+        setDrawings([]);
+        return [];
+      });
+  };
+
+  useEffect(() => {
+    fetchDrawingsList()
+      .then(list => {
         if (initialDrawingId) {
           const found = list.find(d => String(d.id) === String(initialDrawingId));
           if (found) {
@@ -9356,8 +9376,15 @@ function DrawPage({
           onInitialDrawingConsumed && onInitialDrawingConsumed();
         }
       })
-      .catch(() => setDrawings([]))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      api.get("/api/drawings").then(data => setDrawings(data || [])).catch(() => {});
+    };
+    window.addEventListener("drawingSaved", handler);
+    return () => window.removeEventListener("drawingSaved", handler);
   }, []);
 
   useEffect(() => {

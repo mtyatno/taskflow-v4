@@ -457,21 +457,54 @@
       tx.onerror = () => reject(tx.error);
     }));
   }
+  function deleteDrawingRaw(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("drawings", "readwrite");
+      tx.objectStore("drawings").delete(cid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
 
   function opDrawingCreate(op, transport, result) {
     return getDrawingRaw(op.cid).then((rec) => {
       if (!rec) return TFoutbox.outboxRemove(op.qid);
+      if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
       const payload = op.payload || {};
-      return send(transport, "POST", "/api/drawings", { title: payload.title || "Untitled Drawing", data_json: payload.data_json || "{}", svg_preview: payload.svg_preview || "", is_pinned: payload.is_pinned ? 1 : 0, tags: payload.tags || [], client_id: rec.cid || null }).then((res) => {
-        if (ok(res) && res.data && res.data.id != null) {
-          return TFidmap.mapId(rec.cid, res.data.id).then(() => {
-            return putDrawingRaw(Object.assign({}, rec, { server_id: res.data.id, dirty: 0, base_rev: res.data.updated_at }))
-              .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
-          });
-        }
-        result.failed++;
-        return TFoutbox.outboxRemove(op.qid);
-      });
+      const dataP = (payload.data_json != null)
+        ? Promise.resolve(payload.data_json)
+        : (rec.blob_ref ? Promise.resolve(_BlobStore.getBytes(rec.blob_ref)) : Promise.resolve("{}"));
+      const tagP = (payload.tags && payload.tags.length > 0)
+        ? Promise.resolve(payload.tags)
+        : (TFtag && TFtag.getEntityTags ? TFtag.getEntityTags("drawing", rec.cid).then((ts) => ts.map((t) => t.name)) : Promise.resolve([]));
+
+      return Promise.all([dataP, tagP]).then(([dataJson, tagNames]) =>
+        send(transport, "POST", "/api/drawings", {
+          title: payload.title || rec.title || "Untitled Drawing",
+          data_json: dataJson || "{}",
+          svg_preview: payload.svg_preview != null ? payload.svg_preview : (rec.svg_preview || ""),
+          is_pinned: (payload.is_pinned != null ? payload.is_pinned : rec.is_pinned) ? 1 : 0,
+          tags: tagNames || [],
+          client_id: rec.cid || null,
+        }).then((res) => {
+          if (ok(res) && res.data && res.data.id != null) {
+            const sid = res.data.id;
+            return TFidmap.mapPut("drawing", sid, rec.cid).then(() => {
+              return putDrawingRaw(Object.assign({}, rec, {
+                server_id: sid,
+                dirty: 0,
+                base_rev: res.data.updated_at != null ? res.data.updated_at : rec.base_rev,
+              }))
+                .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+            });
+          }
+          if (res.status === 403) {
+            return deleteDrawingRaw(op.cid).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
+          }
+          result.failed++;
+          return TFoutbox.outboxRemove(op.qid);
+        })
+      );
     });
   }
 
@@ -801,6 +834,49 @@
     });
   }
 
+  function getAllDrawingsRaw() {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("drawings", "readonly").objectStore("drawings").getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+
+  function healStrandedDrawings() {
+    const appendOp = TFoutbox.outboxAppend || TFoutbox.outboxAdd;
+    return TFoutbox.outboxAll().then((ops) => {
+      const drawingCreateCids = new Set(
+        ops.filter((o) => o.entity_type === "drawing" && o.op === "create").map((o) => o.cid)
+      );
+      return getAllDrawingsRaw().then((allDrawings) => {
+        let chain = Promise.resolve(0);
+        for (const r of allDrawings) {
+          if (r.server_id == null && !r.deleted && r.note_cid === undefined && !drawingCreateCids.has(r.cid)) {
+            chain = chain.then((count) => {
+              const dataP = r.blob_ref ? Promise.resolve(_BlobStore.getBytes(r.blob_ref)) : Promise.resolve("{}");
+              const tagP = (TFtag && TFtag.getEntityTags) ? TFtag.getEntityTags("drawing", r.cid).then((ts) => ts.map((t) => t.name)) : Promise.resolve([]);
+              return Promise.all([dataP, tagP]).then(([dataJson, tagNames]) =>
+                appendOp({
+                  entity_type: "drawing",
+                  op: "create",
+                  cid: r.cid,
+                  payload: {
+                    title: r.title,
+                    data_json: dataJson || "{}",
+                    svg_preview: r.svg_preview,
+                    is_pinned: r.is_pinned,
+                    tags: tagNames || [],
+                  },
+                }).then(() => count + 1)
+              );
+            });
+          }
+        }
+        return chain;
+      });
+    });
+  }
+
   let _running = false;
   function pushOutbox(transport, opts) {
     if (_running) return Promise.resolve({ pushed: 0, failed: 0, remaining: -1, busy: true });
@@ -811,6 +887,7 @@
     const result = { pushed: 0, failed: 0, remaining: 0 };
     let stopped = false;
     return healStrandedNotes()
+      .then(() => healStrandedDrawings())
       .then(() => TFoutbox.outboxAll())
       .then((ops) => ops.slice().sort((a, b) => a.qid - b.qid))
       .then((ops) => ops.reduce((chain, op) => chain.then(() => {
@@ -822,7 +899,7 @@
       .then((r) => { _running = false; return r; }, (e) => { _running = false; throw e; });
   }
 
-  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, noteToCreatePayload, noteToUpdatePayload, mindmapToCreatePayload, mindmapToUpdatePayload, healStrandedNotes, pushOutbox };
+  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, noteToCreatePayload, noteToUpdatePayload, mindmapToCreatePayload, mindmapToUpdatePayload, healStrandedNotes, healStrandedDrawings, pushOutbox };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpush = exported; }
   return exported;
 });
