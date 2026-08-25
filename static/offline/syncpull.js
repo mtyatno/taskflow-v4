@@ -282,9 +282,16 @@
     if (cache[serverId]) return Promise.resolve(cache[serverId]);
     return TFidmap.cidOf("note", serverId).then((cid) => {
       if (cid) { cache[serverId] = cid; return cid; }
-      const fresh = TFids.newCid();
-      cache[serverId] = fresh;
-      return TFidmap.mapPut("note", serverId, fresh).then(() => fresh);
+      return getAllNotes().then((allNotes) => {
+        const existing = allNotes.find((n) => n.server_id === serverId);
+        if (existing && existing.cid) {
+          cache[serverId] = existing.cid;
+          return TFidmap.mapPut("note", serverId, existing.cid).then(() => existing.cid);
+        }
+        const fresh = TFids.newCid();
+        cache[serverId] = fresh;
+        return TFidmap.mapPut("note", serverId, fresh).then(() => fresh);
+      });
     });
   }
   function noteFromServer(s, cid, noteCidCache) {
@@ -343,6 +350,11 @@
         const serverIds = new Set(list.map((s) => String(s.id)));
         for (const r of localAll) {
           if (r.server_id == null) continue;
+          const expectedCid = cache[r.server_id];
+          if (expectedCid && r.cid !== expectedCid) {
+            chain = chain.then(() => deleteNoteRec(r.cid));
+            continue;
+          }
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
             if (r.dirty) {

@@ -419,6 +419,18 @@ def migrate_db():
     finally:
         conn.close()
 
+    # client_id: idempotensi retry sync scratchpad_notes — client mengirim cid; retry POST tidak menduplikasi baris
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        try:
+            conn.execute("ALTER TABLE scratchpad_notes ADD COLUMN client_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # kolom sudah ada
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_scratchpad_notes_user_client ON scratchpad_notes(user_id, client_id) WHERE client_id IS NOT NULL")
+        conn.commit()
+    finally:
+        conn.close()
+
     # Widen entity_tags CHECK constraint to include 'drawing' and 'mindmap'
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -840,6 +852,7 @@ class ScratchpadCreate(BaseModel):
     linked_task_ids: list[int] = []
     list_id: Optional[int] = None
     meta_json: str = '{}'
+    client_id: Optional[str] = None
 
 class ScratchpadUpdate(BaseModel):
     title: str = ""
@@ -2813,6 +2826,7 @@ async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_cu
 
 def _scratchpad_row(row, conn=None, uid=None) -> dict:
     d = dict(row)
+    d["server_id"] = d.get("id")
     if conn and d.get("id"):
         tag_rows = conn.execute("""
             SELECT t.name FROM tags t
@@ -3955,14 +3969,36 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
     with get_db() as conn:
         titles = _parse_wikilinks(req.content)
         linked_ids = _resolve_linked_to(titles, uid, conn)
+        if req.client_id:
+            existing = conn.execute(
+                "SELECT id FROM scratchpad_notes WHERE user_id = ? AND client_id = ?",
+                (uid, req.client_id)
+            ).fetchone()
+            if existing:
+                note_id = existing["id"]
+                conn.execute(
+                    """UPDATE scratchpad_notes
+                       SET title = ?, content = ?, tags = ?, linked_task_id = ?, linked_task_ids = ?,
+                           linked_to = ?, list_id = ?, last_edited_by = ?, updated_at = ?, meta_json = ?
+                       WHERE id = ?""",
+                    (req.title, req.content, "[]",
+                     task_ids[0] if task_ids else None, json.dumps(task_ids),
+                     json.dumps(linked_ids), req.list_id, uid, now, req.meta_json, note_id)
+                )
+                conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=? AND user_id=?", (note_id, uid))
+                _upsert_tags_for_note(conn, note_id, uid, tag_names)
+                conn.commit()
+                row = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
+                return _scratchpad_row(row, conn, uid)
+
         conn.execute(
             """INSERT INTO scratchpad_notes
                (user_id, title, content, tags, linked_task_id, linked_task_ids, linked_to,
-                list_id, last_edited_by, created_at, updated_at, meta_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                list_id, last_edited_by, created_at, updated_at, meta_json, client_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (uid, req.title, req.content, "[]",
              task_ids[0] if task_ids else None, json.dumps(task_ids),
-             json.dumps(linked_ids), req.list_id, uid, now, now, req.meta_json)
+             json.dumps(linked_ids), req.list_id, uid, now, now, req.meta_json, req.client_id)
         )
         note_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         _upsert_tags_for_note(conn, note_id, uid, tag_names)

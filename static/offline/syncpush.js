@@ -88,6 +88,7 @@
       linked_task_ids: taskServerIds || [],
       list_id: record.list_id != null ? record.list_id : null,
       meta_json: record.meta_json != null ? record.meta_json : '{}',
+      client_id: record.cid || null,
     };
   }
   function noteToUpdatePayload(record, tagNames, taskServerIds) {
@@ -163,7 +164,14 @@
 
   function send(transport, method, path, body) {
     return transport.request(method, path, body).then(
-      (res) => res,
+      (res) => {
+        if (res && res.status >= 500) {
+          const e = new Error("server_error_" + res.status);
+          e.__network = true;
+          throw e;
+        }
+        return res;
+      },
       () => { const e = new Error("network"); e.__network = true; throw e; }
     );
   }
@@ -761,6 +769,38 @@
     return TFoutbox.outboxRemove(op.qid);
   }
 
+  function getAllNotesRaw() {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("scratchpad_notes", "readonly").objectStore("scratchpad_notes").getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+
+  function healStrandedNotes() {
+    const appendOp = TFoutbox.outboxAppend || TFoutbox.outboxAdd;
+    return TFoutbox.outboxAll().then((ops) => {
+      const noteCreateCids = new Set(
+        ops.filter((o) => o.entity_type === "note" && o.op === "create").map((o) => o.cid)
+      );
+      return getAllNotesRaw().then((allNotes) => {
+        let chain = Promise.resolve(0);
+        for (const r of allNotes) {
+          if (r.server_id == null && !r.deleted && !noteCreateCids.has(r.cid)) {
+            chain = chain.then((count) =>
+              appendOp({
+                entity_type: "note",
+                op: "create",
+                cid: r.cid,
+              }).then(() => count + 1)
+            );
+          }
+        }
+        return chain;
+      });
+    });
+  }
+
   let _running = false;
   function pushOutbox(transport, opts) {
     if (_running) return Promise.resolve({ pushed: 0, failed: 0, remaining: -1, busy: true });
@@ -770,7 +810,8 @@
     const habitTagsFor = opts.habitTagsFor || ((cid) => TFtag.getEntityTags("habit", cid).then((ts) => ts.map((t) => t.name)));
     const result = { pushed: 0, failed: 0, remaining: 0 };
     let stopped = false;
-    return TFoutbox.outboxAll()
+    return healStrandedNotes()
+      .then(() => TFoutbox.outboxAll())
       .then((ops) => ops.slice().sort((a, b) => a.qid - b.qid))
       .then((ops) => ops.reduce((chain, op) => chain.then(() => {
         if (stopped) return;
@@ -781,7 +822,7 @@
       .then((r) => { _running = false; return r; }, (e) => { _running = false; throw e; });
   }
 
-  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, noteToCreatePayload, noteToUpdatePayload, mindmapToCreatePayload, mindmapToUpdatePayload, pushOutbox };
+  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, noteToCreatePayload, noteToUpdatePayload, mindmapToCreatePayload, mindmapToUpdatePayload, healStrandedNotes, pushOutbox };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpush = exported; }
   return exported;
 });

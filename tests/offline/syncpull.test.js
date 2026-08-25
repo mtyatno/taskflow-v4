@@ -438,3 +438,63 @@ test("pullNotesAndReconcile fetches /api/scratchpad and reconciles", async () =>
   assert.equal(r.created, 1);
   assert.equal((await allNotesP()).length, 1);
 });
+
+test("pullNotes cleans up duplicate local rows with same server_id but different cid", async () => {
+  await putNotes([
+    localNote({ cid: "note-canonical", server_id: 10, title: "Canonical", base_rev: "2026-06-01T00:00:00" }),
+    localNote({ cid: "note-dup-1", server_id: 10, title: "Duplicate Phantom 1", base_rev: "2026-06-01T00:00:00" }),
+    localNote({ cid: "note-dup-2", server_id: 10, title: "Duplicate Phantom 2", base_rev: "2026-06-01T00:00:00" }),
+  ]);
+  await mapPut("note", 10, "note-canonical");
+
+  const r = await pullNotes([srvNote({ id: 10, title: "Updated Server Note", updated_at: "2026-06-05T00:00:00" })]);
+  assert.equal(r.updated, 1);
+
+  const rows = await allNotesP();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].cid, "note-canonical");
+  assert.equal(rows[0].title, "Updated Server Note");
+
+  assert.equal(await getNoteRec("note-dup-1"), undefined);
+  assert.equal(await getNoteRec("note-dup-2"), undefined);
+  assert.equal(await _cidOfNp("note", 10), "note-canonical");
+});
+
+test("pullNotes repairs missing idmap using existing local note with matching server_id", async () => {
+  await putNotes([
+    localNote({ cid: "note-existing", server_id: 25, title: "Existing Local Note", base_rev: "2026-06-01T00:00:00" }),
+  ]);
+  // Note: idmap is intentionally empty for server_id 25
+  assert.equal(await _cidOfNp("note", 25), undefined);
+
+  const r = await pullNotes([srvNote({ id: 25, title: "Server Note 25", updated_at: "2026-06-05T00:00:00" })]);
+  assert.equal(r.updated, 1);
+
+  // Verify idmap has been repaired
+  assert.equal(await _cidOfNp("note", 25), "note-existing");
+
+  const rows = await allNotesP();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].cid, "note-existing");
+  assert.equal(rows[0].title, "Server Note 25");
+});
+
+test("pullNotes repairs missing idmap and cleans up phantom duplicates simultaneously", async () => {
+  await putNotes([
+    localNote({ cid: "note-first", server_id: 50, title: "First Note", base_rev: "2026-06-01T00:00:00" }),
+    localNote({ cid: "note-second", server_id: 50, title: "Second Duplicate", base_rev: "2026-06-01T00:00:00" }),
+  ]);
+  // idmap is empty
+  assert.equal(await _cidOfNp("note", 50), undefined);
+
+  const r = await pullNotes([srvNote({ id: 50, title: "Server Note 50", updated_at: "2026-06-05T00:00:00" })]);
+  assert.equal(r.updated, 1);
+
+  assert.equal(await _cidOfNp("note", 50), "note-first");
+
+  const rows = await allNotesP();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].cid, "note-first");
+  assert.equal(rows[0].title, "Server Note 50");
+  assert.equal(await getNoteRec("note-second"), undefined);
+});

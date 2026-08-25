@@ -44,7 +44,7 @@
     return outboxAll().then((all) => all.filter((o) => o.entity_type === type && o.cid === cid));
   }
 
-  const exported = { outboxAdd, outboxAll, outboxRemove, outboxByEntity };
+  const exported = { outboxAdd, outboxAppend: outboxAdd, outboxAll, outboxRemove, outboxByEntity };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.outbox = exported; }
   return exported;
 });

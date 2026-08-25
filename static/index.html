@@ -559,7 +559,15 @@ function sync() {
   return window.TF.syncpull.pullAndReconcile(__syncRawFetch)
     .then(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null))
     .then(() => (window.TF.syncpull.pullHabitsAndLogs ? window.TF.syncpull.pullHabitsAndLogs(__syncRawFetch) : null))
-    .then(() => (window.TF.syncpull.pullNotesAndReconcile ? window.TF.syncpull.pullNotesAndReconcile(__syncRawFetch) : null))
+    .then(() => {
+      if (!window.TF.syncpull.pullNotesAndReconcile) return null;
+      return window.TF.syncpull.pullNotesAndReconcile(__syncRawFetch).then((notesRes) => {
+        if (notesRes && (notesRes.created > 0 || notesRes.updated > 0 || notesRes.deleted > 0)) {
+          window.dispatchEvent(new CustomEvent("noteSaved"));
+        }
+        return notesRes;
+      });
+    })
     .then(() => (window.TF.syncpull.pullMindmapsAndReconcile ? window.TF.syncpull.pullMindmapsAndReconcile(__syncRawFetch) : null))
     .then(() => window.TF.syncpush.pushOutbox(__syncTransport))
     .then((r) => { renderConflicts(); return r; })

@@ -4,6 +4,30 @@ Chronological history of work performed by AI agents in this workspace.
 
 ---
 
+## [2026-08-25 20:50] - Antigravity (Gemini)
+- **Task:** Fix Cross-Device Notes Sync Discrepancy (Edge 169 notes vs Firefox 164 notes) with Idempotent Sync, Autoheal, Phantom Duplicate Cleanup, and Real-time UI Refresh.
+- **Root Causes:**
+  1. *Stranded Notes upon 500/503 HTTP errors:* In older `syncpush.js`, when a create request encountered server error or 503, `opNoteCreate` dropped the op from `_outbox`, stranding the note locally with `server_id: null` and preventing future pushes.
+  2. *Duplicate Phantom Rows:* In `ensureNoteCid`, missing `_idmap` records caused fresh CIDs to be generated even when local rows with identical `server_id` existed, which `pullNotes` previously failed to clean up.
+  3. *Silent Background Sync:* When `sync()` pulled fresh notes, `NotesPage` was not notified to re-render without manual reload.
+- **Changes:**
+  - `static/offline/syncpush.js`: Added `client_id` payload to `noteToCreatePayload`, marked `status >= 500` with `e.__network = true` in `send()`, added `healStrandedNotes()` to auto-queue stranded unpushed notes on push.
+  - `static/offline/syncpull.js`: Added fallback lookup in `ensureNoteCid()` to match existing `server_id` and repair `_idmap`; cleaned phantom duplicate rows with matching `server_id` in `pullNotes()`.
+  - `static/offline/outbox.js`: Exported `outboxAppend` alias.
+  - `static/index.html`: Added real-time `noteSaved` event trigger upon `pullNotesAndReconcile` changes inside `sync()`.
+  - `webapp.py`: Added `client_id` column migration with partial unique index, implemented idempotent UPSERT in `POST /api/scratchpad`, enriched rows with `server_id`.
+  - `static/sw.js`: Bumped SW cache to `taskflow-v311-notes-sync-autoheal`.
+  - Tests: Created `tests/offline/notesync_autoheal.test.js` (6 tests), enhanced `tests/offline/syncpull.test.js` (3 tests), and added `tests/test_scratchpad.py` (4 tests).
+- **Verification:**
+  - JS Tests: `node --test tests/offline/*.test.js` ➡️ 553/553 pass (0 fail).
+  - Python Tests: `python -m pytest tests/` ➡️ 55/55 pass (0 fail).
+  - Inline Syntax: `node scratch/check_inline.js` ➡️ 5/5 OK.
+  - Code Review: Independent subagent review APPROVED.
+- **Files Modified:** `static/offline/syncpush.js`, `static/offline/syncpull.js`, `static/offline/outbox.js`, `static/index.html`, `static/sw.js`, `webapp.py`, `tests/offline/notesync_autoheal.test.js`, `tests/offline/syncpull.test.js`, `tests/test_scratchpad.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved by Independent Subagent Reviewer
+
+---
+
 ## [2026-08-24 02:41] - Claude Code (fix clip 1px note card)
 - **Task:** Fix clip ~1px tepi atas kartu note pertama di list panel kiri saat hover/selected (TDD).
 - **Root Cause:** `.note-card:hover { transform: translateY(-1px) }` mengangkat kartu 1px; `.notes-left-inner` padding-top 0 + `overflow-y: auto` → kartu pertama menempel batas clip scroll container, tepi atasnya terpotong (jelas di border accent kartu selected).
@@ -1067,3 +1091,16 @@ Chronological history of work performed by AI agents in this workspace.
 - **PENDING user:** cek VPS `sudo systemctl status taskflow-web taskflow` + `journalctl -u taskflow-web -n 50` — backend TIMEOUT (bukan 503); kirim hasilnya. Kemungkinan crash saat restart (migrasi client_id saat DB dikunci proses lain) atau masalah VPS.
 - **Files Touch:** `static/index.html`, `static/sw.js`
 - **Status:** Code fix LIVE; BLOKER infra di sisi user (backend down) — menunggu hasil status service.
+
+## [2026-08-25 20:35] - Antigravity (Gemini)
+- **Task:** Penyempurnaan sync dan auto-heal notes di client (IndexedDB/idmap auto-repair & duplicate cleanup).
+- **Changes:**
+  - `static/offline/syncpull.js`:
+    - `ensureNoteCid(serverId, cache)`: menambahkan fallback ke `getAllNotes()` saat idmap belum memiliki mapping `("note", serverId)` untuk memperbaiki entri idmap dengan existing cid.
+    - `pullNotes(serverNotes)` pass 3: membersihkan row duplikat lokal dengan `server_id` sama namun `cid` berbeda via `deleteNoteRec(r.cid)`.
+  - `tests/offline/syncpull.test.js`: menambahkan 3 unit test untuk pembersihan row duplikat lokal dan perbaikan idmap otomatis (37/37 pass).
+  - `static/index.html`: `sync()` menangkap hasil `pullNotesAndReconcile` dan memicu `window.dispatchEvent(new CustomEvent("noteSaved"))` jika terjadi perubahan data catatan (`created > 0 || updated > 0 || deleted > 0`).
+  - `static/sw.js`: SW cache di-bump ke **`taskflow-v311-notes-sync-autoheal`**.
+- **Files Touch:** `static/offline/syncpull.js`, `tests/offline/syncpull.test.js`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (553/553 JS unit tests pass, 55/55 pytest pass, 5/5 inline scripts check clean).
+
