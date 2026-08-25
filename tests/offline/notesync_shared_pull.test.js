@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const { deleteDB } = require("./setup.js");
 const { DB_NAME, _reset, openDB } = require("../../static/offline/db.js");
 const { mapPut } = require("../../static/offline/idmap.js");
+const { outboxAdd } = require("../../static/offline/outbox.js");
 const { pullNotes } = require("../../static/offline/syncpull.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
@@ -54,6 +55,7 @@ test("pullNotes reconciles shared notes (no longer personal-only) + carries coll
 test("LWW-loss on a dirty shared note attaches an overwritten notice", async () => {
   await put("scratchpad_notes", [localNote({ cid: "n", server_id: 5, list_id: 9, dirty: 1, title: "MineOld", updated_at: "2026-06-12T01:00:00", base_rev: "2026-06-12T00:00:00" })]);
   await mapPut("note", 5, "n");
+  await outboxAdd({ op: "update", entity_type: "note", cid: "n", payload: {} });
   const res = await pullNotes([srv({ id: 5, list_id: 9, title: "Theirs", updated_at: "2026-06-12T05:00:00", last_edited_by: 7, last_editor_display_name: "Bob" })]);
   assert.equal(res.lwwResolved, 1);
   const local = (await getAll("scratchpad_notes"))[0];
@@ -75,6 +77,7 @@ test("an un-dismissed notice survives a later ordinary (clean) server update", a
 test("shared dirty note vanished from server -> conflict remote_deleted (not silent keep)", async () => {
   await put("scratchpad_notes", [localNote({ cid: "n", server_id: 5, list_id: 9, dirty: 1, title: "Mine" })]);
   await mapPut("note", 5, "n");
+  await outboxAdd({ op: "update", entity_type: "note", cid: "n", payload: {} });
   const res = await pullNotes([]);
   const local = (await getAll("scratchpad_notes"))[0];
   assert.equal(local.conflict, "remote_deleted");

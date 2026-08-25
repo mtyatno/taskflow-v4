@@ -7,6 +7,18 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
+- **Fix Sync Stale Tombstone Restore (Notes, Tasks, Mindmaps) — SELESAI 2026-08-25 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    - Ketika sebuah catatan/task/mindmap lokal di IndexedDB memiliki flag `deleted: true, dirty: 1` (namun outbox queue sudah kehilangan pending op dari sesi lama), atau `deleted: true, dirty: 0`, namun masih AKTIF di server (dikirim dengan `updated_at == base_rev`), `pullNotes`, `pullTasks`, dan `pullMindmaps` sebelumnya melewati item tersebut. Akibatnya `deleted: true` tidak pernah di-reset menjadi `false` dan item tetap tersembunyi.
+  - **Solusi / Perbaikan:**
+    - `static/offline/syncpull.js`:
+      - Mengambil `outboxOps` secara paralel di awal `pullNotes`, `pullTasks`, dan `pullMindmaps`.
+      - Kondisi restore di-update menjadi `if (!local || (local.deleted && !pendingOps.has(cid))) { result.created++; return writeNote(s, cid, cache); }`.
+      - Kondisi update / auto-heal di-update menjadi `if (s.updated_at !== local.base_rev || local.deleted || (local.dirty && !pendingOps.has(cid))) { result.updated++; return writeNote(...); }`.
+    - `tests/offline/syncpull.test.js`: Menambahkan unit tests untuk memvalidasi pemulihan stale dirty tombstone tanpa pending outbox ops untuk tasks, notes, dan mindmaps (560/560 pass).
+    - `static/sw.js`: SW cache di-bump ke **`taskflow-v313-stale-tombstone-fix`**.
+  - Verifikasi: JS test suite `tests/offline/*.test.js` **560/560 pass 0 fail**, pytest **55/55 pass 0 fail**, 5/5 inline scripts parse cleanly. Independent Subagent Code Review: **APPROVED**.
+
 - **Penyempurnaan Sync & Auto-Heal Notes — SELESAI 2026-08-25 (Antigravity/Gemini):**
   - `static/offline/syncpull.js`:
     - `ensureNoteCid(serverId, cache)`: menambahkan fallback ke `getAllNotes()` jika `TFidmap.cidOf("note", serverId)` bernilai falsy/undefined untuk mencocokkan `server_id === serverId` dan memperbaiki idmap via `TFidmap.mapPut("note", serverId, existing.cid)`.

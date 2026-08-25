@@ -67,8 +67,9 @@
     const list = serverList || [];
     const cache = {}; // serverId -> cid
     return list.reduce((p, s) => p.then(() => ensureCid(s.id, cache)), Promise.resolve())
-      .then(() => getAllTasks())
-      .then((localAll) => {
+      .then(() => Promise.all([getAllTasks(), TFoutbox.outboxAll()]))
+      .then(([localAll, outboxOps]) => {
+        const pendingTaskOps = new Set(outboxOps.filter((o) => o.entity_type === "task").map((o) => o.cid));
         const localByCid = {};
         for (const r of localAll) localByCid[r.cid] = r;
         const getCid = (sid) => cache[sid] || null;
@@ -78,9 +79,9 @@
           const cid = cache[s.id];
           const localRec = localByCid[cid];
           chain = chain.then(() => {
-            if (!localRec) { result.created++; return putTask(TFhydrate.taskFromServer(s, getCid)); }
+            if (!localRec || (localRec.deleted && !pendingTaskOps.has(cid))) { result.created++; return putTask(TFhydrate.taskFromServer(s, getCid)); }
             if (localRec.conflict) { result.skipped++; return; }
-            if (localRec.dirty) {
+            if (localRec.dirty && pendingTaskOps.has(cid)) {
               if (s.updated_at !== localRec.base_rev) {
                 // edit-vs-edit conflict → last-write-wins
                 result.lwwResolved++;
@@ -91,7 +92,7 @@
               }
               result.skipped++; return; // local pending, server unchanged
             }
-            if (s.updated_at !== localRec.base_rev) { result.updated++; return putTask(TFhydrate.taskFromServer(s, getCid)); }
+            if (s.updated_at !== localRec.base_rev || localRec.deleted || (localRec.dirty && !pendingTaskOps.has(cid))) { result.updated++; return putTask(TFhydrate.taskFromServer(s, getCid)); }
             return; // unchanged
           });
         }
@@ -101,7 +102,7 @@
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
             if (r.conflict) { result.skipped++; return; }
-            if (r.dirty) { result.conflicts++; return putTask(Object.assign({}, r, { conflict: "remote_deleted" })); }
+            if (r.dirty && pendingTaskOps.has(r.cid)) { result.conflicts++; return putTask(Object.assign({}, r, { conflict: "remote_deleted" })); }
             result.deleted++;
             return deleteTask(r.cid);
           });
@@ -320,8 +321,9 @@
     const list = (serverNotes || []);
     const cache = {};
     return list.reduce((p, s) => p.then(() => ensureNoteCid(s.id, cache)), Promise.resolve())
-      .then(() => getAllNotes())
-      .then((localAll) => {
+      .then(() => Promise.all([getAllNotes(), TFoutbox.outboxAll()]))
+      .then(([localAll, outboxOps]) => {
+        const pendingNoteOps = new Set(outboxOps.filter((o) => o.entity_type === "note").map((o) => o.cid));
         const byCid = {}; for (const r of localAll) byCid[r.cid] = r;
         const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0 };
         let chain = Promise.resolve();
@@ -329,9 +331,9 @@
           const cid = cache[s.id];
           const local = byCid[cid];
           chain = chain.then(() => {
-            if (!local) { result.created++; return writeNote(s, cid, cache); }
+            if (!local || (local.deleted && !pendingNoteOps.has(cid))) { result.created++; return writeNote(s, cid, cache); }
             if (local.conflict) { result.skipped++; return; }
-            if (local.dirty) {
+            if (local.dirty && pendingNoteOps.has(cid)) {
               if (s.updated_at !== local.base_rev) {
                 result.lwwResolved++;
                 if (tsEpoch(s.updated_at) > tsEpoch(local.updated_at)) {
@@ -343,7 +345,9 @@
               }
               result.skipped++; return;
             }
-            if (s.updated_at !== local.base_rev) { result.updated++; return writeNote(s, cid, cache, local.notice ? { notice: local.notice } : undefined); }
+            if (s.updated_at !== local.base_rev || local.deleted || (local.dirty && !pendingNoteOps.has(cid))) {
+              result.updated++; return writeNote(s, cid, cache, local.notice ? { notice: local.notice } : undefined);
+            }
             return;
           });
         }
@@ -357,7 +361,7 @@
           }
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
-            if (r.dirty) {
+            if (r.dirty && pendingNoteOps.has(r.cid)) {
               if (r.list_id != null) { result.skipped++; return putNote(Object.assign({}, r, { conflict: "remote_deleted" })); }
               result.skipped++; return; // personal local-wins; push update→404→re-create
             }
@@ -366,8 +370,8 @@
           });
         }
         // pass 4: adopt server pinned for notes with no pending pin op (pin is orthogonal to updated_at).
-        chain = chain.then(() => TFoutbox.outboxAll().then((ops) => {
-          const pendingPin = new Set(ops.filter((o) => o.entity_type === "note" && o.op === "pin").map((o) => o.cid));
+        chain = chain.then(() => {
+          const pendingPin = new Set(outboxOps.filter((o) => o.entity_type === "note" && o.op === "pin").map((o) => o.cid));
           return getAllNotes().then((fresh) => {
             const freshByCid = {}; for (const r of fresh) freshByCid[r.cid] = r;
             let c2 = Promise.resolve();
@@ -381,7 +385,7 @@
             }
             return c2;
           });
-        }));
+        });
         return chain.then(() => result);
       });
   }
@@ -450,8 +454,9 @@
     const list = (serverList || []);
     const cache = {};
     return list.reduce((p, s) => p.then(() => ensureMindmapCid(s.id, cache)), Promise.resolve())
-      .then(() => getAllMindmaps())
-      .then((localAll) => {
+      .then(() => Promise.all([getAllMindmaps(), TFoutbox.outboxAll()]))
+      .then(([localAll, outboxOps]) => {
+        const pendingMindmapOps = new Set(outboxOps.filter((o) => o.entity_type === "mindmap").map((o) => o.cid));
         const byCid = {}; for (const r of localAll) byCid[r.cid] = r;
         const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0 };
         let chain = Promise.resolve();
@@ -459,9 +464,9 @@
           const cid = cache[s.id];
           const local = byCid[cid];
           chain = chain.then(() => {
-            if (!local) { result.created++; return writeMindmapFull(s.id, cid, fetchOne); }
+            if (!local || (local.deleted && !pendingMindmapOps.has(cid))) { result.created++; return writeMindmapFull(s.id, cid, fetchOne); }
             if (local.conflict) { result.skipped++; return; }
-            if (local.dirty) {
+            if (local.dirty && pendingMindmapOps.has(cid)) {
               if (s.updated_at !== local.base_rev) {
                 result.lwwResolved++;
                 if (tsEpoch(s.updated_at) > tsEpoch(local.updated_at)) {
@@ -473,7 +478,9 @@
               }
               result.skipped++; return;
             }
-            if (s.updated_at !== local.base_rev) { result.updated++; return writeMindmapFull(s.id, cid, fetchOne, local.notice ? { notice: local.notice } : undefined); }
+            if (s.updated_at !== local.base_rev || local.deleted || (local.dirty && !pendingMindmapOps.has(cid))) {
+              result.updated++; return writeMindmapFull(s.id, cid, fetchOne, local.notice ? { notice: local.notice } : undefined);
+            }
             return;
           });
         }
@@ -482,7 +489,7 @@
           if (r.server_id == null) continue;
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
-            if (r.dirty) {
+            if (r.dirty && pendingMindmapOps.has(r.cid)) {
               if (r.list_id != null) { result.skipped++; return putMindmap(Object.assign({}, r, { conflict: "remote_deleted" })); }
               result.skipped++; return; // personal local-wins; push update→404→re-create
             }
@@ -491,8 +498,8 @@
           });
         }
         // pin-adopt: list metadata carries is_pinned; respect a pending pin op.
-        chain = chain.then(() => TFoutbox.outboxAll().then((ops) => {
-          const pendingPin = new Set(ops.filter((o) => o.entity_type === "mindmap" && o.op === "pin").map((o) => o.cid));
+        chain = chain.then(() => {
+          const pendingPin = new Set(outboxOps.filter((o) => o.entity_type === "mindmap" && o.op === "pin").map((o) => o.cid));
           return getAllMindmaps().then((fresh) => {
             const freshByCid = {}; for (const r of fresh) freshByCid[r.cid] = r;
             let c2 = Promise.resolve();
@@ -506,7 +513,7 @@
             }
             return c2;
           });
-        }));
+        });
         return chain.then(() => result);
       });
   }

@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const { deleteDB } = require("./setup.js");
 const { DB_NAME, _reset, openDB } = require("../../static/offline/db.js");
 const { mapPut } = require("../../static/offline/idmap.js");
+const { outboxAdd } = require("../../static/offline/outbox.js");
 const { pullMindmaps } = require("../../static/offline/syncpull.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
@@ -43,6 +44,7 @@ test("pullMindmaps reconciles shared mindmaps + carries collaborator fields", as
 test("LWW-loss on a dirty shared mindmap attaches an overwritten notice", async () => {
   await put("mindmaps", [localMM({ cid: "m", server_id: 5, list_id: 9, dirty: 1, title: "MineOld", updated_at: "2026-06-12T01:00:00", base_rev: "2026-06-12T00:00:00" })]);
   await mapPut("mindmap", 5, "m");
+  await outboxAdd({ op: "update", entity_type: "mindmap", cid: "m", payload: {} });
   const rows = [metaRow({ id: 5, list_id: 9, title: "Theirs", updated_at: "2026-06-12T05:00:00", last_edited_by: 7, last_editor_display_name: "Bob" })];
   const res = await pullMindmaps(rows, fullFor(rows));
   assert.equal(res.lwwResolved, 1);
@@ -54,6 +56,7 @@ test("LWW-loss on a dirty shared mindmap attaches an overwritten notice", async 
 test("shared dirty mindmap vanished from server -> conflict remote_deleted", async () => {
   await put("mindmaps", [localMM({ cid: "m", server_id: 5, list_id: 9, dirty: 1, title: "Mine" })]);
   await mapPut("mindmap", 5, "m");
+  await outboxAdd({ op: "update", entity_type: "mindmap", cid: "m", payload: {} });
   const res = await pullMindmaps([], fullFor([]));
   const local = (await getAll("mindmaps"))[0];
   assert.equal(local.conflict, "remote_deleted");

@@ -78,6 +78,7 @@ test("pullTasks leaves unchanged records (same updated_at) alone", async () => {
 test("pullTasks skips a dirty local record when the server is unchanged since base_rev", async () => {
   await putTasks([local({ cid: "a", server_id: 10, title: "Local edit", base_rev: "2026-06-05T00:00:00", dirty: 1 })]);
   await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
   const r = await pullTasks([srv({ id: 10, title: "Server", updated_at: "2026-06-05T00:00:00" })]);
   assert.equal(r.skipped, 1);
   assert.equal(r.updated, 0);
@@ -95,6 +96,7 @@ test("pullTasks deletes a clean local record whose server_id vanished", async ()
 test("pullTasks does NOT delete a dirty local record missing from the server", async () => {
   await putTasks([local({ cid: "a", server_id: 10, dirty: 1 })]);
   await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
   const r = await pullTasks([]);
   assert.equal(r.deleted, 0);
   assert.equal(r.conflicts, 1);
@@ -133,6 +135,7 @@ test("pullTasks edit-vs-edit: local newer wins, keeps local and outbox op", asyn
 test("pullTasks edit-vs-delete: dirty local missing from server is flagged, not deleted", async () => {
   await putTasks([local({ cid: "a", server_id: 10, title: "Local edit", dirty: 1 })]);
   await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
   const r = await pullTasks([]);
   assert.equal(r.conflicts, 1);
   assert.equal(r.deleted, 0);
@@ -395,6 +398,7 @@ test("pullNotes deletes a clean local note whose server_id vanished + clears idm
 test("pullNotes does NOT delete a dirty local note missing from server", async () => {
   await putNotes([localNote({ cid: "n", server_id: 5, dirty: 1 })]);
   await mapPut("note", 5, "n");
+  await outboxAdd({ op: "update", entity_type: "note", cid: "n", payload: {} });
   const r = await pullNotes([]);
   assert.equal(r.deleted, 0);
   assert.equal(r.skipped, 1);
@@ -498,3 +502,122 @@ test("pullNotes repairs missing idmap and cleans up phantom duplicates simultane
   assert.equal(rows[0].title, "Server Note 50");
   assert.equal(await getNoteRec("note-second"), undefined);
 });
+
+const { pullMindmaps } = require("../../static/offline/syncpull.js");
+
+async function putMindmaps(recs) {
+  const db = await openDB();
+  await new Promise((res, rej) => {
+    const tx = db.transaction("mindmaps", "readwrite");
+    const os = tx.objectStore("mindmaps");
+    for (const r of recs) os.put(r);
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+  });
+}
+async function getMindmapRec(cid) {
+  const db = await openDB();
+  return new Promise((res) => { const q = db.transaction("mindmaps").objectStore("mindmaps").get(cid); q.onsuccess = () => res(q.result); });
+}
+
+test("pullTasks restores a stale tombstone (deleted: true, dirty: 0)", async () => {
+  await putTasks([local({ cid: "t-stale", server_id: 10, title: "Deleted Task", deleted: true, dirty: 0, base_rev: "2026-06-01T00:00:00" })]);
+  await mapPut("task", 10, "t-stale");
+
+  const r = await pullTasks([srv({ id: 10, title: "Server Restored Task", updated_at: "2026-06-01T00:00:00" })]);
+  assert.equal(r.created, 1);
+
+  const task = await getTask("t-stale");
+  assert.equal(task.deleted, false);
+  assert.equal(task.dirty, 0);
+  assert.equal(task.title, "Server Restored Task");
+});
+
+test("pullNotes restores a local note with deleted: true and dirty: 0 even when server updated_at == base_rev", async () => {
+  await putNotes([localNote({ cid: "n-stale", server_id: 10, title: "Deleted Note", deleted: true, dirty: 0, base_rev: "2026-06-01T00:00:00", updated_at: "2026-06-01T00:00:00" })]);
+  await mapPut("note", 10, "n-stale");
+
+  const r = await pullNotes([srvNote({ id: 10, title: "Server Restored Note", updated_at: "2026-06-01T00:00:00" })]);
+  assert.equal(r.created, 1);
+
+  const note = await getNoteRec("n-stale");
+  assert.equal(note.deleted, false);
+  assert.equal(note.dirty, 0);
+  assert.equal(note.title, "Server Restored Note");
+});
+
+test("pullMindmaps restores a stale tombstone (deleted: true, dirty: 0)", async () => {
+  await putMindmaps([{ cid: "m-stale", server_id: 10, title: "Deleted Mindmap", data_json: "{}", pinned: false, list_id: null, created_at: "2026-06-01T00:00:00", updated_at: "2026-06-01T00:00:00", deleted: true, dirty: 0, base_rev: "2026-06-01T00:00:00" }]);
+  await mapPut("mindmap", 10, "m-stale");
+
+  const rows = [{ id: 10, title: "Server Restored Mindmap", is_pinned: 0, list_id: null, created_at: "2026-06-01T00:00:00", updated_at: "2026-06-01T00:00:00" }];
+  const fetchOne = (sid) => Promise.resolve({ id: 10, title: "Server Restored Mindmap", is_pinned: 0, list_id: null, data_json: "{\"nodeData\":{\"id\":\"root\"}}", created_at: "2026-06-01T00:00:00", updated_at: "2026-06-01T00:00:00" });
+
+  const r = await pullMindmaps(rows, fetchOne);
+  assert.equal(r.created, 1);
+
+  const mm = await getMindmapRec("m-stale");
+  assert.equal(mm.deleted, false);
+  assert.equal(mm.dirty, 0);
+  assert.equal(mm.title, "Server Restored Mindmap");
+  assert.match(mm.data_json, /root/);
+});
+
+test("pullTasks restores a tombstone with deleted: true and dirty: 1 when outbox has NO pending op", async () => {
+  await putTasks([local({ cid: "t-dirty-stale", server_id: 11, title: "Deleted Dirty Task", deleted: true, dirty: 1, base_rev: "2026-06-01T00:00:00" })]);
+  await mapPut("task", 11, "t-dirty-stale");
+
+  const r = await pullTasks([srv({ id: 11, title: "Server Restored Task", updated_at: "2026-06-01T00:00:00" })]);
+  assert.equal(r.created, 1);
+
+  const task = await getTask("t-dirty-stale");
+  assert.equal(task.deleted, false);
+  assert.equal(task.dirty, 0);
+  assert.equal(task.title, "Server Restored Task");
+});
+
+test("pullNotes restores a local note with deleted: true and dirty: 1 when outbox has NO pending op", async () => {
+  await putNotes([localNote({ cid: "n-dirty-stale", server_id: 11, title: "Deleted Dirty Note", deleted: true, dirty: 1, base_rev: "2026-06-01T00:00:00", updated_at: "2026-06-01T00:00:00" })]);
+  await mapPut("note", 11, "n-dirty-stale");
+
+  const r = await pullNotes([srvNote({ id: 11, title: "Server Restored Note", updated_at: "2026-06-01T00:00:00" })]);
+  assert.equal(r.created, 1);
+
+  const note = await getNoteRec("n-dirty-stale");
+  assert.equal(note.deleted, false);
+  assert.equal(note.dirty, 0);
+  assert.equal(note.title, "Server Restored Note");
+});
+
+test("pullMindmaps restores a tombstone with deleted: true and dirty: 1 when outbox has NO pending op", async () => {
+  await putMindmaps([{ cid: "m-dirty-stale", server_id: 11, title: "Deleted Dirty Mindmap", data_json: "{}", pinned: false, list_id: null, created_at: "2026-06-01T00:00:00", updated_at: "2026-06-01T00:00:00", deleted: true, dirty: 1, base_rev: "2026-06-01T00:00:00" }]);
+  await mapPut("mindmap", 11, "m-dirty-stale");
+
+  const rows = [{ id: 11, title: "Server Restored Mindmap", is_pinned: 0, list_id: null, created_at: "2026-06-01T00:00:00", updated_at: "2026-06-01T00:00:00" }];
+  const fetchOne = (sid) => Promise.resolve({ id: 11, title: "Server Restored Mindmap", is_pinned: 0, list_id: null, data_json: "{\"nodeData\":{\"id\":\"root\"}}", created_at: "2026-06-01T00:00:00", updated_at: "2026-06-01T00:00:00" });
+
+  const r = await pullMindmaps(rows, fetchOne);
+  assert.equal(r.created, 1);
+
+  const mm = await getMindmapRec("m-dirty-stale");
+  assert.equal(mm.deleted, false);
+  assert.equal(mm.dirty, 0);
+  assert.equal(mm.title, "Server Restored Mindmap");
+  assert.match(mm.data_json, /root/);
+});
+
+test("pullNotes skips a deleted note when outbox has a pending op for that note", async () => {
+  await putNotes([localNote({ cid: "n-pending-del", server_id: 12, title: "Pending Del Note", deleted: true, dirty: 1, base_rev: "2026-06-01T00:00:00", updated_at: "2026-06-01T00:00:00" })]);
+  await mapPut("note", 12, "n-pending-del");
+  await outboxAdd({ op: "delete", entity_type: "note", cid: "n-pending-del", payload: {} });
+
+  const r = await pullNotes([srvNote({ id: 12, title: "Server Note", updated_at: "2026-06-01T00:00:00" })]);
+  assert.equal(r.skipped, 1);
+  assert.equal(r.created, 0);
+
+  const note = await getNoteRec("n-pending-del");
+  assert.equal(note.deleted, true);
+  assert.equal(note.dirty, 1);
+});
+
+
+

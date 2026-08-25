@@ -2,6 +2,25 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-08-25 22:15] - Antigravity (Gemini)
+- **Task:** Outbox-Aware Stale Tombstone (`deleted: true, dirty: 1` without pending outbox op) Restoration in Offline Sync (`pullNotes`, `pullTasks`, `pullMindmaps`).
+- **Root Cause:**
+  - When local IndexedDB contained a stale tombstone record (`deleted: true, dirty: 1`) where the outbox queue had lost its pending delete op from an old session, `pullNotes`, `pullTasks`, and `pullMindmaps` treated `dirty: 1` as an active local edit and skipped restoring the entity from the server.
+- **Changes:**
+  - `static/offline/syncpull.js`:
+    - Loaded `outboxOps` in parallel at the start of `pullNotes`, `pullTasks`, and `pullMindmaps`, constructing `pendingNoteOps`, `pendingTaskOps`, and `pendingMindmapOps` Sets.
+    - Updated restore condition to `if (!local || (local.deleted && !pendingOps.has(cid)))` so any tombstone without an actual pending op in `_outbox` is restored from the active server record (`deleted: false, dirty: 0`).
+    - Handled stale dirty flag cleanup when `s.updated_at !== local.base_rev || local.deleted || (local.dirty && !pendingOps.has(cid))`.
+  - `tests/offline/syncpull.test.js`: Added unit tests validating restoration of stale dirty tombstones without outbox ops and protection of active pending outbox delete ops.
+  - `static/sw.js`: Bumped SW cache to **`taskflow-v313-stale-tombstone-fix`**.
+- **Verification:**
+  - JS Tests: `node --test tests/offline/*.test.js` ➡️ **560/560 pass (0 fail)**.
+  - Python Tests: `python -m pytest tests/` ➡️ **55/55 pass (0 fail)**.
+  - Inline Syntax: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - Code Review: Independent subagent review **APPROVED**.
+- **Files Modified:** `static/offline/syncpull.js`, `tests/offline/syncpull.test.js`, `tests/offline/notesync_shared_pull.test.js`, `tests/offline/mindmapsync_pull.test.js`, `tests/offline/mindmapsync_shared_pull.test.js`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved
+
 ---
 
 ## [2026-08-25 20:50] - Antigravity (Gemini)

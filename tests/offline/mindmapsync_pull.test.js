@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { deleteDB } = require("./setup.js");
 const { DB_NAME, _reset, openDB } = require("../../static/offline/db.js");
 const { mapPut, serverIdOf, cidOf } = require("../../static/offline/idmap.js");
-const { outboxAll } = require("../../static/offline/outbox.js");
+const { outboxAll, outboxAdd } = require("../../static/offline/outbox.js");
 const { pullMindmaps } = require("../../static/offline/syncpull.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
@@ -69,6 +69,7 @@ test("unchanged clean local is not fetched or rewritten", async () => {
 test("dirty local is skipped (local-wins / deferred)", async () => {
   await put("mindmaps", [{ cid: "m", server_id: 5, title: "MineEdited", data_json: "{}", pinned: false, list_id: null, created_at: "x", updated_at: "2026-06-10T09:00:00", deleted: false, dirty: 1, base_rev: "2026-06-10T00:00:00" }]);
   await mapPut("mindmap", 5, "m");
+  await outboxAdd({ op: "update", entity_type: "mindmap", cid: "m", payload: {} });
   const rows = [metaRow({ id: 5, title: "ServerOlder", updated_at: "2026-06-10T01:00:00" })];
   const res = await pullMindmaps(rows, fullFor(rows));
   // local newer → local wins
