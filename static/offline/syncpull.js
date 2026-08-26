@@ -552,17 +552,22 @@
       tx.onerror = () => reject(tx.error);
     }));
   }
-  function ensureDrawingCid(serverId, cache) {
+  function ensureDrawingCid(serverId, cache, serverObj) {
     if (cache[serverId]) return Promise.resolve(cache[serverId]);
     return TFidmap.cidOf("drawing", serverId).then((cid) => {
       if (cid) { cache[serverId] = cid; return cid; }
       return getAllDrawings().then((allDrawings) => {
-        const existing = allDrawings.find((d) => d.server_id === serverId && d.note_cid === undefined);
+        const existing = allDrawings.find((d) =>
+          d.note_cid === undefined && (
+            (d.server_id != null && String(d.server_id) === String(serverId)) ||
+            (serverObj && serverObj.client_id && d.cid === serverObj.client_id)
+          )
+        );
         if (existing && existing.cid) {
           cache[serverId] = existing.cid;
           return TFidmap.mapPut("drawing", serverId, existing.cid).then(() => existing.cid);
         }
-        const fresh = TFids.newCid();
+        const fresh = (serverObj && serverObj.client_id) ? serverObj.client_id : TFids.newCid();
         cache[serverId] = fresh;
         return TFidmap.mapPut("drawing", serverId, fresh).then(() => fresh);
       });
@@ -790,7 +795,7 @@
   function pullDrawings(serverDrawings, fetchOne) {
     const list = serverDrawings || [];
     const cache = {};
-    return list.reduce((p, s) => p.then(() => ensureDrawingCid(s.id, cache)), Promise.resolve())
+    return list.reduce((p, s) => p.then(() => ensureDrawingCid(s.id, cache, s)), Promise.resolve())
       .then(() => Promise.all([getAllDrawings(), TFoutbox.outboxAll()]))
       .then(([localAll, outboxOps]) => {
         const pendingDrawingOps = new Set(

@@ -2,6 +2,34 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-08-26 13:45] - Antigravity (Gemini)
+- **Task:** Fix Drawing Duplication during Sync & Server Dedup CID/UUID Protection (`syncpull.js`, `dedup_drawings.py`, `sw.js`).
+- **Root Cause & Objective:**
+  1. In `static/offline/syncpull.js`, `ensureDrawingCid(serverId, cache)` performed strict comparison `d.server_id === serverId`. When `serverId` was numeric on server but stored as string (or when a new drawing had `server_id == null` locally but server had `client_id = d.cid`), `ensureDrawingCid` failed to match the existing local record, generated a fresh CID, and created duplicate local records.
+  2. When drawing creation retried while backend service was not yet restarted, multiple rows with identical title/client_id were created on the server SQLite database.
+  3. In `scripts/dedup_drawings.py`, `_find_draw_refs` only collected integer IDs (`if body.isdigit(): ids.add(int(body))`) and ignored UUID/CID strings (`drw_...` or UUID strings), risking deletion of valid referenced drawings during dedup.
+- **Changes:**
+  - `static/offline/syncpull.js`:
+    - Updated `ensureDrawingCid(serverId, cache, serverObj)` to accept `serverObj`, match via `(d.server_id != null && String(d.server_id) === String(serverId)) || (serverObj && serverObj.client_id && d.cid === serverObj.client_id)`, and fallback to `(serverObj && serverObj.client_id) ? serverObj.client_id : TFids.newCid()`.
+    - Updated `pullDrawings` pass 1 reduce to pass `s` into `ensureDrawingCid(s.id, cache, s)`.
+  - `scripts/dedup_drawings.py`:
+    - Updated `_find_draw_refs(content)` to collect both string `body` and integer `int(body)` (if digit).
+    - Updated `drawings` SQL query to select `client_id`.
+    - Updated `kept_rows` and `candidates` to check `r["id"] in refs or str(r["id"]) in refs or (r["client_id"] and r["client_id"] in refs) or r["is_pinned"]`.
+  - `static/sw.js`:
+    - Bumped Service Worker cache version to **`taskflow-v320-drawing-dedup-fix`**.
+  - `tests/offline/drawingsync.test.js`:
+    - Added Test 21 for `pullDrawings` / `ensureDrawingCid` client_id matching and duplicate prevention when server_id is null / string.
+  - `tests/test_dedup_drawings.py`:
+    - Updated test table schemas to include `client_id TEXT` and added `test_dedup_preserves_uuid_client_id_refs`.
+- **Verification:**
+  - Inline script syntax: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **581/581 tests pass (0 fail)** across 47 suites.
+  - Backend test suite: `python -m pytest tests/` ➡️ **57/57 tests pass (0 fail)**.
+  - Independent Subagent Code Review: **APPROVED**.
+- **Files Modified:** `static/offline/syncpull.js`, `scripts/dedup_drawings.py`, `static/sw.js`, `tests/offline/drawingsync.test.js`, `tests/test_dedup_drawings.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-08-26 13:20] - Antigravity (Gemini)
 - **Task:** Fix Empty Drawing Canvas on DrawPage & Bidirectional Ready Handshake (`DrawingTabInstance`, `QuickDrawModal`, `draw-app`).
 - **Root Cause & Objective:**

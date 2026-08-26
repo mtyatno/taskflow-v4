@@ -46,8 +46,10 @@ def _find_draw_refs(content):
             body = text[j + 1:k] if k > j + 1 else ""
             if body.endswith(chr(92)):
                 body = body[:-1]  # bentuk escaped ::draw\[id\] — backslash kurung tutup
-            if body.isdigit():
-                ids.add(int(body))
+            if body:
+                ids.add(body)
+                if body.isdigit():
+                    ids.add(int(body))
         i += len(marker)
     return ids
 
@@ -65,12 +67,12 @@ def main() -> None:
     conn.row_factory = sqlite3.Row
     try:
         drawings = conn.execute(
-            "SELECT id, user_id, title, data_json, svg_preview, is_pinned, updated_at FROM drawings"
+            "SELECT id, user_id, client_id, title, data_json, svg_preview, is_pinned, updated_at FROM drawings"
         ).fetchall()
         notes = conn.execute("SELECT user_id, content FROM scratchpad_notes").fetchall()
 
         # id yang direferensikan ::draw[id] di konten note, per user
-        referenced: dict[int, set[int]] = defaultdict(set)
+        referenced: dict[int, set] = defaultdict(set)
         for n in notes:
             for did in _find_draw_refs(n["content"]):
                 referenced[n["user_id"]].add(did)
@@ -84,8 +86,14 @@ def main() -> None:
         for (uid, title, data), rows in by_group.items():
             rows.sort(key=lambda r: (r["updated_at"] or "", r["id"]), reverse=True)
             refs = referenced.get(uid, set())
-            kept_rows = [r for r in rows if r["id"] in refs or r["is_pinned"]]
-            candidates = [r for r in rows if r["id"] not in refs and not r["is_pinned"]]
+            kept_rows = [
+                r for r in rows
+                if r["id"] in refs or str(r["id"]) in refs or (r["client_id"] and r["client_id"] in refs) or r["is_pinned"]
+            ]
+            candidates = [
+                r for r in rows
+                if not (r["id"] in refs or str(r["id"]) in refs or (r["client_id"] and r["client_id"] in refs) or r["is_pinned"])
+            ]
             keep_one = candidates[:1] if candidates else []
             if len(rows) > 1:
                 for r in rows:

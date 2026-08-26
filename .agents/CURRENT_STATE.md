@@ -7,6 +7,30 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
+- **Fix Drawing Duplication during Sync & Server Dedup CID/UUID Protection (`syncpull.js`, `dedup_drawings.py`, `sw.js`) — SELESAI 2026-08-26 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    1. Di `static/offline/syncpull.js`: `ensureDrawingCid(serverId, cache)` sebelumnya melakukan strict comparison `d.server_id === serverId`. Ketika `serverId` bernilai numerik di server namun tersimpan sebagai string di IndexedDB (atau saat drawing baru lokal masih `server_id == null` namun server memiliki `client_id = d.cid`), lookup gagal mencocokkan record lokal yang ada dan membangkitkan CID baru sehingga memicu duplikasi record lokal.
+    2. Di `scripts/dedup_drawings.py`: `_find_draw_refs` hanya mengumpulkan integer ID (`if body.isdigit(): ids.add(int(body))`) dan mengabaikan token string UUID / client_id (`drw_...` / UUID), sehingga saat dedup dijalankan, gambar yang direferensikan via client_id di note berisiko terhapus.
+  - **Solusi / Perbaikan:**
+    1. `static/offline/syncpull.js`:
+       - Mengupdate `ensureDrawingCid(serverId, cache, serverObj)` untuk menerima `serverObj`, memeriksa match via `(d.server_id != null && String(d.server_id) === String(serverId)) || (serverObj && serverObj.client_id && d.cid === serverObj.client_id)`.
+       - Menggunakan fallback CID `(serverObj && serverObj.client_id) ? serverObj.client_id : TFids.newCid()`.
+       - Di `pullDrawings`: Memperbarui pass 1 reduce untuk meneruskan `s` ke `ensureDrawingCid(s.id, cache, s)`.
+    2. `scripts/dedup_drawings.py`:
+       - Di `_find_draw_refs(content)`: Mengumpulkan string `body` dan integer `int(body)` jika `body.isdigit()`.
+       - Di query SQL: Memilih `client_id` (`SELECT id, user_id, client_id, title, data_json, svg_preview, is_pinned, updated_at FROM drawings`).
+       - Di `kept_rows` dan `candidates`: Memastikan pengecekan mencakup `r["id"] in refs or str(r["id"]) in refs or (r["client_id"] and r["client_id"] in refs) or r["is_pinned"]`.
+    3. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v320-drawing-dedup-fix`**.
+    4. Unit Tests:
+       - `tests/offline/drawingsync.test.js`: Menambahkan Test 21 untuk validasi `pullDrawings`/`ensureDrawingCid` match by `client_id` ketika `server_id` lokal bernilai `null` atau bertipe string vs number.
+       - `tests/test_dedup_drawings.py`: Menambahkan `client_id TEXT` pada skema database pengujian dan unit test `test_dedup_preserves_uuid_client_id_refs`.
+  - **Verifikasi:**
+    - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Backend test suite: `python -m pytest tests/` ➡️ **57/57 tests pass (0 fail)**.
+    - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **581/581 tests pass (0 fail)** across 47 test suites.
+    - Independent Subagent Code Review: **APPROVED**.
+
 - **Fix Empty Drawing Canvas on DrawPage & Bidirectional Ready Handshake (`DrawingTabInstance`, `QuickDrawModal`, `draw-app`) — SELESAI 2026-08-26 (Antigravity/Gemini):**
   - **Problem / Root Cause:**
     1. Di `draw-app/src/App.jsx` pada `handleMount`: `fetch('/api/drawings/' + noteId)` dieksekusi dari dalam iframe tanpa menyertakan header `Authorization: Bearer <token>`, sehingga server merespons `401 Unauthorized` dan kanvas gagal memuat data saat mount.

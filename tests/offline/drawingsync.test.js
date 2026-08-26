@@ -834,3 +834,40 @@ test("Test 20: pullDrawings performs smart shape auto-merge on dirty local drawi
   assert.equal(op.payload.title, "Server Title");
 });
 
+// Test 21: pullDrawings / ensureDrawingCid matches local drawing by client_id when server_id is null or string
+test("Test 21: pullDrawings / ensureDrawingCid matches local drawing by client_id when server_id is null and avoids duplicate records", async () => {
+  const b = await blobStore.put('{"canvas":99}', { mime: "application/json" });
+  await putDrawings([
+    localDrawing({
+      cid: "draw-cid-match-99",
+      server_id: null,
+      title: "Local Unsynced Drawing",
+      blob_ref: b,
+      base_rev: null,
+      dirty: 1,
+    }),
+  ]);
+
+  const fetchOne = (sid) => Promise.resolve({
+    id: sid,
+    client_id: "draw-cid-match-99",
+    title: "Server Drawing",
+    data_json: '{"canvas":99}',
+    svg_preview: "<svg></svg>",
+    is_pinned: 0,
+    tags: [],
+    updated_at: "2026-08-26T12:00:00",
+  });
+
+  const r = await pullDrawings([
+    srvDrawing({ id: "888", client_id: "draw-cid-match-99", title: "Server Drawing", updated_at: "2026-08-26T12:00:00" })
+  ], fetchOne);
+
+  assert.equal(r.created, 0);
+  const all = await allDrawings();
+  assert.equal(all.length, 1);
+  assert.equal(all[0].cid, "draw-cid-match-99");
+  assert.equal(await cidOf("drawing", "888"), "draw-cid-match-99");
+});
+
+

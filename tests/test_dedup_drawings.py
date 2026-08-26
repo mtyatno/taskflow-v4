@@ -14,7 +14,7 @@ def _seed_db(db_path):
     conn.executescript(
         """
         CREATE TABLE scratchpad_notes (id INTEGER PRIMARY KEY, user_id INTEGER, title TEXT, content TEXT, updated_at TEXT);
-        CREATE TABLE drawings (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, title TEXT, data_json TEXT, svg_preview TEXT, is_pinned INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT);
+        CREATE TABLE drawings (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, client_id TEXT, title TEXT, data_json TEXT, svg_preview TEXT, is_pinned INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT);
         INSERT INTO scratchpad_notes VALUES (1, 1, 'n1', 'lihat ::draw[1] ini', '2026-01-01');
         INSERT INTO scratchpad_notes VALUES (2, 1, 'n2', 'escaped ::draw\\[9\\] disimpan', '2026-01-01');
         INSERT INTO drawings (user_id,title,data_json,svg_preview,is_pinned,created_at,updated_at) VALUES
@@ -70,7 +70,7 @@ def test_dedup_recognizes_escaped_draw_ref():
         conn.executescript(
             """
             CREATE TABLE scratchpad_notes (id INTEGER PRIMARY KEY, user_id INTEGER, title TEXT, content TEXT, updated_at TEXT);
-            CREATE TABLE drawings (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, title TEXT, data_json TEXT, svg_preview TEXT, is_pinned INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT);
+            CREATE TABLE drawings (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, client_id TEXT, title TEXT, data_json TEXT, svg_preview TEXT, is_pinned INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT);
             INSERT INTO drawings (user_id,title,data_json,svg_preview,is_pinned,created_at,updated_at) VALUES
              (1,'Gambar X','{"x":1}','<svg/>',0,'2026-01-01','2026-01-01'),
              (1,'Gambar X','{"x":1}','<svg/>',0,'2026-01-01','2026-01-02');
@@ -94,3 +94,34 @@ def test_dedup_recognizes_escaped_draw_ref():
         conn.close()
         # keduanya bertahan: id 1 direferensikan (escaped) DAN terbaru grup
         assert left == [1, 2], f"sisa salah: {left}"
+
+
+def test_dedup_preserves_uuid_client_id_refs():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = os.path.join(tmp, "test.db")
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """
+            CREATE TABLE scratchpad_notes (id INTEGER PRIMARY KEY, user_id INTEGER, title TEXT, content TEXT, updated_at TEXT);
+            CREATE TABLE drawings (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, client_id TEXT, title TEXT, data_json TEXT, svg_preview TEXT, is_pinned INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT);
+            INSERT INTO scratchpad_notes VALUES (1, 1, 'n1', 'Diagram link ::draw[drw-uuid-abc-123] in note', '2026-01-01');
+            INSERT INTO drawings (user_id, client_id, title, data_json, svg_preview, is_pinned, created_at, updated_at) VALUES
+             (1, 'drw-uuid-abc-123', 'Diagram', '{"box":1}', '<svg/>', 0, '2026-01-01', '2026-01-01'),
+             (1, NULL, 'Diagram', '{"box":1}', '<svg/>', 0, '2026-01-01', '2026-01-02'),
+             (1, 'other-cid', 'Diagram', '{"box":1}', '<svg/>', 0, '2026-01-01', '2026-01-03');
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        run = _run_script(db_path, "--run")
+        assert run.returncode == 0, run.stderr
+
+        conn = sqlite3.connect(db_path)
+        left = [r[0] for r in conn.execute("SELECT id FROM drawings ORDER BY id").fetchall()]
+        conn.close()
+        # Row 1 dipertahankan karena client_id 'drw-uuid-abc-123' direferensikan di note
+        # Row 3 dipertahankan karena paling baru di grup duplikat
+        # Row 2 dihapus karena duplikat lama tanpa referensi
+        assert left == [1, 3], f"sisa salah: {left}"
+
