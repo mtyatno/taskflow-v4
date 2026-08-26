@@ -7,7 +7,28 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
-- **Drawing Synchronization Echo Feedback Loop Elimination (`draw-app` & `static/index.html`) — SELESAI 2026-08-26 (Antigravity/Gemini):**
+- **Drawing Smart Shape-Level Auto-Merge Engine (`static/offline/syncpull.js`) — SELESAI 2026-08-26 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    - Sebelumnya, sinkronisasi gambar menggunakan LWW (Last-Write-Wins) pada level file/snapshot utuh. Jika user mengedit gambar yang sama di dua tempat saat offline terpisah (misal di Kantor dan di Rumah), saat online snapshot dari satu tempat akan menimpa seluruh coretan dari tempat lain.
+  - **Solusi / Perbaikan:**
+    - `static/offline/syncpull.js`:
+      - Mengimplementasikan `mergeDrawingSnapshots(localSnap, remoteSnap, opts)` dan fungsi helper `deepMerge`, `extractSnapshotData`, `parseSnapshot`, `updateDrawingOutboxMerged`.
+      - Menangani 4 skenario resolusi konflik berbasis shape:
+        1. **Disjoint Shapes:** Objek baru dari remote dan lokal digabung secara otomatis.
+        2. **Deep Property Merge:** Perubahan atribut berbeda pada ID shape yang sama (misal ukuran di remote vs warna di lokal) digabungkan.
+        3. **Property Collision:** Jika atribut yang sama persis bertabrakan, menggunakan opsi `preferRemote` berdasarkan perbandingan timestamp LWW.
+        4. **Edit vs Delete:** Jika shape dihapus di satu sisi tapi dimodifikasi di sisi lain, modifikasi dipertahankan (*Edit Wins Over Delete*).
+      - Mengupdate `pullDrawings`: Saat `local.dirty && pendingDrawingOps.has(cid)` dan `s.updated_at !== local.base_rev`, sistem melakukan *Smart Shape Auto-Merge* antara local snapshot dan remote snapshot, menyimpan hasil gabungan ke BlobStore dan local record, serta memperbarui payload `_outbox` dengan snapshot gabungan.
+      - Mengekspor `mergeDrawingSnapshots` dari `syncpull.js`.
+    - `static/sw.js`:
+      - Bump Service Worker cache version ke **`taskflow-v317-draw-smart-shape-automerge`**.
+    - `tests/offline/drawingsync.test.js`:
+      - Menambahkan Test 16 (disjoint shapes merge), Test 17 (deep property merge on same shape), Test 18 (preferRemote on collision), Test 19 (edit-wins-over-delete), dan Test 20 (pullDrawings integration test with dirty local drawing & divergent server revision).
+  - **Verifikasi:**
+    - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Unit tests: `node --test tests/offline/drawingsync.test.js` ➡️ **20/20 pass (0 fail)**.
+    - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **580/580 tests pass (0 fail)** across 5 suites.
+    - Backend test suite: `python -m pytest tests/` ➡️ **55/55 tests pass (0 fail)**.
   - **Problem / Root Cause:**
     - Ketika user menggambar di Browser 1 (misal Edge) dan perubahannya disinkronkan ke Browser 2 (misal Firefox), `DrawingTabInstance` / `QuickDrawModal` di Browser 2 mengirim `postMessage({ type: 'load', data: snapshot })` ke iframe tldraw (`draw-app/src/App.jsx`).
     - Listener `editor.store.listen(...)` di Browser 2 memperlakukan snapshot remote yang baru di-load sebagai perubahan lokal baru, lalu men-debounce 600ms dan mengirim pesan `change` kembali ke parent window Browser 2.

@@ -2,6 +2,30 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-08-26 11:25] - Antigravity (Gemini)
+- **Task:** Implement Smart Shape-Level Auto-Merge for Drawings in `static/offline/syncpull.js` and Service Worker v317.
+- **Root Cause & Objective:**
+  - Prevent concurrent offline drawing edits (e.g. Office vs Home) from overwriting each other at the whole-document level.
+  - Implement a 4-tier conflict resolution engine operating at the individual shape/record level in tldraw snapshots.
+- **Changes:**
+  - `static/offline/syncpull.js`:
+    - Implemented `mergeDrawingSnapshots(localSnap, remoteSnap, opts)` with deep attribute merging (`deepMerge`), format parsing (`extractSnapshotData`, `parseSnapshot`), and outbox op updating (`updateDrawingOutboxMerged`).
+    - Implemented 4 conflict resolution rules:
+      1. Disjoint Shapes: Automatically combined into merged snapshot.
+      2. Deep Property Merge: Merged non-colliding properties (e.g. width from Office + color from Home).
+      3. Property Collision: Uses LWW timestamp comparison (`preferRemote = tsEpoch(s.updated_at) > tsEpoch(local.updated_at)`) for colliding properties.
+      4. Edit vs Delete: Preserves modified shapes over deletion (Edit Wins Over Delete).
+    - Updated `pullDrawings`: When `local.dirty && pendingDrawingOps.has(cid)` and `s.updated_at !== local.base_rev`, merges local and remote snapshots, saves merged data into BlobStore/IndexedDB, updates pending outbox op payload, and increments `result.merged`.
+    - Exported `mergeDrawingSnapshots`.
+  - `static/sw.js`: Bumped SW cache to **`taskflow-v317-draw-smart-shape-automerge`**.
+  - `tests/offline/drawingsync.test.js`: Added Tests 16–20 verifying shape merge, deep property merge, collision preference, edit-wins-over-delete, and integration pull auto-merge (20/20 unit tests pass).
+- **Verification:**
+  - Inline script syntax: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - JS Offline Test Suite: `node --test tests/offline/*.test.js` ➡️ **580/580 tests pass (0 fail)**.
+  - Backend Pytest Suite: `python -m pytest tests/` ➡️ **55/55 tests pass (0 fail)**.
+- **Files Modified:** `static/offline/syncpull.js`, `static/sw.js`, `tests/offline/drawingsync.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-08-26 09:35] - Antigravity (Gemini)
 - **Task:** Eliminate Echo Feedback Loop in Multi-Device/Browser Drawing Synchronization.
 - **Root Cause:**

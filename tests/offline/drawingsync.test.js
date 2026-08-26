@@ -11,7 +11,7 @@ const {
   pushOutbox, healStrandedDrawings,
 } = require("../../static/offline/syncpush.js");
 const {
-  pullDrawings, pullDrawingsAndReconcile,
+  pullDrawings, pullDrawingsAndReconcile, mergeDrawingSnapshots,
 } = require("../../static/offline/syncpull.js");
 const {
   createDrawing, getDrawing, listDrawings,
@@ -663,5 +663,174 @@ test("Test 15: pullDrawingsAndReconcile returns result counters for live event d
   assert.equal(eventDetail.updated, 1);
   assert.equal(eventDetail.deleted, 1);
   assert.equal(eventDetail.pinned, 1);
+});
+
+// Test 16: mergeDrawingSnapshots merges disjoint shapes from local and remote
+test("Test 16: mergeDrawingSnapshots merges disjoint shapes from local and remote", () => {
+  const localSnap = {
+    schema: { schemaVersion: 1 },
+    store: {
+      "shape:office_1": { id: "shape:office_1", typeName: "shape", type: "geo", props: { w: 100, text: "Office A" } },
+    },
+  };
+  const remoteSnap = {
+    schema: { schemaVersion: 2 },
+    store: {
+      "shape:home_1": { id: "shape:home_1", typeName: "shape", type: "geo", props: { w: 200, text: "Home B" } },
+    },
+  };
+
+  const mergedStr = mergeDrawingSnapshots(localSnap, remoteSnap);
+  const merged = JSON.parse(mergedStr);
+
+  assert.equal(merged.schema.schemaVersion, 2);
+  assert.ok(merged.store["shape:office_1"]);
+  assert.ok(merged.store["shape:home_1"]);
+  assert.equal(merged.store["shape:office_1"].props.text, "Office A");
+  assert.equal(merged.store["shape:home_1"].props.text, "Home B");
+});
+
+// Test 17: mergeDrawingSnapshots deeply merges different properties on the same shape
+test("Test 17: mergeDrawingSnapshots deeply merges different properties on the same shape", () => {
+  const localSnap = JSON.stringify({
+    store: {
+      "shape:box_1": { id: "shape:box_1", typeName: "shape", props: { w: 400, color: "black" } },
+    },
+  });
+  const remoteSnap = JSON.stringify({
+    store: {
+      "shape:box_1": { id: "shape:box_1", typeName: "shape", props: { h: 300, color: "red" } },
+    },
+  });
+
+  // preferRemote: false -> local property wins on collision (color: black), but non-colliding properties (w, h) merge
+  const mergedStr = mergeDrawingSnapshots(localSnap, remoteSnap, { preferRemote: false });
+  const merged = JSON.parse(mergedStr);
+
+  assert.equal(merged.store["shape:box_1"].props.w, 400);
+  assert.equal(merged.store["shape:box_1"].props.h, 300);
+  assert.equal(merged.store["shape:box_1"].props.color, "black");
+});
+
+// Test 18: mergeDrawingSnapshots respects preferRemote on collision
+test("Test 18: mergeDrawingSnapshots respects preferRemote on collision", () => {
+  const localSnap = {
+    shapes: {
+      "shape:1": { id: "shape:1", color: "blue", x: 10 },
+    },
+  };
+  const remoteSnap = {
+    shapes: {
+      "shape:1": { id: "shape:1", color: "green", x: 50 },
+    },
+  };
+
+  const mergedRemoteWins = JSON.parse(mergeDrawingSnapshots(localSnap, remoteSnap, { preferRemote: true }));
+  assert.equal(mergedRemoteWins.shapes["shape:1"].color, "green");
+  assert.equal(mergedRemoteWins.shapes["shape:1"].x, 50);
+
+  const mergedLocalWins = JSON.parse(mergeDrawingSnapshots(localSnap, remoteSnap, { preferRemote: false }));
+  assert.equal(mergedLocalWins.shapes["shape:1"].color, "blue");
+  assert.equal(mergedLocalWins.shapes["shape:1"].x, 10);
+});
+
+// Test 19: mergeDrawingSnapshots edit-wins-over-delete behavior
+test("Test 19: mergeDrawingSnapshots edit-wins-over-delete preserves modified shapes", () => {
+  const localSnap = {
+    store: {
+      "shape:kept": { id: "shape:kept", props: { text: "Modified locally" } },
+    },
+  };
+  const remoteSnap = {
+    store: {
+      // shape:kept was deleted on remote, remote only has shape:other
+      "shape:other": { id: "shape:other", props: { text: "Created remotely" } },
+    },
+  };
+
+  const merged = JSON.parse(mergeDrawingSnapshots(localSnap, remoteSnap));
+  assert.ok(merged.store["shape:kept"]);
+  assert.ok(merged.store["shape:other"]);
+  assert.equal(merged.store["shape:kept"].props.text, "Modified locally");
+  assert.equal(merged.store["shape:other"].props.text, "Created remotely");
+});
+
+// Test 20: Full pullDrawings integration test with dirty local drawing and divergent server revision
+test("Test 20: pullDrawings performs smart shape auto-merge on dirty local drawing with divergent server revision", async () => {
+  const localData = JSON.stringify({
+    store: {
+      "shape:1": { id: "shape:1", props: { text: "Local text", w: 100 } },
+    },
+  });
+  const localBlob = await blobStore.put(localData, { mime: "application/json" });
+
+  await putDrawings([
+    localDrawing({
+      cid: "draw-conflict",
+      server_id: 1001,
+      title: "Local Title",
+      blob_ref: localBlob,
+      base_rev: "2026-08-25T10:00:00",
+      updated_at: "2026-08-25T10:30:00",
+      dirty: 1,
+    }),
+  ]);
+  await mapPut("drawing", 1001, "draw-conflict");
+
+  await outboxAdd({
+    op: "update",
+    entity_type: "drawing",
+    cid: "draw-conflict",
+    payload: {
+      title: "Local Title",
+      data_json: localData,
+      svg_preview: "<svg>local</svg>",
+    },
+  });
+
+  const remoteData = JSON.stringify({
+    store: {
+      "shape:1": { id: "shape:1", props: { text: "Remote text", h: 200 } },
+      "shape:2": { id: "shape:2", props: { text: "Remote Shape 2" } },
+    },
+  });
+
+  const fetchOne = (sid) => Promise.resolve({
+    id: sid,
+    title: "Server Title",
+    data_json: remoteData,
+    svg_preview: "<svg>server</svg>",
+    is_pinned: 0,
+    tags: [],
+    updated_at: "2026-08-25T11:00:00", // Server is newer -> preferRemote = true
+  });
+
+  const r = await pullDrawings([
+    srvDrawing({ id: 1001, title: "Server Title", updated_at: "2026-08-25T11:00:00" }),
+  ], fetchOne);
+
+  assert.equal(r.merged, 1);
+
+  const localRow = await getDrawingRec("draw-conflict");
+  assert.equal(localRow.dirty, 1);
+  assert.equal(localRow.base_rev, "2026-08-25T11:00:00");
+  assert.equal(localRow.title, "Server Title");
+
+  const mergedBlobData = await blobStore.getBytes(localRow.blob_ref);
+  const mergedObj = JSON.parse(mergedBlobData);
+
+  assert.ok(mergedObj.store["shape:1"]);
+  assert.ok(mergedObj.store["shape:2"]);
+  assert.equal(mergedObj.store["shape:1"].props.w, 100);
+  assert.equal(mergedObj.store["shape:1"].props.h, 200);
+  assert.equal(mergedObj.store["shape:1"].props.text, "Remote text"); // preferRemote was true
+
+  // Outbox op was updated with merged JSON
+  const ops = await outboxAll();
+  assert.equal(ops.length, 1);
+  const op = ops[0];
+  assert.equal(op.cid, "draw-conflict");
+  assert.equal(op.payload.data_json, mergedBlobData);
+  assert.equal(op.payload.title, "Server Title");
 });
 

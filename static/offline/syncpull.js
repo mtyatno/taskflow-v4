@@ -614,6 +614,179 @@
     });
   }
 
+  function isPlainObject(v) {
+    return v !== null && typeof v === "object" && !Array.isArray(v);
+  }
+
+  function deepMerge(localVal, remoteVal, opts) {
+    const preferRemote = !!(opts && opts.preferRemote);
+
+    if (localVal === undefined) return remoteVal;
+    if (remoteVal === undefined) return localVal;
+    if (localVal === remoteVal) return localVal;
+
+    if (isPlainObject(localVal) && isPlainObject(remoteVal)) {
+      const merged = {};
+      const keys = new Set([...Object.keys(localVal), ...Object.keys(remoteVal)]);
+      for (const k of keys) {
+        if (k in localVal && !(k in remoteVal)) {
+          merged[k] = localVal[k];
+        } else if (k in remoteVal && !(k in localVal)) {
+          merged[k] = remoteVal[k];
+        } else {
+          merged[k] = deepMerge(localVal[k], remoteVal[k], opts);
+        }
+      }
+      return merged;
+    }
+
+    // Primitive or array collision
+    return preferRemote ? remoteVal : localVal;
+  }
+
+  function parseSnapshot(snap) {
+    if (snap == null) return {};
+    if (typeof snap === "object") return snap;
+    if (typeof snap === "string") {
+      const trimmed = snap.trim();
+      if (!trimmed) return {};
+      try {
+        const parsed = JSON.parse(trimmed);
+        return parsed && typeof parsed === "object" ? parsed : {};
+      } catch (_) {
+        return {};
+      }
+    }
+    return {};
+  }
+
+  function extractOtherFields(obj, excludeKeys) {
+    const ex = new Set(excludeKeys);
+    const other = {};
+    for (const k of Object.keys(obj)) {
+      if (!ex.has(k)) {
+        other[k] = obj[k];
+      }
+    }
+    return other;
+  }
+
+  function extractSnapshotData(snapObj) {
+    if (!snapObj || typeof snapObj !== "object" || Array.isArray(snapObj)) {
+      return { format: null, records: {}, schema: null, otherFields: {} };
+    }
+
+    const schema = snapObj.schema || null;
+
+    if (snapObj.store && typeof snapObj.store === "object" && !Array.isArray(snapObj.store)) {
+      return {
+        format: "store",
+        records: Object.assign({}, snapObj.store),
+        schema,
+        otherFields: extractOtherFields(snapObj, ["store", "schema"]),
+      };
+    }
+
+    if (Array.isArray(snapObj.records)) {
+      const records = {};
+      for (let i = 0; i < snapObj.records.length; i++) {
+        const item = snapObj.records[i];
+        if (item && typeof item === "object") {
+          const id = item.id || (item.typeName ? `${item.typeName}:${i}` : `rec_${i}`);
+          records[id] = item;
+        }
+      }
+      return {
+        format: "records",
+        records,
+        schema,
+        otherFields: extractOtherFields(snapObj, ["records", "schema"]),
+      };
+    }
+
+    if (snapObj.shapes && typeof snapObj.shapes === "object" && !Array.isArray(snapObj.shapes)) {
+      return {
+        format: "shapes",
+        records: Object.assign({}, snapObj.shapes),
+        schema,
+        otherFields: extractOtherFields(snapObj, ["shapes", "schema"]),
+      };
+    }
+
+    // Direct map / dictionary
+    const records = {};
+    const keys = Object.keys(snapObj);
+    for (const k of keys) {
+      if (k !== "schema") {
+        records[k] = snapObj[k];
+      }
+    }
+    return {
+      format: keys.length > 0 ? "direct" : null,
+      records,
+      schema,
+      otherFields: {},
+    };
+  }
+
+  function mergeDrawingSnapshots(localSnap, remoteSnap, opts) {
+    const localObj = parseSnapshot(localSnap);
+    const remoteObj = parseSnapshot(remoteSnap);
+
+    const localData = extractSnapshotData(localObj);
+    const remoteData = extractSnapshotData(remoteObj);
+
+    const format = remoteData.format || localData.format || "direct";
+    const schema = remoteData.schema || localData.schema || undefined;
+    const otherFields = Object.assign({}, localData.otherFields, remoteData.otherFields);
+
+    const mergedRecords = deepMerge(localData.records, remoteData.records, opts);
+
+    let outputObj;
+    if (format === "store") {
+      outputObj = Object.assign({}, otherFields);
+      if (schema) outputObj.schema = schema;
+      outputObj.store = mergedRecords;
+    } else if (format === "records") {
+      outputObj = Object.assign({}, otherFields);
+      if (schema) outputObj.schema = schema;
+      outputObj.records = Object.values(mergedRecords);
+    } else if (format === "shapes") {
+      outputObj = Object.assign({}, otherFields);
+      if (schema) outputObj.schema = schema;
+      outputObj.shapes = mergedRecords;
+    } else {
+      outputObj = Object.assign({}, otherFields);
+      if (schema) outputObj.schema = schema;
+      Object.assign(outputObj, mergedRecords);
+    }
+
+    return JSON.stringify(outputObj);
+  }
+
+  function updateDrawingOutboxMerged(cid, mergedJson, title, svgPreview) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("_outbox", "readwrite");
+      const os = tx.objectStore("_outbox");
+      const r = os.getAll();
+      r.onsuccess = () => {
+        const ops = r.result || [];
+        for (const op of ops) {
+          if (op.entity_type === "drawing" && op.cid === cid) {
+            if (op.payload) {
+              op.payload.data_json = mergedJson;
+              if (title) op.payload.title = title;
+              if (svgPreview != null) op.payload.svg_preview = svgPreview;
+              os.put(op);
+            }
+          }
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
   function pullDrawings(serverDrawings, fetchOne) {
     const list = serverDrawings || [];
     const cache = {};
@@ -627,7 +800,7 @@
         for (const r of localAll) {
           if (r.note_cid === undefined) byCid[r.cid] = r;
         }
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0 };
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0, merged: 0 };
         let chain = Promise.resolve();
 
         // Pass 2: Upsert server records
@@ -645,13 +818,36 @@
             }
             if (local.dirty && pendingDrawingOps.has(cid)) {
               if (s.updated_at !== local.base_rev) {
-                result.lwwResolved++;
-                if (tsEpoch(s.updated_at) > tsEpoch(local.updated_at)) {
-                  return dropOutbox("drawing", cid).then(() =>
-                    writeDrawingFull(s, cid, fetchOne, local)
-                  );
-                }
-                return;
+                const fetchP = fetchOne ? Promise.resolve(fetchOne(s.id)) : Promise.resolve(null);
+                const localDataJsonP = (local.blob_ref && BlobStore)
+                  ? BlobStore.getBytes(local.blob_ref).then((b) => b || "{}").catch(() => "{}")
+                  : Promise.resolve("{}");
+
+                return Promise.all([fetchP, localDataJsonP]).then(([remoteFullRow, localDataJson]) => {
+                  const remoteFull = remoteFullRow || s;
+                  const remoteDataJson = remoteFull.data_json || s.data_json || "{}";
+                  const preferRemote = tsEpoch(s.updated_at) > tsEpoch(local.updated_at);
+                  const mergedJson = mergeDrawingSnapshots(localDataJson, remoteDataJson, { preferRemote });
+
+                  const blobP = BlobStore ? BlobStore.put(mergedJson, { mime: "application/json" }) : Promise.resolve(null);
+                  return blobP.then((newBlobRef) => {
+                    const mergedTitle = (remoteFull && remoteFull.title) || s.title || local.title || "Untitled Drawing";
+                    const mergedSvg = (remoteFull && remoteFull.svg_preview) || s.svg_preview || local.svg_preview || "";
+                    const updatedLocal = Object.assign({}, local, {
+                      blob_ref: newBlobRef,
+                      title: mergedTitle,
+                      svg_preview: mergedSvg,
+                      base_rev: s.updated_at,
+                      dirty: 1,
+                    });
+
+                    return putDrawingRec(updatedLocal).then(() => {
+                      return updateDrawingOutboxMerged(cid, mergedJson, mergedTitle, mergedSvg).then(() => {
+                        result.merged = (result.merged || 0) + 1;
+                      });
+                    });
+                  });
+                });
               }
               result.skipped++;
               return;
@@ -732,6 +928,7 @@
     pullNotes, pullNotesAndReconcile,
     pullMindmaps, pullMindmapsAndReconcile,
     pullDrawings, pullDrawingsAndReconcile,
+    mergeDrawingSnapshots,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpull = exported; }
   return exported;
