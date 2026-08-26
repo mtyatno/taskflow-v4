@@ -143,6 +143,9 @@ async function doExport(editor, shapeIds, format, helpers) {
 export default function App() {
   const noteId = new URLSearchParams(window.location.search).get('noteId') || 'default'
   const editorRef = useRef(null)
+  const isRemoteLoadingRef = useRef(false)
+  const lastSnapshotStrRef = useRef("")
+  const debounceTimerRef = useRef(null)
 
   const uiOverrides = useMemo(() => ({
     actions(editor, actions, defaultHelpers) {
@@ -193,6 +196,7 @@ export default function App() {
     try {
       const editor = editorRef.current;
       const snapshot = JSON.stringify(editor.store.getSnapshot());
+      lastSnapshotStrRef.current = snapshot;
       const svg = await generateSvgString(editor);
       window.parent.postMessage({ type: 'change', noteId, data: snapshot, svg }, '*');
     } catch (err) {
@@ -208,9 +212,23 @@ export default function App() {
       if (e.origin !== window.location.origin) return;
       if (e.data?.type === 'load' && editorRef.current && e.data.data) {
         try {
-          const snapshot = typeof e.data.data === 'string' ? JSON.parse(e.data.data) : e.data.data;
+          const incomingRaw = e.data.data;
+          const incomingStr = typeof incomingRaw === 'string' ? incomingRaw : JSON.stringify(incomingRaw);
+          if (incomingStr === lastSnapshotStrRef.current) return;
+          isRemoteLoadingRef.current = true;
+          if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = null;
+          }
+          const snapshot = typeof incomingRaw === 'string' ? JSON.parse(incomingRaw) : incomingRaw;
           editorRef.current.store.loadSnapshot(snapshot);
-        } catch (_) {}
+          lastSnapshotStrRef.current = incomingStr;
+          setTimeout(() => {
+            isRemoteLoadingRef.current = false;
+          }, 800);
+        } catch (_) {
+          isRemoteLoadingRef.current = false;
+        }
       }
       if (e.data?.type === 'requestSnapshot' && editorRef.current) {
         syncToParent();
@@ -234,23 +252,24 @@ export default function App() {
           if (doc && doc.data_json && doc.data_json !== '{}') {
             try {
               const snapshot = typeof doc.data_json === 'string' ? JSON.parse(doc.data_json) : doc.data_json;
+              lastSnapshotStrRef.current = typeof doc.data_json === 'string' ? doc.data_json : JSON.stringify(doc.data_json);
+              isRemoteLoadingRef.current = true;
               editor.store.loadSnapshot(snapshot);
-            } catch (_) {}
+              setTimeout(() => {
+                isRemoteLoadingRef.current = false;
+              }, 800);
+            } catch (_) {
+              isRemoteLoadingRef.current = false;
+            }
           }
-          // After loading snapshot or if shapes exist, generate SVG preview immediately!
-          setTimeout(syncToParent, 400);
         })
-        .catch(() => {
-          setTimeout(syncToParent, 400);
-        });
-    } else {
-      setTimeout(syncToParent, 400);
+        .catch(() => {});
     }
 
-    let debounceTimer
     editor.store.listen(() => {
-      clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(syncToParent, 600)
+      if (isRemoteLoadingRef.current) return;
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(syncToParent, 600);
     }, { scope: 'document' })
   }
 

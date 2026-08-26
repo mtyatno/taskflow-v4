@@ -7,6 +7,39 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
+- **Drawing Synchronization Echo Feedback Loop Elimination (`draw-app` & `static/index.html`) — SELESAI 2026-08-26 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    - Ketika user menggambar di Browser 1 (misal Edge) dan perubahannya disinkronkan ke Browser 2 (misal Firefox), `DrawingTabInstance` / `QuickDrawModal` di Browser 2 mengirim `postMessage({ type: 'load', data: snapshot })` ke iframe tldraw (`draw-app/src/App.jsx`).
+    - Listener `editor.store.listen(...)` di Browser 2 memperlakukan snapshot remote yang baru di-load sebagai perubahan lokal baru, lalu men-debounce 600ms dan mengirim pesan `change` kembali ke parent window Browser 2.
+    - Parent window Browser 2 kemudian mem-`PUT /api/drawings/:id` ke server dengan timestamp baru (T2).
+    - Saat Browser 1 yang sedang aktif menggambar objek baru (misal Arrow 2, 3, 4) melakukan sync berikutnya, Browser 1 menarik revisi lama dari Browser 2 (T2 yang hanya berisi Arrow 1) dan me-load ulang kanvas, seketika menghapus gambar-gambar baru yang sedang dibuat di Browser 1.
+  - **Solusi / Perbaikan:**
+    - `draw-app/src/App.jsx`:
+      - Menambahkan `isRemoteLoadingRef`, `lastSnapshotStrRef`, dan `debounceTimerRef`.
+      - Pada `handler` event `load`:
+        - Membandingkan payload incoming `(typeof e.data.data === 'string' ? e.data.data : JSON.stringify(e.data.data))` dengan `lastSnapshotStrRef.current`. Jika identik, no-op (return early).
+        - Mengaktifkan `isRemoteLoadingRef.current = true` dan membatalkan pending timer (`clearTimeout(debounceTimerRef.current)`).
+        - Me-load snapshot ke editor store, mengupdate `lastSnapshotStrRef.current`, dan mengunci store listener selama 800ms cooldown.
+      - Pada `handleMount`:
+        - Menghapus semua panggilan `setTimeout(syncToParent, 400)` saat inisialisasi awal.
+        - Membungkus pembacaan snapshot awal dengan `isRemoteLoadingRef.current = true` dan mengupdate `lastSnapshotStrRef.current` untuk mencegah initial save debounce.
+      - Pada `editor.store.listen`:
+        - Menolak trigger `syncToParent` jika `isRemoteLoadingRef.current === true`.
+      - Pada `syncToParent`:
+        - Menyimpan snapshot JSON string terbaru ke `lastSnapshotStrRef.current` setelah membaca store snapshot.
+    - `static/index.html`:
+      - Di `handleIframeMessage`: Menyediakan ref cache global `const _lastSavedDrawingJson = {}` untuk mengabaikan `api.put` jika payload JSON sama persis dengan yang terakhir disimpan.
+      - Di `DrawingTabInstance` & `QuickDrawModal`: Menambahkan `lastLoadedJsonRef` untuk melewati `iframe.postMessage({ type: 'load' })` jika `fresh.data_json === lastLoadedJsonRef.current`.
+    - `static/sw.js`:
+      - Bump Service Worker cache version ke **`taskflow-v316-draw-no-echo-loop`**.
+    - Build Production Bundle:
+      - `npm --prefix draw-app run build` sukses mengompilasi `static/vendor/tldraw/assets/index.js`.
+  - **Verifikasi:**
+    - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **575/575 tests pass (0 fail)**.
+    - Backend test suite: `python -m pytest tests/` ➡️ **55/55 tests pass (0 fail)**.
+    - Independent Subagent Code Review: **APPROVED**.
+
 - **Drawing Canvas Live Content Synchronization (`DrawingTabInstance` & `QuickDrawModal`) — SELESAI 2026-08-26 (Antigravity/Gemini):**
   - **Problem / Root Cause:**
     - Ketika user menggambar di Browser 1 (misal Edge) dan menyimpan perubahannya ke server, background sync di Browser 2 (misal Firefox) berhasil mem-pull `data_json` terbaru ke IndexedDB dan memicu event `drawingSaved`.

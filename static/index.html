@@ -9197,6 +9197,7 @@ function DrawingTabInstance({
   onPin
 }) {
   const iframeRef = useRef(null);
+  const lastLoadedJsonRef = useRef(null);
   const [renaming, setRenaming] = useState(false);
   const [renameVal, setRenameVal] = useState(tab?.title || "");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -9215,6 +9216,8 @@ function DrawingTabInstance({
           try {
             const fresh = await api.get(`/api/drawings/${tab.id}`);
             if (fresh && fresh.data_json && iframeRef.current?.contentWindow) {
+              if (fresh.data_json === lastLoadedJsonRef.current) return;
+              lastLoadedJsonRef.current = fresh.data_json;
               iframeRef.current.contentWindow.postMessage({
                 type: 'load',
                 data: fresh.data_json
@@ -17292,6 +17295,7 @@ function QuickDrawModal({
   showToast
 }) {
   const iframeRef = useRef(null);
+  const lastLoadedJsonRef = useRef(null);
   const [title, setTitle] = useState(drawingTitle || "Gambar");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(drawingTitle || "Gambar");
@@ -17319,6 +17323,8 @@ function QuickDrawModal({
               setTitleInput(fresh.title);
             }
             if (fresh && fresh.data_json && iframeRef.current?.contentWindow) {
+              if (fresh.data_json === lastLoadedJsonRef.current) return;
+              lastLoadedJsonRef.current = fresh.data_json;
               iframeRef.current.contentWindow.postMessage({
                 type: 'load',
                 data: fresh.data_json
@@ -24178,6 +24184,8 @@ function BackupReminder({ showToast }) {
   //   - window.__refreshTasks
   // BLOCK LENGTH: ~2385 lines (22721-24108) — orchestrates ALL state + routing
 
+const _lastSavedDrawingJson = {};
+
 function App() {
   const [user, setUser] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('tf_theme') || 'light');
@@ -24667,6 +24675,8 @@ function App() {
       if (e.origin !== window.location.origin) return;
       if (e.data?.type === 'change' && e.data.data && e.data.noteId && e.data.noteId !== 'default') {
         const did = e.data.noteId;
+        if (_lastSavedDrawingJson[did] === e.data.data) return;
+        _lastSavedDrawingJson[did] = e.data.data;
         const payload = { data_json: e.data.data };
         if (e.data.svg !== undefined && e.data.svg !== null) {
           payload.svg_preview = e.data.svg;

@@ -2,6 +2,34 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-08-26 09:35] - Antigravity (Gemini)
+- **Task:** Eliminate Echo Feedback Loop in Multi-Device/Browser Drawing Synchronization.
+- **Root Cause:**
+  - When Browser 2 received remote updates from Browser 1, `DrawingTabInstance` sent `postMessage({ type: 'load', data: snapshot })` to the embedded tldraw iframe.
+  - In `draw-app/src/App.jsx`, `editor.store.listen(...)` interpreted the incoming remote snapshot as a local change, debounced 600ms, and posted `{ type: 'change', data: snapshot }` back to the parent window, causing Browser 2 to issue `PUT /api/drawings/:id` with a newer timestamp (T2).
+  - When Browser 1 continued drawing new shapes (e.g., Arrows 2, 3, 4) and ran background sync, it pulled Browser 2's revision (T2 containing only Arrow 1) and reloaded the canvas, wiping out active local drawings.
+- **Changes:**
+  - `draw-app/src/App.jsx`:
+    - Added `isRemoteLoadingRef`, `lastSnapshotStrRef`, and `debounceTimerRef`.
+    - In `handler` for `e.data?.type === 'load'`: compared incoming snapshot string with `lastSnapshotStrRef.current` to no-op if identical, set `isRemoteLoadingRef.current = true`, cleared pending debounce timer, loaded snapshot, updated `lastSnapshotStrRef.current`, and released the lock with an 800ms cooldown timer.
+    - In `handleMount`: removed `setTimeout(syncToParent, 400)` initial auto-saves, wrapped initial snapshot load with `isRemoteLoadingRef` lock.
+    - In `editor.store.listen`: guarded with `if (isRemoteLoadingRef.current) return;` and debounced 600ms via `debounceTimerRef`.
+    - In `syncToParent`: updated `lastSnapshotStrRef.current = snapshot`.
+  - `static/index.html`:
+    - Added module-level `const _lastSavedDrawingJson = {}` in `handleIframeMessage` to avoid redundant `PUT` requests if the payload hasn't changed.
+    - Added `lastLoadedJsonRef` deduplication in `DrawingTabInstance` and `QuickDrawModal` to avoid sending redundant `postMessage({ type: 'load' })`.
+  - Production Bundle:
+    - Executed `npm --prefix draw-app run build` to compile `static/vendor/tldraw/assets/index.js`.
+  - `static/sw.js`:
+    - Bumped Service Worker cache version to **`taskflow-v316-draw-no-echo-loop`**.
+- **Verification:**
+  - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **575/575 tests pass (0 fail)**.
+  - Backend test suite: `python -m pytest tests/` ➡️ **55/55 tests pass (0 fail)**.
+  - Independent Subagent Code Review: **APPROVED**.
+- **Files Modified:** `draw-app/src/App.jsx`, `static/index.html`, `static/sw.js`, `static/vendor/tldraw/assets/index.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-08-26 07:45] - Antigravity (Gemini)
 - **Task:** Live Canvas Content Sync for Open Drawing Tabs (`DrawingTabInstance`) and QuickDraw Modals (`QuickDrawModal`).
 - **Root Cause:**
