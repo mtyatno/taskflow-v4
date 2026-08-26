@@ -9231,6 +9231,27 @@ function DrawingTabInstance({
     return () => window.removeEventListener("drawingSaved", handler);
   }, [tab?.id]);
 
+  useEffect(() => {
+    const handler = async (e) => {
+      if (e.origin !== window.location.origin) return;
+      if (e.source !== iframeRef.current?.contentWindow) return;
+      if (e.data?.type === 'ready' && tab?.id) {
+        try {
+          const doc = await api.get(`/api/drawings/${tab.id}`);
+          if (doc && doc.data_json && iframeRef.current?.contentWindow) {
+            lastLoadedJsonRef.current = doc.data_json;
+            iframeRef.current.contentWindow.postMessage({
+              type: 'load',
+              data: doc.data_json
+            }, window.location.origin);
+          }
+        } catch (_) {}
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [tab?.id]);
+
   const handleRename = async () => {
     const next = renameVal.trim() || "Untitled Drawing";
     try {
@@ -17336,6 +17357,27 @@ function QuickDrawModal({
     };
     window.addEventListener("drawingSaved", handler);
     return () => window.removeEventListener("drawingSaved", handler);
+  }, [drawingId]);
+
+  useEffect(() => {
+    const handler = async (e) => {
+      if (e.origin !== window.location.origin) return;
+      if (e.source !== iframeRef.current?.contentWindow) return;
+      if (e.data?.type === 'ready' && drawingId) {
+        try {
+          const doc = await api.get(`/api/drawings/${drawingId}`);
+          if (doc && doc.data_json && iframeRef.current?.contentWindow) {
+            lastLoadedJsonRef.current = doc.data_json;
+            iframeRef.current.contentWindow.postMessage({
+              type: 'load',
+              data: doc.data_json
+            }, window.location.origin);
+          }
+        } catch (_) {}
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
   }, [drawingId]);
 
   const handleSaveTitle = async () => {

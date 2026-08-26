@@ -2,6 +2,29 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-08-26 13:20] - Antigravity (Gemini)
+- **Task:** Fix Empty Drawing Canvas on DrawPage & Bidirectional Ready Handshake (`DrawingTabInstance`, `QuickDrawModal`, `draw-app`).
+- **Root Cause & Objective:**
+  1. `draw-app/src/App.jsx` in `handleMount` executed `fetch('/api/drawings/' + noteId)` without `Authorization: Bearer <token>`, causing `401 Unauthorized` responses and failing canvas load.
+  2. `DrawingTabInstance` and `QuickDrawModal` in `static/index.html` lacked `{ type: 'ready' }` message event listeners from the tldraw iframe, meaning parent components never sent authoritative snapshots via `{ type: 'load', data: doc.data_json }` upon iframe readiness.
+- **Changes:**
+  - `draw-app/src/App.jsx`:
+    - Updated `handleMount` to retrieve `tf_token` from `localStorage` and include `{ Authorization: 'Bearer ' + token }` header when fetching `/api/drawings/${noteId}`, with fallback to `/pub/drawings/${noteId}`.
+  - `static/index.html`:
+    - In `DrawingTabInstance`: Added `useEffect` listening for `{ type: 'ready' }` from `iframeRef.current.contentWindow`, fetching `/api/drawings/${tab.id}` and posting `{ type: 'load', data: doc.data_json }`.
+    - In `QuickDrawModal`: Added matching `useEffect` listening for `{ type: 'ready' }` from `iframeRef.current.contentWindow` to hydrate modal canvas with authoritative drawing snapshot.
+  - `static/vendor/tldraw/assets/index.js`:
+    - Built production bundle with updated `handleMount` token authentication.
+  - `static/sw.js`:
+    - Bumped Service Worker cache version to **`taskflow-v319-draw-ready-auth-sync`**.
+- **Verification:**
+  - Inline script syntax: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **580/580 tests pass (0 fail)** across 5 suites.
+  - Backend test suite: `python -m pytest tests/` ➡️ **56/56 tests pass (0 fail)**.
+  - Independent Subagent Code Review: **APPROVED**.
+- **Files Modified:** `draw-app/src/App.jsx`, `static/index.html`, `static/vendor/tldraw/assets/index.js`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-08-26 12:55] - Antigravity (Gemini)
 - **Task:** Synchronize Note Inline Drawings (`::draw[...]` / `QuickDrawModal`) and Draw Page Drawings (`DrawPage`) via client_id Endpoint Routing and Clean Tldraw State Mount.
 - **Root Cause & Objective:**

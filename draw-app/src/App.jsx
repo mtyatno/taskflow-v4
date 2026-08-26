@@ -246,7 +246,9 @@ export default function App() {
 
     // Load existing data from server if noteId is not default
     if (noteId && noteId !== 'default') {
-      fetch(`/api/drawings/${noteId}`)
+      const token = typeof localStorage !== 'undefined' ? localStorage.getItem('tf_token') : null;
+      const headers = token ? { Authorization: 'Bearer ' + token } : {};
+      fetch(`/api/drawings/${noteId}`, { headers })
         .then(res => res.ok ? res.json() : fetch(`/pub/drawings/${noteId}`).then(r => r.ok ? r.json() : null))
         .then(async doc => {
           if (doc && doc.data_json && doc.data_json !== '{}') {

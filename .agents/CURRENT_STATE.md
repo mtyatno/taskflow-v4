@@ -7,6 +7,27 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
+- **Fix Empty Drawing Canvas on DrawPage & Bidirectional Ready Handshake (`DrawingTabInstance`, `QuickDrawModal`, `draw-app`) — SELESAI 2026-08-26 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    1. Di `draw-app/src/App.jsx` pada `handleMount`: `fetch('/api/drawings/' + noteId)` dieksekusi dari dalam iframe tanpa menyertakan header `Authorization: Bearer <token>`, sehingga server merespons `401 Unauthorized` dan kanvas gagal memuat data saat mount.
+    2. Di `static/index.html`: `DrawingTabInstance` dan `QuickDrawModal` sebelumnya tidak memiliki event listener `message` yang menangani pesan `{ type: 'ready' }` dari `iframeRef.current.contentWindow`. Ketika iframe selesai dimuat dan mengumumkan `{ type: 'ready' }`, parent component tidak mengirim balik snapshot `{ type: 'load', data: doc.data_json }`.
+  - **Solusi / Perbaikan:**
+    1. `draw-app/src/App.jsx`:
+       - Di `handleMount`, mengambil token dari `localStorage.getItem('tf_token')` dan menyertakan header `{ Authorization: 'Bearer ' + token }` pada request `fetch('/api/drawings/' + noteId)`.
+       - Mempertahankan fallback ke endpoint publik `/pub/drawings/${noteId}` jika request API drawing privat gagal.
+    2. `static/index.html`:
+       - Di `DrawingTabInstance` (baris ~9234): Menambahkan `useEffect` yang mendengarkan pesan `{ type: 'ready' }` dari `iframeRef.current.contentWindow` dengan origin guard dan source guard, mengambil data drawing terbaru dari `api.get('/api/drawings/' + tab.id)`, mengupdate `lastLoadedJsonRef.current`, dan mengirim pesan `{ type: 'load', data: doc.data_json }` ke iframe.
+       - Di `QuickDrawModal` (baris ~17362): Menambahkan matching `useEffect` listener untuk `{ type: 'ready' }` guna menginisialisasi canvas modal dengan data snapshot authoritative.
+    3. `static/vendor/tldraw/assets/index.js`:
+       - Mengompilasi bundle produksi draw-app dengan auth header & ready handshake yang diperbarui.
+    4. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v319-draw-ready-auth-sync`**.
+  - **Verifikasi:**
+    - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Backend test suite: `python -m pytest tests/` ➡️ **56/56 tests pass (0 fail)**.
+    - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **580/580 tests pass (0 fail)** across 5 suites.
+    - Subagent Code Review: **APPROVED**.
+
 - **Fix Note Inline Drawings (`::draw[...]` / `QuickDrawModal`) & Draw Page (`DrawPage`) Synchronization — SELESAI 2026-08-26 (Antigravity/Gemini):**
   - **Problem / Root Cause:**
     1. Ketika gambar dibuat inline di Catatan (`::draw[drw_...]`), client menggunakan CID (string `drw_...`). Endpoint `/api/drawings/{did}` di `webapp.py` sebelumnya memiliki anotasi tipe `did: int`, sehingga saat iframe di Note me-request `/api/drawings/drw_...`, FastAPI merespons `422 Unprocessable Entity`.
