@@ -44,3 +44,16 @@ test("PATCH /api/scratchpad/:id/share is NOT registered (stays network)", async 
   const R = buildTaskRouter();
   assert.equal(R.hasRoute("PATCH", "/api/scratchpad/5/share"), false);
 });
+
+test("GET /api/scratchpad/pinned returns pinned notes via router", async () => {
+  const R = buildTaskRouter();
+  const n1 = await R.dispatch("POST", "/api/scratchpad", { title: "P1", content: "body1", tags: ["a"] });
+  const n2 = await R.dispatch("POST", "/api/scratchpad", { title: "P2", content: "body2", tags: ["b"] });
+  await R.dispatch("PATCH", "/api/scratchpad/" + n1.id + "/pin", undefined);
+  const pinned = await R.dispatch("GET", "/api/scratchpad/pinned", undefined);
+  assert.equal(pinned.length, 1);
+  assert.equal(pinned[0].id, n1.id);
+  assert.equal(pinned[0].title, "P1");
+  assert.equal(pinned[0].pinned, true);
+});
+

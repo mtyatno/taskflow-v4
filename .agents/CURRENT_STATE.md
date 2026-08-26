@@ -7,6 +7,58 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
+- **Fix Inline Drawing (`::draw[...]`) in Notes Showing Blank Frame / Missing Preview (`static/index.html`, `static/sw.js`, `draw-app`, `tests/offline/drawdirective.test.js`) — SELESAI 2026-08-26 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    1. **Format XML Header pada Output SVG:** Ketika library canvas `tldraw` mengekspor SVG (atau saat di-serialize `XMLSerializer`), output string SVG sering kali diawali dengan header standar XML `<?xml version="1.0" encoding="utf-8"?>` sebelum tag `<svg>`. Kode sebelumnya menggunakan validasi yang sangat kaku: `if (svg && svg.trim().startsWith('<svg'))`. Karena ada header `<?xml`, kondisi ini mengevaluasi `false`, sehingga `hydrateDrawingPreviews` mengabaikan SVG yang sah dan membiarkan kartu preview gambar di catatan hanya menampilkan bingkai frame kosong / teks placeholder.
+    2. **Cache `_lastSavedDrawingJson` Mengabaikan Pembaruan SVG:** Pada event handler `handleIframeMessage` di `static/index.html`, pengecekan debounce hanya membandingkan `data_json` (`if (_lastSavedDrawingJson[did] === e.data.data) return;`). Ketika stroke pertama menyimpan JSON tanpa SVG atau saat SVG diproses secara asinkron (`exportToBlob`), pengiriman pesan berikutnya yang membawa SVG baru dengan JSON yang sama langsung dibatalkan (*dropped*), sehingga `svg_preview` tidak tersimpan ke database.
+    3. **Komponen Editor & Viewer Tidak Mendengarkan Event `drawingSaved`:** Baik `MilkdownEditor` (mode edit) maupun `NotePanel` (mode baca) sebelumnya tidak meregister event listener untuk `drawingSaved`. Akibatnya, saat modal editor gambar (`QuickDrawModal`) ditutup dan mengirim event `drawingSaved`, kartu preview di editor dan viewer tidak di-hydrate ulang secara otomatis.
+    4. **Race Condition Penutupan Modal:** `QuickDrawModal.handleClose()` sebelumnya hanya menunggu timeout pendek sebelum unmount, yang berpotensi mematikan iframe sebelum proses pembuatan SVG asinkron selesai.
+    5. **Fitur Print & Word Docx Export:** `handlePrint` dan `handleExportDocx` juga memiliki pengecekan kaku `startsWith('<svg')` yang mengabaikan SVG ber-header XML.
+  - **Solusi / Perbaikan:**
+    1. `static/index.html`:
+       - Mengupdate fungsi `hydrateDrawingPreviews`: Menggunakan pengecekan `if (svg && (svg.includes('<svg') || svg.trim().startsWith('<svg')))` agar mendukung SVG standar maupun SVG dengan XML declaration.
+       - Menambahkan cache `_lastSavedDrawingSvg`: Memperbarui `handleIframeMessage` agar melacak dan membandingkan kombinasi `data_json` dan `svg_preview` (`if (_lastSavedDrawingJson[did] === e.data.data && _lastSavedDrawingSvg[did] === newSvg) return;`), sehingga update SVG selalu tersimpan ke IndexedDB dan server.
+       - Pada `MilkdownEditor`: Menambahkan event listener `window.addEventListener('drawingSaved', hydrate)` dengan `force = true` dan pembersihan listener saat unmount.
+       - Pada `NotePanel`: Menambahkan event listener `window.addEventListener('drawingSaved', handler)` untuk me-rehydrate preview saat gambar disimpan.
+       - Pada `QuickDrawModal`: Memanggil `hydrateDrawingPreviews(null, true)` baik secara langsung maupun setelah delay saat modal ditutup.
+       - Pada `handlePrint` dan `handleExportDocx`: Memperbarui validasi SVG agar mendukung XML header (`includes('<svg')`).
+    2. `draw-app`:
+       - Membangun ulang (*rebuild*) vendor bundle tldraw produksi via `npm --prefix draw-app run build`.
+    3. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v322-inline-draw-preview-xml-fix`**.
+    4. `tests/offline/drawdirective.test.js`:
+       - Menambahkan suite pengujian unit baru (*TDD*) `Inline Drawing Preview SVG Parsing and XML Header Acceptance` (memvalidasi penerimaan `<svg>` standar, XML-prefixed SVG dari tldraw, penolakan non-SVG, serta asersi struktural terhadap 6 titik perbaikan di `static/index.html`).
+  - **Verifikasi:**
+    - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Backend test suite: `python -m pytest tests/` ➡️ **57/57 tests pass (0 fail)**.
+    - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **587/587 tests pass (0 fail)** across 6 suites.
+    - Independent Subagent Code Review: **APPROVED**.
+
+- **Fix Empty Dashboard Pinned Notes Card in Offline Mode (`notequery.js`, `noteroutes.js`, `index.html`, `sw.js`) — SELESAI 2026-08-26 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    1. Di `static/offline/notequery.js`: `TFquery` sebelumnya belum mengimplementasikan fungsi `getPinned()`.
+    2. Di `static/offline/noteroutes.js`: Rute `GET /api/scratchpad/pinned` belum terdaftar, sehingga saat dipanggil saat offline, router mencocokkannya ke `GET /api/scratchpad/:id` dengan `id="pinned"` yang menghasilkan 404 Not Found.
+    3. Di `static/index.html` (baris ~440): `api.fetch` memiliki guard pengecualian eksplisit `&& url !== "/api/scratchpad/pinned"`, yang memaksa request tersebut selalu dilempar ke jaringan (network) dan gagal total ketika aplikasi berjalan dalam kondisi offline.
+    4. Akibatnya, pada komponen Dashboard (`DashboardPage`), pemanggilan `api.get("/api/scratchpad/pinned")` saat offline masuk ke handler `.catch(() => {})` dan membiarkan state `pinnedNotes` kosong (`[]`), sehingga kartu "📌 Notes Disematkan" selalu menampilkan "Belum ada note yang disematkan.".
+  - **Solusi / Perbaikan:**
+    1. `static/offline/notequery.js`:
+       - Mengimplementasikan `getPinned()`: mengambil seluruh catatan dari IndexedDB store `scratchpad_notes`, menyaring catatan aktif (`!n.deleted && !!n.pinned`), mengurutkan secara descending (`updated_at DESC`), serta membentuk payload respons yang lengkap (`shape(n, ctx)` dengan tags dan display ID).
+       - Mengekspor `getPinned` ke objek modul ekspor.
+    2. `static/offline/noteroutes.js`:
+       - Mendaftarkan handler `router.register("GET", "/api/scratchpad/pinned", () => TFquery.getPinned())` sebelum rute wildcard `/:id`.
+    3. `static/index.html`:
+       - Menghapus pengecualian `&& url !== "/api/scratchpad/pinned"` pada interceptor `api.fetch`, sehingga request `/api/scratchpad/pinned` diproses langsung secara local-first oleh offline router.
+    4. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v321-dashboard-pinned-notes-offline-fix`**.
+    5. Unit Tests:
+       - `tests/offline/notequery.test.js`: Menambahkan pengujian `getPinned` (memvalidasi hanya catatan aktif yang di-pin yang dikembalikan dengan urutan `updated_at DESC` dan struktur data lengkap).
+       - `tests/offline/noteroutes.test.js`: Menambahkan unit test integrasi `GET /api/scratchpad/pinned` via local router.
+  - **Verifikasi:**
+    - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Backend test suite: `python -m pytest tests/` ➡️ **57/57 tests pass (0 fail)**.
+    - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **583/583 tests pass (0 fail)** across 5 suites.
+    - Independent Subagent Code Review: **APPROVED**.
+
 - **Fix Drawing Duplication during Sync & Server Dedup CID/UUID Protection (`syncpull.js`, `dedup_drawings.py`, `sw.js`) — SELESAI 2026-08-26 (Antigravity/Gemini):**
   - **Problem / Root Cause:**
     1. Di `static/offline/syncpull.js`: `ensureDrawingCid(serverId, cache)` sebelumnya melakukan strict comparison `d.server_id === serverId`. Ketika `serverId` bernilai numerik di server namun tersimpan sebagai string di IndexedDB (atau saat drawing baru lokal masih `server_id == null` namun server memiliki `client_id = d.cid`), lookup gagal mencocokkan record lokal yang ada dan membangkitkan CID baru sehingga memicu duplikasi record lokal.

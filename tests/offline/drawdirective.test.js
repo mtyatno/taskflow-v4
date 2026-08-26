@@ -486,4 +486,53 @@ describe('Drawing Directive Module', () => {
       assert.match(indexHtml, /tldraw\/index\.html\?noteId=\$\{tab\.id\}/, 'DrawingsPage tab instance must preserve tldraw iframe');
     });
   });
+
+  describe('Inline Drawing Preview SVG Parsing and XML Header Acceptance', () => {
+    function isValidSvg(svg) {
+      return Boolean(svg && (svg.includes('<svg') || svg.trim().startsWith('<svg')));
+    }
+
+    it('accepts standard <svg> string', () => {
+      const svg = '<svg width="100" height="100"><circle cx="50" cy="50" r="40" fill="red" /></svg>';
+      assert.equal(isValidSvg(svg), true);
+    });
+
+    it('accepts XML-prefixed <?xml version="1.0" encoding="utf-8"?> SVG output from tldraw', () => {
+      const xmlSvg = '<?xml version="1.0" encoding="utf-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 300"><path d="M10 10 L50 50" /></svg>';
+      assert.equal(isValidSvg(xmlSvg), true);
+      assert.equal(xmlSvg.trim().startsWith('<svg'), false, 'XML-prefixed SVG does not start with <svg');
+    });
+
+    it('rejects invalid or empty non-SVG string', () => {
+      assert.equal(isValidSvg(''), false);
+      assert.equal(isValidSvg(null), false);
+      assert.equal(isValidSvg(undefined), false);
+      assert.equal(isValidSvg('<div>Not an SVG</div>'), false);
+    });
+
+    it('verifies static/index.html includes all 6 preview hydration and XML fixes', () => {
+      const fs = require('fs');
+      const path = require('path');
+      const indexHtml = fs.readFileSync(path.resolve(__dirname, '../../static/index.html'), 'utf8');
+
+      // 1. hydrateDrawingPreviews includes('<svg')
+      assert.match(indexHtml, /if\s*\(\s*svg\s*&&\s*\(svg\.includes\(['"]<svg['"]\)\s*\|\|\s*svg\.trim\(\)\.startsWith\(['"]<svg['"]\)\)/);
+
+      // 2. _lastSavedDrawingSvg declaration and dual check
+      assert.match(indexHtml, /const\s+_lastSavedDrawingSvg\s*=\s*\{\};/);
+      assert.match(indexHtml, /_lastSavedDrawingJson\[did\]\s*===\s*e\.data\.data\s*&&\s*_lastSavedDrawingSvg\[did\]\s*===\s*newSvg/);
+
+      // 3. MilkdownEditor drawingSaved listener
+      assert.match(indexHtml, /window\.addEventListener\(['"]drawingSaved['"],\s*hydrate\)/);
+
+      // 4. NotePanel drawingSaved listener
+      assert.match(indexHtml, /window\.addEventListener\(["']drawingSaved["'],\s*handler\)/);
+
+      // 5. QuickDrawModal immediate + delayed hydration
+      assert.match(indexHtml, /const handleClose = \(\) => \{[\s\S]*?hydrateDrawingPreviews\(null,\s*true\)[\s\S]*?setTimeout\(/);
+
+      // 6. handlePrint and handleExportDocx includes('<svg')
+      assert.match(indexHtml, /d\.svg_preview\.includes\(['"]<svg['"]\)/);
+    });
+  });
 });

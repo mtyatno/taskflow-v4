@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { deleteDB } = require("./setup.js");
 const { DB_NAME, _reset, openDB } = require("../../static/offline/db.js");
 const { setEntityTags } = require("../../static/offline/tagrepo.js");
-const { getNotes, getNote, getRecent } = require("../../static/offline/notequery.js");
+const { getNotes, getNote, getRecent, getPinned } = require("../../static/offline/notequery.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
 
@@ -99,3 +99,23 @@ test("getBacklinks returns notes whose linked_to includes the target cid", async
   const rows = await getBacklinks("tgt");
   assert.deepEqual(rows.map((r) => r.title), ["Src1"]);
 });
+
+test("getPinned returns only non-deleted pinned notes sorted by updated_at DESC with full shape", async () => {
+  await put("scratchpad_notes", [
+    note({ cid: "n1", server_id: 101, title: "Pinned 1", content: "c1", pinned: true, updated_at: "2026-06-02T00:00:00" }),
+    note({ cid: "n2", server_id: 102, title: "Unpinned", content: "c2", pinned: false, updated_at: "2026-06-05T00:00:00" }),
+    note({ cid: "n3", server_id: 103, title: "Pinned 2", content: "c3", pinned: true, updated_at: "2026-06-04T00:00:00" }),
+    note({ cid: "n4", server_id: 104, title: "Pinned Deleted", content: "c4", pinned: true, deleted: true, updated_at: "2026-06-06T00:00:00" }),
+  ]);
+  await setEntityTags("note", "n3", ["important"]);
+  const rows = await getPinned();
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].id, 103);
+  assert.equal(rows[0].title, "Pinned 2");
+  assert.equal(rows[0].pinned, true);
+  assert.deepEqual(rows[0].tags, ["important"]);
+  assert.equal(rows[1].id, 101);
+  assert.equal(rows[1].title, "Pinned 1");
+  assert.equal(rows[1].pinned, true);
+});
+

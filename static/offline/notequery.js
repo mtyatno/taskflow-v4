@@ -105,7 +105,12 @@
     });
   }
 
-  const exported = { getNotes, getNote, getRecent, getTitles, getBacklinks };
+  function getPinned() {
+    return getAll("scratchpad_notes").then((all) =>
+      buildCtx(all).then((ctx) => personalSorted(all).filter((n) => !!n.pinned).map((n) => shape(n, ctx))));
+  }
+
+  const exported = { getNotes, getNote, getRecent, getTitles, getBacklinks, getPinned };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.notequery = exported; }
   return exported;
 });

@@ -2,6 +2,59 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-08-26 22:45] - Antigravity (Gemini)
+- **Task:** Fix Inline Drawing (`::draw[...]`) in Notes Showing Blank Frame / Missing Preview (`static/index.html`, `static/sw.js`, `draw-app`, `tests/offline/drawdirective.test.js`).
+- **Root Cause & Objective:**
+  1. `static/index.html`: `hydrateDrawingPreviews` strictly checked `svg && svg.trim().startsWith('<svg')`. When `tldraw` exported SVGs with standard XML header declarations (`<?xml version="1.0" encoding="utf-8"?>\n<svg...`), the check returned `false`, rejecting valid SVGs and leaving only the placeholder frame.
+  2. `static/index.html`: `handleIframeMessage` compared only `_lastSavedDrawingJson[did] === e.data.data`. When canvas changes had identical JSON but updated `svg` preview strings, saves were dropped and not persisted to IndexedDB or the server.
+  3. `MilkdownEditor` & `NotePanel`: Neither component listened to `drawingSaved` event to re-hydrate preview cards when drawings were saved.
+  4. `QuickDrawModal`: `handleClose` had a race condition without immediate hydration before modal close.
+  5. `handlePrint` & `handleExportDocx`: Rigid `startsWith('<svg')` checks failed for XML-prefixed SVGs during note print and Word (.docx) export.
+- **Changes:**
+  - `static/index.html`:
+    - Updated `hydrateDrawingPreviews` to check `svg && (svg.includes('<svg') || svg.trim().startsWith('<svg'))`.
+    - Added `_lastSavedDrawingSvg` state cache and updated `handleIframeMessage` to track both JSON and SVG payload differences.
+    - Added `drawingSaved` event listeners to `MilkdownEditor` and `NotePanel` to force re-hydration on drawing save.
+    - Updated `QuickDrawModal.handleClose` to trigger immediate and delayed preview hydration.
+    - Updated `handlePrint` and `handleExportDocx` to accept XML-prefixed SVGs.
+  - `draw-app`: Rebuilt production assets via `npm --prefix draw-app run build`.
+  - `static/sw.js`: Bumped Service Worker cache version to **`taskflow-v322-inline-draw-preview-xml-fix`**.
+  - `tests/offline/drawdirective.test.js`: Added unit tests for standard and XML-prefixed SVGs, and structural assertions across `index.html`.
+- **Verification:**
+  - `node --test tests/offline/*.test.js`: 587/587 passed (0 failures).
+  - `node scratch/check_inline.js static/index.html`: 5/5 scripts OK.
+  - `python -m pytest tests/`: 57/57 passed (0 failures).
+  - Independent Subagent Review: **APPROVED**.
+- **Status:** Completed.
+
+## [2026-08-26 22:05] - Antigravity (Gemini)
+- **Task:** Fix Empty Dashboard Pinned Notes Card in Offline Mode (`static/offline/notequery.js`, `static/offline/noteroutes.js`, `static/index.html`, `static/sw.js`).
+- **Root Cause & Objective:**
+  1. `static/offline/notequery.js`: Missing `getPinned()` method in `TFquery`.
+  2. `static/offline/noteroutes.js`: Missing route registration for `GET /api/scratchpad/pinned`. Offline requests were incorrectly falling back to `/:id` with `id="pinned"` and throwing 404.
+  3. `static/index.html`: `api.fetch` had an explicit bypass `&& url !== "/api/scratchpad/pinned"` that forced the request to hit the network, failing when the user is offline and leaving the Dashboard pinned notes card empty.
+- **Changes:**
+  - `static/offline/notequery.js`:
+    - Implemented `getPinned()` query returning non-deleted pinned notes (`!n.deleted && !!n.pinned`) sorted by `updated_at DESC` and enriched with tags and display IDs (`shape(n, ctx)`).
+    - Exported `getPinned` in module exports and UMD wrapper.
+  - `static/offline/noteroutes.js`:
+    - Registered `router.register("GET", "/api/scratchpad/pinned", () => TFquery.getPinned())`.
+  - `static/index.html`:
+    - Removed `&& url !== "/api/scratchpad/pinned"` from `api.fetch` offline interceptor.
+  - `static/sw.js`:
+    - Bumped Service Worker cache version to **`taskflow-v321-dashboard-pinned-notes-offline-fix`**.
+  - `tests/offline/notequery.test.js`:
+    - Added unit test for `getPinned()`.
+  - `tests/offline/noteroutes.test.js`:
+    - Added unit test for `GET /api/scratchpad/pinned` via router.
+- **Verification:**
+  - Inline script syntax: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **583/583 tests pass (0 fail)** across 5 suites.
+  - Backend test suite: `python -m pytest tests/` ➡️ **57/57 tests pass (0 fail)**.
+  - Independent Subagent Code Review: **APPROVED**.
+- **Files Modified:** `static/offline/notequery.js`, `static/offline/noteroutes.js`, `static/index.html`, `static/sw.js`, `tests/offline/notequery.test.js`, `tests/offline/noteroutes.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-08-26 13:45] - Antigravity (Gemini)
 - **Task:** Fix Drawing Duplication during Sync & Server Dedup CID/UUID Protection (`syncpull.js`, `dedup_drawings.py`, `sw.js`).
 - **Root Cause & Objective:**

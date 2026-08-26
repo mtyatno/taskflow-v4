@@ -33,6 +33,7 @@
   function registerNoteRoutes(router) {
     router.register("GET", "/api/scratchpad", ({ query }) => TFquery.getNotes(query || {}));
     router.register("GET", "/api/scratchpad/recent", () => TFquery.getRecent());
+    router.register("GET", "/api/scratchpad/pinned", () => TFquery.getPinned());
     router.register("GET", "/api/scratchpad/titles", () => TFquery.getTitles());
     router.register("GET", "/api/scratchpad/:id/backlinks", ({ params }) =>
       resolveNoteCid(params.id).then((cid) => (cid ? TFquery.getBacklinks(cid) : notFound())));

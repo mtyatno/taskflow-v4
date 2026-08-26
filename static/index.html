@@ -437,7 +437,7 @@ const api = {
       try { _router = api._localRouter || (api._localRouter = _R.buildTaskRouter()); } catch (_) { _router = null; }
       if (_router) {
         const _method = (opts.method || "GET").toUpperCase();
-        if (_router.hasRoute(_method, url) && !_R.isNoteTagsCall(_method, url) && url !== "/api/scratchpad/pinned") {
+        if (_router.hasRoute(_method, url) && !_R.isNoteTagsCall(_method, url)) {
           const _body = opts.body ? JSON.parse(opts.body) : undefined;
           const _res = await _router.dispatch(_method, url, _body)
             .catch(err => { throw new Error(err && err.message ? err.message : "local route error"); });
@@ -15293,7 +15293,7 @@ window.hydrateDrawingPreviews = function(root, force) {
         const d = await api.get(`/api/drawings/${did}`).catch(() => null);
         if (d && d.svg_preview) svg = d.svg_preview;
       }
-      if (svg && svg.trim().startsWith('<svg')) {
+      if (svg && (svg.includes('<svg') || svg.trim().startsWith('<svg'))) {
         el.innerHTML = svg;
         const svgEl = el.querySelector('svg');
         if (svgEl) {
@@ -16597,13 +16597,18 @@ function MilkdownEditor({
   // Hydrate drawings inside Milkdown editor
   React.useEffect(() => {
     if (!ready || !containerRef.current) return;
-    if (typeof window.hydrateDrawingPreviews === 'function') {
-      window.hydrateDrawingPreviews(containerRef.current, false);
-      const timer = setTimeout(() => {
-        window.hydrateDrawingPreviews(containerRef.current, false);
-      }, 300);
-      return () => clearTimeout(timer);
-    }
+    const hydrate = () => {
+      if (typeof window.hydrateDrawingPreviews === 'function' && containerRef.current) {
+        window.hydrateDrawingPreviews(containerRef.current, true);
+      }
+    };
+    hydrate();
+    const timer = setTimeout(hydrate, 300);
+    window.addEventListener('drawingSaved', hydrate);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('drawingSaved', hydrate);
+    };
   }, [value, ready]);
   const saveMathEdit = React.useCallback(() => {
     if (!mathEdit) return;
@@ -17394,6 +17399,9 @@ function QuickDrawModal({
   const handleClose = () => {
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage({ type: 'requestSnapshot' }, window.location.origin);
+    }
+    if (typeof window.hydrateDrawingPreviews === 'function') {
+      window.hydrateDrawingPreviews(null, true);
     }
     setTimeout(() => {
       onClose && onClose();
@@ -19736,7 +19744,7 @@ function NotePanel({
         if (!did) return;
         try {
           const d = await api.get(`/api/drawings/${did}`);
-          if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {
+          if (d && d.svg_preview && (d.svg_preview.includes('<svg') || d.svg_preview.trim().startsWith('<svg'))) {
             c.innerHTML = d.svg_preview;
             const cardEl = c.closest('.note-draw-card');
             const cardSize = cardEl ? (cardEl.getAttribute('data-size') || 'L') : 'L';
@@ -19799,7 +19807,7 @@ function NotePanel({
     const svgToPngDataUrl = (svgString) => {
       return new Promise((resolve) => {
         try {
-          if (!svgString || !svgString.trim().startsWith('<svg')) {
+          if (!svgString || (!svgString.includes('<svg') && !svgString.trim().startsWith('<svg'))) {
             return resolve(null);
           }
           let safeSvg = svgString;
@@ -19887,7 +19895,7 @@ function NotePanel({
           const dtitle = titleM ? (titleM[1] || titleM[2]) : "";
           try {
             const d = await api.get(`/api/drawings/${did}`);
-            if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {
+            if (d && d.svg_preview && (d.svg_preview.includes('<svg') || d.svg_preview.trim().startsWith('<svg'))) {
               const pngData = await svgToPngDataUrl(d.svg_preview);
               drawingsMap[did] = {
                 title: d.title || dtitle,
@@ -20052,9 +20060,16 @@ function NotePanel({
   }, [openDropdownIdx]);
 
   useEffect(() => {
+    const handler = () => {
+      if (typeof window.hydrateDrawingPreviews === 'function') {
+        window.hydrateDrawingPreviews(null, true);
+      }
+    };
     if (typeof window.hydrateDrawingPreviews === 'function') {
       setTimeout(() => window.hydrateDrawingPreviews(null, true), 50);
     }
+    window.addEventListener("drawingSaved", handler);
+    return () => window.removeEventListener("drawingSaved", handler);
   }, [note?.id, note?.content]);
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -24227,6 +24242,7 @@ function BackupReminder({ showToast }) {
   // BLOCK LENGTH: ~2385 lines (22721-24108) — orchestrates ALL state + routing
 
 const _lastSavedDrawingJson = {};
+const _lastSavedDrawingSvg = {};
 
 function App() {
   const [user, setUser] = useState(null);
@@ -24717,8 +24733,10 @@ function App() {
       if (e.origin !== window.location.origin) return;
       if (e.data?.type === 'change' && e.data.data && e.data.noteId && e.data.noteId !== 'default') {
         const did = e.data.noteId;
-        if (_lastSavedDrawingJson[did] === e.data.data) return;
+        const newSvg = e.data.svg !== undefined && e.data.svg !== null ? e.data.svg : "";
+        if (_lastSavedDrawingJson[did] === e.data.data && _lastSavedDrawingSvg[did] === newSvg) return;
         _lastSavedDrawingJson[did] = e.data.data;
+        _lastSavedDrawingSvg[did] = newSvg;
         const payload = { data_json: e.data.data };
         if (e.data.svg !== undefined && e.data.svg !== null) {
           payload.svg_preview = e.data.svg;
