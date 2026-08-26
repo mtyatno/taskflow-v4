@@ -573,7 +573,7 @@ function sync() {
       if (!window.TF.syncpull.pullDrawingsAndReconcile) return null;
       return window.TF.syncpull.pullDrawingsAndReconcile(__syncRawFetch).then((drawRes) => {
         if (drawRes && (drawRes.created > 0 || drawRes.updated > 0 || drawRes.deleted > 0 || drawRes.pinned > 0)) {
-          window.dispatchEvent(new CustomEvent("drawingSaved"));
+          window.dispatchEvent(new CustomEvent("drawingSaved", { detail: { source: "sync", ...drawRes } }));
         }
         return drawRes;
       });
@@ -9207,6 +9207,27 @@ function DrawingTabInstance({
     setRenameVal(tab?.title || "");
   }, [tab?.title]);
 
+  useEffect(() => {
+    const handler = async (e) => {
+      if (e.detail?.source === 'sync' || e.detail?.remote) {
+        const updatedId = e.detail?.id;
+        if (!updatedId || String(updatedId) === String(tab?.id)) {
+          try {
+            const fresh = await api.get(`/api/drawings/${tab.id}`);
+            if (fresh && fresh.data_json && iframeRef.current?.contentWindow) {
+              iframeRef.current.contentWindow.postMessage({
+                type: 'load',
+                data: fresh.data_json
+              }, window.location.origin);
+            }
+          } catch (_) {}
+        }
+      }
+    };
+    window.addEventListener("drawingSaved", handler);
+    return () => window.removeEventListener("drawingSaved", handler);
+  }, [tab?.id]);
+
   const handleRename = async () => {
     const next = renameVal.trim() || "Untitled Drawing";
     try {
@@ -17284,6 +17305,31 @@ function QuickDrawModal({
         }
       }).catch(() => {});
     }
+  }, [drawingId]);
+
+  useEffect(() => {
+    const handler = async (e) => {
+      if (e.detail?.source === 'sync' || e.detail?.remote) {
+        const updatedId = e.detail?.id;
+        if (!updatedId || String(updatedId) === String(drawingId)) {
+          try {
+            const fresh = await api.get(`/api/drawings/${drawingId}`);
+            if (fresh && fresh.title) {
+              setTitle(fresh.title);
+              setTitleInput(fresh.title);
+            }
+            if (fresh && fresh.data_json && iframeRef.current?.contentWindow) {
+              iframeRef.current.contentWindow.postMessage({
+                type: 'load',
+                data: fresh.data_json
+              }, window.location.origin);
+            }
+          } catch (_) {}
+        }
+      }
+    };
+    window.addEventListener("drawingSaved", handler);
+    return () => window.removeEventListener("drawingSaved", handler);
   }, [drawingId]);
 
   const handleSaveTitle = async () => {

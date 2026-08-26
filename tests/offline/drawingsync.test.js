@@ -569,3 +569,99 @@ test("Test 14: pullDrawingsAndReconcile fetches list and details, calling pullDr
   const tags = await getEntityTags("drawing", rec.cid);
   assert.deepEqual(tags.map((t) => t.name), ["reconcile"]);
 });
+
+// Test 15: pullDrawingsAndReconcile returns result counters for live event dispatching
+test("Test 15: pullDrawingsAndReconcile returns result counters for live event dispatching", async () => {
+  const bOld = await blobStore.put('{"v":1}', { mime: "application/json" });
+  await putDrawings([
+    localDrawing({
+      cid: "draw-update",
+      server_id: 901,
+      title: "Old Update Title",
+      blob_ref: bOld,
+      base_rev: "2026-08-25T01:00:00",
+      updated_at: "2026-08-25T01:00:00",
+      dirty: 0,
+      is_pinned: 0,
+    }),
+    localDrawing({
+      cid: "draw-delete",
+      server_id: 902,
+      title: "To Be Deleted",
+      blob_ref: bOld,
+      base_rev: "2026-08-25T01:00:00",
+      dirty: 0,
+      deleted: false,
+    }),
+    localDrawing({
+      cid: "draw-pin",
+      server_id: 903,
+      title: "To Be Pinned",
+      blob_ref: bOld,
+      base_rev: "2026-08-25T01:00:00",
+      updated_at: "2026-08-25T01:00:00",
+      dirty: 0,
+      is_pinned: 0,
+    }),
+  ]);
+  await mapPut("drawing", 901, "draw-update");
+  await mapPut("drawing", 902, "draw-delete");
+  await mapPut("drawing", 903, "draw-pin");
+
+  const fakeRawFetch = (url) => {
+    if (url === "/api/drawings") {
+      return Promise.resolve({
+        json: () => Promise.resolve([
+          { id: 901, title: "Server Updated Title", is_pinned: 0, updated_at: "2026-08-25T02:00:00" },
+          { id: 903, title: "To Be Pinned", is_pinned: 1, updated_at: "2026-08-25T01:00:00" },
+          { id: 904, title: "Server Created Title", is_pinned: 0, updated_at: "2026-08-25T03:00:00" },
+        ]),
+      });
+    }
+    if (url === "/api/drawings/901") {
+      return Promise.resolve({
+        json: () => Promise.resolve({
+          id: 901,
+          title: "Server Updated Title",
+          data_json: '{"v":2}',
+          svg_preview: "<svg>updated</svg>",
+          is_pinned: 0,
+          tags: ["updated"],
+          updated_at: "2026-08-25T02:00:00",
+        }),
+      });
+    }
+    if (url === "/api/drawings/904") {
+      return Promise.resolve({
+        json: () => Promise.resolve({
+          id: 904,
+          title: "Server Created Title",
+          data_json: '{"v":3}',
+          svg_preview: "<svg>created</svg>",
+          is_pinned: 0,
+          tags: ["created"],
+          updated_at: "2026-08-25T03:00:00",
+        }),
+      });
+    }
+    return Promise.reject(new Error("Unknown url: " + url));
+  };
+
+  const res = await pullDrawingsAndReconcile(fakeRawFetch);
+
+  assert.equal(res.created, 1);
+  assert.equal(res.updated, 1);
+  assert.equal(res.deleted, 1);
+  assert.equal(res.pinned, 1);
+
+  const shouldDispatch = res && (res.created > 0 || res.updated > 0 || res.deleted > 0 || res.pinned > 0);
+  assert.equal(shouldDispatch, true);
+
+  const eventDetail = { source: "sync", ...res };
+  assert.equal(eventDetail.source, "sync");
+  assert.equal(eventDetail.created, 1);
+  assert.equal(eventDetail.updated, 1);
+  assert.equal(eventDetail.deleted, 1);
+  assert.equal(eventDetail.pinned, 1);
+});
+

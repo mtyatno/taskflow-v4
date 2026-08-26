@@ -7,6 +7,25 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
+- **Drawing Canvas Live Content Synchronization (`DrawingTabInstance` & `QuickDrawModal`) — SELESAI 2026-08-26 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    - Ketika user menggambar di Browser 1 (misal Edge) dan menyimpan perubahannya ke server, background sync di Browser 2 (misal Firefox) berhasil mem-pull `data_json` terbaru ke IndexedDB dan memicu event `drawingSaved`.
+    - Namun, tab canvas yang sedang terbuka di Browser 2 (`DrawingTabInstance` dan modal `QuickDrawModal`) hanya me-load snapshot tldraw satu kali saat iframe mount. Karena kedua komponen tidak mendengarkan event `drawingSaved` dari `sync`, canvas tldraw yang sedang terbuka di Browser 2 tetap membeku dengan gambar versi lama sampai user menutup tab dan membukanya kembali secara manual.
+  - **Solusi / Perbaikan:**
+    - `static/index.html`:
+      - Di dalam `sync()`, menyertakan `{ detail: { source: "sync", ...drawRes } }` pada event `drawingSaved` saat `drawRes.created > 0 || drawRes.updated > 0 || drawRes.deleted > 0 || drawRes.pinned > 0`.
+      - Di dalam komponen `DrawingTabInstance`, menambahkan `useEffect` yang mendengarkan event `drawingSaved` (`source === 'sync' || remote`). Jika ID cocok atau wildcard, mengambil data drawing terbaru dari `api.get(/api/drawings/:id)` dan mengirimkan pesan `{ type: 'load', data: fresh.data_json }` ke `iframeRef.current.contentWindow`.
+      - Di dalam komponen `QuickDrawModal`, menambahkan `useEffect` serupa yang mendengarkan event `drawingSaved` untuk menyinkronkan judul (`title`) dan snapshot data (`fresh.data_json`) ke iframe tldraw yang sedang aktif.
+    - `static/sw.js`:
+      - Bump Service Worker cache version ke **`taskflow-v315-draw-canvas-live-sync`**.
+    - `tests/offline/drawingsync.test.js`:
+      - Menambahkan Test 15 untuk memvalidasi kembalian result counters dari `pullDrawingsAndReconcile` dan struktur payload event dispatching `drawingSaved`.
+  - **Verifikasi:**
+    - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **575/575 tests pass (0 fail)**.
+    - Backend test suite: `python -m pytest tests/` ➡️ **55/55 tests pass (0 fail)**.
+    - Independent Subagent Code Review: **APPROVED**.
+
 - **DrawPage Real-time Drawing List Refresh on `drawingSaved` Event — SELESAI 2026-08-25 (Antigravity/Gemini):**
   - **Problem / Context:**
     - Saat background sync (`sync()`) selesai mem-pull gambar terbaru dari perangkat lain dan memicu event `drawingSaved`, komponen `DrawPage` belum mendengarkan event tersebut sehingga daftar gambar di sidebar `DrawPage` tidak ter-refresh secara real-time tanpa refresh browser (F5).

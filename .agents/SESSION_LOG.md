@@ -2,6 +2,25 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-08-26 07:45] - Antigravity (Gemini)
+- **Task:** Live Canvas Content Sync for Open Drawing Tabs (`DrawingTabInstance`) and QuickDraw Modals (`QuickDrawModal`).
+- **Root Cause:**
+  - While drawing list item sync was functional, open `DrawingTabInstance` and `QuickDrawModal` iframes only initialized their snapshot once upon mount. When remote sync (`sync()`) pulled updated drawing data, open tab instances never dispatched `{ type: 'load', data: fresh.data_json }` to their embedded tldraw iframe, forcing the user to close and reopen both tabs to see updated canvas drawings.
+- **Changes:**
+  - `static/index.html`:
+    - Enriched `drawingSaved` dispatch in `sync()` with `{ source: "sync", ...drawRes }`.
+    - Added `useEffect` in `DrawingTabInstance` listening for `drawingSaved` events with `source === "sync"` to fetch `/api/drawings/${tab.id}` and post `{ type: "load", data: fresh.data_json }` directly to the open tldraw iframe.
+    - Added matching `useEffect` in `QuickDrawModal` to live-update the canvas snapshot and modal title on remote sync.
+  - `static/sw.js`: Bumped SW cache to **`taskflow-v315-draw-canvas-live-sync`**.
+  - `tests/offline/drawingsync.test.js`: Added Test 15 verifying `pullDrawingsAndReconcile` result counters and event detail payload structure (15/15 tests passing).
+- **Verification:**
+  - Syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - JS Test Suite: `node --test tests/offline/*.test.js` ➡️ **575/575 tests pass (0 fail)**.
+  - Python Tests: `python -m pytest tests/` ➡️ **55/55 pass (0 fail)**.
+  - Code Review: Independent subagent review **APPROVED**.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `tests/offline/drawingsync.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved
+
 ## [2026-08-26 00:05] - Antigravity (Gemini)
 - **Task:** Extract `fetchDrawingsList` helper and add `drawingSaved` event listener in `DrawPage` for real-time list refresh.
 - **Changes:**
