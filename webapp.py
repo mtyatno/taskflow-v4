@@ -4968,6 +4968,74 @@ _PASSWORD_GATE_HTML = """<!DOCTYPE html>
 </div>
 </body></html>"""
 
+@app.get("/pub/attachments/{att_id}")
+async def view_published_attachment(att_id: int):
+    """Public attachment view — only if the parent note is published."""
+    import requests as _req
+    with get_db() as conn:
+        att = conn.execute(
+            """SELECT a.* FROM note_attachments a
+               JOIN published_notes p ON p.note_id = a.note_id
+               WHERE a.id = ?""",
+            (att_id,)
+        ).fetchone()
+        if not att:
+            raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
+
+        safe_name = (att["original_name"] or "file").replace('"', '_').replace('\r', '').replace('\n', '')
+        mime_type = att["mime_type"] or "application/octet-stream"
+        nc_path = att["nextcloud_path"] or ""
+
+        # Local storage fallback
+        if nc_path:
+            try:
+                local_path = os.path.join(UPLOAD_DIR, os.path.basename(nc_path))
+                if os.path.exists(local_path):
+                    return FileResponse(local_path, filename=safe_name, media_type=mime_type)
+            except Exception:
+                pass
+
+        # Nextcloud storage check
+        if NEXTCLOUD_URL and nc_path:
+            try:
+                r = _req.get(_nc_dav_url(nc_path), auth=_nc_auth(), timeout=15)
+                if r.status_code == 200:
+                    return Response(
+                        content=r.content,
+                        media_type=mime_type,
+                        headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
+                    )
+                r.close()
+            except Exception:
+                pass
+
+        # If not found in Nextcloud or local, return 404 cleanly
+        raise HTTPException(status_code=404, detail="File tidak ditemukan")
+
+@app.get("/pub/drawings/{drawing_id}")
+async def get_published_drawing(drawing_id: str):
+    """Public drawing retrieval for published notes."""
+    with get_db() as conn:
+        row = None
+        if drawing_id.isdigit():
+            row = conn.execute(
+                "SELECT id, title, data_json, svg_preview FROM drawings WHERE id = ?",
+                (int(drawing_id),)
+            ).fetchone()
+        if not row:
+            row = conn.execute(
+                "SELECT id, title, data_json, svg_preview FROM drawings WHERE client_id = ?",
+                (drawing_id,)
+            ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        return {
+            "id": row["id"],
+            "title": row["title"],
+            "data_json": row["data_json"] or "{}",
+            "svg_preview": row["svg_preview"] or ""
+        }
+
 @app.get("/pub/{slug}")
 async def view_published_note_legacy(slug: str):
     """Redirect old /pub/{slug} URLs to new /pub/{username}/{slug} format."""
@@ -5258,67 +5326,6 @@ async def unlock_published_note(username: str, slug: str, request: Request):
             secure=True
         )
         return response
-
-@app.get("/pub/attachments/{att_id}")
-async def view_published_attachment(att_id: int):
-    """Public attachment view — only if the parent note is published."""
-    import requests as _req
-    with get_db() as conn:
-        att = conn.execute(
-            """SELECT a.* FROM note_attachments a
-               JOIN published_notes p ON p.note_id = a.note_id
-               WHERE a.id = ?""",
-            (att_id,)
-        ).fetchone()
-        if not att:
-            raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
-
-        safe_name = (att["original_name"] or "file").replace('"', '_').replace('\r', '').replace('\n', '')
-        mime_type = att["mime_type"] or "application/octet-stream"
-        nc_path = att["nextcloud_path"] or ""
-
-        # Local storage fallback
-        if nc_path:
-            try:
-                local_path = os.path.join(UPLOAD_DIR, os.path.basename(nc_path))
-                if os.path.exists(local_path):
-                    return FileResponse(local_path, filename=safe_name, media_type=mime_type)
-            except Exception:
-                pass
-
-        # Nextcloud storage check
-        if NEXTCLOUD_URL and nc_path:
-            try:
-                r = _req.get(_nc_dav_url(nc_path), auth=_nc_auth(), timeout=15)
-                if r.status_code == 200:
-                    return Response(
-                        content=r.content,
-                        media_type=mime_type,
-                        headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
-                    )
-                r.close()
-            except Exception:
-                pass
-
-        # If not found in Nextcloud or local, return 404 cleanly
-        raise HTTPException(status_code=404, detail="File tidak ditemukan")
-
-@app.get("/pub/drawings/{drawing_id}")
-async def get_published_drawing(drawing_id: int):
-    """Public drawing retrieval for published notes."""
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT id, title, data_json, svg_preview FROM drawings WHERE id = ?",
-            (drawing_id,)
-        ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
-        return {
-            "id": row["id"],
-            "title": row["title"],
-            "data_json": row["data_json"] or "{}",
-            "svg_preview": row["svg_preview"] or ""
-        }
 
 @app.get("/api/scratchpad/{note_id}/backlinks")
 async def get_backlinks(note_id: int, user=Depends(get_current_user)):
@@ -5795,10 +5802,17 @@ def _drawing_enrich(row_dict: dict, conn) -> dict:
     row_dict["tags"] = [r["name"] for r in tag_rows]
     uid = row_dict.get("user_id")
     if uid:
-        note_rows = conn.execute(
-            "SELECT id, title FROM scratchpad_notes WHERE content LIKE ? AND user_id = ? ORDER BY updated_at DESC LIMIT 5",
-            (f"%::draw[{did}]%", uid)
-        ).fetchall()
+        cid = row_dict.get("client_id")
+        if cid:
+            note_rows = conn.execute(
+                "SELECT id, title FROM scratchpad_notes WHERE (content LIKE ? OR content LIKE ?) AND user_id = ? ORDER BY updated_at DESC LIMIT 5",
+                (f"%::draw[{did}]%", f"%::draw[{cid}]%", uid)
+            ).fetchall()
+        else:
+            note_rows = conn.execute(
+                "SELECT id, title FROM scratchpad_notes WHERE content LIKE ? AND user_id = ? ORDER BY updated_at DESC LIMIT 5",
+                (f"%::draw[{did}]%", uid)
+            ).fetchall()
         row_dict["linked_notes"] = [dict(nr) for nr in note_rows]
     else:
         row_dict["linked_notes"] = []
@@ -5852,72 +5866,103 @@ async def create_drawing(req: DrawingCreate, user=Depends(get_current_user)):
 
 
 @app.get("/api/drawings/{did}")
-async def get_drawing_detail(did: int, user=Depends(get_current_user)):
+async def get_drawing_detail(did: str, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT * FROM drawings WHERE id = ? AND user_id = ?",
-            (did, uid)
-        ).fetchone()
+        row = None
+        if did.isdigit():
+            row = conn.execute(
+                "SELECT * FROM drawings WHERE id = ? AND user_id = ?",
+                (int(did), uid)
+            ).fetchone()
+        if not row:
+            row = conn.execute(
+                "SELECT * FROM drawings WHERE client_id = ? AND user_id = ?",
+                (did, uid)
+            ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
         return _drawing_enrich(dict(row), conn)
 
 
 @app.put("/api/drawings/{did}")
-async def update_drawing_detail(did: int, req: DrawingUpdate, user=Depends(get_current_user)):
+async def update_drawing_detail(did: str, req: DrawingUpdate, user=Depends(get_current_user)):
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT * FROM drawings WHERE id = ? AND user_id = ?",
-            (did, uid)
-        ).fetchone()
+        row = None
+        if did.isdigit():
+            row = conn.execute(
+                "SELECT * FROM drawings WHERE id = ? AND user_id = ?",
+                (int(did), uid)
+            ).fetchone()
+        if not row:
+            row = conn.execute(
+                "SELECT * FROM drawings WHERE client_id = ? AND user_id = ?",
+                (did, uid)
+            ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        target_id = row["id"]
         new_title = req.title if req.title is not None else row["title"]
         new_data = req.data_json if req.data_json is not None else row["data_json"]
         new_svg = req.svg_preview if req.svg_preview is not None else row["svg_preview"]
         conn.execute(
             "UPDATE drawings SET title = ?, data_json = ?, svg_preview = ?, updated_at = ? WHERE id = ?",
-            (new_title, new_data, new_svg, now, did)
+            (new_title, new_data, new_svg, now, target_id)
         )
         if req.tags is not None:
-            conn.execute("DELETE FROM entity_tags WHERE entity_type = 'drawing' AND entity_id = ?", (did,))
+            conn.execute("DELETE FROM entity_tags WHERE entity_type = 'drawing' AND entity_id = ?", (target_id,))
             if req.tags:
-                _upsert_tags_for_entity(conn, did, uid, "drawing", req.tags)
-        updated = conn.execute("SELECT * FROM drawings WHERE id = ?", (did,)).fetchone()
+                _upsert_tags_for_entity(conn, target_id, uid, "drawing", req.tags)
+        updated = conn.execute("SELECT * FROM drawings WHERE id = ?", (target_id,)).fetchone()
         return _drawing_enrich(dict(updated), conn)
 
 
 @app.patch("/api/drawings/{did}/pin")
-async def toggle_pin_drawing(did: int, user=Depends(get_current_user)):
+async def toggle_pin_drawing(did: str, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT id, is_pinned FROM drawings WHERE id = ? AND user_id = ?",
-            (did, uid)
-        ).fetchone()
+        row = None
+        if did.isdigit():
+            row = conn.execute(
+                "SELECT id, is_pinned FROM drawings WHERE id = ? AND user_id = ?",
+                (int(did), uid)
+            ).fetchone()
+        if not row:
+            row = conn.execute(
+                "SELECT id, is_pinned FROM drawings WHERE client_id = ? AND user_id = ?",
+                (did, uid)
+            ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        target_id = row["id"]
         new_pin = 0 if row["is_pinned"] else 1
-        conn.execute("UPDATE drawings SET is_pinned = ? WHERE id = ?", (new_pin, did))
-        updated = conn.execute("SELECT * FROM drawings WHERE id = ?", (did,)).fetchone()
+        conn.execute("UPDATE drawings SET is_pinned = ? WHERE id = ?", (new_pin, target_id))
+        updated = conn.execute("SELECT * FROM drawings WHERE id = ?", (target_id,)).fetchone()
         return dict(updated)
 
 
 @app.delete("/api/drawings/{did}")
-async def delete_drawing_detail(did: int, user=Depends(get_current_user)):
+async def delete_drawing_detail(did: str, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT id FROM drawings WHERE id = ? AND user_id = ?",
-            (did, uid)
-        ).fetchone()
+        row = None
+        if did.isdigit():
+            row = conn.execute(
+                "SELECT id FROM drawings WHERE id = ? AND user_id = ?",
+                (int(did), uid)
+            ).fetchone()
+        if not row:
+            row = conn.execute(
+                "SELECT id FROM drawings WHERE client_id = ? AND user_id = ?",
+                (did, uid)
+            ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
-        conn.execute("DELETE FROM entity_tags WHERE entity_type = 'drawing' AND entity_id = ?", (did,))
-        conn.execute("DELETE FROM drawings WHERE id = ?", (did,))
+        target_id = row["id"]
+        conn.execute("DELETE FROM entity_tags WHERE entity_type = 'drawing' AND entity_id = ?", (target_id,))
+        conn.execute("DELETE FROM drawings WHERE id = ?", (target_id,))
     return {"ok": True}
 
 

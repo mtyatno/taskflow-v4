@@ -218,3 +218,78 @@ def test_drawing_responses_include_server_id(client):
 
     upd = client.put(f"/api/drawings/{drawing['id']}", json={"title": "Gambar Server ID v2"}, headers=headers).json()
     assert upd["server_id"] == upd["id"], "response update harus membawa server_id == id"
+
+
+def test_drawing_endpoints_by_client_id(client):
+    """GET, PUT, PATCH, DELETE /api/drawings/{did} and /pub/drawings/{drawing_id} must support client_id string."""
+    user = register_user(client, "ciduser", "ciduser@test.id")
+    token = user.get("token") or user.get("access_token")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+    cid = "drw_test_cid_123"
+
+    # 1. Create drawing with client_id
+    create_res = client.post("/api/drawings", json={
+        "title": "Drawing CID Test",
+        "data_json": '{"shapes":{"s1":{"type":"circle"}}}',
+        "svg_preview": "<svg>circle</svg>",
+        "tags": ["inline", "test"],
+        "client_id": cid
+    }, headers=headers)
+    assert create_res.status_code == 200, create_res.text
+    drawing = create_res.json()
+    assert drawing["title"] == "Drawing CID Test"
+    numeric_id = drawing["id"]
+    assert drawing["server_id"] == numeric_id
+
+    # 2. GET by client_id
+    get_res = client.get(f"/api/drawings/{cid}", headers=headers)
+    assert get_res.status_code == 200, get_res.text
+    detail = get_res.json()
+    assert detail["id"] == numeric_id
+    assert detail["server_id"] == numeric_id
+    assert detail["title"] == "Drawing CID Test"
+    assert "inline" in detail["tags"]
+
+    # 3. GET public by client_id
+    pub_res = client.get(f"/pub/drawings/{cid}")
+    assert pub_res.status_code == 200, pub_res.text
+    pub_data = pub_res.json()
+    assert pub_data["id"] == numeric_id
+    assert pub_data["title"] == "Drawing CID Test"
+    assert pub_data["svg_preview"] == "<svg>circle</svg>"
+
+    # 4. PUT by client_id
+    update_res = client.put(f"/api/drawings/{cid}", json={
+        "title": "Drawing CID Updated",
+        "data_json": '{"shapes":{"s1":{"type":"circle"},"s2":{"type":"rect"}}}',
+        "svg_preview": "<svg>circle+rect</svg>",
+        "tags": ["inline", "updated"]
+    }, headers=headers)
+    assert update_res.status_code == 200, update_res.text
+    updated = update_res.json()
+    assert updated["id"] == numeric_id
+    assert updated["title"] == "Drawing CID Updated"
+    assert "updated" in updated["tags"]
+
+    # 5. PATCH pin by client_id
+    pin_res = client.patch(f"/api/drawings/{cid}/pin", headers=headers)
+    assert pin_res.status_code == 200, pin_res.text
+    assert pin_res.json()["is_pinned"] == 1
+
+    unpin_res = client.patch(f"/api/drawings/{cid}/pin", headers=headers)
+    assert unpin_res.status_code == 200, unpin_res.text
+    assert unpin_res.json()["is_pinned"] == 0
+
+    # 6. DELETE by client_id
+    del_res = client.delete(f"/api/drawings/{cid}", headers=headers)
+    assert del_res.status_code == 200, del_res.text
+    assert del_res.json()["ok"] is True
+
+    # 7. Verify 404 after delete
+    get_after = client.get(f"/api/drawings/{cid}", headers=headers)
+    assert get_after.status_code == 404
+
+    pub_after = client.get(f"/pub/drawings/{cid}")
+    assert pub_after.status_code == 404
+

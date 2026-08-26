@@ -277,7 +277,6 @@ export default function App() {
     <div style={{ position: 'fixed', inset: 0 }}>
       <Tldraw
         assetUrls={assetUrls}
-        persistenceKey={`tldraw-note-${noteId}`}
         onMount={handleMount}
         overrides={uiOverrides}
       />

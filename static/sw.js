@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v317-draw-smart-shape-automerge";
+const CACHE = "taskflow-v318-inline-draw-sync";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

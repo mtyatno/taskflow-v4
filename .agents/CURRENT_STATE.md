@@ -7,6 +7,30 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
+- **Fix Note Inline Drawings (`::draw[...]` / `QuickDrawModal`) & Draw Page (`DrawPage`) Synchronization — SELESAI 2026-08-26 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    1. Ketika gambar dibuat inline di Catatan (`::draw[drw_...]`), client menggunakan CID (string `drw_...`). Endpoint `/api/drawings/{did}` di `webapp.py` sebelumnya memiliki anotasi tipe `did: int`, sehingga saat iframe di Note me-request `/api/drawings/drw_...`, FastAPI merespons `422 Unprocessable Entity`.
+    2. Endpoint `/pub/drawings/{drawing_id}` dan `/pub/attachments/{att_id}` di `webapp.py` terdaftar setelah route wildcard `/pub/{username}/{slug}`, sehingga lookup drawing publik dengan string CID salah diarahkan ke handler halaman publik dan mengembalikan 404.
+    3. Di `draw-app/src/App.jsx`, `<Tldraw>` memiliki prop `persistenceKey={'tldraw-note-' + noteId}`. Saat dibuka dari Note, tldraw me-load cache localStorage `tldraw-note-drw_...`, sementara DrawPage me-load `tldraw-note-105`. Dua key terpisah ini menyebabkan tldraw me-load state usang/divergen alih-alih mengambil snapshot mutakhir dari database.
+  - **Solusi / Perbaikan:**
+    1. `webapp.py`:
+       - Mengubah anotasi tipe `did: str` pada `get_drawing_detail`, `update_drawing_detail`, `toggle_pin_drawing`, dan `delete_drawing_detail`.
+       - Menambahkan helper resolver by `int(did)` jika `did.isdigit()` dan fallback ke `client_id = ?`. Menggunakan resolved integer `id` untuk operasi SQL UPDATE/DELETE/PATCH.
+       - Mengubah `get_published_drawing(drawing_id: str)` untuk mendukung lookup id integer dan `client_id`.
+       - Memindahkan endpoint `/pub/drawings/{drawing_id}` dan `/pub/attachments/{att_id}` sebelum route wildcard `/pub/{slug}` dan `/pub/{username}/{slug}`.
+       - Mengupdate `_drawing_enrich` untuk mencocokkan `::draw[{did}]` dan `::draw[{cid}]` pada linked notes.
+    2. `draw-app/src/App.jsx`:
+       - Menghapus prop `persistenceKey={`tldraw-note-${noteId}`}` dari `<Tldraw>` agar tldraw selalu me-mount secara bersih dan me-load authoritative snapshot dari database via `handleMount`.
+       - Mengompilasi bundle produksi: `npm --prefix draw-app run build` (`static/vendor/tldraw/assets/index.js`).
+    3. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v318-inline-draw-sync`**.
+    4. `tests/test_drawings.py`:
+       - Menambahkan unit test `test_drawing_endpoints_by_client_id` untuk memvalidasi `GET`, `PUT`, `PATCH`, `DELETE` by `client_id` (e.g. `drw_test_cid_123`) dan `/pub/drawings/{client_id}`.
+  - **Verifikasi:**
+    - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Backend test suite: `python -m pytest tests/` ➡️ **56/56 tests pass (0 fail)**.
+    - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **580/580 tests pass (0 fail)** across 5 suites.
+
 - **Drawing Smart Shape-Level Auto-Merge Engine (`static/offline/syncpull.js`) — SELESAI 2026-08-26 (Antigravity/Gemini):**
   - **Problem / Root Cause:**
     - Sebelumnya, sinkronisasi gambar menggunakan LWW (Last-Write-Wins) pada level file/snapshot utuh. Jika user mengedit gambar yang sama di dua tempat saat offline terpisah (misal di Kantor dan di Rumah), saat online snapshot dari satu tempat akan menimpa seluruh coretan dari tempat lain.

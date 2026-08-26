@@ -2,6 +2,30 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-08-26 12:55] - Antigravity (Gemini)
+- **Task:** Synchronize Note Inline Drawings (`::draw[...]` / `QuickDrawModal`) and Draw Page Drawings (`DrawPage`) via client_id Endpoint Routing and Clean Tldraw State Mount.
+- **Root Cause & Objective:**
+  1. Note markdown stores drawings with client CID (e.g. `drw_1724678123_abc`). `webapp.py` drawing endpoints had type annotations `did: int`, returning `422 Unprocessable Entity` when requested by the inline iframe.
+  2. `/pub/drawings/{drawing_id}` was positioned after wildcard route `/pub/{username}/{slug}`, misrouting public drawing requests.
+  3. `<Tldraw>` in `draw-app/src/App.jsx` used `persistenceKey={'tldraw-note-' + noteId}`, causing tldraw to load stale localStorage snapshots instead of authoritative DB state from `handleMount`.
+- **Changes:**
+  - `webapp.py`:
+    - Updated `get_drawing_detail(did: str, ...)`, `update_drawing_detail(did: str, ...)`, `toggle_pin_drawing(did: str, ...)`, and `delete_drawing_detail(did: str, ...)` to accept string `did` and query by `id` (if digit) or `client_id`.
+    - Updated `get_published_drawing(drawing_id: str)` to accept string and query by `id` or `client_id`.
+    - Reordered `/pub/drawings/{drawing_id}` and `/pub/attachments/{att_id}` before `/pub/{slug}` and `/pub/{username}/{slug}`.
+    - Updated `_drawing_enrich` linked notes query to match both `::draw[{did}]` and `::draw[{cid}]`.
+  - `draw-app/src/App.jsx`:
+    - Removed `persistenceKey={`tldraw-note-${noteId}`}` from `<Tldraw>` props so that tldraw always mounts cleanly and loads authoritative snapshot.
+    - Built production bundle with `npm --prefix draw-app run build`.
+  - `static/sw.js`: Bumped SW cache version to **`taskflow-v318-inline-draw-sync`**.
+  - `tests/test_drawings.py`: Added `test_drawing_endpoints_by_client_id` testing GET, PUT, PATCH, DELETE and /pub/drawings by client_id.
+- **Verification:**
+  - Inline script syntax: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **580/580 tests pass (0 fail)**.
+  - Backend test suite: `python -m pytest tests/` ➡️ **56/56 tests pass (0 fail)**.
+- **Files Modified:** `webapp.py`, `draw-app/src/App.jsx`, `static/vendor/tldraw/assets/index.js`, `static/sw.js`, `tests/test_drawings.py`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-08-26 11:25] - Antigravity (Gemini)
 - **Task:** Implement Smart Shape-Level Auto-Merge for Drawings in `static/offline/syncpull.js` and Service Worker v317.
 - **Root Cause & Objective:**
