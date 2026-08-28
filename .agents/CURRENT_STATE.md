@@ -7,7 +7,58 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
+- **Fix Inline Drawing Standalone Open ("Gambar tidak ditemukan") from Note Modal/Viewer to DrawPage (`static/index.html`, `static/sw.js`, `tests/offline/drawpage_open.test.js`, `tests/offline/draw_local_reactive.test.js`) — SELESAI 2026-08-28 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    1. **Multi-Identifier Mismatch (Numeric Server ID vs String Client CID):** Ketika inline drawing disisipkan via slash command `/draw` (`::draw[drw_...]`), ID yang disimpan di catatan adalah Client CID string (misal `drw_1724678123_abc`). Ketika dibuka ke halaman standalone `DrawPage`, `list.find`, `drawings.find`, dan `openDrawing` handler hanya melakukan strict equality `String(d.id) === String(initialDrawingId)`. Jika drawing record telah tersinkronkan atau memiliki numeric `d.id = 105`, pencocokan gagal (`String(105) !== "drw_..."`), sehingga pencarian lokal gagal.
+    2. **`configureFetcher` Null Fallback:** Pada `configureFetcher` di `static/index.html`, handler memanggil `window.TF.idmap.serverIdOf(noteCid)`. Jika `noteCid` adalah CID yang belum tercatat di `_idmap` lokal atau merupakan numeric ID, `serverIdOf` mengembalikan `null`, dan fetcher mengembalikan `null` tanpa mencoba me-request `__syncRawFetch('/api/drawings/' + target)` (padahal backend FastAPI mendukung lookup by integer ID dan string `client_id`). Akibatnya offline router me-reject request dengan 404.
+    3. **Mount Race Condition pada `useEffect([initialDrawingId])`:** Pada saat `DrawPage` pertama kali mount, state `drawings` bernilai array kosong (`[]`). `useEffect([initialDrawingId])` langsung mengeksekusi `drawings.find(...)` yang pasti undefined, langsung menembak `api.get` dan secara prematur memanggil `onInitialDrawingConsumed()` sebelum proses `fetchDrawingsList()` selesai.
+    4. **`selectDrawing` Tab Mapping & ID Fallback:** `selectDrawing` sebelumnya menggunakan `d.id` langsung tanpa fallback ke `d.cid`, dan pemetaan tab (`res.tabs.map`) belum menggunakan multi-identifier matching.
+  - **Solusi / Perbaikan:**
+    1. `static/index.html`:
+       - Menambahkan helper `matchesDrawingId(d, targetId)` di `DrawPage` yang mencocokkan target terhadap `d.id`, `d.cid`, `d.client_id`, dan `d.server_id`.
+       - Mengupdate seluruh lookup di `DrawPage` (`list.find`, `drawings.find`, `openDrawing` event listener, deduplikasi `prev.some` di `setDrawings`, dan tab mapping di `selectDrawing`) menggunakan `matchesDrawingId`.
+       - Mengupdate `selectDrawing` untuk menentukan `drawId = d.id != null ? d.id : d.cid`.
+       - Menambahkan guard `if (!initialDrawingId || loading) return;` pada `useEffect([initialDrawingId, loading])` guna mencegah race condition pada saat inisialisasi awal.
+       - Memperbarui `configureFetcher` agar mendukung numeric ID secara instan dan melakukan fallback `sid != null ? sid : idOrCid` langsung ke `__syncRawFetch`.
+    2. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v325-draw-open-cid-standalone-fix`**.
+    3. Unit Tests:
+       - `tests/offline/drawpage_open.test.js`: Menambahkan suite pengujian komprehensif memvalidasi `matchesDrawingId`, resolusi CID/numeric ID, non-premature mount consumption, dan fetcher fallback (12/12 pass).
+       - `tests/offline/draw_local_reactive.test.js`: Menyesuaikan assertion `selectDrawing` ke `drawId`/`d.id` (5/5 pass).
+  - **Verifikasi:**
+    - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Backend test suite: `python -m pytest tests/` ➡️ **57/57 tests pass (0 fail)**.
+    - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **594/594 tests pass (0 fail)** across 7 suites.
+    - Independent Subagent Code Review: **APPROVED**.
+
+- **Unified Offline Drawing Reactivity & Bidirectional Synchronization (Notes ↔ DrawPage) — SELESAI 2026-08-27 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    1. **Rogue Network Fetch di `draw-app/src/App.jsx`:** Pada `handleMount`, iframe `draw-app` melakukan `fetch(/api/drawings/${noteId})` langsung ke jaringan backend SQLite. Ketika pengguna mengedit gambar di catatan (offline / sebelum sync), lalu membuka halaman `DrawPage`, iframe melakukan fetch ke server yang masih memegang data lama (stale snapshot). Snapshot lama ini termuat ke kanvas dan memicu event perubahan (`change`) yang menimpa kembali (*overwrite/revert*) data mutakhir di IndexedDB lokal.
+    2. **Race Condition Unmount pada `QuickDrawModal.handleClose`:** Penutupan modal `QuickDrawModal` sebelumnya hanya menunggu 120ms (`setTimeout 120ms`). Ketika pengguna baru saja selesai menggambar dan mengklik "✓ Selesai", proses `requestSnapshot` (generasi SVG asinkron) belum sempat mengirim pesan `{ type: 'change' }` sebelum iframe di-unmount oleh React.
+    3. **Event Listener `drawingSaved` Mengabaikan Save Lokal:** Pada komponen `DrawingTabInstance` dan `QuickDrawModal` di `static/index.html`, terdapat guard `if (e.detail?.source === 'sync' || e.detail?.remote)`. Karena penyimpanan lokal dari catatan/kanvas menembakkan `{ detail: { id: did } }` tanpa flag `source: 'sync'`, tab halaman Draw yang sedang terbuka mengabaikan seluruh pembaruan lokal dari catatan (dan sebaliknya) sampai proses `sync()` server dijalankan.
+    4. **`DrawPage.selectDrawing` Mem-bypass Router Offline:** Pemanggilan `selectDrawing` sebelumnya menggunakan `__syncRawFetch('/api/drawings/' + d.id)` yang langsung menembak jaringan backend FastAPI alih-alih melalui `api.get` (offline router lokal IndexedDB + BlobStore).
+  - **Solusi / Perbaikan:**
+    1. `draw-app/src/App.jsx`:
+       - Menghapus seluruh pemanggilan direct network `fetch(/api/drawings/${noteId})` di dalam `handleMount`. Iframe kini 100% offline-first mengandalkan handshake `{ type: 'ready' }` / `{ type: 'load' }` dari parent window host.
+       - Membangun ulang (*rebuild*) bundle vendor tldraw produksi: `npm --prefix draw-app run build` (`static/vendor/tldraw/assets/index.js`).
+    2. `static/index.html`:
+       - Pada `QuickDrawModal.handleClose`: Menaikkan close timeout dari 120ms ke 350ms guna memberikan waktu yang aman bagi `requestSnapshot` untuk men-serialize SVG dan mengirimkan pesan `{ type: 'change' }` sebelum iframe dilepas dari DOM.
+       - Pada `DrawingTabInstance` & `QuickDrawModal`: Menghapus guard `e.detail?.source === 'sync'`. Handler kini secara instan mendengarkan seluruh event `drawingSaved` yang cocok dengan `tab.id`/`drawingId`, mengambil snapshot terbaru via `api.get`, membandingkan dengan `lastLoadedJsonRef` untuk mencegah echo loop, dan mengirim `{ type: 'load', data: fresh.data_json }` ke iframe.
+       - Pada `DrawPage.selectDrawing`: Mengganti `__syncRawFetch` menjadi `api.get('/api/drawings/' + d.id)` sehingga selalu membaca record otoritatif dari IndexedDB lokal `drawings` + `BlobStore`.
+    3. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v324-offline-draw-no-rogue-fetch`**.
+    4. Unit Tests:
+       - `tests/offline/draw_local_reactive.test.js`: Menambahkan suite pengujian komprehensif memvalidasi reaktivitas lokal dua arah tanpa sync guard, ketiadaan direct network fetch di `App.jsx`, timeout 350ms di modal, offline routing di `selectDrawing`, dan bundle exports (5/5 pass).
+       - `tests/offline/drawpage_open.test.js`: Menyesuaikan assertion `selectDrawing` ke `api.get`.
+  - **Verifikasi:**
+    - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Backend test suite: `python -m pytest tests/` ➡️ **57/57 tests pass (0 fail)**.
+    - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **592/592 tests pass (0 fail)** across all suites.
+    - Independent Subagent Code Review: **APPROVED**.
+
+
 - **Fix Inline Drawing (`::draw[...]`) in Notes Showing Blank Frame / Missing Preview (`static/index.html`, `static/sw.js`, `draw-app`, `tests/offline/drawdirective.test.js`) — SELESAI 2026-08-26 (Antigravity/Gemini):**
+
   - **Problem / Root Cause:**
     1. **Format XML Header pada Output SVG:** Ketika library canvas `tldraw` mengekspor SVG (atau saat di-serialize `XMLSerializer`), output string SVG sering kali diawali dengan header standar XML `<?xml version="1.0" encoding="utf-8"?>` sebelum tag `<svg>`. Kode sebelumnya menggunakan validasi yang sangat kaku: `if (svg && svg.trim().startsWith('<svg'))`. Karena ada header `<?xml`, kondisi ini mengevaluasi `false`, sehingga `hydrateDrawingPreviews` mengabaikan SVG yang sah dan membiarkan kartu preview gambar di catatan hanya menampilkan bingkai frame kosong / teks placeholder.
     2. **Cache `_lastSavedDrawingJson` Mengabaikan Pembaruan SVG:** Pada event handler `handleIframeMessage` di `static/index.html`, pengecekan debounce hanya membandingkan `data_json` (`if (_lastSavedDrawingJson[did] === e.data.data) return;`). Ketika stroke pertama menyimpan JSON tanpa SVG atau saat SVG diproses secara asinkron (`exportToBlob`), pengiriman pesan berikutnya yang membawa SVG baru dengan JSON yang sama langsung dibatalkan (*dropped*), sehingga `svg_preview` tidak tersimpan ke database.

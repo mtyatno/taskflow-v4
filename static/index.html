@@ -546,9 +546,15 @@ function schedulePush() {
 window.__pushNow = () => (window.TF && window.TF.syncpush) ? window.TF.syncpush.pushOutbox(__syncTransport) : Promise.resolve(null);
 const __syncRawFetch = (u) => window.fetch(apiUrl(u), { headers: __token ? { Authorization: "Bearer " + __token } : {} });
 if (window.TF && window.TF.drawingrepo && window.TF.idmap) {
-  window.TF.drawingrepo.configureFetcher((noteCid) =>
-    window.TF.idmap.serverIdOf(noteCid).then((sid) =>
-      (sid == null ? null : __syncRawFetch("/api/drawings/" + sid).then((r) => (r.ok ? r.json() : null)))));
+  window.TF.drawingrepo.configureFetcher((idOrCid) => {
+    if (/^\d+$/.test(String(idOrCid))) {
+      return __syncRawFetch("/api/drawings/" + idOrCid).then((r) => (r.ok ? r.json() : null));
+    }
+    return window.TF.idmap.serverIdOf(idOrCid).then((sid) => {
+      const target = sid != null ? sid : idOrCid;
+      return __syncRawFetch("/api/drawings/" + target).then((r) => (r.ok ? r.json() : null));
+    });
+  });
 }
 if (window.TF && window.TF.chatrepo) {
   window.TF.chatrepo.configureFetcher((url) =>
@@ -9210,21 +9216,19 @@ function DrawingTabInstance({
 
   useEffect(() => {
     const handler = async (e) => {
-      if (e.detail?.source === 'sync' || e.detail?.remote) {
-        const updatedId = e.detail?.id;
-        if (!updatedId || String(updatedId) === String(tab?.id)) {
-          try {
-            const fresh = await api.get(`/api/drawings/${tab.id}`);
-            if (fresh && fresh.data_json && iframeRef.current?.contentWindow) {
-              if (fresh.data_json === lastLoadedJsonRef.current) return;
-              lastLoadedJsonRef.current = fresh.data_json;
-              iframeRef.current.contentWindow.postMessage({
-                type: 'load',
-                data: fresh.data_json
-              }, window.location.origin);
-            }
-          } catch (_) {}
-        }
+      const updatedId = e.detail?.id;
+      if (!updatedId || String(updatedId) === String(tab?.id)) {
+        try {
+          const fresh = await api.get(`/api/drawings/${tab.id}`);
+          if (fresh && fresh.data_json && iframeRef.current?.contentWindow) {
+            if (fresh.data_json === lastLoadedJsonRef.current) return;
+            lastLoadedJsonRef.current = fresh.data_json;
+            iframeRef.current.contentWindow.postMessage({
+              type: 'load',
+              data: fresh.data_json
+            }, window.location.origin);
+          }
+        } catch (_) {}
       }
     };
     window.addEventListener("drawingSaved", handler);
@@ -9370,20 +9374,30 @@ function DrawPage({
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState("");
 
+  const matchesDrawingId = (d, targetId) => {
+    if (!d || !targetId) return false;
+    const t = String(targetId);
+    return (
+      String(d.id) === t ||
+      String(d.cid) === t ||
+      String(d.client_id) === t ||
+      (d.server_id != null && String(d.server_id) === t)
+    );
+  };
+
   const selected = openTabs.find(t => t.id === activeTabId) || null;
 
   const selectDrawing = async d => {
     try {
-      // Detail via raw bypass — api.get tidak dipakai: router offline (drawingroutes →
-      // getDrawing) hanya bisa fetch saat ada local record + idmap mapping; server row
-      // tanpa local record selalu notFound walau online. __syncRawFetch bypass intercept.
-      const full = (await __syncRawFetch(`/api/drawings/${d.id}`).then(r => (r.ok ? r.json() : null)).catch(() => null)) || d;
+      const drawId = d.id != null ? d.id : d.cid;
+      const full = (await api.get(`/api/drawings/${drawId}`).catch(() => null)) || d;
       setOpenTabs(prev => {
         const helper = (window.TF && window.TF.drawingtabs) || (typeof drawingtabs !== "undefined" ? drawingtabs : null);
         if (!helper) return prev;
-        const res = helper.openTab(prev, full.id, full.title);
+        const targetId = full.id != null ? full.id : full.cid;
+        const res = helper.openTab(prev, targetId, full.title);
         setActiveTabId(res.activeTabId);
-        return res.tabs.map(t => (t.id === full.id ? { ...full, ...t } : t));
+        return res.tabs.map(t => (matchesDrawingId(t, targetId) ? { ...full, ...t } : t));
       });
     } catch (e) {
       showToast("Gagal memuat gambar", "error");
@@ -9407,12 +9421,12 @@ function DrawPage({
     fetchDrawingsList()
       .then(list => {
         if (initialDrawingId) {
-          const found = list.find(d => String(d.id) === String(initialDrawingId));
+          const found = list.find(d => matchesDrawingId(d, initialDrawingId));
           if (found) {
             selectDrawing(found);
           } else {
             api.get(`/api/drawings/${initialDrawingId}`).then(full => {
-              setDrawings(prev => prev.find(d => String(d.id) === String(full.id)) ? prev : [full, ...prev]);
+              setDrawings(prev => prev.some(d => matchesDrawingId(d, full.id != null ? full.id : full.cid)) ? prev : [full, ...prev]);
               selectDrawing(full);
             }).catch(() => {
               typeof showToast === 'function' && showToast('Gambar tidak ditemukan', 'error');
@@ -9433,20 +9447,22 @@ function DrawPage({
   }, []);
 
   useEffect(() => {
-    if (!initialDrawingId) return;
-    const found = drawings.find(d => String(d.id) === String(initialDrawingId));
+    if (!initialDrawingId || loading) return;
+    const found = drawings.find(d => matchesDrawingId(d, initialDrawingId));
     if (found) {
       selectDrawing(found);
+      onInitialDrawingConsumed && onInitialDrawingConsumed();
     } else {
       api.get(`/api/drawings/${initialDrawingId}`).then(full => {
-        setDrawings(prev => prev.find(d => String(d.id) === String(full.id)) ? prev : [full, ...prev]);
+        setDrawings(prev => prev.some(d => matchesDrawingId(d, full.id != null ? full.id : full.cid)) ? prev : [full, ...prev]);
         selectDrawing(full);
       }).catch(() => {
         typeof showToast === 'function' && showToast('Gambar tidak ditemukan', 'error');
+      }).finally(() => {
+        onInitialDrawingConsumed && onInitialDrawingConsumed();
       });
     }
-    onInitialDrawingConsumed && onInitialDrawingConsumed();
-  }, [initialDrawingId]);
+  }, [initialDrawingId, loading]);
 
   const closeTab = targetId => {
     setOpenTabs(prev => {
@@ -9460,12 +9476,13 @@ function DrawPage({
 
   useEffect(() => {
     const handler = e => {
-      const id = e.detail;
-      const found = drawings.find(d => String(d.id) === String(id));
+      const id = typeof e.detail === 'object' && e.detail !== null ? e.detail.id : e.detail;
+      if (!id) return;
+      const found = drawings.find(d => matchesDrawingId(d, id));
       if (found) selectDrawing(found);
       else {
         api.get(`/api/drawings/${id}`).then(full => {
-          setDrawings(prev => prev.find(d => String(d.id) === String(full.id)) ? prev : [full, ...prev]);
+          setDrawings(prev => prev.some(d => matchesDrawingId(d, full.id != null ? full.id : full.cid)) ? prev : [full, ...prev]);
           selectDrawing(full);
         }).catch(() => {
           typeof showToast === 'function' && showToast('Gambar tidak tersedia', 'error');
@@ -17339,25 +17356,23 @@ function QuickDrawModal({
 
   useEffect(() => {
     const handler = async (e) => {
-      if (e.detail?.source === 'sync' || e.detail?.remote) {
-        const updatedId = e.detail?.id;
-        if (!updatedId || String(updatedId) === String(drawingId)) {
-          try {
-            const fresh = await api.get(`/api/drawings/${drawingId}`);
-            if (fresh && fresh.title) {
-              setTitle(fresh.title);
-              setTitleInput(fresh.title);
-            }
-            if (fresh && fresh.data_json && iframeRef.current?.contentWindow) {
-              if (fresh.data_json === lastLoadedJsonRef.current) return;
-              lastLoadedJsonRef.current = fresh.data_json;
-              iframeRef.current.contentWindow.postMessage({
-                type: 'load',
-                data: fresh.data_json
-              }, window.location.origin);
-            }
-          } catch (_) {}
-        }
+      const updatedId = e.detail?.id;
+      if (!updatedId || String(updatedId) === String(drawingId)) {
+        try {
+          const fresh = await api.get(`/api/drawings/${drawingId}`);
+          if (fresh && fresh.title) {
+            setTitle(fresh.title);
+            setTitleInput(fresh.title);
+          }
+          if (fresh && fresh.data_json && iframeRef.current?.contentWindow) {
+            if (fresh.data_json === lastLoadedJsonRef.current) return;
+            lastLoadedJsonRef.current = fresh.data_json;
+            iframeRef.current.contentWindow.postMessage({
+              type: 'load',
+              data: fresh.data_json
+            }, window.location.origin);
+          }
+        } catch (_) {}
       }
     };
     window.addEventListener("drawingSaved", handler);
@@ -17409,7 +17424,7 @@ function QuickDrawModal({
       if (typeof window.hydrateDrawingPreviews === 'function') {
         window.hydrateDrawingPreviews(null, true);
       }
-    }, 120);
+    }, 350);
   };
 
   const handleOpenStandalone = () => {

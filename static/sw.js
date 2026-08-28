@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v322-inline-draw-preview-xml-fix";
+const CACHE = "taskflow-v325-draw-open-cid-standalone-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

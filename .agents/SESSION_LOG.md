@@ -2,7 +2,64 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-08-28 20:00] - Antigravity (Gemini)
+- **Task:** Fix Inline Drawing Standalone Open ("Gambar tidak ditemukan") from Note Modal/Viewer to DrawPage (`static/index.html`, `static/sw.js`, `tests/offline/drawpage_open.test.js`, `tests/offline/draw_local_reactive.test.js`).
+- **Root Cause & Objective:**
+  1. Inline drawings inserted via slash command `/draw` are referenced in notes using their client CID (e.g. `drw_1724678123_abc`). When clicking "↗️ Buka di Halaman Draw" in `QuickDrawModal`, `DrawPage` lookup handlers (`list.find`, `drawings.find`, and `openDrawing` listener) strictly checked `String(d.id) === String(initialDrawingId)`. If the drawing record had a numeric `id` (e.g. `105`), the check returned `false`, failing to match the local record.
+  2. In `static/index.html`, `configureFetcher` queried `window.TF.idmap.serverIdOf(noteCid)`. For numeric IDs or CIDs not yet stored in `_idmap`, `serverIdOf` returned `null` and the fetcher returned `null` without attempting direct `__syncRawFetch('/api/drawings/' + target)` (even though FastAPI natively supports both integer `id` and string `client_id`).
+  3. `DrawPage`'s `useEffect([initialDrawingId])` fired on initial mount against an empty `drawings` state (`[]`), immediately executing `api.get` and consuming `initialDrawingId` via `onInitialDrawingConsumed()` before `fetchDrawingsList()` finished loading.
+  4. `selectDrawing` only checked `d.id` without fallback to `d.cid` and tab mapping in `openTabs` lacked multi-identifier matching.
+- **Changes:**
+  - `static/index.html`:
+    - Added helper `matchesDrawingId(d, targetId)` matching across `d.id`, `d.cid`, `d.client_id`, and `d.server_id`.
+    - Updated `list.find`, `drawings.find`, `openDrawing` event listener, deduplication `prev.some` in `setDrawings`, and tab mapping in `selectDrawing` to use `matchesDrawingId`.
+    - Updated `selectDrawing` to use `drawId = d.id != null ? d.id : d.cid`.
+    - Added guard `if (!initialDrawingId || loading) return;` to `useEffect([initialDrawingId, loading])` to prevent mount race condition.
+    - Updated `configureFetcher` to handle numeric IDs directly and fallback to `sid != null ? sid : idOrCid` querying `__syncRawFetch`.
+  - `static/sw.js`:
+    - Bumped Service Worker cache version to **`taskflow-v325-draw-open-cid-standalone-fix`**.
+  - `tests/offline/drawpage_open.test.js`:
+    - Comprehensive unit test suite covering multi-field resolution, CID/numeric matching, loading race guard, and fetcher fallback (12/12 pass).
+  - `tests/offline/draw_local_reactive.test.js`:
+    - Updated assertions to support `drawId`/`d.id` (5/5 pass).
+- **Verification:**
+  - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - Backend test suite: `python -m pytest tests/` ➡️ **57/57 tests pass (0 fail)**.
+  - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **594/594 tests pass (0 fail)** across 7 suites.
+  - Independent Subagent Code Review: **APPROVED**.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `tests/offline/drawpage_open.test.js`, `tests/offline/draw_local_reactive.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved
+
+## [2026-08-27 10:35] - Antigravity (Gemini)
+- **Task:** Unified Offline Drawing Reactivity & Bidirectional Synchronization across Notes and DrawPage (`static/index.html`, `draw-app/src/App.jsx`, `static/sw.js`, `tests/offline/draw_local_reactive.test.js`).
+- **Root Cause & Objective:**
+  1. `draw-app/src/App.jsx` in `handleMount` made a rogue direct network `fetch(/api/drawings/${noteId})` to the server. When opening `DrawPage` after editing in notes, this fetch loaded stale server data from SQLite, which then triggered a store change event that overwrote the local IndexedDB edit, causing the drawing to revert back to the old server version.
+  2. `QuickDrawModal.handleClose` had a 120ms timeout before unmounting the modal. On rapid save/close, `requestSnapshot` (async SVG export) was aborted before `postMessage({ type: 'change' })` could be transmitted to the host window.
+  3. `DrawingTabInstance` and `QuickDrawModal` in `static/index.html` used a restrictive filter `if (e.detail?.source === 'sync' || e.detail?.remote)` in their `drawingSaved` event listeners.
+  4. `DrawPage.selectDrawing` called `__syncRawFetch('/api/drawings/' + d.id)` directly bypassing the offline router.
+- **Changes:**
+  - `draw-app/src/App.jsx`:
+    - Removed rogue direct network `fetch(/api/drawings/${noteId})` completely from `handleMount`. The iframe exclusively relies on parent `{ type: 'ready' }` / `{ type: 'load' }` handshake.
+    - Recompiled production vendor bundle: `npm --prefix draw-app run build` (`static/vendor/tldraw/assets/index.js`).
+  - `static/index.html`:
+    - `QuickDrawModal.handleClose`: Increased timeout from 120ms to 350ms to guarantee `requestSnapshot` finishes before iframe unmount.
+    - `DrawingTabInstance`: Removed `e.detail?.source === 'sync'` guard so local drawing changes immediately update open DrawPage tabs with `lastLoadedJsonRef` deduplication.
+    - `QuickDrawModal`: Removed sync source guard so modal updates title and reloads authoritative local canvas snapshot immediately on external drawing edits.
+    - `DrawPage.selectDrawing`: Switched from `__syncRawFetch` to `api.get('/api/drawings/' + d.id)` (offline router querying IndexedDB `drawings` + `BlobStore`).
+  - `static/sw.js`: Bumped Service Worker cache version to **`taskflow-v324-offline-draw-no-rogue-fetch`**.
+  - `tests/offline/draw_local_reactive.test.js`: Comprehensive unit suite validating local reactivity, no direct fetch in `App.jsx`, 350ms modal timeout, offline router queries, handshake, and production bundle exports.
+  - `tests/offline/drawpage_open.test.js`: Aligned test assertion to expect `api.get`.
+- **Verification:**
+  - Syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - Backend test suite: `python -m pytest tests/` ➡️ **57/57 tests pass (0 fail)**.
+  - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **592/592 tests pass (0 fail)** across 7 suites.
+  - Independent Subagent Code Review: **APPROVED**.
+- **Files Modified:** `draw-app/src/App.jsx`, `static/vendor/tldraw/assets/index.js`, `static/index.html`, `static/sw.js`, `tests/offline/draw_local_reactive.test.js`, `tests/offline/drawpage_open.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Approved
+
 ## [2026-08-26 22:45] - Antigravity (Gemini)
+
+
 - **Task:** Fix Inline Drawing (`::draw[...]`) in Notes Showing Blank Frame / Missing Preview (`static/index.html`, `static/sw.js`, `draw-app`, `tests/offline/drawdirective.test.js`).
 - **Root Cause & Objective:**
   1. `static/index.html`: `hydrateDrawingPreviews` strictly checked `svg && svg.trim().startsWith('<svg')`. When `tldraw` exported SVGs with standard XML header declarations (`<?xml version="1.0" encoding="utf-8"?>\n<svg...`), the check returned `false`, rejecting valid SVGs and leaving only the placeholder frame.

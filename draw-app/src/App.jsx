@@ -243,30 +243,7 @@ export default function App() {
 
   const handleMount = (editor) => {
     editorRef.current = editor
-
-    // Load existing data from server if noteId is not default
-    if (noteId && noteId !== 'default') {
-      const token = typeof localStorage !== 'undefined' ? localStorage.getItem('tf_token') : null;
-      const headers = token ? { Authorization: 'Bearer ' + token } : {};
-      fetch(`/api/drawings/${noteId}`, { headers })
-        .then(res => res.ok ? res.json() : fetch(`/pub/drawings/${noteId}`).then(r => r.ok ? r.json() : null))
-        .then(async doc => {
-          if (doc && doc.data_json && doc.data_json !== '{}') {
-            try {
-              const snapshot = typeof doc.data_json === 'string' ? JSON.parse(doc.data_json) : doc.data_json;
-              lastSnapshotStrRef.current = typeof doc.data_json === 'string' ? doc.data_json : JSON.stringify(doc.data_json);
-              isRemoteLoadingRef.current = true;
-              editor.store.loadSnapshot(snapshot);
-              setTimeout(() => {
-                isRemoteLoadingRef.current = false;
-              }, 800);
-            } catch (_) {
-              isRemoteLoadingRef.current = false;
-            }
-          }
-        })
-        .catch(() => {});
-    }
+    window.parent.postMessage({ type: 'ready', noteId }, '*')
 
     editor.store.listen(() => {
       if (isRemoteLoadingRef.current) return;
