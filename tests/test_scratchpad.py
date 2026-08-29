@@ -150,3 +150,65 @@ def test_scratchpad_responses_include_server_id(client):
 
     upd = client.put(f"/api/scratchpad/{note['id']}", json={"title": "Note Server ID v2"}, headers=headers).json()
     assert upd["server_id"] == upd["id"], "response update harus membawa server_id == id"
+
+
+def test_scratchpad_delete_idempotent(client):
+    """Deleting a note returns ok: True and cleans up related tables. Deleting again is idempotent."""
+    user = register_user(client, "scratchdeluser", "scratchdel@test.id")
+    token = user.get("token") or user.get("access_token")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+    create_res = client.post("/api/scratchpad", json={
+        "title": "Note to Delete",
+        "content": "Content to delete",
+        "tags": ["delete_me"],
+    }, headers=headers)
+    assert create_res.status_code == 200
+    note_id = create_res.json()["id"]
+
+    # Pin note
+    pin_res = client.patch(f"/api/scratchpad/{note_id}/pin", headers=headers)
+    assert pin_res.status_code == 200
+
+    # First delete
+    del1 = client.delete(f"/api/scratchpad/{note_id}", headers=headers)
+    assert del1.status_code == 200
+    assert del1.json().get("ok") is True
+
+    # Second delete (idempotent)
+    del2 = client.delete(f"/api/scratchpad/{note_id}", headers=headers)
+    assert del2.status_code == 200
+    assert del2.json().get("ok") is True
+    assert del2.json().get("detail") == "Note already deleted"
+
+    # Delete non-existent note id (idempotent)
+    del_nonexistent = client.delete("/api/scratchpad/999999", headers=headers)
+    assert del_nonexistent.status_code == 200
+    assert del_nonexistent.json().get("ok") is True
+    assert del_nonexistent.json().get("detail") == "Note already deleted"
+
+
+def test_scratchpad_delete_forbidden_for_other_user(client):
+    """Deleting a note owned by another user returns 403 Forbidden."""
+    owner = register_user(client, "scratchowner", "scratchowner@test.id")
+    owner_token = owner.get("token") or owner.get("access_token")
+    owner_headers = {"Authorization": f"Bearer {owner_token}"} if owner_token else {}
+
+    client.cookies.clear()
+    create_res = client.post("/api/scratchpad", json={
+        "title": "Owner Note",
+        "content": "Owner content",
+    }, headers=owner_headers)
+    assert create_res.status_code == 200
+    note_id = create_res.json()["id"]
+
+    other = register_user(client, "scratchother", "scratchother@test.id")
+    other_token = other.get("token") or other.get("access_token")
+    other_headers = {"Authorization": f"Bearer {other_token}"} if other_token else {}
+
+    # Other user attempts delete -> 403
+    client.cookies.clear()
+    del_res = client.delete(f"/api/scratchpad/{note_id}", headers=other_headers)
+    assert del_res.status_code == 403
+    assert "Hanya pemilik yang bisa menghapus catatan ini" in del_res.json().get("detail", "")
+

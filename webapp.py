@@ -4189,10 +4189,15 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
 async def delete_scratchpad(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        if not conn.execute(
-            "SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)
-        ).fetchone():
+        row = conn.execute("SELECT id, user_id FROM scratchpad_notes WHERE id = ?", (note_id,)).fetchone()
+        if not row:
+            return {"ok": True, "detail": "Note already deleted"}
+        if row["user_id"] != uid:
             raise HTTPException(status_code=403, detail="Hanya pemilik yang bisa menghapus catatan ini")
+        conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=?", (note_id,))
+        conn.execute("DELETE FROM note_pins WHERE note_id=?", (note_id,))
+        conn.execute("DELETE FROM published_notes WHERE note_id=?", (note_id,))
+        conn.execute("DELETE FROM note_attachments WHERE note_id=?", (note_id,))
         conn.execute("DELETE FROM scratchpad_notes WHERE id = ?", (note_id,))
         conn.commit()
     return {"ok": True}

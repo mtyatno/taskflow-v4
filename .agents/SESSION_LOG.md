@@ -2,6 +2,33 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-08-29 07:30] - Antigravity (Gemini)
+- **Task:** Idempotent Note Deletion & Resilient Outbox Sync (`webapp.py`, `static/offline/syncpush.js`, `static/sw.js`, `tests/test_scratchpad.py`, `tests/offline/notesync_autoheal.test.js`).
+- **Root Cause & Objective:**
+  1. `webapp.py`: `delete_scratchpad` previously raised HTTP 403 when a note was not found, instead of returning an idempotent 200 `{"ok": True, "detail": "Note already deleted"}`. Associated rows in `entity_tags`, `note_pins`, `published_notes`, and `note_attachments` were not explicitly deleted.
+  2. `static/offline/syncpush.js`: `send` treated HTTP 5xx responses as network errors (`e.__network = true`), and `pushOutbox` halted the entire queue (`stopped = true`) upon encountering any error. When a server error occurred on one outbox operation, subsequent operations (such as note creates) were blocked from pushing.
+- **Changes:**
+  - `webapp.py`:
+    - Updated `delete_scratchpad` to fetch the note row. If not found, returns `{"ok": True, "detail": "Note already deleted"}`.
+    - Added user ownership validation (`if row["user_id"] != uid: raise HTTPException(403)`).
+    - Cascaded deletion of related records in `entity_tags`, `note_pins`, `published_notes`, `note_attachments`, and `scratchpad_notes`.
+  - `static/offline/syncpush.js`:
+    - Updated `send` to set `e.__network = false` and `e.status = res.status` on HTTP 5xx responses.
+    - Updated `pushOutbox` to only set `stopped = true` when `err && err.__network === true`. For non-network errors (such as 5xx on a single operation), records `result.failed++` and continues processing remaining outbox operations.
+  - `static/sw.js`:
+    - Bumped Service Worker cache version to **`taskflow-v326-idempotent-note-delete-resilient-sync`**.
+  - `tests/test_scratchpad.py`:
+    - Added `test_scratchpad_delete_idempotent` and `test_scratchpad_delete_forbidden_for_other_user`.
+  - `tests/offline/notesync_autoheal.test.js`:
+    - Added `Test 7: Server 500 error on one op does not block subsequent outbox ops`.
+- **Verification:**
+  - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+  - Backend test suite: `python -m pytest tests/` ➡️ **59/59 tests pass (0 fail)**.
+  - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **595/595 tests pass (0 fail)** across 7 suites.
+- **Files Modified:** `webapp.py`, `static/offline/syncpush.js`, `static/sw.js`, `tests/test_scratchpad.py`, `tests/offline/notesync_autoheal.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-08-28 20:00] - Antigravity (Gemini)
 - **Task:** Fix Inline Drawing Standalone Open ("Gambar tidak ditemukan") from Note Modal/Viewer to DrawPage (`static/index.html`, `static/sw.js`, `tests/offline/drawpage_open.test.js`, `tests/offline/draw_local_reactive.test.js`).
 - **Root Cause & Objective:**

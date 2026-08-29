@@ -190,3 +190,36 @@ test("Test 6: Full end-to-end recovery simulation", async () => {
   const opsAfter = await outboxAll();
   assert.equal(opsAfter.length, 0);
 });
+
+// Test 7: Server 500 error on one op does not block subsequent outbox ops (outbox queue resilience)
+test("Test 7: Server 500 error on one op does not block subsequent outbox ops", async () => {
+  await put("scratchpad_notes", [
+    note({ cid: "note-failing", title: "Failing Note" }),
+    note({ cid: "note-success", title: "Successful Note" }),
+  ]);
+  await put("_outbox", [
+    { qid: 1, op: "create", entity_type: "note", cid: "note-failing", payload: {} },
+    { qid: 2, op: "create", entity_type: "note", cid: "note-success", payload: {} },
+  ]);
+
+  const tr = fakeTransport((method, path, body) => {
+    if (body && body.client_id === "note-failing") {
+      return { status: 500, data: { detail: "Internal Server Error" } };
+    }
+    return { status: 200, data: { id: 777, updated_at: "2026-08-29T12:00:00" } };
+  });
+
+  const res = await pushOutbox(tr);
+  assert.equal(res.pushed, 1);
+  assert.equal(res.failed, 1);
+  assert.equal(res.remaining, 1);
+
+  // Successful note mapped and processed
+  assert.equal(await serverIdOf("note-success"), 777);
+
+  // Failing note preserved in _outbox
+  const remainingOps = await outboxAll();
+  assert.equal(remainingOps.length, 1);
+  assert.equal(remainingOps[0].cid, "note-failing");
+});
+

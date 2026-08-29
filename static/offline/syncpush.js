@@ -167,7 +167,8 @@
       (res) => {
         if (res && res.status >= 500) {
           const e = new Error("server_error_" + res.status);
-          e.__network = true;
+          e.__network = false; // reached server, but server error 5xx
+          e.status = res.status;
           throw e;
         }
         return res;
@@ -892,7 +893,13 @@
       .then((ops) => ops.slice().sort((a, b) => a.qid - b.qid))
       .then((ops) => ops.reduce((chain, op) => chain.then(() => {
         if (stopped) return;
-        return processOp(op, transport, tagsFor, habitTagsFor, result).catch((err) => { stopped = true; if (!(err && err.__network)) result.failed++; });
+        return processOp(op, transport, tagsFor, habitTagsFor, result).catch((err) => {
+          if (err && err.__network) {
+            stopped = true; // Actual network loss / offline, stop remaining queue
+          } else {
+            result.failed++; // Server error on this op, do not block unrelated ops
+          }
+        });
       }), Promise.resolve()))
       .then(() => TFoutbox.outboxAll())
       .then((rem) => { result.remaining = rem.length; return result; })

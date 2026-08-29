@@ -7,6 +7,29 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
+- **Idempotent Note Deletion & Resilient Outbox Sync (`webapp.py`, `static/offline/syncpush.js`, `static/sw.js`, `tests/test_scratchpad.py`, `tests/offline/notesync_autoheal.test.js`) — SELESAI 2026-08-29 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    1. `DELETE /api/scratchpad/{note_id}` di `webapp.py` sebelumnya melempar HTTP 403 saat note tidak ditemukan (`if not conn.execute("SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone(): raise HTTPException(403)`), bukannya mengembalikan respons 200 idempotent (`{"ok": True, "detail": "Note already deleted"}`). Selain itu, relasi terkait di tabel `entity_tags`, `note_pins`, `published_notes`, dan `note_attachments` belum dibersihkan secara eksplisit.
+    2. Di `static/offline/syncpush.js`, fungsi `send` menandai error HTTP 5xx dengan `e.__network = true`, dan `pushOutbox` menghentikan pemrosesan seluruh antrean outbox (`stopped = true`) saat terjadi error. Akibatnya, jika satu operasi outbox mengalami error 500 dari server, seluruh operasi note create berikutnya di antrean outbox terblokir.
+  - **Solusi / Perbaikan:**
+    1. `webapp.py`:
+       - Mengupdate `delete_scratchpad` untuk mengambil row by `id`. Jika tidak ditemukan, mengembalikan `{"ok": True, "detail": "Note already deleted"}` secara idempotent.
+       - Memvalidasi kepemilikan (`if row["user_id"] != uid: raise HTTPException(403)`).
+       - Menghapus relasi terkait dari `entity_tags`, `note_pins`, `published_notes`, `note_attachments`, dan `scratchpad_notes`.
+    2. `static/offline/syncpush.js`:
+       - Mengupdate `send` agar menandai response HTTP >= 500 dengan `e.__network = false` (server reached, 5xx server error) dan `e.status = res.status`.
+       - Mengupdate `pushOutbox` agar hanya menghentikan antrean outbox (`stopped = true`) jika terjadi pemutusan jaringan sesungguhnya (`err && err.__network === true`). Untuk error 5xx pada operasi individual, mencatat `result.failed++` tanpa memblokir operasi lainnya di outbox.
+    3. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v326-idempotent-note-delete-resilient-sync`**.
+    4. Unit Tests:
+       - `tests/test_scratchpad.py`: Menambahkan unit test `test_scratchpad_delete_idempotent` (menghapus note yang ada, menghapus note yang sudah terhapus secara idempotent, menghapus note non-existent) dan `test_scratchpad_delete_forbidden_for_other_user` (validasi 403 untuk user lain).
+       - `tests/offline/notesync_autoheal.test.js`: Menambahkan Test 7 untuk memvalidasi ketahanan antrean outbox saat satu operasi mengalami 500 error, operasi note create berikutnya tetap diproses dan di-push (`pushed: 1, failed: 1`).
+  - **Verifikasi:**
+    - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+    - Backend test suite: `python -m pytest tests/` ➡️ **59/59 tests pass (0 fail)**.
+    - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **595/595 tests pass (0 fail)** across 7 suites.
+
 - **Fix Inline Drawing Standalone Open ("Gambar tidak ditemukan") from Note Modal/Viewer to DrawPage (`static/index.html`, `static/sw.js`, `tests/offline/drawpage_open.test.js`, `tests/offline/draw_local_reactive.test.js`) — SELESAI 2026-08-28 (Antigravity/Gemini):**
   - **Problem / Root Cause:**
     1. **Multi-Identifier Mismatch (Numeric Server ID vs String Client CID):** Ketika inline drawing disisipkan via slash command `/draw` (`::draw[drw_...]`), ID yang disimpan di catatan adalah Client CID string (misal `drw_1724678123_abc`). Ketika dibuka ke halaman standalone `DrawPage`, `list.find`, `drawings.find`, dan `openDrawing` handler hanya melakukan strict equality `String(d.id) === String(initialDrawingId)`. Jika drawing record telah tersinkronkan atau memiliki numeric `d.id = 105`, pencocokan gagal (`String(105) !== "drw_..."`), sehingga pencarian lokal gagal.
