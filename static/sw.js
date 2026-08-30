@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v326-idempotent-note-delete-resilient-sync";
+const CACHE = "taskflow-v329-notes-sidebar-header-dedup";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

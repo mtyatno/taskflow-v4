@@ -13167,26 +13167,29 @@ function ChatListPanel({
     style: {
       display: "flex",
       flexDirection: "column",
-      height: "100%"
+      height: "100%",
+      background: "var(--bg-card)"
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
-      padding: collapsed ? "12px 10px" : "10px 14px",
+      padding: collapsed ? "10px 8px" : "10px 14px",
       borderBottom: "1px solid var(--border)",
-      flexShrink: 0
+      flexShrink: 0,
+      minHeight: 45
     }
   }, !collapsed && /*#__PURE__*/React.createElement("span", {
     style: {
-      fontSize: 11,
+      fontSize: 14,
       fontWeight: 700,
-      color: "var(--text-light)",
-      letterSpacing: "0.05em",
-      textTransform: "uppercase"
+      color: "var(--text-primary)",
+      display: "flex",
+      alignItems: "center",
+      gap: 6
     }
-  }, "Shared Lists"), /*#__PURE__*/React.createElement("button", {
+  }, "💬 Diskusi / Chat"), /*#__PURE__*/React.createElement("button", {
     onClick: onToggle,
     title: collapsed ? "Perluas panel" : "Perkecil panel",
     style: {
@@ -13199,6 +13202,7 @@ function ChatListPanel({
       borderRadius: 7,
       lineHeight: 1,
       marginLeft: collapsed ? "auto" : 0,
+      marginRight: collapsed ? "auto" : 0,
       transition: "all 0.15s"
     }
   }, collapsed ? "▶" : "◀")), !collapsed && lists.length > 0 && /*#__PURE__*/React.createElement("div", {
@@ -13207,22 +13211,57 @@ function ChatListPanel({
       borderBottom: "1px solid var(--border)",
       flexShrink: 0
     }
-  }, /*#__PURE__*/React.createElement("input", {
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "scratchpad-bar",
+    style: {
+      marginBottom: 0,
+      marginTop: 0,
+      padding: "6px 10px",
+      borderRadius: 8,
+      border: "1px solid var(--border)",
+      background: "var(--bg-primary)",
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      opacity: 0.6
+    }
+  }, "🔍"), /*#__PURE__*/React.createElement("input", {
     value: query,
     onChange: e => setQuery(e.target.value),
-    placeholder: "\uD83D\uDD0D Cari list...",
+    placeholder: "Cari list...",
     style: {
       width: "100%",
-      background: "var(--bg-primary)",
-      border: "1px solid var(--border)",
-      borderRadius: 8,
-      padding: "5px 10px",
-      fontSize: 12,
-      color: "var(--text-primary)",
+      background: "transparent",
+      border: "none",
       outline: "none",
-      boxSizing: "border-box"
+      fontSize: 12.5,
+      color: "var(--text-primary)",
+      padding: 0
     }
-  })), lists.length === 0 && !collapsed && /*#__PURE__*/React.createElement("div", {
+  }), query && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setQuery(""),
+    title: "Hapus pencarian",
+    style: {
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      color: "var(--text-light)",
+      fontSize: 13,
+      padding: 0,
+      lineHeight: 1
+    }
+  }, "✕"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      overflowY: "auto",
+      scrollbarWidth: "none"
+    }
+  }, lists.length === 0 && !collapsed && /*#__PURE__*/React.createElement("div", {
     style: {
       padding: 20,
       color: "var(--text-light)",
@@ -13234,7 +13273,7 @@ function ChatListPanel({
       fontSize: 28,
       marginBottom: 8
     }
-  }, "\uD83D\uDCCB"), "Belum ada shared list.", /*#__PURE__*/React.createElement("br", null), "Buat atau bergabung dulu."), filtered.length === 0 && query.trim() && !collapsed && /*#__PURE__*/React.createElement("div", {
+  }, "📋"), "Belum ada shared list.", /*#__PURE__*/React.createElement("br", null), "Buat atau bergabung dulu."), filtered.length === 0 && query.trim() && !collapsed && /*#__PURE__*/React.createElement("div", {
     style: {
       padding: 20,
       color: "var(--text-light)",
@@ -13274,7 +13313,7 @@ function ChatListPanel({
       fontSize: 11,
       color: "var(--text-light)"
     }
-  }, l.role === "owner" ? "Owner" : "Member")))));
+  }, l.role === "owner" ? "Owner" : "Member"))))));
 }
 function ChatPage({
   user,
@@ -21207,11 +21246,10 @@ function NotesPage({
     },
       /*#__PURE__*/React.createElement("span", {
         style: { fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }
-      }, `📝 Catatan`),
+      }, `📝 Catatan (${sortedNotes.length})`),
       /*#__PURE__*/React.createElement("div", {
         style: { display: "flex", alignItems: "center", gap: 6 }
       },
-        /*#__PURE__*/React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", flex: 1, marginLeft: 4, whiteSpace: "nowrap" } }, `Catatan (${sortedNotes.length})`),
         /*#__PURE__*/React.createElement("select", {
           value: sortBy,
           onChange: e => setSortBy(e.target.value),
@@ -25300,7 +25338,7 @@ function App() {
     onToggleCollapse: () => setSidebarCollapsed(!sidebarCollapsed),
     sharedLists: sharedLists
   }), /*#__PURE__*/React.createElement("div", {
-    className: `main-content ${sidebarCollapsed ? "" : "sidebar-visible"}${page === "chat" ? " no-padding" : ""}`
+    className: `main-content ${sidebarCollapsed ? "" : "sidebar-visible"}`
   }, !isOnline && /*#__PURE__*/React.createElement("div", {
     style: {
       background: "#fef3c7",

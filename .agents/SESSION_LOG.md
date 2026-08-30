@@ -2,6 +2,82 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-08-30 09:25] - Antigravity (Gemini)
+- **Task:** NotesPage Sidebar Header Deduplication (`static/index.html`, `static/sw.js`).
+- **Objective:**
+  - Merapikan header sidebar pada `NotesPage` di `static/index.html` agar tidak ada duplikasi teks "Catatan".
+- **Changes:**
+  - `static/index.html`:
+    - Mengubah judul sisi kiri menjadi `/*#__PURE__*/React.createElement("span", { style: { fontWeight: 700, fontSize: 14, color: "var(--text-primary)" } }, `📝 Catatan (${sortedNotes.length})`)`.
+    - Menghapus span duplikat `Catatan (${sortedNotes.length})` dari dalam div aksi kanan (`<div style={{ display: "flex", alignItems: "center", gap: 6 }}>`), menyisakan `<select>` sort dan tombol collapse `✕`.
+  - `static/sw.js`:
+    - Bump Service Worker cache version ke **`taskflow-v329-notes-sidebar-header-dedup`**.
+  - `tests/offline/chat_page_layout.test.js`:
+    - Merapikan asersi versi cache Service Worker agar adaptif terhadap cache version increment.
+- **Verification:**
+  - Inline syntax check: `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 scripts OK**.
+  - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+  - Unit test suite: `node --test tests/offline/notes_page_layout.test.js` ➡️ **20/20 pass (0 fail)**.
+  - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **606/606 pass (0 fail)** across 7 suites.
+  - Backend test suite: `venv/bin/python -m pytest tests/` ➡️ **59/59 tests pass (0 fail)**.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `tests/offline/chat_page_layout.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
+## [2026-08-30 07:55] - Antigravity (Gemini)
+- **Task:** Chat Unified Container Layout (`static/app.css`, `static/index.html`, `static/sw.js`, `tests/offline/chat_page_layout.test.js`).
+- **Objective:**
+  - Menyatukan antarmuka/layout `ChatPage` (.chat-layout, .chat-list-panel, .chat-room) ke dalam unified workspace container frame yang selaras dengan `NotesPage` (`.notes-layout`), `DrawPage` (`.draw-container`), dan `MindmapPage` (`.mindmap-container`).
+- **Changes:**
+  - `static/app.css`:
+    - Updated `.chat-layout` to unified container layout (`height: calc(100vh - 84px)`, `min-height: 480px`, `margin-top: 6px`, `border-radius: 12px`, `border: 1px solid var(--border)`, `background: var(--bg-card)`, `box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04)`, `gap: 0`, `padding: 0`).
+    - Updated `.chat-list-panel` with `width: 260px; flex-shrink: 0; border: none; border-right: 1px solid var(--border); border-radius: 0; height: 100%; background: var(--bg-card); overflow: hidden; transition: width 0.2s ease;` and `.collapsed { width: 52px; overflow: hidden; }`.
+    - Updated `.chat-list-item` with `padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.15s; display: flex; align-items: center; gap: 10px;` and removed `border-radius: 16px 16px 0 0`.
+    - Updated `.chat-room` to seamlessly merge into the layout (`border: none; border-radius: 0; height: 100%; min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-card);`).
+    - Reset borders and radii on `.chat-room-header` (`border-radius: 0; border-bottom: 1px solid var(--border);`) and `.chat-input-bar` (`border-radius: 0; border-top: 1px solid var(--border);`).
+    - Updated mobile media query `@media (max-width: 768px)` (`.chat-layout { height: calc(100vh - 56px); margin: -8px -16px 0; border-radius: 0; border-left: none; border-right: none; padding: 0; gap: 0; }` and `.chat-list-panel { width: 100%; border-right: none; border-radius: 0; }`).
+    - Added `.chat-layout` and `.chat-list-panel` to the unified full-height workspace container group rules.
+  - `static/index.html`:
+    - Updated `ChatListPanel`: header now displays `💬 Diskusi / Chat` (font-weight 700, font-size 14px) with toggle collapse button `◀`/`▶`.
+    - Cleaned up search input with `.scratchpad-bar` wrapper (background `var(--bg-primary)`, border `1px solid var(--border)`, 🔍 icon, and ✕ clear button when query is active).
+    - Updated list scroll area with `flex: 1`, `overflowY: "auto"`, `scrollbarWidth: "none"`.
+    - Removed `${page === "chat" ? " no-padding" : ""}` from `.main-content` to ensure consistent standard layout.
+  - `static/sw.js`:
+    - Bumped Service Worker cache version to **`taskflow-v328-chat-unified-container-layout`**.
+  - `tests/offline/chat_page_layout.test.js`:
+    - Created unit test suite covering JSX structure, unified container CSS properties, `.chat-list-panel` left sidebar, `.chat-list-item` styling, `.chat-room` right panel reset, mobile responsiveness, and Service Worker cache version.
+- **Verification:**
+  - Inline syntax check: `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 scripts OK**.
+  - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+  - Unit test suite: `node --test tests/offline/chat_page_layout.test.js` ➡️ **11/11 pass (0 fail)**.
+  - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **606/606 pass (0 fail)** across 7 suites.
+  - Backend test suite: `venv/bin/python -m pytest tests/` ➡️ **59/59 tests pass (0 fail)**.
+- **Files Modified:** `static/app.css`, `static/index.html`, `static/sw.js`, `tests/offline/chat_page_layout.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
+## [2026-08-30 07:10] - Antigravity (Gemini)
+- **Task:** Notes Unified Container Layout (`static/app.css`, `static/sw.js`, `tests/offline/notes_page_layout.test.js`).
+- **Objective:**
+  - Menyatukan antarmuka/layout `NotesPage` (.notes-layout, .notes-left, .notes-right) ke dalam unified workspace container yang selaras dengan `DrawPage` (`.draw-container`) dan `MindmapPage` (`.mindmap-container`).
+- **Changes:**
+  - `static/app.css`:
+    - Updated `.notes-layout` to unified container layout (`height: calc(100vh - 84px)`, `min-height: 480px`, `border-radius: 12px`, `border: 1px solid var(--border)`, `background: var(--bg-card)`, `box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04)`).
+    - Updated `.notes-left` with `height: 100%`, `overflow: hidden`, `background: var(--bg-card)`.
+    - Updated `.notes-right` to seamlessly merge into the layout (`margin-left: 0`, `border: none`, `border-radius: 0`, `box-shadow: none`, `height: 100%`).
+    - Aligned tablet media query `@media (min-width: 768px) and (max-width: 1024px)` (`.notes-right { margin-left: 0 !important; }`) and mobile media query `@media (max-width: 767px)`.
+    - Added `.notes-layout` and `.notes-left` to the unified full-height workspace container group rules.
+  - `static/sw.js`:
+    - Bumped Service Worker cache version to **`taskflow-v327-notes-unified-container-layout`**.
+  - `tests/offline/notes_page_layout.test.js`:
+    - Updated Test 7 assertions for unified container styling (`border-radius: 12px`, `border: 1px solid var(--border)`, `margin-left: 0`, `border: none; border-radius: 0; box-shadow: none`, and `height: 100%`).
+- **Verification:**
+  - Inline syntax check: `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 scripts OK**.
+  - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+  - Unit test suite: `node --test tests/offline/notes_page_layout.test.js` ➡️ **20/20 pass (0 fail)**.
+  - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **595/595 pass (0 fail)** across 7 suites.
+  - Backend test suite: `venv/bin/python -m pytest tests/` ➡️ **59/59 tests pass (0 fail)**.
+- **Files Modified:** `static/app.css`, `static/sw.js`, `tests/offline/notes_page_layout.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-08-29 07:30] - Antigravity (Gemini)
 - **Task:** Idempotent Note Deletion & Resilient Outbox Sync (`webapp.py`, `static/offline/syncpush.js`, `static/sw.js`, `tests/test_scratchpad.py`, `tests/offline/notesync_autoheal.test.js`).
 - **Root Cause & Objective:**

@@ -7,6 +7,71 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
+- **NotesPage Sidebar Header Deduplication (`static/index.html`, `static/sw.js`) — SELESAI 2026-08-30 (Antigravity/Gemini):**
+  - **Problem / Context:**
+    - Sebelumnya pada header sidebar `NotesPage`, label judul di sebelah kiri menampilkan `📝 Catatan` dan div aksi di sebelah kanan kembali memuat span duplikat `Catatan (${sortedNotes.length})`, sehingga terjadi redundansi tampilan teks "Catatan".
+  - **Solusi / Perbaikan:**
+    1. `static/index.html`:
+       - Mengubah judul sisi kiri menjadi `/*#__PURE__*/React.createElement("span", { style: { fontWeight: 700, fontSize: 14, color: "var(--text-primary)" } }, `📝 Catatan (${sortedNotes.length})`)`.
+       - Menghapus span duplikat `Catatan (${sortedNotes.length})` dari div aksi kanan (`display: flex, alignItems: center, gap: 6`), menyisakan select sort dan tombol collapse `✕`.
+    2. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v329-notes-sidebar-header-dedup`**.
+  - **Verifikasi:**
+    - Inline syntax check: `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+    - Unit test suite: `node --test tests/offline/notes_page_layout.test.js` ➡️ **20/20 pass (0 fail)**.
+    - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **606/606 pass (0 fail)** across 7 suites.
+    - Backend test suite: `venv/bin/python -m pytest tests/` ➡️ **59/59 tests pass (0 fail)**.
+
+- **Chat Unified Container Layout (`static/app.css`, `static/index.html`, `static/sw.js`, `tests/offline/chat_page_layout.test.js`) — SELESAI 2026-08-30 (Antigravity/Gemini):**
+  - **Problem / Root Cause & Context:**
+    - Sebelumnya, halaman Chat (`ChatPage`) menggunakan styling terpisah dengan padding viewport `100vh` (.main-content.no-padding), `.chat-list-panel` dengan border independen `16px`, dan `.chat-room` dengan border/radius tersendiri. Ini tidak seragam dengan pola unified container frame pada `NotesPage` (`.notes-layout`), `DrawPage` (`.draw-container`), dan `MindmapPage` (`.mindmap-container`).
+  - **Solusi / Perbaikan:**
+    1. `static/app.css`:
+       - Mengupdate `.chat-layout` menjadi unified container: `display: flex; height: calc(100vh - 84px); min-height: 480px; margin-top: 6px; overflow: hidden; position: relative; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-card); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); gap: 0; padding: 0;`.
+       - Mengupdate `.chat-list-panel` dengan `width: 260px; flex-shrink: 0; border: none; border-right: 1px solid var(--border); border-radius: 0; display: flex; flex-direction: column; height: 100%; background: var(--bg-card); overflow: hidden; transition: width 0.2s ease;` dan `.collapsed { width: 52px; overflow: hidden; }`.
+       - Mengupdate `.chat-list-item` dengan `padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.15s; display: flex; align-items: center; gap: 10px;` serta menghapus rule `border-radius: 16px 16px 0 0`.
+       - Mengupdate `.chat-room` menyatu mulus: `border: none; border-radius: 0; height: 100%; min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-card);`.
+       - Mengupdate `.chat-room-header` (`border-radius: 0; border-bottom: 1px solid var(--border);`) dan `.chat-input-bar` (`border-radius: 0; border-top: 1px solid var(--border);`).
+       - Mengupdate mobile media query `@media (max-width: 768px)`: `.chat-layout { height: calc(100vh - 56px); margin: -8px -16px 0; border-radius: 0; border-left: none; border-right: none; padding: 0; gap: 0; }` dan `.chat-list-panel { width: 100%; border-right: none; border-radius: 0; }`.
+       - Mengelompokkan `.chat-layout` dan `.chat-list-panel` ke dalam rule grup workspace full-height containers (`.mindmap-container, .draw-container, .notes-layout, .chat-layout`).
+    2. `static/index.html`:
+       - Pada `ChatListPanel`: header menampilkan `💬 Diskusi / Chat` (font-weight 700, font-size 14px) dan tombol toggle collapse `◀`/`▶`.
+       - Search input dirapikan dengan wrapper `.scratchpad-bar` (background `var(--bg-primary)`, border `1px solid var(--border)`, ikon 🔍 dan tombol ✕ saat ada teks query).
+       - Area list scroll menggunakan `flex: 1`, `overflowY: "auto"`, `scrollbarWidth: "none"`.
+       - Menghilangkan `${page === "chat" ? " no-padding" : ""}` dari wrapper `.main-content` agar konsisten dengan workspace lainnya.
+    3. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v328-chat-unified-container-layout`**.
+    4. `tests/offline/chat_page_layout.test.js`:
+       - Membuat test suite komprehensif 10 subtests untuk memvalidasi struktur JSX `ChatPage` dan `ChatListPanel`, styling CSS unified container, styling `.chat-list-panel`, item list tanpa radius, reset border/radius `.chat-room`, header & input bar, mobile media query, dan Service Worker cache version.
+  - **Verifikasi:**
+    - Inline syntax check: `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+    - Unit test suite: `node --test tests/offline/chat_page_layout.test.js` ➡️ **11/11 pass (0 fail)**.
+    - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **606/606 pass (0 fail)** across 7 suites.
+    - Backend test suite: `venv/bin/python -m pytest tests/` ➡️ **59/59 tests pass (0 fail)**.
+
+- **Notes Unified Container Layout (`static/app.css`, `static/sw.js`, `tests/offline/notes_page_layout.test.js`) — SELESAI 2026-08-30 (Antigravity/Gemini):**
+  - **Problem / Root Cause & Context:**
+    - Sebelumnya, halaman Catatan (`NotesPage`) menggunakan styling terpisah antara `.notes-left` dan `.notes-right` (dengan margin `margin-left: 10px` / `8px`, border independen `14px`, dan box shadow), berbeda dari pola unified container yang digunakan pada `DrawPage` (`.draw-container`) dan `MindmapPage` (`.mindmap-container`).
+  - **Solusi / Perbaikan:**
+    1. `static/app.css`:
+       - Mengupdate `.notes-layout` menjadi unified container: `display: flex; height: calc(100vh - 84px); min-height: 480px; margin-top: 6px; overflow: hidden; position: relative; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-card); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);`.
+       - Mengupdate `.notes-left` dengan `height: 100%; display: flex; flex-direction: column; overflow: hidden; position: relative; background: var(--bg-card); flex-shrink: 0;` dan garis pemisah `border-right: 1px solid var(--border)` (hilang saat collapsed).
+       - Mengupdate `.notes-right` menyatu mulus ke panel kiri tanpa margin/border independen: `margin-left: 0; border: none; border-radius: 0; box-shadow: none; height: 100%; flex: 1; min-width: 0; background: var(--bg-card);`.
+       - Menyelaraskan tablet media query `@media (min-width: 768px) and (max-width: 1024px)` (`.notes-right { margin-left: 0 !important; }`) dan mobile media query `@media (max-width: 767px)`.
+       - Mengelompokkan `.notes-layout` dan `.notes-left` ke dalam rule grup workspace full-height containers (`.mindmap-container, .draw-container, .notes-layout`).
+    2. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v327-notes-unified-container-layout`**.
+    3. `tests/offline/notes_page_layout.test.js`:
+       - Mengupdate asersi test 7 untuk memvalidasi `border-radius: 12px`, `border: 1px solid var(--border)`, `margin-left: 0`, `border: none; border-radius: 0; box-shadow: none`, dan `height: 100%`.
+  - **Verifikasi:**
+    - Inline syntax check: `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+    - Unit test suite: `node --test tests/offline/notes_page_layout.test.js` ➡️ **20/20 pass (0 fail)**.
+    - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **595/595 pass (0 fail)** across 7 suites.
+    - Backend test suite: `venv/bin/python -m pytest tests/` ➡️ **59/59 tests pass (0 fail)**.
+
 - **Idempotent Note Deletion & Resilient Outbox Sync (`webapp.py`, `static/offline/syncpush.js`, `static/sw.js`, `tests/test_scratchpad.py`, `tests/offline/notesync_autoheal.test.js`) — SELESAI 2026-08-29 (Antigravity/Gemini):**
   - **Problem / Root Cause:**
     1. `DELETE /api/scratchpad/{note_id}` di `webapp.py` sebelumnya melempar HTTP 403 saat note tidak ditemukan (`if not conn.execute("SELECT id FROM scratchpad_notes WHERE id = ? AND user_id = ?", (note_id, uid)).fetchone(): raise HTTPException(403)`), bukannya mengembalikan respons 200 idempotent (`{"ok": True, "detail": "Note already deleted"}`). Selain itu, relasi terkait di tabel `entity_tags`, `note_pins`, `published_notes`, dan `note_attachments` belum dibersihkan secara eksplisit.

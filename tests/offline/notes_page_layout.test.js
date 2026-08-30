@@ -173,11 +173,21 @@ test("NotesPage Tablet and Desktop Layout Redesign", async (t) => {
   });
 
   await t.test("7. CSS Rules in static/app.css", () => {
-    // .notes-layout height
+    // .notes-layout height & unified container
     assert.match(
       appCss,
       /\.notes-layout\s*\{[^}]*height:\s*calc\(100vh\s*-\s*84px\)/,
       ".notes-layout should have height calc(100vh - 84px)"
+    );
+    assert.match(
+      appCss,
+      /\.notes-layout\s*\{[^}]*border-radius:\s*12px;/,
+      ".notes-layout should have border-radius: 12px"
+    );
+    assert.match(
+      appCss,
+      /\.notes-layout\s*\{[^}]*border:\s*1px solid var\(--border\);/,
+      ".notes-layout should have border: 1px solid var(--border)"
     );
 
     // .notes-left styling
@@ -186,19 +196,29 @@ test("NotesPage Tablet and Desktop Layout Redesign", async (t) => {
       /\.notes-left\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*overflow:\s*hidden;/,
       ".notes-left should have display: flex, flex-direction: column, overflow: hidden"
     );
-
-    // .notes-right margin-left
     assert.match(
       appCss,
-      /\.notes-right\s*\{[^}]*margin-left:\s*10px;/,
-      ".notes-right should have margin-left: 10px"
+      /\.notes-left\s*\{[^}]*height:\s*100%;/,
+      ".notes-left should have height: 100%"
+    );
+
+    // .notes-right margin-left & unified border/shadow reset
+    assert.match(
+      appCss,
+      /\.notes-right\s*\{[^}]*margin-left:\s*0;/,
+      ".notes-right should have margin-left: 0"
+    );
+    assert.match(
+      appCss,
+      /\.notes-right\s*\{[^}]*border:\s*none;[^}]*border-radius:\s*0;[^}]*box-shadow:\s*none;/,
+      ".notes-right should have border: none, border-radius: 0, box-shadow: none"
     );
 
     // Tablet media query
     assert.match(
       appCss,
-      /@media\s*\(\s*min-width:\s*768px\s*\)\s*and\s*\(\s*max-width:\s*1024px\s*\)\s*\{[\s\S]*?\.notes-left\s*\{[^}]*width:\s*320px\s*!important;\s*min-width:\s*280px\s*!important;[^}]*\}[\s\S]*?\.notes-right\s*\{[^}]*margin-left:\s*8px\s*!important;[^}]*\}\s*\}/,
-      "app.css should include tablet media query for .notes-left (320px) and .notes-right (margin-left: 8px)"
+      /@media\s*\(\s*min-width:\s*768px\s*\)\s*and\s*\(\s*max-width:\s*1024px\s*\)\s*\{[\s\S]*?\.notes-left\s*\{[^}]*width:\s*320px\s*!important;\s*min-width:\s*280px\s*!important;[^}]*\}[\s\S]*?\.notes-right\s*\{[^}]*margin-left:\s*0\s*!important;[^}]*\}\s*\}/,
+      "app.css should include tablet media query for .notes-left (320px) and .notes-right (margin-left: 0)"
     );
 
     // Mobile media query
