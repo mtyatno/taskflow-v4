@@ -2,6 +2,29 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-08-31 08:05] - Antigravity (Gemini)
+- **Task:** Linux `.deb` Desktop Packaging & CI Configuration (`src-tauri/tauri.conf.json`, `.github/workflows/appimage.yml`, `tests/build-tauri-dist.test.js`).
+- **Objective:**
+  - Menambahkan konfigurasi packaging `.deb` di Tauri v2 (`bundle.targets` & `bundle.linux.deb`), memperbarui CI GitHub Actions workflow (`.github/workflows/appimage.yml`) untuk build dan upload artifact AppImage & Deb, serta menambahkan unit tests di `tests/build-tauri-dist.test.js`.
+- **Changes:**
+  - `src-tauri/tauri.conf.json`:
+    - Mengupdate `bundle.targets` ke `["nsis", "appimage", "deb"]`.
+    - Menambahkan `bundle.linux.deb` (`depends: ["libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37", "libgtk-3-0", "libayatana-appindicator3-1"]`, `section: "utils"`, `priority: "optional"`).
+    - Menambahkan `bundle.linux.appimage` (`bundleMediaFramework: false`).
+  - `.github/workflows/appimage.yml`:
+    - Mengupdate workflow name ke `Build Linux Desktop (AppImage & Deb)`.
+    - Mengupdate build step ke `npx tauri build --bundles appimage,deb`.
+    - Menambahkan artifact upload untuk `taskflow-linux-deb` (`src-tauri/target/release/bundle/deb/*.deb`) bersama `taskflow-linux-appimage`.
+  - `tests/build-tauri-dist.test.js`:
+    - Menambahkan test suite memvalidasi target `deb` & `appimage`, dependencies deb di `tauri.conf.json`, serta perintah build dan upload artifact di `appimage.yml`.
+- **Verification:**
+  - Unit test suite: `node --test tests/build-tauri-dist.test.js` ➡️ **3/3 pass (0 fail)**.
+  - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **606/606 pass (0 fail)** across 7 suites.
+  - Backend test suite: `venv/bin/python -m pytest tests/` ➡️ **59/59 tests pass (0 fail)**.
+  - Independent Subagent Review: **APPROVED**.
+- **Files Modified:** `src-tauri/tauri.conf.json`, `.github/workflows/appimage.yml`, `tests/build-tauri-dist.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-08-30 09:25] - Antigravity (Gemini)
 - **Task:** NotesPage Sidebar Header Deduplication (`static/index.html`, `static/sw.js`).
 - **Objective:**

@@ -1,4 +1,4 @@
-name: Build Linux AppImage
+name: Build Linux Desktop (AppImage & Deb)
 on:
   workflow_dispatch:
   push:
@@ -40,11 +40,17 @@ jobs:
           cd src-tauri
           cargo generate-lockfile
           cargo update -p brotli --precise 8.0.2
-      - name: Build AppImage (override config nsis target)
-        run: npx tauri build --bundles appimage
+      - name: Build Linux Desktop (AppImage & Deb)
+        run: npx tauri build --bundles appimage,deb
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
           name: taskflow-linux-appimage
           path: src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+      - name: Upload Deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: taskflow-linux-deb
+          path: src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error

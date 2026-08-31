@@ -7,6 +7,27 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
+- **Linux `.deb` Desktop Packaging & CI Configuration (`src-tauri/tauri.conf.json`, `.github/workflows/appimage.yml`, `tests/build-tauri-dist.test.js`) — SELESAI 2026-08-31 (Antigravity/Gemini):**
+  - **Problem / Context:**
+    - Sebelumnya, packaging desktop Linux pada Alurik (Tauri v2) hanya mengonfigurasi `appimage` pada `bundle.targets` dan GitHub Actions CI hanya mem-build serta meng-upload bundle AppImage. Pengguna distribusi Linux berbasis Debian/Ubuntu membutuhkan paket native `.deb` dengan dependensi sistem yang terdefinisi secara presisi.
+  - **Solusi / Perbaikan:**
+    1. `src-tauri/tauri.conf.json`:
+       - Mengupdate `bundle.targets` menjadi `["nsis", "appimage", "deb"]`.
+       - Menambahkan konfigurasi `bundle.linux`:
+         - `deb`: dependensi `["libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37", "libgtk-3-0", "libayatana-appindicator3-1"]`, `section: "utils"`, `priority: "optional"`.
+         - `appimage`: `bundleMediaFramework: false`.
+    2. `.github/workflows/appimage.yml`:
+       - Mengubah nama workflow menjadi `Build Linux Desktop (AppImage & Deb)`.
+       - Mengupdate command build menjadi `npx tauri build --bundles appimage,deb`.
+       - Mengupdate upload artifact untuk mengunggah `taskflow-linux-appimage` (`src-tauri/target/release/bundle/appimage/*.AppImage`) dan `taskflow-linux-deb` (`src-tauri/target/release/bundle/deb/*.deb`).
+    3. `tests/build-tauri-dist.test.js`:
+       - Menambahkan test suite `tauri.conf.json configures linux deb and appimage packaging` dan `github workflow builds and uploads both appimage and deb`.
+  - **Verifikasi:**
+    - Unit test suite: `node --test tests/build-tauri-dist.test.js` ➡️ **3/3 pass (0 fail)**.
+    - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **606/606 pass (0 fail)** across 7 suites.
+    - Backend test suite: `venv/bin/python -m pytest tests/` ➡️ **59/59 tests pass (0 fail)**.
+    - Independent Subagent Review: **APPROVED**.
+
 - **NotesPage Sidebar Header Deduplication (`static/index.html`, `static/sw.js`) — SELESAI 2026-08-30 (Antigravity/Gemini):**
   - **Problem / Context:**
     - Sebelumnya pada header sidebar `NotesPage`, label judul di sebelah kiri menampilkan `📝 Catatan` dan div aksi di sebelah kanan kembali memuat span duplikat `Catatan (${sortedNotes.length})`, sehingga terjadi redundansi tampilan teks "Catatan".
