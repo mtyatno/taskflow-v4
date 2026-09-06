@@ -7,6 +7,37 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Active Task
+- **Fix Mindmap Share Error & Ownership Guard (`webapp.py`, `static/index.html`, `static/sw.js`, `tests/test_mindmaps.py`, `tests/offline/mindmaproutes_shared.test.js`) — SELESAI 2026-09-04 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    1. **Missing Ownership Check in UI (`MindmapTabInstance`):** Pada `MindmapTabInstance` (sekitar baris 8718), dropdown `👥 Share` dirender untuk sembarang pengguna hanya dengan syarat `sharedLists.length > 0`, tanpa memeriksa apakah pengguna yang sedang login merupakan pemilik mindmap (`tab.user_id === currentUserId`), berbeda dengan `NoteViewerModal` dan `NoteModal`. Selain itu, `user` / `currentUserId` sebelumnya tidak dipassing dari `App` ➡️ `MindmapPage` ➡️ `MindmapTabInstance`. Ketika kolaborator (bukan pemilik) membuka mindmap bersama dan mengklik Share, permintaan `PATCH /api/mindmaps/{mid}/share` dikirim ke server.
+    2. **Backend 404 vs 403 Conflation (`webapp.py:5689`):** Endpoint `share_mindmap` sebelumnya mengeksekusi `SELECT id FROM mindmaps WHERE id = ? AND user_id = ?`. Jika mindmap ada tetapi dibuat oleh pengguna lain, server melempar `HTTP 404 "Mindmap tidak ditemukan"` alih-alih `HTTP 403 "Hanya pemilik mindmap yang bisa berbagi"`.
+    3. **Identifier Type & Timestamp Refresh:** `share_mindmap` menggunakan tipe `mid: int` sehingga rentan mengembalikan 422 bila dikirimkan ID string / CID, tidak memperbarui `updated_at`, dan belum mengembalikan representasi terekayasa (`_mindmap_enrich`).
+    4. **Toast Error Message Swallowing:** Handler `handleShare` menangkap error dan menampilkan flash toast umum `"Gagal menyimpan"` alih-alih `e?.message || "Gagal menyimpan"`.
+    5. **IndexedDB Local Persistence:** Ketika `handleShare` berhasil, perubahan `list_id` hanya diperbarui pada React state, belum disimpan ke IndexedDB store `mindmaps` lokal.
+  - **Solusi / Perbaikan:**
+    1. `webapp.py`:
+       - Mengubah anotasi `mid: str` dengan resolusi `int(mid)` jika digit atau pencarian `client_id`.
+       - Memeriksa keberadaan mindmap terlebih dahulu (`SELECT id, user_id FROM mindmaps WHERE id = ?`). Jika tidak ada ➡️ melempar `HTTP 404 "Mindmap tidak ditemukan"`.
+       - Jika pengguna bukan pemilik (`mm["user_id"] != uid`) ➡️ melempar `HTTP 403 "Hanya pemilik mindmap yang bisa berbagi"`.
+       - Memvalidasi keanggotaan list pengguna jika `list_id` tidak None (403 "Bukan anggota list ini").
+       - Mengupdate `list_id = ?, updated_at = ? WHERE id = ?` dan mengembalikan `_mindmap_enrich(dict(updated), conn)`.
+    2. `static/index.html`:
+       - Di `App`: mem-passing `user: user` dan `currentUserId: user?.id` ke `MindmapPage`.
+       - Di `MindmapPage`: menerima `user` dan `currentUserId`, serta meneruskan `currentUserId: currentUserId || user?.id` ke setiap `MindmapTabInstance`.
+       - Di `MindmapTabInstance`: menerima `currentUserId`, menghitung `isOwner = !tab?.user_id || !currentUserId || tab.user_id === currentUserId`.
+       - Render share: jika `isOwner && sharedLists.length > 0`, menampilkan tombol & dropdown share. Jika `!isOwner && tab?.list_id`, menampilkan badge informasi `👥 <ListName>` (read-only) agar anggota mengetahui mindmap dibagikan tanpa bisa mengubah pengaturannya.
+       - Memperbarui `handleShare` agar menampilkan pesan error spesifik dari API pada toast dan menyimpan update `list_id` & `updated_at` ke IndexedDB store `mindmaps`.
+    3. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v330-mindmap-share-ownership-fix`**.
+    4. Unit Tests:
+       - `tests/test_mindmaps.py`: Menambahkan suite pengujian FastAPI baru (8 assertions) memvalidasi owner sharing (200 OK), non-owner sharing (403 Forbidden), non-existent mindmap (404 Not Found), list membership guard (403 Forbidden), dan unshare (200 OK).
+       - `tests/offline/mindmaproutes_shared.test.js`: Menambahkan pengujian offline untuk ownership guard logic dan persistensi store IndexedDB.
+  - **Verifikasi:**
+    - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+    - Backend test suite: `python -m pytest tests/` ➡️ **60/60 tests pass (0 fail)**.
+    - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **597/597 tests pass (0 fail)** across 7 suites.
+
 - **Linux `.deb` Desktop Packaging & CI Configuration (`src-tauri/tauri.conf.json`, `.github/workflows/appimage.yml`, `tests/build-tauri-dist.test.js`) — SELESAI 2026-08-31 (Antigravity/Gemini):**
   - **Problem / Context:**
     - Sebelumnya, packaging desktop Linux pada Alurik (Tauri v2) hanya mengonfigurasi `appimage` pada `bundle.targets` dan GitHub Actions CI hanya mem-build serta meng-upload bundle AppImage. Pengguna distribusi Linux berbasis Debian/Ubuntu membutuhkan paket native `.deb` dengan dependensi sistem yang terdefinisi secara presisi.
@@ -92,6 +123,7 @@
     - Unit test suite: `node --test tests/offline/notes_page_layout.test.js` ➡️ **20/20 pass (0 fail)**.
     - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **595/595 pass (0 fail)** across 7 suites.
     - Backend test suite: `venv/bin/python -m pytest tests/` ➡️ **59/59 tests pass (0 fail)**.
+
 
 - **Idempotent Note Deletion & Resilient Outbox Sync (`webapp.py`, `static/offline/syncpush.js`, `static/sw.js`, `tests/test_scratchpad.py`, `tests/offline/notesync_autoheal.test.js`) — SELESAI 2026-08-29 (Antigravity/Gemini):**
   - **Problem / Root Cause:**

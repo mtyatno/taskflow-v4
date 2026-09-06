@@ -2,6 +2,39 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-09-04 16:30] - Antigravity (Gemini)
+- **Task:** Fix Mindmap Share Error & Ownership Guard (`webapp.py`, `static/index.html`, `static/sw.js`, `tests/test_mindmaps.py`, `tests/offline/mindmaproutes_shared.test.js`).
+- **Root Cause & Objective:**
+  1. `MindmapTabInstance` in `static/index.html` (line ~8718) rendered the `👥 Share` button for any user whenever `sharedLists.length > 0`, without checking if the user is the owner (`tab.user_id === currentUserId`). Non-owners viewing a shared mindmap clicked the button and selected a list, firing `PATCH /api/mindmaps/{mid}/share`.
+  2. `share_mindmap` in `webapp.py` previously executed `SELECT id FROM mindmaps WHERE id = ? AND user_id = ?`. When a non-owner called the endpoint, it raised `HTTP 404 "Mindmap tidak ditemukan"` instead of distinguishing existence from permissions with `HTTP 403 "Hanya pemilik mindmap yang bisa berbagi"`.
+  3. `share_mindmap` had type `mid: int` (fragile to string CIDs), did not bump `updated_at`, and did not return enriched collaborator metadata (`_mindmap_enrich`).
+  4. `handleShare` caught errors and swallowed error messages into a generic `"Gagal menyimpan"` toast.
+  5. Upon successful share, `list_id` was only updated in React state and not persisted to local IndexedDB store `mindmaps`.
+- **Changes:**
+  - `webapp.py`:
+    - Changed `mid` to `str` with numeric ID and `client_id` resolution.
+    - Added existence check first (404 if missing), followed by owner check (403 "Hanya pemilik mindmap yang bisa berbagi").
+    - Validated list membership (403 "Bukan anggota list ini").
+    - Updated `list_id` and refreshed `updated_at`, returning `_mindmap_enrich`.
+  - `static/index.html`:
+    - Passed `user` and `currentUserId` from `App` ➡️ `MindmapPage` ➡️ `MindmapTabInstance`.
+    - Added `isOwner = !tab?.user_id || !currentUserId || tab.user_id === currentUserId`.
+    - Rendered share dropdown only when `isOwner && sharedLists.length > 0`; rendered a read-only badge `👥 <ListName>` for non-owners.
+    - Updated `handleShare` to display descriptive API error toasts (`e?.message || "Gagal menyimpan"`) and persist changes to IndexedDB store `mindmaps`.
+  - `static/sw.js`:
+    - Bumped Service Worker cache version to **`taskflow-v330-mindmap-share-ownership-fix`**.
+  - `tests/test_mindmaps.py`:
+    - Created FastAPI test suite (8 assertions) covering owner sharing, non-owner 403, 404 on missing mindmap, list membership guard, and unsharing.
+  - `tests/offline/mindmaproutes_shared.test.js`:
+    - Added unit tests for UI ownership check logic and IndexedDB share persistence.
+- **Verification:**
+  - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+  - Backend test suite: `python -m pytest tests/` ➡️ **60/60 tests pass (0 fail)**.
+  - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **597/597 tests pass (0 fail)** across 7 suites.
+- **Files Modified:** `webapp.py`, `static/index.html`, `static/sw.js`, `tests/test_mindmaps.py`, `tests/offline/mindmaproutes_shared.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-08-31 08:05] - Antigravity (Gemini)
 - **Task:** Linux `.deb` Desktop Packaging & CI Configuration (`src-tauri/tauri.conf.json`, `.github/workflows/appimage.yml`, `tests/build-tauri-dist.test.js`).
 - **Objective:**
@@ -98,8 +131,8 @@ Chronological history of work performed by AI agents in this workspace.
   - Unit test suite: `node --test tests/offline/notes_page_layout.test.js` ➡️ **20/20 pass (0 fail)**.
   - JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **595/595 pass (0 fail)** across 7 suites.
   - Backend test suite: `venv/bin/python -m pytest tests/` ➡️ **59/59 tests pass (0 fail)**.
-- **Files Modified:** `static/app.css`, `static/sw.js`, `tests/offline/notes_page_layout.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
-- **Status:** Completed & Verified
+
+
 
 ## [2026-08-29 07:30] - Antigravity (Gemini)
 - **Task:** Idempotent Note Deletion & Resilient Outbox Sync (`webapp.py`, `static/offline/syncpush.js`, `static/sw.js`, `tests/test_scratchpad.py`, `tests/offline/notesync_autoheal.test.js`).

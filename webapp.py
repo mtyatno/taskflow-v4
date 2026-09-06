@@ -5687,22 +5687,32 @@ async def delete_note_template(tid: int, user=Depends(get_current_user)):
 
 
 @app.patch("/api/mindmaps/{mid}/share")
-async def share_mindmap(mid: int, req: MindmapShareReq, user=Depends(get_current_user)):
+async def share_mindmap(mid: str, req: MindmapShareReq, user=Depends(get_current_user)):
     uid = user["sub"]
     list_id = req.list_id
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT id FROM mindmaps WHERE id = ? AND user_id = ?", (mid, uid)
-        ).fetchone()
-        if not row:
+        if mid.isdigit():
+            mm = conn.execute("SELECT id, user_id FROM mindmaps WHERE id = ?", (int(mid),)).fetchone()
+        else:
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(mindmaps)").fetchall()]
+            if "client_id" in cols:
+                mm = conn.execute("SELECT id, user_id FROM mindmaps WHERE client_id = ?", (mid,)).fetchone()
+            else:
+                mm = None
+        if not mm:
             raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
+        if mm["user_id"] != uid:
+            raise HTTPException(status_code=403, detail="Hanya pemilik mindmap yang bisa berbagi")
+        real_mid = mm["id"]
         if list_id is not None:
             repo = TaskRepository(DB_PATH)
             if not repo.is_list_member_or_owner(list_id, uid):
                 raise HTTPException(status_code=403, detail="Bukan anggota list ini")
-        conn.execute("UPDATE mindmaps SET list_id = ? WHERE id = ?", (list_id, mid))
-        updated = conn.execute("SELECT id, title, is_pinned, list_id, created_at, updated_at FROM mindmaps WHERE id = ?", (mid,)).fetchone()
-        return dict(updated)
+        now = datetime.now(_TZ_JKT).isoformat()
+        conn.execute("UPDATE mindmaps SET list_id = ?, updated_at = ? WHERE id = ?", (list_id, now, real_mid))
+        updated = conn.execute("SELECT id, title, is_pinned, list_id, user_id, last_edited_by, created_at, updated_at FROM mindmaps WHERE id = ?", (real_mid,)).fetchone()
+        return _mindmap_enrich(dict(updated), conn)
+
 
 
 @app.get("/api/lists/{list_id}/mindmaps")

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v329-notes-sidebar-header-dedup";
+const CACHE = "taskflow-v330-mindmap-share-ownership-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

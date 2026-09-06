@@ -8412,10 +8412,12 @@ function MindmapTabInstance({
   onTaskClick,
   tasks = [],
   sharedLists = [],
+  currentUserId = null,
   onUpdateTitle,
   onDeleteMindmap,
   onUpdateListId
 }) {
+  const isOwner = !tab?.user_id || !currentUserId || tab.user_id === currentUserId;
   const [renaming, setRenaming] = useState(false);
   const [renameVal, setRenameVal] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -8531,11 +8533,34 @@ function MindmapTabInstance({
     if (!tab) return;
     try {
       const updated = await api.patch(`/api/mindmaps/${tab.id}/share`, { list_id: listId });
-      onUpdateListId && onUpdateListId(tab.id, updated.list_id);
+      if (updated && window.TF && window.TF.db) {
+        try {
+          const db = await window.TF.db.openDB();
+          const all = await new Promise((res, rej) => {
+            const req = db.transaction("mindmaps", "readonly").objectStore("mindmaps").getAll();
+            req.onsuccess = () => res(req.result || []);
+            req.onerror = () => rej(req.error);
+          });
+          const match = all.find(m => m.cid === tab.id || (m.server_id != null && String(m.server_id) === String(tab.id)) || (updated.id != null && String(m.server_id) === String(updated.id)));
+          if (match) {
+            match.list_id = updated.list_id !== undefined ? updated.list_id : listId;
+            if (updated.updated_at) match.updated_at = updated.updated_at;
+            await new Promise((res, rej) => {
+              const tx = db.transaction("mindmaps", "readwrite");
+              tx.objectStore("mindmaps").put(match);
+              tx.oncomplete = () => res();
+              tx.onerror = () => rej(tx.error);
+            });
+          }
+        } catch (dbErr) {
+          console.warn("Failed to persist mindmap share to IndexedDB:", dbErr);
+        }
+      }
+      onUpdateListId && onUpdateListId(tab.id, updated ? updated.list_id : listId);
       setShareOpen(false);
       showToast(listId ? "✅ Mindmap dibagikan" : "Berbagi dibatalkan");
-    } catch {
-      showToast("Gagal menyimpan", "error");
+    } catch (e) {
+      showToast(e && e.message ? e.message : "Gagal menyimpan", "error");
     }
   };
 
@@ -8715,7 +8740,7 @@ function MindmapTabInstance({
         }
       }, "⇤⇥ Justify"),
       /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => { setRenaming(true); setRenameVal(tab.title); }, style: { fontSize: 11 } }, "Rename"),
-      sharedLists.length > 0 && /*#__PURE__*/React.createElement("div", { ref: shareRef, style: { position: "relative", flexShrink: 0 } },
+      isOwner && sharedLists.length > 0 ? /*#__PURE__*/React.createElement("div", { ref: shareRef, style: { position: "relative", flexShrink: 0 } },
         /*#__PURE__*/React.createElement("button", {
           className: "btn btn-secondary btn-sm",
           onClick: () => setShareOpen(o => !o),
@@ -8738,7 +8763,11 @@ function MindmapTabInstance({
             onMouseLeave: e => e.currentTarget.style.background = "transparent"
           }, "Batal berbagi")
         )
-      ),
+      ) : (!isOwner && tab?.list_id) ? /*#__PURE__*/React.createElement("span", {
+        className: "badge",
+        style: { fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)", flexShrink: 0 }
+      }, `👥 ${sharedLists.find(l => l.id === tab.list_id)?.name || "Shared"}`) : null,
+
       deleteConfirm ? /*#__PURE__*/React.createElement(React.Fragment, null,
         /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "#ef4444", flexShrink: 0 } }, "Hapus?"),
         /*#__PURE__*/React.createElement("button", { onClick: handleDelete, style: { padding: "3px 8px", borderRadius: 6, border: "none", cursor: "pointer", background: "#ef4444", color: "#fff", fontSize: 11 } }, "Ya"),
@@ -8814,7 +8843,9 @@ function MindmapPage({
   tasks = [],
   sharedLists = [],
   initialMindmapId = null,
-  onInitialMindmapConsumed = null
+  onInitialMindmapConsumed = null,
+  user = null,
+  currentUserId = null
 }) {
   const [mindmaps, setMindmaps] = useState([]);
   const [openTabs, setOpenTabs] = useState([]);
@@ -9143,6 +9174,7 @@ function MindmapPage({
           onTaskClick: onTaskClick,
           tasks: tasks,
           sharedLists: sharedLists,
+          currentUserId: currentUserId || user?.id,
           onUpdateTitle: handleUpdateTitle,
           onDeleteMindmap: handleDeleteMindmap,
           onUpdateListId: handleUpdateListId
@@ -25233,6 +25265,8 @@ function App() {
         showToast: showToast,
         onTaskClick: setSelectedTask,
         tasks: tasks,
+        user: user,
+        currentUserId: user?.id,
         sharedLists: sharedLists,
         initialMindmapId: pendingMindmapId,
         onInitialMindmapConsumed: () => setPendingMindmapId(null)
