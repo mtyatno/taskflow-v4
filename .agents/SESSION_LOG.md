@@ -1586,3 +1586,9 @@ Chronological history of work performed by AI agents in this workspace.
 - **Verifikasi:** JS 661/662 (1 fail pra-ada tldraw), pytest 60/60, inline 5/5, E2E desktop 36/36, touch 14/14, lifecycle 2/2, nodes 9/9, review 15/15 (script review yang sama 8/15 di commit sebelumnya → bug terbukti tertangkap).
 - **Files Touch:** `static/index.html`, `tests/offline/block_handle.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed di branch `claude/cool-gates-qa4eg9` (belum merge/deploy).
+
+## [2026-09-30 22:45] - Claude (deploy block handle)
+- **Task:** Merge & deploy fitur block handle.
+- **Changes:** User merge PR #2 (`cf3a570`) ke main; workflow Tests #288 & Deploy #808 sukses; log deploy menunjukkan VPS fast-forward 199e985..cf3a570 (11 file). Push langsung `HEAD:main` dari sesi cloud diblokir pengaman (production deploy) — tidak dipakai. Branch `claude/cool-gates-qa4eg9` di-reset ke `origin/main` untuk catatan ini.
+- **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & LIVE (SW v331). PENDING user: hard refresh + cek lebar editor di HP.
