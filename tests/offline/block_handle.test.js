@@ -151,8 +151,9 @@ test("static/index.html: cache-bust bundle & css", async (t) => {
   await t.test("milkdown.bundle.js?v=289", () => {
     assert.match(indexHtml, /<script\s+src="\/static\/vendor\/milkdown\.bundle\.js\?v=289"><\/script>/);
   });
-  await t.test("app.css?v=297", () => {
-    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=297">/);
+  await t.test("app.css?v>=297 (CSS block handle; pin versi terbaru ada di test fitur terakhir)", () => {
+    const m = indexHtml.match(/<link rel="stylesheet" href="\/static\/app\.css\?v=(\d+)">/);
+    assert.ok(m && Number(m[1]) >= 297, "app.css harus ?v=297 atau lebih baru");
   });
 });
 
@@ -443,6 +444,7 @@ test("static/app.css: style block handle, gutter & drop cursor", async (t) => {
   });
 });
 
-test("static/sw.js: CACHE di-bump untuk block handle", () => {
-  assert.match(swContent, /^const CACHE = "taskflow-v331-milkdown-block-handle";/m);
+test("static/sw.js: CACHE di-bump untuk block handle (v331 atau lebih baru)", () => {
+  const m = swContent.match(/^const CACHE = "taskflow-v(\d+)-[^"]+";/m);
+  assert.ok(m && Number(m[1]) >= 331, "CACHE harus taskflow-v331-milkdown-block-handle atau versi sesudahnya");
 });

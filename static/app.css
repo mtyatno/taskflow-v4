@@ -1109,7 +1109,6 @@
     .note-rendered .wikilink-broken { color: #b45309; background: rgba(245,158,11,0.10); border-radius: 4px; padding: 0 3px; border-bottom: 1px dashed #d97706; cursor: pointer; font-style: italic; }
     .note-rendered .wikilink-broken:hover { background: rgba(245,158,11,0.20); }
     .note-shared-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; color: var(--text-secondary); background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 1px 6px; vertical-align: middle; }
-    .note-toc-panel::-webkit-scrollbar { display: none; }
     .wiki-autocomplete { position: fixed; background: var(--bg-card); border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.22); z-index: 2000; min-width: 200px; max-width: 320px; overflow: hidden; }
     .wiki-autocomplete-item { padding: 8px 14px; font-size: 13px; cursor: pointer; color: var(--text-primary); transition: background 0.1s; }
     .wiki-autocomplete-item:hover, .wiki-autocomplete-item.active { background: rgba(168,197,0,0.15); color: var(--accent); font-weight: 600; }
@@ -1999,6 +1998,10 @@
   bottom: calc(92px + env(safe-area-inset-bottom, 0px));
   z-index: 45;
 }
+/* Varian mode edit (NoteModal): anchor dirender di dalam root modal (fixed, z-index 1000 = konteks
+   tumpuk sendiri) → z-index 45 di atas isi modal (footer sticky 10, block handle 30), di bawah dropdown
+   modal (share 300, tag 1050, wiki 2000, dialog gambar 9999); slash menu/tooltip di body (11000).
+   Jadi z-index tidak di-override; hanya posisi desktop (lihat @media min-width 769px di bawah). */
 .floating-toc-trigger {
   display: flex;
   align-items: center;
@@ -2080,6 +2083,10 @@
     top: 50%;
     bottom: auto;
     transform: translateY(-50%);
+  }
+  /* Mode edit: dgn right 16px tombol menempel tepi kanan teks editor (celah ~1px) → geser ke kanan */
+  .floating-toc-anchor.floating-toc-anchor--modal {
+    right: 8px;
   }
 }
 

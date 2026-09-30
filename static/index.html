@@ -50,7 +50,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=297">
+  <link rel="stylesheet" href="/static/app.css?v=298">
 
 <style>
 .paper-mode-active {
@@ -15450,7 +15450,8 @@ if (typeof window !== 'undefined') {
   //   - createMarkdownPastePlugin
   //   - createTaskCheckboxPlugin
   //   - extractHeadings
-  //   - NoteToc
+  //   - extractDocHeadings
+  //   - FloatingToc
   // BLOCK LENGTH: ~1344 lines (14828-16174) — Milkdown plugins + editor wrapper
 
 function NoteToolbar({
@@ -17569,51 +17570,84 @@ function extractHeadings(content) {
   }
   return headings;
 }
-function NoteToc({
-  items
-}) {
-  const [activeIdx, setActiveIdx] = React.useState(null);
-  React.useEffect(() => {
-    setActiveIdx(null);
-  }, [items]);
-  const handleClick = item => {
-    setActiveIdx(item.idx);
-    const el = document.getElementById(`note-h-${item.idx}`);
-    if (el) el.scrollIntoView({
-      behavior: "smooth",
-      block: "start"
+// Heading top-level dokumen ProseMirror (mode edit). Beda dgn extractHeadings(content):
+// baris "# ..." di dalam code block tidak ikut, dan pos dipakai untuk lompat ke DOM heading.
+function extractDocHeadings(doc) {
+  const headings = [];
+  doc.forEach((node, offset) => {
+    if (node.type.name !== "heading") return;
+    const text = node.textContent.trim();
+    if (text) headings.push({
+      level: node.attrs.level,
+      text,
+      idx: headings.length,
+      pos: offset
     });
-  };
+  });
+  return headings;
+}
+// Daftar isi melayang ala Medium (tombol 📑 + popover) — dipakai NotePanel (baca) & NoteModal (edit).
+// Komponen hanya mengurus buka/tutup; cara lompat ke heading diserahkan ke onJump(item).
+function FloatingToc({
+  items,
+  activeIdx,
+  onJump,
+  onOpen,
+  className
+}) {
+  const [tocOpen, setTocOpen] = React.useState(false);
+  const tocRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!tocOpen) return;
+    const onDown = e => {
+      if (tocRef.current && !tocRef.current.contains(e.target)) {
+        setTocOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [tocOpen]);
   return /*#__PURE__*/React.createElement("div", {
-    className: "note-toc-panel",
-    style: {
-      width: 120,
-      flexShrink: 0,
-      borderLeft: "1px solid var(--border)",
-      paddingLeft: 8,
-      overflowY: "auto",
-      maxHeight: "70vh",
-      scrollbarWidth: "none"
-    }
+    ref: tocRef,
+    className: `floating-toc-anchor${className ? " " + className : ""}`
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => {
+      // onOpen: kesempatan pemanggil menyegarkan daftar heading sebelum popover tampil
+      if (!tocOpen && onOpen) onOpen();
+      setTocOpen(!tocOpen);
+    },
+    className: `floating-toc-trigger${tocOpen ? " active" : ""}`,
+    title: "Daftar Isi Catatan"
+  }, /*#__PURE__*/React.createElement("span", null, "📑")),
+  tocOpen && /*#__PURE__*/React.createElement("div", {
+    className: "floating-toc-popover"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 9,
-      fontWeight: 700,
-      color: "var(--text-light)",
-      textTransform: "uppercase",
-      letterSpacing: 1.5,
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
       marginBottom: 8,
-      paddingLeft: 6
+      paddingBottom: 4,
+      borderBottom: "1px solid var(--border)"
     }
-  }, "Isi"), items.map(item => /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", {
+    style: { fontSize: 11, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1 }
+  }, `📑 DAFTAR ISI (${items.length})`), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setTocOpen(false),
+    style: { background: "none", border: "none", cursor: "pointer", color: "var(--text-light)", fontSize: 14 }
+  }, "✕")),
+  items.map(item => /*#__PURE__*/React.createElement("span", {
     key: item.idx,
     className: `note-toc-item${activeIdx === item.idx ? " active" : ""}`,
-    style: {
-      paddingLeft: 6 + (item.level - 1) * 10
+    style: { paddingLeft: 6 + (item.level - 1) * 10 },
+    onClick: () => {
+      setTocOpen(false);
+      if (onJump) onJump(item);
     },
-    onClick: () => handleClick(item),
     title: item.text
-  }, item.text)));
+  }, item.text))));
 }
   // ═══ DEPENDENCIES: NoteModal ═══
   // uses:
@@ -17626,7 +17660,7 @@ function NoteToc({
   //   - __token
   //   - NoteToolbar
   //   - MilkdownEditor
-  //   - NoteToc
+  //   - FloatingToc
   //   - renderMarkdown
   //   - renderWikilinksPreview
   //   - normalizeWikiText
@@ -17637,6 +17671,7 @@ function NoteToc({
   //   - mediaUrl
   //   - extractTaskIdsFromContent
   //   - extractHeadings
+  //   - extractDocHeadings
   // emits:
   //   - NoteModal
   // BLOCK LENGTH: ~2074 lines (16220-18294) — 2nd LARGEST block in codebase
@@ -18208,7 +18243,92 @@ function NoteModal({
   const [noteTitles, setNoteTitles] = useState(noteTitlesProp);
   const [backlinks, setBacklinks] = useState([]);
   const wikiDropdownRef = useRef(null);
-  const tocItems = React.useMemo(() => extractHeadings(content), [content]);
+
+  // ── Daftar isi (📑) mode edit ─────────────────────────────────
+  // Sumber heading = dokumen ProseMirror editor (akurat; "# ..." di code block tidak ikut).
+  // Editor Milkdown siap asinkron → sebelum siap, fallback extractHeadings(content) utk tampilan.
+  const mdTocItems = React.useMemo(() => extractHeadings(content), [content]);
+  const [editorToc, setEditorToc] = React.useState(null);
+  const tocItems = editorToc || mdTocItems;
+  const [tocActiveIdx, setTocActiveIdx] = React.useState(null);
+  const tocSpyNodesRef = React.useRef([]);
+  const [tocSpyNonce, setTocSpyNonce] = React.useState(0);
+  const getEditorView = () => {
+    const editor = milkdownEditorRef.current;
+    const MB = window.MilkdownBundle;
+    if (!editor || !MB?.editorViewCtx) return null;
+    try {
+      return editor.action(ctx => ctx.get(MB.editorViewCtx));
+    } catch (_) {
+      return null; // editor belum siap / sudah di-destroy
+    }
+  };
+  const syncEditorToc = () => {
+    const view = getEditorView();
+    if (!view) return false;
+    const list = extractDocHeadings(view.state.doc);
+    const key = l => l.map(h => h.level + ":" + h.text).join("\n");
+    // Struktur sama → pertahankan state lama (tidak re-render tiap ketikan)
+    setEditorToc(prev => prev && key(prev) === key(list) ? prev : list);
+    // DOM heading diganti ProseMirror (mis. replaceAll) walau struktur sama → buat ulang observer
+    if (tocSpyNodesRef.current.some(el => !el.isConnected)) setTocSpyNonce(n => n + 1);
+    return true;
+  };
+  React.useEffect(() => {
+    let timer = null;
+    let tries = 0;
+    const run = () => {
+      // Coba ulang sebentar sampai view editor tersedia (init Milkdown asinkron)
+      if (syncEditorToc() || ++tries > 40) return;
+      timer = setTimeout(run, 150);
+    };
+    run();
+    return () => clearTimeout(timer);
+  }, [content]);
+  const jumpToEditorHeading = item => {
+    setTocActiveIdx(item.idx);
+    const view = getEditorView();
+    if (!view) return;
+    // pos di state bisa basi (heading bergeser saat mengetik) → cocokkan ulang dgn dokumen terkini
+    const fresh = extractDocHeadings(view.state.doc);
+    const h = fresh.find(x => x.idx === item.idx && x.text === item.text) || fresh.find(x => x.text === item.text && x.level === item.level) || fresh[item.idx];
+    if (!h) return;
+    const node = view.state.doc.nodeAt(h.pos);
+    if (!node || node.type.name !== "heading") return;
+    const el = view.nodeDOM(h.pos);
+    // Hanya gulir — kursor/seleksi tidak dipindah (keyboard HP tidak muncul)
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (h.idx !== item.idx) setTocActiveIdx(h.idx);
+  };
+  // Scroll-spy: observer pada DOM heading editor; dibuat ulang hanya saat struktur heading berubah
+  const editorTocKey = editorToc ? editorToc.map(h => h.level + ":" + h.text).join("\n") : "";
+  React.useEffect(() => {
+    setTocActiveIdx(null);
+    tocSpyNodesRef.current = [];
+    if (focusMode || !editorToc || editorToc.length < 2 || typeof IntersectionObserver === "undefined") return;
+    const view = getEditorView();
+    if (!view) return;
+    const idxByEl = new Map();
+    extractDocHeadings(view.state.doc).forEach(h => {
+      const el = view.nodeDOM(h.pos);
+      if (el && el.nodeType === 1) idxByEl.set(el, h.idx);
+    });
+    if (!idxByEl.size) return;
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries.filter(e => e.isIntersecting);
+      if (!visible.length) return;
+      let top = visible[0];
+      for (let i = 1; i < visible.length; i++) {
+        if (visible[i].boundingClientRect.top < top.boundingClientRect.top) top = visible[i];
+      }
+      const idx = idxByEl.get(top.target);
+      if (idx != null) setTocActiveIdx(idx);
+    }, { root: null, rootMargin: "-15% 0px -60% 0px", threshold: 0 });
+    idxByEl.forEach((_, el) => observer.observe(el));
+    tocSpyNodesRef.current = Array.from(idxByEl.keys());
+    return () => observer.disconnect();
+  }, [editorTocKey, focusMode, tocSpyNonce]);
+
   const [tagDropdown, setTagDropdown] = useState(null);
   const [existingTags, setExistingTags] = useState([]);
   const [noteAiDropdown, setNoteAiDropdown] = useState(null);
@@ -19358,9 +19478,7 @@ function NoteModal({
       color: "var(--text-light)",
       marginLeft: 6
     }
-  }, t.count, "\xD7"))))), !focusMode && tocItems.length >= 2 && /*#__PURE__*/React.createElement(NoteToc, {
-    items: tocItems
-  })), !focusMode && tags.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, t.count, "\xD7")))))), !focusMode && tags.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 4
     }
@@ -19732,7 +19850,13 @@ function NoteModal({
       flexDirection: "column",
       gap: 14
     }
-  }, inner), drawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
+  }, inner), !focusMode && tocItems.length >= 2 && /*#__PURE__*/React.createElement(FloatingToc, {
+    items: tocItems,
+    activeIdx: tocActiveIdx,
+    onJump: jumpToEditorHeading,
+    onOpen: syncEditorToc,
+    className: "floating-toc-anchor--modal"
+  }), drawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
     noteTitle: title,
     onSelectDrawing: handleDrawingSelected,
     onClose: () => setDrawingInsertOpen(false),
@@ -19756,7 +19880,7 @@ function NoteModal({
   //   - __token
   //   - NoteToolbar
   //   - MilkdownEditor
-  //   - NoteToc
+  //   - FloatingToc
   //   - renderMarkdown
   //   - renderWikilinksPreview
   //   - normalizeWikiText
@@ -19796,18 +19920,6 @@ function NotePanel({
 }) {
   const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
   const [panelAttachments, setPanelAttachments] = React.useState([]);
-  const [tocOpen, setTocOpen] = React.useState(false);
-  const tocRef = React.useRef(null);
-  React.useEffect(() => {
-    if (!tocOpen) return;
-    const onDown = e => {
-      if (tocRef.current && !tocRef.current.contains(e.target)) {
-        setTocOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", onDown);
-    return () => document.removeEventListener("pointerdown", onDown);
-  }, [tocOpen]);
 
   const [shareOpen, setShareOpen] = React.useState(false);
   const shareRef = React.useRef(null);
@@ -20917,45 +21029,15 @@ function NotePanel({
       color: 'var(--text-light)',
       flexShrink: 0
     }
-  }, att.file_size > 1048576 ? (att.file_size / 1048576).toFixed(1) + 'MB' : Math.round(att.file_size / 1024) + 'KB'))))), tocItems.length >= 2 && /*#__PURE__*/React.createElement("div", {
-    ref: tocRef,
-    className: "floating-toc-anchor"
-  }, /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    onClick: () => setTocOpen(o => !o),
-    className: `floating-toc-trigger${tocOpen ? " active" : ""}`,
-    title: "Daftar Isi Catatan"
-  }, /*#__PURE__*/React.createElement("span", null, "📑")),
-  tocOpen && /*#__PURE__*/React.createElement("div", {
-    className: "floating-toc-popover"
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 8,
-      paddingBottom: 4,
-      borderBottom: "1px solid var(--border)"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: { fontSize: 11, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1 }
-  }, `📑 DAFTAR ISI (${tocItems.length})`), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    onClick: () => setTocOpen(false),
-    style: { background: "none", border: "none", cursor: "pointer", color: "var(--text-light)", fontSize: 14 }
-  }, "✕")),
-  tocItems.map(item => /*#__PURE__*/React.createElement("span", {
-    key: item.idx,
-    className: `note-toc-item${tocActiveIdx === item.idx ? " active" : ""}`,
-    style: { paddingLeft: 6 + (item.level - 1) * 10 },
-    onClick: () => {
-      setTocOpen(false);
+  }, att.file_size > 1048576 ? (att.file_size / 1048576).toFixed(1) + 'MB' : Math.round(att.file_size / 1024) + 'KB'))))), tocItems.length >= 2 && /*#__PURE__*/React.createElement(FloatingToc, {
+    items: tocItems,
+    activeIdx: tocActiveIdx,
+    onJump: item => {
       setTocActiveIdx(item.idx);
       const el = document.getElementById(`note-h-${item.idx}`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    },
-    title: item.text
-  }, item.text)))), publishOpen && /*#__PURE__*/React.createElement("div", {
+    }
+  }), publishOpen && /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
     onClick: () => setPublishOpen(false)
   }, /*#__PURE__*/React.createElement("div", {

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v331-milkdown-block-handle";
+const CACHE = "taskflow-v332-edit-mode-floating-toc";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

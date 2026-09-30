@@ -1598,3 +1598,10 @@ Chronological history of work performed by AI agents in this workspace.
 - **Changes:** Tidak ada perubahan kode. Reproduksi Playwright: `NoteToc` kolom 120px di NoteModal → editor 206px di layar 390px; klik item ToC di mode edit salah target (`#note-h-N` milik panel baca). Usulan di CURRENT_STATE.md.
 - **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed (riset) — menunggu keputusan user.
+
+## [2026-09-30 23:40] - Claude (Floating ToC mode edit)
+- **Task:** Perbaiki layar HP terbelah saat edit catatan ber-ToC.
+- **Changes:** `FloatingToc` reusable (NotePanel + NoteModal), `extractDocHeadings`, lompat/scroll-spy berbasis dokumen editor, hapus `NoteToc` & `.note-toc-panel`, CSS varian modal, SW v332, test note_toc 18→43 subtest. Implementasi via subagent (brief `brief-edit-toc.md` di scratchpad), review subagent, verifikasi ulang koordinator.
+- **Verifikasi:** JS 686/687 (1 fail pra-ada tldraw), pytest 60/60, inline 5/5, E2E toc_edit 38/38 + block handle 36/14/2/9/15 hijau.
+- **Files Touch:** `static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/note_toc.test.js`, `tests/offline/block_handle.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed di branch (belum merge/deploy).
