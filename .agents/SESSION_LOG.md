@@ -1566,3 +1566,9 @@ Chronological history of work performed by AI agents in this workspace.
 - **Files Touch:** `static/offline/syncpull.js`, `tests/offline/syncpull.test.js`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed (553/553 JS unit tests pass, 55/55 pytest pass, 5/5 inline scripts check clean).
 
+
+## [2026-09-30] - Claude (riset Milkdown block handle "+" Notion-like)
+- **Task:** Cek apakah fitur "+"/drag handle per blok (Notion-like, dari Milkdown Crepe) bisa dipakai di editor Alurik.
+- **Changes:** Tidak ada perubahan kode. PoC di scratchpad: `@milkdown/plugin-block@7.20.0` di-bundle bersama entry yang ada (+1.9 KB gzip) dan diuji Playwright (hover → handle muncul, "+" → slash menu, drag → urutan blok pindah; tap mobile → handle tidak muncul). Detail & rencana implementasi di CURRENT_STATE.md.
+- **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (riset) — menunggu keputusan user untuk implementasi.

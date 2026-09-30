@@ -6,6 +6,14 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🔎 Riset: Notion-like block handle ("+" / drag ⋮⋮) untuk editor Milkdown — 2026-09-30 (Claude) — RISET SAJA, BELUM ADA KODE
+- **Pertanyaan user:** apakah Alurik bisa pakai tanda "+" per baris seperti demo Milkdown (Crepe)?
+- **Jawaban: BISA.** "+"/drag handle di Crepe = `@milkdown/plugin-block` (`block`, `blockConfig`, `BlockProvider`) + DOM handle custom + slash menu. Versi `7.20.0` cocok dengan `@milkdown/*` 7.20.0 yang sudah terpasang (deps-nya `@floating-ui/dom`, sudah ada di lockfile).
+- **PoC (scratchpad, tidak di-commit):** bundle `milkdown-build` + export `block, blockConfig, BlockProvider` → +5.7 KB raw / +1.9 KB gzip. Build baseline ter-reproduce byte-identik dengan `static/vendor/milkdown.bundle.js` (777135 B). Playwright/Chromium: hover paragraf/heading/list → handle muncul; klik "+" → paragraf baru berisi "/" → slash menu yang ada terbuka; drag ⋮⋮ memindahkan blok (markdown ikut berubah). Mobile (tap, `hasTouch`) → handle TIDAK muncul (plugin berbasis `pointermove` + HTML5 drag).
+- **Rencana kalau user setuju:** (1) `milkdown-build/package.json` + `entry.js` tambah plugin-block, `npm run build`; (2) di `MilkdownEditor` (`static/index.html` ~baris 16360) set `blockConfig` (skip isi table/blockquote) + `block.key` view dengan `BlockProvider` (PENTING: panggil `provider.update()` saat view dibuat, kalau tidak handle tak pernah di-mount); (3) CSS gutter kiri `.milkdown-editor .ProseMirror` (~48px, cek paper mode); (4) mobile: tampilkan handle untuk blok di posisi kursor (`provider.show(...)`) atau sembunyikan; drag di touch perlu uji device; (5) bump `?v=` bundle + SW cache; uji node custom (drawing, math, task checkbox).
+- **Temuan sampingan (belum diverifikasi di app live):** `doSlashAction` case `heading` (dan kemungkinan `blockquote`/`table`/`hr`) tidak menghapus karakter "/" → di PoC dengan kode identik hasilnya `# /`. Perlu dicek di app.
+- **Tidak disarankan:** migrasi penuh ke `@milkdown/crepe` (butuh Vue + CodeMirror, slash/toolbar/theme sendiri → bentrok dengan kustomisasi Alurik: /draw, wikilink, tasklink, table toolbar, image resize, math overlay, paper mode).
+
 ## 🟢 Active Task
 - **Fix Mindmap Share Error & Ownership Guard (`webapp.py`, `static/index.html`, `static/sw.js`, `tests/test_mindmaps.py`, `tests/offline/mindmaproutes_shared.test.js`) — SELESAI 2026-09-04 (Antigravity/Gemini):**
   - **Problem / Root Cause:**
