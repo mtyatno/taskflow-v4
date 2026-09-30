@@ -1566,3 +1566,23 @@ Chronological history of work performed by AI agents in this workspace.
 - **Files Touch:** `static/offline/syncpull.js`, `tests/offline/syncpull.test.js`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed (553/553 JS unit tests pass, 55/55 pytest pass, 5/5 inline scripts check clean).
 
+
+## [2026-09-30] - Claude (riset Milkdown block handle "+" Notion-like)
+- **Task:** Cek apakah fitur "+"/drag handle per blok (Notion-like, dari Milkdown Crepe) bisa dipakai di editor Alurik.
+- **Changes:** Tidak ada perubahan kode. PoC di scratchpad: `@milkdown/plugin-block@7.20.0` di-bundle bersama entry yang ada (+1.9 KB gzip) dan diuji Playwright (hover → handle muncul, "+" → slash menu, drag → urutan blok pindah; tap mobile → handle tidak muncul). Detail & rencana implementasi di CURRENT_STATE.md.
+- **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (riset) — menunggu keputusan user untuk implementasi.
+
+## [2026-09-30] - Claude (implementasi block handle "+" / ⋮⋮ ala Notion)
+- **Task:** Implementasi handle "+"/⋮⋮ per blok di editor Milkdown (desktop hover; HP mengikuti kursor, saklar `BLOCK_HANDLE_ON_TOUCH`) + fix slash menu ("/" tersisa pada Heading/Blockquote/Divider, kursor nyasar setelah list/tabel/divider).
+- **Changes:** `@milkdown/plugin-block@7.20.0` + export NodeSelection/dropCursor di bundle; MilkdownEditor: BlockProvider, filterNodes table/blockquote, touch guard pointermove sebelum plugin-block, dropCursor, handle touch berbasis kursor; CSS gutter; SW v331; test baru. Implementasi via subagent (brief di scratchpad), review subagent, verifikasi ulang oleh koordinator.
+- **Verifikasi:** JS 648/649 (1 fail pra-ada tldraw gitignored), pytest 60/60, inline 5/5, E2E app asli desktop 36/36, touch 14/14, lifecycle 2/2, nodes 9/9; bundle rebuild sha256 identik.
+- **Files Touch:** `milkdown-build/{entry.js,package.json,package-lock.json}`, `static/vendor/milkdown.bundle.js`, `static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/block_handle.test.js`, `tests/offline/table_resizing.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed di branch `claude/cool-gates-qa4eg9` (belum merge/deploy). PENDING user: tes di HP → putuskan `BLOCK_HANDLE_ON_TOUCH`.
+
+## [2026-09-30] - Claude (review round block handle)
+- **Task:** Tindak lanjut review independen fitur block handle.
+- **Changes:** `isSlashTriggerBefore` (hapus "/" hanya bila pemicu: awal blok/setelah whitespace — cegah "and/or" jadi "andor", juga di case draw); hapus `stopPropagation` di pointerdown "+" (dropdown toolbar kembali tertutup); tooltip format disembunyikan untuk NodeSelection blok; case 'draw' `return` (hilangkan "mismatched transaction"); test block_handle diperkuat (toggle true|false, extractor lewati komentar/string, uji fungsional helper).
+- **Verifikasi:** JS 661/662 (1 fail pra-ada tldraw), pytest 60/60, inline 5/5, E2E desktop 36/36, touch 14/14, lifecycle 2/2, nodes 9/9, review 15/15 (script review yang sama 8/15 di commit sebelumnya → bug terbukti tertangkap).
+- **Files Touch:** `static/index.html`, `tests/offline/block_handle.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed di branch `claude/cool-gates-qa4eg9` (belum merge/deploy).

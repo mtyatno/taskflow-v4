@@ -127,11 +127,11 @@ test("static/index.html integrates milkdown.bundle.js and registers columnResizi
   const indexPath = path.resolve(__dirname, "../../static/index.html");
   const indexContent = fs.readFileSync(indexPath, "utf8");
 
-  await t.test("loads milkdown.bundle.js with ?v=288 cache query", () => {
+  await t.test("loads milkdown.bundle.js with ?v=289 cache query", () => {
     assert.match(
       indexContent,
-      /<script\s+src="\/static\/vendor\/milkdown\.bundle\.js\?v=288"><\/script>/i,
-      "Expected milkdown.bundle.js?v=288 script tag in static/index.html"
+      /<script\s+src="\/static\/vendor\/milkdown\.bundle\.js\?v=289"><\/script>/i,
+      "Expected milkdown.bundle.js?v=289 script tag in static/index.html"
     );
   });
 
