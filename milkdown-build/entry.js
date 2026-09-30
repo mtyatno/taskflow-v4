@@ -68,6 +68,11 @@ export { trailing } from '@milkdown/plugin-trailing';
 export { InputRule } from '@milkdown/prose/inputrules';
 export { TextSelection } from '@milkdown/prose/state';
 // ProseMirror Plugin needed for custom markdown-paste plugin
-export { Plugin, PluginKey } from '@milkdown/prose/state';
+export { Plugin, PluginKey, NodeSelection } from '@milkdown/prose/state';
 // ProseMirror tables re-exports
 export { columnResizing, tableEditing, TableView, CellSelection } from '@milkdown/prose/tables';
+
+// Notion-like block handle (+ / drag) — dipakai MilkdownEditor
+export { block, blockConfig, BlockProvider } from '@milkdown/plugin-block';
+// Drop indicator saat drag blok
+export { dropCursor } from '@milkdown/prose/dropcursor';

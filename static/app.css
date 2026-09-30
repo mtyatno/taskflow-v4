@@ -1501,6 +1501,28 @@
       color: var(--text-primary); transition: background 0.1s;
     }
     .milkdown-tooltip-btn:hover { background: var(--bg-primary); }
+    /* ── Block handle (+ / ⋮⋮) ala Notion ────────────────────────── */
+    .milkdown-editor.has-block-handle .ProseMirror { padding-left: 48px; }
+    .milkdown-block-handle {
+      position: absolute; top: 0; left: 0; z-index: 30;
+      display: flex; align-items: center; gap: 2px;
+      opacity: 0; pointer-events: none; transition: opacity 0.12s ease;
+    }
+    .milkdown-block-handle[data-show="true"] { opacity: 1; pointer-events: auto; }
+    .milkdown-block-handle-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 20px; height: 24px; border-radius: 4px;
+      color: var(--text-light); cursor: pointer;
+      user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
+    }
+    .milkdown-block-handle-btn:hover { background: var(--bg-primary); color: var(--text-primary); }
+    .milkdown-block-handle-drag { cursor: grab; }
+    .milkdown-block-handle-drag:active { cursor: grabbing; }
+    .milkdown-drop-cursor { background: var(--accent, #a8c500); }
+    @media (hover: none) {
+      .milkdown-editor.has-block-handle .ProseMirror { padding-left: 44px; }
+      .milkdown-block-handle-btn { height: 28px; }
+    }
     /* Dark mode */
     [data-theme="dark"] .milkdown-slash-menu,
     [data-theme="dark"] .milkdown-tooltip {

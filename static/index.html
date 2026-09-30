@@ -48,9 +48,9 @@
       });
     })();
   </script>
-  <script src="/static/vendor/milkdown.bundle.js?v=288"></script>
+  <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=296">
+  <link rel="stylesheet" href="/static/app.css?v=297">
 
 <style>
 .paper-mode-active {
@@ -16035,6 +16035,9 @@ onPaperConfigChange
     )
   );
 }
+// Block handle ala Notion (+ / ⋮⋮) di kiri setiap blok editor.
+// Ubah ke false untuk menyembunyikannya di perangkat sentuh (HP) bila editor terasa sempit.
+const BLOCK_HANDLE_ON_TOUCH = true;
 function MilkdownEditor({
   value,
   onChange,
@@ -16048,6 +16051,10 @@ function MilkdownEditor({
 }) {
   const containerRef = React.useRef(null);
   const instanceRef = React.useRef(null);
+  // Block handle: dihitung sekali per komponen (className & plugin editor harus konsisten).
+  // Bundle lama tanpa plugin-block → fitur mati, editor tetap jalan.
+  const [isTouchUI] = React.useState(() => !!(window.matchMedia && window.matchMedia('(hover: none)').matches));
+  const blockHandleEnabled = !!(window.MilkdownBundle?.block && window.MilkdownBundle?.BlockProvider) && (BLOCK_HANDLE_ON_TOUCH || !isTouchUI);
   const onInsertDrawingRef = React.useRef(onInsertDrawing);
   React.useEffect(() => { onInsertDrawingRef.current = onInsertDrawing; }, [onInsertDrawing]);
   const isExternalUpdate = React.useRef(false);
@@ -16105,6 +16112,16 @@ function MilkdownEditor({
       inst.action(ctx => {
         const view = ctx.get(MB.editorViewCtx);
         if (!view) return;
+        // Hapus karakter pemicu "/" sebelum aksi (menu slash hanya tampil bila karakter
+        // tepat sebelum kursor = "/"). 'draw' sudah menghapus query-nya sendiri.
+        if (type !== 'draw') {
+          const sel0 = view.state.selection;
+          const $c = sel0.$from;
+          if (sel0.empty && $c.parent.isTextblock && $c.parentOffset > 0 &&
+              $c.parent.textBetween($c.parentOffset - 1, $c.parentOffset, null, "￼") === "/") {
+            view.dispatch(view.state.tr.delete($c.pos - 1, $c.pos));
+          }
+        }
         const { state } = view;
         const { from, to } = state.selection;
         let tr = state.tr;
@@ -16203,6 +16220,27 @@ function MilkdownEditor({
               onInsertDrawingRef.current?.();
             }
             break;
+        }
+        // Kursor masuk ke blok baru (list/tabel/divider). Default ProseMirror menaruhnya SESUDAH
+        // blok baru → ketikan nyasar ke awal blok berikutnya (terlihat saat "+" di tengah dokumen).
+        if (type === 'bullet_list_simple' || type === 'ordered_list' || type === 'task_list' || type === 'table' || type === 'hr') {
+          try {
+            const step = tr.steps[tr.steps.length - 1];
+            const node = step && step.slice && step.slice.openStart === 0 ? step.slice.content.firstChild : null;
+            if (node && tr.doc.nodeAt(step.from)?.type === node.type) {
+              let inside = step.from + 1;
+              if (node.isLeaf) {
+                // divider: kursor di paragraf kosong sesudahnya (buat bila belum ada)
+                const afterPos = step.from + node.nodeSize;
+                const after = tr.doc.resolve(afterPos).nodeAfter;
+                if (!(after && after.type === state.schema.nodes.paragraph && after.content.size === 0)) {
+                  tr.insert(afterPos, state.schema.nodes.paragraph.create());
+                }
+                inside = afterPos + 1;
+              }
+              tr.setSelection(MB.TextSelection.near(tr.doc.resolve(inside)));
+            }
+          } catch (_) { /* biarkan seleksi bawaan */ }
         }
         view.dispatch(tr.scrollIntoView());
         view.focus();
@@ -16356,10 +16394,132 @@ function MilkdownEditor({
     };
     // ── End table toolbar ─────────────────────────────────────────
 
+    // ── Block handle (+ / ⋮⋮) ala Notion ──────────────────────────
+    // Desktop: muncul saat hover blok (plugin-block, via pointermove).
+    // Touch: mengikuti blok tempat kursor (lihat syncTouchHandle).
+    let blockProvider = null;
+    let touchActive = null;
+    const handleEl = document.createElement('div');
+    handleEl.className = 'milkdown-block-handle';
+    const addBtn = document.createElement('div');
+    addBtn.className = 'milkdown-block-handle-btn milkdown-block-handle-add';
+    addBtn.title = 'Tambah blok di bawah';
+    addBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>';
+    const dragBtn = document.createElement('div');
+    dragBtn.className = 'milkdown-block-handle-btn milkdown-block-handle-drag';
+    dragBtn.title = isTouchUI ? 'Ketuk untuk memilih blok' : 'Seret untuk memindahkan blok';
+    dragBtn.innerHTML = '<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor"><circle cx="2.5" cy="3" r="1.3"/><circle cx="7.5" cy="3" r="1.3"/><circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/><circle cx="2.5" cy="13" r="1.3"/><circle cx="7.5" cy="13" r="1.3"/></svg>';
+    handleEl.appendChild(addBtn);
+    handleEl.appendChild(dragBtn);
+    // "+" → paragraf baru tepat di bawah blok berisi "/" → slash menu terbuka otomatis
+    const onBlockAdd = () => {
+      const inst = instanceRef.current;
+      if (!inst || !blockProvider) return;
+      try {
+        inst.action(ctx => {
+          const view = ctx.get(MB.editorViewCtx);
+          const active = isTouchUI ? touchActive : blockProvider.active;
+          // abaikan bila tak ada blok aktif atau sudah basi (dokumen berubah sejak handle tampil)
+          if (!view || !active || active.$pos.doc !== view.state.doc) return;
+          const { state } = view;
+          const insertAt = (pos) => {
+            const tr = state.tr.insert(pos, state.schema.nodes.paragraph.create());
+            tr.setSelection(MB.TextSelection.near(tr.doc.resolve(pos + 1)));
+            tr.insertText('/');
+            return tr;
+          };
+          let tr = null;
+          try {
+            const pos = active.$pos.pos + active.node.nodeSize;
+            tr = insertAt(pos);
+          } catch (_) {
+            // gagal (mis. di dalam list) → sisipkan setelah blok top-level
+            if (active.$pos.depth >= 1) tr = insertAt(active.$pos.after(1));
+          }
+          if (!tr) return;
+          view.dispatch(tr.scrollIntoView());
+          view.focus();
+          blockProvider.hide();
+        });
+      } catch (err) {
+        console.warn('Block handle: gagal menambah blok', err);
+      }
+    };
+    // pointerdown dicegah: fokus editor tetap & service plugin tidak membuat NodeSelection
+    addBtn.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); });
+    addBtn.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
+    addBtn.addEventListener('pointerup', e => { e.preventDefault(); e.stopPropagation(); onBlockAdd(); });
+    // Touch: blok tempat kursor (aturan sama dgn filterNodes — isi table/blockquote → ancestor-nya)
+    const findCursorBlock = (view) => {
+      const { selection: sel, doc } = view.state;
+      const $from = sel.$from;
+      let pos = null, node = null;
+      for (let d = 1; d <= $from.depth; d++) {
+        const n = $from.node(d);
+        if (n.type.name === 'table' || n.type.name === 'blockquote') { pos = $from.before(d); node = n; break; }
+      }
+      if (!node && sel instanceof MB.NodeSelection && sel.node.isBlock) {
+        // blok yang dipilih via ⋮⋮ (termasuk list_item) tetap jadi acuan handle
+        pos = sel.from; node = sel.node;
+      }
+      if (!node) {
+        for (let d = $from.depth; d > 0; d--) {
+          if ($from.node(d).type.name === 'list_item') { pos = $from.before(d); node = $from.node(d); break; }
+        }
+      }
+      if (!node && $from.depth >= 1) { pos = $from.before(1); node = $from.node(1); }
+      if (!node) return null;
+      const el = view.nodeDOM(pos);
+      if (!(el instanceof HTMLElement)) return null;
+      return { $pos: doc.resolve(pos), node, el };
+    };
+    const syncTouchHandle = (view, prevState) => {
+      if (!blockProvider) return;
+      if (!view.editable || !view.hasFocus()) { blockProvider.hide(); return; }
+      // dokumen berubah = sedang mengetik → sembunyikan (seperti desktop saat keydown)
+      if (prevState && !prevState.doc.eq(view.state.doc)) { touchActive = null; blockProvider.hide(); return; }
+      const active = findCursorBlock(view);
+      if (!active) { touchActive = null; blockProvider.hide(); return; }
+      touchActive = active;
+      blockProvider.show(active);
+    };
+    if (isTouchUI) {
+      // Touch: ketuk ⋮⋮ = pilih blok (drag HTML5 tidak andal di layar sentuh)
+      dragBtn.addEventListener('mousedown', e => e.preventDefault());
+      dragBtn.addEventListener('click', e => {
+        e.preventDefault(); e.stopPropagation();
+        const inst = instanceRef.current;
+        const active = touchActive;
+        if (!inst || !active) return;
+        try {
+          inst.action(ctx => {
+            const view = ctx.get(MB.editorViewCtx);
+            if (!view || active.$pos.doc !== view.state.doc) return;
+            if (!MB.NodeSelection.isSelectable(active.node)) return;
+            view.dispatch(view.state.tr.setSelection(MB.NodeSelection.create(view.state.doc, active.$pos.pos)));
+            view.focus();
+          });
+        } catch (_) {}
+      });
+    }
+    // ── End block handle ──────────────────────────────────────────
+
     // ── Create factory pairs ────────────────────────────────────────
     const slashPair = MB.slashFactory ? MB.slashFactory('note-slash') : null;
     const tooltipPair = MB.tooltipFactory ? MB.tooltipFactory('note-tooltip') : null;
     const tableToolbarPair = MB.tooltipFactory ? MB.tooltipFactory('table-toolbar') : null;
+    // Touch guard: gerakan jari (scroll) jangan memicu hover-logic plugin-block.
+    // HARUS di-.use SEBELUM MB.block — handleDOMEvents dijalankan berurutan, true = berhenti.
+    const touchGuardPlugin = blockHandleEnabled ? MB.$prose(() => new MB.Plugin({
+      key: new MB.PluginKey('block-touch-guard'),
+      props: {
+        handleDOMEvents: {
+          pointermove: (_v, e) => e.pointerType === 'touch'
+        }
+      }
+    })) : null;
+    // Garis indikator posisi drop saat blok diseret
+    const dropCursorPlugin = MB.dropCursor ? MB.$prose(() => MB.dropCursor({ color: false, width: 2, class: 'milkdown-drop-cursor' })) : null;
 
     MB.Editor.make().config(ctx => {
       ctx.set(MB.rootCtx, containerRef.current);
@@ -16433,7 +16593,71 @@ function MilkdownEditor({
           };
         }
       });
-    }).use(MB.commonmark).use(MB.gfm).use(MB.columnResizingPlugin || []).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(tableToolbarPair).use(MB.trailing).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).use(createDrawingPlugin(MB)).create().then(editor => {
+      // Wire block handle (+ / ⋮⋮) — plugin-block + BlockProvider
+      if (blockHandleEnabled) {
+        // Isi table/blockquote tidak punya handle sendiri → handle naik ke table/blockquote-nya
+        ctx.set(MB.blockConfig.key, {
+          filterNodes: ($pos) => {
+            for (let d = $pos.depth; d > 0; d--) {
+              const n = $pos.node(d).type.name;
+              if (n === 'table' || n === 'blockquote') return false;
+            }
+            return true;
+          }
+        });
+        ctx.set(MB.block.key, {
+          view: (editorView) => {
+            blockProvider = new MB.BlockProvider({
+              ctx,
+              content: handleEl,
+              // item list: geser melewati bullet/nomor/checkbox task (checkbox harus tetap bisa diklik)
+              getOffset: ({ active }) => { return active.node.type.name === 'list_item' ? 24 : 4; },
+              // Posisi ala Crepe: heading di tengah; blok tinggi/bertingkat → sejajar baris pertama
+              getPlacement: ({ active, blockDom }) => {
+                if (active.node.type.name === 'heading') return 'left';
+                let total = 0; active.node.descendants(n => { total += n.childCount; });
+                const r = active.el.getBoundingClientRect(), h = blockDom.getBoundingClientRect();
+                const cs = window.getComputedStyle(active.el);
+                const inner = r.height - (parseInt(cs.paddingTop, 10) || 0) - (parseInt(cs.paddingBottom, 10) || 0);
+                return total > 2 || h.height < inner ? 'left-start' : 'left';
+              }
+            });
+            // PENTING: update() saat view dibuat — inilah yang me-mount handle (tanpa ini handle tak pernah muncul)
+            blockProvider.update();
+            // Touch: handle mengikuti fokus editor
+            let blurTimer = null;
+            const onFocus = () => requestAnimationFrame(() => syncTouchHandle(editorView));
+            const onBlur = () => {
+              clearTimeout(blurTimer);
+              // touchActive sengaja tidak di-null-kan agar tap "+" tetap valid
+              blurTimer = setTimeout(() => { if (blockProvider && !editorView.hasFocus()) blockProvider.hide(); }, 150);
+            };
+            if (isTouchUI) {
+              // Perangkat hybrid (mouse di layar sentuh): blok yang tampil via hover juga jadi acuan "+"/⋮⋮
+              const baseShow = blockProvider.show;
+              blockProvider.show = (active) => { touchActive = active; baseShow(active); };
+              editorView.dom.addEventListener('focus', onFocus);
+              editorView.dom.addEventListener('blur', onBlur);
+            }
+            return {
+              update: (view, prevState) => {
+                blockProvider.update();
+                if (isTouchUI) syncTouchHandle(view, prevState);
+              },
+              destroy: () => {
+                clearTimeout(blurTimer);
+                editorView.dom.removeEventListener('focus', onFocus);
+                editorView.dom.removeEventListener('blur', onBlur);
+                // destroy() juga melepas listener service & menghapus elemen handle
+                blockProvider.destroy();
+                blockProvider = null;
+                touchActive = null;
+              }
+            };
+          }
+        });
+      }
+    }).use(MB.commonmark).use(MB.gfm).use(MB.columnResizingPlugin || []).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(tableToolbarPair).use(blockHandleEnabled ? touchGuardPlugin : []).use(blockHandleEnabled ? MB.block : []).use(dropCursorPlugin || []).use(MB.trailing).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).use(createDrawingPlugin(MB)).create().then(editor => {
       if (cancelled) {
         editor.destroy();
         return;
@@ -16785,7 +17009,7 @@ function MilkdownEditor({
   }
   return /*#__PURE__*/React.createElement("div", {
     ref: containerRef,
-    className: "milkdown-editor note-modal-content-input",
+    className: "milkdown-editor note-modal-content-input" + (blockHandleEnabled ? " has-block-handle" : ""),
     style: {
       minHeight: minHeight || 120,
       position: 'relative'

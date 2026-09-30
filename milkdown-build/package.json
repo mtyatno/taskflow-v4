@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@milkdown/core": "^7.5.6",
+    "@milkdown/plugin-block": "7.20.0",
     "@milkdown/plugin-emoji": "7.20.0",
     "@milkdown/plugin-history": "^7.5.6",
     "@milkdown/plugin-indent": "7.20.0",
