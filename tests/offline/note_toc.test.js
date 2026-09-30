@@ -331,8 +331,9 @@ test("Floating ToC — NotePanel (mode baca) memakai FloatingToc", async (t) => 
     assert.strictEqual(/const tocRef = /.test(notePanelCode), false, "ref anchor diurus FloatingToc");
   });
 
-  await t.test("onJump: set aktif instan + gulir ke #note-h-N milik renderer baca", () => {
-    assert.match(notePanelCode, /onJump: item => \{\s*setTocActiveIdx\(item\.idx\);\s*const el = document\.getElementById\(`note-h-\$\{item\.idx\}`\);\s*if \(el\) el\.scrollIntoView\(\{ behavior: "smooth", block: "start" \}\);/);
+  await t.test("onJump: stempel waktu lompat + set aktif instan + gulir ke #note-h-N milik renderer baca", () => {
+    assert.match(notePanelCode, /const tocJumpAtRef = React\.useRef\(0\);/, "ref waktu lompat terakhir");
+    assert.match(notePanelCode, /onJump: item => \{\s*tocJumpAtRef\.current = Date\.now\(\);\s*setTocActiveIdx\(item\.idx\);\s*const el = document\.getElementById\(`note-h-\$\{item\.idx\}`\);\s*if \(el\) el\.scrollIntoView\(\{ behavior: "smooth", block: "start" \}\);/);
   });
 
   await t.test("state tocActiveIdx + ref tocSpyRef + observer wiring", () => {
@@ -394,7 +395,8 @@ test("Floating ToC — NoteModal (mode edit) menggantikan kolom samping NoteToc"
     assert.ok(body, "jumpToEditorHeading harus ada");
     assert.match(body, /view\.nodeDOM\(/);
     assert.match(body, /doc\.nodeAt\(/);
-    assert.match(body, /scrollIntoView\(\{ behavior: "smooth", block: "start" \}\)/);
+    assert.match(body, /tocScrollEl\.scrollTo\(\{ top: tocScrollEl\.scrollTop \+ el\.getBoundingClientRect\(\)\.top - tocScrollEl\.getBoundingClientRect\(\)\.top, behavior: "smooth" \}\)/, "gulir HANYA area scroll modal (root scroll-spy), scroller bersarang tidak ikut");
+    assert.match(body, /scrollIntoView\(\{ behavior: "smooth", block: "start" \}\)/, "fallback bila area scroll belum ada");
     assert.strictEqual(/setSelection|\.focus\(|dispatch\(/.test(body), false, "tidak boleh memindah seleksi / fokus / dispatch");
   });
 
@@ -402,9 +404,67 @@ test("Floating ToC — NoteModal (mode edit) menggantikan kolom samping NoteToc"
     assert.match(noteModalCode, /const editorTocKey = editorToc \? editorToc\.map\(h => h\.level \+ ":" \+ h\.text\)\.join\("\\n"\) : "";/);
     assert.match(noteModalCode, /React\.useEffect\(\(\) => \{\s*setTocActiveIdx\(null\);/, "reset aktif = statement pertama effect scroll-spy");
     assert.match(noteModalCode, /new IntersectionObserver\(/);
-    assert.match(noteModalCode, /rootMargin: "-15% 0px -60% 0px"/);
-    assert.match(noteModalCode, /\}, \[editorTocKey, focusMode, tocSpyNonce\]\);/, "deps: key struktur (bukan content) + focusMode + nonce DOM terganti");
+    assert.match(noteModalCode, /\}, \[editorTocKey, focusMode, tocSpyNonce, tocScrollEl\]\);/, "deps: key struktur (bukan content) + focusMode + nonce DOM terganti + elemen root");
     assert.match(noteModalCode, /!el\.isConnected/, "deteksi DOM heading diganti ProseMirror → buat ulang observer");
+  });
+
+  await t.test("scroll-spy mode edit: root = div scroll modal (bukan viewport) → jalan di layar pendek", () => {
+    // Area scroll modal baru mulai di y≈182 (header+toolbar); pita relatif viewport tertutup header bila vh < ~455px.
+    assert.match(noteModalCode, /const \[tocScrollEl, setTocScrollEl\] = React\.useState\(null\);/, "elemen scroll modal disimpan di state (callback ref)");
+    assert.match(noteModalCode, /\}, header, !focusMode && topFixed, \/\*#__PURE__\*\/React\.createElement\("div", \{\s*ref: setTocScrollEl,\s*style: \{\s*flex: 1,\s*overflowY: "auto",/, "ref dipasang di div scroll modal (flex:1; overflowY:auto) yang membungkus inner");
+    assert.match(noteModalCode, /\{ root: tocScrollEl, rootMargin: "0px 0px -60% 0px", threshold: 0 \}/, "root = area scroll modal, pita = 40% teratas area scroll");
+    assert.strictEqual(/root: null/.test(noteModalCode), false, "NoteModal tidak boleh memakai root viewport");
+    assert.match(noteModalCode, /if \(focusMode \|\| !tocScrollEl \|\| !editorToc/, "tanpa elemen root → observer tidak dibuat");
+  });
+
+  await t.test("jeda scroll-spy setelah klik item (heading yang dilewati smooth scroll tidak menimpa pilihan)", () => {
+    assert.match(noteModalCode, /const tocJumpAtRef = React\.useRef\(0\);/);
+    const body = extractArrowFn(noteModalCode, "const jumpToEditorHeading = ");
+    assert.match(body, /^item => \{\s*tocJumpAtRef\.current = Date\.now\(\);/, "stempel waktu lompat = statement pertama");
+    assert.match(noteModalCode, /new IntersectionObserver\(entries => \{\s*(?:\/\/[^\n]*\n\s*)?if \(Date\.now\(\) - tocJumpAtRef\.current < TOC_SPY_PAUSE_MS\) return;/);
+  });
+});
+
+test("TOC_SPY_PAUSE_MS — jeda scroll-spy bersama mode baca & edit", async (t) => {
+  await t.test("konstanta modul ≥ durasi smooth scroll Chromium (~700ms, terukur E2E)", () => {
+    const m = indexHtml.match(/^const TOC_SPY_PAUSE_MS = (\d+);/m);
+    assert.ok(m, "const TOC_SPY_PAUSE_MS di level modul");
+    assert.ok(Number(m[1]) >= 750 && Number(m[1]) <= 1500, "jeda 750–1500ms");
+    assert.ok(indexHtml.indexOf("const TOC_SPY_PAUSE_MS") < indexHtml.indexOf("function FloatingToc("), "didefinisikan dekat/sebelum FloatingToc");
+  });
+
+  // Callback IntersectionObserver diekstrak & dijalankan dgn entri tiruan
+  const entry = (target, top, on = true) => ({ target, isIntersecting: on, boundingClientRect: { top } });
+
+  await t.test("NotePanel: callback observer diam selama jeda, lalu pilih heading teratas", () => {
+    assert.match(notePanelCode, /new IntersectionObserver\(entries => \{\s*(?:\/\/[^\n]*\n\s*)?if \(Date\.now\(\) - tocJumpAtRef\.current < TOC_SPY_PAUSE_MS\) return;/);
+    const src = extractArrowFn(notePanelCode, "new IntersectionObserver(");
+    assert.ok(src, "callback observer NotePanel terekstrak");
+    const set = [];
+    const ref = { current: Date.now() };
+    const cb = new Function("tocJumpAtRef", "TOC_SPY_PAUSE_MS", "setTocActiveIdx", "return " + src)(ref, 800, v => set.push(v));
+    const entries = [entry({ id: "note-h-3" }, 300), entry({ id: "note-h-2" }, 120), entry({ id: "note-h-4" }, 50, false)];
+    cb(entries);
+    assert.deepEqual(set, [], "baru saja lompat → update diabaikan");
+    ref.current = Date.now() - 1000;
+    cb(entries);
+    assert.deepEqual(set, [2], "setelah jeda → heading teratas yang terlihat");
+  });
+
+  await t.test("NoteModal: callback observer diam selama jeda, lalu pilih heading teratas via peta elemen", () => {
+    const src = extractArrowFn(noteModalCode, "new IntersectionObserver(");
+    assert.ok(src, "callback observer NoteModal terekstrak");
+    const a = {}, b = {}, c = {};
+    const idxByEl = new Map([[a, 0], [b, 1], [c, 2]]);
+    const set = [];
+    const ref = { current: Date.now() };
+    const cb = new Function("tocJumpAtRef", "TOC_SPY_PAUSE_MS", "setTocActiveIdx", "idxByEl", "return " + src)(ref, 800, v => set.push(v), idxByEl);
+    const entries = [entry(c, 400), entry(b, 190), entry(a, 10, false)];
+    cb(entries);
+    assert.deepEqual(set, []);
+    ref.current = Date.now() - 1000;
+    cb(entries);
+    assert.deepEqual(set, [1]);
   });
 });
 
@@ -451,7 +511,7 @@ test("jumpToEditorHeading — lompat ke DOM heading editor (fungsional)", async 
   assert.ok(src, "jumpToEditorHeading harus ada");
   const docSrc = extractArrowFn(indexHtml, "function extractDocHeadings");
   const extractDocHeadings = new Function("return function extractDocHeadings" + docSrc)();
-  const setup = blocks => {
+  const setup = (blocks, withScroller = false) => {
     const active = [];
     const scrolled = [];
     let pos = 0;
@@ -462,15 +522,19 @@ test("jumpToEditorHeading — lompat ke DOM heading editor (fungsional)", async 
       return [node, at];
     });
     const byPos = new Map(kids.map(([n, at]) => [at, n]));
-    const doms = new Map(kids.map(([n, at]) => [at, { pos: at, scrollIntoView: opts => scrolled.push({ pos: at, opts }) }]));
+    const doms = new Map(kids.map(([n, at]) => [at, { pos: at, getBoundingClientRect: () => ({ top: 1000 + at * 10 }), scrollIntoView: opts => scrolled.push({ pos: at, opts }) }]));
     const view = {
       state: { doc: { forEach: fn => kids.forEach(([n, at], i) => fn(n, at, i)), nodeAt: p => byPos.get(p) || null } },
       nodeDOM: p => doms.get(p) || null,
       dispatch: () => { throw new Error("tidak boleh dispatch"); },
       focus: () => { throw new Error("tidak boleh focus"); },
     };
-    const jump = new Function("getEditorView", "extractDocHeadings", "setTocActiveIdx", "return " + src)(() => view, extractDocHeadings, v => active.push(v));
-    return { jump, active, scrolled };
+    const jumpRef = { current: 0 };
+    // Area scroll modal tiruan (root scroll-spy): scrollTop 100, tepi atas di y=182
+    const scrolledTo = [];
+    const scrollEl = withScroller ? { scrollTop: 100, getBoundingClientRect: () => ({ top: 182 }), scrollTo: opts => scrolledTo.push(opts) } : null;
+    const jump = new Function("getEditorView", "extractDocHeadings", "setTocActiveIdx", "tocJumpAtRef", "tocScrollEl", "return " + src)(() => view, extractDocHeadings, v => active.push(v), jumpRef, scrollEl);
+    return { jump, active, scrolled, scrolledTo, jumpRef };
   };
   const blocks = [
     { type: "heading", attrs: { level: 1 }, text: "Bab Satu", size: 10 },
@@ -480,11 +544,22 @@ test("jumpToEditorHeading — lompat ke DOM heading editor (fungsional)", async 
     { type: "heading", attrs: { level: 1 }, text: "Penutup", size: 9 },
   ];
 
-  await t.test("item segar → gulir DOM heading ke-idx (smooth, start) & set aktif", () => {
-    const { jump, active, scrolled } = setup(blocks);
+  await t.test("item segar → gulir DOM heading ke-idx (smooth, start), set aktif & stempel waktu lompat", () => {
+    const { jump, active, scrolled, jumpRef } = setup(blocks);
+    const t0 = Date.now();
     jump({ idx: 2, level: 1, text: "Penutup" });
     assert.deepEqual(scrolled, [{ pos: 35, opts: { behavior: "smooth", block: "start" } }]);
     assert.equal(active[0], 2);
+    assert.ok(jumpRef.current >= t0 && jumpRef.current <= Date.now(), "tocJumpAtRef diisi waktu lompat");
+  });
+
+  await t.test("area scroll modal ada → HANYA area itu yang digulir (heading ke tepi atasnya), scrollIntoView tidak dipakai", () => {
+    const { jump, active, scrolled, scrolledTo } = setup(blocks, true);
+    jump({ idx: 1, level: 2, text: "Sub A" });
+    // heading "Sub A" di pos 22 → top 1220; target = 100 + 1220 - 182
+    assert.deepEqual(scrolledTo, [{ top: 1138, behavior: "smooth" }]);
+    assert.deepEqual(scrolled, [], "scroller bersarang (editor/kertas) tidak ikut digulir");
+    assert.equal(active[0], 1);
   });
 
   await t.test("item dari fallback markdown (idx beda krn '# ...' di code block) → dicocokkan via teks", () => {
@@ -497,7 +572,7 @@ test("jumpToEditorHeading — lompat ke DOM heading editor (fungsional)", async 
 
   await t.test("editor belum siap → tidak melempar, hanya set aktif", () => {
     const active = [];
-    const jump = new Function("getEditorView", "extractDocHeadings", "setTocActiveIdx", "return " + src)(() => null, extractDocHeadings, v => active.push(v));
+    const jump = new Function("getEditorView", "extractDocHeadings", "setTocActiveIdx", "tocJumpAtRef", "tocScrollEl", "return " + src)(() => null, extractDocHeadings, v => active.push(v), { current: 0 }, null);
     assert.doesNotThrow(() => jump({ idx: 0, level: 1, text: "X" }));
     assert.deepEqual(active, [0]);
   });

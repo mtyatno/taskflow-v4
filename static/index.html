@@ -17586,6 +17586,9 @@ function extractDocHeadings(doc) {
   });
   return headings;
 }
+// Jeda scroll-spy setelah klik item ToC: smooth scroll Chromium ±700ms (terukur E2E) — heading yang
+// dilewati selama gulir tidak boleh menimpa pilihan klik. Dipakai NotePanel (baca) & NoteModal (edit).
+const TOC_SPY_PAUSE_MS = 800;
 // Daftar isi melayang ala Medium (tombol 📑 + popover) — dipakai NotePanel (baca) & NoteModal (edit).
 // Komponen hanya mengurus buka/tutup; cara lompat ke heading diserahkan ke onJump(item).
 function FloatingToc({
@@ -18253,6 +18256,9 @@ function NoteModal({
   const [tocActiveIdx, setTocActiveIdx] = React.useState(null);
   const tocSpyNodesRef = React.useRef([]);
   const [tocSpyNonce, setTocSpyNonce] = React.useState(0);
+  // Div scroll modal (callback ref → state) = root observer scroll-spy; berganti elemen → observer dibuat ulang
+  const [tocScrollEl, setTocScrollEl] = React.useState(null);
+  const tocJumpAtRef = React.useRef(0);
   const getEditorView = () => {
     const editor = milkdownEditorRef.current;
     const MB = window.MilkdownBundle;
@@ -18286,6 +18292,7 @@ function NoteModal({
     return () => clearTimeout(timer);
   }, [content]);
   const jumpToEditorHeading = item => {
+    tocJumpAtRef.current = Date.now();
     setTocActiveIdx(item.idx);
     const view = getEditorView();
     if (!view) return;
@@ -18296,8 +18303,13 @@ function NoteModal({
     const node = view.state.doc.nodeAt(h.pos);
     if (!node || node.type.name !== "heading") return;
     const el = view.nodeDOM(h.pos);
-    // Hanya gulir — kursor/seleksi tidak dipindah (keyboard HP tidak muncul)
-    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!el || !el.getBoundingClientRect) return;
+    // Hanya gulir — kursor/seleksi tidak dipindah (keyboard HP tidak muncul). Gulir area scroll modal
+    // saja (= root scroll-spy): scrollIntoView ikut menggulir scroller bersarang (.milkdown-editor bila
+    // ada overflow, kertas horizontal) sehingga heading lain tersembunyi di dalam editor.
+    if (tocScrollEl) {
+      tocScrollEl.scrollTo({ top: tocScrollEl.scrollTop + el.getBoundingClientRect().top - tocScrollEl.getBoundingClientRect().top, behavior: "smooth" });
+    } else if (el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
     if (h.idx !== item.idx) setTocActiveIdx(h.idx);
   };
   // Scroll-spy: observer pada DOM heading editor; dibuat ulang hanya saat struktur heading berubah
@@ -18305,7 +18317,7 @@ function NoteModal({
   React.useEffect(() => {
     setTocActiveIdx(null);
     tocSpyNodesRef.current = [];
-    if (focusMode || !editorToc || editorToc.length < 2 || typeof IntersectionObserver === "undefined") return;
+    if (focusMode || !tocScrollEl || !editorToc || editorToc.length < 2 || typeof IntersectionObserver === "undefined") return;
     const view = getEditorView();
     if (!view) return;
     const idxByEl = new Map();
@@ -18314,7 +18326,11 @@ function NoteModal({
       if (el && el.nodeType === 1) idxByEl.set(el, h.idx);
     });
     if (!idxByEl.size) return;
+    // root = area scroll modal (bukan viewport): pita 40% teratas area scroll — tetap jalan di layar
+    // pendek (HP landscape) tempat header+toolbar menutupi pita relatif viewport
     const observer = new IntersectionObserver(entries => {
+      // baru saja klik item → heading yang dilewati smooth scroll tidak menimpa pilihan
+      if (Date.now() - tocJumpAtRef.current < TOC_SPY_PAUSE_MS) return;
       const visible = entries.filter(e => e.isIntersecting);
       if (!visible.length) return;
       let top = visible[0];
@@ -18323,11 +18339,11 @@ function NoteModal({
       }
       const idx = idxByEl.get(top.target);
       if (idx != null) setTocActiveIdx(idx);
-    }, { root: null, rootMargin: "-15% 0px -60% 0px", threshold: 0 });
+    }, { root: tocScrollEl, rootMargin: "0px 0px -60% 0px", threshold: 0 });
     idxByEl.forEach((_, el) => observer.observe(el));
     tocSpyNodesRef.current = Array.from(idxByEl.keys());
     return () => observer.disconnect();
-  }, [editorTocKey, focusMode, tocSpyNonce]);
+  }, [editorTocKey, focusMode, tocSpyNonce, tocScrollEl]);
 
   const [tagDropdown, setTagDropdown] = useState(null);
   const [existingTags, setExistingTags] = useState([]);
@@ -19842,6 +19858,7 @@ function NoteModal({
       padding: "24px 32px"
     }
   }, header, !focusMode && topFixed, /*#__PURE__*/React.createElement("div", {
+    ref: setTocScrollEl,
     style: {
       flex: 1,
       overflowY: "auto",
@@ -20144,6 +20161,7 @@ function NotePanel({
   const tocItems = useMemo(() => extractHeadings(note.content || ""), [note.content]);
   const [tocActiveIdx, setTocActiveIdx] = React.useState(null);
   const tocSpyRef = React.useRef(null);
+  const tocJumpAtRef = React.useRef(0);
   React.useEffect(() => {
     setTocActiveIdx(null);
     const container = tocSpyRef.current;
@@ -20151,6 +20169,8 @@ function NotePanel({
     const headings = container.querySelectorAll('[id^="note-h-"]');
     if (!headings.length) return;
     const observer = new IntersectionObserver(entries => {
+      // baru saja klik item → heading yang dilewati smooth scroll tidak menimpa pilihan
+      if (Date.now() - tocJumpAtRef.current < TOC_SPY_PAUSE_MS) return;
       const visible = entries.filter(e => e.isIntersecting);
       if (!visible.length) return;
       let top = visible[0];
@@ -21033,6 +21053,7 @@ function NotePanel({
     items: tocItems,
     activeIdx: tocActiveIdx,
     onJump: item => {
+      tocJumpAtRef.current = Date.now();
       setTocActiveIdx(item.idx);
       const el = document.getElementById(`note-h-${item.idx}`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
