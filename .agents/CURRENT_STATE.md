@@ -6,6 +6,12 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🔎 Riset: ToC mode edit membelah layar HP — 2026-09-30 (Claude) — BELUM ADA KODE, menunggu keputusan user
+- **Gejala (direproduksi Playwright 390×844, catatan 5 heading):** di `NoteModal` (mode edit) komponen `NoteToc` (`static/index.html` ~17572, dirender ~19361 `!focusMode && tocItems.length >= 2`) adalah kolom samping `width:120` di flex-row bersama editor → editor tinggal 206px (teks efektif ~136px setelah gutter block handle 44px).
+- **Bug tambahan:** klik item `NoteToc` di mode edit mencari `#note-h-N` yang hanya dibuat renderer `marked` mode baca (~15033) → di HP malah menggulir panel baca di belakang modal (`notes-right-scroll`), di desktop tidak terjadi apa-apa. Heading Milkdown punya id slug (`bab-satu`), bukan `note-h-N`.
+- **Mode baca (NotePanel ~20920)** sudah pakai Floating ToC (FAB 📑 + popover, CSS `.floating-toc-*` app.css ~1995) — inline JSX, belum jadi komponen.
+- **Usulan:** ekstrak Floating ToC jadi komponen reusable (`onJump` berbeda: mode baca → `#note-h-N`, mode edit → heading ke-N di `.ProseMirror` modal itu), pakai di NoteModal menggantikan kolom `NoteToc`. Perhatikan stacking/`position: fixed` di dalam modal (transform `scale-in`) & jangan menutupi tombol Batal/Simpan. Alternatif cepat: sembunyikan `.note-toc-panel` < 769px (tapi bug klik tetap).
+
 ## 🟢 Block handle ala Notion ("+" / ⋮⋮) di editor Milkdown — 2026-09-30 (Claude) — SELESAI & LIVE (PR #2 di-merge ke main `cf3a570`, Deploy run 808 sukses 2026-09-30 22:42 UTC, SW v331)
 - **Fitur:** di kiri tiap blok editor muncul "+" (sisipkan paragraf "/" di bawah blok → slash menu terbuka) dan ⋮⋮ (desktop: seret untuk memindah blok, ada drop-cursor; HP: ketuk = pilih blok). Desktop: muncul saat hover (`@milkdown/plugin-block@7.20.0`). HP (`matchMedia('(hover: none)')`): mengikuti blok tempat kursor, sembunyi saat mengetik/blur. Isi tabel/blockquote tidak punya handle sendiri (handle untuk tabel/blockquote-nya).
 - **Saklar HP:** konstanta `BLOCK_HANDLE_ON_TOUCH` (di atas `function MilkdownEditor`, `static/index.html`). User minta: tampilkan dulu di HP; kalau terasa sempit → set `false` (gutter 44px + tombol hilang di HP). Desktop gutter 48px (`.milkdown-editor.has-block-handle .ProseMirror`), paper mode tetap padding 0 (handle di margin kertas).

@@ -1592,3 +1592,9 @@ Chronological history of work performed by AI agents in this workspace.
 - **Changes:** User merge PR #2 (`cf3a570`) ke main; workflow Tests #288 & Deploy #808 sukses; log deploy menunjukkan VPS fast-forward 199e985..cf3a570 (11 file). Push langsung `HEAD:main` dari sesi cloud diblokir pengaman (production deploy) — tidak dipakai. Branch `claude/cool-gates-qa4eg9` di-reset ke `origin/main` untuk catatan ini.
 - **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed & LIVE (SW v331). PENDING user: hard refresh + cek lebar editor di HP.
+
+## [2026-09-30 22:55] - Claude (riset ToC mode edit di HP)
+- **Task:** Investigasi layar terbelah vertikal di HP saat edit catatan yang punya daftar isi.
+- **Changes:** Tidak ada perubahan kode. Reproduksi Playwright: `NoteToc` kolom 120px di NoteModal → editor 206px di layar 390px; klik item ToC di mode edit salah target (`#note-h-N` milik panel baca). Usulan di CURRENT_STATE.md.
+- **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (riset) — menunggu keputusan user.
