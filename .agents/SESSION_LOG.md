@@ -1579,3 +1579,10 @@ Chronological history of work performed by AI agents in this workspace.
 - **Verifikasi:** JS 648/649 (1 fail pra-ada tldraw gitignored), pytest 60/60, inline 5/5, E2E app asli desktop 36/36, touch 14/14, lifecycle 2/2, nodes 9/9; bundle rebuild sha256 identik.
 - **Files Touch:** `milkdown-build/{entry.js,package.json,package-lock.json}`, `static/vendor/milkdown.bundle.js`, `static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/block_handle.test.js`, `tests/offline/table_resizing.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed di branch `claude/cool-gates-qa4eg9` (belum merge/deploy). PENDING user: tes di HP → putuskan `BLOCK_HANDLE_ON_TOUCH`.
+
+## [2026-09-30] - Claude (review round block handle)
+- **Task:** Tindak lanjut review independen fitur block handle.
+- **Changes:** `isSlashTriggerBefore` (hapus "/" hanya bila pemicu: awal blok/setelah whitespace — cegah "and/or" jadi "andor", juga di case draw); hapus `stopPropagation` di pointerdown "+" (dropdown toolbar kembali tertutup); tooltip format disembunyikan untuk NodeSelection blok; case 'draw' `return` (hilangkan "mismatched transaction"); test block_handle diperkuat (toggle true|false, extractor lewati komentar/string, uji fungsional helper).
+- **Verifikasi:** JS 661/662 (1 fail pra-ada tldraw), pytest 60/60, inline 5/5, E2E desktop 36/36, touch 14/14, lifecycle 2/2, nodes 9/9, review 15/15 (script review yang sama 8/15 di commit sebelumnya → bug terbukti tertangkap).
+- **Files Touch:** `static/index.html`, `tests/offline/block_handle.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed di branch `claude/cool-gates-qa4eg9` (belum merge/deploy).

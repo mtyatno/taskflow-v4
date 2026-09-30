@@ -23,35 +23,41 @@ const buildPkg = JSON.parse(read("milkdown-build/package.json"));
 const editorMatch = indexHtml.match(/function MilkdownEditor\(\{[\s\S]*?^function /m);
 const editorCode = editorMatch ? editorMatch[0] : "";
 
-// Ambil sumber arrow function `(<params>) => { ... }` yang dimulai setelah `marker`
-// (scanner sederhana: hitung kurung, lewati isi string/template literal).
+// Ambil sumber fungsi `(<params>) => { ... }` atau `function name(<params>) { ... }` yang
+// dimulai setelah `marker` (hasil diawali "("). Scanner: hitung kurung, lewati isi
+// string/template literal dan komentar // & /* */ (apostrof di komentar tidak merusak).
 function extractArrowFn(code, marker) {
   const at = code.indexOf(marker);
   if (at < 0) return null;
-  let i = code.indexOf("(", at + marker.length);
-  const start = i;
-  const skipString = (j) => {
-    const q = code[j];
-    j++;
-    while (j < code.length && code[j] !== q) {
-      if (code[j] === "\\") j++;
+  const skip = (j) => {
+    const c = code[j], n = code[j + 1];
+    if (c === "/" && n === "/") { const e = code.indexOf("\n", j); return e < 0 ? code.length : e; }
+    if (c === "/" && n === "*") { const e = code.indexOf("*/", j + 2); return e < 0 ? code.length : e + 1; }
+    if (c === "'" || c === '"' || c === "`") {
       j++;
+      while (j < code.length && code[j] !== c) { if (code[j] === "\\") j++; j++; }
+      return j;
     }
-    return j;
+    return -1;
   };
   const matchPair = (j, open, close) => {
     let depth = 0;
     for (; j < code.length; j++) {
+      const k = skip(j);
+      if (k >= 0) { j = k; continue; }
       const c = code[j];
-      if (c === "'" || c === '"' || c === "`") { j = skipString(j); continue; }
       if (c === open) depth++;
       else if (c === close) { depth--; if (depth === 0) return j; }
     }
     return -1;
   };
-  const paramsEnd = matchPair(i, "(", ")");
+  const start = code.indexOf("(", at + marker.length);
+  const paramsEnd = matchPair(start, "(", ")");
   if (paramsEnd < 0) return null;
-  i = code.indexOf("{", code.indexOf("=>", paramsEnd));
+  // sesudah ")" hanya boleh whitespace, opsional "=>", lalu "{"
+  const rest = code.slice(paramsEnd + 1).match(/^\s*(?:=>\s*)?\{/);
+  if (!rest) return null;
+  const i = paramsEnd + rest[0].length;
   const bodyEnd = matchPair(i, "{", "}");
   if (bodyEnd < 0) return null;
   return code.slice(start, bodyEnd + 1);
@@ -154,7 +160,7 @@ test("MilkdownEditor: block handle ala Notion", async (t) => {
   assert.ok(editorCode.length > 0, "MilkdownEditor harus ada di static/index.html");
 
   await t.test("konstanta modul BLOCK_HANDLE_ON_TOUCH tepat di atas function MilkdownEditor", () => {
-    assert.match(indexHtml, /const BLOCK_HANDLE_ON_TOUCH = true;\nfunction MilkdownEditor\(\{/);
+    assert.match(indexHtml, /const BLOCK_HANDLE_ON_TOUCH = (?:true|false);\s*\nfunction MilkdownEditor\(\{/);
   });
 
   await t.test("deteksi touch via matchMedia('(hover: none)') + fitur mati bila bundle lama", () => {
@@ -182,7 +188,11 @@ test("MilkdownEditor: block handle ala Notion", async (t) => {
   });
 
   await t.test("tombol +: pointerdown dicegah, pointerup memanggil onBlockAdd", () => {
-    assert.match(editorCode, /addBtn\.addEventListener\('pointerdown', e => \{ e\.preventDefault\(\); e\.stopPropagation\(\); \}\)/);
+    // pointerdown TIDAK stopPropagation: handler "klik di luar" dropdown toolbar (document pointerdown) harus tetap jalan
+    const pd = editorCode.match(/addBtn\.addEventListener\('pointerdown', (e => \{[^}]*\})\)/);
+    assert.ok(pd, "listener pointerdown tombol + harus ada");
+    assert.match(pd[1], /e\.preventDefault\(\)/);
+    assert.doesNotMatch(pd[1], /stopPropagation/);
     assert.match(editorCode, /addBtn\.addEventListener\('pointerup', e => \{ e\.preventDefault\(\); e\.stopPropagation\(\); onBlockAdd\(\); \}\)/);
     assert.match(editorCode, /addBtn\.addEventListener\('mousedown', e => \{ e\.preventDefault\(\);/);
   });
@@ -342,17 +352,66 @@ test("MilkdownEditor: block handle ala Notion", async (t) => {
   });
 });
 
+test("extractArrowFn (helper test) kebal apostrof/kurung di komentar & string", () => {
+  const code = "const f = (a) => { // it's { tricky\n  const s = '}'; /* don't } here */\n  return a; }\nconst g = 1;\nfunction h(x) { return x + 1; }";
+  assert.equal(extractArrowFn(code, "const f = "), "(a) => { // it's { tricky\n  const s = '}'; /* don't } here */\n  return a; }");
+  assert.equal(extractArrowFn(code, "function h"), "(x) { return x + 1; }");
+});
+
+test("isSlashTriggerBefore: '/' hanya pemicu di awal blok atau setelah spasi (fungsional)", async (t) => {
+  const src = extractArrowFn(indexHtml, "function isSlashTriggerBefore");
+  assert.ok(src, "helper level-modul isSlashTriggerBefore harus ada di static/index.html");
+  const isSlashTriggerBefore = new Function("return function" + src)();
+  // $pos tiruan: teks textblock + offset kursor (non-text leaf dirender "￼" seperti textBetween asli)
+  const at = (text, offset, isTextblock = true) => ({
+    parentOffset: offset === undefined ? text.length : offset,
+    parent: { isTextblock, textBetween: (a, b, _sep, leaf) => text.slice(a, b).replace(/\u0000/g, leaf || "") },
+  });
+  await t.test("awal blok → true", () => assert.equal(isSlashTriggerBefore(at("/")), true));
+  await t.test("setelah spasi → true", () => assert.equal(isSlashTriggerBefore(at("Halo /")), true));
+  await t.test("setelah NBSP / tab → true", () => {
+    assert.equal(isSlashTriggerBefore(at("Halo\u00a0/")), true);
+    assert.equal(isSlashTriggerBefore(at("\t/")), true);
+  });
+  await t.test("di tengah kata (and/or, URL, 1/2) → false", () => {
+    assert.equal(isSlashTriggerBefore(at("Paragraf kedua. and/or", 20)), false);
+    assert.equal(isSlashTriggerBefore(at("https:/")), false);
+    assert.equal(isSlashTriggerBefore(at("1/")), false);
+  });
+  await t.test("setelah node inline non-teks (leaf ￼) → false", () => assert.equal(isSlashTriggerBefore(at("\u0000/")), false));
+  await t.test("tanpa '/' sebelum kursor → false", () => {
+    assert.equal(isSlashTriggerBefore(at("abc")), false);
+    assert.equal(isSlashTriggerBefore(at("/abc", 0)), false);
+  });
+  await t.test("bukan textblock → false", () => assert.equal(isSlashTriggerBefore(at("/", 1, false)), false));
+});
+
+test("Review fixes: tooltip format & slash draw", async (t) => {
+  await t.test("tooltip B/I/S tidak tampil untuk NodeSelection blok (klik ⋮⋮); inline (gambar) tetap", () => {
+    assert.match(
+      editorCode,
+      /tooltipPair\.key[\s\S]*?shouldShow: \(view\) => \{[\s\S]*?if \(selection\.empty\) return false;\s*(?:\/\/[^\n]*\s*)*if \(MB\.NodeSelection && selection instanceof MB\.NodeSelection && selection\.node\.isBlock\) return false;/
+    );
+  });
+  await t.test("case 'draw' keluar (return) setelah callback — tidak men-dispatch tr basi", () => {
+    assert.match(editorCode, /case 'draw':\s*\{[\s\S]*?onInsertDrawingRef\.current\?\.\(\);\s*(?:\/\/[^\n]*\s*)*return;\s*\}\s*break;/);
+  });
+  await t.test("case 'draw' hanya menghapus '/' pemicu (bukan '/' asli teks)", () => {
+    assert.match(editorCode, /case 'draw':\s*\{[\s\S]*?if \(slashIdx2 >= 0 && isSlashTriggerBefore\(qFrom2\)\) \{/);
+  });
+});
+
 test("doSlashAction: karakter pemicu '/' dihapus sebelum aksi (kecuali draw)", async (t) => {
   await t.test("fix disisipkan sebelum `const { state } = view;`", () => {
     assert.match(
       editorCode,
-      /const doSlashAction = \(type, payload\) => \{[\s\S]*?if \(type !== 'draw'\) \{[\s\S]*?\$c\.parent\.textBetween\(\$c\.parentOffset - 1, \$c\.parentOffset, null, "￼"\) === "\/"[\s\S]*?view\.dispatch\(view\.state\.tr\.delete\(\$c\.pos - 1, \$c\.pos\)\);\s*\}\s*\}\s*const \{ state \} = view;/
+      /const doSlashAction = \(type, payload\) => \{[\s\S]*?if \(type !== 'draw'\) \{\s*const sel0 = view\.state\.selection;\s*if \(sel0\.empty && isSlashTriggerBefore\(sel0\.\$from\)\) \{\s*view\.dispatch\(view\.state\.tr\.delete\(sel0\.\$from\.pos - 1, sel0\.\$from\.pos\)\);\s*\}\s*\}\s*const \{ state \} = view;/
     );
   });
   await t.test("kursor masuk ke blok baru (list/tabel/divider), bukan ke blok sesudahnya", () => {
     const body = extractArrowFn(editorCode, "const doSlashAction = ");
     assert.ok(body, "doSlashAction harus ada");
-    const m = body.match(/if \(type === 'bullet_list_simple' \|\| type === 'ordered_list' \|\| type === 'task_list' \|\| type === 'table' \|\| type === 'hr'\) \{([\s\S]*?)\n        \}\n        view\.dispatch\(tr\.scrollIntoView\(\)\);/);
+    const m = body.match(/if \(type === 'bullet_list_simple' \|\| type === 'ordered_list' \|\| type === 'task_list' \|\| type === 'table' \|\| type === 'hr'\) \{([\s\S]*?)\n\s*\}\s*view\.dispatch\(tr\.scrollIntoView\(\)\);/);
     assert.ok(m, "blok penempatan kursor harus tepat sebelum view.dispatch(tr.scrollIntoView())");
     assert.match(m[1], /tr\.steps\[tr\.steps\.length - 1\]/, "blok baru dicari dari step terakhir");
     assert.match(m[1], /tr\.setSelection\(MB\.TextSelection\.near\(tr\.doc\.resolve\(inside\)\)\)/);

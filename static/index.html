@@ -16035,6 +16035,16 @@ onPaperConfigChange
     )
   );
 }
+// "/" tepat sebelum kursor ($pos) dianggap pemicu slash menu hanya bila di awal textblock
+// atau didahului whitespace (spasi/NBSP/tab/baris baru). "/" di tengah teks (and/or, URL,
+// tanggal 1/2) adalah teks asli — jangan dihapus saat item slash dipilih.
+function isSlashTriggerBefore($pos) {
+  if (!$pos || !$pos.parent || !$pos.parent.isTextblock) return false;
+  const off = $pos.parentOffset;
+  if (off < 1 || $pos.parent.textBetween(off - 1, off, null, "￼") !== "/") return false;
+  if (off === 1) return true;
+  return /^\s$/.test($pos.parent.textBetween(off - 2, off - 1, null, "￼"));
+}
 // Block handle ala Notion (+ / ⋮⋮) di kiri setiap blok editor.
 // Ubah ke false untuk menyembunyikannya di perangkat sentuh (HP) bila editor terasa sempit.
 const BLOCK_HANDLE_ON_TOUCH = true;
@@ -16112,14 +16122,12 @@ function MilkdownEditor({
       inst.action(ctx => {
         const view = ctx.get(MB.editorViewCtx);
         if (!view) return;
-        // Hapus karakter pemicu "/" sebelum aksi (menu slash hanya tampil bila karakter
-        // tepat sebelum kursor = "/"). 'draw' sudah menghapus query-nya sendiri.
+        // Hapus karakter pemicu "/" sebelum aksi (menu slash tampil bila karakter tepat
+        // sebelum kursor = "/"); "/" asli teks (and/or) dibiarkan. 'draw' menanganinya sendiri.
         if (type !== 'draw') {
           const sel0 = view.state.selection;
-          const $c = sel0.$from;
-          if (sel0.empty && $c.parent.isTextblock && $c.parentOffset > 0 &&
-              $c.parent.textBetween($c.parentOffset - 1, $c.parentOffset, null, "￼") === "/") {
-            view.dispatch(view.state.tr.delete($c.pos - 1, $c.pos));
+          if (sel0.empty && isSlashTriggerBefore(sel0.$from)) {
+            view.dispatch(view.state.tr.delete(sel0.$from.pos - 1, sel0.$from.pos));
           }
         }
         const { state } = view;
@@ -16214,10 +16222,13 @@ function MilkdownEditor({
               const qFrom2 = state.selection.$from;
               const qText2 = qFrom2.parent.textBetween(0, qFrom2.parentOffset, null, "￼");
               const slashIdx2 = qText2.lastIndexOf("/");
-              if (slashIdx2 >= 0) {
+              // hanya "/" pemicu (awal blok/setelah spasi) — "/" asli teks (and/or) dibiarkan
+              if (slashIdx2 >= 0 && isSlashTriggerBefore(qFrom2)) {
                 view.dispatch(state.tr.delete(qFrom2.start() + slashIdx2, qFrom2.pos));
               }
               onInsertDrawingRef.current?.();
+              // selesai: `tr` dibuat dari state lama → dispatch di bawah akan "mismatched transaction"
+              return;
             }
             break;
         }
@@ -16445,8 +16456,11 @@ function MilkdownEditor({
         console.warn('Block handle: gagal menambah blok', err);
       }
     };
-    // pointerdown dicegah: fokus editor tetap & service plugin tidak membuat NodeSelection
-    addBtn.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); });
+    // pointerdown.preventDefault: fokus editor tetap & browser tidak mengirim mousedown kompatibilitas
+    // (jadi service plugin tidak membuat NodeSelection). Sengaja TANPA stopPropagation agar handler
+    // "klik di luar" dropdown toolbar (document pointerdown) tetap menutup dropdown.
+    addBtn.addEventListener('pointerdown', e => { e.preventDefault(); });
+    // cadangan bila browser tetap mengirim mousedown: cegah NodeSelection oleh service plugin
     addBtn.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
     addBtn.addEventListener('pointerup', e => { e.preventDefault(); e.stopPropagation(); onBlockAdd(); });
     // Touch: blok tempat kursor (aturan sama dgn filterNodes — isi table/blockquote → ancestor-nya)
@@ -16549,6 +16563,8 @@ function MilkdownEditor({
             shouldShow: (view) => {
               const { selection } = view.state;
               if (selection.empty) return false;
+              // blok terpilih utuh (klik ⋮⋮ block handle) bukan seleksi teks → tanpa tooltip format
+              if (MB.NodeSelection && selection instanceof MB.NodeSelection && selection.node.isBlock) return false;
               const isCellSelection = selection.isRowSelection?.() || selection.isColSelection?.() || (selection.constructor && selection.constructor.name === 'CellSelection');
               return !isCellSelection;
             }
