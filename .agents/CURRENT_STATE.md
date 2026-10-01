@@ -6,7 +6,7 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
-## 🟢 Floating ToC 📑 di mode edit (ganti kolom `NoteToc`) — 2026-09-30 (Claude) — SELESAI di branch `claude/cool-gates-qa4eg9` (BELUM merge/deploy)
+## 🟢 Floating ToC 📑 di mode edit (ganti kolom `NoteToc`) — 2026-09-30 (Claude) — SELESAI & LIVE (fast-forward push ke main `cf3a570..f63f04e`, Deploy run 809 + Tests run 289 sukses 2026-10-01 00:21 UTC, SW v332)
 - **Masalah:** di HP, edit catatan ≥2 heading → kolom `NoteToc` 120px di NoteModal membelah layar (editor 206px di 390px); klik item ToC mode edit salah target (`#note-h-N` milik panel baca).
 - **Solusi:** komponen reusable `FloatingToc({ items, activeIdx, onJump, onOpen, className })` (tombol 📑 + popover) dipakai NotePanel (baca, perilaku sama) & NoteModal (edit). Mode edit: heading dari dokumen ProseMirror (`extractDocHeadings(doc)` → pos; "# ..." di code block tidak ikut), lompat via `view.nodeDOM(pos).scrollIntoView` tanpa memindah kursor, scroll-spy IntersectionObserver di DOM heading editor, sinkron ulang saat `content` berubah (retry 150ms×40 sampai editor siap) & saat popover dibuka. `NoteToc` + CSS `.note-toc-panel` dihapus. Anchor dirender di dalam root modal (fixed, z-index 1000 = konteks tumpuk sendiri) → z-index 45 cukup; varian `floating-toc-anchor--modal` hanya geser desktop `right: 8px`.
 - **Hasil:** editor HP 206 → 326px, desktop 1096 → 1216px. `app.css?v=298`, SW **`taskflow-v332-edit-mode-floating-toc`**. Pin versi exact di `block_handle.test.js` dilonggarkan jadi "≥" (pin exact terbaru di `note_toc.test.js`).
@@ -15,7 +15,7 @@
 - **Fix block handle (fitur v331 yang sudah LIVE):** handle tersembunyi menyimpan top/left inline lama (mis. 5396px) → scroll palsu di `.milkdown-editor` (HP: geser jari menggulir editor ke area kosong saat Kertas/konten dipendekkan). CSS `.milkdown-block-handle:not([data-show="true"]) { top/left: 0 !important }` dengan transisi tertunda 0.12s (parkir setelah fade-out, tanpa kedip). `app.css?v=299`. Test mengunci urutan `left/top` → `data-show` di `show()` bundle.
 - **Verifikasi akhir:** JS 695/696 (1 fail pra-ada tldraw), pytest 60/60, inline 5/5, E2E toc_edit 54/54, bh_overflow 13/13, block handle 36/14/2/9/15, script reviewer spy_short & edge lulus.
 - **Risiko:** belum dites di HP fisik/APK/Safari; di desktop tombol menutupi 6px jalur scrollbar di pita 40px tengah layar; sebelum editor siap (~150ms) daftar memakai regex (tombol bisa berkedip bila ada "# ..." di code block); jeda 800ms dikalibrasi untuk Chromium.
-- **PENDING user:** merge PR → deploy → hard refresh; cek di HP.
+- **PENDING user:** hard refresh (tutup-buka PWA di HP) lalu cek mode edit catatan ber-heading; SW `taskflow-v332-edit-mode-floating-toc`, `app.css?v=299`. APK perlu build ulang agar ikut.
 
 ## 🟢 Block handle ala Notion ("+" / ⋮⋮) di editor Milkdown — 2026-09-30 (Claude) — SELESAI & LIVE (PR #2 di-merge ke main `cf3a570`, Deploy run 808 sukses 2026-09-30 22:42 UTC, SW v331)
 - **Fitur:** di kiri tiap blok editor muncul "+" (sisipkan paragraf "/" di bawah blok → slash menu terbuka) dan ⋮⋮ (desktop: seret untuk memindah blok, ada drop-cursor; HP: ketuk = pilih blok). Desktop: muncul saat hover (`@milkdown/plugin-block@7.20.0`). HP (`matchMedia('(hover: none)')`): mengikuti blok tempat kursor, sembunyi saat mengetik/blur. Isi tabel/blockquote tidak punya handle sendiri (handle untuk tabel/blockquote-nya).

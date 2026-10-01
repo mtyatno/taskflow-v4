@@ -1612,3 +1612,9 @@ Chronological history of work performed by AI agents in this workspace.
 - **Verifikasi:** JS 695/696 (1 fail pra-ada tldraw), pytest 60/60, inline 5/5, E2E toc_edit 54/54, bh_overflow 13/13 (RED 8/11 tanpa fix), block handle hijau, spy_short & edge lulus.
 - **Files Touch:** `static/app.css`, `static/index.html`, `tests/offline/block_handle.test.js`, `tests/offline/note_toc.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed di branch `claude/cool-gates-qa4eg9` (belum merge/deploy; SW v332).
+
+## [2026-10-01 00:23] - Claude (deploy Floating ToC mode edit + fix handle)
+- **Task:** Merge ke main & deploy atas permintaan user.
+- **Changes:** `git push origin HEAD:main` fast-forward `cf3a570..f63f04e` (5 commit: docs riset, `ff94c20`, `3fabcc4`, `f63f04e`). Tests #289 & Deploy #809 sukses; log VPS: "Updating cf3a570..f63f04e Fast-forward" (7 file). Live tidak bisa di-curl dari container cloud (network policy).
+- **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & LIVE (SW v332). PENDING user: hard refresh + cek di HP.
