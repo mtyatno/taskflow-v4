@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v343-double-click-block-focus/,
-      "sw.js should be bumped to taskflow-v343-double-click-block-focus"
+      /taskflow-v344-double-click-block-focus/,
+      "sw.js should be bumped to taskflow-v344-double-click-block-focus"
     );
   });
 
@@ -193,11 +193,11 @@ test("Interactive Note Viewer Specifications", async (t) => {
       "NoteModal should accept initialBlockTarget prop"
     );
 
-    // NoteModal title input should not steal autoFocus when initialBlockTarget is provided
+    // NoteModal title input should not steal autoFocus for existing notes
     assert.match(
       noteModalCode,
-      /autoFocus:\s*!focusMode\s*&&\s*!initialBlockTarget/,
-      "NoteModal title input should suppress autoFocus when initialBlockTarget is present"
+      /autoFocus:\s*!note\?\.id\s*&&\s*!focusMode/,
+      "NoteModal title input should suppress autoFocus for existing notes"
     );
 
     // NoteModal should search ProseMirror doc for block and set selection

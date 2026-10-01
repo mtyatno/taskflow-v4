@@ -64,25 +64,31 @@
   - **BLOKER build lokal:** `Z:` = drive cloud; `milkdown-build/node_modules/@milkdown` tak terbaca ("The cloud file provider is not running") → `npm run build` bundle butuh cloud provider aktif atau `npm install` ulang. Setelah build: bump SW + rebuild .exe/APK.
   - **NEXT (kalau user setuju):** brainstorming → spec → plan → SDD (sesuai PROTOCOL).
 
-- **Double-Click Block Cursor Positioning & Auto-Scroll in NoteModal (`static/index.html`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`) — SELESAI 2026-10-02 (Antigravity/Gemini):**
+- **Bulletproof NoteModal Block Cursor Focus, Title AutoFocus Suppression for Existing Notes & SW v344 (`static/index.html`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`) — SELESAI 2026-10-02 (Antigravity/Gemini) — SW v344:**
   - **Problem / Context:**
-    - Sebelumnya, saat pengguna melakukan double-click pada blok/paragraf tertentu di mode baca (`NotePanel`), editor `NoteModal` terbuka tetapi posisi kursor default berada di judul (`autoFocus`) atau di awal dokumen (posisi 0). Pengguna harus menggulir dan mencari ulang blok yang ingin diedit secara manual.
+    - Pengguna melaporkan bahwa saat membuka editor catatan, kursor selalu fokus ke input judul (title) catatan alih-alih blok teks yang ingin disunting.
+    - Akar masalah:
+      1. Input judul di `NoteModal` memiliki atribut `autoFocus: !focusMode && !initialBlockTarget`. Ketika catatan dibuka melalui tombol Edit toolbar, `initialBlockTarget` bernilai null, memicu autofocus ke input judul. Catatan eksisting (`note?.id`) seharusnya TIDAK PERNAH memicu autofocus ke judul.
+      2. Pada `locateAndFocus`, pemanggilan `view.nodeDOM($pos.before($pos.depth))` melempar error saat depth 0, dan `nodeDOM` mengembalikan null untuk elemen heading/paragraf standar ProseMirror. Seharusnya menggunakan `view.domAtPos(safePos)` untuk resolusi DOM node.
+      3. Jika teks tidak cocok persis, tidak ada fallback penempatan kursor di awal konten (`targetPos = 1`), menyebabkan kursor lepas dan browser memulihkan fokus ke input form pertama (input judul).
+      4. `index.html` tidak memiliki listener `controllerchange` untuk memicu auto-reload saat Service Worker baru aktif, sehingga klien PWA dapat tertahan pada script lama.
   - **Solusi / Perbaikan:**
     1. `static/index.html`:
-       - Di `NotePanel.onDoubleClick`: Menangkap blok elemen terdekat (`p, h1..h6, li, blockquote, pre, tr`), mengekstrak cuplikan teks (`blockText`), tag, dan indeks blok di container, lalu memanggil `onEdit(blockTarget)`.
-       - Di `NotesPage`: Menambahkan state `initialBlockTarget`, menerima `openEdit(note, blockTarget)`, dan meneruskannya ke `<NoteModal initialBlockTarget={...}>`.
-       - Di `NoteModal`:
-         - Menerima prop `initialBlockTarget`.
-         - Menonaktifkan `autoFocus` pada input judul catatan saat `initialBlockTarget` tersedia (`autoFocus: !focusMode && !initialBlockTarget`).
-         - Menambahkan `useEffect` yang menelusuri node ProseMirror (`doc.descendants`), mencocokkan blok berdasarkan cuplikan teks (atau fallback indeks blok), lalu memposisikan kursor (`TextSelection.near($pos)`), memanggil `view.focus()`, dan menggulir viewport editor agar blok berada di tengah layar (`scrollIntoView({ behavior: 'smooth', block: 'center' })`).
+       - Mengubah `autoFocus` input judul di `NoteModal` menjadi `autoFocus: !note?.id && !focusMode`. Untuk semua catatan eksisting, input judul tidak akan pernah mengambil fokus secara otomatis.
+       - Memperbarui `locateAndFocus` dengan normalisasi teks (menghapus tanda baca markdown/spasi berlebih), fallback index blok, fallback posisi 1 (`targetPos = 1`), dan pemindahan scroll halus ke tengah (`domAtPos` ➡️ `scrollIntoView({ behavior: 'smooth', block: 'center' })`).
+       - Memperluas pemilih blok pada `onDoubleClick` di `NotePanel` untuk mencakup elemen tabel `td, th`.
+       - Menambahkan listener `controllerchange` pada script registrasi Service Worker agar browser otomatis memuat ulang versi terbaru saat SW aktif.
     2. `static/sw.js`:
-       - Bump Service Worker cache version ke **`taskflow-v343-double-click-block-focus`**.
+       - Bump Service Worker cache version ke **`taskflow-v344-double-click-block-focus`**.
     3. Unit Tests:
-       - `tests/offline/interactive_note_viewer.test.js`: Menambahkan Test 9 (10/10 pass) memvalidasi ekstraksi `blockTarget`, penerusan prop di `NotesPage`, penekanan autoFocus input judul di `NoteModal`, dan pencarian node ProseMirror via `doc.descendants`.
-       - `tests/offline/drawing_sync_ui.test.js`: Memperbarui asersi cache version ke v343.
+       - `tests/offline/interactive_note_viewer.test.js`: Memperbarui asersi Test 7 ke `v344` dan Test 9 ke `autoFocus: !note?.id && !focusMode` (10/10 pass).
+       - `tests/offline/drawing_sync_ui.test.js`: Memperbarui asersi cache version ke `v344` (38/38 pass).
   - **Verifikasi:**
-    - Targeted unit tests: `node --test tests/offline/interactive_note_viewer.test.js` ➡️ **10/10 pass (0 fail)**.
-    - SW cache version: v343.
+    - Inline scripts syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - SW syntax check: `node --check static/sw.js` ➡️ **OK**.
+    - Targeted unit tests: `node --test tests/offline/interactive_note_viewer.test.js` & `drawing_sync_ui.test.js` ➡️ **48/48 pass (0 fail)**.
+    - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **806/806 pass (0 fail)** across 7 suites.
+    - Full Backend test suite: `python -m pytest tests/` ➡️ **61/61 pass (0 fail)**.
 
 - **Fix Note Title Wrapping / Truncation on Note Viewer (`static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`) — SELESAI 2026-10-02 (Antigravity/Gemini):**
   - **Problem / Root Cause:**

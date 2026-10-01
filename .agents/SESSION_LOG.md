@@ -2,6 +2,33 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-02 06:20] - Antigravity (Gemini)
+- **Task:** Bulletproof NoteModal Block Cursor Focus, Title AutoFocus Suppression for Existing Notes & SW v344 (`static/index.html`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`).
+- **Objective:**
+  - Memastikan input judul catatan (`note-modal-title-input`) TIDAK PERNAH mengambil fokus secara otomatis pada catatan eksisting (`autoFocus: !note?.id && !focusMode`), baik dibuka melalui tombol Edit toolbar maupun double-click di viewer.
+  - Memastikan pemosisian kursor di ProseMirror Milkdown berhasil menempatkan seleksi teks pada blok yang di-double-click (dengan normalisasi teks dan fallback index/posisi 1), lalu menggulir mulus ke tengah (`domAtPos` ➡️ `scrollIntoView({ behavior: 'smooth', block: 'center' })`).
+  - Menambahkan listener `controllerchange` pada script registrasi Service Worker di `static/index.html` agar klien otomatis memuat ulang saat SW baru aktif.
+- **Changes:**
+  - `static/index.html`:
+    - Mengubah `autoFocus` input judul di `NoteModal` menjadi `!note?.id && !focusMode`.
+    - Memperbarui `locateAndFocus` dengan normalisasi teks, fallback index, fallback position 1, dan scrolling aman via `domAtPos`.
+    - Menambahkan `td, th` ke pemilih elemen blok di `NotePanel.onDoubleClick`.
+    - Menambahkan listener `controllerchange` di tag script registrasi SW.
+  - `static/sw.js`:
+    - Bump cache version ke **`taskflow-v344-double-click-block-focus`**.
+  - `tests/offline/interactive_note_viewer.test.js`:
+    - Memperbarui asersi SW ke `v344` dan autoFocus ke `!note?.id && !focusMode`.
+  - `tests/offline/drawing_sync_ui.test.js`:
+    - Memperbarui asersi SW ke `v344`.
+- **Verification:**
+  - Inline scripts syntax: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - Service Worker syntax: `node --check static/sw.js` ➡️ **OK**.
+  - Targeted unit tests: `node --test tests/offline/interactive_note_viewer.test.js` & `drawing_sync_ui.test.js` ➡️ **48/48 pass (0 fail)**.
+  - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **806/806 pass (0 fail)** across 7 suites.
+  - Python backend test suite: `python -m pytest tests/` ➡️ **61/61 pass (0 fail)**.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-10-02 03:30] - Antigravity (Gemini)
 - **Task:** Double-Click Editor Block Focus & Auto-Scroll (`static/index.html`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`).
 - **Objective:**

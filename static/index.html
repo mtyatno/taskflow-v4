@@ -18453,15 +18453,14 @@ function NoteModal({
     } else if (el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
     if (h.idx !== item.idx) setTocActiveIdx(h.idx);
   };
-  // Auto-focus and scroll to specific clicked block on double-click from viewer
+  // Auto-focus and scroll to specific clicked block on double-click from viewer (or editor start on existing note)
   React.useEffect(() => {
-    if (!initialBlockTarget) return;
     let timer = null;
     let tries = 0;
     const locateAndFocus = () => {
       const view = getEditorView();
-      if (!view) {
-        if (++tries < 40) timer = setTimeout(locateAndFocus, 100);
+      if (!view || !view.state || !view.state.doc) {
+        if (++tries < 50) timer = setTimeout(locateAndFocus, 80);
         return;
       }
       const MB = window.MilkdownBundle;
@@ -18469,48 +18468,72 @@ function NoteModal({
       const doc = view.state.doc;
       let targetPos = null;
 
-      // Strategy 1: Match by text snippet
-      if (initialBlockTarget.text) {
-        const needle = initialBlockTarget.text.slice(0, 50).toLowerCase();
-        doc.descendants((node, pos) => {
-          if (targetPos !== null) return false;
-          if (node.isBlock && node.isTextblock) {
-            const txt = (node.textContent || '').trim().toLowerCase();
-            if (txt && (txt.includes(needle) || needle.includes(txt.slice(0, 30)))) {
-              targetPos = pos + 1;
-              return false;
-            }
-          }
-        });
-      }
+      // Case A: initialBlockTarget is present (double-clicked from viewer)
+      if (initialBlockTarget) {
+        const cleanText = str => (str || '').toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]/gi, ' ').replace(/\s+/g, ' ').trim();
+        const needle = cleanText(initialBlockTarget.text);
 
-      // Strategy 2: Fallback by index counter among textblocks
-      if (targetPos === null && typeof initialBlockTarget.index === 'number' && initialBlockTarget.index >= 0) {
-        let blockCount = 0;
-        doc.descendants((node, pos) => {
-          if (targetPos !== null) return false;
-          if (node.isBlock && node.isTextblock) {
-            if (blockCount === initialBlockTarget.index) {
-              targetPos = pos + 1;
-              return false;
+        // Strategy 1: Match by normalized text content
+        if (needle.length >= 3) {
+          const shortNeedle = needle.slice(0, 35);
+          doc.descendants((node, pos) => {
+            if (targetPos !== null) return false;
+            if (node.isTextblock) {
+              const nodeText = cleanText(node.textContent);
+              if (nodeText && (nodeText.includes(shortNeedle) || shortNeedle.includes(nodeText.slice(0, 25)))) {
+                targetPos = pos + 1;
+                return false;
+              }
             }
-            blockCount++;
-          }
-        });
+          });
+        }
+
+        // Strategy 2: Fallback by textblock index counter
+        if (targetPos === null && typeof initialBlockTarget.index === 'number' && initialBlockTarget.index >= 0) {
+          let blockCount = 0;
+          doc.descendants((node, pos) => {
+            if (targetPos !== null) return false;
+            if (node.isTextblock) {
+              if (blockCount === initialBlockTarget.index) {
+                targetPos = pos + 1;
+                return false;
+              }
+              blockCount++;
+            }
+          });
+        }
+
+        // Strategy 3: Fallback to document start if specific block not located
+        if (targetPos === null) {
+          targetPos = 1;
+        }
+      } else if (note?.id) {
+        // Case B: Existing note opened via Edit button -> focus editor content, NOT title
+        targetPos = 1;
       }
 
       if (targetPos !== null) {
         try {
-          const $pos = doc.resolve(Math.min(targetPos, doc.content.size));
+          const safePos = Math.max(1, Math.min(targetPos, Math.max(1, doc.content.size - 1)));
+          const $pos = doc.resolve(safePos);
           const sel = MB.TextSelection ? MB.TextSelection.near($pos) : null;
           let tr = view.state.tr;
           if (sel) tr = tr.setSelection(sel);
           view.dispatch(tr.scrollIntoView());
           view.focus();
 
-          const domNode = view.nodeDOM ? (view.nodeDOM($pos.before($pos.depth)) || view.nodeDOM($pos.pos)) : null;
-          if (domNode && domNode.scrollIntoView) {
-            domNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Scroll DOM safely using domAtPos (works for all ProseMirror nodes)
+          if (typeof view.domAtPos === 'function') {
+            const domInfo = view.domAtPos(safePos);
+            const el = domInfo && (domInfo.node.nodeType === 1 ? domInfo.node : domInfo.node.parentElement);
+            if (el && typeof el.scrollIntoView === 'function') {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          } else if (typeof view.nodeDOM === 'function' && $pos.depth > 0) {
+            const domNode = view.nodeDOM($pos.before($pos.depth)) || view.nodeDOM($pos.pos);
+            if (domNode && domNode.scrollIntoView) {
+              domNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
           }
         } catch (_) {}
       }
@@ -19374,7 +19397,7 @@ function NoteModal({
     placeholder: "Judul catatan...",
     value: title,
     onChange: e => { setTitle(e.target.value); setTitleManuallyEdited(true); },
-    autoFocus: !focusMode && !initialBlockTarget,
+    autoFocus: !note?.id && !focusMode,
     style: {
       fontSize: !focusMode ? 22 : undefined
     }
@@ -21228,10 +21251,10 @@ function NotePanel({
     onDoubleClick: e => {
       if (e.target && e.target.closest && e.target.closest('input, a, button, [data-tasklink], [data-wiki-id], [data-wiki-title], [data-drawing-preview]')) return;
       const container = e.currentTarget;
-      const blockEl = e.target && e.target.closest ? e.target.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, tr') : null;
+      const blockEl = e.target && e.target.closest ? e.target.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, tr, td, th') : null;
       let blockTarget = null;
       if (blockEl && container) {
-        const allBlocks = Array.from(container.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, tr'));
+        const allBlocks = Array.from(container.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, tr, td, th'));
         const idx = allBlocks.indexOf(blockEl);
         blockTarget = {
           text: (blockEl.textContent || '').trim().slice(0, 80),
@@ -26550,8 +26573,18 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker
     if ("serviceWorker" in navigator) {
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!refreshing) {
+          refreshing = true;
+          window.location.reload();
+        }
+      });
       window.addEventListener("load", () => {
         navigator.serviceWorker.register("/sw.js", { scope: "/" })
+          .then(reg => {
+            reg.update().catch(() => {});
+          })
           .catch(err => console.warn("SW register failed:", err));
       });
     }
