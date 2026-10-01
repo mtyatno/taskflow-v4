@@ -1605,3 +1605,10 @@ Chronological history of work performed by AI agents in this workspace.
 - **Verifikasi:** JS 686/687 (1 fail pra-ada tldraw), pytest 60/60, inline 5/5, E2E toc_edit 38/38 + block handle 36/14/2/9/15 hijau.
 - **Files Touch:** `static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/note_toc.test.js`, `tests/offline/block_handle.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed di branch (belum merge/deploy).
+
+## [2026-10-01] - Claude (review round ToC + fix scroll palsu block handle)
+- **Task:** Tindak lanjut review Floating ToC mode edit + bug handle tersembunyi.
+- **Changes:** `3fabcc4`: scroll-spy mode edit root = area scroll modal, jump via scrollTo area scroll, jeda 800ms setelah klik (baca & edit). Commit ini: CSS parkir handle tersembunyi di (0,0) setelah fade-out (hapus scroll palsu `.milkdown-editor`), `app.css?v=299`, test.
+- **Verifikasi:** JS 695/696 (1 fail pra-ada tldraw), pytest 60/60, inline 5/5, E2E toc_edit 54/54, bh_overflow 13/13 (RED 8/11 tanpa fix), block handle hijau, spy_short & edge lulus.
+- **Files Touch:** `static/app.css`, `static/index.html`, `tests/offline/block_handle.test.js`, `tests/offline/note_toc.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed di branch `claude/cool-gates-qa4eg9` (belum merge/deploy; SW v332).

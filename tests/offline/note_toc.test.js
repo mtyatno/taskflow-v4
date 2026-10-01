@@ -579,8 +579,8 @@ test("jumpToEditorHeading — lompat ke DOM heading editor (fungsional)", async 
 });
 
 test("cache bust: app.css & service worker", async (t) => {
-  await t.test("index.html memuat app.css?v=298", () => {
-    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=298">/);
+  await t.test("index.html memuat app.css?v=299", () => {
+    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=299">/);
   });
   await t.test("sw.js CACHE = taskflow-v332-edit-mode-floating-toc", () => {
     assert.match(swJs, /^const CACHE = "taskflow-v332-edit-mode-floating-toc";/m);

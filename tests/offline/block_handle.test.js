@@ -125,6 +125,10 @@ test("static/vendor/milkdown.bundle.js mengekspor API block handle (dievaluasi d
     assert.ok(MB.blockConfig && MB.blockConfig.key, "MB.blockConfig.key harus ada");
   });
 
+  await t.test("BlockProvider.show menulis left/top inline lalu data-show=\"true\" di callback yang sama (andalan rule parkir CSS)", () => {
+    assert.match(bundle, /Object\.assign\(this\.#\w+\.style,\{left:`\$\{\w+\}px`,top:`\$\{\w+\}px`\}\),this\.#\w+\.dataset\.show="true"/);
+  });
+
   await t.test("MB.BlockProvider adalah class dengan update/show/hide/destroy", () => {
     assert.equal(typeof MB.BlockProvider, "function");
   });
@@ -428,6 +432,23 @@ test("static/app.css: style block handle, gutter & drop cursor", async (t) => {
   await t.test("handle tampil hanya bila data-show=true", () => {
     assert.match(cssContent, /\.milkdown-block-handle \{[^}]*position: absolute;[^}]*opacity: 0;[^}]*pointer-events: none;/);
     assert.match(cssContent, /\.milkdown-block-handle\[data-show="true"\] \{ opacity: 1; pointer-events: auto; \}/);
+  });
+  await t.test("handle tersembunyi diparkir di (0,0) SETELAH fade-out → posisi inline basi tidak membuat scroll palsu", () => {
+    // .milkdown-editor = position:relative + overflow-y:auto → handle absolut di top basi (mis. 5396px)
+    // menambah scrollable overflow bila konten memendek (Kertas / hapus konten).
+    const hidden = /\.milkdown-block-handle:not\(\[data-show="true"\]\) \{([^}]*)\}/.exec(cssContent);
+    assert.ok(hidden, 'rule .milkdown-block-handle:not([data-show="true"]) ada');
+    assert.match(hidden[1], /top: 0 !important;/, "override top inline basi");
+    assert.match(hidden[1], /left: 0 !important;/, "override left inline basi");
+    // Transisi milik state TUJUAN: masuk tersembunyi → top/left pindah setelah opacity selesai (0.12s),
+    // jadi tidak ada frame terlihat di sudut (0,0)
+    assert.match(hidden[1], /transition: opacity 0\.12s ease, top 0s linear 0\.12s, left 0s linear 0\.12s;/);
+    // Masuk tampil → tanpa transisi top/left: langsung di posisi dari BlockProvider.show
+    const base = /\.milkdown-block-handle \{([^}]*)\}/.exec(cssContent);
+    assert.match(base[1], /transition: opacity 0\.12s ease;/, "base: hanya opacity yang bertransisi");
+    const shown = /\.milkdown-block-handle\[data-show="true"\] \{([^}]*)\}/.exec(cssContent);
+    assert.strictEqual(/transition/.test(shown[1]), false, "state tampil tidak menambah transisi top/left");
+    assert.ok(cssContent.indexOf('.milkdown-block-handle:not([data-show="true"])') > cssContent.indexOf('.milkdown-block-handle[data-show="true"]'), "rule parkir setelah rule tampil");
   });
   await t.test("gutter kiri .has-block-handle .ProseMirror (desktop 48px, touch 44px)", () => {
     assert.match(cssContent, /\.milkdown-editor\.has-block-handle \.ProseMirror \{ padding-left: 48px; \}/);

@@ -1508,6 +1508,14 @@
       opacity: 0; pointer-events: none; transition: opacity 0.12s ease;
     }
     .milkdown-block-handle[data-show="true"] { opacity: 1; pointer-events: auto; }
+    /* Tersembunyi: parkir di (0,0) — top/left inline basi (mis. 5396px) menambah scroll palsu di
+       .milkdown-editor (relative + overflow-y:auto) saat konten memendek (Kertas / hapus konten).
+       Pindah SETELAH fade-out (delay 0.12s) agar tak terlihat di sudut; saat tampil tidak ada transisi
+       top/left → langsung di posisi dari BlockProvider.show (floating-ui tak membaca posisi lama). */
+    .milkdown-block-handle:not([data-show="true"]) {
+      top: 0 !important; left: 0 !important;
+      transition: opacity 0.12s ease, top 0s linear 0.12s, left 0s linear 0.12s;
+    }
     .milkdown-block-handle-btn {
       display: flex; align-items: center; justify-content: center;
       width: 20px; height: 24px; border-radius: 4px;
