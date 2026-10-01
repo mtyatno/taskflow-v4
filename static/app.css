@@ -895,6 +895,7 @@
     @media (max-width: 640px) {
       .notes-panel-meta { width: 100%; }
       .notes-panel-actions { width: 100%; flex-wrap: nowrap; gap: 6px; }
+      .notes-nav-trail { display: none !important; }
       .notes-panel-actions .note-act-label { display: none; }
       .notes-panel-actions > button, .notes-panel-actions [data-export-dropdown] > button { padding: 5px 9px !important; }
       .notes-panel-actions > button:last-child { margin-left: auto; }

@@ -6,6 +6,9 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Breadcrumb note viewer disembunyikan di mobile — 2026-10-01 (Claude) — SELESAI di branch (BELUM merge/deploy, SW v340, app.css?v=302)
+- `.notes-nav-trail { display:none !important }` di media ≤640px (`static/app.css`); desktop tetap. E2E: mobile display none, desktop flex.
+
 ## 🟢 Toolbar aksi note viewer 1 baris di mobile — 2026-10-01 (Claude) — SELESAI di branch `claude/cool-gates-qa4eg9` (BELUM merge/deploy, SW v338, app.css?v=301)
 - **Keluhan:** di mobile, aksi note (share/pin/Publish/Export/Edit/hapus/tutup) terpecah 2 baris. **Perbaikan:** label teks (Publish/Export/Edit) dibungkus `.note-act-label` dan disembunyikan ≤640px; Publish pakai ikon `globe` (+`lock` bila ber-password), Export ikon `download`; `ui-components.js` ditambah ikon `globe`/`lock`; `.notes-panel-actions` nowrap di mobile, tombol tutup `margin-left:auto`. Desktop: label tetap + ikon baru.
 - **Verifikasi:** E2E 390px: tinggi baris 36px (1 baris), tanpa overflow; JS/inline hijau.

@@ -1686,3 +1686,8 @@ Chronological history of work performed by AI agents in this workspace.
 - **Changes:** blok tag dipindah setelah isi note di `static/index.html`; SW v339.
 - **Verifikasi:** E2E 390px visual benar; JS 796/796, inline 5/5.
 - **Status:** Completed di branch (belum merge/deploy).
+
+## [2026-10-01] - Claude (sembunyikan breadcrumb note viewer di mobile)
+- **Changes:** CSS ≤640px sembunyikan `.notes-nav-trail`; SW v340, app.css?v=302.
+- **Verifikasi:** E2E mobile none/desktop flex; JS 796/796, inline 5/5.
+- **Status:** Completed di branch (belum merge/deploy).
