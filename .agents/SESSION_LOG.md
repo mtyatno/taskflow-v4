@@ -1650,3 +1650,10 @@ Chronological history of work performed by AI agents in this workspace.
 - **Task:** Verifikasi E2E hardening ke-2 (commit 50d77d9).
 - **Hasil:** semua skenario reviewer & acceptance lulus (lihat CURRENT_STATE). Fix drawing lengkap = d03c37e + a19026b + 50d77d9 (SW v335) di branch `claude/cool-gates-qa4eg9`.
 - **Status:** Completed; menunggu keputusan user untuk merge & deploy.
+
+## [2026-10-01] - Claude (merge & deploy fix drawing)
+- **Task:** User minta merge ke main dan deploy.
+- **Changes:** fast-forward push `f63f04e..c5364ef` ke main (6 commit: fix drawing d03c37e + a19026b + 50d77d9, docs). Deploy run 810 sukses (VPS fast-forward 19 file, vite build draw-app OK), Tests run 290 sukses.
+- **PENDING user:** restart `taskflow-web` di VPS (webapp.py berubah), hard refresh (SW v335), rebuild APK.
+- **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (LIVE).
