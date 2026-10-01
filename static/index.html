@@ -15404,6 +15404,12 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   const cleanMd = cleanLines.join('\n');
 
   let html = marked.parse(cleanMd);
+  let cbIdx = 0;
+  html = html.replace(/<input\b([^>]*?type=["']checkbox["'][^>]*?)>/gi, (match, attrs) => {
+    const isChecked = /\bchecked\b/i.test(attrs);
+    const idx = cbIdx++;
+    return `<input type="checkbox"${isChecked ? ' checked=""' : ''} class="note-interactive-checkbox" data-task-checkbox-idx="${idx}">`;
+  });
   for (const [k, v] of Object.entries(wikiMap)) {
     html = html.split(k).join(v);
   }
@@ -20072,6 +20078,42 @@ function NotePanel({
   const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
   const [panelAttachments, setPanelAttachments] = React.useState([]);
 
+  const [isEditingTitle, setIsEditingTitle] = React.useState(false);
+  const [titleDraft, setTitleDraft] = React.useState(note?.title || "");
+  React.useEffect(() => {
+    setTitleDraft(note?.title || "");
+    setIsEditingTitle(false);
+  }, [note?.id, note?.title]);
+
+  const handleSaveTitle = async () => {
+    setIsEditingTitle(false);
+    const trimmed = (titleDraft || "").trim();
+    if (trimmed === (note?.title || "")) return;
+    const prevTitle = note?.title;
+    note.title = trimmed;
+    try {
+      await api.put(`/api/scratchpad/${note.id}`, {
+        ...note,
+        title: trimmed
+      });
+      window.dispatchEvent(new CustomEvent("noteSaved"));
+    } catch (err) {
+      if (typeof isOfflineErr === 'function' && isOfflineErr(err)) {
+        try {
+          const cached = (await OfflineDB.cacheGet("scratchpad_notes")) || [];
+          const updated = cached.map(n => n.id === note.id ? { ...n, title: trimmed, updated_at: new Date().toISOString() } : n);
+          await OfflineDB.cacheSet("scratchpad_notes", updated);
+          await OfflineDB.queueAdd({ method: "PUT", url: `/api/scratchpad/${note.id}`, body: { ...note, title: trimmed } });
+          window.dispatchEvent(new CustomEvent("noteSaved"));
+        } catch (_) {}
+      } else {
+        note.title = prevTitle;
+        setTitleDraft(prevTitle || "");
+        if (typeof showToast === 'function') showToast(err?.message || "Gagal mengubah judul", "error");
+      }
+    }
+  };
+
   const [shareOpen, setShareOpen] = React.useState(false);
   const shareRef = React.useRef(null);
   React.useEffect(() => {
@@ -20152,6 +20194,45 @@ function NotePanel({
   }, [allNotes]);
   const handlePreviewClick = e => {
     const base = e.target && e.target.nodeType === 3 ? e.target.parentElement : e.target;
+
+    // Interactive task checkbox click
+    const cb = base && (base.matches && base.matches('input[type="checkbox"][data-task-checkbox-idx]') ? base : base.closest ? base.closest('input[type="checkbox"][data-task-checkbox-idx]') : null);
+    if (cb && note?.id && note.content) {
+      const idxStr = cb.getAttribute('data-task-checkbox-idx');
+      const targetIdx = parseInt(idxStr, 10);
+      if (!isNaN(targetIdx)) {
+        let currentIdx = 0;
+        const nextContent = note.content.replace(/^([ \t]*[-*+]\s+\[)([ xX])(\]\s+.*)$/gm, (match, prefix, checkState, suffix) => {
+          if (currentIdx === targetIdx) {
+            const nextState = checkState === " " ? "x" : " ";
+            currentIdx++;
+            return `${prefix}${nextState}${suffix}`;
+          }
+          currentIdx++;
+          return match;
+        });
+        if (nextContent !== note.content) {
+          note.content = nextContent;
+          (async () => {
+            try {
+              await api.put(`/api/scratchpad/${note.id}`, { ...note, content: nextContent });
+              window.dispatchEvent(new CustomEvent("noteSaved"));
+            } catch (err) {
+              if (typeof isOfflineErr === 'function' && isOfflineErr(err)) {
+                try {
+                  const cached = (await OfflineDB.cacheGet("scratchpad_notes")) || [];
+                  const updated = cached.map(n => n.id === note.id ? { ...n, content: nextContent, updated_at: new Date().toISOString() } : n);
+                  await OfflineDB.cacheSet("scratchpad_notes", updated);
+                  await OfflineDB.queueAdd({ method: "PUT", url: `/api/scratchpad/${note.id}`, body: { ...note, content: nextContent } });
+                  window.dispatchEvent(new CustomEvent("noteSaved"));
+                } catch (_) {}
+              }
+            }
+          })();
+        }
+      }
+      return;
+    }
 
     // Tasklink click — open task modal
     const taskEl = base && base.closest ? base.closest('[data-tasklink]') : null;
@@ -20817,7 +20898,41 @@ function NotePanel({
     }
   }, note.list_id && /*#__PURE__*/React.createElement("span", {
     className: "note-shared-badge"
-  }, "\uD83D\uDC65 Bersama"), note.title || "(tanpa judul)"), note.last_editor_username && note.last_edited_by !== note.user_id && /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDC65 Bersama"), isEditingTitle ? /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    className: "note-title-inline-input",
+    value: titleDraft,
+    onChange: e => setTitleDraft(e.target.value),
+    onBlur: handleSaveTitle,
+    onKeyDown: e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleSaveTitle();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setTitleDraft(note?.title || "");
+        setIsEditingTitle(false);
+      }
+    },
+    autoFocus: true,
+    placeholder: "Judul catatan..."
+  }) : /*#__PURE__*/React.createElement("span", {
+    onClick: () => setIsEditingTitle(true),
+    title: "Klik untuk ubah judul",
+    style: {
+      cursor: "pointer",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, note.title || "(tanpa judul)", /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      opacity: 0.4,
+      display: "inline-flex"
+    },
+    title: "Ubah judul"
+  }, "✏️"))), note.last_editor_username && note.last_edited_by !== note.user_id && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: "var(--text-light)",
@@ -21041,6 +21156,11 @@ function NotePanel({
       lineHeight: 1.75
     },
     onClick: handlePreviewClick,
+    onDoubleClick: e => {
+      if (e.target && e.target.closest && e.target.closest('input, a, button, [data-tasklink], [data-wiki-id], [data-wiki-title], [data-drawing-preview]')) return;
+      if (typeof onEdit === 'function') onEdit();
+    },
+    title: "Double-click untuk mengedit catatan",
     dangerouslySetInnerHTML: {
       __html: renderMarkdown(note.content || "", titleStrings, allNotes, tasks) || '<span style="color:var(--text-light);font-style:italic">Catatan kosong.</span>'
     }

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v340-hide-note-breadcrumb-mobile";
+const CACHE = "taskflow-v341-interactive-note-viewer";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

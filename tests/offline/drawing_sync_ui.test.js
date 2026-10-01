@@ -246,16 +246,16 @@ test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan"
 });
 
 // ── Cache bust ───────────────────────────────────────────────────────────────
-test("sw.js CACHE = taskflow-v340-hide-note-breadcrumb-mobile (tldraw di-cache cache-first)", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v340-hide-note-breadcrumb-mobile";/m);
+test("sw.js CACHE = taskflow-v341-interactive-note-viewer (tldraw di-cache cache-first)", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v341-interactive-note-viewer";/m);
 });
 
 // ══ Putaran pengerasan (review independen) ══════════════════════════════════════
 
 // ── #1a Request sinkron ditandai X-TF-Sync & dibatasi waktu; SW meneruskannya network-only ──
 test("index.html: __syncRawFetch & __syncTransport memberi header X-TF-Sync dan timeout 30 detik", () => {
-  const raw = indexHtml.match(/const __syncRawFetch = [\s\S]*?\n\};?\n/);
-  const tr = indexHtml.match(/const __syncTransport = \{[\s\S]*?\n\};\n/);
+  const raw = indexHtml.match(/const __syncRawFetch = [\s\S]*?\r?\n\};?\r?\n/);
+  const tr = indexHtml.match(/const __syncTransport = \{[\s\S]*?\r?\n\};\r?\n/);
   assert.ok(raw && tr, "__syncRawFetch & __syncTransport harus ada");
   for (const [name, code] of [["__syncRawFetch", raw[0]], ["__syncTransport", tr[0]]]) {
     assert.match(code, /"X-TF-Sync": "1"/, name + " harus menandai request sinkron");

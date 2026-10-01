@@ -2,6 +2,33 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-01 21:55] - Antigravity (Gemini)
+- **Task:** Low-Friction Interactive Note Viewer (`static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`).
+- **Objective:**
+  - Mengurangi hambatan (*friction*) saat membaca dan melakukan pengeditan mikro pada Catatan tanpa mengubah atau mengorbankan fitur-fitur lanjutan pada modal editor (`NoteModal`), seperti Paper View (A4/A3/Letter), Milkdown WYSIWYG, dan block content.
+- **Changes:**
+  - `static/index.html`:
+    - Pada `renderMarkdown`: Menghilangkan atribut `disabled=""` pada checkbox daftar task markdown, menambahkan `data-task-checkbox-idx="${idx}"`, dan kelas `note-interactive-checkbox`.
+    - Pada `NotePanel`:
+      - Di `handlePreviewClick`: Menambahkan penanganan klik instan pada task checkbox yang membalik status `[ ]` ↔ `[x]` pada `note.content`, melakukan auto-save via `api.put` (dengan fallback antrean outbox offline `OfflineDB.queueAdd` / `cacheSet`), dan menembakkan event `noteSaved`.
+      - Menambahkan inline title quick editing (`isEditingTitle`, `titleDraft`, `handleSaveTitle`). Judul catatan di viewer kini dapat diklik untuk diubah secara inline (simpan dengan Enter/blur, batalkan dengan Escape).
+      - Pada container `.note-rendered`: Menambahkan `onDoubleClick` handler untuk langsung membuka `NoteModal` secara instan ketika pengguna melakukan double-click pada area teks bacaan.
+  - `static/app.css`:
+    - Menambahkan pointer cursor, hover scale, dan accent color untuk `.note-rendered input[type="checkbox"]`.
+    - Menambahkan styling `.note-title-inline-input` dan hover feedback pada judul panel catatan.
+  - `static/sw.js`:
+    - Bump Service Worker cache version ke **`taskflow-v331-interactive-note-viewer`**.
+  - `tests/offline/interactive_note_viewer.test.js`:
+    - Menambahkan suite pengujian unit baru memvalidasi checkbox indexing, toggle logic, inline title edit, double-click trigger, pelestarian `NoteModal`, CSS, dan versi Service Worker.
+- **Verification:**
+  - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+  - Unit test suite: `node --test tests/offline/interactive_note_viewer.test.js` ➡️ **8/8 pass (0 fail)**.
+  - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **616/616 pass (0 fail)** across 7 suites.
+  - Full Backend test suite: `python -m pytest tests/` ➡️ **60/60 pass (0 fail)**.
+- **Files Modified:** `static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `docs/superpowers/specs/2026-10-01-interactive-note-viewer-design.md`, `docs/superpowers/plans/2026-10-01-interactive-note-viewer.md`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-09-04 16:30] - Antigravity (Gemini)
 - **Task:** Fix Mindmap Share Error & Ownership Guard (`webapp.py`, `static/index.html`, `static/sw.js`, `tests/test_mindmaps.py`, `tests/offline/mindmaproutes_shared.test.js`).
 - **Root Cause & Objective:**
@@ -1566,7 +1593,6 @@ Chronological history of work performed by AI agents in this workspace.
 - **Files Touch:** `static/offline/syncpull.js`, `tests/offline/syncpull.test.js`, `static/index.html`, `static/sw.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed (553/553 JS unit tests pass, 55/55 pytest pass, 5/5 inline scripts check clean).
 
-
 ## [2026-09-30] - Claude (riset Milkdown block handle "+" Notion-like)
 - **Task:** Cek apakah fitur "+"/drag handle per blok (Notion-like, dari Milkdown Crepe) bisa dipakai di editor Alurik.
 - **Changes:** Tidak ada perubahan kode. PoC di scratchpad: `@milkdown/plugin-block@7.20.0` di-bundle bersama entry yang ada (+1.9 KB gzip) dan diuji Playwright (hover → handle muncul, "+" → slash menu, drag → urutan blok pindah; tap mobile → handle tidak muncul). Detail & rencana implementasi di CURRENT_STATE.md.
@@ -1691,3 +1717,4 @@ Chronological history of work performed by AI agents in this workspace.
 - **Changes:** CSS ≤640px sembunyikan `.notes-nav-trail`; SW v340, app.css?v=302.
 - **Verifikasi:** E2E mobile none/desktop flex; JS 796/796, inline 5/5.
 - **Status:** Completed di branch (belum merge/deploy).
+

@@ -57,6 +57,37 @@
 - **PENDING user:** hard refresh (Ctrl+Shift+R / tutup-buka PWA); cek di HP apakah editor terlalu sempit (kalau ya, `BLOCK_HANDLE_ON_TOUCH = false`). APK Android perlu build ulang agar ikut.
 
 ## 🟢 Active Task
+- **Feasibility: Milkdown block handle ala Notion (`+` / `⋮⋮` per baris) — INVESTIGASI SAJA 2026-09-30 (Claude), BELUM ADA KODE, menunggu keputusan user:**
+  - **Kesimpulan:** BISA, lewat `@milkdown/plugin-block@7.20.0` (primitive yang dipakai Crepe). Dependensinya dipin EXACT ke core/ctx/prose/utils `7.20.0` = sama dengan core kita (aman dari insiden duplicate-core indent/emoji); dep baru hanya `lodash-es` (throttle) + `@floating-ui/dom` (sudah ada via slash/tooltip). **JANGAN pakai `@milkdown/crepe`** — crepe@7.20.0 menarik vue + codemirror + language-data + katex dan mengganti seluruh editor (wikilink/tasklink/`::draw`/highlight/paste/checklist/table toolbar harus di-port ulang).
+  - **Terverifikasi dari source plugin-block 7.20.0:** handle muncul via `pointermove` (throttle 200ms), posisi floating-ui placement `left`, di-append ke `root ?? view.dom.parentElement`; drag = NodeSelection + drop native ProseMirror (`view.dragging.slice`, custom node aman); `defaultNodeFilter` mengecualikan isi tabel; `provider.active` = `{node, $pos, el}` → tombol `+` harus kita tulis sendiri (sisip paragraf kosong di bawah block aktif lalu buka slash menu yang sudah ada).
+  - **Risiko yang ditemukan (harus masuk spec):** (1) gutter: `.milkdown-editor .ProseMirror` padding kiri cuma 12px + `.milkdown-editor` `overflow-y:auto` → handle ter-clip, perlu padding kiri ~40px atau root lain; (2) BENTROK checklist: `createTaskCheckboxPlugin` (index.html ~17298) menangkap klik x -24..-2 di kiri `<li>` task = posisi handle; (3) touch/mobile: tak ada hover, HTML5 drag tak andal di Android WebView, `pointermove` ikut fire saat scroll → usul desktop-only (`pointer: coarse` sembunyikan); (4) paper mode padding 20mm `!important`; (5) dua instance editor: `NoteModal` + tab Note `TaskFormModal` (keduanya lewat `MilkdownEditor`).
+  - **BLOKER build lokal:** `Z:` = drive cloud; `milkdown-build/node_modules/@milkdown` tak terbaca ("The cloud file provider is not running") → `npm run build` bundle butuh cloud provider aktif atau `npm install` ulang. Setelah build: bump SW + rebuild .exe/APK.
+  - **NEXT (kalau user setuju):** brainstorming → spec → plan → SDD (sesuai PROTOCOL).
+
+- **Low-Friction Interactive Note Viewer (`static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`) — SELESAI 2026-10-01 (Antigravity/Gemini):**
+  - **Problem / Context:**
+    - Sebelumnya, pengguna yang ingin melakukan pengubahan ringan dan cepat pada catatan (seperti mencentang item to-do `- [ ]`, mengganti judul catatan, atau menyunting teks secara cepat) dipaksa untuk mengklik tombol "Edit" di pojok kanan atas dan membuka overlay modal penuh (`NoteModal`), menimbulkan gesekan (*friction*) dan memutus *flow state* membaca. Di sisi lain, fitur-fitur lanjutan pada `NoteModal` (Paper Mode A4/A3/Letter, Milkdown WYSIWYG editor, block handling, toolbar format) sangat penting dan harus dipertahankan 100%.
+  - **Solusi / Perbaikan:**
+    1. `static/index.html`:
+       - Pada `renderMarkdown`: Menghapus atribut `disabled=""` pada elemen task list checkbox markdown dan menambahkan `data-task-checkbox-idx="${idx}"` serta kelas `note-interactive-checkbox`.
+       - Pada `NotePanel.handlePreviewClick`: Menambahkan penanganan klik instan pada checkbox task. Sistem memetakan indeks checkbox, membalik status `[ ]` ↔ `[x]` pada markdown `note.content`, menyimpannya ke server via `api.put` (dengan fallback `OfflineDB.queueAdd` / `cacheSet` jika offline), dan menembakkan event `noteSaved`.
+       - Pada `NotePanel`: Menambahkan state `isEditingTitle` dan `titleDraft`. Judul catatan di viewer kini dapat diklik (dengan tooltip "Klik untuk ubah judul" dan ikon pensil ✏️). Saat diklik, judul berubah menjadi input inline yang menyimpan perubahan via `Enter` / `blur` dan membatalkan via `Escape`.
+       - Pada container `.note-rendered`: Menambahkan `onDoubleClick` handler (dengan guard pengecualian elemen interaktif) yang langsung memicu pembukaan `NoteModal` penuh (`onEdit()`).
+       - Memastikan seluruh fitur `NoteModal` (MilkdownEditor, paperConfig, PaperPageGuides, NoteToolbar) tetap 100% utuh tanpa perubahan yang merusak.
+    2. `static/app.css`:
+       - Menambahkan cursor pointer, efek hover zoom (`transform: scale(1.15)`), dan warna accent pada `.note-rendered input[type="checkbox"]`.
+       - Menambahkan styling `.note-title-inline-input` dan hover effect pada judul catatan di panel.
+    3. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v331-interactive-note-viewer`**.
+    4. Unit Tests:
+       - `tests/offline/interactive_note_viewer.test.js`: Suite pengujian offline baru (8/8 subtests pass) memvalidasi checkbox indexing, toggle logic helper, inline title edit state, double-click trigger, pelestarian struktural `NoteModal`, styling CSS, dan versi Service Worker.
+  - **Verifikasi:**
+    - Inline script syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+    - Unit test suite: `node --test tests/offline/interactive_note_viewer.test.js` ➡️ **8/8 pass (0 fail)**.
+    - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **616/616 pass (0 fail)** across 7 suites.
+    - Full Backend test suite: `python -m pytest tests/` ➡️ **60/60 pass (0 fail)**.
+
 - **Fix Mindmap Share Error & Ownership Guard (`webapp.py`, `static/index.html`, `static/sw.js`, `tests/test_mindmaps.py`, `tests/offline/mindmaproutes_shared.test.js`) — SELESAI 2026-09-04 (Antigravity/Gemini):**
   - **Problem / Root Cause:**
     1. **Missing Ownership Check in UI (`MindmapTabInstance`):** Pada `MindmapTabInstance` (sekitar baris 8718), dropdown `👥 Share` dirender untuk sembarang pengguna hanya dengan syarat `sharedLists.length > 0`, tanpa memeriksa apakah pengguna yang sedang login merupakan pemilik mindmap (`tab.user_id === currentUserId`), berbeda dengan `NoteViewerModal` dan `NoteModal`. Selain itu, `user` / `currentUserId` sebelumnya tidak dipassing dari `App` ➡️ `MindmapPage` ➡️ `MindmapTabInstance`. Ketika kolaborator (bukan pemilik) membuka mindmap bersama dan mengklik Share, permintaan `PATCH /api/mindmaps/{mid}/share` dikirim ke server.
