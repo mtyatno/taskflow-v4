@@ -25940,25 +25940,29 @@ function App() {
     style: {
       background: "none",
       border: "none",
-      fontSize: 20,
       cursor: "pointer",
       padding: "0 4px",
       lineHeight: 1,
+      display: "flex",
+      alignItems: "center",
       color: "var(--text-secondary)"
     },
     title: "Cari (Ctrl+K)"
-  }, "\uD83D\uDD0D"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "search", size: 20 })), /*#__PURE__*/React.createElement("button", {
     onClick: handleOpenNotif,
     style: {
       position: "relative",
       background: "none",
       border: "none",
-      fontSize: 20,
       cursor: "pointer",
       padding: "0 8px 0 0",
-      lineHeight: 1
-    }
-  }, "\uD83D\uDD14", unreadCount > 0 && /*#__PURE__*/React.createElement("span", {
+      lineHeight: 1,
+      display: "flex",
+      alignItems: "center",
+      color: "var(--text-secondary)"
+    },
+    title: "Notifikasi"
+  }, /*#__PURE__*/React.createElement(Icon, { name: "bell", size: 20 }), unreadCount > 0 && /*#__PURE__*/React.createElement("span", {
     style: {
       position: "absolute",
       top: -2,

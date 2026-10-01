@@ -9,6 +9,7 @@
 ## 🟢 Topbar mobile full-bleed — 2026-10-01 (Claude) — SELESAI di branch `claude/cool-gates-qa4eg9` (BELUM merge/deploy, SW v336, app.css?v=300)
 - **Keluhan:** di mobile, sisi kiri/kanan topbar terpotong (tidak sampai tepi layar). **Akar:** `.mobile-topbar` dirender DI DALAM `.main-content` yang ber-padding 16px (+safe-area) di ≤768px, jadi ikut terinset.
 - **Perbaikan:** `static/app.css` (media ≤768px): `.mobile-topbar` margin kiri/kanan negatif = padding main-content (termasuk safe-area), `margin-top:-8px`, padding dalam dikompensasi. Tanpa perubahan JS. SW `taskflow-v336-mobile-topbar-bleed`; tes versi disesuaikan (`note_toc`, `drawing_sync_ui`).
+- **Ikon topbar (lanjutan, SW v337):** emoji 🔍/🔔 di topbar mobile diganti komponen `Icon` (search/bell, 20px, warna `--text-secondary`) agar seragam dengan ikon SVG lain; tombol notifikasi diberi `title`.
 - **Verifikasi:** E2E 390px: topbar x=0, right=390=viewport, tanpa scroll horizontal, screenshot rapi. JS 796/796, pytest 61/61, inline 5/5. Belum dites HP fisik/notch.
 
 ## 🟢 Fix bug drawing (tldraw): persistensi inline note, edit via Draw, sinkron antar mesin — 2026-10-01 (Claude) — SELESAI & LIVE (fast-forward push ke main `f63f04e..c5364ef`, Deploy run 810 + Tests run 290 sukses 2026-10-01 11:41 UTC, SW v335)

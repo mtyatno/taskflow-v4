@@ -1670,3 +1670,9 @@ Chronological history of work performed by AI agents in this workspace.
 - **Verifikasi:** E2E 390px x=0..390 tanpa overflow; JS 796/796, pytest 61/61, inline 5/5.
 - **Files Touch:** `static/app.css`, `static/index.html`, `static/sw.js`, `tests/offline/{note_toc,drawing_sync_ui}.test.js`, `.agents/*`
 - **Status:** Completed di branch (belum merge/deploy).
+
+## [2026-10-01] - Claude (ikon topbar mobile)
+- **Task:** Ikon lonceng/kaca pembesar topbar mobile beda gaya.
+- **Changes:** emoji → `Icon` search/bell di `static/index.html`; SW v337; tes versi disesuaikan.
+- **Verifikasi:** screenshot 390px konsisten; JS & inline hijau.
+- **Status:** Completed di branch (belum merge/deploy).
