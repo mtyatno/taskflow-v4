@@ -1631,3 +1631,10 @@ Chronological history of work performed by AI agents in this workspace.
 - **Verifikasi:** JS 750/750, pytest 60/60, inline 5/5, repro asli & 7 acceptance E2E lulus, regresi editor hijau.
 - **Files Touch:** `static/offline/drawingrepo.js`, `static/offline/syncpush.js`, `static/offline/syncpull.js`, `static/index.html`, `draw-app/src/App.jsx`, `static/sw.js`, tests (`drawing_persist_sync`, `drawing_sync_ui` baru; `draw_local_reactive`, `drawdirective`, `drawingrepo_standalone`, `drawingsync`, `note_toc` disesuaikan), `.agents/*`
 - **Status:** Completed di branch (belum merge/deploy).
+
+## [2026-10-01] - Claude (hardening sinkron drawing dari review)
+- **Task:** Tindak lanjut review independen fix drawing (2 kehilangan data terbukti E2E + 3 bug unit).
+- **Changes:** X-TF-Sync network-only + adopsi server hanya bila lebih baru; iframe read-only sampai load & balasan snapshot hanya bila ada edit; heal legacy-only; mutex sync/push + base_rev maju; baca ulang record+blob; client_id di list; konfirmasi hapus 404; timeout fetch; opDrawingPin; satu QuickDrawModal; SW v334. Implementer subagent terhenti oleh batas sesi API saat verifikasi — koordinator memverifikasi ulang seluruhnya.
+- **Verifikasi:** JS 780/780, pytest 61/61, inline 5/5, semua E2E acceptance & reviewer lulus; flake toc_edit terbukti pra-ada.
+- **Files Touch:** `static/index.html`, `static/sw.js`, `static/offline/{drawingrepo,syncpull,syncpush}.js`, `draw-app/src/App.jsx`, `webapp.py`, tests (`drawing_sync_hardening` baru; `drawing_persist_sync`, `drawing_sync_ui`, `drawingsync`, `test_drawings.py`), `.agents/*`
+- **Status:** Completed di branch (belum merge/deploy).

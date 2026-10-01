@@ -493,7 +493,8 @@ test("Test 12: pullDrawings deletes clean local records removed from server", as
   ]);
   await mapPut("drawing", 606, "draw-vanish");
 
-  const r = await pullDrawings([], () => Promise.resolve(null));
+  // Hapus lokal hanya bila server menjawab 404 secara eksplisit (null/OFFLINE/5xx bukan bukti terhapus).
+  const r = await pullDrawings([], () => Promise.resolve({ status: 404 }));
   assert.equal(r.deleted, 1);
   assert.equal(await getDrawingRec("draw-vanish"), null);
   assert.equal(await cidOf("drawing", 606), undefined);
@@ -635,6 +636,10 @@ test("Test 15: pullDrawingsAndReconcile returns result counters for live event d
           updated_at: "2026-08-25T02:00:00",
         }),
       });
+    }
+    if (url === "/api/drawings/902") {
+      // dihapus di server → GET detail menjawab 404 eksplisit (syarat menghapus record lokal)
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ detail: "Drawing tidak ditemukan" }) });
     }
     if (url === "/api/drawings/904") {
       return Promise.resolve({

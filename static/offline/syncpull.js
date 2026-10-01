@@ -19,6 +19,7 @@
   const TFblob = req("./blobstore.js", root.TF && root.TF.blobstore);
   const BlobStore = TFblob ? TFblob.makeBlobStore() : null;
   const TFrepo = req("./drawingrepo.js", root.TF && root.TF.drawingrepo);
+  const TFpush = req("./syncpush.js", root.TF && root.TF.syncpush);
 
   function getAllTasks() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -522,8 +523,12 @@
   }
 
   function pullMindmapsAndReconcile(rawFetch) {
+    // Detail gagal (503 OFFLINE/401/5xx) → null, BUKAN body error (body error dulu ditulis sebagai mindmap kosong)
     const fetchOne = (sid) => Promise.resolve(rawFetch("/api/mindmaps/" + sid))
-      .then((res) => (res && typeof res.json === "function" ? res.json() : res))
+      .then((res) => {
+        const body = jsonIfOk(res);
+        return body && body.status === 404 && body.id == null ? null : body;
+      })
       .catch(() => null);
     return Promise.resolve(rawFetch("/api/mindmaps"))
       .then((res) => (res && typeof res.json === "function" ? res.json() : res))
@@ -642,9 +647,11 @@
       return writeDrawing(s, cid, localRec);
     }
     return Promise.resolve(fetchOne(s.id)).catch(() => null).then((full) => {
-      const merged = Object.assign({}, s, full || {});
+      const merged = Object.assign({}, s, (full && full.id != null) ? full : {});
       // Record lokal sudah ada tapi data server gagal diambil → jangan klaim base_rev baru tanpa datanya.
       if (localRec && merged.data_json == null) return false;
+      // Record bersih hanya mengadopsi revisi server yang LEBIH BARU (detail basi/cache diabaikan).
+      if (localRec && !localRec.deleted && !TFrepo.tsNewer(merged.updated_at, localRec.base_rev)) return false;
       return writeDrawing(merged, cid, localRec);
     });
   }
@@ -831,10 +838,15 @@
       ? Promise.resolve(BlobStore.getBytes(local.blob_ref)).then((b) => b || "{}").catch(() => "{}")
       : Promise.resolve("{}");
     return Promise.all([fetchP, localDataJsonP]).then(([remoteFullRow, localDataJson]) => {
-      const remoteFull = remoteFullRow || s;
+      const remoteFull = (remoteFullRow && remoteFullRow.id != null) ? remoteFullRow : s;
       const remoteDataJson = remoteFull.data_json != null ? remoteFull.data_json : s.data_json;
       // Data server gagal diambil → jangan klaim sudah menggabung (base_rev tetap; coba pull berikutnya).
       if (remoteDataJson == null) { result.skipped++; return; }
+      // Revisi server tidak lebih baru dari base_rev (respons basi) → jangan gabung data lama.
+      if (!TFrepo.tsNewer(remoteFull.updated_at || s.updated_at, local.base_rev)) { result.skipped++; return; }
+      // Gema push kita sendiri yang masih in-flight (server sudah menerima, record belum ditandai) → bukan perubahan remote.
+      const inflight = (TFpush && TFpush.inflightDrawingData) ? TFpush.inflightDrawingData(cid) : undefined;
+      if (inflight !== undefined && inflight === remoteDataJson) { result.skipped++; return; }
       const preferRemote = tsEpoch(s.updated_at) > tsEpoch(local.updated_at);
       const mergedJson = mergeDrawingSnapshots(localDataJson, remoteDataJson, { preferRemote });
       const mergedTitle = (remoteFull && remoteFull.title) || s.title || local.title || "Untitled Drawing";
@@ -844,7 +856,7 @@
       if (sameData && mergedTitle === local.title) {
         // Server tidak menambah apa pun (mis. gema push kita sendiri) → cukup catat base_rev.
         return TFrepo.mutateDrawing(cid, (cur) => {
-          if (!cur || cur.deleted || (cur.rev || 0) !== readRev) return undefined;
+          if (!cur || cur.deleted || (cur.rev || 0) !== readRev || cur.base_rev !== local.base_rev) return undefined;
           return Object.assign({}, cur, { base_rev: s.updated_at, server_id: cur.server_id != null ? cur.server_id : s.id });
         }).then((saved) => { if (saved) result.merged++; else result.skipped++; });
       }
@@ -852,7 +864,8 @@
       return blobP.then((newBlobRef) => {
         let oldRef = null;
         return TFrepo.mutateDrawing(cid, (cur) => {
-          if (!cur || cur.deleted || (cur.rev || 0) !== readRev) return undefined;
+          // CAS: rev (edit lokal) DAN base_rev (push selesai selama pull) harus sama dengan saat dibaca
+          if (!cur || cur.deleted || (cur.rev || 0) !== readRev || cur.base_rev !== local.base_rev) return undefined;
           oldRef = cur.blob_ref;
           return Object.assign({}, cur, {
             server_id: cur.server_id != null ? cur.server_id : s.id,
@@ -911,12 +924,14 @@
                 .then(() => { pendingDrawingOps.add(cid); })
               : Promise.resolve();
             return queueP.then(() => {
+              // Hanya revisi server yang LEBIH BARU dari base_rev yang diproses (daftar basi diabaikan).
+              const serverNewer = TFrepo.tsNewer(s.updated_at, local.base_rev);
               if (local.dirty) {
-                if (s.updated_at !== local.base_rev) return mergeDirtyDrawing(s, cid, local, fetchOne, result);
+                if (serverNewer) return mergeDirtyDrawing(s, cid, local, fetchOne, result);
                 result.skipped++;
                 return;
               }
-              if (s.updated_at !== local.base_rev) {
+              if (serverNewer) {
                 return writeDrawingFull(s, cid, fetchOne, local).then((wrote) => {
                   if (wrote) result.updated++; else result.skipped++;
                 });
@@ -947,12 +962,13 @@
               result.skipped++;
               return;
             }
-            // Pastikan benar-benar terhapus di server (daftar bisa diambil sebelum POST/PUT yang sedang berjalan selesai).
+            // Hapus lokal HANYA bila server menjawab 404 secara eksplisit (daftar bisa diambil sebelum POST/PUT
+            // in-flight selesai; null/OFFLINE/401/5xx bukan bukti terhapus). Tanpa fetchOne → perilaku lama.
             const confirmP = fetchOne
               ? Promise.resolve(fetchOne(r.server_id)).catch(() => null)
-              : Promise.resolve(null);
-            return confirmP.then((still) => {
-              if (still && still.id != null) { result.skipped++; return; }
+              : Promise.resolve({ status: 404 });
+            return confirmP.then((answer) => {
+              if (!(answer && answer.status === 404 && answer.id == null)) { result.skipped++; return; }
               return deleteDrawingIfUnchanged(r.cid, r).then((gone) => {
                 if (!gone) { result.skipped++; return; }
                 result.deleted++;
@@ -994,12 +1010,27 @@
       });
   }
 
+  // Respons Response-like → body JSON hanya untuk 2xx. 404 → {status:404} (bukti eksplisit terhapus);
+  // status gagal lain (503 OFFLINE, 401, 5xx) → null. Objek biasa (tes) diteruskan apa adanya.
+  function jsonIfOk(res) {
+    if (!res || typeof res.json !== "function") return res || null;
+    if (res.status === 404) return { status: 404 };
+    if (res.ok === false || (typeof res.status === "number" && res.status >= 400)) return null;
+    return res.json();
+  }
+  function listJsonOrThrow(res) {
+    if (res && typeof res.json === "function" && (res.ok === false || (typeof res.status === "number" && res.status >= 400))) {
+      throw new Error("http " + res.status);
+    }
+    return res && typeof res.json === "function" ? res.json() : res;
+  }
+
   function pullDrawingsAndReconcile(rawFetch) {
     const fetchOne = (sid) => Promise.resolve(rawFetch("/api/drawings/" + sid))
-      .then((res) => (res && typeof res.json === "function" ? res.json() : res))
+      .then(jsonIfOk)
       .catch(() => null);
     return Promise.resolve(rawFetch("/api/drawings"))
-      .then((res) => (res && typeof res.json === "function" ? res.json() : res))
+      .then(listJsonOrThrow)
       .then((list) => pullDrawings(list || [], fetchOne));
   }
 

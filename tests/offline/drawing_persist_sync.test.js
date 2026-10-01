@@ -366,16 +366,17 @@ test("D4 (brief #4b): getDrawing online saat bersih & server berubah → refresh
   assert.equal((await drawingOps("d4")).length, 0);
 });
 
-test("D5 (brief #5): heal — bersih, base_rev sama, lokal ≠ server → union, dirty, op update, svg_stale", async () => {
-  // Keadaan rusak lama (RC1): lokal 6 coretan dirty 0, server 1 coretan, base_rev sama.
-  await syncedRecord("d5", 505, snap(["a", "b", "c", "d", "e", "f"]));
+test("D5 (brief #5): heal — record legacy RC1 (bersih, base_rev sama, lokal ≠ server) → union, dirty, op update, svg_stale", async () => {
+  // Keadaan rusak lama (RC1): lokal 6 coretan dirty 0, server 1 coretan, base_rev sama. Jejak RC1: record
+  // pra-perbaikan (tanpa rev) & updated_at lokal (waktu edit, ISO Z) ≠ base_rev server (heal hanya untuk ini).
+  await syncedRecord("d5", 505, snap(["a", "b", "c", "d", "e", "f"]), { rev: undefined, updated_at: "2026-10-01T00:59:59.000Z" });
   const out = await repo.getDrawing("d5", { online: true, fetch: () => Promise.resolve(srvRow(505, snap(["a", "z"]), U1)) });
   assert.deepEqual(shapesOf(out.data_json), ["a", "b", "c", "d", "e", "f", "z"]);
   assert.equal(out.svg_stale, 1);
   const r = await rawRec("d5");
   assert.equal(r.dirty, 1);
   assert.equal(r.svg_stale, 1);
-  assert.equal(r.rev, 3);
+  assert.equal(r.rev, 1);
   assert.deepEqual(shapesOf(await blobStore.getBytes(r.blob_ref)), ["a", "b", "c", "d", "e", "f", "z"]);
   assert.ok((await drawingOps("d5")).some((o) => o.op === "update"));
   const tr = fakeTransport(okServer(505, U2));
@@ -384,7 +385,7 @@ test("D5 (brief #5): heal — bersih, base_rev sama, lokal ≠ server → union,
 });
 
 test("D5b: heal lewat GET memberi sinyal 'tf:outbox-queued' (UI menjadwalkan push walau tanpa mutasi)", async () => {
-  await syncedRecord("d5b", 515, snap(["a", "b"]));
+  await syncedRecord("d5b", 515, snap(["a", "b"]), { rev: undefined, updated_at: "2026-10-01T00:59:59.000Z" });
   const events = [];
   const prev = globalThis.dispatchEvent;
   globalThis.dispatchEvent = (ev) => { events.push(ev.type); return true; };

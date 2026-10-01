@@ -143,6 +143,7 @@ async function doExport(editor, shapeIds, format, helpers) {
 export default function App() {
   const noteId = new URLSearchParams(window.location.search).get('noteId') || 'default'
   const editorRef = useRef(null)
+  const loadedRef = useRef(false)         // load pertama dari parent sudah diterapkan → baru boleh mengedit & mengirim
   const lastSnapshotStrRef = useRef("")   // snapshot terakhir yang dikirim/dimuat (deteksi gema)
   const recentSentRef = useRef([])        // beberapa snapshot terakhir yang dikirim iframe ini
   const userRevRef = useRef(0)            // naik setiap ada perubahan dokumen oleh user
@@ -195,6 +196,14 @@ export default function App() {
     },
   }), []);
 
+  // Data gambar dari parent sudah diterapkan (atau gambar baru yang memang kosong) → kanvas boleh diedit.
+  const markLoaded = () => {
+    if (loadedRef.current) return
+    loadedRef.current = true
+    const editor = editorRef.current
+    if (editor) editor.updateInstanceState({ isReadonly: false })
+  }
+
   const rememberSent = (snapshot) => {
     lastSnapshotStrRef.current = snapshot
     const arr = recentSentRef.current
@@ -204,7 +213,7 @@ export default function App() {
 
   // Kirim snapshot + svg ke parent. reqId (opsional) = balasan requestSnapshot (parent menunggu sebelum menutup).
   const syncToParent = async (reqId) => {
-    if (!editorRef.current) return;
+    if (!editorRef.current || !loadedRef.current) return;
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
@@ -237,30 +246,48 @@ export default function App() {
 
     const handler = (e) => {
       if (e.origin !== window.location.origin) return;
-      if (e.data?.type === 'load' && editorRef.current && e.data.data) {
+      if (e.data?.type === 'load' && editorRef.current) {
         try {
+          const editor = editorRef.current;
+          const legacyParent = e.data.v == null; // parent versi lama (belum mengirim flag empty)
           const incomingRaw = e.data.data;
-          const incomingStr = typeof incomingRaw === 'string' ? incomingRaw : JSON.stringify(incomingRaw);
-          // Gema: snapshot yang baru saja dikirim iframe ini sendiri → abaikan (jangan timpa coretan yang lebih baru)
-          const isEcho = incomingStr === lastSnapshotStrRef.current || recentSentRef.current.includes(incomingStr);
-          if (!isEcho) {
-            const snapshot = typeof incomingRaw === 'string' ? JSON.parse(incomingRaw) : incomingRaw;
-            const editor = editorRef.current;
-            // Muat sebagai perubahan REMOTE: tidak memicu listener source 'user' (tidak dikirim balik) dan
-            // tanpa jendela buta — coretan user sesaat setelah load tetap terekam & tersimpan.
-            editor.store.mergeRemoteChanges(() => {
-              loadSnapshot(editor.store, snapshot);
-            });
-            lastSnapshotStrRef.current = incomingStr;
+          const incomingStr = incomingRaw == null ? '' : (typeof incomingRaw === 'string' ? incomingRaw : JSON.stringify(incomingRaw));
+          let snapshot = null;
+          try { snapshot = incomingStr ? (typeof incomingRaw === 'string' ? JSON.parse(incomingRaw) : incomingRaw) : null; } catch (_) { snapshot = null; }
+          const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+          const hasStore = isObj(snapshot) && (isObj(snapshot.store) || (isObj(snapshot.document) && isObj(snapshot.document.store)));
+          const isEmptyObject = isObj(snapshot) && Object.keys(snapshot).length === 0;
+          if (hasStore) {
+            // Gema: snapshot yang baru saja dikirim iframe ini sendiri → abaikan (jangan timpa coretan yang lebih baru)
+            const isEcho = incomingStr === lastSnapshotStrRef.current || recentSentRef.current.includes(incomingStr);
+            if (!isEcho) {
+              // Muat sebagai perubahan REMOTE: tidak memicu listener source 'user' (tidak dikirim balik) dan
+              // tanpa jendela buta — coretan user sesaat setelah load tetap terekam & tersimpan.
+              editor.store.mergeRemoteChanges(() => {
+                loadSnapshot(editor.store, snapshot);
+              });
+              lastSnapshotStrRef.current = incomingStr;
+            }
+            markLoaded();
+            // svg preview di parent basi (mis. tersimpan lewat flush pagehide tanpa svg) → kirim snapshot+svg segar sekali
+            if (e.data.svgStale) setTimeout(() => syncToParent(), 50);
+          } else if (e.data.empty === true || (legacyParent && isEmptyObject)) {
+            // Gambar baru/kosong: kanvas kosong siap diedit (kanvas yang sudah dimuat tidak dikosongkan)
+            markLoaded();
           }
-          // svg preview di parent basi (mis. tersimpan lewat flush pagehide tanpa svg) → kirim snapshot+svg segar sekali
-          if (e.data.svgStale) setTimeout(() => syncToParent(), 50);
+          // Selain itu snapshot tidak dikenal/rusak → tetap read-only: jangan pernah menimpa data yang tak terbaca.
         } catch (err) {
           console.error('load snapshot error:', err);
         }
       }
+      if (e.data?.type === 'loadError') {
+        // Parent gagal memuat data gambar → tetap read-only; tidak ada yang dikirim sehingga data tidak tertimpa.
+        console.warn('load gambar gagal — kanvas read-only');
+      }
+      // requestSnapshot: balas dengan data HANYA bila sudah loaded & ada perubahan user yang belum terkirim;
+      // selain itu data null (tutup sebelum data tiba / tanpa edit tidak boleh menimpa gambar).
       if (e.data?.type === 'requestSnapshot') {
-        if (editorRef.current) syncToParent(e.data.reqId);
+        if (editorRef.current && loadedRef.current && userRevRef.current !== sentRevRef.current) syncToParent(e.data.reqId);
         else window.parent.postMessage({ type: 'change', noteId, data: null, reqId: e.data.reqId }, '*');
       }
       if (e.data?.type === 'export' && editorRef.current) {
@@ -276,7 +303,7 @@ export default function App() {
     // kirim snapshot terakhir secara SINKRON tanpa svg (svg async tidak sempat) → parent menandai svg_stale.
     const onPageHide = () => {
       const editor = editorRef.current;
-      if (editor && userRevRef.current !== sentRevRef.current) {
+      if (editor && loadedRef.current && userRevRef.current !== sentRevRef.current) {
         try {
           if (debounceTimerRef.current) {
             clearTimeout(debounceTimerRef.current);
@@ -292,7 +319,7 @@ export default function App() {
     }
     // Aplikasi masuk background (HP) → kirim perubahan tertunda sekarang, jangan tunggu debounce
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden' && userRevRef.current !== sentRevRef.current) syncToParent();
+      if (document.visibilityState === 'hidden' && loadedRef.current && userRevRef.current !== sentRevRef.current) syncToParent();
     }
     window.addEventListener('pagehide', onPageHide)
     document.addEventListener('visibilitychange', onVisibility)
@@ -304,11 +331,15 @@ export default function App() {
 
   const handleMount = (editor) => {
     editorRef.current = editor
+    // Read-only sampai 'load' pertama dari parent diterapkan: menutup sebelum data tiba tidak boleh
+    // menimpa gambar dengan kanvas kosong.
+    if (!loadedRef.current) editor.updateInstanceState({ isReadonly: true })
     window.parent.postMessage({ type: 'ready', noteId }, '*')
 
     // Hanya perubahan dokumen oleh USER yang dikirim ke parent; snapshot yang dimuat dari parent
     // (mergeRemoteChanges → source 'remote') tidak memicu listener ini.
     editor.store.listen(() => {
+      if (!loadedRef.current) return;
       userRevRef.current++;
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = setTimeout(() => syncToParent(), 600);

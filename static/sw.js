@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v333-drawing-sync-fix";
+const CACHE = "taskflow-v334-drawing-sync-hardening";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",
@@ -195,6 +195,19 @@ self.addEventListener("fetch", e => {
           return cached || networkFetch;
         })
       ).catch(() => fetch(request))
+    );
+    return;
+  }
+
+  // Request sinkronisasi (pull/push/fetcher drawing ditandai header X-TF-Sync): NETWORK-ONLY — tidak membaca
+  // dan tidak menulis cache. Respons cache basi (200) saat jaringan gagal bisa membalikkan data lokal yang
+  // lebih baru; klien sinkron punya data lokal sendiri, jadi gagal → 503 OFFLINE saja.
+  if (url.pathname.startsWith("/api/") && request.headers.get("X-TF-Sync") === "1") {
+    e.respondWith(
+      fetch(request).catch(() => new Response(
+        JSON.stringify({ detail: "OFFLINE" }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      ))
     );
     return;
   }

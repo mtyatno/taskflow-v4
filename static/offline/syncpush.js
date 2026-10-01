@@ -468,13 +468,18 @@
     }));
   }
 
-  // Data terkini drawing: blob record (sumber kebenaran). Fallback salinan payload op versi lama.
-  function drawingDataOf(rec, payload) {
-    const bytesP = rec.blob_ref ? Promise.resolve(_BlobStore.getBytes(rec.blob_ref)).catch(() => undefined) : Promise.resolve(undefined);
-    return bytesP.then((bytes) => {
-      if (bytes != null) return bytes;
-      if (payload && typeof payload.data_json === "string") return payload.data_json;
-      return undefined;
+  // Data drawing yang sedang dikirim (cid → data_json). Pull memakai ini untuk mengenali gema push sendiri
+  // (server sudah menerima PUT tapi record lokal belum ditandai) agar tidak di-merge sebagai perubahan remote.
+  const _inflightDrawing = new Map();
+  function inflightDrawingData(cid) {
+    return _inflightDrawing.has(cid) ? _inflightDrawing.get(cid) : undefined;
+  }
+  // Data terkini drawing: record + blob dibaca konsisten (sumber kebenaran). Fallback salinan payload op lama.
+  function drawingStateOf(cid, payload) {
+    return TFrepo.readDrawingState(cid).then(({ rec, bytes }) => {
+      let data = bytes;
+      if (data == null && payload && typeof payload.data_json === "string") data = payload.data_json;
+      return { rec, data };
     });
   }
   function drawingTagsOf(cid, fallback) {
@@ -496,7 +501,8 @@
       if (!cur) return undefined;
       const next = Object.assign({}, cur);
       if (sid != null && next.server_id == null) next.server_id = sid;
-      if (updatedAt != null) next.base_rev = updatedAt;
+      // base_rev hanya boleh MAJU (pull bisa sudah menggabung revisi server yang lebih baru selama request)
+      if (updatedAt != null && TFrepo.tsNewer(updatedAt, cur.base_rev)) next.base_rev = updatedAt;
       next.dirty = ((cur.rev || 0) === sentRev && !cur.deleted) ? 0 : 1;
       return next;
     });
@@ -509,15 +515,20 @@
   }
 
   function opDrawingCreate(op, transport, result) {
-    return getDrawingRaw(op.cid).then((rec) => {
-      if (!rec) return TFoutbox.outboxRemove(op.qid);
-      if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
+    return getDrawingRaw(op.cid).then((rec0) => {
+      if (!rec0) return TFoutbox.outboxRemove(op.qid);
+      if (rec0.server_id != null) return TFoutbox.outboxRemove(op.qid);
       const payload = op.payload || {};
-      const sentRev = rec.rev || 0;
-      return Promise.all([drawingDataOf(rec, payload), drawingTagsOf(rec.cid, payload.tags)]).then(([dataJson, tagNames]) =>
-        send(transport, "POST", "/api/drawings", {
+      // tag dulu, lalu record+blob terkini dibaca berurutan (tanpa jeda async lain sebelum dikirim)
+      return drawingTagsOf(rec0.cid, payload.tags).then((tagNames) => drawingStateOf(rec0.cid, payload).then(({ rec, data }) => {
+        if (!rec) return TFoutbox.outboxRemove(op.qid);
+        if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
+        const sentRev = rec.rev || 0;
+        const dataJson = data != null ? data : "{}";
+        _inflightDrawing.set(rec.cid, dataJson);
+        return send(transport, "POST", "/api/drawings", {
           title: rec.title || payload.title || "Untitled Drawing",
-          data_json: dataJson != null ? dataJson : "{}",
+          data_json: dataJson,
           svg_preview: rec.svg_preview || "",
           is_pinned: rec.is_pinned ? 1 : 0,
           tags: tagNames || [],
@@ -536,30 +547,32 @@
           }
           result.failed++;
           return TFoutbox.outboxRemove(op.qid);
-        })
-      );
+        }).finally(() => { _inflightDrawing.delete(rec.cid); });
+      }));
     });
   }
 
   function opDrawingUpdate(op, transport, result) {
-    return getDrawingRaw(op.cid).then((rec) => {
-      if (!rec) return TFoutbox.outboxRemove(op.qid);
-      return TFidmap.serverIdOf(rec.cid).then((mapped) => {
+    return getDrawingRaw(op.cid).then((rec0) => {
+      if (!rec0) return TFoutbox.outboxRemove(op.qid);
+      return TFidmap.serverIdOf(rec0.cid).then((mapped) => {
         // Record dari getDrawing versi lama bisa punya server_id tanpa entri idmap → jangan ditahan selamanya.
-        const sid = mapped != null ? mapped : rec.server_id;
+        const sid = mapped != null ? mapped : rec0.server_id;
         if (sid == null) return; // hold: create not pushed yet
         const payload = op.payload || {};
-        const sentRev = rec.rev || 0;
         // Tag hanya dikirim bila ada perubahan tag lokal tertunda (payload.tags) agar tidak menimpa tag dari mesin lain.
-        const tagsP = Array.isArray(payload.tags) ? drawingTagsOf(rec.cid, payload.tags) : Promise.resolve(undefined);
-        return Promise.all([drawingDataOf(rec, payload), tagsP]).then(([dataJson, tags]) => {
+        const tagsP = Array.isArray(payload.tags) ? drawingTagsOf(rec0.cid, payload.tags) : Promise.resolve(undefined);
+        return tagsP.then((tags) => drawingStateOf(rec0.cid, payload).then(({ rec, data }) => {
+          if (!rec) return TFoutbox.outboxRemove(op.qid);
+          const sentRev = rec.rev || 0;
           const body = {
             title: rec.title || payload.title || "Untitled Drawing",
             svg_preview: rec.svg_preview || "",
             is_pinned: rec.is_pinned ? 1 : 0,
           };
-          if (dataJson != null) body.data_json = dataJson; // tanpa data lokal → server mempertahankan datanya
+          if (data != null) body.data_json = data; // tanpa data lokal → server mempertahankan datanya
           if (tags !== undefined) body.tags = tags;
+          if (data != null) _inflightDrawing.set(rec.cid, data);
           return send(transport, "PUT", "/api/drawings/" + sid, body).then((res) => {
             if (ok(res)) {
               return markDrawingPushed(rec.cid, sentRev, res.data && res.data.updated_at != null ? res.data.updated_at : null, null)
@@ -570,7 +583,28 @@
             // 404 = dihapus di server → buang op; record tetap dirty, pull yang merekonsiliasi.
             result.failed++;
             return TFoutbox.outboxRemove(op.qid);
-          });
+          }).finally(() => { _inflightDrawing.delete(rec.cid); });
+        }));
+      });
+    });
+  }
+
+  // Pin drawing (sebelumnya op 'pin' dibuang tanpa dikirim): cek status server dulu, PATCH (toggle) hanya bila berbeda.
+  function opDrawingPin(op, transport, result) {
+    return Promise.all([getDrawingRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, mapped]) => {
+      if (!rec || rec.deleted) return TFoutbox.outboxRemove(op.qid);
+      const sid = mapped != null ? mapped : rec.server_id;
+      if (sid == null) return; // hold: create belum terkirim (op create diproses lebih dulu, FIFO)
+      return send(transport, "GET", "/api/drawings/" + sid, undefined).then((res) => {
+        if (!ok(res)) { result.failed++; return TFoutbox.outboxRemove(op.qid); }
+        const want = !!rec.is_pinned; // status lokal TERKINI (toggle beruntun tetap benar)
+        if (!!(res.data && res.data.is_pinned) === want) {
+          return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); // sudah sama
+        }
+        return send(transport, "PATCH", "/api/drawings/" + sid + "/pin", undefined).then((res2) => {
+          if (ok(res2)) { return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); }
+          result.failed++;
+          return TFoutbox.outboxRemove(op.qid);
         });
       });
     });
@@ -845,6 +879,7 @@
     if (op.entity_type === "drawing" && op.op === "update") return opDrawingUpdate(op, transport, result);
     if (op.entity_type === "drawing" && op.op === "delete") return opDrawingDelete(op, transport, result);
     if (op.entity_type === "drawing" && op.op === "upsert") return opDrawingUpsert(op, transport, result);
+    if (op.entity_type === "drawing" && op.op === "pin") return opDrawingPin(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "create") return opMindmapCreate(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "update") return opMindmapUpdate(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "delete") return opMindmapDelete(op, transport, result);
@@ -957,7 +992,7 @@
       .then((r) => { _running = false; return r; }, (e) => { _running = false; throw e; });
   }
 
-  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, noteToCreatePayload, noteToUpdatePayload, mindmapToCreatePayload, mindmapToUpdatePayload, healStrandedNotes, healStrandedDrawings, pushOutbox };
+  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, noteToCreatePayload, noteToUpdatePayload, mindmapToCreatePayload, mindmapToUpdatePayload, healStrandedNotes, healStrandedDrawings, pushOutbox, inflightDrawingData };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpush = exported; }
   return exported;
 });

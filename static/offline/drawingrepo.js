@@ -28,6 +28,21 @@
     return isNaN(v) ? 0 : v;
   }
 
+  // Timestamp server bisa bermikrodetik; Date.parse memotong ke milidetik → tambahkan digit sisanya.
+  function tsPrecise(ts) {
+    if (ts == null) return 0;
+    const str = String(ts);
+    const m = str.match(/T\d\d:\d\d:\d\d\.(\d+)/);
+    const sub = (m && m[1].length > 3) ? Number("0." + m[1].slice(3)) : 0;
+    return tsEpoch(str) + sub;
+  }
+  // true bila revisi server a LEBIH BARU dari b (b kosong = belum pernah sinkron → a dianggap lebih baru).
+  function tsNewer(a, b) {
+    if (a == null || a === "") return false;
+    if (b == null || b === "") return true;
+    return tsPrecise(a) > tsPrecise(b);
+  }
+
   function getAllRaw() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const r = db.transaction("drawings", "readonly").objectStore("drawings").getAll();
@@ -78,6 +93,32 @@
         resolve(null);
       }
     }));
+  }
+
+  function getRec(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("drawings", "readonly").objectStore("drawings").get(cid);
+      r.onsuccess = () => resolve(r.result || null);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function readBytes(ref) {
+    return ref ? Promise.resolve(BlobStore.getBytes(ref)).catch(() => undefined) : Promise.resolve(undefined);
+  }
+  // Baca record TERKINI + isi blob-nya secara konsisten. Blob tidak ada (baru diganti edit bersamaan
+  // yang menghapus blob lama) → baca ulang record sekali lagi. Resolve { rec, bytes }.
+  function readDrawingState(cid) {
+    return getRec(cid).then((rec) => {
+      if (!rec) return { rec: null, bytes: undefined };
+      return readBytes(rec.blob_ref).then((bytes) => {
+        if (bytes !== undefined || !rec.blob_ref) return { rec, bytes };
+        return getRec(cid).then((rec2) => {
+          if (!rec2) return { rec: null, bytes: undefined };
+          if (rec2.blob_ref === rec.blob_ref) return { rec: rec2, bytes: undefined };
+          return readBytes(rec2.blob_ref).then((b2) => ({ rec: rec2, bytes: b2 }));
+        });
+      });
+    });
   }
 
   function getByNoteCid(noteCid) {
@@ -427,17 +468,28 @@
     return rememberClientId(local, srv).then((cur) => reconcileKnown(cur, srv));
   }
 
+  // Jejak record rusak versi lama (RC1): dibuat sebelum ada `rev` dan updated_at lokal (waktu edit, ISO Z)
+  // ≠ base_rev server — push lama menandai bersih padahal data lokal belum terkirim.
+  function isLegacyRc1(rec) {
+    return rec.rev === undefined && String(rec.updated_at) !== String(rec.base_rev);
+  }
+
   function reconcileKnown(local, srv) {
     if (local.deleted || local.dirty) return Promise.resolve(local); // dirty → pakai lokal (pull yang merge)
     if (srv.data_json == null) return Promise.resolve(local);
-    if (String(srv.updated_at) !== String(local.base_rev)) return refreshFromServer(local, srv);
-    return Promise.resolve(BlobStore.getBytes(local.blob_ref)).catch(() => undefined).then((bytes) => {
+    // Hanya revisi server yang LEBIH BARU dari base_rev yang diadopsi; respons lebih lama (mis. cache basi) diabaikan.
+    if (tsNewer(srv.updated_at, local.base_rev)) return refreshFromServer(local, srv);
+    if (tsNewer(local.base_rev, srv.updated_at)) return Promise.resolve(local);
+    return readBytes(local.blob_ref).then((bytes) => {
       if (bytes === srv.data_json) return local;
       if (!isTldrawSnapshot(bytes)) return refreshFromServer(local, srv); // blob lokal hilang/rusak
       if (sameContent(bytes, srv.data_json)) return local;
-      const merged = mergeSnapshots(bytes, srv.data_json, { preferRemote: false });
-      if (sameContent(merged, srv.data_json)) return refreshFromServer(local, srv); // lokal tak menambah apa pun
-      return healDrawing(local, merged);
+      // Revisi sama tapi isi beda: heal (union) HANYA untuk record legacy RC1; selain itu server yang benar.
+      if (isLegacyRc1(local)) {
+        const merged = mergeSnapshots(bytes, srv.data_json, { preferRemote: false });
+        if (!sameContent(merged, srv.data_json)) return healDrawing(local, merged);
+      }
+      return refreshFromServer(local, srv);
     });
   }
 
@@ -447,15 +499,18 @@
     const online = opts.online != null ? opts.online : true;
 
     return getRaw(idOrCid).then((rec) => {
-      // If we don't have it locally or we want to sync it, we should fetch it if online
-      const doFetch = (fetcher && online)
+      const standalone = rec && rec.note_cid === undefined ? rec : null;
+      // Record dirty: data lokal selalu menang (pull yang merge) → tidak perlu menunggu jaringan.
+      const wantFetch = fetcher && online && !(standalone && standalone.dirty && !standalone.deleted);
+      const doFetch = wantFetch
         ? Promise.resolve().then(() => fetcher(idOrCid)).catch(() => null)
         : Promise.resolve(null);
 
       return doFetch.then((srv) => {
         if (srv && srv.title !== undefined) {
-          // Standalone drawing dari server → rekonsiliasi (tanpa lost update)
-          return reconcileWithServer(rec && rec.note_cid === undefined ? rec : null, srv);
+          // Standalone drawing dari server → rekonsiliasi dengan record TERKINI (bisa berubah selama fetch)
+          return (standalone ? getRec(standalone.cid) : Promise.resolve(null))
+            .then((cur) => reconcileWithServer(cur, srv));
         } else if (srv && srv.data_json != null) {
            // Legacy note-attached drawing fetched from server
            return getDrawingLocal(idOrCid).then((local) => {
@@ -475,23 +530,25 @@
          if (!finalRec || finalRec.deleted) return null;
 
          if (finalRec.note_cid === undefined) {
-            // Standalone drawing format
-            return Promise.resolve(BlobStore.getBytes(finalRec.blob_ref)).then((bytes) => {
+            // Standalone drawing format — baca record & blob TERKINI (jangan pakai objek basi: blob-nya
+            // bisa sudah dihapus edit bersamaan → "{}" palsu)
+            return readDrawingState(finalRec.cid).then(({ rec: cur, bytes }) => {
+              if (!cur || cur.deleted) return null;
               const tagP = (typeof TFtag !== "undefined" && TFtag.getEntityTags)
-                ? TFtag.getEntityTags("drawing", finalRec.cid).then((tags) => tags.map((t) => t.name))
+                ? TFtag.getEntityTags("drawing", cur.cid).then((tags) => tags.map((t) => t.name))
                 : Promise.resolve([]);
               return tagP.then((tagNames) => ({
-                id: finalRec.server_id != null ? finalRec.server_id : finalRec.cid,
-                cid: finalRec.cid,
-                server_id: finalRec.server_id,
-                title: finalRec.title || "Untitled Drawing",
+                id: cur.server_id != null ? cur.server_id : cur.cid,
+                cid: cur.cid,
+                server_id: cur.server_id,
+                title: cur.title || "Untitled Drawing",
                 data_json: bytes || "{}",
-                svg_preview: finalRec.svg_preview || "",
-                svg_stale: finalRec.svg_stale ? 1 : 0,
-                is_pinned: finalRec.is_pinned || 0,
+                svg_preview: cur.svg_preview || "",
+                svg_stale: cur.svg_stale ? 1 : 0,
+                is_pinned: cur.is_pinned || 0,
                 tags: tagNames,
-                created_at: finalRec.created_at,
-                updated_at: finalRec.updated_at,
+                created_at: cur.created_at,
+                updated_at: cur.updated_at,
               }));
             });
          } else {
@@ -782,6 +839,8 @@
     togglePin,
     getRaw,
     mutateDrawing,
+    readDrawingState,
+    tsNewer,
     ensureDrawingUpdateOp,
     upgradeLegacyDrawingOps,
     isTldrawSnapshot,

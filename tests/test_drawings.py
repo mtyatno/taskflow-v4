@@ -293,3 +293,22 @@ def test_drawing_endpoints_by_client_id(client):
     pub_after = client.get(f"/pub/drawings/{cid}")
     assert pub_after.status_code == 404
 
+
+
+def test_list_drawings_includes_client_id(client):
+    """GET /api/drawings menyertakan client_id → pull di mesin lain memakai cid yang sama (direktif note cocok)."""
+    user = register_user(client, "drawlistcid", "drawlistcid@test.id")
+    token = user.get("token") or user.get("access_token")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    created = client.post("/api/drawings", json={
+        "title": "Dengan client_id", "data_json": "{}", "client_id": "cid-list-xyz-1",
+    }, headers=headers)
+    assert created.status_code == 200, created.text
+    plain = client.post("/api/drawings", json={"title": "Tanpa client_id", "data_json": "{}"}, headers=headers)
+    assert plain.status_code == 200, plain.text
+    rows = client.get("/api/drawings", headers=headers).json()
+    by_title = {r["title"]: r for r in rows}
+    assert by_title["Dengan client_id"]["client_id"] == "cid-list-xyz-1"
+    assert "client_id" in by_title["Tanpa client_id"]
+    assert by_title["Tanpa client_id"]["client_id"] is None
+    assert "data_json" not in by_title["Dengan client_id"], "daftar tetap tanpa data_json (ringan)"

@@ -5838,8 +5838,9 @@ def _drawing_enrich(row_dict: dict, conn) -> dict:
 async def list_drawings(user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
+        # client_id ikut dikirim: pull di perangkat lain memakai cid yang sama dengan direktif ::draw[...] di note
         rows = conn.execute(
-            "SELECT id, user_id, title, svg_preview, is_pinned, created_at, updated_at FROM drawings "
+            "SELECT id, user_id, client_id, title, svg_preview, is_pinned, created_at, updated_at FROM drawings "
             "WHERE user_id = ? ORDER BY is_pinned DESC, updated_at DESC",
             (uid,)
         ).fetchall()

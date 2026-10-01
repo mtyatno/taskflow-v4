@@ -529,36 +529,65 @@ const api = {
   //   - isOfflineErr
   // BLOCK LENGTH: ~120 lines (1801-1920)
 
+// ── Fetch sinkronisasi (pull/push/fetcher drawing) ──
+// Ditandai X-TF-Sync → SW meneruskannya network-only (respons cache basi tidak boleh membalikkan data lokal),
+// dan dibatasi waktu (AbortController) supaya antrian sinkron / jadwal ulang push tidak macet selamanya.
+const SYNC_FETCH_TIMEOUT_MS = 30000;
+const DRAWING_FETCH_TIMEOUT_MS = 8000; // buka gambar: interaktif → jatuh ke data lokal lebih cepat
+function syncFetch(url, opts, timeoutMs) {
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  if (controller) setTimeout(() => controller.abort(), timeoutMs || SYNC_FETCH_TIMEOUT_MS);
+  return window.fetch(url, Object.assign({}, opts, controller ? { signal: controller.signal } : {}));
+}
+
 // ── Offline push (TF.syncpush) — raw-fetch transport bypasses the api intercept ──
 const __syncTransport = {
-  request: (method, path, body) => window.fetch(apiUrl(path), {
+  request: (method, path, body) => syncFetch(apiUrl(path), {
     method,
-    headers: Object.assign({ "Content-Type": "application/json" }, __token ? { Authorization: "Bearer " + __token } : {}),
+    headers: Object.assign({ "Content-Type": "application/json", "X-TF-Sync": "1" }, __token ? { Authorization: "Bearer " + __token } : {}),
     body: body != null ? JSON.stringify(body) : undefined,
   }).then(r => r.text().then(t => ({ status: r.status, data: t ? JSON.parse(t) : null }))),
 };
+
+// ── Antrian sinkron tunggal: sync() (pull→push), push terjadwal & __pushNow tidak pernah tumpang tindih ──
+// (pull drawing yang berjalan bersamaan push in-flight bisa menganggap gema push sebagai perubahan remote)
+const SYNC_TASK_MAX_MS = 120000;
+let __syncQueue = Promise.resolve();
+function runSyncExclusive(task) {
+  const run = __syncQueue.then(() => task());
+  let timer = null;
+  const maxHold = new Promise((resolve) => { timer = setTimeout(resolve, SYNC_TASK_MAX_MS); });
+  // antrian lanjut setelah tugas selesai (sukses/gagal) atau paling lama SYNC_TASK_MAX_MS (tugas macet tidak mengunci)
+  __syncQueue = Promise.race([run.then(() => undefined, () => undefined), maxHold]).then(() => clearTimeout(timer));
+  return run;
+}
+
 let __pushTimer = null;
 function schedulePush() {
   if (!navigator.onLine || !(window.TF && window.TF.syncpush)) return;
   clearTimeout(__pushTimer);
   __pushTimer = setTimeout(() => {
-    window.TF.syncpush.pushOutbox(__syncTransport)
+    runSyncExclusive(() => window.TF.syncpush.pushOutbox(__syncTransport))
       .then((r) => { if (r && r.busy) schedulePush(); }) // push lain masih berjalan → jadwalkan ulang agar edit terakhir tetap terkirim
       .catch(() => {});
   }, 1500);
 }
-window.__pushNow = () => (window.TF && window.TF.syncpush) ? window.TF.syncpush.pushOutbox(__syncTransport) : Promise.resolve(null);
+window.__pushNow = () => (window.TF && window.TF.syncpush) ? runSyncExclusive(() => window.TF.syncpush.pushOutbox(__syncTransport)) : Promise.resolve(null);
 // Op outbox diantre di luar mutasi API (mis. heal drawing saat dibuka) → tetap dijadwalkan push
 window.addEventListener("tf:outbox-queued", () => schedulePush());
-const __syncRawFetch = (u) => window.fetch(apiUrl(u), { headers: __token ? { Authorization: "Bearer " + __token } : {} });
+const __syncRawFetch = (u, timeoutMs) => {
+  const headers = { "X-TF-Sync": "1" };
+  if (__token) headers.Authorization = "Bearer " + __token;
+  return syncFetch(apiUrl(u), { headers }, timeoutMs);
+};
 if (window.TF && window.TF.drawingrepo && window.TF.idmap) {
   window.TF.drawingrepo.configureFetcher((idOrCid) => {
     if (/^\d+$/.test(String(idOrCid))) {
-      return __syncRawFetch("/api/drawings/" + idOrCid).then((r) => (r.ok ? r.json() : null));
+      return __syncRawFetch("/api/drawings/" + idOrCid, DRAWING_FETCH_TIMEOUT_MS).then((r) => (r.ok ? r.json() : null));
     }
     return window.TF.idmap.serverIdOf(idOrCid).then((sid) => {
       const target = sid != null ? sid : idOrCid;
-      return __syncRawFetch("/api/drawings/" + target).then((r) => (r.ok ? r.json() : null));
+      return __syncRawFetch("/api/drawings/" + target, DRAWING_FETCH_TIMEOUT_MS).then((r) => (r.ok ? r.json() : null));
     });
   });
 }
@@ -568,7 +597,7 @@ if (window.TF && window.TF.chatrepo) {
 }
 function sync() {
   if (!(window.TF && window.TF.syncpull && window.TF.syncpush)) { renderConflicts(); return Promise.resolve(null); }
-  return window.TF.syncpull.pullAndReconcile(__syncRawFetch)
+  return runSyncExclusive(() => window.TF.syncpull.pullAndReconcile(__syncRawFetch)
     .then(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null))
     .then(() => (window.TF.syncpull.pullHabitsAndLogs ? window.TF.syncpull.pullHabitsAndLogs(__syncRawFetch) : null))
     .then(() => {
@@ -584,7 +613,7 @@ function sync() {
     .then(() => {
       if (!window.TF.syncpull.pullDrawingsAndReconcile) return null;
       return window.TF.syncpull.pullDrawingsAndReconcile(__syncRawFetch).then((drawRes) => {
-        if (drawRes && (drawRes.created > 0 || drawRes.updated > 0 || drawRes.deleted > 0 || drawRes.pinned > 0)) {
+        if (drawRes && (drawRes.created > 0 || drawRes.updated > 0 || drawRes.deleted > 0 || drawRes.pinned > 0 || drawRes.merged > 0)) {
           window.dispatchEvent(new CustomEvent("drawingSaved", { detail: { source: "sync", ...drawRes } }));
         }
         return drawRes;
@@ -592,7 +621,7 @@ function sync() {
     })
     .then(() => window.TF.syncpush.pushOutbox(__syncTransport))
     .then((r) => { if (r && r.busy) schedulePush(); renderConflicts(); return r; })
-    .catch(() => { renderConflicts(); return null; });
+    .catch(() => { renderConflicts(); return null; }));
 }
 function renderConflicts() {
   if (!(window.TF && window.TF.syncconflict)) return;
@@ -2858,18 +2887,8 @@ function TaskFormModal({
   const [notePaperConfig, setNotePaperConfig] = useState({ enabled: false, size: 'A4', orientation: 'portrait' });
   const notePaperWrapRef = React.useRef(null);
 
-  useEffect(() => {
-    const handler = e => {
-      const detail = e.detail;
-      if (typeof detail === 'object' && detail !== null) {
-        setNoteQuickDrawState({ id: detail.id, title: detail.title });
-      } else {
-        setNoteQuickDrawState({ id: detail, title: '' });
-      }
-    };
-    window.addEventListener('editDrawingModal', handler);
-    return () => window.removeEventListener('editDrawingModal', handler);
-  }, []);
+  // Klik preview gambar (event editDrawingModal) ditangani SATU QuickDrawModal global di App;
+  // modal milik form ini hanya untuk alur sisip gambar baru (handleNoteDrawingSelected).
 
   const handleOpenNoteInsertDrawing = () => setNoteDrawingInsertOpen(true);
   const handleNoteDrawingSelected = (did, dtitle) => {
@@ -9242,6 +9261,7 @@ function DrawingTabInstance({
 }) {
   const iframeRef = useRef(null);
   const lastLoadedJsonRef = useRef(null);
+  const loadErrorShownRef = useRef(false);
   const [renaming, setRenaming] = useState(false);
   const [renameVal, setRenameVal] = useState(tab?.title || "");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -9263,7 +9283,9 @@ function DrawingTabInstance({
             lastLoadedJsonRef.current = fresh.data_json;
             iframeRef.current.contentWindow.postMessage({
               type: 'load',
+              v: 2,
               data: fresh.data_json,
+              empty: isEmptyDrawingData(fresh.data_json),
               svgStale: !!fresh.svg_stale
             }, window.location.origin);
           }
@@ -9281,17 +9303,28 @@ function DrawingTabInstance({
       // data yang dikirim iframe ini sendiri sudah ada di kanvas → jangan dipantulkan balik sebagai 'load'
       if (e.data?.type === 'change' && e.data.data) { lastLoadedJsonRef.current = e.data.data; return; }
       if (e.data?.type === 'ready' && tab?.id) {
+        // SELALU dibalas: iframe read-only sampai 'load' pertama tiba (tutup cepat tidak boleh menyimpan
+        // kanvas kosong); gagal memuat → 'loadError' (iframe tetap read-only, data tidak tertimpa).
         try {
           const doc = await api.get(`/api/drawings/${tab.id}`);
-          if (doc && doc.data_json && iframeRef.current?.contentWindow) {
-            lastLoadedJsonRef.current = doc.data_json;
+          if (!doc) throw new Error("Drawing not found");
+          if (iframeRef.current?.contentWindow) {
+            lastLoadedJsonRef.current = doc.data_json || null;
             iframeRef.current.contentWindow.postMessage({
               type: 'load',
-              data: doc.data_json,
+              v: 2,
+              data: doc.data_json || '{}',
+              empty: isEmptyDrawingData(doc.data_json),
               svgStale: !!doc.svg_stale
             }, window.location.origin);
           }
-        } catch (_) {}
+        } catch (_) {
+          iframeRef.current?.contentWindow?.postMessage({ type: 'loadError', v: 2 }, window.location.origin);
+          if (!loadErrorShownRef.current) {
+            loadErrorShownRef.current = true;
+            showToast('Gagal memuat gambar', 'error');
+          }
+        }
       }
     };
     window.addEventListener('message', handler);
@@ -9394,7 +9427,7 @@ function DrawingTabInstance({
     style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, height: "100%" }
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
-    src: `/static/vendor/tldraw/index.html?noteId=${tab.id}&v=143`,
+    src: `/static/vendor/tldraw/index.html?noteId=${tab.id}&v=144`,
     style: { flex: 1, border: "none", width: "100%", height: "100%" },
     title: "Draw editor"
   }))
@@ -17690,6 +17723,19 @@ function FloatingToc({
   // BLOCK LENGTH: ~2074 lines (16220-18294) — 2nd LARGEST block in codebase
 
 // ── Quick-Draw Modal & Drawing Insert Dialog ────────────────
+// Gambar baru/kosong ('{}' / tanpa data) → iframe boleh langsung dipakai dengan kanvas kosong (flag empty).
+function isEmptyDrawingData(s) {
+  if (s == null) return true;
+  const t = String(s).trim();
+  if (!t) return true;
+  try {
+    const o = JSON.parse(t);
+    return !!o && typeof o === "object" && !Array.isArray(o) && Object.keys(o).length === 0;
+  } catch (_) {
+    return false;
+  }
+}
+
 // Minta snapshot terakhir dari iframe tldraw lalu TUNGGU balasan 'change' ber-reqId sama (maks timeoutMs).
 // Resolve data pesan, atau null bila iframe tidak membalas (data tetap aman: iframe mem-flush saat pagehide).
 function requestIframeSnapshot(iframeWin, timeoutMs) {
@@ -17733,6 +17779,7 @@ function QuickDrawModal({
 }) {
   const iframeRef = useRef(null);
   const lastLoadedJsonRef = useRef(null);
+  const loadErrorShownRef = useRef(false);
   const [title, setTitle] = useState(drawingTitle || "Gambar");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(drawingTitle || "Gambar");
@@ -17765,7 +17812,9 @@ function QuickDrawModal({
             lastLoadedJsonRef.current = fresh.data_json;
             iframeRef.current.contentWindow.postMessage({
               type: 'load',
+              v: 2,
               data: fresh.data_json,
+              empty: isEmptyDrawingData(fresh.data_json),
               svgStale: !!fresh.svg_stale
             }, window.location.origin);
           }
@@ -17783,17 +17832,28 @@ function QuickDrawModal({
       // data yang dikirim iframe ini sendiri sudah ada di kanvas → jangan dipantulkan balik sebagai 'load'
       if (e.data?.type === 'change' && e.data.data) { lastLoadedJsonRef.current = e.data.data; return; }
       if (e.data?.type === 'ready' && drawingId) {
+        // SELALU dibalas: iframe read-only sampai 'load' pertama tiba (tutup cepat tidak boleh menyimpan
+        // kanvas kosong); gagal memuat → 'loadError' (iframe tetap read-only, data tidak tertimpa).
         try {
           const doc = await api.get(`/api/drawings/${drawingId}`);
-          if (doc && doc.data_json && iframeRef.current?.contentWindow) {
-            lastLoadedJsonRef.current = doc.data_json;
+          if (!doc) throw new Error("Drawing not found");
+          if (iframeRef.current?.contentWindow) {
+            lastLoadedJsonRef.current = doc.data_json || null;
             iframeRef.current.contentWindow.postMessage({
               type: 'load',
-              data: doc.data_json,
+              v: 2,
+              data: doc.data_json || '{}',
+              empty: isEmptyDrawingData(doc.data_json),
               svgStale: !!doc.svg_stale
             }, window.location.origin);
           }
-        } catch (_) {}
+        } catch (_) {
+          iframeRef.current?.contentWindow?.postMessage({ type: 'loadError', v: 2 }, window.location.origin);
+          if (!loadErrorShownRef.current) {
+            loadErrorShownRef.current = true;
+            showToast && showToast('Gagal memuat gambar', 'error');
+          }
+        }
       }
     };
     window.addEventListener('message', handler);
@@ -17863,7 +17923,7 @@ function QuickDrawModal({
   /*#__PURE__*/React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" } },
     /*#__PURE__*/React.createElement("iframe", {
       ref: iframeRef,
-      src: `/static/vendor/tldraw/index.html?noteId=${drawingId}&v=143`,
+      src: `/static/vendor/tldraw/index.html?noteId=${drawingId}&v=144`,
       style: { flex: 1, border: "none", width: "100%", height: "100%" },
       title: "Quick Draw editor"
     })
@@ -18115,18 +18175,8 @@ function NoteModal({
   const [paperConfig, setPaperConfig] = useState(initPaperConfig);
   const paperWrapRef = React.useRef(null);
 
-  useEffect(() => {
-    const handler = e => {
-      const detail = e.detail;
-      if (typeof detail === 'object' && detail !== null) {
-        setQuickDrawState({ id: detail.id, title: detail.title });
-      } else {
-        setQuickDrawState({ id: detail, title: '' });
-      }
-    };
-    window.addEventListener('editDrawingModal', handler);
-    return () => window.removeEventListener('editDrawingModal', handler);
-  }, []);
+  // Klik preview gambar (event editDrawingModal) ditangani SATU QuickDrawModal global di App;
+  // modal milik NoteModal hanya untuk alur sisip gambar baru (handleDrawingSelected).
 
   const milkdownEditorRef = React.useRef(null);
   const allKnownTasksRef = React.useRef([]);

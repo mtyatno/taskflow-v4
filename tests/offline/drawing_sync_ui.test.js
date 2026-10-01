@@ -27,9 +27,10 @@ function loadSchedulePush(pushImpl) {
   const timers = [];
   const fakeSetTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
   const win = { TF: { syncpush: { pushOutbox: pushImpl } } };
-  const factory = new Function("window", "navigator", "setTimeout", "clearTimeout", "__syncTransport",
+  const factory = new Function("window", "navigator", "setTimeout", "clearTimeout", "__syncTransport", "runSyncExclusive",
     "let __pushTimer = null;\n" + m[0] + "\nreturn schedulePush;");
-  return { schedulePush: factory(win, { onLine: true }, fakeSetTimeout, () => {}, {}), timers };
+  const passThrough = (task) => Promise.resolve().then(task); // antrian sinkron diuji terpisah
+  return { schedulePush: factory(win, { onLine: true }, fakeSetTimeout, () => {}, {}, passThrough), timers };
 }
 
 test("schedulePush: hasil busy → push dijadwalkan ulang sampai benar-benar jalan", async () => {
@@ -236,8 +237,8 @@ test("App.jsx: snapshot lama tidak dikirim setelah snapshot yang lebih baru (svg
   assert.match(h[0], /postedSeqRef\.current = \+\+syncSeqRef\.current;/, "flush pagehide juga menutup kiriman async yang lebih lama");
 });
 
-test("App.jsx: requestSnapshot sebelum editor siap tetap dibalas (parent tidak menunggu timeout)", () => {
-  assert.match(appJsx, /if \(e\.data\?\.type === 'requestSnapshot'\) \{\s*if \(editorRef\.current\) syncToParent\(e\.data\.reqId\);\s*else window\.parent\.postMessage\(\{ type: 'change', noteId, data: null, reqId: e\.data\.reqId \}, '\*'\);/);
+test("App.jsx: requestSnapshot dibalas data HANYA bila sudah loaded & ada perubahan user belum terkirim; selain itu data null", () => {
+  assert.match(appJsx, /if \(e\.data\?\.type === 'requestSnapshot'\) \{\s*if \(editorRef\.current && loadedRef\.current && userRevRef\.current !== sentRevRef\.current\) syncToParent\(e\.data\.reqId\);\s*else window\.parent\.postMessage\(\{ type: 'change', noteId, data: null, reqId: e\.data\.reqId \}, '\*'\);/);
 });
 
 test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan", () => {
@@ -245,6 +246,162 @@ test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan"
 });
 
 // ── Cache bust ───────────────────────────────────────────────────────────────
-test("sw.js CACHE = taskflow-v333-drawing-sync-fix (tldraw di-cache cache-first)", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v333-drawing-sync-fix";/m);
+test("sw.js CACHE = taskflow-v334-drawing-sync-hardening (tldraw di-cache cache-first)", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v334-drawing-sync-hardening";/m);
+});
+
+// ══ Putaran pengerasan (review independen) ══════════════════════════════════════
+
+// ── #1a Request sinkron ditandai X-TF-Sync & dibatasi waktu; SW meneruskannya network-only ──
+test("index.html: __syncRawFetch & __syncTransport memberi header X-TF-Sync dan timeout 30 detik", () => {
+  const raw = indexHtml.match(/const __syncRawFetch = [\s\S]*?\n\};?\n/);
+  const tr = indexHtml.match(/const __syncTransport = \{[\s\S]*?\n\};\n/);
+  assert.ok(raw && tr, "__syncRawFetch & __syncTransport harus ada");
+  for (const [name, code] of [["__syncRawFetch", raw[0]], ["__syncTransport", tr[0]]]) {
+    assert.match(code, /"X-TF-Sync": "1"/, name + " harus menandai request sinkron");
+    assert.match(code, /syncFetch\(/, name + " harus lewat syncFetch (AbortController)");
+  }
+  const sf = indexHtml.match(/function syncFetch\(url, opts, timeoutMs\) \{[\s\S]*?\n\}/);
+  assert.ok(sf, "helper syncFetch harus ada");
+  assert.match(sf[0], /new AbortController\(\)/);
+  assert.match(sf[0], /timeoutMs \|\| SYNC_FETCH_TIMEOUT_MS/);
+  assert.match(indexHtml, /const SYNC_FETCH_TIMEOUT_MS = 30000;/);
+  // fetcher drawing (buka gambar, interaktif) memakai batas waktu lebih pendek lalu jatuh ke data lokal
+  const fetcher = indexHtml.match(/window\.TF\.drawingrepo\.configureFetcher\([\s\S]*?\n  \}\);/)[0];
+  assert.equal((fetcher.match(/DRAWING_FETCH_TIMEOUT_MS/g) || []).length, 2);
+});
+
+function loadSw(fetchImpl) {
+  const vm = require("node:vm");
+  const handlers = {};
+  const state = { cacheMatch: 0, cachePut: 0 };
+  const cacheObj = {
+    put: () => { state.cachePut++; return Promise.resolve(); },
+    match: () => { state.cacheMatch++; return Promise.resolve(undefined); },
+    add: () => Promise.resolve(),
+  };
+  const sandbox = {
+    self: { addEventListener: (t, f) => { handlers[t] = f; }, skipWaiting() {}, clients: { claim() {} } },
+    caches: {
+      open: () => Promise.resolve(cacheObj),
+      match: () => { state.cacheMatch++; return Promise.resolve(new Response('{"stale":true}', { status: 200 })); },
+      keys: () => Promise.resolve([]),
+      delete: () => Promise.resolve(true),
+    },
+    fetch: fetchImpl, Response, Request, Headers, URL, Promise, JSON, console, setTimeout, clearTimeout,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(swJs, sandbox);
+  const dispatch = (req) => new Promise((resolve) => {
+    let responded = false;
+    handlers.fetch({ request: req, respondWith: (p) => { responded = true; resolve(Promise.resolve(p)); }, waitUntil() {} });
+    if (!responded) resolve(null);
+  });
+  return { dispatch, state };
+}
+
+test("sw.js: GET /api/* ber-header X-TF-Sync → network-only (tanpa baca/tulis cache), gagal → 503 OFFLINE", async () => {
+  const fail = loadSw(() => Promise.reject(new TypeError("Failed to fetch")));
+  const r1 = await fail.dispatch(new Request("http://app/api/drawings/5", { headers: { "X-TF-Sync": "1" } }));
+  assert.equal(r1.status, 503);
+  assert.deepEqual(await r1.json(), { detail: "OFFLINE" });
+  assert.equal(fail.state.cacheMatch, 0, "request sinkron tidak boleh membaca cache (respons basi)");
+  const ok = loadSw(() => Promise.resolve(new Response('{"id":5}', { status: 200 })));
+  const r2 = await ok.dispatch(new Request("http://app/api/drawings/5", { headers: { "X-TF-Sync": "1" } }));
+  assert.equal(r2.status, 200);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(ok.state.cachePut, 0, "request sinkron tidak boleh menulis cache");
+  // GET biasa (tanpa penanda) tetap network-first + fallback cache (perilaku offline lama)
+  const plain = loadSw(() => Promise.reject(new TypeError("Failed to fetch")));
+  const r3 = await plain.dispatch(new Request("http://app/api/tasks"));
+  assert.equal(r3.status, 200);
+  assert.ok(plain.state.cacheMatch > 0);
+});
+
+// ── #4 sync() & push terjadwal diserialkan lewat satu antrian ─────────────────────
+function loadRunSyncExclusive(maxMs) {
+  const m = indexHtml.match(/function runSyncExclusive\(task\) \{[\s\S]*?\n\}/);
+  assert.ok(m, "function runSyncExclusive(task) harus ada");
+  return new Function("SYNC_TASK_MAX_MS", "setTimeout", "clearTimeout",
+    "let __syncQueue = Promise.resolve();\n" + m[0] + "\nreturn runSyncExclusive;")(maxMs, setTimeout, clearTimeout);
+}
+
+test("runSyncExclusive: tugas berjalan berurutan, gagal tidak mengunci antrian, macet dilepas setelah batas waktu", async () => {
+  const run = loadRunSyncExclusive(80);
+  const log = [];
+  let releaseA;
+  const a = run(() => new Promise((r) => { log.push("A mulai"); releaseA = () => { log.push("A selesai"); r("a"); }; }));
+  const b = run(() => { log.push("B mulai"); return Promise.reject(new Error("b")); });
+  const c = run(() => { log.push("C mulai"); return "c"; });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(log, ["A mulai"], "B & C menunggu A");
+  releaseA();
+  assert.equal(await a, "a");
+  await assert.rejects(b);
+  assert.equal(await c, "c");
+  assert.deepEqual(log, ["A mulai", "A selesai", "B mulai", "C mulai"]);
+  const hung = run(() => new Promise(() => {}));
+  const t0 = Date.now();
+  assert.equal(await run(() => "d"), "d");
+  assert.ok(Date.now() - t0 < 1000, "tugas macet dilepas setelah SYNC_TASK_MAX_MS");
+  void hung;
+});
+
+test("index.html: sync(), push terjadwal & __pushNow lewat runSyncExclusive; drawingSaved juga saat merged > 0", () => {
+  const sync = indexHtml.match(/function sync\(\) \{[\s\S]*?\n\}/)[0];
+  assert.match(sync, /return runSyncExclusive\(\(\) =>/);
+  assert.match(sync, /drawRes\.merged > 0/);
+  const sp = indexHtml.match(/function schedulePush\(\) \{[\s\S]*?\n\}/)[0];
+  assert.match(sp, /runSyncExclusive\(\(\) => window\.TF\.syncpush\.pushOutbox\(__syncTransport\)\)/);
+  assert.match(indexHtml, /window\.__pushNow = \(\) => \(window\.TF && window\.TF\.syncpush\) \? runSyncExclusive\(\(\) => window\.TF\.syncpush\.pushOutbox\(__syncTransport\)\)/);
+  assert.match(indexHtml, /const SYNC_TASK_MAX_MS = \d+;/);
+});
+
+// ── #2 Parent selalu membalas 'ready' (load ber-flag empty / loadError + toast) ───
+test("isEmptyDrawingData: '{}' / kosong = gambar baru; snapshot atau JSON lain bukan", () => {
+  const m = indexHtml.match(/function isEmptyDrawingData\(s\) \{[\s\S]*?\n\}/);
+  assert.ok(m, "helper function isEmptyDrawingData(s) harus ada");
+  const fn = new Function(m[0] + "\nreturn isEmptyDrawingData;")();
+  for (const v of ["{}", " {} ", "", null, undefined]) assert.equal(fn(v), true, JSON.stringify(v));
+  for (const v of ['{"store":{},"schema":{}}', '{"a":1}', "rusak{", "[]"]) assert.equal(fn(v), false, JSON.stringify(v));
+});
+
+test("QuickDrawModal & DrawingTabInstance: 'ready' → load {v:2, empty} atau loadError + toast 'Gagal memuat gambar'", () => {
+  for (const [name, code] of [["QuickDrawModal", qdm], ["DrawingTabInstance", dti]]) {
+    assert.match(code, /type: 'load',\s*v: 2,\s*data: doc\.data_json \|\| '\{\}',\s*empty: isEmptyDrawingData\(doc\.data_json\)/, name + " load awal");
+    assert.match(code, /type: 'load',\s*v: 2,\s*data: fresh\.data_json,\s*empty: isEmptyDrawingData\(fresh\.data_json\)/, name + " load ulang");
+    assert.match(code, /postMessage\(\{ type: 'loadError', v: 2 \}, window\.location\.origin\)/, name + " loadError");
+    assert.match(code, /showToast\('Gagal memuat gambar', 'error'\)/, name + " toast");
+  }
+});
+
+// ── #11 hanya SATU QuickDrawModal per klik preview ───────────────────────────────
+test("index.html: hanya App yang mendengar editDrawingModal (tidak ada modal ganda)", () => {
+  const n = (indexHtml.match(/addEventListener\(\s*['"]editDrawingModal['"]/g) || []).length;
+  assert.equal(n, 1, "listener editDrawingModal ditemukan " + n + "×");
+  assert.match(indexHtml, /window\.addEventListener\("editDrawingModal", handleEditDrawingModal\);/);
+});
+
+// ── #2 iframe: status loaded, read-only sampai load pertama ─────────────────────
+test("App.jsx: read-only sampai load pertama diterapkan; tidak mengirim apa pun sebelum loaded", () => {
+  assert.match(appJsx, /const loadedRef = useRef\(false\)/);
+  const mount = appJsx.match(/const handleMount = \(editor\) => \{[\s\S]*?\n {2}\}/)[0];
+  assert.match(mount, /editor\.updateInstanceState\(\{ isReadonly: true \}\)/);
+  assert.match(mount, /if \(!loadedRef\.current\) return;/);
+  const mark = appJsx.match(/const markLoaded = \(\) => \{[\s\S]*?\n {2}\}/);
+  assert.ok(mark, "markLoaded harus ada");
+  assert.match(mark[0], /loadedRef\.current = true/);
+  assert.match(mark[0], /updateInstanceState\(\{ isReadonly: false \}\)/);
+  const ph = appJsx.match(/const onPageHide = \(\) => \{[\s\S]*?\n {4}\}/)[0];
+  assert.match(ph, /loadedRef\.current/);
+  const vis = appJsx.match(/const onVisibility = \(\) => \{[\s\S]*?\n {4}\}/)[0];
+  assert.match(vis, /loadedRef\.current/);
+});
+
+test("App.jsx: load tanpa store hanya dianggap loaded bila flag empty (atau parent lama mengirim '{}')", () => {
+  assert.match(appJsx, /const hasStore = /);
+  assert.match(appJsx, /if \(hasStore\) \{[\s\S]*?markLoaded\(\)/);
+  assert.match(appJsx, /\} else if \(e\.data\.empty === true \|\| \(legacyParent && isEmptyObject\)\) \{[\s\S]{0,200}?markLoaded\(\)/);
+  assert.match(appJsx, /const legacyParent = e\.data\.v == null/);
+  assert.match(appJsx, /e\.data\?\.type === 'loadError'/);
 });
