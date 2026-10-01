@@ -520,7 +520,8 @@ describe('Drawing Directive Module', () => {
 
       // 2. _lastSavedDrawingSvg declaration and dual check
       assert.match(indexHtml, /const\s+_lastSavedDrawingSvg\s*=\s*\{\};/);
-      assert.match(indexHtml, /_lastSavedDrawingJson\[did\]\s*===\s*e\.data\.data\s*&&\s*_lastSavedDrawingSvg\[did\]\s*===\s*newSvg/);
+      // (pesan tanpa svg dari flush pagehide → dedupe cukup dari data; ada svg → data DAN svg harus sama)
+      assert.match(indexHtml, /_lastSavedDrawingJson\[did\]\s*===\s*e\.data\.data\s*&&\s*\(!hasSvg\s*\|\|\s*_lastSavedDrawingSvg\[did\]\s*===\s*e\.data\.svg\)/);
 
       // 3. MilkdownEditor drawingSaved listener
       assert.match(indexHtml, /window\.addEventListener\(['"]drawingSaved['"],\s*hydrate\)/);
@@ -528,8 +529,9 @@ describe('Drawing Directive Module', () => {
       // 4. NotePanel drawingSaved listener
       assert.match(indexHtml, /window\.addEventListener\(["']drawingSaved["'],\s*handler\)/);
 
-      // 5. QuickDrawModal immediate + delayed hydration
-      assert.match(indexHtml, /const handleClose = \(\) => \{[\s\S]*?hydrateDrawingPreviews\(null,\s*true\)[\s\S]*?setTimeout\(/);
+      // 5. QuickDrawModal: hydrate preview SETELAH snapshot terakhir iframe diterima & disimpan
+      //    (hydrate langsung di awal tutup memicu lost update — lihat drawing_sync_ui.test.js)
+      assert.match(indexHtml, /const closeAfterSave = async afterClose => \{[\s\S]*?await requestIframeSnapshot\([\s\S]*?await waitDrawingSaved\([\s\S]*?hydrateDrawingPreviews\(null,\s*true\)/);
 
       // 6. handlePrint and handleExportDocx includes('<svg')
       assert.match(indexHtml, /d\.svg_preview\.includes\(['"]<svg['"]\)/);

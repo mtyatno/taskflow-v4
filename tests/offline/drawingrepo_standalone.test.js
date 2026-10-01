@@ -52,9 +52,18 @@ test("updateDrawing patches title/data_json/tags, dedupes update outbox op", asy
   assert.equal(updated.title, "Draft Final");
   assert.equal(updated.data_json, '{"v":2}');
 
+  // Op create masih tertunda → tidak perlu op update (push create mengirim state terkini dari blob).
   const ops = await outboxAll();
-  const updateOps = ops.filter(o => o.op === "update");
+  assert.deepEqual(ops.filter(o => o.entity_type === "drawing").map(o => o.op), ["create"]);
+
+  // Setelah create terkirim, edit beruntun tetap di-dedupe menjadi SATU op update.
+  const { pushOutbox } = require("../../static/offline/syncpush.js");
+  await pushOutbox({ request: () => Promise.resolve({ status: 200, data: { id: 77, updated_at: "2026-08-19T11:00:00" } }) });
+  await TFrepo.updateDrawing(d.cid, { data_json: '{"v":3}' }, { now: "2026-08-19T11:10:00Z" });
+  await TFrepo.updateDrawing(d.cid, { data_json: '{"v":4}' }, { now: "2026-08-19T11:20:00Z" });
+  const updateOps = (await outboxAll()).filter(o => o.op === "update");
   assert.equal(updateOps.length, 1);
+  assert.equal(updateOps[0].payload.data_json, undefined, "payload op berisi metadata saja");
 });
 
 test("togglePin flips is_pinned and deleteDrawing soft deletes record", async () => {

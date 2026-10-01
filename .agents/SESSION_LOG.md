@@ -1624,3 +1624,10 @@ Chronological history of work performed by AI agents in this workspace.
 - **Changes:** Tidak ada perubahan kode. Reproduksi Playwright di app asli membuktikan RC1–RC6 (lihat CURRENT_STATE). Implementasi didelegasikan ke subagent (brief `brief-drawing-sync.md`).
 - **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** In Progress.
+
+## [2026-10-01] - Claude (fix bug drawing tldraw: persistensi & sinkron)
+- **Task:** Perbaiki 3 bug drawing (inline note hilang, edit via Draw tak muncul, mesin lain tak sinkron).
+- **Changes:** CAS `rev`/`mutateDrawing`, push dari state terkini, getDrawing/pull tanpa lost update, heal union, client_id, QuickDrawModal menunggu snapshot, reschedule push, iframe source 'user' + pagehide flush, SW v333 (detail di CURRENT_STATE). Implementasi via subagent, review subagent (berjalan), verifikasi ulang koordinator.
+- **Verifikasi:** JS 750/750, pytest 60/60, inline 5/5, repro asli & 7 acceptance E2E lulus, regresi editor hijau.
+- **Files Touch:** `static/offline/drawingrepo.js`, `static/offline/syncpush.js`, `static/offline/syncpull.js`, `static/index.html`, `draw-app/src/App.jsx`, `static/sw.js`, tests (`drawing_persist_sync`, `drawing_sync_ui` baru; `draw_local_reactive`, `drawdirective`, `drawingrepo_standalone`, `drawingsync`, `note_toc` disesuaikan), `.agents/*`
+- **Status:** Completed di branch (belum merge/deploy).

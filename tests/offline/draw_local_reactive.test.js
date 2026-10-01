@@ -70,9 +70,10 @@ describe("Unified Offline Drawing Reactivity - Local Event Reactivity", () => {
     );
     assert.match(
       quickDrawModalCode,
-      /350/,
-      "QuickDrawModal must use safe 350ms close timeout"
+      /await requestIframeSnapshot\(iframeRef\.current\?\.contentWindow,\s*3000\)/,
+      "QuickDrawModal must wait for the iframe snapshot reply (max 3000ms) before closing, not a blind 350ms timeout"
     );
+    assert.doesNotMatch(quickDrawModalCode, /,\s*350\)/, "blind 350ms close timeout must be gone");
   });
 
   it("DrawPage selectDrawing uses api.get instead of __syncRawFetch bypass", () => {
@@ -114,6 +115,11 @@ describe("Unified Offline Drawing Reactivity - Local Event Reactivity", () => {
     assert.match(bundleContent, /type:\s*["']ready["']/);
     assert.match(bundleContent, /["']load["']/);
     assert.match(bundleContent, /["']requestSnapshot["']/);
+    // bundle harus dibangun ulang dari App.jsx terbaru (sinkronisasi drawing: pagehide, reqId, svgStale, source user)
+    assert.match(bundleContent, /["']pagehide["']/);
+    assert.match(bundleContent, /reqId/);
+    assert.match(bundleContent, /svgStale/);
+    assert.match(bundleContent, /source:\s*["']user["'],\s*scope:\s*["']document["']/);
   });
 });
 

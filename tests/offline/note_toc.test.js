@@ -582,7 +582,8 @@ test("cache bust: app.css & service worker", async (t) => {
   await t.test("index.html memuat app.css?v=299", () => {
     assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=299">/);
   });
-  await t.test("sw.js CACHE = taskflow-v332-edit-mode-floating-toc", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v332-edit-mode-floating-toc";/m);
+  await t.test("sw.js CACHE di-bump untuk floating ToC (v332 atau lebih baru)", () => {
+    const m = swJs.match(/^const CACHE = "taskflow-v(\d+)-[^"]+";/m);
+    assert.ok(m && Number(m[1]) >= 332, "CACHE harus taskflow-v332-edit-mode-floating-toc atau versi sesudahnya");
   });
 });

@@ -15,6 +15,7 @@
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
   const TFblob = req("./blobstore.js", root.TF && root.TF.blobstore);
   const TFtag = req("./tagrepo.js", root.TF && root.TF.tagrepo);
+  const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
 
   const BlobStore = TFblob.makeBlobStore();
   let _fetcher = null;
@@ -35,10 +36,20 @@
     }));
   }
 
+  function matchesClientId(d, id) {
+    return !!(d && d.note_cid === undefined && d.client_id != null && String(d.client_id) === String(id));
+  }
+
   function getRaw(idOrCid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       try {
         const os = db.transaction("drawings", "readonly").objectStore("drawings");
+        // id direktif note dari mesin lain = client_id server (cid lokal bisa berbeda, mis. dibuat pull)
+        const scanClientId = () => {
+          const all = os.getAll();
+          all.onsuccess = () => resolve((all.result || []).find((d) => matchesClientId(d, idOrCid)) || null);
+          all.onerror = () => resolve(null);
+        };
         const r = os.get(idOrCid);
         r.onsuccess = () => {
           if (r.result) return resolve(r.result);
@@ -47,7 +58,7 @@
               const idx = os.index("server_id");
               const numericId = Number(idOrCid);
               const reqIdx = !isNaN(numericId) ? idx.get(numericId) : idx.get(idOrCid);
-              reqIdx.onsuccess = () => resolve(reqIdx.result || null);
+              reqIdx.onsuccess = () => (reqIdx.result ? resolve(reqIdx.result) : scanClientId());
               reqIdx.onerror = () => resolve(null);
               return;
             } catch (_) {}
@@ -56,7 +67,8 @@
           const allReq = os.getAll();
           allReq.onsuccess = () => {
             const num = Number(idOrCid);
-            const found = (allReq.result || []).find(d => d && (d.server_id == idOrCid || (!isNaN(num) && d.server_id == num)));
+            const found = (allReq.result || []).find(d => d && (d.server_id == idOrCid || (!isNaN(num) && d.server_id == num)))
+              || (allReq.result || []).find(d => matchesClientId(d, idOrCid));
             resolve(found || null);
           };
           allReq.onerror = () => resolve(null);
@@ -99,6 +111,161 @@
     }));
   }
 
+  // ── Mutasi atomik & revisi lokal ────────────────────────────────────────────
+  // `rev` = penghitung versi record lokal (undefined → 0): naik setiap isi record berubah
+  // (edit user, gabung/adopsi data server). Push/pull/getDrawing memakai `rev` sebagai CAS:
+  // tulis setelah jeda async hanya bila rev masih sama dengan saat dibaca.
+
+  // Satu transaksi readwrite: get(cid) → next = fn(current) (sinkron; undefined/null = batal) → put(next).
+  // Resolve record yang ditulis, atau null bila batal. Semua penulisan record setelah jeda async
+  // (repo, push, pull) WAJIB lewat sini agar tidak pernah menulis objek basi.
+  function mutateDrawing(cid, fn) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      let out = null;
+      let failed = null;
+      const tx = db.transaction("drawings", "readwrite");
+      const os = tx.objectStore("drawings");
+      const r = os.get(cid);
+      r.onsuccess = () => {
+        let next;
+        try { next = fn(r.result || null); } catch (err) { failed = err; try { tx.abort(); } catch (_) {} return; }
+        if (next == null) return;
+        os.put(next);
+        out = next;
+      };
+      tx.oncomplete = () => resolve(out);
+      tx.onerror = () => reject(failed || tx.error);
+      tx.onabort = () => reject(failed || tx.error || new Error("drawing mutation aborted"));
+    }));
+  }
+
+  // Sisipkan record dari server bila belum ada — cek cid DAN server_id di transaksi yang sama
+  // (idempoten terhadap getDrawing bersamaan / record yang sudah dibuat pull dengan cid lain).
+  function insertDrawingIfAbsent(rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      let out = null;
+      const tx = db.transaction("drawings", "readwrite");
+      const os = tx.objectStore("drawings");
+      const r = os.get(rec.cid);
+      r.onsuccess = () => {
+        if (r.result) { out = { rec: r.result, inserted: false }; return; }
+        const all = os.getAll();
+        all.onsuccess = () => {
+          const sid = rec.server_id != null ? String(rec.server_id) : null;
+          const found = sid == null ? null : (all.result || []).find((d) =>
+            d && d.note_cid === undefined && d.server_id != null && String(d.server_id) === sid);
+          if (found) { out = { rec: found, inserted: false }; return; }
+          os.put(rec);
+          out = { rec, inserted: true };
+        };
+      };
+      tx.oncomplete = () => resolve(out);
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
+  // Antrean op drawing (satu transaksi _outbox): bila sudah ada op create → biarkan (push create
+  // mengirim state terkini dari record+blob); bila ada op update → perbarui payload metadatanya;
+  // bila belum ada keduanya → tambah op update. Payload hanya metadata — data dibaca push dari blob.
+  function queueDrawingUpdate(cid, meta, tags) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      let added = false;
+      const tx = db.transaction("_outbox", "readwrite");
+      const os = tx.objectStore("_outbox");
+      const r = os.getAll();
+      r.onsuccess = () => {
+        const ops = (r.result || []).filter((o) => o.entity_type === "drawing" && o.cid === cid);
+        if (ops.some((o) => o.op === "create")) return;
+        const payload = Object.assign({}, meta || {});
+        if (Array.isArray(tags)) payload.tags = tags;
+        const upd = ops.find((o) => o.op === "update");
+        if (!upd) {
+          os.add({ ts: Date.now(), retries: 0, op: "update", entity_type: "drawing", cid, payload });
+          added = true;
+          return;
+        }
+        upd.payload = Object.assign({}, upd.payload || {}, payload);
+        os.put(upd);
+      };
+      tx.oncomplete = () => resolve(added);
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
+  // Pastikan ada op create/update tertunda (dipakai push bila record masih dirty setelah request,
+  // pull untuk record dirty tanpa op, dan heal). Resolve true bila op baru ditambahkan.
+  function ensureDrawingUpdateOp(cid, meta) {
+    return queueDrawingUpdate(cid, meta);
+  }
+
+  // Op diantre di luar mutasi lewat API (mis. heal saat GET) → beri tahu UI agar menjadwalkan push.
+  function notifyQueued() {
+    try {
+      if (root && typeof root.dispatchEvent === "function" && typeof CustomEvent === "function") {
+        root.dispatchEvent(new CustomEvent("tf:outbox-queued", { detail: { entity: "drawing" } }));
+      }
+    } catch (_) {}
+  }
+
+  function metaOf(rec) {
+    return { title: rec.title, svg_preview: rec.svg_preview || "", is_pinned: rec.is_pinned ? 1 : 0 };
+  }
+
+  // updateDrawing diserialkan: simpan beruntun (mis. pesan 'change' iframe yang berdekatan) diterapkan
+  // sesuai urutan panggilan, tidak bergantung urutan selesainya transaksi IndexedDB.
+  let _updateChain = Promise.resolve();
+  function serialUpdate(task) {
+    const run = _updateChain.then(task, task);
+    _updateChain = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  // ── Snapshot helpers (heal & gabung) ────────────────────────────────────────
+  function parseJson(s) {
+    if (s == null) return undefined;
+    if (typeof s !== "string") return s;
+    try { return JSON.parse(s); } catch (_) { return undefined; }
+  }
+  // Snapshot tldraw yang layak digabung: objek dengan `store` (map record).
+  function isTldrawSnapshot(s) {
+    const o = parseJson(s);
+    return !!(o && typeof o === "object" && o.store && typeof o.store === "object" && !Array.isArray(o.store));
+  }
+  // Serialisasi kanonik (kunci terurut) → bandingkan isi tanpa peduli urutan kunci.
+  function canonical(v) {
+    if (Array.isArray(v)) return "[" + v.map(canonical).join(",") + "]";
+    if (v && typeof v === "object") {
+      return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canonical(v[k])).join(",") + "}";
+    }
+    return JSON.stringify(v === undefined ? null : v);
+  }
+  function sameContent(a, b) {
+    if (a === b) return true;
+    const pa = parseJson(a), pb = parseJson(b);
+    if (pa === undefined || pb === undefined) return false;
+    return canonical(pa) === canonical(pb);
+  }
+  // mergeDrawingSnapshots milik syncpull diambil lazy saat dipakai (syncpull me-require drawingrepo).
+  function mergeSnapshots(localJson, remoteJson, opts) {
+    const pull = isNode ? require("./syncpull.js") : (root.TF && root.TF.syncpull);
+    return pull.mergeDrawingSnapshots(localJson, remoteJson, opts);
+  }
+
+  function setTags(cid, tags) {
+    if (!Array.isArray(tags) || !TFtag || !TFtag.setEntityTags) return Promise.resolve();
+    return TFtag.setEntityTags("drawing", cid, tags).catch(() => {});
+  }
+  // Petakan server_id → cid bila belum ada pemetaan (op update push butuh idmap).
+  function mapIdIfMissing(sid, cid) {
+    if (sid == null || !TFidmap || !TFidmap.cidOf) return Promise.resolve();
+    return TFidmap.cidOf("drawing", sid)
+      .then((known) => (known ? null : TFidmap.mapPut("drawing", sid, cid)))
+      .catch(() => {});
+  }
+  function dropBlob(ref) {
+    return ref ? Promise.resolve(BlobStore.delete(ref)).catch(() => {}) : Promise.resolve();
+  }
+
   // ── Standalone Drawing Methods ──────────────────────────────────────────────
 
   function createDrawing(doc, opts) {
@@ -115,25 +282,27 @@
         title: doc.title || "Untitled Drawing",
         blob_ref: ref,
         svg_preview: doc.svg_preview || "",
+        svg_stale: (dataJson !== "{}" && !doc.svg_preview) ? 1 : 0,
         is_pinned: doc.is_pinned ? 1 : 0,
         created_at: now,
         updated_at: now,
         deleted: false,
         dirty: 1,
         base_rev: null,
+        rev: 1,
       };
       return putRec(rec).then(() => {
         const tagP = (doc.tags && TFtag && TFtag.setEntityTags)
           ? TFtag.setEntityTags("drawing", cid, doc.tags)
           : Promise.resolve();
         return tagP.then(() => {
+          // Payload metadata saja: push create membaca data terkini dari blob record.
           return TFoutbox.outboxAdd({
             op: "create",
             entity_type: "drawing",
             cid,
             payload: {
               title: rec.title,
-              data_json: dataJson,
               svg_preview: rec.svg_preview,
               is_pinned: rec.is_pinned,
               tags: doc.tags || [],
@@ -145,6 +314,7 @@
             title: rec.title,
             data_json: dataJson,
             svg_preview: rec.svg_preview,
+            svg_stale: rec.svg_stale,
             is_pinned: rec.is_pinned,
             tags: doc.tags || [],
             dirty: rec.dirty,
@@ -157,6 +327,120 @@
     });
   }
 
+  // Record lokal belum ada → buat dari data server (cid = client_id server bila ada, konsisten
+  // dengan pull). Idempoten: bila cid/server_id sudah ada lokal, rekonsiliasi record itu saja.
+  function adoptServerDrawing(srv) {
+    const data = srv.data_json != null ? srv.data_json : "{}";
+    return BlobStore.put(data, { mime: "application/json" }).then((ref) => {
+      const rec = {
+        cid: srv.client_id || TFids.newCid(),
+        server_id: srv.id,
+        client_id: srv.client_id || null,
+        blob_ref: ref,
+        title: srv.title != null ? srv.title : "Untitled Drawing",
+        svg_preview: srv.svg_preview || "",
+        svg_stale: 0,
+        is_pinned: srv.is_pinned ? 1 : 0,
+        updated_at: srv.updated_at,
+        created_at: srv.created_at || srv.updated_at,
+        deleted: false,
+        dirty: 0,
+        base_rev: srv.updated_at,
+        rev: 0,
+      };
+      return insertDrawingIfAbsent(rec).then((res) => {
+        if (!res.inserted) {
+          return dropBlob(ref).then(() => (res.rec.note_cid === undefined ? reconcileWithServer(res.rec, srv) : res.rec));
+        }
+        return Promise.all([setTags(rec.cid, srv.tags || []), mapIdIfMissing(srv.id, rec.cid)]).then(() => rec);
+      });
+    });
+  }
+
+  // Server berubah (record bersih) → tulis blob server lalu CAS: hanya bila record masih bersih &
+  // rev sama dengan saat dibaca. Bila berubah selama fetch → buang blob baru & pakai lokal terkini.
+  function refreshFromServer(local, srv) {
+    const readRev = local.rev || 0;
+    return BlobStore.put(srv.data_json, { mime: "application/json" }).then((newRef) => {
+      let oldRef = null;
+      return mutateDrawing(local.cid, (cur) => {
+        if (!cur || cur.deleted || cur.dirty || (cur.rev || 0) !== readRev) return undefined;
+        oldRef = cur.blob_ref;
+        return Object.assign({}, cur, {
+          server_id: srv.id != null ? srv.id : cur.server_id,
+          blob_ref: newRef,
+          title: srv.title != null ? srv.title : cur.title,
+          svg_preview: srv.svg_preview || "",
+          svg_stale: 0,
+          is_pinned: srv.is_pinned ? 1 : 0,
+          updated_at: srv.updated_at,
+          base_rev: srv.updated_at,
+          dirty: 0,
+          rev: readRev + 1,
+        });
+      }).then((saved) => {
+        if (!saved) return dropBlob(newRef).then(() => getRaw(local.cid));
+        return Promise.all([
+          oldRef && oldRef !== newRef ? dropBlob(oldRef) : null,
+          setTags(saved.cid, srv.tags || []),
+          mapIdIfMissing(srv.id, saved.cid),
+        ]).then(() => saved);
+      });
+    });
+  }
+
+  // Heal data rusak versi lama (RC1: lokal lebih lengkap tapi ditandai bersih, server basi pada
+  // base_rev yang sama): union lokal+server, tandai dirty + svg_stale, pastikan op update.
+  function healDrawing(local, mergedJson) {
+    const readRev = local.rev || 0;
+    const now = new Date().toISOString();
+    return BlobStore.put(mergedJson, { mime: "application/json" }).then((newRef) => {
+      let oldRef = null;
+      return mutateDrawing(local.cid, (cur) => {
+        if (!cur || cur.deleted || cur.dirty || (cur.rev || 0) !== readRev) return undefined;
+        oldRef = cur.blob_ref;
+        return Object.assign({}, cur, { blob_ref: newRef, dirty: 1, rev: readRev + 1, updated_at: now, svg_stale: 1 });
+      }).then((saved) => {
+        if (!saved) return dropBlob(newRef).then(() => getRaw(local.cid));
+        return Promise.all([
+          oldRef && oldRef !== newRef ? dropBlob(oldRef) : null,
+          ensureDrawingUpdateOp(saved.cid, metaOf(saved)),
+        ]).then(() => { notifyQueued(); return saved; });
+      });
+    });
+  }
+
+  // Catat client_id server pada record lokal ber-cid lain (dibuat pull/adopsi lama) supaya id direktif
+  // note dari mesin lain (= client_id) bisa ditemukan getRaw → simpan dari QuickDraw tidak gagal.
+  function rememberClientId(local, srv) {
+    const cid = srv && srv.client_id;
+    if (!cid || !local || local.cid === cid || local.client_id === cid) return Promise.resolve(local);
+    return mutateDrawing(local.cid, (cur) => (cur ? Object.assign({}, cur, { client_id: cid }) : undefined))
+      .then((saved) => saved || local)
+      .catch(() => local);
+  }
+
+  // Rekonsiliasi record standalone lokal dengan baris server (jalur online getDrawing).
+  // Tidak pernah menghapus op outbox & tidak pernah menimpa edit lokal yang belum terkirim.
+  function reconcileWithServer(local, srv) {
+    if (!local) return adoptServerDrawing(srv);
+    return rememberClientId(local, srv).then((cur) => reconcileKnown(cur, srv));
+  }
+
+  function reconcileKnown(local, srv) {
+    if (local.deleted || local.dirty) return Promise.resolve(local); // dirty → pakai lokal (pull yang merge)
+    if (srv.data_json == null) return Promise.resolve(local);
+    if (String(srv.updated_at) !== String(local.base_rev)) return refreshFromServer(local, srv);
+    return Promise.resolve(BlobStore.getBytes(local.blob_ref)).catch(() => undefined).then((bytes) => {
+      if (bytes === srv.data_json) return local;
+      if (!isTldrawSnapshot(bytes)) return refreshFromServer(local, srv); // blob lokal hilang/rusak
+      if (sameContent(bytes, srv.data_json)) return local;
+      const merged = mergeSnapshots(bytes, srv.data_json, { preferRemote: false });
+      if (sameContent(merged, srv.data_json)) return refreshFromServer(local, srv); // lokal tak menambah apa pun
+      return healDrawing(local, merged);
+    });
+  }
+
   function getDrawing(idOrCid, opts) {
     opts = opts || {};
     const fetcher = opts.fetch || _fetcher;
@@ -164,65 +448,14 @@
 
     return getRaw(idOrCid).then((rec) => {
       // If we don't have it locally or we want to sync it, we should fetch it if online
-      const doFetch = (fetcher && online) ? Promise.resolve(fetcher(idOrCid)).catch(()=>null) : Promise.resolve(null);
+      const doFetch = (fetcher && online)
+        ? Promise.resolve().then(() => fetcher(idOrCid)).catch(() => null)
+        : Promise.resolve(null);
 
       return doFetch.then((srv) => {
         if (srv && srv.title !== undefined) {
-           // It's a standalone drawing from the server!
-           const newTitle = srv.title;
-           const newSvg = srv.svg_preview || "";
-           const isPinned = srv.is_pinned || 0;
-           const tags = srv.tags || [];
-
-           if (!rec) {
-              // Create local record for standalone drawing
-              return BlobStore.put(srv.data_json, { mime: "application/json" }).then((ref) => {
-                 const newRec = {
-                    cid: TFids.newCid(),
-                    server_id: srv.id,
-                    blob_ref: ref,
-                    title: newTitle,
-                    svg_preview: newSvg,
-                    is_pinned: isPinned,
-                    updated_at: srv.updated_at,
-                    created_at: srv.created_at || srv.updated_at,
-                    deleted: false,
-                    dirty: 0,
-                    base_rev: srv.updated_at
-                 };
-                 return putRec(newRec).then(() => {
-                    const tagP = (TFtag && TFtag.setEntityTags) ? TFtag.setEntityTags("drawing", newRec.cid, tags) : Promise.resolve();
-                    return tagP.then(() => newRec);
-                 });
-              });
-           } else {
-              // Update existing local record if not dirty or server is newer
-              if (rec.dirty === 0 || tsEpoch(srv.updated_at) > tsEpoch(rec.base_rev)) {
-                 return BlobStore.put(srv.data_json, { mime: "application/json" }).then((ref) => {
-                    const oldRef = rec.blob_ref;
-                    if (oldRef && oldRef !== ref) BlobStore.delete(oldRef);
-                    rec.server_id = srv.id;
-                    rec.blob_ref = ref;
-                    rec.title = newTitle;
-                    rec.svg_preview = newSvg;
-                    rec.is_pinned = isPinned;
-                    rec.updated_at = srv.updated_at;
-                    rec.base_rev = srv.updated_at;
-                    // Note: intentionally keeping rec.dirty as is if there's an outbox conflict, but updating base_rev might be dangerous if dirty.
-                    // For now, simple LWW:
-                    rec.dirty = 0;
-                    return putRec(rec).then(() => {
-                       const tagP = (TFtag && TFtag.setEntityTags) ? TFtag.setEntityTags("drawing", rec.cid, tags) : Promise.resolve();
-                       return tagP.then(() => {
-                           return TFoutbox.outboxByEntity("drawing", rec.cid).then(ops => {
-                               return Promise.all(ops.map(o => TFoutbox.outboxDelete(o.id)));
-                           }).then(() => rec);
-                       });
-                    });
-                 });
-              }
-              return rec; // keep local dirty changes
-           }
+          // Standalone drawing dari server → rekonsiliasi (tanpa lost update)
+          return reconcileWithServer(rec && rec.note_cid === undefined ? rec : null, srv);
         } else if (srv && srv.data_json != null) {
            // Legacy note-attached drawing fetched from server
            return getDrawingLocal(idOrCid).then((local) => {
@@ -240,7 +473,7 @@
         return getDrawingLocal(idOrCid);
       }).then((finalRec) => {
          if (!finalRec || finalRec.deleted) return null;
-         
+
          if (finalRec.note_cid === undefined) {
             // Standalone drawing format
             return Promise.resolve(BlobStore.getBytes(finalRec.blob_ref)).then((bytes) => {
@@ -254,6 +487,7 @@
                 title: finalRec.title || "Untitled Drawing",
                 data_json: bytes || "{}",
                 svg_preview: finalRec.svg_preview || "",
+                svg_stale: finalRec.svg_stale ? 1 : 0,
                 is_pinned: finalRec.is_pinned || 0,
                 tags: tagNames,
                 created_at: finalRec.created_at,
@@ -332,85 +566,78 @@
     });
   }
 
+  // Simpan edit: tulis blob baru dulu, lalu terapkan ke record terkini secara atomik (dirty 1, rev+1);
+  // blob lama dihapus SETELAH mutasi sukses. Antrean: op update metadata (lihat queueDrawingUpdate).
   function updateDrawing(idOrCid, patch, opts) {
     patch = patch || {};
     opts = opts || {};
     const now = opts.now || new Date().toISOString();
 
-    return getRaw(idOrCid).then((rec) => {
-      if (!rec || rec.deleted) {
+    return serialUpdate(() => getRaw(idOrCid).then((rec0) => {
+      if (!rec0 || rec0.deleted) {
         return Promise.reject(new Error("Drawing not found"));
       }
+      const cid = rec0.cid;
+      const hasData = patch.data_json !== undefined;
+      const blobP = hasData ? BlobStore.put(patch.data_json, { mime: "application/json" }) : Promise.resolve(null);
 
-      const newTitle = patch.title !== undefined ? patch.title : rec.title;
-      const newSvg = patch.svg_preview !== undefined ? patch.svg_preview : rec.svg_preview;
-      const dataPromise = patch.data_json !== undefined
-        ? BlobStore.put(patch.data_json, { mime: "application/json" }).then((newRef) => {
-            const oldRef = rec.blob_ref;
-            if (oldRef && oldRef !== newRef) BlobStore.delete(oldRef);
-            rec.blob_ref = newRef;
-            return patch.data_json;
-          })
-        : Promise.resolve(BlobStore.getBytes(rec.blob_ref));
-
-      return dataPromise.then((dataJson) => {
-        rec.title = newTitle;
-        rec.svg_preview = newSvg;
-        rec.updated_at = now;
-        rec.dirty = 1;
-
-        return putRec(rec).then(() => {
-          const tagP = (patch.tags && Array.isArray(patch.tags) && TFtag && TFtag.setEntityTags)
-            ? TFtag.setEntityTags("drawing", rec.cid, patch.tags)
+      return blobP.then((newRef) => {
+        let oldRef = null;
+        return mutateDrawing(cid, (cur) => {
+          if (!cur || cur.deleted) return undefined;
+          const next = Object.assign({}, cur);
+          if (patch.title !== undefined) next.title = patch.title;
+          if (patch.svg_preview !== undefined) next.svg_preview = patch.svg_preview;
+          // svg_stale: svg preview tidak mewakili data terbaru (mis. flush pagehide tanpa svg)
+          if (patch.svg_stale !== undefined) next.svg_stale = patch.svg_stale ? 1 : 0;
+          else if (patch.svg_preview !== undefined) next.svg_stale = 0;
+          else if (hasData) next.svg_stale = 1;
+          if (newRef) { oldRef = cur.blob_ref; next.blob_ref = newRef; }
+          next.updated_at = now;
+          next.dirty = 1;
+          next.rev = (cur.rev || 0) + 1;
+          return next;
+        }).then((saved) => {
+          if (!saved) {
+            return dropBlob(newRef).then(() => Promise.reject(new Error("Drawing not found")));
+          }
+          const tagP = (Array.isArray(patch.tags) && TFtag && TFtag.setEntityTags)
+            ? TFtag.setEntityTags("drawing", cid, patch.tags)
             : Promise.resolve();
-
-          return tagP.then(() => {
-            return TFoutbox.outboxByEntity("drawing", rec.cid).then((ops) => {
-              const pendingUpdate = ops.find((o) => o.op === "update");
-              if (pendingUpdate) return rec;
-              return TFoutbox.outboxAdd({
-                op: "update",
-                entity_type: "drawing",
-                cid: rec.cid,
-                payload: {
-                  title: rec.title,
-                  data_json: dataJson,
-                  svg_preview: rec.svg_preview,
-                  is_pinned: rec.is_pinned,
-                  tags: patch.tags,
-                },
-              }).then(() => rec);
-            }).then(() => ({
-              id: rec.server_id != null ? rec.server_id : rec.cid,
-              cid: rec.cid,
-              server_id: rec.server_id,
-              title: rec.title,
+          return Promise.all([oldRef && oldRef !== newRef ? dropBlob(oldRef) : null, tagP])
+            .then(() => queueDrawingUpdate(cid, metaOf(saved), patch.tags))
+            .then(() => (hasData ? patch.data_json : BlobStore.getBytes(saved.blob_ref)))
+            .then((dataJson) => ({
+              id: saved.server_id != null ? saved.server_id : saved.cid,
+              cid: saved.cid,
+              server_id: saved.server_id,
+              title: saved.title,
               data_json: dataJson,
-              svg_preview: rec.svg_preview,
-              is_pinned: rec.is_pinned || 0,
+              svg_preview: saved.svg_preview,
+              svg_stale: saved.svg_stale ? 1 : 0,
+              is_pinned: saved.is_pinned || 0,
               tags: patch.tags || [],
-              created_at: rec.created_at,
-              updated_at: rec.updated_at,
+              created_at: saved.created_at,
+              updated_at: saved.updated_at,
             }));
-          });
         });
       });
-    });
+    }));
   }
 
   function deleteDrawing(idOrCid) {
     return getRaw(idOrCid).then((rec) => {
       if (!rec) return { ok: true };
-      rec.deleted = true;
-      rec.dirty = 1;
-      return putRec(rec).then(() => {
-        return TFoutbox.outboxAdd({
+      return mutateDrawing(rec.cid, (cur) => (cur
+        ? Object.assign({}, cur, { deleted: true, dirty: 1, rev: (cur.rev || 0) + 1 })
+        : undefined))
+        .then(() => TFoutbox.outboxAdd({
           op: "delete",
           entity_type: "drawing",
           cid: rec.cid,
           payload: {},
-        }).then(() => ({ ok: true }));
-      });
+        }))
+        .then(() => ({ ok: true }));
     });
   }
 
@@ -419,18 +646,89 @@
       if (!rec || rec.deleted) {
         return Promise.reject(new Error("Drawing not found"));
       }
-      rec.is_pinned = rec.is_pinned ? 0 : 1;
-      return putRec(rec).then(() => {
-        return TFoutbox.outboxAdd({
-          op: "pin",
-          entity_type: "drawing",
-          cid: rec.cid,
-          payload: { is_pinned: rec.is_pinned },
-        }).then(() => ({
-          id: rec.server_id != null ? rec.server_id : rec.cid,
-          is_pinned: rec.is_pinned,
-        }));
+      return mutateDrawing(rec.cid, (cur) => ((!cur || cur.deleted)
+        ? undefined
+        : Object.assign({}, cur, { is_pinned: cur.is_pinned ? 0 : 1 })))
+        .then((saved) => {
+          if (!saved) return Promise.reject(new Error("Drawing not found"));
+          return TFoutbox.outboxAdd({
+            op: "pin",
+            entity_type: "drawing",
+            cid: saved.cid,
+            payload: { is_pinned: saved.is_pinned },
+          }).then(() => ({
+            id: saved.server_id != null ? saved.server_id : saved.cid,
+            is_pinned: saved.is_pinned,
+          }));
+        });
+    });
+  }
+
+  // ── Op outbox versi lama ────────────────────────────────────────────────────
+  // Op drawing sebelum perbaikan menyimpan salinan data_json di payload (bisa basi); push kini
+  // membaca blob. Record BERSIH + op update lama = blob sempat ditimpa versi server oleh getDrawing
+  // lama sementara edit user hanya ada di payload → gabungkan payload ke blob (union) supaya tidak
+  // hilang. Blob hilang/rusak → pakai payload. Setelah itu salinan data_json dibuang dari payload.
+  function stripPayloadData(qid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("_outbox", "readwrite");
+      const os = tx.objectStore("_outbox");
+      const r = os.get(qid);
+      r.onsuccess = () => {
+        const op = r.result;
+        if (!op || !op.payload || op.payload.data_json === undefined) return;
+        const payload = Object.assign({}, op.payload);
+        delete payload.data_json;
+        op.payload = payload;
+        os.put(op);
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
+  function upgradeLegacyOp(op) {
+    const payloadData = op.payload.data_json;
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("drawings", "readonly").objectStore("drawings").get(op.cid);
+      r.onsuccess = () => resolve(r.result || null);
+      r.onerror = () => reject(r.error);
+    })).then((rec) => {
+      if (!rec || rec.note_cid !== undefined || rec.deleted) return null;
+      return Promise.resolve(BlobStore.getBytes(rec.blob_ref)).catch(() => undefined).then((bytes) => {
+        let next = null;
+        const payloadOk = isTldrawSnapshot(payloadData);
+        if (!isTldrawSnapshot(bytes)) {
+          if (payloadOk) next = payloadData; // blob hilang/rusak → data payload
+        } else if (op.op === "update" && !rec.dirty && payloadOk && !sameContent(bytes, payloadData)) {
+          next = mergeSnapshots(bytes, payloadData, { preferRemote: true });
+          if (sameContent(next, bytes)) next = null;
+        }
+        if (next == null) return null;
+        const readRev = rec.rev || 0;
+        const svgFresh = sameContent(next, payloadData) && typeof op.payload.svg_preview === "string";
+        return BlobStore.put(next, { mime: "application/json" }).then((newRef) => {
+          let oldRef = null;
+          return mutateDrawing(rec.cid, (cur) => {
+            if (!cur || cur.deleted || (cur.rev || 0) !== readRev || !!cur.dirty !== !!rec.dirty) return undefined;
+            oldRef = cur.blob_ref;
+            const upd = { blob_ref: newRef, dirty: 1, rev: readRev + 1, svg_stale: svgFresh ? 0 : 1 };
+            if (svgFresh) upd.svg_preview = op.payload.svg_preview;
+            return Object.assign({}, cur, upd);
+          }).then((saved) => (saved
+            ? (oldRef && oldRef !== newRef ? dropBlob(oldRef) : null)
+            : dropBlob(newRef)));
+        });
       });
+    }).then(() => stripPayloadData(op.qid));
+  }
+
+  function upgradeLegacyDrawingOps() {
+    return TFoutbox.outboxAll().then((ops) => {
+      const legacy = ops.filter((o) => o.entity_type === "drawing" && (o.op === "update" || o.op === "create")
+        && o.payload && typeof o.payload.data_json === "string");
+      return legacy.reduce((chain, op) => chain.then(() => upgradeLegacyOp(op).catch(() => null)), Promise.resolve())
+        .then(() => legacy.length);
     });
   }
 
@@ -483,6 +781,11 @@
     deleteDrawing,
     togglePin,
     getRaw,
+    mutateDrawing,
+    ensureDrawingUpdateOp,
+    upgradeLegacyDrawingOps,
+    isTldrawSnapshot,
+    sameContent,
     putDrawing,
     getDrawingLocal,
     cacheServerDrawing,

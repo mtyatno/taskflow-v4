@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v332-edit-mode-floating-toc";
+const CACHE = "taskflow-v333-drawing-sync-fix";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

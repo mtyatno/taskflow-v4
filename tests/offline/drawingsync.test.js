@@ -172,7 +172,12 @@ test("Test 2: healStrandedDrawings identifies stranded unpushed drawings and app
   const op1 = healedOps.find((o) => o.cid === "draw-s1");
   assert.equal(op1.payload.title, "Stranded 1");
   assert.deepEqual(op1.payload.tags, ["sketch"]);
-  assert.equal(op1.payload.data_json, '{"d":1}');
+  // Payload metadata saja (tidak ada salinan data_json yang bisa basi); push membaca data dari blob.
+  assert.equal(op1.payload.data_json, undefined);
+  const tr = fakeTransport((method, path, body) => ({ status: 200, data: { id: body.client_id === "draw-s1" ? 9001 : 9002, updated_at: "2026-08-25T12:00:00" } }));
+  await pushOutbox(tr);
+  const post1 = tr.calls.find((c) => c.body && c.body.client_id === "draw-s1");
+  assert.equal(post1.body.data_json, '{"d":1}');
 });
 
 // Test 3: healStrandedDrawings does not duplicate outbox op if create op already exists in _outbox
@@ -825,13 +830,20 @@ test("Test 20: pullDrawings performs smart shape auto-merge on dirty local drawi
   assert.equal(mergedObj.store["shape:1"].props.h, 200);
   assert.equal(mergedObj.store["shape:1"].props.text, "Remote text"); // preferRemote was true
 
-  // Outbox op was updated with merged JSON
+  // Op outbox tetap satu, metadata ikut hasil merge; salinan data_json lama dibuang (push membaca blob).
   const ops = await outboxAll();
   assert.equal(ops.length, 1);
   const op = ops[0];
   assert.equal(op.cid, "draw-conflict");
-  assert.equal(op.payload.data_json, mergedBlobData);
+  assert.equal(op.payload.data_json, undefined);
   assert.equal(op.payload.title, "Server Title");
+  // Push berikutnya mengirim hasil merge (data blob terkini).
+  const tr = fakeTransport(() => ({ status: 200, data: { id: 1001, updated_at: "2026-08-25T11:05:00" } }));
+  await pushOutbox(tr);
+  assert.equal(tr.calls.length, 1);
+  assert.equal(tr.calls[0].method, "PUT");
+  assert.equal(tr.calls[0].path, "/api/drawings/1001");
+  assert.equal(tr.calls[0].body.data_json, mergedBlobData);
 });
 
 // Test 21: pullDrawings / ensureDrawingCid matches local drawing by client_id when server_id is null or string

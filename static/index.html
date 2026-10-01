@@ -541,9 +541,15 @@ let __pushTimer = null;
 function schedulePush() {
   if (!navigator.onLine || !(window.TF && window.TF.syncpush)) return;
   clearTimeout(__pushTimer);
-  __pushTimer = setTimeout(() => { window.TF.syncpush.pushOutbox(__syncTransport).catch(() => {}); }, 1500);
+  __pushTimer = setTimeout(() => {
+    window.TF.syncpush.pushOutbox(__syncTransport)
+      .then((r) => { if (r && r.busy) schedulePush(); }) // push lain masih berjalan → jadwalkan ulang agar edit terakhir tetap terkirim
+      .catch(() => {});
+  }, 1500);
 }
 window.__pushNow = () => (window.TF && window.TF.syncpush) ? window.TF.syncpush.pushOutbox(__syncTransport) : Promise.resolve(null);
+// Op outbox diantre di luar mutasi API (mis. heal drawing saat dibuka) → tetap dijadwalkan push
+window.addEventListener("tf:outbox-queued", () => schedulePush());
 const __syncRawFetch = (u) => window.fetch(apiUrl(u), { headers: __token ? { Authorization: "Bearer " + __token } : {} });
 if (window.TF && window.TF.drawingrepo && window.TF.idmap) {
   window.TF.drawingrepo.configureFetcher((idOrCid) => {
@@ -585,7 +591,7 @@ function sync() {
       });
     })
     .then(() => window.TF.syncpush.pushOutbox(__syncTransport))
-    .then((r) => { renderConflicts(); return r; })
+    .then((r) => { if (r && r.busy) schedulePush(); renderConflicts(); return r; })
     .catch(() => { renderConflicts(); return null; });
 }
 function renderConflicts() {
@@ -9257,7 +9263,8 @@ function DrawingTabInstance({
             lastLoadedJsonRef.current = fresh.data_json;
             iframeRef.current.contentWindow.postMessage({
               type: 'load',
-              data: fresh.data_json
+              data: fresh.data_json,
+              svgStale: !!fresh.svg_stale
             }, window.location.origin);
           }
         } catch (_) {}
@@ -9271,6 +9278,8 @@ function DrawingTabInstance({
     const handler = async (e) => {
       if (e.origin !== window.location.origin) return;
       if (e.source !== iframeRef.current?.contentWindow) return;
+      // data yang dikirim iframe ini sendiri sudah ada di kanvas → jangan dipantulkan balik sebagai 'load'
+      if (e.data?.type === 'change' && e.data.data) { lastLoadedJsonRef.current = e.data.data; return; }
       if (e.data?.type === 'ready' && tab?.id) {
         try {
           const doc = await api.get(`/api/drawings/${tab.id}`);
@@ -9278,7 +9287,8 @@ function DrawingTabInstance({
             lastLoadedJsonRef.current = doc.data_json;
             iframeRef.current.contentWindow.postMessage({
               type: 'load',
-              data: doc.data_json
+              data: doc.data_json,
+              svgStale: !!doc.svg_stale
             }, window.location.origin);
           }
         } catch (_) {}
@@ -9384,7 +9394,7 @@ function DrawingTabInstance({
     style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, height: "100%" }
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
-    src: `/static/vendor/tldraw/index.html?noteId=${tab.id}&v=142`,
+    src: `/static/vendor/tldraw/index.html?noteId=${tab.id}&v=143`,
     style: { flex: 1, border: "none", width: "100%", height: "100%" },
     title: "Draw editor"
   }))
@@ -17680,6 +17690,41 @@ function FloatingToc({
   // BLOCK LENGTH: ~2074 lines (16220-18294) — 2nd LARGEST block in codebase
 
 // ── Quick-Draw Modal & Drawing Insert Dialog ────────────────
+// Minta snapshot terakhir dari iframe tldraw lalu TUNGGU balasan 'change' ber-reqId sama (maks timeoutMs).
+// Resolve data pesan, atau null bila iframe tidak membalas (data tetap aman: iframe mem-flush saat pagehide).
+function requestIframeSnapshot(iframeWin, timeoutMs) {
+  return new Promise(resolve => {
+    if (!iframeWin) { resolve(null); return; }
+    const reqId = 'snap-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    let timer = null;
+    const cleanup = () => { clearTimeout(timer); window.removeEventListener('message', onMsg); };
+    const onMsg = e => {
+      if (e.origin !== window.location.origin || e.source !== iframeWin) return;
+      if (e.data?.type !== 'change' || e.data.reqId !== reqId) return;
+      cleanup();
+      resolve(e.data);
+    };
+    window.addEventListener('message', onMsg);
+    timer = setTimeout(() => { cleanup(); resolve(null); }, timeoutMs || 3000);
+    try {
+      iframeWin.postMessage({ type: 'requestSnapshot', reqId }, window.location.origin);
+    } catch (_) { cleanup(); resolve(null); }
+  });
+}
+
+// Tunggu simpanan global (handleIframeMessage di App) untuk drawing ini selesai, maks timeoutMs.
+function waitDrawingSaved(did, timeoutMs) {
+  return new Promise(resolve => {
+    // beri kesempatan listener 'message' global mendaftarkan simpanannya lebih dulu
+    setTimeout(() => {
+      const p = _drawingSaveInFlight[String(did)];
+      if (!p) { resolve(); return; }
+      const t = setTimeout(resolve, timeoutMs || 3000);
+      Promise.resolve(p).catch(() => {}).then(() => { clearTimeout(t); resolve(); });
+    }, 0);
+  });
+}
+
 function QuickDrawModal({
   drawingId,
   drawingTitle = "",
@@ -17691,6 +17736,8 @@ function QuickDrawModal({
   const [title, setTitle] = useState(drawingTitle || "Gambar");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(drawingTitle || "Gambar");
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (drawingId) {
@@ -17718,7 +17765,8 @@ function QuickDrawModal({
             lastLoadedJsonRef.current = fresh.data_json;
             iframeRef.current.contentWindow.postMessage({
               type: 'load',
-              data: fresh.data_json
+              data: fresh.data_json,
+              svgStale: !!fresh.svg_stale
             }, window.location.origin);
           }
         } catch (_) {}
@@ -17732,6 +17780,8 @@ function QuickDrawModal({
     const handler = async (e) => {
       if (e.origin !== window.location.origin) return;
       if (e.source !== iframeRef.current?.contentWindow) return;
+      // data yang dikirim iframe ini sendiri sudah ada di kanvas → jangan dipantulkan balik sebagai 'load'
+      if (e.data?.type === 'change' && e.data.data) { lastLoadedJsonRef.current = e.data.data; return; }
       if (e.data?.type === 'ready' && drawingId) {
         try {
           const doc = await api.get(`/api/drawings/${drawingId}`);
@@ -17739,7 +17789,8 @@ function QuickDrawModal({
             lastLoadedJsonRef.current = doc.data_json;
             iframeRef.current.contentWindow.postMessage({
               type: 'load',
-              data: doc.data_json
+              data: doc.data_json,
+              svgStale: !!doc.svg_stale
             }, window.location.origin);
           }
         } catch (_) {}
@@ -17760,26 +17811,28 @@ function QuickDrawModal({
     }
   };
 
-  const handleClose = () => {
-    if (iframeRef.current?.contentWindow) {
-      iframeRef.current.contentWindow.postMessage({ type: 'requestSnapshot' }, window.location.origin);
-    }
+  // Tutup setelah snapshot terakhir benar-benar diterima & disimpan (bukan jeda buta).
+  const closeAfterSave = async afterClose => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const reply = await requestIframeSnapshot(iframeRef.current?.contentWindow, 3000);
+      if (reply) await waitDrawingSaved(reply.noteId || drawingId, 3000);
+    } catch (_) {}
+    onClose && onClose();
+    window.dispatchEvent(new CustomEvent("drawingSaved", { detail: { id: drawingId } }));
     if (typeof window.hydrateDrawingPreviews === 'function') {
       window.hydrateDrawingPreviews(null, true);
     }
-    setTimeout(() => {
-      onClose && onClose();
-      window.dispatchEvent(new CustomEvent("drawingSaved", { detail: { id: drawingId } }));
-      if (typeof window.hydrateDrawingPreviews === 'function') {
-        window.hydrateDrawingPreviews(null, true);
-      }
-    }, 350);
+    afterClose && afterClose();
   };
 
-  const handleOpenStandalone = () => {
-    handleClose();
+  const handleClose = () => { closeAfterSave(); };
+
+  const handleOpenStandalone = () => closeAfterSave(() => {
     window.dispatchEvent(new CustomEvent("openDrawing", { detail: drawingId }));
-  };
+  });
 
   return /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
@@ -17804,13 +17857,13 @@ function QuickDrawModal({
       /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setIsEditingTitle(true), style: { fontSize: 11, padding: "2px 6px" } }, "✏️ Ubah Judul")
   ),
   /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-    /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: handleOpenStandalone, style: { fontSize: 12 } }, "↗️ Buka di Halaman Draw"),
-    /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleClose, style: { fontSize: 12 } }, "✓ Selesai")
+    /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: handleOpenStandalone, disabled: saving, style: { fontSize: 12 } }, "↗️ Buka di Halaman Draw"),
+    /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleClose, disabled: saving, style: { fontSize: 12 } }, saving ? "Menyimpan…" : "✓ Selesai")
   )),
   /*#__PURE__*/React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" } },
     /*#__PURE__*/React.createElement("iframe", {
       ref: iframeRef,
-      src: `/static/vendor/tldraw/index.html?noteId=${drawingId}&v=142`,
+      src: `/static/vendor/tldraw/index.html?noteId=${drawingId}&v=143`,
       style: { flex: 1, border: "none", width: "100%", height: "100%" },
       title: "Quick Draw editor"
     })
@@ -24671,6 +24724,8 @@ function BackupReminder({ showToast }) {
 
 const _lastSavedDrawingJson = {};
 const _lastSavedDrawingSvg = {};
+// Simpanan drawing yang sedang berjalan per id (QuickDrawModal menunggu ini sebelum menutup)
+const _drawingSaveInFlight = {};
 
 function App() {
   const [user, setUser] = useState(null);
@@ -25160,22 +25215,28 @@ function App() {
     const handleIframeMessage = async e => {
       if (e.origin !== window.location.origin) return;
       if (e.data?.type === 'change' && e.data.data && e.data.noteId && e.data.noteId !== 'default') {
-        const did = e.data.noteId;
-        const newSvg = e.data.svg !== undefined && e.data.svg !== null ? e.data.svg : "";
-        if (_lastSavedDrawingJson[did] === e.data.data && _lastSavedDrawingSvg[did] === newSvg) return;
+        const did = String(e.data.noteId);
+        // Pesan tanpa svg (flush pagehide iframe) → simpan data saja & tandai svg_stale; dedupe cukup dari data
+        const hasSvg = e.data.svg !== undefined && e.data.svg !== null;
+        if (_lastSavedDrawingJson[did] === e.data.data && (!hasSvg || _lastSavedDrawingSvg[did] === e.data.svg)) return;
         _lastSavedDrawingJson[did] = e.data.data;
-        _lastSavedDrawingSvg[did] = newSvg;
-        const payload = { data_json: e.data.data };
-        if (e.data.svg !== undefined && e.data.svg !== null) {
-          payload.svg_preview = e.data.svg;
-        }
+        if (hasSvg) _lastSavedDrawingSvg[did] = e.data.svg;
+        const payload = { data_json: e.data.data, svg_stale: hasSvg ? 0 : 1 };
+        if (hasSvg) payload.svg_preview = e.data.svg;
+        const savePromise = api.put(`/api/drawings/${did}`, payload);
+        _drawingSaveInFlight[did] = savePromise;
         try {
-          await api.put(`/api/drawings/${did}`, payload);
+          await savePromise;
           window.dispatchEvent(new CustomEvent("drawingSaved", { detail: { id: did } }));
           if (typeof window.hydrateDrawingPreviews === 'function') {
             window.hydrateDrawingPreviews(null, true);
           }
-        } catch (_) {}
+        } catch (_) {
+          // gagal simpan → lepas cache dedupe agar pesan identik berikutnya dicoba lagi
+          if (_lastSavedDrawingJson[did] === e.data.data) delete _lastSavedDrawingJson[did];
+        } finally {
+          if (_drawingSaveInFlight[did] === savePromise) delete _drawingSaveInFlight[did];
+        }
       }
     };
     window.addEventListener("editDrawingModal", handleEditDrawingModal);

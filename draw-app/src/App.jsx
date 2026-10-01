@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo } from 'react'
-import { Tldraw, exportToBlob } from 'tldraw'
+import { Tldraw, exportToBlob, loadSnapshot } from 'tldraw'
 import 'tldraw/tldraw.css'
 
 // Self-hosted tldraw assets (offline-first). Di-vendor dari cdn.tldraw.com/2.4.6 ke
@@ -143,8 +143,12 @@ async function doExport(editor, shapeIds, format, helpers) {
 export default function App() {
   const noteId = new URLSearchParams(window.location.search).get('noteId') || 'default'
   const editorRef = useRef(null)
-  const isRemoteLoadingRef = useRef(false)
-  const lastSnapshotStrRef = useRef("")
+  const lastSnapshotStrRef = useRef("")   // snapshot terakhir yang dikirim/dimuat (deteksi gema)
+  const recentSentRef = useRef([])        // beberapa snapshot terakhir yang dikirim iframe ini
+  const userRevRef = useRef(0)            // naik setiap ada perubahan dokumen oleh user
+  const sentRevRef = useRef(0)            // userRev yang sudah terkirim ke parent
+  const syncSeqRef = useRef(0)            // nomor urut snapshot yang diambil
+  const postedSeqRef = useRef(0)          // nomor urut snapshot terakhir yang terkirim
   const debounceTimerRef = useRef(null)
 
   const uiOverrides = useMemo(() => ({
@@ -191,14 +195,37 @@ export default function App() {
     },
   }), []);
 
-  const syncToParent = async () => {
+  const rememberSent = (snapshot) => {
+    lastSnapshotStrRef.current = snapshot
+    const arr = recentSentRef.current
+    if (arr[arr.length - 1] !== snapshot) arr.push(snapshot)
+    if (arr.length > 3) arr.shift()
+  }
+
+  // Kirim snapshot + svg ke parent. reqId (opsional) = balasan requestSnapshot (parent menunggu sebelum menutup).
+  const syncToParent = async (reqId) => {
     if (!editorRef.current) return;
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
     try {
       const editor = editorRef.current;
-      const snapshot = JSON.stringify(editor.store.getSnapshot());
-      lastSnapshotStrRef.current = snapshot;
+      const rev = userRevRef.current;
+      const seq = ++syncSeqRef.current;
+      const snapshot = JSON.stringify(editor.store.getStoreSnapshot());
+      rememberSent(snapshot);
       const svg = await generateSvgString(editor);
-      window.parent.postMessage({ type: 'change', noteId, data: snapshot, svg }, '*');
+      if (seq < postedSeqRef.current) {
+        // snapshot yang lebih baru sudah terkirim lebih dulu (svg async selesai terbalik) → jangan kirim yang basi
+        if (reqId) window.parent.postMessage({ type: 'change', noteId, data: null, reqId }, '*');
+        return;
+      }
+      postedSeqRef.current = seq;
+      const msg = { type: 'change', noteId, data: snapshot, svg };
+      if (reqId) msg.reqId = reqId;
+      window.parent.postMessage(msg, '*');
+      if (rev > sentRevRef.current) sentRevRef.current = rev;
     } catch (err) {
       console.error('syncToParent error:', err);
     }
@@ -214,24 +241,27 @@ export default function App() {
         try {
           const incomingRaw = e.data.data;
           const incomingStr = typeof incomingRaw === 'string' ? incomingRaw : JSON.stringify(incomingRaw);
-          if (incomingStr === lastSnapshotStrRef.current) return;
-          isRemoteLoadingRef.current = true;
-          if (debounceTimerRef.current) {
-            clearTimeout(debounceTimerRef.current);
-            debounceTimerRef.current = null;
+          // Gema: snapshot yang baru saja dikirim iframe ini sendiri → abaikan (jangan timpa coretan yang lebih baru)
+          const isEcho = incomingStr === lastSnapshotStrRef.current || recentSentRef.current.includes(incomingStr);
+          if (!isEcho) {
+            const snapshot = typeof incomingRaw === 'string' ? JSON.parse(incomingRaw) : incomingRaw;
+            const editor = editorRef.current;
+            // Muat sebagai perubahan REMOTE: tidak memicu listener source 'user' (tidak dikirim balik) dan
+            // tanpa jendela buta — coretan user sesaat setelah load tetap terekam & tersimpan.
+            editor.store.mergeRemoteChanges(() => {
+              loadSnapshot(editor.store, snapshot);
+            });
+            lastSnapshotStrRef.current = incomingStr;
           }
-          const snapshot = typeof incomingRaw === 'string' ? JSON.parse(incomingRaw) : incomingRaw;
-          editorRef.current.store.loadSnapshot(snapshot);
-          lastSnapshotStrRef.current = incomingStr;
-          setTimeout(() => {
-            isRemoteLoadingRef.current = false;
-          }, 800);
-        } catch (_) {
-          isRemoteLoadingRef.current = false;
+          // svg preview di parent basi (mis. tersimpan lewat flush pagehide tanpa svg) → kirim snapshot+svg segar sekali
+          if (e.data.svgStale) setTimeout(() => syncToParent(), 50);
+        } catch (err) {
+          console.error('load snapshot error:', err);
         }
       }
-      if (e.data?.type === 'requestSnapshot' && editorRef.current) {
-        syncToParent();
+      if (e.data?.type === 'requestSnapshot') {
+        if (editorRef.current) syncToParent(e.data.reqId);
+        else window.parent.postMessage({ type: 'change', noteId, data: null, reqId: e.data.reqId }, '*');
       }
       if (e.data?.type === 'export' && editorRef.current) {
         doExport(editorRef.current, null, e.data.format || 'png', null);
@@ -241,15 +271,48 @@ export default function App() {
     return () => window.removeEventListener('message', handler)
   }, [noteId])
 
+  useEffect(() => {
+    // Iframe dibongkar (tab Draw ditutup / pindah halaman / modal ditutup) sebelum debounce 600ms jalan:
+    // kirim snapshot terakhir secara SINKRON tanpa svg (svg async tidak sempat) → parent menandai svg_stale.
+    const onPageHide = () => {
+      const editor = editorRef.current;
+      if (editor && userRevRef.current !== sentRevRef.current) {
+        try {
+          if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = null;
+          }
+          const snapshot = JSON.stringify(editor.store.getStoreSnapshot());
+          window.parent.postMessage({ type: 'change', noteId, data: snapshot }, '*');
+          postedSeqRef.current = ++syncSeqRef.current;
+          sentRevRef.current = userRevRef.current;
+          rememberSent(snapshot);
+        } catch (_) {}
+      }
+    }
+    // Aplikasi masuk background (HP) → kirim perubahan tertunda sekarang, jangan tunggu debounce
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden' && userRevRef.current !== sentRevRef.current) syncToParent();
+    }
+    window.addEventListener('pagehide', onPageHide)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('pagehide', onPageHide)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [noteId])
+
   const handleMount = (editor) => {
     editorRef.current = editor
     window.parent.postMessage({ type: 'ready', noteId }, '*')
 
+    // Hanya perubahan dokumen oleh USER yang dikirim ke parent; snapshot yang dimuat dari parent
+    // (mergeRemoteChanges → source 'remote') tidak memicu listener ini.
     editor.store.listen(() => {
-      if (isRemoteLoadingRef.current) return;
+      userRevRef.current++;
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = setTimeout(syncToParent, 600);
-    }, { scope: 'document' })
+      debounceTimerRef.current = setTimeout(() => syncToParent(), 600);
+    }, { source: 'user', scope: 'document' })
   }
 
   return (
