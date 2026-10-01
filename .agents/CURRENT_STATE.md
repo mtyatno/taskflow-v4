@@ -6,6 +6,16 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🔴 IN PROGRESS: Bug drawing (tldraw) — persistensi inline note, edit via Draw, sinkron antar mesin — 2026-10-01 (Claude)
+- **Keluhan user:** (1) gambar inline di note hilang/tidak terlihat setelah note ditutup; (2) edit via menu Draw tidak muncul di note; (3) mesin lain tidak sinkron.
+- **Direproduksi di app asli (Playwright, server uvicorn lokal + tldraw di-build lokal):** script di scratchpad sesi (`e2e/repro_all.cjs`, `repro_close4.cjs`, `repro_a3b.cjs`, `repro_bug1c.cjs`, helper `drawlib.cjs`).
+  - RC1 payload antrian basi: `drawingrepo.updateDrawing` tidak memperbarui op `update` yang sudah ada; `syncpush.opDrawingUpdate/Create` mengirim `op.payload.data_json` lalu `dirty:0` → 6 coretan, server menerima 1.
+  - RC2 lost update `drawingrepo.getDrawing` online: menulis balik objek `rec` basi + blob server bila `dirty===0` (dan menghapus op outbox) → klik "Selesai" cepat: 4 coretan tersimpan lalu tertimpa jadi 0 (dipicu `hydrateDrawingPreviews` di awal `QuickDrawModal.handleClose` → fallback `api.get`). Buka gambar di halaman Draw memuat versi server basi (1 dari 6) dan menimpa lokal.
+  - RC3 write-back basi di push (rec dibaca sebelum request); RC4 handleClose hanya menunggu 350ms; RC5 `schedulePush` tidak reschedule saat `busy`; RC6 pull menimpa dirty tanpa op.
+- **Rencana fix (brief di scratchpad `brief-drawing-sync.md`):** `rev` + `mutateDrawing` atomik (CAS), push kirim state terkini dari blob, getDrawing tak pernah menimpa dirty/hapus op, heal data rusak lama (union merge `mergeDrawingSnapshots`, preferRemote:false, `svg_stale`), QuickDrawModal menunggu snapshot, iframe dengar perubahan `source:'user'` + `pagehide` flush, SW v333.
+- **Baseline test:** JS 696/696 (bundle tldraw lokal terbangun → `draw_local_reactive` ikut lulus), pytest 60.
+- **Catatan:** `static/vendor/tldraw/` gitignored — dibangun di VPS saat deploy (`cd draw-app && npm ci && npx vite build`); perubahan `draw-app/src/App.jsx` butuh SW bump agar klien mengambil bundle baru (cache-first).
+
 ## 🟢 Floating ToC 📑 di mode edit (ganti kolom `NoteToc`) — 2026-09-30 (Claude) — SELESAI & LIVE (fast-forward push ke main `cf3a570..f63f04e`, Deploy run 809 + Tests run 289 sukses 2026-10-01 00:21 UTC, SW v332)
 - **Masalah:** di HP, edit catatan ≥2 heading → kolom `NoteToc` 120px di NoteModal membelah layar (editor 206px di 390px); klik item ToC mode edit salah target (`#note-h-N` milik panel baca).
 - **Solusi:** komponen reusable `FloatingToc({ items, activeIdx, onJump, onOpen, className })` (tombol 📑 + popover) dipakai NotePanel (baca, perilaku sama) & NoteModal (edit). Mode edit: heading dari dokumen ProseMirror (`extractDocHeadings(doc)` → pos; "# ..." di code block tidak ikut), lompat via `view.nodeDOM(pos).scrollIntoView` tanpa memindah kursor, scroll-spy IntersectionObserver di DOM heading editor, sinkron ulang saat `content` berubah (retry 150ms×40 sampai editor siap) & saat popover dibuka. `NoteToc` + CSS `.note-toc-panel` dihapus. Anchor dirender di dalam root modal (fixed, z-index 1000 = konteks tumpuk sendiri) → z-index 45 cukup; varian `floating-toc-anchor--modal` hanya geser desktop `right: 8px`.

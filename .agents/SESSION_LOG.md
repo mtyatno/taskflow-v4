@@ -1618,3 +1618,9 @@ Chronological history of work performed by AI agents in this workspace.
 - **Changes:** `git push origin HEAD:main` fast-forward `cf3a570..f63f04e` (5 commit: docs riset, `ff94c20`, `3fabcc4`, `f63f04e`). Tests #289 & Deploy #809 sukses; log VPS: "Updating cf3a570..f63f04e Fast-forward" (7 file). Live tidak bisa di-curl dari container cloud (network policy).
 - **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed & LIVE (SW v332). PENDING user: hard refresh + cek di HP.
+
+## [2026-10-01] - Claude (investigasi bug drawing tldraw)
+- **Task:** Investigasi 3 bug drawing (persistensi inline, edit via Draw, sinkron antar mesin).
+- **Changes:** Tidak ada perubahan kode. Reproduksi Playwright di app asli membuktikan RC1–RC6 (lihat CURRENT_STATE). Implementasi didelegasikan ke subagent (brief `brief-drawing-sync.md`).
+- **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** In Progress.
