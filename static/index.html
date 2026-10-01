@@ -21034,20 +21034,7 @@ function NotePanel({
       display: "flex",
       alignItems: "center"
     }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "x", size: 18 })))), (note.tags || []).length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 5,
-      flexWrap: "wrap",
-      marginBottom: 14
-    }
-  }, (note.tags || []).map(t => /*#__PURE__*/React.createElement("span", {
-    key: t,
-    className: "note-tag",
-    style: {
-      fontSize: 11
-    }
-  }, "#", t))), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "x", size: 18 })))), /*#__PURE__*/React.createElement("div", {
     className: "note-rendered",
     ref: tocSpyRef,
     style: {
@@ -21057,7 +21044,21 @@ function NotePanel({
     dangerouslySetInnerHTML: {
       __html: renderMarkdown(note.content || "", titleStrings, allNotes, tasks) || '<span style="color:var(--text-light);font-style:italic">Catatan kosong.</span>'
     }
-  }), outlinks.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }), (note.tags || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 5,
+      flexWrap: "wrap",
+      marginTop: 18,
+      marginBottom: 6
+    }
+  }, (note.tags || []).map(t => /*#__PURE__*/React.createElement("span", {
+    key: t,
+    className: "note-tag",
+    style: {
+      fontSize: 11
+    }
+  }, "#", t))), outlinks.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "notes-section-label"
   }, /*#__PURE__*/React.createElement(Icon, { name: "link", size: 13, style: { marginRight: 5 } }), "Links keluar (", outlinks.length, ")"), outlinks.map(n => /*#__PURE__*/React.createElement("div", {
     key: n.id,

@@ -10,6 +10,8 @@
 - **Keluhan:** di mobile, aksi note (share/pin/Publish/Export/Edit/hapus/tutup) terpecah 2 baris. **Perbaikan:** label teks (Publish/Export/Edit) dibungkus `.note-act-label` dan disembunyikan ≤640px; Publish pakai ikon `globe` (+`lock` bila ber-password), Export ikon `download`; `ui-components.js` ditambah ikon `globe`/`lock`; `.notes-panel-actions` nowrap di mobile, tombol tutup `margin-left:auto`. Desktop: label tetap + ikon baru.
 - **Verifikasi:** E2E 390px: tinggi baris 36px (1 baris), tanpa overflow; JS/inline hijau.
 
+- **Tag note viewer (lanjutan, SW v339):** blok tag `#...` dipindah dari atas (sebelum isi) ke SETELAH isi note (`note-rendered`), sebelum Links keluar; `marginTop:18`. E2E 390px: tag di bawah isi.
+
 ## 🟢 Topbar mobile full-bleed — 2026-10-01 (Claude) — SELESAI di branch `claude/cool-gates-qa4eg9` (BELUM merge/deploy, SW v336, app.css?v=300)
 - **Keluhan:** di mobile, sisi kiri/kanan topbar terpotong (tidak sampai tepi layar). **Akar:** `.mobile-topbar` dirender DI DALAM `.main-content` yang ber-padding 16px (+safe-area) di ≤768px, jadi ikut terinset.
 - **Perbaikan:** `static/app.css` (media ≤768px): `.mobile-topbar` margin kiri/kanan negatif = padding main-content (termasuk safe-area), `margin-top:-8px`, padding dalam dikompensasi. Tanpa perubahan JS. SW `taskflow-v336-mobile-topbar-bleed`; tes versi disesuaikan (`note_toc`, `drawing_sync_ui`).

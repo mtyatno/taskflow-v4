@@ -1681,3 +1681,8 @@ Chronological history of work performed by AI agents in this workspace.
 - **Changes:** label aksi disembunyikan di mobile, ikon globe/lock/download, nowrap; SW v338, app.css?v=301.
 - **Files Touch:** `static/index.html`, `static/app.css`, `static/ui-components.js`, `static/sw.js`, tests versi, `.agents/*`
 - **Status:** Completed di branch (belum merge/deploy).
+
+## [2026-10-01] - Claude (tag note viewer ke bawah)
+- **Changes:** blok tag dipindah setelah isi note di `static/index.html`; SW v339.
+- **Verifikasi:** E2E 390px visual benar; JS 796/796, inline 5/5.
+- **Status:** Completed di branch (belum merge/deploy).
