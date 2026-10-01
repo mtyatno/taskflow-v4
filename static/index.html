@@ -50,7 +50,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=300">
+  <link rel="stylesheet" href="/static/app.css?v=301">
 
 <style>
 .paper-mode-active {
@@ -20942,7 +20942,7 @@ function NotePanel({
       alignItems: "center",
       gap: 3
     }
-  }, publishedMeta?.password_set ? "🔗🔒 Publish" : "🔗 Publish"), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "globe", size: 15 }), publishedMeta?.password_set && /*#__PURE__*/React.createElement(Icon, { name: "lock", size: 12 }), /*#__PURE__*/React.createElement("span", { className: "note-act-label" }, "Publish")), /*#__PURE__*/React.createElement("div", {
     "data-export-dropdown": true,
     style: { position: "relative", display: "inline-block" }
   }, /*#__PURE__*/React.createElement("button", {
@@ -20961,7 +20961,7 @@ function NotePanel({
       alignItems: "center",
       gap: 4
     }
-  }, "Export ", /*#__PURE__*/React.createElement("span", { style: { fontSize: 8, transform: exportMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" } }, "▼")), exportMenuOpen && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "download", size: 15 }), /*#__PURE__*/React.createElement("span", { className: "note-act-label" }, "Export"), /*#__PURE__*/React.createElement("span", { style: { fontSize: 8, transform: exportMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" } }, "▼")), exportMenuOpen && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "absolute",
       top: "calc(100% + 4px)",
@@ -21005,7 +21005,7 @@ function NotePanel({
       alignItems: "center",
       gap: 5
     }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "edit", size: 14 }), "Edit"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "edit", size: 14 }), /*#__PURE__*/React.createElement("span", { className: "note-act-label" }, "Edit")), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       if (window.confirm("Hapus catatan ini?")) onDelete(note.id);
     },

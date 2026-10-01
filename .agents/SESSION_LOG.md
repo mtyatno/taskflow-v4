@@ -1676,3 +1676,8 @@ Chronological history of work performed by AI agents in this workspace.
 - **Changes:** emoji → `Icon` search/bell di `static/index.html`; SW v337; tes versi disesuaikan.
 - **Verifikasi:** screenshot 390px konsisten; JS & inline hijau.
 - **Status:** Completed di branch (belum merge/deploy).
+
+## [2026-10-01] - Claude (toolbar note viewer 1 baris mobile)
+- **Changes:** label aksi disembunyikan di mobile, ikon globe/lock/download, nowrap; SW v338, app.css?v=301.
+- **Files Touch:** `static/index.html`, `static/app.css`, `static/ui-components.js`, `static/sw.js`, tests versi, `.agents/*`
+- **Status:** Completed di branch (belum merge/deploy).

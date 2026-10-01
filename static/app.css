@@ -894,7 +894,10 @@
     .notes-panel-title { font-size: 17px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; line-height: 1.35; word-break: break-word; }
     @media (max-width: 640px) {
       .notes-panel-meta { width: 100%; }
-      .notes-panel-actions { width: 100%; }
+      .notes-panel-actions { width: 100%; flex-wrap: nowrap; gap: 6px; }
+      .notes-panel-actions .note-act-label { display: none; }
+      .notes-panel-actions > button, .notes-panel-actions [data-export-dropdown] > button { padding: 5px 9px !important; }
+      .notes-panel-actions > button:last-child { margin-left: auto; }
     }
     .notes-nav-trail { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 11px; color: var(--text-light); margin-bottom: 6px; background: var(--bg-primary); border-radius: 6px; padding: 4px 8px; }
     .notes-nav-crumb { cursor: pointer; color: var(--accent); }

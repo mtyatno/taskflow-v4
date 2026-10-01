@@ -6,6 +6,10 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Toolbar aksi note viewer 1 baris di mobile — 2026-10-01 (Claude) — SELESAI di branch `claude/cool-gates-qa4eg9` (BELUM merge/deploy, SW v338, app.css?v=301)
+- **Keluhan:** di mobile, aksi note (share/pin/Publish/Export/Edit/hapus/tutup) terpecah 2 baris. **Perbaikan:** label teks (Publish/Export/Edit) dibungkus `.note-act-label` dan disembunyikan ≤640px; Publish pakai ikon `globe` (+`lock` bila ber-password), Export ikon `download`; `ui-components.js` ditambah ikon `globe`/`lock`; `.notes-panel-actions` nowrap di mobile, tombol tutup `margin-left:auto`. Desktop: label tetap + ikon baru.
+- **Verifikasi:** E2E 390px: tinggi baris 36px (1 baris), tanpa overflow; JS/inline hijau.
+
 ## 🟢 Topbar mobile full-bleed — 2026-10-01 (Claude) — SELESAI di branch `claude/cool-gates-qa4eg9` (BELUM merge/deploy, SW v336, app.css?v=300)
 - **Keluhan:** di mobile, sisi kiri/kanan topbar terpotong (tidak sampai tepi layar). **Akar:** `.mobile-topbar` dirender DI DALAM `.main-content` yang ber-padding 16px (+safe-area) di ≤768px, jadi ikut terinset.
 - **Perbaikan:** `static/app.css` (media ≤768px): `.mobile-topbar` margin kiri/kanan negatif = padding main-content (termasuk safe-area), `margin-top:-8px`, padding dalam dikompensasi. Tanpa perubahan JS. SW `taskflow-v336-mobile-topbar-bleed`; tes versi disesuaikan (`note_toc`, `drawing_sync_ui`).
