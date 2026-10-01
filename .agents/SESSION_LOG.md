@@ -1657,3 +1657,9 @@ Chronological history of work performed by AI agents in this workspace.
 - **PENDING user:** restart `taskflow-web` di VPS (webapp.py berubah), hard refresh (SW v335), rebuild APK.
 - **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed (LIVE).
+
+## [2026-10-01] - Claude (konfirmasi user fix drawing)
+- **Task:** Penutupan — user mengonfirmasi bug drawing sudah hilang setelah deploy.
+- **Changes:** Hanya catatan. Proses uji lokal (uvicorn :8765, pemantau log) dihentikan.
+- **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed.

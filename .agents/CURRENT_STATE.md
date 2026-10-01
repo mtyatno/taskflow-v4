@@ -18,6 +18,7 @@
 - **Bug pra-ada ditemukan (belum diperbaiki):** (a) op `pin` drawing tidak punya handler di `processOp` → pin tak pernah sampai server; (b) klik preview gambar di editor note membuka 2 QuickDrawModal (App + NoteModal sama-sama mendengar `editDrawingModal`).
 - **Catatan deploy:** `static/vendor/tldraw/` dibangun di VPS saat deploy (vite) — perubahan App.jsx ikut terbangun; SW v333 memaksa klien mengambil bundle baru.
 - **Deploy 2026-10-01:** log job: VPS `git pull` fast-forward `f63f04e..c5364ef` (19 file), compile.js skip, `vite build` draw-app sukses (index.js 1,133 kB), pip OK. **PENDING user:** (1) `sudo systemctl restart taskflow-web` di VPS — deploy.yml TIDAK me-restart service, jadi `client_id` di `GET /api/drawings` (webapp.py) belum aktif sampai restart (detail endpoint sudah kirim client_id, jadi sinkron tetap jalan sebagian); (2) hard refresh browser → SW `taskflow-v335-drawing-sync-robust`; (3) rebuild APK/.exe. Verifikasi curl live tidak bisa dari container cloud.
+- **Konfirmasi user (2026-10-01):** setelah deploy, user melaporkan bug drawing sudah hilang di pemakaian nyata.
 
 ## 🟢 Floating ToC 📑 di mode edit (ganti kolom `NoteToc`) — 2026-09-30 (Claude) — SELESAI & LIVE (fast-forward push ke main `cf3a570..f63f04e`, Deploy run 809 + Tests run 289 sukses 2026-10-01 00:21 UTC, SW v332)
 - **Masalah:** di HP, edit catatan ≥2 heading → kolom `NoteToc` 120px di NoteModal membelah layar (editor 206px di 390px); klik item ToC mode edit salah target (`#note-h-N` milik panel baca).
