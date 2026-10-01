@@ -18165,7 +18165,8 @@ function NoteModal({
   sharedLists = [],
   currentUserId,
   noteTitles: noteTitlesProp = [],
-  onNavigate
+  onNavigate,
+  initialBlockTarget = null
 }) {
   const [title, setTitle] = useState(note?.title || "");
   const [titleManuallyEdited, setTitleManuallyEdited] = useState(false);
@@ -18452,6 +18453,71 @@ function NoteModal({
     } else if (el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
     if (h.idx !== item.idx) setTocActiveIdx(h.idx);
   };
+  // Auto-focus and scroll to specific clicked block on double-click from viewer
+  React.useEffect(() => {
+    if (!initialBlockTarget) return;
+    let timer = null;
+    let tries = 0;
+    const locateAndFocus = () => {
+      const view = getEditorView();
+      if (!view) {
+        if (++tries < 40) timer = setTimeout(locateAndFocus, 100);
+        return;
+      }
+      const MB = window.MilkdownBundle;
+      if (!MB?.editorViewCtx) return;
+      const doc = view.state.doc;
+      let targetPos = null;
+
+      // Strategy 1: Match by text snippet
+      if (initialBlockTarget.text) {
+        const needle = initialBlockTarget.text.slice(0, 50).toLowerCase();
+        doc.descendants((node, pos) => {
+          if (targetPos !== null) return false;
+          if (node.isBlock && node.isTextblock) {
+            const txt = (node.textContent || '').trim().toLowerCase();
+            if (txt && (txt.includes(needle) || needle.includes(txt.slice(0, 30)))) {
+              targetPos = pos + 1;
+              return false;
+            }
+          }
+        });
+      }
+
+      // Strategy 2: Fallback by index counter among textblocks
+      if (targetPos === null && typeof initialBlockTarget.index === 'number' && initialBlockTarget.index >= 0) {
+        let blockCount = 0;
+        doc.descendants((node, pos) => {
+          if (targetPos !== null) return false;
+          if (node.isBlock && node.isTextblock) {
+            if (blockCount === initialBlockTarget.index) {
+              targetPos = pos + 1;
+              return false;
+            }
+            blockCount++;
+          }
+        });
+      }
+
+      if (targetPos !== null) {
+        try {
+          const $pos = doc.resolve(Math.min(targetPos, doc.content.size));
+          const sel = MB.TextSelection ? MB.TextSelection.near($pos) : null;
+          let tr = view.state.tr;
+          if (sel) tr = tr.setSelection(sel);
+          view.dispatch(tr.scrollIntoView());
+          view.focus();
+
+          const domNode = view.nodeDOM ? (view.nodeDOM($pos.before($pos.depth)) || view.nodeDOM($pos.pos)) : null;
+          if (domNode && domNode.scrollIntoView) {
+            domNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        } catch (_) {}
+      }
+    };
+    locateAndFocus();
+    return () => clearTimeout(timer);
+  }, [initialBlockTarget]);
   // Scroll-spy: observer pada DOM heading editor; dibuat ulang hanya saat struktur heading berubah
   const editorTocKey = editorToc ? editorToc.map(h => h.level + ":" + h.text).join("\n") : "";
   React.useEffect(() => {
@@ -19308,7 +19374,7 @@ function NoteModal({
     placeholder: "Judul catatan...",
     value: title,
     onChange: e => { setTitle(e.target.value); setTitleManuallyEdited(true); },
-    autoFocus: !focusMode,
+    autoFocus: !focusMode && !initialBlockTarget,
     style: {
       fontSize: !focusMode ? 22 : undefined
     }
@@ -21161,7 +21227,19 @@ function NotePanel({
     onClick: handlePreviewClick,
     onDoubleClick: e => {
       if (e.target && e.target.closest && e.target.closest('input, a, button, [data-tasklink], [data-wiki-id], [data-wiki-title], [data-drawing-preview]')) return;
-      if (typeof onEdit === 'function') onEdit();
+      const container = e.currentTarget;
+      const blockEl = e.target && e.target.closest ? e.target.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, tr') : null;
+      let blockTarget = null;
+      if (blockEl && container) {
+        const allBlocks = Array.from(container.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, tr'));
+        const idx = allBlocks.indexOf(blockEl);
+        blockTarget = {
+          text: (blockEl.textContent || '').trim().slice(0, 80),
+          index: idx >= 0 ? idx : 0,
+          tag: blockEl.tagName ? blockEl.tagName.toLowerCase() : 'p'
+        };
+      }
+      if (typeof onEdit === 'function') onEdit(blockTarget);
     },
     title: "Double-click untuk mengedit catatan",
     dangerouslySetInnerHTML: {
@@ -21420,6 +21498,7 @@ function NotesPage({
   const [activeTags, setActiveTags] = useState([]);
   const [tagList, setTagList] = useState([]);
   const [selected, setSelected] = useState(null);
+  const [initialBlockTarget, setInitialBlockTarget] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [openTabs, setOpenTabs] = useState([]);   // max 5
   const [activeTabId, setActiveTabId] = useState(null);
@@ -21697,10 +21776,12 @@ function NotesPage({
   const maxTagCount = Math.max(...tagList.map(t => t.count || 0), 1);
   const openNew = () => {
     setSelected({});
+    setInitialBlockTarget(null);
     setShowModal(true);
   };
-  const openEdit = n => {
+  const openEdit = (n, blockTarget) => {
     setSelected(n);
+    setInitialBlockTarget(blockTarget || null);
     setShowModal(true);
   };
   const handleSave = async data => {
@@ -22283,7 +22364,7 @@ function NotesPage({
       navTrail: navTrail,
       onTaskClick: onTaskClick,
       tasks: tasks,
-      onEdit: () => openEdit(activeNote),
+      onEdit: blockTarget => openEdit(activeNote, blockTarget),
       onClose: () => closeTab(activeNote.id),
       onDelete: id => {
         handleDelete(id);
@@ -22314,9 +22395,11 @@ function NotesPage({
     key: selected?.id,
     note: selected,
     tasks: tasks,
+    initialBlockTarget: initialBlockTarget,
     onClose: () => {
       setShowModal(false);
       setSelected(null);
+      setInitialBlockTarget(null);
     },
     onSave: handleSave,
     onDelete: handleDelete,

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v342-note-title-wrap-fix";
+const CACHE = "taskflow-v343-double-click-block-focus";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/offline/ids.js",

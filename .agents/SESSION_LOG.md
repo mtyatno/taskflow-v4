@@ -2,6 +2,34 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-02 03:30] - Antigravity (Gemini)
+- **Task:** Double-Click Editor Block Focus & Auto-Scroll (`static/index.html`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`).
+- **Objective:**
+  - Saat pengguna melakukan double-click pada blok teks tertentu di viewer (`NotePanel`), editor (`NoteModal`) terbuka dan posisi caret kursor ProseMirror langsung ditempatkan pada blok yang diklik, bukan selalu di awal dokumen atau judul catatan.
+  - Halaman editor otomatis melakukan smooth scroll agar blok target berada di tengah viewport (`block: 'center'`).
+- **Changes:**
+  - `static/index.html`:
+    - `NotePanel`: Pada `onDoubleClick` container preview `.note-rendered`, mengekstrak elemen blok terdekat (`p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, tr`) untuk mendapatkan `blockTarget = { text, index, tag }`, lalu memanggil `onEdit(blockTarget)`.
+    - `NotesPage`: Menambahkan state `initialBlockTarget`, meneruskannya ke `openEdit(note, blockTarget)` dan menyuplai prop `initialBlockTarget` ke `<NoteModal>`.
+    - `NoteModal`:
+      - Menonaktifkan `autoFocus` pada input judul catatan jika `initialBlockTarget` ada (`autoFocus: !focusMode && !initialBlockTarget`).
+      - Menambahkan `useEffect` polling retry (hingga 40x @ 100ms) untuk mendeteksi kesiapan ProseMirror `view`.
+      - Menelusuri `doc.descendants` untuk menemukan node teks yang cocok dengan `initialBlockTarget.text` (atau kecocokan index ke-N).
+      - Menetapkan seleksi caret via `Selection.near($pos)`, mengirim transaksi `scrollIntoView()`, memanggil `view.focus()`, dan melakukan `domNode.scrollIntoView({ behavior: 'smooth', block: 'center' })`.
+  - `static/sw.js`:
+    - Bump Service Worker cache version ke **`taskflow-v343-double-click-block-focus`**.
+  - `tests/offline/interactive_note_viewer.test.js`:
+    - Menambahkan Test 9 yang memvalidasi ekstraksi blok double-click, passing `initialBlockTarget`, penonaktifan judul `autoFocus`, dan ProseMirror node targeting.
+  - `tests/offline/drawing_sync_ui.test.js`:
+    - Memperbarui asersi versi Service Worker ke `v343`.
+- **Verification:**
+  - Unit test suite: `node --test tests/offline/interactive_note_viewer.test.js` ➡️ **10/10 pass (0 fail)**.
+  - Drawing sync UI test suite: `node --test tests/offline/drawing_sync_ui.test.js` ➡️ **37/37 pass (0 fail)**.
+  - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **805/805 pass (0 fail)** across 7 suites.
+  - Python backend test suite: `python -m pytest tests/` ➡️ **61/61 pass (0 fail)**.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`, `docs/superpowers/plans/2026-10-02-double-click-editor-block-focus.md`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-10-02 03:00] - Antigravity (Gemini)
 - **Task:** Fix Note Title Truncation / Wrapping to Second Line on Note Viewer (`static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`).
 - **Objective:**

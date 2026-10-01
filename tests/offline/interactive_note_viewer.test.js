@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v342-note-title-wrap-fix/,
-      "sw.js should be bumped to taskflow-v342-note-title-wrap-fix"
+      /taskflow-v343-double-click-block-focus/,
+      "sw.js should be bumped to taskflow-v343-double-click-block-focus"
     );
   });
 
@@ -163,6 +163,48 @@ test("Interactive Note Viewer Specifications", async (t) => {
       notePanelCode,
       /className:\s*["']note-title-pencil["']/,
       "NotePanel should render the pencil icon with note-title-pencil class"
+    );
+  });
+
+  await t.test("9. Double-Click Block Cursor Positioning and Focus in NoteModal", () => {
+    // Extract NotesPage component code
+    const notesPageMatch = indexHtml.match(/function NotesPage\([\s\S]*?^function HabitCheckinModal/m);
+    const notesPageCode = notesPageMatch ? notesPageMatch[0] : "";
+    assert.ok(notesPageCode.length > 0, "NotesPage function should be present in static/index.html");
+
+    // NotePanel onDoubleClick should capture blockTarget and pass to onEdit
+    assert.match(
+      notePanelCode,
+      /blockTarget\s*=\s*\{[\s\S]*?text[\s\S]*?index[\s\S]*?\}/,
+      "NotePanel onDoubleClick should extract blockTarget with text and index"
+    );
+
+    // NotesPage should maintain initialBlockTarget state and pass to NoteModal
+    assert.match(
+      notesPageCode,
+      /initialBlockTarget/,
+      "NotesPage should manage initialBlockTarget state"
+    );
+
+    // NoteModal should accept initialBlockTarget
+    assert.match(
+      noteModalCode,
+      /initialBlockTarget/,
+      "NoteModal should accept initialBlockTarget prop"
+    );
+
+    // NoteModal title input should not steal autoFocus when initialBlockTarget is provided
+    assert.match(
+      noteModalCode,
+      /autoFocus:\s*!focusMode\s*&&\s*!initialBlockTarget/,
+      "NoteModal title input should suppress autoFocus when initialBlockTarget is present"
+    );
+
+    // NoteModal should search ProseMirror doc for block and set selection
+    assert.match(
+      noteModalCode,
+      /doc\.descendants\([\s\S]*?targetPos/,
+      "NoteModal should search doc.descendants for target block position"
     );
   });
 });

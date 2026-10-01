@@ -64,6 +64,26 @@
   - **BLOKER build lokal:** `Z:` = drive cloud; `milkdown-build/node_modules/@milkdown` tak terbaca ("The cloud file provider is not running") → `npm run build` bundle butuh cloud provider aktif atau `npm install` ulang. Setelah build: bump SW + rebuild .exe/APK.
   - **NEXT (kalau user setuju):** brainstorming → spec → plan → SDD (sesuai PROTOCOL).
 
+- **Double-Click Block Cursor Positioning & Auto-Scroll in NoteModal (`static/index.html`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`) — SELESAI 2026-10-02 (Antigravity/Gemini):**
+  - **Problem / Context:**
+    - Sebelumnya, saat pengguna melakukan double-click pada blok/paragraf tertentu di mode baca (`NotePanel`), editor `NoteModal` terbuka tetapi posisi kursor default berada di judul (`autoFocus`) atau di awal dokumen (posisi 0). Pengguna harus menggulir dan mencari ulang blok yang ingin diedit secara manual.
+  - **Solusi / Perbaikan:**
+    1. `static/index.html`:
+       - Di `NotePanel.onDoubleClick`: Menangkap blok elemen terdekat (`p, h1..h6, li, blockquote, pre, tr`), mengekstrak cuplikan teks (`blockText`), tag, dan indeks blok di container, lalu memanggil `onEdit(blockTarget)`.
+       - Di `NotesPage`: Menambahkan state `initialBlockTarget`, menerima `openEdit(note, blockTarget)`, dan meneruskannya ke `<NoteModal initialBlockTarget={...}>`.
+       - Di `NoteModal`:
+         - Menerima prop `initialBlockTarget`.
+         - Menonaktifkan `autoFocus` pada input judul catatan saat `initialBlockTarget` tersedia (`autoFocus: !focusMode && !initialBlockTarget`).
+         - Menambahkan `useEffect` yang menelusuri node ProseMirror (`doc.descendants`), mencocokkan blok berdasarkan cuplikan teks (atau fallback indeks blok), lalu memposisikan kursor (`TextSelection.near($pos)`), memanggil `view.focus()`, dan menggulir viewport editor agar blok berada di tengah layar (`scrollIntoView({ behavior: 'smooth', block: 'center' })`).
+    2. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v343-double-click-block-focus`**.
+    3. Unit Tests:
+       - `tests/offline/interactive_note_viewer.test.js`: Menambahkan Test 9 (10/10 pass) memvalidasi ekstraksi `blockTarget`, penerusan prop di `NotesPage`, penekanan autoFocus input judul di `NoteModal`, dan pencarian node ProseMirror via `doc.descendants`.
+       - `tests/offline/drawing_sync_ui.test.js`: Memperbarui asersi cache version ke v343.
+  - **Verifikasi:**
+    - Targeted unit tests: `node --test tests/offline/interactive_note_viewer.test.js` ➡️ **10/10 pass (0 fail)**.
+    - SW cache version: v343.
+
 - **Fix Note Title Wrapping / Truncation on Note Viewer (`static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`) — SELESAI 2026-10-02 (Antigravity/Gemini):**
   - **Problem / Root Cause:**
     - Pada implementasi inline title edit sebelumnya, elemen pembungkus judul menggunakan `display: "inline-flex"` dengan `gap: 6` di dalam container `.notes-panel-title` yang memiliki `word-break: break-word`. Di mesin render Blink/Chromium, flex item teks anonim di dalam `inline-flex` yang memiliki `gap` dan `word-break: break-word` mengalami pengurangan ruang horizontal sub-pixel saat pengukuran intrinsic sizing. Akibatnya, karakter terakhir kata apa pun (misalnya huruf `r` pada kata `Belajar`) terpotong dan terlempar ke baris kedua.
