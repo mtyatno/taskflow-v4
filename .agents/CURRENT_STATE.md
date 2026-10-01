@@ -64,6 +64,28 @@
   - **BLOKER build lokal:** `Z:` = drive cloud; `milkdown-build/node_modules/@milkdown` tak terbaca ("The cloud file provider is not running") → `npm run build` bundle butuh cloud provider aktif atau `npm install` ulang. Setelah build: bump SW + rebuild .exe/APK.
   - **NEXT (kalau user setuju):** brainstorming → spec → plan → SDD (sesuai PROTOCOL).
 
+- **Fix Note Title Wrapping / Truncation on Note Viewer (`static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`) — SELESAI 2026-10-02 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    - Pada implementasi inline title edit sebelumnya, elemen pembungkus judul menggunakan `display: "inline-flex"` dengan `gap: 6` di dalam container `.notes-panel-title` yang memiliki `word-break: break-word`. Di mesin render Blink/Chromium, flex item teks anonim di dalam `inline-flex` yang memiliki `gap` dan `word-break: break-word` mengalami pengurangan ruang horizontal sub-pixel saat pengukuran intrinsic sizing. Akibatnya, karakter terakhir kata apa pun (misalnya huruf `r` pada kata `Belajar`) terpotong dan terlempar ke baris kedua.
+  - **Solusi / Perbaikan:**
+    1. `static/app.css`:
+       - Mengubah `.notes-panel-title` dari `word-break: break-word` menjadi `word-break: normal; overflow-wrap: break-word;`.
+       - Menambahkan styling `.note-title-clickable` (`cursor: pointer; word-break: normal; overflow-wrap: break-word;`) dengan hover effect warna accent dan pensil lebih kontras.
+    2. `static/index.html`:
+       - Mengubah span pembungkus judul dari `display: inline-flex; alignItems: center; gap: 6` menjadi normal inline flow dengan kelas `.note-title-clickable`, `wordBreak: "normal"`, dan `overflowWrap: "break-word"`.
+       - Ikon pensil ✏️ diberi kelas `.note-title-pencil` dengan `marginLeft: 6` dan `verticalAlign: "middle"`.
+    3. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v342-note-title-wrap-fix`**.
+    4. Unit Tests:
+       - `tests/offline/interactive_note_viewer.test.js`: Menambahkan Test 8 untuk memvalidasi pencegahan pemotongan kata judul (`word-break: normal`, `overflow-wrap: break-word`, kelas `note-title-clickable` & `note-title-pencil`), serta memperbarui asersi versi SW ke v342 (9/9 pass).
+       - `tests/offline/drawing_sync_ui.test.js`: Memperbarui asersi cache bust SW ke v342 (38/38 pass).
+  - **Verifikasi:**
+    - Inline script syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+    - Targeted unit tests: `node --test tests/offline/interactive_note_viewer.test.js` & `drawing_sync_ui.test.js` ➡️ **47/47 pass (0 fail)**.
+    - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **805/805 pass (0 fail)** across 7 suites.
+    - Full Backend test suite: `python -m pytest tests/` ➡️ **61/61 pass (0 fail)**.
+
 - **Low-Friction Interactive Note Viewer (`static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`) — SELESAI 2026-10-01 (Antigravity/Gemini):**
   - **Problem / Context:**
     - Sebelumnya, pengguna yang ingin melakukan pengubahan ringan dan cepat pada catatan (seperti mencentang item to-do `- [ ]`, mengganti judul catatan, atau menyunting teks secara cepat) dipaksa untuk mengklik tombol "Edit" di pojok kanan atas dan membuka overlay modal penuh (`NoteModal`), menimbulkan gesekan (*friction*) dan memutus *flow state* membaca. Di sisi lain, fitur-fitur lanjutan pada `NoteModal` (Paper Mode A4/A3/Letter, Milkdown WYSIWYG editor, block handling, toolbar format) sangat penting dan harus dipertahankan 100%.

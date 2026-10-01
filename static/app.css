@@ -891,8 +891,10 @@
     .notes-panel-header { display: flex; align-items: flex-start; gap: 8px; padding-bottom: 14px; border-bottom: 2px solid var(--border); margin-bottom: 18px; flex-shrink: 0; flex-wrap: wrap; }
     .notes-panel-meta { flex: 1; min-width: 0; }
     .notes-panel-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-start; flex: 0 0 100%; padding-top: 8px; }
-    .notes-panel-title { font-size: 17px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; line-height: 1.35; word-break: break-word; }
-    .notes-panel-title span[title="Klik untuk ubah judul"]:hover { color: var(--accent); }
+    .notes-panel-title { font-size: 17px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; line-height: 1.35; word-break: normal; overflow-wrap: break-word; }
+    .notes-panel-title .note-title-clickable { cursor: pointer; word-break: normal; overflow-wrap: break-word; }
+    .notes-panel-title .note-title-clickable:hover { color: var(--accent); }
+    .notes-panel-title .note-title-clickable:hover .note-title-pencil { opacity: 0.8 !important; }
     .note-title-inline-input { font-family: inherit; font-size: 16px; font-weight: 700; color: var(--text-primary); background: var(--bg-primary); border: 1.5px solid var(--accent); border-radius: 6px; padding: 2px 8px; outline: none; width: 100%; max-width: 440px; box-shadow: 0 0 0 2px rgba(168, 197, 0, 0.2); }
     .note-rendered input[type="checkbox"] { cursor: pointer; accent-color: var(--accent); width: 15px; height: 15px; vertical-align: middle; margin-right: 6px; transition: transform 0.1s ease; }
     .note-rendered input[type="checkbox"]:hover { transform: scale(1.15); }

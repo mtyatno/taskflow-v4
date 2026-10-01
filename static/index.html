@@ -20917,19 +20917,22 @@ function NotePanel({
     autoFocus: true,
     placeholder: "Judul catatan..."
   }) : /*#__PURE__*/React.createElement("span", {
+    className: "note-title-clickable",
     onClick: () => setIsEditingTitle(true),
     title: "Klik untuk ubah judul",
     style: {
       cursor: "pointer",
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 6
+      wordBreak: "normal",
+      overflowWrap: "break-word"
     }
   }, note.title || "(tanpa judul)", /*#__PURE__*/React.createElement("span", {
+    className: "note-title-pencil",
     style: {
       fontSize: 12,
       opacity: 0.4,
-      display: "inline-flex"
+      marginLeft: 6,
+      display: "inline-block",
+      verticalAlign: "middle"
     },
     title: "Ubah judul"
   }, "✏️"))), note.last_editor_username && note.last_edited_by !== note.user_id && /*#__PURE__*/React.createElement("div", {

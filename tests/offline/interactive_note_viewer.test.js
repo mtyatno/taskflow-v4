@@ -138,8 +138,31 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v341-interactive-note-viewer/,
-      "sw.js should be bumped to taskflow-v341-interactive-note-viewer"
+      /taskflow-v342-note-title-wrap-fix/,
+      "sw.js should be bumped to taskflow-v342-note-title-wrap-fix"
+    );
+  });
+
+  await t.test("8. Note Title Wrapping Protection and Inline Flow", () => {
+    assert.match(
+      appCss,
+      /\.notes-panel-title\s*\{[^}]*word-break:\s*normal/,
+      "app.css should set word-break: normal on .notes-panel-title"
+    );
+    assert.match(
+      appCss,
+      /\.notes-panel-title\s*\{[^}]*overflow-wrap:\s*break-word/,
+      "app.css should set overflow-wrap: break-word on .notes-panel-title"
+    );
+    assert.match(
+      notePanelCode,
+      /className:\s*["']note-title-clickable["']/,
+      "NotePanel should apply note-title-clickable class to the title span"
+    );
+    assert.match(
+      notePanelCode,
+      /className:\s*["']note-title-pencil["']/,
+      "NotePanel should render the pencil icon with note-title-pencil class"
     );
   });
 });

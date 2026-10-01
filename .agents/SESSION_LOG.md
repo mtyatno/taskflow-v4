@@ -2,6 +2,23 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-02 03:00] - Antigravity (Gemini)
+- **Task:** Fix Note Title Truncation / Wrapping to Second Line on Note Viewer (`static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`).
+- **Objective:**
+  - Memperbaiki bug di mana huruf terakhir judul catatan selalu terpotong dan terlempar ke baris kedua pada mode baca (misal `Belaja` lalu `r ✏️` di baris kedua).
+- **Root Cause & Fix:**
+  - Container pembungkus judul sebelumnya menggunakan `display: "inline-flex"` dengan `gap: 6` di dalam parent `.notes-panel-title` yang memiliki `word-break: break-word`. Di mesin render Blink/Chromium, flex item teks anonim di dalam `inline-flex` yang memiliki `gap` dan `word-break: break-word` mengalami pengurangan ruang horizontal sub-pixel saat pengukuran intrinsic sizing, memicu pemotongan huruf terakhir kata.
+  - Diperbaiki dengan mengubah judul ke normal inline flow `.note-title-clickable` dengan `word-break: normal` dan `overflow-wrap: break-word`, serta ikon pensil dengan `marginLeft: 6` dan `verticalAlign: "middle"`.
+  - Bump Service Worker cache version ke **`taskflow-v342-note-title-wrap-fix`**.
+- **Verification:**
+  - Inline script syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+  - Unit test suite: `node --test tests/offline/interactive_note_viewer.test.js` & `drawing_sync_ui.test.js` ➡️ **47/47 pass (0 fail)**.
+  - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **805/805 pass (0 fail)** across 7 suites.
+  - Full Backend test suite: `python -m pytest tests/` ➡️ **61/61 pass (0 fail)**.
+- **Files Modified:** `static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed & Verified
+
 ## [2026-10-01 21:55] - Antigravity (Gemini)
 - **Task:** Low-Friction Interactive Note Viewer (`static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`).
 - **Objective:**
