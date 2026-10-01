@@ -6,6 +6,11 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Topbar mobile full-bleed — 2026-10-01 (Claude) — SELESAI di branch `claude/cool-gates-qa4eg9` (BELUM merge/deploy, SW v336, app.css?v=300)
+- **Keluhan:** di mobile, sisi kiri/kanan topbar terpotong (tidak sampai tepi layar). **Akar:** `.mobile-topbar` dirender DI DALAM `.main-content` yang ber-padding 16px (+safe-area) di ≤768px, jadi ikut terinset.
+- **Perbaikan:** `static/app.css` (media ≤768px): `.mobile-topbar` margin kiri/kanan negatif = padding main-content (termasuk safe-area), `margin-top:-8px`, padding dalam dikompensasi. Tanpa perubahan JS. SW `taskflow-v336-mobile-topbar-bleed`; tes versi disesuaikan (`note_toc`, `drawing_sync_ui`).
+- **Verifikasi:** E2E 390px: topbar x=0, right=390=viewport, tanpa scroll horizontal, screenshot rapi. JS 796/796, pytest 61/61, inline 5/5. Belum dites HP fisik/notch.
+
 ## 🟢 Fix bug drawing (tldraw): persistensi inline note, edit via Draw, sinkron antar mesin — 2026-10-01 (Claude) — SELESAI & LIVE (fast-forward push ke main `f63f04e..c5364ef`, Deploy run 810 + Tests run 290 sukses 2026-10-01 11:41 UTC, SW v335)
 - **Keluhan user:** (1) gambar inline di note hilang setelah ditutup; (2) edit via menu Draw tidak muncul di note; (3) mesin lain tidak sinkron.
 - **Akar masalah (direproduksi Playwright di app asli):** RC1 op outbox `update` menyimpan snapshot edit PERTAMA & push mengirim payload basi lalu `dirty:0` (6 coretan → server 1); RC2 `drawingrepo.getDrawing` online menulis balik objek record basi (lost update; klik "Selesai" cepat: 4 coretan → 0) dan menimpa lokal dgn server basi saat gambar dibuka; RC3 push menulis balik record basi; RC4 QuickDrawModal menutup 350ms tanpa menunggu snapshot; RC5 `schedulePush` tak reschedule saat `busy`; RC6 pull menimpa dirty tanpa op; plus `GET /api/drawings` tanpa `client_id` → mesin B gagal simpan via direktif note (id = cid mesin A).

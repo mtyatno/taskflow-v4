@@ -1663,3 +1663,10 @@ Chronological history of work performed by AI agents in this workspace.
 - **Changes:** Hanya catatan. Proses uji lokal (uvicorn :8765, pemantau log) dihentikan.
 - **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed.
+
+## [2026-10-01] - Claude (topbar mobile full-bleed)
+- **Task:** Topbar mobile terpotong kiri/kanan oleh padding `.main-content`.
+- **Changes:** `.mobile-topbar` margin negatif + padding kompensasi di `static/app.css`; app.css?v=300; SW v336; tes versi disesuaikan.
+- **Verifikasi:** E2E 390px x=0..390 tanpa overflow; JS 796/796, pytest 61/61, inline 5/5.
+- **Files Touch:** `static/app.css`, `static/index.html`, `static/sw.js`, `tests/offline/{note_toc,drawing_sync_ui}.test.js`, `.agents/*`
+- **Status:** Completed di branch (belum merge/deploy).
