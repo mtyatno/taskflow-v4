@@ -609,14 +609,11 @@
   }
   function writeDrawing(s, cid, localRec) {
     const dataJson = s.data_json;
-    let blobP;
-    if (dataJson != null) {
-      blobP = BlobStore ? BlobStore.put(dataJson, { mime: "application/json" }) : Promise.resolve(null);
-    } else if (localRec && localRec.blob_ref) {
-      blobP = Promise.resolve(null); // pakai blob lokal yang ada
-    } else {
-      blobP = BlobStore ? BlobStore.put("{}", { mime: "application/json" }) : Promise.resolve(null);
-    }
+    // Detail server gagal diambil & tidak ada data lokal → record data_missing (tanpa placeholder "{}",
+    // base_rev null supaya pull/getDrawing berikutnya mengambil ulang). Placeholder dulu terbuka sebagai
+    // kanvas kosong yang bisa diedit lalu menimpa gambar server.
+    const missing = dataJson == null && !(localRec && localRec.blob_ref);
+    const blobP = (dataJson != null && BlobStore) ? BlobStore.put(dataJson, { mime: "application/json" }) : Promise.resolve(null);
     return blobP.then((newRef) => {
       let oldRef = null;
       return TFrepo.mutateDrawing(cid, (cur) => {
@@ -627,7 +624,11 @@
           blob_ref: newRef || keepRef,
           rev: cur ? (cur.rev || 0) + 1 : 0,
           svg_stale: 0,
+          data_missing: missing ? 1 : 0,
         });
+        if (missing) rec.base_rev = null;
+        // pin lokal dipertahankan (bisa ada op pin tertunda); adopsi pin server dilakukan Pass 5 yang mengecek op
+        if (cur) rec.is_pinned = cur.is_pinned ? 1 : 0;
         // client_id server (cid mesin pembuat = id di direktif note) → getRaw bisa menemukan record ini
         const clientId = s.client_id || (cur && cur.client_id);
         if (clientId && clientId !== cid) rec.client_id = clientId;
@@ -888,6 +889,30 @@
     });
   }
 
+  // Adopsi pin server dalam SATU transaksi (drawings + _outbox): lewati bila ada op pin tertunda untuk gambar
+  // ini SAAT INI (bukan snapshot outbox awal pull) atau record berubah sejak dibaca. togglePin juga atomik.
+  function adoptServerPin(cid, expectRev, localPinned, serverPinned) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      let done = false;
+      const tx = db.transaction(["drawings", "_outbox"], "readwrite");
+      const ds = tx.objectStore("drawings");
+      const r = ds.get(cid);
+      r.onsuccess = () => {
+        const cur = r.result;
+        if (!cur || (cur.rev || 0) !== expectRev || (cur.is_pinned ? 1 : 0) !== localPinned) return;
+        const ops = tx.objectStore("_outbox").getAll();
+        ops.onsuccess = () => {
+          const pending = (ops.result || []).some((o) => o.entity_type === "drawing" && o.op === "pin" && o.cid === cid);
+          if (pending) return;
+          ds.put(Object.assign({}, cur, { is_pinned: serverPinned }));
+          done = true;
+        };
+      };
+      tx.oncomplete = () => resolve(done);
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
   function pullDrawings(serverDrawings, fetchOne) {
     const list = serverDrawings || [];
     const cache = {};
@@ -996,10 +1021,8 @@
               const serverPinned = s.is_pinned ? 1 : 0;
               const localPinned = local.is_pinned ? 1 : 0;
               if (localPinned !== serverPinned) {
-                c2 = c2.then(() => TFrepo.mutateDrawing(cid, (cur) => {
-                  if (!cur || (cur.rev || 0) !== (local.rev || 0) || (cur.is_pinned ? 1 : 0) !== localPinned) return undefined;
-                  return Object.assign({}, cur, { is_pinned: serverPinned });
-                }).then((saved) => { if (saved) result.pinned++; }));
+                c2 = c2.then(() => adoptServerPin(cid, local.rev || 0, localPinned, serverPinned)
+                  .then((saved) => { if (saved) result.pinned++; }));
               }
             }
             return c2;

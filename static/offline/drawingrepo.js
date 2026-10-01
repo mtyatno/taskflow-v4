@@ -371,8 +371,8 @@
   // Record lokal belum ada → buat dari data server (cid = client_id server bila ada, konsisten
   // dengan pull). Idempoten: bila cid/server_id sudah ada lokal, rekonsiliasi record itu saja.
   function adoptServerDrawing(srv) {
-    const data = srv.data_json != null ? srv.data_json : "{}";
-    return BlobStore.put(data, { mime: "application/json" }).then((ref) => {
+    const missing = srv.data_json == null; // tanpa data → tandai data_missing, JANGAN buat placeholder "{}"
+    return (missing ? Promise.resolve(null) : BlobStore.put(srv.data_json, { mime: "application/json" })).then((ref) => {
       const rec = {
         cid: srv.client_id || TFids.newCid(),
         server_id: srv.id,
@@ -386,7 +386,8 @@
         created_at: srv.created_at || srv.updated_at,
         deleted: false,
         dirty: 0,
-        base_rev: srv.updated_at,
+        base_rev: missing ? null : srv.updated_at,
+        data_missing: missing ? 1 : 0,
         rev: 0,
       };
       return insertDrawingIfAbsent(rec).then((res) => {
@@ -413,6 +414,7 @@
           title: srv.title != null ? srv.title : cur.title,
           svg_preview: srv.svg_preview || "",
           svg_stale: 0,
+          data_missing: 0,
           is_pinned: srv.is_pinned ? 1 : 0,
           updated_at: srv.updated_at,
           base_rev: srv.updated_at,
@@ -468,6 +470,31 @@
     return rememberClientId(local, srv).then((cur) => reconcileKnown(cur, srv));
   }
 
+  function isEmptyJsonObject(sv) {
+    const o = parseJson(sv);
+    return !!o && typeof o === "object" && !Array.isArray(o) && Object.keys(o).length === 0;
+  }
+  function hasSvgContent(svg) {
+    return typeof svg === "string" && /<svg[\s>]/i.test(svg)
+      && /<(path|g|rect|circle|ellipse|line|polyline|polygon|text|image|use)\b/i.test(svg);
+  }
+  // Data gambar lokal tidak tersedia: ditandai pull/adopsi (detail gagal diambil), blob hilang pada record
+  // server, atau placeholder "{}" versi lama (record server, bersih, data "{}" tapi preview svg berisi gambar).
+  function isDataMissing(rec, bytes) {
+    if (rec.data_missing) return true;
+    if (rec.server_id == null || rec.dirty) return false;
+    if (bytes === undefined) return true;
+    return isEmptyJsonObject(bytes) && hasSvgContent(rec.svg_preview);
+  }
+  // Placeholder lama terdeteksi → tandai data_missing + base_rev null (CAS) supaya pull berikutnya mengambil ulang.
+  function markDataMissing(rec) {
+    const readRev = rec.rev || 0;
+    return mutateDrawing(rec.cid, (cur) => {
+      if (!cur || cur.deleted || cur.dirty || (cur.rev || 0) !== readRev) return undefined;
+      return Object.assign({}, cur, { data_missing: 1, base_rev: null });
+    }).catch(() => null);
+  }
+
   // Jejak record rusak versi lama (RC1): dibuat sebelum ada `rev` dan updated_at lokal (waktu edit, ISO Z)
   // ≠ base_rev server — push lama menandai bersih padahal data lokal belum terkirim.
   function isLegacyRc1(rec) {
@@ -506,8 +533,10 @@
         ? Promise.resolve().then(() => fetcher(idOrCid)).catch(() => null)
         : Promise.resolve(null);
 
+      let serverSaysEmpty = false; // server mengirim data_json "{}" secara eksplisit pada panggilan ini
       return doFetch.then((srv) => {
         if (srv && srv.title !== undefined) {
+          serverSaysEmpty = srv.data_json != null && isEmptyJsonObject(srv.data_json);
           // Standalone drawing dari server → rekonsiliasi dengan record TERKINI (bisa berubah selama fetch)
           return (standalone ? getRec(standalone.cid) : Promise.resolve(null))
             .then((cur) => reconcileWithServer(cur, srv));
@@ -534,15 +563,20 @@
             // bisa sudah dihapus edit bersamaan → "{}" palsu)
             return readDrawingState(finalRec.cid).then(({ rec: cur, bytes }) => {
               if (!cur || cur.deleted) return null;
+              // Data gambar tidak tersedia (detail server belum pernah terambil / placeholder lama) → JANGAN
+              // pernah dikembalikan sebagai gambar kosong: parent membuka read-only + toast.
+              const missing = !serverSaysEmpty && isDataMissing(cur, bytes);
+              const markP = (missing && !cur.data_missing) ? markDataMissing(cur) : Promise.resolve();
               const tagP = (typeof TFtag !== "undefined" && TFtag.getEntityTags)
                 ? TFtag.getEntityTags("drawing", cur.cid).then((tags) => tags.map((t) => t.name))
                 : Promise.resolve([]);
-              return tagP.then((tagNames) => ({
+              return Promise.all([tagP, markP]).then(([tagNames]) => ({
                 id: cur.server_id != null ? cur.server_id : cur.cid,
                 cid: cur.cid,
                 server_id: cur.server_id,
                 title: cur.title || "Untitled Drawing",
-                data_json: bytes || "{}",
+                data_json: missing ? null : (bytes || "{}"),
+                data_missing: missing ? 1 : 0,
                 svg_preview: cur.svg_preview || "",
                 svg_stale: cur.svg_stale ? 1 : 0,
                 is_pinned: cur.is_pinned || 0,
@@ -649,7 +683,7 @@
           if (patch.svg_stale !== undefined) next.svg_stale = patch.svg_stale ? 1 : 0;
           else if (patch.svg_preview !== undefined) next.svg_stale = 0;
           else if (hasData) next.svg_stale = 1;
-          if (newRef) { oldRef = cur.blob_ref; next.blob_ref = newRef; }
+          if (newRef) { oldRef = cur.blob_ref; next.blob_ref = newRef; next.data_missing = 0; }
           next.updated_at = now;
           next.dirty = 1;
           next.rev = (cur.rev || 0) + 1;
@@ -663,13 +697,14 @@
             : Promise.resolve();
           return Promise.all([oldRef && oldRef !== newRef ? dropBlob(oldRef) : null, tagP])
             .then(() => queueDrawingUpdate(cid, metaOf(saved), patch.tags))
-            .then(() => (hasData ? patch.data_json : BlobStore.getBytes(saved.blob_ref)))
+            .then(() => (hasData ? patch.data_json : readBytes(saved.blob_ref)))
             .then((dataJson) => ({
               id: saved.server_id != null ? saved.server_id : saved.cid,
               cid: saved.cid,
               server_id: saved.server_id,
               title: saved.title,
-              data_json: dataJson,
+              data_json: saved.data_missing ? null : dataJson,
+              data_missing: saved.data_missing ? 1 : 0,
               svg_preview: saved.svg_preview,
               svg_stale: saved.svg_stale ? 1 : 0,
               is_pinned: saved.is_pinned || 0,
@@ -698,26 +733,31 @@
     });
   }
 
+  // Toggle pin: record & op pin ditulis dalam SATU transaksi (drawings + _outbox) supaya pull (adopsi pin
+  // server) tidak pernah melihat pin lokal baru tanpa op-nya lalu membaliknya.
   function togglePin(idOrCid) {
     return getRaw(idOrCid).then((rec) => {
       if (!rec || rec.deleted) {
         return Promise.reject(new Error("Drawing not found"));
       }
-      return mutateDrawing(rec.cid, (cur) => ((!cur || cur.deleted)
-        ? undefined
-        : Object.assign({}, cur, { is_pinned: cur.is_pinned ? 0 : 1 })))
-        .then((saved) => {
-          if (!saved) return Promise.reject(new Error("Drawing not found"));
-          return TFoutbox.outboxAdd({
-            op: "pin",
-            entity_type: "drawing",
-            cid: saved.cid,
-            payload: { is_pinned: saved.is_pinned },
-          }).then(() => ({
-            id: saved.server_id != null ? saved.server_id : saved.cid,
-            is_pinned: saved.is_pinned,
-          }));
-        });
+      return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+        let saved = null;
+        const tx = db.transaction(["drawings", "_outbox"], "readwrite");
+        const os = tx.objectStore("drawings");
+        const r = os.get(rec.cid);
+        r.onsuccess = () => {
+          const cur = r.result;
+          if (!cur || cur.deleted) return;
+          saved = Object.assign({}, cur, { is_pinned: cur.is_pinned ? 0 : 1 });
+          os.put(saved);
+          tx.objectStore("_outbox").add({ ts: Date.now(), retries: 0, op: "pin", entity_type: "drawing", cid: saved.cid, payload: { is_pinned: saved.is_pinned } });
+        };
+        tx.oncomplete = () => resolve(saved);
+        tx.onerror = () => reject(tx.error);
+      })).then((saved) => {
+        if (!saved) return Promise.reject(new Error("Drawing not found"));
+        return { id: saved.server_id != null ? saved.server_id : saved.cid, is_pinned: saved.is_pinned };
+      });
     });
   }
 
@@ -769,7 +809,7 @@
           return mutateDrawing(rec.cid, (cur) => {
             if (!cur || cur.deleted || (cur.rev || 0) !== readRev || !!cur.dirty !== !!rec.dirty) return undefined;
             oldRef = cur.blob_ref;
-            const upd = { blob_ref: newRef, dirty: 1, rev: readRev + 1, svg_stale: svgFresh ? 0 : 1 };
+            const upd = { blob_ref: newRef, dirty: 1, rev: readRev + 1, svg_stale: svgFresh ? 0 : 1, data_missing: 0 };
             if (svgFresh) upd.svg_preview = op.payload.svg_preview;
             return Object.assign({}, cur, upd);
           }).then((saved) => (saved

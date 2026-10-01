@@ -174,7 +174,13 @@
         }
         return res;
       },
-      () => { const e = new Error("network"); e.__network = true; throw e; }
+      (err) => {
+        const e = new Error("network");
+        e.__network = true;
+        // batas waktu syncFetch habis (AbortError): satu request lambat, belum tentu jaringan putus
+        if (err && err.name === "AbortError") e.__timeout = true;
+        throw e;
+      }
     );
   }
   function ok(res) { return res && res.status >= 200 && res.status < 300; }
@@ -477,6 +483,8 @@
   // Data terkini drawing: record + blob dibaca konsisten (sumber kebenaran). Fallback salinan payload op lama.
   function drawingStateOf(cid, payload) {
     return TFrepo.readDrawingState(cid).then(({ rec, bytes }) => {
+      // Record data_missing (detail server belum terambil): JANGAN pernah mengirim datanya (server yang benar)
+      if (rec && rec.data_missing) return { rec, data: undefined };
       let data = bytes;
       if (data == null && payload && typeof payload.data_json === "string") data = payload.data_json;
       return { rec, data };
@@ -971,6 +979,7 @@
     const habitTagsFor = opts.habitTagsFor || ((cid) => TFtag.getEntityTags("habit", cid).then((ts) => ts.map((t) => t.name)));
     const result = { pushed: 0, failed: 0, remaining: 0 };
     let stopped = false;
+    let timeouts = 0;
     return Promise.resolve()
       .then(() => (TFrepo && TFrepo.upgradeLegacyDrawingOps ? TFrepo.upgradeLegacyDrawingOps().catch(() => 0) : 0))
       .then(() => healStrandedNotes())
@@ -980,8 +989,10 @@
       .then((ops) => ops.reduce((chain, op) => chain.then(() => {
         if (stopped) return;
         return processOp(op, transport, tagsFor, habitTagsFor, result).catch((err) => {
-          if (err && err.__network) {
-            stopped = true; // Actual network loss / offline, stop remaining queue
+          if (err && err.__timeout && ++timeouts < 2) {
+            result.failed++; // satu request lambat (mis. upload besar) → op tetap antre, op lain tetap dikirim
+          } else if (err && err.__network) {
+            stopped = true; // Actual network loss / offline (atau timeout berulang), stop remaining queue
           } else {
             result.failed++; // Server error on this op, do not block unrelated ops
           }

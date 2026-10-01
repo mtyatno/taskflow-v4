@@ -1638,3 +1638,10 @@ Chronological history of work performed by AI agents in this workspace.
 - **Verifikasi:** JS 780/780, pytest 61/61, inline 5/5, semua E2E acceptance & reviewer lulus; flake toc_edit terbukti pra-ada.
 - **Files Touch:** `static/index.html`, `static/sw.js`, `static/offline/{drawingrepo,syncpull,syncpush}.js`, `draw-app/src/App.jsx`, `webapp.py`, tests (`drawing_sync_hardening` baru; `drawing_persist_sync`, `drawing_sync_ui`, `drawingsync`, `test_drawings.py`), `.agents/*`
 - **Status:** Completed di branch (belum merge/deploy).
+
+## [2026-10-01] - Claude (hardening ke-2 sinkron drawing)
+- **Task:** Tindak lanjut review akhir (placeholder "{}" menimpa server, timeout memotong upload, mutex tidak eksklusif saat antre, pin selama pull).
+- **Changes:** data_missing + loadError, syncFetch timeout per-respons & skala body, mutex hold-from-start + coalesce sync(), loadFailed toast, pin atomik, SW v335. Implementer subagent terhenti batas sesi API di tahap verifikasi; koordinator memverifikasi ulang.
+- **Verifikasi:** JS 796/796, pytest 61/61, inline 5/5 (E2E berjalan saat commit; hasil di commit/handover berikutnya).
+- **Files Touch:** `static/index.html`, `static/sw.js`, `static/offline/{drawingrepo,syncpull,syncpush}.js`, `draw-app/src/App.jsx`, tests (`drawing_sync_robust` baru, `drawing_sync_ui`), `.agents/*`
+- **Status:** Completed di branch (belum merge/deploy).

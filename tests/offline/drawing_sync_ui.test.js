@@ -246,8 +246,8 @@ test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan"
 });
 
 // ── Cache bust ───────────────────────────────────────────────────────────────
-test("sw.js CACHE = taskflow-v334-drawing-sync-hardening (tldraw di-cache cache-first)", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v334-drawing-sync-hardening";/m);
+test("sw.js CACHE = taskflow-v335-drawing-sync-robust (tldraw di-cache cache-first)", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v335-drawing-sync-robust";/m);
 });
 
 // ══ Putaran pengerasan (review independen) ══════════════════════════════════════
@@ -349,7 +349,7 @@ test("runSyncExclusive: tugas berjalan berurutan, gagal tidak mengunci antrian, 
 
 test("index.html: sync(), push terjadwal & __pushNow lewat runSyncExclusive; drawingSaved juga saat merged > 0", () => {
   const sync = indexHtml.match(/function sync\(\) \{[\s\S]*?\n\}/)[0];
-  assert.match(sync, /return runSyncExclusive\(\(\) =>/);
+  assert.match(sync, /const pending = runSyncExclusive\(\(\) => \{ __syncPending = null; return window\.TF\.syncpull\.pullAndReconcile/);
   assert.match(sync, /drawRes\.merged > 0/);
   const sp = indexHtml.match(/function schedulePush\(\) \{[\s\S]*?\n\}/)[0];
   assert.match(sp, /runSyncExclusive\(\(\) => window\.TF\.syncpush\.pushOutbox\(__syncTransport\)\)/);
@@ -404,4 +404,96 @@ test("App.jsx: load tanpa store hanya dianggap loaded bila flag empty (atau pare
   assert.match(appJsx, /\} else if \(e\.data\.empty === true \|\| \(legacyParent && isEmptyObject\)\) \{[\s\S]{0,200}?markLoaded\(\)/);
   assert.match(appJsx, /const legacyParent = e\.data\.v == null/);
   assert.match(appJsx, /e\.data\?\.type === 'loadError'/);
+});
+
+// ══ Putaran review akhir ════════════════════════════════════════════════════════
+
+// ── syncFetch: batas waktu hanya menunggu respons; request ber-body diskalakan ukuran body ──
+function loadSyncFetch(fetchImpl) {
+  const m = indexHtml.match(/function syncFetch\(url, opts, timeoutMs\) \{[\s\S]*?\n\}/);
+  assert.ok(m, "syncFetch harus ada");
+  const consts = ["SYNC_FETCH_TIMEOUT_MS", "SYNC_UPLOAD_MAX_MS"].map((n) => {
+    const c = indexHtml.match(new RegExp("const " + n + " = (\\d+);"));
+    assert.ok(c, n + " harus didefinisikan");
+    return "const " + n + " = " + c[1] + ";";
+  }).join("\n");
+  const timers = []; const cleared = [];
+  const fakeSet = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+  const fakeClear = (id) => { cleared.push(id); };
+  const fn = new Function("window", "setTimeout", "clearTimeout", "AbortController", consts + "\n" + m[0] + "\nreturn syncFetch;")(
+    { fetch: fetchImpl }, fakeSet, fakeClear, AbortController);
+  return { fn, timers, cleared };
+}
+
+test("syncFetch: timer dihentikan saat respons tiba (body dibaca tanpa abort) & saat gagal", async () => {
+  const ok = loadSyncFetch(() => Promise.resolve({ status: 200 }));
+  await ok.fn("/api/x", { headers: {} });
+  assert.equal(ok.timers.length, 1);
+  assert.equal(ok.timers[0].ms, 30000);
+  assert.deepEqual(ok.cleared, [1], "timer harus dihentikan begitu respons (headers) tiba");
+  const bad = loadSyncFetch(() => Promise.reject(new TypeError("Failed to fetch")));
+  await assert.rejects(bad.fn("/api/x", {}));
+  assert.deepEqual(bad.cleared, [1]);
+});
+
+test("syncFetch: batas waktu request ber-body diskalakan ukuran body (30s + 1s/20KB, maks 10 menit)", async () => {
+  const f = loadSyncFetch(() => Promise.resolve({ status: 200 }));
+  await f.fn("/api/drawings/1", { method: "PUT", body: "x".repeat(200 * 1024) });
+  assert.equal(f.timers[0].ms, 30000 + 10 * 1000);
+  await f.fn("/api/drawings/1", { method: "PUT", body: "x".repeat(50 * 1024 * 1024) });
+  assert.equal(f.timers[1].ms, 600000);
+  await f.fn("/api/drawings/1", { headers: {} }, 8000);
+  assert.equal(f.timers[2].ms, 8000, "timeout eksplisit (fetcher gambar) tetap dipakai untuk GET");
+});
+
+// ── runSyncExclusive: batas tahan dihitung sejak tugas MULAI (antrian panjang tetap eksklusif) ──
+test("runSyncExclusive: tugas yang lama mengantre tidak dilepas paralel (maxHold mulai saat tugas berjalan)", async () => {
+  const run = loadRunSyncExclusive(120);
+  let running = 0, maxConc = 0;
+  const mk = (ms) => () => { running++; maxConc = Math.max(maxConc, running); return new Promise((r) => setTimeout(() => { running--; r(); }, ms)); };
+  const ps = [run(mk(100))];
+  await new Promise((r) => setTimeout(r, 30)); ps.push(run(mk(100)));
+  await new Promise((r) => setTimeout(r, 10)); ps.push(run(mk(20)));
+  await new Promise((r) => setTimeout(r, 20)); ps.push(run(mk(100)));
+  await Promise.all(ps);
+  assert.equal(maxConc, 1, "skenario mutex_sim reviewer: harus tetap satu per satu");
+});
+
+// ── sync(): panggilan yang sudah antre tapi belum mulai digabung (fetchAll tiap 30s tidak menumpuk) ──
+test("sync(): pemanggilan saat sync lain masih antre (belum mulai) mengembalikan promise yang sama", async () => {
+  const m = indexHtml.match(/function sync\(\) \{[\s\S]*?\n\}/);
+  const queue = [];
+  const fakeRun = (task) => new Promise((resolve, reject) => { queue.push(() => Promise.resolve().then(task).then(resolve, reject)); });
+  let pulls = 0;
+  const win = { TF: {
+    syncpull: { pullAndReconcile: () => { pulls++; return Promise.resolve(); } },
+    syncpush: { pushOutbox: () => Promise.resolve({ pushed: 0 }) },
+  }, dispatchEvent() {} };
+  const sync = new Function("window", "renderConflicts", "schedulePush", "__syncRawFetch", "__syncTransport", "runSyncExclusive", "CustomEvent",
+    "let __syncPending = null;\n" + m[0] + "\nreturn sync;")(win, () => {}, () => {}, () => {}, {}, fakeRun, function () {});
+  const a = sync(); const b = sync();
+  assert.equal(a, b, "sync yang belum mulai digabung");
+  assert.equal(queue.length, 1);
+  await queue.shift()();
+  await a;
+  assert.equal(pulls, 1);
+  const c = sync();
+  assert.notEqual(c, a, "setelah mulai/selesai, sync baru diantre lagi");
+  assert.equal(queue.length, 1);
+  await queue.shift()(); await c;
+});
+
+// ── Parent: data_missing → loadError; iframe gagal memuat (loadFailed) → toast ──
+test("QuickDrawModal & DrawingTabInstance: doc.data_missing → loadError (read-only + toast), loadFailed iframe → toast", () => {
+  for (const [name, code] of [["QuickDrawModal", qdm], ["DrawingTabInstance", dti]]) {
+    assert.match(code, /if \(!doc \|\| doc\.data_missing\) throw new Error\(/, name + ": data_missing tidak boleh dianggap gambar kosong");
+    assert.match(code, /e\.data\?\.type === 'loadFailed'/, name + ": menangani loadFailed dari iframe");
+  }
+  assert.match(qdm, /if \(fresh && fresh\.data_json && !fresh\.data_missing && iframeRef\.current\?\.contentWindow\)/);
+  assert.match(dti, /if \(fresh && fresh\.data_json && !fresh\.data_missing && iframeRef\.current\?\.contentWindow\)/);
+});
+
+test("App.jsx: snapshot tak dikenal / loadSnapshot melempar → kirim {type:'loadFailed'} ke parent (kanvas tetap read-only)", () => {
+  const n = (appJsx.match(/postMessage\(\{ type: 'loadFailed', noteId \}, '\*'\)/g) || []).length;
+  assert.ok(n >= 2, "loadFailed dikirim untuk format tak dikenal & saat load melempar (ditemukan " + n + ")");
 });

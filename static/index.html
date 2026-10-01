@@ -533,11 +533,19 @@ const api = {
 // Ditandai X-TF-Sync → SW meneruskannya network-only (respons cache basi tidak boleh membalikkan data lokal),
 // dan dibatasi waktu (AbortController) supaya antrian sinkron / jadwal ulang push tidak macet selamanya.
 const SYNC_FETCH_TIMEOUT_MS = 30000;
+const SYNC_UPLOAD_MAX_MS = 600000; // batas atas untuk upload besar di jaringan lambat (10 menit)
 const DRAWING_FETCH_TIMEOUT_MS = 8000; // buka gambar: interaktif → jatuh ke data lokal lebih cepat
 function syncFetch(url, opts, timeoutMs) {
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-  if (controller) setTimeout(() => controller.abort(), timeoutMs || SYNC_FETCH_TIMEOUT_MS);
-  return window.fetch(url, Object.assign({}, opts, controller ? { signal: controller.signal } : {}));
+  let ms = timeoutMs || SYNC_FETCH_TIMEOUT_MS;
+  const body = opts && opts.body;
+  // request ber-body (PUT/POST gambar besar): +1 detik per 20KB, maks SYNC_UPLOAD_MAX_MS
+  if (typeof body === "string" && body.length) ms = Math.min(SYNC_UPLOAD_MAX_MS, ms + Math.ceil(body.length / 20480) * 1000);
+  const timer = controller ? setTimeout(() => controller.abort(), ms) : null;
+  // batas waktu hanya untuk MENUNGGU respons: timer dihentikan begitu respons (headers) tiba,
+  // pembacaan body tidak di-abort
+  return window.fetch(url, Object.assign({}, opts, controller ? { signal: controller.signal } : {}))
+    .then((res) => { clearTimeout(timer); return res; }, (err) => { clearTimeout(timer); throw err; });
 }
 
 // ── Offline push (TF.syncpush) — raw-fetch transport bypasses the api intercept ──
@@ -554,9 +562,14 @@ const __syncTransport = {
 const SYNC_TASK_MAX_MS = 120000;
 let __syncQueue = Promise.resolve();
 function runSyncExclusive(task) {
-  const run = __syncQueue.then(() => task());
   let timer = null;
-  const maxHold = new Promise((resolve) => { timer = setTimeout(resolve, SYNC_TASK_MAX_MS); });
+  let releaseHold = null;
+  const maxHold = new Promise((resolve) => { releaseHold = resolve; });
+  const run = __syncQueue.then(() => {
+    // batas tahan dihitung sejak tugas MULAI berjalan (bukan sejak diantrekan) → antrian panjang tetap eksklusif
+    timer = setTimeout(releaseHold, SYNC_TASK_MAX_MS);
+    return task();
+  });
   // antrian lanjut setelah tugas selesai (sukses/gagal) atau paling lama SYNC_TASK_MAX_MS (tugas macet tidak mengunci)
   __syncQueue = Promise.race([run.then(() => undefined, () => undefined), maxHold]).then(() => clearTimeout(timer));
   return run;
@@ -595,9 +608,11 @@ if (window.TF && window.TF.chatrepo) {
   window.TF.chatrepo.configureFetcher((url) =>
     __syncRawFetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error("http " + r.status)))));
 }
+let __syncPending = null; // sync() yang sudah antre tapi belum mulai (pemanggilan berikutnya digabung)
 function sync() {
   if (!(window.TF && window.TF.syncpull && window.TF.syncpush)) { renderConflicts(); return Promise.resolve(null); }
-  return runSyncExclusive(() => window.TF.syncpull.pullAndReconcile(__syncRawFetch)
+  if (__syncPending) return __syncPending;
+  const pending = runSyncExclusive(() => { __syncPending = null; return window.TF.syncpull.pullAndReconcile(__syncRawFetch)
     .then(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null))
     .then(() => (window.TF.syncpull.pullHabitsAndLogs ? window.TF.syncpull.pullHabitsAndLogs(__syncRawFetch) : null))
     .then(() => {
@@ -621,7 +636,9 @@ function sync() {
     })
     .then(() => window.TF.syncpush.pushOutbox(__syncTransport))
     .then((r) => { if (r && r.busy) schedulePush(); renderConflicts(); return r; })
-    .catch(() => { renderConflicts(); return null; }));
+    .catch(() => { renderConflicts(); return null; }); });
+  __syncPending = pending;
+  return pending;
 }
 function renderConflicts() {
   if (!(window.TF && window.TF.syncconflict)) return;
@@ -9262,6 +9279,7 @@ function DrawingTabInstance({
   const iframeRef = useRef(null);
   const lastLoadedJsonRef = useRef(null);
   const loadErrorShownRef = useRef(false);
+  const toastLoadFailed = () => showToast('Gagal memuat gambar', 'error');
   const [renaming, setRenaming] = useState(false);
   const [renameVal, setRenameVal] = useState(tab?.title || "");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -9278,7 +9296,7 @@ function DrawingTabInstance({
       if (!updatedId || String(updatedId) === String(tab?.id)) {
         try {
           const fresh = await api.get(`/api/drawings/${tab.id}`);
-          if (fresh && fresh.data_json && iframeRef.current?.contentWindow) {
+          if (fresh && fresh.data_json && !fresh.data_missing && iframeRef.current?.contentWindow) {
             if (fresh.data_json === lastLoadedJsonRef.current) return;
             lastLoadedJsonRef.current = fresh.data_json;
             iframeRef.current.contentWindow.postMessage({
@@ -9302,12 +9320,18 @@ function DrawingTabInstance({
       if (e.source !== iframeRef.current?.contentWindow) return;
       // data yang dikirim iframe ini sendiri sudah ada di kanvas → jangan dipantulkan balik sebagai 'load'
       if (e.data?.type === 'change' && e.data.data) { lastLoadedJsonRef.current = e.data.data; return; }
+      // iframe gagal menerapkan data (format tak dikenal / loadSnapshot melempar) → kanvas tetap read-only
+      if (e.data?.type === 'loadFailed') {
+        if (!loadErrorShownRef.current) { loadErrorShownRef.current = true; toastLoadFailed(); }
+        return;
+      }
       if (e.data?.type === 'ready' && tab?.id) {
         // SELALU dibalas: iframe read-only sampai 'load' pertama tiba (tutup cepat tidak boleh menyimpan
         // kanvas kosong); gagal memuat → 'loadError' (iframe tetap read-only, data tidak tertimpa).
         try {
           const doc = await api.get(`/api/drawings/${tab.id}`);
-          if (!doc) throw new Error("Drawing not found");
+          // data gambar tidak tersedia (detail server belum terambil) → JANGAN buka sebagai kanvas kosong
+          if (!doc || doc.data_missing) throw new Error("Drawing data unavailable");
           if (iframeRef.current?.contentWindow) {
             lastLoadedJsonRef.current = doc.data_json || null;
             iframeRef.current.contentWindow.postMessage({
@@ -9427,7 +9451,7 @@ function DrawingTabInstance({
     style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, height: "100%" }
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
-    src: `/static/vendor/tldraw/index.html?noteId=${tab.id}&v=144`,
+    src: `/static/vendor/tldraw/index.html?noteId=${tab.id}&v=145`,
     style: { flex: 1, border: "none", width: "100%", height: "100%" },
     title: "Draw editor"
   }))
@@ -17780,6 +17804,7 @@ function QuickDrawModal({
   const iframeRef = useRef(null);
   const lastLoadedJsonRef = useRef(null);
   const loadErrorShownRef = useRef(false);
+  const toastLoadFailed = () => showToast && showToast('Gagal memuat gambar', 'error');
   const [title, setTitle] = useState(drawingTitle || "Gambar");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(drawingTitle || "Gambar");
@@ -17807,7 +17832,7 @@ function QuickDrawModal({
             setTitle(fresh.title);
             setTitleInput(fresh.title);
           }
-          if (fresh && fresh.data_json && iframeRef.current?.contentWindow) {
+          if (fresh && fresh.data_json && !fresh.data_missing && iframeRef.current?.contentWindow) {
             if (fresh.data_json === lastLoadedJsonRef.current) return;
             lastLoadedJsonRef.current = fresh.data_json;
             iframeRef.current.contentWindow.postMessage({
@@ -17831,12 +17856,18 @@ function QuickDrawModal({
       if (e.source !== iframeRef.current?.contentWindow) return;
       // data yang dikirim iframe ini sendiri sudah ada di kanvas → jangan dipantulkan balik sebagai 'load'
       if (e.data?.type === 'change' && e.data.data) { lastLoadedJsonRef.current = e.data.data; return; }
+      // iframe gagal menerapkan data (format tak dikenal / loadSnapshot melempar) → kanvas tetap read-only
+      if (e.data?.type === 'loadFailed') {
+        if (!loadErrorShownRef.current) { loadErrorShownRef.current = true; toastLoadFailed(); }
+        return;
+      }
       if (e.data?.type === 'ready' && drawingId) {
         // SELALU dibalas: iframe read-only sampai 'load' pertama tiba (tutup cepat tidak boleh menyimpan
         // kanvas kosong); gagal memuat → 'loadError' (iframe tetap read-only, data tidak tertimpa).
         try {
           const doc = await api.get(`/api/drawings/${drawingId}`);
-          if (!doc) throw new Error("Drawing not found");
+          // data gambar tidak tersedia (detail server belum terambil) → JANGAN buka sebagai kanvas kosong
+          if (!doc || doc.data_missing) throw new Error("Drawing data unavailable");
           if (iframeRef.current?.contentWindow) {
             lastLoadedJsonRef.current = doc.data_json || null;
             iframeRef.current.contentWindow.postMessage({
@@ -17923,7 +17954,7 @@ function QuickDrawModal({
   /*#__PURE__*/React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" } },
     /*#__PURE__*/React.createElement("iframe", {
       ref: iframeRef,
-      src: `/static/vendor/tldraw/index.html?noteId=${drawingId}&v=144`,
+      src: `/static/vendor/tldraw/index.html?noteId=${drawingId}&v=145`,
       style: { flex: 1, border: "none", width: "100%", height: "100%" },
       title: "Quick Draw editor"
     })

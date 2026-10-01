@@ -274,10 +274,14 @@ export default function App() {
           } else if (e.data.empty === true || (legacyParent && isEmptyObject)) {
             // Gambar baru/kosong: kanvas kosong siap diedit (kanvas yang sudah dimuat tidak dikosongkan)
             markLoaded();
+          } else {
+            // Snapshot tidak dikenal/rusak → tetap read-only (jangan pernah menimpa data yang tak terbaca); beri tahu parent
+            window.parent.postMessage({ type: 'loadFailed', noteId }, '*');
           }
-          // Selain itu snapshot tidak dikenal/rusak → tetap read-only: jangan pernah menimpa data yang tak terbaca.
         } catch (err) {
           console.error('load snapshot error:', err);
+          // loadSnapshot melempar (mis. migrasi gagal) → tetap read-only bila belum loaded; beri tahu parent
+          window.parent.postMessage({ type: 'loadFailed', noteId }, '*');
         }
       }
       if (e.data?.type === 'loadError') {
