@@ -3114,6 +3114,14 @@ function TaskFormModal({
     ...f,
     frequency: f.frequency.includes(key) ? f.frequency.filter(d => d !== key) : [...f.frequency, key]
   }));
+  const [showHabitAdvanced, setShowHabitAdvanced] = React.useState(false);
+  const habitAdvancedFilledCount = React.useMemo(() => {
+    let count = 0;
+    if (habitForm.micro_target && habitForm.micro_target.trim()) count++;
+    if (Array.isArray(habitForm.frequency) && habitForm.frequency.length > 0 && habitForm.frequency.length !== DAYS.length) count++;
+    if (habitForm.identity_pillar && habitForm.identity_pillar.trim()) count++;
+    return count;
+  }, [habitForm.micro_target, habitForm.frequency, habitForm.identity_pillar, DAYS.length]);
   const noteTaskDropdownItems = React.useMemo(() => noteTaskDropdown !== null ? allNoteKnownTasks.filter(t => t.gtd_status !== 'done' && t.gtd_status !== 'archived').filter(t => t.title.toLowerCase().includes((noteTaskDropdown.query || '').toLowerCase())).slice(0, 12) : [], [noteTaskDropdown, allNoteKnownTasks]);
   const handleTitleChange = val => {
     set("title", val);
@@ -4126,7 +4134,36 @@ function TaskFormModal({
     value: "siang"
   }, "\uD83C\uDF24\uFE0F Siang (09:00\u201317:00)"), /*#__PURE__*/React.createElement("option", {
     value: "malam"
-  }, "\uD83C\uDF19 Malam (17:00\u201322:00)")), /*#__PURE__*/React.createElement("label", {
+  }, "\uD83C\uDF19 Malam (17:00\u201322:00)")), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "task-advanced-toggle",
+    onClick: () => setShowHabitAdvanced(s => !s),
+    style: {
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: showHabitAdvanced ? "chevron-down" : "chevron-right",
+    size: 14
+  }), showHabitAdvanced ? "Sembunyikan Opsi Lanjutan" : "Opsi Lanjutan (Micro Target, Hari Khusus, Identity Pillar)"), !showHabitAdvanced && habitAdvancedFilledCount > 0 && /*#__PURE__*/React.createElement("span", {
+    style: {
+      background: "rgba(168,197,0,0.18)",
+      color: "var(--accent)",
+      padding: "2px 8px",
+      borderRadius: 12,
+      fontSize: 11,
+      fontWeight: 700
+    }
+  }, `${habitAdvancedFilledCount} diisi`)), showHabitAdvanced && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
   }, "Micro Target ", /*#__PURE__*/React.createElement("span", {
     style: {
@@ -4204,7 +4241,7 @@ function TaskFormModal({
       marginBottom: 14
     },
     placeholder: "Saya adalah orang yang..."
-  }), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       justifyContent: "flex-end",
