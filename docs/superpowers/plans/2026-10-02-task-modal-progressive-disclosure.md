@@ -27,7 +27,7 @@
 **Interfaces:**
 - Produces: CSS classes `.task-quick-attributes` and `.task-advanced-toggle`
 
-- [ ] **Step 1: Add CSS rules in `static/app.css`**
+- [x] **Step 1: Add CSS rules in `static/app.css`**
 
 Add the responsive 3-column grid and toggle button styling:
 ```css
@@ -67,7 +67,7 @@ Add the responsive 3-column grid and toggle button styling:
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add static/app.css
@@ -84,7 +84,7 @@ git commit -m "style: add CSS rules for task modal progressive disclosure"
 **Interfaces:**
 - Tests: `static/index.html` structure, `TaskFormModal` state, accordion toggle, and form element containment.
 
-- [ ] **Step 1: Write unit tests in `tests/offline/task_modal_progressive_disclosure.test.js`**
+- [x] **Step 1: Write unit tests in `tests/offline/task_modal_progressive_disclosure.test.js`**
 
 ```javascript
 "use strict";
@@ -132,7 +132,7 @@ test("TaskFormModal Progressive Disclosure Specifications", async (t) => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `node --test tests/offline/task_modal_progressive_disclosure.test.js`  
 Expected: FAIL on subtests 2-6 (since implementation in `static/index.html` has not been applied yet).
@@ -148,7 +148,7 @@ Expected: FAIL on subtests 2-6 (since implementation in `static/index.html` has 
 - Consumes: `isEdit`, `form`, `projects`, `contexts`, `sharedLists`
 - Produces: Clean, progressive layout with `showAdvanced` toggle and compact top attributes.
 
-- [ ] **Step 1: Add `showAdvanced` and `advancedFilledCount` to `TaskFormModal` in `static/index.html`**
+- [x] **Step 1: Add `showAdvanced` and `advancedFilledCount` to `TaskFormModal` in `static/index.html`**
 
 Around line 2882:
 ```javascript
@@ -166,7 +166,7 @@ Around line 2882:
   }, [form.gtd_status, form.context, form.list_id, recurringOn, form.description, pendingSubtasks, form.waiting_for]);
 ```
 
-- [ ] **Step 2: Restructure `mode === "task"` JSX in `TaskFormModal`**
+- [x] **Step 2: Restructure `mode === "task"` JSX in `TaskFormModal`**
 
 1. Directly below the Title input, render the 3-column `.task-quick-attributes` grid:
    - **Deadline**
@@ -203,17 +203,17 @@ Around line 2882:
    - Deskripsi (MentionInput)
    - Subtasks
 
-- [ ] **Step 3: Run the unit test to verify it passes**
+- [x] **Step 3: Run the unit test to verify it passes**
 
 Run: `node --test tests/offline/task_modal_progressive_disclosure.test.js`  
 Expected: PASS (6/6 tests).
 
-- [ ] **Step 4: Verify inline script syntax**
+- [x] **Step 4: Verify inline script syntax**
 
 Run: `node scratch/check_inline.js static/index.html`  
 Expected: 5/5 scripts OK.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add static/index.html tests/offline/task_modal_progressive_disclosure.test.js
@@ -231,33 +231,33 @@ git commit -m "feat(task-modal): implement progressive disclosure for new task c
 - Modify: `.agents/CURRENT_STATE.md`
 - Modify: `.agents/SESSION_LOG.md`
 
-- [ ] **Step 1: Bump Service Worker cache version in `static/sw.js`**
+- [x] **Step 1: Bump Service Worker cache version in `static/sw.js`**
 
 Change `CACHE` to:
 ```javascript
 const CACHE = "taskflow-v345-task-modal-progressive-disclosure";
 ```
 
-- [ ] **Step 2: Update test assertions for cache version**
+- [x] **Step 2: Update test assertions for cache version**
 
 Update expected cache string to `v345` in:
 - `tests/offline/drawing_sync_ui.test.js`
 - `tests/offline/interactive_note_viewer.test.js`
 
-- [ ] **Step 3: Run full offline JS test suite**
+- [x] **Step 3: Run full offline JS test suite**
 
 Run: `node --test tests/offline/*.test.js`  
 Expected: All suites pass (0 failures).
 
-- [ ] **Step 4: Run full backend pytest test suite**
+- [x] **Step 4: Run full backend pytest test suite**
 
 Run: `python -m pytest tests/`  
 Expected: 61/61 pass.
 
-- [ ] **Step 5: Update documentation and session logs**
+- [x] **Step 5: Update documentation and session logs**
 
 Update `.agents/CURRENT_STATE.md` and `.agents/SESSION_LOG.md`.
 
-- [ ] **Step 6: Commit, push to main, and deploy**
+- [x] **Step 6: Commit, push to main, and deploy**
 
 Run `python scratch/deploy_and_check.py` and verify GitHub Actions build and deploy succeed.
