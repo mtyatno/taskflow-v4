@@ -64,6 +64,30 @@
   - **BLOKER build lokal:** `Z:` = drive cloud; `milkdown-build/node_modules/@milkdown` tak terbaca ("The cloud file provider is not running") → `npm run build` bundle butuh cloud provider aktif atau `npm install` ulang. Setelah build: bump SW + rebuild .exe/APK.
   - **NEXT (kalau user setuju):** brainstorming → spec → plan → SDD (sesuai PROTOCOL).
 
+- **Habit Modal Progressive Disclosure for Low-Friction New Habit Creation (`static/index.html`, `static/sw.js`, `tests/offline/habit_modal_progressive_disclosure.test.js`) — SELESAI 2026-10-02 (Antigravity/Gemini) — SW v346:**
+  - **Problem / Context:**
+    - Pada tab Habit pembuatan baru (`TaskFormModal`), seluruh form konfigurasi (Nama Habit, Fase, Micro Target, Frekuensi 7 tombol hari, Identity Pillar) sebelumnya langsung ditampilkan secara penuh.
+    - Hal ini membebani pengguna baru yang hanya ingin membuat kebiasaan sederhana secara cepat (*Frictionless Capture*).
+  - **Solusi / Perbaikan:**
+    1. `static/index.html`:
+       - Menambahkan state `showHabitAdvanced` (default: `false`) dan komputasi `habitAdvancedFilledCount` untuk mendeteksi opsi lanjutan yang diisi (Micro Target terisi, pilihan hari khusus diubah dari 7 hari, atau Identity Pillar terisi).
+       - Menata ulang layout pembuatan habit baru:
+         - **Atas (Selalu tampil):** Nama Habit (auto-focused, #tag autocomplete) + Fase Waktu (Pagi/Siang/Malam). Frekuensi otomatis default setiap hari (7 hari).
+         - **Tombol Toggle:** Accordion `▸ Opsi Lanjutan (Micro Target, Hari Khusus, Identity Pillar)` dengan badge pintar indikator jumlah opsi terisi (misal `1 diisi`).
+         - **Kontainer Lanjutan:** Membungkus Micro Target (opsional), Frekuensi pemilihan hari khusus (Sen–Min + tombol Pilih/Hapus Semua), dan Identity Pillar (opsional).
+       - Modal Edit (`HabitEditModal`): Tetap menampilkan seluruh kolom input secara terbuka penuh untuk kemudahan inspeksi dan penyuntingan kebiasaan.
+    2. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v346-habit-modal-progressive-disclosure`**.
+    3. Unit Tests:
+       - `tests/offline/habit_modal_progressive_disclosure.test.js`: Suite pengujian offline baru (6/6 tests pass) memvalidasi state `showHabitAdvanced`, tombol toggle accordion, enkapsulasi field lanjutan, komputasi filled count, dan preservasi `HabitEditModal`.
+       - `tests/offline/drawing_sync_ui.test.js` & `interactive_note_viewer.test.js`: Sinkronisasi asersi cache version ke `v346`.
+  - **Verifikasi:**
+    - Inline scripts syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - SW syntax check: `node --check static/sw.js` ➡️ **OK**.
+    - Targeted unit tests: `node --test tests/offline/habit_modal_progressive_disclosure.test.js` ➡️ **6/6 pass (0 fail)**.
+    - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **819/819 pass (0 fail)** across 8 suites.
+    - Full Backend test suite: `python -m pytest tests/` ➡️ **61/61 pass (0 fail)**.
+
 - **TaskFormModal Progressive Disclosure for Clean New Task Creation (`static/app.css`, `static/index.html`, `static/sw.js`, `tests/offline/task_modal_progressive_disclosure.test.js`) — SELESAI 2026-10-02 (Antigravity/Gemini) — SW v345:**
   - **Problem / Context:**
     - Modal pembuatan task baru sebelumnya terasa *overwhelming* bagi pengguna karena langsung menampilkan 8–10 kolom input dan selector besar (Priority, GTD Status, Project, Context, Shared List, Deadline, Berulang, Deskripsi, Subtask) secara sekaligus.

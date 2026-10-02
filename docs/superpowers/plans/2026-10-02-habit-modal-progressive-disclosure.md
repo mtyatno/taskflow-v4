@@ -26,7 +26,7 @@
 **Interfaces:**
 - Tests: `static/index.html` structure, `TaskFormModal` habit mode JSX, `showHabitAdvanced` state, accordion toggle button, and form containment.
 
-- [ ] **Step 1: Write unit tests in `tests/offline/habit_modal_progressive_disclosure.test.js`**
+- [x] **Step 1: Write unit tests in `tests/offline/habit_modal_progressive_disclosure.test.js`**
 
 ```javascript
 "use strict";
@@ -104,12 +104,12 @@ test("Habit Modal Progressive Disclosure Specifications", async (t) => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails on unimplemented code**
+- [x] **Step 2: Run test to verify it fails on unimplemented code**
 
 Run: `node --test tests/offline/habit_modal_progressive_disclosure.test.js`  
 Expected: FAIL (because `showHabitAdvanced` is not yet implemented in `TaskFormModal`).
 
-- [ ] **Step 3: Commit test file**
+- [x] **Step 3: Commit test file**
 
 ```bash
 git add tests/offline/habit_modal_progressive_disclosure.test.js
@@ -128,7 +128,7 @@ git commit -m "test: add test suite for Habit modal progressive disclosure"
 - Consumes: `habitForm` state in `TaskFormModal`
 - Produces: `showHabitAdvanced` toggle, `habitAdvancedFilledCount` memo, collapsible secondary section
 
-- [ ] **Step 1: Add `showHabitAdvanced` and `habitAdvancedFilledCount` to `TaskFormModal` in `static/index.html`**
+- [x] **Step 1: Add `showHabitAdvanced` and `habitAdvancedFilledCount` to `TaskFormModal` in `static/index.html`**
 
 ```javascript
 const [showHabitAdvanced, setShowHabitAdvanced] = useState(false);
@@ -142,7 +142,7 @@ const habitAdvancedFilledCount = useMemo(() => {
 }, [habitForm.micro_target, habitForm.frequency, habitForm.identity_pillar, DAYS.length]);
 ```
 
-- [ ] **Step 2: Restructure `mode === "habit"` JSX in `TaskFormModal`**
+- [x] **Step 2: Restructure `mode === "habit"` JSX in `TaskFormModal`**
 
 Update `mode === "habit"`:
 - Upfront:
@@ -171,17 +171,17 @@ Update `mode === "habit"`:
   - Identity Pillar (opsional)
 - Submit & Batal buttons remain at the bottom.
 
-- [ ] **Step 3: Run the unit test to verify it passes**
+- [x] **Step 3: Run the unit test to verify it passes**
 
 Run: `node --test tests/offline/habit_modal_progressive_disclosure.test.js`  
 Expected: PASS (5/5 tests).
 
-- [ ] **Step 4: Verify inline script syntax**
+- [x] **Step 4: Verify inline script syntax**
 
 Run: `node scratch/check_inline.js static/index.html`  
 Expected: 5/5 scripts OK.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add static/index.html tests/offline/habit_modal_progressive_disclosure.test.js
@@ -199,33 +199,33 @@ git commit -m "feat(habit-modal): implement progressive disclosure for new habit
 - Modify: `.agents/CURRENT_STATE.md`
 - Modify: `.agents/SESSION_LOG.md`
 
-- [ ] **Step 1: Bump Service Worker cache version in `static/sw.js`**
+- [x] **Step 1: Bump Service Worker cache version in `static/sw.js`**
 
 Change `CACHE` to:
 ```javascript
 const CACHE = "taskflow-v346-habit-modal-progressive-disclosure";
 ```
 
-- [ ] **Step 2: Update test assertions for cache version**
+- [x] **Step 2: Update test assertions for cache version**
 
 Update expected cache string to `v346` in:
 - `tests/offline/drawing_sync_ui.test.js`
 - `tests/offline/interactive_note_viewer.test.js`
 
-- [ ] **Step 3: Run full offline JS test suite**
+- [x] **Step 3: Run full offline JS test suite**
 
 Run: `node --test tests/offline/*.test.js`  
 Expected: All suites pass (0 failures).
 
-- [ ] **Step 4: Run full backend pytest test suite**
+- [x] **Step 4: Run full backend pytest test suite**
 
 Run: `python -m pytest tests/`  
 Expected: 61/61 pass.
 
-- [ ] **Step 5: Update documentation and session logs**
+- [x] **Step 5: Update documentation and session logs**
 
 Update `.agents/CURRENT_STATE.md` and `.agents/SESSION_LOG.md`.
 
-- [ ] **Step 6: Commit, push to main, and deploy**
+- [x] **Step 6: Commit, push to main, and deploy**
 
 Run `python scratch/deploy_and_check.py` and verify GitHub Actions build and deploy succeed.
