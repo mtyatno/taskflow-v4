@@ -64,6 +64,34 @@
   - **BLOKER build lokal:** `Z:` = drive cloud; `milkdown-build/node_modules/@milkdown` tak terbaca ("The cloud file provider is not running") → `npm run build` bundle butuh cloud provider aktif atau `npm install` ulang. Setelah build: bump SW + rebuild .exe/APK.
   - **NEXT (kalau user setuju):** brainstorming → spec → plan → SDD (sesuai PROTOCOL).
 
+- **TaskFormModal Progressive Disclosure for Clean New Task Creation (`static/app.css`, `static/index.html`, `static/sw.js`, `tests/offline/task_modal_progressive_disclosure.test.js`) — SELESAI 2026-10-02 (Antigravity/Gemini) — SW v345:**
+  - **Problem / Context:**
+    - Modal pembuatan task baru sebelumnya terasa *overwhelming* bagi pengguna karena langsung menampilkan 8–10 kolom input dan selector besar (Priority, GTD Status, Project, Context, Shared List, Deadline, Berulang, Deskripsi, Subtask) secara sekaligus.
+    - Hal ini membebani kognisi pengguna (*cognitive overload*) dan bertentangan dengan prinsip dasar GTD (*Capture first, clarify later*).
+  - **Solusi / Perbaikan:**
+    1. `static/app.css`:
+       - Menambahkan layout responsif 3 kolom `.task-quick-attributes` (`display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px`) dengan adaptasi mobile <= 640px.
+       - Menambahkan styling tombol toggle `.task-advanced-toggle` dengan border putus-putus elegan dan efek hover.
+    2. `static/index.html`:
+       - Menambahkan state `showAdvanced` di `TaskFormModal` yang diinisialisasi `false` untuk task baru (`!isEdit`) dan `true` untuk edit task (`isEdit`).
+       - Menambahkan komputasi `advancedFilledCount` yang menghitung otomatis jumlah konfigurasi lanjutan yang diisi oleh pengguna (GTD bukan inbox, context terisi, list_id, berulang aktif, deskripsi terisi, subtask ada, waiting_for terisi).
+       - Menata ulang layout pembuatan task baru:
+         - **Atas (Selalu tampil):** Judul task (auto-focused) + Baris ringkas 3 kolom (📅 **Deadline**, 🚩 **Priority**, 📁 **Project**).
+         - **Tombol Toggle:** Accordion `▸ Opsi Tambahan (GTD, Context, Deskripsi, Subtask)` dengan badge pintar (misal `2 diisi`) jika ada field lanjutan yang diisi.
+         - **Kontainer Lanjutan:** Membungkus GTD Status, Context, Waiting For, Shared List & Assignee, Berulang, Progress, Deskripsi, dan Subtask.
+       - Mode Edit (`isEdit`): Semua kolom tetap langsung ditampilkan terbuka penuh agar pengguna dapat meninjau dan menyunting detail task dengan mudah.
+    3. `static/sw.js`:
+       - Bump Service Worker cache version ke **`taskflow-v345-task-modal-progressive-disclosure`**.
+    4. Unit Tests:
+       - `tests/offline/task_modal_progressive_disclosure.test.js`: Suite pengujian offline baru (7/7 tests pass) memvalidasi CSS rules, state `showAdvanced`, quick attributes grid, tombol toggle, enkapsulasi field lanjutan, dan komputasi active filled count.
+       - `tests/offline/drawing_sync_ui.test.js` & `interactive_note_viewer.test.js`: Memperbarui asersi cache version ke `v345`.
+  - **Verifikasi:**
+    - Inline scripts syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - SW syntax check: `node --check static/sw.js` ➡️ **OK**.
+    - Targeted unit tests: `node --test tests/offline/task_modal_progressive_disclosure.test.js` ➡️ **7/7 pass (0 fail)**.
+    - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **813/813 pass (0 fail)** across 7 suites.
+    - Full Backend test suite: `python -m pytest tests/` ➡️ **61/61 pass (0 fail)**.
+
 - **Bulletproof NoteModal Block Cursor Focus, Title AutoFocus Suppression for Existing Notes & SW v344 (`static/index.html`, `static/sw.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`) — SELESAI 2026-10-02 (Antigravity/Gemini) — SW v344:**
   - **Problem / Context:**
     - Pengguna melaporkan bahwa saat membuka editor catatan, kursor selalu fokus ke input judul (title) catatan alih-alih blok teks yang ingin disunting.
