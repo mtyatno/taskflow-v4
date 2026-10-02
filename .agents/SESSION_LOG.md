@@ -1791,3 +1791,10 @@ Chronological history of work performed by AI agents in this workspace.
 - **Verifikasi:** E2E mobile none/desktop flex; JS 796/796, inline 5/5.
 - **Status:** Completed di branch (belum merge/deploy).
 
+
+## [2026-10-02] - Claude (note trash & restore — klien)
+- **Task:** Sisi klien fitur Sampah note (backend sudah `8be74b4`).
+- **Changes:** `shouldRouteLocally`/`isNoteTrashCall` di taskroutes.js + api wrapper; SW network-only untuk `/api/scratchpad/trash*`; modul `notetrash.js`; `NoteTrashModal` + tombol Sampah di NotesPage; teks konfirmasi/toast hapus baru di semua jalur (+ fix `api.delete`→`api.del`); CSS modal; SW v345, app.css?v=303; tes versi disesuaikan.
+- **Verifikasi:** JS 825/826 (1 fail pra-ada tldraw), pytest 90/90, inline 5/5, E2E Playwright 49/49.
+- **Files Touch:** `static/index.html`, `static/offline/taskroutes.js`, `static/offline/notetrash.js` (baru), `static/sw.js`, `static/app.css`, `tests/offline/{note_trash_routing,notetrash}.test.js` (baru), `tests/offline/{note_toc,drawing_sync_ui,interactive_note_viewer}.test.js`, `.agents/*`
+- **Status:** Completed di branch (belum commit/merge/deploy).

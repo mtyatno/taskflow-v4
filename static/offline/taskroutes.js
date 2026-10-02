@@ -67,6 +67,22 @@
     return /(^|&)entity_type=note(&|$)/.test(path.slice(q + 1));
   }
 
+  // /api/scratchpad/trash... (Sampah note, semua method) hanya ada di server. Tanpa ini rute lokal
+  // GET/DELETE /api/scratchpad/:id menelan /api/scratchpad/trash → "Note not found".
+  function isNoteTrashCall(method, path) {
+    const q = path.indexOf("?");
+    const base = (q === -1 ? path : path.slice(0, q)).replace(/\/+$/, "");
+    return base === "/api/scratchpad/trash" || base.startsWith("/api/scratchpad/trash/");
+  }
+
+  // Keputusan api wrapper (index.html): layani dari router lokal, atau teruskan ke jaringan.
+  function shouldRouteLocally(router, method, path) {
+    if (!router) return false;
+    const m = String(method || "GET").toUpperCase();
+    if (isNoteTagsCall(m, path) || isNoteTrashCall(m, path)) return false;
+    return router.hasRoute(m, path);
+  }
+
   function buildTaskRouter() {
     const router = TFrouter.makeRouter();
     const opts = () => ({ today: todayISO() });
@@ -126,7 +142,7 @@
     return router;
   }
 
-  const exported = { buildTaskRouter, isNoteTagsCall };
+  const exported = { buildTaskRouter, isNoteTagsCall, isNoteTrashCall, shouldRouteLocally };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.taskroutes = exported; }
   return exported;
 });
