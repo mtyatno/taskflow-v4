@@ -2110,3 +2110,41 @@
   }
 }
 
+/* ── TaskFormModal Progressive Disclosure ── */
+.task-quick-attributes {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+@media (max-width: 640px) {
+  .task-quick-attributes {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+.task-advanced-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.task-advanced-toggle:hover {
+  background: var(--bg-card);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.task-advanced-section {
+  animation: fadeIn 0.18s ease;
+}
+
