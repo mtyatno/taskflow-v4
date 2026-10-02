@@ -231,6 +231,17 @@ def test_list_trash_shape_order_preview_and_days_left(client):
     assert it2["preview"] == "pendek"
 
 
+def test_trash_preview_is_fast_on_pathological_content():
+    # Regex link markdown kuadratik atas 'a[' berulang; preview hanya butuh awal content (≤120 char).
+    import time
+    import webapp
+    t0 = time.perf_counter()
+    out = webapp._trash_preview("a[" * 50000)
+    assert time.perf_counter() - t0 < 0.5
+    assert len(out) <= 120
+    assert out == "a" * 120
+
+
 def test_trash_list_is_per_user(client):
     a = U(client, "trashlistA")
     b = U(client, "trashlistB")

@@ -52,6 +52,15 @@
     return !(nav && nav.onLine === false);
   }
 
+  // Apakah user ini boleh memindahkan note ke Sampah? Hanya pemilik; note shared (list_id) milik orang lain
+  // ditolak server (403 → notice delete_refused). user_id/currentUserId tak diketahui → anggap pemilik
+  // (sama dengan isOwner di MindmapTabInstance), karena note pribadi hasil hydrate tidak menyimpan user_id.
+  function canTrash(note, currentUserId) {
+    if (!note || note.list_id == null) return true;
+    if (note.user_id == null || currentUserId == null) return true;
+    return String(note.user_id) === String(currentUserId);
+  }
+
   // "offline" | "loading" | "error" | "empty" | "list" — offline didahulukan: Sampah tidak dimuat sama sekali.
   function trashViewState(s) {
     if (!s || s.online === false) return "offline";
@@ -62,7 +71,7 @@
 
   const exported = {
     CONFIRM_MOVE, TOAST_MOVED, TOAST_RESTORED, OFFLINE_MSG, CONFIRM_PURGE, CONFIRM_EMPTY,
-    daysAgo, deletedAgoLabel, daysLeftLabel, isExpiringSoon, titleLabel, isOnline, trashViewState,
+    daysAgo, deletedAgoLabel, daysLeftLabel, isExpiringSoon, titleLabel, isOnline, canTrash, trashViewState,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.notetrash = exported; }
   return exported;

@@ -13,6 +13,7 @@
   const TFdb = req("./db.js", root.TF && root.TF.db);
   const TFids = req("./ids.js", root.TF && root.TF.ids);
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
+  const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
   const TFtag = req("./tagrepo.js", root.TF && root.TF.tagrepo);
   const TFlogic = req("./notelogic.js", root.TF && root.TF.notelogic);
 
@@ -140,6 +141,22 @@
     });
   }
 
+  // Setelah note berhasil dipulihkan dari Sampah (POST /api/scratchpad/trash/{id}/restore): buang op `delete`
+  // yang masih tertunda untuk note itu (mis. DELETE sudah commit di server tapi responsnya hilang), beserta op
+  // lain miliknya — note itu sudah dihapus user, isi yang dipulihkan = snapshot server. Rekaman lokal
+  // `deleted:true` & idmap sengaja DIPERTAHANKAN: tanpa op tertunda, pull membuatnya ulang dengan cid yang sama
+  // sehingga linked_to_cids note lain tetap valid. Tanpa op delete tertunda → tidak mengubah apa pun.
+  function discardPendingDelete(serverId) {
+    return TFidmap.cidOf("note", serverId).then((cid) => {
+      if (!cid) return { dropped: 0 };
+      return TFoutbox.outboxByEntity("note", cid).then((ops) => {
+        if (!ops.some((o) => o.op === "delete")) return { dropped: 0 };
+        return ops.reduce((p, o) => p.then(() => TFoutbox.outboxRemove(o.qid)), Promise.resolve())
+          .then(() => ({ dropped: ops.length }));
+      });
+    });
+  }
+
   function togglePin(cid, opts) {
     return getNoteRaw(cid).then((rec) => {
       if (!rec || rec.deleted) return Promise.reject(new Error("Note not found"));
@@ -150,7 +167,7 @@
     });
   }
 
-  const exported = { createNote, updateNote, deleteNote, togglePin, getNoteRaw, putNote, resolveLinkedTo, resolveLinkedTasks, setCurrentUser, getCurrentUser };
+  const exported = { createNote, updateNote, deleteNote, discardPendingDelete, togglePin, getNoteRaw, putNote, resolveLinkedTo, resolveLinkedTasks, setCurrentUser, getCurrentUser };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.noterepo = exported; }
   return exported;
 });

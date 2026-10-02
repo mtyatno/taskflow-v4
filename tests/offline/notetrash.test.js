@@ -103,7 +103,54 @@ test("NotesPage: tombol Sampah membuka NoteTrashModal; restore → sync + fetchN
   assert.match(body, /setTrashOpen\(true\)/);
   assert.match(body, /React\.createElement\(NoteTrashModal,/);
   assert.match(body, /window\.__syncNow/);
-  assert.match(body, /showToast\(window\.TF\.notetrash\.TOAST_MOVED\)/);
+  assert.match(body, /window\.TF\?\.notetrash\?\.TOAST_MOVED \|\| "🗑 Dipindahkan ke Sampah"/);
+});
+
+test("handleTrashRestored: buang delete tertunda (noterepo.discardPendingDelete) SEBELUM sync", () => {
+  const start = indexHtml.indexOf("const handleTrashRestored = async");
+  assert.ok(start > -1);
+  const body = indexHtml.slice(start, indexHtml.indexOf("\n  };\n", start));
+  const iDiscard = body.indexOf("window.TF?.noterepo?.discardPendingDelete");
+  assert.ok(iDiscard > -1, "memanggil discardPendingDelete dengan guard");
+  assert.match(body, /discardPendingDelete\(note\.id\)/);
+  assert.ok(iDiscard < body.indexOf("window.__syncNow()"), "discard sebelum __syncNow");
+});
+
+// S-a: index.html baru bisa termuat sementara SW lama belum mem-precache notetrash.js.
+test("semua akses window.TF.notetrash di index.html di-guard dengan teks bawaan", () => {
+  assert.doesNotMatch(indexHtml, /window\.TF\.notetrash/, "tanpa akses tak ter-guard");
+  const confirms = indexHtml.match(/window\.TF\?\.notetrash\?\.CONFIRM_MOVE \|\| "([^"]+)"/g) || [];
+  assert.equal(confirms.length, 2);
+  for (const c of confirms) assert.ok(c.endsWith(JSON.stringify(T.CONFIRM_MOVE)), c);
+  const toasts = indexHtml.match(/window\.TF\?\.notetrash\?\.TOAST_MOVED \|\| "([^"]+)"/g) || [];
+  assert.equal(toasts.length, 3);
+  for (const t of toasts) assert.ok(t.endsWith(JSON.stringify(T.TOAST_MOVED)), t);
+});
+
+test("NoteTrashModal: modul notetrash tidak ada → pesan error, bukan TypeError", () => {
+  const start = indexHtml.indexOf("function NoteTrashModal(");
+  const body = indexHtml.slice(start, indexHtml.indexOf("\n}\n", start));
+  assert.match(body, /const NT = window\.TF\?\.notetrash;/);
+  const iGuard = body.indexOf("if (!NT)");
+  assert.ok(iGuard > -1 && iGuard < body.indexOf("useState("), "guard sebelum hook pertama");
+  assert.match(body.slice(iGuard, body.indexOf("useState(")), /Muat ulang halaman/);
+});
+
+// S-b: hapus note shared oleh non-pemilik ditolak server (403 → notice delete_refused) → jangan toast sukses.
+test("canTrash: pemilik / note pribadi / data tak lengkap → true; shared milik orang lain → false", () => {
+  assert.equal(T.canTrash({ list_id: null, user_id: 2 }, 1), true);
+  assert.equal(T.canTrash({ list_id: 5, user_id: 1 }, 1), true);
+  assert.equal(T.canTrash({ list_id: 5, user_id: 2 }, 1), false);
+  assert.equal(T.canTrash({ list_id: 5, user_id: "2" }, 2), true);
+  assert.equal(T.canTrash({ list_id: 5, user_id: null }, 1), true);
+  assert.equal(T.canTrash({ list_id: 5, user_id: 2 }, null), true);
+  assert.equal(T.canTrash(null, 1), true);
+});
+
+test("toast 'Dipindahkan ke Sampah' hanya bila canTrash (ketiga tempat hapus)", () => {
+  const sites = indexHtml.split(/window\.TF\?\.notetrash\?\.TOAST_MOVED \|\| /).slice(0, -1);
+  assert.equal(sites.length, 3);
+  for (const before of sites) assert.match(before.slice(-260), /notetrash\?\.canTrash\?\.\(/, before.slice(-260));
 });
 
 test("konfirmasi hapus note lama diganti di semua tempat", () => {

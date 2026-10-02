@@ -1798,3 +1798,17 @@ Chronological history of work performed by AI agents in this workspace.
 - **Verifikasi:** JS 825/826 (1 fail pra-ada tldraw), pytest 90/90, inline 5/5, E2E Playwright 49/49.
 - **Files Touch:** `static/index.html`, `static/offline/taskroutes.js`, `static/offline/notetrash.js` (baru), `static/sw.js`, `static/app.css`, `tests/offline/{note_trash_routing,notetrash}.test.js` (baru), `tests/offline/{note_toc,drawing_sync_ui,interactive_note_viewer}.test.js`, `.agents/*`
 - **Status:** Completed di branch (belum commit/merge/deploy).
+
+## [2026-10-02] - Claude (note trash — perbaikan temuan review)
+- **Task:** Perbaiki 3 bug terkonfirmasi reviewer + 2 saran pada fitur Sampah note.
+- **Changes:** `noterepo.discardPendingDelete` + panggilan di `handleTrashRestored` (restore tidak lagi dibatalkan DELETE tertunda); `pullNotes` memperbarui `linked_to_cids` basi pada rekaman bersih (`relinked`) + `noteSaved` di sync; `_trash_preview` potong 2000 char sebelum regex; guard `window.TF?.notetrash?.` + teks bawaan, fallback error di `NoteTrashModal`; `notetrash.canTrash` untuk toast hapus; SW v346.
+- **Verifikasi:** pytest 91/91, JS 835/836 (1 fail pra-ada tldraw), inline 5/5; repro reviewer S1 (dengan langkah handler baru) & S2 benar.
+- **Files Touch:** `webapp.py`, `static/index.html`, `static/offline/{noterepo,syncpull,notetrash}.js`, `static/sw.js`, `tests/test_note_trash.py`, `tests/offline/note_trash_sync.test.js` (baru), `tests/offline/{notetrash,drawing_sync_ui,interactive_note_viewer}.test.js`, `.agents/*`
+- **Status:** Completed di branch (belum commit/merge/deploy).
+
+## [2026-10-02] - Claude (koordinator: analisis Notion/Evernote + fitur Sampah note)
+- **Task:** Analisis gap Notes vs Notion & Evernote (dokumen roadmap di Claude Docs), lalu fitur Trash & Restore note: spec → backend (subagent, TDD) → klien (subagent) → review independen → perbaikan 3 bug.
+- **Changes:** spec `docs/superpowers/specs/2026-10-02-note-trash-design.md`; ADR-004; commit `5a42ff8` (spec), `8be74b4` (backend), `011d6de` (klien), commit perbaikan review.
+- **Verifikasi koordinator:** pytest tests 91/91, JS 835/836 (1 fail pra-ada tldraw), inline 5/5, repro reviewer S1/S2 benar, E2E Playwright 49/49 setelah perbaikan.
+- **Files Touch:** `webapp.py`, `static/{index.html,sw.js,app.css}`, `static/offline/{taskroutes,noterepo,syncpull,notetrash}.js`, tests, `docs/superpowers/specs/…`, `.agents/*`
+- **Status:** Completed di branch `ccr-1c84ae68-l09ysx` (belum merge/deploy). PENDING deploy: restart `taskflow-web`, hard refresh SW v346, rebuild APK.

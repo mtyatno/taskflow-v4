@@ -3386,7 +3386,9 @@ def _purge_expired_trashed_notes(conn) -> None:
     conn.execute("DELETE FROM trashed_notes WHERE deleted_at < ?", (cutoff,))
 
 def _trash_preview(content: str, limit: int = 120) -> str:
-    s = content or ""
+    # Potong dulu: regex link di bawah bisa kuadratik pada content panjang (mis. 'a[' * 50000 ≈ 18 dtk,
+    # memblokir event loop); preview hanya memakai ≤limit char pertama.
+    s = (content or "")[:2000]
     s = re.sub(r"::draw\[[^\]]*\]", " ", s)
     s = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", s)               # [teks](url) -> teks
     s = re.sub(r"(?:\\?\[){2}([^\[\]\\|]*)(?:\|[^\[\]\\]*)?(?:\\?\]){2}", r"\1", s)  # [[Judul|alias]] -> Judul

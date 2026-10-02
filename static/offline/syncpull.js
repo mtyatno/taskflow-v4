@@ -299,8 +299,24 @@
       });
     });
   }
+  function getNoteRec(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("scratchpad_notes", "readonly").objectStore("scratchpad_notes").get(cid);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function serverLinkCids(s, noteCidCache) {
+    return (s.linked_to || []).map((sid) => noteCidCache[sid]).filter(Boolean);
+  }
+  // Server menautkan note yang dikenal lokal, tapi cid-nya tidak ada di linked_to_cids lokal.
+  function linksStale(s, local, noteCidCache) {
+    let cur = [];
+    try { cur = JSON.parse(local.linked_to_cids || "[]") || []; } catch (_) { cur = []; }
+    return serverLinkCids(s, noteCidCache).some((c) => cur.indexOf(c) === -1);
+  }
   function noteFromServer(s, cid, noteCidCache) {
-    const toCids = (s.linked_to || []).map((sid) => noteCidCache[sid]).filter(Boolean);
+    const toCids = serverLinkCids(s, noteCidCache);
     const taskIds = s.linked_task_ids || [];
     return taskIds.reduce((p, tid) => p.then((acc) => TFidmap.cidOf("task", tid).then((c) => { if (c) acc.push(c); return acc; })), Promise.resolve([]))
       .then((taskCids) => ({
@@ -329,7 +345,7 @@
       .then(([localAll, outboxOps]) => {
         const pendingNoteOps = new Set(outboxOps.filter((o) => o.entity_type === "note").map((o) => o.cid));
         const byCid = {}; for (const r of localAll) byCid[r.cid] = r;
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0 };
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0, relinked: 0 };
         let chain = Promise.resolve();
         for (const s of list) {
           const cid = cache[s.id];
@@ -351,6 +367,15 @@
             }
             if (s.updated_at !== local.base_rev || local.deleted || (local.dirty && !pendingNoteOps.has(cid))) {
               result.updated++; return writeNote(s, cid, cache, local.notice ? { notice: local.notice } : undefined);
+            }
+            // updated_at sama, tapi server menautkan note yang kini punya cid lain secara lokal (mis. note dipulihkan
+            // dari Sampah → dibuat ulang dengan cid baru): perbarui linked_to_cids saja (rekaman bersih saja).
+            if (!local.dirty && linksStale(s, local, cache)) {
+              return getNoteRec(cid).then((cur) => {
+                if (!cur || cur.dirty || cur.deleted || !linksStale(s, cur, cache)) return;
+                result.relinked++;
+                return putNote(Object.assign({}, cur, { linked_to_cids: JSON.stringify(serverLinkCids(s, cache)) }));
+              });
             }
             return;
           });

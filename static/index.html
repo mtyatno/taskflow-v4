@@ -624,7 +624,7 @@ function sync() {
     .then(() => {
       if (!window.TF.syncpull.pullNotesAndReconcile) return null;
       return window.TF.syncpull.pullNotesAndReconcile(__syncRawFetch).then((notesRes) => {
-        if (notesRes && (notesRes.created > 0 || notesRes.updated > 0 || notesRes.deleted > 0)) {
+        if (notesRes && (notesRes.created > 0 || notesRes.updated > 0 || notesRes.deleted > 0 || notesRes.relinked > 0)) {
           window.dispatchEvent(new CustomEvent("noteSaved"));
         }
         return notesRes;
@@ -8871,7 +8871,7 @@ function MindmapTabInstance({
     onDelete: async id => {
       try {
         await api.del(`/api/scratchpad/${id}`); setModalNote(null);
-        showToast(window.TF.notetrash.TOAST_MOVED);
+        if (window.TF?.notetrash?.canTrash?.(modalNote, currentUserId) !== false) showToast(window.TF?.notetrash?.TOAST_MOVED || "🗑 Dipindahkan ke Sampah");
       } catch (e) { if (isOfflineErr(e)) showToast('Tidak dapat menghapus — offline', 'error'); }
     },
     onTaskClick: onTaskClick, showToast: showToast
@@ -19957,7 +19957,7 @@ function NoteModal({
     }
   }, !focusMode && note?.id && /*#__PURE__*/React.createElement("button", {
     onClick: () => {
-      if (!window.confirm(window.TF.notetrash.CONFIRM_MOVE)) return;
+      if (!window.confirm(window.TF?.notetrash?.CONFIRM_MOVE || "Pindahkan catatan ini ke Sampah? Bisa dipulihkan dalam 30 hari.")) return;
       onDelete(note.id);
       onClose();
     },
@@ -21222,7 +21222,7 @@ function NotePanel({
     }
   }, /*#__PURE__*/React.createElement(Icon, { name: "edit", size: 14 }), /*#__PURE__*/React.createElement("span", { className: "note-act-label" }, "Edit")), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
-      if (window.confirm(window.TF.notetrash.CONFIRM_MOVE)) onDelete(note.id);
+      if (window.confirm(window.TF?.notetrash?.CONFIRM_MOVE || "Pindahkan catatan ini ke Sampah? Bisa dipulihkan dalam 30 hari.")) onDelete(note.id);
     },
     title: "Pindahkan ke Sampah",
     "aria-label": "Pindahkan ke Sampah",
@@ -21510,7 +21510,23 @@ function NoteTrashModal({
   onRestored,
   showToast
 }) {
-  const NT = window.TF.notetrash;
+  const NT = window.TF?.notetrash;
+  // index.html baru bisa termuat sementara cache SW lama belum punya notetrash.js. Kondisi ini tetap selama
+  // halaman hidup, jadi return dini sebelum hook aman (jumlah hook tidak berubah antar-render).
+  if (!NT) return /*#__PURE__*/React.createElement("div", {
+    className: "modal-overlay",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal-content scale-in note-trash-modal",
+    role: "dialog",
+    "aria-label": "Sampah",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-state"
+  }, /*#__PURE__*/React.createElement("div", { style: { color: "#ef4444", marginBottom: 10 } }, "Sampah belum termuat. Muat ulang halaman untuk memperbarui aplikasi."), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    onClick: onClose
+  }, "Tutup"))));
   const [online, setOnline] = useState(() => NT.isOnline(navigator));
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -22046,8 +22062,10 @@ function NotesPage({
   };
   const handleDelete = async id => {
     try {
+      const target = allNotes.find(n => n.id === id) || notes.find(n => n.id === id);
       await api.del(`/api/scratchpad/${id}`);
-      showToast(window.TF.notetrash.TOAST_MOVED);
+      // Note shared milik orang lain: server menolak (403 → notice delete_refused), jangan klaim sukses.
+      if (window.TF?.notetrash?.canTrash?.(target, user?.id) !== false) showToast(window.TF?.notetrash?.TOAST_MOVED || "🗑 Dipindahkan ke Sampah");
       fetchNotes(q, activeTags, filterUntagged, notesTab);
       setActiveTags([]);
     } catch (e) {
@@ -22117,7 +22135,12 @@ function NotesPage({
   };
   // Setelah Pulihkan dari Sampah: note dipulihkan di server → tarik ke IndexedDB lewat sync (pull melihatnya
   // sebagai note baru), lalu muat ulang daftar seperti setelah simpan.
-  const handleTrashRestored = async () => {
+  const handleTrashRestored = async note => {
+    try {
+      // DELETE yang sudah commit di server tapi responsnya hilang masih antre di outbox → buang dulu, kalau
+      // tidak push berikutnya memindahkan note ini ke Sampah lagi.
+      if (note && note.id != null && window.TF?.noterepo?.discardPendingDelete) await window.TF.noterepo.discardPendingDelete(note.id);
+    } catch (_) {}
     try {
       if (window.__syncNow) await window.__syncNow();
     } catch (_) {}
@@ -26649,7 +26672,10 @@ function App() {
       });
     },
     onDelete: id => {
-      api.del(`/api/scratchpad/${id}`).then(() => { setSelectedNote(null); showToast(window.TF.notetrash.TOAST_MOVED); }).catch(err => {
+      api.del(`/api/scratchpad/${id}`).then(() => {
+        setSelectedNote(null);
+        if (window.TF?.notetrash?.canTrash?.(selectedNote, user?.id) !== false) showToast(window.TF?.notetrash?.TOAST_MOVED || "🗑 Dipindahkan ke Sampah");
+      }).catch(err => {
         showToast(isOfflineErr(err) ? 'Tidak dapat menghapus — offline' : 'Gagal menghapus', 'error');
       });
     },
