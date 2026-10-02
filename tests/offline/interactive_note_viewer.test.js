@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v346-habit-modal-progressive-disclosure/,
-      "sw.js should be bumped to taskflow-v346-habit-modal-progressive-disclosure"
+      /taskflow-v347-fix-chevron-icons/,
+      "sw.js should be bumped to taskflow-v347-fix-chevron-icons"
     );
   });
 

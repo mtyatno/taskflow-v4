@@ -1,6 +1,7 @@
-const CACHE = "taskflow-v346-habit-modal-progressive-disclosure";
+const CACHE = "taskflow-v347-fix-chevron-icons";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
+  "/static/ui-components.js",
   "/static/offline/ids.js",
   "/static/offline/db.js",
   "/static/offline/meta.js",

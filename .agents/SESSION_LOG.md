@@ -2,6 +2,31 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-03 06:15] - Antigravity (Gemini)
+- **Task:** Fix Chevron Icons Text Fallback in Task & Habit Accordion Toggle Buttons (`static/ui-components.js`, `static/sw.js`, `tests/offline/task_modal_progressive_disclosure.test.js`) — SW v347.
+- **Objective:**
+  - Memperbaiki bug tampilan di mana tombol toggle opsi tambahan pada modal task dan habit menampilkan teks mentah `"chevron-right"` atau `"chevron-down"` di samping label tombol alih-alih menampilkan icon panah SVG.
+  - Mendaftarkan path icon SVG `chevronDown`, `'chevron-down'`, `chevronRight`, `'chevron-right'`, `chevronUp`, `'chevron-up'`, `chevronLeft`, dan `'chevron-left'` ke dalam kamus `ICONS` (`static/ui-components.js`).
+  - Menambahkan `/static/ui-components.js` ke precache `STATIC` Service Worker.
+- **Changes:**
+  - `static/ui-components.js`:
+    - Menambahkan definisi path SVG chevron (down, right, up, left) pada `ICONS`.
+  - `static/sw.js`:
+    - Menambahkan `/static/ui-components.js` ke precache array `STATIC`.
+    - Bump cache version ke **`taskflow-v347-fix-chevron-icons`**.
+  - `tests/offline/task_modal_progressive_disclosure.test.js`:
+    - Menambahkan Test 7 untuk memastikan icon SVG `chevron-right` dan `chevron-down` terdefinisi di `static/ui-components.js`.
+  - `tests/offline/drawing_sync_ui.test.js` & `tests/offline/interactive_note_viewer.test.js`:
+    - Sinkronisasi asersi cache version ke `v347`.
+- **Verification:**
+  - Inline scripts syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - SW & UI syntax check: `node --check static/sw.js` & `node --check static/ui-components.js` ➡️ **OK**.
+  - Targeted unit tests: `node --test tests/offline/task_modal_progressive_disclosure.test.js` ➡️ **8/8 pass (0 fail)**.
+  - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **819/819 pass (0 fail)** across 8 suites.
+  - Full Backend test suite: `python -m pytest tests/` ➡️ **61/61 pass (0 fail)**.
+- **Files Modified:** `static/ui-components.js`, `static/sw.js`, `tests/offline/task_modal_progressive_disclosure.test.js`, `tests/offline/drawing_sync_ui.test.js`, `tests/offline/interactive_note_viewer.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed & Verified
+
 ## [2026-10-02 21:50] - Antigravity (Gemini)
 - **Task:** Habit Modal Progressive Disclosure for Low-Friction New Habit Creation (`static/index.html`, `static/sw.js`, `tests/offline/habit_modal_progressive_disclosure.test.js`) — SW v346.
 - **Objective:**

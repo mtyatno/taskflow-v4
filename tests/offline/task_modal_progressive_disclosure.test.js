@@ -72,4 +72,11 @@ test("TaskFormModal Progressive Disclosure Specifications", async (t) => {
       "Must compute count of populated advanced attributes"
     );
   });
+
+  await t.test("7. Chevron icons are defined in ICONS in static/ui-components.js", () => {
+    const uiComponentsPath = path.join(ROOT, "static/ui-components.js");
+    const uiComponentsCode = fs.readFileSync(uiComponentsPath, "utf8");
+    assert.match(uiComponentsCode, /['"]chevron-right['"]:\s*'<path/, "ICONS must define chevron-right SVG");
+    assert.match(uiComponentsCode, /['"]chevron-down['"]:\s*'<path/, "ICONS must define chevron-down SVG");
+  });
 });

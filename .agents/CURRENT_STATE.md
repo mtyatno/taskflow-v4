@@ -64,6 +64,26 @@
   - **BLOKER build lokal:** `Z:` = drive cloud; `milkdown-build/node_modules/@milkdown` tak terbaca ("The cloud file provider is not running") → `npm run build` bundle butuh cloud provider aktif atau `npm install` ulang. Setelah build: bump SW + rebuild .exe/APK.
   - **NEXT (kalau user setuju):** brainstorming → spec → plan → SDD (sesuai PROTOCOL).
 
+- **Fix Chevron Icons Text Fallback in Task & Habit Accordion Toggle Buttons (`static/ui-components.js`, `static/sw.js`, `tests/offline/task_modal_progressive_disclosure.test.js`) — SELESAI 2026-10-03 (Antigravity/Gemini) — SW v347:**
+  - **Problem / Context:**
+    - Pada tombol toggle opsi tambahan modal task dan modal habit (`.task-advanced-toggle`), muncul teks mentah `"chevron-right"` atau `"chevron-down"` di depan label teks.
+    - Akar masalah: Komponen `<Icon name={showAdvanced ? "chevron-down" : "chevron-right"} />` memanggil kamus `ICONS`, tetapi kunci `chevron-down` dan `chevron-right` belum terdaftar di `ICONS` (`static/ui-components.js`). Akibatnya, fallback default komponen Icon mencetak string nama icon ke dalam DOM (`<span>{name}</span>`).
+  - **Solusi / Perbaikan:**
+    1. `static/ui-components.js`:
+       - Menambahkan definisi path SVG untuk `chevronDown`, `'chevron-down'`, `chevronRight`, `'chevron-right'`, `chevronUp`, `'chevron-up'`, `chevronLeft`, dan `'chevron-left'` ke dalam kamus `ICONS`.
+    2. `static/sw.js`:
+       - Menambahkan `/static/ui-components.js` ke daftar array `STATIC` cache Service Worker agar di-precache saat install.
+       - Bump cache version ke **`taskflow-v347-fix-chevron-icons`**.
+    3. Unit Tests:
+       - `tests/offline/task_modal_progressive_disclosure.test.js`: Menambahkan Test 7 untuk memastikan definisi icon SVG `chevron-right` dan `chevron-down` terdaftar valid di `static/ui-components.js`.
+       - `tests/offline/drawing_sync_ui.test.js` & `interactive_note_viewer.test.js`: Sinkronisasi asersi cache version ke `v347`.
+  - **Verifikasi:**
+    - Inline scripts syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+    - SW & UI syntax check: `node --check static/sw.js` & `node --check static/ui-components.js` ➡️ **OK**.
+    - Targeted unit tests: `node --test tests/offline/task_modal_progressive_disclosure.test.js` ➡️ **8/8 pass (0 fail)**.
+    - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **819/819 pass (0 fail)** across 8 suites.
+    - Full Backend test suite: `python -m pytest tests/` ➡️ **61/61 pass (0 fail)**.
+
 - **Habit Modal Progressive Disclosure for Low-Friction New Habit Creation (`static/index.html`, `static/sw.js`, `tests/offline/habit_modal_progressive_disclosure.test.js`) — SELESAI 2026-10-02 (Antigravity/Gemini) — SW v346:**
   - **Problem / Context:**
     - Pada tab Habit pembuatan baru (`TaskFormModal`), seluruh form konfigurasi (Nama Habit, Fase, Micro Target, Frekuensi 7 tombol hari, Identity Pillar) sebelumnya langsung ditampilkan secara penuh.
