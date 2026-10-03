@@ -5,6 +5,11 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
+## 🟢 Sidebar desktop jadi icon rail saat diperkecil — 2026-10-03 (Claude) — SELESAI di branch `claude/sidebar-icon-rail-iuwycq` (draft PR, belum merge/deploy; SW v353 `taskflow-v353-sidebar-icon-rail`, app.css?v=305)
+- Desktop (>768px): `sidebarCollapsed` kini = bilah ikon 64px (`--sidebar-rail-w`): logo, tombol › buka menu penuh, 8 menu utama (link sebelum section GTD). Main content `sidebar-rail-visible` (margin 64px). Toggle sidebar halaman Notes/Draw/Mindmap digeser ke `left: var(--sidebar-rail-w)`.
+- Mobile tidak berubah (drawer penuh); tombol ‹ di header drawer kini menutup drawer.
+- **Konflik diketahui:** PR #3 (dashboard) juga menaikkan SW/app.css (v352/304) — siapa merge belakangan, naikkan versi lagi + sesuaikan tes versi.
+
 ## 🟢 Search Bar Dropdown Popover for Saved Searches — 2026-10-03 (Antigravity/Gemini) — SELESAI di `main` (SW v351 `taskflow-v351-note-search-dropdown`)
 - **Commits:** `f50e294` (`feat(client): display saved searches in search bar dropdown popover and bump SW to v351`).
 - **Fitur (Task 1):**
