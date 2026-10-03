@@ -2488,3 +2488,174 @@
   .dash-projects, .dash-notes { grid-template-columns: minmax(0, 1fr); }
   .dash-main, .dash-charts, .dash-grid-2 { gap: 12px; }
 }
+
+/* ── Note Rich Blocks: Code Cards, Callouts, and Collapsible Details ── */
+.note-code-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 12px 0;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+.note-code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.02);
+  user-select: none;
+}
+[data-theme="dark"] .note-code-header {
+  background: rgba(255, 255, 255, 0.03);
+}
+.note-code-lang {
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.note-code-copy-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+.note-code-copy-btn:hover {
+  color: var(--accent);
+  background: rgba(0, 0, 0, 0.04);
+}
+[data-theme="dark"] .note-code-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.note-code-copy-btn.copied {
+  color: #16a34a;
+  font-weight: 600;
+}
+.note-code-card pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.5;
+  background: transparent;
+}
+.note-code-card code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Callout Alerts */
+.note-callout {
+  border-left: 4px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  padding: 10px 14px;
+  margin: 12px 0;
+  background: rgba(168, 197, 0, 0.08);
+}
+.note-callout-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+  color: var(--text-primary);
+}
+.note-callout-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.note-callout-title {
+  font-weight: 700;
+}
+.note-callout-content {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+.note-callout-content > p:first-child {
+  margin-top: 0;
+}
+.note-callout-content > p:last-child {
+  margin-bottom: 0;
+}
+
+/* Callout Types */
+.note-callout-note {
+  border-left-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.08);
+}
+.note-callout-tip {
+  border-left-color: #22c55e;
+  background: rgba(34, 197, 94, 0.08);
+}
+.note-callout-warning {
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+}
+.note-callout-important {
+  border-left-color: #a855f7;
+  background: rgba(168, 85, 247, 0.08);
+}
+.note-callout-caution {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+[data-theme="dark"] .note-callout-note {
+  background: rgba(59, 130, 246, 0.12);
+}
+[data-theme="dark"] .note-callout-tip {
+  background: rgba(34, 197, 94, 0.12);
+}
+[data-theme="dark"] .note-callout-warning {
+  background: rgba(245, 158, 11, 0.12);
+}
+[data-theme="dark"] .note-callout-important {
+  background: rgba(168, 85, 247, 0.12);
+}
+[data-theme="dark"] .note-callout-caution {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+/* Collapsible Details & Summary */
+.note-rendered details {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 10px 0;
+  background: rgba(0, 0, 0, 0.02);
+  transition: background 0.15s ease;
+}
+.note-rendered details[open] {
+  background: var(--bg-card);
+}
+.note-rendered details summary {
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+  outline: none;
+  padding: 2px 0;
+  color: var(--text-primary);
+}
+.note-rendered details summary:hover {
+  color: var(--accent);
+}
+.note-rendered details > *:not(summary) {
+  margin-top: 8px;
+}
+[data-theme="dark"] .note-rendered details {
+  background: rgba(255, 255, 255, 0.02);
+}
+[data-theme="dark"] .note-rendered details[open] {
+  background: var(--bg-card);
+}
+}

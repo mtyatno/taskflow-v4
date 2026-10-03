@@ -23,6 +23,8 @@
 
   <script src="/static/vendor/chart.umd.min.js"></script>
   <script src="/static/vendor/marked.min.js"></script>
+  <script src="/static/vendor/prism.min.js"></script>
+  <link rel="stylesheet" href="/static/vendor/prism.min.css">
   <link rel="stylesheet" href="/static/vendor/driver.css">
   <script src="/static/vendor/driver.iife.js"></script>
   <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
@@ -16611,10 +16613,42 @@ function SettingsPage({
 
 // ── Notes / Scratchpad ────────────────────────────────────────
 
+window.copyCodeBlock = function(codeId, btn) {
+  var el = document.getElementById(codeId);
+  if (!el) return;
+  var text = el.innerText || el.textContent;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function() {
+      if (!btn) return;
+      var orig = btn.innerHTML;
+      btn.innerHTML = '✓ Tersalin';
+      btn.classList.add('copied');
+      setTimeout(function() { btn.innerHTML = orig; btn.classList.remove('copied'); }, 1800);
+    }).catch(function(err) { console.error('Copy failed', err); });
+  }
+};
+
 let _markedHIdx = 0;
 marked.use({
   gfm: true,
   renderer: {
+    code(token, infostring) {
+      const codeText = typeof token === 'object' && token !== null ? (token.text || '') : String(token || '');
+      const rawLang = typeof token === 'object' && token !== null ? (token.lang || '') : (infostring || '');
+      const lang = (rawLang || '').match(/\S*/)[0] || '';
+      const highlighted = (window.Prism && lang && Prism.languages[lang])
+        ? Prism.highlight(codeText, Prism.languages[lang], lang)
+        : escapeHtml(codeText);
+      const langDisplay = lang ? lang.toUpperCase() : 'CODE';
+      const codeId = 'code-' + Math.random().toString(36).slice(2, 9);
+      return `<div class="note-code-card">
+  <div class="note-code-header">
+    <span class="note-code-lang">${langDisplay}</span>
+    <button type="button" class="note-code-copy-btn" onclick="copyCodeBlock('${codeId}', this)" title="Salin kode">📋 Salin</button>
+  </div>
+  <pre><code id="${codeId}" class="language-${lang}">${highlighted}</code></pre>
+</div>\n`;
+    },
     heading({
       tokens,
       depth
@@ -16927,6 +16961,34 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   const cleanMd = cleanLines.join('\n');
 
   let html = marked.parse(cleanMd);
+  const ALERT_TYPES = {
+    NOTE: { icon: 'ℹ️', title: 'Catatan', cls: 'note' },
+    INFO: { icon: 'ℹ️', title: 'Informasi', cls: 'note' },
+    TIP: { icon: '💡', title: 'Tips', cls: 'tip' },
+    WARNING: { icon: '⚠️', title: 'Perhatian', cls: 'warning' },
+    IMPORTANT: { icon: '📌', title: 'Penting', cls: 'important' },
+    CAUTION: { icon: '🚨', title: 'Peringatan', cls: 'caution' }
+  };
+  html = html.replace(/<blockquote>\s*<p>\[!(NOTE|INFO|TIP|WARNING|IMPORTANT|CAUTION)\]([^\n<]*)(?:<\/p>|(?:\n|<br\/?>)?([\s\S]*?)<\/p>)([\s\S]*?)<\/blockquote>/gi, (match, typeRaw, titleRaw, firstParaRest, remainingContent) => {
+    const type = typeRaw.toUpperCase();
+    const conf = ALERT_TYPES[type] || { icon: 'ℹ️', title: type, cls: 'note' };
+    const customTitle = (titleRaw || '').trim();
+    const title = customTitle || conf.title;
+    let body = '';
+    if (firstParaRest && firstParaRest.trim()) {
+      body += '<p>' + firstParaRest.trim() + '</p>\n';
+    }
+    if (remainingContent && remainingContent.trim()) {
+      body += remainingContent.trim();
+    }
+    return `<div class="note-callout note-callout-${conf.cls}">
+  <div class="note-callout-header">
+    <span class="note-callout-icon">${conf.icon}</span>
+    <span class="note-callout-title">${title}</span>
+  </div>
+  <div class="note-callout-content">${body.trim()}</div>
+</div>\n`;
+  });
   let cbIdx = 0;
   html = html.replace(/<input\b([^>]*?type=["']checkbox["'][^>]*?)>/gi, (match, attrs) => {
     const isChecked = /\bchecked\b/i.test(attrs);
