@@ -2,6 +2,32 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-03 09:45] - Antigravity (Gemini)
+- **Task:** Merge & Release Note Trash & Restore Feature to Main (`origin/ccr-1c84ae68-l09ysx` ➡️ `main`) — SW v348.
+- **Objective:**
+  - Menggabungkan fitur Note Trash & Restore dari branch `origin/ccr-1c84ae68-l09ysx` ke `main`.
+  - Menyelesaikan konflik penggabungan pada `static/app.css` (mempertahankan CSS progressive disclosure modal dan modal sampah catatan), `static/sw.js` (bump cache version ke `taskflow-v348-notes-trash-and-restore`), serta sinkronisasi versi test suite offline.
+  - Memastikan seluruh test backend (FastAPI pytest) dan test frontend offline (node test runner) lulus 100%.
+- **Changes:**
+  - `static/app.css`:
+    - Mengintegrasikan styling `.note-trash-modal` bersamaan dengan styling `.task-quick-attributes` & `.task-advanced-toggle`.
+  - `static/sw.js`:
+    - Menambahkan precache `/static/offline/notetrash.js` dan `/static/ui-components.js`.
+    - Menyematkan network-only routing handler untuk `/api/scratchpad/trash*`.
+    - Bump cache version ke **`taskflow-v348-notes-trash-and-restore`**.
+  - `tests/offline/drawing_sync_ui.test.js` & `tests/offline/interactive_note_viewer.test.js`:
+    - Mengupdate asersi versi cache Service Worker ke `v348`.
+  - `tests/offline/notetrash.test.js`:
+    - Normalisasi CRLF line endings agar kompatibel di Windows.
+- **Verification:**
+  - Inline scripts check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+  - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **850/850 pass (0 fail)** across 7 suites.
+  - Full Backend test suite: `python -m pytest tests/` ➡️ **91/91 pass (0 fail)** across 11 test modules.
+  - Independent Code Review: **APPROVED**.
+- **Files Modified:** `static/app.css`, `static/sw.js`, `tests/offline/drawing_sync_ui.test.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/notetrash.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed & Verified
+
 ## [2026-10-03 09:40] - Antigravity (Gemini)
 - **Task:** Fix CRLF Line Ending Slice Incompatibility in Note Trash Unit Test (`tests/offline/notetrash.test.js`).
 - **Objective:**
