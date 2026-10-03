@@ -50,7 +50,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=302">
+  <link rel="stylesheet" href="/static/app.css?v=303">
 
 <style>
 .paper-mode-active {
@@ -212,6 +212,7 @@
   <script src="/static/offline/notequery.js"></script>
   <script src="/static/offline/notehydrate.js"></script>
   <script src="/static/offline/noteroutes.js"></script>
+  <script src="/static/offline/notetrash.js"></script>
   <script src="/static/offline/drawingrepo.js"></script>
   <script src="/static/offline/drawingroutes.js"></script>
   <script src="/static/offline/drawingtabs.js"></script>
@@ -437,7 +438,12 @@ const api = {
       try { _router = api._localRouter || (api._localRouter = _R.buildTaskRouter()); } catch (_) { _router = null; }
       if (_router) {
         const _method = (opts.method || "GET").toUpperCase();
-        if (_router.hasRoute(_method, url) && !_R.isNoteTagsCall(_method, url)) {
+        // shouldRouteLocally: /api/tags?entity_type=note & /api/scratchpad/trash... selalu ke jaringan.
+        // Fallback untuk taskroutes.js lama dari cache SW (index.html bisa lebih baru dari modulnya).
+        const _local = _R.shouldRouteLocally
+          ? _R.shouldRouteLocally(_router, _method, url)
+          : (_router.hasRoute(_method, url) && !_R.isNoteTagsCall(_method, url) && !/^\/api\/scratchpad\/trash(\/|\?|$)/.test(url));
+        if (_local) {
           const _body = opts.body ? JSON.parse(opts.body) : undefined;
           const _res = await _router.dispatch(_method, url, _body)
             .catch(err => { throw new Error(err && err.message ? err.message : "local route error"); });
@@ -618,7 +624,7 @@ function sync() {
     .then(() => {
       if (!window.TF.syncpull.pullNotesAndReconcile) return null;
       return window.TF.syncpull.pullNotesAndReconcile(__syncRawFetch).then((notesRes) => {
-        if (notesRes && (notesRes.created > 0 || notesRes.updated > 0 || notesRes.deleted > 0)) {
+        if (notesRes && (notesRes.created > 0 || notesRes.updated > 0 || notesRes.deleted > 0 || notesRes.relinked > 0)) {
           window.dispatchEvent(new CustomEvent("noteSaved"));
         }
         return notesRes;
@@ -8930,6 +8936,7 @@ function MindmapTabInstance({
     onDelete: async id => {
       try {
         await api.del(`/api/scratchpad/${id}`); setModalNote(null);
+        if (window.TF?.notetrash?.canTrash?.(modalNote, currentUserId) !== false) showToast(window.TF?.notetrash?.TOAST_MOVED || "🗑 Dipindahkan ke Sampah");
       } catch (e) { if (isOfflineErr(e)) showToast('Tidak dapat menghapus — offline', 'error'); }
     },
     onTaskClick: onTaskClick, showToast: showToast
@@ -20015,6 +20022,7 @@ function NoteModal({
     }
   }, !focusMode && note?.id && /*#__PURE__*/React.createElement("button", {
     onClick: () => {
+      if (!window.confirm(window.TF?.notetrash?.CONFIRM_MOVE || "Pindahkan catatan ini ke Sampah? Bisa dipulihkan dalam 30 hari.")) return;
       onDelete(note.id);
       onClose();
     },
@@ -21279,8 +21287,10 @@ function NotePanel({
     }
   }, /*#__PURE__*/React.createElement(Icon, { name: "edit", size: 14 }), /*#__PURE__*/React.createElement("span", { className: "note-act-label" }, "Edit")), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
-      if (window.confirm("Hapus catatan ini?")) onDelete(note.id);
+      if (window.confirm(window.TF?.notetrash?.CONFIRM_MOVE || "Pindahkan catatan ini ke Sampah? Bisa dipulihkan dalam 30 hari.")) onDelete(note.id);
     },
+    title: "Pindahkan ke Sampah",
+    "aria-label": "Pindahkan ke Sampah",
     style: {
       background: "none",
       border: "1px solid var(--border)",
@@ -21557,6 +21567,186 @@ function NotePanel({
     )
   )));
 }
+// ── Sampah note (Trash & Restore) — hanya online. Lihat docs/superpowers/specs/2026-10-02-note-trash-design.md ──
+// Semua /api/scratchpad/trash... selalu ke jaringan (taskroutes.shouldRouteLocally; SW network-only) dan
+// TIDAK PERNAH diantre ke outbox: offline → pesan koneksi tanpa memanggil API.
+function NoteTrashModal({
+  onClose,
+  onRestored,
+  showToast
+}) {
+  const NT = window.TF?.notetrash;
+  // index.html baru bisa termuat sementara cache SW lama belum punya notetrash.js. Kondisi ini tetap selama
+  // halaman hidup, jadi return dini sebelum hook aman (jumlah hook tidak berubah antar-render).
+  if (!NT) return /*#__PURE__*/React.createElement("div", {
+    className: "modal-overlay",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal-content scale-in note-trash-modal",
+    role: "dialog",
+    "aria-label": "Sampah",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-state"
+  }, /*#__PURE__*/React.createElement("div", { style: { color: "#ef4444", marginBottom: 10 } }, "Sampah belum termuat. Muat ulang halaman untuk memperbarui aplikasi."), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    onClick: onClose
+  }, "Tutup"))));
+  const [online, setOnline] = useState(() => NT.isOnline(navigator));
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(null); // id item yang sedang diproses, atau "all"
+  const load = useCallback(async () => {
+    if (!NT.isOnline(navigator)) {
+      setOnline(false);
+      return;
+    }
+    setOnline(true);
+    setLoading(true);
+    setError(null);
+    try {
+      // Hapus note online lewat router lokal + outbox → baru sampai server saat push. Flush dulu (maks 5 dtk)
+      // agar note yang baru dihapus sudah ada di Sampah.
+      if (window.__pushNow) await Promise.race([window.__pushNow().catch(() => {}), new Promise(r => setTimeout(r, 5000))]);
+      const data = await api.get("/api/scratchpad/trash");
+      setItems(Array.isArray(data) ? data : []);
+    } catch (e) {
+      if (isOfflineErr(e)) setOnline(false);
+      else setError(e.message || "Gagal memuat Sampah");
+    }
+    setLoading(false);
+  }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  useEffect(() => {
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", load);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", load);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, [load]);
+  const actionError = e => {
+    if (isOfflineErr(e)) {
+      setOnline(false);
+      showToast(NT.OFFLINE_MSG, "error");
+    } else showToast(e.message || "Gagal", "error");
+  };
+  const handleRestore = async it => {
+    setBusy(it.id);
+    try {
+      const note = await api.post(`/api/scratchpad/trash/${it.id}/restore`, {});
+      setItems(prev => prev.filter(x => x.id !== it.id));
+      if (onRestored) await onRestored(note);
+      showToast(NT.TOAST_RESTORED);
+    } catch (e) {
+      actionError(e);
+      if (e && e.status === 404) load();
+    }
+    setBusy(null);
+  };
+  const handlePurge = async it => {
+    if (!window.confirm(NT.CONFIRM_PURGE)) return;
+    setBusy(it.id);
+    try {
+      await api.del(`/api/scratchpad/trash/${it.id}`);
+      setItems(prev => prev.filter(x => x.id !== it.id));
+      showToast("Catatan dihapus permanen");
+    } catch (e) {
+      actionError(e);
+    }
+    setBusy(null);
+  };
+  const handleEmpty = async () => {
+    if (!items.length || !window.confirm(NT.CONFIRM_EMPTY)) return;
+    setBusy("all");
+    try {
+      const res = await api.del("/api/scratchpad/trash");
+      setItems([]);
+      showToast(`Sampah dikosongkan (${res && res.deleted != null ? res.deleted : 0} catatan)`);
+    } catch (e) {
+      actionError(e);
+    }
+    setBusy(null);
+  };
+  const view = NT.trashViewState({ online, loading, error, items });
+  const now = new Date();
+  return /*#__PURE__*/React.createElement("div", {
+    className: "modal-overlay",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal-content scale-in note-trash-modal",
+    role: "dialog",
+    "aria-label": "Sampah",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-head"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: { minWidth: 0 }
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "note-trash-title"
+  }, /*#__PURE__*/React.createElement(Icon, { name: "trash", size: 18 }), "Sampah"), /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-sub"
+  }, "Catatan terhapus disimpan 30 hari, lalu dihapus permanen.")), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-icon btn-sm",
+    onClick: onClose,
+    title: "Tutup",
+    "aria-label": "Tutup",
+    style: { height: 30, width: 30, flexShrink: 0 }
+  }, "✕")), /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-body"
+  }, view === "offline" && /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-state"
+  }, /*#__PURE__*/React.createElement("div", { className: "note-trash-state-icon" }, "📶"), NT.OFFLINE_MSG), view === "loading" && /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-state"
+  }, "Memuat Sampah…"), view === "error" && /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-state"
+  }, /*#__PURE__*/React.createElement("div", { style: { color: "#ef4444", marginBottom: 10 } }, error), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    onClick: load
+  }, "Coba lagi")), view === "empty" && /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-state"
+  }, /*#__PURE__*/React.createElement("div", { className: "note-trash-state-icon" }, /*#__PURE__*/React.createElement(Icon, { name: "trash", size: 28 })), "Sampah kosong"), view === "list" && items.map(it => /*#__PURE__*/React.createElement("div", {
+    key: it.id,
+    className: "note-trash-item"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-item-title" + ((it.title || "").trim() ? "" : " is-untitled")
+  }, NT.titleLabel(it)), /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-item-meta"
+  }, /*#__PURE__*/React.createElement("span", null, NT.deletedAgoLabel(it.deleted_at, now)), /*#__PURE__*/React.createElement("span", {
+    "aria-hidden": "true"
+  }, "\xB7"), /*#__PURE__*/React.createElement("span", {
+    className: NT.isExpiringSoon(it.days_left) ? "note-trash-left is-soon" : "note-trash-left"
+  }, NT.daysLeftLabel(it.days_left))), it.preview && /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-item-preview"
+  }, it.preview), (it.tags || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-item-tags"
+  }, it.tags.map(t => /*#__PURE__*/React.createElement("span", {
+    key: t,
+    className: "note-trash-tag"
+  }, "#", t))), /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-item-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-primary btn-sm",
+    disabled: busy != null,
+    onClick: () => handleRestore(it)
+  }, busy === it.id ? "Memproses…" : "Pulihkan"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-danger btn-sm",
+    disabled: busy != null,
+    onClick: () => handlePurge(it)
+  }, "Hapus permanen"))))), view === "list" && /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-foot"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "note-trash-count"
+  }, `${items.length} catatan`), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-danger btn-sm",
+    disabled: busy != null,
+    onClick: handleEmpty
+  }, busy === "all" ? "Mengosongkan…" : "Kosongkan Sampah"))));
+}
   // ═══ DEPENDENCIES: NotesPage ═══
   // uses:
   //   - React
@@ -21652,6 +21842,7 @@ function NotesPage({
   const [notesTab, setNotesTab] = React.useState("all");
   const [publishedNotes, setPublishedNotes] = useState([]);
   const [allTagsPopoverOpen, setAllTagsPopoverOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
   const tagPopoverRef = useRef(null);
 
   useEffect(() => {
@@ -21936,8 +22127,10 @@ function NotesPage({
   };
   const handleDelete = async id => {
     try {
+      const target = allNotes.find(n => n.id === id) || notes.find(n => n.id === id);
       await api.del(`/api/scratchpad/${id}`);
-      showToast("🗑 Catatan dihapus");
+      // Note shared milik orang lain: server menolak (403 → notice delete_refused), jangan klaim sukses.
+      if (window.TF?.notetrash?.canTrash?.(target, user?.id) !== false) showToast(window.TF?.notetrash?.TOAST_MOVED || "🗑 Dipindahkan ke Sampah");
       fetchNotes(q, activeTags, filterUntagged, notesTab);
       setActiveTags([]);
     } catch (e) {
@@ -22005,6 +22198,20 @@ function NotesPage({
     await api.del(`/api/scratchpad/${noteId}/publish`);
     setPublishedNotes(prev => prev.filter(p => p.note_id !== noteId));
   };
+  // Setelah Pulihkan dari Sampah: note dipulihkan di server → tarik ke IndexedDB lewat sync (pull melihatnya
+  // sebagai note baru), lalu muat ulang daftar seperti setelah simpan.
+  const handleTrashRestored = async note => {
+    try {
+      // DELETE yang sudah commit di server tapi responsnya hilang masih antre di outbox → buang dulu, kalau
+      // tidak push berikutnya memindahkan note ini ke Sampah lagi.
+      if (note && note.id != null && window.TF?.noterepo?.discardPendingDelete) await window.TF.noterepo.discardPendingDelete(note.id);
+    } catch (_) {}
+    try {
+      if (window.__syncNow) await window.__syncNow();
+    } catch (_) {}
+    await fetchNotes(q, activeTags, filterUntagged, notesTab);
+    api.get("/api/scratchpad/titles").then(setNoteTitles).catch(() => {});
+  };
   const sortedNotes = [...notes].sort((a, b) => {
     if (sortBy === "alpha") return (a.title || "").localeCompare(b.title || "");
     if (sortBy === "created") return new Date(a.created_at) - new Date(b.created_at);
@@ -22070,6 +22277,13 @@ function NotesPage({
           /*#__PURE__*/React.createElement("option", { value: "alpha" }, "A–Z"),
           /*#__PURE__*/React.createElement("option", { value: "links" }, "Terbanyak link")
         ),
+        /*#__PURE__*/React.createElement("button", {
+          className: "btn btn-icon btn-sm notes-trash-btn",
+          onClick: () => setTrashOpen(true),
+          title: "Sampah",
+          "aria-label": "Sampah",
+          style: { height: 28, width: 28 }
+        }, /*#__PURE__*/React.createElement(Icon, { name: "trash", size: 15 })),
         /*#__PURE__*/React.createElement("button", {
           className: "btn btn-icon btn-sm",
           onClick: () => setSidebarCollapsed(true),
@@ -22496,6 +22710,10 @@ function NotesPage({
     sharedLists: sharedLists,
     currentUserId: user?.id,
     noteTitles: noteTitles
+  }), trashOpen && /*#__PURE__*/React.createElement(NoteTrashModal, {
+    onClose: () => setTrashOpen(false),
+    onRestored: handleTrashRestored,
+    showToast: showToast
   })));
 }
 
@@ -26519,7 +26737,10 @@ function App() {
       });
     },
     onDelete: id => {
-      api.delete(`/api/scratchpad/${id}`).then(() => setSelectedNote(null)).catch(err => {
+      api.del(`/api/scratchpad/${id}`).then(() => {
+        setSelectedNote(null);
+        if (window.TF?.notetrash?.canTrash?.(selectedNote, user?.id) !== false) showToast(window.TF?.notetrash?.TOAST_MOVED || "🗑 Dipindahkan ke Sampah");
+      }).catch(err => {
         showToast(isOfflineErr(err) ? 'Tidak dapat menghapus — offline' : 'Gagal menghapus', 'error');
       });
     },

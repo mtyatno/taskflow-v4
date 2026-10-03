@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v347-fix-chevron-icons";
+const CACHE = "taskflow-v348-notes-trash-and-restore";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -33,6 +33,7 @@ const STATIC = [
   "/static/offline/notequery.js",
   "/static/offline/notehydrate.js",
   "/static/offline/noteroutes.js",
+  "/static/offline/notetrash.js",
   "/static/offline/drawingtabs.js",
   "/static/offline/drawingrepo.js",
   "/static/offline/drawingroutes.js",
@@ -204,6 +205,18 @@ self.addEventListener("fetch", e => {
   // dan tidak menulis cache. Respons cache basi (200) saat jaringan gagal bisa membalikkan data lokal yang
   // lebih baru; klien sinkron punya data lokal sendiri, jadi gagal → 503 OFFLINE saja.
   if (url.pathname.startsWith("/api/") && request.headers.get("X-TF-Sync") === "1") {
+    e.respondWith(
+      fetch(request).catch(() => new Response(
+        JSON.stringify({ detail: "OFFLINE" }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      ))
+    );
+    return;
+  }
+
+  // Sampah note (/api/scratchpad/trash...): NETWORK-ONLY, semua method. Daftar sampah dari cache basi
+  // bisa menampilkan item yang sudah dipulihkan/dihapus; offline → 503 OFFLINE (gagal jelas, tidak diantre).
+  if (url.pathname === "/api/scratchpad/trash" || url.pathname.startsWith("/api/scratchpad/trash/")) {
     e.respondWith(
       fetch(request).catch(() => new Response(
         JSON.stringify({ detail: "OFFLINE" }),
