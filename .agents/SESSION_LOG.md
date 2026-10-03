@@ -1692,7 +1692,8 @@
  -   F i x :   M o d i f i e d   T F r e p o . g e t D r a w i n g   t o   c o r r e c t l y   c a c h e   a n d   h a n d l e   s t a n d a l o n e   d r a w i n g s   f e t c h e d   f r o m   t h e   s e r v e r . 
  -   B u m p e d   S e r v i c e   W o r k e r   c a c h e   i n   s t a t i c / s w . j s   t o   t a s k f l o w - v 2 7 4 - d r a w i n g - s y n c . 
  -   P u s h e d   t o   m a i n . 
-  
+ 
+ 
  
 
 ## 2026-08-21: Fix syncpush for standalone drawings (Antigravity)
@@ -2033,3 +2034,10 @@
 - **Verifikasi koordinator:** pytest tests 91/91, JS 835/836 (1 fail pra-ada tldraw), inline 5/5, repro reviewer S1/S2 benar, E2E Playwright 49/49 setelah perbaikan.
 - **Files Touch:** `webapp.py`, `static/{index.html,sw.js,app.css}`, `static/offline/{taskroutes,noterepo,syncpull,notetrash}.js`, tests, `docs/superpowers/specs/…`, `.agents/*`
 - **Status:** Completed di branch `ccr-1c84ae68-l09ysx` (belum merge/deploy). PENDING deploy: restart `taskflow-web`, hard refresh SW v346, rebuild APK.
+
+## [2026-10-03] - Claude (sidebar icon rail di desktop)
+- **Task:** Sidebar collapsed di desktop jadi icon rail 64px (logo, tombol › "Tampilkan semua menu", 8 menu utama Dashboard→Diskusi, badge Fokus Hari Ini), bukan hilang total. Mobile tetap drawer penuh.
+- **Changes:** `Sidebar` render `.sidebar-rail` + konten penuh dibungkus `.sidebar-full`; tombol collapse → ikon `chevron-left` "Perkecil menu" (di mobile menutup drawer); teks tour `sidebar-collapse`; main-content kelas `sidebar-rail-visible`; CSS `--sidebar-rail-w`, rail + dark, offset `.sidebar-toggle` Notes/Draw/Mindmap, override mobile; SW v353, app.css?v=305; tes versi + `tests/offline/sidebar_icon_rail.test.js` (baru). Implementasi via subagent, review + E2E oleh koordinator.
+- **Verifikasi:** JS 866/867 (1 fail pra-ada tldraw), inline 5/5, `node --check sw.js` OK, pytest 94/96 (2 fail `test_bookmark` karena modul tidak terpasang di venv sesi, tak terkait). Playwright 1280/390 light+dark: rail 64px, main margin 64px, klik ikon pindah halaman, › membuka menu penuh, toggle Notes di x=64, mobile drawer penuh tanpa rail.
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/*` (versi + baru), `.agents/*`
+- **Status:** Draft PR dari `claude/sidebar-icon-rail-iuwycq` (belum merge/deploy). Versi SW/app.css bentrok tekstual dengan PR #3 (v352/304) — yang merge belakangan menaikkan versi.
