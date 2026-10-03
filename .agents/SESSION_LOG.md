@@ -2061,3 +2061,10 @@
 - **Changes:** merge `origin/main`; konflik versi diselesaikan → SW `taskflow-v354-dashboard-kpi-viz`, app.css?v=306; tes versi disesuaikan; entri `.agents/*` dari kedua sisi digabung.
 - **Files Touch:** `static/{index.html,sw.js}`, `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui}.test.js`, `.agents/*`
 - **Status:** Completed di branch `claude/dashboard-redesign-109io3` (draft PR #3, belum merge/deploy).
+
+## [2026-10-03 23:31] - Claude (merge & deploy Dashboard)
+- **Task:** Atas permintaan user ("merge dan deploy"): PR #3 ditandai siap, di-merge ke `main` (merge commit `7d6de58`), deploy otomatis `deploy.yml` dipantau.
+- **Changes:** tidak ada perubahan kode; catatan `.agents/*` diperbarui (status merged & deployed).
+- **Verifikasi:** CI `test` hijau di head PR `dbf3b2e`; Deploy Taskflow V4 run #828 sukses (log: `Updating 84de142..7d6de58 Fast-forward`, 12 file). Situs live tidak bisa dibuka dari container sesi (proxy menolak host), jadi verifikasi lewat log deploy.
+- **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (live; klien perlu hard refresh untuk SW v354).
