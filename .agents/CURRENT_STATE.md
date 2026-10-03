@@ -5,6 +5,19 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
+## 🟢 Search Bar Dropdown Popover for Saved Searches — 2026-10-03 (Antigravity/Gemini) — SELESAI di `main` (SW v351 `taskflow-v351-note-search-dropdown`)
+- **Commits:** `f50e294` (`feat(client): display saved searches in search bar dropdown popover and bump SW to v351`).
+- **Fitur (Task 1):**
+  - Menggantikan bar horizontal chips pencarian tersimpan di bawah `.scratchpad-bar` dengan popover dropdown `.scratchpad-search-dropdown` yang ter-anchor ke search bar.
+  - Membuka otomatis saat input pencarian fokus (`onFocus`) atau melalui tombol toggle `▾` / `▴` di sisi kanan bar.
+  - Dismissal otomatis ketika mengklik di luar area search bar (`pointerdown` event listener) atau menekan tombol `Escape` (`onKeyDown`).
+  - Dropdown menampilkan header "Pencarian Tersimpan", daftar kueri tersimpan (nama kueri ⭐, kueri teks, highlight kueri aktif, klik untuk mencari, dan tombol × untuk menghapus), fallback kosong, serta tombol cepat simpan kueri aktif jika belum tersimpan.
+- **Service Worker:** Cache version dibump ke **`taskflow-v351-note-search-dropdown`**.
+- **Verifikasi:**
+  - Python Pytest: **96/96 pass (0 fail)**.
+  - JS Offline Test Suite: **862/862 pass (0 fail)** across 7 suites.
+  - Syntax check: `node scratch/check_inline.js static/index.html` (5/5 scripts OK), `node --check static/sw.js` (OK).
+
 ## 🟢 Note Saved Searches & Compact List View Mode Toggle — 2026-10-03 (Antigravity/Gemini) — SELESAI di `main` (SW v350 `taskflow-v350-note-saved-searches-view-mode`)
 - **Commits:** spec `4194895`, plan `cb9fd2c`, db migration & API `07fc6b6`, compact view `5b838d6`, client saved searches UI & SW v350 `1da02d8`.
 - **Fitur:**

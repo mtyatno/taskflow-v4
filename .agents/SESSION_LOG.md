@@ -2,6 +2,37 @@
  
  Chronological history of work performed by AI agents in this workspace.
  
+## [2026-10-03 14:05] - Antigravity (Gemini)
+- **Task:** Implement Search Bar Dropdown Popover, Dismissal Handlers, and SW v351 (Task 1).
+- **Objective:**
+  - Menggantikan bar horizontal chips pencarian tersimpan di bawah `.scratchpad-bar` dengan anchored popover dropdown (`.scratchpad-search-dropdown`).
+  - Mengimplementasikan auto-open saat fokus (`onFocus`), toggle button `▾` / `▴`, dan dismissal handlers (klik luar via `pointerdown`, keyboard `Escape` via `onKeyDown`).
+  - Menampilkan header, daftar item pencarian tersimpan dengan info kueri, tombol hapus, fallback kosong, dan footer simpan cepat kueri aktif.
+  - Bump Service Worker cache version ke **`taskflow-v351-note-search-dropdown`**.
+  - Sinkronisasi seluruh asersi cache version di suite pengujian offline (`tests/offline/`).
+- **Changes:**
+  - `static/index.html`:
+    - Menambahkan state `showSearchDropdown` dan `searchBarRef` beserta listener `pointerdown` untuk outside click dismissal.
+    - Menambahkan `position: relative`, `ref={searchBarRef}`, `onFocus`, dan `onKeyDown` pada `.scratchpad-bar` / search input.
+    - Menambahkan tombol toggle `▾` / `▴` di kanan bar.
+    - Merender `.scratchpad-search-dropdown` secara absolut tepat di bawah bar.
+    - Menghapus bar horizontal chips lama.
+  - `static/sw.js`:
+    - Bump `CACHE` ke `taskflow-v351-note-search-dropdown`.
+  - `tests/offline/note_saved_searches_view_mode.test.js`:
+    - Menambahkan tes untuk popover dropdown, toggle button, outside click ref/state, dan SW v351.
+  - `tests/offline/drawing_sync_ui.test.js`, `interactive_note_viewer.test.js`, `note_search_filters.test.js`:
+    - Sinkronisasi asersi cache version ke `v351`.
+- **Verification:**
+  - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - SW syntax check: `node --check static/sw.js` ➡️ **OK**.
+  - Targeted unit tests: `node --test tests/offline/note_saved_searches_view_mode.test.js` ➡️ **7/7 pass (0 fail)**.
+  - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **862/862 pass (0 fail)** across 7 suites.
+  - Python pytest suite: `python -m pytest tests/` ➡️ **96/96 pass (0 fail)**.
+- **Files Modified:** `static/index.html`, `static/sw.js`, `tests/offline/note_saved_searches_view_mode.test.js`, `tests/offline/drawing_sync_ui.test.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/note_search_filters.test.js`.
+- **Commit:** `f50e294`: `feat(client): display saved searches in search bar dropdown popover and bump SW to v351`.
+- **Status:** Completed & Verified
+
 +## [2026-10-03 12:55] - Antigravity (Gemini)
 +- **Task:** Implement Frontend Saved Searches Integration & Service Worker v350 (Task 3).
 +- **Objective:**
