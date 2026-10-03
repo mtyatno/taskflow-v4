@@ -21858,6 +21858,18 @@ function NotesPage({
   useEffect(() => {
     fetchSavedSearches();
   }, []);
+  const [showSearchDropdown, setShowSearchDropdown] = React.useState(false);
+  const searchBarRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!showSearchDropdown) return;
+    const handleOutside = e => {
+      if (searchBarRef.current && !searchBarRef.current.contains(e.target)) {
+        setShowSearchDropdown(false);
+      }
+    };
+    document.addEventListener("pointerdown", handleOutside);
+    return () => document.removeEventListener("pointerdown", handleOutside);
+  }, [showSearchDropdown]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchTagsCollapsed, setSearchTagsCollapsed] = useState(false);
   const [notesListCollapsed, setNotesListCollapsed] = useState(false);
@@ -22374,8 +22386,10 @@ function NotesPage({
       }
     },
       /*#__PURE__*/React.createElement("div", {
+        ref: searchBarRef,
         className: "scratchpad-bar",
         style: {
+          position: "relative",
           marginBottom: 6,
           marginTop: 0,
           padding: "6px 10px",
@@ -22394,6 +22408,8 @@ function NotesPage({
           className: "scratchpad-search-input",
           value: q,
           onChange: e => handleSearch(e.target.value),
+          onFocus: () => setShowSearchDropdown(true),
+          onKeyDown: e => { if (e.key === "Escape") setShowSearchDropdown(false); },
           placeholder: "Cari...",
           style: {
             width: "100%",
@@ -22433,53 +22449,116 @@ function NotesPage({
             padding: "0 0 0 4px",
             lineHeight: 1
           }
-        }, "✕")
-      ),
-      savedSearches.length > 0 && /*#__PURE__*/React.createElement("div", {
-        style: {
-          display: "flex",
-          gap: 6,
-          overflowX: "auto",
-          paddingBottom: 4,
-          marginBottom: 6,
-          flexShrink: 0
-        }
-      },
-        savedSearches.map(s => {
-          const isActive = q.trim() === s.query.trim();
-          return /*#__PURE__*/React.createElement("div", {
-            key: s.id,
-            onClick: () => handleSearch(s.query),
-            title: `Kueri: ${s.query}`,
+        }, "✕"),
+        /*#__PURE__*/React.createElement("button", {
+          type: "button",
+          onClick: () => setShowSearchDropdown(!showSearchDropdown),
+          title: showSearchDropdown ? "Tutup pencarian tersimpan" : "Buka pencarian tersimpan",
+          style: {
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            fontSize: 11,
+            color: "var(--text-secondary)",
+            padding: "0 2px",
+            lineHeight: 1
+          }
+        }, showSearchDropdown ? "▴" : "▾"),
+        showSearchDropdown && /*#__PURE__*/React.createElement("div", {
+          className: "scratchpad-search-dropdown",
+          style: {
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            right: 0,
+            zIndex: 60,
+            background: "var(--bg-primary)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+            maxHeight: 260,
+            overflowY: "auto",
+            padding: "6px 0"
+          }
+        },
+          /* Header */
+          /*#__PURE__*/React.createElement("div", {
             style: {
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "2px 8px",
-              borderRadius: 12,
-              fontSize: 11,
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-              background: isActive ? "var(--accent)" : "rgba(168,197,0,0.12)",
-              color: isActive ? "#111" : "var(--text-primary)",
-              border: "1px solid var(--border)",
-              fontWeight: isActive ? 600 : 500
+              padding: "4px 10px 6px",
+              fontSize: 10,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+              color: "var(--text-secondary)",
+              borderBottom: "1px solid var(--border)"
             }
-          },
-            /*#__PURE__*/React.createElement("span", null, `⭐ ${s.name}`),
-            /*#__PURE__*/React.createElement("span", {
-              onClick: e => handleDeleteSavedSearch(e, s),
-              title: "Hapus",
+          }, "Pencarian Tersimpan"),
+          /* List Items */
+          savedSearches.length > 0 ? savedSearches.map(s => {
+            const isActive = q.trim() === s.query.trim();
+            return /*#__PURE__*/React.createElement("div", {
+              key: s.id,
+              onClick: () => {
+                handleSearch(s.query);
+                setShowSearchDropdown(false);
+              },
+              title: `Kueri: ${s.query}`,
               style: {
-                marginLeft: 2,
-                opacity: 0.6,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "6px 10px",
                 cursor: "pointer",
-                fontWeight: "bold",
-                fontSize: 12
+                background: isActive ? "rgba(168,197,0,0.15)" : "transparent",
+                borderLeft: isActive ? "3px solid var(--accent)" : "3px solid transparent",
+                gap: 8
               }
-            }, "×")
-          );
-        })
+            },
+              /*#__PURE__*/React.createElement("div", {
+                style: { display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }
+              },
+                /*#__PURE__*/React.createElement("span", {
+                  style: { fontSize: 12, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+                }, `⭐ ${s.name}`),
+                /*#__PURE__*/React.createElement("span", {
+                  style: { fontSize: 11, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+                }, s.query)
+              ),
+              /*#__PURE__*/React.createElement("span", {
+                onClick: e => handleDeleteSavedSearch(e, s),
+                title: "Hapus",
+                style: {
+                  padding: "2px 6px",
+                  fontSize: 14,
+                  lineHeight: 1,
+                  cursor: "pointer",
+                  opacity: 0.6,
+                  color: "var(--text-secondary)",
+                  borderRadius: 4
+                }
+              }, "×")
+            );
+          }) : /*#__PURE__*/React.createElement("div", {
+            style: { padding: "8px 10px", fontSize: 11, color: "var(--text-secondary)", fontStyle: "italic" }
+          }, "Belum ada pencarian tersimpan"),
+          /* Quick save footer if q is filled and not saved */
+          q.trim() && !savedSearches.some(s => s.query.trim().toLowerCase() === q.trim().toLowerCase()) && /*#__PURE__*/React.createElement("div", {
+            onClick: () => {
+              handleSaveSearch();
+              setShowSearchDropdown(false);
+            },
+            style: {
+              padding: "6px 10px",
+              fontSize: 11,
+              color: "var(--accent)",
+              cursor: "pointer",
+              borderTop: "1px solid var(--border)",
+              display: "flex",
+              alignItems: "center",
+              gap: 4
+            }
+          }, `⭐ Simpan pencarian "${q.trim()}"`)
+        )
       ),
       (() => {
         const sorted = [...tagList].sort((a, b) => (b.count || 0) - (a.count || 0));

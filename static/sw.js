@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v350-note-saved-searches-view-mode";
+const CACHE = "taskflow-v351-note-search-dropdown";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
