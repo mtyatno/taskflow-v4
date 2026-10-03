@@ -18,7 +18,7 @@ test("View Mode Toggle and CSS in NotesPage", async (t) => {
   });
 });
 
-test("Saved Searches UI and SW v351", async (t) => {
+test("Saved Searches UI and SW v352", async (t) => {
   const indexHtml = fs.readFileSync(path.join(__dirname, "../../static/index.html"), "utf8");
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
 
@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v351", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v351-note-search-dropdown", () => {
-    assert.match(swJs, /taskflow-v351-note-search-dropdown/);
+  await t.test("sw.js bumped to taskflow-v352-dashboard-redesign", () => {
+    assert.match(swJs, /taskflow-v352-dashboard-redesign/);
   });
 });

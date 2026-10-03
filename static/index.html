@@ -50,7 +50,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=303">
+  <link rel="stylesheet" href="/static/app.css?v=304">
 
 <style>
 .paper-mode-active {
@@ -10873,11 +10873,37 @@ function TaskListView({
   //   - StatusBarChart
   // BLOCK LENGTH: ~310 lines (10649-10959) — depends on Chart.js
 
+// Theme-aware chart helpers: Chart.js draws onto a canvas, so CSS tokens don't
+// reach it. Read the current tokens and re-render when <html data-theme> flips.
+function useThemeName() {
+  const read = () => document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+  const [theme, setTheme] = useState(read);
+  useEffect(() => {
+    const mo = new MutationObserver(() => setTheme(read()));
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => mo.disconnect();
+  }, []);
+  return theme;
+}
+function dashChartColors(theme) {
+  const cs = getComputedStyle(document.documentElement);
+  const tok = (name, fb) => (cs.getPropertyValue(name) || "").trim() || fb;
+  const dark = theme === "dark";
+  return {
+    text: tok("--text-secondary", dark ? "#a3a3a3" : "#64748b"),
+    textStrong: tok("--text-primary", dark ? "#e5e5e5" : "#0f172a"),
+    grid: dark ? "rgba(255,255,255,0.07)" : "rgba(15,23,42,0.06)",
+    card: tok("--bg-card", dark ? "#262626" : "#ffffff"),
+    font: "'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+  };
+}
+
 function ProductivityChart({
   tasks
 }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
+  const theme = useThemeName();
   const weekData = useMemo(() => {
     const result = [];
     for (let w = 3; w >= 0; w--) {
@@ -10901,17 +10927,18 @@ function ProductivityChart({
   const growthPositive = growth >= 0;
   useEffect(() => {
     if (!canvasRef.current) return;
+    const c = dashChartColors(theme);
     const days = weekData.map(w => w.label);
     const counts = weekData.map(w => w.done);
     const created = weekData.map(w => w.created);
     if (chartRef.current) chartRef.current.destroy();
     const ctx = canvasRef.current.getContext("2d");
-    const gradGreen = ctx.createLinearGradient(0, 0, 0, 180);
-    gradGreen.addColorStop(0, "rgba(34,197,94,0.28)");
+    const gradGreen = ctx.createLinearGradient(0, 0, 0, 190);
+    gradGreen.addColorStop(0, "rgba(34,197,94,0.26)");
     gradGreen.addColorStop(1, "rgba(34,197,94,0)");
-    const gradYellow = ctx.createLinearGradient(0, 0, 0, 180);
-    gradYellow.addColorStop(0, "rgba(168,197,0,0.12)");
-    gradYellow.addColorStop(1, "rgba(168,197,0,0)");
+    const gradLime = ctx.createLinearGradient(0, 0, 0, 190);
+    gradLime.addColorStop(0, "rgba(168,197,0,0.14)");
+    gradLime.addColorStop(1, "rgba(168,197,0,0)");
     chartRef.current = new Chart(canvasRef.current, {
       type: "line",
       data: {
@@ -10923,62 +10950,60 @@ function ProductivityChart({
           borderWidth: 2.5,
           backgroundColor: gradGreen,
           fill: true,
-          tension: 0.5,
+          tension: 0.42,
+          cubicInterpolationMode: "monotone",
           pointRadius: 4,
+          pointHoverRadius: 6,
           pointBackgroundColor: "#22c55e",
-          pointBorderColor: "#fff",
-          pointBorderWidth: 1.5
+          pointBorderColor: c.card,
+          pointBorderWidth: 2
         }, {
           label: "Dibuat",
           data: created,
           borderColor: "#A8C500",
-          borderWidth: 1.5,
-          backgroundColor: gradYellow,
+          borderWidth: 2,
+          backgroundColor: gradLime,
           fill: true,
-          tension: 0.5,
+          tension: 0.42,
+          cubicInterpolationMode: "monotone",
           pointRadius: 3,
+          pointHoverRadius: 5,
           pointBackgroundColor: "#A8C500",
+          pointBorderColor: c.card,
+          pointBorderWidth: 1.5,
           borderDash: [5, 4]
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
         plugins: {
           legend: {
             position: "bottom",
             labels: {
-              boxWidth: 12,
+              usePointStyle: true,
+              pointStyle: "circle",
+              boxWidth: 8,
+              boxHeight: 8,
               padding: 16,
-              font: {
-                size: 11,
-                family: "DM Sans"
-              }
+              color: c.text,
+              font: { size: 12, family: c.font, weight: "600" }
             }
-          }
+          },
+          tooltip: { titleFont: { family: c.font }, bodyFont: { family: c.font }, padding: 10, cornerRadius: 8 }
         },
         scales: {
           y: {
             beginAtZero: true,
-            ticks: {
-              stepSize: 1,
-              font: {
-                size: 11
-              }
-            },
-            grid: {
-              color: "rgba(0,0,0,0.04)"
-            }
+            border: { display: false },
+            ticks: { stepSize: 1, color: c.text, font: { size: 11, family: c.font } },
+            grid: { color: c.grid }
           },
           x: {
-            ticks: {
-              font: {
-                size: 11
-              }
-            },
-            grid: {
-              display: false
-            }
+            border: { display: false },
+            ticks: { color: c.text, font: { size: 11, family: c.font } },
+            grid: { display: false }
           }
         }
       }
@@ -10986,31 +11011,16 @@ function ProductivityChart({
     return () => {
       if (chartRef.current) chartRef.current.destroy();
     };
-  }, [weekData]);
+  }, [weekData, theme]);
   return /*#__PURE__*/React.createElement("div", null, (lastWeek > 0 || thisWeek > 0) && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 10,
-      display: "flex",
-      alignItems: "center",
-      gap: 6
-    }
+    className: "dash-trend"
   }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      fontWeight: 700,
-      color: growthPositive ? "#16a34a" : "#dc2626",
-      background: growthPositive ? "#f0fdf4" : "#fef2f2",
-      padding: "2px 9px",
-      borderRadius: 20
-    }
+    className: `dash-pill ${growthPositive ? "dash-pill-good" : "dash-pill-bad"}`
   }, growth > 0 ? "+" : "", growth, "%"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11,
-      color: "var(--text-light)"
-    }
+    className: "dash-muted-sm"
   }, growthPositive ? "naik" : "turun", " dari minggu lalu")), /*#__PURE__*/React.createElement("div", {
     style: {
-      height: 186
+      height: 200
     }
   }, /*#__PURE__*/React.createElement("canvas", {
     ref: canvasRef
@@ -11023,8 +11033,10 @@ function CompletionDonut({
 }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
+  const theme = useThemeName();
   useEffect(() => {
     if (!canvasRef.current) return;
+    const c = dashChartColors(theme);
     const done = summary.total_done || 0;
     const active = (summary.total_active || 0) - (summary.overdue || 0);
     const overdue = summary.overdue || 0;
@@ -11032,77 +11044,68 @@ function CompletionDonut({
     chartRef.current = new Chart(canvasRef.current, {
       type: "doughnut",
       data: {
-        labels: ["Done", "Active", "Overdue"],
+        labels: ["Selesai", "Aktif", "Terlambat"],
         datasets: [{
           data: [done, Math.max(active, 0), overdue],
           backgroundColor: ["#22c55e", "#A8C500", "#ef4444"],
-          borderWidth: 0,
+          borderColor: c.card,
+          borderWidth: 3,
+          borderRadius: 4,
           hoverOffset: 6
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        cutout: "65%",
+        cutout: "72%",
+        layout: { padding: 4 },
         plugins: {
           legend: {
             position: "bottom",
             labels: {
-              boxWidth: 10,
+              usePointStyle: true,
+              pointStyle: "circle",
+              boxWidth: 8,
+              boxHeight: 8,
               padding: 12,
-              font: {
-                size: 11,
-                family: "DM Sans"
-              },
+              color: c.text,
+              font: { size: 11.5, family: c.font, weight: "600" },
               generateLabels: chart => {
                 const ds = chart.data.datasets[0];
                 const total = ds.data.reduce((a, b) => a + b, 0);
                 return chart.data.labels.map((label, i) => ({
-                  text: `${label} (${total > 0 ? Math.round(ds.data[i] / total * 100) : 0}%)`,
+                  text: `${label} ${total > 0 ? Math.round(ds.data[i] / total * 100) : 0}%`,
                   fillStyle: ds.backgroundColor[i],
                   strokeStyle: ds.backgroundColor[i],
+                  fontColor: c.text,
                   lineWidth: 0,
+                  pointStyle: "circle",
                   index: i,
                   hidden: !chart.getDataVisibility(i)
                 }));
               }
             }
-          }
+          },
+          tooltip: { titleFont: { family: c.font }, bodyFont: { family: c.font }, padding: 10, cornerRadius: 8 }
         }
       }
     });
     return () => {
       if (chartRef.current) chartRef.current.destroy();
     };
-  }, [summary]);
+  }, [summary, theme]);
   const total = (summary.total_active || 0) + (summary.total_done || 0);
   const pct = total > 0 ? Math.round((summary.total_done || 0) / total * 100) : 0;
   return /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "relative",
-      height: 200
-    }
+    className: "dash-donut"
   }, /*#__PURE__*/React.createElement("canvas", {
     ref: canvasRef
   }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "absolute",
-      top: "42%",
-      left: "50%",
-      transform: "translate(-50%, -50%)",
-      textAlign: "center"
-    }
+    className: "dash-donut-center"
   }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 24,
-      fontWeight: 700,
-      color: "var(--text-primary)"
-    }
+    className: "dash-donut-pct"
   }, pct, "%"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--text-light)"
-    }
+    className: "dash-muted-sm"
   }, "selesai")));
 }
 
@@ -11112,8 +11115,10 @@ function StatusBarChart({
 }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
+  const theme = useThemeName();
   useEffect(() => {
     if (!canvasRef.current) return;
+    const c = dashChartColors(theme);
     const statuses = ["inbox", "next", "waiting", "someday"];
     const labels = ["Inbox", "Next", "Waiting", "Someday"];
     const colors = ["#3b82f6", "#f97316", "#eab308", "#94a3b8"];
@@ -11126,13 +11131,9 @@ function StatusBarChart({
         datasets: [{
           data,
           backgroundColor: colors,
-          borderRadius: {
-            topLeft: 8,
-            topRight: 8,
-            bottomLeft: 0,
-            bottomRight: 0
-          },
-          barThickness: 18
+          borderRadius: 8,
+          borderSkipped: false,
+          barThickness: 22
         }]
       },
       options: {
@@ -11141,30 +11142,20 @@ function StatusBarChart({
         plugins: {
           legend: {
             display: false
-          }
+          },
+          tooltip: { titleFont: { family: c.font }, bodyFont: { family: c.font }, padding: 10, cornerRadius: 8 }
         },
         scales: {
           y: {
             beginAtZero: true,
-            ticks: {
-              stepSize: 1,
-              font: {
-                size: 11
-              }
-            },
-            grid: {
-              color: "rgba(0,0,0,0.04)"
-            }
+            border: { display: false },
+            ticks: { stepSize: 1, color: c.text, font: { size: 11, family: c.font } },
+            grid: { color: c.grid }
           },
           x: {
-            ticks: {
-              font: {
-                size: 11
-              }
-            },
-            grid: {
-              display: false
-            }
+            border: { display: false },
+            ticks: { color: c.text, maxRotation: 0, autoSkip: false, font: { size: 11, family: c.font, weight: "600" } },
+            grid: { display: false }
           }
         }
       }
@@ -11172,10 +11163,10 @@ function StatusBarChart({
     return () => {
       if (chartRef.current) chartRef.current.destroy();
     };
-  }, [summary]);
+  }, [summary, theme]);
   return /*#__PURE__*/React.createElement("div", {
     style: {
-      height: 200
+      height: 220
     }
   }, /*#__PURE__*/React.createElement("canvas", {
     ref: canvasRef
@@ -12113,9 +12104,178 @@ const SORT_PRI = (a, b) => ({
   P3: 2,
   P4: 3
 }[b.priority] ?? 9);
+// Hex color → rgba tint (dashboard chips/pills stay readable in light & dark).
+const dashTint = (hex, a) => {
+  const h = String(hex || "#94a3b8").replace("#", "");
+  const n = parseInt(h.length === 3 ? h.split("").map(x => x + x).join("") : h, 16);
+  return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
+};
+const DASH_MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+const dashFmtDate = d => {
+  if (!d) return "";
+  const parts = String(d).slice(0, 10).split("-");
+  if (parts.length < 3) return "";
+  return `${parseInt(parts[2])} ${DASH_MONTHS[parseInt(parts[1]) - 1] || ""}`;
+};
+function DashChip({
+  icon,
+  color,
+  size = 28
+}) {
+  return /*#__PURE__*/React.createElement("span", {
+    className: "dash-chip",
+    style: {
+      width: size,
+      height: size,
+      color,
+      background: dashTint(color, 0.14)
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: icon,
+    size: Math.round(size * 0.55)
+  }));
+}
+function DashLink({
+  onClick,
+  children
+}) {
+  return /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "dash-link",
+    onClick: onClick
+  }, children);
+}
+function DashCardHead({
+  icon,
+  color = "#A8C500",
+  title,
+  sub,
+  titleTip,
+  onTitleClick,
+  count,
+  link,
+  onLink
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "dash-card-head"
+  }, /*#__PURE__*/React.createElement(DashChip, {
+    icon: icon,
+    color: color
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "dash-card-head-text"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-card-title-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `dash-card-title${onTitleClick ? " is-clickable" : ""}${titleTip ? " has-tip" : ""}`,
+    title: titleTip,
+    onClick: onTitleClick
+  }, title), count !== undefined && /*#__PURE__*/React.createElement("span", {
+    className: "dash-count",
+    style: {
+      color,
+      background: dashTint(color, 0.14)
+    }
+  }, count)), sub && /*#__PURE__*/React.createElement("div", {
+    className: "dash-card-sub"
+  }, sub)), link && /*#__PURE__*/React.createElement(DashLink, {
+    onClick: onLink
+  }, link));
+}
+function DashSection({
+  icon,
+  title,
+  sub,
+  link,
+  onLink
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "dash-section"
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "dash-section-title"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: icon,
+    size: 18
+  }), title), sub && /*#__PURE__*/React.createElement("span", {
+    className: "dash-section-sub"
+  }, sub), link && /*#__PURE__*/React.createElement(DashLink, {
+    onClick: onLink
+  }, link));
+}
+function DashEmpty({
+  text = "Belum ada task"
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "dash-empty"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 18
+  }), /*#__PURE__*/React.createElement("span", null, text));
+}
+function DashTaskRow({
+  t,
+  onClick,
+  showStatus
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "dash-row",
+    onClick: onClick
+  }, /*#__PURE__*/React.createElement(PriBadge, {
+    p: t.priority
+  }), showStatus && /*#__PURE__*/React.createElement(StatusBadge, {
+    s: t.gtd_status
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "dash-row-title"
+  }, t.title));
+}
+function DashProgressRing({
+  done,
+  total,
+  size = 76
+}) {
+  const stroke = 7;
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const pct = total > 0 ? done / total : 0;
+  const allDone = total > 0 && done === total;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "dash-ring",
+    style: {
+      width: size,
+      height: size
+    }
+  }, /*#__PURE__*/React.createElement("svg", {
+    width: size,
+    height: size,
+    viewBox: `0 0 ${size} ${size}`
+  }, /*#__PURE__*/React.createElement("circle", {
+    cx: size / 2,
+    cy: size / 2,
+    r: r,
+    fill: "none",
+    className: "dash-ring-track",
+    strokeWidth: stroke
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: size / 2,
+    cy: size / 2,
+    r: r,
+    fill: "none",
+    stroke: allDone ? "#22c55e" : "var(--accent)",
+    strokeWidth: stroke,
+    strokeLinecap: "round",
+    strokeDasharray: circ,
+    strokeDashoffset: circ * (1 - pct),
+    transform: `rotate(-90 ${size / 2} ${size / 2})`,
+    style: {
+      transition: "stroke-dashoffset 0.6s ease"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "dash-ring-label"
+  }, Math.round(pct * 100), "%"));
+}
 function Dashboard({
   summary,
   tasks,
+  user,
   onTaskClick,
   onDone,
   onNav,
@@ -12134,6 +12294,9 @@ function Dashboard({
   const [pinnedNotes, setPinnedNotes] = useState([]);
   const [pinnedMindmaps, setPinnedMindmaps] = useState([]);
   const [pinnedDrawings, setPinnedDrawings] = useState([]);
+  const [expandedNotes, setExpandedNotes] = useState(false);
+  const [expandedMaps, setExpandedMaps] = useState(false);
+  const [expandedDrawings, setExpandedDrawings] = useState(false);
   useEffect(() => {
     api.get("/api/scratchpad/recent").then(setRecentNotes).catch(() => {});
     const handler = () => api.get("/api/scratchpad/recent").then(setRecentNotes).catch(() => {});
@@ -12215,858 +12378,621 @@ function Dashboard({
     title,
     tasks: cellTasks
   });
+
+  // ── Prioritas hari ini (dipakai hero ring + kartu Prioritas) ──
+  const todayStr = new Date().toISOString().split("T")[0];
+  const allToday = tasks.filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused || t.deadline === todayStr) && t.gtd_status !== "archived");
+  const doneToday = allToday.filter(t => t.gtd_status === "done");
+  const pendingToday = allToday.filter(t => t.gtd_status !== "done").sort((a, b) => {
+    if (a.is_overdue && !b.is_overdue) return -1;
+    if (!a.is_overdue && b.is_overdue) return 1;
+    return SORT_PRI(a, b);
+  });
+  // Show done tasks on top (max 2), then pending (max 5 total visible)
+  const visibleDone = doneToday.slice(0, 2);
+  const maxPending = Math.max(0, 5 - visibleDone.length);
+  const visiblePending = pendingToday.slice(0, maxPending);
+  const shownToday = visibleDone.length + visiblePending.length;
+  const totalToday = allToday.length;
+  const doneN = doneToday.length;
+  const pctToday = totalToday > 0 ? Math.round(doneN / totalToday * 100) : 0;
+  const allDoneToday = totalToday > 0 && doneN === totalToday;
+
+  // ── KPI ──
+  const activeTasks = tasks.filter(t => t.gtd_status !== "done" && t.gtd_status !== "archived");
+  const inboxCount = activeTasks.filter(t => t.gtd_status === "inbox").length;
+  const q1Count = activeTasks.filter(t => t.quadrant === "Q1").length;
+  const overdueCount = activeTasks.filter(t => t.is_overdue).length;
+
+  // ── Hero ──
+  const now = new Date();
+  const hour = now.getHours();
+  const greet = hour < 11 ? "Selamat pagi" : hour < 15 ? "Selamat siang" : hour < 18 ? "Selamat sore" : "Selamat malam";
+  const displayName = user && (user.display_name || user.username) || "";
+  let dateLine = "";
+  try {
+    dateLine = now.toLocaleDateString("id-ID", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric"
+    });
+  } catch (_) {
+    dateLine = now.toDateString();
+  }
+  const summaryLine = pendingToday.length > 0 ? `Ada ${pendingToday.length} prioritas hari ini${overdueCount > 0 ? `, ${overdueCount} terlambat` : ""}.` : totalToday > 0 ? "Semua prioritas hari ini sudah selesai. Kerja bagus! 🎉" : overdueCount > 0 ? `Tidak ada prioritas baru, tapi ${overdueCount} task terlambat.` : "Tidak ada yang mendesak hari ini. Saat yang pas untuk merencanakan.";
+  const scrollToEisen = () => {
+    const el = document.querySelector('[data-tour="eisenhower"]');
+    if (el) el.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+  };
+  const kpis = [{
+    value: activeTasks.length,
+    label: "Aktif",
+    sub: "Task aktif saat ini",
+    color: "#A8C500",
+    icon: "zap",
+    onClick: () => onNav("today")
+  }, {
+    value: summary.done_last_7_days ?? 0,
+    label: "Selesai 7 hari",
+    sub: "Selesai dalam 7 hari",
+    color: "#22c55e",
+    icon: "check"
+  }, {
+    value: q1Count,
+    label: "Q1 Lakukan",
+    sub: "Mendesak & penting",
+    color: "#ef4444",
+    icon: "flame",
+    onClick: scrollToEisen
+  }, {
+    value: overdueCount,
+    label: "Terlambat",
+    sub: overdueCount > 0 ? `${overdueCount} task terlambat` : "Tidak ada yang terlambat",
+    color: overdueCount > 0 ? "#ef4444" : "#94a3b8",
+    icon: "alert",
+    danger: overdueCount > 0,
+    onClick: () => onNav("today")
+  }, {
+    value: inboxCount,
+    label: "Inbox",
+    sub: "Task baru masuk",
+    color: "#3b82f6",
+    icon: "inbox",
+    onClick: () => onNav("inbox")
+  }];
   const eisenTooltip = {
     Lakukan: "Q1 – Mendesak & Penting. Kerjakan sekarang juga. Deadline ketat, krisis, atau task kritis (P1/P2, deadline ≤ 7 hari).",
     Rencanakan: "Q2 – Penting tapi belum mendesak. Tentukan kapan akan dikerjakan. Berisi task P1/P2 dengan deadline jauh atau tanpa deadline.",
     Delegasikan: "Q3 – Mendesak tapi tidak terlalu penting. Serahkan ke orang lain jika bisa (P3/P4, deadline dekat).",
     Singkirkan: "Q4 – Tidak mendesak, tidak penting. Hapus atau abaikan. Jangan habiskan energi di sini."
   };
-  const EisenCell = ({
-    tasks: cellTasks,
-    label,
+
+  // Kartu daftar task bergaya kuadran (Eisenhower & GTD).
+  const renderListCard = ({
+    key,
+    cls,
+    title,
+    sub,
+    tip,
     icon,
-    cls
+    color,
+    list,
+    onTitleClick
   }) => /*#__PURE__*/React.createElement("div", {
-    className: `eisenhower-cell ${cls}`
-  }, /*#__PURE__*/React.createElement("div", {
+    key: key,
+    className: `dash-qcard ${cls || ""}`,
     style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 10
+      "--dash-q": color
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    title: eisenTooltip[label],
-    style: {
-      fontWeight: 700,
-      fontSize: 14,
-      cursor: "help",
-      display: "flex",
-      alignItems: "center",
-      gap: 6
-    }
-  }, React.createElement(Icon, { name: icon, size: 16 }), " ", label, " (", cellTasks.length, ")"), cellTasks.length > 5 && /*#__PURE__*/React.createElement("span", {
-    onClick: () => openModal(label, cellTasks),
-    style: {
-      fontSize: 11,
-      color: "var(--accent)",
-      cursor: "pointer",
-      fontWeight: 600
-    }
-  }, "Lihat semua \u2192")), cellTasks.length === 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: "20px 0",
-      opacity: 0.35
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 22,
-      marginBottom: 6
-    }
-  }, "\uD83C\uDF89"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)",
-      textAlign: "center"
-    }
-  }, "Belum ada task")), cellTasks.slice(0, 5).map((t, i) => /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(DashCardHead, {
+    icon: icon,
+    color: color,
+    title: title,
+    titleTip: tip,
+    onTitleClick: onTitleClick,
+    count: list.length,
+    sub: sub,
+    link: list.length > 5 ? "Lihat semua →" : null,
+    onLink: () => openModal(title, list)
+  }), list.length === 0 ? /*#__PURE__*/React.createElement(DashEmpty, null) : /*#__PURE__*/React.createElement("div", {
+    className: "dash-rows"
+  }, list.slice(0, 5).map(t => /*#__PURE__*/React.createElement(DashTaskRow, {
     key: t.id,
-    onClick: () => onTaskClick(t),
-    style: {
-      fontSize: 13,
-      padding: "6px 0",
-      cursor: "pointer",
-      display: "flex",
-      gap: 6,
-      alignItems: "center",
-      minWidth: 0,
-      borderTop: i > 0 ? "1px solid var(--border)" : "none"
+    t: t,
+    onClick: () => onTaskClick(t)
+  }))), list.length > 5 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "dash-more",
+    onClick: () => openModal(title, list)
+  }, "+", list.length - 5, " lagi →"));
+
+  // Sub-bagian kartu "Disematkan".
+  const renderPinnedGroup = ({
+    label,
+    emptyLabel,
+    icon,
+    color,
+    items,
+    expanded,
+    setExpanded,
+    nav,
+    navLabel,
+    onItem,
+    untitled
+  }) => {
+    if (!items || items.length === 0) {
+      return /*#__PURE__*/React.createElement("div", {
+        className: "dash-pin-group is-empty"
+      }, /*#__PURE__*/React.createElement(DashChip, {
+        icon: icon,
+        color: color,
+        size: 22
+      }), /*#__PURE__*/React.createElement("span", {
+        className: "dash-pin-empty"
+      }, "Belum ada ", emptyLabel, " disematkan \xB7 ", /*#__PURE__*/React.createElement(DashLink, {
+        onClick: () => onNav(nav)
+      }, "Pin dari ", navLabel, " →")));
     }
+    const visible = expanded ? items : items.slice(0, 3);
+    const hasMore = items.length > 3;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "dash-pin-group"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "dash-pin-head"
+    }, /*#__PURE__*/React.createElement(DashChip, {
+      icon: icon,
+      color: color,
+      size: 22
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "dash-pin-label"
+    }, label), /*#__PURE__*/React.createElement("span", {
+      className: "dash-count",
+      style: {
+        color,
+        background: dashTint(color, 0.14)
+      }
+    }, items.length), /*#__PURE__*/React.createElement(DashLink, {
+      onClick: () => onNav(nav)
+    }, "Lihat semua →")), /*#__PURE__*/React.createElement("div", {
+      className: "dash-rows"
+    }, visible.map(it => /*#__PURE__*/React.createElement("div", {
+      key: it.id,
+      className: "dash-row",
+      onClick: () => onItem ? onItem(it) : onNav(nav)
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "pin",
+      size: 14,
+      style: {
+        color,
+        flexShrink: 0
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "dash-row-title dash-row-title-strong"
+    }, untitled(it)), /*#__PURE__*/React.createElement("span", {
+      className: "dash-date"
+    }, dashFmtDate(it.updated_at || it.created_at))))), hasMore && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "dash-more",
+      onClick: () => setExpanded(e => !e)
+    }, expanded ? "Sembunyikan ▲" : `+${items.length - 3} lainnya ▼`));
+  };
+  const pinnedTotal = pinnedNotes.length + pinnedMindmaps.length + pinnedDrawings.length;
+  const TodayRow = ({
+    t,
+    isDone
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: `dash-row${isDone ? " is-done" : ""}${!isDone && t.is_overdue ? " is-overdue" : ""}`
   }, /*#__PURE__*/React.createElement(PriBadge, {
     p: t.priority
   }), /*#__PURE__*/React.createElement("span", {
+    className: "dash-row-title dash-row-title-strong",
+    onClick: () => onTaskClick(t),
     style: {
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      whiteSpace: "nowrap",
-      flex: 1,
-      minWidth: 0
+      cursor: "pointer"
     }
-  }, t.title))), cellTasks.length > 5 && /*#__PURE__*/React.createElement("div", {
-    onClick: () => openModal(label, cellTasks),
-    style: {
-      fontSize: 12,
-      color: "var(--accent)",
-      marginTop: 6,
-      cursor: "pointer",
-      fontWeight: 600
-    }
-  }, "+", cellTasks.length - 5, " lagi \u2192"));
+  }, t.title), t.deadline && !isDone && /*#__PURE__*/React.createElement("span", {
+    className: `dash-date${t.is_overdue ? " is-overdue" : ""}`
+  }, dashFmtDate(t.deadline)), isDone ? /*#__PURE__*/React.createElement("span", {
+    className: "dash-check is-done"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 12
+  })) : /*#__PURE__*/React.createElement("span", {
+    className: "dash-check",
+    role: "button",
+    onClick: e => {
+      e.stopPropagation();
+      onDone(t.id);
+    },
+    title: "Tandai selesai"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 12
+  })));
+  const projNames = [...new Set(tasks.filter(t => t.project && t.gtd_status !== "done" && t.gtd_status !== "archived").map(t => t.project))];
   return /*#__PURE__*/React.createElement("div", {
-    className: "fade-in"
+    className: "fade-in dash"
   }, /*#__PURE__*/React.createElement(BackupReminder, {
     showToast: showToast
-  }), aiReviewOn() && /*#__PURE__*/React.createElement(ReviewNudge, { tasks: tasks, onStart: () => window.dispatchEvent(new CustomEvent("tf-open-review")) }), /*#__PURE__*/React.createElement("h1", {
-    style: {
-      fontSize: 24,
-      fontWeight: 700,
-      marginBottom: 16,
-      display: "flex",
-      alignItems: "center",
-      gap: 9
-    }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "dashboard", size: 22 }), "Dashboard"), /*#__PURE__*/React.createElement("div", {
-    className: "scratchpad-bar",
+  }), aiReviewOn() && /*#__PURE__*/React.createElement(ReviewNudge, { tasks: tasks, onStart: () => window.dispatchEvent(new CustomEvent("tf-open-review")) }),
+
+  /* ── Hero ── */
+  /*#__PURE__*/React.createElement("section", {
+    className: "dash-hero"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-hero-top"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-hero-text"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-hero-date"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "calendar",
+    size: 14
+  }), dateLine), /*#__PURE__*/React.createElement("h1", {
+    className: "dash-hero-greet"
+  }, greet, displayName ? ", " : "", displayName && /*#__PURE__*/React.createElement("span", {
+    className: "dash-hero-name"
+  }, displayName)), /*#__PURE__*/React.createElement("p", {
+    className: "dash-hero-summary"
+  }, summaryLine)), totalToday > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "dash-hero-progress",
+    onClick: () => onNav("today"),
+    title: "Buka Fokus Hari Ini"
+  }, /*#__PURE__*/React.createElement(DashProgressRing, {
+    done: doneN,
+    total: totalToday
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "dash-hero-progress-text"
+  }, /*#__PURE__*/React.createElement("b", null, doneN, "/", totalToday), /*#__PURE__*/React.createElement("span", null, "selesai hari ini")))), /*#__PURE__*/React.createElement("div", {
+    className: "scratchpad-bar dash-capture",
     "data-tour": "scratchpad"
-  }, /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "zap",
+    size: 17,
     style: {
-      fontSize: 16
+      color: "var(--accent)"
     }
-  }, "\u26A1"), /*#__PURE__*/React.createElement("input", {
+  }), /*#__PURE__*/React.createElement("input", {
     value: scratchInput,
     onChange: e => setScratchInput(e.target.value),
     onKeyDown: handleScratch,
     placeholder: "Tulis apa saja... (tekan Enter untuk simpan)"
-  })), /*#__PURE__*/ (() => {
-    const [expandedNotes, setExpandedNotes] = useState(false);
-    const [expandedMaps, setExpandedMaps] = useState(false);
-    const [expandedDrawings, setExpandedDrawings] = useState(false);
+  }), /*#__PURE__*/React.createElement("kbd", {
+    className: "dash-kbd"
+  }, "Enter"))),
 
-    const fmtDate = d => {
-      if (!d) return "";
-      const parts = d.slice(0, 10).split("-");
-      const mn = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"][parseInt(parts[1]) - 1];
-      return `${parseInt(parts[2])} ${mn}`;
-    };
-
-    const renderNotesCard = () => {
-      if (!pinnedNotes || pinnedNotes.length === 0) {
-        return /*#__PURE__*/React.createElement("div", {
-          className: "card",
-          style: { padding: "18px 22px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "space-between" }
-        }, /*#__PURE__*/React.createElement("div", null,
-          /*#__PURE__*/React.createElement("div", {
-            style: { fontSize: 15, fontWeight: 700, marginBottom: 10, textAlign: "left", display: "flex", alignItems: "center", gap: 7 }
-          }, "📌 Notes Disematkan"),
-          /*#__PURE__*/React.createElement("p", {
-            style: { fontSize: 13, color: "var(--text-secondary)", margin: "14px 0" }
-          }, "Belum ada note yang disematkan.")
-        ), /*#__PURE__*/React.createElement("span", {
-          onClick: () => onNav("notes"),
-          style: { fontSize: 13, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }
-        }, "Pin note dari halaman Notes →"));
-      }
-      const visible = expandedNotes ? pinnedNotes : pinnedNotes.slice(0, 3);
-      const hasMore = pinnedNotes.length > 3;
-      return /*#__PURE__*/React.createElement("div", {
-        className: "card",
-        style: { padding: "18px 22px", display: "flex", flexDirection: "column" }
-      }, /*#__PURE__*/React.createElement("div", {
-        style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }
-      }, /*#__PURE__*/React.createElement("div", {
-        style: { fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }
-      }, "📌 Notes Disematkan"), /*#__PURE__*/React.createElement("span", {
-        onClick: () => onNav("notes"),
-        style: { fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 600, flexShrink: 0 }
-      }, "Lihat semua →")), visible.map((n, i) => /*#__PURE__*/React.createElement(React.Fragment, { key: n.id },
-        /*#__PURE__*/React.createElement("div", {
-          onClick: () => onNoteClick ? onNoteClick(n) : onNav("notes"),
-          style: {
-            display: "flex", alignItems: "center", gap: 9,
-            padding: "7px 0",
-            borderBottom: i < visible.length - 1 || hasMore ? "1px solid var(--border)" : "none",
-            cursor: "pointer"
-          }
-        },
-          /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 15, style: { color: "var(--accent)", flexShrink: 0 } }),
-          /*#__PURE__*/React.createElement("span", {
-            style: { flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
-          }, n.title || n.content?.slice(0, 40) || "Note tanpa judul"),
-          /*#__PURE__*/React.createElement("span", {
-            style: { fontSize: 11, flexShrink: 0, color: "var(--text-light)", background: "var(--bg-primary)", padding: "2px 6px", borderRadius: 4 }
-          }, fmtDate(n.updated_at || n.created_at))
-        )
-      )), hasMore && /*#__PURE__*/React.createElement("div", {
-        onClick: () => setExpandedNotes(e => !e),
-        style: { fontSize: 12, color: "var(--accent)", marginTop: 8, cursor: "pointer", fontWeight: 600, textAlign: "right" }
-      }, expandedNotes ? "Sembunyikan ▲" : `+${pinnedNotes.length - 3} lainnya ▼`));
-    };
-
-    const renderMindmapsCard = () => {
-      if (!pinnedMindmaps || pinnedMindmaps.length === 0) {
-        return /*#__PURE__*/React.createElement("div", {
-          className: "card",
-          style: { padding: "18px 22px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "space-between" }
-        }, /*#__PURE__*/React.createElement("div", null,
-          /*#__PURE__*/React.createElement("div", {
-            style: { fontSize: 15, fontWeight: 700, marginBottom: 10, textAlign: "left", display: "flex", alignItems: "center", gap: 7 }
-          }, "🧠 Mindmap Disematkan"),
-          /*#__PURE__*/React.createElement("p", {
-            style: { fontSize: 13, color: "var(--text-secondary)", margin: "14px 0" }
-          }, "Belum ada mindmap yang disematkan.")
-        ), /*#__PURE__*/React.createElement("span", {
-          onClick: () => onNav("mindmap"),
-          style: { fontSize: 13, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }
-        }, "Pin mindmap dari halaman Mindmap →"));
-      }
-      const visible = expandedMaps ? pinnedMindmaps : pinnedMindmaps.slice(0, 3);
-      const hasMore = pinnedMindmaps.length > 3;
-      return /*#__PURE__*/React.createElement("div", {
-        className: "card",
-        style: { padding: "18px 22px", display: "flex", flexDirection: "column" }
-      }, /*#__PURE__*/React.createElement("div", {
-        style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }
-      }, /*#__PURE__*/React.createElement("div", {
-        style: { fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }
-      }, "🧠 Mindmap Disematkan"), /*#__PURE__*/React.createElement("span", {
-        onClick: () => onNav("mindmap"),
-        style: { fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 600, flexShrink: 0 }
-      }, "Lihat semua →")), visible.map((m, i) => /*#__PURE__*/React.createElement(React.Fragment, { key: m.id },
-        /*#__PURE__*/React.createElement("div", {
-          onClick: () => onMindmapClick ? onMindmapClick(m) : onNav("mindmap"),
-          style: {
-            display: "flex", alignItems: "center", gap: 9,
-            padding: "7px 0",
-            borderBottom: i < visible.length - 1 || hasMore ? "1px solid var(--border)" : "none",
-            cursor: "pointer"
-          }
-        },
-          /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 15, style: { color: "#8b5cf6", flexShrink: 0 } }),
-          /*#__PURE__*/React.createElement("span", {
-            style: { flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
-          }, m.title || "Mindmap tanpa judul"),
-          /*#__PURE__*/React.createElement("span", {
-            style: { fontSize: 11, flexShrink: 0, color: "var(--text-light)", background: "var(--bg-primary)", padding: "2px 6px", borderRadius: 4 }
-          }, fmtDate(m.updated_at || m.created_at))
-        )
-      )), hasMore && /*#__PURE__*/React.createElement("div", {
-        onClick: () => setExpandedMaps(e => !e),
-        style: { fontSize: 12, color: "var(--accent)", marginTop: 8, cursor: "pointer", fontWeight: 600, textAlign: "right" }
-      }, expandedMaps ? "Sembunyikan ▲" : `+${pinnedMindmaps.length - 3} lainnya ▼`));
-    };
-
-    const renderDrawingsCard = () => {
-      if (!pinnedDrawings || pinnedDrawings.length === 0) {
-        return /*#__PURE__*/React.createElement("div", {
-          className: "card",
-          style: { padding: "18px 22px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "space-between" }
-        }, /*#__PURE__*/React.createElement("div", null,
-          /*#__PURE__*/React.createElement("div", {
-            style: { fontSize: 15, fontWeight: 700, marginBottom: 10, textAlign: "left", display: "flex", alignItems: "center", gap: 7 }
-          }, "🎨 Gambar Disematkan"),
-          /*#__PURE__*/React.createElement("p", {
-            style: { fontSize: 13, color: "var(--text-secondary)", margin: "14px 0" }
-          }, "Belum ada gambar yang disematkan.")
-        ), /*#__PURE__*/React.createElement("span", {
-          onClick: () => onNav("draw"),
-          style: { fontSize: 13, color: "var(--accent)", cursor: "pointer", fontWeight: 600 }
-        }, "Pin gambar dari halaman Draw →"));
-      }
-      const visible = expandedDrawings ? pinnedDrawings : pinnedDrawings.slice(0, 3);
-      const hasMore = pinnedDrawings.length > 3;
-      return /*#__PURE__*/React.createElement("div", {
-        className: "card",
-        style: { padding: "18px 22px", display: "flex", flexDirection: "column" }
-      }, /*#__PURE__*/React.createElement("div", {
-        style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }
-      }, /*#__PURE__*/React.createElement("div", {
-        style: { fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }
-      }, "🎨 Gambar Disematkan"), /*#__PURE__*/React.createElement("span", {
-        onClick: () => onNav("draw"),
-        style: { fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 600, flexShrink: 0 }
-      }, "Lihat semua →")), visible.map((d, i) => /*#__PURE__*/React.createElement(React.Fragment, { key: d.id },
-        /*#__PURE__*/React.createElement("div", {
-          onClick: () => onDrawingClick ? onDrawingClick(d) : onNav("draw"),
-          style: {
-            display: "flex", alignItems: "center", gap: 9,
-            padding: "7px 0",
-            borderBottom: i < visible.length - 1 || hasMore ? "1px solid var(--border)" : "none",
-            cursor: "pointer"
-          }
-        },
-          /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 15, style: { color: "#a855f7", flexShrink: 0 } }),
-          /*#__PURE__*/React.createElement("span", {
-            style: { flex: 1, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
-          }, d.title || "Gambar tanpa judul"),
-          /*#__PURE__*/React.createElement("span", {
-            style: { fontSize: 11, flexShrink: 0, color: "var(--text-light)", background: "var(--bg-primary)", padding: "2px 6px", borderRadius: 4 }
-          }, fmtDate(d.updated_at || d.created_at))
-        )
-      )), hasMore && /*#__PURE__*/React.createElement("div", {
-        onClick: () => setExpandedDrawings(e => !e),
-        style: { fontSize: 12, color: "var(--accent)", marginTop: 8, cursor: "pointer", fontWeight: 600, textAlign: "right" }
-      }, expandedDrawings ? "Sembunyikan ▲" : `+${pinnedDrawings.length - 3} lainnya ▼`));
-    };
-
-    return /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-        gap: 16,
-        marginBottom: 28,
-        alignItems: "stretch"
-      }
-    }, renderNotesCard(), renderMindmapsCard(), renderDrawingsCard());
-  })(), (() => {
-    const todayStr = new Date().toISOString().split("T")[0];
-    const fmtDate = d => {
-      if (!d) return null;
-      const [, m, day] = d.split("-");
-      const mn = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"][parseInt(m) - 1];
-      return `${parseInt(day)} ${mn}`;
-    };
-    const allToday = tasks.filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused || t.deadline === todayStr) && t.gtd_status !== "archived");
-    if (allToday.length === 0) return null;
-    const doneToday = allToday.filter(t => t.gtd_status === "done");
-    const pendingToday = allToday.filter(t => t.gtd_status !== "done").sort((a, b) => {
-      if (a.is_overdue && !b.is_overdue) return -1;
-      if (!a.is_overdue && b.is_overdue) return 1;
-      return SORT_PRI(a, b);
-    });
-    // Show done tasks on top (max 2), then pending (max 5 total visible)
-    const visibleDone = doneToday.slice(0, 2);
-    const maxPending = Math.max(0, 5 - visibleDone.length);
-    const visiblePending = pendingToday.slice(0, maxPending);
-    const shown = visibleDone.length + visiblePending.length;
-    const total = allToday.length;
-    const doneN = doneToday.length;
-    const pct = total > 0 ? Math.round(doneN / total * 100) : 0;
-    const allDone = doneN === total;
-    const TaskRow = ({
-      t,
-      isDone
-    }) => /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 9,
-        padding: "7px 0",
-        borderBottom: "1px solid var(--border)"
-      }
-    }, /*#__PURE__*/React.createElement(PriBadge, {
-      p: t.priority
-    }), /*#__PURE__*/React.createElement("span", {
-      onClick: () => onTaskClick(t),
-      style: {
-        flex: 1,
-        fontSize: 13,
-        fontWeight: 500,
-        cursor: "pointer",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-        color: isDone ? "var(--text-light)" : t.is_overdue ? "#dc2626" : "var(--text-primary)",
-        textDecoration: isDone ? "line-through" : "none"
-      }
-    }, t.title), t.deadline && !isDone && /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 11,
-        flexShrink: 0,
-        color: t.is_overdue ? "#dc2626" : "var(--text-light)",
-        background: t.is_overdue ? "#fef2f2" : "#f1f5f9",
-        padding: "2px 6px",
-        borderRadius: 4,
-        fontWeight: t.is_overdue ? 600 : 400
-      }
-    }, fmtDate(t.deadline)), isDone ? /*#__PURE__*/React.createElement("span", {
-      style: {
-        width: 20,
-        height: 20,
-        borderRadius: "50%",
-        background: "#22c55e",
-        flexShrink: 0,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: 11,
-        color: "white",
-        fontWeight: 700
-      }
-    }, "\u2713") : /*#__PURE__*/React.createElement("span", {
-      onClick: e => {
-        e.stopPropagation();
-        onDone(t.id);
-      },
-      title: "Tandai selesai",
-      style: {
-        width: 20,
-        height: 20,
-        borderRadius: "50%",
-        border: "2px solid #cbd5e1",
-        flexShrink: 0,
-        cursor: "pointer",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "var(--bg-card)",
-        transition: "all 0.15s"
-      },
-      onMouseEnter: e => {
-        e.currentTarget.style.borderColor = "#22c55e";
-        e.currentTarget.style.background = "#f0fdf4";
-      },
-      onMouseLeave: e => {
-        e.currentTarget.style.borderColor = "#cbd5e1";
-        e.currentTarget.style.background = "var(--bg-card)";
-      }
-    }));
-    return /*#__PURE__*/React.createElement("div", {
-      className: "card",
-      style: {
-        marginBottom: 28,
-        padding: "18px 22px"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginBottom: 10
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 4
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 15,
-        fontWeight: 700,
-        display: "flex",
-        alignItems: "center",
-        gap: 7
-      }
-    }, "\uD83D\uDD34 Prioritas Hari Ini"), /*#__PURE__*/React.createElement("span", {
-      onClick: () => onNav("today"),
-      style: {
-        fontSize: 12,
-        color: "var(--accent)",
-        cursor: "pointer",
-        fontWeight: 600,
-        flexShrink: 0
-      }
-    }, "Lihat semua \u2192")), /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 8
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 12,
-        color: "var(--text-secondary)"
-      }
-    }, /*#__PURE__*/React.createElement("b", {
-      style: {
-        color: allDone ? "#16a34a" : "var(--text-primary)"
-      }
-    }, doneN, " / ", total), " selesai"), /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 12,
-        fontWeight: 700,
-        color: allDone ? "#16a34a" : "var(--accent)",
-        background: allDone ? "#f0fdf4" : "#F4FAD6",
-        padding: "2px 8px",
-        borderRadius: 20
-      }
-    }, pct, "%"))), /*#__PURE__*/React.createElement("div", {
-      style: {
-        height: 8,
-        borderRadius: 99,
-        background: "var(--border)",
-        overflow: "hidden",
-        marginBottom: 12
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        height: "100%",
-        borderRadius: 99,
-        background: allDone ? "#22c55e" : "var(--accent)",
-        width: `${pct}%`,
-        transition: "width 0.5s ease"
-      }
-    })), pendingToday.length === 0 && /*#__PURE__*/React.createElement("div", {
-      style: {
-        textAlign: "center",
-        padding: "12px 0",
-        color: "#16a34a",
-        fontSize: 14,
-        fontWeight: 600
-      }
-    }, "\uD83C\uDF89 Semua task hari ini sudah selesai!"), visibleDone.map(t => /*#__PURE__*/React.createElement(TaskRow, {
-      key: t.id,
-      t: t,
-      isDone: true
-    })), visiblePending.map(t => /*#__PURE__*/React.createElement(TaskRow, {
-      key: t.id,
-      t: t,
-      isDone: false
-    })), total > shown && /*#__PURE__*/React.createElement("div", {
-      onClick: () => onNav("today"),
-      style: {
-        fontSize: 12,
-        color: "var(--accent)",
-        marginTop: 8,
-        cursor: "pointer",
-        fontWeight: 600,
-        textAlign: "right"
-      }
-    }, "+", total - shown, " task lagi \u2192"));
-  })(), (() => {
-    const active = tasks.filter(t => t.gtd_status !== "done" && t.gtd_status !== "archived");
-    const inboxCount = active.filter(t => t.gtd_status === "inbox").length;
-    const q1Count = active.filter(t => t.quadrant === "Q1").length;
-    const overdueCount = active.filter(t => t.is_overdue).length;
-    const kpis = [{
-      value: active.length,
-      label: "Active",
-      sub: "Task aktif saat ini",
-      color: "var(--accent)",
-      icon: "zap",
-      bg: null
-    }, {
-      value: summary.done_last_7_days ?? 0,
-      label: "Done 7 hari",
-      sub: "Selesai dalam 7 hari",
-      color: "#16a34a",
-      icon: "check",
-      bg: null
-    }, {
-      value: q1Count,
-      label: "Q1 Lakukan",
-      sub: "Mendesak & Penting",
-      color: "var(--q1)",
-      icon: "flame",
-      bg: null
-    }, {
-      value: overdueCount,
-      label: "Overdue",
-      sub: overdueCount > 0 ? `${overdueCount} task terlambat` : "Tidak ada overdue",
-      color: overdueCount > 0 ? "#dc2626" : "var(--text-light)",
-      icon: "alert",
-      bg: overdueCount > 0 ? "#fef2f2" : null
-    }, {
-      value: inboxCount,
-      label: "Inbox",
-      sub: "Task baru masuk",
-      color: "#2563eb",
-      icon: "inbox",
-      bg: null
-    }];
-    return /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-        gap: 12,
-        marginBottom: 32
-      }
-    }, kpis.map(k => /*#__PURE__*/React.createElement("div", {
-      key: k.label,
-      className: "stat-card",
-      style: k.bg ? {
-        background: k.bg
-      } : {}
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        position: "absolute",
-        right: 14,
-        top: 12,
-        opacity: 0.1,
-        lineHeight: 1,
-        color: k.color
-      }
-    }, /*#__PURE__*/React.createElement(Icon, { name: k.icon, size: 30 })), /*#__PURE__*/React.createElement("div", {
-      className: "stat-number",
-      style: {
-        color: k.color
-      }
-    }, k.value), /*#__PURE__*/React.createElement("div", {
-      className: "stat-label"
-    }, k.label), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: "var(--text-light)",
-        marginTop: 3
-      }
-    }, k.sub))));
-  })(), /*#__PURE__*/React.createElement("h2", {
-    className: "section-title"
-  }, "\uD83D\uDCCA Analytics"), /*#__PURE__*/React.createElement("div", {
-    className: "charts-grid",
-    style: {
-      display: "grid",
-      gridTemplateColumns: "2fr 1fr 1fr",
-      gap: 16,
-      marginBottom: 32
-    }
+  /* ── KPI ── */
+  /*#__PURE__*/React.createElement("div", {
+    className: "dash-kpis"
+  }, kpis.map(k => /*#__PURE__*/React.createElement("div", {
+    key: k.label,
+    className: `dash-kpi${k.onClick ? " is-clickable" : ""}${k.danger ? " is-danger" : ""}`,
+    onClick: k.onClick,
+    role: k.onClick ? "button" : undefined
   }, /*#__PURE__*/React.createElement("div", {
-    className: "card card-hover",
-    style: {
-      padding: 18
-    }
+    className: "dash-kpi-top"
+  }, /*#__PURE__*/React.createElement(DashChip, {
+    icon: k.icon,
+    color: k.color,
+    size: 36
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "dash-kpi-label"
+  }, k.label)), /*#__PURE__*/React.createElement("div", {
+    className: "dash-kpi-num",
+    style: k.danger ? {
+      color: "#ef4444"
+    } : undefined
+  }, k.value), /*#__PURE__*/React.createElement("div", {
+    className: "dash-kpi-sub"
+  }, k.sub)))),
+
+  /* ── Main row: Prioritas + Disematkan ── */
+  /*#__PURE__*/React.createElement("div", {
+    className: "dash-main"
   }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-card"
+  }, /*#__PURE__*/React.createElement(DashCardHead, {
+    icon: "target",
+    color: "#ef4444",
+    title: "Prioritas Hari Ini",
+    sub: totalToday > 0 ? `${doneN} dari ${totalToday} selesai` : "Q1, terlambat, fokus & deadline hari ini",
+    link: "Lihat semua →",
+    onLink: () => onNav("today")
+  }), totalToday > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "dash-progress"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-progress-bar"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-progress-fill",
     style: {
-      fontSize: 13,
-      fontWeight: 700,
-      marginBottom: 14,
-      display: "flex",
-      alignItems: "baseline",
-      gap: 8
+      width: `${pctToday}%`,
+      background: allDoneToday ? "#22c55e" : "var(--accent)"
     }
-  }, "\uD83D\uDCC8 Productivity Trend ", /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 400,
-      color: "var(--text-light)",
-      fontSize: 11
-    }
-  }, "4 minggu terakhir")), /*#__PURE__*/React.createElement(ProductivityChart, {
+  })), /*#__PURE__*/React.createElement("span", {
+    className: `dash-pill ${allDoneToday ? "dash-pill-good" : "dash-pill-accent"}`
+  }, pctToday, "%")), totalToday === 0 ? /*#__PURE__*/React.createElement(DashEmpty, {
+    text: "Tidak ada prioritas untuk hari ini"
+  }) : pendingToday.length === 0 && /*#__PURE__*/React.createElement("div", {
+    className: "dash-celebrate"
+  }, "🎉 Semua task hari ini sudah selesai!"), /*#__PURE__*/React.createElement("div", {
+    className: "dash-rows"
+  }, visibleDone.map(t => /*#__PURE__*/React.createElement(TodayRow, {
+    key: t.id,
+    t: t,
+    isDone: true
+  })), visiblePending.map(t => /*#__PURE__*/React.createElement(TodayRow, {
+    key: t.id,
+    t: t,
+    isDone: false
+  }))), totalToday > shownToday && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "dash-more",
+    onClick: () => onNav("today")
+  }, "+", totalToday - shownToday, " task lagi →")), /*#__PURE__*/React.createElement("div", {
+    className: "dash-card"
+  }, /*#__PURE__*/React.createElement(DashCardHead, {
+    icon: "pin",
+    color: "#8b5cf6",
+    title: "Disematkan",
+    sub: pinnedTotal > 0 ? `${pinnedTotal} item disematkan` : "Akses cepat ke catatan favorit"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "dash-pin-groups"
+  }, renderPinnedGroup({
+    label: "Notes",
+    emptyLabel: "note",
+    icon: "notes",
+    color: "#A8C500",
+    items: pinnedNotes,
+    expanded: expandedNotes,
+    setExpanded: setExpandedNotes,
+    nav: "notes",
+    navLabel: "Notes",
+    onItem: onNoteClick,
+    untitled: n => n.title || n.content?.slice(0, 40) || "Note tanpa judul"
+  }), renderPinnedGroup({
+    label: "Mindmap",
+    emptyLabel: "mindmap",
+    icon: "mindmap",
+    color: "#8b5cf6",
+    items: pinnedMindmaps,
+    expanded: expandedMaps,
+    setExpanded: setExpandedMaps,
+    nav: "mindmap",
+    navLabel: "Mindmap",
+    onItem: onMindmapClick,
+    untitled: m => m.title || "Mindmap tanpa judul"
+  }), renderPinnedGroup({
+    label: "Gambar",
+    emptyLabel: "gambar",
+    icon: "draw",
+    color: "#ec4899",
+    items: pinnedDrawings,
+    expanded: expandedDrawings,
+    setExpanded: setExpandedDrawings,
+    nav: "draw",
+    navLabel: "Draw",
+    onItem: onDrawingClick,
+    untitled: d => d.title || "Gambar tanpa judul"
+  })))),
+
+  /* ── Analitik ── */
+  /*#__PURE__*/React.createElement(DashSection, {
+    icon: "dashboard",
+    title: "Analitik",
+    sub: "Gambaran performa kamu"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "charts-grid dash-charts"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-card"
+  }, /*#__PURE__*/React.createElement(DashCardHead, {
+    icon: "zap",
+    color: "#22c55e",
+    title: "Tren Produktivitas",
+    sub: "4 minggu terakhir"
+  }), /*#__PURE__*/React.createElement(ProductivityChart, {
     tasks: tasks
   })), /*#__PURE__*/React.createElement("div", {
-    className: "card card-hover",
-    style: {
-      padding: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 14,
-      fontWeight: 700,
-      marginBottom: 12
-    }
-  }, "\uD83C\uDFAF Completion"), /*#__PURE__*/React.createElement(CompletionDonut, {
+    className: "dash-card"
+  }, /*#__PURE__*/React.createElement(DashCardHead, {
+    icon: "target",
+    color: "#A8C500",
+    title: "Penyelesaian",
+    sub: "Semua task"
+  }), /*#__PURE__*/React.createElement(CompletionDonut, {
     summary: summary
   })), /*#__PURE__*/React.createElement("div", {
-    className: "card card-hover",
-    style: {
-      padding: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 14,
-      fontWeight: 700,
-      marginBottom: 12,
-      display: "flex",
-      alignItems: "center",
-      gap: 8
-    }
-  }, React.createElement(Icon, { name: "clipboard", size: 18 }), "GTD Status"), /*#__PURE__*/React.createElement(StatusBarChart, {
+    className: "dash-card"
+  }, /*#__PURE__*/React.createElement(DashCardHead, {
+    icon: "clipboard",
+    color: "#3b82f6",
+    title: "Status GTD",
+    sub: "Distribusi task aktif"
+  }), /*#__PURE__*/React.createElement(StatusBarChart, {
     summary: summary
-  }))), /*#__PURE__*/React.createElement("h2", {
-    className: "section-title",
-    style: {
-      marginTop: 8,
-      display: "flex",
-      alignItems: "center",
-      gap: 8
-    }
-  }, React.createElement(Icon, { name: "target", size: 18 }), "Eisenhower Matrix"), /*#__PURE__*/React.createElement("div", {
-    className: "eisen-header-row",
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 16,
-      marginBottom: 6
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      textAlign: "center",
-      fontSize: 11,
-      fontWeight: 700,
-      color: "var(--text-secondary)",
-      textTransform: "uppercase",
-      letterSpacing: "0.8px"
-    }
-  }, "Mendesak + Penting"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      textAlign: "center",
-      fontSize: 11,
-      fontWeight: 700,
-      color: "var(--text-secondary)",
-      textTransform: "uppercase",
-      letterSpacing: "0.8px"
-    }
-  }, "Penting")), /*#__PURE__*/React.createElement("div", {
-    className: "eisenhower-grid",
-    "data-tour": "eisenhower",
-    style: {
-      gap: 16,
-      marginBottom: 32
-    }
-  }, /*#__PURE__*/React.createElement(EisenCell, {
-    tasks: q1Tasks,
-    label: "Lakukan",
+  }))),
+
+  /* ── Eisenhower ── */
+  /*#__PURE__*/React.createElement(DashSection, {
+    icon: "target",
+    title: "Eisenhower Matrix",
+    sub: "Urgensi \xD7 kepentingan"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "eisenhower-grid dash-grid-2",
+    "data-tour": "eisenhower"
+  }, renderListCard({
+    key: "q1",
+    cls: "eq1",
+    title: "Lakukan",
+    sub: "Mendesak & penting",
+    tip: eisenTooltip.Lakukan,
     icon: "flame",
-    cls: "eq1"
-  }), /*#__PURE__*/React.createElement(EisenCell, {
-    tasks: q2Tasks,
-    label: "Rencanakan",
+    color: "#ef4444",
+    list: q1Tasks
+  }), renderListCard({
+    key: "q2",
+    cls: "eq2",
+    title: "Rencanakan",
+    sub: "Penting, tidak mendesak",
+    tip: eisenTooltip.Rencanakan,
     icon: "calendar",
-    cls: "eq2"
-  }), /*#__PURE__*/React.createElement(EisenCell, {
-    tasks: q3Tasks,
-    label: "Delegasikan",
+    color: "#A8C500",
+    list: q2Tasks
+  }), renderListCard({
+    key: "q3",
+    cls: "eq3",
+    title: "Delegasikan",
+    sub: "Mendesak, tidak penting",
+    tip: eisenTooltip.Delegasikan,
     icon: "users",
-    cls: "eq3"
-  }), /*#__PURE__*/React.createElement(EisenCell, {
-    tasks: q4Tasks,
-    label: "Singkirkan",
+    color: "#f97316",
+    list: q3Tasks
+  }), renderListCard({
+    key: "q4",
+    cls: "eq4",
+    title: "Singkirkan",
+    sub: "Tidak mendesak & tidak penting",
+    tip: eisenTooltip.Singkirkan,
     icon: "trash",
-    cls: "eq4"
-  })), /*#__PURE__*/React.createElement("h2", {
-    className: "section-title",
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8
-    }
-  }, React.createElement(Icon, { name: "refresh", size: 18 }), "GTD Status"), /*#__PURE__*/React.createElement("div", {
-    className: "gtd-grid",
-    "data-tour": "gtd-grid",
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 16
-    }
+    color: "#94a3b8",
+    list: q4Tasks
+  })),
+
+  /* ── GTD ── */
+  /*#__PURE__*/React.createElement(DashSection, {
+    icon: "refresh",
+    title: "Status GTD",
+    sub: "Alur kerja Getting Things Done"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "gtd-grid dash-grid-2",
+    "data-tour": "gtd-grid"
   }, [{
     key: "inbox",
     label: "Inbox",
     icon: "inbox",
     accent: "#3b82f6",
-    fullWidth: false,
     tip: "Semua task baru masuk ke sini. Belum diputuskan mau diapakan."
   }, {
     key: "next",
     label: "Next Actions",
     icon: "next",
     accent: "#f97316",
-    fullWidth: false,
     tip: "Task yang sudah siap dikerjakan. Lakukan satu per satu saat ada waktu."
   }, {
     key: "waiting",
     label: "Waiting For",
     icon: "clock",
     accent: "#eab308",
-    fullWidth: false,
     tip: "Menunggu orang lain atau sesuatu sebelum bisa dilanjutkan."
   }, {
     key: "someday",
     label: "Someday",
     icon: "cloud",
     accent: "#94a3b8",
-    fullWidth: false,
     tip: "Ide atau rencana yang menarik tapi belum waktunya dikerjakan sekarang."
   }].map(({
     key,
     label,
     icon,
     accent,
-    fullWidth,
     tip
-  }) => {
-    const sectionTasks = tasks.filter(t => t.gtd_status === key).sort(SORT_PRI);
-    const shadow = fullWidth && sectionTasks.length > 0 ? "0 2px 8px rgba(249,115,22,0.12), 0 8px 24px rgba(0,0,0,0.07)" : "0 1px 4px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.04)";
+  }) => renderListCard({
+    key,
+    title: label,
+    tip,
+    icon,
+    color: accent,
+    list: tasks.filter(t => t.gtd_status === key).sort(SORT_PRI),
+    onTitleClick: () => onNav(key)
+  }))),
+
+  /* ── Proyek aktif ── */
+  projNames.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DashSection, {
+    icon: "folder",
+    title: "Proyek Aktif",
+    sub: `${projNames.length} proyek`
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "dash-projects"
+  }, projNames.map(proj => {
+    const projTasks = tasks.filter(t => t.project === proj && t.gtd_status !== "done" && t.gtd_status !== "archived");
+    const projAll = tasks.filter(t => t.project === proj && t.gtd_status !== "archived");
+    const projDone = projAll.filter(t => t.gtd_status === "done").length;
+    const projPct = projAll.length > 0 ? Math.round(projDone / projAll.length * 100) : 0;
     return /*#__PURE__*/React.createElement("div", {
-      key: key,
-      style: {
-        borderRadius: 12,
-        padding: fullWidth ? "16px 20px" : "16px 20px",
-        minHeight: 120,
-        minWidth: 0,
-        overflow: "hidden",
-        background: "var(--bg-card)",
-        border: "1px solid var(--border)",
-        boxShadow: shadow,
-        gridColumn: fullWidth ? "1 / -1" : undefined,
-        transition: "transform 0.18s, box-shadow 0.18s"
-      },
-      onMouseEnter: e => {
-        e.currentTarget.style.transform = "translateY(-2px)";
-        e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.09)";
-      },
-      onMouseLeave: e => {
-        e.currentTarget.style.transform = "";
-        e.currentTarget.style.boxShadow = shadow;
-      }
+      key: proj,
+      className: "dash-card dash-project"
+    }, /*#__PURE__*/React.createElement(DashCardHead, {
+      icon: "folder",
+      color: "#10b981",
+      title: proj,
+      onTitleClick: () => onNav(`proj_${proj}`),
+      count: projTasks.length,
+      link: projTasks.length > 5 ? "Lihat semua →" : null,
+      onLink: () => openModal(`📂 ${proj}`, projTasks)
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "dash-progress dash-progress-thin"
     }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 10
-      }
+      className: "dash-progress-bar"
     }, /*#__PURE__*/React.createElement("div", {
-      title: tip,
+      className: "dash-progress-fill",
       style: {
-        fontWeight: 700,
-        fontSize: 14,
-        cursor: "help",
-        display: "flex",
-        alignItems: "center",
-        gap: 6
+        width: `${projPct}%`,
+        background: "#10b981"
       }
-    }, React.createElement(Icon, { name: icon, size: 16 }), " ", label, " (", sectionTasks.length, ")"), sectionTasks.length > 5 && /*#__PURE__*/React.createElement("span", {
-      onClick: () => openModal(label, sectionTasks),
-      style: {
-        fontSize: 11,
-        color: "var(--accent)",
-        cursor: "pointer",
-        fontWeight: 600
-      }
-    }, "Lihat semua \u2192")), sectionTasks.length === 0 ? /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "14px 0",
-        opacity: 0.35
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 20,
-        marginBottom: 4
-      }
-    }, "\uD83C\uDF89"), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 12,
-        color: "var(--text-light)"
-      }
-    }, "Belum ada task")) : sectionTasks.slice(0, 5).map((t, i) => /*#__PURE__*/React.createElement("div", {
+    })), /*#__PURE__*/React.createElement("span", {
+      className: "dash-muted-sm"
+    }, projDone, "/", projAll.length, " selesai")), /*#__PURE__*/React.createElement("div", {
+      className: "dash-rows"
+    }, projTasks.slice(0, 5).map(t => /*#__PURE__*/React.createElement(DashTaskRow, {
       key: t.id,
-      onClick: () => onTaskClick(t),
-      style: {
-        fontSize: 13,
-        padding: "6px 0",
-        cursor: "pointer",
-        display: "flex",
-        gap: 6,
-        alignItems: "center",
-        minWidth: 0,
-        borderTop: i > 0 ? "1px solid var(--border)" : "none"
-      }
-    }, /*#__PURE__*/React.createElement(PriBadge, {
-      p: t.priority
-    }), /*#__PURE__*/React.createElement("span", {
-      style: {
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-        flex: 1,
-        minWidth: 0
-      }
-    }, t.title))), sectionTasks.length > 5 && /*#__PURE__*/React.createElement("div", {
-      onClick: () => openModal(label, sectionTasks),
-      style: {
-        fontSize: 12,
-        color: "var(--accent)",
-        marginTop: 6,
-        cursor: "pointer",
-        fontWeight: 600
-      }
-    }, "+", sectionTasks.length - 5, " lagi \u2192"));
-  })), dashModal && /*#__PURE__*/React.createElement("div", {
+      t: t,
+      showStatus: true,
+      onClick: () => onTaskClick(t)
+    }))), projTasks.length > 5 && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "dash-more",
+      onClick: () => openModal(`📂 ${proj}`, projTasks)
+    }, "+", projTasks.length - 5, " lagi →"));
+  }))),
+
+  /* ── Notes terbaru ── */
+  recentNotes.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DashSection, {
+    icon: "notes",
+    title: "Notes Terbaru",
+    link: "Lihat semua →",
+    onLink: () => onNav("notes")
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "dash-notes"
+  }, recentNotes.map(n => /*#__PURE__*/React.createElement("div", {
+    key: n.id,
+    className: "dash-note",
+    onClick: () => onNoteClick ? onNoteClick(n) : onNav("notes")
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-note-title"
+  }, n.title || (n.content || "").slice(0, 60)), n.title && /*#__PURE__*/React.createElement("div", {
+    className: "dash-note-preview",
+    dangerouslySetInnerHTML: {
+      __html: renderWikilinksPreview(n.content, 200)
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "dash-note-foot"
+  }, (n.tags || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "dash-note-tags"
+  }, (n.tags || []).map(tag => /*#__PURE__*/React.createElement("span", {
+    key: tag,
+    className: "note-tag"
+  }, "#", tag))), /*#__PURE__*/React.createElement("span", {
+    className: "dash-note-date"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "clock",
+    size: 12
+  }), n.updated_at ? dashFmtDate(n.updated_at) + " " + n.updated_at.slice(0, 4) : "")))))),
+
+  /* ── Modal "Lihat semua" ── */
+  dashModal && /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
     onClick: () => setDashModal(null)
   }, /*#__PURE__*/React.createElement("div", {
@@ -13101,31 +13027,18 @@ function Dashboard({
   }, dashModal.tasks.length, " task")), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
     onClick: () => setDashModal(null)
-  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
+  }, "✕")), /*#__PURE__*/React.createElement("div", {
     style: {
       overflowY: "auto",
       flex: 1
     }
   }, dashModal.tasks.map(t => /*#__PURE__*/React.createElement("div", {
     key: t.id,
+    className: "dash-modal-row",
     onClick: () => {
       setDashModal(null);
       onTaskClick(t);
-    },
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      padding: "9px 12px",
-      borderRadius: 8,
-      marginBottom: 6,
-      cursor: "pointer",
-      background: "var(--surface)",
-      border: "1px solid var(--border)",
-      transition: "opacity 0.15s"
-    },
-    onMouseEnter: e => e.currentTarget.style.opacity = "0.75",
-    onMouseLeave: e => e.currentTarget.style.opacity = "1"
+    }
   }, /*#__PURE__*/React.createElement(PriBadge, {
     p: t.priority
   }), /*#__PURE__*/React.createElement("div", {
@@ -13147,154 +13060,9 @@ function Dashboard({
       color: "var(--text-light)",
       marginTop: 1
     }
-  }, "\uD83D\uDCC1 ", t.project)), /*#__PURE__*/React.createElement(StatusBadge, {
+  }, "📁 ", t.project)), /*#__PURE__*/React.createElement(StatusBadge, {
     s: t.gtd_status
-  })))))), (() => {
-    const projNames = [...new Set(tasks.filter(t => t.project && t.gtd_status !== "done" && t.gtd_status !== "archived").map(t => t.project))];
-    if (projNames.length === 0) return null;
-    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h2", {
-      style: {
-        fontSize: 18,
-        fontWeight: 700,
-        marginBottom: 12,
-        marginTop: 24,
-        display: "flex",
-        alignItems: "center",
-        gap: 8
-      }
-    }, /*#__PURE__*/React.createElement(Icon, { name: "folder", size: 20 }), "Active Projects"), /*#__PURE__*/React.createElement("div", {
-      className: "gtd-grid",
-      style: {
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gap: 12
-      }
-    }, projNames.map(proj => {
-      const projTasks = tasks.filter(t => t.project === proj && t.gtd_status !== "done" && t.gtd_status !== "archived");
-      return /*#__PURE__*/React.createElement("div", {
-        key: proj,
-        style: {
-          borderRadius: 12,
-          padding: 16,
-          minHeight: 100,
-          minWidth: 0,
-          overflow: "hidden",
-          background: "var(--bg-card)",
-          border: "1px solid var(--border)"
-        }
-      }, /*#__PURE__*/React.createElement("div", {
-        style: {
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 10
-        }
-      }, /*#__PURE__*/React.createElement("div", {
-        style: {
-          fontWeight: 700,
-          fontSize: 14,
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          minWidth: 0
-        }
-      }, /*#__PURE__*/React.createElement(Icon, { name: "folder", size: 15 }), /*#__PURE__*/React.createElement("span", {
-        style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
-      }, proj + " (" + projTasks.length + ")")), projTasks.length > 5 && /*#__PURE__*/React.createElement("span", {
-        onClick: () => openModal(`📂 ${proj}`, projTasks),
-        style: {
-          fontSize: 11,
-          color: "var(--accent)",
-          cursor: "pointer",
-          fontWeight: 600
-        }
-      }, "Lihat semua \u2192")), projTasks.slice(0, 5).map(t => /*#__PURE__*/React.createElement("div", {
-        key: t.id,
-        onClick: () => onTaskClick(t),
-        style: {
-          fontSize: 13,
-          padding: "4px 0",
-          cursor: "pointer",
-          display: "flex",
-          gap: 6,
-          alignItems: "center",
-          minWidth: 0
-        }
-      }, /*#__PURE__*/React.createElement(PriBadge, {
-        p: t.priority
-      }), /*#__PURE__*/React.createElement(StatusBadge, {
-        s: t.gtd_status
-      }), /*#__PURE__*/React.createElement("span", {
-        style: {
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          flex: 1,
-          minWidth: 0
-        }
-      }, t.title))), projTasks.length > 5 && /*#__PURE__*/React.createElement("div", {
-        onClick: () => openModal(`📂 ${proj}`, projTasks),
-        style: {
-          fontSize: 12,
-          color: "var(--accent)",
-          marginTop: 6,
-          cursor: "pointer",
-          fontWeight: 600
-        }
-      }, "+", projTasks.length - 5, " lagi \u2192"));
-    })));
-  })(), recentNotes.length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 28
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement("h2", {
-    style: {
-      fontSize: 16,
-      fontWeight: 700
-    }
-  }, "\uD83D\uDCDD Notes Terbaru"), /*#__PURE__*/React.createElement("span", {
-    onClick: () => onNav("notes"),
-    style: {
-      fontSize: 12,
-      color: "var(--accent)",
-      cursor: "pointer",
-      fontWeight: 600
-    }
-  }, "Lihat semua \u2192")), recentNotes.map(n => /*#__PURE__*/React.createElement("div", {
-    key: n.id,
-    className: "note-card",
-    onClick: () => onNoteClick ? onNoteClick(n) : onNav("notes")
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "note-card-title"
-  }, n.title || n.content.slice(0, 60)), n.title && /*#__PURE__*/React.createElement("div", {
-    className: "note-card-preview",
-    dangerouslySetInnerHTML: {
-      __html: renderWikilinksPreview(n.content, 200)
-    }
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 6,
-      flexWrap: "wrap",
-      marginTop: 6
-    }
-  }, (n.tags || []).map(tag => /*#__PURE__*/React.createElement("span", {
-    key: tag,
-    className: "note-tag"
-  }, "#", tag)), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11,
-      color: "var(--text-light)",
-      marginLeft: "auto"
-    }
-  }, n.updated_at ? n.updated_at.slice(0, 10) : ""))))));
+  })))))));
 }
 
 // ── Chat Page ────────────────────────────────────────────────
@@ -26504,6 +26272,7 @@ function App() {
       return /*#__PURE__*/React.createElement(Dashboard, {
         summary: summary,
         tasks: tasks,
+        user: user,
         onTaskClick: setSelectedTask,
         onDone: handleDone,
         onNav: setPage,

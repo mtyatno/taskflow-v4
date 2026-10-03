@@ -5,6 +5,12 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
+## 🟢 Redesain visual Dashboard — 2026-10-03 (Claude) — SELESAI di branch `claude/dashboard-redesign-109io3` (belum commit; SW v352 `taskflow-v352-dashboard-redesign`, app.css?v=304)
+- **Perubahan (presentasi saja, semua data/fitur tetap):** hero (tanggal id-ID, sapaan pagi/siang/sore/malam + nama user, ringkasan, ring progres prioritas, scratchpad di dalam hero), baris KPI (chip ikon, Terlambat merah rgba, Aktif/Terlambat→today, Inbox→inbox, Q1→scroll ke matrix), Prioritas Hari Ini + kartu gabungan "Disematkan" (Notes/Mindmap/Gambar), header kartu/section konsisten (`DashCardHead`, `DashSection`), Eisenhower & GTD dengan aksen kuadran, Proyek Aktif dengan progress bar, Notes Terbaru grid. Chart.js theme-aware (`useThemeName` + `dashChartColors`, re-render saat `data-theme` berubah). Semua warna light-only diganti rgba/token; CSS baru `dash-*` di akhir app.css.
+- `Dashboard` kini menerima prop `user`. Kelas `eisenhower-cell` & header "Mendesak + Penting/Penting" dihapus dari dashboard (diganti subjudul per kuadran).
+- **Verifikasi:** JS 861/862 (1 fail pra-ada `draw_local_reactive` — bundle tldraw tidak di-build), pytest 96/96, inline 5/5, `node --check sw.js` OK; screenshot Playwright light/dark × desktop/mobile tanpa page error, tanpa overflow horizontal (390/1024/1440).
+- **PENDING:** commit/merge; hard refresh klien (SW v352).
+
 ## 🟢 Search Bar Dropdown Popover for Saved Searches — 2026-10-03 (Antigravity/Gemini) — SELESAI di `main` (SW v351 `taskflow-v351-note-search-dropdown`)
 - **Commits:** `f50e294` (`feat(client): display saved searches in search bar dropdown popover and bump SW to v351`).
 - **Fitur (Task 1):**

@@ -2033,3 +2033,10 @@
 - **Verifikasi koordinator:** pytest tests 91/91, JS 835/836 (1 fail pra-ada tldraw), inline 5/5, repro reviewer S1/S2 benar, E2E Playwright 49/49 setelah perbaikan.
 - **Files Touch:** `webapp.py`, `static/{index.html,sw.js,app.css}`, `static/offline/{taskroutes,noterepo,syncpull,notetrash}.js`, tests, `docs/superpowers/specs/…`, `.agents/*`
 - **Status:** Completed di branch `ccr-1c84ae68-l09ysx` (belum merge/deploy). PENDING deploy: restart `taskflow-web`, hard refresh SW v346, rebuild APK.
+
+## [2026-10-03] - Claude (redesain visual Dashboard)
+- **Task:** Membuat Dashboard lebih menarik (hero, KPI, kartu Disematkan gabungan, header konsisten, aksen kuadran, chart theme-aware, dark mode & mobile rapi).
+- **Changes:** `Dashboard` + chart components ditulis ulang (presentasi saja), prop `user` baru, CSS `dash-*`; SW v352, app.css?v=304; tes versi disesuaikan.
+- **Verifikasi:** JS 861/862 (1 fail pra-ada tldraw), pytest 96/96, inline 5/5, screenshot 4 varian tanpa page error.
+- **Files Touch:** `static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui}.test.js`, `.agents/*`
+- **Status:** Completed di branch `claude/dashboard-redesign-109io3` (belum commit).
