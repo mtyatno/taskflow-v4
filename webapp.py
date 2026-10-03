@@ -327,6 +327,50 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Ensure FTS5 virtual table for scratchpad_notes exists
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        fts_exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='scratchpad_notes_fts'"
+        ).fetchone()
+        if not fts_exists:
+            conn.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS scratchpad_notes_fts USING fts5(
+                    title,
+                    content,
+                    content='scratchpad_notes',
+                    content_rowid='id',
+                    tokenize='unicode61'
+                )
+            """)
+            conn.execute("INSERT INTO scratchpad_notes_fts(scratchpad_notes_fts) VALUES('rebuild')")
+
+        # Ensure FTS triggers exist
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_scratchpad_notes_ai AFTER INSERT ON scratchpad_notes BEGIN
+                INSERT INTO scratchpad_notes_fts(rowid, title, content)
+                VALUES (new.id, new.title, new.content);
+            END;
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_scratchpad_notes_ad AFTER DELETE ON scratchpad_notes BEGIN
+                INSERT INTO scratchpad_notes_fts(scratchpad_notes_fts, rowid, title, content)
+                VALUES ('delete', old.id, old.title, old.content);
+            END;
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_scratchpad_notes_au AFTER UPDATE ON scratchpad_notes BEGIN
+                INSERT INTO scratchpad_notes_fts(scratchpad_notes_fts, rowid, title, content)
+                VALUES ('delete', old.id, old.title, old.content);
+                INSERT INTO scratchpad_notes_fts(rowid, title, content)
+                VALUES (new.id, new.title, new.content);
+            END;
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
     # Ensure mindmaps table exists
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
