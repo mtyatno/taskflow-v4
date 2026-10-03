@@ -3365,34 +3365,111 @@ def _mindmap_enrich(d: dict, conn) -> dict:
             d["last_editor_display_name"] = editor["display_name"]
     return d
 
+def _sanitize_fts5_token(token: str) -> str:
+    cleaned = re.sub(r'[^\w\s-]', '', token).strip(' -')
+    if not cleaned:
+        return ""
+    return f'"{cleaned}"*'
+
+
+def _parse_note_search_query(q: str = "", tag: str = "") -> tuple[list[str], list[str], str, str]:
+    positive_tags: list[str] = []
+    if tag and tag.strip():
+        positive_tags.append(tag.strip().lower())
+
+    negative_tags: list[str] = []
+    if q:
+        neg_matches = re.findall(r'(?:^|\s)-tag:(\S+)', q, flags=re.IGNORECASE)
+        for t in neg_matches:
+            nt = t.strip().lower()
+            if nt and nt not in negative_tags:
+                negative_tags.append(nt)
+
+        pos_matches = re.findall(r'(?:^|\s)tag:(\S+)', q, flags=re.IGNORECASE)
+        for t in pos_matches:
+            pt = t.strip().lower()
+            if pt and pt not in positive_tags:
+                positive_tags.append(pt)
+
+        # Clean text
+        clean = re.sub(r'(?:^|\s)-tag:\S+', ' ', q, flags=re.IGNORECASE)
+        clean = re.sub(r'(?:^|\s)tag:\S+', ' ', clean, flags=re.IGNORECASE).strip()
+    else:
+        clean = ""
+
+    # Build FTS match expression
+    fts_parts = []
+    if clean:
+        words = clean.split()
+        for w in words:
+            san = _sanitize_fts5_token(w)
+            if san:
+                fts_parts.append(san)
+    fts_query = " ".join(fts_parts)
+
+    return positive_tags, negative_tags, clean, fts_query
+
+
 @app.get("/api/scratchpad")
 async def list_scratchpad(q: str = "", tag: str = "", user=Depends(get_current_user)):
     uid = user["sub"]
     access_clause, access_params = _note_access_clause(uid, prefix="s")
+    pos_tags, neg_tags, clean_text, fts_query = _parse_note_search_query(q, tag)
+
     with get_db() as conn:
-        if tag:
-            tag_norm = tag.strip().lower()
-            rows = conn.execute(f"""
+        where_clauses = [f"({access_clause})"]
+        params = list(access_params)
+
+        for pt in pos_tags:
+            where_clauses.append("""
+                EXISTS (
+                    SELECT 1 FROM entity_tags et
+                    JOIN tags t ON t.id = et.tag_id
+                    WHERE et.entity_id = s.id AND et.entity_type = 'note' AND t.name = ?
+                )
+            """)
+            params.append(pt)
+
+        for nt in neg_tags:
+            where_clauses.append("""
+                NOT EXISTS (
+                    SELECT 1 FROM entity_tags et
+                    JOIN tags t ON t.id = et.tag_id
+                    WHERE et.entity_id = s.id AND et.entity_type = 'note' AND t.name = ?
+                )
+            """)
+            params.append(nt)
+
+        if fts_query:
+            fts_where = list(where_clauses)
+            fts_params = list(params)
+            fts_where.append("fts.scratchpad_notes_fts MATCH ?")
+            fts_params.append(fts_query)
+            sql = f"""
                 SELECT s.* FROM scratchpad_notes s
-                JOIN entity_tags et ON et.entity_id = s.id AND et.entity_type = 'note'
-                JOIN tags t ON t.id = et.tag_id
-                WHERE ({access_clause})
-                  AND t.name = ?
-                ORDER BY s.updated_at DESC
-            """, access_params + [tag_norm]).fetchall()
-        elif q:
-            rows = conn.execute(f"""
-                SELECT s.* FROM scratchpad_notes s
-                WHERE ({access_clause})
-                  AND (s.title LIKE ? OR s.content LIKE ?)
-                ORDER BY s.updated_at DESC
-            """, access_params + [f"%{q}%", f"%{q}%"]).fetchall()
-        else:
-            rows = conn.execute(f"""
-                SELECT s.* FROM scratchpad_notes s
-                WHERE {access_clause}
-                ORDER BY s.updated_at DESC
-            """, access_params).fetchall()
+                JOIN scratchpad_notes_fts fts ON fts.rowid = s.id
+                WHERE {' AND '.join(fts_where)}
+                ORDER BY fts.rank, s.updated_at DESC
+            """
+            try:
+                rows = conn.execute(sql, fts_params).fetchall()
+                return [_scratchpad_row(r, conn, uid) for r in rows]
+            except sqlite3.OperationalError:
+                pass  # Fallback to LIKE query if FTS expression fails
+
+        # Fallback / non-FTS query
+        fallback_clauses = list(where_clauses)
+        fallback_params = list(params)
+        if clean_text:
+            fallback_clauses.append("(s.title LIKE ? OR s.content LIKE ?)")
+            fallback_params.extend([f"%{clean_text}%", f"%{clean_text}%"])
+
+        sql = f"""
+            SELECT s.* FROM scratchpad_notes s
+            WHERE {' AND '.join(fallback_clauses)}
+            ORDER BY s.updated_at DESC
+        """
+        rows = conn.execute(sql, fallback_params).fetchall()
         return [_scratchpad_row(r, conn, uid) for r in rows]
 
 # ── Note Trash (snapshot ke trashed_notes; lihat docs/superpowers/specs/2026-10-02-note-trash-design.md) ──
