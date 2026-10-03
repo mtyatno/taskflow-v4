@@ -6,6 +6,25 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 SQLite FTS5 Full-Text Search & Search Operators (`tag:`, `-tag:`) — 2026-10-03 (Antigravity/Gemini) — SELESAI di `main` (SW v349 `taskflow-v349-fts5-tag-search`)
+- **Commits:** spec `10184b6`, plan `3df9970`, db migration `807ba57`, search API `e87c527`, client offline search `d8a2dc6`.
+- **Fitur Roadmap #2:** Menggantikan pencarian catatan `LIKE '%q%'` dengan SQLite FTS5 External Content Virtual Table `scratchpad_notes_fts` dan sinkronisasi otomatis database triggers (`AFTER INSERT`, `AFTER DELETE`, `AFTER UPDATE`).
+- **Operator Pencarian:**
+  - `tag:<nama>`: Menyaring catatan yang memiliki tag terkait via `EXISTS (SELECT 1 FROM entity_tags ...)`.
+  - `-tag:<nama>`: Menyaring/mengecualikan catatan yang memiliki tag terkait via `NOT EXISTS (SELECT 1 FROM entity_tags ...)`.
+  - Kata kunci teks: Disanitasi secara aman dari karakter operator FTS berbahaya (`_sanitize_fts5_token`), mendukung pencarian prefix `"<token>"*` dan frasa, dengan fallback aman ke `LIKE` jika terjadi OperationalError sehingga API tidak pernah melempar 500.
+  - Multi-user isolation: Akses kontrol `_note_access_clause(uid, prefix="s")` diterapkan secara ketat di semua cabang kueri.
+- **Client Offline-First:** `static/index.html` diperbarui pada `parseQuery`, `applyFilters`, dan `applyFiltersStatic` agar menyaring operator `-tag:<nama>` secara instan di memori (0ms) saat offline maupun online.
+- **Service Worker:** Cache version dibump ke **`taskflow-v349-fts5-tag-search`**.
+- **Verifikasi:**
+  - Python Pytest: **94/94 pass (0 fail)**.
+  - JS Offline Test Suite: **855/855 pass (0 fail)** across 7 suites.
+  - Syntax check: `node scratch/check_inline.js static/index.html` (5/5 scripts OK), `node --check static/sw.js` (OK).
+- **PENDING saat deploy:**
+  - `sudo systemctl restart taskflow-web` di VPS WAJIB agar `migrate_db()` membuat tabel virtual FTS5 `scratchpad_notes_fts` dan triggers otomatis serta me-rebuild indeks catatan lama.
+  - Hard refresh browser klien (Ctrl+Shift+R atau tutup-buka PWA) untuk mengaktifkan Service Worker `v349`.
+  - Rebuild APK / .exe agar aset klien terbaru terintegrasi.
+
 ## 🟢 Note Trash & Restore (backend + klien + perbaikan review) — 2026-10-03 (Gemini/Claude) — SELESAI & MERGED ke `main` (commit `74b8114`, test fix `d5d0b77`, SW v348 `taskflow-v348-notes-trash-and-restore`)
 - **Commit:** spec `5a42ff8`, backend `8be74b4`, klien `011d6de`, review `60748b8`, merge `74b8114`, test fix `d5d0b77`. ADR-004 di DECISIONS.md.
 - **PENDING saat deploy:** `sudo systemctl restart taskflow-web` WAJIB (tabel `trashed_notes` dibuat oleh `migrate_db()` saat startup; deploy.yml tidak me-restart) → tanpa restart, hapus note gagal 500 karena tabel belum ada; hard refresh browser (SW v348); rebuild APK/.exe.

@@ -2,6 +2,40 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-03 10:40] - Antigravity (Gemini)
+- **Task:** Implement SQLite FTS5 Full-Text Search and Search Operators (`tag:`, `-tag:`) for Scratchpad Notes (Roadmap Item #2) — SW v349.
+- **Objective:**
+  - Menggantikan pencarian catatan `LIKE '%q%'` dengan SQLite FTS5 Full-Text Search menggunakan External Content Virtual Table `scratchpad_notes_fts`.
+  - Mengimplementasikan sinkronisasi otomatis menggunakan database triggers (`AFTER INSERT`, `AFTER DELETE`, `AFTER UPDATE`).
+  - Mendukung operator pencarian `tag:<nama>` (penyertaan) dan `-tag:<nama>` (pengecualian) baik di backend (`GET /api/scratchpad?q=...`) maupun di klien frontend (`static/index.html`) secara instan in-memory (0ms latency, offline-first).
+  - Menjaga isolasi multi-user secara ketat (`_note_access_clause`) dan sanitasi token FTS5 yang aman (`_sanitize_fts5_token`) dengan fallback transparan ke `LIKE` jika terjadi OperationalError sehingga API tidak pernah melempar HTTP 500.
+  - Bump Service Worker cache version ke **`taskflow-v349-fts5-tag-search`**.
+- **Changes:**
+  - `webapp.py`:
+    - Menambahkan inisialisasi tabel virtual FTS5 `scratchpad_notes_fts` dan triggers otomatis serta perintah rebuild di `migrate_db()`.
+    - Menambahkan helper sanitasi `_sanitize_fts5_token` dan parser kueri `_parse_note_search_query`.
+    - Memperbarui endpoint `GET /api/scratchpad` dengan FTS5 `MATCH`, ranking `fts.rank`, filter `EXISTS`/`NOT EXISTS` pada `entity_tags`, serta fallback transparan ke `LIKE`.
+  - `static/index.html`:
+    - Memperbarui `parseQuery`, `applyFilters`, dan `applyFiltersStatic` untuk mengekstrak dan menyaring `negativeTags` (`-tag:<name>`).
+  - `static/sw.js`:
+    - Bump cache version ke **`taskflow-v349-fts5-tag-search`**.
+  - `tests/test_note_fts_search.py`:
+    - Suite pengujian backend baru (3 test functions) memvalidasi tabel virtual & trigger FTS5, pencarian teks, prefix matching, operator `tag:` dan `-tag:`, karakter aneh/unclosed quotes, sinkronisasi trigger update/delete, dan isolasi akses antar pengguna.
+  - `tests/offline/note_search_filters.test.js`:
+    - Suite pengujian offline baru (5 subtests) memvalidasi regex `tag:` dan `-tag:`, filter in-memory, integritas kode `index.html`, dan versi Service Worker.
+  - `tests/offline/drawing_sync_ui.test.js` & `tests/offline/interactive_note_viewer.test.js`:
+    - Sinkronisasi asersi versi cache Service Worker ke `v349`.
+  - `docs/superpowers/specs/2026-10-03-note-fts5-search-design.md` & `docs/superpowers/plans/2026-10-03-note-fts5-search.md`:
+    - Dokumentasi spesifikasi arsitektur dan rencana eksekusi terperinci.
+- **Verification:**
+  - Python Pytest: `python -m pytest tests/` ➡️ **94/94 pass (0 fail)**.
+  - JS Offline Test Suite: `node --test tests/offline/*.test.js` ➡️ **855/855 pass (0 fail)** across 7 suites.
+  - Inline scripts syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - Service Worker syntax check: `node --check static/sw.js` ➡️ **OK**.
+  - Independent code reviews (Task 1, Task 2, Task 3, dan Final whole-branch review) lulus dengan status **Approved / Ready to merge**.
+- **Files Modified:** `webapp.py`, `static/index.html`, `static/sw.js`, `tests/test_note_fts_search.py`, `tests/offline/note_search_filters.test.js`, `tests/offline/drawing_sync_ui.test.js`, `tests/offline/interactive_note_viewer.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed & Verified
+
 ## [2026-10-03 09:45] - Antigravity (Gemini)
 - **Task:** Merge & Release Note Trash & Restore Feature to Main (`origin/ccr-1c84ae68-l09ysx` ➡️ `main`) — SW v348.
 - **Objective:**
