@@ -2040,3 +2040,10 @@
 - **Verifikasi:** JS 861/862 (1 fail pra-ada tldraw), pytest 96/96, inline 5/5, screenshot 4 varian tanpa page error.
 - **Files Touch:** `static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui}.test.js`, `.agents/*`
 - **Status:** Completed di branch `claude/dashboard-redesign-109io3` (belum commit).
+
+## [2026-10-03] - Claude (revisi Dashboard: tanpa garis kuadran + KPI bervisual)
+- **Task:** Revisi review user atas redesain Dashboard: (1) hapus garis warna di kartu Eisenhower/GTD; (2) kartu angka KPI diberi ikon modern + visualisasi data sederhana.
+- **Changes:** CSS `.dash-qcard::before` + padding kompensasi + inline `--dash-q` dihapus; fungsi murni `dashKpiStats`/`dashDayLabel` (TDD); komponen `DashKpiIcon`, `DashDelta`, `DashSparkline`, `DashMiniBars`, `DashMeter`; ikon Lucide `activity` & `alarm`; CSS KPI baru (tile gradien, slot visual sejajar, tinta per kartu light/dark, mobile 2 kolom tanpa layout horizontal); app.css?v=305, SW v353; tes versi disesuaikan.
+- **Verifikasi:** JS 889/890 (1 fail pra-ada tldraw), pytest 96/96, inline 5/5, `node --check sw.js` OK; screenshot light/dark × desktop/mobile tanpa page error.
+- **Files Touch:** `static/index.html`, `static/app.css`, `static/ui-components.js`, `static/sw.js`, `tests/offline/dashboard_kpi.test.js` (baru), `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui}.test.js`, `.agents/*`
+- **Status:** Completed di branch `claude/dashboard-redesign-109io3` (belum commit).

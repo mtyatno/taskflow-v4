@@ -50,7 +50,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=304">
+  <link rel="stylesheet" href="/static/app.css?v=305">
 
 <style>
 .paper-mode-active {
@@ -12117,6 +12117,85 @@ const dashFmtDate = d => {
   if (parts.length < 3) return "";
   return `${parseInt(parts[2])} ${DASH_MONTHS[parseInt(parts[1]) - 1] || ""}`;
 };
+// Label tooltip mini chart KPI: "2026-10-03" → "Sab, 3 Okt" (hari dihitung dari tanggal, bebas zona waktu).
+const dashDayLabel = iso => {
+  const [y, m, d] = String(iso || "").slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return `${["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"][dow]}, ${d} ${DASH_MONTHS[m - 1] || ""}`;
+};
+
+// Statistik kartu angka (KPI) Dashboard untuk ikon + mini visualisasi. Murni (tanpa React dan
+// tanpa jam sistem): `todayISO` = tanggal lokal "YYYY-MM-DD". Angka utama memakai definisi yang
+// sama dengan Dashboard sebelumnya; kolom "Selesai" mengikuti aturan done_last_7_days server &
+// offline (gtd_status done && completed_at >= hari ini − 7 → 8 hari kalender).
+function dashKpiStats(tasks, todayISO) {
+  const list = Array.isArray(tasks) ? tasks : [];
+  const today = String(todayISO || "").slice(0, 10);
+  const [ty, tm, td] = today.split("-").map(Number);
+  const pad2 = n => String(n).padStart(2, "0");
+  const shift = n => {
+    const dt = new Date(Date.UTC(ty, tm - 1, td) + n * 86400000);
+    return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
+  };
+  const dayOf = v => v ? String(v).slice(0, 10) : "";
+  const active = list.filter(t => t.gtd_status !== "done" && t.gtd_status !== "archived");
+  const activeCount = active.length;
+  const q1Count = active.filter(t => t.quadrant === "Q1").length;
+  const overdueCount = active.filter(t => t.is_overdue).length;
+  const inboxCount = active.filter(t => t.gtd_status === "inbox").length;
+  const withDeadline = active.filter(t => t.deadline).length;
+
+  // Task aktif di akhir tiap hari D (14 hari: hari ini − 13 .. hari ini).
+  const days14 = [];
+  for (let i = 13; i >= 0; i--) days14.push(shift(-i));
+  const activeSeries = days14.map(D => list.reduce((n, t) => {
+    if (t.gtd_status === "archived") return n;
+    const created = dayOf(t.created_at);
+    if (created && created > D) return n; // belum dibuat (created_at kosong = dibuat lama)
+    if (t.gtd_status === "done") {
+      const doneDay = dayOf(t.completed_at);
+      if (!doneDay || doneDay <= D) return n; // sudah selesai (tanpa completed_at = tak pernah dihitung)
+    }
+    return n + 1;
+  }, 0));
+  activeSeries[13] = activeCount;
+
+  // Selesai per hari (8 hari: hari ini − 7 .. hari ini) + 8 hari sebelumnya (− 15 .. − 8).
+  const doneDays = days14.slice(6);
+  const doneSeries = doneDays.map(() => 0);
+  const prevFrom = shift(-15);
+  let donePrev = 0;
+  for (const t of list) {
+    if (t.gtd_status !== "done" || !t.completed_at) continue;
+    const doneDay = dayOf(t.completed_at);
+    if (doneDay >= doneDays[0]) {
+      const i = doneDays.indexOf(doneDay);
+      doneSeries[i < 0 ? 7 : i] += 1; // tanggal "besok" (selisih zona waktu) tetap dihitung summary → kolom hari ini
+    } else if (doneDay >= prevFrom) {
+      donePrev += 1;
+    }
+  }
+  const ratio = (a, b) => b > 0 ? Math.min(1, a / b) : 0;
+  return {
+    activeCount,
+    q1Count,
+    overdueCount,
+    inboxCount,
+    withDeadline,
+    days14,
+    activeSeries,
+    activeWeekAgo: activeSeries[6],
+    activeDelta: activeSeries[13] - activeSeries[6],
+    doneDays,
+    doneSeries,
+    doneSum: doneSeries.reduce((a, b) => a + b, 0),
+    donePrev,
+    q1Share: ratio(q1Count, activeCount),
+    overdueShare: ratio(overdueCount, withDeadline),
+    inboxShare: ratio(inboxCount, activeCount)
+  };
+}
 function DashChip({
   icon,
   color,
@@ -12272,6 +12351,172 @@ function DashProgressRing({
     className: "dash-ring-label"
   }, Math.round(pct * 100), "%"));
 }
+
+// ── Kartu angka (KPI): ikon gradien + mini visualisasi ──
+// Warna tinta tiap kartu datang dari kelas `.dash-kpi-viz.ink-*` (light/dark) dan semua mark
+// digambar dengan currentColor. Tooltip per titik/kolom lewat <title>/title; ringkasan untuk
+// pembaca layar lewat aria-label pada wadah role="img".
+const dashPct = share => share > 0 && share < 0.005 ? "<1%" : `${Math.round(share * 100)}%`;
+// ui-components.js lama (cache) belum punya ikon baru → pakai ikon cadangan, bukan teks nama ikon.
+const dashIconOr = (name, fallback) => typeof ICONS === "object" && ICONS && ICONS[name] ? name : fallback;
+function DashKpiIcon({
+  icon,
+  from,
+  to
+}) {
+  return /*#__PURE__*/React.createElement("span", {
+    className: "dash-kpi-icon",
+    style: {
+      background: `linear-gradient(135deg, ${from}, ${to})`,
+      boxShadow: `0 6px 14px -6px ${dashTint(to, 0.7)}, inset 0 1px 0 rgba(255,255,255,0.28)`
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: icon,
+    size: 20
+  }));
+}
+function DashDelta({
+  delta,
+  goodWhenUp,
+  title
+}) {
+  const tone = delta === 0 || goodWhenUp === undefined ? "is-neutral" : delta > 0 === goodWhenUp ? "is-good" : "is-bad";
+  return /*#__PURE__*/React.createElement("span", {
+    className: `dash-delta ${tone}`,
+    title: title
+  }, delta === 0 ? "Stabil" : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    className: "dash-delta-arrow",
+    "aria-hidden": "true"
+  }, delta > 0 ? "▲" : "▼"), /*#__PURE__*/React.createElement("span", {
+    className: "dash-sr"
+  }, delta > 0 ? "naik " : "turun "), Math.abs(delta)));
+}
+let dashSparkSeq = 0;
+function DashSparkline({
+  values,
+  days,
+  unit,
+  label
+}) {
+  const seqRef = useRef(0);
+  if (!seqRef.current) seqRef.current = ++dashSparkSeq;
+  const gid = `dash-spark-grad-${seqRef.current}`;
+  const H = 32;
+  const PAD = 4;
+  const n = values.length;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const xAt = i => n > 1 ? i / (n - 1) * 100 : 50;
+  const yAt = v => max === min ? H / 2 : PAD + (1 - (v - min) / (max - min)) * (H - PAD * 2);
+  const pts = values.map((v, i) => [xAt(i), yAt(v)]);
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(" ");
+  const half = n > 1 ? 50 / (n - 1) : 50;
+  const end = pts[n - 1] || [100, H / 2];
+  return /*#__PURE__*/React.createElement("div", {
+    className: "dash-spark",
+    role: "img",
+    "aria-label": label
+  }, /*#__PURE__*/React.createElement("svg", {
+    className: "dash-spark-svg",
+    viewBox: `0 0 100 ${H}`,
+    preserveAspectRatio: "none",
+    width: "100%",
+    height: H,
+    "aria-hidden": "true",
+    focusable: "false"
+  }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("linearGradient", {
+    id: gid,
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1"
+  }, /*#__PURE__*/React.createElement("stop", {
+    offset: "0",
+    stopColor: "currentColor",
+    stopOpacity: 0.18
+  }), /*#__PURE__*/React.createElement("stop", {
+    offset: "1",
+    stopColor: "currentColor",
+    stopOpacity: 0
+  }))), values.map((v, i) => {
+    const x0 = Math.max(0, xAt(i) - half);
+    const x1 = Math.min(100, xAt(i) + half);
+    return /*#__PURE__*/React.createElement("rect", {
+      key: days[i] || i,
+      className: "dash-spark-hit",
+      x: x0,
+      y: 0,
+      width: x1 - x0,
+      height: H
+    }, /*#__PURE__*/React.createElement("title", null, `${dashDayLabel(days[i])} · ${v} ${unit}`));
+  }), /*#__PURE__*/React.createElement("path", {
+    className: "dash-spark-area",
+    d: `${line} L100 ${H} L0 ${H} Z`,
+    fill: `url(#${gid})`
+  }), /*#__PURE__*/React.createElement("path", {
+    className: "dash-spark-line",
+    d: line,
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    vectorEffect: "non-scaling-stroke",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "dash-spark-dot",
+    style: {
+      left: `${end[0]}%`,
+      top: end[1]
+    }
+  }));
+}
+function DashMiniBars({
+  values,
+  days,
+  unit,
+  label
+}) {
+  const max = Math.max(1, ...values);
+  const last = values.length - 1;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "dash-bars",
+    role: "img",
+    "aria-label": label
+  }, values.map((v, i) => /*#__PURE__*/React.createElement("div", {
+    key: days[i] || i,
+    className: `dash-bar${i === last ? " is-today" : ""}${v > 0 ? "" : " is-zero"}`,
+    title: `${dashDayLabel(days[i])} · ${v} ${unit}`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dash-bar-fill",
+    style: v > 0 ? {
+      height: Math.max(5, Math.round(v / max * 32))
+    } : undefined
+  }))));
+}
+function DashMeter({
+  share,
+  caption,
+  label
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "dash-meter",
+    role: "img",
+    "aria-label": label
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-meter-row"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-meter-track"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-meter-fill",
+    style: {
+      width: `${Math.min(100, share * 100)}%`
+    }
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "dash-meter-pct"
+  }, dashPct(share))), /*#__PURE__*/React.createElement("div", {
+    className: "dash-meter-cap"
+  }, caption));
+}
 function Dashboard({
   summary,
   tasks,
@@ -12398,11 +12643,19 @@ function Dashboard({
   const pctToday = totalToday > 0 ? Math.round(doneN / totalToday * 100) : 0;
   const allDoneToday = totalToday > 0 && doneN === totalToday;
 
-  // ── KPI ──
-  const activeTasks = tasks.filter(t => t.gtd_status !== "done" && t.gtd_status !== "archived");
-  const inboxCount = activeTasks.filter(t => t.gtd_status === "inbox").length;
-  const q1Count = activeTasks.filter(t => t.quadrant === "Q1").length;
-  const overdueCount = activeTasks.filter(t => t.is_overdue).length;
+  // ── KPI (angka + data mini chart; "hari ini" = tanggal lokal) ──
+  const kpiStats = useMemo(() => {
+    const d = new Date();
+    const todayISO = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return dashKpiStats(tasks, todayISO);
+  }, [tasks]);
+  const {
+    activeCount,
+    inboxCount,
+    q1Count,
+    overdueCount,
+    withDeadline
+  } = kpiStats;
 
   // ── Hero ──
   const now = new Date();
@@ -12428,40 +12681,87 @@ function Dashboard({
       block: "start"
     });
   };
+  const doneValue = summary.done_last_7_days ?? 0;
   const kpis = [{
-    value: activeTasks.length,
+    key: "active",
+    value: activeCount,
     label: "Aktif",
-    sub: "Task aktif saat ini",
-    color: "#A8C500",
-    icon: "zap",
+    icon: dashIconOr("activity", "zap"),
+    grad: ["#C5DD34", "#8FAA00"],
+    ink: "lime",
+    delta: /*#__PURE__*/React.createElement(DashDelta, {
+      delta: kpiStats.activeDelta,
+      title: `7 hari lalu: ${kpiStats.activeWeekAgo} task aktif`
+    }),
+    sub: "vs 7 hari lalu",
+    viz: /*#__PURE__*/React.createElement(DashSparkline, {
+      values: kpiStats.activeSeries,
+      days: kpiStats.days14,
+      unit: "task aktif",
+      label: `Tren task aktif 14 hari terakhir: ${kpiStats.activeSeries[0]} pada ${dashDayLabel(kpiStats.days14[0])}, ${kpiStats.activeWeekAgo} tujuh hari lalu, ${activeCount} hari ini`
+    }),
     onClick: () => onNav("today")
   }, {
-    value: summary.done_last_7_days ?? 0,
+    key: "done",
+    value: doneValue,
     label: "Selesai 7 hari",
-    sub: "Selesai dalam 7 hari",
-    color: "#22c55e",
-    icon: "check"
+    icon: "check",
+    grad: ["#4ade80", "#16a34a"],
+    ink: "green",
+    delta: /*#__PURE__*/React.createElement(DashDelta, {
+      delta: doneValue - kpiStats.donePrev,
+      goodWhenUp: true,
+      title: `Minggu sebelumnya: ${kpiStats.donePrev} selesai`
+    }),
+    sub: "vs minggu lalu",
+    viz: /*#__PURE__*/React.createElement(DashMiniBars, {
+      values: kpiStats.doneSeries,
+      days: kpiStats.doneDays,
+      unit: "selesai",
+      label: `Task selesai per hari, 8 hari terakhir: ${kpiStats.doneDays.map((d, i) => `${dashDayLabel(d)}: ${kpiStats.doneSeries[i]}`).join("; ")}`
+    })
   }, {
+    key: "q1",
     value: q1Count,
     label: "Q1 Lakukan",
-    sub: "Mendesak & penting",
-    color: "#ef4444",
     icon: "flame",
+    grad: ["#fb923c", "#ef4444"],
+    ink: "red",
+    sub: "Mendesak & penting",
+    viz: /*#__PURE__*/React.createElement(DashMeter, {
+      share: kpiStats.q1Share,
+      caption: "dari task aktif",
+      label: `${q1Count} dari ${activeCount} task aktif ada di Q1 (${dashPct(kpiStats.q1Share)})`
+    }),
     onClick: scrollToEisen
   }, {
+    key: "overdue",
     value: overdueCount,
     label: "Terlambat",
-    sub: overdueCount > 0 ? `${overdueCount} task terlambat` : "Tidak ada yang terlambat",
-    color: overdueCount > 0 ? "#ef4444" : "#94a3b8",
-    icon: "alert",
+    icon: dashIconOr("alarm", "alert"),
+    grad: overdueCount > 0 ? ["#f87171", "#dc2626"] : ["#cbd5e1", "#94a3b8"],
+    ink: overdueCount > 0 ? "red" : "slate",
     danger: overdueCount > 0,
+    sub: overdueCount > 0 ? "Lewat dari deadline" : "Tidak ada yang terlambat",
+    viz: /*#__PURE__*/React.createElement(DashMeter, {
+      share: kpiStats.overdueShare,
+      caption: withDeadline === 0 ? "Belum ada task ber-deadline" : overdueCount === 0 ? "Semua deadline aman" : `dari ${withDeadline} task ber-deadline`,
+      label: withDeadline === 0 ? "Belum ada task ber-deadline" : `${overdueCount} dari ${withDeadline} task ber-deadline terlambat (${dashPct(kpiStats.overdueShare)})`
+    }),
     onClick: () => onNav("today")
   }, {
+    key: "inbox",
     value: inboxCount,
     label: "Inbox",
-    sub: "Task baru masuk",
-    color: "#3b82f6",
     icon: "inbox",
+    grad: ["#60a5fa", "#2563eb"],
+    ink: "blue",
+    sub: "Belum diproses",
+    viz: /*#__PURE__*/React.createElement(DashMeter, {
+      share: kpiStats.inboxShare,
+      caption: "dari task aktif",
+      label: `${inboxCount} dari ${activeCount} task aktif masih di Inbox (${dashPct(kpiStats.inboxShare)})`
+    }),
     onClick: () => onNav("inbox")
   }];
   const eisenTooltip = {
@@ -12484,10 +12784,7 @@ function Dashboard({
     onTitleClick
   }) => /*#__PURE__*/React.createElement("div", {
     key: key,
-    className: `dash-qcard ${cls || ""}`,
-    style: {
-      "--dash-q": color
-    }
+    className: `dash-qcard ${cls || ""}`
   }, /*#__PURE__*/React.createElement(DashCardHead, {
     icon: icon,
     color: color,
@@ -12669,26 +12966,27 @@ function Dashboard({
   /*#__PURE__*/React.createElement("div", {
     className: "dash-kpis"
   }, kpis.map(k => /*#__PURE__*/React.createElement("div", {
-    key: k.label,
+    key: k.key,
     className: `dash-kpi${k.onClick ? " is-clickable" : ""}${k.danger ? " is-danger" : ""}`,
     onClick: k.onClick,
     role: k.onClick ? "button" : undefined
   }, /*#__PURE__*/React.createElement("div", {
     className: "dash-kpi-top"
-  }, /*#__PURE__*/React.createElement(DashChip, {
+  }, /*#__PURE__*/React.createElement(DashKpiIcon, {
     icon: k.icon,
-    color: k.color,
-    size: 36
+    from: k.grad[0],
+    to: k.grad[1]
   }), /*#__PURE__*/React.createElement("div", {
     className: "dash-kpi-label"
   }, k.label)), /*#__PURE__*/React.createElement("div", {
-    className: "dash-kpi-num",
-    style: k.danger ? {
-      color: "#ef4444"
-    } : undefined
+    className: "dash-kpi-num"
   }, k.value), /*#__PURE__*/React.createElement("div", {
     className: "dash-kpi-sub"
-  }, k.sub)))),
+  }, k.delta, /*#__PURE__*/React.createElement("span", {
+    className: "dash-kpi-sub-text"
+  }, k.sub)), /*#__PURE__*/React.createElement("div", {
+    className: `dash-kpi-viz ink-${k.ink}`
+  }, k.viz)))),
 
   /* ── Main row: Prioritas + Disematkan ── */
   /*#__PURE__*/React.createElement("div", {
