@@ -21835,6 +21835,12 @@ function NotesPage({
   const [tagsOpen, setTagsOpen] = useState(true);
   const [publishedOpen, setPublishedOpen] = useState(true);
   const [sortBy, setSortBy] = useState("updated");
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem("tf_notes_view_mode") || "card");
+  const toggleViewMode = () => {
+    const next = viewMode === "card" ? "compact" : "card";
+    setViewMode(next);
+    try { localStorage.setItem("tf_notes_view_mode", next); } catch (_) {}
+  };
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchTagsCollapsed, setSearchTagsCollapsed] = useState(false);
   const [notesListCollapsed, setNotesListCollapsed] = useState(false);
@@ -22292,6 +22298,13 @@ function NotesPage({
           /*#__PURE__*/React.createElement("option", { value: "links" }, "Terbanyak link")
         ),
         /*#__PURE__*/React.createElement("button", {
+          className: "btn btn-icon btn-sm",
+          onClick: toggleViewMode,
+          title: viewMode === "card" ? "Beralih ke Tampilan Ringkas (Compact)" : "Beralih ke Tampilan Kartu (Card)",
+          "aria-label": "Toggle view mode",
+          style: { height: 28, width: 28, fontSize: 13 }
+        }, viewMode === "card" ? "☰" : "▤"),
+        /*#__PURE__*/React.createElement("button", {
           className: "btn btn-icon btn-sm notes-trash-btn",
           onClick: () => setTrashOpen(true),
           title: "Sampah",
@@ -22518,7 +22531,7 @@ function NotesPage({
           const isSelected = getActiveNote()?.id === n.id;
           return /*#__PURE__*/React.createElement("div", {
             key: n.id,
-            className: "note-card",
+            className: `note-card${viewMode === "compact" ? " note-card--compact" : ""}`,
             onClick: () => {
               openTab(n);
             },
