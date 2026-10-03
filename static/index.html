@@ -50,7 +50,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=305">
+  <link rel="stylesheet" href="/static/app.css?v=306">
 
 <style>
 .paper-mode-active {
@@ -2279,8 +2279,52 @@ function Sidebar({
       }, l.count)));
     }
   });
+  // Icon rail (desktop, collapsed): logo + expand button + the main (pre-GTD) links only
+  const firstSectionIdx = links.findIndex(l => l.section);
+  const railLinks = links.slice(0, firstSectionIdx === -1 ? links.length : firstSectionIdx);
+  const rail = /*#__PURE__*/React.createElement("div", {
+    className: "sidebar-rail"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "sidebar-rail-logo",
+    title: "Alurik"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "zap",
+    size: 22,
+    style: {
+      color: "var(--accent)",
+      fill: "var(--accent)"
+    }
+  })), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "sidebar-rail-btn sidebar-rail-expand",
+    onClick: onToggleCollapse,
+    title: "Tampilkan semua menu",
+    "aria-label": "Tampilkan semua menu"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "chevron-right",
+    size: 18
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "sidebar-rail-divider"
+  }), railLinks.map(l => /*#__PURE__*/React.createElement("button", {
+    key: l.id,
+    type: "button",
+    className: `sidebar-rail-btn ${page === l.id ? "active" : ""}`,
+    title: l.label,
+    "aria-label": l.label,
+    "aria-current": page === l.id ? "page" : undefined,
+    onClick: () => {
+      setPage(l.id);
+      onClose?.();
+    }
+  }, /*#__PURE__*/React.createElement(NavIcon, {
+    name: l.icon
+  }), l.count > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "sidebar-rail-badge"
+  }, l.count > 9 ? "9+" : l.count))));
   return /*#__PURE__*/React.createElement("div", {
     className: `sidebar ${isOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`
+  }, rail, /*#__PURE__*/React.createElement("div", {
+    className: "sidebar-full"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "16px 20px 8px",
@@ -2306,8 +2350,10 @@ function Sidebar({
       marginTop: 2
     }
   }, "v4 \u2014 ", user?.display_name || user?.username)), /*#__PURE__*/React.createElement("button", {
-    onClick: onToggleCollapse,
-    title: "Sembunyikan menu",
+    // Mobile drawer has no rail — close the drawer there instead
+    onClick: () => window.innerWidth <= 768 ? onClose?.() : onToggleCollapse(),
+    title: "Perkecil menu",
+    "aria-label": "Perkecil menu",
     "data-tour": "sidebar-collapse",
     style: {
       background: "none",
@@ -2317,9 +2363,14 @@ function Sidebar({
       padding: "4px 6px",
       borderRadius: 6,
       color: "#888880",
-      lineHeight: 1
+      lineHeight: 1,
+      display: "flex",
+      alignItems: "center"
     }
-  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "chevron-left",
+    size: 18
+  }))), /*#__PURE__*/React.createElement("div", {
     className: "sidebar-scroll"
   }, items), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -2333,7 +2384,7 @@ function Sidebar({
     style: {
       color: "#ef4444"
     }
-  }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDEAA"), " ", /*#__PURE__*/React.createElement("span", null, "Logout"))));
+  }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDEAA"), " ", /*#__PURE__*/React.createElement("span", null, "Logout")))));
 }
 
 // ── ComboSelect (dropdown + add new) ───────────────────────
@@ -25036,7 +25087,7 @@ function AdminPage({
 const TOUR_STEPS = {
   dashboard: [
     { element: '[data-tour="sidebar-general"]', popover: { title: '🗂️ Menu Utama', description: 'Navigasi utama Alurik — Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes & Draw, Mindmap, dan Diskusi. Klik salah satu untuk berpindah halaman.' } },
-    { element: '[data-tour="sidebar-collapse"]', popover: { title: '◀ Collapse Menu', description: 'Klik tombol × ini untuk menyembunyikan sidebar dan mendapatkan area kerja yang lebih luas. Klik tombol ☰ di topbar untuk membukanya kembali.' } },
+    { element: '[data-tour="sidebar-collapse"]', popover: { title: '◀ Perkecil Menu', description: 'Klik tombol ‹ ini untuk memperkecil sidebar menjadi bilah ikon ramping, sehingga area kerja lebih luas sementara menu utama tetap bisa diklik. Klik ikon › di bilah ikon (atau tombol ☰ di topbar) untuk membuka menu lengkap kembali.' } },
     { element: '[data-tour="task-gtd"]', popover: { title: '🔄 GTD Menu', description: 'Bagian GTD (Getting Things Done) — Inbox, Next Actions, Waiting For, dan Someday. Metodologi GTD membantu mengelola task berdasarkan konteks dan prioritas.' } },
     { element: '[data-tour="sidebar-shared"]', popover: { title: '👥 Shared List', description: 'Kelola daftar task bersama — buat Shared List baru, undang anggota, atau bergabung ke list milik orang lain. Cocok untuk kolaborasi tim atau keluarga.' } },
     { element: '[data-tour="sidebar-settings"]', popover: { title: '⚙️ Pengaturan', description: 'Atur profil, notifikasi Telegram, koneksi perangkat, dan preferensi aplikasi di halaman Pengaturan.' } },
@@ -26647,7 +26698,7 @@ function App() {
     onToggleCollapse: () => setSidebarCollapsed(!sidebarCollapsed),
     sharedLists: sharedLists
   }), /*#__PURE__*/React.createElement("div", {
-    className: `main-content ${sidebarCollapsed ? "" : "sidebar-visible"}`
+    className: `main-content ${sidebarCollapsed ? "sidebar-rail-visible" : "sidebar-visible"}`
   }, !isOnline && /*#__PURE__*/React.createElement("div", {
     style: {
       background: "#fef3c7",
