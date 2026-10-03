@@ -2,6 +2,21 @@
 
 Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-03 09:40] - Antigravity (Gemini)
+- **Task:** Fix CRLF Line Ending Slice Incompatibility in Note Trash Unit Test (`tests/offline/notetrash.test.js`).
+- **Objective:**
+  - Memperbaiki kegagalan pengujian unit `tests/offline/notetrash.test.js` pada sistem operasi Windows yang menggunakan baris baru CRLF (`\r\n`).
+  - `indexHtml.indexOf("\n}\n", start)` menghasilkan `-1` saat line endings adalah CRLF, menyebabkan pemotongan string `indexHtml.slice(start, -1)` mengambil sisa seluruh dokumen dan memicu kegagalan `assert.doesNotMatch(body, /OfflineDB\.queueAdd/)`.
+- **Changes:**
+  - `tests/offline/notetrash.test.js`:
+    - Menambahkan `.replace(/\r\n/g, "\n")` pada pembacaan `indexHtml` dan `swJs`.
+- **Verification:**
+  - Targeted unit tests: `node --test tests/offline/notetrash.test.js` ➡️ **17/17 pass (0 fail)**.
+  - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **850/850 pass (0 fail)** across 7 suites.
+  - Full Backend test suite: `python -m pytest tests/` ➡️ **91/91 pass (0 fail)**.
+- **Files Modified:** `tests/offline/notetrash.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed & Verified
+
 ## [2026-10-03 06:15] - Antigravity (Gemini)
 - **Task:** Fix Chevron Icons Text Fallback in Task & Habit Accordion Toggle Buttons (`static/ui-components.js`, `static/sw.js`, `tests/offline/task_modal_progressive_disclosure.test.js`) — SW v347.
 - **Objective:**

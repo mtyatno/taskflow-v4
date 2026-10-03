@@ -7,8 +7,8 @@ const path = require("node:path");
 const T = require("../../static/offline/notetrash.js");
 
 const ROOT = path.join(__dirname, "..", "..");
-const indexHtml = fs.readFileSync(path.join(ROOT, "static", "index.html"), "utf8");
-const swJs = fs.readFileSync(path.join(ROOT, "static", "sw.js"), "utf8");
+const indexHtml = fs.readFileSync(path.join(ROOT, "static", "index.html"), "utf8").replace(/\r\n/g, "\n");
+const swJs = fs.readFileSync(path.join(ROOT, "static", "sw.js"), "utf8").replace(/\r\n/g, "\n");
 
 const NOW = new Date("2026-10-02T10:00:00+07:00");
 

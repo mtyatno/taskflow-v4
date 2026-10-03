@@ -74,6 +74,17 @@
 - **PENDING user:** hard refresh (Ctrl+Shift+R / tutup-buka PWA); cek di HP apakah editor terlalu sempit (kalau ya, `BLOCK_HANDLE_ON_TOUCH = false`). APK Android perlu build ulang agar ikut.
 
 ## 🟢 Active Task
+- **Fix CRLF Line Ending Slice Incompatibility in Note Trash Unit Test (`tests/offline/notetrash.test.js`) — SELESAI 2026-10-03 (Antigravity/Gemini):**
+  - **Problem / Root Cause:**
+    - Pada lingkungan Windows dengan CRLF line endings (`\r\n`), `indexHtml.indexOf("\n}\n", start)` mengembalikan `-1` karena file memiliki line ending `\r\n}\r\n`.
+    - Akibatnya, pemotongan string `indexHtml.slice(start, -1)` melompat ke sisa seluruh file `index.html`, sehingga `assert.doesNotMatch(body, /OfflineDB\.queueAdd/)` gagal karena menemukan `OfflineDB.queueAdd` di bagian lain file.
+  - **Solusi / Perbaikan:**
+    - `tests/offline/notetrash.test.js`: Menambahkan normalisasi `.replace(/\r\n/g, "\n")` saat membaca `indexHtml` dan `swJs` melalui `fs.readFileSync`.
+  - **Verifikasi:**
+    - Targeted unit tests: `node --test tests/offline/notetrash.test.js` ➡️ **17/17 pass (0 fail)**.
+    - Full JS offline test suite: `node --test tests/offline/*.test.js` ➡️ **850/850 pass (0 fail)** across 7 suites.
+    - Full Backend test suite: `python -m pytest tests/` ➡️ **91/91 pass (0 fail)**.
+
 - **Feasibility: Milkdown block handle ala Notion (`+` / `⋮⋮` per baris) — INVESTIGASI SAJA 2026-09-30 (Claude), BELUM ADA KODE, menunggu keputusan user:**
   - **Kesimpulan:** BISA, lewat `@milkdown/plugin-block@7.20.0` (primitive yang dipakai Crepe). Dependensinya dipin EXACT ke core/ctx/prose/utils `7.20.0` = sama dengan core kita (aman dari insiden duplicate-core indent/emoji); dep baru hanya `lodash-es` (throttle) + `@floating-ui/dom` (sudah ada via slash/tooltip). **JANGAN pakai `@milkdown/crepe`** — crepe@7.20.0 menarik vue + codemirror + language-data + katex dan mengganti seluruh editor (wikilink/tasklink/`::draw`/highlight/paste/checklist/table toolbar harus di-port ulang).
   - **Terverifikasi dari source plugin-block 7.20.0:** handle muncul via `pointermove` (throttle 200ms), posisi floating-ui placement `left`, di-append ke `root ?? view.dom.parentElement`; drag = NodeSelection + drop native ProseMirror (`view.dragging.slice`, custom node aman); `defaultNodeFilter` mengecualikan isi tabel; `provider.active` = `{node, $pos, el}` → tombol `+` harus kita tulis sendiri (sisip paragraf kosong di bawah block aktif lalu buka slash menu yang sudah ada).
