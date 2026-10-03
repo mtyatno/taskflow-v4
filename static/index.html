@@ -21888,11 +21888,16 @@ function NotesPage({
   const listsWithNotes = sharedLists.filter(l => allNotes.some(n => n.list_id === l.id));
   const sharedListIds = new Set(listsWithNotes.map(l => l.id));
   const applyFiltersStatic = (query, tags, base, untagged = false, tab = "all") => {
-    const syntaxTags = [...query.matchAll(/\btag:(\S+)/gi)].map(m => m[1].toLowerCase());
-    const cleanQuery = query.replace(/\btag:\S+/gi, "").trim();
+    const negativeTags = [...query.matchAll(/(?:^|\s)-tag:(\S+)/gi)].map(m => m[1].toLowerCase());
+    const syntaxTags = [...query.matchAll(/(?:^|\s)tag:(\S+)/gi)].map(m => m[1].toLowerCase());
+    const cleanQuery = query
+      .replace(/(?:^|\s)-tag:\S+/gi, " ")
+      .replace(/(?:^|\s)tag:\S+/gi, " ")
+      .trim();
     const allTags = [...new Set([...tags, ...syntaxTags])];
     let result = base;
     for (const tag of allTags) result = result.filter(n => (n.tags || []).map(t => t.toLowerCase()).includes(tag));
+    for (const ntag of negativeTags) result = result.filter(n => !(n.tags || []).map(t => t.toLowerCase()).includes(ntag));
     if (cleanQuery) result = result.filter(n => n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) || n.content?.toLowerCase().includes(cleanQuery.toLowerCase()));
     if (untagged) result = result.filter(n => (n.tags || []).length === 0);
     if (tab === "pinned") result = result.filter(n => n.pinned);
@@ -22005,24 +22010,33 @@ function NotesPage({
     onInitialNoteConsumed && onInitialNoteConsumed();
   }, [initialNoteId]);
 
-  // Parse tag: syntax from query, return { cleanQuery, syntaxTags }
+  // Parse tag: and -tag: syntax from query, return { cleanQuery, syntaxTags, negativeTags }
   const parseQuery = query => {
-    const syntaxTags = [...query.matchAll(/\btag:(\S+)/gi)].map(m => m[1].toLowerCase());
-    const cleanQuery = query.replace(/\btag:\S+/gi, "").trim();
+    const negativeTags = [...query.matchAll(/(?:^|\s)-tag:(\S+)/gi)].map(m => m[1].toLowerCase());
+    const syntaxTags = [...query.matchAll(/(?:^|\s)tag:(\S+)/gi)].map(m => m[1].toLowerCase());
+    const cleanQuery = query
+      .replace(/(?:^|\s)-tag:\S+/gi, " ")
+      .replace(/(?:^|\s)tag:\S+/gi, " ")
+      .trim();
     return {
       cleanQuery,
-      syntaxTags
+      syntaxTags,
+      negativeTags
     };
   };
   const applyFilters = (query, tags, base, untagged = false, tab = "all") => {
     const {
       cleanQuery,
-      syntaxTags
+      syntaxTags,
+      negativeTags
     } = parseQuery(query);
     const allActiveTags = [...new Set([...tags, ...syntaxTags])];
     let result = base;
     for (const tag of allActiveTags) {
       result = result.filter(n => (n.tags || []).map(t => t.toLowerCase()).includes(tag));
+    }
+    for (const ntag of negativeTags) {
+      result = result.filter(n => !(n.tags || []).map(t => t.toLowerCase()).includes(ntag));
     }
     if (cleanQuery) result = result.filter(n => n.title?.toLowerCase().includes(cleanQuery.toLowerCase()) || n.content?.toLowerCase().includes(cleanQuery.toLowerCase()));
     if (untagged) result = result.filter(n => (n.tags || []).length === 0);

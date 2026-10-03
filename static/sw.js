@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v348-notes-trash-and-restore";
+const CACHE = "taskflow-v349-fts5-tag-search";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
