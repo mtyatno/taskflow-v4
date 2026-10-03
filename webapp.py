@@ -638,6 +638,24 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Ensure note_saved_searches table exists
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS note_saved_searches (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name       TEXT NOT NULL,
+                query      TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_note_saved_searches_user ON note_saved_searches(user_id, created_at)")
+        conn.commit()
+    finally:
+        conn.close()
+
 
 # ── Password hashing (no external deps) ───────────────────────────────────────
 
@@ -3694,6 +3712,48 @@ async def get_note_titles(user=Depends(get_current_user)):
             ORDER BY s.updated_at DESC
         """, access_params).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── Note Saved Searches ───────────────────────────────────────────────────────
+
+@app.get("/api/scratchpad/saved-searches")
+async def list_saved_searches(user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, query, created_at FROM note_saved_searches WHERE user_id = ? ORDER BY created_at DESC",
+            (uid,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+@app.post("/api/scratchpad/saved-searches")
+async def create_saved_search(payload: dict, user=Depends(get_current_user)):
+    uid = user["sub"]
+    name = (payload.get("name") or "").strip()
+    query = (payload.get("query") or "").strip()
+    if not name or not query:
+        raise HTTPException(status_code=400, detail="Nama dan kueri pencarian wajib diisi")
+    now_iso = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO note_saved_searches (user_id, name, query, created_at) VALUES (?, ?, ?, ?)",
+            (uid, name, query, now_iso)
+        )
+        return {"id": cur.lastrowid, "name": name, "query": query, "created_at": now_iso}
+
+@app.delete("/api/scratchpad/saved-searches/{sid}")
+async def delete_saved_search(sid: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id FROM note_saved_searches WHERE id = ? AND user_id = ?",
+            (sid, uid)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Pencarian tersimpan tidak ditemukan")
+        conn.execute("DELETE FROM note_saved_searches WHERE id = ?", (sid,))
+        return {"ok": True}
+
 
 @app.get("/api/habit-templates")
 async def list_habit_templates():
