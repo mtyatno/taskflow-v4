@@ -3751,7 +3751,7 @@ async def delete_saved_search(sid: int, user=Depends(get_current_user)):
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Pencarian tersimpan tidak ditemukan")
-        conn.execute("DELETE FROM note_saved_searches WHERE id = ?", (sid,))
+        conn.execute("DELETE FROM note_saved_searches WHERE id = ? AND user_id = ?", (sid, uid))
         return {"ok": True}
 
 

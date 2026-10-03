@@ -21835,7 +21835,9 @@ function NotesPage({
   const [tagsOpen, setTagsOpen] = useState(true);
   const [publishedOpen, setPublishedOpen] = useState(true);
   const [sortBy, setSortBy] = useState("updated");
-  const [viewMode, setViewMode] = useState(() => localStorage.getItem("tf_notes_view_mode") || "card");
+  const [viewMode, setViewMode] = useState(() => {
+    try { return localStorage.getItem("tf_notes_view_mode") || "card"; } catch (_) { return "card"; }
+  });
   const toggleViewMode = () => {
     const next = viewMode === "card" ? "compact" : "card";
     setViewMode(next);
