@@ -21841,6 +21841,21 @@ function NotesPage({
     setViewMode(next);
     try { localStorage.setItem("tf_notes_view_mode", next); } catch (_) {}
   };
+  const [savedSearches, setSavedSearches] = useState([]);
+  const fetchSavedSearches = async () => {
+    const cached = await OfflineDB.cacheGet("note_saved_searches");
+    if (cached && Array.isArray(cached)) setSavedSearches(cached);
+    try {
+      const res = await api.get("/api/scratchpad/saved-searches");
+      if (res && Array.isArray(res)) {
+        setSavedSearches(res);
+        await OfflineDB.cacheSet("note_saved_searches", res);
+      }
+    } catch (_) {}
+  };
+  useEffect(() => {
+    fetchSavedSearches();
+  }, []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchTagsCollapsed, setSearchTagsCollapsed] = useState(false);
   const [notesListCollapsed, setNotesListCollapsed] = useState(false);
@@ -22070,6 +22085,33 @@ function NotesPage({
   const handleTabChange = tab => {
     setNotesTab(tab);
     setNotes(applyFilters(q, activeTags, allNotes, filterUntagged, tab));
+  };
+  const handleSaveSearch = async () => {
+    if (!q.trim()) return;
+    const name = window.prompt("Beri nama untuk pencarian tersimpan ini:", q.trim());
+    if (!name || !name.trim()) return;
+    try {
+      const created = await api.post("/api/scratchpad/saved-searches", { name: name.trim(), query: q.trim() });
+      const next = [created, ...savedSearches.filter(s => s.id !== created.id)];
+      setSavedSearches(next);
+      await OfflineDB.cacheSet("note_saved_searches", next);
+      showToast("⭐ Pencarian tersimpan!", "success");
+    } catch (err) {
+      showToast("Gagal menyimpan pencarian", "error");
+    }
+  };
+  const handleDeleteSavedSearch = async (e, s) => {
+    e.stopPropagation();
+    if (!window.confirm(`Hapus pencarian tersimpan "${s.name}"?`)) return;
+    try {
+      await api.del(`/api/scratchpad/saved-searches/${s.id}`);
+      const next = savedSearches.filter(item => item.id !== s.id);
+      setSavedSearches(next);
+      await OfflineDB.cacheSet("note_saved_searches", next);
+      showToast("Pencarian tersimpan dihapus", "info");
+    } catch (err) {
+      showToast("Gagal menghapus pencarian", "error");
+    }
   };
   const allTags = tagList.map(t => t.name);
   const maxTagCount = Math.max(...tagList.map(t => t.count || 0), 1);
@@ -22361,6 +22403,20 @@ function NotesPage({
             padding: 0
           }
         }),
+        q.trim() && /*#__PURE__*/React.createElement("button", {
+          type: "button",
+          onClick: handleSaveSearch,
+          title: "Simpan pencarian ini",
+          style: {
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: 13,
+            padding: '0 2px',
+            lineHeight: 1,
+            opacity: 0.8
+          }
+        }, "⭐"),
         q && /*#__PURE__*/React.createElement("button", {
           onClick: () => {
             setQ("");
@@ -22376,6 +22432,52 @@ function NotesPage({
             lineHeight: 1
           }
         }, "✕")
+      ),
+      savedSearches.length > 0 && /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 6,
+          overflowX: "auto",
+          paddingBottom: 4,
+          marginBottom: 6,
+          flexShrink: 0
+        }
+      },
+        savedSearches.map(s => {
+          const isActive = q.trim() === s.query.trim();
+          return /*#__PURE__*/React.createElement("div", {
+            key: s.id,
+            onClick: () => handleSearch(s.query),
+            title: `Kueri: ${s.query}`,
+            style: {
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 8px",
+              borderRadius: 12,
+              fontSize: 11,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              background: isActive ? "var(--accent)" : "rgba(168,197,0,0.12)",
+              color: isActive ? "#111" : "var(--text-primary)",
+              border: "1px solid var(--border)",
+              fontWeight: isActive ? 600 : 500
+            }
+          },
+            /*#__PURE__*/React.createElement("span", null, `⭐ ${s.name}`),
+            /*#__PURE__*/React.createElement("span", {
+              onClick: e => handleDeleteSavedSearch(e, s),
+              title: "Hapus",
+              style: {
+                marginLeft: 2,
+                opacity: 0.6,
+                cursor: "pointer",
+                fontWeight: "bold",
+                fontSize: 12
+              }
+            }, "×")
+          );
+        })
       ),
       (() => {
         const sorted = [...tagList].sort((a, b) => (b.count || 0) - (a.count || 0));
