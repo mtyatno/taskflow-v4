@@ -5,6 +5,17 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
+## 🟢 Note Saved Searches & Compact List View Mode Toggle — 2026-10-03 (Antigravity/Gemini) — SELESAI di `main` (SW v350 `taskflow-v350-note-saved-searches-view-mode`)
+- **Commits:** spec `4194895`, plan `cb9fd2c`, db migration & API `07fc6b6`, compact view `5b838d6`, client saved searches UI & SW v350 `1da02d8`.
+- **Fitur:**
+  - **Pencarian Tersimpan (Saved Searches):** Pengguna dapat menyimpan kueri pencarian catatan yang sering digunakan dengan memberi label (bintang ⭐ di search bar). Kueri tersimpan muncul sebagai horizontal scrollable chips di bawah search bar yang dapat diklik untuk pencarian instan atau dihapus (×). Didukung caching IndexedDB (`OfflineDB.cacheGet/Set("note_saved_searches")`).
+  - **Tampilan Ringkas (Compact List View Mode):** Toggle di sidebar header notes (ikon `☰` ↔ `▤`) untuk beralih antara tampilan kartu standar multi-baris dan tampilan daftar ringkas satu baris (preview disembunyikan, padding ringkas). Preferensi disimpan di `localStorage` (`tf_notes_view_mode`).
+  - **Backend & Database:** Migrasi tabel `note_saved_searches` (`id`, `user_id`, `name`, `query`, `created_at`), indeks per user, dan endpoint CRUD lengkap (`GET`, `POST`, `DELETE /api/scratchpad/saved-searches`).
+- **Service Worker:** Cache version dibump ke **`taskflow-v350-note-saved-searches-view-mode`**.
+- **Verifikasi:**
+  - Python Pytest: **96/96 pass (0 fail)**.
+  - JS Offline Test Suite: **861/861 pass (0 fail)** across 7 suites.
+  - Syntax check: `node scratch/check_inline.js static/index.html` (5/5 scripts OK), `node --check static/sw.js` (OK).
 
 ## 🟢 SQLite FTS5 Full-Text Search & Search Operators (`tag:`, `-tag:`) — 2026-10-03 (Antigravity/Gemini) — SELESAI di `main` (SW v349 `taskflow-v349-fts5-tag-search`)
 - **Commits:** spec `10184b6`, plan `3df9970`, db migration `807ba57`, search API `e87c527`, client offline search `d8a2dc6`.
