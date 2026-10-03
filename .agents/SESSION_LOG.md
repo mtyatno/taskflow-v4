@@ -2035,9 +2035,29 @@
 - **Files Touch:** `webapp.py`, `static/{index.html,sw.js,app.css}`, `static/offline/{taskroutes,noterepo,syncpull,notetrash}.js`, tests, `docs/superpowers/specs/…`, `.agents/*`
 - **Status:** Completed di branch `ccr-1c84ae68-l09ysx` (belum merge/deploy). PENDING deploy: restart `taskflow-web`, hard refresh SW v346, rebuild APK.
 
+## [2026-10-03] - Claude (redesain visual Dashboard)
+- **Task:** Membuat Dashboard lebih menarik (hero, KPI, kartu Disematkan gabungan, header konsisten, aksen kuadran, chart theme-aware, dark mode & mobile rapi).
+- **Changes:** `Dashboard` + chart components ditulis ulang (presentasi saja), prop `user` baru, CSS `dash-*`; SW v352, app.css?v=304; tes versi disesuaikan.
+- **Verifikasi:** JS 861/862 (1 fail pra-ada tldraw), pytest 96/96, inline 5/5, screenshot 4 varian tanpa page error.
+- **Files Touch:** `static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui}.test.js`, `.agents/*`
+- **Status:** Completed di branch `claude/dashboard-redesign-109io3` (belum commit).
+
+## [2026-10-03] - Claude (revisi Dashboard: tanpa garis kuadran + KPI bervisual)
+- **Task:** Revisi review user atas redesain Dashboard: (1) hapus garis warna di kartu Eisenhower/GTD; (2) kartu angka KPI diberi ikon modern + visualisasi data sederhana.
+- **Changes:** CSS `.dash-qcard::before` + padding kompensasi + inline `--dash-q` dihapus; fungsi murni `dashKpiStats`/`dashDayLabel` (TDD); komponen `DashKpiIcon`, `DashDelta`, `DashSparkline`, `DashMiniBars`, `DashMeter`; ikon Lucide `activity` & `alarm`; CSS KPI baru (tile gradien, slot visual sejajar, tinta per kartu light/dark, mobile 2 kolom tanpa layout horizontal); app.css?v=305, SW v353; tes versi disesuaikan.
+- **Verifikasi:** JS 889/890 (1 fail pra-ada tldraw), pytest 96/96, inline 5/5, `node --check sw.js` OK; screenshot light/dark × desktop/mobile tanpa page error.
+- **Files Touch:** `static/index.html`, `static/app.css`, `static/ui-components.js`, `static/sw.js`, `tests/offline/dashboard_kpi.test.js` (baru), `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui}.test.js`, `.agents/*`
+- **Status:** Completed di branch `claude/dashboard-redesign-109io3` (commit `d0acbdb`).
+
 ## [2026-10-03] - Claude (sidebar icon rail di desktop)
 - **Task:** Sidebar collapsed di desktop jadi icon rail 64px (logo, tombol › "Tampilkan semua menu", 8 menu utama Dashboard→Diskusi, badge Fokus Hari Ini), bukan hilang total. Mobile tetap drawer penuh.
 - **Changes:** `Sidebar` render `.sidebar-rail` + konten penuh dibungkus `.sidebar-full`; tombol collapse → ikon `chevron-left` "Perkecil menu" (di mobile menutup drawer); teks tour `sidebar-collapse`; main-content kelas `sidebar-rail-visible`; CSS `--sidebar-rail-w`, rail + dark, offset `.sidebar-toggle` Notes/Draw/Mindmap, override mobile; SW v353, app.css?v=305; tes versi + `tests/offline/sidebar_icon_rail.test.js` (baru). Implementasi via subagent, review + E2E oleh koordinator.
 - **Verifikasi:** JS 866/867 (1 fail pra-ada tldraw), inline 5/5, `node --check sw.js` OK, pytest 94/96 (2 fail `test_bookmark` karena modul tidak terpasang di venv sesi, tak terkait). Playwright 1280/390 light+dark: rail 64px, main margin 64px, klik ikon pindah halaman, › membuka menu penuh, toggle Notes di x=64, mobile drawer penuh tanpa rail.
 - **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/*` (versi + baru), `.agents/*`
 - **Status:** Draft PR dari `claude/sidebar-icon-rail-iuwycq` (belum merge/deploy). Versi SW/app.css bentrok tekstual dengan PR #3 (v352/304) — yang merge belakangan menaikkan versi.
+
+## [2026-10-03] - Claude (merge main ke branch dashboard)
+- **Task:** Bawa PR #4 (sidebar icon rail, sudah di `main`, SW v353) ke branch PR #3 agar tidak bentrok.
+- **Changes:** merge `origin/main`; konflik versi diselesaikan → SW `taskflow-v354-dashboard-kpi-viz`, app.css?v=306; tes versi disesuaikan; entri `.agents/*` dari kedua sisi digabung.
+- **Files Touch:** `static/{index.html,sw.js}`, `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui}.test.js`, `.agents/*`
+- **Status:** Completed di branch `claude/dashboard-redesign-109io3` (draft PR #3, belum merge/deploy).
