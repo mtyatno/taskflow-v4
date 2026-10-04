@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v360", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v360-no-accent-stripes", () => {
-    assert.match(swJs, /taskflow-v360-no-accent-stripes/);
+  await t.test("sw.js bumped to taskflow-v362-habit-page-redesign", () => {
+    assert.match(swJs, /taskflow-v362-habit-page-redesign/);
   });
 });

@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v360", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v360-no-accent-stripes";/m,
-      "sw.js CACHE must be taskflow-v360-no-accent-stripes"
+      /^const CACHE = "taskflow-v362-habit-page-redesign";/m,
+      "sw.js CACHE must be taskflow-v362-habit-page-redesign"
     );
   });
 });
