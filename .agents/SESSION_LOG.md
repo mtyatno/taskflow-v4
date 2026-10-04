@@ -2088,3 +2088,9 @@
 - **Verifikasi:** JS 907/908 (1 fail pra-ada tldraw), pytest 96/96, inline 5/5, Playwright light/dark × desktop/1024/mobile.
 - **Files Touch:** `static/index.html`, `static/sw.js`, `tests/offline/calendar_week_view.test.js` (baru), `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,drawing_sync_ui}.test.js`, `.agents/*`
 - **Status:** Needs Review (draft PR).
+
+## [2026-10-04 00:45] - Claude (revisi: hapus garis warna kartu task Kalender)
+- **Task:** Permintaan user: hapus garis warna (borderLeft 3px berwarna) di kartu task Kalender. User TIDAK suka garis/strip warna di desain mana pun — pakai badge/pill berwarna saja.
+- **Changes:** `borderLeft` berwarna dihapus dari `TaskListItems` (panel tanggal & mobile Minggu) dan `WeekTaskCard`; tes penjaga di `calendar_week_view.test.js`.
+- **Files Touch:** `static/index.html`, `tests/offline/calendar_week_view.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR #9).

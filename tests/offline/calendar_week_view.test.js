@@ -99,3 +99,8 @@ test("CalendarView: week view desktop 7 kolom, mobile berurutan ke bawah, + Task
   assert.match(cal, /flexDirection: "column"/);
   assert.match(cal, /onClick: \(\) => onCreateOnDate\(key\)/);
 });
+
+test("Kalender: kartu task tanpa garis warna di tepi (preferensi desain user)", () => {
+  assert.doesNotMatch(cal, /borderLeft: `3px solid/);
+  assert.doesNotMatch(cal, /borderLeft:\s*`\d+px solid \$\{/);
+});
