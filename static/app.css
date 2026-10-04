@@ -2658,4 +2658,294 @@
 [data-theme="dark"] .note-rendered details[open] {
   background: var(--bg-card);
 }
+
+/* ══ Habit Page Redesign — Minimalist Dashboard ═══════════════ */
+
+/* ── Hero Section ──────────────────────────────────────────── */
+.habit-hero {
+  margin: 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Summary Cards ────────────────────────────────────────── */
+.habit-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .habit-summary-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.habit-summary-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.habit-summary-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.habit-summary-card-icon {
+  font-size: 24px;
+}
+
+.habit-summary-card-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.habit-summary-card-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+/* ── Calendar Heatmap ────────────────────────────────────── */
+.habit-heatmap {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.habit-heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 24px);
+  gap: 3px;
+  justify-content: center;
+}
+
+@media (max-width: 768px) {
+  .habit-heatmap {
+    overflow-x: auto;
+  }
+  .habit-heatmap-grid {
+    grid-template-columns: repeat(7, 18px);
+  }
+}
+
+.habit-heatmap-cell {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  transition: transform 0.15s;
+  cursor: pointer;
+  position: relative;
+}
+
+.habit-heatmap-cell:hover {
+  transform: scale(1.1);
+}
+
+.habit-heatmap-cell.today {
+  border: 2px solid #818cf8;
+  width: 26px;
+  height: 26px;
+}
+
+.habit-heatmap-cell.level-1 { background: rgba(168,197,0, 0.2); }
+.habit-heatmap-cell.level-2 { background: rgba(168,197,0, 0.4); }
+.habit-heatmap-cell.level-3 { background: rgba(168,197,0, 0.7); }
+.habit-heatmap-cell.level-4 { background: var(--accent); }
+
+.habit-heatmap-labels {
+  display: grid;
+  grid-template-columns: repeat(7, 24px);
+  gap: 3px;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+
+.habit-heatmap-label {
+  font-size: 10px;
+  color: var(--text-light);
+  text-align: center;
+}
+
+/* Tooltip for heatmap cells */
+.habit-heatmap-cell::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  background: rgba(0,0,0,0.9);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 100;
+}
+
+.habit-heatmap-cell:hover::after {
+  opacity: 1;
+}
+
+[data-theme="dark"] .habit-heatmap-cell::after {
+  background: rgba(255,255,255,0.95);
+  color: #171717;
+}
+
+/* ── Mini Heatmap (per habit) ────────────────────────────── */
+.habit-mini-heatmap {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.habit-mini-heatmap::-webkit-scrollbar {
+  display: none;
+}
+
+.habit-mini-cell {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  transition: transform 0.15s;
+  position: relative;
+}
+
+.habit-mini-cell:hover {
+  transform: scale(1.2);
+}
+
+.habit-mini-cell.level-1 { background: rgba(168,197,0, 0.2); }
+.habit-mini-cell.level-2 { background: rgba(168,197,0, 0.4); }
+.habit-mini-cell.level-3 { background: rgba(168,197,0, 0.7); }
+.habit-mini-cell.level-4 { background: var(--accent); }
+
+/* Tooltip for mini cells */
+.habit-mini-cell::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  background: rgba(0,0,0,0.9);
+  color: white;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 100;
+}
+
+.habit-mini-cell:hover::after {
+  opacity: 1;
+}
+
+[data-theme="dark"] .habit-mini-cell::after {
+  background: rgba(255,255,255,0.95);
+  color: #171717;
+}
+
+/* ── Check Today Button ──────────────────────────────────── */
+.habit-check-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  transition: transform 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.habit-check-btn.empty {
+  background: var(--bg-card);
+  border: 2px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.habit-check-btn.done {
+  background: var(--success);
+  color: white;
+}
+
+.habit-check-btn.skipped {
+  background: #facc15;
+  color: white;
+}
+
+.habit-check-btn:hover {
+  transform: scale(1.05);
+}
+
+.habit-check-btn:active {
+  transform: scale(0.95);
+}
+
+/* ── Streak Badge ────────────────────────────────────────── */
+.habit-streak-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+.habit-streak-badge.active {
+  color: var(--accent);
+}
+
+/* ── New Habit Card Layout ────────────────────────────────── */
+.habit-card-new {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  transition: box-shadow 0.15s;
+}
+
+.habit-card-new:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.habit-card-info-new {
+  flex: 1;
+  min-width: 0;
+}
+
+.habit-card-title-new {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.habit-card-micro-new {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
 }
