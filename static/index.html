@@ -13049,34 +13049,7 @@ function Dashboard({
   // Sub-bagian "Disematkan" = akordeon: hanya satu dari Notes/Mindmap/Gambar terbuka sekaligus
   // (default Notes); klik header grup yang sedang terbuka menutupnya. Tanpa persistensi.
   const [pinOpenKey, setPinOpenKey] = useState("notes");
-  const pinScrollRef = useRef(null);
-  const pinRevealRef = useRef(null); // key grup yang baru dibuka → digulir agar terlihat
-  useEffect(() => {
-    const key = pinRevealRef.current;
-    pinRevealRef.current = null;
-    const box = pinScrollRef.current;
-    // Hanya gulir daftar Disematkan (bukan window), dan hanya bila daftar itu memang meluap (desktop).
-    if (!key || !box || box.scrollHeight <= box.clientHeight) return;
-    const group = box.querySelector(`[data-pin="${key}"]`);
-    if (!group) return;
-    const b = box.getBoundingClientRect();
-    const g = group.getBoundingClientRect();
-    const cs = getComputedStyle(box);
-    // Tampilkan dasar grup, tapi jangan sampai header grup ikut terdorong keluar atas
-    // (batas dihitung dari tepi dalam padding area gulir).
-    const shift = Math.min(g.bottom - (b.bottom - parseFloat(cs.paddingBottom)), g.top - (b.top + parseFloat(cs.paddingTop)));
-    if (shift > 0) {
-      const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      box.scrollBy({
-        top: shift,
-        behavior: reduce ? "auto" : "smooth"
-      });
-    }
-  }, [pinOpenKey]);
-  const togglePin = key => {
-    if (pinOpenKey !== key) pinRevealRef.current = key;
-    setPinOpenKey(k => k === key ? null : key);
-  };
+  const togglePin = key => setPinOpenKey(k => k === key ? null : key);
   useEffect(() => {
     api.get("/api/scratchpad/recent").then(setRecentNotes).catch(() => {});
     const handler = () => api.get("/api/scratchpad/recent").then(setRecentNotes).catch(() => {});
@@ -13154,10 +13127,37 @@ function Dashboard({
       }
     }
   };
-  const openModal = (title, cellTasks) => setDashModal({
-    title,
-    tasks: cellTasks
-  });
+  // Modal "Lihat semua" (task) / "+N lainnya" (Disematkan) — satu-satunya jalan ke item ke-4 dst.,
+  // jadi harus ramah keyboard: Esc menutup, lalu fokus kembali ke pemicunya (dicatat saat dibuka)
+  // bila masih ada di halaman dan fokus tidak sedang dipegang elemen lain (mis. modal detail task).
+  const dashModalOpenerRef = useRef(null);
+  useEffect(() => {
+    if (!dashModal) return;
+    const opener = dashModalOpenerRef.current;
+    const onKey = e => {
+      if (e.key === "Escape") setDashModal(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      const active = document.activeElement;
+      if (opener && opener.isConnected && (!active || active === document.body)) opener.focus();
+    };
+  }, [dashModal]);
+  // Baris modal = role="button": Enter/Spasi menjalankan aksi yang sama dengan klik. preventDefault:
+  // Spasi tidak menggulir, Enter tidak ikut "menekan" elemen yang baru menerima fokus.
+  const dashModalRowKey = e => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    e.currentTarget.click();
+  };
+  const openModal = (title, cellTasks) => {
+    dashModalOpenerRef.current = document.activeElement;
+    setDashModal({
+      title,
+      tasks: cellTasks
+    });
+  };
   // Varian modal untuk "+N lainnya" di Disematkan: semua item yang disematkan dalam satu grup.
   const openPinModal = ({
     title,
@@ -13166,16 +13166,19 @@ function Dashboard({
     onItem,
     nav,
     untitled
-  }) => setDashModal({
-    title,
-    pins: {
-      items,
-      color,
-      onItem,
-      nav,
-      untitled
-    }
-  });
+  }) => {
+    dashModalOpenerRef.current = document.activeElement;
+    setDashModal({
+      title,
+      pins: {
+        items,
+        color,
+        onItem,
+        nav,
+        untitled
+      }
+    });
+  };
 
   // ── Prioritas hari ini (dipakai hero ring + kartu Prioritas) ──
   const todayStr = new Date().toISOString().split("T")[0];
@@ -13435,7 +13438,8 @@ function Dashboard({
     }, dashFmtDate(it.updated_at || it.created_at))))), hasMore && /*#__PURE__*/React.createElement("button", {
       type: "button",
       className: "dash-more",
-      // Tidak diperluas di tempat (daftar jadi lebih tinggi dari kartu) → modal berisi semua item
+      "aria-haspopup": "dialog",
+      // Tidak diperluas di tempat (kartu & seluruh baris jadi memanjang) → modal berisi semua item
       onClick: () => openPinModal({
         title: `${label} disematkan`,
         items,
@@ -13609,8 +13613,7 @@ function Dashboard({
     title: "Disematkan",
     sub: pinnedTotal > 0 ? `${pinnedTotal} item disematkan` : "Akses cepat ke catatan favorit"
   }), /*#__PURE__*/React.createElement("div", {
-    className: "dash-pin-groups",
-    ref: pinScrollRef
+    className: "dash-pin-groups"
   }, renderPinnedGroup({
     key: "notes",
     label: "Notes",
@@ -13864,6 +13867,9 @@ function Dashboard({
     onClick: () => setDashModal(null)
   }, /*#__PURE__*/React.createElement("div", {
     className: "modal-content scale-in",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-labelledby": "dash-modal-title",
     style: {
       maxWidth: 480,
       width: "90%",
@@ -13881,6 +13887,7 @@ function Dashboard({
       marginBottom: 14
     }
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    id: "dash-modal-title",
     style: {
       fontWeight: 700,
       fontSize: 16
@@ -13892,7 +13899,10 @@ function Dashboard({
       marginTop: 2
     }
   }, dashModal.pins ? `${dashModal.pins.items.length} item disematkan` : `${dashModal.tasks.length} task`)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
     className: "btn btn-secondary btn-sm",
+    "aria-label": "Tutup",
+    autoFocus: true,
     onClick: () => setDashModal(null)
   }, "✕")), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -13902,6 +13912,9 @@ function Dashboard({
   }, dashModal.pins ? dashModal.pins.items.map(it => /*#__PURE__*/React.createElement("div", {
     key: it.id,
     className: "dash-modal-row",
+    role: "button",
+    tabIndex: 0,
+    onKeyDown: dashModalRowKey,
     onClick: () => {
       const { onItem, nav } = dashModal.pins;
       setDashModal(null);
@@ -13932,6 +13945,9 @@ function Dashboard({
   }, dashFmtDate(it.updated_at || it.created_at)))) : dashModal.tasks.map(t => /*#__PURE__*/React.createElement("div", {
     key: t.id,
     className: "dash-modal-row",
+    role: "button",
+    tabIndex: 0,
+    onKeyDown: dashModalRowKey,
     onClick: () => {
       setDashModal(null);
       onTaskClick(t);
@@ -26546,7 +26562,7 @@ function AdminPage({
 const TOUR_STEPS = {
   dashboard: [
     { element: '[data-tour="sidebar-rail"]', popover: { title: '🗂️ Menu Utama', description: 'Menu utama tampil sebagai bilah ikon ramping: Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes, Draw, Mindmap, dan Diskusi. Arahkan kursor ke ikon untuk melihat namanya, lalu klik untuk berpindah halaman.' } },
-    { element: '[data-tour="sidebar-expand"]', popover: { title: '› Menu Lengkap', description: 'Klik › (atau tombol ☰ di topbar) untuk membuka menu lengkap: GTD, Project, Shared List, dan Pengaturan. Setelah kamu memilih halaman, menu otomatis kembali menjadi bilah ikon.' } },
+    { element: '[data-tour="sidebar-expand"]', popover: { title: '› Menu Lengkap', description: 'Klik › (atau tombol ☰ di topbar) untuk membuka menu lengkap: GTD, Project, Workspace, dan Pengaturan. Setelah kamu memilih halaman, menu otomatis kembali menjadi bilah ikon.' } },
     { element: '[data-tour="sidebar-general"]', popover: { title: '🗂️ Menu Utama', description: 'Navigasi utama Alurik — Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes & Draw, Mindmap, dan Diskusi. Klik salah satu untuk berpindah halaman.' } },
     { element: '[data-tour="sidebar-collapse"]', popover: { title: '◀ Perkecil Menu', description: 'Klik tombol ‹ ini untuk memperkecil sidebar menjadi bilah ikon ramping, sehingga area kerja lebih luas sementara menu utama tetap bisa diklik. Klik ikon › di bilah ikon (atau tombol ☰ di topbar) untuk membuka menu lengkap kembali.' } },
     { element: '[data-tour="task-gtd"]', popover: { title: '🔄 GTD Menu', description: 'Bagian GTD (Getting Things Done) — Inbox, Next Actions, Waiting For, dan Someday. Metodologi GTD membantu mengelola task berdasarkan konteks dan prioritas.' } },
@@ -26587,6 +26603,9 @@ const TOUR_STEPS = {
     { element: '[data-tour="task-list"]', popover: { title: '📋 Daftar Task', description: 'Klik task untuk melihat detail dan aksi — edit, pindah status GTD, tandai selesai, atau hapus.' } },
     { element: '[data-tour="task-filter"]', popover: { title: '🔍 Filter & Group', description: 'Filter task berdasarkan priority, quadrant Eisenhower, project, atau context. Bisa dikombinasikan.' } },
     { element: '[data-tour="task-gtd"]', popover: { title: '🔄 GTD Workflow', description: 'Pindahkan task dari Inbox → Next Actions → Waiting → Someday → Done. Setiap status punya makna berbeda di metodologi GTD.' } },
+    // Cadangan saat menu terlipat (default setelah pindah halaman): task-gtd hanya ada di menu lengkap,
+    // jadi langkah GTD ditunjukkan di tombol › bilah ikon. Hanya salah satu dari keduanya yang terlihat.
+    { element: '[data-tour="sidebar-expand"]', popover: { title: '🔄 GTD Workflow', description: 'Klik › untuk membuka menu lengkap. Bagian GTD berisi Inbox → Next Actions → Waiting For → Someday; pindahkan task antar status ini sampai Done sesuai metodologi GTD.' } },
   ],
 };
 

@@ -123,14 +123,8 @@ test("App: menu utama default bilah ikon (state awal true); panel daftar NotesPa
 test("App: menu dilipat lagi ke bilah ikon setiap pindah halaman & saat login/logout", () => {
   const src = appSource();
   assert.doesNotMatch(src, /prevSidebarCollapsedRef/);
-  // Efek hook level atas App (indentasi 2 spasi); badan efek tidak memuat efek lain.
-  const effects = [...src.matchAll(/useEffect\(\(\) => \{((?:(?!useEffect\()[\s\S])*?)\n  \}, \[([^\]]*)\]\);/g)];
-  const fold = effects.find(m => /setSidebarCollapsed\(true\)/.test(m[1]));
-  assert.ok(fold, "App harus punya efek yang memanggil setSidebarCollapsed(true)");
-  const deps = fold[2].split(",").map(d => d.trim());
-  assert.ok(deps.includes("page"), "efek lipat menu harus bergantung pada page");
-  assert.ok(deps.includes("user?.id"), "efek lipat menu harus jalan lagi saat login/logout (user?.id)");
-  assert.match(fold[1], /setSidebarOpen\(false\)/);
+  // Badan efek persis dua setter (tanpa logika lain), jalan lagi tiap page atau user?.id berubah.
+  assert.match(src, /React\.useEffect\(\(\) => \{\s*setSidebarCollapsed\(true\);\s*setSidebarOpen\(false\);\s*\}, \[page, user\?\.id\]\);/);
 });
 
 test("App: memilih menu apa pun (termasuk halaman yang sama / Review Mingguan) melipat menu lagi", () => {
@@ -163,4 +157,25 @@ test("Tour Dashboard memperkenalkan bilah ikon & tombol › sebelum langkah menu
   ]);
   assert.match(dash, /'\[data-tour="sidebar-rail"\]', popover: \{ title: '[^']*Menu Utama', description: 'Menu utama tampil sebagai bilah ikon ramping: /);
   assert.match(dash, /'\[data-tour="sidebar-expand"\]', popover: \{ title: '› Menu Lengkap', description: 'Klik › \(atau tombol ☰ di topbar\) untuk membuka menu lengkap: [^']*menu otomatis kembali menjadi bilah ikon\.' \}/);
+  // Label sidebar kini "WORKSPACES" (dulu "SHARED LISTS").
+  const expand = dash.split("\n").find(l => l.includes(`'[data-tour="sidebar-expand"]'`));
+  assert.match(expand, /membuka menu lengkap: GTD, Project, Workspace, dan Pengaturan\./);
+  assert.doesNotMatch(expand, /Shared List/);
+});
+
+test("Tour halaman task list: langkah GTD punya cadangan di tombol › bilah ikon", () => {
+  const tourAt = indexHtml.indexOf("const TOUR_STEPS = {");
+  assert.ok(tourAt >= 0, "TOUR_STEPS must exist");
+  const inboxAt = indexHtml.indexOf("\n  inbox: [", tourAt);
+  assert.ok(inboxAt > tourAt, "TOUR_STEPS.inbox must exist");
+  const inbox = indexHtml.slice(inboxAt, indexHtml.indexOf("\n  ],", inboxAt));
+  const els = [...inbox.matchAll(/element: '\[data-tour="([a-z-]+)"\]'/g)].map(m => m[1]);
+  // [data-tour="task-gtd"] hanya ada di menu lengkap, yang kini terlipat setiap pindah halaman →
+  // cadangan tepat setelahnya di tombol ›. Hanya salah satu yang terlihat (isTourVisible melewati
+  // yang tersembunyi), jadi langkah "🔄 GTD Workflow" selalu tampil satu kali.
+  assert.deepEqual(els, ["task-add", "task-list", "task-filter", "task-gtd", "sidebar-expand"]);
+  assert.match(inbox, /'\[data-tour="task-gtd"\]', popover: \{ title: '🔄 GTD Workflow', /);
+  assert.match(inbox, /\{ element: '\[data-tour="sidebar-expand"\]', popover: \{ title: '🔄 GTD Workflow', description: 'Klik › untuk membuka menu lengkap\. Bagian GTD berisi Inbox → Next Actions → Waiting For → Someday; pindahkan task antar status ini sampai Done sesuai metodologi GTD\.' \} \},/);
+  // next/waiting/someday/all/overdue/done memakai langkah yang sama.
+  assert.match(indexHtml, /\['next','waiting','someday','all','overdue','done'\]\.forEach\(p => \{ TOUR_STEPS\[p\] = TOUR_STEPS\.inbox; \}\);/);
 });
