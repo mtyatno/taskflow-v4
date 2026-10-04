@@ -246,8 +246,8 @@ test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan"
 });
 
 // ── Cache bust ───────────────────────────────────────────────────────────────
-test("sw.js CACHE = taskflow-v362-sidebar-rail-pin-accordion (tldraw di-cache cache-first)", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v362-sidebar-rail-pin-accordion";/m);
+test("sw.js CACHE = taskflow-v364-sidebar-rail-pin-accordion (tldraw di-cache cache-first)", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v364-sidebar-rail-pin-accordion";/m);
 });
 
 // ══ Putaran pengerasan (review independen) ══════════════════════════════════════
