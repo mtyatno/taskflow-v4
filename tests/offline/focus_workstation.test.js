@@ -81,3 +81,22 @@ test("Tanpa garis warna di tepi kartu task Fokus", () => {
   assert.ok(block.length > 100);
   assert.doesNotMatch(block, /border-(left|top|right):\s*[2-9]px/);
 });
+
+test("usePomodoro: start() ditolak tanpa focusTask dan memicu peringatan", () => {
+  const hook = fnSource("usePomodoro");
+  assert.match(hook, /if\s*\(!focusTask\)/, "usePomodoro harus memeriksa keberadaan focusTask");
+  assert.match(hook, /window\.__showToast\?\.\(.*"warning"\)/, "harus menampilkan toast warning");
+});
+
+test("TodayFocusView: task yang sedang fokus diposisikan di urutan paling atas", () => {
+  const view = fnSource("TodayFocusView");
+  assert.match(view, /if\s*\(focusTask\)\s*\{[\s\S]*a\.id === focusTask\.id[\s\S]*return -1/, "focusTask harus berada di puncak sortedTasks");
+});
+
+test("TodayFocusView: membatalkan fokus atau menyelesaikan task menjeda Pomodoro", () => {
+  const view = fnSource("TodayFocusView");
+  assert.match(view, /timer\.pause\(\)/, "harus memanggil timer.pause()");
+  assert.match(view, /Fokus dilepas/, "harus memberi toast saat fokus dilepas");
+  assert.match(view, /Task selesai/, "harus memberi toast saat task selesai");
+});
+
