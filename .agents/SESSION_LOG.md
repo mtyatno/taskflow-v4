@@ -2101,6 +2101,18 @@
 - **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed.
 
+## [2026-10-04 00:55] - Claude (Kalender: tampilan Minggu)
+- **Task:** Week view di Kalender: desktop 7 hari berjejer mendatar dengan task di bawah tiap hari, mobile hari berurutan ke bawah.
+- **Changes:** helper murni `calWeek*` + `calTasksByDate`, state `view`/`weekStart` di `CalendarView`, toggle Bulan/Minggu, render `renderWeek`, navigasi/Today per mode, fetch exception & libur per rentang; SW v357; tes versi disesuaikan; tes baru `calendar_week_view.test.js`.
+- **Verifikasi:** JS 907/908 (1 fail pra-ada tldraw), pytest 96/96, inline 5/5, Playwright light/dark × desktop/1024/mobile.
+- **Files Touch:** `static/index.html`, `static/sw.js`, `tests/offline/calendar_week_view.test.js` (baru), `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,drawing_sync_ui}.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR).
+
+## [2026-10-04 00:45] - Claude (revisi: hapus garis warna kartu task Kalender)
+- **Task:** Permintaan user: hapus garis warna (borderLeft 3px berwarna) di kartu task Kalender. User TIDAK suka garis/strip warna di desain mana pun — pakai badge/pill berwarna saja.
+- **Changes:** `borderLeft` berwarna dihapus dari `TaskListItems` (panel tanggal & mobile Minggu) dan `WeekTaskCard`; tes penjaga di `calendar_week_view.test.js`.
+- **Files Touch:** `static/index.html`, `tests/offline/calendar_week_view.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR #9).
 ## [2026-10-04 00:40] - Claude (thread DM)
 - **Task:** Merge `main` (PR #7 kalender, SW v356) ke PR #6 pesan pribadi + blokir.
 - **Changes:** Konflik versi diselesaikan: SW → `taskflow-v357-direct-messages` (aturan network-only `/api/dm/*` dipertahankan), tes versi disesuaikan; catatan .agents digabung.
@@ -2120,3 +2132,9 @@
 - **Verifikasi:** CI `test` hijau di head PR `f8e31da`; Deploy Taskflow V4 run #833 sukses (log: `Updating ad76f66..f377ea7 Fast-forward`, 12 file; vite build tldraw OK). Situs live tidak bisa dibuka dari container sesi (proxy), jadi verifikasi lewat log deploy.
 - **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed (live; klien perlu hard refresh untuk SW v358).
+
+## [2026-10-04 05:35] - Claude (merge & deploy Kalender Minggu)
+- **Task:** Atas permintaan user ("merge dan deploy"): merge main (PR #6 Pesan pribadi, PR #10/#11 Dashboard) ke branch, konflik versi diselesaikan → SW v359; lalu merge PR #9.
+- **Verifikasi:** JS 929/930 (1 fail pra-ada tldraw), pytest 122/122, inline 5/5, `node --check sw.js` OK; Playwright week view light/dark × 1440/1024/390 di kode gabungan tanpa page error.
+- **Files Touch:** `static/sw.js`, `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,drawing_sync_ui,direct_messages_ui}.test.js`, `.agents/*`
+- **Status:** Completed.
