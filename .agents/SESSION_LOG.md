@@ -2172,3 +2172,9 @@
 - **Verifikasi:** JS 952/955 (3 fail pra-ada di main), pytest 122/122, inline 5/5, sw OK; browser port terpisah: (a) pilih task → fokus tak di pemicu, (b) Esc → fokus kembali, (c) Ctrl+K + Esc hanya menutup pencarian, (d) Tab keluar + Esc menutup.
 - **Files Touch:** `static/{index.html,app.css}`, `tests/offline/{dashboard_pin_collapse,sidebar_icon_rail}.test.js`, `.agents/*`
 - **Status:** Needs Review (draft PR #15, tunggu "merge dan deploy").
+
+## [2026-10-04 15:00] - Claude (PR #15 merge & deploy)
+- **Task:** User: "merge dan deploy" untuk PR #15 (menu samping mulai sebagai ikon + Disematkan akordeon).
+- **Changes:** PR #15 ditandai ready lalu di-merge (`22bab21`, head `5ab667f`); Deploy Taskflow V4 run #840 sukses (VPS fast-forward ca335d1..22bab21). Catatan `.agents` & memori versi diperbarui (main kini v364 / app.css?v=312).
+- **Files Touch:** `.agents/*`
+- **Status:** Done (merged & deployed). Pertanyaan `.note-callout` masih menunggu user.
