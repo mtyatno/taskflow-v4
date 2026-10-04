@@ -188,6 +188,9 @@ def _nc_ensure_folder() -> None:
 
 # ── Chat SSE broadcast bus ─────────────────────────────────────────────────────
 chat_subscribers: dict[int, set[asyncio.Queue]] = defaultdict(set)
+# DM: conversation_id → {(user_id, queue)} — user_id disimpan agar bisa tahu
+# apakah penerima sedang membuka percakapan (untuk menahan notifikasi).
+dm_subscribers: dict[int, set[tuple[int, asyncio.Queue]]] = defaultdict(set)
 
 # ── Database helpers ───────────────────────────────────────────────────────────
 
@@ -489,6 +492,58 @@ def migrate_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_trashed_user ON trashed_notes(user_id, deleted_at)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Pesan Pribadi / DM 1-on-1 (docs/superpowers/specs/2026-10-03-direct-messages-design.md).
+    # Terpisah total dari shared list: tidak ada FK ke shared_lists, jadi hapus grup tidak menghapus DM.
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dm_conversations (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_a          INTEGER NOT NULL,
+                user_b          INTEGER NOT NULL,
+                created_at      TEXT NOT NULL,
+                last_message_at TEXT,
+                UNIQUE (user_a, user_b),
+                CHECK (user_a < user_b),
+                FOREIGN KEY (user_a) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_b) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dm_messages (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id INTEGER NOT NULL REFERENCES dm_conversations(id) ON DELETE CASCADE,
+                user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                content         TEXT NOT NULL,
+                reply_to_id     INTEGER DEFAULT NULL REFERENCES dm_messages(id) ON DELETE SET NULL,
+                client_id       TEXT DEFAULT NULL,
+                created_at      TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_dm_messages_conv ON dm_messages(conversation_id, id)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dm_reads (
+                conversation_id INTEGER NOT NULL REFERENCES dm_conversations(id) ON DELETE CASCADE,
+                user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                last_read_id    INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (conversation_id, user_id)
+            )
+        """)
+        # Blokir antar-user (bukan per percakapan): berlaku bila SALAH SATU memblokir yang lain.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dm_blocks (
+                blocker_id INTEGER NOT NULL,
+                blocked_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (blocker_id, blocked_id),
+                FOREIGN KEY (blocker_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (blocked_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -960,6 +1015,14 @@ class MessageCreate(BaseModel):
     task_id: Optional[int] = None
     note_id: Optional[int] = None
     msg_type: str = "text"
+    reply_to_id: Optional[int] = None
+    client_id: Optional[str] = Field(default=None, max_length=64)
+
+class DmConversationCreate(BaseModel):
+    user_id: int
+
+class DmMessageCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
     reply_to_id: Optional[int] = None
     client_id: Optional[str] = Field(default=None, max_length=64)
 
@@ -2604,6 +2667,309 @@ async def chat_stream(list_id: int, request: Request, user=Depends(get_current_u
                     yield {"data": json.dumps({"type": "ping"})}
         finally:
             chat_subscribers[list_id].discard(q)
+
+    return EventSourceResponse(event_generator())
+
+
+# ── Direct Messages API ───────────────────────────────────────────────────────
+# DM 1-on-1 (spec: docs/superpowers/specs/2026-10-03-direct-messages-design.md).
+# Memulai percakapan BARU wajib berbagi ≥1 shared list; percakapan yang sudah ada
+# tetap aktif selamanya (kirim hanya mensyaratkan peserta). Online-only: tidak
+# didaftarkan di router lokal/SW. Percakapan milik orang lain → 404.
+
+_DM_MSG_SELECT = """
+    SELECT m.id, m.conversation_id, m.user_id, m.content, m.client_id,
+           m.created_at, m.reply_to_id,
+           u.username, u.display_name,
+           ru.username as reply_to_username,
+           ru.display_name as reply_to_display_name,
+           rm.content as reply_to_content
+    FROM dm_messages m
+    JOIN users u ON u.id = m.user_id
+    LEFT JOIN dm_messages rm ON rm.id = m.reply_to_id
+    LEFT JOIN users ru ON ru.id = rm.user_id
+"""
+
+
+def _dm_share_list(conn, uid: int, other_id: int) -> bool:
+    """True bila kedua user saat ini owner/member dari setidaknya satu list yang sama."""
+    row = conn.execute(
+        """
+        WITH mine AS (
+            SELECT id AS list_id FROM shared_lists WHERE owner_id = ?
+            UNION SELECT list_id FROM list_members WHERE user_id = ?
+        )
+        SELECT 1 FROM mine WHERE list_id IN (
+            SELECT id FROM shared_lists WHERE owner_id = ?
+            UNION SELECT list_id FROM list_members WHERE user_id = ?
+        ) LIMIT 1
+        """,
+        (uid, uid, other_id, other_id),
+    ).fetchone()
+    return row is not None
+
+
+def _dm_get_conv_or_404(conn, conv_id: int, uid: int):
+    row = conn.execute(
+        "SELECT * FROM dm_conversations WHERE id = ? AND (user_a = ? OR user_b = ?)",
+        (conv_id, uid, uid),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Percakapan tidak ditemukan")
+    return row
+
+
+DM_BLOCKED_DETAIL = "Obrolan ini diblokir"
+
+
+def _dm_block_flags(conn, uid: int, other_id: int) -> tuple[bool, bool]:
+    """(blocked_by_me, blocked_by_other)."""
+    rows = conn.execute(
+        "SELECT blocker_id FROM dm_blocks WHERE (blocker_id = ? AND blocked_id = ?) "
+        "OR (blocker_id = ? AND blocked_id = ?)",
+        (uid, other_id, other_id, uid),
+    ).fetchall()
+    blockers = {r[0] for r in rows}
+    return uid in blockers, other_id in blockers
+
+
+def _dm_other_id(conv, uid: int) -> int:
+    return conv["user_b"] if conv["user_a"] == uid else conv["user_a"]
+
+
+def _dm_conv_to_dict(conn, conv, uid: int) -> dict:
+    other_id = conv["user_b"] if conv["user_a"] == uid else conv["user_a"]
+    other = conn.execute(
+        "SELECT id, username, display_name FROM users WHERE id = ?", (other_id,)
+    ).fetchone()
+    last = conn.execute(
+        "SELECT content, user_id, created_at FROM dm_messages WHERE conversation_id = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (conv["id"],),
+    ).fetchone()
+    read = conn.execute(
+        "SELECT last_read_id FROM dm_reads WHERE conversation_id = ? AND user_id = ?",
+        (conv["id"], uid),
+    ).fetchone()
+    unread = conn.execute(
+        "SELECT COUNT(*) FROM dm_messages WHERE conversation_id = ? AND user_id != ? AND id > ?",
+        (conv["id"], uid, read["last_read_id"] if read else 0),
+    ).fetchone()[0]
+    blocked_by_me, blocked_by_other = _dm_block_flags(conn, uid, other_id)
+    return {
+        "id": conv["id"],
+        "other_user": dict(other) if other else {"id": other_id, "username": "?", "display_name": None},
+        "last_message": dict(last) if last else None,
+        "unread": unread,
+        "last_message_at": conv["last_message_at"],
+        "created_at": conv["created_at"],
+        "blocked_by_me": blocked_by_me,
+        "blocked_by_other": blocked_by_other,
+    }
+
+
+@app.get("/api/dm/contacts")
+async def dm_contacts(user=Depends(get_current_user)):
+    """Pengguna yang berbagi ≥1 shared list dengan saya (owner atau member), tanpa diri sendiri."""
+    uid = user["sub"]
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            WITH mine AS (
+                SELECT id AS list_id FROM shared_lists WHERE owner_id = ?
+                UNION SELECT list_id FROM list_members WHERE user_id = ?
+            ),
+            people AS (
+                SELECT sl.owner_id AS user_id FROM shared_lists sl JOIN mine ON mine.list_id = sl.id
+                UNION SELECT lm.user_id FROM list_members lm JOIN mine ON mine.list_id = lm.list_id
+            )
+            SELECT u.id, u.username, u.display_name FROM users u
+            JOIN people p ON p.user_id = u.id
+            WHERE u.id != ?
+            ORDER BY LOWER(COALESCE(NULLIF(u.display_name, ''), u.username))
+            """,
+            (uid, uid, uid),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/dm/conversations")
+async def dm_list_conversations(user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        convs = conn.execute(
+            "SELECT * FROM dm_conversations WHERE user_a = ? OR user_b = ? "
+            "ORDER BY COALESCE(last_message_at, created_at) DESC, id DESC",
+            (uid, uid),
+        ).fetchall()
+        return [_dm_conv_to_dict(conn, c, uid) for c in convs]
+
+
+@app.post("/api/dm/conversations")
+async def dm_create_conversation(req: DmConversationCreate, user=Depends(get_current_user)):
+    """Get-or-create. Sudah ada → kembalikan tanpa cek grup; baru → wajib berbagi grup."""
+    uid = user["sub"]
+    other_id = req.user_id
+    if other_id == uid:
+        raise HTTPException(status_code=400, detail="Tidak bisa mengirim pesan pribadi ke diri sendiri")
+    a, b = min(uid, other_id), max(uid, other_id)
+    with get_db() as conn:
+        if not conn.execute("SELECT 1 FROM users WHERE id = ?", (other_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="Pengguna tidak ditemukan")
+        conv = conn.execute(
+            "SELECT * FROM dm_conversations WHERE user_a = ? AND user_b = ?", (a, b)
+        ).fetchone()
+        if not conv:
+            if any(_dm_block_flags(conn, uid, other_id)):
+                raise HTTPException(status_code=403, detail=DM_BLOCKED_DETAIL)
+            if not _dm_share_list(conn, uid, other_id):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Pesan pribadi baru hanya bisa dimulai dengan anggota grup yang sama",
+                )
+            conn.execute(
+                "INSERT OR IGNORE INTO dm_conversations (user_a, user_b, created_at) VALUES (?,?,?)",
+                (a, b, datetime.now().isoformat()),
+            )
+            conv = conn.execute(
+                "SELECT * FROM dm_conversations WHERE user_a = ? AND user_b = ?", (a, b)
+            ).fetchone()
+        return _dm_conv_to_dict(conn, conv, uid)
+
+
+@app.get("/api/dm/conversations/{conv_id}/messages")
+async def dm_get_messages(conv_id: int, limit: int = 50, before_id: Optional[int] = None,
+                          user=Depends(get_current_user)):
+    uid = user["sub"]
+    limit = max(1, min(limit, 200))
+    with get_db() as conn:
+        _dm_get_conv_or_404(conn, conv_id, uid)
+        if before_id:
+            rows = conn.execute(
+                _DM_MSG_SELECT + "WHERE m.conversation_id = ? AND m.id < ? ORDER BY m.id DESC LIMIT ?",
+                (conv_id, before_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                _DM_MSG_SELECT + "WHERE m.conversation_id = ? ORDER BY m.id DESC LIMIT ?",
+                (conv_id, limit),
+            ).fetchall()
+    return [dict(r) for r in reversed(rows)]
+
+
+@app.post("/api/dm/conversations/{conv_id}/messages")
+async def dm_post_message(conv_id: int, req: DmMessageCreate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now().isoformat()
+    with get_db() as conn:
+        conv = _dm_get_conv_or_404(conn, conv_id, uid)
+        if any(_dm_block_flags(conn, uid, _dm_other_id(conv, uid))):
+            # Tanpa simpan, tanpa notifikasi, tanpa siaran SSE.
+            raise HTTPException(status_code=403, detail=DM_BLOCKED_DETAIL)
+        if req.reply_to_id is not None:
+            ok = conn.execute(
+                "SELECT 1 FROM dm_messages WHERE id = ? AND conversation_id = ?",
+                (req.reply_to_id, conv_id),
+            ).fetchone()
+            if not ok:
+                raise HTTPException(status_code=400, detail="Pesan yang dibalas tidak ada di percakapan ini")
+        cur = conn.execute(
+            "INSERT INTO dm_messages (conversation_id, user_id, content, reply_to_id, client_id, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (conv_id, uid, req.content, req.reply_to_id, req.client_id, now),
+        )
+        msg_id = cur.lastrowid
+        conn.execute("UPDATE dm_conversations SET last_message_at = ? WHERE id = ?", (now, conv_id))
+        # Pesan sendiri otomatis terbaca bagi pengirim.
+        conn.execute(
+            "INSERT INTO dm_reads (conversation_id, user_id, last_read_id) VALUES (?,?,?) "
+            "ON CONFLICT(conversation_id, user_id) DO UPDATE SET last_read_id = MAX(last_read_id, excluded.last_read_id)",
+            (conv_id, uid, msg_id),
+        )
+        msg_dict = dict(conn.execute(_DM_MSG_SELECT + "WHERE m.id = ?", (msg_id,)).fetchone())
+        recipient = conv["user_b"] if conv["user_a"] == uid else conv["user_a"]
+        watching = any(sub_uid == recipient for sub_uid, _q in dm_subscribers.get(conv_id, set()))
+        if not watching:
+            # Nama dari DB (bukan klaim JWT) agar teks & dedup konsisten setelah user ganti username.
+            notif = f"💬 {msg_dict['username']} mengirim pesan pribadi"
+            dup = conn.execute(
+                "SELECT 1 FROM notifications WHERE user_id = ? AND message = ? AND is_read = 0 LIMIT 1",
+                (recipient, notif),
+            ).fetchone()
+            if not dup:
+                conn.execute(
+                    "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, created_at) "
+                    "VALUES (?,?,0,NULL,NULL,?)",
+                    (recipient, notif, now),
+                )
+    for _sub_uid, q in list(dm_subscribers.get(conv_id, set())):
+        await q.put(msg_dict)
+    return msg_dict
+
+
+@app.post("/api/dm/conversations/{conv_id}/read")
+async def dm_mark_read(conv_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _dm_get_conv_or_404(conn, conv_id, uid)
+        last_id = conn.execute(
+            "SELECT COALESCE(MAX(id), 0) FROM dm_messages WHERE conversation_id = ?", (conv_id,)
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO dm_reads (conversation_id, user_id, last_read_id) VALUES (?,?,?) "
+            "ON CONFLICT(conversation_id, user_id) DO UPDATE SET last_read_id = MAX(last_read_id, excluded.last_read_id)",
+            (conv_id, uid, last_id),
+        )
+    return {"ok": True, "last_read_id": last_id}
+
+
+@app.post("/api/dm/conversations/{conv_id}/block")
+async def dm_block(conv_id: int, user=Depends(get_current_user)):
+    """Blokir peserta lain percakapan ini. Idempoten."""
+    uid = user["sub"]
+    with get_db() as conn:
+        conv = _dm_get_conv_or_404(conn, conv_id, uid)
+        conn.execute(
+            "INSERT OR IGNORE INTO dm_blocks (blocker_id, blocked_id, created_at) VALUES (?,?,?)",
+            (uid, _dm_other_id(conv, uid), datetime.now().isoformat()),
+        )
+        return _dm_conv_to_dict(conn, conv, uid)
+
+
+@app.delete("/api/dm/conversations/{conv_id}/block")
+async def dm_unblock(conv_id: int, user=Depends(get_current_user)):
+    """Buka blokir saya terhadap peserta lain (blokir dari pihak lain tidak tersentuh). Idempoten."""
+    uid = user["sub"]
+    with get_db() as conn:
+        conv = _dm_get_conv_or_404(conn, conv_id, uid)
+        conn.execute(
+            "DELETE FROM dm_blocks WHERE blocker_id = ? AND blocked_id = ?",
+            (uid, _dm_other_id(conv, uid)),
+        )
+        return _dm_conv_to_dict(conn, conv, uid)
+
+
+@app.get("/api/dm/conversations/{conv_id}/stream")
+async def dm_stream(conv_id: int, request: Request, user=Depends(get_current_user_sse)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _dm_get_conv_or_404(conn, conv_id, uid)
+
+    async def event_generator():
+        q: asyncio.Queue = asyncio.Queue()
+        entry = (uid, q)
+        dm_subscribers[conv_id].add(entry)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=20.0)
+                    yield {"data": json.dumps(msg)}
+                except asyncio.TimeoutError:
+                    yield {"data": json.dumps({"type": "ping"})}
+        finally:
+            dm_subscribers[conv_id].discard(entry)
 
     return EventSourceResponse(event_generator())
 
