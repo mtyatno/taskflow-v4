@@ -12714,13 +12714,16 @@ function DashChip({
     size: Math.round(size * 0.55)
   }));
 }
+// popup → aria-haspopup (mis. "dialog" bila link membuka modal); tanpa popup, atribut tidak dirender.
 function DashLink({
   onClick,
+  popup,
   children
 }) {
   return /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "dash-link",
+    "aria-haspopup": popup,
     onClick: onClick
   }, children);
 }
@@ -12733,7 +12736,8 @@ function DashCardHead({
   onTitleClick,
   count,
   link,
-  onLink
+  onLink,
+  linkPopup
 }) {
   return /*#__PURE__*/React.createElement("div", {
     className: "dash-card-head"
@@ -12757,7 +12761,8 @@ function DashCardHead({
   }, count)), sub && /*#__PURE__*/React.createElement("div", {
     className: "dash-card-sub"
   }, sub)), link && /*#__PURE__*/React.createElement(DashLink, {
-    onClick: onLink
+    onClick: onLink,
+    popup: linkPopup
   }, link));
 }
 function DashSection({
@@ -13121,20 +13126,26 @@ function Dashboard({
     }
   };
   // Modal "Lihat semua" (task) / "+N lainnya" (Disematkan) — satu-satunya jalan ke item ke-4 dst.,
-  // jadi harus ramah keyboard: Esc menutup, lalu fokus kembali ke pemicunya (dicatat saat dibuka)
-  // bila masih ada di halaman dan fokus tidak sedang dipegang elemen lain (mis. modal detail task).
+  // jadi harus ramah keyboard. Esc menutup bila sasarannya di dialog ini atau <body>; Esc di modal lain
+  // di atasnya (mis. pencarian Ctrl+K) cukup menutup modal itu. Lalu fokus kembali ke pemicunya
+  // (dicatat saat dibuka) bila masih ada di halaman, fokus lepas ke <body>, dan tidak ada .modal-overlay
+  // lain (overlay ini sendiri sudah dilepas saat cleanup): memilih task membuka modal detail task yang
+  // TIDAK mengambil fokus — fokus di pemicu di belakangnya membuat Spasi membuka daftar ini lagi.
   const dashModalOpenerRef = useRef(null);
+  const dashModalRef = useRef(null);
   useEffect(() => {
     if (!dashModal) return;
     const opener = dashModalOpenerRef.current;
     const onKey = e => {
-      if (e.key === "Escape") setDashModal(null);
+      if (e.key !== "Escape") return;
+      const t = e.target;
+      if (t === document.body || (dashModalRef.current && dashModalRef.current.contains(t))) setDashModal(null);
     };
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
       const active = document.activeElement;
-      if (opener && opener.isConnected && (!active || active === document.body)) opener.focus();
+      if (opener && opener.isConnected && (!active || active === document.body) && !document.querySelector(".modal-overlay")) opener.focus();
     };
   }, [dashModal]);
   // Baris modal = role="button": Enter/Spasi menjalankan aksi yang sama dengan klik. preventDefault:
@@ -13343,6 +13354,7 @@ function Dashboard({
     count: list.length,
     sub: sub,
     link: list.length > 5 ? "Lihat semua →" : null,
+    linkPopup: "dialog",
     onLink: () => openModal(title, list)
   }), list.length === 0 ? /*#__PURE__*/React.createElement(DashEmpty, null) : /*#__PURE__*/React.createElement("div", {
     className: "dash-rows"
@@ -13353,6 +13365,7 @@ function Dashboard({
   }))), list.length > 5 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "dash-more",
+    "aria-haspopup": "dialog",
     onClick: () => openModal(title, list)
   }, "+", list.length - 5, " lagi →"));
 
@@ -13794,6 +13807,7 @@ function Dashboard({
       onTitleClick: () => onNav(`proj_${proj}`),
       count: projTasks.length,
       link: projTasks.length > 5 ? "Lihat semua →" : null,
+      linkPopup: "dialog",
       onLink: () => openModal(`📂 ${proj}`, projTasks)
     }), /*#__PURE__*/React.createElement("div", {
       className: "dash-progress dash-progress-thin"
@@ -13817,6 +13831,7 @@ function Dashboard({
     }))), projTasks.length > 5 && /*#__PURE__*/React.createElement("button", {
       type: "button",
       className: "dash-more",
+      "aria-haspopup": "dialog",
       onClick: () => openModal(`📂 ${proj}`, projTasks)
     }, "+", projTasks.length - 5, " lagi →"));
   }))),
@@ -13859,6 +13874,7 @@ function Dashboard({
     className: "modal-overlay",
     onClick: () => setDashModal(null)
   }, /*#__PURE__*/React.createElement("div", {
+    ref: dashModalRef,
     className: "modal-content scale-in",
     role: "dialog",
     "aria-modal": "true",
@@ -26559,7 +26575,7 @@ const TOUR_STEPS = {
     { element: '[data-tour="sidebar-general"]', popover: { title: '🗂️ Menu Utama', description: 'Navigasi utama Alurik — Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes & Draw, Mindmap, dan Diskusi. Klik salah satu untuk berpindah halaman.' } },
     { element: '[data-tour="sidebar-collapse"]', popover: { title: '◀ Perkecil Menu', description: 'Klik tombol ‹ ini untuk memperkecil sidebar menjadi bilah ikon ramping, sehingga area kerja lebih luas sementara menu utama tetap bisa diklik. Klik ikon › di bilah ikon (atau tombol ☰ di topbar) untuk membuka menu lengkap kembali.' } },
     { element: '[data-tour="task-gtd"]', popover: { title: '🔄 GTD Menu', description: 'Bagian GTD (Getting Things Done) — Inbox, Next Actions, Waiting For, dan Someday. Metodologi GTD membantu mengelola task berdasarkan konteks dan prioritas.' } },
-    { element: '[data-tour="sidebar-shared"]', popover: { title: '👥 Shared List', description: 'Kelola daftar task bersama — buat Shared List baru, undang anggota, atau bergabung ke list milik orang lain. Cocok untuk kolaborasi tim atau keluarga.' } },
+    { element: '[data-tour="sidebar-shared"]', popover: { title: '👥 Workspace', description: 'Kelola workspace bersama — buat Workspace baru, undang anggota, atau bergabung ke workspace milik orang lain. Cocok untuk kolaborasi tim atau keluarga.' } },
     { element: '[data-tour="sidebar-settings"]', popover: { title: '⚙️ Pengaturan', description: 'Atur profil, notifikasi Telegram, koneksi perangkat, dan preferensi aplikasi di halaman Pengaturan.' } },
     { element: '[data-tour="scratchpad"]', popover: { title: '⚡ Quick Capture', description: 'Ketik apa saja di sini lalu tekan Enter — langsung tersimpan ke Inbox tanpa menutup apapun. Cocok untuk menangkap ide cepat.' } },
     { element: '[data-tour="eisenhower"]', popover: { title: '🧭 Eisenhower Matrix', description: 'Task otomatis dikategorikan ke Q1–Q4 setiap 15 menit berdasarkan priority dan deadline. Q1 = kerjakan segera, Q2 = jadwalkan, Q3 = delegasikan, Q4 = eliminasi.' } },

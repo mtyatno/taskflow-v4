@@ -163,6 +163,20 @@ test("Tour Dashboard memperkenalkan bilah ikon & tombol › sebelum langkah menu
   assert.doesNotMatch(expand, /Shared List/);
 });
 
+test("Tour Dashboard: langkah sidebar-shared memakai \"Workspace\" (menunya kini \"Kelola Workspace\")", () => {
+  assert.match(sidebarSource(), /label: "Kelola Workspace",\s*tourId: "sidebar-shared"/);
+  const tourAt = indexHtml.indexOf("const TOUR_STEPS = {");
+  assert.ok(tourAt >= 0, "TOUR_STEPS must exist");
+  const dashAt = indexHtml.indexOf("dashboard: [", tourAt);
+  assert.ok(dashAt > tourAt, "TOUR_STEPS.dashboard must exist");
+  const dash = indexHtml.slice(dashAt, indexHtml.indexOf("\n  ],", dashAt));
+  const shared = dash.split("\n").find(l => l.includes(`'[data-tour="sidebar-shared"]'`));
+  assert.ok(shared, "langkah sidebar-shared harus ada");
+  assert.match(shared, /popover: \{ title: '👥 Workspace', description: 'Kelola workspace bersama — buat Workspace baru, undang anggota, atau bergabung ke workspace milik orang lain\. Cocok untuk kolaborasi tim atau keluarga\.' \}/);
+  assert.doesNotMatch(dash, /'👥 Shared List'/);
+  assert.doesNotMatch(dash, /Shared List/);
+});
+
 test("Tour halaman task list: langkah GTD punya cadangan di tombol › bilah ikon", () => {
   const tourAt = indexHtml.indexOf("const TOUR_STEPS = {");
   assert.ok(tourAt >= 0, "TOUR_STEPS must exist");

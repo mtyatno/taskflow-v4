@@ -13,8 +13,10 @@
 //   - ≤900px: kartu bertumpuk normal tanpa lantai tinggi.
 //   - Modal "Lihat semua" (task) / "+N lainnya" (Disematkan) — satu-satunya jalan ke item ke-4 dst. —
 //     ramah keyboard & pembaca layar: role="dialog" + aria-modal + aria-labelledby, ✕ berlabel &
-//     autoFocus, Esc menutup, fokus kembali ke pemicunya, baris bisa difokus (Tab) & diaktifkan
-//     dengan Enter/Spasi, dengan cincin fokus terlihat.
+//     autoFocus, Esc menutup (hanya bila sasarannya di dialog ini / <body>: Esc di modal lain di
+//     atasnya, mis. pencarian Ctrl+K, cukup menutup modal itu), fokus kembali ke pemicunya kecuali ada
+//     modal lain terbuka (mis. detail task), baris bisa difokus (Tab) & diaktifkan dengan Enter/Spasi,
+//     dengan cincin fokus terlihat. Semua pemicunya ber-aria-haspopup="dialog".
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -24,12 +26,17 @@ const path = require("node:path");
 const indexHtml = fs.readFileSync(path.resolve(__dirname, "../../static/index.html"), "utf8").replace(/\r\n/g, "\n");
 const appCss = fs.readFileSync(path.resolve(__dirname, "../../static/app.css"), "utf8").replace(/\r\n/g, "\n");
 
-function dashboardSource() {
-  const start = indexHtml.indexOf("function Dashboard({");
-  assert.ok(start >= 0, "Dashboard component must exist");
+// Sumber satu komponen top-level: dari `function Name(` sampai `}` penutup di kolom 0.
+function fnSource(signature) {
+  const start = indexHtml.indexOf(signature);
+  assert.ok(start >= 0, `${signature} must exist`);
   const end = indexHtml.indexOf("\n}\n", start);
-  assert.ok(end > start, "Dashboard component end must be found");
+  assert.ok(end > start, `${signature} end must be found`);
   return indexHtml.slice(start, end);
+}
+
+function dashboardSource() {
+  return fnSource("function Dashboard({");
 }
 
 // Isi helper renderPinnedGroup (sub-bagian kartu Disematkan)
@@ -148,7 +155,8 @@ test("app.css: baris utama stretch, Disematkan di alur normal (flex) tanpa gulir
   assert.match(appCss, /\.dash-main\s*\{[^}]*align-items:\s*stretch/);
   assert.doesNotMatch(appCss, /\.dash-main\s*\{[^}]*align-items:\s*start/);
   assert.match(appCss, /\.dash-pin-body\[hidden\]\s*\{\s*display:\s*none/);
-  // Wrapper flex; lantai 352px agar tinggi baris tidak melompat saat berganti grup walau Prioritas pendek.
+  // Wrapper flex; lantai 352px agar tinggi baris tidak melompat saat berganti grup walau Prioritas pendek
+  // (bilah ikon / layar lebar; di ~901–1060px dengan menu lengkap masih bisa berubah — lihat app.css).
   const wrapRules = [...appCss.matchAll(/\.dash-pin-wrap\s*\{([^}]*)\}/g)].map(m => m[1]);
   assert.ok(
     wrapRules.some(b => /display:\s*flex/.test(b) && /min-height:\s*352px/.test(b)),
@@ -178,7 +186,13 @@ test("app.css ≤900px: Disematkan bertumpuk normal tanpa lantai tinggi (tanpa o
   const block = dashMedia900Block();
   assert.ok(block, "@media (max-width: 900px) block with .dash-main must exist");
   assert.match(block, /\.dash-pin-wrap\s*\{[^}]*min-height:\s*0/);
-  assert.doesNotMatch(block, /position:\s*static/);
+  // Hanya aturan Disematkan (.dash-pin*) yang dicek: tanpa override position (dulu `position: static`
+  // pembatal kartu absolut). Aturan lain di blok ini bebas memakai position.
+  const pinRules = [...block.matchAll(/([^{}]*\.dash-pin[^{}]*)\{([^}]*)\}/g)];
+  assert.ok(pinRules.length > 0, "blok ≤900px harus punya aturan .dash-pin*");
+  for (const [, sel, body] of pinRules) {
+    assert.doesNotMatch(body, /(^|[;\s])position\s*:/, `${sel.trim()} tidak boleh mengatur position`);
+  }
   assert.doesNotMatch(block, /\.dash-pin-groups/);
 });
 
@@ -206,17 +220,46 @@ test("Dashboard: modal \"Lihat semua\" / Disematkan ramah keyboard & pembaca lay
   assert.equal(esc.length, 1, "satu efek level atas bergantung pada [dashModal]");
   const body = esc[0].body;
   assert.match(body, /^\s*if \(!dashModal\) return;/);
-  assert.match(body, /if \(e\.key === "Escape"\) setDashModal\(null\);/);
+  // ...tapi hanya bila sasaran keydown ada di dalam dialog ini (ref di elemen dialog, hook level atas)
+  // atau <body>: Esc di modal lain yang terbuka di atasnya (mis. pencarian Ctrl+K) hanya menutup modal itu.
+  assert.match(src, /\n  const dashModalRef = useRef\(null\);/);
+  assert.match(modal, /ref: dashModalRef,\s*className: "modal-content scale-in",\s*role: "dialog",/);
+  assert.match(body, /const onKey = e => \{\s*if \(e\.key !== "Escape"\) return;\s*(?:\/\/[^\n]*\s*)*const t = e\.target;\s*if \(t === document\.body \|\| \(dashModalRef\.current && dashModalRef\.current\.contains\(t\)\)\) setDashModal\(null\);\s*\};/);
+  assert.doesNotMatch(body, /if \(e\.key === "Escape"\) setDashModal\(null\);/);
   assert.match(body, /window\.addEventListener\("keydown", onKey\);/);
   assert.match(body, /window\.removeEventListener\("keydown", onKey\);/);
-  // Fokus kembali ke pemicu (dicatat saat modal dibuka) bila elemen itu masih ada di halaman.
+  // Fokus kembali ke pemicu (dicatat saat modal dibuka) bila elemen itu masih ada di halaman, fokus
+  // lepas ke <body>, dan TIDAK ada modal lain (.modal-overlay) — memilih task membuka detail task
+  // (tanpa mengambil fokus); fokus di pemicu di belakangnya membuat Spasi membuka daftar lagi.
   assert.match(body, /const opener = dashModalOpenerRef\.current;/);
-  assert.match(body, /opener && opener\.isConnected/);
-  assert.match(body, /opener\.focus\(\)/);
+  assert.match(body, /if \(opener && opener\.isConnected && \(!active \|\| active === document\.body\) && !document\.querySelector\("\.modal-overlay"\)\) opener\.focus\(\);/);
   assert.match(src, /const openModal = \(title, cellTasks\) => \{\s*dashModalOpenerRef\.current = document\.activeElement;\s*setDashModal\(\{\s*title,\s*tasks: cellTasks\s*\}\);\s*\};/);
   assert.match(src, /untitled\s*\}\) => \{\s*dashModalOpenerRef\.current = document\.activeElement;\s*setDashModal\(\{\s*title,\s*pins: \{/);
   // Cincin fokus baris modal terlihat (meniru .dash-pin-toggle), juga di dark mode. Offset negatif:
   // baris memenuhi lebar daftar modal yang ber-overflow, cincin di luar baris akan terpotong.
   assert.match(appCss, /\.dash-modal-row:focus-visible\s*\{\s*outline:\s*2px solid #7E9400;\s*outline-offset:\s*-2px;?\s*\}/);
   assert.match(appCss, /\[data-theme="dark"\] \.dash-modal-row:focus-visible\s*\{\s*outline-color:\s*var\(--accent\);?\s*\}/);
+});
+
+test("Dashboard: pemicu modal task (\"+N lagi →\" & \"Lihat semua →\") ber-aria-haspopup=\"dialog\" seperti \"+N lainnya\"", () => {
+  const src = dashboardSource();
+  // Tombol "+N lagi →" kartu Eisenhower/GTD (renderListCard) & Proyek Aktif.
+  const moreOpen = src.match(/onClick: \(\) => openModal\(/g) || [];
+  assert.equal(moreOpen.length, 2, "dua tombol \"+N lagi\" membuka modal task");
+  const morePopup = src.match(/className: "dash-more",\s*"aria-haspopup": "dialog",\s*onClick: \(\) => openModal\(/g) || [];
+  assert.equal(morePopup.length, moreOpen.length, "setiap \"+N lagi\" yang membuka modal ber-aria-haspopup=\"dialog\"");
+  // Link "Lihat semua →" di header kartu yang sama (DashCardHead link/onLink) → prop linkPopup.
+  const linkOpen = src.match(/onLink: \(\) => openModal\(/g) || [];
+  assert.equal(linkOpen.length, 2, "dua link \"Lihat semua\" membuka modal task");
+  const linkPopup = src.match(/linkPopup: "dialog",\s*onLink: \(\) => openModal\(/g) || [];
+  assert.equal(linkPopup.length, linkOpen.length, "setiap \"Lihat semua\" yang membuka modal memberi linkPopup");
+  // Hanya di sana: link yang berpindah halaman (onNav) tetap tanpa aria-haspopup.
+  assert.equal((src.match(/\blinkPopup\b/g) || []).length, 2, "linkPopup hanya di kartu yang link-nya membuka modal");
+  // DashCardHead meneruskan linkPopup ke DashLink → "aria-haspopup" (tanpa prop: undefined → tanpa atribut).
+  const head = fnSource("function DashCardHead({");
+  assert.match(head, /\bonLink,\s*linkPopup\s*\}\)/);
+  assert.match(head, /link && \/\*#__PURE__\*\/React\.createElement\(DashLink, \{\s*onClick: onLink,\s*popup: linkPopup\s*\}, link\)/);
+  const link = fnSource("function DashLink({");
+  assert.match(link, /\{\s*onClick,\s*popup,\s*children\s*\}\)/);
+  assert.match(link, /className: "dash-link",\s*"aria-haspopup": popup,\s*onClick: onClick/);
 });

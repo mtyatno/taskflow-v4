@@ -2352,7 +2352,10 @@
 .dash-meter-cap { font-size: 11.5px; line-height: 14px; color: var(--text-light); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Main row — grid `align-items: stretch`: Prioritas & Disematkan selalu sama tinggi (isi yang lebih
-   tinggi menang, lantai 352px agar baris tidak melompat saat berganti grup walau Prioritas pendek).
+   tinggi menang). Lantai 352px: dengan bilah ikon / di layar lebar, baris tidak melompat saat berganti
+   grup walau Prioritas pendek. Di ~901–1060px dengan menu lengkap terbuka, header grup membungkus
+   sehingga tinggi baris masih bisa berubah (~352–408px) saat berganti grup — diterima: menu terlipat
+   lagi setelah pindah halaman.
    Akordeon membatasi isi Disematkan (3 header + maks. 3 baris + "+N lainnya"), jadi kartu cukup di
    alur normal: tidak pernah ada gulir internal/scrollbar dan tidak ada yang terpotong. */
 .dash-main { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: stretch; }
