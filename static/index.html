@@ -25089,6 +25089,52 @@ function HabitEditModal({
   //   - HabitPage
   // BLOCK LENGTH: ~520 lines (20923-21443)
 
+// Helper: Compute summary statistics from habits array
+function computeHabitSummaryStats(habits) {
+  if (!habits || habits.length === 0) {
+    return {
+      totalActive: 0,
+      completionRate: 0,
+      bestStreak: 0,
+      weekDone: 0,
+      weekTotal: 0
+    };
+  }
+
+  const totalActive = habits.filter(h => !h.archived).length;
+
+  // Count "done" in week_log arrays
+  let weekDone = 0;
+  let weekTotal = 0;
+  habits.forEach(h => {
+    if (h.week_log && Array.isArray(h.week_log)) {
+      h.week_log.forEach(status => {
+        if (status === 'done') weekDone++;
+        if (status !== null) weekTotal++; // Count all logged days
+      });
+    }
+  });
+
+  // If no logged days yet, calculate potential total as habits × 7
+  if (weekTotal === 0) {
+    weekTotal = totalActive * 7;
+  }
+
+  const completionRate = weekTotal > 0
+    ? Math.round((weekDone / weekTotal) * 100)
+    : 0;
+
+  const bestStreak = Math.max(0, ...habits.map(h => h.streak || 0));
+
+  return {
+    totalActive,
+    completionRate,
+    bestStreak,
+    weekDone,
+    weekTotal
+  };
+}
+
 function HabitPage({
   user,
   showToast
