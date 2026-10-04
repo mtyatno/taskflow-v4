@@ -533,6 +533,17 @@ def migrate_db():
                 PRIMARY KEY (conversation_id, user_id)
             )
         """)
+        # Blokir antar-user (bukan per percakapan): berlaku bila SALAH SATU memblokir yang lain.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dm_blocks (
+                blocker_id INTEGER NOT NULL,
+                blocked_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (blocker_id, blocked_id),
+                FOREIGN KEY (blocker_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (blocked_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -2708,6 +2719,24 @@ def _dm_get_conv_or_404(conn, conv_id: int, uid: int):
     return row
 
 
+DM_BLOCKED_DETAIL = "Obrolan ini diblokir"
+
+
+def _dm_block_flags(conn, uid: int, other_id: int) -> tuple[bool, bool]:
+    """(blocked_by_me, blocked_by_other)."""
+    rows = conn.execute(
+        "SELECT blocker_id FROM dm_blocks WHERE (blocker_id = ? AND blocked_id = ?) "
+        "OR (blocker_id = ? AND blocked_id = ?)",
+        (uid, other_id, other_id, uid),
+    ).fetchall()
+    blockers = {r[0] for r in rows}
+    return uid in blockers, other_id in blockers
+
+
+def _dm_other_id(conv, uid: int) -> int:
+    return conv["user_b"] if conv["user_a"] == uid else conv["user_a"]
+
+
 def _dm_conv_to_dict(conn, conv, uid: int) -> dict:
     other_id = conv["user_b"] if conv["user_a"] == uid else conv["user_a"]
     other = conn.execute(
@@ -2726,6 +2755,7 @@ def _dm_conv_to_dict(conn, conv, uid: int) -> dict:
         "SELECT COUNT(*) FROM dm_messages WHERE conversation_id = ? AND user_id != ? AND id > ?",
         (conv["id"], uid, read["last_read_id"] if read else 0),
     ).fetchone()[0]
+    blocked_by_me, blocked_by_other = _dm_block_flags(conn, uid, other_id)
     return {
         "id": conv["id"],
         "other_user": dict(other) if other else {"id": other_id, "username": "?", "display_name": None},
@@ -2733,6 +2763,8 @@ def _dm_conv_to_dict(conn, conv, uid: int) -> dict:
         "unread": unread,
         "last_message_at": conv["last_message_at"],
         "created_at": conv["created_at"],
+        "blocked_by_me": blocked_by_me,
+        "blocked_by_other": blocked_by_other,
     }
 
 
@@ -2788,6 +2820,8 @@ async def dm_create_conversation(req: DmConversationCreate, user=Depends(get_cur
             "SELECT * FROM dm_conversations WHERE user_a = ? AND user_b = ?", (a, b)
         ).fetchone()
         if not conv:
+            if any(_dm_block_flags(conn, uid, other_id)):
+                raise HTTPException(status_code=403, detail=DM_BLOCKED_DETAIL)
             if not _dm_share_list(conn, uid, other_id):
                 raise HTTPException(
                     status_code=403,
@@ -2829,6 +2863,9 @@ async def dm_post_message(conv_id: int, req: DmMessageCreate, user=Depends(get_c
     now = datetime.now().isoformat()
     with get_db() as conn:
         conv = _dm_get_conv_or_404(conn, conv_id, uid)
+        if any(_dm_block_flags(conn, uid, _dm_other_id(conv, uid))):
+            # Tanpa simpan, tanpa notifikasi, tanpa siaran SSE.
+            raise HTTPException(status_code=403, detail=DM_BLOCKED_DETAIL)
         if req.reply_to_id is not None:
             ok = conn.execute(
                 "SELECT 1 FROM dm_messages WHERE id = ? AND conversation_id = ?",
@@ -2884,6 +2921,32 @@ async def dm_mark_read(conv_id: int, user=Depends(get_current_user)):
             (conv_id, uid, last_id),
         )
     return {"ok": True, "last_read_id": last_id}
+
+
+@app.post("/api/dm/conversations/{conv_id}/block")
+async def dm_block(conv_id: int, user=Depends(get_current_user)):
+    """Blokir peserta lain percakapan ini. Idempoten."""
+    uid = user["sub"]
+    with get_db() as conn:
+        conv = _dm_get_conv_or_404(conn, conv_id, uid)
+        conn.execute(
+            "INSERT OR IGNORE INTO dm_blocks (blocker_id, blocked_id, created_at) VALUES (?,?,?)",
+            (uid, _dm_other_id(conv, uid), datetime.now().isoformat()),
+        )
+        return _dm_conv_to_dict(conn, conv, uid)
+
+
+@app.delete("/api/dm/conversations/{conv_id}/block")
+async def dm_unblock(conv_id: int, user=Depends(get_current_user)):
+    """Buka blokir saya terhadap peserta lain (blokir dari pihak lain tidak tersentuh). Idempoten."""
+    uid = user["sub"]
+    with get_db() as conn:
+        conv = _dm_get_conv_or_404(conn, conv_id, uid)
+        conn.execute(
+            "DELETE FROM dm_blocks WHERE blocker_id = ? AND blocked_id = ?",
+            (uid, _dm_other_id(conv, uid)),
+        )
+        return _dm_conv_to_dict(conn, conv, uid)
 
 
 @app.get("/api/dm/conversations/{conv_id}/stream")

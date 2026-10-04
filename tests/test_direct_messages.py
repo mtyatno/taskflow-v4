@@ -307,3 +307,122 @@ def test_notification_uses_db_username_after_rename(client):
     _send(a, cid, "lagi")
     rows = _rows("SELECT message FROM notifications WHERE user_id = ? AND message LIKE '%pesan pribadi%'", b.id)
     assert [r["message"] for r in rows] == [f"💬 {new_name} mengirim pesan pribadi"]
+
+
+# ── Blokir ───────────────────────────────────────────────────────────────────
+
+def _block(u, cid):
+    r = u.post(f"/api/dm/conversations/{cid}/block")
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _unblock(u, cid):
+    r = u.delete(f"/api/dm/conversations/{cid}/block")
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_block_table_created():
+    cols = {r["name"] for r in _rows("PRAGMA table_info(dm_blocks)")}
+    assert {"blocker_id", "blocked_id", "created_at"} <= cols
+
+
+def test_block_prevents_sending_both_directions(client):
+    a, b = U(client), U(client)
+    _mk_list(a, b)
+    cid = _open(a, b)["id"]
+    _send(a, cid, "sebelum blokir")
+    _block(a, cid)
+    _block(a, cid)  # idempoten
+    assert len(_rows("SELECT 1 FROM dm_blocks WHERE blocker_id = ? AND blocked_id = ?", a.id, b.id)) == 1
+    for u in (a, b):
+        r = u.post(f"/api/dm/conversations/{cid}/messages", json={"content": "x"})
+        assert r.status_code == 403
+        assert r.json()["detail"] == "Obrolan ini diblokir"
+    # riwayat tetap terbaca kedua pihak
+    for u in (a, b):
+        msgs = u.get(f"/api/dm/conversations/{cid}/messages").json()
+        assert [m["content"] for m in msgs] == ["sebelum blokir"]
+
+
+def test_blocked_send_no_notification_or_broadcast(client):
+    import asyncio
+    a, b = U(client), U(client)
+    _mk_list(a, b)
+    cid = _open(a, b)["id"]
+    _block(b, cid)
+    q = asyncio.Queue()
+    entry = (b.id, q)
+    webapp.dm_subscribers[cid].add(entry)
+    try:
+        assert a.post(f"/api/dm/conversations/{cid}/messages", json={"content": "x"}).status_code == 403
+    finally:
+        webapp.dm_subscribers[cid].discard(entry)
+    assert q.empty()
+    assert not _rows("SELECT id FROM notifications WHERE user_id = ? AND message LIKE '%pesan pribadi%'", b.id)
+    assert not _rows("SELECT id FROM dm_messages WHERE conversation_id = ?", cid)
+
+
+def test_block_flags_in_list_and_create(client):
+    a, b = U(client), U(client)
+    _mk_list(a, b)
+    cid = _open(a, b)["id"]
+    ca = _conv(a, cid)
+    assert ca["blocked_by_me"] is False and ca["blocked_by_other"] is False
+    _block(a, cid)
+    ca, cb = _conv(a, cid), _conv(b, cid)
+    assert ca["blocked_by_me"] is True and ca["blocked_by_other"] is False
+    assert cb["blocked_by_me"] is False and cb["blocked_by_other"] is True
+    # percakapan yang sudah ada tetap dikembalikan, dengan flag
+    r = b.post("/api/dm/conversations", json={"user_id": a.id})
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == cid and r.json()["blocked_by_other"] is True
+    assert a.post("/api/dm/conversations", json={"user_id": b.id}).json()["blocked_by_me"] is True
+
+
+def test_block_prevents_new_conversation(client):
+    a, b, c = U(client), U(client), U(client)
+    _mk_list(a, b, c)
+    ab = _open(a, b)["id"]
+    _block(a, ab)
+    # blokir antar user (bukan per percakapan): hapus percakapan → membuat baru ditolak kedua arah
+    _exec_sql("DELETE FROM dm_conversations WHERE id = ?", ab)
+    assert a.post("/api/dm/conversations", json={"user_id": b.id}).status_code == 403
+    assert b.post("/api/dm/conversations", json={"user_id": a.id}).status_code == 403
+    assert a.post("/api/dm/conversations", json={"user_id": c.id}).status_code == 200
+
+
+def test_block_non_participant_404(client):
+    a, b, c = U(client), U(client), U(client)
+    _mk_list(a, b, c)
+    cid = _open(a, b)["id"]
+    assert c.post(f"/api/dm/conversations/{cid}/block").status_code == 404
+    assert c.delete(f"/api/dm/conversations/{cid}/block").status_code == 404
+    assert a.post("/api/dm/conversations/99999999/block").status_code == 404
+
+
+def test_unblock_restores_sending(client):
+    a, b = U(client), U(client)
+    _mk_list(a, b)
+    cid = _open(a, b)["id"]
+    _block(a, cid)
+    _block(b, cid)
+    _unblock(a, cid)
+    _unblock(a, cid)  # idempoten
+    # b masih memblokir a → tetap diblokir
+    assert a.post(f"/api/dm/conversations/{cid}/messages", json={"content": "x"}).status_code == 403
+    assert b.delete(f"/api/dm/conversations/{cid}/block").status_code == 200
+    _send(a, cid, "pulih")
+    _send(b, cid, "ya")
+    ca = _conv(a, cid)
+    assert ca["blocked_by_me"] is False and ca["blocked_by_other"] is False
+
+
+def _exec_sql(sql, *params):
+    conn = db()
+    try:
+        conn.execute(sql, params)
+        conn.commit()
+    finally:
+        conn.close()

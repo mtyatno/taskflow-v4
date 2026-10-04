@@ -123,3 +123,35 @@ test("DM input placeholder is short (no wrap on 390px)", () => {
   assert.match(src, /placeholder: `Pesan untuk \$\{otherName\}\.\.\.`/);
   assert.ok(!src.includes("Shift+Enter untuk baris baru)`"));
 });
+
+test("DmRoom header ⋯ menu toggles Blokir / Buka blokir with confirm before blocking", () => {
+  const src = fnSource("DmRoom");
+  assert.match(src, /className: "dm-menu-btn"/);
+  assert.match(src, /\\u22EF|⋯/);
+  assert.match(src, /`Blokir \$\{otherName\}`/);
+  assert.match(src, /"Buka blokir"/);
+  assert.match(src, /window\.confirm\(`Blokir \$\{otherName\}\? Kalian berdua tidak bisa saling mengirim pesan sampai blokir dibuka\.`\)/);
+  assert.match(src, /api\.post\(`\/api\/dm\/conversations\/\$\{conv\.id\}\/block`/);
+  assert.match(src, /api\.del\(`\/api\/dm\/conversations\/\$\{conv\.id\}\/block`\)/);
+  assert.match(src, /applyBlockResponse[\s\S]*?onActivity && onActivity\(\)/, "refresh list after block/unblock");
+});
+
+test("DmRoom replaces input with blocked notice", () => {
+  const src = fnSource("DmRoom");
+  assert.match(src, /isBlocked \? \/\*#__PURE__\*\/React\.createElement\("div", \{\s*className: "chat-input-bar dm-blocked-notice"/);
+  assert.match(src, /"Kamu memblokir ", otherName, "\."/);
+  assert.match(src, /"Kamu tidak bisa membalas obrolan ini\."/);
+  assert.match(src, /onBlocked: handleBlockedSend/);
+  assert.match(src, /blocked_by_me/);
+  assert.match(src, /blocked_by_other/);
+});
+
+test("DmInputBar handles 403 blocked send", () => {
+  const src = fnSource("DmInputBar");
+  assert.match(src, /err\.status === 403 && err\.message === "Obrolan ini diblokir" && onBlocked/);
+});
+
+test("ChatPage passes refreshed conversation (block flags) to DmRoom", () => {
+  const src = fnSource("ChatPage");
+  assert.match(src, /conv: dmConversations\.find\(c => c\.id === selected\.id\) \|\| selected\.conv/);
+});

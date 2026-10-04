@@ -13836,7 +13836,7 @@ function ChatPage({
     onBack: () => setSelected(null)
   }) : selected && selected.kind === "dm" ? /*#__PURE__*/React.createElement(DmRoom, {
     key: "d" + selected.id,
-    conv: selected.conv,
+    conv: dmConversations.find(c => c.id === selected.id) || selected.conv,
     user: user,
     showToast: showToast,
     onBack: () => {
@@ -14666,9 +14666,57 @@ function DmRoom({
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [replyTo, setReplyTo] = useState(null);
+  // Status blokir: dari prop conv (daftar di-refresh) + respons block/unblock.
+  const [block, setBlock] = useState({
+    blocked_by_me: !!conv.blocked_by_me,
+    blocked_by_other: !!conv.blocked_by_other
+  });
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
+  useEffect(() => {
+    setBlock({
+      blocked_by_me: !!conv.blocked_by_me,
+      blocked_by_other: !!conv.blocked_by_other
+    });
+  }, [conv.blocked_by_me, conv.blocked_by_other]);
   const messagesEndRef = useRef(null);
   const other = conv.other_user || {};
   const otherName = dmUserName(other);
+  const isBlocked = block.blocked_by_me || block.blocked_by_other;
+  const applyBlockResponse = res => {
+    if (res && typeof res.blocked_by_me === "boolean") setBlock({
+      blocked_by_me: res.blocked_by_me,
+      blocked_by_other: !!res.blocked_by_other
+    });
+    onActivity && onActivity();
+  };
+  const toggleBlock = async () => {
+    setMenuOpen(false);
+    if (blockBusy) return;
+    const blocking = !block.blocked_by_me;
+    if (blocking && !window.confirm(`Blokir ${otherName}? Kalian berdua tidak bisa saling mengirim pesan sampai blokir dibuka.`)) return;
+    setBlockBusy(true);
+    try {
+      const res = blocking ? await api.post(`/api/dm/conversations/${conv.id}/block`, {}) : await api.del(`/api/dm/conversations/${conv.id}/block`);
+      applyBlockResponse(res);
+      setReplyTo(null);
+      showToast(blocking ? `${otherName} diblokir` : `Blokir ${otherName} dibuka`, "success");
+    } catch (err) {
+      showToast(isOfflineErr(err) ? "Pesan pribadi butuh koneksi internet" : err.message, "error");
+    } finally {
+      setBlockBusy(false);
+    }
+  };
+  // Kirim ditolak 403 "Obrolan ini diblokir": pihak lain memblokir (blokir dari saya sudah tampil).
+  const handleBlockedSend = () => {
+    setBlock(b => b.blocked_by_me ? b : {
+      ...b,
+      blocked_by_other: true
+    });
+    setReplyTo(null);
+    showToast("Obrolan ini diblokir", "error");
+    onActivity && onActivity();
+  };
   const isMe = id => String(id) === String(user && user.id);
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({
@@ -14791,7 +14839,67 @@ function DmRoom({
     className: "header-name"
   }, otherName), /*#__PURE__*/React.createElement("div", {
     className: "header-meta"
-  }, "Pesan pribadi", other.username ? ` \xB7 @${other.username}` : ""))), /*#__PURE__*/React.createElement("div", {
+  }, "Pesan pribadi", other.username ? ` \xB7 @${other.username}` : "")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "dm-menu-btn",
+    onClick: () => setMenuOpen(v => !v),
+    "aria-haspopup": "menu",
+    "aria-expanded": menuOpen,
+    style: {
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      color: "var(--text-secondary)",
+      fontSize: 20,
+      padding: "4px 6px",
+      borderRadius: 8,
+      lineHeight: 1
+    },
+    title: "Opsi"
+  }, "\u22EF"), menuOpen && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    onClick: () => setMenuOpen(false),
+    style: {
+      position: "fixed",
+      inset: 0,
+      zIndex: 40
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "dm-menu",
+    role: "menu",
+    style: {
+      position: "absolute",
+      right: 0,
+      top: "100%",
+      marginTop: 4,
+      zIndex: 41,
+      minWidth: 180,
+      background: "var(--bg-card)",
+      border: "1px solid var(--border)",
+      borderRadius: 10,
+      boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
+      padding: 4
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    role: "menuitem",
+    className: "dm-block-toggle",
+    onClick: toggleBlock,
+    disabled: blockBusy,
+    style: {
+      display: "block",
+      width: "100%",
+      textAlign: "left",
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      padding: "8px 10px",
+      borderRadius: 7,
+      fontSize: 13.5,
+      color: block.blocked_by_me ? "var(--text-primary)" : "#dc2626"
+    }
+  }, block.blocked_by_me ? "Buka blokir" : `Blokir ${otherName}`))))), /*#__PURE__*/React.createElement("div", {
     className: "chat-messages"
   }, hasMore && /*#__PURE__*/React.createElement("div", {
     style: {
@@ -14869,7 +14977,7 @@ function DmRoom({
       className: "quote-sender"
     }, msg.reply_to_display_name || msg.reply_to_username), /*#__PURE__*/React.createElement("div", {
       className: "quote-text"
-    }, msg.reply_to_content)), renderMessageContent(msg.content, user.username), /*#__PURE__*/React.createElement("button", {
+    }, msg.reply_to_content)), renderMessageContent(msg.content, user.username), !isBlocked && /*#__PURE__*/React.createElement("button", {
       className: "chat-reply-btn",
       onClick: e => {
         e.stopPropagation();
@@ -14889,9 +14997,25 @@ function DmRoom({
     }, formatTime(msg.created_at)))));
   }), /*#__PURE__*/React.createElement("div", {
     ref: messagesEndRef
-  })), /*#__PURE__*/React.createElement(DmInputBar, {
+  })), isBlocked ? /*#__PURE__*/React.createElement("div", {
+    className: "chat-input-bar dm-blocked-notice",
+    role: "status",
+    style: {
+      justifyContent: "center",
+      alignItems: "center",
+      gap: 10,
+      flexWrap: "wrap",
+      fontSize: 13,
+      color: "var(--text-secondary)"
+    }
+  }, block.blocked_by_me ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", null, "Kamu memblokir ", otherName, "."), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    onClick: toggleBlock,
+    disabled: blockBusy
+  }, "Buka blokir")) : /*#__PURE__*/React.createElement("span", null, "Kamu tidak bisa membalas obrolan ini.")) : /*#__PURE__*/React.createElement(DmInputBar, {
     conv: conv,
     otherName: otherName,
+    onBlocked: handleBlockedSend,
     onSent: msg => {
       setMessages(prev => dmMergeMessage(prev, msg));
       setTimeout(scrollToBottom, 30);
@@ -14905,6 +15029,7 @@ function DmRoom({
 function DmInputBar({
   conv,
   otherName,
+  onBlocked,
   onSent,
   showToast,
   replyTo,
@@ -14930,7 +15055,7 @@ function DmInputBar({
       onSent(msg);
       textareaRef.current?.focus();
     } catch (err) {
-      showToast(isOfflineErr(err) ? "Pesan pribadi butuh koneksi internet" : err.message, "error");
+      if (err && err.status === 403 && err.message === "Obrolan ini diblokir" && onBlocked) onBlocked();else showToast(isOfflineErr(err) ? "Pesan pribadi butuh koneksi internet" : err.message, "error");
     } finally {
       setSending(false);
     }

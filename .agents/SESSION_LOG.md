@@ -2082,3 +2082,9 @@
 - **Verifikasi:** pytest 115 passed; JS 905 pass / 1 fail pra-ada; inline 5/5; `node --check sw.js` OK.
 - **Files Touch:** `webapp.py`, `static/index.html`, `tests/test_direct_messages.py`, `tests/offline/direct_messages_ui.test.js`, `.agents/*`
 - **Status:** Needs Review (belum commit).
+
+## [2026-10-04] - Claude (Blokir DM)
+- **Task:** Tambah Blokir/Buka blokir di pesan pribadi (disetujui pemilik produk).
+- **Changes:** `dm_blocks` + endpoint block/unblock + pengecekan blokir di kirim & create + flag di respons (webapp.py); menu ⋯, pemberitahuan blokir, penanganan 403 (index.html); spec, ADR-005, tes pytest (7) & statis (4).
+- **Files Touch:** `webapp.py`, `static/index.html`, `tests/test_direct_messages.py`, `tests/offline/direct_messages_ui.test.js`, `docs/superpowers/specs/2026-10-03-direct-messages-design.md`, `.agents/*`
+- **Status:** Needs Review (belum commit).
