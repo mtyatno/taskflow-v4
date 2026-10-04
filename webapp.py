@@ -3249,6 +3249,43 @@ async def get_habit_logs(since: str = "", user=Depends(get_current_user)):
     return [dict(r) for r in rows]
 
 
+@app.get("/api/habits/monthly-completion")
+async def get_habits_monthly_completion(user=Depends(get_current_user)):
+    """
+    Returns daily habit completion data for the last 30 days.
+    Used for calendar heatmap visualization.
+    """
+    uid = user["sub"]
+    with get_db() as conn:
+        # Get daily completion stats for the last 30 days
+        # Uses habit_logs table (habit_id, date, status)
+        query = """
+        SELECT
+            hl.date as date,
+            COUNT(DISTINCT hl.habit_id) as total_habits,
+            SUM(CASE WHEN hl.status = 'done' THEN 1 ELSE 0 END) as done_count
+        FROM habit_logs hl
+        JOIN habits h ON h.id = hl.habit_id
+        WHERE h.user_id = ?
+          AND hl.date >= DATE('now', '-30 days')
+        GROUP BY hl.date
+        ORDER BY hl.date DESC
+        """
+
+        rows = conn.execute(query, (uid,)).fetchall()
+
+        days = [
+            {
+                "date": row["date"],
+                "total_habits": row["total_habits"],
+                "done_count": row["done_count"]
+            }
+            for row in rows
+        ]
+
+        return {"days": days}
+
+
 @app.post("/api/habits/{habit_id}/checkin")
 async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_current_user)):
     uid = user["sub"]
