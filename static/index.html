@@ -24584,6 +24584,16 @@ function HabitCheckinModal({
     onClick: () => setShowSkipInput(true)
   }, "\u21B7 Skip"))));
 }
+
+// Helper: Extract last 30 days of data for a specific habit
+function getHabit30DayData(habitId, habitLogs) {
+  // habitLogs is the habit's own log history
+  // For now, we'll derive from week_log (7 days only)
+  // Full implementation needs backend to return per-habit 30-day data
+  // TEMPORARY: return empty array, will be filled in next task
+  return [];
+}
+
 function HabitCard({
   h,
   DAY_LABELS,
@@ -24598,21 +24608,19 @@ function HabitCard({
   const closeMenu = () => setMenuOpen(false);
   const [habitTags, setHabitTags] = useState([]);
   const [tagsExpanded, setTagsExpanded] = useState(false);
+
   useEffect(() => {
     if (h?.id && !String(h.id).startsWith("tmp_")) {
       api.get(`/api/habits/${h.id}/tags`).then(data => setHabitTags(data || [])).catch(() => {});
     }
   }, [h?.id]);
+
+  // Get 30-day data for mini heatmap
+  const habit30DayData = getHabit30DayData(h.id, []); // Empty for now
+
   return /*#__PURE__*/React.createElement("div", {
-    className: "habit-card fade-in",
-      "data-tour": "habit-card",
-    style: {
-      position: "relative",
-      zIndex: menuOpen ? 10 : "auto"
-    },
-    onClick: () => {
-      if (!menuOpen) onCheckin(h);
-    }
+    className: "habit-card-new fade-in",
+    "data-tour": "habit-card"
   }, menuOpen && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "fixed",
@@ -24623,28 +24631,22 @@ function HabitCard({
       e.stopPropagation();
       closeMenu();
     }
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "habit-card-inner"
+  }),
+
+  /* Info section (left) */
+  /*#__PURE__*/React.createElement("div", {
+    className: "habit-card-info-new"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "habit-card-info"
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontWeight: 700,
-      fontSize: 15,
-      marginBottom: h.micro_target ? 3 : 0
-    }
+    className: "habit-card-title-new"
   }, h.title, h._pending && /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 10,
       color: "var(--text-light)",
       marginLeft: 6
     }
-  }, "\u23F3")), h.micro_target && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-secondary)"
-    }
-  }, "\uD83C\uDFAF ", h.micro_target), habitTags.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "⏳")), h.micro_target && /*#__PURE__*/React.createElement("div", {
+    className: "habit-card-micro-new"
+  }, "🎯 ", h.micro_target), habitTags.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexWrap: "wrap",
@@ -24670,13 +24672,9 @@ function HabitCard({
       padding: "1px 7px 1px 5px",
       cursor: "pointer",
       userSelect: "none"
-    },
-    onMouseEnter: e => e.currentTarget.style.background = "rgba(168,197,0,0.22)",
-    onMouseLeave: e => e.currentTarget.style.background = "rgba(168,197,0,0.10)"
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      opacity: 0.7
     }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: { opacity: 0.7 }
   }, "#"), tag.name, /*#__PURE__*/React.createElement("span", {
     onClick: e => {
       e.stopPropagation();
@@ -24692,16 +24690,8 @@ function HabitCard({
       fontSize: 12,
       lineHeight: 1,
       cursor: "pointer"
-    },
-    onMouseEnter: e => {
-      e.stopPropagation();
-      e.currentTarget.style.opacity = "1";
-    },
-    onMouseLeave: e => {
-      e.stopPropagation();
-      e.currentTarget.style.opacity = "0.5";
     }
-  }, "\xD7"))), habitTags.length > 3 && /*#__PURE__*/React.createElement("span", {
+  }, "×"))), habitTags.length > 3 && /*#__PURE__*/React.createElement("span", {
     onClick: () => setTagsExpanded(e => !e),
     style: {
       fontSize: 10,
@@ -24711,43 +24701,35 @@ function HabitCard({
       borderRadius: 999,
       border: "1px solid var(--border)"
     }
-  }, tagsExpanded ? "‹" : `+${habitTags.length - 3}`))), /*#__PURE__*/React.createElement("div", {
-    className: "habit-card-grid",
-    "data-tour": "habit-streak"
-  }, DAY_LABELS.map((d, i) => {
-    const s = (h.week_log || [])[i];
-    const isToday = i === todayDow;
-    const cls = s === "done" ? "done" : s === "skipped" ? "skipped" : s === "missed" ? "missed" : "";
-    return /*#__PURE__*/React.createElement("div", {
-      key: i,
-      className: "habit-week-col"
-    }, /*#__PURE__*/React.createElement("div", {
-      className: `habit-week-label${isToday ? " today" : ""}`
-    }, d), /*#__PURE__*/React.createElement("div", {
-      className: `habit-week-box${cls ? " " + cls : ""}`,
-      style: isToday && !cls ? {
-        borderColor: "#818cf8",
-        borderWidth: 2
-      } : {}
-    }, s === "done" ? "✓" : ""));
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "habit-streak"
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 16
+  }, tagsExpanded ? "‹" : `+${habitTags.length - 3}`))),
+
+  /* Mini heatmap (center-right) */
+  /*#__PURE__*/React.createElement(MiniHeatmap, {
+    habitId: h.id,
+    habitData: habit30DayData
+  }),
+
+  /* Check today button */
+  /*#__PURE__*/React.createElement("button", {
+    className: `habit-check-btn ${h.today_status || 'empty'}`,
+    onClick: e => {
+      e.stopPropagation();
+      onCheckin(h);
     }
-  }, "\uD83D\uDD25"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 700,
-      color: h.streak > 0 ? "var(--accent)" : "var(--text-light)"
-    }
-  }, h.streak || 0)), !h._pending && /*#__PURE__*/React.createElement("div", {
-    className: "habit-card-menu",
+  }, h.today_status === 'done' ? '✓' : h.today_status === 'skipped' ? '−' : '+'),
+
+  /* Streak badge */
+  /*#__PURE__*/React.createElement("div", {
+    className: `habit-streak-badge${h.streak > 0 ? ' active' : ''}`
+  }, /*#__PURE__*/React.createElement("span", null, "🔥"), /*#__PURE__*/React.createElement("span", null, h.streak || 0)),
+
+  /* Menu button */
+  !h._pending && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "relative",
       zIndex: 10,
-      marginLeft: 6
+      marginLeft: 6,
+      flexShrink: 0
     },
     onClick: e => e.stopPropagation()
   }, /*#__PURE__*/React.createElement("button", {
@@ -24762,7 +24744,7 @@ function HabitCard({
       lineHeight: 1
     },
     onClick: () => setMenuOpen(p => !p)
-  }, "\u22EE"), menuOpen && /*#__PURE__*/React.createElement("div", {
+  }, "⋮"), menuOpen && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "absolute",
       right: 0,
@@ -24791,7 +24773,7 @@ function HabitCard({
       closeMenu();
       onEdit(h);
     }
-  }, "\u270F\uFE0F Edit"), /*#__PURE__*/React.createElement("button", {
+  }, "✏️ Edit"), /*#__PURE__*/React.createElement("button", {
     style: {
       display: "block",
       width: "100%",
@@ -24805,10 +24787,20 @@ function HabitCard({
     },
     onClick: () => {
       closeMenu();
-      onDelete(h.id);
+      if (confirm(`Hapus habit "${h.title}"?`)) {
+        onDelete(h.id);
+      }
     }
-  }, "\uD83D\uDDD1\uFE0F Hapus")))));
+  }, "🗑 Hapus"))));
 }
+
+// OLD HabitCard — backup
+/*
+function HabitCard_OLD() {
+  // Backed up - see git history for full implementation
+}
+*/
+
 function HabitEditModal({
   habit,
   onClose,
