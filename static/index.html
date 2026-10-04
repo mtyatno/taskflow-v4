@@ -13434,6 +13434,8 @@ function Dashboard({
   //   - ChatRoom
   //   - AttachPopup
   //   - ChatInputBar
+  //   - dmUserName, ChatListSectionHeader (Grup / Pesan Pribadi)
+  //   - DmRoom, DmInputBar, DmContactPicker (Pesan Pribadi, online-only /api/dm/*)
   // BLOCK LENGTH: ~956 lines (12829-13779) — ChatPage is the main entry
 
 function avatarColor(str) {
@@ -13442,15 +13444,90 @@ function avatarColor(str) {
   for (let i = 0; i < (str || "?").length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash) | 0;
   return palette[Math.abs(hash) % palette.length];
 }
+// Nama tampilan lawan bicara DM (display_name bila ada, else username).
+function dmUserName(u) {
+  return (u && (u.display_name || u.username)) || "?";
+}
+function ChatListSectionHeader({
+  label,
+  collapsed,
+  action
+}) {
+  if (collapsed) return action ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "center",
+      padding: "6px 0",
+      borderBottom: "1px solid var(--border)"
+    }
+  }, action) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderBottom: "1px solid var(--border)",
+      height: 6
+    }
+  });
+  return /*#__PURE__*/React.createElement("div", {
+    className: "chat-list-section",
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "8px 14px 6px",
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: 0.4,
+      textTransform: "uppercase",
+      color: "var(--text-light)",
+      borderBottom: "1px solid var(--border)",
+      background: "var(--bg-card)"
+    }
+  }, /*#__PURE__*/React.createElement("span", null, label), action);
+}
 function ChatListPanel({
   lists,
-  selectedId,
+  dmConversations,
+  selected,
   onSelect,
+  onSelectDm,
+  onNewDm,
   collapsed,
   onToggle
 }) {
   const [query, setQuery] = React.useState("");
-  const filtered = query.trim() ? lists.filter(l => l.name.toLowerCase().includes(query.toLowerCase())) : lists;
+  const dms = dmConversations || [];
+  const q = query.trim().toLowerCase();
+  const filtered = q ? lists.filter(l => l.name.toLowerCase().includes(q)) : lists;
+  const filteredDms = q ? dms.filter(c => {
+    const o = c.other_user || {};
+    return (o.username || "").toLowerCase().includes(q) || (o.display_name || "").toLowerCase().includes(q);
+  }) : dms;
+  const isSel = (kind, id) => !!selected && selected.kind === kind && selected.id === id;
+  const newDmBtn = /*#__PURE__*/React.createElement("button", {
+    onClick: e => {
+      e.stopPropagation();
+      onNewDm && onNewDm();
+    },
+    title: "Mulai pesan pribadi",
+    "aria-label": "Mulai pesan pribadi",
+    style: {
+      background: "none",
+      border: "1px solid var(--border)",
+      cursor: "pointer",
+      color: "var(--accent)",
+      fontSize: 14,
+      fontWeight: 700,
+      padding: "1px 7px",
+      borderRadius: 7,
+      lineHeight: 1.2
+    }
+  }, "＋");
+  const emptyMsg = (text) => /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 14px",
+      color: "var(--text-light)",
+      fontSize: 12.5
+    }
+  }, text);
   return /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -13493,7 +13570,7 @@ function ChatListPanel({
       marginRight: collapsed ? "auto" : 0,
       transition: "all 0.15s"
     }
-  }, collapsed ? "▶" : "◀")), !collapsed && lists.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, collapsed ? "▶" : "◀")), !collapsed && (lists.length > 0 || dms.length > 0) && /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "8px 10px",
       borderBottom: "1px solid var(--border)",
@@ -13521,7 +13598,7 @@ function ChatListPanel({
   }, "🔍"), /*#__PURE__*/React.createElement("input", {
     value: query,
     onChange: e => setQuery(e.target.value),
-    placeholder: "Cari list...",
+    placeholder: "Cari grup atau orang...",
     style: {
       width: "100%",
       background: "transparent",
@@ -13549,7 +13626,10 @@ function ChatListPanel({
       overflowY: "auto",
       scrollbarWidth: "none"
     }
-  }, lists.length === 0 && !collapsed && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(ChatListSectionHeader, {
+    label: "Grup",
+    collapsed: collapsed
+  }), lists.length === 0 && !collapsed && /*#__PURE__*/React.createElement("div", {
     style: {
       padding: 20,
       color: "var(--text-light)",
@@ -13561,16 +13641,9 @@ function ChatListPanel({
       fontSize: 28,
       marginBottom: 8
     }
-  }, "📋"), "Belum ada shared list.", /*#__PURE__*/React.createElement("br", null), "Buat atau bergabung dulu."), filtered.length === 0 && query.trim() && !collapsed && /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: 20,
-      color: "var(--text-light)",
-      fontSize: 13,
-      textAlign: "center"
-    }
-  }, "Tidak ada hasil untuk", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("b", null, "\"", query, "\"")), filtered.map(l => /*#__PURE__*/React.createElement("div", {
-    key: l.id,
-    className: `chat-list-item${selectedId === l.id ? " active" : ""}`,
+  }, "📋"), "Belum ada shared list.", /*#__PURE__*/React.createElement("br", null), "Buat atau bergabung dulu."), lists.length > 0 && filtered.length === 0 && q && !collapsed && emptyMsg("Tidak ada grup yang cocok"), filtered.map(l => /*#__PURE__*/React.createElement("div", {
+    key: "g" + l.id,
+    className: `chat-list-item${isSel("group", l.id) ? " active" : ""}`,
     onClick: () => onSelect(l),
     title: collapsed ? l.name : undefined,
     style: {
@@ -13601,8 +13674,80 @@ function ChatListPanel({
       fontSize: 11,
       color: "var(--text-light)"
     }
-  }, l.role === "owner" ? "Owner" : "Member"))))));
+  }, l.role === "owner" ? "Owner" : "Member")))), /*#__PURE__*/React.createElement(ChatListSectionHeader, {
+    label: "Pesan Pribadi",
+    collapsed: collapsed,
+    action: onNewDm ? newDmBtn : null
+  }), dms.length === 0 && !collapsed && emptyMsg("Belum ada pesan pribadi. Tekan ＋ untuk memulai."), dms.length > 0 && filteredDms.length === 0 && q && !collapsed && emptyMsg("Tidak ada orang yang cocok"), filteredDms.map(c => {
+    const name = dmUserName(c.other_user);
+    const active = isSel("dm", c.id);
+    const unread = active ? 0 : c.unread || 0;
+    const last = c.last_message;
+    const preview = last ? (last.user_id === (c.other_user && c.other_user.id) ? "" : "Kamu: ") + last.content : "Belum ada pesan";
+    return /*#__PURE__*/React.createElement("div", {
+      key: "d" + c.id,
+      className: `chat-list-item dm-list-item${active ? " active" : ""}`,
+      onClick: () => onSelectDm(c),
+      title: collapsed ? name : undefined,
+      style: {
+        justifyContent: collapsed ? "center" : undefined,
+        padding: collapsed ? "10px" : undefined,
+        position: "relative"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "chat-list-avatar",
+      style: {
+        background: avatarColor((c.other_user && c.other_user.username) || name),
+        flexShrink: 0,
+        borderRadius: "50%"
+      }
+    }, name[0].toUpperCase()), !collapsed && /*#__PURE__*/React.createElement("div", {
+      style: {
+        minWidth: 0,
+        flex: 1
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: unread ? 700 : 600,
+        fontSize: 14,
+        color: "var(--text-primary)",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      }
+    }, name), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11.5,
+        color: unread ? "var(--text-primary)" : "var(--text-light)",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      }
+    }, preview)), unread > 0 && /*#__PURE__*/React.createElement("span", {
+      className: "dm-unread-badge",
+      "aria-label": `${unread} pesan belum dibaca`,
+      style: {
+        position: collapsed ? "absolute" : "static",
+        top: 4,
+        right: 4,
+        minWidth: 18,
+        height: 18,
+        padding: "0 5px",
+        borderRadius: 9,
+        background: "var(--accent)",
+        color: "#fff",
+        fontSize: 11,
+        fontWeight: 700,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0
+      }
+    }, unread > 99 ? "99+" : unread));
+  })));
 }
+// Seleksi ChatPage: { kind: "group", id, list } | { kind: "dm", id, conv } — id grup & DM bisa sama.
+const DM_REFRESH_MS = 30000;
 function ChatPage({
   user,
   sharedLists,
@@ -13610,28 +13755,96 @@ function ChatPage({
   onNoteOpen,
   showToast
 }) {
-  const [selectedList, setSelectedList] = useState(null);
+  const [selected, setSelected] = useState(null);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [dmConversations, setDmConversations] = useState([]);
+  const [showDmPicker, setShowDmPicker] = useState(false);
+  // convId → waktu ditandai terbaca di klien. Respons loadDms yang DIMULAI sebelum itu bisa membawa
+  // hitungan unread basi → dinolkan agar badge tidak muncul lagi setelah Kembali.
+  const dmReadAtRef = useRef({});
+  // DM online-only: gagal (offline) → diam, daftar terakhir tetap tampil.
+  const loadDms = useCallback(() => {
+    const startedAt = Date.now();
+    return api.get("/api/dm/conversations").then(rows => {
+      if (!Array.isArray(rows)) return;
+      const readAt = dmReadAtRef.current;
+      setDmConversations(rows.map(c => (readAt[c.id] || 0) >= startedAt ? {
+        ...c,
+        unread: 0
+      } : c));
+    }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    loadDms();
+    const t = setInterval(loadDms, DM_REFRESH_MS);
+    return () => clearInterval(t);
+  }, [loadDms]);
+  const markDmReadLocal = useCallback(convId => {
+    dmReadAtRef.current[convId] = Date.now();
+    setDmConversations(prev => prev.map(c => c.id === convId ? {
+      ...c,
+      unread: 0
+    } : c));
+  }, []);
+  const startDm = async contact => {
+    try {
+      const conv = await api.post("/api/dm/conversations", {
+        user_id: contact.id
+      });
+      setShowDmPicker(false);
+      setSelected({
+        kind: "dm",
+        id: conv.id,
+        conv
+      });
+      setDmConversations(prev => prev.some(c => c.id === conv.id) ? prev : [conv, ...prev]);
+      loadDms();
+    } catch (err) {
+      showToast(isOfflineErr(err) ? "Pesan pribadi butuh koneksi internet" : err.message, "error");
+    }
+  };
   return /*#__PURE__*/React.createElement("div", {
-    className: `chat-layout${selectedList ? " has-selection" : ""}`
+    className: `chat-layout${selected ? " has-selection" : ""}`
   }, /*#__PURE__*/React.createElement("div", {
     className: `chat-list-panel${panelCollapsed ? " collapsed" : ""}`
   }, /*#__PURE__*/React.createElement(ChatListPanel, {
     lists: sharedLists,
-    selectedId: selectedList?.id,
-    onSelect: setSelectedList,
+    dmConversations: dmConversations,
+    selected: selected,
+    onSelect: l => setSelected({
+      kind: "group",
+      id: l.id,
+      list: l
+    }),
+    onSelectDm: c => setSelected({
+      kind: "dm",
+      id: c.id,
+      conv: c
+    }),
+    onNewDm: () => setShowDmPicker(true),
     collapsed: panelCollapsed,
     onToggle: () => setPanelCollapsed(p => !p)
   })), /*#__PURE__*/React.createElement("div", {
     className: "chat-room"
-  }, selectedList ? /*#__PURE__*/React.createElement(ChatRoom, {
-    key: selectedList.id,
-    list: selectedList,
+  }, selected && selected.kind === "group" ? /*#__PURE__*/React.createElement(ChatRoom, {
+    key: "g" + selected.id,
+    list: selected.list,
     user: user,
     onTaskClick: onTaskClick,
     onNoteOpen: onNoteOpen,
     showToast: showToast,
-    onBack: () => setSelectedList(null)
+    onBack: () => setSelected(null)
+  }) : selected && selected.kind === "dm" ? /*#__PURE__*/React.createElement(DmRoom, {
+    key: "d" + selected.id,
+    conv: selected.conv,
+    user: user,
+    showToast: showToast,
+    onBack: () => {
+      markDmReadLocal(selected.id);
+      setSelected(null);
+    },
+    onActivity: loadDms,
+    onRead: markDmReadLocal
   }) : /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
@@ -13646,7 +13859,11 @@ function ChatPage({
     style: {
       fontSize: 40
     }
-  }, "\uD83D\uDCAC"), /*#__PURE__*/React.createElement("div", null, "Pilih list untuk mulai berdiskusi"))));
+  }, "💬"), /*#__PURE__*/React.createElement("div", null, "Pilih grup atau pesan pribadi untuk mulai berdiskusi"))), showDmPicker && /*#__PURE__*/React.createElement(DmContactPicker, {
+    onPick: startDm,
+    onClose: () => setShowDmPicker(false),
+    showToast: showToast
+  }));
 }
 function renderMessageContent(content, currentUsername) {
   if (!content) return null;
@@ -14420,6 +14637,493 @@ function ChatInputBar({
     disabled: sending || !text.trim() && !attachedTask && !attachedNote,
     title: "Kirim"
   }, sending ? "·" : "➤"));
+}
+
+// ── Pesan Pribadi (DM 1-on-1) ─────────────────────────────────
+// Spec: docs/superpowers/specs/2026-10-03-direct-messages-design.md
+// Online-only: /api/dm/* tidak didaftarkan di router lokal (taskroutes) dan tidak memakai chatrepo.
+function dmMergeMessage(prev, msg) {
+  if (msg.client_id) {
+    const idx = prev.findIndex(m => m.client_id === msg.client_id);
+    if (idx >= 0) {
+      const next = prev.slice();
+      next[idx] = msg;
+      return next;
+    }
+  }
+  return prev.some(m => m.id === msg.id) ? prev : [...prev, msg];
+}
+function DmRoom({
+  conv,
+  user,
+  showToast,
+  onBack,
+  onActivity,
+  onRead
+}) {
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [replyTo, setReplyTo] = useState(null);
+  const messagesEndRef = useRef(null);
+  const other = conv.other_user || {};
+  const otherName = dmUserName(other);
+  const isMe = id => String(id) === String(user && user.id);
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth"
+    });
+  };
+  // Selesai baru daftar di-refresh (berurutan, bukan paralel) → server sudah menghitung unread = 0.
+  const markRead = () => api.post(`/api/dm/conversations/${conv.id}/read`, {}).then(() => {
+    onRead && onRead(conv.id);
+  }).catch(() => {});
+  const markReadThenRefresh = () => markRead().then(() => {
+    onActivity && onActivity();
+  });
+
+  // Muat pesan awal lalu tandai terbaca
+  useEffect(() => {
+    setLoading(true);
+    setMessages([]);
+    api.get(`/api/dm/conversations/${conv.id}/messages?limit=50`).then(msgs => {
+      setMessages(msgs);
+      setHasMore(msgs.length === 50);
+      setLoading(false);
+      setTimeout(scrollToBottom, 50);
+      markReadThenRefresh();
+    }).catch(err => {
+      showToast(isOfflineErr(err) ? "Pesan pribadi butuh koneksi internet" : err.message, "error");
+      setLoading(false);
+    });
+  }, [conv.id]);
+
+  // SSE realtime (pola sama dengan ChatRoom: token via query param untuk app native)
+  useEffect(() => {
+    const __sseUrl = apiUrl(`/api/dm/conversations/${conv.id}/stream`)
+      + (API_BASE && __token ? `?token=${encodeURIComponent(__token)}` : "");
+    const es = new EventSource(__sseUrl);
+    let hasOpened = false;
+    // EventSource menyambung ulang sendiri; pesan yang terkirim selama koneksi putus tidak disiarkan ulang.
+    // Setiap onopen setelah yang pertama (reconnect) → ambil 50 pesan terbaru lalu gabungkan.
+    const resyncAfterReconnect = () => {
+      api.get(`/api/dm/conversations/${conv.id}/messages?limit=50`).then(latest => {
+        if (!Array.isArray(latest)) return;
+        setMessages(prev => latest.reduce(dmMergeMessage, prev).slice().sort((x, y) => x.id - y.id));
+        setTimeout(scrollToBottom, 30);
+        markReadThenRefresh();
+      }).catch(() => {});
+    };
+    es.onopen = () => {
+      if (hasOpened) resyncAfterReconnect();
+      hasOpened = true;
+    };
+    es.onmessage = e => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "ping") return;
+        setMessages(prev => dmMergeMessage(prev, msg));
+        setTimeout(scrollToBottom, 30);
+        if (!isMe(msg.user_id)) markReadThenRefresh();else onActivity && onActivity();
+      } catch (_) {}
+    };
+    es.onerror = () => {};
+    return () => {
+      es.close();
+    };
+  }, [conv.id]);
+  const loadMore = async () => {
+    if (!messages.length || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const older = await api.get(`/api/dm/conversations/${conv.id}/messages?limit=50&before_id=${messages[0].id}`);
+      setMessages(prev => [...older, ...prev]);
+      setHasMore(older.length === 50);
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+  const formatTime = iso => new Date(iso).toLocaleTimeString("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+  const formatDate = iso => new Date(iso).toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "short"
+  });
+  let lastDate = null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "chat-room dm-room",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      height: "100%"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "chat-room-header"
+  }, onBack && /*#__PURE__*/React.createElement("button", {
+    onClick: onBack,
+    style: {
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      color: "var(--text-secondary)",
+      fontSize: 22,
+      padding: "0 4px 0 0",
+      lineHeight: 1
+    },
+    title: "Kembali"
+  }, "‹"), /*#__PURE__*/React.createElement("div", {
+    className: "chat-room-header-avatar",
+    style: {
+      background: avatarColor(other.username || otherName),
+      borderRadius: "50%"
+    }
+  }, otherName[0].toUpperCase()), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "header-name"
+  }, otherName), /*#__PURE__*/React.createElement("div", {
+    className: "header-meta"
+  }, "Pesan pribadi", other.username ? ` \xB7 @${other.username}` : ""))), /*#__PURE__*/React.createElement("div", {
+    className: "chat-messages"
+  }, hasMore && /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    onClick: loadMore,
+    disabled: loadingMore
+  }, loadingMore ? "Memuat..." : "⬆ Load lebih lama")), loading && /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      color: "var(--text-light)",
+      padding: 20
+    }
+  }, "Memuat pesan..."), !loading && messages.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      color: "var(--text-light)",
+      padding: 40
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 36,
+      marginBottom: 8
+    }
+  }, "✉️"), "Belum ada pesan. Sapa ", otherName, "!"), messages.map(msg => {
+    const isSelf = isMe(msg.user_id);
+    const msgDate = msg.created_at?.split("T")[0];
+    const showDate = msgDate !== lastDate;
+    lastDate = msgDate;
+    return /*#__PURE__*/React.createElement(React.Fragment, {
+      key: msg.id
+    }, showDate && /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center",
+        fontSize: 11,
+        color: "var(--text-light)",
+        margin: "8px 0"
+      }
+    }, formatDate(msg.created_at)), /*#__PURE__*/React.createElement("div", {
+      id: `dm-msg-${msg.id}`,
+      className: `chat-bubble-wrap${isSelf ? " self" : ""}`
+    }, !isSelf && /*#__PURE__*/React.createElement("div", {
+      className: "chat-avatar",
+      style: {
+        background: avatarColor(msg.username || "?")
+      }
+    }, (msg.display_name || msg.username || "?")[0].toUpperCase()), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      className: `chat-bubble${isSelf ? " self" : ""}`,
+      style: {
+        position: "relative",
+        paddingBottom: 20
+      }
+    }, msg.reply_to_id && msg.reply_to_content && /*#__PURE__*/React.createElement("div", {
+      className: "chat-quote-block",
+      onClick: () => {
+        const el = document.getElementById(`dm-msg-${msg.reply_to_id}`);
+        if (el) {
+          el.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center'
+          });
+          el.style.transition = 'background 0.4s';
+          el.style.background = 'rgba(168,197,0,0.18)';
+          setTimeout(() => {
+            el.style.background = '';
+          }, 1400);
+        } else {
+          showToast('Pesan asli tidak ada di layar — scroll ke atas untuk memuatnya', 'error');
+        }
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "quote-sender"
+    }, msg.reply_to_display_name || msg.reply_to_username), /*#__PURE__*/React.createElement("div", {
+      className: "quote-text"
+    }, msg.reply_to_content)), renderMessageContent(msg.content, user.username), /*#__PURE__*/React.createElement("button", {
+      className: "chat-reply-btn",
+      onClick: e => {
+        e.stopPropagation();
+        setReplyTo({
+          id: msg.id,
+          content: msg.content,
+          username: msg.username,
+          display_name: msg.display_name
+        });
+      },
+      title: "Reply"
+    }, "↩")), /*#__PURE__*/React.createElement("div", {
+      className: "chat-time",
+      style: {
+        textAlign: isSelf ? "right" : "left"
+      }
+    }, formatTime(msg.created_at)))));
+  }), /*#__PURE__*/React.createElement("div", {
+    ref: messagesEndRef
+  })), /*#__PURE__*/React.createElement(DmInputBar, {
+    conv: conv,
+    otherName: otherName,
+    onSent: msg => {
+      setMessages(prev => dmMergeMessage(prev, msg));
+      setTimeout(scrollToBottom, 30);
+      onActivity && onActivity();
+    },
+    showToast: showToast,
+    replyTo: replyTo,
+    onClearReply: () => setReplyTo(null)
+  }));
+}
+function DmInputBar({
+  conv,
+  otherName,
+  onSent,
+  showToast,
+  replyTo,
+  onClearReply
+}) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const textareaRef = useRef(null);
+  const handleSend = async () => {
+    if (!text.trim() || sending) return;
+    setSending(true);
+    try {
+      const clientId = (window.TF && window.TF.ids && window.TF.ids.newCid)
+        ? window.TF.ids.newCid()
+        : `tmp_dm_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const msg = await api.post(`/api/dm/conversations/${conv.id}/messages`, {
+        content: text.trim(),
+        reply_to_id: replyTo?.id || null,
+        client_id: clientId
+      });
+      setText("");
+      onClearReply();
+      onSent(msg);
+      textareaRef.current?.focus();
+    } catch (err) {
+      showToast(isOfflineErr(err) ? "Pesan pribadi butuh koneksi internet" : err.message, "error");
+    } finally {
+      setSending(false);
+    }
+  };
+  const handleKeyDown = e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "chat-input-bar"
+  }, replyTo && /*#__PURE__*/React.createElement("div", {
+    className: "chat-reply-preview"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "preview-sender"
+  }, "↩ ", replyTo.display_name || replyTo.username), /*#__PURE__*/React.createElement("div", {
+    className: "preview-text"
+  }, replyTo.content)), /*#__PURE__*/React.createElement("button", {
+    className: "preview-close",
+    onClick: onClearReply,
+    title: "Batal reply"
+  }, "✕")), /*#__PURE__*/React.createElement("textarea", {
+    ref: textareaRef,
+    className: "chat-input",
+    rows: 1,
+    maxLength: 2000,
+    placeholder: `Pesan untuk ${otherName}...`,
+    title: "Enter untuk kirim, Shift+Enter untuk baris baru",
+    value: text,
+    onChange: e => setText(e.target.value),
+    onKeyDown: handleKeyDown
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "chat-send-btn",
+    onClick: handleSend,
+    disabled: sending || !text.trim(),
+    title: "Kirim"
+  }, sending ? "·" : "➤"));
+}
+function DmContactPicker({
+  onPick,
+  onClose,
+  showToast
+}) {
+  const [contacts, setContacts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [busyId, setBusyId] = useState(null);
+  useEffect(() => {
+    api.get("/api/dm/contacts").then(rows => {
+      setContacts(Array.isArray(rows) ? rows : []);
+      setLoading(false);
+    }).catch(err => {
+      setLoading(false);
+      showToast(isOfflineErr(err) ? "Pesan pribadi butuh koneksi internet" : err.message, "error");
+    });
+  }, []);
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const q = query.trim().toLowerCase();
+  const filtered = q ? contacts.filter(c => (c.username || "").toLowerCase().includes(q) || (c.display_name || "").toLowerCase().includes(q)) : contacts;
+  const pick = async c => {
+    if (busyId) return;
+    setBusyId(c.id);
+    try {
+      await onPick(c);
+    } finally {
+      setBusyId(null);
+    }
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "modal-overlay",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal-content scale-in dm-contact-picker",
+    role: "dialog",
+    "aria-label": "Mulai pesan pribadi",
+    style: {
+      maxWidth: 420,
+      padding: 20
+    },
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontSize: 17,
+      fontWeight: 700,
+      color: "var(--text-primary)"
+    }
+  }, "✉️ Pesan Pribadi Baru"), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    title: "Tutup",
+    style: {
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      fontSize: 18,
+      color: "var(--text-light)"
+    }
+  }, "✕")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--text-secondary)",
+      marginBottom: 12
+    }
+  }, "Hanya anggota grup (shared list) yang sama denganmu."), /*#__PURE__*/React.createElement("input", {
+    className: "chat-input",
+    style: {
+      width: "100%",
+      padding: "8px 10px",
+      fontSize: 13.5,
+      borderRadius: 8,
+      marginBottom: 10,
+      boxSizing: "border-box"
+    },
+    placeholder: "Cari nama atau username...",
+    value: query,
+    onChange: e => setQuery(e.target.value),
+    autoFocus: true
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxHeight: 340,
+      overflowY: "auto",
+      border: "1px solid var(--border)",
+      borderRadius: 10
+    }
+  }, loading && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 14,
+      color: "var(--text-light)",
+      fontSize: 13
+    }
+  }, "Memuat kontak..."), !loading && contacts.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 16,
+      color: "var(--text-light)",
+      fontSize: 13,
+      textAlign: "center"
+    }
+  }, "Belum ada kontak. Undang atau bergabung ke shared list dulu."), !loading && contacts.length > 0 && filtered.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 14,
+      color: "var(--text-light)",
+      fontSize: 13
+    }
+  }, "Tidak ada yang cocok"), filtered.map(c => {
+    const name = dmUserName(c);
+    return /*#__PURE__*/React.createElement("div", {
+      key: c.id,
+      className: "chat-list-item",
+      onClick: () => pick(c),
+      style: {
+        opacity: busyId && busyId !== c.id ? 0.5 : 1
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "chat-list-avatar",
+      style: {
+        background: avatarColor(c.username || name),
+        borderRadius: "50%"
+      }
+    }, name[0].toUpperCase()), /*#__PURE__*/React.createElement("div", {
+      style: {
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 600,
+        fontSize: 14,
+        color: "var(--text-primary)"
+      }
+    }, name), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11.5,
+        color: "var(--text-light)"
+      }
+    }, "@", c.username, busyId === c.id ? " \xB7 membuka…" : "")));
+  }))));
 }
 
 // ── Note Templates Settings ──────────────────────────────────

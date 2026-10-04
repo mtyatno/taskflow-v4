@@ -2068,3 +2068,17 @@
 - **Verifikasi:** CI `test` hijau di head PR `dbf3b2e`; Deploy Taskflow V4 run #828 sukses (log: `Updating 84de142..7d6de58 Fast-forward`, 12 file). Situs live tidak bisa dibuka dari container sesi (proxy menolak host), jadi verifikasi lewat log deploy.
 - **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed (live; klien perlu hard refresh untuk SW v354).
+
+## [2026-10-03 23:55] - Claude (Pesan Pribadi / DM 1-on-1)
+- **Task:** Implementasi spec `docs/superpowers/specs/2026-10-03-direct-messages-design.md` (subagent implementasi, TDD).
+- **Changes:** skema DM + 7 endpoint `/api/dm/*` (webapp.py); panel Diskusi Grup + Pesan Pribadi, `DmRoom`/`DmInputBar`/`DmContactPicker` (index.html); SW v355 + `/api/dm/` network-only; tes baru `tests/test_direct_messages.py`, `tests/offline/direct_messages_ui.test.js`; tes versi SW & `chat_page_layout.test.js` disesuaikan.
+- **Verifikasi:** pytest 114 passed; JS 902 pass / 1 fail pra-ada (tldraw); inline 5/5; `node --check sw.js` OK; smoke uvicorn SSE OK.
+- **Files Touch:** `webapp.py`, `static/index.html`, `static/sw.js`, `tests/test_direct_messages.py` (baru), `tests/offline/direct_messages_ui.test.js` (baru), `tests/offline/{chat_page_layout,note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,drawing_sync_ui}.test.js`, `.agents/*`
+- **Status:** Needs Review (belum commit).
+
+## [2026-10-04 00:10] - Claude (revisi review DM)
+- **Task:** Perbaiki 4 temuan review DM.
+- **Changes:** notifikasi pakai `msg_dict['username']` (tes rename baru); resync pesan saat SSE reconnect; refresh daftar setelah mark-read + nol badge saat Kembali + guard respons basi; placeholder pendek; tes statis baru.
+- **Verifikasi:** pytest 115 passed; JS 905 pass / 1 fail pra-ada; inline 5/5; `node --check sw.js` OK.
+- **Files Touch:** `webapp.py`, `static/index.html`, `tests/test_direct_messages.py`, `tests/offline/direct_messages_ui.test.js`, `.agents/*`
+- **Status:** Needs Review (belum commit).
