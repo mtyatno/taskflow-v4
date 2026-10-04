@@ -2158,3 +2158,30 @@
 - **Catatan:** commit awal PR sempat ikut membawa file `venv/` (venv ter-track di git, termodifikasi oleh `pip install`); dibersihkan sebelum merge — diff akhir 12 file.
 - **Files Touch:** `.agents/*`
 - **Status:** Completed (klien perlu hard refresh untuk SW v360).
+
+## [2026-10-04 10:15] - Claude (redesign Fokus Hari Ini)
+- **Task:** Pomodoro ringkas sticky saat scroll + daftar task ringkas dengan detail per task (tab Subtask/Catatan/Lampiran).
+- **Changes:** `usePomodoro`, `PomodoroTimer` (baru), `PomodoroMiniBar`, `FocusTaskItem`, `useFocusTaskCounts`, `FocusSectionHead`, `FocusGlyph`; FocusSubtasks/Notes/Attachments dirapikan + `onCount`; CSS `.focus-*`/`.ftask-*`; SW v363, app.css?v=311; tes versi diperbarui; tes baru `focus_workstation.test.js`.
+- **Verifikasi:** JS 942/945 (3 fail pra-ada di main), `node --check sw.js` OK, Playwright light/dark/mobile.
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/focus_workstation.test.js` (baru), `tests/offline/{direct_messages_ui,drawing_sync_ui,interactive_note_viewer,note_saved_searches_view_mode,note_search_filters,note_toc}.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR).
+
+## [2026-10-04 10:50] - Claude (menu samping mulai sebagai ikon + Disematkan akordeon)
+- **Task:** Permintaan user: menu samping default bilah ikon (login pertama, tiap muat & pindah halaman); Disematkan akordeon (buka satu, lainnya tertutup); tanpa scrollbar.
+- **Changes:** App `sidebarCollapsed` default true + efek lipat per `page`/login + `onClose` melipat; anchor & langkah tur bilah ikon/› (+ cadangan GTD di halaman task); Dashboard `pinOpenKey` akordeon, "+N lainnya" → modal `pins`; kartu Disematkan alur normal tanpa gulir internal; modal dashboard ramah keyboard. Merge main dua kali (PR #12 + callout + rename Workspace, lalu PR #14) → SW v364, app.css?v=312; tes versi + `dashboard_pin_collapse` + `sidebar_icon_rail` diperbarui. Implementasi & dua review via subagent.
+- **Verifikasi:** JS 950/953 (3 fail pra-ada di main), pytest 122/122, inline 5/5, sw OK; Playwright light/dark/mobile (screenshot di `/mnt/project-files/dashboard-redesign/revisi-4/`).
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/{dashboard_pin_collapse,sidebar_icon_rail,note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui,direct_messages_ui}.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR #15, tunggu "merge dan deploy").
+
+## [2026-10-04 14:55] - Claude (PR #15: perbaikan review kedua modal Dashboard)
+- **Task:** Temuan review kedua PR #15 (modal "Lihat semua"/"+N lainnya").
+- **Changes:** fokus dikembalikan ke pemicu hanya bila tak ada `.modal-overlay` lain; Esc menutup kecuali sasarannya di modal lain di atasnya (`closest(".modal-overlay")` yang tak memuat dialog ini); `aria-haspopup="dialog"` di pemicu modal task (`linkPopup`); tur `sidebar-shared` → "👥 Workspace"; komentar CSS `.dash-main`; tes ≤900px dipersempit ke `.dash-pin*`. Via subagent (TDD).
+- **Verifikasi:** JS 952/955 (3 fail pra-ada di main), pytest 122/122, inline 5/5, sw OK; browser port terpisah: (a) pilih task → fokus tak di pemicu, (b) Esc → fokus kembali, (c) Ctrl+K + Esc hanya menutup pencarian, (d) Tab keluar + Esc menutup.
+- **Files Touch:** `static/{index.html,app.css}`, `tests/offline/{dashboard_pin_collapse,sidebar_icon_rail}.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR #15, tunggu "merge dan deploy").
+
+## [2026-10-04 15:00] - Claude (PR #15 merge & deploy)
+- **Task:** User: "merge dan deploy" untuk PR #15 (menu samping mulai sebagai ikon + Disematkan akordeon).
+- **Changes:** PR #15 ditandai ready lalu di-merge (`22bab21`, head `5ab667f`); Deploy Taskflow V4 run #840 sukses (VPS fast-forward ca335d1..22bab21). Catatan `.agents` & memori versi diperbarui (main kini v364 / app.css?v=312).
+- **Files Touch:** `.agents/*`
+- **Status:** Done (merged & deployed). Pertanyaan `.note-callout` masih menunggu user.

@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v362-habit-page-redesign/,
-      "sw.js should be bumped to taskflow-v362-habit-page-redesign"
+      /taskflow-v365-habit-page-redesign/,
+      "sw.js should be bumped to taskflow-v365-habit-page-redesign"
     );
   });
 
