@@ -92,9 +92,9 @@ test("group chat still uses ChatRoom + chatrepo", () => {
   assert.match(src, /\/api\/lists\/\$\{list\.id\}\/messages\/stream/);
 });
 
-test("DM endpoints are online-only (not in local router), SW network-only + v357", () => {
+test("DM endpoints are online-only (not in local router), SW network-only + v358", () => {
   assert.ok(!taskroutes.includes("/api/dm"), "taskroutes must not register /api/dm");
-  assert.match(swJs, /^const CACHE = "taskflow-v357-direct-messages";/m);
+  assert.match(swJs, /^const CACHE = "taskflow-v358-dashboard-pin-collapse";/m);
   assert.match(swJs, /url\.pathname\.startsWith\("\/api\/dm\/"\)/);
 });
 

@@ -2106,3 +2106,10 @@
 - **Changes:** Konflik versi diselesaikan: SW → `taskflow-v357-direct-messages` (aturan network-only `/api/dm/*` dipertahankan), tes versi disesuaikan; catatan .agents digabung.
 - **Files Touch:** static/sw.js, tests/offline/*.test.js (pin versi), .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md, docs spec DM
 - **Status:** Needs Review (draft PR #6)
+
+## [2026-10-04] - Claude (Dashboard: Prioritas & Disematkan setinggi + Disematkan collapsible)
+- **Task:** Permintaan user: kartu Prioritas Hari Ini dan Disematkan sama tinggi; Notes/Mindmap/Gambar di Disematkan bisa dibuka-tutup (default Notes terbuka, Mindmap & Gambar tertutup).
+- **Changes:** `Dashboard` (index.html): state `pinOpen` + `togglePin`, `renderPinnedGroup` dengan header tombol ber-ARIA + isi `hidden`, reveal-scroll daftar Disematkan via `pinScrollRef`/`pinRevealRef`; kelas `dash-prio-card`, `dash-pin-wrap`, `dash-pin-card`. CSS: `.dash-main` stretch, Disematkan absolut + gulir internal di desktop, reset ≤900px, gaya toggle/chevron/pill nol/animasi + reduced motion. tes versi + `tests/offline/dashboard_pin_collapse.test.js` (baru). Implementasi & review via subagent. Merge `main` (PR #7 Kalender v356 + PR #6 DM v357, app.css v307) → SW v358 `taskflow-v358-dashboard-pin-collapse`, app.css?v=308; tes versi (termasuk `direct_messages_ui.test.js`) disesuaikan.
+- **Verifikasi:** JS 899/900 (1 fail pra-ada tldraw), pytest 96/96, inline 5/5, `node --check sw.js` OK; review independen → 7 perbaikan kecil (header kolom sempit wrap, tanpa overscroll-behavior & scrollbar-width, min-height 352px, kontras, aria-expanded); Playwright font Nunito Sans asli light/dark × desktop/mobile: sebelum 348 vs 501 px, sesudah 352/352 tanpa scroll, Mindmap dibuka tetap setinggi dan terlihat.
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/dashboard_pin_collapse.test.js` (baru), `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui,direct_messages_ui}.test.js`, `.agents/*`
+- **Status:** PR dari `claude/dashboard-redesign-109io3`, menunggu "merge dan deploy" dari user.
