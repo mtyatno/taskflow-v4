@@ -766,27 +766,7 @@
     .habit-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1px); }
     .habit-card-inner { display: flex; align-items: center; gap: 16px; }
     .habit-card-info { flex: 1; min-width: 0; }
-    .habit-card-grid { display: flex; gap: 5px; flex-shrink: 0; }
-    .habit-week-col { display: flex; flex-direction: column; align-items: center; gap: 5px; }
-    .habit-week-label { font-size: 10px; font-weight: 600; color: var(--text-secondary); }
-    .habit-week-label.today { color: #818cf8; font-weight: 700; }
-    .habit-week-box { width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; border: 1.5px solid var(--border); background: var(--bg-primary); font-size: 13px; font-weight: 700; transition: all 0.1s; }
-    .habit-week-box.done { background: #818cf8; border-color: #818cf8; color: #fff; }
-    .habit-week-box.skipped { background: transparent; border: 1.5px dashed #94a3b8; }
-    .habit-week-box.missed { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.25); }
     .habit-streak { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-left: 8px; border-left: 1px solid var(--border); min-width: 36px; }
-    /* Mobile: stack layout */
-    @media (max-width: 640px) {
-      .habit-card { padding: 12px 14px; }
-      .habit-card-inner { flex-wrap: wrap; gap: 6px 10px; }
-      .habit-card-info { order: 1; flex: 1; min-width: 0; }
-      .habit-streak { order: 2; border-left: none; padding-left: 0; flex-direction: row; gap: 4px; min-width: auto; }
-      .habit-card-menu { order: 3; }
-      .habit-card-grid { order: 4; width: 100%; gap: 3px; justify-content: space-between; }
-      .habit-week-col { flex: 1; }
-      .habit-week-box { width: 100%; max-width: 40px; height: 28px; font-size: 11px; border-radius: 5px; }
-      .habit-week-label { font-size: 9px; }
-    }
     /* Habit Check-in Modal */
     .habit-checkin-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 1000; }
     .habit-checkin-box { background: var(--bg-card); border-radius: 18px; padding: 24px 22px; width: 320px; max-width: calc(100vw - 32px); box-shadow: 0 16px 48px rgba(0,0,0,0.28); animation: scaleIn 0.18s ease-out; }
