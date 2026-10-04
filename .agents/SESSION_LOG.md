@@ -6,8 +6,8 @@
 - **Task:** Lanjutan redesain halaman Habits (Task 10-12 plan `2026-10-04-habit-page-redesign.md`) setelah sesi terputus.
 - **Changes:** `static/app.css` (hapus CSS grid 7-hari lama), `static/sw.js` (v362), `webapp.py` (`month_log` di `/api/habits/today`; `monthly-completion` pakai WIB + total=jumlah habit), `static/offline/habitlogic.js`/`habitquery.js`/`habitroutes.js` (month_log + rute lokal monthly-completion), `static/index.html` (`getHabit30DayData`, perbaikan grid `CalendarHeatmap`, `handleCheckin` pakai `fetchMonthlyCompletion` + update `month_log`), tes: `habitlogic.test.js` +2, sinkron versi SW di 5 tes.
 - **Verification:** pytest 122/122; habit offline 11/11; inline 5/5; sw.js OK; JS penuh 918/937 (19 gagal tak terkait habit, pola CRLF Windows/`.note-callout`, belum dibandingkan HEAD).
-- **Commits:** `d88d4bb` (hapus CSS lama), `894d8cc` (month_log + rute lokal + fix heatmap), `6e8b7cc` (SW v362 + sinkron tes), `3e2e602` (plan + handover). Belum di-push.
-- **Status:** Kode selesai & di-commit lokal, belum di-push, belum verifikasi visual browser.
+- **Commits:** `d88d4bb` (hapus CSS lama), `894d8cc` (month_log + rute lokal + fix heatmap), `6e8b7cc` (SW v362 + sinkron tes), `3e2e602` (plan + handover). Merge origin/main = `abbd123` (SW v365, app.css?v=313); di-push ke main utk deploy otomatis.
+- **Status:** Kode selesai, di-merge & di-push. Tes LF (setara CI): merged 954/957 = baseline origin/main 952/955 (3 gagal pra-ada sama); pytest 122/122. Verifikasi live SW & visual browser belum.
 
 ## [2026-10-03 14:05] - Antigravity (Gemini)
 - **Task:** Implement Search Bar Dropdown Popover, Dismissal Handlers, and SW v351 (Task 1).
