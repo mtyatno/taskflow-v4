@@ -105,4 +105,32 @@ test("sw.js CACHE = taskflow-v366-focus-task-guard", () => {
   assert.match(swJs, /^const CACHE = "taskflow-v366-focus-task-guard";/m);
 });
 
+test("App: mengelola timer Pomodoro dan focusTask di level App", () => {
+  const appSrc = fnSource("App");
+  assert.match(appSrc, /const timer = usePomodoro\(/, "App harus menginstansiasi usePomodoro");
+  assert.match(appSrc, /pomoTimer|focusTask/, "App harus mengelola state Pomodoro");
+  assert.match(appSrc, /TodayFocusView,[\s\S]*timer:/, "App harus mengoper timer ke TodayFocusView");
+});
+
+test("TopBarPomodoroChip: didefinisikan dan dirender di top bar saat page !== 'today'", () => {
+  assert.ok(indexHtml.includes("function TopBarPomodoroChip("), "TopBarPomodoroChip harus didefinisikan");
+  const appSrc = fnSource("App");
+  assert.match(appSrc, /React\.createElement\(TopBarPomodoroChip/, "App harus merender TopBarPomodoroChip");
+  const chipSrc = fnSource("TopBarPomodoroChip");
+  assert.match(chipSrc, /topbar-pomo-chip/, "chip harus memiliki kelas CSS topbar-pomo-chip");
+});
+
+test("TopBarPomodoroChip: navigasi ke today saat diklik dan memiliki tombol play/pause", () => {
+  const chipSrc = fnSource("TopBarPomodoroChip");
+  assert.match(chipSrc, /timer\.isRunning \? timer\.pause : timer\.start/, "chip harus memiliki tombol play/pause");
+  assert.match(chipSrc, /onNavigateToday/, "chip harus memanggil onNavigateToday");
+});
+
+test("usePomodoro: menyimpan snapshot ke localStorage (tf_pomo_state)", () => {
+  const hook = fnSource("usePomodoro");
+  assert.match(hook, /localStorage\.setItem\("tf_pomo_state"/, "usePomodoro harus menyimpan ke localStorage");
+  assert.match(hook, /targetEndTime/, "usePomodoro harus menghitung targetEndTime");
+});
+
+
 
