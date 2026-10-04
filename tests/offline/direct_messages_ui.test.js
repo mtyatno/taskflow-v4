@@ -155,3 +155,10 @@ test("ChatPage passes refreshed conversation (block flags) to DmRoom", () => {
   const src = fnSource("ChatPage");
   assert.match(src, /conv: dmConversations\.find\(c => c\.id === selected\.id\) \|\| selected\.conv/);
 });
+
+test("Daftar Diskusi: item aktif tanpa garis warna (preferensi Bapak)", () => {
+  const css = require("fs").readFileSync(require("path").join(__dirname, "../../static/app.css"), "utf8");
+  const rule = css.match(/\.chat-list-item\.active\s*\{[^}]*\}/);
+  assert.ok(rule, ".chat-list-item.active harus ada");
+  assert.doesNotMatch(rule[0], /border-left/);
+});
