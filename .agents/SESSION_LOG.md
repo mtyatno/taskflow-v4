@@ -2145,3 +2145,9 @@
 - **Verifikasi:** JS 933/934 (1 fail pra-ada tldraw), inline 5/5, `node --check sw.js` OK, Playwright sebelum/sesudah light/dark/mobile.
 - **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/no_accent_stripes.test.js` (baru), `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui,direct_messages_ui}.test.js`, `.agents/*`
 - **Status:** Needs Review (PR).
+
+## [2026-10-04 06:13] - Claude (merge & deploy banner tanpa garis)
+- **Task:** Atas permintaan user ("ok, good, merge"): PR #12 di-merge ke `main` (merge `18c25f0`); Deploy Taskflow V4 run #836 sukses.
+- **Catatan:** commit awal PR sempat ikut membawa file `venv/` (venv ter-track di git, termodifikasi oleh `pip install`); dibersihkan sebelum merge — diff akhir 12 file.
+- **Files Touch:** `.agents/*`
+- **Status:** Completed (klien perlu hard refresh untuk SW v360).
