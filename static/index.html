@@ -50,7 +50,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=308">
+  <link rel="stylesheet" href="/static/app.css?v=309">
 
 <style>
 .paper-mode-active {
@@ -2283,7 +2283,8 @@ function Sidebar({
   const firstSectionIdx = links.findIndex(l => l.section);
   const railLinks = links.slice(0, firstSectionIdx === -1 ? links.length : firstSectionIdx);
   const rail = /*#__PURE__*/React.createElement("div", {
-    className: "sidebar-rail"
+    className: "sidebar-rail",
+    "data-tour": "sidebar-rail"
   }, /*#__PURE__*/React.createElement("div", {
     className: "sidebar-rail-logo",
     title: "Alurik"
@@ -2299,7 +2300,8 @@ function Sidebar({
     className: "sidebar-rail-btn sidebar-rail-expand",
     onClick: onToggleCollapse,
     title: "Tampilkan semua menu",
-    "aria-label": "Tampilkan semua menu"
+    "aria-label": "Tampilkan semua menu",
+    "data-tour": "sidebar-expand"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "chevron-right",
     size: 18
@@ -13043,13 +13045,11 @@ function Dashboard({
   const [pinnedNotes, setPinnedNotes] = useState([]);
   const [pinnedMindmaps, setPinnedMindmaps] = useState([]);
   const [pinnedDrawings, setPinnedDrawings] = useState([]);
-  const [expandedNotes, setExpandedNotes] = useState(false);
-  const [expandedMaps, setExpandedMaps] = useState(false);
-  const [expandedDrawings, setExpandedDrawings] = useState(false);
-  // Sub-bagian "Disematkan" bisa dilipat (tanpa persistensi): default hanya Notes terbuka.
-  const [pinOpen, setPinOpen] = useState({ notes: true, mindmap: false, drawings: false });
+  // Sub-bagian "Disematkan" = akordeon: hanya satu dari Notes/Mindmap/Gambar terbuka sekaligus
+  // (default Notes); klik header grup yang sedang terbuka menutupnya. Tanpa persistensi.
+  const [pinOpenKey, setPinOpenKey] = useState("notes");
   const pinScrollRef = useRef(null);
-  const pinRevealRef = useRef(null); // key grup yang baru dibuka/diperluas → digulir agar terlihat
+  const pinRevealRef = useRef(null); // key grup yang baru dibuka → digulir agar terlihat
   useEffect(() => {
     const key = pinRevealRef.current;
     pinRevealRef.current = null;
@@ -13071,13 +13071,10 @@ function Dashboard({
         behavior: reduce ? "auto" : "smooth"
       });
     }
-  }, [pinOpen, expandedNotes, expandedMaps, expandedDrawings]);
+  }, [pinOpenKey]);
   const togglePin = key => {
-    if (!pinOpen[key]) pinRevealRef.current = key;
-    setPinOpen(o => ({
-      ...o,
-      [key]: !o[key]
-    }));
+    if (pinOpenKey !== key) pinRevealRef.current = key;
+    setPinOpenKey(k => k === key ? null : key);
   };
   useEffect(() => {
     api.get("/api/scratchpad/recent").then(setRecentNotes).catch(() => {});
@@ -13159,6 +13156,24 @@ function Dashboard({
   const openModal = (title, cellTasks) => setDashModal({
     title,
     tasks: cellTasks
+  });
+  // Varian modal untuk "+N lainnya" di Disematkan: semua item yang disematkan dalam satu grup.
+  const openPinModal = ({
+    title,
+    items,
+    color,
+    onItem,
+    nav,
+    untitled
+  }) => setDashModal({
+    title,
+    pins: {
+      items,
+      color,
+      onItem,
+      nav,
+      untitled
+    }
   });
 
   // ── Prioritas hari ini (dipakai hero ring + kartu Prioritas) ──
@@ -13352,17 +13367,15 @@ function Dashboard({
     icon,
     color,
     items,
-    expanded,
-    setExpanded,
     nav,
     navLabel,
     onItem,
     untitled
   }) => {
-    const open = pinOpen[key];
+    const open = pinOpenKey === key;
     const count = items ? items.length : 0;
     const bodyId = "dash-pin-body-" + key;
-    const visible = expanded ? items : (items || []).slice(0, 3);
+    const visible = (items || []).slice(0, 3);
     const hasMore = count > 3;
     return /*#__PURE__*/React.createElement("div", {
       className: `dash-pin-group${open ? " is-open" : ""}${count === 0 ? " is-empty" : ""}`,
@@ -13421,12 +13434,16 @@ function Dashboard({
     }, dashFmtDate(it.updated_at || it.created_at))))), hasMore && /*#__PURE__*/React.createElement("button", {
       type: "button",
       className: "dash-more",
-      "aria-expanded": expanded,
-      onClick: () => {
-        if (!expanded) pinRevealRef.current = key;
-        setExpanded(e => !e);
-      }
-    }, expanded ? "Sembunyikan ▲" : `+${count - 3} lainnya ▼`))));
+      // Tidak diperluas di tempat (daftar jadi lebih tinggi dari kartu) → modal berisi semua item
+      onClick: () => openPinModal({
+        title: `${label} disematkan`,
+        items,
+        color,
+        onItem,
+        nav,
+        untitled
+      })
+    }, `+${count - 3} lainnya →`))));
   };
   const pinnedTotal = pinnedNotes.length + pinnedMindmaps.length + pinnedDrawings.length;
   const TodayRow = ({
@@ -13600,8 +13617,6 @@ function Dashboard({
     icon: "notes",
     color: "#A8C500",
     items: pinnedNotes,
-    expanded: expandedNotes,
-    setExpanded: setExpandedNotes,
     nav: "notes",
     navLabel: "Notes",
     onItem: onNoteClick,
@@ -13613,8 +13628,6 @@ function Dashboard({
     icon: "mindmap",
     color: "#8b5cf6",
     items: pinnedMindmaps,
-    expanded: expandedMaps,
-    setExpanded: setExpandedMaps,
     nav: "mindmap",
     navLabel: "Mindmap",
     onItem: onMindmapClick,
@@ -13626,8 +13639,6 @@ function Dashboard({
     icon: "draw",
     color: "#ec4899",
     items: pinnedDrawings,
-    expanded: expandedDrawings,
-    setExpanded: setExpandedDrawings,
     nav: "draw",
     navLabel: "Draw",
     onItem: onDrawingClick,
@@ -13846,7 +13857,7 @@ function Dashboard({
     size: 12
   }), n.updated_at ? dashFmtDate(n.updated_at) + " " + n.updated_at.slice(0, 4) : "")))))),
 
-  /* ── Modal "Lihat semua" ── */
+  /* ── Modal "Lihat semua" (task) / "+N lainnya" Disematkan (pins) ── */
   dashModal && /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
     onClick: () => setDashModal(null)
@@ -13879,7 +13890,7 @@ function Dashboard({
       color: "var(--text-light)",
       marginTop: 2
     }
-  }, dashModal.tasks.length, " task")), /*#__PURE__*/React.createElement("button", {
+  }, dashModal.pins ? `${dashModal.pins.items.length} item disematkan` : `${dashModal.tasks.length} task`)), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
     onClick: () => setDashModal(null)
   }, "✕")), /*#__PURE__*/React.createElement("div", {
@@ -13887,7 +13898,37 @@ function Dashboard({
       overflowY: "auto",
       flex: 1
     }
-  }, dashModal.tasks.map(t => /*#__PURE__*/React.createElement("div", {
+  }, dashModal.pins ? dashModal.pins.items.map(it => /*#__PURE__*/React.createElement("div", {
+    key: it.id,
+    className: "dash-modal-row",
+    onClick: () => {
+      const { onItem, nav } = dashModal.pins;
+      setDashModal(null);
+      onItem ? onItem(it) : onNav(nav);
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "pin",
+    size: 14,
+    style: {
+      color: dashModal.pins.color,
+      flexShrink: 0
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 500,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, dashModal.pins.untitled(it))), /*#__PURE__*/React.createElement("span", {
+    className: "dash-date"
+  }, dashFmtDate(it.updated_at || it.created_at)))) : dashModal.tasks.map(t => /*#__PURE__*/React.createElement("div", {
     key: t.id,
     className: "dash-modal-row",
     onClick: () => {
@@ -26421,6 +26462,8 @@ function AdminPage({
 
 const TOUR_STEPS = {
   dashboard: [
+    { element: '[data-tour="sidebar-rail"]', popover: { title: '🗂️ Menu Utama', description: 'Menu utama tampil sebagai bilah ikon ramping: Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes, Draw, Mindmap, dan Diskusi. Arahkan kursor ke ikon untuk melihat namanya, lalu klik untuk berpindah halaman.' } },
+    { element: '[data-tour="sidebar-expand"]', popover: { title: '› Menu Lengkap', description: 'Klik › (atau tombol ☰ di topbar) untuk membuka menu lengkap: GTD, Project, Shared List, dan Pengaturan. Setelah kamu memilih halaman, menu otomatis kembali menjadi bilah ikon.' } },
     { element: '[data-tour="sidebar-general"]', popover: { title: '🗂️ Menu Utama', description: 'Navigasi utama Alurik — Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes & Draw, Mindmap, dan Diskusi. Klik salah satu untuk berpindah halaman.' } },
     { element: '[data-tour="sidebar-collapse"]', popover: { title: '◀ Perkecil Menu', description: 'Klik tombol ‹ ini untuk memperkecil sidebar menjadi bilah ikon ramping, sehingga area kerja lebih luas sementara menu utama tetap bisa diklik. Klik ikon › di bilah ikon (atau tombol ☰ di topbar) untuk membuka menu lengkap kembali.' } },
     { element: '[data-tour="task-gtd"]', popover: { title: '🔄 GTD Menu', description: 'Bagian GTD (Getting Things Done) — Inbox, Next Actions, Waiting For, dan Someday. Metodologi GTD membantu mengelola task berdasarkan konteks dan prioritas.' } },
@@ -27026,23 +27069,17 @@ function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [queueSize, setQueueSize] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const [recurExpiryAlert, setRecurExpiryAlert] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
-  // Auto-collapse the app nav on Notes, Draw and Mindmap (wide-canvas pages) so the
-  // content gets more width; restore the prior state when leaving the page.
-  const prevSidebarCollapsedRef = React.useRef(null);
+  // Menu utama selalu mulai sebagai bilah ikon: saat login pertama, tiap muat halaman (state awal)
+  // dan setelah tiap perpindahan halaman. › hanya membuka menu lengkap sementara.
   React.useEffect(() => {
-    if (page === "notes" || page === "mindmap" || page === "draw") {
-      if (prevSidebarCollapsedRef.current === null) prevSidebarCollapsedRef.current = sidebarCollapsed;
-      setSidebarCollapsed(true);
-    } else if (prevSidebarCollapsedRef.current !== null) {
-      setSidebarCollapsed(prevSidebarCollapsedRef.current);
-      prevSidebarCollapsedRef.current = null;
-    }
-  }, [page]);
+    setSidebarCollapsed(true);
+    setSidebarOpen(false);
+  }, [page, user?.id]);
   const showToast = (message, type = "success", action = null) => setToast({
     message,
     type,
@@ -28032,7 +28069,11 @@ function App() {
     user: user,
     onLogout: logout,
     isOpen: sidebarOpen,
-    onClose: () => setSidebarOpen(false),
+    // Memilih menu apa pun (juga halaman yang sedang aktif / Review Mingguan) melipat menu lagi
+    onClose: () => {
+      setSidebarOpen(false);
+      setSidebarCollapsed(true);
+    },
     projects: projects,
     tasks: tasks,
     collapsed: sidebarCollapsed,

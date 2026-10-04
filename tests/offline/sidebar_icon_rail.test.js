@@ -2,6 +2,8 @@
 
 // Sidebar collapsed (desktop) = icon rail ramping (logo + tombol buka menu + 8 menu utama),
 // bukan hilang total. Mobile (≤768px) tetap drawer off-canvas dengan menu lengkap.
+// Menu utama SELALU mulai sebagai bilah ikon: saat login pertama, tiap muat halaman (state awal)
+// dan setelah tiap perpindahan halaman / memilih menu; › (atau ☰ topbar) hanya membukanya sementara.
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -11,12 +13,22 @@ const path = require("node:path");
 const indexHtml = fs.readFileSync(path.resolve(__dirname, "../../static/index.html"), "utf8");
 const appCss = fs.readFileSync(path.resolve(__dirname, "../../static/app.css"), "utf8");
 
-function sidebarSource() {
-  const start = indexHtml.indexOf("function Sidebar({");
-  assert.ok(start >= 0, "Sidebar component must exist");
+// Sumber satu komponen top-level: dari `function Name(` sampai `}` penutup di kolom 0.
+function fnSource(signature) {
+  const start = indexHtml.indexOf(signature);
+  assert.ok(start >= 0, `${signature} must exist`);
   const end = indexHtml.indexOf("\n}\n", start);
-  assert.ok(end > start, "Sidebar component end must be found");
+  assert.ok(end > start, `${signature} end must be found`);
   return indexHtml.slice(start, end);
+}
+
+function sidebarSource() {
+  return fnSource("function Sidebar({");
+}
+
+// App saja — NotesPage punya state `sidebarCollapsed` sendiri (panel daftar note) yang tetap false.
+function appSource() {
+  return fnSource("function App(");
 }
 
 // Ambil isi blok @media (max-width: 768px) { ... } pertama yang memuat aturan .sidebar.open
@@ -98,4 +110,57 @@ test("mobile ≤768px: rail disembunyikan, menu penuh selalu tampil, tanpa margi
   assert.match(block, /\.sidebar\.collapsed \.sidebar-full\s*\{\s*display:\s*flex/);
   assert.match(block, /\.sidebar\.collapsed\s*\{\s*width:\s*var\(--sidebar-w\)/);
   assert.match(block, /\.main-content\.sidebar-rail-visible[^{]*\{\s*margin-left:\s*0/);
+});
+
+test("App: menu utama default bilah ikon (state awal true); panel daftar NotesPage tetap terbuka", () => {
+  const src = appSource();
+  assert.match(src, /const \[sidebarCollapsed, setSidebarCollapsed\] = useState\(true\);/);
+  assert.doesNotMatch(src, /const \[sidebarCollapsed, setSidebarCollapsed\] = useState\(false\)/);
+  // State NotesPage bukan menu utama — tidak boleh ikut berubah.
+  assert.match(fnSource("function NotesPage({"), /const \[sidebarCollapsed, setSidebarCollapsed\] = useState\(false\);/);
+});
+
+test("App: menu dilipat lagi ke bilah ikon setiap pindah halaman & saat login/logout", () => {
+  const src = appSource();
+  assert.doesNotMatch(src, /prevSidebarCollapsedRef/);
+  // Efek hook level atas App (indentasi 2 spasi); badan efek tidak memuat efek lain.
+  const effects = [...src.matchAll(/useEffect\(\(\) => \{((?:(?!useEffect\()[\s\S])*?)\n  \}, \[([^\]]*)\]\);/g)];
+  const fold = effects.find(m => /setSidebarCollapsed\(true\)/.test(m[1]));
+  assert.ok(fold, "App harus punya efek yang memanggil setSidebarCollapsed(true)");
+  const deps = fold[2].split(",").map(d => d.trim());
+  assert.ok(deps.includes("page"), "efek lipat menu harus bergantung pada page");
+  assert.ok(deps.includes("user?.id"), "efek lipat menu harus jalan lagi saat login/logout (user?.id)");
+  assert.match(fold[1], /setSidebarOpen\(false\)/);
+});
+
+test("App: memilih menu apa pun (termasuk halaman yang sama / Review Mingguan) melipat menu lagi", () => {
+  const src = appSource();
+  const at = src.indexOf("React.createElement(Sidebar, {");
+  assert.ok(at >= 0, "App must render Sidebar");
+  const props = src.slice(at, src.indexOf("\n  })", at));
+  assert.match(props, /onClose: \(\) => \{\s*setSidebarOpen\(false\);\s*setSidebarCollapsed\(true\);\s*\}/);
+  // Tombol ‹/› Sidebar dan ☰ "Toggle menu" topbar desktop tetap toggle biasa.
+  assert.match(props, /onToggleCollapse: \(\) => setSidebarCollapsed\(!sidebarCollapsed\)/);
+  assert.match(src, /onClick: \(\) => setSidebarCollapsed\(!sidebarCollapsed\),\s*title: "Toggle menu"/);
+});
+
+test("Tour Dashboard memperkenalkan bilah ikon & tombol › sebelum langkah menu lengkap", () => {
+  const sb = sidebarSource();
+  assert.match(sb, /className: "sidebar-rail",\s*"data-tour": "sidebar-rail"/);
+  assert.match(sb, /className: "sidebar-rail-btn sidebar-rail-expand",[^}]*"data-tour": "sidebar-expand"/);
+  const tourAt = indexHtml.indexOf("const TOUR_STEPS = {");
+  assert.ok(tourAt >= 0, "TOUR_STEPS must exist");
+  const dashAt = indexHtml.indexOf("dashboard: [", tourAt);
+  assert.ok(dashAt > tourAt, "TOUR_STEPS.dashboard must exist");
+  const dash = indexHtml.slice(dashAt, indexHtml.indexOf("\n  ],", dashAt));
+  const els = [...dash.matchAll(/element: '\[data-tour="([a-z-]+)"\]'/g)].map(m => m[1]);
+  // Langkah rail tampil saat menu terlipat (default); langkah menu lengkap tetap ada untuk saat menu
+  // kebetulan terbuka (isTourVisible melewati elemen yang tersembunyi).
+  assert.deepEqual(els, [
+    "sidebar-rail", "sidebar-expand",
+    "sidebar-general", "sidebar-collapse", "task-gtd", "sidebar-shared", "sidebar-settings",
+    "scratchpad", "eisenhower", "gtd-grid",
+  ]);
+  assert.match(dash, /'\[data-tour="sidebar-rail"\]', popover: \{ title: '[^']*Menu Utama', description: 'Menu utama tampil sebagai bilah ikon ramping: /);
+  assert.match(dash, /'\[data-tour="sidebar-expand"\]', popover: \{ title: '› Menu Lengkap', description: 'Klik › \(atau tombol ☰ di topbar\) untuk membuka menu lengkap: [^']*menu otomatis kembali menjadi bilah ikon\.' \}/);
 });
