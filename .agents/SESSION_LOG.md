@@ -2069,6 +2069,25 @@
 - **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed (live; klien perlu hard refresh untuk SW v354).
 
+## [2026-10-03 23:55] - Claude (Pesan Pribadi / DM 1-on-1)
+- **Task:** Implementasi spec `docs/superpowers/specs/2026-10-03-direct-messages-design.md` (subagent implementasi, TDD).
+- **Changes:** skema DM + 7 endpoint `/api/dm/*` (webapp.py); panel Diskusi Grup + Pesan Pribadi, `DmRoom`/`DmInputBar`/`DmContactPicker` (index.html); SW v355 + `/api/dm/` network-only; tes baru `tests/test_direct_messages.py`, `tests/offline/direct_messages_ui.test.js`; tes versi SW & `chat_page_layout.test.js` disesuaikan.
+- **Verifikasi:** pytest 114 passed; JS 902 pass / 1 fail pra-ada (tldraw); inline 5/5; `node --check sw.js` OK; smoke uvicorn SSE OK.
+- **Files Touch:** `webapp.py`, `static/index.html`, `static/sw.js`, `tests/test_direct_messages.py` (baru), `tests/offline/direct_messages_ui.test.js` (baru), `tests/offline/{chat_page_layout,note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,drawing_sync_ui}.test.js`, `.agents/*`
+- **Status:** Needs Review (belum commit).
+
+## [2026-10-04 00:10] - Claude (revisi review DM)
+- **Task:** Perbaiki 4 temuan review DM.
+- **Changes:** notifikasi pakai `msg_dict['username']` (tes rename baru); resync pesan saat SSE reconnect; refresh daftar setelah mark-read + nol badge saat Kembali + guard respons basi; placeholder pendek; tes statis baru.
+- **Verifikasi:** pytest 115 passed; JS 905 pass / 1 fail pra-ada; inline 5/5; `node --check sw.js` OK.
+- **Files Touch:** `webapp.py`, `static/index.html`, `tests/test_direct_messages.py`, `tests/offline/direct_messages_ui.test.js`, `.agents/*`
+- **Status:** Needs Review (belum commit).
+
+## [2026-10-04] - Claude (Blokir DM)
+- **Task:** Tambah Blokir/Buka blokir di pesan pribadi (disetujui pemilik produk).
+- **Changes:** `dm_blocks` + endpoint block/unblock + pengecekan blokir di kirim & create + flag di respons (webapp.py); menu ⋯, pemberitahuan blokir, penanganan 403 (index.html); spec, ADR-005, tes pytest (7) & statis (4).
+- **Files Touch:** `webapp.py`, `static/index.html`, `tests/test_direct_messages.py`, `tests/offline/direct_messages_ui.test.js`, `docs/superpowers/specs/2026-10-03-direct-messages-design.md`, `.agents/*`
+- **Status:** Needs Review (belum commit).
 ## [2026-10-04 00:20] - Claude (Kalender: Today + buat task dari tanggal)
 - **Task:** Tombol "Today" di Kalender untuk kembali ke bulan berjalan; klik tanggal membuka modal "Buat Baru" (TaskFormModal yang sama) dengan deadline terisi.
 - **Changes:** `CalendarView` (goToday, isCurrentMonth, dateKey, handleDayClick, createOnSelectedDay, tombol "+ Task" di panel mobile & modal desktop), App mengoper `onCreateOnDate`, toast handleSaved pakai `editTask?.id`; SW v356; tes versi disesuaikan; tes baru `calendar_today_create.test.js`.
@@ -2094,3 +2113,21 @@
 - **Changes:** `borderLeft` berwarna dihapus dari `TaskListItems` (panel tanggal & mobile Minggu) dan `WeekTaskCard`; tes penjaga di `calendar_week_view.test.js`.
 - **Files Touch:** `static/index.html`, `tests/offline/calendar_week_view.test.js`, `.agents/*`
 - **Status:** Needs Review (draft PR #9).
+## [2026-10-04 00:40] - Claude (thread DM)
+- **Task:** Merge `main` (PR #7 kalender, SW v356) ke PR #6 pesan pribadi + blokir.
+- **Changes:** Konflik versi diselesaikan: SW → `taskflow-v357-direct-messages` (aturan network-only `/api/dm/*` dipertahankan), tes versi disesuaikan; catatan .agents digabung.
+- **Files Touch:** static/sw.js, tests/offline/*.test.js (pin versi), .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md, docs spec DM
+- **Status:** Needs Review (draft PR #6)
+
+## [2026-10-04] - Claude (Dashboard: Prioritas & Disematkan setinggi + Disematkan collapsible)
+- **Task:** Permintaan user: kartu Prioritas Hari Ini dan Disematkan sama tinggi; Notes/Mindmap/Gambar di Disematkan bisa dibuka-tutup (default Notes terbuka, Mindmap & Gambar tertutup).
+- **Changes:** `Dashboard` (index.html): state `pinOpen` + `togglePin`, `renderPinnedGroup` dengan header tombol ber-ARIA + isi `hidden`, reveal-scroll daftar Disematkan via `pinScrollRef`/`pinRevealRef`; kelas `dash-prio-card`, `dash-pin-wrap`, `dash-pin-card`. CSS: `.dash-main` stretch, Disematkan absolut + gulir internal di desktop, reset ≤900px, gaya toggle/chevron/pill nol/animasi + reduced motion. tes versi + `tests/offline/dashboard_pin_collapse.test.js` (baru). Implementasi & review via subagent. Merge `main` (PR #7 Kalender v356 + PR #6 DM v357, app.css v307) → SW v358 `taskflow-v358-dashboard-pin-collapse`, app.css?v=308; tes versi (termasuk `direct_messages_ui.test.js`) disesuaikan.
+- **Verifikasi:** JS 899/900 (1 fail pra-ada tldraw), pytest 96/96, inline 5/5, `node --check sw.js` OK; review independen → 7 perbaikan kecil (header kolom sempit wrap, tanpa overscroll-behavior & scrollbar-width, min-height 352px, kontras, aria-expanded); Playwright font Nunito Sans asli light/dark × desktop/mobile: sebelum 348 vs 501 px, sesudah 352/352 tanpa scroll, Mindmap dibuka tetap setinggi dan terlihat.
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/dashboard_pin_collapse.test.js` (baru), `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui,direct_messages_ui}.test.js`, `.agents/*`
+- **Status:** PR dari `claude/dashboard-redesign-109io3`, menunggu "merge dan deploy" dari user.
+
+## [2026-10-04 05:35] - Claude (merge & deploy Kalender Minggu)
+- **Task:** Atas permintaan user ("merge dan deploy"): merge main (PR #6 Pesan pribadi, PR #10 Dashboard) ke branch, konflik versi diselesaikan → SW v359; lalu merge PR #9.
+- **Verifikasi:** JS 929/930 (1 fail pra-ada tldraw), pytest 122/122, inline 5/5, `node --check sw.js` OK; Playwright week view light/dark × 1440/1024/390 di kode gabungan tanpa page error.
+- **Files Touch:** `static/sw.js`, `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,drawing_sync_ui,direct_messages_ui}.test.js`, `.agents/*`
+- **Status:** Completed.

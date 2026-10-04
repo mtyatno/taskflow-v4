@@ -18,7 +18,7 @@ test("View Mode Toggle and CSS in NotesPage", async (t) => {
   });
 });
 
-test("Saved Searches UI and SW v357", async (t) => {
+test("Saved Searches UI and SW v359", async (t) => {
   const indexHtml = fs.readFileSync(path.join(__dirname, "../../static/index.html"), "utf8");
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
 
@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v357", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v357-calendar-week-view", () => {
-    assert.match(swJs, /taskflow-v357-calendar-week-view/);
+  await t.test("sw.js bumped to taskflow-v359-calendar-week-view", () => {
+    assert.match(swJs, /taskflow-v359-calendar-week-view/);
   });
 });

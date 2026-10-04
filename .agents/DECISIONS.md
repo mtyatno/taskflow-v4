@@ -34,3 +34,14 @@
 - **Context:** Fitur Sampah note butuh hapus yang bisa dipulihkan 30 hari. ±30 query di `webapp.py` membaca `scratchpad_notes` (list, search, titles, backlinks, halaman publik, export, bot); soft-delete lewat kolom memaksa semua query difilter dan satu yang terlewat membocorkan note terhapus.
 - **Decision:** Hapus tetap menghapus dari `scratchpad_notes` (cascade lama tidak berubah), tetapi dalam transaksi yang sama menulis snapshot JSON (semua kolom + tag + pin + publish + lampiran) ke `trashed_notes`. Restore memasukkan kembali dengan id asli. Purge lazy setelah `NOTE_TRASH_RETENTION_DAYS = 30`. Endpoint `/api/scratchpad/trash*` hanya online (router lokal & SW tidak melayaninya). Spec: `docs/superpowers/specs/2026-10-02-note-trash-design.md`.
 - **Consequences:** Query lama tidak tersentuh. Klien: setelah restore buang op outbox `delete` tertunda (`noterepo.discardPendingDelete`) dan pull memperbarui `linked_to_cids` basi. Keterbatasan: perangkat lain yang mengedit note saat note dihapus membuat salinan baru (POST setelah PUT 404) → setelah restore ada 2 note. File lampiran Nextcloud tidak dibersihkan saat hapus permanen (perilaku lama). Deploy wajib restart service agar `migrate_db()` membuat tabel.
+
+
+---
+
+### ADR-005: Pesan Pribadi (DM) di tabel terpisah, tanpa ikatan ke shared list
+- **Date:** 2026-10-03
+- **Agent:** Claude
+- **Context:** Diskusi hanya mendukung chat grup (`messages.list_id`). Pemilik produk ingin DM 1-on-1; memulai hanya dengan sesama anggota grup (anti-spam), tetapi percakapan tetap aktif walau keduanya tidak lagi satu grup.
+- **Decision:** Tabel baru `dm_conversations` (pasangan ternormalisasi `user_a < user_b`, UNIQUE), `dm_messages`, `dm_reads` (penanda baca per user = `last_read_id`). Cek berbagi grup hanya saat membuat percakapan baru; akses berikutnya hanya cek peserta (404 untuk selainnya). Tidak ada FK ke `shared_lists`. Endpoint `/api/dm/*` online-only (SW network-only, tidak ada rute lokal, tidak memakai chatrepo). Notifikasi in-app ditahan bila penerima subscribe SSE percakapan (`dm_subscribers` menyimpan `(user_id, queue)`), dan tidak diduplikasi selama notifikasi identik belum dibaca. Spec: `docs/superpowers/specs/2026-10-03-direct-messages-design.md`.
+- **Consequences:** Hapus/keluar grup tidak memengaruhi DM; hapus akun menghapus DM-nya (CASCADE). `dm_subscribers` per proses — dengan beberapa worker uvicorn, SSE & penahanan notifikasi hanya akurat dalam worker yang sama (sama seperti chat grup). Deploy wajib restart service.
+- **Addendum 2026-10-04 (Blokir):** tabel `dm_blocks (blocker_id, blocked_id)` per pasangan user (bukan per percakapan). Blokir dari salah satu pihak menolak kirim kedua arah (403 "Obrolan ini diblokir", tanpa notifikasi/SSE) dan menolak percakapan BARU; percakapan lama tetap dikembalikan & riwayat tetap terbaca. Buka blokir hanya menghapus blokir milik sendiri.

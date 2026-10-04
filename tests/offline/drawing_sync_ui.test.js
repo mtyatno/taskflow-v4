@@ -246,8 +246,8 @@ test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan"
 });
 
 // ── Cache bust ───────────────────────────────────────────────────────────────
-test("sw.js CACHE = taskflow-v357-calendar-week-view (tldraw di-cache cache-first)", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v357-calendar-week-view";/m);
+test("sw.js CACHE = taskflow-v359-calendar-week-view (tldraw di-cache cache-first)", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v359-calendar-week-view";/m);
 });
 
 // ══ Putaran pengerasan (review independen) ══════════════════════════════════════
