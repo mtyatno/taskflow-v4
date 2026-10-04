@@ -25277,6 +25277,42 @@ function CalendarHeatmap({ data }) {
   })));
 }
 
+function MiniHeatmap({ habitId, habitData }) {
+  if (!habitData || habitData.length === 0) {
+    // Show 30 empty cells
+    const emptyCells = Array(30).fill(null);
+    return /*#__PURE__*/React.createElement("div", {
+      className: "habit-mini-heatmap"
+    }, emptyCells.map((_, i) => /*#__PURE__*/React.createElement("div", {
+      key: i,
+      className: "habit-mini-cell"
+    })));
+  }
+
+  // habitData is array of {date, status} for last 30 days
+  // status: "done" | "skipped" | "missed" | null
+  return /*#__PURE__*/React.createElement("div", {
+    className: "habit-mini-heatmap"
+  }, habitData.map((day, i) => {
+    let level = 0;
+    if (day.status === 'done') level = 4; // Full intensity
+    else if (day.status === 'skipped') level = 2; // Medium (yellow-ish)
+    else if (day.status === 'missed') level = 0; // Gray
+
+    const dateObj = new Date(day.date + 'T00:00:00');
+    const dayName = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'][dateObj.getDay()];
+    const tooltip = `${dayName}, ${dateObj.getDate()} ${['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'][dateObj.getMonth()]}: ${day.status || 'tidak tercatat'}`;
+
+    const className = `habit-mini-cell${level > 0 ? ` level-${level}` : ''}`;
+
+    return /*#__PURE__*/React.createElement("div", {
+      key: day.date,
+      className: className,
+      "data-tooltip": tooltip
+    });
+  }));
+}
+
 function HabitPage({
   user,
   showToast
