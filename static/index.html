@@ -25322,8 +25322,7 @@ function HabitPage({
   const [checkinTarget, setCheckinTarget] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [monthlyData, setMonthlyData] = useState(null);
-  const chartRef = useRef(null);
-  const chartInstanceRef = useRef(null);
+  const [summaryStats, setSummaryStats] = useState({});
   const DAY_LABELS = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
   const todayDow = (new Date().getDay() + 6) % 7;
   const PHASE_LABEL = {
@@ -25382,110 +25381,34 @@ function HabitPage({
       setMonthlyData(data);
     } catch (e) {/* offline — skip chart */}
   };
+
+  // NEW: Fetch monthly completion data for heatmap
+  const fetchMonthlyCompletion = async () => {
+    try {
+      const data = await api.get("/api/habits/monthly-completion");
+      setMonthlyData(data);
+    } catch (e) {
+      // Offline or error — set null, heatmap will show fallback
+      setMonthlyData(null);
+    }
+  };
   useEffect(() => {
     fetchHabits();
-    fetchMonthly();
+    fetchMonthlyCompletion(); // CHANGED: use new endpoint
     const handler = () => {
       fetchHabits();
-      fetchMonthly();
+      fetchMonthlyCompletion(); // CHANGED
     };
     window.addEventListener("habitSaved", handler);
     return () => window.removeEventListener("habitSaved", handler);
   }, []);
+
+  // Compute summary stats whenever habits change
   useEffect(() => {
-    if (!monthlyData || !chartRef.current) return;
-    if (chartInstanceRef.current) chartInstanceRef.current.destroy();
-    const today = monthlyData.today_day;
-    const labels = monthlyData.days.map(d => d.day);
-    const dataPoints = monthlyData.days.map(d => d.day <= today ? d.done : null);
-    const isDark = document.documentElement.getAttribute("data-theme") === "dark";
-    const gridColor = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
-    const textColor = isDark ? "#a3a3a3" : "#94a3b8";
-    const accentRgb = "168,197,0";
-    const ctx = chartRef.current.getContext("2d");
-    const grad = ctx.createLinearGradient(0, 0, 0, 160);
-    grad.addColorStop(0, `rgba(${accentRgb},0.25)`);
-    grad.addColorStop(1, `rgba(${accentRgb},0)`);
-    chartInstanceRef.current = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [{
-          data: dataPoints,
-          borderColor: `rgba(${accentRgb},1)`,
-          backgroundColor: grad,
-          borderWidth: 2,
-          pointRadius: dataPoints.map((v, i) => i === today - 1 ? 5 : 2),
-          pointBackgroundColor: `rgba(${accentRgb},1)`,
-          fill: true,
-          tension: 0.35,
-          spanGaps: false
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: {
-          mode: "index",
-          intersect: false
-        },
-        plugins: {
-          legend: {
-            display: false
-          },
-          tooltip: {
-            callbacks: {
-              title: items => {
-                const day = items[0].label;
-                const d = new Date(new Date().getFullYear(), new Date().getMonth(), parseInt(day));
-                return d.toLocaleDateString("id-ID", {
-                  weekday: "short",
-                  day: "numeric",
-                  month: "short"
-                });
-              },
-              label: item => `${item.raw ?? 0} kebiasaan selesai`
-            },
-            backgroundColor: isDark ? "#262626" : "#fff",
-            titleColor: isDark ? "#e5e5e5" : "#0f172a",
-            bodyColor: isDark ? "#a3a3a3" : "#64748b",
-            borderColor: isDark ? "#404040" : "#E8E8E0",
-            borderWidth: 1
-          }
-        },
-        scales: {
-          x: {
-            grid: {
-              color: gridColor
-            },
-            ticks: {
-              color: textColor,
-              font: {
-                size: 10
-              },
-              maxTicksLimit: 15
-            }
-          },
-          y: {
-            grid: {
-              color: gridColor
-            },
-            ticks: {
-              color: textColor,
-              font: {
-                size: 10
-              },
-              stepSize: 1,
-              beginAtZero: true
-            }
-          }
-        }
-      }
-    });
-    return () => {
-      if (chartInstanceRef.current) chartInstanceRef.current.destroy();
-    };
-  }, [monthlyData]);
+    const stats = computeHabitSummaryStats(habits);
+    setSummaryStats(stats);
+  }, [habits]);
+
   const handleCheckin = async (habitId, status, skipReason) => {
     const _d = new Date();
     const today = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
