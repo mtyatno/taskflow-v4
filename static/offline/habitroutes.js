@@ -36,6 +36,7 @@
     router.register("GET", "/api/habits", ({ query }) => TFhq.getHabits(query));
     router.register("GET", "/api/habits/today", () => TFhq.getHabitsToday({}));
     router.register("GET", "/api/habits/monthly", () => TFhq.getHabitsMonthly({}));
+    router.register("GET", "/api/habits/monthly-completion", () => TFhq.getHabitsMonthlyCompletion({}));
     router.register("POST", "/api/habits", ({ body }) => TFhr.createHabit(body || {}, {}));
     router.register("POST", "/api/habits/:id/update", ({ params, body }) =>
       resolveHabitCid(params.id).then((cid) => (cid ? TFhr.updateHabit(cid, body || {}, {}) : notFound())));

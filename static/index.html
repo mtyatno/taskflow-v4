@@ -24586,11 +24586,8 @@ function HabitCheckinModal({
 }
 
 // Helper: Extract last 30 days of data for a specific habit
-function getHabit30DayData(habitId, habitLogs) {
-  // habitLogs is the habit's own log history
-  // For now, we'll derive from week_log (7 days only)
-  // Full implementation needs backend to return per-habit 30-day data
-  // TEMPORARY: return empty array, will be filled in next task
+function getHabit30DayData(habit) {
+  if (habit && Array.isArray(habit.month_log)) return habit.month_log;
   return [];
 }
 
@@ -24616,7 +24613,7 @@ function HabitCard({
   }, [h?.id]);
 
   // Get 30-day data for mini heatmap
-  const habit30DayData = getHabit30DayData(h.id, []); // Empty for now
+  const habit30DayData = getHabit30DayData(h);
 
   return /*#__PURE__*/React.createElement("div", {
     className: "habit-card-new fade-in",
@@ -25187,17 +25184,19 @@ function getHeatmapColorLevel(doneCount, totalHabits) {
 function CalendarHeatmap({ data }) {
   const [hoveredCell, setHoveredCell] = React.useState(null);
 
-  if (!data || !data.days || data.days.length === 0) {
+  if (!data || !Array.isArray(data.days)) {
     return /*#__PURE__*/React.createElement("div", {
       className: "habit-heatmap",
       style: { textAlign: "center", padding: "30px", color: "var(--text-secondary)", fontSize: 14 }
-    }, "Tidak ada data untuk ditampilkan");
+    }, "Kalender belum tersedia (butuh koneksi)");
   }
 
-  // Build 35-cell grid (5 weeks × 7 days)
-  // Fill with last 30 days + padding for complete weeks
+  // Grid 35 sel (5 minggu, Senin-Minggu); baris terakhir berakhir di Minggu minggu ini.
+  const pad2 = n => String(n).padStart(2, "0");
+  const fmtLocal = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  today.setHours(0, 0, 0, 0);
+  const todayStr = fmtLocal(today);
 
   // Create map of date -> day data
   const dataMap = {};
@@ -25209,11 +25208,10 @@ function CalendarHeatmap({ data }) {
   const cells = [];
   const todayDow = (today.getDay() + 6) % 7; // 0=Mon, 6=Sun
 
-  for (let i = 34; i >= 0; i--) {
-    const daysBack = 34 - i - todayDow;
+  for (let k = 0; k < 35; k++) {
     const cellDate = new Date(today);
-    cellDate.setDate(cellDate.getDate() - daysBack);
-    const cellDateStr = cellDate.toISOString().split('T')[0];
+    cellDate.setDate(today.getDate() + (6 - todayDow) - (34 - k));
+    const cellDateStr = fmtLocal(cellDate);
 
     // Only render cells up to today
     if (cellDate <= today) {
@@ -25367,14 +25365,6 @@ function HabitPage({
     }
     setLoading(false);
   };
-  const fetchMonthly = async () => {
-    try {
-      const data = await api.get("/api/habits/monthly");
-      setMonthlyData(data);
-    } catch (e) {/* offline — skip chart */}
-  };
-
-  // NEW: Fetch monthly completion data for heatmap
   const fetchMonthlyCompletion = async () => {
     try {
       const data = await api.get("/api/habits/monthly-completion");
@@ -25431,15 +25421,17 @@ function HabitPage({
       if (h.id !== habitId) return h;
       const newWeekLog = [...(h.week_log || [null, null, null, null, null, null, null])];
       newWeekLog[todayDow] = status;
+      const newMonthLog = Array.isArray(h.month_log) ? h.month_log.map(m => m.date === today ? { ...m, status } : m) : h.month_log;
       return {
         ...h,
         today_status: status,
         skip_reason: skipReason,
-        week_log: newWeekLog
+        week_log: newWeekLog,
+        month_log: newMonthLog
       };
     }));
     if (status === "done") showToast("✅ Habit selesai!");else showToast("⏭️ Di-skip");
-    fetchMonthly();
+    fetchMonthlyCompletion();
   };
   const handleEdit = async (habitId, data) => {
     try {

@@ -63,7 +63,7 @@
         const d = TFlogic.deriveToday(h, logmap[h.cid] || {}, today);
         return Object.assign(withId(h), {
           frequency: h.frequency ? JSON.parse(h.frequency) : [],
-          today_status: d.today_status, skip_reason: d.skip_reason, streak: d.streak, week_log: d.week_log,
+          today_status: d.today_status, skip_reason: d.skip_reason, streak: d.streak, week_log: d.week_log, month_log: d.month_log,
         });
       }));
   }
@@ -74,7 +74,15 @@
     return getAll("habit_logs").then((all) => TFlogic.monthly(all, y, m, dd));
   }
 
-  const exported = { getHabits, getHabitsToday, getHabitsMonthly };
+  function getHabitsMonthlyCompletion(opts) {
+    const today = (opts && opts.today) || TFlogic.todayJkt();
+    return Promise.all([liveHabits(), getAll("habit_logs")]).then(([habits, logs]) => {
+      const live = new Set(habits.map((h) => h.cid));
+      return TFlogic.monthlyCompletion(logs.filter((l) => live.has(l.habit_cid)), habits.length, today);
+    });
+  }
+
+  const exported = { getHabits, getHabitsToday, getHabitsMonthly, getHabitsMonthlyCompletion };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.habitquery = exported; }
   return exported;
 });

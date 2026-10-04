@@ -28,6 +28,11 @@
     const wk = weekDates(todayStr);
     const week_log = wk.map((dt) => (logsByDate[dt] ? logsByDate[dt].status : null));
     const todayLog = logsByDate[todayStr];
+    const month_log = [];
+    for (let i = 29; i >= 0; i--) {
+      const dt = addDays(todayStr, -i);
+      month_log.push({ date: dt, status: logsByDate[dt] ? logsByDate[dt].status : null });
+    }
     let streak = 0;
     let cur = todayStr;
     while (true) {
@@ -41,6 +46,7 @@
       skip_reason: todayLog ? (todayLog.skip_reason || "") : "",
       streak: streak,
       week_log: week_log,
+      month_log: month_log,
     };
   }
   function monthly(logs, year, month, todayDay) {
@@ -61,7 +67,21 @@
     return { days: days, avg: avg, today_day: todayDay, days_in_month: daysInMonth };
   }
 
-  const exported = { todayJkt, weekDates, deriveToday, monthly, addDays };
+  function monthlyCompletion(logs, totalHabits, todayStr) {
+    const since = addDays(todayStr, -29);
+    const doneByDate = {};
+    for (const l of (logs || [])) {
+      const dt = String(l.date).slice(0, 10);
+      if (dt < since || dt > todayStr) continue;
+      doneByDate[dt] = (doneByDate[dt] || 0) + (l.status === "done" ? 1 : 0);
+    }
+    const days = Object.keys(doneByDate).sort().reverse().map((dt) => (
+      { date: dt, total_habits: totalHabits, done_count: doneByDate[dt] }
+    ));
+    return { days: days };
+  }
+
+  const exported = { todayJkt, weekDates, deriveToday, monthly, monthlyCompletion, addDays };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.habitlogic = exported; }
   return exported;
 });

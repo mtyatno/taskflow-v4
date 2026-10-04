@@ -1,7 +1,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { todayJkt, weekDates, deriveToday, monthly } = require("../../static/offline/habitlogic.js");
+const { todayJkt, weekDates, deriveToday, monthly, monthlyCompletion } = require("../../static/offline/habitlogic.js");
 
 test("todayJkt converts a UTC ms to the Jakarta (UTC+7) date", () => {
   assert.equal(todayJkt(Date.parse("2026-06-04T20:00:00Z")), "2026-06-05");
@@ -47,4 +47,30 @@ test("monthly counts done per day with avg up to today", () => {
   assert.equal(m.days[1].done, 0);
   assert.equal(m.today_day, 2);
   assert.equal(m.avg, 1);
+});
+
+test("deriveToday returns 30-day month_log ending today, oldest first", () => {
+  const d = deriveToday({}, { "2026-06-04": { status: "done" }, "2026-05-06": { status: "skipped" } }, "2026-06-04");
+  assert.equal(d.month_log.length, 30);
+  assert.equal(d.month_log[0].date, "2026-05-06");
+  assert.equal(d.month_log[0].status, "skipped");
+  assert.equal(d.month_log[29].date, "2026-06-04");
+  assert.equal(d.month_log[29].status, "done");
+  assert.equal(d.month_log[10].status, null);
+});
+
+test("monthlyCompletion counts done per date within last 30 days, total = habit count", () => {
+  const logs = [
+    { date: "2026-06-04", status: "done" },
+    { date: "2026-06-04", status: "done" },
+    { date: "2026-06-04", status: "skipped" },
+    { date: "2026-06-03", status: "skipped" },
+    { date: "2026-05-05", status: "done" },
+  ];
+  const r = monthlyCompletion(logs, 3, "2026-06-04");
+  assert.deepEqual(r.days, [
+    { date: "2026-06-04", total_habits: 3, done_count: 2 },
+    { date: "2026-06-03", total_habits: 3, done_count: 0 },
+  ]);
+  assert.deepEqual(monthlyCompletion([], 0, "2026-06-04"), { days: [] });
 });

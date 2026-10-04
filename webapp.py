@@ -3175,6 +3175,13 @@ async def get_habits_today(user=Depends(get_current_user)):
             ).fetchall()
             log_map = {l["date"]: l["status"] for l in logs}
             week_log = [log_map.get(d, None) for d in week_dates]
+            month_dates = [(_t - timedelta(days=29 - i)).isoformat() for i in range(30)]
+            month_rows = conn.execute(
+                "SELECT date, status FROM habit_logs WHERE habit_id = ? AND date >= ? AND date <= ?",
+                (hid, month_dates[0], month_dates[-1])
+            ).fetchall()
+            month_map = {r["date"]: r["status"] for r in month_rows}
+            month_log = [{"date": d, "status": month_map.get(d)} for d in month_dates]
             # Streak: hitung dari hari ini ke belakang
             streak = 0
             check_date = _today_jkt()
@@ -3202,6 +3209,7 @@ async def get_habits_today(user=Depends(get_current_user)):
                 "skip_reason": today_log["skip_reason"] if today_log else "",
                 "streak": streak,
                 "week_log": week_log,
+                "month_log": month_log,
             })
     return result
 
@@ -3256,33 +3264,25 @@ async def get_habits_monthly_completion(user=Depends(get_current_user)):
     Used for calendar heatmap visualization.
     """
     uid = user["sub"]
+    since = (_today_jkt() - timedelta(days=29)).isoformat()
     with get_db() as conn:
-        # Get daily completion stats for the last 30 days
-        # Uses habit_logs table (habit_id, date, status)
-        query = """
-        SELECT
-            hl.date as date,
-            COUNT(DISTINCT hl.habit_id) as total_habits,
-            SUM(CASE WHEN hl.status = 'done' THEN 1 ELSE 0 END) as done_count
-        FROM habit_logs hl
-        JOIN habits h ON h.id = hl.habit_id
-        WHERE h.user_id = ?
-          AND hl.date >= DATE('now', '-30 days')
-        GROUP BY hl.date
-        ORDER BY hl.date DESC
-        """
-
-        rows = conn.execute(query, (uid,)).fetchall()
-
+        total_habits = conn.execute(
+            "SELECT COUNT(*) AS n FROM habits WHERE user_id = ?", (uid,)
+        ).fetchone()["n"]
+        rows = conn.execute(
+            """SELECT hl.date AS date,
+                      SUM(CASE WHEN hl.status = 'done' THEN 1 ELSE 0 END) AS done_count
+               FROM habit_logs hl
+               JOIN habits h ON h.id = hl.habit_id
+               WHERE h.user_id = ? AND hl.date >= ?
+               GROUP BY hl.date
+               ORDER BY hl.date DESC""",
+            (uid, since),
+        ).fetchall()
         days = [
-            {
-                "date": row["date"],
-                "total_habits": row["total_habits"],
-                "done_count": row["done_count"]
-            }
-            for row in rows
+            {"date": r["date"], "total_habits": total_habits, "done_count": r["done_count"]}
+            for r in rows
         ]
-
         return {"days": days}
 
 
