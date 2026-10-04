@@ -233,7 +233,7 @@
     .chat-list-panel.collapsed { width: 52px; overflow: hidden; }
     .chat-list-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.15s; display: flex; align-items: center; gap: 10px; }
     .chat-list-item:hover { background: var(--bg-primary); }
-    .chat-list-item.active { background: rgba(168,197,0,0.10); border-left: 3px solid var(--accent); }
+    .chat-list-item.active { background: rgba(168,197,0,0.10); }
     .chat-list-avatar { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 15px; font-weight: 700; flex-shrink: 0; }
     /* Chat room */
     .chat-room {

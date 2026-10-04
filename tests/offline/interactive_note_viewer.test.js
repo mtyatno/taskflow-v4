@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v357-dashboard-pin-collapse/,
-      "sw.js should be bumped to taskflow-v357-dashboard-pin-collapse"
+      /taskflow-v358-dashboard-pin-collapse/,
+      "sw.js should be bumped to taskflow-v358-dashboard-pin-collapse"
     );
   });
 

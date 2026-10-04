@@ -28,7 +28,7 @@ test("ChatPage Unified Container Layout and Redesign", async (t) => {
     // ChatPage should render .chat-layout with .chat-list-panel and .chat-room
     assert.match(
       chatPageCode,
-      /className:\s*`chat-layout\$\{selectedList\s*\?\s*" has-selection"\s*:\s*""\}`/,
+      /className:\s*`chat-layout\$\{selected\s*\?\s*" has-selection"\s*:\s*""\}`/,
       "ChatPage should use .chat-layout with dynamic has-selection class"
     );
     assert.match(
@@ -83,8 +83,8 @@ test("ChatPage Unified Container Layout and Redesign", async (t) => {
     );
     assert.match(
       chatListPanelCode,
-      /placeholder:\s*["']Cari list\.\.\.["']/,
-      "ChatListPanel search placeholder should be 'Cari list...'"
+      /placeholder:\s*["']Cari grup atau orang\.\.\.["']/,
+      "ChatListPanel search placeholder should be 'Cari grup atau orang...' (filters groups + DMs)"
     );
     assert.match(
       chatListPanelCode,
@@ -114,7 +114,7 @@ test("ChatPage Unified Container Layout and Redesign", async (t) => {
     // List item class
     assert.match(
       chatListPanelCode,
-      /className:\s*`chat-list-item\$\{selectedId === l\.id \? " active" : ""\}`/,
+      /className:\s*`chat-list-item\$\{isSel\("group", l\.id\) \? " active" : ""\}`/,
       "ChatListPanel should render .chat-list-item with active class"
     );
   });

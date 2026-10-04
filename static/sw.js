@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v357-dashboard-pin-collapse";
+const CACHE = "taskflow-v358-dashboard-pin-collapse";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -217,6 +217,18 @@ self.addEventListener("fetch", e => {
   // Sampah note (/api/scratchpad/trash...): NETWORK-ONLY, semua method. Daftar sampah dari cache basi
   // bisa menampilkan item yang sudah dipulihkan/dihapus; offline → 503 OFFLINE (gagal jelas, tidak diantre).
   if (url.pathname === "/api/scratchpad/trash" || url.pathname.startsWith("/api/scratchpad/trash/")) {
+    e.respondWith(
+      fetch(request).catch(() => new Response(
+        JSON.stringify({ detail: "OFFLINE" }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      ))
+    );
+    return;
+  }
+
+  // Pesan Pribadi (/api/dm/...): NETWORK-ONLY, semua method (termasuk SSE stream). Pesan pribadi tidak
+  // disimpan di Cache Storage; offline → 503 OFFLINE (gagal jelas, tidak diantre).
+  if (url.pathname.startsWith("/api/dm/")) {
     e.respondWith(
       fetch(request).catch(() => new Response(
         JSON.stringify({ detail: "OFFLINE" }),
