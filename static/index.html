@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=311">
+  <link rel="stylesheet" href="/static/app.css?v=312">
 
 <style>
 .paper-mode-active {
@@ -2285,7 +2285,8 @@ function Sidebar({
   const firstSectionIdx = links.findIndex(l => l.section);
   const railLinks = links.slice(0, firstSectionIdx === -1 ? links.length : firstSectionIdx);
   const rail = /*#__PURE__*/React.createElement("div", {
-    className: "sidebar-rail"
+    className: "sidebar-rail",
+    "data-tour": "sidebar-rail"
   }, /*#__PURE__*/React.createElement("div", {
     className: "sidebar-rail-logo",
     title: "Alurik"
@@ -2301,7 +2302,8 @@ function Sidebar({
     className: "sidebar-rail-btn sidebar-rail-expand",
     onClick: onToggleCollapse,
     title: "Tampilkan semua menu",
-    "aria-label": "Tampilkan semua menu"
+    "aria-label": "Tampilkan semua menu",
+    "data-tour": "sidebar-expand"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "chevron-right",
     size: 18
@@ -12712,13 +12714,16 @@ function DashChip({
     size: Math.round(size * 0.55)
   }));
 }
+// popup → aria-haspopup (mis. "dialog" bila link membuka modal); tanpa popup, atribut tidak dirender.
 function DashLink({
   onClick,
+  popup,
   children
 }) {
   return /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "dash-link",
+    "aria-haspopup": popup,
     onClick: onClick
   }, children);
 }
@@ -12731,7 +12736,8 @@ function DashCardHead({
   onTitleClick,
   count,
   link,
-  onLink
+  onLink,
+  linkPopup
 }) {
   return /*#__PURE__*/React.createElement("div", {
     className: "dash-card-head"
@@ -12755,7 +12761,8 @@ function DashCardHead({
   }, count)), sub && /*#__PURE__*/React.createElement("div", {
     className: "dash-card-sub"
   }, sub)), link && /*#__PURE__*/React.createElement(DashLink, {
-    onClick: onLink
+    onClick: onLink,
+    popup: linkPopup
   }, link));
 }
 function DashSection({
@@ -13037,42 +13044,10 @@ function Dashboard({
   const [pinnedNotes, setPinnedNotes] = useState([]);
   const [pinnedMindmaps, setPinnedMindmaps] = useState([]);
   const [pinnedDrawings, setPinnedDrawings] = useState([]);
-  const [expandedNotes, setExpandedNotes] = useState(false);
-  const [expandedMaps, setExpandedMaps] = useState(false);
-  const [expandedDrawings, setExpandedDrawings] = useState(false);
-  // Sub-bagian "Disematkan" bisa dilipat (tanpa persistensi): default hanya Notes terbuka.
-  const [pinOpen, setPinOpen] = useState({ notes: true, mindmap: false, drawings: false });
-  const pinScrollRef = useRef(null);
-  const pinRevealRef = useRef(null); // key grup yang baru dibuka/diperluas → digulir agar terlihat
-  useEffect(() => {
-    const key = pinRevealRef.current;
-    pinRevealRef.current = null;
-    const box = pinScrollRef.current;
-    // Hanya gulir daftar Disematkan (bukan window), dan hanya bila daftar itu memang meluap (desktop).
-    if (!key || !box || box.scrollHeight <= box.clientHeight) return;
-    const group = box.querySelector(`[data-pin="${key}"]`);
-    if (!group) return;
-    const b = box.getBoundingClientRect();
-    const g = group.getBoundingClientRect();
-    const cs = getComputedStyle(box);
-    // Tampilkan dasar grup, tapi jangan sampai header grup ikut terdorong keluar atas
-    // (batas dihitung dari tepi dalam padding area gulir).
-    const shift = Math.min(g.bottom - (b.bottom - parseFloat(cs.paddingBottom)), g.top - (b.top + parseFloat(cs.paddingTop)));
-    if (shift > 0) {
-      const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      box.scrollBy({
-        top: shift,
-        behavior: reduce ? "auto" : "smooth"
-      });
-    }
-  }, [pinOpen, expandedNotes, expandedMaps, expandedDrawings]);
-  const togglePin = key => {
-    if (!pinOpen[key]) pinRevealRef.current = key;
-    setPinOpen(o => ({
-      ...o,
-      [key]: !o[key]
-    }));
-  };
+  // Sub-bagian "Disematkan" = akordeon: hanya satu dari Notes/Mindmap/Gambar terbuka sekaligus
+  // (default Notes); klik header grup yang sedang terbuka menutupnya. Tanpa persistensi.
+  const [pinOpenKey, setPinOpenKey] = useState("notes");
+  const togglePin = key => setPinOpenKey(k => k === key ? null : key);
   useEffect(() => {
     api.get("/api/scratchpad/recent").then(setRecentNotes).catch(() => {});
     const handler = () => api.get("/api/scratchpad/recent").then(setRecentNotes).catch(() => {});
@@ -13150,10 +13125,68 @@ function Dashboard({
       }
     }
   };
-  const openModal = (title, cellTasks) => setDashModal({
+  // Modal "Lihat semua" (task) / "+N lainnya" (Disematkan) — satu-satunya jalan ke item ke-4 dst.,
+  // jadi harus ramah keyboard. Esc menutup — juga bila fokus lepas ke <body> atau ke halaman di belakang
+  // overlay (Tab keluar) — kecuali sasarannya di dalam modal lain (.modal-overlay yang tidak memuat
+  // dialog ini). Lalu fokus kembali ke pemicunya (dicatat saat dibuka) bila masih ada di halaman, fokus
+  // lepas ke <body>, dan tidak ada .modal-overlay lain (overlay ini sendiri sudah dilepas saat cleanup):
+  // memilih task membuka modal detail task yang TIDAK mengambil fokus — fokus di pemicu di belakangnya
+  // membuat Spasi membuka daftar ini lagi.
+  const dashModalOpenerRef = useRef(null);
+  const dashModalRef = useRef(null);
+  useEffect(() => {
+    if (!dashModal) return;
+    const opener = dashModalOpenerRef.current;
+    const onKey = e => {
+      if (e.key !== "Escape") return;
+      // Esc di modal lain yang terbuka di atas daftar ini (mis. pencarian Ctrl+K) cukup menutup modal itu.
+      const t = e.target;
+      const layer = t && t.closest ? t.closest(".modal-overlay") : null;
+      if (layer && !layer.contains(dashModalRef.current)) return;
+      setDashModal(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      const active = document.activeElement;
+      if (opener && opener.isConnected && (!active || active === document.body) && !document.querySelector(".modal-overlay")) opener.focus();
+    };
+  }, [dashModal]);
+  // Baris modal = role="button": Enter/Spasi menjalankan aksi yang sama dengan klik. preventDefault:
+  // Spasi tidak menggulir, Enter tidak ikut "menekan" elemen yang baru menerima fokus.
+  const dashModalRowKey = e => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    e.currentTarget.click();
+  };
+  const openModal = (title, cellTasks) => {
+    dashModalOpenerRef.current = document.activeElement;
+    setDashModal({
+      title,
+      tasks: cellTasks
+    });
+  };
+  // Varian modal untuk "+N lainnya" di Disematkan: semua item yang disematkan dalam satu grup.
+  const openPinModal = ({
     title,
-    tasks: cellTasks
-  });
+    items,
+    color,
+    onItem,
+    nav,
+    untitled
+  }) => {
+    dashModalOpenerRef.current = document.activeElement;
+    setDashModal({
+      title,
+      pins: {
+        items,
+        color,
+        onItem,
+        nav,
+        untitled
+      }
+    });
+  };
 
   // ── Prioritas hari ini (dipakai hero ring + kartu Prioritas) ──
   const todayStr = new Date().toISOString().split("T")[0];
@@ -13325,6 +13358,7 @@ function Dashboard({
     count: list.length,
     sub: sub,
     link: list.length > 5 ? "Lihat semua →" : null,
+    linkPopup: "dialog",
     onLink: () => openModal(title, list)
   }), list.length === 0 ? /*#__PURE__*/React.createElement(DashEmpty, null) : /*#__PURE__*/React.createElement("div", {
     className: "dash-rows"
@@ -13335,6 +13369,7 @@ function Dashboard({
   }))), list.length > 5 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "dash-more",
+    "aria-haspopup": "dialog",
     onClick: () => openModal(title, list)
   }, "+", list.length - 5, " lagi →"));
 
@@ -13346,17 +13381,15 @@ function Dashboard({
     icon,
     color,
     items,
-    expanded,
-    setExpanded,
     nav,
     navLabel,
     onItem,
     untitled
   }) => {
-    const open = pinOpen[key];
+    const open = pinOpenKey === key;
     const count = items ? items.length : 0;
     const bodyId = "dash-pin-body-" + key;
-    const visible = expanded ? items : (items || []).slice(0, 3);
+    const visible = (items || []).slice(0, 3);
     const hasMore = count > 3;
     return /*#__PURE__*/React.createElement("div", {
       className: `dash-pin-group${open ? " is-open" : ""}${count === 0 ? " is-empty" : ""}`,
@@ -13415,12 +13448,17 @@ function Dashboard({
     }, dashFmtDate(it.updated_at || it.created_at))))), hasMore && /*#__PURE__*/React.createElement("button", {
       type: "button",
       className: "dash-more",
-      "aria-expanded": expanded,
-      onClick: () => {
-        if (!expanded) pinRevealRef.current = key;
-        setExpanded(e => !e);
-      }
-    }, expanded ? "Sembunyikan ▲" : `+${count - 3} lainnya ▼`))));
+      "aria-haspopup": "dialog",
+      // Tidak diperluas di tempat (kartu & seluruh baris jadi memanjang) → modal berisi semua item
+      onClick: () => openPinModal({
+        title: `${label} disematkan`,
+        items,
+        color,
+        onItem,
+        nav,
+        untitled
+      })
+    }, `+${count - 3} lainnya →`))));
   };
   const pinnedTotal = pinnedNotes.length + pinnedMindmaps.length + pinnedDrawings.length;
   const TodayRow = ({
@@ -13585,8 +13623,7 @@ function Dashboard({
     title: "Disematkan",
     sub: pinnedTotal > 0 ? `${pinnedTotal} item disematkan` : "Akses cepat ke catatan favorit"
   }), /*#__PURE__*/React.createElement("div", {
-    className: "dash-pin-groups",
-    ref: pinScrollRef
+    className: "dash-pin-groups"
   }, renderPinnedGroup({
     key: "notes",
     label: "Notes",
@@ -13594,8 +13631,6 @@ function Dashboard({
     icon: "notes",
     color: "#A8C500",
     items: pinnedNotes,
-    expanded: expandedNotes,
-    setExpanded: setExpandedNotes,
     nav: "notes",
     navLabel: "Notes",
     onItem: onNoteClick,
@@ -13607,8 +13642,6 @@ function Dashboard({
     icon: "mindmap",
     color: "#8b5cf6",
     items: pinnedMindmaps,
-    expanded: expandedMaps,
-    setExpanded: setExpandedMaps,
     nav: "mindmap",
     navLabel: "Mindmap",
     onItem: onMindmapClick,
@@ -13620,8 +13653,6 @@ function Dashboard({
     icon: "draw",
     color: "#ec4899",
     items: pinnedDrawings,
-    expanded: expandedDrawings,
-    setExpanded: setExpandedDrawings,
     nav: "draw",
     navLabel: "Draw",
     onItem: onDrawingClick,
@@ -13780,6 +13811,7 @@ function Dashboard({
       onTitleClick: () => onNav(`proj_${proj}`),
       count: projTasks.length,
       link: projTasks.length > 5 ? "Lihat semua →" : null,
+      linkPopup: "dialog",
       onLink: () => openModal(`📂 ${proj}`, projTasks)
     }), /*#__PURE__*/React.createElement("div", {
       className: "dash-progress dash-progress-thin"
@@ -13803,6 +13835,7 @@ function Dashboard({
     }))), projTasks.length > 5 && /*#__PURE__*/React.createElement("button", {
       type: "button",
       className: "dash-more",
+      "aria-haspopup": "dialog",
       onClick: () => openModal(`📂 ${proj}`, projTasks)
     }, "+", projTasks.length - 5, " lagi →"));
   }))),
@@ -13840,12 +13873,16 @@ function Dashboard({
     size: 12
   }), n.updated_at ? dashFmtDate(n.updated_at) + " " + n.updated_at.slice(0, 4) : "")))))),
 
-  /* ── Modal "Lihat semua" ── */
+  /* ── Modal "Lihat semua" (task) / "+N lainnya" Disematkan (pins) ── */
   dashModal && /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
     onClick: () => setDashModal(null)
   }, /*#__PURE__*/React.createElement("div", {
+    ref: dashModalRef,
     className: "modal-content scale-in",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-labelledby": "dash-modal-title",
     style: {
       maxWidth: 480,
       width: "90%",
@@ -13863,6 +13900,7 @@ function Dashboard({
       marginBottom: 14
     }
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    id: "dash-modal-title",
     style: {
       fontWeight: 700,
       fontSize: 16
@@ -13873,17 +13911,56 @@ function Dashboard({
       color: "var(--text-light)",
       marginTop: 2
     }
-  }, dashModal.tasks.length, " task")), /*#__PURE__*/React.createElement("button", {
+  }, dashModal.pins ? `${dashModal.pins.items.length} item disematkan` : `${dashModal.tasks.length} task`)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
     className: "btn btn-secondary btn-sm",
+    "aria-label": "Tutup",
+    autoFocus: true,
     onClick: () => setDashModal(null)
   }, "✕")), /*#__PURE__*/React.createElement("div", {
     style: {
       overflowY: "auto",
       flex: 1
     }
-  }, dashModal.tasks.map(t => /*#__PURE__*/React.createElement("div", {
+  }, dashModal.pins ? dashModal.pins.items.map(it => /*#__PURE__*/React.createElement("div", {
+    key: it.id,
+    className: "dash-modal-row",
+    role: "button",
+    tabIndex: 0,
+    onKeyDown: dashModalRowKey,
+    onClick: () => {
+      const { onItem, nav } = dashModal.pins;
+      setDashModal(null);
+      onItem ? onItem(it) : onNav(nav);
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "pin",
+    size: 14,
+    style: {
+      color: dashModal.pins.color,
+      flexShrink: 0
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 500,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, dashModal.pins.untitled(it))), /*#__PURE__*/React.createElement("span", {
+    className: "dash-date"
+  }, dashFmtDate(it.updated_at || it.created_at)))) : dashModal.tasks.map(t => /*#__PURE__*/React.createElement("div", {
     key: t.id,
     className: "dash-modal-row",
+    role: "button",
+    tabIndex: 0,
+    onKeyDown: dashModalRowKey,
     onClick: () => {
       setDashModal(null);
       onTaskClick(t);
@@ -26497,10 +26574,12 @@ function AdminPage({
 
 const TOUR_STEPS = {
   dashboard: [
+    { element: '[data-tour="sidebar-rail"]', popover: { title: '🗂️ Menu Utama', description: 'Menu utama tampil sebagai bilah ikon ramping: Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes, Draw, Mindmap, dan Diskusi. Arahkan kursor ke ikon untuk melihat namanya, lalu klik untuk berpindah halaman.' } },
+    { element: '[data-tour="sidebar-expand"]', popover: { title: '› Menu Lengkap', description: 'Klik › (atau tombol ☰ di topbar) untuk membuka menu lengkap: GTD, Project, Workspace, dan Pengaturan. Setelah kamu memilih halaman, menu otomatis kembali menjadi bilah ikon.' } },
     { element: '[data-tour="sidebar-general"]', popover: { title: '🗂️ Menu Utama', description: 'Navigasi utama Alurik — Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes & Draw, Mindmap, dan Diskusi. Klik salah satu untuk berpindah halaman.' } },
     { element: '[data-tour="sidebar-collapse"]', popover: { title: '◀ Perkecil Menu', description: 'Klik tombol ‹ ini untuk memperkecil sidebar menjadi bilah ikon ramping, sehingga area kerja lebih luas sementara menu utama tetap bisa diklik. Klik ikon › di bilah ikon (atau tombol ☰ di topbar) untuk membuka menu lengkap kembali.' } },
     { element: '[data-tour="task-gtd"]', popover: { title: '🔄 GTD Menu', description: 'Bagian GTD (Getting Things Done) — Inbox, Next Actions, Waiting For, dan Someday. Metodologi GTD membantu mengelola task berdasarkan konteks dan prioritas.' } },
-    { element: '[data-tour="sidebar-shared"]', popover: { title: '👥 Shared List', description: 'Kelola daftar task bersama — buat Shared List baru, undang anggota, atau bergabung ke list milik orang lain. Cocok untuk kolaborasi tim atau keluarga.' } },
+    { element: '[data-tour="sidebar-shared"]', popover: { title: '👥 Workspace', description: 'Kelola workspace bersama — buat Workspace baru, undang anggota, atau bergabung ke workspace milik orang lain. Cocok untuk kolaborasi tim atau keluarga.' } },
     { element: '[data-tour="sidebar-settings"]', popover: { title: '⚙️ Pengaturan', description: 'Atur profil, notifikasi Telegram, koneksi perangkat, dan preferensi aplikasi di halaman Pengaturan.' } },
     { element: '[data-tour="scratchpad"]', popover: { title: '⚡ Quick Capture', description: 'Ketik apa saja di sini lalu tekan Enter — langsung tersimpan ke Inbox tanpa menutup apapun. Cocok untuk menangkap ide cepat.' } },
     { element: '[data-tour="eisenhower"]', popover: { title: '🧭 Eisenhower Matrix', description: 'Task otomatis dikategorikan ke Q1–Q4 setiap 15 menit berdasarkan priority dan deadline. Q1 = kerjakan segera, Q2 = jadwalkan, Q3 = delegasikan, Q4 = eliminasi.' } },
@@ -26537,6 +26616,9 @@ const TOUR_STEPS = {
     { element: '[data-tour="task-list"]', popover: { title: '📋 Daftar Task', description: 'Klik task untuk melihat detail dan aksi — edit, pindah status GTD, tandai selesai, atau hapus.' } },
     { element: '[data-tour="task-filter"]', popover: { title: '🔍 Filter & Group', description: 'Filter task berdasarkan priority, quadrant Eisenhower, project, atau context. Bisa dikombinasikan.' } },
     { element: '[data-tour="task-gtd"]', popover: { title: '🔄 GTD Workflow', description: 'Pindahkan task dari Inbox → Next Actions → Waiting → Someday → Done. Setiap status punya makna berbeda di metodologi GTD.' } },
+    // Cadangan saat menu terlipat (default setelah pindah halaman): task-gtd hanya ada di menu lengkap,
+    // jadi langkah GTD ditunjukkan di tombol › bilah ikon. Hanya salah satu dari keduanya yang terlihat.
+    { element: '[data-tour="sidebar-expand"]', popover: { title: '🔄 GTD Workflow', description: 'Klik › untuk membuka menu lengkap. Bagian GTD berisi Inbox → Next Actions → Waiting For → Someday; pindahkan task antar status ini sampai Done sesuai metodologi GTD.' } },
   ],
 };
 
@@ -27091,23 +27173,17 @@ function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [queueSize, setQueueSize] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const [recurExpiryAlert, setRecurExpiryAlert] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
-  // Auto-collapse the app nav on Notes, Draw and Mindmap (wide-canvas pages) so the
-  // content gets more width; restore the prior state when leaving the page.
-  const prevSidebarCollapsedRef = React.useRef(null);
+  // Menu utama selalu mulai sebagai bilah ikon: saat login pertama, tiap muat halaman (state awal)
+  // dan setelah tiap perpindahan halaman. › hanya membuka menu lengkap sementara.
   React.useEffect(() => {
-    if (page === "notes" || page === "mindmap" || page === "draw") {
-      if (prevSidebarCollapsedRef.current === null) prevSidebarCollapsedRef.current = sidebarCollapsed;
-      setSidebarCollapsed(true);
-    } else if (prevSidebarCollapsedRef.current !== null) {
-      setSidebarCollapsed(prevSidebarCollapsedRef.current);
-      prevSidebarCollapsedRef.current = null;
-    }
-  }, [page]);
+    setSidebarCollapsed(true);
+    setSidebarOpen(false);
+  }, [page, user?.id]);
   const showToast = (message, type = "success", action = null) => setToast({
     message,
     type,
@@ -28097,7 +28173,11 @@ function App() {
     user: user,
     onLogout: logout,
     isOpen: sidebarOpen,
-    onClose: () => setSidebarOpen(false),
+    // Memilih menu apa pun (juga halaman yang sedang aktif / Review Mingguan) melipat menu lagi
+    onClose: () => {
+      setSidebarOpen(false);
+      setSidebarCollapsed(true);
+    },
     projects: projects,
     tasks: tasks,
     collapsed: sidebarCollapsed,

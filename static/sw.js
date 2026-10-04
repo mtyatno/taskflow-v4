@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v363-focus-workstation";
+const CACHE = "taskflow-v364-sidebar-rail-pin-accordion";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
