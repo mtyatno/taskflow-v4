@@ -11271,7 +11271,8 @@ function computeOccurrences(task, fromDate, toDate) {
 // ── Calendar View ───────────────────────────────────────────
 function CalendarView({
   tasks,
-  onTaskClick
+  onTaskClick,
+  onCreateOnDate
 }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -11331,6 +11332,14 @@ function CalendarView({
       setYear(y => y + 1);
     } else setMonth(m => m + 1);
   };
+  const goToday = () => {
+    const now = new Date();
+    setSelectedDay(null);
+    setYear(now.getFullYear());
+    setMonth(now.getMonth());
+  };
+  const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+  const dateKey = day => `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   const monthName = new Date(year, month, 1).toLocaleDateString("id-ID", {
     month: "long",
     year: "numeric"
@@ -11444,6 +11453,38 @@ function CalendarView({
   }) : null;
   const selectedDateStr = selectedDay ? `${year}-${String(month + 1).padStart(2, "0")}-${String(selectedDay).padStart(2, "0")}` : null;
   const selectedHoliday = selectedDateStr ? holidays[selectedDateStr] : null;
+  // Tanggal tanpa task → langsung buka modal "Buat Baru" dengan deadline tanggal itu.
+  // Tanggal yang sudah ada task → panel daftar task (dengan tombol buat task di tanggal itu).
+  const handleDayClick = day => {
+    if (day === selectedDay) {
+      setSelectedDay(null);
+      return;
+    }
+    if (onCreateOnDate && !(byDay[day] || []).length) {
+      setSelectedDay(null);
+      onCreateOnDate(dateKey(day));
+      return;
+    }
+    setSelectedDay(day);
+  };
+  const createOnSelectedDay = () => {
+    if (!onCreateOnDate || !selectedDateStr) return;
+    setSelectedDay(null);
+    onCreateOnDate(selectedDateStr);
+  };
+  const addOnDayButton = /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-primary btn-sm",
+    onClick: () => createOnSelectedDay(),
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "plus",
+    size: 14
+  }), "Task");
 
   // Shared task list renderer (used both in inline panel and desktop modal)
   const TaskListItems = ({
@@ -11572,10 +11613,28 @@ function CalendarView({
       fontWeight: 700,
       fontSize: 16
     }
-  }, monthName), /*#__PURE__*/React.createElement("button", {
+  }, monthName), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: isCurrentMonth ? "btn btn-secondary btn-sm" : "btn btn-primary btn-sm",
+    onClick: goToday,
+    title: "Kembali ke bulan ini",
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 5
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "calendar",
+    size: 14
+  }), "Today"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
     onClick: nextMonth
-  }, "Next \u203A")), /*#__PURE__*/React.createElement("div", {
+  }, "Next \u203A"))), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: isMobile ? 8 : 12
@@ -11621,7 +11680,7 @@ function CalendarView({
       const dots = dayTasks.slice(0, 5);
       return /*#__PURE__*/React.createElement("div", {
         key: di,
-        onClick: () => day && setSelectedDay(isSelected ? null : day),
+        onClick: () => day && handleDayClick(day),
         style: {
           borderRadius: 8,
           padding: "5px 2px 4px",
@@ -11691,7 +11750,7 @@ function CalendarView({
     // ── Desktop: chip text view ──
     return /*#__PURE__*/React.createElement("div", {
       key: di,
-      onClick: () => day && setSelectedDay(isSelected ? null : day),
+      onClick: () => day && handleDayClick(day),
       style: {
         height: 80,
         overflow: "hidden",
@@ -11926,7 +11985,13 @@ function CalendarView({
       color: "var(--text-light)",
       marginTop: 1
     }
-  }, selectedTasks.length, " task")), /*#__PURE__*/React.createElement("button", {
+  }, selectedTasks.length, " task")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      alignItems: "center"
+    }
+  }, onCreateOnDate && addOnDayButton, /*#__PURE__*/React.createElement("button", {
     onClick: () => setSelectedDay(null),
     style: {
       background: "none",
@@ -11936,7 +12001,7 @@ function CalendarView({
       color: "var(--text-light)",
       padding: 4
     }
-  }, "\u2715")), selectedTasks.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, "\u2715"))), selectedTasks.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "center",
       padding: "20px 0",
@@ -11988,10 +12053,16 @@ function CalendarView({
       color: "var(--text-light)",
       marginTop: 2
     }
-  }, selectedTasks.length, " task")), /*#__PURE__*/React.createElement("button", {
+  }, selectedTasks.length, " task")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center"
+    }
+  }, onCreateOnDate && addOnDayButton, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
     onClick: () => setSelectedDay(null)
-  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
+  }, "\u2715"))), /*#__PURE__*/React.createElement("div", {
     style: {
       overflowY: "auto",
       flex: 1
@@ -27302,7 +27373,7 @@ function App() {
   const handleSaved = () => {
     setShowForm(false);
     setEditTask(null);
-    showToast(editTask ? "Task diupdate ✅" : "Task ditambahkan ✅");
+    showToast(editTask?.id ? "Task diupdate ✅" : "Task ditambahkan ✅");
     fetchAll();
   };
   const handleEdit = task => {
@@ -27489,7 +27560,13 @@ function App() {
     if (page === "calendar") {
       return /*#__PURE__*/React.createElement(CalendarView, {
         tasks: tasks,
-        onTaskClick: setSelectedTask
+        onTaskClick: setSelectedTask,
+        onCreateOnDate: dateStr => {
+          setEditTask({
+            deadline: dateStr
+          });
+          setShowForm(true);
+        }
       });
     }
     return /*#__PURE__*/React.createElement(TaskListView, {

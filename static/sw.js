@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v355-direct-messages";
+const CACHE = "taskflow-v357-direct-messages";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",

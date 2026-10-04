@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS dm_blocks (
 - Ruang DM: header avatar + nama lawan bicara, keterangan "Pesan pribadi"; gelembung pesan, reply, load lebih lama, realtime; input tanpa lampiran/mention. Saat dibuka & saat pesan masuk → tandai terbaca.
 - Menu ⋯ di header ruang DM: "Blokir {nama}" (dengan `confirm()`: "Blokir {nama}? Kalian berdua tidak bisa saling mengirim pesan sampai blokir dibuka.") / "Buka blokir". Saat diblokir, input diganti pemberitahuan: `blocked_by_me` → "Kamu memblokir {nama}." + tombol "Buka blokir"; `blocked_by_other` → "Kamu tidak bisa membalas obrolan ini." Kirim yang ditolak 403 blokir → toast + refresh daftar. Daftar di-refresh setelah blokir/buka blokir.
 - Daftar percakapan di-refresh saat halaman dibuka, setelah kirim, dan berkala selama halaman Diskusi terbuka.
-- SW cache `taskflow-v355-direct-messages`.
+- SW cache `taskflow-v357-direct-messages`.
 
 ## Deploy
-`sudo systemctl restart taskflow-web` wajib agar `migrate_db()` membuat tabel DM; hard refresh klien (SW v355).
+`sudo systemctl restart taskflow-web` wajib agar `migrate_db()` membuat tabel DM; hard refresh klien (SW v357).
