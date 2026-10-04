@@ -2151,3 +2151,10 @@
 - **Catatan:** commit awal PR sempat ikut membawa file `venv/` (venv ter-track di git, termodifikasi oleh `pip install`); dibersihkan sebelum merge — diff akhir 12 file.
 - **Files Touch:** `.agents/*`
 - **Status:** Completed (klien perlu hard refresh untuk SW v360).
+
+## [2026-10-04 10:15] - Claude (redesign Fokus Hari Ini)
+- **Task:** Pomodoro ringkas sticky saat scroll + daftar task ringkas dengan detail per task (tab Subtask/Catatan/Lampiran).
+- **Changes:** `usePomodoro`, `PomodoroTimer` (baru), `PomodoroMiniBar`, `FocusTaskItem`, `useFocusTaskCounts`, `FocusSectionHead`, `FocusGlyph`; FocusSubtasks/Notes/Attachments dirapikan + `onCount`; CSS `.focus-*`/`.ftask-*`; SW v363, app.css?v=311; tes versi diperbarui; tes baru `focus_workstation.test.js`.
+- **Verifikasi:** JS 942/945 (3 fail pra-ada di main), `node --check sw.js` OK, Playwright light/dark/mobile.
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/focus_workstation.test.js` (baru), `tests/offline/{direct_messages_ui,drawing_sync_ui,interactive_note_viewer,note_saved_searches_view_mode,note_search_filters,note_toc}.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR).

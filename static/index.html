@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=309">
+  <link rel="stylesheet" href="/static/app.css?v=311">
 
 <style>
 .paper-mode-active {
@@ -6145,7 +6145,7 @@ function TaskDetailModal({
 }
 
 // ── Task Row ────────────────────────────────────────────────
-  // ═══ DEPENDENCIES: TaskRow & FocusTaskRow ═══
+  // ═══ DEPENDENCIES: TaskRow ═══
   // uses:
   //   - React
   //   - AppContext
@@ -6159,7 +6159,7 @@ function TaskDetailModal({
   //   - playNotificationSound
   // emits:
   //   - TaskRow
-  //   - FocusTaskRow
+  //   - FocusTaskItem (lihat blok Today)
   // BLOCK LENGTH: ~264 lines (7396-7660)
 
 function TaskRow({
@@ -6320,10 +6320,62 @@ function TaskRow({
   }, task.progress || 0, "%"))));
 }
 
-// ── Task Row with Focus Button (for Today page) ─────────────
-function FocusTaskRow({
+// ── Focus page glyphs (inline SVG: tidak bergantung pada ICONS di ui-components.js yang mungkin masih cache lama)
+const FOCUS_GLYPHS = {
+  play: '<path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z" fill="currentColor" stroke="none"/>',
+  pause: '<rect x="6" y="4" width="4" height="16" rx="1.2" fill="currentColor" stroke="none"/><rect x="14" y="4" width="4" height="16" rx="1.2" fill="currentColor" stroke="none"/>',
+  stop: '<rect x="5.5" y="5.5" width="13" height="13" rx="2.5" fill="currentColor" stroke="none"/>',
+  skip: '<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/>',
+  chevron: '<path d="m6 9 6 6 6-6"/>',
+  subtasks: '<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>',
+  note: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  clip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  open: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>'
+};
+function FocusGlyph({
+  name,
+  size = 16,
+  className
+}) {
+  return React.createElement("svg", {
+    className,
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true",
+    focusable: "false",
+    dangerouslySetInnerHTML: { __html: FOCUS_GLYPHS[name] || "" }
+  });
+}
+
+// ── Task item for the Today page: ringkas, detail dibuka per task ─────────
+//   Baris: centang, judul, meta (prioritas, kuadran Eisenhower, status GTD, project, deadline,
+//   jumlah subtask/catatan/lampiran), tombol Fokus. Klik baris → buka panel ber-tab
+//   (Subtask / Catatan / Lampiran) di bawahnya; hanya satu task terbuka sekaligus.
+const FOCUS_TABS = [
+  { key: "subtasks", label: "Subtask", glyph: "subtasks" },
+  { key: "notes", label: "Catatan", glyph: "note" },
+  { key: "attachments", label: "Lampiran", glyph: "clip" }
+];
+function FocusTaskItem({
   task,
-  onClick,
+  open,
+  onToggle,
+  tab,
+  onTab,
+  counts,
+  onCount,
+  onOpenDetail,
   onDone,
   onStartFocus,
   isFocusing,
@@ -6331,134 +6383,237 @@ function FocusTaskRow({
   pomodoroCount
 }) {
   const isOtherFocused = hasFocusTask && !isFocusing;
-  return /*#__PURE__*/React.createElement("div", {
-    className: `task-row fade-in ${isFocusing ? 'focusing' : ''}`,
-    onClick: () => onClick(task)
-  }, /*#__PURE__*/React.createElement("div", {
+  const c = counts || {};
+  const panelId = `ftask-panel-${task.id}`;
+  const showStatus = task.gtd_status && GTD_LABELS[task.gtd_status] && task.gtd_status !== "done";
+  const countLabel = key => key === "subtasks" ? c.subTotal > 0 ? `${c.subDone || 0}/${c.subTotal}` : null : key === "notes" ? c.notes > 0 ? String(c.notes) : null : c.atts > 0 ? String(c.atts) : null;
+  return React.createElement("div", {
+    className: `ftask fade-in${open ? " is-open" : ""}${isFocusing ? " is-focusing" : ""}`
+  }, React.createElement("div", {
+    className: "ftask-row",
+    onClick: onToggle
+  }, React.createElement("div", {
     className: "check-btn",
+    role: "checkbox",
+    "aria-checked": task.gtd_status === "done",
+    tabIndex: 0,
     onClick: e => {
       e.stopPropagation();
       onDone(task.id);
     },
-    title: "Tandai selesai"
-  }, task.gtd_status === "done" && /*#__PURE__*/React.createElement("span", {
+    onKeyDown: e => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        e.stopPropagation();
+        onDone(task.id);
+      }
+    },
+    title: "Tandai selesai",
+    "aria-label": `Tandai selesai: ${task.title}`
+  }, task.gtd_status === "done" && React.createElement("span", {
     className: "check-icon",
     style: {
       color: "var(--success)",
       fontSize: 14
     }
-  }, "\u2713")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      minWidth: 0
+  }, "✓")), React.createElement("button", {
+    type: "button",
+    className: "ftask-main",
+    "aria-expanded": open,
+    "aria-controls": panelId,
+    onClick: e => {
+      e.stopPropagation();
+      onToggle();
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "flex-start",
-      gap: 8
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 14,
-      fontWeight: 500,
-      lineHeight: 1.5
-    }
-  }, task.title), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 4,
-      flexShrink: 0,
-      alignItems: "center"
-    }
-  }, pomodoroCount > 0 && /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      marginRight: 4
-    }
-  }, '🍅'.repeat(Math.min(pomodoroCount, 5)), pomodoroCount > 5 && /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: 'var(--text-light)',
-      fontSize: 11
-    }
-  }, "+", pomodoroCount - 5)), /*#__PURE__*/React.createElement(PriBadge, {
+  }, React.createElement("span", {
+    className: "ftask-title"
+  }, task.title), React.createElement("span", {
+    className: "ftask-meta"
+  }, React.createElement(PriBadge, {
     p: task.priority
-  }), /*#__PURE__*/React.createElement(QuadBadge, {
-    q: task.quadrant
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 8,
-      marginTop: 4,
-      flexWrap: "wrap",
-      alignItems: "center"
-    }
-  }, task.project && /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)"
-    }
-  }, "\uD83D\uDCC1 ", task.project), task.context && /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)"
-    }
-  }, task.context), task.deadline && /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      color: task.is_overdue ? "#ef4444" : "var(--text-light)"
-    }
-  }, "\uD83D\uDCC5 ", formatDate(task.deadline), " ", task.is_overdue && /*#__PURE__*/React.createElement("span", {
-    className: "overdue-indicator"
-  })))), /*#__PURE__*/React.createElement("button", {
+  }), task.quadrant && React.createElement("span", {
+    className: `badge badge-${task.quadrant.toLowerCase()} ftask-badge`,
+    title: "Kuadran Eisenhower"
+  }, React.createElement(Icon, {
+    name: QUAD_ICON[task.quadrant],
+    size: 12
+  }), task.quadrant, " · ", QUAD_LABELS[task.quadrant]), showStatus && React.createElement("span", {
+    className: `badge badge-${task.gtd_status} ftask-badge`,
+    title: "Status GTD"
+  }, React.createElement(Icon, {
+    name: GTD_ICON[task.gtd_status],
+    size: 12
+  }), GTD_LABELS[task.gtd_status]), task.project && React.createElement("span", {
+    className: "ftask-info",
+    title: "Project"
+  }, React.createElement(FocusGlyph, {
+    name: "folder",
+    size: 13
+  }), React.createElement("span", {
+    className: "ftask-info-text"
+  }, task.project)), task.deadline && React.createElement("span", {
+    className: `ftask-info${task.is_overdue ? " is-overdue" : ""}`,
+    title: task.is_overdue ? "Terlambat" : "Deadline"
+  }, React.createElement(FocusGlyph, {
+    name: "calendar",
+    size: 13
+  }), formatDate(task.deadline)), FOCUS_TABS.map(t => {
+    const label = countLabel(t.key);
+    return label && React.createElement("span", {
+      key: t.key,
+      className: "ftask-count",
+      title: t.label
+    }, React.createElement(FocusGlyph, {
+      name: t.glyph,
+      size: 12
+    }), label);
+  }), pomodoroCount > 0 && React.createElement("span", {
+    className: "ftask-count is-pomo",
+    title: "Pomodoro hari ini"
+  }, "🍅 ", pomodoroCount))), React.createElement("button", {
+    type: "button",
     "data-tour": "today-focus-btn",
-    className: `task-focus-btn ${isFocusing ? 'active' : isOtherFocused ? 'disabled' : 'start'}`,
+    className: `ftask-focus-btn ${isFocusing ? "is-active" : isOtherFocused ? "is-disabled" : ""}`,
     onClick: e => {
       e.stopPropagation();
       if (!isOtherFocused) onStartFocus(task);
     },
     disabled: isOtherFocused,
-    title: isOtherFocused ? "Selesaikan task aktif dulu" : isFocusing ? "Klik untuk berhenti fokus" : "Mulai fokus task ini"
-  }, /*#__PURE__*/React.createElement("span", {
-    style: { display: "inline-flex", alignItems: "center", gap: 6 }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "target", size: 14 }), isFocusing ? 'Sedang Dikerjakan' : 'Focus')));
+    "aria-pressed": isFocusing,
+    "aria-label": isFocusing ? `Berhenti fokus: ${task.title}` : `Fokus: ${task.title}`,
+    title: isOtherFocused ? "Selesaikan task aktif dulu" : isFocusing ? "Klik untuk berhenti fokus" : "Jadikan task aktif di Pomodoro"
+  }, React.createElement(FocusGlyph, {
+    name: "target",
+    size: 14
+  }), React.createElement("span", {
+    className: "ftask-focus-label"
+  }, isFocusing ? "Aktif" : "Fokus")), React.createElement(FocusGlyph, {
+    name: "chevron",
+    size: 18,
+    className: "ftask-chevron"
+  })), open && React.createElement("div", {
+    id: panelId,
+    className: "ftask-panel"
+  }, React.createElement("div", {
+    className: "ftask-tabs",
+    role: "tablist",
+    "aria-label": `Detail ${task.title}`
+  }, FOCUS_TABS.map(t => {
+    const label = countLabel(t.key);
+    return React.createElement("button", {
+      key: t.key,
+      type: "button",
+      role: "tab",
+      id: `ftask-tab-${task.id}-${t.key}`,
+      "aria-selected": tab === t.key,
+      "aria-controls": `${panelId}-body`,
+      className: `ftask-tab${tab === t.key ? " is-active" : ""}`,
+      onClick: () => onTab(t.key)
+    }, React.createElement(FocusGlyph, {
+      name: t.glyph,
+      size: 14
+    }), React.createElement("span", null, t.label), label && React.createElement("span", {
+      className: "ftask-tab-count"
+    }, label));
+  }), React.createElement("button", {
+    type: "button",
+    className: "ftask-detail-link",
+    onClick: () => onOpenDetail(task),
+    title: "Buka detail lengkap task",
+    "aria-label": "Buka detail lengkap task"
+  }, React.createElement(FocusGlyph, {
+    name: "open",
+    size: 14
+  }), React.createElement("span", null, "Detail"))), React.createElement("div", {
+    id: `${panelId}-body`,
+    className: "ftask-tabpanel",
+    role: "tabpanel",
+    "aria-labelledby": `ftask-tab-${task.id}-${tab}`
+  }, tab === "notes" ? React.createElement(FocusNotes, {
+    taskId: task.id,
+    onCount: onCount
+  }) : tab === "attachments" ? React.createElement(FocusAttachments, {
+    taskId: task.id,
+    onCount: onCount
+  }) : React.createElement(FocusSubtasks, {
+    taskId: task.id,
+    onCount: onCount
+  }))));
 }
 
-// ── Filter Chip ────────────────────────────────────────────
+// Jumlah subtask/catatan/lampiran per task untuk baris ringkas: diambil sekali per task
+// (tanpa polling); panel yang sedang terbuka melaporkan angka terbarunya lewat `report`.
+function useFocusTaskCounts(taskIds) {
+  const [counts, setCounts] = useState({});
+  const fetchedRef = useRef(new Set());
+  const key = taskIds.join(",");
+  useEffect(() => {
+    taskIds.forEach(id => {
+      if (fetchedRef.current.has(id)) return;
+      fetchedRef.current.add(id);
+      Promise.all([api.get(`/api/tasks/${id}/subtasks`).catch(() => null), api.get(`/api/tasks/${id}/notes`).catch(() => null), api.get(`/api/tasks/${id}/attachments`).catch(() => null)]).then(([subs, notes, atts]) => {
+        const patch = {};
+        if (Array.isArray(subs)) {
+          patch.subTotal = subs.length;
+          patch.subDone = subs.filter(s => s.is_done).length;
+        }
+        if (Array.isArray(notes)) patch.notes = notes.length;
+        if (Array.isArray(atts)) patch.atts = atts.length;
+        setCounts(prev => ({
+          ...prev,
+          [id]: {
+            ...patch,
+            ...(prev[id] || {})
+          }
+        }));
+      });
+    });
+  }, [key]);
+  const report = useCallback((id, patch) => setCounts(prev => ({
+    ...prev,
+    [id]: {
+      ...(prev[id] || {}),
+      ...patch
+    }
+  })), []);
+  return [counts, report];
+}
+
 // ══════════════════════════════════════════════════════════════
 //  POMODORO TIMER COMPONENT
 // ══════════════════════════════════════════════════════════════
   // ═══ DEPENDENCIES: PomodoroTimer ═══
   // uses:
   //   - React
-  //   - AppContext
-  //   - api
   //   - playNotificationSound
+  //   - sendBrowserNotification
   // emits:
+  //   - usePomodoro
   //   - PomodoroTimer
-  // BLOCK LENGTH: ~326 lines (7687-8013)
+  //   - PomodoroMiniBar
 
-function PomodoroTimer({
+const POMO_DURATIONS = {
+  work: 25 * 60,
+  shortBreak: 5 * 60,
+  longBreak: 15 * 60
+};
+const POMO_MODES = [
+  { key: "work", label: "Work" },
+  { key: "shortBreak", label: "Short" },
+  { key: "longBreak", label: "Long" }
+];
+
+// State timer dipegang satu hook agar kartu penuh & bar ringkas (sticky) selalu sinkron.
+function usePomodoro({
   focusTask,
-  onComplete,
-  taskPomodoros,
   setTaskPomodoros
 }) {
-  // Timer states
   const [mode, setMode] = useState("work"); // work, shortBreak, longBreak
-  const [timeLeft, setTimeLeft] = useState(25 * 60); // seconds
+  const [timeLeft, setTimeLeft] = useState(POMO_DURATIONS.work); // seconds
   const [isRunning, setIsRunning] = useState(false);
   const [sessionCount, setSessionCount] = useState(0);
   const [totalFocusTime, setTotalFocusTime] = useState(0); // in seconds
   const intervalRef = useRef(null);
-
-  // Timer durations
-  const DURATIONS = {
-    work: 25 * 60,
-    shortBreak: 5 * 60,
-    longBreak: 15 * 60
-  };
 
   // Request notification permission on mount
   useEffect(() => {
@@ -6502,303 +6657,341 @@ function PomodoroTimer({
       // Determine next break type
       if (newSessionCount % 4 === 0) {
         setMode("longBreak");
-        setTimeLeft(DURATIONS.longBreak);
+        setTimeLeft(POMO_DURATIONS.longBreak);
       } else {
         setMode("shortBreak");
-        setTimeLeft(DURATIONS.shortBreak);
+        setTimeLeft(POMO_DURATIONS.shortBreak);
       }
-      onComplete?.("work");
     } else {
       // Break completed
       playNotificationSound("break");
       sendBrowserNotification("☕ Istirahat Selesai!", "Siap untuk fokus lagi?");
       setMode("work");
-      setTimeLeft(DURATIONS.work);
-      onComplete?.("break");
+      setTimeLeft(POMO_DURATIONS.work);
     }
   };
-  const startTimer = () => setIsRunning(true);
-  const pauseTimer = () => setIsRunning(false);
-  const resetTimer = () => {
+  const start = () => setIsRunning(true);
+  const pause = () => setIsRunning(false);
+  // Stop = berhenti & kembali ke durasi penuh mode saat ini
+  const stop = () => {
     setIsRunning(false);
-    setTimeLeft(DURATIONS[mode]);
+    setTimeLeft(POMO_DURATIONS[mode]);
   };
-  const skipTimer = () => {
+  const skip = () => {
     setIsRunning(false);
     if (mode === "work") {
       // Skip to break
       if ((sessionCount + 1) % 4 === 0) {
         setMode("longBreak");
-        setTimeLeft(DURATIONS.longBreak);
+        setTimeLeft(POMO_DURATIONS.longBreak);
       } else {
         setMode("shortBreak");
-        setTimeLeft(DURATIONS.shortBreak);
+        setTimeLeft(POMO_DURATIONS.shortBreak);
       }
     } else {
       // Skip break, go to work
       setMode("work");
-      setTimeLeft(DURATIONS.work);
+      setTimeLeft(POMO_DURATIONS.work);
     }
   };
-
-  // Format time
+  const switchMode = m => {
+    setMode(m);
+    setTimeLeft(POMO_DURATIONS[m]);
+    setIsRunning(false);
+  };
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
-  const timeDisplay = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-
-  // Progress calculation
-  const totalTime = DURATIONS[mode];
-  const progress = (totalTime - timeLeft) / totalTime * 100;
-  const circumference = 2 * Math.PI * 90;
-  const strokeDashoffset = circumference - progress / 100 * circumference;
-
-  // Colors based on mode
   const isBreak = mode !== "work";
-  const primaryColor = isBreak ? "#22c55e" : "#ef4444";
-  const labelText = mode === "work" ? "FOKUS" : mode === "shortBreak" ? "ISTIRAHAT" : "ISTIRAHAT PANJANG";
-
-  // Format total focus time
-  const formatFocusTime = secs => {
-    const hrs = Math.floor(secs / 3600);
-    const mins = Math.floor(secs % 3600 / 60);
-    if (hrs > 0) return `${hrs}j ${mins}m`;
-    return `${mins}m`;
+  return {
+    mode,
+    timeLeft,
+    isRunning,
+    sessionCount,
+    totalFocusTime,
+    start,
+    pause,
+    stop,
+    skip,
+    switchMode,
+    isBreak,
+    timeDisplay: `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`,
+    progress: (POMO_DURATIONS[mode] - timeLeft) / POMO_DURATIONS[mode],
+    labelText: mode === "work" ? "Fokus" : mode === "shortBreak" ? "Istirahat" : "Istirahat panjang",
+    // Stop hanya berarti bila timer sedang jalan atau sudah berkurang dari durasi penuh
+    canStop: isRunning || timeLeft !== POMO_DURATIONS[mode]
   };
-  return /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-container scale-in"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-header",
-    style: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      marginBottom: 20,
-      position: "relative",
-      zIndex: 1
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
-    className: "pomodoro-header-title",
-    style: {
-      fontSize: 22,
-      fontWeight: 700,
-      display: "flex",
-      alignItems: "center",
-      gap: 8
-    }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "clock", size: 20 }), "Pomodoro Timer"), /*#__PURE__*/React.createElement("p", {
-    className: "pomodoro-header-subtitle",
-    style: {
-      fontSize: 13,
-      color: "rgba(255,255,255,0.6)",
-      marginTop: 4
-    }
-  }, isBreak ? "Istirahat sebentar..." : "Fokus pada satu task")), /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-mode-btns",
-    style: {
-      display: "flex",
-      gap: 8
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "pomodoro-mode-btn",
-    onClick: () => {
-      setMode("work");
-      setTimeLeft(DURATIONS.work);
-      setIsRunning(false);
-    },
-    style: {
-      padding: "6px 14px",
-      borderRadius: 20,
-      fontSize: 13,
-      fontWeight: 600,
-      cursor: "pointer",
-      background: mode === "work" ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.1)",
-      color: mode === "work" ? "#fca5a5" : "rgba(255,255,255,0.6)"
-    }
-  }, "Work"), /*#__PURE__*/React.createElement("span", {
-    className: "pomodoro-mode-btn",
-    onClick: () => {
-      setMode("shortBreak");
-      setTimeLeft(DURATIONS.shortBreak);
-      setIsRunning(false);
-    },
-    style: {
-      padding: "6px 14px",
-      borderRadius: 20,
-      fontSize: 13,
-      fontWeight: 600,
-      cursor: "pointer",
-      background: mode === "shortBreak" ? "rgba(34,197,94,0.2)" : "rgba(255,255,255,0.1)",
-      color: mode === "shortBreak" ? "#86efac" : "rgba(255,255,255,0.6)"
-    }
-  }, "Short"), /*#__PURE__*/React.createElement("span", {
-    className: "pomodoro-mode-btn",
-    onClick: () => {
-      setMode("longBreak");
-      setTimeLeft(DURATIONS.longBreak);
-      setIsRunning(false);
-    },
-    style: {
-      padding: "6px 14px",
-      borderRadius: 20,
-      fontSize: 13,
-      fontWeight: 600,
-      cursor: "pointer",
-      background: mode === "longBreak" ? "rgba(34,197,94,0.2)" : "rgba(255,255,255,0.1)",
-      color: mode === "longBreak" ? "#86efac" : "rgba(255,255,255,0.6)"
-    }
-  }, "Long"))), /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-timer",
-    style: isRunning ? {
-      filter: `drop-shadow(0 0 16px ${primaryColor}90)`,
-      transition: "filter 0.5s ease"
-    } : {
-      transition: "filter 0.5s ease"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-circle"
-  }, /*#__PURE__*/React.createElement("svg", {
-    viewBox: "0 0 200 200",
-    style: {
-      width: "100%",
-      height: "100%"
-    }
-  }, /*#__PURE__*/React.createElement("circle", {
-    cx: "100",
-    cy: "100",
-    r: "90",
+}
+function PomoModeSwitch({
+  timer,
+  small
+}) {
+  return React.createElement("div", {
+    className: `pomo-modes${small ? " is-small" : ""}`,
+    role: "group",
+    "aria-label": "Mode pomodoro"
+  }, POMO_MODES.map(m => React.createElement("button", {
+    key: m.key,
+    type: "button",
+    className: `pomo-mode${timer.mode === m.key ? " is-active" : ""}${m.key !== "work" ? " is-break" : ""}`,
+    "aria-pressed": timer.mode === m.key,
+    onClick: () => timer.switchMode(m.key)
+  }, m.label)));
+}
+function PomoRing({
+  timer,
+  size,
+  stroke
+}) {
+  const r = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * r;
+  return React.createElement("svg", {
+    className: "pomo-ring-svg",
+    width: size,
+    height: size,
+    viewBox: `0 0 ${size} ${size}`,
+    "aria-hidden": "true"
+  }, React.createElement("circle", {
+    cx: size / 2,
+    cy: size / 2,
+    r: r,
     fill: "none",
-    stroke: "rgba(255,255,255,0.1)",
-    strokeWidth: "8"
-  }), /*#__PURE__*/React.createElement("circle", {
-    cx: "100",
-    cy: "100",
-    r: "90",
+    className: "pomo-ring-track",
+    strokeWidth: stroke
+  }), React.createElement("circle", {
+    cx: size / 2,
+    cy: size / 2,
+    r: r,
     fill: "none",
-    stroke: primaryColor,
-    strokeWidth: "8",
+    className: "pomo-ring-value",
+    strokeWidth: stroke,
     strokeLinecap: "round",
     strokeDasharray: circumference,
-    strokeDashoffset: strokeDashoffset,
+    strokeDashoffset: circumference * (1 - timer.progress)
+  }));
+}
+function PomoControls({
+  timer,
+  compact
+}) {
+  return React.createElement("div", {
+    className: `pomo-controls${compact ? " is-compact" : ""}`
+  }, timer.isRunning ? React.createElement("button", {
+    type: "button",
+    className: "pomo-btn pomo-btn-main is-pause",
+    onClick: timer.pause,
+    "aria-label": "Jeda",
+    title: "Jeda"
+  }, React.createElement(FocusGlyph, {
+    name: "pause",
+    size: compact ? 16 : 18
+  }), !compact && React.createElement("span", null, "Jeda")) : React.createElement("button", {
+    type: "button",
+    className: "pomo-btn pomo-btn-main",
+    onClick: timer.start,
+    "aria-label": "Mulai",
+    title: "Mulai"
+  }, React.createElement(FocusGlyph, {
+    name: "play",
+    size: compact ? 16 : 18
+  }), !compact && React.createElement("span", null, "Mulai")), React.createElement("button", {
+    type: "button",
+    className: "pomo-btn",
+    onClick: timer.stop,
+    disabled: !timer.canStop,
+    "aria-label": "Stop",
+    title: "Stop (kembali ke awal)"
+  }, React.createElement(FocusGlyph, {
+    name: "stop",
+    size: compact ? 14 : 16
+  }), !compact && React.createElement("span", null, "Stop")), !compact && React.createElement("button", {
+    type: "button",
+    className: "pomo-btn",
+    onClick: timer.skip,
+    "aria-label": "Lewati",
+    title: "Lewati ke sesi berikutnya"
+  }, React.createElement(FocusGlyph, {
+    name: "skip",
+    size: 16
+  }), React.createElement("span", null, "Lewati")));
+}
+const formatFocusTime = secs => {
+  const hrs = Math.floor(secs / 3600);
+  const mins = Math.floor(secs % 3600 / 60);
+  if (hrs > 0) return `${hrs}j ${mins}m`;
+  return `${mins}m`;
+};
+
+// Kartu Pomodoro penuh (di atas halaman)
+function PomodoroTimer({
+  timer,
+  focusTask,
+  taskPomodoros,
+  cardRef
+}) {
+  const t = timer;
+  return React.createElement("section", {
+    ref: cardRef,
+    className: `focus-pomo scale-in${t.isBreak ? " is-break" : ""}${t.isRunning ? " is-running" : ""}`,
+    "aria-label": "Pomodoro"
+  }, React.createElement("div", {
+    className: "focus-pomo-ring"
+  }, React.createElement(PomoRing, {
+    timer: t,
+    size: 168,
+    stroke: 8
+  }), React.createElement("div", {
+    className: "focus-pomo-ring-text"
+  }, React.createElement("div", {
+    className: "focus-pomo-time",
+    role: "timer",
+    "aria-live": "off"
+  }, t.timeDisplay), React.createElement("div", {
+    className: "focus-pomo-label"
+  }, t.labelText))), React.createElement("div", {
+    className: "focus-pomo-body"
+  }, React.createElement("div", {
+    className: "focus-pomo-head"
+  }, React.createElement("div", null, React.createElement("h2", {
+    className: "focus-pomo-title"
+  }, React.createElement(Icon, {
+    name: "clock",
+    size: 18
+  }), "Pomodoro"), React.createElement("p", {
+    className: "focus-pomo-sub"
+  }, t.isBreak ? "Istirahat sebentar..." : "Fokus pada satu task")), React.createElement(PomoModeSwitch, {
+    timer: t
+  })), React.createElement(PomoControls, {
+    timer: t
+  }), focusTask ? React.createElement("div", {
+    className: "focus-pomo-task"
+  }, React.createElement("span", {
+    className: "focus-pomo-task-icon"
+  }, React.createElement(FocusGlyph, {
+    name: "target",
+    size: 16
+  })), React.createElement("div", {
+    className: "focus-pomo-task-text"
+  }, React.createElement("div", {
+    className: "focus-pomo-task-kicker"
+  }, "Task aktif"), React.createElement("div", {
+    className: "focus-pomo-task-title"
+  }, focusTask.title)), React.createElement("div", {
+    className: "focus-pomo-task-count",
+    title: "Pomodoro task ini"
+  }, "🍅 ", taskPomodoros[focusTask.id] || 0)) : React.createElement("div", {
+    className: "focus-pomo-hint"
+  }, "Pilih task di bawah lalu klik ", React.createElement("strong", null, "Fokus"), " untuk menjadikannya task aktif."), React.createElement("div", {
+    className: "focus-pomo-stats"
+  }, React.createElement("div", {
+    className: "focus-pomo-stat"
+  }, React.createElement("span", {
+    className: "focus-pomo-stat-value is-red"
+  }, t.sessionCount), React.createElement("span", {
+    className: "focus-pomo-stat-label"
+  }, "Pomodoro")), React.createElement("div", {
+    className: "focus-pomo-stat"
+  }, React.createElement("span", {
+    className: "focus-pomo-stat-value is-green"
+  }, formatFocusTime(t.totalFocusTime)), React.createElement("span", {
+    className: "focus-pomo-stat-label"
+  }, "Waktu fokus")), React.createElement("div", {
+    className: "focus-pomo-stat"
+  }, React.createElement("span", {
+    className: "focus-pomo-stat-value is-lime"
+  }, Math.floor(t.sessionCount / 4)), React.createElement("span", {
+    className: "focus-pomo-stat-label"
+  }, "Set lengkap")))));
+}
+
+// Bar Pomodoro ringkas: menempel di bawah top bar saat kartu penuh sudah tergulir keluar.
+// Anchor sticky setinggi 0 sehingga tidak menggeser isi halaman.
+function PomodoroMiniBar({
+  timer,
+  focusTask,
+  visible,
+  top
+}) {
+  const t = timer;
+  return React.createElement("div", {
+    className: `focus-mini-anchor${visible ? " is-active" : ""}`,
     style: {
-      transition: "stroke-dashoffset 0.5s ease"
+      top
     }
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-time",
-    style: {
-      color: primaryColor
-    }
-  }, timeDisplay), /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-label"
-  }, labelText))), /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-controls"
-  }, !isRunning ? /*#__PURE__*/React.createElement("button", {
-    className: `pomodoro-btn pomodoro-btn-play ${isBreak ? 'break' : ''}`,
-    onClick: startTimer,
-    title: "Start"
-  }, "\u25B6") : /*#__PURE__*/React.createElement("button", {
-    className: "pomodoro-btn pomodoro-btn-pause",
-    onClick: pauseTimer,
-    title: "Pause"
-  }, "\u23F8"), /*#__PURE__*/React.createElement("button", {
-    className: "pomodoro-btn pomodoro-btn-reset",
-    onClick: resetTimer,
-    title: "Reset"
-  }, "\u21BA"), /*#__PURE__*/React.createElement("button", {
-    className: "pomodoro-btn pomodoro-btn-skip",
-    onClick: skipTimer,
-    title: "Skip"
-  }, "\u23ED")), focusTask && /*#__PURE__*/React.createElement("div", {
-    className: "focus-task-card",
-      "data-tour": "today-list"
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 20
-    }
-  }, "\uD83C\uDFAF"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      minWidth: 0
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 10,
-      fontWeight: 700,
-      color: "rgba(255,255,255,0.5)",
-      textTransform: "uppercase",
-      letterSpacing: "0.06em",
-      marginBottom: 3
-    }
-  }, "Task Aktif"), /*#__PURE__*/React.createElement("div", {
-    className: "focus-task-title"
-  }, focusTask.title)), /*#__PURE__*/React.createElement("div", {
-    className: "focus-task-pomodoros"
-  }, "\uD83C\uDF45 ", taskPomodoros[focusTask.id] || 0)), /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-stats"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-stat"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-stat-value",
-    style: {
-      color: "#ef4444"
-    }
-  }, sessionCount), /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-stat-label"
-  }, "Pomodoro")), /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-stat"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-stat-value",
-    style: {
-      color: "#22c55e"
-    }
-  }, formatFocusTime(totalFocusTime)), /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-stat-label"
-  }, "Waktu Fokus")), /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-stat"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-stat-value",
-    style: {
-      color: "#A8C500"
-    }
-  }, Math.floor(sessionCount / 4)), /*#__PURE__*/React.createElement("div", {
-    className: "pomodoro-stat-label"
-  }, "Set Lengkap"))));
+  }, React.createElement("div", {
+    className: `focus-mini${visible ? " is-visible" : ""}${t.isBreak ? " is-break" : ""}${t.isRunning ? " is-running" : ""}`,
+    role: "region",
+    "aria-label": "Pomodoro ringkas",
+    "aria-hidden": !visible
+  }, React.createElement("div", {
+    className: "focus-mini-clock"
+  }, React.createElement("span", {
+    className: "focus-mini-ring"
+  }, React.createElement(PomoRing, {
+    timer: t,
+    size: 30,
+    stroke: 3.5
+  })), React.createElement("span", {
+    className: "focus-mini-time",
+    role: "timer"
+  }, t.timeDisplay)), React.createElement("div", {
+    className: "focus-mini-task"
+  }, React.createElement("span", {
+    className: "focus-mini-kicker"
+  }, t.labelText, t.isRunning ? "" : " · dijeda"), React.createElement("span", {
+    className: "focus-mini-title"
+  }, focusTask ? focusTask.title : "Belum ada task aktif")), React.createElement(PomoModeSwitch, {
+    timer: t,
+    small: true
+  }), React.createElement(PomoControls, {
+    timer: t,
+    compact: true
+  })));
 }
 
 // ── Inline Subtask Checklist (for Focus page) ──────────────
   // ═══ DEPENDENCIES: Focus Views (Subtasks/Notes/Attachments) ═══
   // uses:
   //   - React
-  //   - AppContext
   //   - api
   //   - formatDate
   //   - ICONS
-  //   - renderWikilinksPreview
   // emits:
   //   - FocusSubtasks
   //   - FocusNotes
   //   - FocusAttachments
-  // BLOCK LENGTH: ~453 lines (8013-8466)
 
 function FocusSubtasks({
-  taskId
+  taskId,
+  onCount
 }) {
   const [subtasks, setSubtasks] = useState([]);
+  const [loaded, setLoaded] = useState(false);
   const [newSub, setNewSub] = useState("");
-  const [adding, setAdding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const clientId = useRef(genId());
   const fetchSubs = useCallback(() => {
-    api.get(`/api/tasks/${taskId}/subtasks`).then(data => setSubtasks(data)).catch(() => {});
+    api.get(`/api/tasks/${taskId}/subtasks`).then(data => {
+      setSubtasks(data);
+      setLoaded(true);
+    }).catch(() => {});
   }, [taskId]);
   useEffect(() => {
     fetchSubs();
   }, [fetchSubs]);
 
-  // Auto-refresh every 15 seconds
+  // Auto-refresh every 15 seconds (only while this panel is open)
   useEffect(() => {
     const interval = setInterval(fetchSubs, 15000);
     return () => clearInterval(interval);
   }, [fetchSubs]);
+  const doneCount = subtasks.filter(s => s.is_done).length;
+  const total = subtasks.length;
+  useEffect(() => {
+    if (loaded) onCount?.(taskId, {
+      subDone: doneCount,
+      subTotal: total
+    });
+  }, [loaded, doneCount, total]);
   const handleToggle = async subId => {
     try {
       const result = await api.post(`/api/subtasks/${subId}/toggle`);
@@ -6816,6 +7009,7 @@ function FocusSubtasks({
         client_id: clientId.current
       });
       setSubtasks(prev => [...prev, result]);
+      setLoaded(true);
       setNewSub("");
       clientId.current = genId();
     } catch (err) {
@@ -6824,147 +7018,92 @@ function FocusSubtasks({
       setSubmitting(false);
     }
   };
-  const doneCount = subtasks.filter(s => s.is_done).length;
-  const total = subtasks.length;
-  return /*#__PURE__*/React.createElement("div", {
+  return React.createElement("div", {
+    className: "ftask-section"
+  }, total > 0 && React.createElement("div", {
+    className: "ftask-progress",
+    role: "progressbar",
+    "aria-valuemin": 0,
+    "aria-valuemax": total,
+    "aria-valuenow": doneCount,
+    "aria-label": `${doneCount} dari ${total} subtask selesai`
+  }, React.createElement("div", {
+    className: "ftask-progress-track"
+  }, React.createElement("div", {
+    className: `ftask-progress-fill${doneCount === total ? " is-done" : ""}`,
     style: {
-      padding: "8px 16px 12px 52px",
-      background: "rgba(239,68,68,0.03)",
-      borderBottom: "1px solid var(--border)"
-    },
-    className: "fade-in"
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 6
+      width: `${doneCount / total * 100}%`
     }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      fontWeight: 600,
-      color: "var(--text-secondary)"
-    }
-  }, "\uD83D\uDCDD Subtasks ", total > 0 && `${doneCount}/${total}`), !adding && /*#__PURE__*/React.createElement("span", {
-    onClick: () => setAdding(true),
-    style: {
-      fontSize: 12,
-      color: "var(--accent)",
-      cursor: "pointer",
-      fontWeight: 600
-    }
-  }, "\uFF0B Tambah")), total > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: 4,
-      background: "#e2e8f0",
-      borderRadius: 2,
-      marginBottom: 6,
-      overflow: "hidden"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: "100%",
-      width: `${total > 0 ? doneCount / total * 100 : 0}%`,
-      background: doneCount === total ? "var(--success)" : "var(--accent)",
-      borderRadius: 2,
-      transition: "width 0.3s"
-    }
-  })), subtasks.map(s => /*#__PURE__*/React.createElement("div", {
-    key: s.id,
-    onClick: () => handleToggle(s.id),
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      padding: "4px 0",
-      cursor: "pointer"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      width: 16,
-      height: 16,
-      borderRadius: 3,
-      flexShrink: 0,
-      border: s.is_done ? "2px solid var(--success)" : "2px solid #d1d5db",
-      background: s.is_done ? "var(--success)" : "transparent",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center"
-    }
-  }, s.is_done && /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "white",
-      fontSize: 10
-    }
-  }, "\u2713")), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      textDecoration: s.is_done ? "line-through" : "none",
-      color: s.is_done ? "var(--text-light)" : "var(--text-primary)"
-    }
-  }, s.title))), adding && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 6,
-      marginTop: 4
-    }
-  }, /*#__PURE__*/React.createElement("input", {
+  })), React.createElement("span", null, doneCount, "/", total, " selesai")), total > 0 && React.createElement("ul", {
+    className: "ftask-sublist"
+  }, subtasks.map(s => React.createElement("li", {
+    key: s.id
+  }, React.createElement("button", {
+    type: "button",
+    className: `ftask-sub${s.is_done ? " is-done" : ""}`,
+    role: "checkbox",
+    "aria-checked": !!s.is_done,
+    onClick: () => handleToggle(s.id)
+  }, React.createElement("span", {
+    className: "ftask-sub-box"
+  }, s.is_done && React.createElement(FocusGlyph, {
+    name: "check",
+    size: 11
+  })), React.createElement("span", {
+    className: "ftask-sub-title"
+  }, s.title))))), total === 0 && loaded && React.createElement("div", {
+    className: "ftask-empty"
+  }, "Belum ada subtask."), React.createElement("div", {
+    className: "ftask-add"
+  }, React.createElement("input", {
     className: "input",
     value: newSub,
     onChange: e => setNewSub(e.target.value),
-    placeholder: "Subtask baru...",
-    autoFocus: true,
+    placeholder: "Tambah subtask, tekan Enter",
+    "aria-label": "Subtask baru",
     onKeyDown: e => {
       if (e.key === "Enter") handleAdd();
-      if (e.key === "Escape") {
-        setAdding(false);
-        setNewSub("");
-      }
-    },
-    style: {
-      flex: 1,
-      padding: "4px 8px",
-      fontSize: 12
+      if (e.key === "Escape") setNewSub("");
     }
-  }), /*#__PURE__*/React.createElement("button", {
+  }), React.createElement("button", {
+    type: "button",
     className: "btn btn-primary btn-sm",
     onClick: handleAdd,
-    disabled: submitting || !newSub.trim(),
-    style: {
-      fontSize: 11,
-      padding: "4px 10px"
-    }
-  }, submitting ? "..." : "OK")), total === 0 && !adding && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)",
-      fontStyle: "italic"
-    }
-  }, "Belum ada subtask \u2014 klik + untuk menambah"));
+    disabled: submitting || !newSub.trim()
+  }, submitting ? "..." : "Tambah")));
 }
 
-// ── Inline Notes (for Focus page and Task Detail) ──────────
+// ── Inline Notes (for Focus page) ──────────
 function FocusNotes({
-  taskId
+  taskId,
+  onCount
 }) {
   const [notes, setNotes] = useState([]);
+  const [loaded, setLoaded] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [expanded, setExpanded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const clientId = useRef(genId());
   const fetchNotes = useCallback(() => {
-    api.get(`/api/tasks/${taskId}/notes`).then(data => setNotes(data)).catch(() => {});
+    api.get(`/api/tasks/${taskId}/notes`).then(data => {
+      setNotes(data);
+      setLoaded(true);
+    }).catch(() => {});
   }, [taskId]);
   useEffect(() => {
     fetchNotes();
   }, [fetchNotes]);
 
-  // Auto-refresh every 15 seconds
+  // Auto-refresh every 15 seconds (only while this panel is open)
   useEffect(() => {
     const interval = setInterval(fetchNotes, 15000);
     return () => clearInterval(interval);
   }, [fetchNotes]);
+  useEffect(() => {
+    if (loaded) onCount?.(taskId, {
+      notes: notes.length
+    });
+  }, [loaded, notes.length]);
   const handleAdd = async () => {
     if (!newNote.trim() || submitting) return;
     setSubmitting(true);
@@ -6974,6 +7113,7 @@ function FocusNotes({
         client_id: clientId.current
       });
       setNotes(prev => [result, ...prev]);
+      setLoaded(true);
       setNewNote("");
       clientId.current = genId();
     } catch (err) {
@@ -6999,125 +7139,68 @@ function FocusNotes({
     return `${date} ${time}`;
   };
   const shown = expanded ? notes : notes.slice(0, 3);
-  return /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "8px 16px 12px 52px",
-      background: "rgba(59,130,246,0.03)",
-      borderBottom: "1px solid var(--border)"
-    },
-    className: "fade-in"
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 6
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      fontWeight: 600,
-      color: "var(--text-secondary)"
-    }
-  }, "\uD83D\uDCD3 Catatan ", notes.length > 0 && `(${notes.length})`)), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 6,
-      marginBottom: 8
-    }
-  }, /*#__PURE__*/React.createElement("input", {
+  return React.createElement("div", {
+    className: "ftask-section"
+  }, React.createElement("div", {
+    className: "ftask-add"
+  }, React.createElement("textarea", {
     className: "input",
+    rows: 2,
     value: newNote,
     onChange: e => setNewNote(e.target.value),
-    placeholder: "Tulis catatan...",
+    placeholder: "Tulis catatan… (Enter simpan, Shift+Enter baris baru)",
+    "aria-label": "Catatan baru",
     onKeyDown: e => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleAdd();
       }
-    },
-    style: {
-      flex: 1,
-      padding: "6px 10px",
-      fontSize: 12
     }
-  }), /*#__PURE__*/React.createElement("button", {
+  }), React.createElement("button", {
+    type: "button",
     className: "btn btn-primary btn-sm",
     onClick: handleAdd,
-    disabled: !newNote.trim() || submitting,
-    style: {
-      fontSize: 11,
-      padding: "4px 10px"
-    }
-  }, submitting ? "..." : "Simpan")), shown.map(n => /*#__PURE__*/React.createElement("div", {
+    disabled: !newNote.trim() || submitting
+  }, submitting ? "..." : "Simpan")), shown.length > 0 && React.createElement("ul", {
+    className: "ftask-notes"
+  }, shown.map(n => React.createElement("li", {
     key: n.id,
-    style: {
-      padding: "6px 0",
-      borderBottom: "1px solid #f1f5f9",
-      display: "flex",
-      gap: 8,
-      alignItems: "flex-start"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--text-light)"
-    }
-  }, formatTime(n.created_at)), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      lineHeight: 1.5,
-      color: "var(--text-primary)",
-      whiteSpace: "pre-wrap"
-    }
-  }, n.content)), /*#__PURE__*/React.createElement("span", {
+    className: "ftask-note"
+  }, React.createElement("div", {
+    className: "ftask-note-body"
+  }, React.createElement("div", {
+    className: "ftask-note-time"
+  }, formatTime(n.created_at)), React.createElement("div", {
+    className: "ftask-note-text"
+  }, n.content)), React.createElement("button", {
+    type: "button",
+    className: "ftask-icon-btn",
     onClick: () => handleDelete(n.id),
-    style: {
-      cursor: "pointer",
-      fontSize: 12,
-      color: "var(--text-light)",
-      padding: "0 2px",
-      flexShrink: 0
-    },
-    title: "Hapus"
-  }, "\u2715"))), notes.length > 3 && !expanded && /*#__PURE__*/React.createElement("div", {
-    onClick: () => setExpanded(true),
-    style: {
-      fontSize: 12,
-      color: "var(--accent)",
-      cursor: "pointer",
-      marginTop: 4
-    }
-  }, "Lihat ", notes.length - 3, " catatan lagi..."), expanded && notes.length > 3 && /*#__PURE__*/React.createElement("div", {
-    onClick: () => setExpanded(false),
-    style: {
-      fontSize: 12,
-      color: "var(--accent)",
-      cursor: "pointer",
-      marginTop: 4
-    }
-  }, "Sembunyikan"), notes.length === 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)",
-      fontStyle: "italic"
-    }
-  }, "Belum ada catatan"));
+    title: "Hapus catatan",
+    "aria-label": "Hapus catatan"
+  }, "✕")))), notes.length > 3 && React.createElement("button", {
+    type: "button",
+    className: "ftask-more",
+    onClick: () => setExpanded(v => !v)
+  }, expanded ? "Sembunyikan" : `Lihat ${notes.length - 3} catatan lagi`), notes.length === 0 && loaded && React.createElement("div", {
+    className: "ftask-empty"
+  }, "Belum ada catatan."));
 }
 
 // ── Inline Attachments (for Focus page) ────────────────────
 function FocusAttachments({
-  taskId
+  taskId,
+  onCount
 }) {
   const [attachments, setAttachments] = useState([]);
+  const [loaded, setLoaded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
   const fetchAtts = useCallback(() => {
-    api.get(`/api/tasks/${taskId}/attachments`).then(data => setAttachments(data)).catch(() => {});
+    api.get(`/api/tasks/${taskId}/attachments`).then(data => {
+      setAttachments(data);
+      setLoaded(true);
+    }).catch(() => {});
   }, [taskId]);
   useEffect(() => {
     fetchAtts();
@@ -7126,6 +7209,11 @@ function FocusAttachments({
     const interval = setInterval(fetchAtts, 15000);
     return () => clearInterval(interval);
   }, [fetchAtts]);
+  useEffect(() => {
+    if (loaded) onCount?.(taskId, {
+      atts: attachments.length
+    });
+  }, [loaded, attachments.length]);
   const handleUpload = async e => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -7147,6 +7235,7 @@ function FocusAttachments({
       if (res.ok) {
         const result = await res.json();
         setAttachments(prev => [result, ...prev]);
+        setLoaded(true);
       }
     } catch (err) {
       console.error(err);
@@ -7155,34 +7244,32 @@ function FocusAttachments({
     if (fileRef.current) fileRef.current.value = "";
   };
   const fmtSize = b => b < 1024 ? b + "B" : b < 1024 * 1024 ? Math.round(b / 1024) + "KB" : (b / (1024 * 1024)).toFixed(1) + "MB";
-  return /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "6px 16px 10px 52px",
-      background: "rgba(139,92,246,0.03)",
-      borderBottom: "1px solid var(--border)"
+  return React.createElement("div", {
+    className: "ftask-section"
+  }, attachments.length > 0 && React.createElement("ul", {
+    className: "ftask-files"
+  }, attachments.map(a => React.createElement("li", {
+    key: a.id
+  }, React.createElement(Icon, {
+    name: a.mime_type?.startsWith("image/") ? "image" : "file",
+    size: 16
+  }), React.createElement("a", {
+    href: `/api/attachments/${a.id}/download`,
+    onClick: e => {
+      e.preventDefault();
+      openAttachment(`/api/attachments/${a.id}/download`, a.original_name);
     },
-    className: "fade-in"
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 4
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      fontWeight: 600,
-      color: "var(--text-secondary)"
-    }
-  }, "\uD83D\uDCCE Lampiran ", attachments.length > 0 && `(${attachments.length})`), /*#__PURE__*/React.createElement("label", {
-    style: {
-      fontSize: 12,
-      color: "var(--accent)",
-      cursor: "pointer",
-      fontWeight: 600
-    }
-  }, uploading ? "Uploading..." : "＋ Upload", /*#__PURE__*/React.createElement("input", {
+    className: "ftask-file-name"
+  }, a.original_name), React.createElement("span", {
+    className: "ftask-file-size"
+  }, fmtSize(a.file_size))))), attachments.length === 0 && loaded && !uploading && React.createElement("div", {
+    className: "ftask-empty"
+  }, "Belum ada lampiran."), React.createElement("label", {
+    className: "btn btn-secondary btn-sm ftask-upload"
+  }, React.createElement(FocusGlyph, {
+    name: "clip",
+    size: 14
+  }), uploading ? "Mengunggah..." : "Unggah file", React.createElement("input", {
     ref: fileRef,
     type: "file",
     onChange: handleUpload,
@@ -7190,65 +7277,44 @@ function FocusAttachments({
       display: "none"
     },
     disabled: uploading
-  }))), attachments.map(a => /*#__PURE__*/React.createElement("div", {
-    key: a.id,
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 6,
-      padding: "3px 0"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 14
-    }
-  }, /*#__PURE__*/React.createElement(Icon, { name: a.mime_type?.startsWith("image/") ? "image" : "file", size: 16 })), /*#__PURE__*/React.createElement("a", {
-    href: `/api/attachments/${a.id}/download`,
-    onClick: e => { e.preventDefault(); openAttachment(`/api/attachments/${a.id}/download`, a.original_name); },
-    style: {
-      cursor: "pointer",
-      fontSize: 12,
-      color: "var(--accent)",
-      textDecoration: "none",
-      flex: 1,
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      whiteSpace: "nowrap"
-    }
-  }, a.original_name), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11,
-      color: "var(--text-light)"
-    }
-  }, fmtSize(a.file_size)))), attachments.length === 0 && !uploading && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)",
-      fontStyle: "italic"
-    }
-  }, "Belum ada lampiran"));
+  })));
+}
+
+function FocusSectionHead({
+  glyph,
+  title,
+  count
+}) {
+  return React.createElement("div", {
+    className: "focus-section-head"
+  }, React.createElement("span", {
+    className: "focus-section-icon"
+  }, React.createElement(FocusGlyph, {
+    name: glyph,
+    size: 14
+  })), React.createElement("h2", {
+    className: "focus-section-title"
+  }, title), React.createElement("span", {
+    className: "focus-section-count"
+  }, count));
 }
 
 // ══════════════════════════════════════════════════════════════
-//  TODAY FOCUS VIEW (Overhauled with Pomodoro)
+//  TODAY FOCUS VIEW (workstation: Pomodoro + daftar task ringkas)
 // ══════════════════════════════════════════════════════════════
   // ═══ DEPENDENCIES: TodayFocusView ═══
   // uses:
   //   - React
-  //   - AppContext
   //   - api
-  //   - FocusSubtasks
-  //   - FocusNotes
-  //   - FocusAttachments
-  //   - TaskRow
-  //   - FocusTaskRow
+  //   - usePomodoro
   //   - PomodoroTimer
-  //   - FilterChip
-  //   - ICONS
-  //   - PRI_DOT
+  //   - PomodoroMiniBar
+  //   - FocusTaskItem
+  //   - useFocusTaskCounts
+  //   - FocusSectionHead
+  //   - computeOccurrences
   // emits:
   //   - TodayFocusView
-  // BLOCK LENGTH: ~288 lines (8466-8754)
 
 function TodayFocusView({
   tasks,
@@ -7259,6 +7325,15 @@ function TodayFocusView({
   const [focusTask, setFocusTask] = useState(null);
   const [taskPomodoros, setTaskPomodoros] = useState({});
   const [todayExceptions, setTodayExceptions] = useState({});
+  const [openId, setOpenId] = useState(null);
+  const [openTab, setOpenTab] = useState("subtasks");
+  const [miniVisible, setMiniVisible] = useState(false);
+  const [miniTop, setMiniTop] = useState(0);
+  const pomoRef = useRef(null);
+  const timer = usePomodoro({
+    focusTask,
+    setTaskPomodoros
+  });
   const todayStr = new Date().toISOString().slice(0, 10);
   React.useEffect(() => {
     const recurringTasks = tasks.filter(t => t.recurrence_type && t.recurrence_end_date);
@@ -7285,110 +7360,111 @@ function TodayFocusView({
     };
     return priOrder[a.priority] - priOrder[b.priority];
   });
-  const handleStartFocus = task => setFocusTask(focusTask?.id === task.id ? null : task);
+  const [counts, reportCount] = useFocusTaskCounts(sortedTasks.map(t => t.id));
+
+  // Bar ringkas tampil saat kartu Pomodoro penuh sudah tergulir di bawah top bar.
+  useEffect(() => {
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      let top = 0;
+      document.querySelectorAll(".desktop-topbar, .mobile-topbar").forEach(bar => {
+        const r = bar.getBoundingClientRect();
+        if (r.height > 0 && r.bottom > top) top = r.bottom;
+      });
+      top = Math.max(0, Math.round(top));
+      setMiniTop(top);
+      const card = pomoRef.current;
+      if (card) setMiniVisible(card.getBoundingClientRect().bottom < top + 12);
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(measure);
+    };
+    measure();
+    window.addEventListener("scroll", schedule, {
+      passive: true,
+      capture: true
+    });
+    window.addEventListener("resize", schedule);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", schedule, {
+        capture: true
+      });
+      window.removeEventListener("resize", schedule);
+    };
+  }, []);
+  const handleStartFocus = task => {
+    if (focusTask?.id === task.id) {
+      setFocusTask(null);
+      return;
+    }
+    setFocusTask(task);
+    setOpenId(task.id);
+  };
+  const toggleOpen = id => setOpenId(prev => prev === id ? null : id);
   const totalPomodoros = Object.values(taskPomodoros).reduce((a, b) => a + b, 0);
-  return /*#__PURE__*/React.createElement("div", {
-    className: "fade-in",
-    style: {
-      maxWidth: 900,
-      margin: "0 auto",
-      padding: "24px 16px"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 20
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: "var(--text-secondary)",
-      marginBottom: 4
-    }
+  return React.createElement("div", {
+    className: "focus-page fade-in"
+  }, React.createElement(PomodoroMiniBar, {
+    timer: timer,
+    focusTask: focusTask,
+    visible: miniVisible,
+    top: miniTop
+  }), React.createElement("header", {
+    className: "focus-page-head"
+  }, React.createElement("div", {
+    className: "focus-page-date"
   }, new Date().toLocaleDateString("id-ID", {
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric"
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center"
-    }
-  }, /*#__PURE__*/React.createElement("h1", {
-    style: {
-      fontSize: 24,
-      fontWeight: 700,
-      display: "flex",
-      alignItems: "center",
-      gap: 9
-    }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "target", size: 22 }), "Fokus Hari Ini"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      color: "var(--text-secondary)"
-    }
-  }, sortedTasks.length, " tugas \u2022 ", totalPomodoros, " \uD83C\uDF45 hari ini"))), /*#__PURE__*/React.createElement(PomodoroTimer, {
+  })), React.createElement("div", {
+    className: "focus-page-titlebar"
+  }, React.createElement("h1", {
+    className: "focus-page-title"
+  }, React.createElement(Icon, {
+    name: "target",
+    size: 22
+  }), "Fokus Hari Ini"), React.createElement("span", {
+    className: "focus-page-summary"
+  }, sortedTasks.length, " tugas • ", totalPomodoros, " 🍅 hari ini"))), React.createElement(PomodoroTimer, {
+    timer: timer,
     focusTask: focusTask,
-    onComplete: () => {},
     taskPomodoros: taskPomodoros,
-    setTaskPomodoros: setTaskPomodoros
-  }), recurringToday.length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 20
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 700,
-      color: "var(--accent)",
-      letterSpacing: "0.5px"
-    }
-  }, "🔁 RECURRING HARI INI"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      height: 1,
-      background: "rgba(168,197,0,0.3)"
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)"
-    }
-  }, recurringToday.length, " task")), recurringToday.map(t => /*#__PURE__*/React.createElement("div", {
+    cardRef: pomoRef
+  }), recurringToday.length > 0 && React.createElement("section", {
+    className: "focus-section"
+  }, React.createElement(FocusSectionHead, {
+    glyph: "repeat",
+    title: "Berulang hari ini",
+    count: recurringToday.length
+  }), React.createElement("div", {
+    className: "ftask-list"
+  }, recurringToday.map(t => React.createElement("div", {
     key: t.id,
-    style: {
-      background: "var(--bg-card)",
-      border: "1px solid var(--border)",
-      borderRadius: 10,
-      padding: "10px 14px",
-      marginBottom: 8,
-      display: "flex",
-      alignItems: "center",
-      gap: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontWeight: 600,
-      fontSize: 14
-    }
-  }, "🔁 ", t.title), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)"
-    }
-  }, t.priority, " · ", t.recurrence_type)), /*#__PURE__*/React.createElement("button", {
+    className: "ftask ftask--recurring"
+  }, React.createElement("div", {
+    className: "ftask-row is-static"
+  }, React.createElement("span", {
+    className: "ftask-recur-icon"
+  }, React.createElement(FocusGlyph, {
+    name: "repeat",
+    size: 14
+  })), React.createElement("div", {
+    className: "ftask-main is-static"
+  }, React.createElement("span", {
+    className: "ftask-title"
+  }, t.title), React.createElement("span", {
+    className: "ftask-meta"
+  }, t.priority && React.createElement(PriBadge, {
+    p: t.priority
+  }), React.createElement("span", {
+    className: "ftask-info"
+  }, t.recurrence_type))), React.createElement("button", {
+    type: "button",
+    className: "btn btn-primary btn-sm",
     onClick: async () => {
       if (!navigator.onLine) {
         window.__showToast?.("Tidak bisa dilakukan saat offline", "error");
@@ -7403,137 +7479,54 @@ function TodayFocusView({
       } catch (e) {
         window.__showToast?.("Gagal: " + e.message, "error");
       }
-    },
-    style: {
-      padding: "5px 12px",
-      borderRadius: 8,
-      background: "var(--accent)",
-      color: "#000",
-      border: "none",
-      fontWeight: 700,
-      cursor: "pointer",
-      fontSize: 13
     }
-  }, "✓ Done")))), /*#__PURE__*/React.createElement("div", {
+  }, "✓ Selesai")))))), React.createElement("section", {
+    className: "focus-section",
+    "data-tour": "today-list"
+  }, React.createElement(FocusSectionHead, {
+    glyph: "target",
+    title: "Task hari ini",
+    count: sortedTasks.length
+  }), loading ? React.createElement("div", {
+    className: "focus-empty"
+  }, "Loading...") : sortedTasks.length === 0 ? React.createElement("div", {
+    className: "focus-empty"
+  }, React.createElement("div", {
     style: {
-      marginBottom: 20
+      fontSize: 40,
+      marginBottom: 10
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 700,
-      color: "var(--accent)",
-      letterSpacing: "0.5px"
-    }
-  }, "\uD83D\uDCCB TASK LIST"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      height: 1,
-      background: "rgba(168,197,0,0.3)"
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)"
-    }
-  }, sortedTasks.length, " task")), loading ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      textAlign: "center",
-      padding: 40,
-      color: "var(--text-light)"
-    }
-  }, "Loading...") : sortedTasks.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: "var(--bg-card)",
-      border: "1px solid var(--border)",
-      borderRadius: 14,
-      textAlign: "center",
-      padding: 48,
-      color: "var(--text-light)"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 48,
-      marginBottom: 12
-    }
-  }, "\uD83C\uDF89"), /*#__PURE__*/React.createElement("div", {
+  }, "🎉"), React.createElement("div", {
     style: {
       fontSize: 16,
       fontWeight: 600,
-      marginBottom: 4
+      marginBottom: 4,
+      color: "var(--text-primary)"
     }
-  }, "Tidak ada task urgent!"), /*#__PURE__*/React.createElement("div", {
+  }, "Tidak ada task urgent!"), React.createElement("div", {
     style: {
       fontSize: 14
     }
-  }, "Semua Q1 dan overdue task sudah selesai.")) : /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 10
-    }
-  }, sortedTasks.map(task => /*#__PURE__*/React.createElement("div", {
+  }, "Semua Q1 dan overdue task sudah selesai.")) : React.createElement("div", {
+    className: "ftask-list"
+  }, sortedTasks.map(task => React.createElement(FocusTaskItem, {
     key: task.id,
-    style: {
-      background: "var(--bg-card)",
-      borderRadius: 14,
-      border: "1px solid var(--border)",
-      overflow: "hidden"
-    }
-  }, /*#__PURE__*/React.createElement(FocusTaskRow, {
     task: task,
-    onClick: onTaskClick,
+    open: openId === task.id,
+    onToggle: () => toggleOpen(task.id),
+    tab: openTab,
+    onTab: setOpenTab,
+    counts: counts[task.id],
+    onCount: reportCount,
+    onOpenDetail: onTaskClick,
     onDone: onDone,
     onStartFocus: handleStartFocus,
     isFocusing: focusTask?.id === task.id,
     hasFocusTask: !!focusTask,
     pomodoroCount: taskPomodoros[task.id] || 0
-  }), /*#__PURE__*/React.createElement(FocusSubtasks, {
-    taskId: task.id
-  }), /*#__PURE__*/React.createElement(FocusNotes, {
-    taskId: task.id
-  }), /*#__PURE__*/React.createElement(FocusAttachments, {
-    taskId: task.id
-  }))))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: "var(--bg-card)",
-      border: "1px solid var(--border)",
-      borderRadius: 14,
-      padding: "16px 20px"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 12,
-      alignItems: "flex-start"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 22
-    }
-  }, "\uD83D\uDCA1"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontWeight: 700,
-      fontSize: 14,
-      marginBottom: 6,
-      color: "var(--text-primary)"
-    }
-  }, "Tips Pomodoro"), /*#__PURE__*/React.createElement("ul", {
-    style: {
-      fontSize: 13,
-      color: "var(--text-secondary)",
-      margin: 0,
-      paddingLeft: 16,
-      lineHeight: 1.8
-    }
-  }, /*#__PURE__*/React.createElement("li", null, "Fokus pada satu task selama 25 menit tanpa gangguan"), /*#__PURE__*/React.createElement("li", null, "Setelah 4 pomodoro, ambil istirahat panjang 15 menit"), /*#__PURE__*/React.createElement("li", null, "Klik \"\u25B6 Focus\" pada task untuk memulai tracking"))))));
+  })))), React.createElement("p", {
+    className: "focus-tip"
+  }, "💡 25 menit fokus, istirahat 5 menit. Setelah 4 pomodoro, istirahat panjang 15 menit."));
 }
 
 // ── Mindmap list item ─────────────────────────────────────────
