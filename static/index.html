@@ -6672,7 +6672,14 @@ function usePomodoro({
       setTimeLeft(POMO_DURATIONS.work);
     }
   };
-  const start = () => setIsRunning(true);
+  const start = () => {
+    if (!focusTask) {
+      window.__showToast?.("Pilih satu task terlebih dahulu untuk memulai Pomodoro!", "warning");
+      return false;
+    }
+    setIsRunning(true);
+    return true;
+  };
   const pause = () => setIsRunning(false);
   // Stop = berhenti & kembali ke durasi penuh mode saat ini
   const stop = () => {
@@ -7352,6 +7359,10 @@ function TodayFocusView({
   });
   const todayTasks = tasks.filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused) && t.gtd_status !== "done" && t.gtd_status !== "archived");
   const sortedTasks = [...todayTasks].sort((a, b) => {
+    if (focusTask) {
+      if (a.id === focusTask.id) return -1;
+      if (b.id === focusTask.id) return 1;
+    }
     if (a.is_overdue && !b.is_overdue) return -1;
     if (!a.is_overdue && b.is_overdue) return 1;
     const priOrder = {
@@ -7399,10 +7410,24 @@ function TodayFocusView({
   const handleStartFocus = task => {
     if (focusTask?.id === task.id) {
       setFocusTask(null);
+      if (timer.isRunning) {
+        timer.pause();
+        window.__showToast?.("Fokus dilepas. Pomodoro dijeda.", "info");
+      }
       return;
     }
     setFocusTask(task);
     setOpenId(task.id);
+  };
+  const handleTaskDone = taskId => {
+    if (focusTask?.id === taskId) {
+      setFocusTask(null);
+      if (timer.isRunning) {
+        timer.pause();
+        window.__showToast?.("Task selesai! Pomodoro dijeda.", "info");
+      }
+    }
+    onDone?.(taskId);
   };
   const toggleOpen = id => setOpenId(prev => prev === id ? null : id);
   const totalPomodoros = Object.values(taskPomodoros).reduce((a, b) => a + b, 0);
@@ -7521,7 +7546,7 @@ function TodayFocusView({
     counts: counts[task.id],
     onCount: reportCount,
     onOpenDetail: onTaskClick,
-    onDone: onDone,
+    onDone: handleTaskDone,
     onStartFocus: handleStartFocus,
     isFocusing: focusTask?.id === task.id,
     hasFocusTask: !!focusTask,
