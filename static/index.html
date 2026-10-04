@@ -25568,22 +25568,13 @@ function HabitPage({
       color: "var(--text-secondary)",
       fontStyle: "italic"
     }
-  }, "\"", quote, "\""))), monthlyData && /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: "var(--bg-card)",
-      border: "1px solid var(--border)",
-      borderRadius: 14,
-      padding: "16px 18px",
-      marginBottom: 24
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: 160,
-      position: "relative"
-    }
-  }, /*#__PURE__*/React.createElement("canvas", {
-    ref: chartRef
-  }))), habits.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, "\"", quote, "\""))), /*#__PURE__*/React.createElement("div", {
+    className: "habit-hero"
+  }, /*#__PURE__*/React.createElement(SummaryCards, {
+    stats: summaryStats
+  }), /*#__PURE__*/React.createElement(CalendarHeatmap, {
+    data: monthlyData
+  })), habits.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "center",
       padding: "60px 0",
