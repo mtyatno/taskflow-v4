@@ -25135,6 +25135,52 @@ function computeHabitSummaryStats(habits) {
   };
 }
 
+function SummaryCard({ icon, value, label }) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "habit-summary-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "habit-summary-card-icon"
+  }, icon), /*#__PURE__*/React.createElement("div", {
+    className: "habit-summary-card-value"
+  }, value), /*#__PURE__*/React.createElement("div", {
+    className: "habit-summary-card-label"
+  }, label));
+}
+
+function SummaryCards({ stats }) {
+  const cards = [
+    {
+      icon: "⚡",
+      value: stats.totalActive || 0,
+      label: "kebiasaan aktif"
+    },
+    {
+      icon: "✓",
+      value: `${stats.completionRate || 0}%`,
+      label: "tingkat penyelesaian minggu ini"
+    },
+    {
+      icon: "🔥",
+      value: stats.bestStreak || 0,
+      label: "rekor beruntun terbaik"
+    },
+    {
+      icon: "📊",
+      value: `${stats.weekDone || 0}/${stats.weekTotal || 0}`,
+      label: "checkin minggu ini"
+    }
+  ];
+
+  return /*#__PURE__*/React.createElement("div", {
+    className: "habit-summary-cards"
+  }, cards.map((card, i) => /*#__PURE__*/React.createElement(SummaryCard, {
+    key: i,
+    icon: card.icon,
+    value: card.value,
+    label: card.label
+  })));
+}
+
 function HabitPage({
   user,
   showToast
