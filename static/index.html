@@ -11268,6 +11268,60 @@ function computeOccurrences(task, fromDate, toDate) {
   return result;
 }
 
+// ── calWeek helpers (tampilan Minggu Kalender; murni, dites di calendar_week_view.test.js)
+const CAL_MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+const CAL_DAY_SHORT = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
+const CAL_DAY_LONG = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"];
+function calDateKey(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function calAddDays(d, n) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+}
+// Senin dari minggu yang memuat tanggal d (tanpa jam)
+function calWeekStart(d) {
+  return calAddDays(new Date(d.getFullYear(), d.getMonth(), d.getDate()), -((d.getDay() + 6) % 7));
+}
+function calWeekKeys(weekStart) {
+  const keys = [];
+  for (let i = 0; i < 7; i++) keys.push(calDateKey(calAddDays(weekStart, i)));
+  return keys;
+}
+// { "YYYY-MM-DD": [task, ...] } untuk deadline di [fromKey, toKey] + kejadian task berulang
+// (bentuk item berulang sama dengan tampilan Bulan: _isRecurring, _occurrenceDate, _occurrenceStatus)
+function calTasksByDate(tasks, fromKey, toKey, exceptions) {
+  const map = {};
+  const push = (k, t) => {
+    (map[k] = map[k] || []).push(t);
+  };
+  tasks.forEach(t => {
+    if (t.deadline && t.deadline >= fromKey && t.deadline <= toKey) push(t.deadline, t);
+  });
+  tasks.filter(t => t.recurrence_type && t.recurrence_end_date).forEach(t => {
+    const exMap = {};
+    ((exceptions || {})[String(t.id)] || []).forEach(e => {
+      exMap[e.occurrence_date] = e.status;
+    });
+    computeOccurrences(t, fromKey, toKey).forEach(k => {
+      push(k, {
+        ...t,
+        _isRecurring: true,
+        _occurrenceDate: k,
+        _occurrenceStatus: exMap[k] || null
+      });
+    });
+  });
+  return map;
+}
+function calWeekLabel(weekStart) {
+  const end = calAddDays(weekStart, 6);
+  const m = d => CAL_MONTH_SHORT[d.getMonth()];
+  if (weekStart.getFullYear() !== end.getFullYear()) return `${weekStart.getDate()} ${m(weekStart)} ${weekStart.getFullYear()} – ${end.getDate()} ${m(end)} ${end.getFullYear()}`;
+  if (weekStart.getMonth() !== end.getMonth()) return `${weekStart.getDate()} ${m(weekStart)} – ${end.getDate()} ${m(end)} ${end.getFullYear()}`;
+  return `${weekStart.getDate()} – ${end.getDate()} ${m(end)} ${end.getFullYear()}`;
+}
+// ── calWeek helpers end
+
 // ── Calendar View ───────────────────────────────────────────
 function CalendarView({
   tasks,
@@ -11281,44 +11335,78 @@ function CalendarView({
   const [holidays, setHolidays] = useState({}); // { "YYYY-MM-DD": "Nama Libur" }
   const [recurExceptions, setRecurExceptions] = useState({});
   const [recurPopup, setRecurPopup] = useState(null);
-  const isMobile = window.innerWidth < 640;
-  useEffect(() => {
-    const cacheKey = `hl2_${year}`;
+  const [view, setView] = useState(() => {
     try {
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
+      return localStorage.getItem("tf_cal_view") === "week" ? "week" : "month";
+    } catch {
+      return "month";
+    }
+  });
+  const [weekStart, setWeekStart] = useState(() => calWeekStart(today));
+  const isMobile = window.innerWidth < 640;
+  const weekKeys = calWeekKeys(weekStart);
+  // Tahun yang perlu data libur: tahun bulan yang tampil, plus kedua ujung minggu di tampilan Minggu
+  const holidayYears = view === "week" ? [...new Set([weekStart.getFullYear(), calAddDays(weekStart, 6).getFullYear()])] : [year];
+  useEffect(() => {
+    holidayYears.forEach(y => {
+      const cacheKey = `hl2_${y}`;
+      try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          setHolidays(prev => ({
+            ...prev,
+            ...JSON.parse(cached)
+          }));
+          return;
+        }
+      } catch {}
+      api.get(`/api/holidays?year=${y}`).then(res => {
+        const map = {};
+        (res.data || []).forEach(h => {
+          map[h.date] = h.name + (h.is_joint && !map[h.date] ? " (Cuti Bersama)" : "");
+        });
+        try {
+          localStorage.setItem(`hl2_${y}`, JSON.stringify(map));
+        } catch {}
         setHolidays(prev => ({
           ...prev,
-          ...JSON.parse(cached)
+          ...map
         }));
-        return;
-      }
-    } catch {}
-    api.get(`/api/holidays?year=${year}`).then(res => {
-      const map = {};
-      (res.data || []).forEach(h => {
-        map[h.date] = h.name + (h.is_joint && !map[h.date] ? " (Cuti Bersama)" : "");
-      });
-      try {
-        localStorage.setItem(`hl2_${year}`, JSON.stringify(map));
-      } catch {}
-      setHolidays(prev => ({
-        ...prev,
-        ...map
-      }));
-    }).catch(() => {});
-  }, [year]);
+      }).catch(() => {});
+    });
+  }, [holidayYears.join(",")]);
+  const rangeFrom = view === "week" ? weekKeys[0] : calDateKey(new Date(year, month, 1));
+  const rangeTo = view === "week" ? weekKeys[6] : calDateKey(new Date(year, month + 1, 0));
   React.useEffect(() => {
     const recurringTasks = tasks.filter(t => t.recurrence_type && t.recurrence_end_date);
     if (recurringTasks.length === 0) {
       setRecurExceptions({});
       return;
     }
-    const firstDay = new Date(year, month, 1).toISOString().slice(0, 10);
-    const lastDay = new Date(year, month + 1, 0).toISOString().slice(0, 10);
-    api.get(`/api/recurring/exceptions?from=${firstDay}&to=${lastDay}`).then(data => setRecurExceptions(data || {})).catch(() => setRecurExceptions({}));
-  }, [year, month, tasks]);
+    api.get(`/api/recurring/exceptions?from=${rangeFrom}&to=${rangeTo}`).then(data => setRecurExceptions(data || {})).catch(() => setRecurExceptions({}));
+  }, [rangeFrom, rangeTo, tasks]);
+  const changeView = v => {
+    setSelectedDay(null);
+    setView(v);
+    try {
+      localStorage.setItem("tf_cal_view", v);
+    } catch {}
+    if (v === "week") {
+      // Bulan yang sedang tampil memuat hari ini → minggu ini; selain itu minggu pertama bulan itu
+      setWeekStart(calWeekStart(today.getFullYear() === year && today.getMonth() === month ? today : new Date(year, month, 1)));
+    } else {
+      // Bulan dari hari Kamis minggu itu (bulan yang memuat mayoritas hari minggu tsb)
+      const mid = calAddDays(weekStart, 3);
+      setYear(mid.getFullYear());
+      setMonth(mid.getMonth());
+    }
+  };
+  const shiftWeek = n => {
+    setSelectedDay(null);
+    setWeekStart(w => calAddDays(w, n));
+  };
   const prevMonth = () => {
+    if (view === "week") return shiftWeek(-7);
     setSelectedDay(null);
     if (month === 0) {
       setMonth(11);
@@ -11326,6 +11414,7 @@ function CalendarView({
     } else setMonth(m => m - 1);
   };
   const nextMonth = () => {
+    if (view === "week") return shiftWeek(7);
     setSelectedDay(null);
     if (month === 11) {
       setMonth(0);
@@ -11337,8 +11426,9 @@ function CalendarView({
     setSelectedDay(null);
     setYear(now.getFullYear());
     setMonth(now.getMonth());
+    setWeekStart(calWeekStart(now));
   };
-  const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+  const isCurrentMonth = view === "week" ? calDateKey(weekStart) === calDateKey(calWeekStart(today)) : today.getFullYear() === year && today.getMonth() === month;
   const dateKey = day => `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   const monthName = new Date(year, month, 1).toLocaleDateString("id-ID", {
     month: "long",
@@ -11511,7 +11601,6 @@ function CalendarView({
         cursor: "pointer",
         background: "var(--bg-card)",
         border: "1px solid var(--border)",
-        borderLeft: `3px solid ${c.dot}`,
         transition: "opacity 0.15s",
         opacity: isDone ? 0.65 : 1
       }
@@ -11576,6 +11665,263 @@ function CalendarView({
       }
     }, "\u203A"));
   });
+  // ── Tampilan Minggu: desktop 7 kolom berjejer, mobile hari berurutan ke bawah ──
+  const weekByDate = view === "week" ? calTasksByDate(tasks, weekKeys[0], weekKeys[6], recurExceptions) : {};
+  const todayKey = calDateKey(today);
+  const openWeekTask = t => t._isRecurring ? setRecurPopup({
+    task: t,
+    date: t._occurrenceDate
+  }) : onTaskClick(t);
+  const weekAddButton = (key, label) => onCreateOnDate && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary btn-sm",
+    title: "Buat task di tanggal ini",
+    "aria-label": `Buat task untuk ${label}`,
+    onClick: () => onCreateOnDate(key),
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "4px 7px",
+      minWidth: 30
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "plus",
+    size: 14
+  }));
+  const WeekTaskCard = ({
+    t
+  }) => {
+    const c = chipColor(t);
+    const isDone = t._isRecurring ? t._occurrenceStatus === "done" : t.gtd_status === "done";
+    return /*#__PURE__*/React.createElement("div", {
+      className: "cal-week-task",
+      onClick: () => openWeekTask(t),
+      title: t.title,
+      style: {
+        padding: "7px 8px",
+        borderRadius: 8,
+        marginBottom: 6,
+        cursor: "pointer",
+        background: "var(--bg-card)",
+        border: "1px solid var(--border)",
+        opacity: isDone ? 0.6 : 1
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 600,
+        lineHeight: 1.35,
+        color: "var(--text-primary)",
+        textDecoration: isDone ? "line-through" : "none",
+        display: "-webkit-box",
+        WebkitLineClamp: 3,
+        WebkitBoxOrient: "vertical",
+        overflow: "hidden",
+        overflowWrap: "anywhere"
+      }
+    }, t._isRecurring ? "🔁 " : "", t.title), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 4,
+        flexWrap: "wrap",
+        marginTop: 4
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        fontWeight: 700,
+        color: c.dot,
+        border: `1px solid ${c.dot}`,
+        padding: "0 5px",
+        borderRadius: 4,
+        lineHeight: "15px"
+      }
+    }, isDone ? "✓ Done" : t.priority), !t._isRecurring && t.project && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "var(--text-light)",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        maxWidth: "100%"
+      }
+    }, "📁 ", t.project)));
+  };
+  const renderWeek = () => {
+    const days = weekKeys.map((key, i) => {
+      const d = calAddDays(weekStart, i);
+      return {
+        key,
+        i,
+        date: d.getDate(),
+        monthShort: CAL_MONTH_SHORT[d.getMonth()],
+        isToday: key === todayKey,
+        holiday: holidays[key] || null,
+        isWeekend: i >= 5,
+        items: weekByDate[key] || []
+      };
+    });
+    if (isMobile) {
+      return /*#__PURE__*/React.createElement("div", {
+        className: "cal-week cal-week--mobile",
+        "data-tour": "cal-grid",
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: 10
+        }
+      }, days.map(day => /*#__PURE__*/React.createElement("div", {
+        key: day.key,
+        className: "card",
+        style: {
+          padding: "10px 12px",
+          border: day.isToday ? "2px solid var(--accent)" : day.holiday && !day.isWeekend ? "1.5px solid rgba(239,68,68,0.4)" : undefined
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          marginBottom: day.items.length ? 10 : 0
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          width: 40,
+          height: 40,
+          borderRadius: 10,
+          flexShrink: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          background: day.isToday ? "var(--accent)" : "var(--bg-primary)",
+          color: day.isToday ? "#111" : day.holiday && !day.isWeekend ? "#ef4444" : "var(--text-primary)"
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 17,
+          fontWeight: 800,
+          lineHeight: 1
+        }
+      }, day.date), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          lineHeight: 1.2,
+          opacity: 0.8
+        }
+      }, day.monthShort)), /*#__PURE__*/React.createElement("div", {
+        style: {
+          flex: 1,
+          minWidth: 0
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 14,
+          fontWeight: 700,
+          color: day.isToday ? "var(--accent)" : "var(--text-primary)"
+        }
+      }, CAL_DAY_LONG[day.i], day.isToday ? " \xB7 Hari ini" : ""), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 11,
+          color: day.holiday ? "#ef4444" : "var(--text-light)",
+          fontWeight: day.holiday ? 600 : 400,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap"
+        }
+      }, day.holiday ? `🔴 ${day.holiday}` : day.items.length ? `${day.items.length} task` : "Tidak ada task")), weekAddButton(day.key, `${CAL_DAY_LONG[day.i]} ${day.date} ${day.monthShort}`)), day.items.length > 0 && /*#__PURE__*/React.createElement(TaskListItems, {
+        items: day.items,
+        onSelect: onTaskClick
+      }))));
+    }
+    return /*#__PURE__*/React.createElement("div", {
+      className: "cal-week cal-week--desktop",
+      "data-tour": "cal-grid",
+      style: {
+        display: "grid",
+        // Kolom minimal 128px agar judul task tidak terpotong per huruf; layar sempit → geser mendatar
+        gridTemplateColumns: "repeat(7, minmax(128px, 1fr))",
+        gap: 8,
+        overflowX: "auto",
+        paddingBottom: 2
+      }
+    }, days.map(day => /*#__PURE__*/React.createElement("div", {
+      key: day.key,
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 440,
+        borderRadius: 12,
+        background: day.isToday ? "rgba(168,197,0,0.06)" : "var(--surface)",
+        border: day.isToday ? "2px solid var(--accent)" : day.holiday && !day.isWeekend ? "1.5px solid rgba(239,68,68,0.4)" : "1px solid var(--border)",
+        overflow: "hidden"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "10px 10px 8px",
+        borderBottom: "1px solid var(--border)",
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        gap: 6
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        fontWeight: 700,
+        textTransform: "uppercase",
+        letterSpacing: 0.4,
+        color: day.isToday ? "var(--accent)" : "var(--text-light)"
+      }
+    }, CAL_DAY_SHORT[day.i]), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "baseline",
+        gap: 4,
+        marginTop: 2
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 22,
+        fontWeight: 800,
+        lineHeight: 1.1,
+        color: day.isToday ? "var(--accent)" : day.holiday && !day.isWeekend ? "#ef4444" : "var(--text-primary)"
+      }
+    }, day.date), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--text-light)",
+        fontWeight: 600
+      }
+    }, day.monthShort)), day.holiday && /*#__PURE__*/React.createElement("div", {
+      title: day.holiday,
+      style: {
+        fontSize: 10,
+        color: "#ef4444",
+        fontWeight: 600,
+        marginTop: 3,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      }
+    }, "🔴 ", day.holiday)), weekAddButton(day.key, `${CAL_DAY_LONG[day.i]} ${day.date} ${day.monthShort}`)), /*#__PURE__*/React.createElement("div", {
+      onClick: day.items.length === 0 && onCreateOnDate ? () => onCreateOnDate(day.key) : undefined,
+      style: {
+        flex: 1,
+        padding: 8,
+        cursor: day.items.length === 0 && onCreateOnDate ? "pointer" : "default"
+      }
+    }, day.items.map(t => /*#__PURE__*/React.createElement(WeekTaskCard, {
+      key: t._isRecurring ? t.id + "_" + t._occurrenceDate : t.id,
+      t: t
+    }))))));
+  };
   return /*#__PURE__*/React.createElement("div", {
     className: "fade-in"
   }, /*#__PURE__*/React.createElement("div", {
@@ -11590,12 +11936,45 @@ function CalendarView({
       fontSize: 24,
       fontWeight: 700
     }
-  }, "\uD83D\uDDD3\uFE0F Kalender"), /*#__PURE__*/React.createElement("span", {
+  }, "\uD83D\uDDD3\uFE0F Kalender"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12
+    }
+  }, !isMobile && /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 13,
       color: "var(--text-light)"
     }
-  }, totalWithDeadline, " task deadline")), /*#__PURE__*/React.createElement("div", {
+  }, totalWithDeadline, " task deadline"), /*#__PURE__*/React.createElement("div", {
+    className: "cal-view-toggle",
+    role: "group",
+    "aria-label": "Tampilan kalender",
+    style: {
+      display: "inline-flex",
+      padding: 3,
+      gap: 2,
+      borderRadius: 9,
+      background: "var(--bg-primary)",
+      border: "1px solid var(--border)"
+    }
+  }, [["month", "Bulan"], ["week", "Minggu"]].map(([v, label]) => /*#__PURE__*/React.createElement("button", {
+    key: v,
+    type: "button",
+    "aria-pressed": view === v,
+    onClick: () => view !== v && changeView(v),
+    style: {
+      border: "none",
+      cursor: "pointer",
+      fontSize: 13,
+      fontWeight: 600,
+      padding: "5px 12px",
+      borderRadius: 7,
+      background: view === v ? "var(--accent)" : "transparent",
+      color: view === v ? "#111" : "var(--text-secondary)"
+    }
+  }, label))))), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: "10px 16px",
@@ -11607,13 +11986,15 @@ function CalendarView({
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
     "data-tour": "cal-nav",
-    onClick: prevMonth
-  }, "\u2039 Prev"), /*#__PURE__*/React.createElement("span", {
+    onClick: prevMonth,
+    "aria-label": view === "week" ? "Minggu sebelumnya" : "Bulan sebelumnya"
+  }, isMobile && view === "week" ? "\u2039" : "\u2039 Prev"), /*#__PURE__*/React.createElement("span", {
     style: {
       fontWeight: 700,
-      fontSize: 16
+      fontSize: isMobile && view === "week" ? 14 : 16,
+      textAlign: "center"
     }
-  }, monthName), /*#__PURE__*/React.createElement("div", {
+  }, view === "week" ? calWeekLabel(weekStart) : monthName), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -11622,7 +12003,7 @@ function CalendarView({
   }, /*#__PURE__*/React.createElement("button", {
     className: isCurrentMonth ? "btn btn-secondary btn-sm" : "btn btn-primary btn-sm",
     onClick: goToday,
-    title: "Kembali ke bulan ini",
+    title: view === "week" ? "Kembali ke minggu ini" : "Kembali ke bulan ini",
     style: {
       display: "inline-flex",
       alignItems: "center",
@@ -11633,8 +12014,9 @@ function CalendarView({
     size: 14
   }), "Today"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
-    onClick: nextMonth
-  }, "Next \u203A"))), /*#__PURE__*/React.createElement("div", {
+    onClick: nextMonth,
+    "aria-label": view === "week" ? "Minggu berikutnya" : "Bulan berikutnya"
+  }, isMobile && view === "week" ? "\u203A" : "Next \u203A"))), view === "week" ? renderWeek() : /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: isMobile ? 8 : 12
@@ -11888,7 +12270,7 @@ function CalendarView({
       display: "inline-block",
       flexShrink: 0
     }
-  }), "Hari Libur Nasional")), (() => {
+  }), "Hari Libur Nasional")), view === "month" && (() => {
     const monthHolidays = Object.entries(holidays).filter(([d]) => {
       const [y, m] = d.split("-").map(Number);
       return y === year && m === month + 1;

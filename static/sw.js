@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v356-calendar-today-create";
+const CACHE = "taskflow-v357-calendar-week-view";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
