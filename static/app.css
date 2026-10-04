@@ -3153,3 +3153,67 @@
   .focus-mini, .ftask-chevron, .pomo-ring-value { transition: none; }
   .ftask-panel { animation: none; }
 }
+
+/* Top Bar Pomodoro Mini Chip */
+.topbar-pomo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+.topbar-pomo-chip:hover {
+  border-color: var(--primary);
+  background: var(--bg-hover, var(--bg-card));
+}
+.topbar-pomo-chip.is-running {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary-light, rgba(239, 68, 68, 0.2));
+}
+.topbar-pomo-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+.topbar-pomo-time {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+.topbar-pomo-task {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+@media (max-width: 640px) {
+  .topbar-pomo-task {
+    max-width: 85px;
+  }
+}
+.topbar-pomo-btn {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+  border-radius: 4px;
+}
+.topbar-pomo-btn:hover {
+  color: var(--primary);
+  background: rgba(0,0,0,0.05);
+}
+[data-theme="dark"] .topbar-pomo-btn:hover {
+  background: rgba(255,255,255,0.1);
+}
+

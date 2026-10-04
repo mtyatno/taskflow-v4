@@ -6610,11 +6610,41 @@ function usePomodoro({
   focusTask,
   setTaskPomodoros
 }) {
-  const [mode, setMode] = useState("work"); // work, shortBreak, longBreak
-  const [timeLeft, setTimeLeft] = useState(POMO_DURATIONS.work); // seconds
-  const [isRunning, setIsRunning] = useState(false);
-  const [sessionCount, setSessionCount] = useState(0);
-  const [totalFocusTime, setTotalFocusTime] = useState(0); // in seconds
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const savedState = (() => {
+    try {
+      const raw = localStorage.getItem("tf_pomo_state");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.date === todayStr) {
+        return parsed;
+      }
+    } catch (e) {}
+    return null;
+  })();
+
+  const [mode, setMode] = useState(() => savedState?.mode || "work");
+  const [timeLeft, setTimeLeft] = useState(() => {
+    if (savedState) {
+      if (savedState.isRunning && savedState.targetEndTime) {
+        const remaining = Math.max(0, Math.round((savedState.targetEndTime - Date.now()) / 1000));
+        return remaining;
+      }
+      if (typeof savedState.timeLeft === "number") {
+        return savedState.timeLeft;
+      }
+    }
+    return POMO_DURATIONS.work;
+  });
+  const [isRunning, setIsRunning] = useState(() => {
+    if (savedState?.isRunning && savedState.targetEndTime) {
+      return savedState.targetEndTime > Date.now();
+    }
+    return false;
+  });
+  const [targetEndTime, setTargetEndTime] = useState(() => savedState?.targetEndTime || null);
+  const [sessionCount, setSessionCount] = useState(() => savedState?.sessionCount || 0);
+  const [totalFocusTime, setTotalFocusTime] = useState(() => savedState?.totalFocusTime || 0);
   const intervalRef = useRef(null);
 
   // Request notification permission on mount
@@ -6624,22 +6654,51 @@ function usePomodoro({
     }
   }, []);
 
-  // Timer logic
+  // Simpan snapshot ke localStorage (tf_pomo_state)
+  useEffect(() => {
+    try {
+      const stateToSave = {
+        mode,
+        timeLeft,
+        isRunning,
+        targetEndTime,
+        focusTaskId: focusTask ? focusTask.id : null,
+        sessionCount,
+        totalFocusTime,
+        date: todayStr
+      };
+      localStorage.setItem("tf_pomo_state", JSON.stringify(stateToSave));
+    } catch (e) {}
+  }, [mode, timeLeft, isRunning, targetEndTime, focusTask?.id, sessionCount, totalFocusTime]);
+
+  // Timer logic with drift correction
   useEffect(() => {
     if (isRunning && timeLeft > 0) {
       intervalRef.current = setInterval(() => {
-        setTimeLeft(t => t - 1);
-        if (mode === "work") {
-          setTotalFocusTime(t => t + 1);
+        if (targetEndTime) {
+          const remaining = Math.max(0, Math.round((targetEndTime - Date.now()) / 1000));
+          setTimeLeft(remaining);
+          if (mode === "work") {
+            setTotalFocusTime(t => t + 1);
+          }
+          if (remaining <= 0) {
+            handleTimerComplete();
+          }
+        } else {
+          setTimeLeft(t => t - 1);
+          if (mode === "work") {
+            setTotalFocusTime(t => t + 1);
+          }
         }
       }, 1000);
-    } else if (timeLeft === 0) {
+    } else if (isRunning && timeLeft === 0) {
       handleTimerComplete();
     }
     return () => clearInterval(intervalRef.current);
-  }, [isRunning, timeLeft]);
+  }, [isRunning, timeLeft, targetEndTime, mode]);
   const handleTimerComplete = () => {
     setIsRunning(false);
+    setTargetEndTime(null);
     clearInterval(intervalRef.current);
     if (mode === "work") {
       // Work session completed
@@ -6677,17 +6736,24 @@ function usePomodoro({
       window.__showToast?.("Pilih satu task terlebih dahulu untuk memulai Pomodoro!", "warning");
       return false;
     }
+    const end = Date.now() + timeLeft * 1000;
+    setTargetEndTime(end);
     setIsRunning(true);
     return true;
   };
-  const pause = () => setIsRunning(false);
+  const pause = () => {
+    setIsRunning(false);
+    setTargetEndTime(null);
+  };
   // Stop = berhenti & kembali ke durasi penuh mode saat ini
   const stop = () => {
     setIsRunning(false);
     setTimeLeft(POMO_DURATIONS[mode]);
+    setTargetEndTime(null);
   };
   const skip = () => {
     setIsRunning(false);
+    setTargetEndTime(null);
     if (mode === "work") {
       // Skip to break
       if ((sessionCount + 1) % 4 === 0) {
@@ -6707,6 +6773,7 @@ function usePomodoro({
     setMode(m);
     setTimeLeft(POMO_DURATIONS[m]);
     setIsRunning(false);
+    setTargetEndTime(null);
   };
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
@@ -6954,6 +7021,39 @@ function PomodoroMiniBar({
   }), React.createElement(PomoControls, {
     timer: t,
     compact: true
+  })));
+}
+
+function TopBarPomodoroChip({
+  timer,
+  focusTask,
+  onNavigateToday
+}) {
+  if (!focusTask) return null;
+  return React.createElement("div", {
+    className: `topbar-pomo-chip${timer.isRunning ? " is-running" : " is-paused"}`,
+    onClick: onNavigateToday,
+    role: "button",
+    tabIndex: 0,
+    title: `Fokus: ${focusTask.title} (${timer.timeDisplay}) — Klik untuk buka Fokus Hari Ini`
+  }, React.createElement("span", {
+    className: "topbar-pomo-icon"
+  }, timer.isBreak ? "☕" : "🍅"), React.createElement("span", {
+    className: "topbar-pomo-time"
+  }, timer.timeDisplay), React.createElement("span", {
+    className: "topbar-pomo-task"
+  }, focusTask.title), React.createElement("button", {
+    type: "button",
+    className: "topbar-pomo-btn",
+    onClick: e => {
+      e.stopPropagation();
+      (timer.isRunning ? timer.pause : timer.start)();
+    },
+    title: timer.isRunning ? "Jeda Pomodoro" : "Lanjutkan Pomodoro",
+    "aria-label": timer.isRunning ? "Jeda Pomodoro" : "Lanjutkan Pomodoro"
+  }, React.createElement(FocusGlyph, {
+    name: timer.isRunning ? "pause" : "play",
+    size: 13
   })));
 }
 
@@ -7329,20 +7429,43 @@ function TodayFocusView({
   tasks,
   onTaskClick,
   onDone,
-  loading
+  loading,
+  timer: propsTimer,
+  focusTask: propsFocusTask,
+  setFocusTask: propsSetFocusTask,
+  taskPomodoros: propsTaskPomodoros,
+  setTaskPomodoros: propsSetTaskPomodoros
 }) {
-  const [focusTask, setFocusTask] = useState(null);
-  const [taskPomodoros, setTaskPomodoros] = useState({});
+  const [localFocusTask, setLocalFocusTask] = useState(null);
+  const [localTaskPomodoros, setLocalTaskPomodoros] = useState({});
+  const focusTask = propsFocusTask !== undefined ? propsFocusTask : localFocusTask;
+  const setFocusTask = propsSetFocusTask || setLocalFocusTask;
+  const taskPomodoros = propsTaskPomodoros !== undefined ? propsTaskPomodoros : localTaskPomodoros;
+  const setTaskPomodoros = propsSetTaskPomodoros || setLocalTaskPomodoros;
   const [todayExceptions, setTodayExceptions] = useState({});
   const [openId, setOpenId] = useState(null);
   const [openTab, setOpenTab] = useState("subtasks");
   const [miniVisible, setMiniVisible] = useState(false);
   const [miniTop, setMiniTop] = useState(0);
   const pomoRef = useRef(null);
-  const timer = usePomodoro({
-    focusTask,
-    setTaskPomodoros
-  });
+  // Diangkat ke App level: const timer = usePomodoro({ focusTask, setTaskPomodoros });
+  const timer = propsTimer || {
+    mode: "work",
+    timeLeft: POMO_DURATIONS.work,
+    isRunning: false,
+    sessionCount: 0,
+    totalFocusTime: 0,
+    start: () => false,
+    pause: () => {},
+    stop: () => {},
+    skip: () => {},
+    switchMode: () => {},
+    isBreak: false,
+    timeDisplay: "25:00",
+    progress: 0,
+    labelText: "Fokus",
+    canStop: false
+  };
   const todayStr = new Date().toISOString().slice(0, 10);
   React.useEffect(() => {
     const recurringTasks = tasks.filter(t => t.recurrence_type && t.recurrence_end_date);
@@ -27325,6 +27448,24 @@ function App() {
   const [recurExpiryAlert, setRecurExpiryAlert] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [focusTaskId, setFocusTaskId] = useState(() => {
+    try {
+      const saved = localStorage.getItem("tf_pomo_state");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.focusTaskId && parsed?.date === new Date().toISOString().slice(0, 10)) {
+          return parsed.focusTaskId;
+        }
+      }
+    } catch (e) {}
+    return null;
+  });
+  const [taskPomodoros, setTaskPomodoros] = useState({});
+  const focusTask = tasks.find(t => t.id === focusTaskId) || null;
+  const timer = usePomodoro({
+    focusTask,
+    setTaskPomodoros
+  });
   // Menu utama selalu mulai sebagai bilah ikon: saat login pertama, tiap muat halaman (state awal)
   // dan setelah tiap perpindahan halaman. › hanya membuka menu lengkap sementara.
   React.useEffect(() => {
@@ -27354,6 +27495,8 @@ function App() {
     setCollaborators([]);
     setNotifications([]);
     setUnreadCount(0);
+    setFocusTaskId(null);
+    setTaskPomodoros({});
     setSummary({
       by_status: {},
       by_quadrant: {},
@@ -28259,7 +28402,12 @@ function App() {
         tasks: tasks,
         onTaskClick: setSelectedTask,
         onDone: handleDone,
-        loading: loading
+        loading: loading,
+        timer: timer,
+        focusTask: focusTask,
+        setFocusTask: t => setFocusTaskId(t ? t.id : null),
+        taskPomodoros: taskPomodoros,
+        setTaskPomodoros: setTaskPomodoros
       });
     }
     if (page === "chat") {
@@ -28393,7 +28541,7 @@ function App() {
       cursor: "pointer",
       color: "var(--text-light)"
     }
-  }, "✕")), /*#__PURE__*/React.createElement("div", {
+  }, "✕")),  /*#__PURE__*/React.createElement("div", {
     className: "mobile-topbar"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setSidebarOpen(!sidebarOpen),
@@ -28405,7 +28553,11 @@ function App() {
       padding: 0,
       lineHeight: 1
     }
-  }, "\u2630"), /*#__PURE__*/React.createElement("div", {
+  }, "\u2630"), page !== "today" && focusTask && /*#__PURE__*/React.createElement(TopBarPomodoroChip, {
+    timer: timer,
+    focusTask: focusTask,
+    onNavigateToday: () => setPage("today")
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1
     }
@@ -28494,7 +28646,11 @@ function App() {
     day: "numeric",
     month: "long",
     year: "numeric"
-  }))), /*#__PURE__*/React.createElement("div", {
+  })), page !== "today" && focusTask && /*#__PURE__*/React.createElement(TopBarPomodoroChip, {
+    timer: timer,
+    focusTask: focusTask,
+    onNavigateToday: () => setPage("today")
+  })), /*#__PURE__*/React.createElement("div", {
     onClick: () => setShowSearch(true),
     title: "Cari (Ctrl+K)",
     style: {
