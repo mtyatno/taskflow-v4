@@ -25181,6 +25181,102 @@ function SummaryCards({ stats }) {
   })));
 }
 
+// Helper: Map completion rate to color level (0-4)
+function getHeatmapColorLevel(doneCount, totalHabits) {
+  if (!totalHabits || totalHabits === 0) return 0;
+  const rate = (doneCount / totalHabits) * 100;
+  if (rate === 0) return 0;
+  if (rate <= 25) return 1;
+  if (rate <= 50) return 2;
+  if (rate <= 75) return 3;
+  return 4;
+}
+
+function CalendarHeatmap({ data }) {
+  const [hoveredCell, setHoveredCell] = React.useState(null);
+
+  if (!data || !data.days || data.days.length === 0) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "habit-heatmap",
+      style: { textAlign: "center", padding: "30px", color: "var(--text-secondary)", fontSize: 14 }
+    }, "Tidak ada data untuk ditampilkan");
+  }
+
+  // Build 35-cell grid (5 weeks × 7 days)
+  // Fill with last 30 days + padding for complete weeks
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
+  // Create map of date -> day data
+  const dataMap = {};
+  data.days.forEach(d => {
+    dataMap[d.date] = d;
+  });
+
+  // Generate 35 cells (5 rows × 7 cols) going backwards from today
+  const cells = [];
+  const todayDow = (today.getDay() + 6) % 7; // 0=Mon, 6=Sun
+
+  for (let i = 34; i >= 0; i--) {
+    const daysBack = 34 - i - todayDow;
+    const cellDate = new Date(today);
+    cellDate.setDate(cellDate.getDate() - daysBack);
+    const cellDateStr = cellDate.toISOString().split('T')[0];
+
+    // Only render cells up to today
+    if (cellDate <= today) {
+      const dayData = dataMap[cellDateStr];
+      const level = dayData
+        ? getHeatmapColorLevel(dayData.done_count, dayData.total_habits)
+        : 0;
+
+      const isToday = cellDateStr === todayStr;
+
+      // Format tooltip
+      const dateObj = new Date(cellDateStr + 'T00:00:00');
+      const dayName = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'][dateObj.getDay()];
+      const tooltip = dayData
+        ? `${dayName}, ${cellDate.getDate()} ${['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'][cellDate.getMonth()]}: ${dayData.done_count}/${dayData.total_habits} habits`
+        : `${dayName}, ${cellDate.getDate()} ${['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'][cellDate.getMonth()]}: Tidak ada data`;
+
+      cells.push({
+        key: cellDateStr,
+        level,
+        isToday,
+        tooltip,
+        isEmpty: !dayData
+      });
+    } else {
+      cells.push(null); // Future date, don't render
+    }
+  }
+
+  const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+  return /*#__PURE__*/React.createElement("div", {
+    className: "habit-heatmap"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "habit-heatmap-labels"
+  }, dayLabels.map((label, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "habit-heatmap-label"
+  }, label))), /*#__PURE__*/React.createElement("div", {
+    className: "habit-heatmap-grid"
+  }, cells.map((cell, i) => {
+    if (!cell) return /*#__PURE__*/React.createElement("div", { key: i }); // Empty placeholder
+
+    const className = `habit-heatmap-cell${cell.level > 0 ? ` level-${cell.level}` : ''}${cell.isToday ? ' today' : ''}`;
+
+    return /*#__PURE__*/React.createElement("div", {
+      key: cell.key,
+      className: className,
+      "data-tooltip": cell.tooltip,
+      onMouseEnter: () => setHoveredCell(cell.key),
+      onMouseLeave: () => setHoveredCell(null)
+    });
+  })));
+}
+
 function HabitPage({
   user,
   showToast
