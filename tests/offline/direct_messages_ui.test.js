@@ -9,7 +9,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "../..");
-const indexHtml = fs.readFileSync(path.join(root, "static/index.html"), "utf8");
+const indexHtml = fs.readFileSync(path.join(root, "static/index.html"), "utf8").replace(/\r\n/g, "\n");
 const swJs = fs.readFileSync(path.join(root, "static/sw.js"), "utf8");
 const taskroutes = fs.readFileSync(path.join(root, "static/offline/taskroutes.js"), "utf8");
 
@@ -94,7 +94,7 @@ test("group chat still uses ChatRoom + chatrepo", () => {
 
 test("DM endpoints are online-only (not in local router), SW network-only + v364", () => {
   assert.ok(!taskroutes.includes("/api/dm"), "taskroutes must not register /api/dm");
-  assert.match(swJs, /^const CACHE = "taskflow-v365-habit-page-redesign";/m);
+  assert.match(swJs, /^const CACHE = "taskflow-v366-focus-task-guard";/m);
   assert.match(swJs, /url\.pathname\.startsWith\("\/api\/dm\/"\)/);
 });
 

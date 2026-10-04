@@ -100,3 +100,9 @@ test("TodayFocusView: membatalkan fokus atau menyelesaikan task menjeda Pomodoro
   assert.match(view, /Task selesai/, "harus memberi toast saat task selesai");
 });
 
+test("sw.js CACHE = taskflow-v366-focus-task-guard", () => {
+  const swJs = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
+  assert.match(swJs, /^const CACHE = "taskflow-v366-focus-task-guard";/m);
+});
+
+
