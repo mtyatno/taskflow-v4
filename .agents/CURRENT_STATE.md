@@ -5,7 +5,7 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
-## 🟡 Banner tanpa garis warna + audit garis aksen — 2026-10-04 (Claude) — PR (branch `claude/project-thread-xid8dm`); SW v360 `taskflow-v360-no-accent-stripes`, app.css?v=309
+## 🟢 Banner tanpa garis warna + audit garis aksen — 2026-10-04 (Claude) — MERGED ke `main` (PR #12, merge `18c25f0`) & DEPLOYED (Deploy Taskflow V4 run #836 sukses); SW v360 `taskflow-v360-no-accent-stripes`, app.css?v=309
 - **Permintaan user:** banner "Saatnya Review Mingguan" di Dashboard menempel ke top bar dan masih punya garis warna kiri; cek tempat lain yang masih memakai garis warna.
 - **Banner:** `ReviewNudge` & `BackupReminder` kini kelas `.app-banner` (app.css, dekat `.mobile-topbar`): border netral 1px, radius 12, chip ikon hijau 34px (`.app-banner-icon`) sebagai pengganti garis kiri 4px, `margin: 16px 0` (12px di ≤768px) → jarak 16px dari top bar (sebelumnya 0); dua banner bertumpuk berjarak 10px. Tombol tutup `.app-banner-close` (ikon x, aria-label).
 - **Audit — dihapus:** kartu task berulang di Fokus Hari Ini (`borderLeft 3px accent`), item aktif dropdown Pencarian Tersimpan (`borderLeft 3px`), `.chat-quote-block` & `.chat-reply-preview` (border-left 3px; quote kini radius 6 + latar), `.math-block` (border-left → border 1px netral), bar error boot (border-top 2px amber → 1px).
