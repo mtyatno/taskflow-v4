@@ -2112,4 +2112,11 @@
 - **Changes:** `Dashboard` (index.html): state `pinOpen` + `togglePin`, `renderPinnedGroup` dengan header tombol ber-ARIA + isi `hidden`, reveal-scroll daftar Disematkan via `pinScrollRef`/`pinRevealRef`; kelas `dash-prio-card`, `dash-pin-wrap`, `dash-pin-card`. CSS: `.dash-main` stretch, Disematkan absolut + gulir internal di desktop, reset ≤900px, gaya toggle/chevron/pill nol/animasi + reduced motion. tes versi + `tests/offline/dashboard_pin_collapse.test.js` (baru). Implementasi & review via subagent. Merge `main` (PR #7 Kalender v356 + PR #6 DM v357, app.css v307) → SW v358 `taskflow-v358-dashboard-pin-collapse`, app.css?v=308; tes versi (termasuk `direct_messages_ui.test.js`) disesuaikan.
 - **Verifikasi:** JS 899/900 (1 fail pra-ada tldraw), pytest 96/96, inline 5/5, `node --check sw.js` OK; review independen → 7 perbaikan kecil (header kolom sempit wrap, tanpa overscroll-behavior & scrollbar-width, min-height 352px, kontras, aria-expanded); Playwright font Nunito Sans asli light/dark × desktop/mobile: sebelum 348 vs 501 px, sesudah 352/352 tanpa scroll, Mindmap dibuka tetap setinggi dan terlihat.
 - **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/dashboard_pin_collapse.test.js` (baru), `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui,direct_messages_ui}.test.js`, `.agents/*`
-- **Status:** PR dari `claude/dashboard-redesign-109io3`, menunggu "merge dan deploy" dari user.
+- **Status:** PR #10 dari `claude/dashboard-redesign-109io3` (merged, lihat entri berikut).
+
+## [2026-10-04 05:32] - Claude (merge & deploy Dashboard Prioritas/Disematkan)
+- **Task:** Atas permintaan user ("ok, good, merge dan deploy"): PR #10 ditandai siap dan di-merge ke `main` (merge `f377ea7`), deploy otomatis dipantau.
+- **Changes:** tidak ada perubahan kode; catatan `.agents/*` diperbarui (status merged & deployed).
+- **Verifikasi:** CI `test` hijau di head PR `f8e31da`; Deploy Taskflow V4 run #833 sukses (log: `Updating ad76f66..f377ea7 Fast-forward`, 12 file; vite build tldraw OK). Situs live tidak bisa dibuka dari container sesi (proxy), jadi verifikasi lewat log deploy.
+- **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed (live; klien perlu hard refresh untuk SW v358).
