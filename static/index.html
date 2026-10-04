@@ -1699,7 +1699,7 @@ function SharedListsManager({
       fontWeight: 700,
       marginBottom: 20
     }
-  }, "\u2699\uFE0F Kelola Shared List"), /*#__PURE__*/React.createElement("div", {
+  }, "\u2699\uFE0F Kelola Workspace"), /*#__PURE__*/React.createElement("div", {
     style: {
       background: "var(--bg-primary)",
       borderRadius: 12,
@@ -1718,7 +1718,7 @@ function SharedListsManager({
       fontSize: 14,
       fontWeight: 600
     }
-  }, "\uD83D\uDD17 Gabung ke List Orang Lain"), /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDD17 Gabung ke Workspace Orang Lain"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
     onClick: () => {
       setShowJoinForm(!showJoinForm);
@@ -1808,7 +1808,7 @@ function SharedListsManager({
       fontWeight: 600,
       marginBottom: 10
     }
-  }, "Buat List Baru"), /*#__PURE__*/React.createElement("form", {
+  }, "Buat Workspace Baru"), /*#__PURE__*/React.createElement("form", {
     onSubmit: handleCreate,
     style: {
       display: "flex",
@@ -1818,7 +1818,7 @@ function SharedListsManager({
     className: "input",
     value: newName,
     onChange: e => setNewName(e.target.value),
-    placeholder: "Nama list...",
+    placeholder: "Nama workspace...",
     style: {
       flex: 1
     }
@@ -2165,7 +2165,7 @@ function Sidebar({
   // Shared lists section
   if (sharedLists && sharedLists.length > 0) {
     links.push({
-      section: "SHARED LISTS"
+      section: "WORKSPACES"
     });
     sharedLists.forEach(l => {
       const listTaskCount = (tasks || []).filter(t => t.list_id === l.id && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
@@ -2181,7 +2181,7 @@ function Sidebar({
   links.push({
     id: "manage_lists",
     icon: "sliders",
-    label: "Kelola Shared List",
+    label: "Kelola Workspace",
     tourId: "sidebar-shared"
   });
   links.push({
@@ -16614,6 +16614,7 @@ function SettingsPage({
 // ── Notes / Scratchpad ────────────────────────────────────────
 
 window.copyCodeBlock = function(codeId, btn) {
+  if (btn && btn.classList.contains('copied')) return;
   var el = document.getElementById(codeId);
   if (!el) return;
   var text = el.innerText || el.textContent;
@@ -16635,9 +16636,11 @@ marked.use({
     code(token, infostring) {
       const codeText = typeof token === 'object' && token !== null ? (token.text || '') : String(token || '');
       const rawLang = typeof token === 'object' && token !== null ? (token.lang || '') : (infostring || '');
-      const lang = (rawLang || '').match(/\S*/)[0] || '';
-      const highlighted = (window.Prism && lang && Prism.languages[lang])
-        ? Prism.highlight(codeText, Prism.languages[lang], lang)
+      const rawMatch = (rawLang || '').match(/[a-zA-Z0-9_#+-]+/);
+      const lang = rawMatch ? rawMatch[0] : '';
+      const langKey = lang.toLowerCase();
+      const highlighted = (window.Prism && langKey && Prism.languages[langKey])
+        ? Prism.highlight(codeText, Prism.languages[langKey], langKey)
         : escapeHtml(codeText);
       const langDisplay = lang ? lang.toUpperCase() : 'CODE';
       const codeId = 'code-' + Math.random().toString(36).slice(2, 9);
@@ -16646,7 +16649,7 @@ marked.use({
     <span class="note-code-lang">${langDisplay}</span>
     <button type="button" class="note-code-copy-btn" onclick="copyCodeBlock('${codeId}', this)" title="Salin kode">📋 Salin</button>
   </div>
-  <pre><code id="${codeId}" class="language-${lang}">${highlighted}</code></pre>
+  <pre><code id="${codeId}" class="language-${langKey}">${highlighted}</code></pre>
 </div>\n`;
     },
     heading({
@@ -17875,6 +17878,23 @@ function MilkdownEditor({
               tr = tr.replaceSelectionWith(hrNode);
             }
             break;
+          case 'code_block':
+            if (state.schema.nodes.code_block) {
+              tr = tr.setBlockType(from, to, state.schema.nodes.code_block);
+            }
+            break;
+          case 'callout':
+            {
+              const template = '> [!NOTE]\n> ';
+              tr = tr.insertText(template, from, to);
+            }
+            break;
+          case 'toggle':
+            {
+              const template = '<details>\n<summary>Judul Toggle</summary>\n\nIsi rincian teks...\n</details>\n';
+              tr = tr.insertText(template, from, to);
+            }
+            break;
           case 'draw':
             {
               // Hapus teks query slash ("/draw" dst) — sebelumnya nyasar permanen di konten note
@@ -17938,6 +17958,9 @@ function MilkdownEditor({
     slashMenu.appendChild(makeSlashItem('"', 'Blockquote', 'blockquote'));
     slashMenu.appendChild(makeSlashItem('⊞', 'Table', 'table'));
     slashMenu.appendChild(makeSlashItem('—', 'Divider', 'hr'));
+    slashMenu.appendChild(makeSlashItem('💻', 'Code Block (/code)', 'code_block'));
+    slashMenu.appendChild(makeSlashItem('💡', 'Callout / Info (/callout)', 'callout'));
+    slashMenu.appendChild(makeSlashItem('▶', 'Toggle / Lipatan (/toggle)', 'toggle'));
     slashMenu.appendChild(makeSlashItem('🎨', 'Gambar / Sketsa (/draw)', 'draw'));
 
     // ── Tooltip DOM ─────────────────────────────────────────────────

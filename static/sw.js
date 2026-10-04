@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v360-no-accent-stripes";
+const CACHE = "taskflow-v361-rename-workspace-ui";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -51,6 +51,8 @@ const STATIC = [
   "/static/vendor/react-dom.production.min.js",
   "/static/vendor/chart.umd.min.js",
   "/static/vendor/marked.min.js",
+  "/static/vendor/prism.min.css",
+  "/static/vendor/prism.min.js",
   "/static/vendor/driver.iife.js",
   "/static/vendor/driver.css",
   "/static/vendor/milkdown.bundle.js",
