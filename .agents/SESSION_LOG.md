@@ -2158,3 +2158,10 @@
 - **Verifikasi:** JS 942/945 (3 fail pra-ada di main), `node --check sw.js` OK, Playwright light/dark/mobile.
 - **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/focus_workstation.test.js` (baru), `tests/offline/{direct_messages_ui,drawing_sync_ui,interactive_note_viewer,note_saved_searches_view_mode,note_search_filters,note_toc}.test.js`, `.agents/*`
 - **Status:** Needs Review (draft PR).
+
+## [2026-10-04 10:50] - Claude (menu samping mulai sebagai ikon + Disematkan akordeon)
+- **Task:** Permintaan user: menu samping default bilah ikon (login pertama, tiap muat & pindah halaman); Disematkan akordeon (buka satu, lainnya tertutup); tanpa scrollbar.
+- **Changes:** App `sidebarCollapsed` default true + efek lipat per `page`/login + `onClose` melipat; anchor & langkah tur bilah ikon/› (+ cadangan GTD di halaman task); Dashboard `pinOpenKey` akordeon, "+N lainnya" → modal `pins`; kartu Disematkan alur normal tanpa gulir internal; modal dashboard ramah keyboard. Merge main dua kali (PR #12 + callout + rename Workspace, lalu PR #14) → SW v364, app.css?v=312; tes versi + `dashboard_pin_collapse` + `sidebar_icon_rail` diperbarui. Implementasi & dua review via subagent.
+- **Verifikasi:** JS 950/953 (3 fail pra-ada di main), pytest 122/122, inline 5/5, sw OK; Playwright light/dark/mobile (screenshot di `/mnt/project-files/dashboard-redesign/revisi-4/`).
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/{dashboard_pin_collapse,sidebar_icon_rail,note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui,direct_messages_ui}.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR #15, tunggu "merge dan deploy").
