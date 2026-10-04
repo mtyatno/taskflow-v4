@@ -2138,3 +2138,16 @@
 - **Verifikasi:** JS 929/930 (1 fail pra-ada tldraw), pytest 122/122, inline 5/5, `node --check sw.js` OK; Playwright week view light/dark × 1440/1024/390 di kode gabungan tanpa page error.
 - **Files Touch:** `static/sw.js`, `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,drawing_sync_ui,direct_messages_ui}.test.js`, `.agents/*`
 - **Status:** Completed.
+
+## [2026-10-04 06:30] - Claude (banner tanpa garis warna + audit)
+- **Task:** Banner Review Mingguan di Dashboard: beri jarak dari top bar & hapus garis kiri berwarna; audit seluruh app untuk garis aksen warna.
+- **Changes:** kelas `.app-banner` (+ chip ikon) untuk `ReviewNudge` & `BackupReminder`; garis warna dihapus dari kartu berulang Fokus Hari Ini, item aktif Pencarian Tersimpan, kutipan & preview balasan chat, blok math, bar error boot. SW v360, app.css?v=309, tes versi disesuaikan, tes baru `no_accent_stripes.test.js`.
+- **Verifikasi:** JS 933/934 (1 fail pra-ada tldraw), inline 5/5, `node --check sw.js` OK, Playwright sebelum/sesudah light/dark/mobile.
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/no_accent_stripes.test.js` (baru), `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui,direct_messages_ui}.test.js`, `.agents/*`
+- **Status:** Needs Review (PR).
+
+## [2026-10-04 06:13] - Claude (merge & deploy banner tanpa garis)
+- **Task:** Atas permintaan user ("ok, good, merge"): PR #12 di-merge ke `main` (merge `18c25f0`); Deploy Taskflow V4 run #836 sukses.
+- **Catatan:** commit awal PR sempat ikut membawa file `venv/` (venv ter-track di git, termodifikasi oleh `pip install`); dibersihkan sebelum merge — diff akhir 12 file.
+- **Files Touch:** `.agents/*`
+- **Status:** Completed (klien perlu hard refresh untuk SW v360).
