@@ -2068,3 +2068,10 @@
 - **Verifikasi:** CI `test` hijau di head PR `dbf3b2e`; Deploy Taskflow V4 run #828 sukses (log: `Updating 84de142..7d6de58 Fast-forward`, 12 file). Situs live tidak bisa dibuka dari container sesi (proxy menolak host), jadi verifikasi lewat log deploy.
 - **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed (live; klien perlu hard refresh untuk SW v354).
+
+## [2026-10-04 00:20] - Claude (Kalender: Today + buat task dari tanggal)
+- **Task:** Tombol "Today" di Kalender untuk kembali ke bulan berjalan; klik tanggal membuka modal "Buat Baru" (TaskFormModal yang sama) dengan deadline terisi.
+- **Changes:** `CalendarView` (goToday, isCurrentMonth, dateKey, handleDayClick, createOnSelectedDay, tombol "+ Task" di panel mobile & modal desktop), App mengoper `onCreateOnDate`, toast handleSaved pakai `editTask?.id`; SW v356; tes versi disesuaikan; tes baru `calendar_today_create.test.js`.
+- **Verifikasi:** JS 900/901 (1 fail pra-ada tldraw), pytest 96/96, inline 5/5, Playwright light/dark × desktop/mobile.
+- **Files Touch:** `static/index.html`, `static/sw.js`, `tests/offline/calendar_today_create.test.js` (baru), `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,drawing_sync_ui}.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR, belum merge/deploy).
