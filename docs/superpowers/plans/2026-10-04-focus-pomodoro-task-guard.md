@@ -182,35 +182,20 @@ git commit -m "feat(client): require focus task for pomodoro and move focused ta
 - Consumes: `taskflow-v366-focus-task-guard`
 - Produces: Service Worker cache version `v366` terverifikasi di semua test suite.
 
-- [ ] **Step 1: Bump version in `static/sw.js`**
-
-Ubah baris 1 di `static/sw.js`:
-```javascript
-const CACHE = "taskflow-v366-focus-task-guard";
-```
-
-- [ ] **Step 2: Update cache assertions in test files**
-
-Ganti `taskflow-v365-habit-page-redesign` menjadi `taskflow-v366-focus-task-guard` di:
-- `tests/offline/direct_messages_ui.test.js`
-- `tests/offline/drawing_sync_ui.test.js`
-- `tests/offline/interactive_note_viewer.test.js`
-- `tests/offline/note_saved_searches_view_mode.test.js`
-- `tests/offline/note_search_filters.test.js`
-- Serta tambahkan asersi SW di `tests/offline/focus_workstation.test.js`.
-
-- [ ] **Step 3: Verify syntax and test suite**
-
-Run:
-```bash
-node --check static/sw.js
-node --test tests/offline/*.test.js
-```
-Expected:
-- `node --check static/sw.js` -> OK.
-- Semua test offline lulus (kecuali 3 pra-ada di origin/main: `draw_local_reactive` dan `no_accent_stripes`).
-
-- [ ] **Step 4: Commit SW bump**
+- [x] **Step 1: Write the failing unit tests in `tests/offline/focus_workstation.test.js`**
+- [x] **Step 2: Run test to verify it fails**
+- [x] **Step 3: Commit test changes**
+...
+- [x] **Step 1: Implement guard inside `usePomodoro` in `static/index.html`**
+- [x] **Step 2: Implement sorting and event handlers in `TodayFocusView` in `static/index.html`**
+- [x] **Step 3: Run targeted test to verify it passes**
+- [x] **Step 4: Check inline JavaScript syntax**
+- [x] **Step 5: Commit implementation**
+...
+- [x] **Step 1: Bump version in `static/sw.js`**
+- [x] **Step 2: Update cache assertions in test files**
+- [x] **Step 3: Verify syntax and test suite**
+- [x] **Step 4: Commit SW bump**
 
 ```bash
 git add static/sw.js tests/offline/

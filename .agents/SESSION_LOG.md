@@ -2,6 +2,26 @@
  
  Chronological history of work performed by AI agents in this workspace.
  
+## [2026-10-04 23:55] - Antigravity (Gemini)
+- **Task:** Fokus Hari Ini: Syarat Task Aktif Pomodoro, Auto-pause on Unfocus/Done, Task Terfokus di Puncak Tasklist, dan SW v366.
+- **Changes:**
+  - `static/index.html`:
+    - `usePomodoro`: Menambahkan pengecekan `focusTask` di `start()`. Jika `!focusTask`, timer tidak menyala dan memunculkan toast warning `"Pilih satu task terlebih dahulu untuk memulai Pomodoro!"`.
+    - `TodayFocusView`: Comparator `sortedTasks` memprioritaskan `focusTask` di urutan pertama (indeks 0).
+    - `TodayFocusView`: `handleStartFocus` dan `handleTaskDone` otomatis menjeda (`pause`) timer yang sedang berjalan saat fokus dilepas atau task selesai, disertai info toast.
+  - `static/sw.js`: Bump cache version ke `taskflow-v366-focus-task-guard`.
+  - `tests/offline/focus_workstation.test.js`: Menambahkan unit test untuk start guard, top-ranking active task, auto-pause on unfocus/done, dan SW cache version assertion.
+  - `tests/offline/*.test.js`: Menyelaraskan asersi cache version ke `v366` di `direct_messages_ui.test.js`, `drawing_sync_ui.test.js`, `interactive_note_viewer.test.js`, `note_saved_searches_view_mode.test.js`, dan `note_search_filters.test.js`.
+- **Verification:**
+  - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ 5/5 scripts OK.
+  - SW syntax check: `node --check static/sw.js` ➡️ OK.
+  - Unit tests: `node --test tests/offline/focus_workstation.test.js` ➡️ 9/9 pass (0 fail).
+  - Synchronized offline tests: 85/85 pass across 6 suites.
+  - Pytest suite: `python -m pytest tests/` ➡️ 122/122 pass (0 fail).
+  - Code reviews: Task 1, Task 2, Task 3, and Final Whole-Branch Code Review all PASSED and APPROVED with 0 findings.
+- **Commits:** `8ae051c` (tests), `7c74fb0` (implementation), `94db96a` (SW bump & test sync).
+- **Status:** Completed & Verified on branch `feat/focus-pomodoro-guard`.
+
 ## [2026-10-04] - Claude
 - **Task:** Lanjutan redesain halaman Habits (Task 10-12 plan `2026-10-04-habit-page-redesign.md`) setelah sesi terputus.
 - **Changes:** `static/app.css` (hapus CSS grid 7-hari lama), `static/sw.js` (v362), `webapp.py` (`month_log` di `/api/habits/today`; `monthly-completion` pakai WIB + total=jumlah habit), `static/offline/habitlogic.js`/`habitquery.js`/`habitroutes.js` (month_log + rute lokal monthly-completion), `static/index.html` (`getHabit30DayData`, perbaikan grid `CalendarHeatmap`, `handleCheckin` pakai `fetchMonthlyCompletion` + update `month_log`), tes: `habitlogic.test.js` +2, sinkron versi SW di 5 tes.

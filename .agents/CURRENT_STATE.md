@@ -5,6 +5,22 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
+## 🟢 Fokus Hari Ini: Syarat Task Aktif Pomodoro & Task Terfokus di Puncak Tasklist — 2026-10-04 (Antigravity/Gemini) — SELESAI (branch `feat/focus-pomodoro-guard`, SW v366 `taskflow-v366-focus-task-guard`)
+- **Plan & Spec:** `docs/superpowers/specs/2026-10-04-focus-pomodoro-task-guard-design.md`, `docs/superpowers/plans/2026-10-04-focus-pomodoro-task-guard.md`.
+- **Fitur:**
+  1. **Pomodoro Start Guard (`usePomodoro`):** Timer tidak bisa dimulai tanpa task aktif yang sedang fokus. Jika user mengklik "Mulai" tanpa task aktif, timer tidak jalan dan menampilkan toast warning `"Pilih satu task terlebih dahulu untuk memulai Pomodoro!"`.
+  2. **Pin Task Fokus ke Puncak List (`TodayFocusView`):** Task yang sedang dipilih / fokus otomatis meloncat ke posisi teratas (#1, indeks 0) di daftar task hari ini mengalahkan status overdue dan urutan prioritas P1..P4.
+  3. **Auto-pause pada Unfocus & Task Done (`TodayFocusView`):** Ketika task aktif dilepas fokusnya atau ditandai selesai, timer Pomodoro otomatis dijeda (`pause`) dan menampilkan feedback toast informatif (`"Fokus dilepas. Pomodoro dijeda."` atau `"Task selesai! Pomodoro dijeda."`).
+  4. **SW Cache Version Bump:** Bump ke `taskflow-v366-focus-task-guard` di `static/sw.js` beserta sinkronisasi seluruh asersi cache versi di test suite offline (`tests/offline/`).
+- **Verifikasi:**
+  - `node scratch/check_inline.js static/index.html` ➡️ 5/5 scripts OK.
+  - `node --check static/sw.js` ➡️ OK.
+  - `node --test tests/offline/focus_workstation.test.js` ➡️ 9/9 pass (0 fail).
+  - Synchronized offline tests ➡️ 85/85 pass across 6 suites.
+  - `python -m pytest tests/` ➡️ 122/122 pass (0 fail).
+  - Subagent reviews: Task 1 (review clean), Task 2 (review clean), Task 3 (review clean), Final whole-branch review (Spec ✅, Code Quality: Approved, zero findings).
+- **PENDING:** Perubahan murni sisi klien (frontend statis tanpa migrasi DB / backend, tidak memerlukan restart service). Klien perlu hard refresh browser (Ctrl+Shift+R) atau tutup-buka PWA agar SW v366 aktif.
+
 ## 🟡 Redesain halaman Habits (dashboard minimalis) — 2026-10-04 (Claude) — SELESAI KODE Task 1-12 & di-merge dgn origin/main (merge `abbd123`) & di-push ke main utk deploy otomatis (konfirmasi SW v365 live BELUM dicek), BELUM diverifikasi visual di browser; SW v365 `taskflow-v365-habit-page-redesign` (setelah merge origin/main yang sudah v364)
 - **Plan:** `docs/superpowers/plans/2026-10-04-habit-page-redesign.md` (Task 1-9 sudah di-commit sesi sebelumnya, terakhir `03952e4`). Sesi ini: Task 10 (hapus CSS `.habit-card-grid/.habit-week-*` + media query), Task 11 (SW bump; v362 lalu dinaikkan ke v365 saat merge origin/main), Task 12 (`month_log` 30 hari).
 - **`month_log` (30 item `{date,status}`, terlama dulu)** ditambahkan di DUA jalur: server `get_habits_today` (webapp.py) DAN jalur lokal offline-first `habitlogic.deriveToday` → `habitquery.getHabitsToday` (app memakai router lokal, jadi tanpa ini mini heatmap kosong). `getHabit30DayData(h)` kini membaca `h.month_log`.
