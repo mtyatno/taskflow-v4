@@ -2068,3 +2068,10 @@
 - **Verifikasi:** CI `test` hijau di head PR `dbf3b2e`; Deploy Taskflow V4 run #828 sukses (log: `Updating 84de142..7d6de58 Fast-forward`, 12 file). Situs live tidak bisa dibuka dari container sesi (proxy menolak host), jadi verifikasi lewat log deploy.
 - **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
 - **Status:** Completed (live; klien perlu hard refresh untuk SW v354).
+
+## [2026-10-04] - Claude (Dashboard: Prioritas & Disematkan setinggi + Disematkan collapsible)
+- **Task:** Permintaan user: kartu Prioritas Hari Ini dan Disematkan sama tinggi; Notes/Mindmap/Gambar di Disematkan bisa dibuka-tutup (default Notes terbuka, Mindmap & Gambar tertutup).
+- **Changes:** `Dashboard` (index.html): state `pinOpen` + `togglePin`, `renderPinnedGroup` dengan header tombol ber-ARIA + isi `hidden`, reveal-scroll daftar Disematkan via `pinScrollRef`/`pinRevealRef`; kelas `dash-prio-card`, `dash-pin-wrap`, `dash-pin-card`. CSS: `.dash-main` stretch, Disematkan absolut + gulir internal di desktop, reset ≤900px, gaya toggle/chevron/pill nol/animasi + reduced motion. SW v357, app.css?v=307, tes versi + `tests/offline/dashboard_pin_collapse.test.js` (baru). Implementasi & review via subagent. SW v357 (bukan v355) karena v355/v356 sudah dipakai draft PR #6 & #7.
+- **Verifikasi:** JS 899/900 (1 fail pra-ada tldraw), pytest 96/96, inline 5/5, `node --check sw.js` OK; Playwright light/dark × desktop/laptop/mobile: default 348/348 px tanpa scroll, Mindmap dibuka tetap setinggi dan terlihat.
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/dashboard_pin_collapse.test.js` (baru), `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui}.test.js`, `.agents/*`
+- **Status:** PR dari `claude/dashboard-redesign-109io3`, menunggu "merge dan deploy" dari user.

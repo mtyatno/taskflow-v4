@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v354-dashboard-kpi-viz";
+const CACHE = "taskflow-v357-dashboard-pin-collapse";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",

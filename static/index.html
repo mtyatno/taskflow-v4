@@ -50,7 +50,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=306">
+  <link rel="stylesheet" href="/static/app.css?v=307">
 
 <style>
 .paper-mode-active {
@@ -12593,6 +12593,39 @@ function Dashboard({
   const [expandedNotes, setExpandedNotes] = useState(false);
   const [expandedMaps, setExpandedMaps] = useState(false);
   const [expandedDrawings, setExpandedDrawings] = useState(false);
+  // Sub-bagian "Disematkan" bisa dilipat (tanpa persistensi): default hanya Notes terbuka.
+  const [pinOpen, setPinOpen] = useState({ notes: true, mindmap: false, drawings: false });
+  const pinScrollRef = useRef(null);
+  const pinRevealRef = useRef(null); // key grup yang baru dibuka/diperluas → digulir agar terlihat
+  useEffect(() => {
+    const key = pinRevealRef.current;
+    pinRevealRef.current = null;
+    const box = pinScrollRef.current;
+    // Hanya gulir daftar Disematkan (bukan window), dan hanya bila daftar itu memang meluap (desktop).
+    if (!key || !box || box.scrollHeight <= box.clientHeight) return;
+    const group = box.querySelector(`[data-pin="${key}"]`);
+    if (!group) return;
+    const b = box.getBoundingClientRect();
+    const g = group.getBoundingClientRect();
+    const cs = getComputedStyle(box);
+    // Tampilkan dasar grup, tapi jangan sampai header grup ikut terdorong keluar atas
+    // (batas dihitung dari tepi dalam padding area gulir).
+    const shift = Math.min(g.bottom - (b.bottom - parseFloat(cs.paddingBottom)), g.top - (b.top + parseFloat(cs.paddingTop)));
+    if (shift > 0) {
+      const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      box.scrollBy({
+        top: shift,
+        behavior: reduce ? "auto" : "smooth"
+      });
+    }
+  }, [pinOpen, expandedNotes, expandedMaps, expandedDrawings]);
+  const togglePin = key => {
+    if (!pinOpen[key]) pinRevealRef.current = key;
+    setPinOpen(o => ({
+      ...o,
+      [key]: !o[key]
+    }));
+  };
   useEffect(() => {
     api.get("/api/scratchpad/recent").then(setRecentNotes).catch(() => {});
     const handler = () => api.get("/api/scratchpad/recent").then(setRecentNotes).catch(() => {});
@@ -12858,8 +12891,9 @@ function Dashboard({
     onClick: () => openModal(title, list)
   }, "+", list.length - 5, " lagi →"));
 
-  // Sub-bagian kartu "Disematkan".
+  // Sub-bagian kartu "Disematkan": header = tombol buka/tutup (chip, label, jumlah, chevron).
   const renderPinnedGroup = ({
+    key,
     label,
     emptyLabel,
     icon,
@@ -12872,25 +12906,22 @@ function Dashboard({
     onItem,
     untitled
   }) => {
-    if (!items || items.length === 0) {
-      return /*#__PURE__*/React.createElement("div", {
-        className: "dash-pin-group is-empty"
-      }, /*#__PURE__*/React.createElement(DashChip, {
-        icon: icon,
-        color: color,
-        size: 22
-      }), /*#__PURE__*/React.createElement("span", {
-        className: "dash-pin-empty"
-      }, "Belum ada ", emptyLabel, " disematkan \xB7 ", /*#__PURE__*/React.createElement(DashLink, {
-        onClick: () => onNav(nav)
-      }, "Pin dari ", navLabel, " →")));
-    }
-    const visible = expanded ? items : items.slice(0, 3);
-    const hasMore = items.length > 3;
+    const open = pinOpen[key];
+    const count = items ? items.length : 0;
+    const bodyId = "dash-pin-body-" + key;
+    const visible = expanded ? items : (items || []).slice(0, 3);
+    const hasMore = count > 3;
     return /*#__PURE__*/React.createElement("div", {
-      className: "dash-pin-group"
+      className: `dash-pin-group${open ? " is-open" : ""}${count === 0 ? " is-empty" : ""}`,
+      "data-pin": key
     }, /*#__PURE__*/React.createElement("div", {
       className: "dash-pin-head"
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "dash-pin-toggle",
+      "aria-expanded": open,
+      "aria-controls": bodyId,
+      onClick: () => togglePin(key)
     }, /*#__PURE__*/React.createElement(DashChip, {
       icon: icon,
       color: color,
@@ -12898,14 +12929,26 @@ function Dashboard({
     }), /*#__PURE__*/React.createElement("span", {
       className: "dash-pin-label"
     }, label), /*#__PURE__*/React.createElement("span", {
-      className: "dash-count",
-      style: {
+      className: `dash-count${count === 0 ? " is-zero" : ""}`,
+      style: count === 0 ? undefined : {
         color,
         background: dashTint(color, 0.14)
       }
-    }, items.length), /*#__PURE__*/React.createElement(DashLink, {
+    }, count), /*#__PURE__*/React.createElement(Icon, {
+      name: "chevronDown",
+      size: 15,
+      className: "dash-pin-chevron"
+    })), /*#__PURE__*/React.createElement(DashLink, {
       onClick: () => onNav(nav)
     }, "Lihat semua →")), /*#__PURE__*/React.createElement("div", {
+      className: "dash-pin-body",
+      id: bodyId,
+      hidden: !open
+    }, count === 0 ? /*#__PURE__*/React.createElement("div", {
+      className: "dash-pin-empty"
+    }, "Belum ada ", emptyLabel, " disematkan \xB7 ", /*#__PURE__*/React.createElement(DashLink, {
+      onClick: () => onNav(nav)
+    }, "Pin dari ", navLabel, " →")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "dash-rows"
     }, visible.map(it => /*#__PURE__*/React.createElement("div", {
       key: it.id,
@@ -12925,8 +12968,11 @@ function Dashboard({
     }, dashFmtDate(it.updated_at || it.created_at))))), hasMore && /*#__PURE__*/React.createElement("button", {
       type: "button",
       className: "dash-more",
-      onClick: () => setExpanded(e => !e)
-    }, expanded ? "Sembunyikan ▲" : `+${items.length - 3} lainnya ▼`));
+      onClick: () => {
+        if (!expanded) pinRevealRef.current = key;
+        setExpanded(e => !e);
+      }
+    }, expanded ? "Sembunyikan ▲" : `+${count - 3} lainnya ▼`))));
   };
   const pinnedTotal = pinnedNotes.length + pinnedMindmaps.length + pinnedDrawings.length;
   const TodayRow = ({
@@ -13043,7 +13089,7 @@ function Dashboard({
   /*#__PURE__*/React.createElement("div", {
     className: "dash-main"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "dash-card"
+    className: "dash-card dash-prio-card"
   }, /*#__PURE__*/React.createElement(DashCardHead, {
     icon: "target",
     color: "#ef4444",
@@ -13082,15 +13128,19 @@ function Dashboard({
     className: "dash-more",
     onClick: () => onNav("today")
   }, "+", totalToday - shownToday, " task lagi →")), /*#__PURE__*/React.createElement("div", {
-    className: "dash-card"
+    className: "dash-pin-wrap"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-card dash-pin-card"
   }, /*#__PURE__*/React.createElement(DashCardHead, {
     icon: "pin",
     color: "#8b5cf6",
     title: "Disematkan",
     sub: pinnedTotal > 0 ? `${pinnedTotal} item disematkan` : "Akses cepat ke catatan favorit"
   }), /*#__PURE__*/React.createElement("div", {
-    className: "dash-pin-groups"
+    className: "dash-pin-groups",
+    ref: pinScrollRef
   }, renderPinnedGroup({
+    key: "notes",
     label: "Notes",
     emptyLabel: "note",
     icon: "notes",
@@ -13103,6 +13153,7 @@ function Dashboard({
     onItem: onNoteClick,
     untitled: n => n.title || n.content?.slice(0, 40) || "Note tanpa judul"
   }), renderPinnedGroup({
+    key: "mindmap",
     label: "Mindmap",
     emptyLabel: "mindmap",
     icon: "mindmap",
@@ -13115,6 +13166,7 @@ function Dashboard({
     onItem: onMindmapClick,
     untitled: m => m.title || "Mindmap tanpa judul"
   }), renderPinnedGroup({
+    key: "drawings",
     label: "Gambar",
     emptyLabel: "gambar",
     icon: "draw",
@@ -13126,7 +13178,7 @@ function Dashboard({
     navLabel: "Draw",
     onItem: onDrawingClick,
     untitled: d => d.title || "Gambar tanpa judul"
-  })))),
+  }))))),
 
   /* ── Analitik ── */
   /*#__PURE__*/React.createElement(DashSection, {
