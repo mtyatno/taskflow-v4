@@ -2075,3 +2075,9 @@
 - **Verifikasi:** JS 900/901 (1 fail pra-ada tldraw), pytest 96/96, inline 5/5, Playwright light/dark × desktop/mobile.
 - **Files Touch:** `static/index.html`, `static/sw.js`, `tests/offline/calendar_today_create.test.js` (baru), `tests/offline/{note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,drawing_sync_ui}.test.js`, `.agents/*`
 - **Status:** Needs Review (draft PR, belum merge/deploy).
+
+## [2026-10-04 00:20] - Claude (merge & deploy Kalender)
+- **Task:** Atas permintaan user ("merge dan deploy"): PR #7 ditandai siap dan di-merge ke `main` (merge `2e904d1`), deploy otomatis dipantau.
+- **Changes:** tidak ada perubahan kode; catatan `.agents/*` diperbarui.
+- **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed.
