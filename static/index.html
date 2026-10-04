@@ -50,7 +50,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=308">
+  <link rel="stylesheet" href="/static/app.css?v=309">
 
 <style>
 .paper-mode-active {
@@ -656,7 +656,7 @@ function renderConflicts() {
         if (!bar) {
           bar = document.createElement("div");
           bar.id = "tf-conflict-bar";
-          bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#fef3c7;border-top:2px solid #f59e0b;padding:10px calc(14px + env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) calc(14px + env(safe-area-inset-left,0px));font:14px sans-serif;color:#92400e;max-height:40vh;overflow:auto;";
+          bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#fef3c7;border-top:1px solid #fcd34d;padding:10px calc(14px + env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) calc(14px + env(safe-area-inset-left,0px));font:14px sans-serif;color:#92400e;max-height:40vh;overflow:auto;";
           document.body.appendChild(bar);
         }
         bar.innerHTML = "";
@@ -680,7 +680,7 @@ function renderConflicts() {
     if (!bar) {
       bar = document.createElement("div");
       bar.id = "tf-conflict-bar";
-      bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#fef3c7;border-top:2px solid #f59e0b;padding:10px calc(14px + env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) calc(14px + env(safe-area-inset-left,0px));font:14px sans-serif;color:#92400e;max-height:40vh;overflow:auto;";
+      bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#fef3c7;border-top:1px solid #fcd34d;padding:10px calc(14px + env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) calc(14px + env(safe-area-inset-left,0px));font:14px sans-serif;color:#92400e;max-height:40vh;overflow:auto;";
       document.body.appendChild(bar);
     }
     bar.innerHTML = "";
@@ -7365,7 +7365,6 @@ function TodayFocusView({
     style: {
       background: "var(--bg-card)",
       border: "1px solid var(--border)",
-      borderLeft: "3px solid var(--accent)",
       borderRadius: 10,
       padding: "10px 14px",
       marginBottom: 8,
@@ -23962,7 +23961,6 @@ function NotesPage({
                 padding: "6px 10px",
                 cursor: "pointer",
                 background: isActive ? "rgba(168,197,0,0.15)" : "transparent",
-                borderLeft: isActive ? "3px solid var(--accent)" : "3px solid transparent",
                 gap: 8
               }
             },
@@ -26834,18 +26832,13 @@ function ReviewNudge({ tasks, onStart }) {
     try { localStorage.setItem("tf_review_snooze", new Date().toISOString().slice(0, 10)); } catch (e) {}
     setShow(false);
   };
-  return /*#__PURE__*/React.createElement("div", {
-    style: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-      background: "var(--bg-primary)", border: "1px solid var(--border)",
-      borderLeft: "4px solid var(--accent)", borderRadius: 10, padding: "12px 14px", marginBottom: 16 }
-  },
-    /*#__PURE__*/React.createElement("span", { style: { color: "var(--accent)", display: "flex" } },
-      /*#__PURE__*/React.createElement(Icon, { name: "list", size: 20 })),
-    /*#__PURE__*/React.createElement("span", { style: { flex: 1, minWidth: 180, fontSize: 13 } },
+  return /*#__PURE__*/React.createElement("div", { className: "app-banner", role: "status" },
+    /*#__PURE__*/React.createElement("span", { className: "app-banner-icon" },
+      /*#__PURE__*/React.createElement(Icon, { name: "list", size: 18 })),
+    /*#__PURE__*/React.createElement("span", { className: "app-banner-text" },
       `Saatnya Review Mingguan — ${r.inbox.length} inbox, ${r.overdue.length} overdue`),
     /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: onStart }, "Mulai Review"),
-    /*#__PURE__*/React.createElement("button", { onClick: onDismiss, title: "Ingatkan lagi besok",
-      style: { background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", padding: "0 4px" } },
+    /*#__PURE__*/React.createElement("button", { className: "app-banner-close", onClick: onDismiss, title: "Ingatkan lagi besok", "aria-label": "Tutup, ingatkan lagi besok" },
       /*#__PURE__*/React.createElement(Icon, { name: "x", size: 16 }))
   );
 }
@@ -26899,16 +26892,9 @@ function BackupReminder({ showToast }) {
     setShow(false);
   };
   if (!show) return null;
-  return React.createElement("div", {
-    style: {
-      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-      background: 'var(--bg-primary)', border: '1px solid var(--border)',
-      borderLeft: '4px solid var(--accent)', borderRadius: 10,
-      padding: '12px 14px', marginBottom: 16
-    }
-  },
-    React.createElement("span", { style: { flexShrink: 0, color: 'var(--accent)', display: 'flex', alignItems: 'center' } }, React.createElement(Icon, { name: "save", size: 20 })),
-    React.createElement("span", { style: { flex: 1, minWidth: 180, fontSize: 13, color: 'var(--text-primary)' } },
+  return React.createElement("div", { className: "app-banner", role: "status" },
+    React.createElement("span", { className: "app-banner-icon" }, React.createElement(Icon, { name: "save", size: 18 })),
+    React.createElement("span", { className: "app-banner-text" },
       "Sudah seminggu lebih sejak backup terakhir. Amankan datamu."),
     React.createElement("button", {
       className: "btn btn-primary btn-sm",
@@ -26917,10 +26903,11 @@ function BackupReminder({ showToast }) {
       style: { flexShrink: 0 }
     }, busy ? 'Menyiapkan…' : /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 7 } }, /*#__PURE__*/React.createElement(Icon, { name: "download", size: 15 }), 'Download Backup')),
     React.createElement("button", {
+      className: "app-banner-close",
       onClick: onDismiss,
       title: "Ingatkan lagi besok",
-      style: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--text-secondary)', flexShrink: 0, padding: '0 4px' }
-    }, "✕")
+      "aria-label": "Tutup, ingatkan lagi besok"
+    }, React.createElement(Icon, { name: "x", size: 16 }))
   );
 }
 // ─────────────────────────────────────────────────────────────────────────────
