@@ -13,10 +13,10 @@
 //   - ≤900px: kartu bertumpuk normal tanpa lantai tinggi.
 //   - Modal "Lihat semua" (task) / "+N lainnya" (Disematkan) — satu-satunya jalan ke item ke-4 dst. —
 //     ramah keyboard & pembaca layar: role="dialog" + aria-modal + aria-labelledby, ✕ berlabel &
-//     autoFocus, Esc menutup (hanya bila sasarannya di dialog ini / <body>: Esc di modal lain di
-//     atasnya, mis. pencarian Ctrl+K, cukup menutup modal itu), fokus kembali ke pemicunya kecuali ada
-//     modal lain terbuka (mis. detail task), baris bisa difokus (Tab) & diaktifkan dengan Enter/Spasi,
-//     dengan cincin fokus terlihat. Semua pemicunya ber-aria-haspopup="dialog".
+//     autoFocus, Esc menutup (juga bila fokus lepas ke <body>/halaman di belakang overlay) kecuali
+//     sasarannya di modal lain di atasnya (mis. pencarian Ctrl+K: Esc cukup menutup modal itu), fokus
+//     kembali ke pemicunya kecuali ada modal lain terbuka (mis. detail task), baris bisa difokus (Tab)
+//     & diaktifkan dengan Enter/Spasi, dengan cincin fokus terlihat. Semua pemicunya ber-aria-haspopup="dialog".
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -220,11 +220,12 @@ test("Dashboard: modal \"Lihat semua\" / Disematkan ramah keyboard & pembaca lay
   assert.equal(esc.length, 1, "satu efek level atas bergantung pada [dashModal]");
   const body = esc[0].body;
   assert.match(body, /^\s*if \(!dashModal\) return;/);
-  // ...tapi hanya bila sasaran keydown ada di dalam dialog ini (ref di elemen dialog, hook level atas)
-  // atau <body>: Esc di modal lain yang terbuka di atasnya (mis. pencarian Ctrl+K) hanya menutup modal itu.
+  // ...kecuali sasaran keydown ada di dalam modal LAIN (.modal-overlay yang tidak memuat dialog ini; ref
+  // di elemen dialog, hook level atas): Esc di modal yang terbuka di atasnya (mis. pencarian Ctrl+K) hanya
+  // menutup modal itu. Fokus di <body> atau di halaman di belakang overlay (Tab keluar) tetap menutup.
   assert.match(src, /\n  const dashModalRef = useRef\(null\);/);
   assert.match(modal, /ref: dashModalRef,\s*className: "modal-content scale-in",\s*role: "dialog",/);
-  assert.match(body, /const onKey = e => \{\s*if \(e\.key !== "Escape"\) return;\s*(?:\/\/[^\n]*\s*)*const t = e\.target;\s*if \(t === document\.body \|\| \(dashModalRef\.current && dashModalRef\.current\.contains\(t\)\)\) setDashModal\(null\);\s*\};/);
+  assert.match(body, /const onKey = e => \{\s*if \(e\.key !== "Escape"\) return;\s*(?:\/\/[^\n]*\s*)*const t = e\.target;\s*const layer = t && t\.closest \? t\.closest\("\.modal-overlay"\) : null;\s*if \(layer && !layer\.contains\(dashModalRef\.current\)\) return;\s*setDashModal\(null\);\s*\};/);
   assert.doesNotMatch(body, /if \(e\.key === "Escape"\) setDashModal\(null\);/);
   assert.match(body, /window\.addEventListener\("keydown", onKey\);/);
   assert.match(body, /window\.removeEventListener\("keydown", onKey\);/);

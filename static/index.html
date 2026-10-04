@@ -13126,11 +13126,12 @@ function Dashboard({
     }
   };
   // Modal "Lihat semua" (task) / "+N lainnya" (Disematkan) — satu-satunya jalan ke item ke-4 dst.,
-  // jadi harus ramah keyboard. Esc menutup bila sasarannya di dialog ini atau <body>; Esc di modal lain
-  // di atasnya (mis. pencarian Ctrl+K) cukup menutup modal itu. Lalu fokus kembali ke pemicunya
-  // (dicatat saat dibuka) bila masih ada di halaman, fokus lepas ke <body>, dan tidak ada .modal-overlay
-  // lain (overlay ini sendiri sudah dilepas saat cleanup): memilih task membuka modal detail task yang
-  // TIDAK mengambil fokus — fokus di pemicu di belakangnya membuat Spasi membuka daftar ini lagi.
+  // jadi harus ramah keyboard. Esc menutup — juga bila fokus lepas ke <body> atau ke halaman di belakang
+  // overlay (Tab keluar) — kecuali sasarannya di dalam modal lain (.modal-overlay yang tidak memuat
+  // dialog ini). Lalu fokus kembali ke pemicunya (dicatat saat dibuka) bila masih ada di halaman, fokus
+  // lepas ke <body>, dan tidak ada .modal-overlay lain (overlay ini sendiri sudah dilepas saat cleanup):
+  // memilih task membuka modal detail task yang TIDAK mengambil fokus — fokus di pemicu di belakangnya
+  // membuat Spasi membuka daftar ini lagi.
   const dashModalOpenerRef = useRef(null);
   const dashModalRef = useRef(null);
   useEffect(() => {
@@ -13138,8 +13139,11 @@ function Dashboard({
     const opener = dashModalOpenerRef.current;
     const onKey = e => {
       if (e.key !== "Escape") return;
+      // Esc di modal lain yang terbuka di atas daftar ini (mis. pencarian Ctrl+K) cukup menutup modal itu.
       const t = e.target;
-      if (t === document.body || (dashModalRef.current && dashModalRef.current.contains(t))) setDashModal(null);
+      const layer = t && t.closest ? t.closest(".modal-overlay") : null;
+      if (layer && !layer.contains(dashModalRef.current)) return;
+      setDashModal(null);
     };
     window.addEventListener("keydown", onKey);
     return () => {

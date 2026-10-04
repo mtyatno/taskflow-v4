@@ -2165,3 +2165,10 @@
 - **Verifikasi:** JS 950/953 (3 fail pra-ada di main), pytest 122/122, inline 5/5, sw OK; Playwright light/dark/mobile (screenshot di `/mnt/project-files/dashboard-redesign/revisi-4/`).
 - **Files Touch:** `static/{index.html,app.css,sw.js}`, `tests/offline/{dashboard_pin_collapse,sidebar_icon_rail,note_search_filters,interactive_note_viewer,note_saved_searches_view_mode,note_toc,drawing_sync_ui,direct_messages_ui}.test.js`, `.agents/*`
 - **Status:** Needs Review (draft PR #15, tunggu "merge dan deploy").
+
+## [2026-10-04 14:55] - Claude (PR #15: perbaikan review kedua modal Dashboard)
+- **Task:** Temuan review kedua PR #15 (modal "Lihat semua"/"+N lainnya").
+- **Changes:** fokus dikembalikan ke pemicu hanya bila tak ada `.modal-overlay` lain; Esc menutup kecuali sasarannya di modal lain di atasnya (`closest(".modal-overlay")` yang tak memuat dialog ini); `aria-haspopup="dialog"` di pemicu modal task (`linkPopup`); tur `sidebar-shared` → "👥 Workspace"; komentar CSS `.dash-main`; tes ≤900px dipersempit ke `.dash-pin*`. Via subagent (TDD).
+- **Verifikasi:** JS 952/955 (3 fail pra-ada di main), pytest 122/122, inline 5/5, sw OK; browser port terpisah: (a) pilih task → fokus tak di pemicu, (b) Esc → fokus kembali, (c) Ctrl+K + Esc hanya menutup pencarian, (d) Tab keluar + Esc menutup.
+- **Files Touch:** `static/{index.html,app.css}`, `tests/offline/{dashboard_pin_collapse,sidebar_icon_rail}.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR #15, tunggu "merge dan deploy").
