@@ -78,6 +78,18 @@ test("app.css: baris utama stretch, Disematkan absolut di dalam .dash-pin-wrap &
   assert.match(appCss, /\.dash-pin-wrap > \.dash-pin-card\s*\{[^}]*position:\s*absolute/);
   assert.match(appCss, /\.dash-pin-card > \.dash-pin-groups\s*\{[^}]*overflow-y:\s*auto/);
   assert.match(appCss, /\.dash-pin-body\[hidden\]\s*\{\s*display:\s*none/);
+  // Default (Notes "+N lainnya") butuh ~348px: 340px memunculkan scrollbar bila kartu Prioritas pendek.
+  assert.match(appCss, /\.dash-pin-wrap\s*\{[^}]*min-height:\s*352px/);
+  // Tanpa overscroll-behavior (halaman tetap bisa digulir di ujung daftar) & tanpa scrollbar-width
+  // (di Chromium ≥121 mematikan gaya ::-webkit-scrollbar global → scrollbar putih di dark mode).
+  const groupsRules = [...appCss.matchAll(/\.dash-pin-card > \.dash-pin-groups\s*\{([^}]*)\}/g)].map(m => m[1]);
+  assert.ok(groupsRules.length > 0, ".dash-pin-card > .dash-pin-groups rule must exist");
+  for (const body of groupsRules) {
+    assert.doesNotMatch(body, /overscroll-behavior/);
+    assert.doesNotMatch(body, /scrollbar-width/);
+  }
+  // Kolom sempit (901–1030px): link "Lihat semua" turun ke baris sendiri, tidak menimpa tombol.
+  assert.match(appCss, /\.dash-pin-head\s*\{[^}]*flex-wrap:\s*wrap/);
 });
 
 test("app.css ≤900px: kartu Disematkan kembali static tanpa gulir internal", () => {
