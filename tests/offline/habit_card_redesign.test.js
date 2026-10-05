@@ -119,3 +119,51 @@ test("habit card direct cyclic checkin and removal of HabitCheckinModal in Habit
     "MiniHeatmap must assign .level-4 class"
   );
 });
+
+test("habit card responsive 2-row layout on mobile (<=640px)", () => {
+  const indexHtml = fs.readFileSync(htmlPath, "utf8");
+  const appCss = fs.readFileSync(cssPath, "utf8");
+
+  // 1. HabitCard component structure in index.html
+  const habitCardMatch = indexHtml.match(/function HabitCard\([\s\S]*?\nfunction/);
+  assert.ok(habitCardMatch, "HabitCard component must exist in index.html");
+  const habitCardCode = habitCardMatch[0];
+
+  assert.ok(
+    habitCardCode.includes('className: "habit-card-main"') || habitCardCode.includes("className: 'habit-card-main'"),
+    "HabitCard must wrap title & info in .habit-card-main"
+  );
+  assert.ok(
+    habitCardCode.includes('className: "habit-card-actions"') || habitCardCode.includes("className: 'habit-card-actions'"),
+    "HabitCard must wrap mini heatmap and check-in button in .habit-card-actions"
+  );
+  assert.ok(
+    habitCardCode.includes('className: "habit-card-meta"') || habitCardCode.includes("className: 'habit-card-meta'"),
+    "HabitCard must wrap streak badge and menu in .habit-card-meta"
+  );
+
+  // 2. Base CSS classes defined in app.css
+  assert.ok(
+    appCss.includes(".habit-card-main"),
+    "app.css must define .habit-card-main"
+  );
+  assert.ok(
+    appCss.includes(".habit-card-actions"),
+    "app.css must define .habit-card-actions"
+  );
+  assert.ok(
+    appCss.includes(".habit-card-meta"),
+    "app.css must define .habit-card-meta"
+  );
+
+  // 3. Mobile media query in app.css (<=640px)
+  assert.ok(
+    appCss.includes("@media (max-width: 640px)"),
+    "app.css must include @media (max-width: 640px)"
+  );
+  assert.ok(
+    /grid-template-areas:\s*["']info meta["']\s*["']actions actions["']/.test(appCss),
+    "app.css must define 2-row grid-template-areas: 'info meta' 'actions actions' at <=640px"
+  );
+});
+

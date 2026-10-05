@@ -24859,8 +24859,10 @@ function HabitCard({
     }
   }),
 
-  /* Info section (left) */
+  /* Main section: info */
   /*#__PURE__*/React.createElement("div", {
+    className: "habit-card-main"
+  }, /*#__PURE__*/React.createElement("div", {
     className: "habit-card-info-new"
   }, /*#__PURE__*/React.createElement("div", {
     className: "habit-card-title-new"
@@ -24927,31 +24929,28 @@ function HabitCard({
       borderRadius: 999,
       border: "1px solid var(--border)"
     }
-  }, tagsExpanded ? "‹" : `+${habitTags.length - 3}`))),
+  }, tagsExpanded ? "‹" : `+${habitTags.length - 3}`)))),
 
-  /* Mini heatmap (center-right) */
-  /*#__PURE__*/React.createElement(MiniHeatmap, {
+  /* Actions section: mini heatmap + check-in button */
+  /*#__PURE__*/React.createElement("div", {
+    className: "habit-card-actions"
+  }, /*#__PURE__*/React.createElement(MiniHeatmap, {
     habitId: h.id,
     habitData: habit30DayData
-  }),
-
-  /* Check today button */
-  /*#__PURE__*/React.createElement("button", {
+  }), /*#__PURE__*/React.createElement("button", {
     className: `habit-check-btn ${h.today_status || 'empty'}`,
     onClick: handleButtonClick
-  }, h.today_status === 'done' ? '✓' : h.today_status === 'skipped' ? '−' : '+'),
+  }, h.today_status === 'done' ? '✓' : h.today_status === 'skipped' ? '−' : '+')),
 
-  /* Streak badge */
+  /* Meta section: streak badge + menu button */
   /*#__PURE__*/React.createElement("div", {
+    className: "habit-card-meta"
+  }, /*#__PURE__*/React.createElement("div", {
     className: `habit-streak-badge${h.streak > 0 ? ' active' : ''}`
-  }, /*#__PURE__*/React.createElement("span", null, "🔥"), /*#__PURE__*/React.createElement("span", null, h.streak || 0)),
-
-  /* Menu button */
-  !h._pending && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, "🔥"), /*#__PURE__*/React.createElement("span", null, h.streak || 0)), !h._pending && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "relative",
       zIndex: 10,
-      marginLeft: 6,
       flexShrink: 0
     },
     onClick: e => e.stopPropagation()
@@ -25014,7 +25013,7 @@ function HabitCard({
         onDelete(h.id);
       }
     }
-  }, "🗑 Hapus"))));
+  }, "🗑 Hapus")))));
 }
 
 // OLD HabitCard — backup
