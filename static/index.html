@@ -15690,7 +15690,7 @@ function WorkspaceFilesView({
     try {
       // POST /api/lists/{list_id}/messages
       await api.post(`/api/lists/${list.id}/messages`, {
-        content: "",
+        content: "📎 " + (f.original_name || "Berkas"),
         msg_type: "file_attach",
         file_id: f.id
       });

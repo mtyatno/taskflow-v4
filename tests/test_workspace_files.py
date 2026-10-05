@@ -263,6 +263,7 @@ def test_task_attachment_auto_sync_to_workspace_files(client):
         files={"file": ("FAT_Report.pdf", io.BytesIO(fat_bytes), "application/pdf")}
     )
     assert r_upload.status_code == 200, r_upload.text
+    att_id = r_upload.json()["id"]
 
     # Verify it automatically appeared in workspace files
     r_files = member.get(f"/api/lists/{list_id}/files")
@@ -274,6 +275,27 @@ def test_task_attachment_auto_sync_to_workspace_files(client):
     assert fat_file["task_id"] == task_id
     assert fat_file["file_size"] == len(fat_bytes)
     assert fat_file["task_title"] == "FAT Commissioning Task"
+
+    # Deleting task attachment marks its entry in workspace_files as is_deleted = 1
+    r_del_att = member.delete(f"/api/attachments/{att_id}")
+    assert r_del_att.status_code == 200, r_del_att.text
+
+    # Verify no longer returned in active workspace files
+    r_files_after = member.get(f"/api/lists/{list_id}/files")
+    assert r_files_after.status_code == 200
+    assert not any(f["original_name"] == "FAT_Report.pdf" for f in r_files_after.json())
+
+    # Verify database entry has is_deleted = 1
+    conn = db()
+    try:
+        wf_row = conn.execute(
+            "SELECT is_deleted FROM workspace_files WHERE list_id = ? AND filename = ?",
+            (list_id, r_upload.json()["filename"])
+        ).fetchone()
+        assert wf_row is not None
+        assert wf_row["is_deleted"] == 1
+    finally:
+        conn.close()
 
     # Also test task WITHOUT list_id (personal task) does NOT sync to workspace_files
     r_personal_task = member.post("/api/tasks", json={"title": "Personal Task"})
@@ -373,6 +395,39 @@ def test_chat_message_with_file_attachment(client):
         json={"content": "Coba lampirkan deleted file", "file_id": file_id, "msg_type": "file_attach"}
     )
     assert r_post_del.status_code == 400
+
+
+def test_share_to_chat_default_content(client):
+    owner = U(client, prefix="share_owner")
+    member = U(client, prefix="share_member")
+    list_id = _mk_list(owner, member, name="Share Chat List")
+
+    # Upload file
+    content = b"Specification content for sharing"
+    r_file = member.post(
+        f"/api/lists/{list_id}/files",
+        files={"file": ("Spec_2026.pdf", io.BytesIO(content), "application/pdf")},
+        data={"source": "direct"}
+    )
+    assert r_file.status_code == 201, r_file.text
+    f = r_file.json()
+
+    # Posting chat message with content: f"📎 {f['original_name']}" and file_id succeeds (200)
+    r_share = member.post(
+        f"/api/lists/{list_id}/messages",
+        json={
+            "content": f"📎 {f['original_name']}",
+            "msg_type": "file_attach",
+            "file_id": f["id"],
+        }
+    )
+    assert r_share.status_code == 200, r_share.text
+    msg = r_share.json()
+    assert msg["content"] == f"📎 {f['original_name']}"
+    assert msg["file_id"] == f["id"]
+    assert msg["file_original_name"] == "Spec_2026.pdf"
+    assert msg["file_is_deleted"] == 0
+
 
 
 

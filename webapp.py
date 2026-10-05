@@ -2232,11 +2232,18 @@ async def delete_attachment(attachment_id: int, user=Depends(get_current_user)):
         if not att:
             raise HTTPException(status_code=404, detail="Attachment not found")
         _can_access_task(conn, att["task_id"], user["sub"], write=True)
+        task_row = conn.execute("SELECT list_id FROM tasks WHERE id = ?", (att["task_id"],)).fetchone()
     info = repo.delete_attachment(attachment_id)
     if info:
         filepath = os.path.join(UPLOAD_DIR, info["filename"])
         if os.path.exists(filepath):
             os.unlink(filepath)
+        if task_row and task_row["list_id"]:
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE workspace_files SET is_deleted = 1 WHERE list_id = ? AND filename = ?",
+                    (task_row["list_id"], info["filename"])
+                )
     return {"ok": True}
 
 @app.get("/api/attachments/{attachment_id}/download")
