@@ -14160,6 +14160,7 @@ function Dashboard({
   //   - ChatRoom
   //   - AttachPopup
   //   - ChatInputBar
+  //   - WorkspaceFilesView
   //   - dmUserName, ChatListSectionHeader (Grup / Pesan Pribadi)
   //   - DmRoom, DmInputBar, DmContactPicker (Pesan Pribadi, online-only /api/dm/*)
   // BLOCK LENGTH: ~956 lines (12829-13779) — ChatPage is the main entry
@@ -14477,11 +14478,24 @@ const DM_REFRESH_MS = 30000;
 function ChatPage({
   user,
   sharedLists,
+  initialListId = null,
   onTaskClick,
   onNoteOpen,
   showToast
 }) {
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(() => {
+    if (initialListId && Array.isArray(sharedLists)) {
+      const found = sharedLists.find(l => l.id === initialListId);
+      if (found) return { kind: "group", id: found.id, list: found };
+    }
+    return null;
+  });
+  useEffect(() => {
+    if (initialListId && Array.isArray(sharedLists)) {
+      const found = sharedLists.find(l => l.id === initialListId);
+      if (found) setSelected({ kind: "group", id: found.id, list: found });
+    }
+  }, [initialListId, sharedLists]);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [dmConversations, setDmConversations] = useState([]);
   const [showDmPicker, setShowDmPicker] = useState(false);
@@ -15602,6 +15616,433 @@ function ChatInputBar({
     disabled: sending || !text.trim() && !attachedTask && !attachedNote && !attachedFile,
     title: "Kirim"
   }, sending ? "·" : "➤"));
+}
+
+// ── Workspace Files View ─────────────────────────────────────────
+// Spec: docs/superpowers/specs/2026-10-05-workspace-files-and-chat-attachments-design.md
+function WorkspaceFilesView({
+  list,
+  user,
+  showToast,
+  onNav
+}) {
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const fileInputRef = useRef(null);
+
+  const fetchFiles = useCallback(async () => {
+    if (!list?.id) return;
+    try {
+      setLoading(true);
+      const data = await api.get(`/api/lists/${list.id}/files`);
+      setFiles(Array.isArray(data) ? data : []);
+    } catch (err) {
+      if (showToast) showToast(isOfflineErr(err) ? "Daftar berkas tidak tersedia — offline" : (err.message || "Gagal memuat berkas"), "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [list?.id, showToast]);
+
+  useEffect(() => {
+    fetchFiles();
+  }, [fetchFiles]);
+
+  const handleUpload = async e => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (!navigator.onLine) {
+      if (showToast) showToast("Perlu koneksi internet untuk mengunggah berkas", "error");
+      return;
+    }
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("source", "direct");
+      const headers = {};
+      if (typeof __token !== "undefined" && __token) {
+        headers["Authorization"] = "Bearer " + __token;
+      }
+      // POST /api/lists/{list_id}/files
+      const res = await fetch(apiUrl(`/api/lists/${list.id}/files`), {
+        method: "POST",
+        headers,
+        body: formData
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || "Gagal mengunggah berkas");
+      }
+      if (showToast) showToast("Berkas berhasil diunggah! ✅");
+      fetchFiles();
+    } catch (err) {
+      if (showToast) showToast(err.message || "Gagal mengunggah berkas", "error");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleShareToChat = async f => {
+    try {
+      // POST /api/lists/{list_id}/messages
+      await api.post(`/api/lists/${list.id}/messages`, {
+        content: "",
+        msg_type: "file_attach",
+        file_id: f.id
+      });
+      if (showToast) showToast("Berkas dibagikan ke obrolan! 💬");
+      if (typeof onNav === "function") {
+        onNav("chat", list.id);
+      }
+    } catch (err) {
+      if (showToast) showToast(err.message || "Gagal membagikan ke obrolan", "error");
+    }
+  };
+
+  const handleDelete = async f => {
+    if (!window.confirm("Hapus berkas ini dari workspace?")) return;
+    try {
+      // DELETE /api/lists/{list_id}/files/{file_id}
+      await api.del(`/api/lists/${list.id}/files/${f.id}`);
+      if (showToast) showToast("Berkas berhasil dihapus 🗑️");
+      fetchFiles();
+    } catch (err) {
+      if (showToast) showToast(err.message || "Gagal menghapus berkas", "error");
+    }
+  };
+
+  const getFileCategory = f => {
+    const ext = (f.original_name || "").split(".").pop().toLowerCase();
+    if (ext === "pdf" || f.mime_type === "application/pdf") return "pdf";
+    if (["doc", "docx", "xls", "xlsx", "csv", "ppt", "pptx", "txt"].includes(ext) ||
+        (f.mime_type || "").includes("word") || (f.mime_type || "").includes("sheet") ||
+        (f.mime_type || "").includes("presentation") || (f.mime_type || "").includes("text/")) {
+      return "document";
+    }
+    if (["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(ext) || (f.mime_type || "").startsWith("image/")) {
+      return "image";
+    }
+    return "other";
+  };
+
+  const getFileIcon = f => {
+    const cat = getFileCategory(f);
+    if (cat === "pdf") return "\uD83D\uDCC4";
+    if (cat === "image") return "\uD83D\uDDBC\uFE0F";
+    if (cat === "document") return "\uD83D\uDCCA";
+    return "\uD83D\uDCC1";
+  };
+
+  const filteredFiles = files.filter(f => {
+    if (query) {
+      const q = query.toLowerCase();
+      if (!f.original_name?.toLowerCase().includes(q)) return false;
+    }
+    if (typeFilter !== "all") {
+      if (getFileCategory(f) !== typeFilter) return false;
+    }
+    return true;
+  });
+
+  return /*#__PURE__*/React.createElement("div", {
+    className: "workspace-files-view fade-in",
+    style: {
+      paddingBottom: 32
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    ref: fileInputRef,
+    style: { display: "none" },
+    onChange: handleUpload
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      flexWrap: "wrap",
+      gap: 12,
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontSize: 20,
+      fontWeight: 700,
+      margin: 0,
+      color: "var(--text-primary)"
+    }
+  }, "\uD83D\uDCC1 Berkas Workspace"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-light)"
+    }
+  }, `${files.length} berkas`)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-primary btn-sm",
+    disabled: uploading,
+    onClick: () => {
+      if (!uploading && fileInputRef.current) fileInputRef.current.click();
+    },
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      fontWeight: 600
+    }
+  }, uploading ? "Mengunggah..." : "\u2795 Unggah Berkas")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      maxWidth: 420,
+      position: "relative"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    className: "chat-input",
+    placeholder: "\uD83D\uDD0D Cari nama berkas...",
+    value: query,
+    onChange: e => setQuery(e.target.value),
+    style: {
+      padding: "6px 30px 6px 10px",
+      fontSize: 13,
+      borderRadius: 8,
+      border: "1px solid var(--border)",
+      background: "var(--bg-card)",
+      color: "var(--text-primary)",
+      width: "100%"
+    }
+  }), query && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setQuery(""),
+    style: {
+      position: "absolute",
+      right: 8,
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      fontSize: 14,
+      color: "var(--text-light)",
+      padding: 2
+    }
+  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 6,
+      alignItems: "center"
+    }
+  }, [["all", "Semua"], ["pdf", "\uD83D\uDCC4 PDF"], ["document", "\uD83D\uDCCA Dokumen/Sheet"], ["image", "\uD83D\uDDBC\uFE0F Gambar"], ["other", "\uD83D\uDCC1 Lainnya"]].map(([catId, label]) => /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    key: catId,
+    onClick: () => setTypeFilter(catId),
+    className: `btn btn-xs ${typeFilter === catId ? "btn-primary" : "btn-secondary"}`,
+    style: {
+      borderRadius: 16,
+      padding: "4px 12px",
+      fontSize: 12,
+      fontWeight: typeFilter === catId ? 600 : 400
+    }
+  }, label)))), loading ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 32,
+      textAlign: "center",
+      color: "var(--text-light)",
+      fontSize: 14
+    }
+  }, "Memuat berkas...") : filteredFiles.length === 0 ? (files.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "48px 16px",
+      textAlign: "center",
+      background: "var(--bg-card)",
+      borderRadius: 12,
+      border: "1px dashed var(--border)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 36,
+      marginBottom: 8
+    }
+  }, "\uD83D\uDCC1"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 15,
+      fontWeight: 600,
+      color: "var(--text-primary)",
+      marginBottom: 4
+    }
+  }, "Belum ada berkas di workspace ini"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-light)",
+      marginBottom: 16
+    }
+  }, "Unggah berkas untuk berbagi dokumen, spreadsheet, atau gambar dengan tim."), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-primary btn-sm",
+    onClick: () => {
+      if (fileInputRef.current) fileInputRef.current.click();
+    },
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, "\u2795 Unggah Berkas")) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "36px 16px",
+      textAlign: "center",
+      background: "var(--bg-card)",
+      borderRadius: 12,
+      border: "1px dashed var(--border)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 28,
+      marginBottom: 8
+    }
+  }, "\uD83D\uDD0D"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 600,
+      color: "var(--text-primary)",
+      marginBottom: 4
+    }
+  }, "Tidak ada berkas yang cocok"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary btn-xs",
+    onClick: () => {
+      setQuery("");
+      setTypeFilter("all");
+    },
+    style: {
+      marginTop: 8
+    }
+  }, "Reset Filter"))) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+      gap: 12
+    }
+  }, filteredFiles.map(f => {
+    const ext = (f.original_name || "").split(".").pop().toLowerCase();
+    const isPdf = ext === "pdf" || f.mime_type === "application/pdf";
+    const isImg = ["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(ext) || (f.mime_type || "").startsWith("image/");
+    const downloadUrl = apiUrl('/api/lists/' + list.id + '/files/' + f.id + '/download') + (API_BASE && typeof __token !== "undefined" && __token ? '?token=' + encodeURIComponent(__token) : '');
+    const canDelete = user && (user.id === f.user_id || list?.role === "owner" || list?.owner_id === user.id);
+    const provenanceLabel = f.source === "chat" ? "\uD83D\uDCAC dari Diskusi" : (f.source === "task" ? `\uD83D\uDCCC dari Task "${f.task_title || 'Task'}"` : "\uD83D\uDCC1 Unggahan Langsung");
+    const formattedDate = f.created_at ? new Date(f.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }) : "";
+
+    return /*#__PURE__*/React.createElement("div", {
+      key: f.id,
+      className: "workspace-file-card",
+      style: {
+        background: "var(--bg-card)",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        padding: 14,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 10
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 24,
+        lineHeight: 1
+      }
+    }, getFileIcon(f)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 600,
+        fontSize: 14,
+        color: "var(--text-primary)",
+        wordBreak: "break-all"
+      },
+      title: f.original_name
+    }, f.original_name), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--text-light)",
+        marginTop: 2
+      }
+    }, typeof formatFileSize === "function" ? formatFileSize(f.file_size) : (f.file_size ? f.file_size + " B" : "0 B")))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+        alignItems: "center",
+        fontSize: 11,
+        color: "var(--text-secondary)",
+        marginTop: 2
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        background: "rgba(0,0,0,0.05)",
+        padding: "2px 8px",
+        borderRadius: 4,
+        fontWeight: 500,
+        color: "var(--text-secondary)"
+      }
+    }, provenanceLabel), f.uploader_name && /*#__PURE__*/React.createElement("span", null, "\xB7 ", f.uploader_name), formattedDate && /*#__PURE__*/React.createElement("span", null, "\xB7 ", formattedDate)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+        alignItems: "center",
+        marginTop: 6,
+        paddingTop: 8,
+        borderTop: "1px solid var(--border)"
+      }
+    }, (isPdf || isImg) && /*#__PURE__*/React.createElement("a", {
+      href: downloadUrl,
+      target: "_blank",
+      rel: "noopener noreferrer",
+      className: "btn btn-secondary btn-xs"
+    }, "\uD83D\uDC41\uFE0F Pratinjau"), /*#__PURE__*/React.createElement("a", {
+      href: downloadUrl,
+      download: f.original_name,
+      className: "btn btn-secondary btn-xs"
+    }, "\u2B07\uFE0F Unduh"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "btn btn-secondary btn-xs",
+      onClick: () => handleShareToChat(f),
+      title: "Bagikan ke Chat"
+    }, "\uD83D\uDCAC Bagikan ke Chat"), canDelete && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "btn btn-danger btn-xs",
+      onClick: () => handleDelete(f),
+      style: {
+        marginLeft: "auto"
+      },
+      title: "Hapus berkas"
+    }, "\uD83D\uDDD1\uFE0F Hapus")));
+  })));
 }
 
 // ── Pesan Pribadi (DM 1-on-1) ─────────────────────────────────
@@ -27725,6 +28166,8 @@ function App() {
   }, []);
   const [authPage, setAuthPage] = useState("login");
   const [page, setPage] = useState("dashboard");
+  const [workspaceTab, setWorkspaceTab] = useState("tasks");
+  const [activeChatListId, setActiveChatListId] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [summary, setSummary] = useState({
     by_status: {},
@@ -27784,6 +28227,9 @@ function App() {
     setSidebarCollapsed(true);
     setSidebarOpen(false);
   }, [page, user?.id]);
+  React.useEffect(() => {
+    setWorkspaceTab("tasks");
+  }, [page]);
   const showToast = (message, type = "success", action = null) => setToast({
     message,
     type,
@@ -28726,6 +29172,7 @@ function App() {
       return /*#__PURE__*/React.createElement(ChatPage, {
         user: user,
         sharedLists: sharedLists,
+        initialListId: activeChatListId,
         onTaskClick: setSelectedTask,
         onNoteOpen: id => api.get(`/api/scratchpad/${id}`).then(setSelectedNote).catch(err => {
           showToast(isOfflineErr(err) ? 'Catatan tidak tersedia — offline' : 'Gagal membuka catatan', 'error');
@@ -28751,6 +29198,64 @@ function App() {
           setShowForm(true);
         }
       });
+    }
+    if (page.startsWith("slist_")) {
+      const listId = parseInt(page.slice(6));
+      const currentList = sharedLists.find(l => l.id === listId) || { id: listId, name: getPageTitle() };
+      return /*#__PURE__*/React.createElement("div", {
+        className: "fade-in"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "workspace-nav-tabs",
+        style: {
+          display: "flex",
+          gap: 8,
+          marginBottom: 16,
+          borderBottom: "1px solid var(--border)",
+          paddingBottom: 8
+        }
+      }, /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: `btn btn-sm ${workspaceTab === "tasks" ? "btn-primary" : "btn-secondary"}`,
+        onClick: () => setWorkspaceTab("tasks"),
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          fontWeight: workspaceTab === "tasks" ? 600 : 400
+        }
+      }, "📋 Tasks"), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: `btn btn-sm ${workspaceTab === "files" ? "btn-primary" : "btn-secondary"}`,
+        onClick: () => setWorkspaceTab("files"),
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          fontWeight: workspaceTab === "files" ? 600 : 400
+        }
+      }, "📁 Files")), workspaceTab === "files" ? /*#__PURE__*/React.createElement(WorkspaceFilesView, {
+        list: currentList,
+        user: user,
+        showToast: showToast,
+        onNav: (target, targetId) => {
+          if (targetId) setActiveChatListId(targetId);
+          setPage(target);
+        }
+      }) : /*#__PURE__*/React.createElement(TaskListView, {
+        tasks: getFilteredTasks(),
+        allTasks: tasks,
+        title: getPageTitle(),
+        icon: getPageIcon(),
+        onTaskClick: setSelectedTask,
+        onDone: handleDone,
+        onToggleFocus: handleToggleFocus,
+        loading: loading,
+        projects: projects,
+        contexts: contexts,
+        showFilters: true,
+        collaborators: collaborators,
+        showToast: showToast
+      }));
     }
     return /*#__PURE__*/React.createElement(TaskListView, {
       tasks: getFilteredTasks(),

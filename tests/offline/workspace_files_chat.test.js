@@ -32,4 +32,22 @@ describe('Workspace Files and Chat Attachments UI', () => {
   test('ChatRoom renders FileMiniCard when msg.file_id or msg_type === "file_attach"', () => {
     assert.match(indexHtml, /\(msg\.file_id\s*\|\|\s*msg\.msg_type\s*===\s*["']file_attach["']\)\s*&&\s*(?:React\.)?createElement\(FileMiniCard/);
   });
+
+  test('Workspace page renders Tasks and Files tabs and WorkspaceFilesView', () => {
+    assert.match(indexHtml, /workspaceTab/);
+    assert.match(indexHtml, /function WorkspaceFilesView\(/);
+    assert.match(indexHtml, /Bagikan ke Chat/);
+    assert.match(indexHtml, /Hapus berkas ini dari workspace/);
+  });
+
+  test('WorkspaceFilesView handles direct upload, search, categories, and file actions', () => {
+    assert.match(indexHtml, /Unggah Berkas/);
+    assert.match(indexHtml, /POST/);
+    assert.match(indexHtml, /DELETE/);
+    assert.match(indexHtml, /Cari nama berkas/);
+    assert.match(indexHtml, /dari Diskusi/);
+    assert.match(indexHtml, /dari Task/);
+    assert.match(indexHtml, /Unggahan Langsung/);
+  });
 });
+
