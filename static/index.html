@@ -14156,6 +14156,7 @@ function Dashboard({
   //   - renderMessageContent
   //   - TaskMiniCard
   //   - NoteMiniCard
+  //   - FileMiniCard
   //   - ChatRoom
   //   - AttachPopup
   //   - ChatInputBar
@@ -14703,6 +14704,88 @@ function NoteMiniCard({
     }
   }, msg.note_title || "(tanpa judul)"));
 }
+function FileMiniCard({
+  msg,
+  listId,
+  showToast
+}) {
+  if (!msg?.file_id && msg?.msg_type !== "file_attach") return null;
+  const isDeleted = Boolean(msg.file_is_deleted || !msg.file_original_name);
+  if (isDeleted) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "chat-task-card chat-file-deleted",
+      style: {
+        opacity: 0.7,
+        borderStyle: "dashed"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        fontWeight: 700,
+        color: "var(--text-light)"
+      }
+    }, "\uD83D\uDDD1\uFE0F BERKAS TELAH DIHAPUS"), msg.file_original_name && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 600,
+        color: "var(--text-secondary)",
+        marginTop: 2,
+        wordBreak: "break-all"
+      }
+    }, msg.file_original_name), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--text-light)",
+        marginTop: 2
+      }
+    }, "Berkas ini sudah tidak lagi tersedia di workspace."));
+  }
+
+  const downloadUrl = apiUrl('/api/lists/' + (listId || msg.list_id) + '/files/' + msg.file_id + '/download') + (API_BASE && typeof __token !== "undefined" && __token ? '?token=' + encodeURIComponent(__token) : '');
+  const ext = (msg.file_original_name || "").split('.').pop().toLowerCase();
+  const isPdf = ext === "pdf";
+  const isImg = ["png", "jpg", "jpeg", "webp", "gif"].includes(ext);
+  const badgeLabel = isPdf ? "\uD83D\uDCC4 PDF" : isImg ? "\uD83D\uDDBC\uFE0F GAMBAR" : ["xlsx", "xls", "csv"].includes(ext) ? "\uD83D\uDCCA SPREADSHEET" : "\uD83D\uDCC1 BERKAS";
+
+  return /*#__PURE__*/React.createElement("div", {
+    className: "chat-task-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      color: "var(--accent)",
+      marginBottom: 3
+    }
+  }, badgeLabel), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 600,
+      color: "var(--text-primary)",
+      wordBreak: "break-all"
+    }
+  }, msg.file_original_name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--text-light)",
+      marginTop: 2
+    }
+  }, typeof formatFileSize === "function" ? formatFileSize(msg.file_size) : (msg.file_size ? msg.file_size + " B" : "0 B")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginTop: 8
+    }
+  }, (isPdf || isImg) && /*#__PURE__*/React.createElement("a", {
+    href: downloadUrl,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    className: "btn btn-secondary btn-xs"
+  }, "\uD83D\uDC41\uFE0F Pratinjau"), /*#__PURE__*/React.createElement("a", {
+    href: downloadUrl,
+    download: msg.file_original_name,
+    className: "btn btn-secondary btn-xs"
+  }, "\u2B07\uFE0F Unduh")));
+}
 function ChatRoom({
   list,
   user,
@@ -14939,6 +15022,10 @@ function ChatRoom({
     }), msg.note_id && /*#__PURE__*/React.createElement(NoteMiniCard, {
       msg: msg,
       onOpen: onNoteOpen
+    }), (msg.file_id || msg.msg_type === "file_attach") && React.createElement(FileMiniCard, {
+      msg: msg,
+      listId: list.id,
+      showToast: showToast
     }), /*#__PURE__*/React.createElement("button", {
       className: "chat-reply-btn",
       onClick: e => {

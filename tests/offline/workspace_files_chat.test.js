@@ -15,4 +15,21 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /attachedFile/);
     assert.match(indexHtml, /msg_type:\s*attachedFile\s*\?\s*["']file_attach["']/);
   });
+
+  test('FileMiniCard component exists and handles active and deleted states', () => {
+    assert.match(indexHtml, /function FileMiniCard\(/);
+    assert.match(indexHtml, /BERKAS TELAH DIHAPUS/);
+    assert.match(indexHtml, /Berkas ini sudah tidak lagi tersedia di workspace/);
+  });
+
+  test('FileMiniCard supports preview and download actions', () => {
+    assert.match(indexHtml, /Pratinjau/);
+    assert.match(indexHtml, /Unduh/);
+    assert.match(indexHtml, /target:\s*["']_blank["']/);
+    assert.match(indexHtml, /download:\s*msg\.file_original_name/);
+  });
+
+  test('ChatRoom renders FileMiniCard when msg.file_id or msg_type === "file_attach"', () => {
+    assert.match(indexHtml, /\(msg\.file_id\s*\|\|\s*msg\.msg_type\s*===\s*["']file_attach["']\)\s*&&\s*(?:React\.)?createElement\(FileMiniCard/);
+  });
 });
