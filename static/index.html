@@ -14978,18 +14978,29 @@ function ChatRoom({
     onClearReply: () => setReplyTo(null)
   }));
 }
+function formatFileSize(bytes) {
+  if (!bytes || bytes <= 0) return "0 B";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
 function AttachPopup({
   list,
   onSelectTask,
   onSelectNote,
+  onSelectFile,
   onCreateNew,
-  onClose
+  onClose,
+  showToast
 }) {
   const [tab, setTab] = React.useState("task");
   const [listTasks, setListTasks] = useState([]);
   const [listNotes, setListNotes] = useState([]);
+  const [listFiles, setListFiles] = useState([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
   useEffect(() => {
     setLoading(true);
     if (tab === "task") {
@@ -14997,15 +15008,54 @@ function AttachPopup({
         setListTasks(tasks);
         setLoading(false);
       }).catch(() => setLoading(false));
-    } else {
+    } else if (tab === "note") {
       api.get(`/api/lists/${list.id}/notes`).then(notes => {
         setListNotes(notes);
         setLoading(false);
       }).catch(() => setLoading(false));
+    } else if (tab === "file") {
+      api.get(`/api/lists/${list.id}/files`).then(files => {
+        setListFiles(files);
+        setLoading(false);
+      }).catch(() => setLoading(false));
     }
   }, [list.id, tab]);
+
+  const handleFileUpload = async e => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("source", "chat");
+      const headers = {};
+      if (typeof __token !== "undefined" && __token) {
+        headers["Authorization"] = "Bearer " + __token;
+      }
+      const res = await fetch(apiUrl(`/api/lists/${list.id}/files`), {
+        method: "POST",
+        headers,
+        body: formData
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || "Gagal mengunggah berkas");
+      }
+      const uploaded = await res.json();
+      if (onSelectFile) onSelectFile(uploaded);
+    } catch (err) {
+      if (showToast) showToast(err.message || "Gagal mengunggah berkas", "error");
+      else alert(err.message || "Gagal mengunggah berkas");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const filteredTasks = listTasks.filter(t => !query || t.title.toLowerCase().includes(query.toLowerCase()));
   const filteredNotes = listNotes.filter(n => !query || (n.title || "").toLowerCase().includes(query.toLowerCase()));
+  const filteredFiles = listFiles.filter(f => !query || (f.original_name || "").toLowerCase().includes(query.toLowerCase()));
   const tabBtn = (id, label) => /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       setTab(id);
@@ -15030,7 +15080,7 @@ function AttachPopup({
       display: "flex",
       borderBottom: "1px solid var(--border)"
     }
-  }, tabBtn("task", "📌 Task"), tabBtn("note", "📝 Note")), /*#__PURE__*/React.createElement("div", {
+  }, tabBtn("task", "📌 Task"), tabBtn("note", "📝 Note"), tabBtn("file", "📁 File")), /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "8px 12px",
       borderBottom: "1px solid var(--border)",
@@ -15045,7 +15095,7 @@ function AttachPopup({
       fontSize: 13,
       borderRadius: 6
     },
-    placeholder: tab === "task" ? "Cari task..." : "Cari note...",
+    placeholder: tab === "task" ? "Cari task..." : tab === "note" ? "Cari note..." : "Cari berkas...",
     value: query,
     onChange: e => setQuery(e.target.value),
     autoFocus: true
@@ -15122,7 +15172,61 @@ function AttachPopup({
       fontSize: 11,
       color: "var(--text-light)"
     }
-  }, n.updated_at?.slice(0, 10)))))));
+  }, n.updated_at?.slice(0, 10))))), tab === "file" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    ref: fileInputRef,
+    style: { display: "none" },
+    onChange: handleFileUpload
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "chat-attach-item",
+    style: {
+      color: "var(--accent)",
+      fontWeight: 600,
+      cursor: uploading ? "wait" : "pointer"
+    },
+    onClick: () => {
+      if (!uploading && fileInputRef.current) fileInputRef.current.click();
+    }
+  }, uploading ? "Mengunggah..." : "\u2795 Unggah Berkas Baru"), loading && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 12,
+      color: "var(--text-light)",
+      fontSize: 13
+    }
+  }, "Memuat..."), !loading && filteredFiles.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 12,
+      color: "var(--text-light)",
+      fontSize: 13
+    }
+  }, "Tidak ada berkas di workspace ini"), filteredFiles.map(f => {
+    const ext = (f.original_name || "").split(".").pop().toLowerCase();
+    const icon = ext === "pdf" ? "\uD83D\uDCC4" : ["png", "jpg", "jpeg", "webp", "gif"].includes(ext) ? "\uD83D\uDDBC\uFE0F" : ["xlsx", "xls", "csv"].includes(ext) ? "\uD83D\uDCCA" : "\uD83D\uDCC1";
+    return /*#__PURE__*/React.createElement("div", {
+      key: f.id,
+      className: "chat-attach-item",
+      onClick: () => onSelectFile && onSelectFile(f)
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 600,
+        fontSize: 13,
+        display: "flex",
+        alignItems: "center",
+        gap: 6
+      }
+    }, /*#__PURE__*/React.createElement("span", null, icon), /*#__PURE__*/React.createElement("span", {
+      style: {
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      }
+    }, f.original_name)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--text-light)"
+      }
+    }, formatFileSize(f.file_size), f.uploader_name ? ` \xB7 ${f.uploader_name}` : "", f.created_at ? ` \xB7 ${f.created_at.slice(0, 10)}` : ""));
+  }))));
 }
 function ChatInputBar({
   list,
@@ -15138,6 +15242,7 @@ function ChatInputBar({
   const [showAttach, setShowAttach] = useState(false);
   const [attachedTask, setAttachedTask] = useState(null);
   const [attachedNote, setAttachedNote] = useState(null);
+  const [attachedFile, setAttachedFile] = useState(null);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [members, setMembers] = useState([]);
   const [mentionQuery, setMentionQuery] = useState(null); // null = off, string = query
@@ -15166,17 +15271,18 @@ function ChatInputBar({
     textareaRef.current?.focus();
   };
   const handleSend = async () => {
-    if (!text.trim() && !attachedTask && !attachedNote) return;
+    if (!text.trim() && !attachedTask && !attachedNote && !attachedFile) return;
     setSending(true);
     try {
       const clientId = (window.TF && window.TF.ids && window.TF.ids.newCid)
         ? window.TF.ids.newCid()
         : `tmp_msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       const payload = {
-        content: text.trim() || (attachedTask ? `📌 ${attachedTask.title}` : attachedNote ? `📝 ${attachedNote.title || "(tanpa judul)"}` : ""),
+        content: text.trim() || (attachedFile ? `📎 ${attachedFile.original_name}` : attachedTask ? `📌 ${attachedTask.title}` : attachedNote ? `📝 ${attachedNote.title || "(tanpa judul)"}` : ""),
         task_id: attachedTask?.id || null,
         note_id: attachedNote?.id || null,
-        msg_type: attachedTask ? "task_attach" : attachedNote ? "note_attach" : "text",
+        file_id: attachedFile?.id || null,
+        msg_type: attachedFile ? "file_attach" : attachedTask ? "task_attach" : attachedNote ? "note_attach" : "text",
         reply_to_id: replyTo?.id || null,
         client_id: clientId
       };
@@ -15184,6 +15290,7 @@ function ChatInputBar({
       setText("");
       setAttachedTask(null);
       setAttachedNote(null);
+      setAttachedFile(null);
       setMentionQuery(null);
       onClearReply();
       onSent(msg);
@@ -15238,14 +15345,23 @@ function ChatInputBar({
     }
   }, m.display_name)))), showAttach && /*#__PURE__*/React.createElement(AttachPopup, {
     list: list,
+    showToast: showToast,
     onSelectTask: task => {
       setAttachedTask(task);
       setAttachedNote(null);
+      setAttachedFile(null);
       setShowAttach(false);
     },
     onSelectNote: note => {
       setAttachedNote(note);
       setAttachedTask(null);
+      setAttachedFile(null);
+      setShowAttach(false);
+    },
+    onSelectFile: file => {
+      setAttachedFile(file);
+      setAttachedTask(null);
+      setAttachedNote(null);
       setShowAttach(false);
     },
     onCreateNew: () => {
@@ -15332,6 +15448,43 @@ function ChatInputBar({
       fontSize: 14,
       padding: "0 2px"
     }
+  }, "\u2715")), attachedFile && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      bottom: 64,
+      left: 12,
+      background: "var(--bg-card)",
+      border: "1px solid var(--accent)",
+      borderRadius: 8,
+      padding: "6px 10px",
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      fontSize: 13,
+      maxWidth: "calc(100% - 24px)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--accent)"
+    }
+  }, "\uD83D\uDCCE"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 600,
+      color: "var(--text-primary)",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, `${attachedFile.original_name} (${formatFileSize(attachedFile.file_size)})`), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setAttachedFile(null),
+    style: {
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      color: "var(--text-light)",
+      fontSize: 14,
+      padding: "0 2px"
+    }
   }, "\u2715")), /*#__PURE__*/React.createElement("textarea", {
     ref: textareaRef,
     className: "chat-input",
@@ -15341,10 +15494,10 @@ function ChatInputBar({
     onChange: handleTextChange,
     onKeyDown: handleKeyDown,
     style: {
-      marginBottom: attachedTask || attachedNote ? 36 : 0
+      marginBottom: attachedTask || attachedNote || attachedFile ? 36 : 0
     }
   }), /*#__PURE__*/React.createElement("button", {
-    title: "Attach task atau note",
+    title: "Attach task, note, atau berkas",
     onClick: () => setShowAttach(v => !v),
     style: {
       background: showAttach ? "var(--accent)" : "var(--bg-primary)",
@@ -15359,7 +15512,7 @@ function ChatInputBar({
   }, "\uD83D\uDCCE"), /*#__PURE__*/React.createElement("button", {
     className: "chat-send-btn",
     onClick: handleSend,
-    disabled: sending || !text.trim() && !attachedTask && !attachedNote,
+    disabled: sending || !text.trim() && !attachedTask && !attachedNote && !attachedFile,
     title: "Kirim"
   }, sending ? "·" : "➤"));
 }
