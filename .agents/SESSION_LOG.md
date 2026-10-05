@@ -2,6 +2,41 @@
  
  Chronological history of work performed by AI agents in this workspace.
  
+## [2026-10-05 15:45] - Antigravity (Gemini)
+- **Task:** Redesain Visual Halaman Habits: Hero Single Row 5-Kolom, Dashboard KPI, Inline Check-in, & 2-Row Mini Heatmap (SW v368 `taskflow-v368-habit-kpi-redesign`, `app.css?v=314`).
+- **Changes:**
+  - `webapp.py`: Dukungan `status: "uncheck"` pada endpoint `/api/habits/{id}/checkin` yang mengeksekusi penghapusan log (`DELETE FROM habit_logs WHERE habit_id = ? AND date = ?`).
+  - `static/offline/habitrepo.js`: Handler `"uncheck"` menghapus log dari store IndexedDB `habit_logs` dan menambahkan antrean outbox dengan op `"uncheck"`.
+  - `static/offline/syncpush.js`: Handler `opHabitUncheck` memproses sinkronisasi uncheck ke server dan menghapus item dari antrean outbox.
+  - `static/index.html`:
+    - Merestrukturisasi layout hero halaman Habits menjadi grid `.habit-kpi-row` 5 kolom (4 kartu KPI Summary + kartu ke-5 `CalendarHeatmap`).
+    - Merancang ulang `SummaryCards` ke standar `.dash-kpi` dengan `DashKpiIcon` gradien 40px, angka 30px, subteks konteks `DashDelta`, dan visual mini 32px (`DashSparkline`, `DashMiniBars`, `DashMeter`).
+    - Menghapus banner kutipan identitas `💫 "Saya adalah orang yang peduli dengan kesehatan"` dan kalkulasi quote dari `HabitPage`.
+    - Mengubah check button pada `HabitCard` agar merotasi status secara langsung (`null` ➔ `"done"` ➔ `"skipped"` ➔ `"uncheck"`) tanpa modal popup.
+    - Menghapus modal `HabitCheckinModal` dan state `checkinTarget` dari `HabitPage`, serta mengarahkan aksi `onCheckin` langsung ke `handleCheckin` dengan update optimistik dan toast notifikasi.
+    - Mengubah `MiniHeatmap` per habit menjadi 2 baris × 15 kolom (30 sel) dengan penandaan sel kontras tinggi (`.is-empty`, `.is-skipped`, `.level-4`, `.is-today`).
+    - Memperbarui versi query stylesheet CSS menjadi `app.css?v=314`.
+  - `static/app.css`:
+    - Menambahkan grid styling `.habit-kpi-row` (5 kolom desktop `repeat(4, minmax(0, 1fr)) minmax(210px, 1.25fr)`, 2 kolom di tablet/mobile dengan kartu kalender merentang penuh).
+    - Menyesuaikan `.habit-mini-heatmap` (grid 2 baris × 15 kolom) dan visual cell kontras tinggi (`.is-empty` border dan background jelas di mode light & dark, `.is-skipped` amber pekat `#f59e0b`).
+  - `static/sw.js`:
+    - Bump cache version ke **`taskflow-v368-habit-kpi-redesign`**.
+  - `tests/offline/`:
+    - Membuat suite tes `tests/offline/habit_uncheck.test.js`, `tests/offline/habit_hero_redesign.test.js`, dan `tests/offline/habit_card_redesign.test.js`.
+    - Menyelaraskan asersi cache version ke `v368` di 6 file test offline (`direct_messages_ui`, `drawing_sync_ui`, `focus_workstation`, `interactive_note_viewer`, `note_saved_searches_view_mode`, `note_search_filters`).
+  - `tests/test_habit_uncheck.py`:
+    - Tes FastAPI backend untuk verifikasi `status: "uncheck"` menghapus habit log dari SQLite.
+- **Verification:**
+  - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - SW syntax check: `node --check static/sw.js` ➡️ **OK**.
+  - Habit offline tests: `node --test tests/offline/habit*.test.js` ➡️ **32/32 pass (0 fail)**.
+  - Synchronized offline tests: 89/89 pass across 6 suites.
+  - Full backend pytest suite: `python -m pytest tests/` ➡️ **123/123 pass (0 fail)**.
+  - Subagent reviews: Task 1 (approved), Task 2 (approved), Task 3 (approved), Task 4 (approved), Final whole-branch review (approved, 0 findings).
+- **Files Modified:** `webapp.py`, `static/app.css`, `static/index.html`, `static/offline/habitrepo.js`, `static/offline/syncpush.js`, `static/sw.js`, `tests/test_habit_uncheck.py`, `tests/offline/habit_uncheck.test.js`, `tests/offline/habit_hero_redesign.test.js`, `tests/offline/habit_card_redesign.test.js`, `tests/offline/direct_messages_ui.test.js`, `tests/offline/drawing_sync_ui.test.js`, `tests/offline/focus_workstation.test.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/note_saved_searches_view_mode.test.js`, `tests/offline/note_search_filters.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Commits:** `a944d57`, `d5fa385`, `d7ea9c4`, `e04a634`, `92acb1c`.
+- **Status:** Completed & Verified on branch `feat/habit-page-redesign-kpi-heatmap-inline-checkin`.
+ 
 ## [2026-10-05 08:30] - Antigravity (Gemini)
 - **Task:** Brainstorming & Perancangan Spesifikasi Desain: Workspace Files Repository & Chat File Attachments.
 - **Changes:**

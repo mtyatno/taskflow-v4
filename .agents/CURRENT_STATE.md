@@ -4,7 +4,25 @@
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
-4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
+## 🟢 Redesain Visual Halaman Habits: Hero Single Row 5-Kolom, Dashboard KPI, Inline Check-in, & 2-Row Mini Heatmap — 2026-10-05 (Antigravity/Gemini) — SELESAI (branch `feat/habit-page-redesign-kpi-heatmap-inline-checkin`, SW v368 `taskflow-v368-habit-kpi-redesign`, `app.css?v=314`)
+- **Plan & Spec:** `docs/superpowers/specs/2026-10-05-habit-page-redesign-kpi-heatmap-inline-checkin-design.md`, `docs/superpowers/plans/2026-10-05-habit-page-redesign-kpi-heatmap-inline-checkin.md`.
+- **Fitur Utama:**
+  1. **Hero Single Row 5-Kolom (`.habit-kpi-row`):** Menyatukan 4 kartu KPI Summary dan kartu ke-5 `CalendarHeatmap` ke dalam 1 baris grid desktop (`repeat(4, minmax(0, 1fr)) minmax(210px, 1.25fr)`), responsif 2 kolom di mobile/tablet dengan kartu kalender merentang penuh di bawah.
+  2. **Card KPI Bergaya Dashboard:** 4 kartu KPI (`SummaryCards`) mengadopsi struktur `.dash-kpi` dengan tile ikon gradien 40px (`DashKpiIcon`), angka 30px, subteks konteks `DashDelta`, dan visual mini 32px (`DashSparkline` untuk tren 14 hari, `DashMiniBars` untuk 7 hari, dan `DashMeter` untuk porsi target & streak).
+  3. **Direct Inline Check-in:** Klik tombol check pada kartu habit langsung merotasi status: `null` (kosong `+`) ➔ `"done"` (`✓`) ➔ `"skipped"` (`−`) ➔ `"uncheck"` (kosong `+`) disertai update optimistik instan dan notifikasi toast informatif. `HabitCheckinModal` dan `checkinTarget` state sepenuhnya dihapus dari alur halaman.
+  4. **2-Row Mini Heatmap Berkontras Tinggi:** Mini heatmap per habit diformat menjadi 2 baris × 15 kolom (30 sel: baris 1 hari -29 s/d -15, baris 2 hari -14 s/d hari ini). Sel kosong `.is-empty` memiliki border dan latar belakang kontras jelas di light mode (`rgba(0,0,0,0.14)`) dan dark mode (`rgba(255,255,255,0.20)`), sel skip `.is-skipped` berwarna kuning/amber pekat (`#f59e0b`), dan hari ini ditandai cincin fokus indigo.
+  5. **Hapus Quote Banner Identity:** Banner kutipan identitas `💫 "Saya adalah orang yang peduli dengan kesehatan"` beserta kalkulasi quote telah dibersihkan.
+  6. **Dukungan Backend & Offline Uncheck:** Endpoint FastAPI `/api/habits/{id}/checkin` mendukung `status: "uncheck"` dengan mengeksekusi `DELETE FROM habit_logs`. Offline repo `habitrepo.js` menghapus log dari IndexedDB dan mendaftarkan antrean outbox, yang diproses secara idempoten oleh `syncpush.js` (`opHabitUncheck`).
+  7. **Service Worker v368 & CSS v314:** Bump versi cache SW ke `taskflow-v368-habit-kpi-redesign`, link stylesheet `app.css?v=314`, dan sinkronisasi seluruh 6 file suite test offline.
+- **Verifikasi:**
+  - `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node --test tests/offline/habit*.test.js` ➡️ **32/32 pass (0 fail)**.
+  - Synchronized offline tests ➡️ **89/89 pass (0 fail)** across 6 suites.
+  - `python -m pytest tests/` ➡️ **123/123 pass (0 fail)**.
+  - Subagent reviews: Task 1 (approved), Task 2 (approved), Task 3 (approved), Task 4 (approved), Final whole-branch review (Spec ✅, Code Quality: Approved, zero findings).
+- **PENDING:** Perubahan sisi server (`webapp.py` uncheck handler) memerlukan restart service `sudo systemctl restart taskflow-web` saat deploy. Klien memerlukan hard refresh (Ctrl+Shift+R) atau tutup-buka PWA agar SW v368 aktif.
+
 ## 🟡 Desain: Workspace Files Repository & Chat File Attachments — 2026-10-05 (Antigravity/Gemini) — SPEC APPROVED
 - **Spec:** `docs/superpowers/specs/2026-10-05-workspace-files-and-chat-attachments-design.md` (commit `417fd64`).
 - **Fitur Utama:**
