@@ -2786,15 +2786,12 @@
 
 /* ── Mini Heatmap (per habit) ────────────────────────────── */
 .habit-mini-heatmap {
-  display: flex;
-  gap: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.habit-mini-heatmap::-webkit-scrollbar {
-  display: none;
+  display: grid;
+  grid-template-rows: repeat(2, 10px);
+  grid-template-columns: repeat(15, 10px);
+  gap: 3px;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .habit-mini-cell {
@@ -2805,16 +2802,32 @@
   flex-shrink: 0;
   transition: transform 0.15s;
   position: relative;
+  box-sizing: border-box;
 }
 
 .habit-mini-cell:hover {
   transform: scale(1.2);
 }
 
-.habit-mini-cell.level-1 { background: rgba(168,197,0, 0.2); }
-.habit-mini-cell.level-2 { background: rgba(168,197,0, 0.4); }
-.habit-mini-cell.level-3 { background: rgba(168,197,0, 0.7); }
-.habit-mini-cell.level-4 { background: var(--accent); }
+.habit-mini-cell.is-empty {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.14);
+}
+[data-theme="dark"] .habit-mini-cell.is-empty {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.20);
+}
+.habit-mini-cell.is-skipped {
+  background: #f59e0b;
+  border: 1px solid #d97706;
+}
+.habit-mini-cell.level-4 {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+}
+.habit-mini-cell.is-today {
+  box-shadow: 0 0 0 1.5px #818cf8;
+}
 
 /* Tooltip for mini cells */
 .habit-mini-cell::after {
