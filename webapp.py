@@ -1049,6 +1049,7 @@ class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
     task_id: Optional[int] = None
     note_id: Optional[int] = None
+    file_id: Optional[int] = None
     msg_type: str = "text"
     reply_to_id: Optional[int] = None
     client_id: Optional[str] = Field(default=None, max_length=64)
@@ -2197,6 +2198,7 @@ async def upload_attachment(task_id: int, background_tasks: BackgroundTasks, fil
     stored_name = f"{uuid.uuid4().hex}{ext}"
     stored_path = os.path.join(UPLOAD_DIR, stored_name)
 
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
     with open(stored_path, "wb") as f:
         f.write(content)
 
@@ -2205,6 +2207,15 @@ async def upload_attachment(task_id: int, background_tasks: BackgroundTasks, fil
     repo = TaskRepository(DB_PATH)
     result = repo.add_attachment(task_id, stored_name, original_name, len(content), mime_type)
     if task_row["list_id"]:
+        now_str = datetime.now().isoformat()
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO workspace_files
+                   (list_id, user_id, filename, original_name, file_size, mime_type, source, task_id, is_deleted, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 'task', ?, 0, ?)""",
+                (task_row["list_id"], uid, stored_name, original_name, len(content), mime_type, task_id, now_str)
+            )
+            conn.commit()
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, task_row["list_id"], uid,
@@ -2532,6 +2543,11 @@ async def get_messages(list_id: int, limit: int = 50, before_id: Optional[int] =
             SELECT m.id, m.list_id, m.user_id, m.content, m.task_id, m.note_id, m.msg_type,
                    m.client_id,
                    m.created_at, m.reply_to_id,
+                   m.file_id,
+                   wf.original_name as file_original_name,
+                   wf.file_size as file_size,
+                   wf.mime_type as file_mime_type,
+                   wf.is_deleted as file_is_deleted,
                    u.username, u.display_name,
                    t.title as task_title, t.priority as task_priority,
                    t.deadline as task_deadline, t.quadrant as task_quadrant,
@@ -2544,6 +2560,7 @@ async def get_messages(list_id: int, limit: int = 50, before_id: Optional[int] =
             JOIN users u ON u.id = m.user_id
             LEFT JOIN tasks t ON t.id = m.task_id
             LEFT JOIN scratchpad_notes sn ON sn.id = m.note_id
+            LEFT JOIN workspace_files wf ON wf.id = m.file_id
             LEFT JOIN messages rm ON rm.id = m.reply_to_id
             LEFT JOIN users ru ON ru.id = rm.user_id
         """
@@ -2617,11 +2634,19 @@ async def post_message(list_id: int, req: MessageCreate, user=Depends(get_curren
             ).fetchone()
             if not task_row:
                 raise HTTPException(status_code=400, detail="Task tidak ditemukan di list ini")
+        # Validate file_id belongs to this list and is not deleted (if provided)
+        if req.file_id:
+            file_row = conn.execute(
+                "SELECT id FROM workspace_files WHERE id = ? AND list_id = ? AND is_deleted = 0",
+                (req.file_id, list_id)
+            ).fetchone()
+            if not file_row:
+                raise HTTPException(status_code=400, detail="Berkas tidak ditemukan atau telah dihapus di workspace ini")
         # Save message
         cur = conn.execute(
-            "INSERT INTO messages (list_id, user_id, content, task_id, note_id, msg_type, reply_to_id, client_id, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            (list_id, uid, req.content, req.task_id, req.note_id, req.msg_type, req.reply_to_id, req.client_id, now),
+            "INSERT INTO messages (list_id, user_id, content, task_id, note_id, file_id, msg_type, reply_to_id, client_id, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (list_id, uid, req.content, req.task_id, req.note_id, req.file_id, req.msg_type, req.reply_to_id, req.client_id, now),
         )
         msg_id = cur.lastrowid
         # Fetch with joined data for broadcast
@@ -2629,6 +2654,11 @@ async def post_message(list_id: int, req: MessageCreate, user=Depends(get_curren
             """SELECT m.id, m.list_id, m.user_id, m.content, m.task_id, m.note_id, m.msg_type,
                       m.client_id,
                       m.created_at, m.reply_to_id,
+                      m.file_id,
+                      wf.original_name as file_original_name,
+                      wf.file_size as file_size,
+                      wf.mime_type as file_mime_type,
+                      wf.is_deleted as file_is_deleted,
                       u.username, u.display_name,
                       t.title as task_title, t.priority as task_priority,
                       t.deadline as task_deadline, t.quadrant as task_quadrant,
@@ -2641,6 +2671,7 @@ async def post_message(list_id: int, req: MessageCreate, user=Depends(get_curren
                JOIN users u ON u.id = m.user_id
                LEFT JOIN tasks t ON t.id = m.task_id
                LEFT JOIN scratchpad_notes sn ON sn.id = m.note_id
+               LEFT JOIN workspace_files wf ON wf.id = m.file_id
                LEFT JOIN messages rm ON rm.id = m.reply_to_id
                LEFT JOIN users ru ON ru.id = rm.user_id
                WHERE m.id = ?""",

@@ -246,3 +246,133 @@ def test_workspace_files_edge_cases(client, monkeypatch):
     assert r_del_none.status_code == 404
 
 
+def test_task_attachment_auto_sync_to_workspace_files(client):
+    owner = U(client, prefix="owner_att")
+    member = U(client, prefix="member_att")
+    list_id = _mk_list(owner, member, name="Attachment Sync List")
+
+    # Create task inside workspace
+    r_task = member.post("/api/tasks", json={"title": "FAT Commissioning Task", "list_id": list_id})
+    assert r_task.status_code == 200, r_task.text
+    task_id = r_task.json()["id"]
+
+    # Upload attachment to task
+    fat_bytes = b"FAT Report content for testing"
+    r_upload = member.post(
+        f"/api/tasks/{task_id}/attachments",
+        files={"file": ("FAT_Report.pdf", io.BytesIO(fat_bytes), "application/pdf")}
+    )
+    assert r_upload.status_code == 200, r_upload.text
+
+    # Verify it automatically appeared in workspace files
+    r_files = member.get(f"/api/lists/{list_id}/files")
+    assert r_files.status_code == 200, r_files.text
+    files = r_files.json()
+    fat_file = next((f for f in files if f["original_name"] == "FAT_Report.pdf"), None)
+    assert fat_file is not None
+    assert fat_file["source"] == "task"
+    assert fat_file["task_id"] == task_id
+    assert fat_file["file_size"] == len(fat_bytes)
+    assert fat_file["task_title"] == "FAT Commissioning Task"
+
+    # Also test task WITHOUT list_id (personal task) does NOT sync to workspace_files
+    r_personal_task = member.post("/api/tasks", json={"title": "Personal Task"})
+    assert r_personal_task.status_code == 200
+    p_task_id = r_personal_task.json()["id"]
+    r_p_upload = member.post(
+        f"/api/tasks/{p_task_id}/attachments",
+        files={"file": ("Personal.pdf", io.BytesIO(b"personal"), "application/pdf")}
+    )
+    assert r_p_upload.status_code == 200
+    r_files2 = member.get(f"/api/lists/{list_id}/files")
+    p_file = next((f for f in r_files2.json() if f["original_name"] == "Personal.pdf"), None)
+    assert p_file is None
+
+
+def test_chat_message_with_file_attachment(client):
+    owner = U(client, prefix="owner_chat")
+    member = U(client, prefix="member_chat")
+    other_list_owner = U(client, prefix="other_owner")
+    list_id = _mk_list(owner, member, name="Chat File List")
+    other_list_id = _mk_list(other_list_owner, name="Other List")
+
+    # Upload a file first
+    doc_bytes = b"Doc1 content for chat"
+    r_file = member.post(
+        f"/api/lists/{list_id}/files",
+        files={"file": ("Doc1.pdf", io.BytesIO(doc_bytes), "application/pdf")},
+        data={"source": "chat"}
+    )
+    assert r_file.status_code == 201, r_file.text
+    file_id = r_file.json()["id"]
+
+    # 1. Post message with invalid file_id (not found -> 400)
+    r_bad = member.post(
+        f"/api/lists/{list_id}/messages",
+        json={"content": "File tidak ada", "file_id": 999999, "msg_type": "file_attach"}
+    )
+    assert r_bad.status_code == 400
+
+    # 2. File from another list cannot be attached (400)
+    r_other_file = other_list_owner.post(
+        f"/api/lists/{other_list_id}/files",
+        files={"file": ("OtherList.pdf", io.BytesIO(b"other"), "application/pdf")},
+        data={"source": "chat"}
+    )
+    assert r_other_file.status_code == 201
+    other_file_id = r_other_file.json()["id"]
+    r_cross = member.post(
+        f"/api/lists/{list_id}/messages",
+        json={"content": "File list lain", "file_id": other_file_id, "msg_type": "file_attach"}
+    )
+    assert r_cross.status_code == 400
+
+    # 3. Post message with valid file_id
+    r_msg = member.post(
+        f"/api/lists/{list_id}/messages",
+        json={
+            "content": "Ini dokumen penting",
+            "file_id": file_id,
+            "msg_type": "file_attach"
+        }
+    )
+    assert r_msg.status_code == 200, r_msg.text
+    msg = r_msg.json()
+    assert msg["file_id"] == file_id
+    assert msg["file_original_name"] == "Doc1.pdf"
+    assert msg["file_size"] == len(doc_bytes)
+    assert msg["file_mime_type"] == "application/pdf"
+    assert msg["file_is_deleted"] == 0
+
+    # 4. Verify get_messages includes joined file fields
+    r_get = member.get(f"/api/lists/{list_id}/messages")
+    assert r_get.status_code == 200
+    msgs = r_get.json()
+    chat_msg = next((m for m in msgs if m["id"] == msg["id"]), None)
+    assert chat_msg is not None
+    assert chat_msg["file_id"] == file_id
+    assert chat_msg["file_original_name"] == "Doc1.pdf"
+    assert chat_msg["file_size"] == len(doc_bytes)
+    assert chat_msg["file_mime_type"] == "application/pdf"
+    assert chat_msg["file_is_deleted"] == 0
+
+    # 5. When file is deleted, chat message still shows file_id but file_is_deleted == 1
+    r_del = member.delete(f"/api/lists/{list_id}/files/{file_id}")
+    assert r_del.status_code == 200
+
+    r_get_after = member.get(f"/api/lists/{list_id}/messages")
+    assert r_get_after.status_code == 200
+    chat_msg_after = next((m for m in r_get_after.json() if m["id"] == msg["id"]), None)
+    assert chat_msg_after is not None
+    assert chat_msg_after["file_id"] == file_id
+    assert chat_msg_after["file_is_deleted"] == 1
+
+    # 6. Attaching a deleted file should be rejected with 400
+    r_post_del = member.post(
+        f"/api/lists/{list_id}/messages",
+        json={"content": "Coba lampirkan deleted file", "file_id": file_id, "msg_type": "file_attach"}
+    )
+    assert r_post_del.status_code == 400
+
+
+
