@@ -330,6 +330,25 @@
     });
   }
 
+  function opHabitUncheck(op, transport, result) {
+    const payload = op.payload || {};
+    const habitCid = payload.habit_cid;
+    if (!habitCid) return TFoutbox.outboxRemove(op.qid);
+    return TFidmap.serverIdOf(habitCid).then((sid) => {
+      if (sid == null) return TFoutbox.outboxRemove(op.qid);
+      return send(transport, "POST", "/api/habits/" + sid + "/checkin", {
+        date: payload.date,
+        status: "uncheck",
+      }).then((res) => {
+        if (ok(res)) {
+          return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; });
+        }
+        result.failed++;
+        return TFoutbox.outboxRemove(op.qid);
+      });
+    });
+  }
+
   function getNoteRaw(cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const r = db.transaction("scratchpad_notes", "readonly").objectStore("scratchpad_notes").get(cid);
@@ -879,6 +898,7 @@
     if (op.entity_type === "habit" && op.op === "update") return opHabitUpdate(op, transport, habitTagsFor, result);
     if (op.entity_type === "habit" && op.op === "delete") return opHabitDelete(op, transport, result);
     if (op.entity_type === "habit_log" && op.op === "checkin") return opHabitCheckin(op, transport, result);
+    if (op.entity_type === "habit_log" && op.op === "uncheck") return opHabitUncheck(op, transport, result);
     if (op.entity_type === "note" && op.op === "create") return opNoteCreate(op, transport, result);
     if (op.entity_type === "note" && op.op === "update") return opNoteUpdate(op, transport, result);
     if (op.entity_type === "note" && op.op === "delete") return opNoteDelete(op, transport, result);
