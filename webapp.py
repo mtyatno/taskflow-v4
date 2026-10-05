@@ -118,7 +118,7 @@ def _today_jkt() -> date:
     """Return today's date in Jakarta timezone (UTC+7)."""
     return datetime.now(_TZ_JKT).date()
 
-from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, UploadFile, File as FastAPIFile, BackgroundTasks, Query, Body
+from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, UploadFile, File as FastAPIFile, BackgroundTasks, Query, Body, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, RedirectResponse
 import io
@@ -2704,6 +2704,205 @@ async def chat_stream(list_id: int, request: Request, user=Depends(get_current_u
             chat_subscribers[list_id].discard(q)
 
     return EventSourceResponse(event_generator())
+
+
+# ── Workspace Files API ───────────────────────────────────────────────────────
+# Central file repository for shared workspaces (spec: docs/superpowers/specs/2026-10-05-workspace-files-and-chat-attachments-design.md)
+
+@app.get("/api/lists/{list_id}/files")
+async def list_workspace_files(
+    list_id: int,
+    q: Optional[str] = Query(None),
+    type: Optional[str] = Query(None),
+    user=Depends(get_current_user_sse)
+):
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Not a member of this list")
+
+    sql = """
+        SELECT wf.id, wf.list_id, wf.user_id, wf.filename, wf.original_name,
+               wf.file_size, wf.mime_type, wf.source, wf.task_id, wf.is_deleted,
+               wf.created_at,
+               COALESCE(NULLIF(u.display_name, ''), u.username) AS uploader_name,
+               u.username, u.display_name,
+               t.title AS task_title
+        FROM workspace_files wf
+        LEFT JOIN users u ON wf.user_id = u.id
+        LEFT JOIN tasks t ON wf.task_id = t.id
+        WHERE wf.list_id = ? AND wf.is_deleted = 0
+    """
+    params = [list_id]
+
+    if q and q.strip():
+        sql += " AND wf.original_name LIKE ?"
+        params.append(f"%{q.strip()}%")
+
+    if type and type.strip():
+        t = type.strip().lower()
+        if t == "pdf":
+            sql += " AND (wf.mime_type LIKE '%pdf%' OR wf.original_name LIKE '%.pdf')"
+        elif t == "image":
+            sql += (" AND (wf.mime_type LIKE 'image/%' OR wf.original_name LIKE '%.png' "
+                    "OR wf.original_name LIKE '%.jpg' OR wf.original_name LIKE '%.jpeg' "
+                    "OR wf.original_name LIKE '%.webp' OR wf.original_name LIKE '%.gif')")
+        elif t in ("document", "doc", "sheet"):
+            sql += (" AND (wf.mime_type LIKE '%document%' OR wf.mime_type LIKE '%sheet%' "
+                    "OR wf.mime_type LIKE '%presentation%' OR wf.mime_type LIKE '%text%' "
+                    "OR wf.mime_type LIKE '%csv%' OR wf.mime_type LIKE '%excel%' "
+                    "OR wf.original_name LIKE '%.doc%' OR wf.original_name LIKE '%.docx' "
+                    "OR wf.original_name LIKE '%.xls%' OR wf.original_name LIKE '%.xlsx' "
+                    "OR wf.original_name LIKE '%.ppt%' OR wf.original_name LIKE '%.pptx' "
+                    "OR wf.original_name LIKE '%.txt' OR wf.original_name LIKE '%.csv')")
+        elif t == "other":
+            sql += (" AND NOT (wf.mime_type LIKE '%pdf%' OR wf.original_name LIKE '%.pdf' "
+                    "OR wf.mime_type LIKE 'image/%' OR wf.original_name LIKE '%.png' "
+                    "OR wf.original_name LIKE '%.jpg' OR wf.original_name LIKE '%.jpeg' "
+                    "OR wf.original_name LIKE '%.webp' OR wf.original_name LIKE '%.gif' "
+                    "OR wf.mime_type LIKE '%document%' OR wf.mime_type LIKE '%sheet%' "
+                    "OR wf.mime_type LIKE '%presentation%' OR wf.mime_type LIKE '%text%' "
+                    "OR wf.mime_type LIKE '%csv%' OR wf.mime_type LIKE '%excel%' "
+                    "OR wf.original_name LIKE '%.doc%' OR wf.original_name LIKE '%.docx' "
+                    "OR wf.original_name LIKE '%.xls%' OR wf.original_name LIKE '%.xlsx' "
+                    "OR wf.original_name LIKE '%.ppt%' OR wf.original_name LIKE '%.pptx' "
+                    "OR wf.original_name LIKE '%.txt' OR wf.original_name LIKE '%.csv')")
+        else:
+            sql += " AND (wf.mime_type LIKE ? OR wf.original_name LIKE ?)"
+            params.extend([f"%{t}%", f"%.{t}%"])
+
+    sql += " ORDER BY wf.created_at DESC, wf.id DESC"
+
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/lists/{list_id}/files", status_code=status.HTTP_201_CREATED)
+async def upload_workspace_file(
+    list_id: int,
+    file: UploadFile = FastAPIFile(...),
+    source: str = Form("direct"),
+    task_id: Optional[int] = Form(None),
+    user=Depends(get_current_user)
+):
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Not a member of this list")
+
+    if task_id:
+        with get_db() as conn:
+            task_row = conn.execute(
+                "SELECT id FROM tasks WHERE id = ? AND list_id = ?", (task_id, list_id)
+            ).fetchone()
+            if not task_row:
+                raise HTTPException(status_code=400, detail="Task tidak ditemukan di workspace ini")
+
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail=f"File terlalu besar. Maks {MAX_FILE_SIZE // (1024*1024)}MB")
+
+    original_name = file.filename or "file"
+    ext = Path(original_name).suffix or ""
+    stored_name = f"{uuid.uuid4().hex}{ext}"
+    stored_path = os.path.join(UPLOAD_DIR, stored_name)
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    with open(stored_path, "wb") as f:
+        f.write(content)
+
+    mime_type = file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+    now = datetime.now().isoformat()
+
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO workspace_files
+               (list_id, user_id, filename, original_name, file_size, mime_type, source, task_id, is_deleted, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+            (list_id, uid, stored_name, original_name, len(content), mime_type, source, task_id, now)
+        )
+        file_id = cur.lastrowid
+        row = conn.execute(
+            """SELECT wf.id, wf.list_id, wf.user_id, wf.filename, wf.original_name,
+                      wf.file_size, wf.mime_type, wf.source, wf.task_id, wf.is_deleted,
+                      wf.created_at,
+                      COALESCE(NULLIF(u.display_name, ''), u.username) AS uploader_name,
+                      u.username, u.display_name,
+                      t.title AS task_title
+               FROM workspace_files wf
+               LEFT JOIN users u ON wf.user_id = u.id
+               LEFT JOIN tasks t ON wf.task_id = t.id
+               WHERE wf.id = ?""",
+            (file_id,)
+        ).fetchone()
+
+    return dict(row)
+
+
+@app.get("/api/lists/{list_id}/files/{file_id}/download")
+async def download_workspace_file(
+    list_id: int,
+    file_id: int,
+    user=Depends(get_current_user_sse)
+):
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Not a member of this list")
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM workspace_files WHERE id = ? AND list_id = ?",
+            (file_id, list_id)
+        ).fetchone()
+
+    if not row or row["is_deleted"] == 1:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    filepath = os.path.join(UPLOAD_DIR, row["filename"])
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    return FileResponse(filepath, filename=row["original_name"], media_type=row["mime_type"])
+
+
+@app.delete("/api/lists/{list_id}/files/{file_id}")
+async def delete_workspace_file(
+    list_id: int,
+    file_id: int,
+    user=Depends(get_current_user)
+):
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Not a member of this list")
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM workspace_files WHERE id = ? AND list_id = ?",
+            (file_id, list_id)
+        ).fetchone()
+
+    if not row or row["is_deleted"] == 1:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    is_uploader = (row["user_id"] == uid)
+    is_owner = repo.is_list_owner(list_id, uid)
+    if not (is_uploader or is_owner):
+        raise HTTPException(status_code=403, detail="Hanya pengunggah berkas atau owner workspace yang dapat menghapus berkas")
+
+    with get_db() as conn:
+        conn.execute("UPDATE workspace_files SET is_deleted = 1 WHERE id = ?", (file_id,))
+
+    filepath = os.path.join(UPLOAD_DIR, row["filename"])
+    if os.path.exists(filepath):
+        try:
+            os.unlink(filepath)
+        except OSError:
+            pass
+
+    return {"success": True, "message": "Berkas berhasil dihapus"}
 
 
 # ── Direct Messages API ───────────────────────────────────────────────────────
