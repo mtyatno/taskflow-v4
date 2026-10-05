@@ -34,4 +34,33 @@ test("habit page hero section redesign", () => {
             appCss.includes("grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(220px, 1.25fr)"),
             "app.css must define 5-column grid for .habit-kpi-row");
   assert.ok(appCss.includes(".habit-kpi-row > :last-child"), "app.css must span :last-child across columns on mobile/tablet");
+
+  // 6. Calendar heatmap cell styling and empty state
+  assert.ok(
+    /\.habit-heatmap-cell\s*\{[^}]*width:\s*20px[^}]*height:\s*20px/s.test(appCss),
+    "app.css must define .habit-heatmap-cell with width: 20px and height: 20px"
+  );
+  assert.ok(
+    appCss.includes(".habit-heatmap-cell.is-empty"),
+    "app.css must define .habit-heatmap-cell.is-empty"
+  );
+  assert.ok(
+    appCss.includes('[data-theme="dark"] .habit-heatmap-cell.is-empty'),
+    "app.css must define [data-theme=\"dark\"] .habit-heatmap-cell.is-empty"
+  );
+  assert.ok(
+    appCss.includes(".habit-heatmap-cell.level-4"),
+    "app.css must define .habit-heatmap-cell.level-4"
+  );
+
+  // 7. CalendarHeatmap component in index.html applies is-placeholder and is-empty
+  assert.ok(
+    indexHtml.includes('className: "habit-heatmap-cell is-placeholder"'),
+    "CalendarHeatmap must render placeholder cells with className 'habit-heatmap-cell is-placeholder'"
+  );
+  assert.ok(
+    indexHtml.includes("is-empty") && indexHtml.includes("level-${cell.level}"),
+    "CalendarHeatmap must apply is-empty class when cell.level <= 0"
+  );
 });
+

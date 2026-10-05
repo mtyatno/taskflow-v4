@@ -25585,9 +25585,9 @@ function CalendarHeatmap({ data }) {
   }, label))), /*#__PURE__*/React.createElement("div", {
     className: "habit-heatmap-grid"
   }, cells.map((cell, i) => {
-    if (!cell) return /*#__PURE__*/React.createElement("div", { key: i }); // Empty placeholder
+    if (!cell) return /*#__PURE__*/React.createElement("div", { key: i, className: "habit-heatmap-cell is-placeholder" });
 
-    const className = `habit-heatmap-cell${cell.level > 0 ? ` level-${cell.level}` : ''}${cell.isToday ? ' today' : ''}`;
+    const className = `habit-heatmap-cell${cell.level > 0 ? ` level-${cell.level}` : ' is-empty'}${cell.isToday ? ' today' : ''}`;
 
     return /*#__PURE__*/React.createElement("div", {
       key: cell.key,
