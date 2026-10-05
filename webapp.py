@@ -711,6 +711,41 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Ensure workspace_files table exists
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS workspace_files (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                list_id       INTEGER NOT NULL REFERENCES shared_lists(id) ON DELETE CASCADE,
+                user_id       INTEGER NOT NULL REFERENCES users(id),
+                filename      TEXT NOT NULL,
+                original_name TEXT NOT NULL,
+                file_size     INTEGER DEFAULT 0,
+                mime_type     TEXT DEFAULT '',
+                source        TEXT NOT NULL DEFAULT 'direct',
+                task_id       INTEGER DEFAULT NULL,
+                is_deleted    INTEGER DEFAULT 0,
+                created_at    TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_workspace_files_list ON workspace_files(list_id, created_at)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Migrate messages.file_id column
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
+        if "file_id" not in cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN file_id INTEGER DEFAULT NULL REFERENCES workspace_files(id)")
+            conn.commit()
+    finally:
+        conn.close()
+
 
 # ── Password hashing (no external deps) ───────────────────────────────────────
 
