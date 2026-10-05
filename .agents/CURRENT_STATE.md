@@ -5,6 +5,22 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
+## 🟢 Perbaikan Visual Halaman Habits: Tampilan Kotak Kosong Kalender KPI Heatmap & Tata Letak Mobile Habit Card 2-Baris — 2026-10-05 (Antigravity/Gemini) — SELESAI (branch `fix/habit-card-mobile-layout-and-kpi-heatmap-empty-cells`, SW v369 `taskflow-v369-habit-card-mobile-fix`, `app.css?v=315`)
+- **Plan & Spec:** `docs/superpowers/specs/2026-10-05-habit-card-mobile-layout-and-kpi-heatmap-empty-cells-design.md`, `docs/superpowers/plans/2026-10-05-habit-card-mobile-layout-and-kpi-heatmap-empty-cells.md`.
+- **Perbaikan Masalah:**
+  1. **Kotak Kosong Heatmap KPI Card:** Memulihkan dimensi dasar sel `.habit-heatmap-cell` (20px desktop, 18px mobile) yang sebelumnya hilang sehingga sel berukuran 0x0px. Menambahkan styling berkontras tinggi untuk sel kosong `.is-empty` (light: background `rgba(0,0,0,0.04)` border `rgba(0,0,0,0.12)`, dark: background `rgba(255,255,255,0.05)` border `rgba(255,255,255,0.18)`), serta penataan level warna 1-4 dan cincin fokus hari ini. Pada komponen `CalendarHeatmap`, sel hari tanpa log diberi kelas `.is-empty` dan sel placeholder masa depan diberi `.is-placeholder`.
+  2. **Tata Letak Mobile Habit Card 2-Baris:** Memecah `.habit-card-new` pada viewport mobile (≤640px) dari 1 baris flex horizontal yang sempit dan menyebabkan teks judul tertekan kata-per-baris menjadi 2 baris terstruktur via CSS Grid (`"info meta" "actions actions"`):
+     - Baris 1: Judul habit (`.habit-card-main`) di sebelah kiri memiliki ruang 100% untuk membungkus kalimat secara alami, sedangkan badge streak (`🔥 N`) dan menu kebab (`⋯`) tertata rapi di kanan atas (`.habit-card-meta`).
+     - Baris 2: Mini heatmap 2-baris × 15-kolom (`MiniHeatmap`) dan tombol check-in (`.habit-check-btn`) diletakkan di baris kedua (`.habit-card-actions`) dengan `justify-content: space-between` dan pembatas garis halus di atasnya.
+  3. **Service Worker v369 & CSS v315:** Cache version SW dibump ke `taskflow-v369-habit-card-mobile-fix`, stylesheet index.html `app.css?v=315`, dan 6 test suite offline disinkronkan.
+- **Verifikasi:**
+  - `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node --test tests/offline/habit*.test.js` ➡️ **33/33 pass (0 fail)**.
+  - Synchronized offline tests ➡️ **89/89 pass (0 fail)** across 6 suites.
+  - `python -m pytest tests/` ➡️ **123/123 pass (0 fail)**.
+  - Subagent reviews: Task 1 (approved), Task 2 (approved), Task 3 (approved), Final whole-branch review (Spec ✅, Code Quality: Approved, zero findings).
+- **PENDING:** Klien memerlukan hard refresh (Ctrl+Shift+R) atau tutup-buka PWA agar SW v369 aktif.
 
 ## 🟢 Redesain Visual Halaman Habits: Hero Single Row 5-Kolom, Dashboard KPI, Inline Check-in, & 2-Row Mini Heatmap — 2026-10-05 (Antigravity/Gemini) — SELESAI (branch `feat/habit-page-redesign-kpi-heatmap-inline-checkin`, SW v368 `taskflow-v368-habit-kpi-redesign`, `app.css?v=314`)
 - **Plan & Spec:** `docs/superpowers/specs/2026-10-05-habit-page-redesign-kpi-heatmap-inline-checkin-design.md`, `docs/superpowers/plans/2026-10-05-habit-page-redesign-kpi-heatmap-inline-checkin.md`.
