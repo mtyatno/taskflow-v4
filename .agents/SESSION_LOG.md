@@ -47,6 +47,30 @@
 - **Files Touch:** `docs/superpowers/specs/2026-10-05-workspace-files-and-chat-attachments-design.md`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
 - **Status:** Completed Design Spec (Ready for Implementation Plan).
 
+## [2026-10-05 07:30] - Antigravity (Gemini)
+- **Task:** Global Pomodoro State Persistence across Pages, Drift Correction, Top Bar Mini Widget, and SW v367.
+- **Changes:**
+  - `static/index.html`:
+    - Lifted Pomodoro timer state (`usePomodoro`), `focusTask`, `focusTaskId`, and `taskPomodoros` to `App` level.
+    - Updated `usePomodoro` to persist state snapshot to `localStorage` (`tf_pomo_state`) and perform drift correction using `targetEndTime` on timer ticks.
+    - Added `TopBarPomodoroChip` component displaying mode icon, `mm:ss`, task title, and mini Play/Pause toggle with click-to-navigate to "today" view.
+    - Rendered `TopBarPomodoroChip` in both `desktop-topbar` and `mobile-topbar` when `page !== "today" && focusTask`.
+    - Updated `TodayFocusView` to consume lifted props with fallback support.
+  - `static/app.css`:
+    - Added `.topbar-pomo-chip`, `.topbar-pomo-icon`, `.topbar-pomo-time`, `.topbar-pomo-task`, and `.topbar-pomo-btn` with dark mode and mobile responsiveness.
+  - `static/sw.js`: Bump cache version to `taskflow-v367-global-pomodoro`.
+  - `tests/offline/focus_workstation.test.js`: Added 4 unit tests verifying App-level Pomodoro lifting, topbar widget rendering and controls, and localStorage persistence.
+  - `tests/offline/*.test.js`: Synchronized SW version assertions to `v367` across 6 test suites.
+- **Verification:**
+  - Inline syntax check: `node scratch/check_inline.js static/index.html` ➡️ 5/5 scripts OK.
+  - SW syntax check: `node --check static/sw.js` ➡️ OK.
+  - Unit tests: `node --test tests/offline/focus_workstation.test.js` ➡️ 13/13 pass (0 fail).
+  - Synchronized offline tests: `node --test tests/offline/*.test.js` ➡️ 89/89 pass across 6 suites.
+  - Pytest suite: `python -m pytest tests/` ➡️ 122/122 pass (0 fail).
+  - Subagent reviews: Task 1 (review clean), Task 2 (review clean), Task 3 (review clean), Final whole-branch review (Spec ✅, Code Quality: Approved, zero findings).
+- **Commits:** `b359c84` (tests), `3da82c2` (implementation), `2ec37da` (SW v367 & test sync).
+- **Status:** Completed & Verified on branch `feat/global-pomodoro-topbar-widget`.
+
 ## [2026-10-04 23:55] - Antigravity (Gemini)
 - **Task:** Fokus Hari Ini: Syarat Task Aktif Pomodoro, Auto-pause on Unfocus/Done, Task Terfokus di Puncak Tasklist, dan SW v366.
 - **Changes:**
