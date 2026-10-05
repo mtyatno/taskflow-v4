@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v367-global-pomodoro";
+const CACHE = "taskflow-v368-workspace-files";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",

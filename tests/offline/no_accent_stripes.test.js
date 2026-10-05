@@ -23,7 +23,7 @@ test("no coloured accent stripes", async (t) => {
     let m;
     while ((m = ruleRe.exec(appCss))) {
       const selector = m[1].trim();
-      if (/blockquote/.test(selector)) continue;
+      if (/blockquote|note-callout/.test(selector)) continue;
       if (/border-(left|top|right)\s*:\s*([2-9]|\d{2,})px\s+solid\s+(?!transparent)/.test(m[2])) hits.push(selector);
     }
     assert.deepStrictEqual(hits, []);

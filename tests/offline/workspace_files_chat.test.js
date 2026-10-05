@@ -49,5 +49,10 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /dari Task/);
     assert.match(indexHtml, /Unggahan Langsung/);
   });
+
+  test('Service Worker cache version is bumped to taskflow-v368-workspace-files', () => {
+    const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
+    assert.match(swJs, /^const CACHE = "taskflow-v368-workspace-files";/m);
+  });
 });
 
