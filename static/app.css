@@ -2646,65 +2646,95 @@
 
 /* ══ Habit Page Redesign — Minimalist Dashboard ═══════════════ */
 
-/* ── Hero Section ──────────────────────────────────────────── */
-.habit-hero {
-  margin: 20px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-/* ── Summary Cards ────────────────────────────────────────── */
-.habit-summary-cards {
+/* ── Hero Section & KPI Row ────────────────────────────────── */
+.habit-kpi-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(210px, 1.25fr);
   gap: 12px;
+  margin-bottom: 24px;
+  align-items: stretch;
 }
 
-@media (max-width: 768px) {
-  .habit-summary-cards {
-    grid-template-columns: repeat(2, 1fr);
+@media (max-width: 1024px) {
+  .habit-kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .habit-kpi-row > :last-child {
+    grid-column: 1 / -1;
   }
 }
 
-.habit-summary-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-
-.habit-summary-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-}
-
-.habit-summary-card-icon {
-  font-size: 24px;
-}
-
-.habit-summary-card-value {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.habit-summary-card-label {
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.3;
+@media (max-width: 640px) {
+  .habit-kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .habit-kpi-row > :last-child {
+    grid-column: 1 / -1;
+  }
 }
 
 /* ── Calendar Heatmap ────────────────────────────────────── */
 .habit-heatmap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
+  border: 1px solid var(--dash-card-border, var(--border));
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: var(--dash-shadow);
+  min-width: 0;
+  transition: transform 0.18s, box-shadow 0.18s;
+}
+
+.habit-heatmap-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.habit-heatmap-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.habit-heatmap-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.habit-heatmap-sub {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.habit-heatmap-sub strong {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.habit-heatmap-labels {
+  display: grid;
+  grid-template-columns: repeat(7, 24px);
+  gap: 3px;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+
+.habit-heatmap-label {
+  font-size: 10px;
+  color: var(--text-light);
+  text-align: center;
 }
 
 .habit-heatmap-grid {
@@ -2721,45 +2751,9 @@
   .habit-heatmap-grid {
     grid-template-columns: repeat(7, 18px);
   }
-}
-
-.habit-heatmap-cell {
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  background: var(--bg-secondary);
-  transition: transform 0.15s;
-  cursor: pointer;
-  position: relative;
-}
-
-.habit-heatmap-cell:hover {
-  transform: scale(1.1);
-}
-
-.habit-heatmap-cell.today {
-  border: 2px solid #818cf8;
-  width: 26px;
-  height: 26px;
-}
-
-.habit-heatmap-cell.level-1 { background: rgba(168,197,0, 0.2); }
-.habit-heatmap-cell.level-2 { background: rgba(168,197,0, 0.4); }
-.habit-heatmap-cell.level-3 { background: rgba(168,197,0, 0.7); }
-.habit-heatmap-cell.level-4 { background: var(--accent); }
-
-.habit-heatmap-labels {
-  display: grid;
-  grid-template-columns: repeat(7, 24px);
-  gap: 3px;
-  justify-content: center;
-  margin-bottom: 6px;
-}
-
-.habit-heatmap-label {
-  font-size: 10px;
-  color: var(--text-light);
-  text-align: center;
+  .habit-heatmap-labels {
+    grid-template-columns: repeat(7, 18px);
+  }
 }
 
 /* Tooltip for heatmap cells */

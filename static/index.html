@@ -25342,50 +25342,134 @@ function computeHabitSummaryStats(habits) {
   };
 }
 
-function SummaryCard({ icon, value, label }) {
-  return /*#__PURE__*/React.createElement("div", {
-    className: "habit-summary-card"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "habit-summary-card-icon"
-  }, icon), /*#__PURE__*/React.createElement("div", {
-    className: "habit-summary-card-value"
-  }, value), /*#__PURE__*/React.createElement("div", {
-    className: "habit-summary-card-label"
-  }, label));
-}
+function SummaryCards({ stats, habits = [], monthlyData = null }) {
+  const s = stats || {};
+  const today = new Date();
+  const pad2 = n => String(n).padStart(2, "0");
+  const fmtLocal = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
-function SummaryCards({ stats }) {
-  const cards = [
+  // 14 days series for Aktif
+  const days14 = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    days14.push(fmtLocal(d));
+  }
+  const mDaysMap = {};
+  if (monthlyData && Array.isArray(monthlyData.days)) {
+    monthlyData.days.forEach(d => { mDaysMap[d.date] = d.done_count || 0; });
+  }
+  const activeSeries = days14.map(dt => mDaysMap[dt] !== undefined ? mDaysMap[dt] : (s.totalActive || 0));
+
+  // 7 days completion for Penyelesaian
+  const todayDow = (today.getDay() + 6) % 7; // 0=Mon..6=Sun
+  const weekDays = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - todayDow + i);
+    weekDays.push(fmtLocal(d));
+  }
+  const weekSeries = [0, 1, 2, 3, 4, 5, 6].map(dow => {
+    return (habits || []).reduce((sum, h) => sum + (h.week_log && h.week_log[dow] === "done" ? 1 : 0), 0);
+  });
+
+  const bestStreak = s.bestStreak || 0;
+  const streakTarget = Math.max(30, bestStreak);
+  const streakShare = streakTarget > 0 ? Math.min(1, bestStreak / streakTarget) : 0;
+
+  const weekDone = s.weekDone || 0;
+  const weekTotal = s.weekTotal || 0;
+  const checkinShare = weekTotal > 0 ? Math.min(1, weekDone / weekTotal) : 0;
+
+  const kpis = [
     {
-      icon: "⚡",
-      value: stats.totalActive || 0,
-      label: "kebiasaan aktif"
+      key: "active",
+      label: "Aktif",
+      icon: dashIconOr("activity", "zap"),
+      grad: ["#C5DD34", "#8FAA00"],
+      ink: "lime",
+      value: s.totalActive || 0,
+      delta: /*#__PURE__*/React.createElement(DashDelta, {
+        delta: 0,
+        title: "Stabil"
+      }),
+      sub: "kebiasaan aktif",
+      viz: /*#__PURE__*/React.createElement(DashSparkline, {
+        values: activeSeries,
+        days: days14,
+        unit: "selesai",
+        label: `Tren aktivitas 14 hari terakhir: ${activeSeries[activeSeries.length - 1] || 0} hari ini`
+      })
     },
     {
-      icon: "✓",
-      value: `${stats.completionRate || 0}%`,
-      label: "tingkat penyelesaian minggu ini"
+      key: "completion",
+      label: "Penyelesaian",
+      icon: "check",
+      grad: ["#4ade80", "#16a34a"],
+      ink: "green",
+      value: `${s.completionRate || 0}%`,
+      delta: /*#__PURE__*/React.createElement(DashDelta, {
+        delta: 0,
+        goodWhenUp: true
+      }),
+      sub: "minggu ini",
+      viz: /*#__PURE__*/React.createElement(DashMiniBars, {
+        values: weekSeries,
+        days: weekDays,
+        unit: "selesai",
+        label: `Penyelesaian habit 7 hari minggu ini: ${s.completionRate || 0}%`
+      })
     },
     {
-      icon: "🔥",
-      value: stats.bestStreak || 0,
-      label: "rekor beruntun terbaik"
+      key: "streak",
+      label: "Rekor Beruntun",
+      icon: "flame",
+      grad: ["#fb923c", "#ef4444"],
+      ink: "red",
+      value: bestStreak,
+      sub: "hari beruntun terbaik",
+      viz: /*#__PURE__*/React.createElement(DashMeter, {
+        share: streakShare,
+        caption: `target ${streakTarget} hari`,
+        label: `Rekor ${bestStreak} hari beruntun dari target ${streakTarget} hari`
+      })
     },
     {
-      icon: "📊",
-      value: `${stats.weekDone || 0}/${stats.weekTotal || 0}`,
-      label: "checkin minggu ini"
+      key: "checkin",
+      label: "Check-in",
+      icon: "calendar",
+      grad: ["#60a5fa", "#2563eb"],
+      ink: "blue",
+      value: `${weekDone}/${weekTotal}`,
+      sub: "target minggu ini",
+      viz: /*#__PURE__*/React.createElement(DashMeter, {
+        share: checkinShare,
+        caption: "target minggu ini",
+        label: `${weekDone} dari ${weekTotal} check-in minggu ini`
+      })
     }
   ];
 
-  return /*#__PURE__*/React.createElement("div", {
-    className: "habit-summary-cards"
-  }, cards.map((card, i) => /*#__PURE__*/React.createElement(SummaryCard, {
-    key: i,
-    icon: card.icon,
-    value: card.value,
-    label: card.label
-  })));
+  return /*#__PURE__*/React.createElement(React.Fragment, null, kpis.map(k => /*#__PURE__*/React.createElement("div", {
+    key: k.key,
+    className: "dash-kpi"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-kpi-top"
+  }, /*#__PURE__*/React.createElement(DashKpiIcon, {
+    icon: k.icon,
+    from: k.grad[0],
+    to: k.grad[1]
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "dash-kpi-label"
+  }, k.label)), /*#__PURE__*/React.createElement("div", {
+    className: "dash-kpi-num"
+  }, k.value), /*#__PURE__*/React.createElement("div", {
+    className: "dash-kpi-sub"
+  }, k.delta, /*#__PURE__*/React.createElement("span", {
+    className: "dash-kpi-sub-text"
+  }, k.sub)), /*#__PURE__*/React.createElement("div", {
+    className: `dash-kpi-viz ink-${k.ink}`
+  }, k.viz))));
 }
 
 // Helper: Map completion rate to color level (0-4)
@@ -25402,11 +25486,33 @@ function getHeatmapColorLevel(doneCount, totalHabits) {
 function CalendarHeatmap({ data }) {
   const [hoveredCell, setHoveredCell] = React.useState(null);
 
+  const avgVal = data && typeof data.avg !== "undefined"
+    ? data.avg
+    : (data && Array.isArray(data.days) && data.days.length > 0
+        ? Math.round((data.days.reduce((s, d) => s + (d.done_count || 0), 0) / data.days.length) * 10) / 10
+        : 0);
+
+  const header = /*#__PURE__*/React.createElement("div", {
+    className: "habit-heatmap-header"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "habit-heatmap-title-row"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "calendar",
+    size: 16,
+    style: { color: "var(--accent)" }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "habit-heatmap-title"
+  }, "Aktivitas 35 Hari")), /*#__PURE__*/React.createElement("div", {
+    className: "habit-heatmap-sub"
+  }, "Rata-rata: ", /*#__PURE__*/React.createElement("strong", null, avgVal), " / hari"));
+
   if (!data || !Array.isArray(data.days)) {
     return /*#__PURE__*/React.createElement("div", {
-      className: "habit-heatmap",
-      style: { textAlign: "center", padding: "30px", color: "var(--text-secondary)", fontSize: 14 }
-    }, "Kalender belum tersedia (butuh koneksi)");
+      className: "habit-heatmap habit-heatmap-card",
+      style: { display: "flex", flexDirection: "column" }
+    }, header, /*#__PURE__*/React.createElement("div", {
+      style: { textAlign: "center", padding: "20px 0", color: "var(--text-secondary)", fontSize: 13, margin: "auto 0" }
+    }, "Kalender belum tersedia (butuh koneksi)"));
   }
 
   // Grid 35 sel (5 minggu, Senin-Minggu); baris terakhir berakhir di Minggu minggu ini.
@@ -25462,8 +25568,8 @@ function CalendarHeatmap({ data }) {
   const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
   return /*#__PURE__*/React.createElement("div", {
-    className: "habit-heatmap"
-  }, /*#__PURE__*/React.createElement("div", {
+    className: "habit-heatmap habit-heatmap-card"
+  }, header, /*#__PURE__*/React.createElement("div", {
     className: "habit-heatmap-labels"
   }, dayLabels.map((label, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
@@ -25670,10 +25776,6 @@ function HabitPage({
       showToast(err.message, "error");
     }
   };
-  const currentHour = new Date().getHours();
-  const currentPhase = currentHour < 9 ? "pagi" : currentHour < 17 ? "siang" : "malam";
-  const quoteHabit = habits.find(h => h.phase === currentPhase && h.identity_pillar) || habits.find(h => h.identity_pillar);
-  const quote = quoteHabit?.identity_pillar || "Jadikan hari ini lebih baik dari kemarin.";
   const grouped = phases.reduce((acc, p) => {
     acc[p] = habits.filter(h => h.phase === p);
     return acc;
@@ -25730,13 +25832,6 @@ function HabitPage({
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "baseline",
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
       fontSize: 22,
       fontWeight: 700
     }
@@ -25745,35 +25840,12 @@ function HabitPage({
     day: "numeric",
     month: "long",
     year: "numeric"
-  })), monthlyData && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: "var(--text-secondary)"
-    }
-  }, "Rata-rata: ", /*#__PURE__*/React.createElement("strong", null, monthlyData.avg), " / hari")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      background: "var(--bg-card)",
-      border: "1px solid var(--border)",
-      borderRadius: 12,
-      padding: "12px 16px"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 18
-    }
-  }, "\u2728"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 14,
-      color: "var(--text-secondary)",
-      fontStyle: "italic"
-    }
-  }, "\"", quote, "\""))), /*#__PURE__*/React.createElement("div", {
-    className: "habit-hero"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "habit-kpi-row"
   }, /*#__PURE__*/React.createElement(SummaryCards, {
-    stats: summaryStats
+    stats: summaryStats,
+    habits: habits,
+    monthlyData: monthlyData
   }), /*#__PURE__*/React.createElement(CalendarHeatmap, {
     data: monthlyData
   })), habits.length === 0 ? /*#__PURE__*/React.createElement("div", {
