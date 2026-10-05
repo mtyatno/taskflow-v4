@@ -84,7 +84,35 @@
   }
 
   function checkin(habitCid, date, status, skipReason, opts) {
-    if (status !== "done" && status !== "skipped") return Promise.reject(new Error("status harus done atau skipped"));
+    if (status !== "done" && status !== "skipped" && status !== "uncheck") {
+      return Promise.reject(new Error("status harus done, skipped, atau uncheck"));
+    }
+    if (status === "uncheck") {
+      return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction("habit_logs", "readwrite");
+        const store = tx.objectStore("habit_logs");
+        const idx = store.index("habit_date");
+        let recordCid = (opts && opts.cid) || null;
+        const g = idx.get([habitCid, date]);
+        g.onsuccess = () => {
+          if (g.result) {
+            recordCid = g.result.cid;
+            store.delete(g.result.cid);
+          }
+        };
+        tx.oncomplete = () => {
+          if (!recordCid) recordCid = TFids.newCid();
+          resolve({ cid: recordCid, habit_cid: habitCid, date: date, status: "uncheck", skip_reason: "" });
+        };
+        tx.onerror = () => reject(tx.error);
+      })).then((record) =>
+        TFoutbox.outboxAdd({
+          op: "uncheck",
+          entity_type: "habit_log",
+          cid: record.cid,
+          payload: { habit_cid: habitCid, date: date, status: "uncheck" }
+        }).then(() => record));
+    }
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const tx = db.transaction("habit_logs", "readwrite");
       const store = tx.objectStore("habit_logs");

@@ -3289,19 +3289,22 @@ async def get_habits_monthly_completion(user=Depends(get_current_user)):
 @app.post("/api/habits/{habit_id}/checkin")
 async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_current_user)):
     uid = user["sub"]
-    if req.status not in ("done", "skipped"):
-        raise HTTPException(status_code=400, detail="status harus done atau skipped")
+    if req.status not in ("done", "skipped", "uncheck"):
+        raise HTTPException(status_code=400, detail="status harus done, skipped, atau uncheck")
     log_date = req.date if req.date else _today_jkt().isoformat()
     with get_db() as conn:
         row = conn.execute("SELECT id FROM habits WHERE id = ? AND user_id = ?", (habit_id, uid)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Habit tidak ditemukan")
-        conn.execute(
-            """INSERT INTO habit_logs (habit_id, date, status, skip_reason)
-               VALUES (?,?,?,?)
-               ON CONFLICT(habit_id, date) DO UPDATE SET status=excluded.status, skip_reason=excluded.skip_reason""",
-            (habit_id, log_date, req.status, req.skip_reason)
-        )
+        if req.status == "uncheck":
+            conn.execute("DELETE FROM habit_logs WHERE habit_id = ? AND date = ?", (habit_id, log_date))
+        else:
+            conn.execute(
+                """INSERT INTO habit_logs (habit_id, date, status, skip_reason)
+                   VALUES (?,?,?,?)
+                   ON CONFLICT(habit_id, date) DO UPDATE SET status=excluded.status, skip_reason=excluded.skip_reason""",
+                (habit_id, log_date, req.status, req.skip_reason)
+            )
     return {"ok": True, "habit_id": habit_id, "date": log_date, "status": req.status}
 
 
