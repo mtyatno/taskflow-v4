@@ -5,6 +5,15 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
+## 🟡 Desain: Workspace Files Repository & Chat File Attachments — 2026-10-05 (Antigravity/Gemini) — SPEC APPROVED
+- **Spec:** `docs/superpowers/specs/2026-10-05-workspace-files-and-chat-attachments-design.md` (commit `417fd64`).
+- **Fitur Utama:**
+  1. **Kemampuan Attach File di Chat (`ChatRoom`):** Tab `[ 📁 File ]` di `AttachPopup`, kemampuan upload file baru atau memilih berkas yang sudah ada di workspace, preview chip di input bar, dan render kartu berkas interaktif `FileMiniCard` dengan pratinjau & unduh.
+  2. **Tab Files di Workspace (`slist_<id>`):** Tab navigasi `[ 📋 Tasks ] [ 📁 Files (N) ]` pada halaman workspace, pencarian berkas instan, filter kategori (PDF, Dokumen/Sheet, Gambar), tracking asal-usul (chat, task, atau langsung), tombol aksi pratinjau, unduh, bagikan ke chat, dan hapus.
+  3. **Katalog Terpusat & Agregasi Otomatis:** Lampiran task (`task_attachments`) di dalam workspace otomatis tercatat di `workspace_files`.
+  4. **Kebijakan Hapus (Opsi A):** Hanya uploader berkas dan owner workspace yang berhak menghapus file (soft delete + physical delete).
+- **Status:** Spec disetujui, siap untuk penyusunan implementation plan (`writing-plans`).
+
 ## 🟢 Fokus Hari Ini: Syarat Task Aktif Pomodoro & Task Terfokus di Puncak Tasklist — 2026-10-04 (Antigravity/Gemini) — SELESAI (branch `feat/focus-pomodoro-guard`, SW v366 `taskflow-v366-focus-task-guard`)
 - **Plan & Spec:** `docs/superpowers/specs/2026-10-04-focus-pomodoro-task-guard-design.md`, `docs/superpowers/plans/2026-10-04-focus-pomodoro-task-guard.md`.
 - **Fitur:**
