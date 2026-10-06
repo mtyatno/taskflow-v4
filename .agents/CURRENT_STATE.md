@@ -5,6 +5,32 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
+
+## 🟢 Workspace Files Repository & Chat File Attachments — 2026-10-06 (Antigravity/Gemini) — SELESAI (branch `feat/workspace-files-chat-attachments` merged ke `main`, SW v370 `taskflow-v370-workspace-files`)
+- **Plan & Spec:** `docs/superpowers/specs/2026-10-05-workspace-files-and-chat-attachments-design.md`, `docs/superpowers/plans/2026-10-05-workspace-files-and-chat-attachments.md`.
+- **Fitur Utama:**
+  1. **Kemampuan Attach File di Chat (`ChatRoom`):** Tab `[ 📁 File ]` di `AttachPopup`, upload berkas baru atau memilih berkas yang sudah ada di workspace, preview chip di input bar, dan render kartu berkas interaktif `FileMiniCard` dengan pratinjau & unduh.
+  2. **Tab Files di Workspace (`slist_<id>`):** Tab navigasi `[ 📋 Tasks ] [ 📁 Files (N) ]` pada halaman workspace, pencarian berkas instan, filter kategori (PDF, Dokumen/Sheet, Gambar), tracking asal-usul (chat, task, langsung), tombol aksi pratinjau, unduh, bagikan ke chat, dan hapus.
+  3. **Katalog Terpusat & Agregasi Otomatis:** Lampiran task (`task_attachments`) di dalam workspace otomatis tercatat di `workspace_files`.
+  4. **Kebijakan Hapus (Opsi A):** Hanya uploader berkas dan owner workspace yang berhak menghapus file (soft delete + physical delete).
+- **Hasil Eksekusi 7 Task TDD:**
+  - Task 1: Database migration & schema setup (`workspace_files`, `messages.file_id`).
+  - Task 2: Backend API untuk workspace files CRUD & download.
+  - Task 3: Task attachment auto-sync & chat message file attachment.
+  - Task 4: Frontend chat input bar attach popup file tab & preview chip.
+  - Task 5: Frontend chat bubble file card (`FileMiniCard`).
+  - Task 6: Frontend workspace tabs & `WorkspaceFilesView`.
+  - Task 7: Service Worker bump (`taskflow-v370-workspace-files`) & full test suite verification.
+- **Verifikasi:**
+  - `node scratch/check_inline.js static/index.html` ➡️ **5/5 scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node --test tests/offline/workspace_files_chat.test.js` ➡️ **pass**.
+  - Synchronized offline tests ➡️ **pass** across all suites.
+  - `python -m pytest tests/test_workspace_files.py` ➡️ **pass**.
+  - `python -m pytest tests/` ➡️ **pass**.
+- **Status:** 🟢 SELESAI di `main`, SW v370 `taskflow-v370-workspace-files`.
+
+
 ## 🟢 Perbaikan Visual Halaman Habits: Tampilan Kotak Kosong Kalender KPI Heatmap & Tata Letak Mobile Habit Card 2-Baris — 2026-10-05 (Antigravity/Gemini) — SELESAI (branch `fix/habit-card-mobile-layout-and-kpi-heatmap-empty-cells`, SW v369 `taskflow-v369-habit-card-mobile-fix`, `app.css?v=315`)
 - **Plan & Spec:** `docs/superpowers/specs/2026-10-05-habit-card-mobile-layout-and-kpi-heatmap-empty-cells-design.md`, `docs/superpowers/plans/2026-10-05-habit-card-mobile-layout-and-kpi-heatmap-empty-cells.md`.
 - **Perbaikan Masalah:**
@@ -56,15 +82,6 @@
   - `python -m pytest tests/` ➡️ 122/122 pass (0 fail).
   - Subagent reviews: Task 1 (review clean), Task 2 (review clean), Task 3 (review clean), Final whole-branch review (Spec ✅, Code Quality: Approved, zero findings).
 - **PENDING:** Klien perlu hard refresh browser (Ctrl+Shift+R) atau tutup-buka PWA agar SW v367 aktif.
-
-## 🟡 Desain: Workspace Files Repository & Chat File Attachments — 2026-10-05 (Antigravity/Gemini) — SPEC APPROVED
-- **Spec:** `docs/superpowers/specs/2026-10-05-workspace-files-and-chat-attachments-design.md` (commit `417fd64`).
-- **Fitur Utama:**
-  1. **Kemampuan Attach File di Chat (`ChatRoom`):** Tab `[ 📁 File ]` di `AttachPopup`, kemampuan upload file baru atau memilih berkas yang sudah ada di workspace, preview chip di input bar, dan render kartu berkas interaktif `FileMiniCard` dengan pratinjau & unduh.
-  2. **Tab Files di Workspace (`slist_<id>`):** Tab navigasi `[ 📋 Tasks ] [ 📁 Files (N) ]` pada halaman workspace, pencarian berkas instan, filter kategori (PDF, Dokumen/Sheet, Gambar), tracking asal-usul (chat, task, atau langsung), tombol aksi pratinjau, unduh, bagikan ke chat, dan hapus.
-  3. **Katalog Terpusat & Agregasi Otomatis:** Lampiran task (`task_attachments`) di dalam workspace otomatis tercatat di `workspace_files`.
-  4. **Kebijakan Hapus (Opsi A):** Hanya uploader berkas dan owner workspace yang berhak menghapus file (soft delete + physical delete).
-- **Status:** Spec disetujui, siap untuk penyusunan implementation plan (`writing-plans`).
 
 ## 🟢 Fokus Hari Ini: Syarat Task Aktif Pomodoro & Task Terfokus di Puncak Tasklist — 2026-10-04 (Antigravity/Gemini) — SELESAI (branch `feat/focus-pomodoro-guard`, SW v366 `taskflow-v366-focus-task-guard`)
 - **Plan & Spec:** `docs/superpowers/specs/2026-10-04-focus-pomodoro-task-guard-design.md`, `docs/superpowers/plans/2026-10-04-focus-pomodoro-task-guard.md`.

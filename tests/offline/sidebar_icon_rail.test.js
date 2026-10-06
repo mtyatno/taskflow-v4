@@ -10,7 +10,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const indexHtml = fs.readFileSync(path.resolve(__dirname, "../../static/index.html"), "utf8");
+const indexHtml = fs.readFileSync(path.resolve(__dirname, "../../static/index.html"), "utf8").replace(/\r\n/g, "\n");
 const appCss = fs.readFileSync(path.resolve(__dirname, "../../static/app.css"), "utf8");
 
 // Sumber satu komponen top-level: dari `function Name(` sampai `}` penutup di kolom 0.

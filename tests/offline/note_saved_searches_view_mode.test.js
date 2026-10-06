@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v369-habit-card-mobile-fix", () => {
-    assert.match(swJs, /taskflow-v369-habit-card-mobile-fix/);
+  await t.test("sw.js bumped to taskflow-v370-workspace-files", () => {
+    assert.match(swJs, /taskflow-v370-workspace-files/);
   });
 });
