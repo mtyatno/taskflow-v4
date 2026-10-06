@@ -28,7 +28,8 @@
   - Synchronized offline tests ➡️ **pass** across all suites.
   - `python -m pytest tests/test_workspace_files.py` ➡️ **pass**.
   - `python -m pytest tests/` ➡️ **pass**.
-- **Status:** 🟢 SELESAI di `main`, SW v370 `taskflow-v370-workspace-files`.
+- **Status:** 🟢 SELESAI di `main`, SW v370 `taskflow-v370-workspace-files` (Commit `715caeb` pushed ke `origin/main`, CI GitHub Actions deployment triggered).
+- **PENDING DEPLOY:** Di VPS WAJIB restart service `sudo systemctl restart taskflow-web` agar `migrate_db()` membuat tabel `workspace_files` dan kolom `messages.file_id`. Klien memerlukan hard refresh browser (Ctrl+Shift+R) atau tutup-buka PWA agar Service Worker v370 aktif.
 
 
 ## 🟢 Perbaikan Visual Halaman Habits: Tampilan Kotak Kosong Kalender KPI Heatmap & Tata Letak Mobile Habit Card 2-Baris — 2026-10-05 (Antigravity/Gemini) — SELESAI (branch `fix/habit-card-mobile-layout-and-kpi-heatmap-empty-cells`, SW v369 `taskflow-v369-habit-card-mobile-fix`, `app.css?v=315`)
