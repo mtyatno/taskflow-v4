@@ -2,6 +2,19 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-06 20:25] - Antigravity (Gemini)
+- **Task:** Perbaikan `.github/workflows/deploy.yml` agar tahan terhadap stale git lock dan ref mismatch pada VPS.
+- **Changes:**
+  - `.github/workflows/deploy.yml`:
+    - Menambahkan `rm -f .git/refs/remotes/origin/main.lock .git/index.lock` sebelum checkout.
+    - Mengganti `git pull origin main` dengan `git fetch --prune origin main` dan `git reset --hard origin/main`.
+- **Verification:**
+  - `git diff .github/workflows/deploy.yml` diverifikasi.
+  - Commit `4352293` (`ci: handle stale git lock and use fetch reset in deploy script`) dipush ke `origin main`.
+  - GitHub Actions Workflow Run `37470817511` (Deploy Taskflow V4) dipantau hingga selesai ➡️ **Status: completed, Conclusion: success**.
+  - GitHub Actions Workflow Run `37470817463` (Tests) ➡️ **Status: completed, Conclusion: success**.
+- **Status:** Selesai dan deploy berhasil di VPS.
+
 ## [2026-10-06 20:05] - Antigravity (Gemini)
 - **Task:** Resolusi Konflik Merge & Finalisasi Branch `feat/workspace-files-chat-attachments` ke `main` (SW v370 `taskflow-v370-workspace-files`).
 - **Changes:**
