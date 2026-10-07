@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v376-chat-input-multiline-and-attach-preview', () => {
+  test('Service Worker cache version is bumped to taskflow-v377-hud-toast-redesign-longer-fade', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v376-chat-input-multiline-and-attach-preview";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v377-hud-toast-redesign-longer-fade";/m);
   });
 });
 

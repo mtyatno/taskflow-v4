@@ -2,6 +2,25 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-07 11:45] - Claude
+- **Task:** Enhancement notifikasi HUD tengah layar: desain pill badge lebih mewah, tanpa garis kiri, ikon melingkar, dan durasi tampil lebih lama (2.8 detik).
+- **Changes:**
+  - `static/app.css`:
+    - Mendesain ulang `.center-hud-toast` menjadi pill badge (`border-radius: 9999px`) dengan subtle multi-layer drop shadow dan inset border highlight.
+    - Menghapus border-left tebal pada `.center-hud-task` dan `.center-hud-note`.
+    - Menambahkan `.center-hud-icon-wrap`, `.center-hud-icon-task` (lingkaran aksen hijau emerald), dan `.center-hud-icon-note` (lingkaran aksen indigo) untuk ikon badge.
+    - Menyesuaikan `@keyframes centerHudFade` ke 2.8s (tampil terbaca jelas ~2.2s sebelum fade out halus).
+  - `static/index.html`:
+    - Mengatur timeout dismiss HUD ke 2800ms.
+    - Menyelaraskan struktur HTML HUD toast dengan `.center-hud-icon-wrap`.
+    - Bump stylesheet query ke `app.css?v=318`.
+  - `static/sw.js`:
+    - Bump cache version ke `taskflow-v377-hud-toast-redesign-longer-fade`.
+  - `tests/offline/`:
+    - Sinkronisasi versi cache dan stylesheet di 8 file tes offline.
+- **Files Touch:** `static/app.css`, `static/index.html`, `static/sw.js`, 8 file tes offline, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-07 11:30] - Claude
 - **Task:** Auto-detect pembuatan task pada kolom input capture Dashboard dan notifikasi tengah layar yang memudar otomatis.
 - **Changes:**

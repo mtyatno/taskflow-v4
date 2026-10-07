@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v376-chat-input-multiline-and-attach-preview/,
-      "sw.js should be bumped to taskflow-v376-chat-input-multiline-and-attach-preview"
+      /taskflow-v377-hud-toast-redesign-longer-fade/,
+      "sw.js should be bumped to taskflow-v377-hud-toast-redesign-longer-fade"
     );
   });
 

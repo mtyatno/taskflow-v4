@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=317">
+  <link rel="stylesheet" href="/static/app.css?v=318">
 
 <style>
 .paper-mode-active {
@@ -13290,7 +13290,7 @@ function Dashboard({
     if (!centerToast) return;
     const timer = setTimeout(() => {
       setCenterToast(null);
-    }, 1600);
+    }, 2800);
     return () => clearTimeout(timer);
   }, [centerToast]);
   const handleScratch = async e => {
@@ -14272,13 +14272,12 @@ function Dashboard({
     className: `center-hud-toast center-hud-${centerToast.type}`,
     role: "status",
     "aria-live": "polite"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: `center-hud-icon-wrap center-hud-icon-${centerToast.type}`
   }, /*#__PURE__*/React.createElement(Icon, {
     name: centerToast.type === "task" ? "clipboardCheck" : "notes",
-    size: 20,
-    style: {
-      color: centerToast.type === "task" ? "#10b981" : "var(--accent)"
-    }
-  }), /*#__PURE__*/React.createElement("span", {
+    size: 18
+  })), /*#__PURE__*/React.createElement("span", {
     className: "center-hud-title"
   }, centerToast.title))
 );
