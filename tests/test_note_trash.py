@@ -139,22 +139,40 @@ def test_snapshot_includes_every_scratchpad_column(client):
     assert snap["note"]["client_id"] == "cid-cols-1"
 
 
+def test_trashed_notes_lazy_self_healing_when_table_dropped(client):
+    """Bila tabel trashed_notes belum ada (mis. deploy tanpa restart service), rute trash & delete otomatis membuatnya (self-healing)."""
+    import webapp
+    u = U(client, "trashselfheal")
+    n = u.mk_note("Self Heal", "konten self heal")
+    _exec("DROP TABLE trashed_notes")
+    # list trash tidak 500 walau tabel baru saja di-drop
+    r_list = u.get("/api/scratchpad/trash")
+    assert r_list.status_code == 200
+    assert r_list.json() == []
+
+    _exec("DROP TABLE trashed_notes")
+    # delete note tidak 500 walau tabel di-drop, otomatis terbuat dan note masuk Sampah
+    r_del = u.delete(f"/api/scratchpad/{n['id']}")
+    assert r_del.status_code == 200
+    assert n["id"] in u.trash_ids()
+
+
 def test_delete_is_atomic_when_snapshot_fails(client, monkeypatch):
-    """Bila tulis snapshot gagal, note TIDAK boleh hilang (satu transaksi)."""
+    """Bila tulis snapshot gagal karena error tak terduga, note TIDAK boleh hilang (satu transaksi)."""
     import webapp
     u = U(client, "trashatomic")
     n = u.mk_note("Atomik", "x")
-    _exec("DROP TABLE trashed_notes")
-    try:
-        from starlette.testclient import TestClient
-        c2 = TestClient(webapp.app, raise_server_exceptions=False)
-        c2.cookies.clear()
-        r = c2.delete(f"/api/scratchpad/{n['id']}", headers=u.h)
-        assert r.status_code == 500
-        assert _row("SELECT 1 FROM scratchpad_notes WHERE id=?", n["id"]) is not None
-    finally:
-        webapp.migrate_db()  # bentuk ulang tabel untuk tes lain
-    assert _rows("PRAGMA table_info(trashed_notes)")
+
+    def _broken_snapshot(conn, note_row):
+        raise RuntimeError("simulated snapshot failure")
+
+    monkeypatch.setattr(webapp, "_snapshot_note_to_trash", _broken_snapshot)
+    from starlette.testclient import TestClient
+    c2 = TestClient(webapp.app, raise_server_exceptions=False)
+    c2.cookies.clear()
+    r = c2.delete(f"/api/scratchpad/{n['id']}", headers=u.h)
+    assert r.status_code == 500
+    assert _row("SELECT 1 FROM scratchpad_notes WHERE id=?", n["id"]) is not None
 
 
 def test_delete_forbidden_other_user_leaves_no_trash(client):

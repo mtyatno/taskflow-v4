@@ -2,6 +2,24 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-07 12:30] - Claude
+- **Task:** Perbaikan Note Trash & Self-Healing Migration Tabel Sampah (`trashed_notes`).
+- **Changes:**
+  - `webapp.py`:
+    - Menambahkan `_ensure_trashed_notes_table(conn)` untuk membuat tabel `trashed_notes` dan indeksnya secara *self-healing* pada saat diakses (snapshot note, purge expired, list trash, restore, delete scratchpad).
+  - `static/offline/syncpush.js`:
+    - Memperbarui `opNoteDelete` agar melakukan fallback ke `rec.server_id` jika `_idmap` tidak memiliki record, memastikan request `DELETE` tetap terkirim ke backend.
+  - `static/index.html`:
+    - Menambahkan pemanggilan `onClose()` saat konfirmasi hapus di `NoteModal`.
+  - `static/sw.js`:
+    - Bump cache version ke `taskflow-v379-notes-trash-self-heal`.
+  - `tests/`:
+    - Menambahkan pengujian `test_trashed_notes_lazy_self_healing_when_table_dropped` di `tests/test_note_trash.py`.
+    - Menambahkan pengujian fallback `rec.server_id` di `tests/offline/note_trash_sync.test.js`.
+    - Sinkronisasi versi cache SW di 7 file tes offline.
+- **Files Touch:** `webapp.py`, `static/offline/syncpush.js`, `static/index.html`, `static/sw.js`, `tests/test_note_trash.py`, `tests/offline/note_trash_sync.test.js`, 7 file tes offline lainnya, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-07 12:00] - Claude
 - **Task:** Dukungan multiline textarea input chat & preservasi newline (`white-space: pre-wrap`) pada gelembung chat.
 - **Changes:**

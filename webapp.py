@@ -4172,12 +4172,26 @@ async def list_scratchpad(q: str = "", tag: str = "", user=Depends(get_current_u
 
 NOTE_TRASH_RETENTION_DAYS = 30
 
+def _ensure_trashed_notes_table(conn) -> None:
+    """Lazy-create trashed_notes table if missing (self-healing after deploy tanpa restart)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS trashed_notes (
+            note_id       INTEGER PRIMARY KEY,
+            user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            title         TEXT NOT NULL DEFAULT '',
+            snapshot_json TEXT NOT NULL,
+            deleted_at    TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_trashed_user ON trashed_notes(user_id, deleted_at)")
+
 def _table_columns(conn, table: str) -> list[str]:
     return [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
 
 def _snapshot_note_to_trash(conn, note_row) -> None:
     """Tulis snapshot lengkap note (semua kolom + tag + pin + publish + lampiran) ke trashed_notes.
     Dipanggil di dalam transaksi hapus; JANGAN commit di sini."""
+    _ensure_trashed_notes_table(conn)
     nid = note_row["id"]
     note = dict(note_row)  # SELECT * -> semua kolom, termasuk hasil migrasi
     tags = [r["name"] for r in conn.execute(
@@ -4199,6 +4213,7 @@ def _snapshot_note_to_trash(conn, note_row) -> None:
 
 def _purge_expired_trashed_notes(conn) -> None:
     """Lazy purge: hapus permanen item trash yang lewat masa retensi."""
+    _ensure_trashed_notes_table(conn)
     cutoff = (datetime.now(_TZ_JKT) - timedelta(days=NOTE_TRASH_RETENTION_DAYS)).isoformat()
     conn.execute("DELETE FROM trashed_notes WHERE deleted_at < ?", (cutoff,))
 
@@ -4336,6 +4351,7 @@ async def restore_trashed_note(note_id: int, user=Depends(get_current_user)):
 async def purge_trashed_note(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
+        _ensure_trashed_notes_table(conn)
         conn.execute("DELETE FROM trashed_notes WHERE note_id = ? AND user_id = ?", (note_id, uid))
     return {"ok": True}
 
@@ -4343,6 +4359,7 @@ async def purge_trashed_note(note_id: int, user=Depends(get_current_user)):
 async def empty_trashed_notes(user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
+        _ensure_trashed_notes_table(conn)
         cur = conn.execute("DELETE FROM trashed_notes WHERE user_id = ?", (uid,))
         deleted = cur.rowcount
     return {"ok": True, "deleted": deleted}

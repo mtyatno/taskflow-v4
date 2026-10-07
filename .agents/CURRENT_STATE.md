@@ -6,6 +6,30 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Perbaikan Note Trash & Self-Healing Migration Tabel Sampah — 2026-10-07 (Claude) — SELESAI
+- **Masalah:** Tombol Sampah (Trash) di halaman catatan tidak berfungsi dan daftar sampah selalu kosong meskipun pengguna telah menghapus catatan.
+- **Root Cause:**
+  1. **Backend / Database Migration:** Tabel `trashed_notes` sebelumnya hanya dibuat via `migrate_db()` saat startup uvicorn. Ketika kode di-deploy via CI/CD tanpa restart proses VPS, tabel `trashed_notes` belum ada di database SQLite. Akibatnya, `DELETE /api/scratchpad/{id}` melempar error 500 (`no such table: trashed_notes`) saat mencoba snapshot, sehingga catatan tidak tersimpan ke Sampah dan `GET /api/scratchpad/trash` mengembalikan error / kosong.
+  2. **Offline Syncpush:** Pada `opNoteDelete` di `syncpush.js`, jika pemetaan di IndexedDB `_idmap` hilang/kosong, `TFidmap.serverIdOf(op.cid)` bernilai `undefined`, menyebabkan penghapusan hanya diproses di lokal tanpa mengirim `DELETE /api/scratchpad/{sid}` ke backend.
+  3. **UI NoteModal:** Tombol hapus di `NoteModal` tidak memanggil `onClose()`, membiarkan modal tetap terbuka setelah dihapus.
+- **Solusi & Implementasi:**
+  1. `webapp.py`:
+     - Menambahkan fungsi self-healing `_ensure_trashed_notes_table(conn)` yang dipanggil otomatis saat snapshot note, purge expired, list trash, restore, dan delete scratchpad. Tabel `trashed_notes` otomatis terbuat seketika pada request pertama tanpa perlu restart service manual di VPS.
+     - Menambahkan pengujian `test_trashed_notes_lazy_self_healing_when_table_dropped` di `tests/test_note_trash.py`.
+  2. `static/offline/syncpush.js`:
+     - Memperbarui `opNoteDelete` agar melakukan fallback ke `rec.server_id` jika `_idmap` tidak memiliki record, memastikan request `DELETE` tetap terkirim ke server.
+     - Menambahkan unit test di `tests/offline/note_trash_sync.test.js`.
+  3. `static/index.html`:
+     - Menambahkan pemanggilan `onClose()` saat konfirmasi hapus di `NoteModal`.
+  4. `static/sw.js` & Tests:
+     - Bump cache Service Worker ke `taskflow-v379-notes-trash-self-heal`.
+     - Sinkronisasi asersi versi cache di 7 file test offline.
+- **Verifikasi:**
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node --test tests/offline/note_trash_sync.test.js tests/offline/notetrash.test.js tests/offline/note_trash_routing.test.js` ➡️ **31/31 pass (0 fail)**.
+  - Full synchronized offline test suite ➡️ **100/100 pass (0 fail)**.
+- **Status:** 🟢 SELESAI (SW v379 `taskflow-v379-notes-trash-self-heal`).
+
 ## 🟢 Dukungan Multiline & Preservasi Newline pada Bubble Chat — 2026-10-07 (Claude) — SELESAI
 - **Kebutuhan Pengguna:**
   1. Input chat yang memiliki baris baru (*newline* via `Shift + Enter`) sebelumnya hanya terlihat 1 baris di textarea dan menutupi teks saat ada lampiran.

@@ -23896,7 +23896,10 @@ function NotePanel({
     }
   }, /*#__PURE__*/React.createElement(Icon, { name: "edit", size: 14 }), /*#__PURE__*/React.createElement("span", { className: "note-act-label" }, "Edit")), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
-      if (window.confirm(window.TF?.notetrash?.CONFIRM_MOVE || "Pindahkan catatan ini ke Sampah? Bisa dipulihkan dalam 30 hari.")) onDelete(note.id);
+      if (window.confirm(window.TF?.notetrash?.CONFIRM_MOVE || "Pindahkan catatan ini ke Sampah? Bisa dipulihkan dalam 30 hari.")) {
+        onDelete(note.id);
+        onClose();
+      }
     },
     title: "Pindahkan ke Sampah",
     "aria-label": "Pindahkan ke Sampah",

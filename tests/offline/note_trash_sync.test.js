@@ -161,3 +161,20 @@ test("S2: link pulih juga pada pull berikutnya (bukan hanya pull yang membuat ul
   const again = await pullNotes(S.list());
   assert.equal(again.relinked, 0, "tidak menulis ulang bila sudah sesuai");
 });
+
+test("opNoteDelete: fallback ke rec.server_id bila _idmap hilang", async () => {
+  const S = seeded();
+  await pullNotes(S.list());
+  const cid10 = await idmap.cidOf("note", 10);
+  // Simulasikan _idmap hilang/terhapus, tapi rec.server_id masih 10
+  await idmap.mapDelete("note", 10);
+  assert.equal(await idmap.serverIdOf(cid10), undefined);
+
+  await repo.deleteNote(cid10, {});
+  const t = S.transport();
+  const res = await pushOutbox(t);
+  assert.equal(res.pushed, 1);
+  assert.deepEqual(t.calls, ["DELETE /api/scratchpad/10"]);
+  assert.deepEqual([...S.trash.keys()], [10]);
+});
+

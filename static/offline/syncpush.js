@@ -444,7 +444,8 @@
   }
 
   function opNoteDelete(op, transport, result) {
-    return TFidmap.serverIdOf(op.cid).then((sid) => {
+    return Promise.all([getNoteRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sidFromMap]) => {
+      const sid = sidFromMap != null ? sidFromMap : (rec && rec.server_id != null ? rec.server_id : null);
       if (sid == null) {
         return deleteNoteRaw(op.cid).then(() => TFoutbox.outboxRemove(op.qid));
       }
@@ -456,10 +457,9 @@
             .then(() => { result.pushed++; });
         }
         if (res.status === 403) {
-          return getNoteRaw(op.cid).then((rec) =>
-            (rec
+          return (rec
               ? putNoteRaw(Object.assign({}, rec, { deleted: false, dirty: 0, notice: { kind: "delete_refused", title: rec.title } }))
-              : Promise.resolve()))
+              : Promise.resolve())
             .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
         }
         result.failed++;
