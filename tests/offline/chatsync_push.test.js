@@ -87,3 +87,40 @@ test("opChatSend retains the op on network error", async () => {
   await pushOutbox(tr);
   assert.equal((await outboxAll()).length, 1);
 });
+
+test("opChatSend sends file_id and preserves file metadata from server response", async () => {
+  await put("chat_messages", [msg({
+    cid: "c-file-sync",
+    content: "📎 Spec.pdf",
+    msg_type: "file_attach",
+    file_id: 88
+  })]);
+  await put("_outbox", [{ qid: 1, op: "send", entity_type: "message", cid: "c-file-sync", payload: {} }]);
+  const tr = fakeTransport((m, p, b) => {
+    assert.equal(p, "/api/lists/7/messages");
+    assert.equal(b.file_id, 88);
+    assert.equal(b.msg_type, "file_attach");
+    return {
+      status: 200,
+      data: {
+        id: 777,
+        file_id: 88,
+        file_original_name: "Spec.pdf",
+        file_size: 4096,
+        file_mime_type: "application/pdf",
+        file_is_deleted: 0,
+        created_at: "2026-10-06T12:00:00"
+      }
+    };
+  });
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  const rec = await getMsg("c-file-sync");
+  assert.equal(rec.server_id, 777);
+  assert.equal(rec.file_id, 88);
+  assert.equal(rec.file_original_name, "Spec.pdf");
+  assert.equal(rec.file_size, 4096);
+  assert.equal(rec.file_mime_type, "application/pdf");
+  assert.equal(rec.file_is_deleted, 0);
+});
+

@@ -50,14 +50,18 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /Unggahan Langsung/);
   });
 
-  test('handleShareToChat includes non-empty default content with filename', () => {
+  test('handleShareToChat includes non-empty default content with filename and file metadata', () => {
     assert.match(indexHtml, /handleShareToChat\s*=\s*async/);
     assert.match(indexHtml, /content:\s*["']📎\s*["']\s*\+\s*\(f\.original_name\s*\|\|\s*["']Berkas["']\)/);
+    assert.match(indexHtml, /file_original_name:\s*f\.original_name/);
+    assert.match(indexHtml, /file_size:\s*f\.file_size/);
+    assert.match(indexHtml, /file_mime_type:\s*f\.mime_type/);
+    assert.match(indexHtml, /client_id:\s*clientId/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v370-workspace-files', () => {
+  test('Service Worker cache version is bumped to taskflow-v374-mobile-pomodoro-second-row', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v370-workspace-files";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v374-mobile-pomodoro-second-row";/m);
   });
 });
 

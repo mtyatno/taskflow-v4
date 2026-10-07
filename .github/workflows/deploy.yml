@@ -3,6 +3,13 @@ name: Deploy Taskflow V4
 on:
   push:
     branches: [main]
+
+# Satu deploy dalam satu waktu: dua deploy paralel = dua pip install ke venv yang
+# sama → paket fastapi campur versi (ImportError PYDANTIC_V2, outage 2026-10-06).
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest

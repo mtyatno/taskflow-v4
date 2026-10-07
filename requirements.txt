@@ -8,8 +8,11 @@ python-docx==1.*
 Pillow>=9.0.0
 
 
-fastapi
-uvicorn[standard]
-python-multipart
-PyJWT
-sse-starlette
+# Web stack di-pin = versi yang dites CI (requirements-web.txt).
+# Tanpa pin, pip bisa upgrade fastapi ke major baru di tengah deploy.
+fastapi==0.115.*
+pydantic==2.*
+uvicorn[standard]==0.34.*
+python-multipart==0.0.*
+PyJWT==2.*
+sse-starlette==2.*

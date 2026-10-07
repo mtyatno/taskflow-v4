@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=315">
+  <link rel="stylesheet" href="/static/app.css?v=316">
 
 <style>
 .paper-mode-active {
@@ -15383,6 +15383,9 @@ function ChatInputBar({
         task_id: attachedTask?.id || null,
         note_id: attachedNote?.id || null,
         file_id: attachedFile?.id || null,
+        file_original_name: attachedFile?.original_name || null,
+        file_size: attachedFile?.file_size || null,
+        file_mime_type: attachedFile?.mime_type || null,
         msg_type: attachedFile ? "file_attach" : attachedTask ? "task_attach" : attachedNote ? "note_attach" : "text",
         reply_to_id: replyTo?.id || null,
         client_id: clientId
@@ -15688,11 +15691,18 @@ function WorkspaceFilesView({
 
   const handleShareToChat = async f => {
     try {
+      const clientId = (window.TF && window.TF.ids && window.TF.ids.newCid)
+        ? window.TF.ids.newCid()
+        : `tmp_msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       // POST /api/lists/{list_id}/messages
       await api.post(`/api/lists/${list.id}/messages`, {
         content: "📎 " + (f.original_name || "Berkas"),
         msg_type: "file_attach",
-        file_id: f.id
+        file_id: f.id,
+        file_original_name: f.original_name,
+        file_size: f.file_size,
+        file_mime_type: f.mime_type,
+        client_id: clientId
       });
       if (showToast) showToast("Berkas dibagikan ke obrolan! 💬");
       if (typeof onNav === "function") {
@@ -29380,7 +29390,9 @@ function App() {
       color: "var(--text-light)"
     }
   }, "✕")),  /*#__PURE__*/React.createElement("div", {
-    className: "mobile-topbar"
+    className: "mobile-topbar" + (page !== "today" && focusTask ? " has-pomo" : "")
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mobile-topbar-main"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setSidebarOpen(!sidebarOpen),
     style: {
@@ -29391,11 +29403,7 @@ function App() {
       padding: 0,
       lineHeight: 1
     }
-  }, "\u2630"), page !== "today" && focusTask && /*#__PURE__*/React.createElement(TopBarPomodoroChip, {
-    timer: timer,
-    focusTask: focusTask,
-    onNavigateToday: () => setPage("today")
-  }), /*#__PURE__*/React.createElement("div", {
+  }, "\u2630"), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1
     }
@@ -29446,7 +29454,13 @@ function App() {
   }, unreadCount > 9 ? "9+" : unreadCount)), /*#__PURE__*/React.createElement(TourButton, { page: page }), /*#__PURE__*/React.createElement(ThemeToggle, {
     theme: theme,
     onToggle: toggleTheme
-  })), /*#__PURE__*/React.createElement("div", {
+  })), page !== "today" && focusTask && /*#__PURE__*/React.createElement("div", {
+    className: "mobile-topbar-pomo-row"
+  }, /*#__PURE__*/React.createElement(TopBarPomodoroChip, {
+    timer: timer,
+    focusTask: focusTask,
+    onNavigateToday: () => setPage("today")
+  }))), /*#__PURE__*/React.createElement("div", {
     className: "desktop-topbar",
     style: {
       display: "flex",

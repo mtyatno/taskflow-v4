@@ -835,6 +835,7 @@
       content: rec.content != null ? rec.content : "",
       task_id: rec.task_id != null ? rec.task_id : null,
       note_id: rec.note_id != null ? rec.note_id : null,
+      file_id: rec.file_id != null ? rec.file_id : null,
       msg_type: rec.msg_type || "text",
       reply_to_id: replyServerId != null ? replyServerId : null,
       client_id: rec.cid,
@@ -858,7 +859,16 @@
           if (ok(res)) {
             const sid = res.data.id;
             return TFidmap.mapPut("message", sid, op.cid)
-              .then(() => putChatRaw(Object.assign({}, rec, { server_id: sid, created_at: res.data.created_at != null ? res.data.created_at : rec.created_at, pending: 0 })))
+              .then(() => putChatRaw(Object.assign({}, rec, {
+                server_id: sid,
+                created_at: res.data.created_at != null ? res.data.created_at : rec.created_at,
+                file_id: res.data.file_id != null ? res.data.file_id : rec.file_id,
+                file_original_name: res.data.file_original_name != null ? res.data.file_original_name : rec.file_original_name,
+                file_size: res.data.file_size != null ? res.data.file_size : rec.file_size,
+                file_mime_type: res.data.file_mime_type != null ? res.data.file_mime_type : rec.file_mime_type,
+                file_is_deleted: res.data.file_is_deleted != null ? res.data.file_is_deleted : (rec.file_is_deleted || 0),
+                pending: 0
+              })))
               .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
           }
           if (res.status === 403) {

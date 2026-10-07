@@ -100,9 +100,9 @@ test("TodayFocusView: membatalkan fokus atau menyelesaikan task menjeda Pomodoro
   assert.match(view, /Task selesai/, "harus memberi toast saat task selesai");
 });
 
-test("sw.js CACHE = taskflow-v370-workspace-files", () => {
+test("sw.js CACHE = taskflow-v374-mobile-pomodoro-second-row", () => {
   const swJs = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v370-workspace-files";/m);
+  assert.match(swJs, /^const CACHE = "taskflow-v374-mobile-pomodoro-second-row";/m);
 });
 
 test("App: mengelola timer Pomodoro dan focusTask di level App", () => {
@@ -130,6 +130,13 @@ test("usePomodoro: menyimpan snapshot ke localStorage (tf_pomo_state)", () => {
   const hook = fnSource("usePomodoro");
   assert.match(hook, /localStorage\.setItem\("tf_pomo_state"/, "usePomodoro harus menyimpan ke localStorage");
   assert.match(hook, /targetEndTime/, "usePomodoro harus menghitung targetEndTime");
+});
+
+test("mobile-topbar: mini pomodoro dirender di baris kedua (mobile-topbar-pomo-row)", () => {
+  const appSrc = fnSource("App");
+  assert.match(appSrc, /mobile-topbar-main/, "harus memiliki mobile-topbar-main untuk baris 1");
+  assert.match(appSrc, /mobile-topbar-pomo-row/, "harus memiliki mobile-topbar-pomo-row untuk baris 2");
+  assert.match(appSrc, /mobile-topbar-pomo-row[\s\S]*TopBarPomodoroChip/, "TopBarPomodoroChip harus berada di dalam mobile-topbar-pomo-row");
 });
 
 

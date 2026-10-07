@@ -102,3 +102,69 @@ test("getMessages collapses duplicate rows sharing a server_id (concurrent-write
   assert.equal(list.length, 1);
   assert.equal(list[0].id, 88);
 });
+
+test("sendMessage with file attachment preserves file_id and file metadata", async () => {
+  setCurrentUser({ user_id: 5, username: "alice", display_name: "Alice" });
+  const out = await sendMessage(7, {
+    content: "📎 Document.pdf",
+    msg_type: "file_attach",
+    file_id: 42,
+    file_original_name: "Document.pdf",
+    file_size: 1048576,
+    file_mime_type: "application/pdf"
+  }, getCurrentUser(), { now: "2026-10-06T10:00:00", cid: "c-file-1" });
+
+  assert.equal(out.pending, 1);
+  assert.equal(out.file_id, 42);
+  assert.equal(out.file_original_name, "Document.pdf");
+  assert.equal(out.file_size, 1048576);
+  assert.equal(out.file_mime_type, "application/pdf");
+  assert.equal(out.file_is_deleted, 0);
+
+  const list = await getMessages(7, {});
+  assert.equal(list.length, 1);
+  assert.equal(list[0].file_id, 42);
+  assert.equal(list[0].file_original_name, "Document.pdf");
+});
+
+test("cacheMessages and upsertIncoming preserve file attachment fields", async () => {
+  await cacheMessages([
+    srv({
+      id: 99,
+      content: "📎 Invoice.xlsx",
+      msg_type: "file_attach",
+      file_id: 101,
+      file_original_name: "Invoice.xlsx",
+      file_size: 20480,
+      file_mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      file_is_deleted: 0
+    })
+  ]);
+
+  const list = await getMessages(7, {});
+  assert.equal(list.length, 1);
+  assert.equal(list[0].file_id, 101);
+  assert.equal(list[0].file_original_name, "Invoice.xlsx");
+  assert.equal(list[0].file_size, 20480);
+  assert.equal(list[0].file_is_deleted, 0);
+
+  // Incoming SSE update
+  await upsertIncoming(srv({
+    id: 100,
+    content: "📎 Photo.jpg",
+    msg_type: "file_attach",
+    file_id: 102,
+    file_original_name: "Photo.jpg",
+    file_size: 512000,
+    file_mime_type: "image/jpeg",
+    file_is_deleted: 0
+  }));
+
+  const updated = await getMessages(7, {});
+  assert.equal(updated.length, 2);
+  const photo = updated.find(m => m.id === 100);
+  assert.ok(photo);
+  assert.equal(photo.file_id, 102);
+  assert.equal(photo.file_original_name, "Photo.jpg");
+});
+

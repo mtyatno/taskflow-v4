@@ -2,6 +2,27 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-07 10:15] - Claude
+- **Task:** Memindahkan mini Pomodoro widget (`TopBarPomodoroChip`) ke baris kedua pada mobile topbar.
+- **Changes:**
+  - `static/index.html`:
+    - Merestrukturisasi `.mobile-topbar` menjadi `.mobile-topbar-main` (baris 1: hamburger, spacer, aksi) dan `.mobile-topbar-pomo-row` (baris 2: dirender kondisional saat `page !== "today" && focusTask`).
+    - Bump stylesheet link query menjadi `app.css?v=316`.
+  - `static/app.css`:
+    - Mengubah `.mobile-topbar` menjadi `flex-direction: column; gap: 8px;` dengan penataan bersih.
+    - Menambahkan `.mobile-topbar-main` dan `.mobile-topbar-pomo-row` (keduanya 100% width).
+    - Menyesuaikan batas lebar judul task pada mobile `.mobile-topbar-pomo-row .topbar-pomo-task` ke `calc(100vw - 150px)` sehingga tidak terpotong sempit.
+  - `tests/offline/focus_workstation.test.js`:
+    - Menambahkan pengujian `mobile-topbar: mini pomodoro dirender di baris kedua (mobile-topbar-pomo-row)`.
+  - `tests/offline/note_toc.test.js`:
+    - Memperbarui asersi stylesheet link ke `app.css?v=316`.
+  - `static/sw.js`:
+    - Bump cache version ke `taskflow-v374-mobile-pomodoro-second-row`.
+  - `tests/offline/`:
+    - Sinkronisasi asersi cache version di 7 file test offline.
+- **Files Touch:** `static/index.html`, `static/app.css`, `tests/offline/focus_workstation.test.js`, `tests/offline/note_toc.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-06 20:25] - Antigravity (Gemini)
 - **Task:** Perbaikan `.github/workflows/deploy.yml` agar tahan terhadap stale git lock dan ref mismatch pada VPS.
 - **Changes:**
