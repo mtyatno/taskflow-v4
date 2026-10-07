@@ -22906,7 +22906,10 @@ function NotePanel({
   const [exportMenuOpen, setExportMenuOpen] = React.useState(false);
   const [isExporting, setIsExporting] = React.useState(false);
   React.useEffect(() => {
-    if (!note) return;
+    if (!note?.id || !/^\d+$/.test(String(note.id))) {
+      setPanelAttachments([]);
+      return;
+    }
     setPanelAttachments([]);
     api.get(`/api/scratchpad/${note.id}/attachments`).then(d => setPanelAttachments(d)).catch(() => {});
   }, [note?.id]);

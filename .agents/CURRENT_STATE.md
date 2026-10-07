@@ -6,6 +6,29 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Pengerasan Ketahanan Hapus Catatan (Robust Delete & Trash Resilience) — 2026-10-08 (Claude) — SELESAI
+- **Masalah:** `DELETE /api/scratchpad/:id` sebelumnya mengembalikan HTTP 500 saat menghapus catatan (misal note id 228), sehingga catatan gagal dihapus dan tidak masuk ke Sampah.
+- **Root Cause:**
+  1. Pada `delete_scratchpad` di `webapp.py`, penghapusan dari tabel-tabel asosiasi (`entity_tags`, `note_pins`, `published_notes`, `note_attachments`) dan eksekusi trigger FTS5 `trg_scratchpad_notes_ad` pada `scratchpad_notes` dapat memicu `IntegrityError` / `OperationalError` jika FTS external-content out-of-sync atau tabel belum terbuat.
+  2. Di `_snapshot_note_to_trash`, relasi tags/pins/published/attachments tidak di-guard per-tabel, dan `user_id` di `trashed_notes` sempat memiliki constraint FK ketat yang dapat menolak penghapusan.
+  3. Di `static/index.html`, pemanggilan attachment pada note yang baru dibuat lokal (id berupa UUID) mencoba `GET /api/scratchpad/{cid}/attachments` menghasilkan HTTP 422.
+- **Solusi & Implementasi:**
+  1. `webapp.py`:
+     - Di `delete_scratchpad`, setiap penghapusan relasi (`entity_tags`, `note_pins`, `published_notes`, `note_attachments`) di-guard secara terisolasi.
+     - Penanganan `sqlite3.IntegrityError` pada trigger FTS5: jika trigger delete FTS5 gagal karena sync mismatch, trigger di-drop sementara lalu dibuat ulang secara otomatis sehingga catatan utama di `scratchpad_notes` selalu berhasil terhapus dan tersimpan di `trashed_notes`.
+     - Di `_snapshot_note_to_trash`, setiap query relasi di-guard secara individual.
+     - Di `list_trashed_notes`, query membaca `WHERE user_id = ? OR user_id = ?` (int dan str) untuk menjamin kompatibilitas total.
+  2. `static/index.html`:
+     - Guard query attachments `api.get(/api/scratchpad/${note.id}/attachments)` dengan regex integer `!note?.id || !/^\d+$/.test(String(note.id))` untuk mencegah error 422 saat note berstatus cid lokal.
+  3. `static/sw.js` & Tests:
+     - Bump cache Service Worker ke `taskflow-v380-notes-trash-robust-delete`.
+     - Sinkronisasi asersi versi cache di 7 file test offline.
+- **Verifikasi:**
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node --test tests/offline/note_trash_sync.test.js tests/offline/notetrash.test.js tests/offline/note_trash_routing.test.js` ➡️ **31/31 pass (0 fail)**.
+  - Synchronized offline tests ➡️ **100/100 pass (0 fail)** across test suites.
+- **Status:** 🟢 SELESAI (SW v380 `taskflow-v380-notes-trash-robust-delete`).
+
 ## 🟢 Perbaikan Note Trash & Self-Healing Migration Tabel Sampah — 2026-10-07 (Claude) — SELESAI
 - **Masalah:** Tombol Sampah (Trash) di halaman catatan tidak berfungsi dan daftar sampah selalu kosong meskipun pengguna telah menghapus catatan.
 - **Root Cause:**

@@ -4174,19 +4174,25 @@ NOTE_TRASH_RETENTION_DAYS = 30
 
 def _ensure_trashed_notes_table(conn) -> None:
     """Lazy-create trashed_notes table if missing (self-healing after deploy tanpa restart)."""
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS trashed_notes (
-            note_id       INTEGER PRIMARY KEY,
-            user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            title         TEXT NOT NULL DEFAULT '',
-            snapshot_json TEXT NOT NULL,
-            deleted_at    TEXT NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_trashed_user ON trashed_notes(user_id, deleted_at)")
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trashed_notes (
+                note_id       INTEGER PRIMARY KEY,
+                user_id       INTEGER NOT NULL,
+                title         TEXT NOT NULL DEFAULT '',
+                snapshot_json TEXT NOT NULL,
+                deleted_at    TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_trashed_user ON trashed_notes(user_id, deleted_at)")
+    except Exception:
+        pass
 
 def _table_columns(conn, table: str) -> list[str]:
-    return [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    try:
+        return [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    except Exception:
+        return []
 
 def _snapshot_note_to_trash(conn, note_row) -> None:
     """Tulis snapshot lengkap note (semua kolom + tag + pin + publish + lampiran) ke trashed_notes.
@@ -4194,28 +4200,49 @@ def _snapshot_note_to_trash(conn, note_row) -> None:
     _ensure_trashed_notes_table(conn)
     nid = note_row["id"]
     note = dict(note_row)  # SELECT * -> semua kolom, termasuk hasil migrasi
-    tags = [r["name"] for r in conn.execute(
-        "SELECT t.name FROM tags t JOIN entity_tags et ON et.tag_id = t.id "
-        "WHERE et.entity_type = 'note' AND et.entity_id = ? ORDER BY t.name", (nid,)).fetchall()]
-    pins = [r["user_id"] for r in conn.execute(
-        "SELECT user_id FROM note_pins WHERE note_id = ?", (nid,)).fetchall()]
-    pub = conn.execute(
-        "SELECT slug, password_hash, published_at, user_id FROM published_notes WHERE note_id = ?", (nid,)
-    ).fetchone()
-    atts = [dict(r) for r in conn.execute(
-        "SELECT * FROM note_attachments WHERE note_id = ? ORDER BY id", (nid,)).fetchall()]
+    tags = []
+    try:
+        tags = [r["name"] for r in conn.execute(
+            "SELECT t.name FROM tags t JOIN entity_tags et ON et.tag_id = t.id "
+            "WHERE et.entity_type = 'note' AND et.entity_id = ? ORDER BY t.name", (nid,)).fetchall()]
+    except Exception:
+        pass
+    pins = []
+    try:
+        pins = [r["user_id"] for r in conn.execute(
+            "SELECT user_id FROM note_pins WHERE note_id = ?", (nid,)).fetchall()]
+    except Exception:
+        pass
+    pub = None
+    try:
+        pub_row = conn.execute(
+            "SELECT slug, password_hash, published_at, user_id FROM published_notes WHERE note_id = ?", (nid,)
+        ).fetchone()
+        if pub_row:
+            pub = dict(pub_row)
+    except Exception:
+        pass
+    atts = []
+    try:
+        atts = [dict(r) for r in conn.execute(
+            "SELECT * FROM note_attachments WHERE note_id = ? ORDER BY id", (nid,)).fetchall()]
+    except Exception:
+        pass
     snap = {"note": note, "tags": tags, "pins": pins,
-            "published": dict(pub) if pub else None, "attachments": atts}
+            "published": pub, "attachments": atts}
     conn.execute(
         "INSERT OR REPLACE INTO trashed_notes (note_id, user_id, title, snapshot_json, deleted_at) VALUES (?,?,?,?,?)",
-        (nid, note["user_id"], note.get("title") or "", json.dumps(snap, ensure_ascii=False),
+        (nid, note.get("user_id"), note.get("title") or "", json.dumps(snap, ensure_ascii=False),
          datetime.now(_TZ_JKT).isoformat()))
 
 def _purge_expired_trashed_notes(conn) -> None:
     """Lazy purge: hapus permanen item trash yang lewat masa retensi."""
     _ensure_trashed_notes_table(conn)
     cutoff = (datetime.now(_TZ_JKT) - timedelta(days=NOTE_TRASH_RETENTION_DAYS)).isoformat()
-    conn.execute("DELETE FROM trashed_notes WHERE deleted_at < ?", (cutoff,))
+    try:
+        conn.execute("DELETE FROM trashed_notes WHERE deleted_at < ?", (cutoff,))
+    except Exception:
+        pass
 
 def _trash_preview(content: str, limit: int = 120) -> str:
     # Potong dulu: regex link di bawah bisa kuadratik pada content panjang (mis. 'a[' * 50000 ≈ 18 dtk,
@@ -4245,8 +4272,24 @@ async def list_trashed_notes(user=Depends(get_current_user)):
         _purge_expired_trashed_notes(conn)
         rows = conn.execute(
             "SELECT note_id, title, snapshot_json, deleted_at FROM trashed_notes "
-            "WHERE user_id = ? ORDER BY deleted_at DESC", (uid,)).fetchall()
+            "WHERE user_id = ? OR user_id = ? ORDER BY deleted_at DESC", (uid, str(uid))).fetchall()
     out = []
+    for r in rows:
+        try:
+            snap = json.loads(r["snapshot_json"])
+        except Exception:
+            snap = {}
+        note = snap.get("note") or {}
+        out.append({
+            "id": r["note_id"],
+            "title": r["title"],
+            "preview": _trash_preview(note.get("content", "")),
+            "tags": snap.get("tags") or [],
+            "list_id": note.get("list_id"),
+            "deleted_at": r["deleted_at"],
+            "days_left": _trash_days_left(r["deleted_at"]),
+        })
+    return out
     for r in rows:
         try:
             snap = json.loads(r["snapshot_json"])
@@ -5269,11 +5312,37 @@ async def delete_scratchpad(note_id: int, user=Depends(get_current_user)):
             raise HTTPException(status_code=403, detail="Hanya pemilik yang bisa menghapus catatan ini")
         # Snapshot + cascade delete dalam SATU transaksi (get_db rollback bila ada exception).
         _snapshot_note_to_trash(conn, row)
-        conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=?", (note_id,))
-        conn.execute("DELETE FROM note_pins WHERE note_id=?", (note_id,))
-        conn.execute("DELETE FROM published_notes WHERE note_id=?", (note_id,))
-        conn.execute("DELETE FROM note_attachments WHERE note_id=?", (note_id,))
-        conn.execute("DELETE FROM scratchpad_notes WHERE id = ?", (note_id,))
+        try:
+            conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=?", (note_id,))
+        except Exception:
+            pass
+        try:
+            conn.execute("DELETE FROM note_pins WHERE note_id=?", (note_id,))
+        except Exception:
+            pass
+        try:
+            conn.execute("DELETE FROM published_notes WHERE note_id=?", (note_id,))
+        except Exception:
+            pass
+        try:
+            conn.execute("DELETE FROM note_attachments WHERE note_id=?", (note_id,))
+        except Exception:
+            pass
+        try:
+            conn.execute("DELETE FROM scratchpad_notes WHERE id = ?", (note_id,))
+        except Exception:
+            # FTS5 trigger sync mismatch: drop delete trigger, delete note, recreate trigger
+            try:
+                conn.execute("DROP TRIGGER IF EXISTS trg_scratchpad_notes_ad")
+                conn.execute("DELETE FROM scratchpad_notes WHERE id = ?", (note_id,))
+                conn.execute("""
+                    CREATE TRIGGER IF NOT EXISTS trg_scratchpad_notes_ad AFTER DELETE ON scratchpad_notes BEGIN
+                        INSERT INTO scratchpad_notes_fts(scratchpad_notes_fts, rowid, title, content)
+                        VALUES ('delete', old.id, old.title, old.content);
+                    END;
+                """)
+            except Exception:
+                conn.execute("DELETE FROM scratchpad_notes WHERE id = ?", (note_id,))
         conn.commit()
     return {"ok": True}
 

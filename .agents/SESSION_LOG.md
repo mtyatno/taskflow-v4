@@ -2,6 +2,22 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-08 08:30] - Claude
+- **Task:** Pengerasan Ketahanan Hapus Catatan (Robust Delete & Trash Resilience) dan pencegahan 500 error pada `DELETE /api/scratchpad/:id`.
+- **Changes:**
+  - `webapp.py`:
+    - Mengisolasi setiap cleanup relasi (`entity_tags`, `note_pins`, `published_notes`, `note_attachments`) di `delete_scratchpad` dan `_snapshot_note_to_trash` agar aman dari tabel yang belum ada/terhapus.
+    - Menambahkan penanganan ketahanan FTS5 trigger `trg_scratchpad_notes_ad` pada `delete_scratchpad`: jika ada mismatch FTS external-content, trigger di-drop sementara lalu dibuat ulang sehingga catatan utama selalu berhasil dihapus dan disimpan ke `trashed_notes`.
+    - Mengoptimalkan `list_trashed_notes` dengan query yang menerima `uid` integer maupun string.
+  - `static/index.html`:
+    - Membatasi fetch attachment `/api/scratchpad/${note.id}/attachments` hanya untuk ID bertipe integer numerik agar tidak melempar HTTP 422 saat note berstatus cid lokal.
+  - `static/sw.js`:
+    - Bump cache version ke `taskflow-v380-notes-trash-robust-delete`.
+  - `tests/offline/`:
+    - Sinkronisasi versi cache Service Worker di 7 file tes offline.
+- **Files Touch:** `webapp.py`, `static/index.html`, `static/sw.js`, 7 file tes offline, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-07 12:30] - Claude
 - **Task:** Perbaikan Note Trash & Self-Healing Migration Tabel Sampah (`trashed_notes`).
 - **Changes:**
