@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=316">
+  <link rel="stylesheet" href="/static/app.css?v=317">
 
 <style>
 .paper-mode-active {
@@ -13170,6 +13170,62 @@ function DashMeter({
     className: "dash-meter-cap"
   }, caption));
 }
+function parseQuickCapture(text, baseDate) {
+  if (!text || typeof text !== "string") {
+    return { isTask: false, title: "", deadline: null };
+  }
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return { isTask: false, title: "", deadline: null };
+  }
+
+  // Pola awalan: tugas, task, tasks, todo, todos
+  // Diikuti pemisah (: , - .) dan/atau spasi
+  const prefixMatch = trimmed.match(/^(?:tugas|task|tasks|todo|todos)(?:[\s,:.\-]+|\s+)/i);
+  if (!prefixMatch) {
+    return { isTask: false, raw: trimmed };
+  }
+
+  let remaining = trimmed.slice(prefixMatch[0].length).trim();
+  if (!remaining) {
+    return { isTask: false, raw: trimmed };
+  }
+
+  const formatPlusDays = days => {
+    const d = baseDate ? new Date(baseDate) : new Date();
+    d.setDate(d.getDate() + days);
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  };
+
+  let deadline = null;
+  if (/\b(?:hari\s+ini|today)\b/i.test(remaining)) {
+    deadline = formatPlusDays(0);
+    remaining = remaining.replace(/\b(?:hari\s+ini|today)\b/gi, "").trim();
+  } else if (/\b(?:besok|tomorrow)\b/i.test(remaining)) {
+    deadline = formatPlusDays(1);
+    remaining = remaining.replace(/\b(?:besok|tomorrow)\b/gi, "").trim();
+  } else if (/\blusa\b/i.test(remaining)) {
+    deadline = formatPlusDays(2);
+    remaining = remaining.replace(/\blusa\b/gi, "").trim();
+  }
+
+  let cleanTitle = remaining.replace(/\s+/g, " ").replace(/^[,:.\-\s]+|[,:.\-\s]+$/g, "").trim();
+  if (!cleanTitle) {
+    cleanTitle = trimmed.slice(prefixMatch[0].length).trim();
+  }
+
+  return {
+    isTask: true,
+    title: cleanTitle,
+    deadline: deadline
+  };
+}
+if (typeof window !== "undefined") {
+  window.TF = window.TF || {};
+  window.TF.parseQuickCapture = parseQuickCapture;
+}
 function Dashboard({
   summary,
   tasks,
@@ -13188,6 +13244,7 @@ function Dashboard({
   const q4Tasks = tasks.filter(t => t.quadrant === "Q4" && t.gtd_status !== "done").sort(SORT_PRI);
   const [dashModal, setDashModal] = useState(null);
   const [scratchInput, setScratchInput] = useState("");
+  const [centerToast, setCenterToast] = useState(null);
   const [recentNotes, setRecentNotes] = useState([]);
   const [pinnedNotes, setPinnedNotes] = useState([]);
   const [pinnedMindmaps, setPinnedMindmaps] = useState([]);
@@ -13229,9 +13286,71 @@ function Dashboard({
     window.addEventListener("drawingSaved", loadPinnedDrawings);
     return () => window.removeEventListener("drawingSaved", loadPinnedDrawings);
   }, []);
+  useEffect(() => {
+    if (!centerToast) return;
+    const timer = setTimeout(() => {
+      setCenterToast(null);
+    }, 1600);
+    return () => clearTimeout(timer);
+  }, [centerToast]);
   const handleScratch = async e => {
     if (e.key !== "Enter" || !scratchInput.trim()) return;
     const text = scratchInput.trim();
+    const parsed = parseQuickCapture(text);
+
+    if (parsed.isTask) {
+      const taskBody = {
+        title: parsed.title,
+        deadline: parsed.deadline || null,
+        priority: "P3",
+        gtd_status: "inbox"
+      };
+      try {
+        await api.post("/api/tasks", taskBody);
+        setScratchInput("");
+        setCenterToast({
+          id: Date.now(),
+          type: "task",
+          title: "Task Created"
+        });
+        if (window.__refreshTasks) window.__refreshTasks();
+        window.dispatchEvent(new CustomEvent("taskSaved"));
+      } catch (err) {
+        if (isOfflineErr(err)) {
+          const now = new Date().toISOString();
+          const tempId = `tmp_task_${Date.now()}`;
+          const newTempTask = {
+            id: tempId,
+            ...taskBody,
+            created_at: now,
+            updated_at: now,
+            _pending: true
+          };
+          const cached = (await OfflineDB.cacheGet("tasks")) || [];
+          const updated = [...cached, newTempTask];
+          await OfflineDB.cacheSet("tasks", updated);
+          await OfflineDB.queueAdd({
+            method: "POST",
+            url: "/api/tasks",
+            body: taskBody,
+            tempId
+          });
+          setScratchInput("");
+          setCenterToast({
+            id: Date.now(),
+            type: "task",
+            title: "Task Created"
+          });
+          showToast("📶 Tersimpan offline, akan sync saat online");
+          if (window.__refreshTasks) window.__refreshTasks();
+          window.dispatchEvent(new CustomEvent("taskSaved"));
+        } else {
+          showToast(err.message || "Gagal membuat task", "error");
+        }
+      }
+      return;
+    }
+
     const body = {
       title: text.slice(0, 80),
       content: text,
@@ -13244,7 +13363,11 @@ function Dashboard({
       setRecentNotes(data);
       await OfflineDB.cacheSet("scratchpad_notes", data);
       window.dispatchEvent(new CustomEvent("noteSaved"));
-      showToast("📝 Catatan disimpan");
+      setCenterToast({
+        id: Date.now(),
+        type: "note",
+        title: "Note Created"
+      });
     } catch (err) {
       if (isOfflineErr(err)) {
         const now = new Date().toISOString();
@@ -13267,6 +13390,11 @@ function Dashboard({
         });
         setScratchInput("");
         setRecentNotes(updated.slice(0, 5));
+        setCenterToast({
+          id: Date.now(),
+          type: "note",
+          title: "Note Created"
+        });
         showToast("📶 Tersimpan offline, akan sync saat online");
       } else {
         showToast(err.message || "Gagal menyimpan catatan", "error");
@@ -14136,7 +14264,24 @@ function Dashboard({
     }
   }, "📁 ", t.project)), /*#__PURE__*/React.createElement(StatusBadge, {
     s: t.gtd_status
-  })))))));
+  })))))),
+
+  /* ── Center HUD Toast (Task / Note Created notification) ── */
+  centerToast && /*#__PURE__*/React.createElement("div", {
+    key: centerToast.id,
+    className: `center-hud-toast center-hud-${centerToast.type}`,
+    role: "status",
+    "aria-live": "polite"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: centerToast.type === "task" ? "clipboardCheck" : "notes",
+    size: 20,
+    style: {
+      color: centerToast.type === "task" ? "#10b981" : "var(--accent)"
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "center-hud-title"
+  }, centerToast.title))
+);
 }
 
 // ── Chat Page ────────────────────────────────────────────────
@@ -15354,9 +15499,31 @@ function ChatInputBar({
     api.get(`/api/lists/${list.id}/members/usernames`).then(setMembers).catch(() => {});
   }, [list.id]);
   const mentionSuggestions = mentionQuery !== null ? members.filter(m => m.username !== user.username && m.username.toLowerCase().startsWith(mentionQuery.toLowerCase())) : [];
+  const autoResizeTextarea = val => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const hasNewline = (val || "").includes("\n");
+    const scrollH = el.scrollHeight;
+    if (hasNewline) {
+      // Ketika ada new line: minimal terlihat 5 baris (~115px), jika lebih dari 5 baris maks 125px (overflow scrollable)
+      const targetH = Math.min(Math.max(scrollH, 115), 125);
+      el.style.height = targetH + "px";
+    } else {
+      // 1 baris biasa (~38px), atau membesar jika wrap panjang
+      const targetH = Math.min(Math.max(scrollH, 38), 125);
+      el.style.height = targetH + "px";
+    }
+  };
+
+  useEffect(() => {
+    autoResizeTextarea(text);
+  }, [text]);
+
   const handleTextChange = e => {
     const val = e.target.value;
     setText(val);
+    autoResizeTextarea(val);
     // Detect @mention trigger
     const match = val.match(/@(\w*)$/);
     if (match) {
@@ -15415,7 +15582,14 @@ function ChatInputBar({
     }
   };
   return /*#__PURE__*/React.createElement("div", {
-    className: "chat-input-bar"
+    className: "chat-input-bar-wrap",
+    style: {
+      position: "relative",
+      display: "flex",
+      flexDirection: "column",
+      background: "var(--bg-card)",
+      borderTop: "1px solid var(--border)"
+    }
   }, replyTo && /*#__PURE__*/React.createElement("div", {
     className: "chat-reply-preview"
   }, /*#__PURE__*/React.createElement("div", {
@@ -15486,92 +15660,34 @@ function ChatInputBar({
     projects: [],
     contexts: [],
     tasks: []
-  }), attachedTask && /*#__PURE__*/React.createElement("div", {
+  }), (attachedTask || attachedNote || attachedFile) && /*#__PURE__*/React.createElement("div", {
+    className: "chat-attach-preview-banner",
     style: {
-      position: "absolute",
-      bottom: 64,
-      left: 12,
-      background: "var(--bg-card)",
-      border: "1px solid var(--accent)",
-      borderRadius: 8,
-      padding: "6px 10px",
       display: "flex",
       alignItems: "center",
-      gap: 8,
-      fontSize: 13
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--accent)"
-    }
-  }, "\uD83D\uDCCC"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 600,
-      color: "var(--text-primary)"
-    }
-  }, attachedTask.title), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setAttachedTask(null),
-    style: {
-      background: "none",
-      border: "none",
-      cursor: "pointer",
-      color: "var(--text-light)",
-      fontSize: 14,
-      padding: "0 2px"
-    }
-  }, "\u2715")), attachedNote && /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "absolute",
-      bottom: 64,
-      left: 12,
-      background: "var(--bg-card)",
-      border: "1px solid var(--accent)",
-      borderRadius: 8,
-      padding: "6px 10px",
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      fontSize: 13
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--accent)"
-    }
-  }, "\uD83D\uDCDD"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 600,
-      color: "var(--text-primary)"
-    }
-  }, attachedNote.title || "(tanpa judul)"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setAttachedNote(null),
-    style: {
-      background: "none",
-      border: "none",
-      cursor: "pointer",
-      color: "var(--text-light)",
-      fontSize: 14,
-      padding: "0 2px"
-    }
-  }, "\u2715")), attachedFile && /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "absolute",
-      bottom: 64,
-      left: 12,
-      background: "var(--bg-card)",
-      border: "1px solid var(--accent)",
-      borderRadius: 8,
-      padding: "6px 10px",
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
+      justifyContent: "space-between",
+      padding: "6px 12px",
+      background: "var(--bg-primary)",
+      borderBottom: "1px solid var(--border)",
       fontSize: 13,
-      maxWidth: "calc(100% - 24px)"
+      gap: 8,
+      boxSizing: "border-box"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      minWidth: 0,
+      flex: 1
     }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
-      color: "var(--accent)"
+      color: "var(--accent)",
+      fontSize: 14,
+      flexShrink: 0
     }
-  }, "\uD83D\uDCCE"), /*#__PURE__*/React.createElement("span", {
+  }, attachedFile ? "📎" : attachedTask ? "📌" : "📝"), /*#__PURE__*/React.createElement("span", {
     style: {
       fontWeight: 600,
       color: "var(--text-primary)",
@@ -15579,27 +15695,41 @@ function ChatInputBar({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, `${attachedFile.original_name} (${formatFileSize(attachedFile.file_size)})`), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setAttachedFile(null),
+  }, attachedFile
+    ? `${attachedFile.original_name} (${formatFileSize(attachedFile.file_size)})`
+    : attachedTask
+    ? attachedTask.title
+    : (attachedNote.title || "(tanpa judul)")
+  )), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setAttachedTask(null);
+      setAttachedNote(null);
+      setAttachedFile(null);
+    },
+    title: "Batal lampiran",
     style: {
       background: "none",
       border: "none",
       cursor: "pointer",
       color: "var(--text-light)",
-      fontSize: 14,
-      padding: "0 2px"
+      fontSize: 15,
+      padding: "2px 4px",
+      lineHeight: 1,
+      flexShrink: 0
     }
-  }, "\u2715")), /*#__PURE__*/React.createElement("textarea", {
+  }, "✕")), /*#__PURE__*/React.createElement("div", {
+    className: "chat-input-bar",
+    style: {
+      borderTop: "none"
+    }
+  }, /*#__PURE__*/React.createElement("textarea", {
     ref: textareaRef,
     className: "chat-input",
     rows: 1,
     placeholder: "Ketik pesan... (Shift+Enter untuk baris baru, @ untuk mention)",
     value: text,
     onChange: handleTextChange,
-    onKeyDown: handleKeyDown,
-    style: {
-      marginBottom: attachedTask || attachedNote || attachedFile ? 36 : 0
-    }
+    onKeyDown: handleKeyDown
   }), /*#__PURE__*/React.createElement("button", {
     title: "Attach task, note, atau berkas",
     onClick: () => setShowAttach(v => !v),
@@ -15618,7 +15748,7 @@ function ChatInputBar({
     onClick: handleSend,
     disabled: sending || !text.trim() && !attachedTask && !attachedNote && !attachedFile,
     title: "Kirim"
-  }, sending ? "·" : "➤"));
+  }, sending ? "·" : "➤")));
 }
 
 // ── Workspace Files View ─────────────────────────────────────────
@@ -16454,6 +16584,26 @@ function DmInputBar({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const textareaRef = useRef(null);
+
+  const autoResizeTextarea = val => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const hasNewline = (val || "").includes("\n");
+    const scrollH = el.scrollHeight;
+    if (hasNewline) {
+      const targetH = Math.min(Math.max(scrollH, 115), 125);
+      el.style.height = targetH + "px";
+    } else {
+      const targetH = Math.min(Math.max(scrollH, 38), 125);
+      el.style.height = targetH + "px";
+    }
+  };
+
+  useEffect(() => {
+    autoResizeTextarea(text);
+  }, [text]);
+
   const handleSend = async () => {
     if (!text.trim() || sending) return;
     setSending(true);
@@ -16483,7 +16633,14 @@ function DmInputBar({
     }
   };
   return /*#__PURE__*/React.createElement("div", {
-    className: "chat-input-bar"
+    className: "chat-input-bar-wrap",
+    style: {
+      position: "relative",
+      display: "flex",
+      flexDirection: "column",
+      background: "var(--bg-card)",
+      borderTop: "1px solid var(--border)"
+    }
   }, replyTo && /*#__PURE__*/React.createElement("div", {
     className: "chat-reply-preview"
   }, /*#__PURE__*/React.createElement("div", {
@@ -16499,7 +16656,12 @@ function DmInputBar({
     className: "preview-close",
     onClick: onClearReply,
     title: "Batal reply"
-  }, "✕")), /*#__PURE__*/React.createElement("textarea", {
+  }, "✕")), /*#__PURE__*/React.createElement("div", {
+    className: "chat-input-bar",
+    style: {
+      borderTop: "none"
+    }
+  }, /*#__PURE__*/React.createElement("textarea", {
     ref: textareaRef,
     className: "chat-input",
     rows: 1,
@@ -16507,14 +16669,17 @@ function DmInputBar({
     placeholder: `Pesan untuk ${otherName}...`,
     title: "Enter untuk kirim, Shift+Enter untuk baris baru",
     value: text,
-    onChange: e => setText(e.target.value),
+    onChange: e => {
+      setText(e.target.value);
+      autoResizeTextarea(e.target.value);
+    },
     onKeyDown: handleKeyDown
   }), /*#__PURE__*/React.createElement("button", {
     className: "chat-send-btn",
     onClick: handleSend,
     disabled: sending || !text.trim(),
     title: "Kirim"
-  }, sending ? "·" : "➤"));
+  }, sending ? "·" : "➤")));
 }
 function DmContactPicker({
   onPick,
@@ -28661,6 +28826,13 @@ function App() {
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [fetchAll]);
+
+  // Reaktif terhadap taskSaved custom event (mis. pembuatan task cepat di Dashboard / goal)
+  useEffect(() => {
+    const onTaskSaved = () => fetchAll();
+    window.addEventListener("taskSaved", onTaskSaved);
+    return () => window.removeEventListener("taskSaved", onTaskSaved);
   }, [fetchAll]);
   useEffect(() => {
     const handler = e => {

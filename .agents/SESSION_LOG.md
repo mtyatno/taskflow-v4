@@ -2,6 +2,25 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-07 11:30] - Claude
+- **Task:** Auto-detect pembuatan task pada kolom input capture Dashboard dan notifikasi tengah layar yang memudar otomatis.
+- **Changes:**
+  - `static/index.html`:
+    - Menambahkan fungsi `parseQuickCapture(text, baseDate)` yang mengenali awalan `tugas`, `task`, `tasks`, `todo`, `todos` beserta ekstraksi deadline relatif (`hari ini`/`today`, `besok`/`tomorrow`, `lusa`).
+    - Memperbarui `handleScratch` pada `Dashboard` untuk membedakan pembuatan Task vs Note. Jika terdeteksi sebagai Task, data diposting ke `/api/tasks` dengan status `inbox` & prioritas `P3`, memicu event `taskSaved` dan me-refresh daftar task via `window.__refreshTasks()`.
+    - Menambahkan state dan rendering HUD pop-up tengah layar (`center-hud-toast`) beranimasi `Task Created` / `Note Created`.
+    - Menambahkan listener `taskSaved` di `App` untuk sinkronisasi otomatis.
+    - Bump stylesheet link ke `app.css?v=317`.
+  - `static/app.css`:
+    - Menambahkan styling `.center-hud-toast`, `.center-hud-task`, `.center-hud-note`, `.center-hud-title` serta `@keyframes centerHudFade` untuk efek pop-in dan auto fade-out di tengah layar.
+  - `static/sw.js`:
+    - Bump cache version Service Worker ke `taskflow-v375-quick-capture-task-autodetect`.
+  - `tests/offline/`:
+    - Menambahkan file tes baru `quick_capture_detect.test.js` untuk menguji parser, deadline, fallback note, integrasi HTML, dan CSS.
+    - Menyelaraskan asersi cache version dan stylesheet link di 8 file tes offline (`note_toc.test.js`, `workspace_files_chat.test.js`, `drawing_sync_ui.test.js`, `focus_workstation.test.js`, `direct_messages_ui.test.js`, `interactive_note_viewer.test.js`, `note_search_filters.test.js`, `note_saved_searches_view_mode.test.js`).
+- **Files Touch:** `static/index.html`, `static/app.css`, `static/sw.js`, `tests/offline/quick_capture_detect.test.js`, 8 file tes offline, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-07 10:45] - Claude
 - **Task:** Perbaikan bug share file workspace ke chat yang salah menampilkan "BERKAS TELAH DIHAPUS".
 - **Changes:**

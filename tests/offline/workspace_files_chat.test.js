@@ -59,9 +59,15 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /client_id:\s*clientId/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v374-mobile-pomodoro-second-row', () => {
+  test('ChatInputBar renders attachment preview banner above input text and supports multiline auto-resize', () => {
+    assert.match(indexHtml, /chat-attach-preview-banner/);
+    assert.match(indexHtml, /autoResizeTextarea/);
+    assert.match(indexHtml, /hasNewline/);
+  });
+
+  test('Service Worker cache version is bumped to taskflow-v376-chat-input-multiline-and-attach-preview', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v374-mobile-pomodoro-second-row";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v376-chat-input-multiline-and-attach-preview";/m);
   });
 });
 
