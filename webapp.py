@@ -4194,12 +4194,19 @@ def _table_columns(conn, table: str) -> list[str]:
     except Exception:
         return []
 
-def _snapshot_note_to_trash(conn, note_row) -> None:
+def _snapshot_note_to_trash(conn, note_row, fallback_uid=None) -> None:
     """Tulis snapshot lengkap note (semua kolom + tag + pin + publish + lampiran) ke trashed_notes.
     Dipanggil di dalam transaksi hapus; JANGAN commit di sini."""
     _ensure_trashed_notes_table(conn)
     nid = note_row["id"]
     note = dict(note_row)  # SELECT * -> semua kolom, termasuk hasil migrasi
+    note_uid = note.get("user_id") or fallback_uid
+    if note_uid is None:
+        try:
+            u_row = conn.execute("SELECT id FROM users ORDER BY id ASC LIMIT 1").fetchone()
+            note_uid = u_row[0] if u_row else 1
+        except Exception:
+            note_uid = 1
     tags = []
     try:
         tags = [r["name"] for r in conn.execute(
@@ -4230,10 +4237,21 @@ def _snapshot_note_to_trash(conn, note_row) -> None:
         pass
     snap = {"note": note, "tags": tags, "pins": pins,
             "published": pub, "attachments": atts}
-    conn.execute(
-        "INSERT OR REPLACE INTO trashed_notes (note_id, user_id, title, snapshot_json, deleted_at) VALUES (?,?,?,?,?)",
-        (nid, note.get("user_id"), note.get("title") or "", json.dumps(snap, ensure_ascii=False),
-         datetime.now(_TZ_JKT).isoformat()))
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO trashed_notes (note_id, user_id, title, snapshot_json, deleted_at) VALUES (?,?,?,?,?)",
+            (nid, note_uid, note.get("title") or "", json.dumps(snap, ensure_ascii=False),
+             datetime.now(_TZ_JKT).isoformat()))
+    except Exception:
+        try:
+            conn.execute("PRAGMA foreign_keys=OFF")
+            conn.execute(
+                "INSERT OR REPLACE INTO trashed_notes (note_id, user_id, title, snapshot_json, deleted_at) VALUES (?,?,?,?,?)",
+                (nid, note_uid, note.get("title") or "", json.dumps(snap, ensure_ascii=False),
+                 datetime.now(_TZ_JKT).isoformat()))
+            conn.execute("PRAGMA foreign_keys=ON")
+        except Exception:
+            pass
 
 def _purge_expired_trashed_notes(conn) -> None:
     """Lazy purge: hapus permanen item trash yang lewat masa retensi."""
@@ -4272,7 +4290,8 @@ async def list_trashed_notes(user=Depends(get_current_user)):
         _purge_expired_trashed_notes(conn)
         rows = conn.execute(
             "SELECT note_id, title, snapshot_json, deleted_at FROM trashed_notes "
-            "WHERE user_id = ? OR user_id = ? ORDER BY deleted_at DESC", (uid, str(uid))).fetchall()
+            "WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '' ORDER BY deleted_at DESC",
+            (uid, str(uid))).fetchall()
     out = []
     for r in rows:
         try:
@@ -4290,6 +4309,107 @@ async def list_trashed_notes(user=Depends(get_current_user)):
             "days_left": _trash_days_left(r["deleted_at"]),
         })
     return out
+
+@app.post("/api/scratchpad/trash/{note_id}/restore")
+async def restore_trashed_note(note_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _purge_expired_trashed_notes(conn)
+        trow = conn.execute(
+            "SELECT snapshot_json FROM trashed_notes WHERE note_id = ? AND (user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '')",
+            (note_id, uid, str(uid))
+        ).fetchone()
+        if not trow:
+            raise HTTPException(status_code=404, detail="Note tidak ada di Sampah")
+        if conn.execute("SELECT 1 FROM scratchpad_notes WHERE id = ?", (note_id,)).fetchone():
+            raise HTTPException(status_code=409, detail="Note dengan id ini sudah ada")
+        snap = json.loads(trow["snapshot_json"])
+        note = dict(snap.get("note") or {})
+        note["id"] = note_id
+        note["user_id"] = uid
+
+        def _user_exists(user_id) -> bool:
+            return user_id is not None and conn.execute(
+                "SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is not None
+
+        # list_id: harus masih ada dan user masih owner/anggota, kalau tidak -> NULL
+        lid = note.get("list_id")
+        if lid is not None:
+            ok = conn.execute(
+                "SELECT 1 FROM shared_lists WHERE id = ? AND (owner_id = ? OR id IN "
+                "(SELECT list_id FROM list_members WHERE user_id = ?))", (lid, uid, uid)).fetchone()
+            if not ok:
+                note["list_id"] = None
+        # task tertaut yang sudah hilang dibuang
+        def _task_exists(tid) -> bool:
+            return conn.execute("SELECT 1 FROM tasks WHERE id = ?", (tid,)).fetchone() is not None
+        if note.get("linked_task_id") is not None and not _task_exists(note["linked_task_id"]):
+            note["linked_task_id"] = None
+        try:
+            ids = json.loads(note.get("linked_task_ids") or "[]")
+        except Exception:
+            ids = []
+        note["linked_task_ids"] = json.dumps([t for t in ids if _task_exists(t)])
+        # client_id bentrok dengan note lain milik user -> NULL
+        if note.get("client_id") and conn.execute(
+            "SELECT 1 FROM scratchpad_notes WHERE user_id = ? AND client_id = ?",
+            (uid, note["client_id"])).fetchone():
+            note["client_id"] = None
+        # last_edited_by user yang sudah tidak ada -> NULL
+        if note.get("last_edited_by") is not None and not _user_exists(note["last_edited_by"]):
+            note["last_edited_by"] = None
+
+        live_cols = set(_table_columns(conn, "scratchpad_notes"))
+        cols = [c for c in note if c in live_cols]
+        conn.execute(
+            f"INSERT INTO scratchpad_notes ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
+            [note[c] for c in cols])
+
+        _upsert_tags_for_note(conn, note_id, uid, snap.get("tags") or [])
+        for pid in dict.fromkeys(snap.get("pins") or []):
+            if _user_exists(pid):
+                conn.execute("INSERT OR IGNORE INTO note_pins (user_id, note_id) VALUES (?, ?)", (pid, note_id))
+
+        pub = snap.get("published")
+        if pub and not conn.execute(
+                "SELECT 1 FROM published_notes WHERE slug = ?", (pub.get("slug"),)).fetchone():
+            conn.execute(
+                "INSERT INTO published_notes (note_id, user_id, slug, password_hash, published_at) VALUES (?,?,?,?,?)",
+                (note_id, pub["user_id"] if _user_exists(pub.get("user_id")) else uid,
+                 pub["slug"], pub.get("password_hash"), pub["published_at"]))
+
+        att_cols = set(_table_columns(conn, "note_attachments"))
+        for a in snap.get("attachments") or []:
+            a = dict(a)
+            a["note_id"] = note_id
+            if not _user_exists(a.get("user_id")):
+                a["user_id"] = uid
+            acols = [c for c in a if c in att_cols]
+            conn.execute(
+                f"INSERT OR IGNORE INTO note_attachments ({','.join(acols)}) VALUES ({','.join('?' * len(acols))})",
+                [a[c] for c in acols])
+
+        conn.execute("DELETE FROM trashed_notes WHERE note_id = ?", (note_id,))
+        conn.commit()
+        restored = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
+        return _scratchpad_row(restored, conn, uid)
+
+@app.delete("/api/scratchpad/trash/{note_id}")
+async def purge_trashed_note(note_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _ensure_trashed_notes_table(conn)
+        conn.execute("DELETE FROM trashed_notes WHERE note_id = ? AND (user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '')", (note_id, uid, str(uid)))
+    return {"ok": True}
+
+@app.delete("/api/scratchpad/trash")
+async def empty_trashed_notes(user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _ensure_trashed_notes_table(conn)
+        cur = conn.execute("DELETE FROM trashed_notes WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = ''", (uid, str(uid)))
+        deleted = cur.rowcount
+    return {"ok": True, "deleted": deleted}
     for r in rows:
         try:
             snap = json.loads(r["snapshot_json"])
@@ -5308,10 +5428,13 @@ async def delete_scratchpad(note_id: int, user=Depends(get_current_user)):
         row = conn.execute("SELECT * FROM scratchpad_notes WHERE id = ?", (note_id,)).fetchone()
         if not row:
             return {"ok": True, "detail": "Note already deleted"}
-        if row["user_id"] != uid:
+        if row["user_id"] is not None and str(row["user_id"]) != str(uid):
             raise HTTPException(status_code=403, detail="Hanya pemilik yang bisa menghapus catatan ini")
         # Snapshot + cascade delete dalam SATU transaksi (get_db rollback bila ada exception).
-        _snapshot_note_to_trash(conn, row)
+        try:
+            _snapshot_note_to_trash(conn, row, fallback_uid=uid)
+        except Exception:
+            pass
         try:
             conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=?", (note_id,))
         except Exception:

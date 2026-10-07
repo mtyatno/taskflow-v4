@@ -2,6 +2,20 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-08 08:45] - Claude
+- **Task:** Pengerasan Ketahanan Hapus Catatan & Bulletproof Trash Snapshot.
+- **Changes:**
+  - `webapp.py`:
+    - `_snapshot_note_to_trash`: penentuan fallback `user_id` dan fallback `PRAGMA foreign_keys=OFF` bila ada FK constraint lama.
+    - `delete_scratchpad`: pengecekan kepemilikan fleksibel `row["user_id"] is not None and str(row["user_id"]) != str(uid)`.
+    - `list_trashed_notes`: query mencakup `WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = ''`.
+  - `static/sw.js`:
+    - Bump cache version ke `taskflow-v381-notes-trash-bulletproof`.
+  - `tests/offline/`:
+    - Sinkronisasi versi cache Service Worker di 7 file tes offline.
+- **Files Touch:** `webapp.py`, `static/sw.js`, 7 file tes offline, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-08 08:30] - Claude
 - **Task:** Pengerasan Ketahanan Hapus Catatan (Robust Delete & Trash Resilience) dan pencegahan 500 error pada `DELETE /api/scratchpad/:id`.
 - **Changes:**
