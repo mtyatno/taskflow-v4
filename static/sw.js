@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v377-hud-toast-redesign-longer-fade";
+const CACHE = "taskflow-v378-chat-bubble-newline-pre-wrap";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",

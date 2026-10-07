@@ -2,6 +2,24 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-07 12:00] - Claude
+- **Task:** Dukungan multiline textarea input chat & preservasi newline (`white-space: pre-wrap`) pada gelembung chat.
+- **Changes:**
+  - `static/app.css`:
+    - Menambahkan `white-space: pre-wrap; word-break: break-word;` pada `.chat-bubble`.
+    - Menambahkan class `.chat-attach-preview-banner` dan penyesuaian `.chat-input`.
+    - Bump stylesheet query ke `app.css?v=319`.
+  - `static/index.html`:
+    - Mengintegrasikan handler `autoResizeTextarea` pada `ChatInputBar` dan `DmInputBar` (min 5 baris ~115px saat ada newline).
+    - Memindahkan banner lampiran berkas/task/note (`.chat-attach-preview-banner`) di atas textarea.
+  - `static/sw.js`:
+    - Bump cache version ke `taskflow-v378-chat-bubble-newline-pre-wrap`.
+  - `tests/offline/`:
+    - Menambahkan pengujian di `chat_page_layout.test.js` dan `workspace_files_chat.test.js`.
+    - Sinkronisasi versi cache dan stylesheet di 9 file tes offline.
+- **Files Touch:** `static/app.css`, `static/index.html`, `static/sw.js`, `tests/offline/chat_page_layout.test.js`, `tests/offline/workspace_files_chat.test.js`, 8 file tes offline lainnya, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-07 11:45] - Claude
 - **Task:** Enhancement notifikasi HUD tengah layar: desain pill badge lebih mewah, tanpa garis kiri, ikon melingkar, dan durasi tampil lebih lama (2.8 detik).
 - **Changes:**

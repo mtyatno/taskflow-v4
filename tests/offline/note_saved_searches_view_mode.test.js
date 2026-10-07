@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v377-hud-toast-redesign-longer-fade", () => {
-    assert.match(swJs, /taskflow-v377-hud-toast-redesign-longer-fade/);
+  await t.test("sw.js bumped to taskflow-v378-chat-bubble-newline-pre-wrap", () => {
+    assert.match(swJs, /taskflow-v378-chat-bubble-newline-pre-wrap/);
   });
 });

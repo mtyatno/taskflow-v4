@@ -195,6 +195,13 @@ test("ChatPage Unified Container Layout and Redesign", async (t) => {
       /\.chat-input-bar\s*\{[\s\S]*?border-top:\s*1px solid var\(--border\);[\s\S]*?border-radius:\s*0;[\s\S]*?\}/,
       ".chat-input-bar should have border-radius: 0 and border-top: 1px solid var(--border)"
     );
+
+    // .chat-bubble preserves newlines with pre-wrap
+    assert.match(
+      appCss,
+      /\.chat-bubble\s*\{[\s\S]*?white-space:\s*pre-wrap;[\s\S]*?word-break:\s*break-word;[\s\S]*?\}/,
+      ".chat-bubble should have white-space: pre-wrap and word-break: break-word to display newlines"
+    );
   });
 
   await t.test("9. CSS: Mobile Responsiveness (@media max-width: 768px)", () => {

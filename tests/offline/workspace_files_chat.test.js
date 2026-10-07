@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v377-hud-toast-redesign-longer-fade', () => {
+  test('Service Worker cache version is bumped to taskflow-v378-chat-bubble-newline-pre-wrap', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v377-hud-toast-redesign-longer-fade";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v378-chat-bubble-newline-pre-wrap";/m);
   });
 });
 
