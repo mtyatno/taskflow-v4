@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v381-notes-trash-bulletproof", () => {
-    assert.match(swJs, /taskflow-v381-notes-trash-bulletproof/);
+  await t.test("sw.js bumped to taskflow-v382-chat-send-self-healing", () => {
+    assert.match(swJs, /taskflow-v382-chat-send-self-healing/);
   });
 });

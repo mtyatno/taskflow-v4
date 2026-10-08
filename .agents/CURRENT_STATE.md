@@ -6,6 +6,34 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Perbaikan Pengiriman Chat & Self-Healing Migration Skema Chat — 2026-10-08 (Claude) — SELESAI
+- **Masalah:** Pengguna melaporkan pesan chat tidak bisa terkirim (stuck di status "🕐 mengirim…" pada obrolan grup / shared list atau gagal kirim).
+- **Root Cause:**
+  1. **Missing Table & Columns di Database:** Pada endpoint `POST /api/lists/{id}/messages` dan `GET /api/lists/{id}/messages`, query melakukan `LEFT JOIN workspace_files wf ON wf.id = m.file_id` dan `INSERT INTO messages` menyertakan kolom `file_id`, `note_id`, `client_id`. Namun tabel `workspace_files` dan kolom `file_id` sebelumnya hanya dibuat via `migrate_db()` saat startup. Saat kode di-deploy via CI/CD tanpa restart proses webapp di VPS, tabel `workspace_files` belum terbuat di SQLite (`sqlite3.OperationalError: no such table: workspace_files`). Akibatnya, backend melempar error 500, background sync `syncpush.js` gagal push (`server_error_500`), dan pesan tetap berstatus `pending: 1` ("🕐 mengirim…") tanpa terkirim ke server.
+  2. **CI/CD Deploy Script:** `.github/workflows/deploy.yml` sebelumnya tidak menjalankan `migrate_db()` setelah pull kode baru.
+  3. **Repository Init DB:** `TaskRepository._init_db()` di `repository.py` belum menyertakan pembuatan tabel `workspace_files`, `dm_conversations`, `dm_messages`, `dm_reads`, `dm_blocks` serta migrasi kolom `file_id`, `note_id`, `client_id` pada tabel `messages`.
+  4. **Payload Validation:** Pada `ChatInputBar`, `task_id`, `note_id`, `file_id`, dan `reply_to_id` berpotensi dikirim sebagai string client ID (cid) bukannya integer server ID, yang dapat memicu error 422 Unprocessable Entity dari Pydantic.
+- **Solusi & Implementasi:**
+  1. `webapp.py`:
+     - Menambahkan fungsi self-healing `_ensure_workspace_files_table(conn)`, `_ensure_chat_schema(conn)`, dan `_ensure_dm_schema(conn)`.
+     - Memanggil `_ensure_chat_schema(conn)` di `get_messages` dan `post_message`.
+     - Memanggil `_ensure_workspace_files_table(conn)` di `list_workspace_files`, `upload_workspace_file`, `download_workspace_file`, `delete_workspace_file`, serta attachment task.
+     - Memanggil `_ensure_dm_schema(conn)` di semua endpoint DM (`_dm_get_conv_or_404`, `dm_contacts`, `dm_list_conversations`, `dm_create_conversation`).
+  2. `repository.py`:
+     - Memperbarui skema `messages` di `_init_db()` agar mencakup `note_id`, `file_id`, `client_id`, `reply_to_id`.
+     - Menambahkan pembuatan tabel `workspace_files` dan seluruh tabel DM di `_init_db()`.
+     - Menambahkan migrasi kolom `file_id`, `note_id`, `client_id`, `reply_to_id` jika belum ada di tabel `messages`.
+  3. `static/index.html` & `static/offline/syncpush.js`:
+     - Memastikan `task_id`, `note_id`, `file_id`, dan `reply_to_id` hanya dikirim sebagai integer murni (atau `null`), mencegah error 422 Pydantic.
+     - Mendaftarkan `setCurrentUser` untuk chat, note, dan mindmap saat `handleLogin`.
+  4. `.github/workflows/deploy.yml`:
+     - Menambahkan eksekusi `venv/bin/python -c "import webapp; webapp.migrate_db()"` pada pipeline deploy VPS.
+  5. `static/sw.js` & Tests:
+     - Bump cache Service Worker ke `taskflow-v382-chat-send-self-healing`.
+     - Menambahkan unit test self-healing di `tests/test_chat_self_healing.py`.
+     - Sinkronisasi versi cache di 7 file test offline.
+- **Status:** 🟢 SELESAI (SW v382 `taskflow-v382-chat-send-self-healing`).
+
 ## 🟢 Pengerasan Ketahanan Hapus Catatan & Bulletproof Trash Snapshot — 2026-10-08 (Claude) — SELESAI
 - **Masalah:** `DELETE /api/scratchpad/:id` sebelumnya mengembalikan HTTP 500 saat menghapus catatan (misal note id 228), sehingga catatan gagal dihapus dan tidak masuk ke Sampah.
 - **Root Cause:**

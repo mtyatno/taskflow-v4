@@ -189,6 +189,24 @@ class TaskRepository:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, is_read, created_at)")
 
+            # Workspace files table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS workspace_files (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    list_id       INTEGER NOT NULL REFERENCES shared_lists(id) ON DELETE CASCADE,
+                    user_id       INTEGER NOT NULL REFERENCES users(id),
+                    filename      TEXT NOT NULL,
+                    original_name TEXT NOT NULL,
+                    file_size     INTEGER DEFAULT 0,
+                    mime_type     TEXT DEFAULT '',
+                    source        TEXT NOT NULL DEFAULT 'direct',
+                    task_id       INTEGER DEFAULT NULL,
+                    is_deleted    INTEGER DEFAULT 0,
+                    created_at    TEXT NOT NULL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_workspace_files_list ON workspace_files(list_id, created_at)")
+
             # Chat messages table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
@@ -197,14 +215,62 @@ class TaskRepository:
                     user_id     INTEGER NOT NULL,
                     content     TEXT NOT NULL,
                     task_id     INTEGER DEFAULT NULL,
+                    note_id     INTEGER DEFAULT NULL,
+                    file_id     INTEGER DEFAULT NULL,
                     msg_type    TEXT NOT NULL DEFAULT 'text',
+                    reply_to_id INTEGER DEFAULT NULL,
+                    client_id   TEXT DEFAULT NULL,
                     created_at  TEXT NOT NULL,
                     FOREIGN KEY (list_id) REFERENCES shared_lists(id) ON DELETE CASCADE,
                     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
+                    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+                    FOREIGN KEY (file_id) REFERENCES workspace_files(id) ON DELETE SET NULL
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_list ON messages(list_id, created_at)")
+
+            # Direct Messages tables
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS dm_conversations (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_a          INTEGER NOT NULL,
+                    user_b          INTEGER NOT NULL,
+                    created_at      TEXT NOT NULL,
+                    last_message_at TEXT,
+                    UNIQUE (user_a, user_b),
+                    CHECK (user_a < user_b),
+                    FOREIGN KEY (user_a) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (user_b) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS dm_messages (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversation_id INTEGER NOT NULL REFERENCES dm_conversations(id) ON DELETE CASCADE,
+                    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    content         TEXT NOT NULL,
+                    reply_to_id     INTEGER DEFAULT NULL REFERENCES dm_messages(id) ON DELETE SET NULL,
+                    client_id       TEXT DEFAULT NULL,
+                    created_at      TEXT NOT NULL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_dm_messages_conv ON dm_messages(conversation_id, id)")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS dm_reads (
+                    conversation_id INTEGER NOT NULL REFERENCES dm_conversations(id) ON DELETE CASCADE,
+                    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    last_read_id    INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (conversation_id, user_id)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS dm_blocks (
+                    blocker_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    blocked_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (blocker_id, blocked_id)
+                )
+            """)
 
             # Habits tables
             conn.execute("""
@@ -237,6 +303,12 @@ class TaskRepository:
             cols_msg = [r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
             if "reply_to_id" not in cols_msg:
                 conn.execute("ALTER TABLE messages ADD COLUMN reply_to_id INTEGER DEFAULT NULL REFERENCES messages(id) ON DELETE SET NULL")
+            if "note_id" not in cols_msg:
+                conn.execute("ALTER TABLE messages ADD COLUMN note_id INTEGER DEFAULT NULL")
+            if "client_id" not in cols_msg:
+                conn.execute("ALTER TABLE messages ADD COLUMN client_id TEXT DEFAULT NULL")
+            if "file_id" not in cols_msg:
+                conn.execute("ALTER TABLE messages ADD COLUMN file_id INTEGER DEFAULT NULL REFERENCES workspace_files(id)")
 
             # Migrate: add list_id and assigned_to to tasks if missing
             cols = [row["name"] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()]

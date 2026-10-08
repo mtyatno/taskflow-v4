@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v381-notes-trash-bulletproof', () => {
+  test('Service Worker cache version is bumped to taskflow-v382-chat-send-self-healing', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v381-notes-trash-bulletproof";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v382-chat-send-self-healing";/m);
   });
 });
 

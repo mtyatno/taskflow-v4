@@ -2,6 +2,29 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-08 15:30] - Claude
+- **Task:** Perbaikan chat tidak bisa terkirim & penambahan self-healing migration skema chat/workspace files.
+- **Changes:**
+  - `webapp.py`:
+    - Menambahkan `_ensure_workspace_files_table(conn)`, `_ensure_chat_schema(conn)`, dan `_ensure_dm_schema(conn)` untuk lazy create tabel `workspace_files`, kolom `messages.file_id`, `note_id`, `client_id`, dan tabel DM secara on-the-fly saat endpoint diakses.
+    - Menghubungkan self-healing ke `get_messages`, `post_message`, `list_workspace_files`, `upload_workspace_file`, `download_workspace_file`, `delete_workspace_file`, dan semua endpoint DM.
+  - `repository.py`:
+    - Memperbarui skema `messages` di `_init_db()` agar memuat `file_id`, `note_id`, `client_id`, `reply_to_id`.
+    - Menambahkan pembuatan tabel `workspace_files`, `dm_conversations`, `dm_messages`, `dm_reads`, `dm_blocks` serta migrasi kolom di `TaskRepository._init_db()`.
+  - `static/index.html` & `static/offline/syncpush.js`:
+    - Sanitasi `task_id`, `note_id`, `file_id`, dan `reply_to_id` agar hanya dikirim sebagai integer murni atau null, mencegah 422 error Pydantic.
+    - Mendaftarkan `setCurrentUser` untuk chat, note, dan mindmap saat `handleLogin`.
+  - `.github/workflows/deploy.yml`:
+    - Menambahkan pemanggilan `venv/bin/python -c "import webapp; webapp.migrate_db()"` agar database di VPS selalu termigrasi tiap deploy.
+  - `static/sw.js`:
+    - Bump cache version ke `taskflow-v382-chat-send-self-healing`.
+  - `tests/test_chat_self_healing.py`:
+    - Menambahkan uji ketahanan self-healing saat tabel `workspace_files` atau tabel DM di-drop.
+  - `tests/offline/`:
+    - Sinkronisasi versi cache Service Worker di 7 file tes offline.
+- **Files Touch:** `webapp.py`, `repository.py`, `static/index.html`, `static/offline/syncpush.js`, `.github/workflows/deploy.yml`, `static/sw.js`, `tests/test_chat_self_healing.py`, 7 file tes offline, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-08 08:45] - Claude
 - **Task:** Pengerasan Ketahanan Hapus Catatan & Bulletproof Trash Snapshot.
 - **Changes:**

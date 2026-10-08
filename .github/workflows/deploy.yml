@@ -34,3 +34,4 @@ jobs:
             cd draw-app && npm ci --prefer-offline && npx vite build && cd ..
             cd /home/yatno/todo-system/taskflow-v4
             venv/bin/pip install -r requirements.txt
+            venv/bin/python -c "import webapp; webapp.migrate_db()"

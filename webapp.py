@@ -2209,6 +2209,7 @@ async def upload_attachment(task_id: int, background_tasks: BackgroundTasks, fil
     if task_row["list_id"]:
         now_str = datetime.now().isoformat()
         with get_db() as conn:
+            _ensure_workspace_files_table(conn)
             conn.execute(
                 """INSERT INTO workspace_files
                    (list_id, user_id, filename, original_name, file_size, mime_type, source, task_id, is_deleted, created_at)
@@ -2240,6 +2241,7 @@ async def delete_attachment(attachment_id: int, user=Depends(get_current_user)):
             os.unlink(filepath)
         if task_row and task_row["list_id"]:
             with get_db() as conn:
+                _ensure_workspace_files_table(conn)
                 conn.execute(
                     "UPDATE workspace_files SET is_deleted = 1 WHERE list_id = ? AND filename = ?",
                     (task_row["list_id"], info["filename"])
@@ -2537,6 +2539,40 @@ async def get_list_tasks(list_id: int, user=Depends(get_current_user)):
     return [task_row_to_dict(r) for r in rows]
 
 
+def _ensure_workspace_files_table(conn) -> None:
+    """Lazy-create workspace_files table if missing (self-healing after deploy tanpa restart)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS workspace_files (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            list_id       INTEGER NOT NULL REFERENCES shared_lists(id) ON DELETE CASCADE,
+            user_id       INTEGER NOT NULL REFERENCES users(id),
+            filename      TEXT NOT NULL,
+            original_name TEXT NOT NULL,
+            file_size     INTEGER DEFAULT 0,
+            mime_type     TEXT DEFAULT '',
+            source        TEXT NOT NULL DEFAULT 'direct',
+            task_id       INTEGER DEFAULT NULL,
+            is_deleted    INTEGER DEFAULT 0,
+            created_at    TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_workspace_files_list ON workspace_files(list_id, created_at)")
+
+
+def _ensure_chat_schema(conn) -> None:
+    """Lazy-migrate messages table columns & workspace_files table (self-healing after deploy tanpa restart)."""
+    _ensure_workspace_files_table(conn)
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
+    if "reply_to_id" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN reply_to_id INTEGER DEFAULT NULL REFERENCES messages(id) ON DELETE SET NULL")
+    if "note_id" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN note_id INTEGER")
+    if "client_id" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN client_id TEXT")
+    if "file_id" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN file_id INTEGER DEFAULT NULL REFERENCES workspace_files(id)")
+
+
 # ── Chat API ──────────────────────────────────────────────────────────────────
 
 @app.get("/api/lists/{list_id}/messages")
@@ -2546,6 +2582,7 @@ async def get_messages(list_id: int, limit: int = 50, before_id: Optional[int] =
     if not repo.is_list_member_or_owner(list_id, uid):
         raise HTTPException(status_code=403, detail="Not a member of this list")
     with get_db() as conn:
+        _ensure_chat_schema(conn)
         base_select = """
             SELECT m.id, m.list_id, m.user_id, m.content, m.task_id, m.note_id, m.msg_type,
                    m.client_id,
@@ -2634,6 +2671,7 @@ async def post_message(list_id: int, req: MessageCreate, user=Depends(get_curren
         raise HTTPException(status_code=403, detail="Not a member of this list")
     now = datetime.now().isoformat()
     with get_db() as conn:
+        _ensure_chat_schema(conn)
         # Validate task_id belongs to this list (if provided)
         if req.task_id:
             task_row = conn.execute(
@@ -2812,6 +2850,7 @@ async def list_workspace_files(
     sql += " ORDER BY wf.created_at DESC, wf.id DESC"
 
     with get_db() as conn:
+        _ensure_workspace_files_table(conn)
         rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
 
@@ -2854,6 +2893,7 @@ async def upload_workspace_file(
     now = datetime.now().isoformat()
 
     with get_db() as conn:
+        _ensure_workspace_files_table(conn)
         cur = conn.execute(
             """INSERT INTO workspace_files
                (list_id, user_id, filename, original_name, file_size, mime_type, source, task_id, is_deleted, created_at)
@@ -2890,6 +2930,7 @@ async def download_workspace_file(
         raise HTTPException(status_code=403, detail="Not a member of this list")
 
     with get_db() as conn:
+        _ensure_workspace_files_table(conn)
         row = conn.execute(
             "SELECT * FROM workspace_files WHERE id = ? AND list_id = ?",
             (file_id, list_id)
@@ -2917,6 +2958,7 @@ async def delete_workspace_file(
         raise HTTPException(status_code=403, detail="Not a member of this list")
 
     with get_db() as conn:
+        _ensure_workspace_files_table(conn)
         row = conn.execute(
             "SELECT * FROM workspace_files WHERE id = ? AND list_id = ?",
             (file_id, list_id)
@@ -2948,6 +2990,51 @@ async def delete_workspace_file(
 # Memulai percakapan BARU wajib berbagi ≥1 shared list; percakapan yang sudah ada
 # tetap aktif selamanya (kirim hanya mensyaratkan peserta). Online-only: tidak
 # didaftarkan di router lokal/SW. Percakapan milik orang lain → 404.
+
+def _ensure_dm_schema(conn) -> None:
+    """Lazy-create DM tables if missing (self-healing after deploy tanpa restart)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS dm_conversations (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_a          INTEGER NOT NULL,
+            user_b          INTEGER NOT NULL,
+            created_at      TEXT NOT NULL,
+            last_message_at TEXT,
+            UNIQUE (user_a, user_b),
+            CHECK (user_a < user_b),
+            FOREIGN KEY (user_a) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_b) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS dm_messages (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER NOT NULL REFERENCES dm_conversations(id) ON DELETE CASCADE,
+            user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            content         TEXT NOT NULL,
+            reply_to_id     INTEGER DEFAULT NULL REFERENCES dm_messages(id) ON DELETE SET NULL,
+            client_id       TEXT DEFAULT NULL,
+            created_at      TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dm_messages_conv ON dm_messages(conversation_id, id)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS dm_reads (
+            conversation_id INTEGER NOT NULL REFERENCES dm_conversations(id) ON DELETE CASCADE,
+            user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            last_read_id    INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (conversation_id, user_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS dm_blocks (
+            blocker_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            blocked_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (blocker_id, blocked_id)
+        )
+    """)
+
 
 _DM_MSG_SELECT = """
     SELECT m.id, m.conversation_id, m.user_id, m.content, m.client_id,
@@ -2982,6 +3069,7 @@ def _dm_share_list(conn, uid: int, other_id: int) -> bool:
 
 
 def _dm_get_conv_or_404(conn, conv_id: int, uid: int):
+    _ensure_dm_schema(conn)
     row = conn.execute(
         "SELECT * FROM dm_conversations WHERE id = ? AND (user_a = ? OR user_b = ?)",
         (conv_id, uid, uid),
@@ -2996,6 +3084,7 @@ DM_BLOCKED_DETAIL = "Obrolan ini diblokir"
 
 def _dm_block_flags(conn, uid: int, other_id: int) -> tuple[bool, bool]:
     """(blocked_by_me, blocked_by_other)."""
+    _ensure_dm_schema(conn)
     rows = conn.execute(
         "SELECT blocker_id FROM dm_blocks WHERE (blocker_id = ? AND blocked_id = ?) "
         "OR (blocker_id = ? AND blocked_id = ?)",
@@ -3010,6 +3099,7 @@ def _dm_other_id(conv, uid: int) -> int:
 
 
 def _dm_conv_to_dict(conn, conv, uid: int) -> dict:
+    _ensure_dm_schema(conn)
     other_id = conv["user_b"] if conv["user_a"] == uid else conv["user_a"]
     other = conn.execute(
         "SELECT id, username, display_name FROM users WHERE id = ?", (other_id,)
@@ -3045,6 +3135,7 @@ async def dm_contacts(user=Depends(get_current_user)):
     """Pengguna yang berbagi ≥1 shared list dengan saya (owner atau member), tanpa diri sendiri."""
     uid = user["sub"]
     with get_db() as conn:
+        _ensure_dm_schema(conn)
         rows = conn.execute(
             """
             WITH mine AS (
@@ -3069,6 +3160,7 @@ async def dm_contacts(user=Depends(get_current_user)):
 async def dm_list_conversations(user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
+        _ensure_dm_schema(conn)
         convs = conn.execute(
             "SELECT * FROM dm_conversations WHERE user_a = ? OR user_b = ? "
             "ORDER BY COALESCE(last_message_at, created_at) DESC, id DESC",
@@ -3086,6 +3178,7 @@ async def dm_create_conversation(req: DmConversationCreate, user=Depends(get_cur
         raise HTTPException(status_code=400, detail="Tidak bisa mengirim pesan pribadi ke diri sendiri")
     a, b = min(uid, other_id), max(uid, other_id)
     with get_db() as conn:
+        _ensure_dm_schema(conn)
         if not conn.execute("SELECT 1 FROM users WHERE id = ?", (other_id,)).fetchone():
             raise HTTPException(status_code=404, detail="Pengguna tidak ditemukan")
         conv = conn.execute(

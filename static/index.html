@@ -15546,14 +15546,14 @@ function ChatInputBar({
         : `tmp_msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       const payload = {
         content: text.trim() || (attachedFile ? `📎 ${attachedFile.original_name}` : attachedTask ? `📌 ${attachedTask.title}` : attachedNote ? `📝 ${attachedNote.title || "(tanpa judul)"}` : ""),
-        task_id: attachedTask?.id || null,
-        note_id: attachedNote?.id || null,
-        file_id: attachedFile?.id || null,
+        task_id: (attachedTask && /^\d+$/.test(String(attachedTask.id))) ? Number(attachedTask.id) : null,
+        note_id: (attachedNote && /^\d+$/.test(String(attachedNote.id))) ? Number(attachedNote.id) : null,
+        file_id: (attachedFile && /^\d+$/.test(String(attachedFile.id))) ? Number(attachedFile.id) : null,
         file_original_name: attachedFile?.original_name || null,
         file_size: attachedFile?.file_size || null,
         file_mime_type: attachedFile?.mime_type || null,
         msg_type: attachedFile ? "file_attach" : attachedTask ? "task_attach" : attachedNote ? "note_attach" : "text",
-        reply_to_id: replyTo?.id || null,
+        reply_to_id: (replyTo && /^\d+$/.test(String(replyTo.id))) ? Number(replyTo.id) : null,
         client_id: clientId
       };
       const msg = await api.post(`/api/lists/${list.id}/messages`, payload);
@@ -28995,6 +28995,9 @@ function App() {
       display_name: data.display_name || data.username,
       email: data.email || ""
     });
+    if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: data.user_id, username: data.username, display_name: data.display_name || data.username });
+    if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: data.user_id, username: data.username, display_name: data.display_name || data.username });
+    if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: data.user_id, username: data.username, display_name: data.display_name || data.username });
     setAuthChecked(true);
   };
   if (!authChecked) {

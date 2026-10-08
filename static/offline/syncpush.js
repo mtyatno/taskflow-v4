@@ -833,9 +833,9 @@
   function chatSendPayload(rec, replyServerId) {
     return {
       content: rec.content != null ? rec.content : "",
-      task_id: rec.task_id != null ? rec.task_id : null,
-      note_id: rec.note_id != null ? rec.note_id : null,
-      file_id: rec.file_id != null ? rec.file_id : null,
+      task_id: (rec.task_id != null && /^\d+$/.test(String(rec.task_id))) ? Number(rec.task_id) : null,
+      note_id: (rec.note_id != null && /^\d+$/.test(String(rec.note_id))) ? Number(rec.note_id) : null,
+      file_id: (rec.file_id != null && /^\d+$/.test(String(rec.file_id))) ? Number(rec.file_id) : null,
       msg_type: rec.msg_type || "text",
       reply_to_id: replyServerId != null ? replyServerId : null,
       client_id: rec.cid,
