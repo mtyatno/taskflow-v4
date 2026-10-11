@@ -246,8 +246,8 @@ test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan"
 });
 
 // ── Cache bust ───────────────────────────────────────────────────────────────
-test("sw.js CACHE = taskflow-v388-dashboard-pomodoro-focus (tldraw di-cache cache-first)", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v388-dashboard-pomodoro-focus";/m);
+test("sw.js CACHE = taskflow-v389-dashboard-habit-checkin (tldraw di-cache cache-first)", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v389-dashboard-habit-checkin";/m);
 });
 
 // ══ Putaran pengerasan (review independen) ══════════════════════════════════════

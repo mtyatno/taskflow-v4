@@ -139,11 +139,11 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
     assert.match(applyBody, /for\s*\(\s*const\s+\w+\s+of\s+negativeTags\s*\)/, "applyFilters must loop over negativeTags");
   });
 
-  await t.test("4. Service Worker Cache Version bumped to v388", () => {
+  await t.test("4. Service Worker Cache Version bumped to v389", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v388-dashboard-pomodoro-focus";/m,
-      "sw.js CACHE must be taskflow-v388-dashboard-pomodoro-focus"
+      /^const CACHE = "taskflow-v389-dashboard-habit-checkin";/m,
+      "sw.js CACHE must be taskflow-v389-dashboard-habit-checkin"
     );
   });
 });

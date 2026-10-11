@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=323">
+  <link rel="stylesheet" href="/static/app.css?v=324">
 
 <style>
 .paper-mode-active {
@@ -13538,6 +13538,26 @@ function Dashboard({
     window.addEventListener("drawingSaved", loadPinnedDrawings);
     return () => window.removeEventListener("drawingSaved", loadPinnedDrawings);
   }, []);
+  const [habits, setHabits] = useState([]);
+  const fetchHabits = async () => {
+    try {
+      const data = await api.get("/api/habits/today");
+      setHabits(Array.isArray(data) ? data : []);
+      if (typeof OfflineDB !== "undefined" && OfflineDB.cacheSet) {
+        OfflineDB.cacheSet("habits_today", data);
+      }
+    } catch (err) {
+      if (typeof OfflineDB !== "undefined" && OfflineDB.cacheGet) {
+        const cached = await OfflineDB.cacheGet("habits_today");
+        if (cached) setHabits(Array.isArray(cached) ? cached : []);
+      }
+    }
+  };
+  useEffect(() => {
+    fetchHabits();
+    window.addEventListener("habitSaved", fetchHabits);
+    return () => window.removeEventListener("habitSaved", fetchHabits);
+  }, []);
   useEffect(() => {
     if (!centerToast) return;
     const timer = setTimeout(() => {
@@ -13653,6 +13673,45 @@ function Dashboard({
       }
     }
   };
+  const handleCheckinHabit = async habit => {
+    if (!habit) return;
+    const _d = new Date();
+    const today = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
+
+    // Optimistic update
+    setHabits(prev => prev.map(h => h.id === habit.id ? { ...h, today_status: "done" } : h));
+
+    // Center HUD Toast
+    setCenterToast({
+      id: Date.now(),
+      type: "habit",
+      title: "Great, one activity done! 🎉"
+    });
+
+    try {
+      await api.post(`/api/habits/${habit.id}/checkin`, {
+        status: "done",
+        skip_reason: "",
+        date: today
+      });
+      window.dispatchEvent(new CustomEvent("habitSaved"));
+    } catch (err) {
+      if (isOfflineErr(err)) {
+        if (typeof OfflineDB !== "undefined" && OfflineDB.queueAdd) {
+          await OfflineDB.queueAdd({
+            method: "POST",
+            url: `/api/habits/${habit.id}/checkin`,
+            body: { status: "done", skip_reason: "", date: today }
+          });
+          showToast?.("📶 Tersimpan offline, akan sync saat online");
+          window.dispatchEvent(new CustomEvent("habitSaved"));
+        }
+      } else {
+        showToast?.(err.message || "Gagal check-in habit", "error");
+        fetchHabits();
+      }
+    }
+  };
   // Modal "Lihat semua" (task) / "+N lainnya" (Disematkan) — satu-satunya jalan ke item ke-4 dst.,
   // jadi harus ramah keyboard. Esc menutup — juga bila fokus lepas ke <body> atau ke halaman di belakang
   // overlay (Tab keluar) — kecuali sasarannya di dalam modal lain (.modal-overlay yang tidak memuat
@@ -13753,6 +13812,11 @@ function Dashboard({
   const now = new Date();
   const hour = now.getHours();
   const greet = hour < 11 ? "Selamat pagi" : hour < 15 ? "Selamat siang" : hour < 18 ? "Selamat sore" : "Selamat malam";
+  const pendingHabits = (habits || []).filter(h => !h.today_status);
+  const doneHabits = (habits || []).filter(h => h.today_status === "done");
+  const totalHabits = (habits || []).length;
+  const currentPhase = hour < 11 ? "pagi" : hour < 17 ? "siang" : "malam";
+  const nextHabit = pendingHabits.find(h => h.phase === currentPhase) || pendingHabits[0];
   const displayName = user && (user.display_name || user.username) || "";
   let dateLine = "";
   try {
@@ -14069,7 +14133,34 @@ function Dashboard({
     className: "dash-hero-name"
   }, displayName)), /*#__PURE__*/React.createElement("p", {
     className: "dash-hero-summary"
-  }, summaryLine)), totalToday > 0 && /*#__PURE__*/React.createElement("div", {
+  }, summaryLine), totalHabits > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "dash-hero-habit-strip"
+  }, nextHabit ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "dash-hero-habit-pill",
+    onClick: () => handleCheckinHabit(nextHabit),
+    title: `Klik untuk selesaikan habit: ${nextHabit.name}`,
+    "aria-label": `Selesaikan habit ${nextHabit.name}`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dash-hero-habit-check"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 11
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "dash-hero-habit-tag"
+  }, "Habit"), /*#__PURE__*/React.createElement("span", {
+    className: "dash-hero-habit-name"
+  }, nextHabit.name), /*#__PURE__*/React.createElement("span", {
+    className: "dash-hero-habit-cta"
+  }, "• Selesai? ⚡")) : /*#__PURE__*/React.createElement("div", {
+    className: "dash-hero-habit-pill is-completed",
+    onClick: () => onNav("habits"),
+    title: "Buka halaman Habits"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dash-hero-habit-check is-done"
+  }, "✓"), /*#__PURE__*/React.createElement("span", null, `Semua habit hari ini selesai (${totalHabits}/${totalHabits}) 🎉`)), totalHabits > 1 && nextHabit && /*#__PURE__*/React.createElement("span", {
+    className: "dash-hero-habit-count"
+  }, `${doneHabits.length}/${totalHabits} selesai`))), totalToday > 0 && /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-progress",
     onClick: () => onNav("today"),
     title: "Buka Fokus Hari Ini"
@@ -14569,7 +14660,7 @@ function Dashboard({
   }, /*#__PURE__*/React.createElement("div", {
     className: `center-hud-icon-wrap center-hud-icon-${centerToast.type}`
   }, /*#__PURE__*/React.createElement(Icon, {
-    name: centerToast.type === "task" ? "clipboardCheck" : "notes",
+    name: centerToast.type === "task" ? "clipboardCheck" : centerToast.type === "habit" ? "activity" : "notes",
     size: 18
   })), /*#__PURE__*/React.createElement("span", {
     className: "center-hud-title"
@@ -17994,7 +18085,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v388-dashboard-pomodoro-focus"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v389-dashboard-habit-checkin"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -30470,7 +30561,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v388-dashboard-pomodoro-focus";
+    window.__SW_VERSION = "taskflow-v389-dashboard-habit-checkin";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
