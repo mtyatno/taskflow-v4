@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v393-offline-task-discrepancies-fix', () => {
+  test('Service Worker cache version is bumped to taskflow-v394-mobile-hero-habit-pill-layout', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v393-offline-task-discrepancies-fix";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v394-mobile-hero-habit-pill-layout";/m);
   });
 });
 

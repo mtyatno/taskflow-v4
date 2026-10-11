@@ -6,6 +6,47 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Fix Layout Hero Order & Habit Pill Mobile Overflow — 2026-10-11 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI. SW v394 `taskflow-v394-mobile-hero-habit-pill-layout` & `app.css?v=326`.
+- **Konteks & Masalah:**
+  - Pengguna melaporkan tampilan Hero di HP kecil:
+    1. Urutan di hero amburadul dan habit pill tumpang tindih dengan persentase task hari ini karena `.dash-hero-habit-strip` sebelumnya berada di dalam `.dash-hero-text` yang berada sejajar flex row dengan `.dash-hero-progress`.
+    2. Pada judul habit panjang, habit pill melebihi lebar layar dan terpotong (clipping/over display) di sisi kanan layar karena flex child tidak memiliki `min-width: 0`, tidak ada `box-sizing: border-box`, teks tidak memiliki `flex: 1 1 auto` yang dapat mengecil, dan icon/cta/count tertekan mengecil.
+- **Solusi & Implementasi:**
+  1. **`static/index.html`:**
+     - Memindahkan `.dash-hero-habit-strip` keluar dari `.dash-hero-text` dan `.dash-hero-top`, menjadikannya direct child dari `.dash-hero` tepat di antara penutup `.dash-hero-top` dan pembuka `.scratchpad-bar.dash-capture`. Baris atas menampilkan greeting & task progress ring tanpa terganggu, dan baris bawahnya habit pill strip full-width.
+     - Menambahkan `className: "dash-hero-habit-name"` pada span completed habit text `Semua habit hari ini selesai...` agar ter-truncate jika di layar HP sempit.
+     - Bump stylesheet query ke `/static/app.css?v=326`.
+     - Bump fallback `window.__SW_VERSION` ke `taskflow-v394-mobile-hero-habit-pill-layout`.
+  2. **`static/app.css`:**
+     - Update `.dash-hero-habit-strip`: `display: flex; align-items: center; gap: 8px; margin-top: 12px; margin-bottom: 2px; flex-wrap: wrap; width: 100%; max-width: 100%; box-sizing: border-box;`.
+     - Update `.dash-hero-habit-pill`: `min-width: 0; box-sizing: border-box; max-width: 100%;`.
+     - Update `.dash-hero-habit-name`: `min-width: 0; flex: 1 1 auto; max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;`.
+     - Update `.dash-hero-habit-check`, `.dash-hero-habit-tag`, `.dash-hero-habit-cta`, `.dash-hero-habit-count`: tambahkan `flex-shrink: 0;`.
+     - Di `@media (max-width: 640px)`: margin, padding, gap kompak dan `max-width: 180px` untuk `.dash-hero-habit-name`.
+     - Di `@media (max-width: 420px)`: `max-width: 120px` untuk `.dash-hero-habit-name`, ukuran font cta 10.5px, count 11px.
+     - STRICTLY NO `border-left` atau `borderLeft`.
+  3. **Backend & Service Worker:**
+     - `webapp.py`: bump `sw_cache` ke `taskflow-v394-mobile-hero-habit-pill-layout`.
+     - `static/sw.js`: bump `CACHE` ke `taskflow-v394-mobile-hero-habit-pill-layout`.
+     - `tests/test_version.py`: bump asersi ke `taskflow-v394-mobile-hero-habit-pill-layout` dan `v394`.
+  4. **Pengujian:**
+     - `tests/offline/dashboard_habit_checkin.test.js`:
+       - Asersi layout order (dash-hero-top sebelum habit strip, habit strip sebelum dash-capture).
+       - Asersi completed state class `.dash-hero-habit-name`.
+       - Asersi CSS flex, min-width: 0, box-sizing, flex-shrink, dan responsive media queries (640px & 420px).
+       - Asersi SW v394.
+     - `tests/offline/note_toc.test.js` & `tests/offline/gtd_inbox_triage.test.js` & `tests/offline/dashboard_onboarding.test.js`: perbarui asersi `app.css?v=326`.
+     - Sinkronisasi SW cache `taskflow-v394-mobile-hero-habit-pill-layout` di seluruh test suite offline.
+  5. **Isolasi Ketat:**
+     - Note editor di `static/index.html` dan `note_editor_trailing_block.test.js` terlindungi tanpa modifikasi.
+     - Nol styling `border-left` atau `borderLeft`.
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+  - `node --test tests/offline/*.test.js` ➡️ **1047/1047 passed (0 failed)** across 8 suites.
+
 ## 🟢 Resolusi Discrepancy Local Router vs Backend untuk Task Focus, Subtasks, Notes, & Attachments — 2026-10-11 (Antigravity/Gemini) — SELESAI
 - **Status:** 🟢 SELESAI. SW v393 `taskflow-v393-offline-task-discrepancies-fix`.
 - **Konteks & Masalah:**

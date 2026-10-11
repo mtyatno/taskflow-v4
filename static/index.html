@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=325">
+  <link rel="stylesheet" href="/static/app.css?v=326">
 
 <style>
 .paper-mode-active {
@@ -14409,7 +14409,16 @@ function Dashboard({
     className: "dash-hero-name"
   }, displayName)), /*#__PURE__*/React.createElement("p", {
     className: "dash-hero-summary"
-  }, summaryLine), totalHabits > 0 && /*#__PURE__*/React.createElement("div", {
+  }, summaryLine)), totalToday > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "dash-hero-progress",
+    onClick: () => onNav("today"),
+    title: "Buka Fokus Hari Ini"
+  }, /*#__PURE__*/React.createElement(DashProgressRing, {
+    done: doneN,
+    total: totalToday
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "dash-hero-progress-text"
+  }, /*#__PURE__*/React.createElement("b", null, doneN, "/", totalToday), /*#__PURE__*/React.createElement("span", null, "selesai hari ini")))), totalHabits > 0 && /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-habit-strip"
   }, nextHabit ? /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -14434,18 +14443,11 @@ function Dashboard({
     title: "Buka halaman Habits"
   }, /*#__PURE__*/React.createElement("span", {
     className: "dash-hero-habit-check is-done"
-  }, "✓"), /*#__PURE__*/React.createElement("span", null, `Semua habit hari ini selesai (${totalHabits}/${totalHabits}) 🎉`)), totalHabits > 1 && nextHabit && /*#__PURE__*/React.createElement("span", {
+  }, "✓"), /*#__PURE__*/React.createElement("span", {
+    className: "dash-hero-habit-name"
+  }, `Semua habit hari ini selesai (${totalHabits}/${totalHabits}) 🎉`)), totalHabits > 1 && nextHabit && /*#__PURE__*/React.createElement("span", {
     className: "dash-hero-habit-count"
-  }, `${doneHabits.length}/${totalHabits} selesai`))), totalToday > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "dash-hero-progress",
-    onClick: () => onNav("today"),
-    title: "Buka Fokus Hari Ini"
-  }, /*#__PURE__*/React.createElement(DashProgressRing, {
-    done: doneN,
-    total: totalToday
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "dash-hero-progress-text"
-  }, /*#__PURE__*/React.createElement("b", null, doneN, "/", totalToday), /*#__PURE__*/React.createElement("span", null, "selesai hari ini")))), /*#__PURE__*/React.createElement("div", {
+  }, `${doneHabits.length}/${totalHabits} selesai`)), /*#__PURE__*/React.createElement("div", {
     className: "scratchpad-bar dash-capture",
     "data-tour": "scratchpad"
   }, /*#__PURE__*/React.createElement(Icon, {
@@ -18361,7 +18363,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v393-offline-task-discrepancies-fix"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v394-mobile-hero-habit-pill-layout"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -30988,7 +30990,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v393-offline-task-discrepancies-fix";
+    window.__SW_VERSION = "taskflow-v394-mobile-hero-habit-pill-layout";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

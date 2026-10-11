@@ -2,6 +2,41 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-11 23:50] - Antigravity (Gemini)
+- **Task:** Fix hero layout order & habit pill mobile overflow (SW v394 `taskflow-v394-mobile-hero-habit-pill-layout`, `app.css?v=326`).
+- **Changes:**
+  - `static/index.html`:
+    - Pindahkan `.dash-hero-habit-strip` keluar dari `.dash-hero-text` dan `.dash-hero-top`, sehingga menjadi direct child `.dash-hero` antara header/progress ring dan scratchpad bar.
+    - Tambahkan `className: "dash-hero-habit-name"` pada teks habit completed.
+    - Bump stylesheet ke `/static/app.css?v=326`.
+    - Bump fallback `window.__SW_VERSION` ke `taskflow-v394-mobile-hero-habit-pill-layout`.
+  - `static/app.css`:
+    - Update `.dash-hero-habit-strip` dengan `display: flex; flex-wrap: wrap; width: 100%; max-width: 100%; box-sizing: border-box;`.
+    - Update `.dash-hero-habit-pill` dengan `min-width: 0; box-sizing: border-box; max-width: 100%;`.
+    - Update `.dash-hero-habit-name` dengan `min-width: 0; flex: 1 1 auto; max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;`.
+    - Tambahkan `flex-shrink: 0;` pada tag, cta, count, dan check.
+    - Tambahkan responsivitas di `@media (max-width: 640px)` dan `@media (max-width: 420px)`.
+    - Nol styling `border-left` atau `borderLeft`.
+  - `webapp.py`:
+    - Bump `sw_cache` ke `taskflow-v394-mobile-hero-habit-pill-layout`.
+  - `static/sw.js`:
+    - Bump `const CACHE = "taskflow-v394-mobile-hero-habit-pill-layout";`.
+  - `tests/test_version.py`:
+    - Bump asersi ke `taskflow-v394-mobile-hero-habit-pill-layout` dan `v394`.
+  - `tests/offline/dashboard_habit_checkin.test.js`:
+    - Asersi tata letak urutan hero (dash-hero-top sebelum habit strip sebelum dash-capture).
+    - Asersi completed label `.dash-hero-habit-name`.
+    - Unit test CSS anti-overflow dan media queries responsif (640px & 420px).
+  - Sinkronisasi SW cache & stylesheet version di seluruh test suite offline (`tests/offline/`).
+  - Strict isolation: note editor lines dan note_editor_trailing_block.test.js tidak tersentuh.
+- **Verification:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ 5/5 inline scripts OK.
+  - `node --check static/sw.js` ➡️ OK.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed, 0 failed.
+  - `node --test tests/offline/*.test.js` ➡️ 1047 passed, 0 failed across 8 suites.
+- **Files Touch:** `static/app.css`, `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/dashboard_habit_checkin.test.js`, `tests/offline/note_toc.test.js`, `tests/offline/gtd_inbox_triage.test.js`, `tests/offline/dashboard_onboarding.test.js`, `tests/offline/*.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-11 23:25] - Antigravity (Gemini)
 - **Task:** Resolve local router vs backend discrepancies for tasks (focus, subtasks, notes, attachments) (SW v393 `taskflow-v393-offline-task-discrepancies-fix`).
 - **Changes:**

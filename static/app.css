@@ -2331,12 +2331,15 @@
 [data-theme="dark"] .dash-hero-name { color: var(--accent); }
 .dash-hero-summary { font-size: 14px; color: var(--text-secondary); line-height: 1.5; }
 .dash-hero-habit-strip {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
-  margin-bottom: 4px;
+  margin-top: 12px;
+  margin-bottom: 2px;
   flex-wrap: wrap;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .dash-hero-habit-pill {
   display: inline-flex;
@@ -2352,6 +2355,8 @@
   transition: all 0.18s ease;
   text-align: left;
   max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 .dash-hero-habit-pill:hover {
   background: var(--bg-hover, rgba(255, 255, 255, 0.08));
@@ -2395,23 +2400,28 @@
   background: rgba(99, 102, 241, 0.15);
   color: var(--accent, #818cf8);
   margin-right: 2px;
+  flex-shrink: 0;
 }
 .dash-hero-habit-name {
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 220px;
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 280px;
 }
 .dash-hero-habit-count {
   font-size: 12px;
   color: var(--text-muted, #94a3b8);
   font-weight: 600;
+  flex-shrink: 0;
 }
 .dash-hero-habit-cta {
   font-size: 11px;
   color: var(--text-muted, #94a3b8);
   margin-left: 2px;
+  flex-shrink: 0;
 }
 .dash-hero-habit-pill:hover .dash-hero-habit-cta {
   color: var(--accent, #818cf8);
@@ -2679,6 +2689,9 @@
   .dash-hero .dash-ring svg { width: 56px; height: 56px; }
   .dash-hero .dash-ring-label { font-size: 13px; }
   .dash-hero .scratchpad-bar.dash-capture { margin-top: 14px; }
+  .dash-hero-habit-strip { margin-top: 10px; margin-bottom: 0; gap: 6px; }
+  .dash-hero-habit-pill { max-width: 100%; padding: 5px 10px 5px 8px; font-size: 12px; gap: 6px; }
+  .dash-hero-habit-name { max-width: 180px; }
   .dash-kbd { display: none; }
   .dash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .dash-kpis > :last-child:nth-child(odd) { grid-column: 1 / -1; }
@@ -2691,6 +2704,11 @@
   .dash-section-title { font-size: 16px; }
   .dash-projects, .dash-notes { grid-template-columns: minmax(0, 1fr); }
   .dash-main, .dash-charts, .dash-grid-2 { gap: 12px; }
+}
+@media (max-width: 420px) {
+  .dash-hero-habit-name { max-width: 120px; }
+  .dash-hero-habit-cta { font-size: 10.5px; }
+  .dash-hero-habit-count { font-size: 11px; }
 }
 
 /* ── Note Rich Blocks: Code Cards, Callouts, and Collapsible Details ── */

@@ -85,14 +85,55 @@ test("3. Dashboard component in static/index.html implements habit checkin and C
   assert.match(dashSrc, /nextHabit\.title\s*\|\|\s*nextHabit\.name\s*\|\|\s*["']Habit["']/);
   assert.match(dashSrc, /Semua habit hari ini selesai/);
 
+  // Completed habit text has dash-hero-habit-name class
+  assert.match(dashSrc, /React\.createElement\(["']span["'],\s*\{\s*className:\s*["']dash-hero-habit-name["']\s*\},\s*`Semua habit hari ini selesai/);
+
+  // Layout order: dash-hero-top closes BEFORE dash-hero-habit-strip, which is BEFORE dash-capture
+  const topIdx = dashSrc.indexOf('className: "dash-hero-top"');
+  const stripIdx = dashSrc.indexOf('className: "dash-hero-habit-strip"');
+  const captureIdx = dashSrc.indexOf('dash-capture');
+  assert.ok(topIdx >= 0 && stripIdx > topIdx && captureIdx > stripIdx, "habit strip must be between hero-top and dash-capture");
+
   // Center HUD toast rendering
   assert.match(dashSrc, /centerToast\.type\s*===\s*["']habit["']\s*\?\s*["']activity["']/);
 });
 
-test("4. Service Worker and index.html cache version is taskflow-v393-offline-task-discrepancies-fix", () => {
+test("4. Service Worker and index.html cache version is taskflow-v394-mobile-hero-habit-pill-layout", () => {
   const sw = fs.readFileSync(swPath, "utf8");
   const html = fs.readFileSync(htmlPath, "utf8");
 
-  assert.match(sw, /^const CACHE = "taskflow-v393-offline-task-discrepancies-fix";/m);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v393-offline-task-discrepancies-fix";/);
+  assert.match(sw, /^const CACHE = "taskflow-v394-mobile-hero-habit-pill-layout";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v394-mobile-hero-habit-pill-layout";/);
+});
+
+test("5. Habit pill CSS anti-overflow and responsive media queries", () => {
+  const css = fs.readFileSync(cssPath, "utf8");
+
+  // Base anti-overflow
+  assert.match(css, /\.dash-hero-habit-strip\s*\{[^}]*width:\s*100%;/);
+  assert.match(css, /\.dash-hero-habit-strip\s*\{[^}]*max-width:\s*100%;/);
+  assert.match(css, /\.dash-hero-habit-strip\s*\{[^}]*box-sizing:\s*border-box;/);
+
+  assert.match(css, /\.dash-hero-habit-pill\s*\{[^}]*min-width:\s*0;/);
+  assert.match(css, /\.dash-hero-habit-pill\s*\{[^}]*box-sizing:\s*border-box;/);
+  assert.match(css, /\.dash-hero-habit-pill\s*\{[^}]*max-width:\s*100%;/);
+
+  assert.match(css, /\.dash-hero-habit-name\s*\{[^}]*min-width:\s*0;/);
+  assert.match(css, /\.dash-hero-habit-name\s*\{[^}]*flex:\s*1\s+1\s+auto;/);
+  assert.match(css, /\.dash-hero-habit-name\s*\{[^}]*white-space:\s*nowrap;/);
+  assert.match(css, /\.dash-hero-habit-name\s*\{[^}]*overflow:\s*hidden;/);
+  assert.match(css, /\.dash-hero-habit-name\s*\{[^}]*text-overflow:\s*ellipsis;/);
+
+  assert.match(css, /\.dash-hero-habit-tag\s*\{[^}]*flex-shrink:\s*0;/);
+  assert.match(css, /\.dash-hero-habit-cta\s*\{[^}]*flex-shrink:\s*0;/);
+  assert.match(css, /\.dash-hero-habit-count\s*\{[^}]*flex-shrink:\s*0;/);
+
+  // Mobile media queries (640px and 420px)
+  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-habit-strip\s*\{[^}]*gap:\s*6px;/);
+  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-habit-pill\s*\{[^}]*padding:\s*5px\s+10px\s+5px\s+8px;/);
+  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-habit-name\s*\{[^}]*max-width:\s*180px;/);
+
+  assert.match(css, /@media\s*\(max-width:\s*420px\)[\s\S]*?\.dash-hero-habit-name\s*\{[^}]*max-width:\s*120px;/);
+  assert.match(css, /@media\s*\(max-width:\s*420px\)[\s\S]*?\.dash-hero-habit-cta\s*\{[^}]*font-size:\s*10\.5px;/);
+  assert.match(css, /@media\s*\(max-width:\s*420px\)[\s\S]*?\.dash-hero-habit-count\s*\{[^}]*font-size:\s*11px;/);
 });

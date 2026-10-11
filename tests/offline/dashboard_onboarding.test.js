@@ -7,13 +7,13 @@ const htmlPath = path.join(__dirname, "../../static/index.html");
 const cssPath = path.join(__dirname, "../../static/app.css");
 const swPath = path.join(__dirname, "../../static/sw.js");
 
-test("Service Worker and stylesheet versions are synchronized for v393", () => {
+test("Service Worker and stylesheet versions are synchronized for v394", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v393-offline-task-discrepancies-fix/);
-  assert.match(html, /taskflow-v393-offline-task-discrepancies-fix/);
-  assert.match(html, /app\.css\?v=325/);
+  assert.match(sw, /taskflow-v394-mobile-hero-habit-pill-layout/);
+  assert.match(html, /taskflow-v394-mobile-hero-habit-pill-layout/);
+  assert.match(html, /app\.css\?v=326/);
 });
 
 test("Dashboard contains conditional rendering logic for new users (hasTasks)", () => {
