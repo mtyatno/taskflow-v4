@@ -100,9 +100,9 @@ test("TodayFocusView: membatalkan fokus atau menyelesaikan task menjeda Pomodoro
   assert.match(view, /Task selesai/, "harus memberi toast saat task selesai");
 });
 
-test("sw.js CACHE = taskflow-v394-mobile-hero-habit-pill-layout", () => {
+test("sw.js CACHE = taskflow-v395-fluid-focus-habit-pages", () => {
   const swJs = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v394-mobile-hero-habit-pill-layout";/m);
+  assert.match(swJs, /^const CACHE = "taskflow-v395-fluid-focus-habit-pages";/m);
 });
 
 test("App: mengelola timer Pomodoro dan focusTask di level App", () => {
@@ -225,3 +225,18 @@ test("App: handleDoneParentOnly dan handleDoneAll membersihkan focusTaskId saat 
   assert.match(appSrc, /handleDoneParentOnly\s*=\s*async\s*taskId\s*=>\s*\{[\s\S]*if\s*\(focusTaskId === taskId \|\| focusTask\?\.id === taskId\)\s*\{\s*setFocusTaskId\(null\);\s*if\s*\(timer\.isRunning\)\s*timer\.pause\(\);/);
   assert.match(appSrc, /handleDoneAll\s*=\s*async\s*\(\s*\{[\s\S]*taskId,[\s\S]*children[\s\S]*\}\s*\)\s*=>\s*\{[\s\S]*if\s*\(focusTaskId === taskId \|\| focusTask\?\.id === taskId/);
 });
+
+test("Focus & Habit pages have fluid 100% width matching dashboard layout", () => {
+  const focusRule = cssRule(".focus-page");
+  assert.match(focusRule, /width:\s*100%/);
+  assert.match(focusRule, /max-width:\s*100%/);
+
+  const habitRule = cssRule(".habit-page");
+  assert.match(habitRule, /width:\s*100%/);
+  assert.match(habitRule, /max-width:\s*100%/);
+
+  const habitPageSrc = fnSource("HabitPage");
+  assert.match(habitPageSrc, /className:\s*"habit-page fade-in"/);
+  assert.doesNotMatch(habitPageSrc, /maxWidth:\s*900/);
+});
+

@@ -3380,7 +3380,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v394-mobile-hero-habit-pill-layout"
+    sw_cache = "taskflow-v395-fluid-focus-habit-pages"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

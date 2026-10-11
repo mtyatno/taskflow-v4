@@ -2882,6 +2882,7 @@
 }
 
 /* ══ Habit Page Redesign — Minimalist Dashboard ═══════════════ */
+.habit-page { width: 100%; max-width: 100%; padding-bottom: 32px; }
 
 /* ── Hero Section & KPI Row ────────────────────────────────── */
 .habit-kpi-row {
@@ -3271,7 +3272,7 @@
    yang menempel saat menggulir, dan daftar task ringkas (detail per task).
    Tanpa garis warna di tepi kartu/item: status lewat badge & chip ikon.
    ══════════════════════════════════════════════════════════════ */
-.focus-page { max-width: 900px; margin: 0 auto; padding: 24px 16px 32px; }
+.focus-page { width: 100%; max-width: 100%; padding: 0 0 32px; }
 .focus-page-head { margin-bottom: 16px; }
 .focus-page-date { font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
 .focus-page-titlebar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -3451,7 +3452,7 @@
 [data-theme="dark"] .ftask-upload { background: #333; color: var(--text-primary); }
 
 @media (max-width: 768px) {
-  .focus-page { padding: 12px 0 24px; }
+  .focus-page { padding: 0 0 24px; }
   .focus-page-title { font-size: 20px; }
   .focus-pomo { grid-template-columns: 1fr; justify-items: center; gap: 14px; padding: 18px 16px; border-radius: 16px; margin-bottom: 18px; }
   .focus-pomo-body { width: 100%; }

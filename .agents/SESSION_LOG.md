@@ -2,6 +2,39 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-12 05:55] - Antigravity (Gemini)
+- **Task:** Make Focus page and Habit page fluid 100% width matching dashboard (SW v395 `taskflow-v395-fluid-focus-habit-pages`, `app.css?v=327`).
+- **Changes:**
+  - `static/app.css`:
+    - Update `.focus-page`: `width: 100%; max-width: 100%; padding: 0 0 32px;`.
+    - Update mobile `.focus-page` di `@media (max-width: 768px)`: `padding: 0 0 24px;`.
+    - Tambahkan `.habit-page`: `width: 100%; max-width: 100%; padding-bottom: 32px;`.
+    - Zero `border-left` / `borderLeft` styling.
+  - `static/index.html`:
+    - Pada `HabitPage`, ganti root element inline style `{ maxWidth: 900, margin: "0 auto", padding: "24px 16px" }` menjadi `className: "habit-page fade-in"`.
+    - Update stylesheet link ke `/static/app.css?v=327`.
+    - Update fallback `window.__SW_VERSION` ke `taskflow-v395-fluid-focus-habit-pages`.
+    - Note editor terlindungi tanpa modifikasi.
+  - `webapp.py`:
+    - Bump `sw_cache` ke `taskflow-v395-fluid-focus-habit-pages`.
+  - `static/sw.js`:
+    - Bump `const CACHE = "taskflow-v395-fluid-focus-habit-pages";`.
+  - `tests/test_version.py`:
+    - Bump asersi ke `taskflow-v395-fluid-focus-habit-pages` dan `v395`.
+  - `tests/offline/focus_workstation.test.js`:
+    - Tambahkan unit test untuk asersi `.focus-page` dan `.habit-page` 100% width, serta `HabitPage` root `className: "habit-page fade-in"` tanpa `maxWidth: 900`.
+  - `tests/offline/note_toc.test.js` & `tests/offline/gtd_inbox_triage.test.js` & `tests/offline/dashboard_onboarding.test.js`:
+    - Update asersi `app.css?v=327`.
+  - Sinkronisasi SW cache `taskflow-v395-fluid-focus-habit-pages` di seluruh test suite offline (`tests/offline/`).
+- **Verification:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ 5/5 inline scripts OK.
+  - `node --check static/sw.js` ➡️ OK.
+  - `git diff | grep -iE "border-?left"` ➡️ 0 matches (OK).
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed, 0 failed.
+  - `node --test tests/offline/*.test.js` ➡️ 1048 passed, 0 failed across 8 suites.
+- **Files Touch:** `static/app.css`, `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/focus_workstation.test.js`, `tests/offline/note_toc.test.js`, `tests/offline/gtd_inbox_triage.test.js`, `tests/offline/dashboard_onboarding.test.js`, `tests/offline/*.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-11 23:50] - Antigravity (Gemini)
 - **Task:** Fix hero layout order & habit pill mobile overflow (SW v394 `taskflow-v394-mobile-hero-habit-pill-layout`, `app.css?v=326`).
 - **Changes:**

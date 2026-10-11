@@ -6,6 +6,37 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Fluid 100% Width Layout pada Page Focus & Page Habit — 2026-10-12 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI. SW v395 `taskflow-v395-fluid-focus-habit-pages` & `app.css?v=327`.
+- **Konteks & Masalah:**
+  - Halaman Focus (`TodayFocusView`) dan Halaman Habit (`HabitPage`) sebelumnya memiliki margin/sisi kosong di sisi kiri dan kanan pada monitor/layar lebar karena dibatasi oleh `max-width: 900px; margin: 0 auto;`.
+  - Dashboard sudah menggunakan layout fluid 100% (`.dash { width: 100%; max-width: 100%; }`), dan kontainer `.main-content` sudah memiliki gutter padding standar (16px 28px di desktop, 16px di mobile).
+- **Solusi & Implementasi:**
+  1. **`static/app.css`:**
+     - Update `.focus-page`: `width: 100%; max-width: 100%; padding: 0 0 32px;` (menggantikan `max-width: 900px; margin: 0 auto; padding: 24px 16px 32px;`).
+     - Update `.focus-page` di `@media (max-width: 768px)`: `padding: 0 0 24px;`.
+     - Tambahkan `.habit-page`: `width: 100%; max-width: 100%; padding-bottom: 32px;`.
+     - Strict rule: TIDAK ADA styling `border-left` atau `borderLeft`.
+  2. **`static/index.html`:**
+     - Pada `HabitPage`, ganti root element div dari inline style `{ maxWidth: 900, margin: "0 auto", padding: "24px 16px" }` menjadi `className: "habit-page fade-in"`.
+     - Update stylesheet link ke `/static/app.css?v=327`.
+     - Update fallback `window.__SW_VERSION` ke `taskflow-v395-fluid-focus-habit-pages`.
+     - Note editor di `static/index.html` terlindungi tanpa modifikasi.
+  3. **Backend & Service Worker:**
+     - `webapp.py`: bump `sw_cache` ke `taskflow-v395-fluid-focus-habit-pages`.
+     - `static/sw.js`: bump `CACHE` ke `taskflow-v395-fluid-focus-habit-pages`.
+     - `tests/test_version.py`: bump asersi ke `taskflow-v395-fluid-focus-habit-pages` dan `v395`.
+  4. **Pengujian:**
+     - `tests/offline/focus_workstation.test.js`: unit test untuk memvalidasi fluid layout `.focus-page` (width: 100%, max-width: 100%), `.habit-page` (width: 100%, max-width: 100%), dan rendering `HabitPage` tanpa inline `maxWidth: 900`.
+     - `tests/offline/note_toc.test.js` & `tests/offline/gtd_inbox_triage.test.js` & `tests/offline/dashboard_onboarding.test.js`: perbarui asersi `app.css?v=327`.
+     - Sinkronisasi SW cache `taskflow-v395-fluid-focus-habit-pages` di seluruh test suite offline.
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `git diff | grep -iE "border-?left"` ➡️ **0 matches (OK)**.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+  - `node --test tests/offline/*.test.js` ➡️ **1048/1048 passed (0 failed)** across 8 suites.
+
 ## 🟢 Fix Layout Hero Order & Habit Pill Mobile Overflow — 2026-10-11 (Antigravity/Gemini) — SELESAI
 - **Status:** 🟢 SELESAI. SW v394 `taskflow-v394-mobile-hero-habit-pill-layout` & `app.css?v=326`.
 - **Konteks & Masalah:**
