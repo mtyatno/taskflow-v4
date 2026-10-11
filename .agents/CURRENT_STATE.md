@@ -7,7 +7,7 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
  
 ## 🟢 Quick Habit Check-in Pill di Hero Dashboard & Center HUD Toast — 2026-10-11 (Antigravity/Gemini) — SELESAI
-- **Status:** 🟢 SELESAI. SW v389 `taskflow-v389-dashboard-habit-checkin` & `app.css?v=324`. Commit: `c5428d3`.
+- **Status:** 🟢 SELESAI & DEPLOYED (Pushed ke `origin/main`). SW v389 `taskflow-v389-dashboard-habit-checkin` & `app.css?v=324`. Commits: `c5428d3`, `a463b09`. Deploy pipeline VPS aktif otomatis.
 - **Konteks & Solusi:**
   - Pengguna ingin dapat melakukan check-in habit langsung dari Dashboard. Dalam sesi brainstorming (Bounded task), pengguna memilih Opsi A: Quick Habit Pill di Hero section.
   - Menambahkan pill badge interaktif `.dash-hero-habit-strip` di bawah ringkasan hero (`.dash-hero-text`).
