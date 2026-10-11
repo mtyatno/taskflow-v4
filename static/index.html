@@ -13383,7 +13383,7 @@ function parseQuickCapture(text, baseDate) {
 const DashOnboardingCard = ({ tasks, notes, summary, onNav, onFocusInput, onDismiss }) => {
   const hasTask = tasks.length > 0;
   const hasNote = notes.length > 0;
-  const hasDone = (summary.done_last_7_days ?? 0) > 0 || tasks.some(t => t.gtd_status === "done");
+  const hasDone = (summary?.done_last_7_days ?? 0) > 0 || tasks.some(t => t.gtd_status === "done");
 
   const completedCount = (hasTask ? 1 : 0) + (hasNote ? 1 : 0) + (hasDone ? 1 : 0);
 
