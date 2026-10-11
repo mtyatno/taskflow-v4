@@ -3380,7 +3380,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v383-app-update-notifier"
+    sw_cache = "taskflow-v384-dashboard-full-width-fluid"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

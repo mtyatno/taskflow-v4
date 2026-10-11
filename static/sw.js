@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v383-app-update-notifier";
+const CACHE = "taskflow-v384-dashboard-full-width-fluid";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",

@@ -2298,7 +2298,7 @@
 }
 
 /* ══ Dashboard redesign (dash-*) ═══════════════════════════════════ */
-.dash { --dash-hover: rgba(15,23,42,0.045); --dash-muted-bg: rgba(15,23,42,0.05); --dash-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 4px 14px -4px rgba(15,23,42,0.06); --dash-shadow-hover: 0 8px 24px -6px rgba(15,23,42,0.14); --dash-card-border: rgba(15,23,42,0.07); max-width: 1320px; }
+.dash { --dash-hover: rgba(15,23,42,0.045); --dash-muted-bg: rgba(15,23,42,0.05); --dash-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 4px 14px -4px rgba(15,23,42,0.06); --dash-shadow-hover: 0 8px 24px -6px rgba(15,23,42,0.14); --dash-card-border: rgba(15,23,42,0.07); width: 100%; max-width: 100%; }
 [data-theme="dark"] .dash { --dash-hover: rgba(255,255,255,0.05); --dash-muted-bg: rgba(255,255,255,0.07); --dash-shadow: 0 1px 2px rgba(0,0,0,0.3); --dash-shadow-hover: 0 10px 28px -8px rgba(0,0,0,0.6); --dash-card-border: rgba(255,255,255,0.07); }
 
 /* Hero */

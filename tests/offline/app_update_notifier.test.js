@@ -17,8 +17,8 @@ function fnSource(name) {
   return indexHtml.slice(start, end);
 }
 
-test("1. Service Worker: CACHE version is bumped to taskflow-v383-app-update-notifier", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v383-app-update-notifier";/m);
+test("1. Service Worker: CACHE version is bumped to taskflow-v384-dashboard-full-width-fluid", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v384-dashboard-full-width-fluid";/m);
 });
 
 test("2. Service Worker: install event respects active worker (waits for skipWaiting prompt)", () => {
@@ -50,7 +50,7 @@ test("5. Frontend: UpdateNotificationBanner component exists with required eleme
 
 test("6. Frontend: Service Worker registration and update detection logic exists", () => {
   assert.match(indexHtml, /window\.__APP_VERSION\s*=\s*"4\.0\.0";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v383-app-update-notifier";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v384-dashboard-full-width-fluid";/);
   assert.match(indexHtml, /reg\.addEventListener\("updatefound"/);
   assert.match(indexHtml, /newWorker\.state === "installed"/);
   assert.match(indexHtml, /navigator\.serviceWorker\.controller/);
@@ -81,4 +81,9 @@ test("8. Frontend: App layout renders UpdateNotificationBanner when hasAppUpdate
 test("9. CSS: .update-notification-banner styles and slideUpFade animation exist", () => {
   assert.match(appCss, /\.update-notification-banner/);
   assert.match(appCss, /@keyframes slideUpFade/);
+});
+
+test("10. CSS: .dash defines full-width fluid layout without 1320px restriction", () => {
+  assert.match(appCss, /\.dash\s*\{[^}]*width:\s*100%;\s*max-width:\s*100%;/);
+  assert.doesNotMatch(appCss, /\.dash\s*\{[^}]*max-width:\s*1320px/);
 });
