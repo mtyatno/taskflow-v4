@@ -2,6 +2,31 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-11 19:15] - Antigravity (Gemini)
+- **Task:** Quick Habit Check-in Pill di Hero Dashboard & Center HUD Toast (SW v389, app.css?v=324).
+- **Changes:**
+  - `static/app.css`: Menambahkan styling `.dash-hero-habit-strip`, `.dash-hero-habit-pill`, `.dash-hero-habit-check`, `.dash-hero-habit-tag`, `.dash-hero-habit-name`, `.dash-hero-habit-count`, `.dash-hero-habit-cta`, dan `.center-hud-icon-habit` (light & dark mode, tanpa `border-left` berwarna).
+  - `static/index.html`:
+    - Menambahkan state `habits` dan `fetchHabits` dari `/api/habits/today` dengan offline caching di `Dashboard`.
+    - Menambahkan listener `habitSaved` untuk auto-refresh sinkron.
+    - Menambahkan handler `handleCheckinHabit` dengan update optimistik, memicu Center HUD Toast `"Great, one activity done! 🎉"`, panggilan POST `/api/habits/:id/checkin`, dan antrean offline `OfflineDB.queueAdd`.
+    - Merender Quick Habit Pill di `.dash-hero-text` yang secara cerdas memilih habit pending sesuai fase waktu saat ini (`pagi`, `siang`, `malam`).
+    - Memperbarui Center HUD Toast dengan ikon `activity` saat `type === "habit"`.
+    - Memperbarui stylesheet link ke `/static/app.css?v=324` dan SW fallback ke `taskflow-v389-dashboard-habit-checkin`.
+  - `webapp.py` & `static/sw.js`: Bump cache Service Worker ke `taskflow-v389-dashboard-habit-checkin`.
+  - `tests/test_version.py`: Update asersi versi backend ke `v389` dan cache `taskflow-v389-dashboard-habit-checkin`.
+  - `tests/offline/note_toc.test.js`: Update asersi stylesheet ke `app.css?v=324`.
+  - `tests/offline/dashboard_habit_checkin.test.js`: Unit test baru untuk memvalidasi CSS pill, tidak adanya `border-left`, integrasi fetching, dan Center HUD Toast di Dashboard.
+  - Sinkronisasi versi cache SW `v389` di seluruh 8 suite test offline.
+- **Commit:** `c5428d3` (`feat(dashboard): add quick habit checkin pill in hero and center hud toast`).
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ OK (5/5 inline scripts).
+  - `node --check static/sw.js` ➡️ OK.
+  - `node --test tests/offline/*.test.js` ➡️ 1020 passed, 0 failed.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed, 0 failed.
+- **Files Touch:** `static/app.css`, `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/dashboard_habit_checkin.test.js`, `tests/offline/note_toc.test.js`, 7 synchronized offline test files, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-11 18:02] - Antigravity (Gemini)
 - **Task:** Perbaikan Code Review Pomodoro Dashboard: Dukungan Explicit Task di timer.start & Cleanup Fokus pada Penyelesaian Subtask.
 - **Changes:**

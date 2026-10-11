@@ -5,6 +5,39 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
+ 
+## 🟢 Quick Habit Check-in Pill di Hero Dashboard & Center HUD Toast — 2026-10-11 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI. SW v389 `taskflow-v389-dashboard-habit-checkin` & `app.css?v=324`. Commit: `c5428d3`.
+- **Konteks & Solusi:**
+  - Pengguna ingin dapat melakukan check-in habit langsung dari Dashboard. Dalam sesi brainstorming (Bounded task), pengguna memilih Opsi A: Quick Habit Pill di Hero section.
+  - Menambahkan pill badge interaktif `.dash-hero-habit-strip` di bawah ringkasan hero (`.dash-hero-text`).
+  - Menampilkan habit aktif berikutnya yang belum selesai hari ini yang disesuaikan secara cerdas dengan fase waktu lokal saat ini (`pagi`, `siang`, `malam`).
+  - Mengklik habit pill langsung memicu check-in optimistik, mengirim `POST /api/habits/:id/checkin` (dengan fallback antrean offline `OfflineDB.queueAdd`), memancarkan event `habitSaved`, dan memunculkan **Center HUD Toast** bergaya pill badge di tengah layar (`"Great, one activity done! 🎉"`) dengan ikon aktivitas (`activity`) dan fade halus selama 2.8 detik.
+  - Ketika seluruh habit hari ini rampung, pill berubah menjadi status sukses `"Semua habit hari ini selesai (N/N) 🎉"` yang dapat diklik untuk menuju ke halaman Habits. Jika pengguna belum memiliki habit sama sekali (0 habit), pill tidak dirender (bersih tanpa elemen kosong).
+  - Sesuai aturan wajib: TIDAK ADA garis tepi berwarna di sisi kiri (`borderLeft` dilarang keras).
+- **Perubahan yang Selesai:**
+  - `static/app.css`:
+    - Menambahkan styling `.dash-hero-habit-strip`, `.dash-hero-habit-pill` (dengan hover & completed state), `.dash-hero-habit-check` (dengan status done), tag, nama, count, dan cta.
+    - Menambahkan styling `.center-hud-icon-habit` untuk tema terang dan gelap dengan aksen amber/warm activity.
+  - `static/index.html`:
+    - Menambahkan state `habits` dan data fetching `/api/habits/today` dengan offline caching di `Dashboard`.
+    - Menambahkan event listener `habitSaved` untuk sinkronisasi reaktif multi-komponen.
+    - Menambahkan handler `handleCheckinHabit` dengan update optimistik dan Center HUD Toast `type: "habit"`.
+    - Merender `.dash-hero-habit-strip` di Hero section di bawah `dash-hero-summary`.
+    - Memperbarui Center HUD Toast dengan ikon `activity` saat `type === "habit"`.
+    - Memperbarui link stylesheet ke `/static/app.css?v=324`.
+    - Memperbarui versi Service Worker fallback ke `taskflow-v389-dashboard-habit-checkin`.
+  - `webapp.py` & `static/sw.js`: Bump cache SW ke `taskflow-v389-dashboard-habit-checkin`.
+  - Tests:
+    - Unit test baru di `tests/offline/dashboard_habit_checkin.test.js`: memvalidasi selector CSS, ketiadaan `border-left`, integrasi fetching, dan Center HUD Toast habit di Dashboard.
+    - Asersi stylesheet `app.css?v=324` di `tests/offline/note_toc.test.js`.
+    - Asersi backend `tests/test_version.py` di-bump ke `v389`.
+    - Sinkronisasi versi cache SW ke `v389` di seluruh 8 suite test offline.
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node --test tests/offline/*.test.js` ➡️ **1020/1020 passed (0 failed)** across 8 suites.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
 
 ## 🟢 Fokus Task & Pomodoro dari Dashboard — 2026-10-11 (Antigravity/Gemini) — SELESAI
 - **Status:** 🟢 SELESAI. SW v388 `taskflow-v388-dashboard-pomodoro-focus` & `app.css?v=323`. Commit: `c175900`, `70cffd1`.
