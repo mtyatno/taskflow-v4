@@ -84,7 +84,7 @@ test("Tanpa garis warna di tepi kartu task Fokus", () => {
 
 test("usePomodoro: start() ditolak tanpa focusTask dan memicu peringatan", () => {
   const hook = fnSource("usePomodoro");
-  assert.match(hook, /if\s*\(!focusTask\)/, "usePomodoro harus memeriksa keberadaan focusTask");
+  assert.match(hook, /if\s*\(!(?:activeTask|focusTask)\)/, "usePomodoro harus memeriksa keberadaan activeTask atau focusTask");
   assert.match(hook, /window\.__showToast\?\.\(.*"warning"\)/, "harus menampilkan toast warning");
 });
 
@@ -158,6 +158,70 @@ test("Dashboard: tombol fokus (.dash-focus-btn) didefinisikan di CSS dan dirende
   assert.match(appSrc, /onStartFocus:\s*handleStartFocus/);
 });
 
+test("usePomodoro: start(explicitTask) menerima explicit task dan memulai timer meski focusTask di closure awalnya null", () => {
+  const hookSrc = fnSource("usePomodoro");
+  assert.match(hookSrc, /start\s*=\s*\(\s*explicitTask\s*=\s*null\s*\)\s*=>/);
+  assert.match(hookSrc, /const activeTask = explicitTask \|\| focusTask;/);
 
+  const states = [
+    "work",
+    1500,
+    false,
+    null,
+    0,
+    0
+  ];
+  let hookIdx = 0;
+  const fakeUseState = (init) => {
+    const idx = hookIdx++;
+    const setVal = (updater) => {
+      states[idx] = typeof updater === "function" ? updater(states[idx]) : updater;
+    };
+    return [states[idx], setVal];
+  };
 
+  const POMO_DURATIONS = { work: 1500, shortBreak: 300, longBreak: 900 };
+  let toastCalls = [];
+  const fakeWindow = {
+    __showToast: (msg, type) => toastCalls.push({ msg, type })
+  };
+  const fakeLocalStorage = {
+    getItem: () => null,
+    setItem: () => {}
+  };
 
+  const fn = new Function(
+    "useState", "useRef", "useEffect", "POMO_DURATIONS", "localStorage", "window",
+    `return (${hookSrc}\n});`
+  );
+
+  const usePomodoroImpl = fn(
+    fakeUseState,
+    () => ({ current: null }),
+    () => {},
+    POMO_DURATIONS,
+    fakeLocalStorage,
+    fakeWindow
+  );
+
+  // 1. Tanpa explicitTask dan focusTask null: ditolak
+  const timer = usePomodoroImpl({ focusTask: null, setTaskPomodoros: () => {} });
+  const startWithoutTask = timer.start();
+  assert.strictEqual(startWithoutTask, false, "timer.start() tanpa task harus mengembalikan false");
+  assert.strictEqual(states[2], false, "isRunning harus tetap false");
+  assert.strictEqual(toastCalls.length, 1);
+  assert.strictEqual(toastCalls[0].type, "warning");
+
+  // 2. Dengan explicitTask meski focusTask di closure adalah null: timer berhasil dimulai
+  const explicitTask = { id: 42, title: "Tugas Fokus Spesifik" };
+  const startWithExplicitTask = timer.start(explicitTask);
+  assert.strictEqual(startWithExplicitTask, true, "timer.start(explicitTask) harus mengembalikan true");
+  assert.strictEqual(states[2], true, "isRunning harus menjadi true");
+  assert.ok(typeof states[3] === "number" && states[3] > Date.now(), "targetEndTime harus di-set ke masa depan");
+});
+
+test("App: handleDoneParentOnly dan handleDoneAll membersihkan focusTaskId saat task fokus diselesaikan", () => {
+  const appSrc = fnSource("App");
+  assert.match(appSrc, /handleDoneParentOnly\s*=\s*async\s*taskId\s*=>\s*\{[\s\S]*if\s*\(focusTaskId === taskId \|\| focusTask\?\.id === taskId\)\s*\{\s*setFocusTaskId\(null\);\s*if\s*\(timer\.isRunning\)\s*timer\.pause\(\);/);
+  assert.match(appSrc, /handleDoneAll\s*=\s*async\s*\(\s*\{[\s\S]*taskId,[\s\S]*children[\s\S]*\}\s*\)\s*=>\s*\{[\s\S]*if\s*\(focusTaskId === taskId \|\| focusTask\?\.id === taskId/);
+});

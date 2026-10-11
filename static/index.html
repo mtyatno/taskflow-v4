@@ -6731,8 +6731,9 @@ function usePomodoro({
       setTimeLeft(POMO_DURATIONS.work);
     }
   };
-  const start = () => {
-    if (!focusTask) {
+  const start = (explicitTask = null) => {
+    const activeTask = explicitTask || focusTask;
+    if (!activeTask) {
       window.__showToast?.("Pilih satu task terlebih dahulu untuk memulai Pomodoro!", "warning");
       return false;
     }
@@ -28855,15 +28856,13 @@ function App() {
   const handleStartFocus = useCallback(task => {
     if (focusTask?.id === task?.id) {
       setFocusTaskId(null);
-      if (timer.isRunning) {
-        timer.pause();
-        showToast("Fokus dilepas. Pomodoro dijeda.", "info");
-      }
+      if (timer.isRunning) timer.pause();
+      showToast("Fokus dilepas" + (timer.isRunning ? ". Pomodoro dijeda." : "."), "info");
       return;
     }
     setFocusTaskId(task.id);
     if (!timer.isRunning) {
-      timer.start();
+      timer.start(task);
     }
     showToast(`🎯 Fokus aktif: ${task.title} — Pomodoro dimulai`, "success");
   }, [focusTask, timer, showToast]);
@@ -29530,6 +29529,10 @@ function App() {
     children
   }) => {
     setDoneConfirm(null);
+    if (focusTaskId === taskId || focusTask?.id === taskId || children?.some(c => c.id === focusTaskId || c.id === focusTask?.id)) {
+      setFocusTaskId(null);
+      if (timer.isRunning) timer.pause();
+    }
     try {
       for (const c of children) {
         await api.post(`/api/tasks/${c.id}/done`);
@@ -29561,6 +29564,10 @@ function App() {
   };
   const handleDoneParentOnly = async taskId => {
     setDoneConfirm(null);
+    if (focusTaskId === taskId || focusTask?.id === taskId) {
+      setFocusTaskId(null);
+      if (timer.isRunning) timer.pause();
+    }
     try {
       await api.post(`/api/tasks/${taskId}/done`);
       showToast("Task selesai! ✅");
