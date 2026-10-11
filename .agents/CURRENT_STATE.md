@@ -6,17 +6,21 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
-## 🟢 Progressive Disclosure Dashboard & Onboarding Pengguna Baru — 2026-10-11 (Antigravity/Gemini) — SELESAI & DEPLOYED (Merged ke `main`)
-- **Status:** 🟢 SELESAI, MERGED ke `main` & PUSHED ke GitHub (`origin/main`). SW v386 `taskflow-v386-dashboard-progressive-onboarding` & `app.css?v=322`. Deploy pipeline VPS aktif otomatis.
+## 🟢 Progressive Disclosure Dashboard & Onboarding Task Prefill — 2026-10-11 (Antigravity/Gemini) — SELESAI & DEPLOYED (Merged ke `main`)
+- **Status:** 🟢 SELESAI, MERGED ke `main` & PUSHED ke GitHub (`origin/main`). SW v387 `taskflow-v387-quick-capture-onboarding-prefill` & `app.css?v=322`. Deploy pipeline VPS aktif otomatis.
 - **Spec & Plan:**
   - `docs/superpowers/specs/2026-10-11-dashboard-progressive-onboarding-design.md` (commit `6acd880`)
   - `docs/superpowers/plans/2026-10-11-dashboard-progressive-onboarding.md` (commit `e950ef6`)
 - **Konteks & Masalah:**
   - Pengguna baru tanpa tugas/data dihadapkan pada ~17 kontainer kosong yang mengintimidasi (5 KPI angka 0, grafik analitik kosong, 4 kuadran Eisenhower kosong, 4 kuadran GTD kosong).
-  - Solusi yang diimplementasikan: Progressive disclosure menyembunyikan KPI berangka 0, Analitik, dan kuadran matriks saat `tasks.length === 0`.
-  - Kartu "Prioritas Hari Ini" digantikan oleh kartu interaktif "Mulai Langkah Pertama" (`DashOnboardingCard`) dengan 3 langkah mudah dan checklist otomatis.
-  - Saat ada tugas (`tasks.length > 0`), KPI dan matriks otomatis muncul dan kartu onboarding berganti ke kartu Prioritas Hari Ini. Seksi Analitik baru muncul jika ada tugas selesai (`hasCompletedTasks`).
-  - Sesuai aturan wajib: TIDAK ADA garis tepi berwarna di sisi kiri (`borderLeft` dilarang).
+  - Masalah UX: `parseQuickCapture` memerlukan awalan `tugas/task/todo` agar teks menjadi Task dan bukan Note. Pengguna baru yang mengetik biasa tanpa awalan akan menghasilkan Note, sehingga `tasks.length` tetap 0 dan langkah 1 onboarding tidak tercentang.
+  - Solusi yang diimplementasikan:
+    1. Progressive disclosure menyembunyikan 17 kontainer kosong saat `tasks.length === 0`.
+    2. Kartu "Mulai Langkah Pertama" (`DashOnboardingCard`) dengan tombol *"✍️ Buat Tugas"* yang secara otomatis mengisikan teks awalan `"Tugas: "` ke input capture bar, memposisikan kursor di akhir teks, dan scroll halus ke tengah layar.
+    3. Teks instruksi Langkah 1 diperjelas: *"Awali dengan kata tugas (contoh: Tugas: beli buku besok) lalu tekan Enter, atau klik tombol di samping."*
+    4. Placeholder baris input capture adaptif: saat `!hasTasks` menampilkan *"Awali 'tugas: ...' untuk tugas, atau tulis apa saja untuk catatan..."*.
+    5. Saat ada tugas (`tasks.length > 0`), KPI dan matriks otomatis muncul dan kartu onboarding berganti ke kartu Prioritas Hari Ini. Seksi Analitik baru muncul jika ada tugas selesai (`hasCompletedTasks`).
+    6. Sesuai aturan wajib: TIDAK ADA garis tepi berwarna di sisi kiri (`borderLeft` dilarang).
 - **Perubahan yang Selesai:**
   - `static/app.css`:
     - Menambahkan CSS `.dash-onboarding-card`, `.onboarding-head`, `.onboarding-step-item`, badge, dan tombol CTA.
@@ -24,21 +28,22 @@
     - Tanpa `border-left` berwarna.
   - `static/index.html`:
     - Greeting teks hangat: *"Selamat datang di Alurik! Mari mulai dengan mencatat tugas atau ide pertamamu."* saat `tasks.length === 0`.
-    - Komponen modular `DashOnboardingCard` dengan deteksi otomatis status task, notes, dan done task serta tombol dismiss `localStorage` (`tf_dismiss_onboarding`).
+    - Komponen modular `DashOnboardingCard` dengan instruksi eksplisit dan tombol prefill `"Tugas: "`.
+    - Placeholder adaptif pada `.dash-capture input`.
     - Conditional rendering untuk `dash-kpis`, `dash-main` (kartu onboarding vs prioritas), `eisenhower-grid`, `gtd-grid`, dan `charts-grid` (Analitik).
-    - Memperbarui stylesheet link ke `/static/app.css?v=322` dan SW fallback ke `taskflow-v386-dashboard-progressive-onboarding`.
+    - Memperbarui stylesheet link ke `/static/app.css?v=322` dan SW fallback ke `taskflow-v387-quick-capture-onboarding-prefill`.
   - `webapp.py` & `static/sw.js`:
-    - Bump cache SW ke `taskflow-v386-dashboard-progressive-onboarding`.
+    - Bump cache SW ke `taskflow-v387-quick-capture-onboarding-prefill`.
   - Tests:
-    - Unit test baru `tests/offline/dashboard_onboarding.test.js`.
-    - `tests/test_version.py` di-bump ke `v386`.
-    - Sinkronisasi versi cache SW ke `v386` di seluruh 8 suite test offline.
+    - Unit test baru `tests/offline/dashboard_onboarding.test.js` dengan pengujian prefill, placeholder adaptif, dan instruksi baru.
+    - `tests/test_version.py` di-bump ke `v387`.
+    - Sinkronisasi versi cache SW ke `v387` di seluruh 8 suite test offline.
 - **Verifikasi Pengujian:**
   - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
   - `node --check static/sw.js` ➡️ **OK**.
-  - `node --test tests/offline/*.test.js` ➡️ **1013/1013 passed (0 failed)** across 8 suites.
+  - `node --test tests/offline/*.test.js` ➡️ **1014/1014 passed (0 failed)** across 8 suites.
   - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
-- **Review:** Task 1 Review (Approved), Task 2 Review (Approved), Task 3 Review (Approved), Whole-Branch Review (Ready to merge: Yes).
+- **Review:** Task 1, 2, 3 Review (Approved), Bounded Task Review (Approved), Whole-Branch Review (Ready to merge: Yes).
 
 ## 🟢 Redesain Split-View Kalender (Layar Lebar >= 1200px) & Sidebar Agenda — 2026-10-11 (Antigravity/Gemini) — SELESAI & DEPLOYED (Merged ke `main`)
 - **Status:** 🟢 SELESAI, MERGED ke `main` & PUSHED ke GitHub (`origin/main`). SW v385 `taskflow-v385-calendar-split-view-redesign` & `app.css?v=321`. Deploy pipeline VPS aktif otomatis.

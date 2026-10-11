@@ -2,6 +2,28 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-11 17:15] - Antigravity (Gemini)
+- **Task:** Implementasi Pre-fill Otomatis & Instruksi Jelas untuk Task Input pada Onboarding Dashboard (SW v387).
+- **Changes:**
+  - `static/index.html`:
+    - Memperbarui deskripsi Langkah 1 `DashOnboardingCard` menjadi: *"Awali dengan kata tugas (contoh: Tugas: beli buku besok) lalu tekan Enter, atau klik tombol di samping."*
+    - Menyempurnakan `onFocusInput`: saat tombol *"✍️ Buat Tugas"* diklik, input otomatis diisi prefiks `"Tugas: "`, kursor diposisikan di akhir teks (`setSelectionRange`), dan input di-scroll halus ke tengah layar.
+    - Menjadikan placeholder input capture bar adaptif: saat `!hasTasks` menampilkan *"Awali 'tugas: ...' untuk tugas, atau tulis apa saja untuk catatan..."*.
+    - Bump versi SW fallback dan info versi ke `taskflow-v387-quick-capture-onboarding-prefill`.
+  - `webapp.py` & `static/sw.js`: Bump cache Service Worker ke `taskflow-v387-quick-capture-onboarding-prefill`.
+  - `tests/test_version.py`: Bump asersi versi backend ke `v387`.
+  - `tests/offline/dashboard_onboarding.test.js`: Menambahkan asersi pengujian untuk copy Langkah 1, placeholder adaptif, dan perilaku prefill.
+  - Sinkronisasi SW cache v387 di seluruh 8 suite test offline.
+- **Verification:**
+  - Subagent Implementer: Completed (Commit `9f3489b`).
+  - Subagent Reviewer: Approved (Spec ✅, Quality ✅).
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node --test tests/offline/*.test.js` ➡️ **1014/1014 passed (0 failed)** across 8 suites.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+- **Files Touch:** `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/dashboard_onboarding.test.js`, 8 synchronized offline test files, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed & Deployed (Merged ke `main` & Pushed to GitHub)
+
 ## [2026-10-11 15:46] - Antigravity (Gemini)
 - **Task:** Implementasi Progressive Disclosure Dashboard & Onboarding Pengguna Baru via Subagent-Driven Development (TDD).
 - **Changes:**
