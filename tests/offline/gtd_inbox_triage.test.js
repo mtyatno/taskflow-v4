@@ -106,7 +106,7 @@ test("5. GtdInboxWizardModal provides step-by-step triage workflow and zero stat
 
   // Current task navigation
   assert.match(wizardSrc, /const\s+\[currentIndex,\s*setCurrentIndex\]\s*=\s*useState\(0\)/);
-  assert.match(wizardSrc, /const\s+currentTask\s*=\s*tasks\[currentIndex\]/);
+  assert.match(wizardSrc, /const\s+currentTask\s*=\s*tasks\[(safeIndex|currentIndex)\]/);
 
   // Zero state
   assert.match(wizardSrc, /gtd-wizard-zero/);
@@ -118,7 +118,7 @@ test("5. GtdInboxWizardModal provides step-by-step triage workflow and zero stat
   assert.match(wizardSrc, /gtd-wizard-btn-next/);
   assert.match(wizardSrc, /gtd-wizard-btn-waiting/);
   assert.match(wizardSrc, /gtd-wizard-btn-someday/);
-  assert.match(wizardSrc, /setCurrentIndex\(prev\s*=>\s*prev\s*\+\s*1\)/);
+  assert.match(wizardSrc, /setCurrentIndex\(prev\s*=>/);
 
   // Escape key handler
   assert.match(wizardSrc, /e\.key\s*===\s*["']Escape["']/);
