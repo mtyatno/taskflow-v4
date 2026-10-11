@@ -7,7 +7,7 @@
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
 ## 🟢 Dual-Mode GTD Inbox Triage System (Inline Quick Triage + Guided '⚡ Proses Inbox' Wizard) — 2026-10-11 (Antigravity/Gemini) — SELESAI
-- **Status:** 🟢 SELESAI. SW v391 `taskflow-v391-gtd-inbox-triage-wizard` & `app.css?v=325`.
+- **Status:** 🟢 SELESAI. SW v391 `taskflow-v391-gtd-inbox-triage-wizard` & `app.css?v=325`. Commits: `ed389d1`, `41e6229`.
 - **Konteks & Masalah:**
   - Sebelumnya di GTD Inbox (`page === "inbox"`), pengguna harus klik tiap task, buka modal, klik edit, ganti status GTD, dan simpan. Friksinya terlalu tinggi untuk alur GTD David Allen (aturan 2 menit: <2m kerjakan sekarang -> done, actionable -> next/waiting/someday).
 - **Solusi & Implementasi:**
@@ -21,7 +21,7 @@
   2. **Guided '⚡ Proses Inbox' Wizard Modal (`GtdInboxWizardModal`):**
      - Tombol peluncur wizard `.gtd-launch-wizard-btn` di header Inbox (`TaskListView`): `⚡ Proses Inbox (N)`.
      - Modal telaah fokus 1-per-1 menampilkan detail tugas (judul, prioritas, project, konteks, deadline, deskripsi) dan pengingat prinsip 2 menit GTD.
-     - 4 tombol keputusan GTD besar dan tombol `Lewati ⏩`.
+     - 4 tombol keputusan GTD besar dan tombol `Lewati ⏩` dengan indeks looping/cycling yang aman.
      - Tampilan Inbox Zero ("🎉 Inbox Zero! Semua tugas telah ditelaah.") saat seluruh tugas selesai diproses.
      - Dukungan keyboard `Escape` untuk menutup modal.
   3. **Backend & Optimistic Updates (`App`):**
@@ -32,13 +32,16 @@
      - Stylesheet di-bump ke `app.css?v=325`.
      - Service Worker cache di-bump ke `taskflow-v391-gtd-inbox-triage-wizard`.
      - Backend API version di `webapp.py` & `tests/test_version.py` di-bump ke `v391`.
-     - Unit test komprehensif baru di `tests/offline/gtd_inbox_triage.test.js` (7/7 passed).
-     - Sinkronisasi versi cache SW di seluruh 8 test suites offline (1028/1028 passed).
+     - Unit test komprehensif baru di `tests/offline/gtd_inbox_triage.test.js` (7/7 passed) dan `tests/offline/note_editor_trailing_block.test.js` (13/13 passed).
+     - Sinkronisasi versi cache SW di seluruh 8 test suites offline (1041/1041 passed).
 - **Verifikasi Pengujian:**
   - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
   - `node --check static/sw.js` ➡️ **OK**.
-  - `node --test tests/offline/*.test.js` ➡️ **1028/1028 passed (0 failed)** across 8 suites.
+  - `node --test tests/offline/*.test.js` ➡️ **1041/1041 passed (0 failed)** across 8 suites.
   - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+- **Review:**
+  - Code Review: Approved with minor findings (trailing block plugin & wizard skip index).
+  - Code Re-Review: Approved (commit `41e6229`, 0 findings).
 
 ## 🟢 Fix Judul Habit di Quick Habit Pill Dashboard & Center HUD Toast — 2026-10-11 (Antigravity/Gemini) — SELESAI
 - **Status:** 🟢 SELESAI. SW v390 `taskflow-v390-dashboard-habit-title-fix`.

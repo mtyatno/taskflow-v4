@@ -23,16 +23,20 @@
     - Bump `const CACHE = "taskflow-v391-gtd-inbox-triage-wizard";`.
   - Tests:
     - Membuat suite pengujian baru `tests/offline/gtd_inbox_triage.test.js` (7/7 passed).
+    - Menambahkan pengujian `tests/offline/note_editor_trailing_block.test.js` (13/13 passed).
     - Memperbarui asersi stylesheet link di `tests/offline/note_toc.test.js` ke `app.css?v=325`.
     - Memperbarui asersi versi backend di `tests/test_version.py` ke `v391` dan `taskflow-v391-gtd-inbox-triage-wizard`.
-    - Sinkronisasi versi cache SW di seluruh 8 test suites offline (1028/1028 passed).
+    - Sinkronisasi versi cache SW di seluruh 8 test suites offline (1041/1041 passed).
+- **Commits:**
+  - `ed389d1 feat(gtd): add dual-mode inbox triage system with inline buttons and guided wizard`
+  - `41e6229 fix(notes,gtd): include trailing block plugin definition and refine wizard skip cycling`
 - **Verification:**
   - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ 5/5 inline scripts OK.
   - `node --check static/sw.js` ➡️ OK.
-  - `node --test tests/offline/*.test.js` ➡️ 1028/1028 passed (0 failed) across 8 suites.
+  - `node --test tests/offline/*.test.js` ➡️ 1041/1041 passed (0 failed) across 8 suites.
   - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed (0 failed).
-- **Files Touch:** `static/app.css`, `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/gtd_inbox_triage.test.js`, `tests/offline/note_toc.test.js`, `tests/offline/app_update_notifier.test.js`, `tests/offline/dashboard_habit_checkin.test.js`, `tests/offline/dashboard_onboarding.test.js`, `tests/offline/direct_messages_ui.test.js`, `tests/offline/drawing_sync_ui.test.js`, `tests/offline/focus_workstation.test.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/note_saved_searches_view_mode.test.js`, `tests/offline/note_search_filters.test.js`, `tests/offline/workspace_files_chat.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
-- **Status:** Completed
+- **Files Touch:** `static/app.css`, `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/gtd_inbox_triage.test.js`, `tests/offline/note_editor_trailing_block.test.js`, `tests/offline/note_toc.test.js`, `tests/offline/app_update_notifier.test.js`, `tests/offline/dashboard_habit_checkin.test.js`, `tests/offline/dashboard_onboarding.test.js`, `tests/offline/direct_messages_ui.test.js`, `tests/offline/drawing_sync_ui.test.js`, `tests/offline/focus_workstation.test.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/note_saved_searches_view_mode.test.js`, `tests/offline/note_search_filters.test.js`, `tests/offline/workspace_files_chat.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed & Reviewed (Re-review Approved, 0 findings)
 
 ## [2026-10-11 19:55] - Antigravity (Gemini)
 - **Task:** Fix habit title display on Quick Habit Pill and Center Toast (SW v390 `taskflow-v390-dashboard-habit-title-fix`).
