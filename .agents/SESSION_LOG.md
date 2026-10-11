@@ -2,6 +2,26 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-11 18:02] - Antigravity (Gemini)
+- **Task:** Perbaikan Code Review Pomodoro Dashboard: Dukungan Explicit Task di timer.start & Cleanup Fokus pada Penyelesaian Subtask.
+- **Changes:**
+  - `static/index.html`:
+    - Memperbarui `usePomodoro`: fungsi `start(explicitTask = null)` menerima task eksplisit agar Pomodoro langsung dapat dimulai dengan task tersebut meskipun `focusTask` pada closure belum diperbarui oleh render cycle React.
+    - Memperbarui `handleStartFocus` di `App`: memanggil `timer.start(task)` saat timer belum berjalan, serta menyempurnakan pesan toast pelepas fokus.
+    - Menambahkan pembersihan fokus (`setFocusTaskId(null)` & `timer.pause()`) pada `handleDoneParentOnly` dan `handleDoneAll` di `App` bila task atau salah satu subtask yang diselesaikan merupakan task yang sedang fokus.
+  - `tests/offline/focus_workstation.test.js`:
+    - Memperbarui regex pengujian guard `usePomodoro: start() ditolak tanpa focusTask`.
+    - Menambahkan unit test fungsional yang mengevaluasi `usePomodoro` dengan memvalidasi bahwa `start(explicitTask)` menerima task eksplisit dan menyalakan timer meskipun closure `focusTask` awalnya null.
+    - Menambahkan pengujian untuk pembersihan fokus di `handleDoneParentOnly` dan `handleDoneAll`.
+- **Commit:** `70cffd1` (`fix(pomodoro): support explicit task in timer.start and cleanup focus on subtask completion`).
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ OK (5 inline scripts).
+  - `node --check static/sw.js` ➡️ OK.
+  - `node --test tests/offline/*.test.js` ➡️ 1017 passed, 0 failed.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed, 0 failed.
+- **Files Touch:** `static/index.html`, `tests/offline/focus_workstation.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-11 17:45] - Antigravity (Gemini)
 - **Task:** Implementasi Fokus Task & Pomodoro dari Dashboard (SW v388).
 - **Changes:**
