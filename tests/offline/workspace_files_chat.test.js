@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v392-note-trailing-empty-block', () => {
+  test('Service Worker cache version is bumped to taskflow-v393-offline-task-discrepancies-fix', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v392-note-trailing-empty-block";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v393-offline-task-discrepancies-fix";/m);
   });
 });
 

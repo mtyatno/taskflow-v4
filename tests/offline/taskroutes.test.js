@@ -129,12 +129,134 @@ test("isNoteTagsCall is true only for GET /api/tags?entity_type=note", () => {
   assert.equal(isNoteTagsCall("GET", "/api/tags?entity_type=task"), false);
 });
 
+async function seedSubtasks(recs) {
+  const db = await openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("subtasks", "readwrite");
+    const store = tx.objectStore("subtasks");
+    for (const r of recs) store.put(r);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function seedTaskNotes(recs) {
+  const db = await openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("task_notes", "readwrite");
+    const store = tx.objectStore("task_notes");
+    for (const r of recs) store.put(r);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function seedTaskAttachments(recs) {
+  const db = await openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("task_attachments", "readwrite");
+    const store = tx.objectStore("task_attachments");
+    for (const r of recs) store.put(r);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 test("hasRoute is false for un-ported task routes and true for ported routes", () => {
   const R = buildTaskRouter();
   assert.equal(R.hasRoute("POST", "/api/tasks/10/done"), true);
   assert.equal(R.hasRoute("GET", "/api/tasks/10/child-tasks"), true);
-  assert.equal(R.hasRoute("POST", "/api/tasks/10/focus"), false);
-  assert.equal(R.hasRoute("GET", "/api/tasks/10/subtasks"), false);
+  assert.equal(R.hasRoute("POST", "/api/tasks/10/focus"), true);
+  assert.equal(R.hasRoute("GET", "/api/tasks/10/subtasks"), true);
+  assert.equal(R.hasRoute("GET", "/api/tasks/10/notes"), true);
+  assert.equal(R.hasRoute("GET", "/api/tasks/10/attachments"), true);
+  assert.equal(R.hasRoute("POST", "/api/tasks/10/bogus-unsupported"), false);
+});
+
+test("POST /api/tasks/:id/focus toggles is_focused between 0 and 1 for server_id and cid", async () => {
+  await seedTasks([
+    task({ cid: "t_server", server_id: 101, title: "Server task", is_focused: 0 }),
+    task({ cid: "t_client", server_id: null, title: "Client task", is_focused: 1 }),
+  ]);
+  const R = buildTaskRouter();
+
+  // Via server_id: toggles 0 -> 1
+  const res1 = await R.dispatch("POST", "/api/tasks/101/focus", undefined);
+  assert.equal(res1.id, 101);
+  assert.equal(res1.is_focused, true);
+
+  // Toggle again: 1 -> 0
+  const res2 = await R.dispatch("POST", "/api/tasks/101/focus", undefined);
+  assert.equal(res2.is_focused, false);
+
+  // Via cid: toggles 1 -> 0
+  const res3 = await R.dispatch("POST", "/api/tasks/t_client/focus", undefined);
+  assert.equal(res3.id, "t_client");
+  assert.equal(res3.is_focused, false);
+
+  // Toggle again: 0 -> 1
+  const res4 = await R.dispatch("POST", "/api/tasks/t_client/focus", undefined);
+  assert.equal(res4.is_focused, true);
+
+  // Unknown id rejects
+  await assert.rejects(() => R.dispatch("POST", "/api/tasks/unknown/focus", undefined));
+});
+
+test("GET /api/tasks/:id/subtasks, notes, attachments return entries for resolved cid or empty array when none exist", async () => {
+  await seedTasks([
+    task({ cid: "t_main", server_id: 501, title: "Main Task" }),
+    task({ cid: "t_empty", server_id: 502, title: "Empty Task" }),
+  ]);
+  await seedSubtasks([
+    { cid: "sub_1", task_cid: "t_main", title: "Subtask 1", is_done: 0, deleted: false },
+    { cid: "sub_2", task_cid: "t_main", title: "Subtask 2", is_done: 1, deleted: false },
+    { cid: "sub_del", task_cid: "t_main", title: "Subtask Deleted", is_done: 0, deleted: true },
+    { cid: "sub_other", task_cid: "other_task", title: "Other", is_done: 0, deleted: false },
+  ]);
+  await seedTaskNotes([
+    { cid: "note_1", task_cid: "t_main", content: "Note 1", deleted: false },
+    { cid: "note_del", task_cid: "t_main", content: "Note Deleted", deleted: true },
+    { cid: "note_other", task_cid: "other_task", content: "Other", deleted: false },
+  ]);
+  await seedTaskAttachments([
+    { cid: "att_1", task_cid: "t_main", filename: "file1.png" },
+    { cid: "att_other", task_cid: "other_task", filename: "other.pdf" },
+  ]);
+
+  const R = buildTaskRouter();
+
+  // Via server_id (501 -> t_main)
+  const subsViaServer = await R.dispatch("GET", "/api/tasks/501/subtasks", undefined);
+  assert.equal(subsViaServer.length, 2);
+  assert.deepEqual(subsViaServer.map((s) => s.title).sort(), ["Subtask 1", "Subtask 2"]);
+
+  const notesViaServer = await R.dispatch("GET", "/api/tasks/501/notes", undefined);
+  assert.equal(notesViaServer.length, 1);
+  assert.equal(notesViaServer[0].content, "Note 1");
+
+  const attsViaServer = await R.dispatch("GET", "/api/tasks/501/attachments", undefined);
+  assert.equal(attsViaServer.length, 1);
+  assert.equal(attsViaServer[0].filename, "file1.png");
+
+  // Via cid
+  const subsViaCid = await R.dispatch("GET", "/api/tasks/t_main/subtasks", undefined);
+  assert.equal(subsViaCid.length, 2);
+
+  const notesViaCid = await R.dispatch("GET", "/api/tasks/t_main/notes", undefined);
+  assert.equal(notesViaCid.length, 1);
+
+  const attsViaCid = await R.dispatch("GET", "/api/tasks/t_main/attachments", undefined);
+  assert.equal(attsViaCid.length, 1);
+
+  // Empty task (502 -> t_empty) returns empty arrays
+  assert.deepEqual(await R.dispatch("GET", "/api/tasks/502/subtasks", undefined), []);
+  assert.deepEqual(await R.dispatch("GET", "/api/tasks/502/notes", undefined), []);
+  assert.deepEqual(await R.dispatch("GET", "/api/tasks/502/attachments", undefined), []);
+
+  // Unknown task returns empty arrays
+  assert.deepEqual(await R.dispatch("GET", "/api/tasks/nonexistent/subtasks", undefined), []);
+  assert.deepEqual(await R.dispatch("GET", "/api/tasks/nonexistent/notes", undefined), []);
+  assert.deepEqual(await R.dispatch("GET", "/api/tasks/nonexistent/attachments", undefined), []);
 });
 
 test("POST /api/tasks/:id/done marks task done and sets completed_at (resolves by server_id and cid)", async () => {

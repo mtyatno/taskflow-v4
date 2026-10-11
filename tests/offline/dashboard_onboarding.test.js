@@ -7,12 +7,12 @@ const htmlPath = path.join(__dirname, "../../static/index.html");
 const cssPath = path.join(__dirname, "../../static/app.css");
 const swPath = path.join(__dirname, "../../static/sw.js");
 
-test("Service Worker and stylesheet versions are synchronized for v392", () => {
+test("Service Worker and stylesheet versions are synchronized for v393", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v392-note-trailing-empty-block/);
-  assert.match(html, /taskflow-v392-note-trailing-empty-block/);
+  assert.match(sw, /taskflow-v393-offline-task-discrepancies-fix/);
+  assert.match(html, /taskflow-v393-offline-task-discrepancies-fix/);
   assert.match(html, /app\.css\?v=325/);
 });
 

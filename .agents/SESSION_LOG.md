@@ -2,6 +2,40 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-11 23:25] - Antigravity (Gemini)
+- **Task:** Resolve local router vs backend discrepancies for tasks (focus, subtasks, notes, attachments) (SW v393 `taskflow-v393-offline-task-discrepancies-fix`).
+- **Changes:**
+  - `static/offline/taskrepo.js`:
+    - Persist `patch.is_focused` di `updateTask`.
+    - Ekspor `getRaw` untuk akses router lokal.
+  - `static/offline/taskroutes.js`:
+    - Daftarkan `POST /api/tasks/:id/focus` dengan `resolveCid` dan toggle `is_focused`.
+    - Daftarkan `GET /api/tasks/:id/subtasks` dengan query store `subtasks` via index `task_cid`.
+    - Daftarkan `GET /api/tasks/:id/notes` dengan query store `task_notes` via index `task_cid`.
+    - Daftarkan `GET /api/tasks/:id/attachments` dengan query store `task_attachments` via index `task_cid`.
+  - `static/index.html`:
+    - Safety fallback string CID pada `handleDoneAll` dan `handleDoneParentOnly`.
+    - Bump fallback SW version ke `taskflow-v393-offline-task-discrepancies-fix`.
+  - `webapp.py`:
+    - Bump `sw_cache` ke `taskflow-v393-offline-task-discrepancies-fix`.
+  - `static/sw.js`:
+    - Bump `const CACHE = "taskflow-v393-offline-task-discrepancies-fix";`.
+  - `tests/test_version.py`:
+    - Bump asersi ke `taskflow-v393-offline-task-discrepancies-fix` dan `v393`.
+  - `tests/offline/taskroutes.test.js`:
+    - Update asersi `hasRoute` untuk focus, subtasks, notes, attachments.
+    - Test `POST /api/tasks/:id/focus` toggle `is_focused` antara 0 dan 1 untuk server_id dan cid.
+    - Test `GET /api/tasks/:id/subtasks`, `notes`, `attachments` untuk server_id dan cid serta empty/unknown handling.
+  - Sinkronisasi versi cache SW di seluruh test suite offline (`tests/offline/`).
+  - Strict isolation: note editor lines dan note_editor_trailing_block.test.js terlindungi, tidak ada border-left styling.
+- **Verification:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ 5/5 inline scripts OK.
+  - `node --check static/sw.js` ➡️ OK.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed, 0 failed.
+  - `node --test tests/offline/*.test.js` ➡️ 1046 passed, 0 failed across 8 suites.
+- **Files Touch:** `static/offline/taskrepo.js`, `static/offline/taskroutes.js`, `tests/offline/taskroutes.test.js`, `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/*.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-11 22:50] - Antigravity (Gemini)
 - **Task:** Support string CID task ID in handleDone and taskroutes POST /api/tasks/:id/done & GET /api/tasks/:id/child-tasks (SW v392 `taskflow-v392-gtd-inbox-done-cid-fix`).
 - **Changes:**

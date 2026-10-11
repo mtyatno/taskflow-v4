@@ -108,12 +108,60 @@
         .then((cid) => (cid ? TFrepo.updateTask(cid, { gtd_status: "done" }, opts()) : notFound()))
         .then(withId));
 
+    router.register("POST", "/api/tasks/:id/focus", ({ params }) =>
+      resolveCid(params.id)
+        .then((cid) => {
+          if (!cid) return notFound();
+          return TFrepo.getRaw(cid).then((rec) => {
+            if (!rec || rec.deleted) return notFound();
+            const nextVal = rec.is_focused ? 0 : 1;
+            return TFrepo.updateTask(cid, { is_focused: nextVal }, opts());
+          });
+        })
+        .then(withId));
+
     router.register("GET", "/api/tasks/:id/child-tasks", ({ params }) =>
       resolveCid(params.id).then((cid) => {
         if (!cid) return [];
         return getAllTasks().then((all) =>
           all.filter((r) => !r.deleted && r.parent_cid === cid).map(withId)
         );
+      }));
+
+    router.register("GET", "/api/tasks/:id/subtasks", ({ params }) =>
+      resolveCid(params.id).then((cid) => {
+        if (!cid) return [];
+        return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+          const tx = db.transaction("subtasks", "readonly");
+          const idx = tx.objectStore("subtasks").index("task_cid");
+          const r = idx.getAll(cid);
+          r.onsuccess = () => resolve((r.result || []).filter((s) => !s.deleted));
+          r.onerror = () => reject(r.error);
+        }));
+      }));
+
+    router.register("GET", "/api/tasks/:id/notes", ({ params }) =>
+      resolveCid(params.id).then((cid) => {
+        if (!cid) return [];
+        return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+          const tx = db.transaction("task_notes", "readonly");
+          const idx = tx.objectStore("task_notes").index("task_cid");
+          const r = idx.getAll(cid);
+          r.onsuccess = () => resolve((r.result || []).filter((n) => !n.deleted));
+          r.onerror = () => reject(r.error);
+        }));
+      }));
+
+    router.register("GET", "/api/tasks/:id/attachments", ({ params }) =>
+      resolveCid(params.id).then((cid) => {
+        if (!cid) return [];
+        return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+          const tx = db.transaction("task_attachments", "readonly");
+          const idx = tx.objectStore("task_attachments").index("task_cid");
+          const r = idx.getAll(cid);
+          r.onsuccess = () => resolve(r.result || []);
+          r.onerror = () => reject(r.error);
+        }));
       }));
 
     router.register("GET", "/api/summary", () => TFquery.getSummary(opts()));

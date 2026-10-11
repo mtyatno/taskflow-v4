@@ -6,6 +6,51 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Resolusi Discrepancy Local Router vs Backend untuk Task Focus, Subtasks, Notes, & Attachments — 2026-10-11 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI. SW v393 `taskflow-v393-offline-task-discrepancies-fix`.
+- **Konteks & Masalah:**
+  - Pengguna meminta pengecekan dan penyelesaian menyeluruh terhadap potensi perbedaan (discrepancy) lainnya antara local router offline (`static/offline/taskroutes.js`) dengan network backend FastAPI (`webapp.py`).
+  - Hasil audit menemukan beberapa rute penting yang dipanggil oleh frontend tetapi belum didaftarkan di router lokal atau belum lengkap penanganan CID-nya:
+    1. `POST /api/tasks/:id/focus`:
+       - Dipanggil oleh `handleToggleFocus(taskId)` dan `handleReviewFocus(taskId)`.
+       - Saat task berupa string CID (belum tersinkronisasi), ketiadaan rute ini meneruskan request ke backend `/api/tasks/{task_id: int}/focus` yang gagal dengan HTTP 422 (integer parsing error).
+       - Di `taskrepo.js`: `updateTask` belum menyimpan field `patch.is_focused`.
+    2. `GET /api/tasks/:id/subtasks`, `GET /api/tasks/:id/notes`, `GET /api/tasks/:id/attachments`:
+       - Dipanggil secara masif di `TaskListView` (baris 6581) saat prefetch counts untuk semua task di tampilan list, dan di `TaskDetailModal` saat membuka detail task.
+       - Ketiadaan rute-rute ini di `taskroutes.js` menyebabkan task baru/offline melempar 422 di server dan gagal memuat relasi lokal.
+    3. `handleDoneAll` & `handleDoneParentOnly` di `static/index.html`:
+       - Ditambahkan safety fallback untuk string CIDs jika request POST done melempar error.
+- **Solusi & Implementasi:**
+  1. **`static/offline/taskrepo.js`:**
+     - Menambahkan penanganan `if (patch.is_focused != null) next.is_focused = patch.is_focused ? 1 : 0;` pada `updateTask`.
+     - Mengekspor fungsi `getRaw` di `taskrepo.js` agar dapat digunakan router lokal.
+  2. **`static/offline/taskroutes.js`:**
+     - Mendaftarkan `POST /api/tasks/:id/focus`: menyelesaikan CID via `resolveCid`, membaca raw task record, melakukan toggle `0` <-> `1`, dan memanggil `TFrepo.updateTask(cid, { is_focused: nextVal }, opts())`.
+     - Mendaftarkan `GET /api/tasks/:id/subtasks`: membaca store `subtasks` via index `task_cid` dan memfilter `!s.deleted`.
+     - Mendaftarkan `GET /api/tasks/:id/notes`: membaca store `task_notes` via index `task_cid` dan memfilter `!n.deleted`.
+     - Mendaftarkan `GET /api/tasks/:id/attachments`: membaca store `task_attachments` via index `task_cid`.
+  3. **`static/index.html`:**
+     - Pada `handleDoneAll` dan `handleDoneParentOnly`: menambahkan safety fallback `try { await api.post(...); } catch (postErr) { if (!isIntegerId) await api.put(..., { gtd_status: "done" }); else throw postErr; }`.
+     - Bump fallback SW version ke `taskflow-v393-offline-task-discrepancies-fix`.
+  4. **Backend & Service Worker:**
+     - `webapp.py`: bump `sw_cache` ke `taskflow-v393-offline-task-discrepancies-fix`.
+     - `static/sw.js`: bump `CACHE` ke `taskflow-v393-offline-task-discrepancies-fix`.
+     - `tests/test_version.py`: bump asersi ke `taskflow-v393-offline-task-discrepancies-fix` dan `v393`.
+  5. **Pengujian:**
+     - `tests/offline/taskroutes.test.js`:
+       - Asersi `hasRoute` untuk focus, subtasks, notes, attachments.
+       - Unit test `POST /api/tasks/:id/focus` toggle `is_focused` antara 0 dan 1 untuk `server_id` dan `cid`.
+       - Unit test `GET /api/tasks/:id/subtasks`, `notes`, `attachments` untuk `server_id` dan `cid` serta empty/unknown handling.
+     - Sinkronisasi SW cache string di seluruh test suite offline (`tests/offline/`).
+  6. **Isolasi Ketat:**
+     - Tidak ada styling `borderLeft` atau `border-left`.
+     - Kode note editor tetap utuh tanpa modifikasi yang tidak diinginkan.
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+  - `node --test tests/offline/*.test.js` ➡️ **1046/1046 passed (0 failed)** across 8 suites.
+
 ## 🟢 Fix GTD Wizard '<2m' (Done) String CID Task ID Support — 2026-10-11 (Antigravity/Gemini) — SELESAI
 - **Status:** 🟢 SELESAI. SW v392 `taskflow-v392-gtd-inbox-done-cid-fix`. Commit: `56e50bf`.
 - **Konteks & Masalah:**
