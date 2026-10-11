@@ -6,6 +6,18 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟡 Progressive Disclosure Dashboard & Onboarding Pengguna Baru — 2026-10-11 (Antigravity/Gemini) — SPEC & PLAN READY
+- **Status:** 🟡 SPEC & IMPLEMENTATION PLAN APPROVED. Siap dieksekusi (SW v386 `taskflow-v386-dashboard-progressive-onboarding`, `app.css?v=322`).
+- **Spec & Plan:**
+  - `docs/superpowers/specs/2026-10-11-dashboard-progressive-onboarding-design.md` (commit `6acd880`)
+  - `docs/superpowers/plans/2026-10-11-dashboard-progressive-onboarding.md` (commit `e950ef6`)
+- **Konteks & Masalah:**
+  - Pengguna baru tanpa tugas/data dihadapkan pada ~17 kontainer kosong yang mengintimidasi (5 KPI angka 0, grafik analitik kosong, 4 kuadran Eisenhower kosong, 4 kuadran GTD kosong).
+  - Solusi yang disepakati: Progressive disclosure menyembunyikan KPI berangka 0, Analitik, dan kuadran matriks saat `tasks.length === 0`.
+  - Kartu "Prioritas Hari Ini" digantikan oleh kartu interaktif "Mulai Langkah Pertama" (`DashOnboardingCard`) dengan 3 langkah mudah dan checklist otomatis.
+  - Saat ada tugas (`tasks.length > 0`), KPI dan matriks otomatis muncul dan kartu onboarding berganti ke kartu Prioritas Hari Ini. Seksi Analitik baru muncul jika ada tugas selesai (`hasCompletedTasks`).
+  - Sesuai aturan wajib: TIDAK ADA garis tepi berwarna di sisi kiri (`borderLeft` dilarang).
+
 ## 🟢 Redesain Split-View Kalender (Layar Lebar >= 1200px) & Sidebar Agenda — 2026-10-11 (Antigravity/Gemini) — SELESAI & DEPLOYED (Merged ke `main`)
 - **Status:** 🟢 SELESAI, MERGED ke `main` & PUSHED ke GitHub (`origin/main`). SW v385 `taskflow-v385-calendar-split-view-redesign` & `app.css?v=321`. Deploy pipeline VPS aktif otomatis.
 - **Spec & Plan:**
