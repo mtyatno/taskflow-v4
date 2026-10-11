@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=322">
+  <link rel="stylesheet" href="/static/app.css?v=323">
 
 <style>
 .paper-mode-active {
@@ -13469,7 +13469,10 @@ function Dashboard({
   onNoteClick,
   onMindmapClick,
   onDrawingClick,
-  showToast
+  showToast,
+  focusTask,
+  timer,
+  onStartFocus
 }) {
   const [dismissedOnboarding, setDismissedOnboarding] = useState(() => {
     try {
@@ -13996,35 +13999,50 @@ function Dashboard({
   const TodayRow = ({
     t,
     isDone
-  }) => /*#__PURE__*/React.createElement("div", {
-    className: `dash-row${isDone ? " is-done" : ""}${!isDone && t.is_overdue ? " is-overdue" : ""}`
-  }, /*#__PURE__*/React.createElement(PriBadge, {
-    p: t.priority
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "dash-row-title dash-row-title-strong",
-    onClick: () => onTaskClick(t),
-    style: {
-      cursor: "pointer"
-    }
-  }, t.title), t.deadline && !isDone && /*#__PURE__*/React.createElement("span", {
-    className: `dash-date${t.is_overdue ? " is-overdue" : ""}`
-  }, dashFmtDate(t.deadline)), isDone ? /*#__PURE__*/React.createElement("span", {
-    className: "dash-check is-done"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "check",
-    size: 12
-  })) : /*#__PURE__*/React.createElement("span", {
-    className: "dash-check",
-    role: "button",
-    onClick: e => {
-      e.stopPropagation();
-      onDone(t.id);
-    },
-    title: "Tandai selesai"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "check",
-    size: 12
-  })));
+  }) => {
+    const isFocusing = focusTask?.id === t.id;
+    return /*#__PURE__*/React.createElement("div", {
+      className: `dash-row${isDone ? " is-done" : ""}${!isDone && t.is_overdue ? " is-overdue" : ""}`
+    }, /*#__PURE__*/React.createElement(PriBadge, {
+      p: t.priority
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "dash-row-title dash-row-title-strong",
+      onClick: () => onTaskClick(t),
+      style: {
+        cursor: "pointer"
+      }
+    }, t.title), t.deadline && !isDone && /*#__PURE__*/React.createElement("span", {
+      className: `dash-date${t.is_overdue ? " is-overdue" : ""}`
+    }, dashFmtDate(t.deadline)), !isDone && onStartFocus && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "dash-focus-btn" + (isFocusing ? " is-active" : ""),
+      onClick: e => {
+        e.stopPropagation();
+        onStartFocus(t);
+      },
+      title: isFocusing ? "Sedang fokus (klik untuk jeda & lepas fokus)" : "Fokuskan tugas & mulai Pomodoro",
+      "aria-label": isFocusing ? "Sedang fokus" : "Fokuskan tugas"
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "target",
+      size: 13
+    })), isDone ? /*#__PURE__*/React.createElement("span", {
+      className: "dash-check is-done"
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "check",
+      size: 12
+    })) : /*#__PURE__*/React.createElement("span", {
+      className: "dash-check",
+      role: "button",
+      onClick: e => {
+        e.stopPropagation();
+        onDone(t.id);
+      },
+      title: "Tandai selesai"
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "check",
+      size: 12
+    })));
+  };
   const projNames = [...new Set(tasks.filter(t => t.project && t.gtd_status !== "done" && t.gtd_status !== "archived").map(t => t.project))];
   return /*#__PURE__*/React.createElement("div", {
     className: "fade-in dash"
@@ -17975,7 +17993,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v387-quick-capture-onboarding-prefill"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v388-dashboard-pomodoro-focus"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -28829,11 +28847,26 @@ function App() {
   React.useEffect(() => {
     setWorkspaceTab("tasks");
   }, [page]);
-  const showToast = (message, type = "success", action = null) => setToast({
+  const showToast = useCallback((message, type = "success", action = null) => setToast({
     message,
     type,
     action
-  });
+  }), []);
+  const handleStartFocus = useCallback(task => {
+    if (focusTask?.id === task?.id) {
+      setFocusTaskId(null);
+      if (timer.isRunning) {
+        timer.pause();
+        showToast("Fokus dilepas. Pomodoro dijeda.", "info");
+      }
+      return;
+    }
+    setFocusTaskId(task.id);
+    if (!timer.isRunning) {
+      timer.start();
+    }
+    showToast(`🎯 Fokus aktif: ${task.title} — Pomodoro dimulai`, "success");
+  }, [focusTask, timer, showToast]);
   const logout = useCallback(async () => {
     if (!tokenStore.get()) return;
     try {
@@ -29457,6 +29490,12 @@ function App() {
         });
         return;
       }
+      if (focusTaskId === taskId || focusTask?.id === taskId) {
+        setFocusTaskId(null);
+        if (timer.isRunning) {
+          timer.pause();
+        }
+      }
       await api.post(`/api/tasks/${taskId}/done`);
       showToast("Task selesai! ✅");
       fetchAll();
@@ -29770,7 +29809,10 @@ function App() {
         onNoteClick: handleSearchNoteClick,
         onMindmapClick: handleSearchMindmapClick,
         onDrawingClick: handleSearchDrawingClick,
-        showToast: showToast
+        showToast: showToast,
+        focusTask: focusTask,
+        timer: timer,
+        onStartFocus: handleStartFocus
       });
     }
     if (page === "today") {
@@ -30421,7 +30463,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v387-quick-capture-onboarding-prefill";
+    window.__SW_VERSION = "taskflow-v388-dashboard-pomodoro-focus";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

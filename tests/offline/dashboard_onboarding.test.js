@@ -7,13 +7,13 @@ const htmlPath = path.join(__dirname, "../../static/index.html");
 const cssPath = path.join(__dirname, "../../static/app.css");
 const swPath = path.join(__dirname, "../../static/sw.js");
 
-test("Service Worker and stylesheet versions are synchronized for v387", () => {
+test("Service Worker and stylesheet versions are synchronized for v388", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v387-quick-capture-onboarding-prefill/);
-  assert.match(html, /taskflow-v387-quick-capture-onboarding-prefill/);
-  assert.match(html, /app\.css\?v=322/);
+  assert.match(sw, /taskflow-v388-dashboard-pomodoro-focus/);
+  assert.match(html, /taskflow-v388-dashboard-pomodoro-focus/);
+  assert.match(html, /app\.css\?v=323/);
 });
 
 test("Dashboard contains conditional rendering logic for new users (hasTasks)", () => {

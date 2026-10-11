@@ -6,6 +6,35 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Fokus Task & Pomodoro dari Dashboard — 2026-10-11 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI. SW v388 `taskflow-v388-dashboard-pomodoro-focus` & `app.css?v=323`.
+- **Konteks & Solusi:**
+  - Pengguna ingin dapat memfokuskan task langsung dari kartu "Prioritas Hari Ini" di Dashboard dan langsung memicu Pomodoro di widget topbar (`TopBarPomodoroChip`).
+  - Menambahkan tombol fokus `.dash-focus-btn` dengan ikon target (`<Icon name="target" size={13} />`) tepat di samping checklist `TodayRow`.
+  - Callback `handleStartFocus` di level `App` memulai Pomodoro jika belum berjalan dan menandai task sebagai `focusTask`. Jika task yang sama diklik kembali, fokus dilepas dan timer dijeda.
+  - Saat task selesai (`handleDone`), jika task tersebut sedang fokus maka fokus dilepas dan timer dijeda.
+  - Sesuai aturan wajib: TIDAK ADA garis tepi berwarna di sisi kiri (`borderLeft` dilarang).
+- **Perubahan yang Selesai:**
+  - `static/app.css`: Menambahkan `.dash-focus-btn`, `.dash-focus-btn:hover`, dan `.dash-focus-btn.is-active` dengan dukungan dark mode tanpa `border-left`.
+  - `static/index.html`:
+    - Callback `handleStartFocus` di `App` dengan notifikasi toast informatif.
+    - Penanganan `handleDone` yang melepas fokus dan menjeda timer bila task fokus diselesaikan.
+    - Oper props `focusTask`, `timer`, `onStartFocus` ke `Dashboard`.
+    - `TodayRow` di `Dashboard` merender tombol fokus `.dash-focus-btn` sebelum `dash-check` saat `!isDone && onStartFocus`.
+    - Update stylesheet link ke `app.css?v=323`.
+    - Update versi Service Worker ke `taskflow-v388-dashboard-pomodoro-focus`.
+  - `webapp.py` & `static/sw.js`: Bump cache SW ke `taskflow-v388-dashboard-pomodoro-focus`.
+  - Tests:
+    - Unit test baru di `tests/offline/focus_workstation.test.js` memvalidasi keberadaan CSS `.dash-focus-btn` dan rendering di `Dashboard` `TodayRow`.
+    - Asersi stylesheet `app.css?v=323` di `tests/offline/note_toc.test.js`.
+    - Asersi backend `tests/test_version.py` di-bump ke `v388`.
+    - Sinkronisasi versi cache SW ke `v388` di seluruh 8 suite test offline.
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node --test tests/offline/*.test.js` ➡️ **1015/1015 passed (0 failed)** across 8 suites.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+
 ## 🟢 Progressive Disclosure Dashboard & Onboarding Task Prefill — 2026-10-11 (Antigravity/Gemini) — SELESAI & DEPLOYED (Merged ke `main`)
 - **Status:** 🟢 SELESAI, MERGED ke `main` & PUSHED ke GitHub (`origin/main`). SW v387 `taskflow-v387-quick-capture-onboarding-prefill` & `app.css?v=322`. Deploy pipeline VPS aktif otomatis.
 - **Spec & Plan:**

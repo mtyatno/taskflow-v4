@@ -3380,7 +3380,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v387-quick-capture-onboarding-prefill"
+    sw_cache = "taskflow-v388-dashboard-pomodoro-focus"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

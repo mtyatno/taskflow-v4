@@ -100,9 +100,9 @@ test("TodayFocusView: membatalkan fokus atau menyelesaikan task menjeda Pomodoro
   assert.match(view, /Task selesai/, "harus memberi toast saat task selesai");
 });
 
-test("sw.js CACHE = taskflow-v387-quick-capture-onboarding-prefill", () => {
+test("sw.js CACHE = taskflow-v388-dashboard-pomodoro-focus", () => {
   const swJs = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v387-quick-capture-onboarding-prefill";/m);
+  assert.match(swJs, /^const CACHE = "taskflow-v388-dashboard-pomodoro-focus";/m);
 });
 
 test("App: mengelola timer Pomodoro dan focusTask di level App", () => {
@@ -138,6 +138,26 @@ test("mobile-topbar: mini pomodoro dirender di baris kedua (mobile-topbar-pomo-r
   assert.match(appSrc, /mobile-topbar-pomo-row/, "harus memiliki mobile-topbar-pomo-row untuk baris 2");
   assert.match(appSrc, /mobile-topbar-pomo-row[\s\S]*TopBarPomodoroChip/, "TopBarPomodoroChip harus berada di dalam mobile-topbar-pomo-row");
 });
+
+test("Dashboard: tombol fokus (.dash-focus-btn) didefinisikan di CSS dan dirender di TodayRow", () => {
+  const btnRule = cssRule(".dash-focus-btn");
+  assert.match(btnRule, /width:\s*22px/);
+  assert.match(btnRule, /height:\s*22px/);
+  assert.doesNotMatch(btnRule, /border-(left|top|right):\s*[2-9]px/);
+  assert.doesNotMatch(appCss, /\.dash-focus-btn[^{]*\{[^}]*border-left/);
+
+  const dashSrc = fnSource("Dashboard");
+  assert.match(dashSrc, /TodayRow/);
+  assert.match(dashSrc, /dash-focus-btn/);
+  assert.match(dashSrc, /onStartFocus/);
+  assert.match(dashSrc, /name:\s*"target"/);
+  assert.match(dashSrc, /size:\s*13/);
+
+  const appSrc = fnSource("App");
+  assert.match(appSrc, /handleStartFocus/);
+  assert.match(appSrc, /onStartFocus:\s*handleStartFocus/);
+});
+
 
 
 

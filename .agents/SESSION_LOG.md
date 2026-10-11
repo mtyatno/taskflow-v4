@@ -2,6 +2,25 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-11 17:45] - Antigravity (Gemini)
+- **Task:** Implementasi Fokus Task & Pomodoro dari Dashboard (SW v388).
+- **Changes:**
+  - `static/app.css`: Menambahkan styling `.dash-focus-btn`, `.dash-focus-btn:hover`, dan `.dash-focus-btn.is-active` dengan dukungan dark mode (tanpa `border-left` berwarna).
+  - `static/index.html`:
+    - Menambahkan callback `handleStartFocus` di level `App` yang memulai timer jika belum berjalan dan menyetel `focusTaskId` atau melepas fokus & menjeda timer bila diklik ulang.
+    - Pada `handleDone`, melepas fokus dan menjeda timer jika task yang diselesaikan adalah `focusTaskId`.
+    - Mengoper props `focusTask`, `timer`, dan `onStartFocus` ke `Dashboard`.
+    - Pada `TodayRow` di `Dashboard`, merender tombol fokus `.dash-focus-btn` dengan ikon target `<Icon name="target" size={13} />` sebelum checklist `dash-check`.
+    - Memperbarui link stylesheet ke `/static/app.css?v=323`.
+    - Memperbarui fallback dan info versi SW ke `taskflow-v388-dashboard-pomodoro-focus`.
+  - `webapp.py` & `static/sw.js`: Bump cache Service Worker ke `taskflow-v388-dashboard-pomodoro-focus`.
+  - `tests/test_version.py`: Update asersi versi backend ke `v388` dan `taskflow-v388-dashboard-pomodoro-focus`.
+  - `tests/offline/note_toc.test.js`: Update asersi stylesheet ke `app.css?v=323`.
+  - `tests/offline/focus_workstation.test.js`: Menambahkan unit test untuk `.dash-focus-btn` dan rendering tombol di `Dashboard`.
+  - Sinkronisasi SW cache `v388` di seluruh 8 suite test offline.
+- **Files Touch:** `static/app.css`, `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/focus_workstation.test.js`, `tests/offline/note_toc.test.js`, `tests/offline/dashboard_onboarding.test.js`, `tests/offline/note_search_filters.test.js`, `tests/offline/direct_messages_ui.test.js`, `tests/offline/interactive_note_viewer.test.js`, `tests/offline/drawing_sync_ui.test.js`, `tests/offline/app_update_notifier.test.js`, `tests/offline/note_saved_searches_view_mode.test.js`, `tests/offline/workspace_files_chat.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-11 17:15] - Antigravity (Gemini)
 - **Task:** Implementasi Pre-fill Otomatis & Instruksi Jelas untuk Task Input pada Onboarding Dashboard (SW v387).
 - **Changes:**
