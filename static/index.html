@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=321">
+  <link rel="stylesheet" href="/static/app.css?v=322">
 
 <style>
 .paper-mode-active {
@@ -13380,14 +13380,89 @@ function parseQuickCapture(text, baseDate) {
     deadline: deadline
   };
 }
+const DashOnboardingCard = ({ tasks, notes, summary, onNav, onFocusInput, onDismiss }) => {
+  const hasTask = tasks.length > 0;
+  const hasNote = notes.length > 0;
+  const hasDone = (summary.done_last_7_days ?? 0) > 0 || tasks.some(t => t.gtd_status === "done");
+
+  const completedCount = (hasTask ? 1 : 0) + (hasNote ? 1 : 0) + (hasDone ? 1 : 0);
+
+  return /*#__PURE__*/React.createElement("div", {
+    className: "dash-onboarding-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-head"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-head-left"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-rocket-icon"
+  }, "🚀"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
+    className: "onboarding-title"
+  }, "Mulai Langkah Pertama"), /*#__PURE__*/React.createElement("p", {
+    className: "onboarding-sub"
+  }, "3 langkah mudah menyiapkan alur produktivitasmu"))), /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-head-right"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "onboarding-badge"
+  }, `${completedCount} dari 3 selesai`), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "onboarding-dismiss-btn",
+    onClick: onDismiss,
+    title: "Sembunyikan panduan"
+  }, "✕"))), /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-steps"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: `onboarding-step-item${hasTask ? " is-done" : ""}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-step-icon"
+  }, hasTask ? "✓" : "1"), /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-step-body"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-step-title"
+  }, "Tulis tugas pertamamu"), /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-step-desc"
+  }, "Ketik rencana di kolom atas lalu tekan Enter, atau klik tombol di samping.")), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "onboarding-step-btn",
+    onClick: onFocusInput
+  }, "✍️ Buat Tugas")), /*#__PURE__*/React.createElement("div", {
+    className: `onboarding-step-item${hasNote ? " is-done" : ""}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-step-icon"
+  }, hasNote ? "✓" : "2"), /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-step-body"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-step-title"
+  }, "Buka atau buat catatan pertamamu"), /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-step-desc"
+  }, "Simpan ide, rangkuman, atau jurnal pribadi di tab Notes.")), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "onboarding-step-btn",
+    onClick: () => onNav("notes")
+  }, "📝 Buka Notes")), /*#__PURE__*/React.createElement("div", {
+    className: `onboarding-step-item${hasDone ? " is-done" : ""}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-step-icon"
+  }, hasDone ? "✓" : "3"), /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-step-body"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-step-title"
+  }, "Selesaikan tugas pertamamu"), /*#__PURE__*/React.createElement("div", {
+    className: "onboarding-step-desc"
+  }, "Centang tugas yang sudah rampung untuk mulai mengisi grafik performa harianmu.")), /*#__PURE__*/React.createElement("span", {
+    className: "dash-muted-sm",
+    style: { whiteSpace: "nowrap" }
+  }, hasDone ? "Selesai 🎉" : "Menunggu tugas"))));
+};
 if (typeof window !== "undefined") {
   window.TF = window.TF || {};
   window.TF.parseQuickCapture = parseQuickCapture;
+  window.TF.DashOnboardingCard = DashOnboardingCard;
 }
 function Dashboard({
   summary,
   tasks,
   user,
+  notes = [],
   onTaskClick,
   onDone,
   onNav,
@@ -13396,6 +13471,21 @@ function Dashboard({
   onDrawingClick,
   showToast
 }) {
+  const [dismissedOnboarding, setDismissedOnboarding] = useState(() => {
+    try {
+      return localStorage.getItem("tf_dismiss_onboarding") === "true";
+    } catch (_) {
+      return false;
+    }
+  });
+  const handleDismissOnboarding = () => {
+    setDismissedOnboarding(true);
+    try {
+      localStorage.setItem("tf_dismiss_onboarding", "true");
+    } catch (_) {}
+  };
+  const hasTasks = tasks.length > 0;
+  const hasCompletedTasks = (summary.done_last_7_days ?? 0) > 0 || tasks.some(t => t.gtd_status === "done");
   const q1Tasks = tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done").sort(SORT_PRI);
   const q2Tasks = tasks.filter(t => t.quadrant === "Q2" && t.gtd_status !== "done").sort(SORT_PRI);
   const q3Tasks = tasks.filter(t => t.quadrant === "Q3" && t.gtd_status !== "done").sort(SORT_PRI);
@@ -13671,7 +13761,15 @@ function Dashboard({
   } catch (_) {
     dateLine = now.toDateString();
   }
-  const summaryLine = pendingToday.length > 0 ? `Ada ${pendingToday.length} prioritas hari ini${overdueCount > 0 ? `, ${overdueCount} terlambat` : ""}.` : totalToday > 0 ? "Semua prioritas hari ini sudah selesai. Kerja bagus! 🎉" : overdueCount > 0 ? `Tidak ada prioritas baru, tapi ${overdueCount} task terlambat.` : "Tidak ada yang mendesak hari ini. Saat yang pas untuk merencanakan.";
+  const summaryLine = tasks.length === 0
+    ? "Selamat datang di Alurik! Mari mulai dengan mencatat tugas atau ide pertamamu."
+    : pendingToday.length > 0
+    ? `Ada ${pendingToday.length} prioritas hari ini${overdueCount > 0 ? `, ${overdueCount} terlambat` : ""}.`
+    : totalToday > 0
+    ? "Semua prioritas hari ini sudah selesai. Kerja bagus! 🎉"
+    : overdueCount > 0
+    ? `Tidak ada prioritas baru, tapi ${overdueCount} task terlambat.`
+    : "Tidak ada yang mendesak hari ini. Saat yang pas untuk merencanakan.";
   const scrollToEisen = () => {
     const el = document.querySelector('[data-tour="eisenhower"]');
     if (el) el.scrollIntoView({
@@ -13980,7 +14078,7 @@ function Dashboard({
   }, "Enter"))),
 
   /* ── KPI ── */
-  /*#__PURE__*/React.createElement("div", {
+  hasTasks && /*#__PURE__*/React.createElement("div", {
     className: "dash-kpis"
   }, kpis.map(k => /*#__PURE__*/React.createElement("div", {
     key: k.key,
@@ -14008,7 +14106,20 @@ function Dashboard({
   /* ── Main row: Prioritas + Disematkan ── */
   /*#__PURE__*/React.createElement("div", {
     className: "dash-main"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, !hasTasks && !dismissedOnboarding ? /*#__PURE__*/React.createElement(DashOnboardingCard, {
+    tasks: tasks,
+    notes: (notes && notes.length > 0 ? notes : recentNotes) || [],
+    summary: summary,
+    onNav: onNav,
+    onFocusInput: () => {
+      const input = document.querySelector(".dash-capture input");
+      if (input) {
+        input.focus();
+        input.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    },
+    onDismiss: handleDismissOnboarding
+  }) : /*#__PURE__*/React.createElement("div", {
     className: "dash-card dash-prio-card"
   }, /*#__PURE__*/React.createElement(DashCardHead, {
     icon: "target",
@@ -14094,7 +14205,7 @@ function Dashboard({
   }))))),
 
   /* ── Analitik ── */
-  /*#__PURE__*/React.createElement(DashSection, {
+  hasCompletedTasks && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DashSection, {
     icon: "dashboard",
     title: "Analitik",
     sub: "Gambaran performa kamu"
@@ -14127,10 +14238,10 @@ function Dashboard({
     sub: "Distribusi task aktif"
   }), /*#__PURE__*/React.createElement(StatusBarChart, {
     summary: summary
-  }))),
+  })))),
 
   /* ── Eisenhower ── */
-  /*#__PURE__*/React.createElement(DashSection, {
+  hasTasks && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DashSection, {
     icon: "target",
     title: "Eisenhower Matrix",
     sub: "Urgensi \xD7 kepentingan"
@@ -14173,10 +14284,10 @@ function Dashboard({
     icon: "trash",
     color: "#94a3b8",
     list: q4Tasks
-  })),
+  }))),
 
   /* ── GTD ── */
-  /*#__PURE__*/React.createElement(DashSection, {
+  hasTasks && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DashSection, {
     icon: "refresh",
     title: "Status GTD",
     sub: "Alur kerja Getting Things Done"
@@ -14221,7 +14332,7 @@ function Dashboard({
     color: accent,
     list: tasks.filter(t => t.gtd_status === key).sort(SORT_PRI),
     onTitleClick: () => onNav(key)
-  }))),
+  })))),
 
   /* ── Proyek aktif ── */
   projNames.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DashSection, {
@@ -17858,7 +17969,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v385-calendar-split-view-redesign"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v386-dashboard-progressive-onboarding"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -30304,7 +30415,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v385-calendar-split-view-redesign";
+    window.__SW_VERSION = "taskflow-v386-dashboard-progressive-onboarding";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
