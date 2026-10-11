@@ -2,6 +2,21 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-11 14:48] - Antigravity (Gemini)
+- **Task:** Code Review, Perbaikan Offset Sidebar, Merge ke `main`, dan Deployment Redesain Split-View Kalender.
+- **Changes:**
+  - Code Review Subagent: Meninjau `review.diff` terhadap brief dan aturan desain (Approved with minor finding).
+  - `static/app.css`: Mengubah sticky `top` pada `.cal-split-sidebar` dari `16px` menjadi `72px` (commit `ae7d1df`) agar memiliki jarak napas yang bersih di bawah sticky `.desktop-topbar`.
+  - Menggabungkan (*merge*) branch `feat/calendar-split-view-redesign` ke `main` (fast-forward) dan menghapus branch fitur lokal.
+  - Melakukan `git push origin main` (commit `d2693de`) yang memicu pipeline deployment VPS otomatis di GitHub Actions.
+- **Verification:**
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --test tests/offline/*.test.js` ➡️ **1010/1010 passed (0 failed)** across 8 suites.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+- **Files Touch:** `static/app.css`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed & Deployed
+
 ## [2026-10-11 14:35] - Antigravity (Gemini)
 - **Task:** Implementasi Redesain Split-View Kalender (Layar Lebar >= 1200px), Sidebar Agenda, Versi SW v385, dan app.css?v=321.
 - **Changes:**
