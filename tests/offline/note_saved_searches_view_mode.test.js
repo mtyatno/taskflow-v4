@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v386-dashboard-progressive-onboarding", () => {
-    assert.match(swJs, /taskflow-v386-dashboard-progressive-onboarding/);
+  await t.test("sw.js bumped to taskflow-v387-quick-capture-onboarding-prefill", () => {
+    assert.match(swJs, /taskflow-v387-quick-capture-onboarding-prefill/);
   });
 });

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v386-dashboard-progressive-onboarding";
+const CACHE = "taskflow-v387-quick-capture-onboarding-prefill";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",

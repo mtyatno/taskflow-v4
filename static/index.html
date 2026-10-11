@@ -13420,7 +13420,7 @@ const DashOnboardingCard = ({ tasks, notes, summary, onNav, onFocusInput, onDism
     className: "onboarding-step-title"
   }, "Tulis tugas pertamamu"), /*#__PURE__*/React.createElement("div", {
     className: "onboarding-step-desc"
-  }, "Ketik rencana di kolom atas lalu tekan Enter, atau klik tombol di samping.")), /*#__PURE__*/React.createElement("button", {
+  }, "Awali dengan kata tugas (contoh: Tugas: beli buku besok) lalu tekan Enter, atau klik tombol di samping.")), /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "onboarding-step-btn",
     onClick: onFocusInput
@@ -14072,7 +14072,7 @@ function Dashboard({
     value: scratchInput,
     onChange: e => setScratchInput(e.target.value),
     onKeyDown: handleScratch,
-    placeholder: "Tulis apa saja... (tekan Enter untuk simpan)"
+    placeholder: !hasTasks ? "Awali 'tugas: ...' untuk tugas, atau tulis apa saja untuk catatan..." : "Tulis apa saja... (tekan Enter untuk simpan)"
   }), /*#__PURE__*/React.createElement("kbd", {
     className: "dash-kbd"
   }, "Enter"))),
@@ -14112,11 +14112,17 @@ function Dashboard({
     summary: summary,
     onNav: onNav,
     onFocusInput: () => {
-      const input = document.querySelector(".dash-capture input");
-      if (input) {
-        input.focus();
-        input.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
+      const prefix = "Tugas: ";
+      setScratchInput(prev => (prev && prev.trim() ? prev : prefix));
+      setTimeout(() => {
+        const input = document.querySelector(".dash-capture input");
+        if (input) {
+          input.focus();
+          const len = input.value.length;
+          input.setSelectionRange(len, len);
+          input.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 50);
     },
     onDismiss: handleDismissOnboarding
   }) : /*#__PURE__*/React.createElement("div", {
@@ -17969,7 +17975,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v386-dashboard-progressive-onboarding"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v387-quick-capture-onboarding-prefill"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -30415,7 +30421,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v386-dashboard-progressive-onboarding";
+    window.__SW_VERSION = "taskflow-v387-quick-capture-onboarding-prefill";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

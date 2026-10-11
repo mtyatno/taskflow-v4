@@ -246,8 +246,8 @@ test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan"
 });
 
 // ── Cache bust ───────────────────────────────────────────────────────────────
-test("sw.js CACHE = taskflow-v386-dashboard-progressive-onboarding (tldraw di-cache cache-first)", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v386-dashboard-progressive-onboarding";/m);
+test("sw.js CACHE = taskflow-v387-quick-capture-onboarding-prefill (tldraw di-cache cache-first)", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v387-quick-capture-onboarding-prefill";/m);
 });
 
 // ══ Putaran pengerasan (review independen) ══════════════════════════════════════

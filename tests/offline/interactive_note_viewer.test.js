@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v386-dashboard-progressive-onboarding/,
-      "sw.js should be bumped to taskflow-v386-dashboard-progressive-onboarding"
+      /taskflow-v387-quick-capture-onboarding-prefill/,
+      "sw.js should be bumped to taskflow-v387-quick-capture-onboarding-prefill"
     );
   });
 
