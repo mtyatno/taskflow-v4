@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v382-chat-send-self-healing";
+const CACHE = "taskflow-v383-app-update-notifier";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -104,15 +104,25 @@ const TLDRAW_ASSETS = [].concat(
 STATIC.push.apply(STATIC, TLDRAW_ASSETS);
 
 self.addEventListener("message", e => {
-  if (e.data === "SKIP_WAITING") self.skipWaiting();
+  if (e.data === "SKIP_WAITING" || (e.data && e.data.type === "SKIP_WAITING")) {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("install", e => {
   e.waitUntil(
     caches.open(CACHE)
       .then(cache => Promise.allSettled(STATIC.map(url => cache.add(url))))
-      .then(() => self.skipWaiting())
-      .catch(() => self.skipWaiting())
+      .then(() => {
+        if (!self.registration.active) {
+          self.skipWaiting();
+        }
+      })
+      .catch(() => {
+        if (!self.registration.active) {
+          self.skipWaiting();
+        }
+      })
   );
 });
 
@@ -231,6 +241,17 @@ self.addEventListener("fetch", e => {
   // Pesan Pribadi (/api/dm/...): NETWORK-ONLY, semua method (termasuk SSE stream). Pesan pribadi tidak
   // disimpan di Cache Storage; offline → 503 OFFLINE (gagal jelas, tidak diantre).
   if (url.pathname.startsWith("/api/dm/")) {
+    e.respondWith(
+      fetch(request).catch(() => new Response(
+        JSON.stringify({ detail: "OFFLINE" }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      ))
+    );
+    return;
+  }
+
+  // Versi aplikasi (/api/version): NETWORK-ONLY agar selalu mendapatkan versi terbaru dari server
+  if (url.pathname === "/api/version") {
     e.respondWith(
       fetch(request).catch(() => new Response(
         JSON.stringify({ detail: "OFFLINE" }),

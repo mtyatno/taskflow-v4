@@ -17681,7 +17681,42 @@ function SettingsPage({
       /*#__PURE__*/React.createElement("input", { type: "checkbox",
         defaultChecked: localStorage.getItem("tf_ai_review_optin") === "1",
         onChange: (e) => { try { localStorage.setItem("tf_ai_review_optin", e.target.checked ? "1" : "0"); } catch (err) {} showToast("Tersimpan — muat ulang untuk menerapkan"); } }),
-      /*#__PURE__*/React.createElement("span", { style: { fontSize: 13 } }, "Aktifkan Weekly Review berbantuan AI"))));
+      /*#__PURE__*/React.createElement("span", { style: { fontSize: 13 } }, "Aktifkan Weekly Review berbantuan AI"))),
+  /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      marginTop: 24,
+      marginBottom: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      fontSize: 16,
+      marginBottom: 4
+    }
+  }, "Pembaruan Aplikasi"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-secondary)",
+      marginBottom: 10
+    }
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v383-app-update-notifier"), ")"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-secondary)",
+      marginBottom: 14
+    }
+  }, "Periksa apakah ada versi terbaru Alurik yang tersedia."), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-primary",
+    onClick: () => {
+      if (typeof window.checkForAppUpdate === "function") {
+        window.checkForAppUpdate({ manual: true });
+      } else {
+        showToast("Pemeriksaan pembaruan belum siap", "info");
+      }
+    }
+  }, "🔍 Cek Pembaruan")));
 }
 
 // ── Notes / Scratchpad ────────────────────────────────────────
@@ -28354,7 +28389,95 @@ const _lastSavedDrawingSvg = {};
 // Simpanan drawing yang sedang berjalan per id (QuickDrawModal menunggu ini sebelum menutup)
 const _drawingSaveInFlight = {};
 
+function UpdateNotificationBanner({ onClose }) {
+  const handleUpdate = () => {
+    if (typeof window.applyAppUpdate === "function") {
+      window.applyAppUpdate();
+    } else {
+      window.location.reload();
+    }
+  };
+
+  return /*#__PURE__*/React.createElement("div", {
+    className: "update-notification-banner",
+    role: "alert",
+    style: {
+      position: "fixed",
+      bottom: 24,
+      left: "50%",
+      transform: "translateX(-50%)",
+      zIndex: 9999,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 14,
+      background: "var(--bg-card)",
+      color: "var(--text-primary)",
+      border: "1px solid var(--accent)",
+      borderRadius: 12,
+      padding: "12px 18px",
+      boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
+      maxWidth: "calc(100vw - 32px)",
+      boxSizing: "border-box"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      fontSize: 14,
+      fontWeight: 500
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: { fontSize: 20, flexShrink: 0 }
+  }, "🚀"), /*#__PURE__*/React.createElement("span", null, "Pembaruan Alurik tersedia! Muat ulang untuk mendapatkan fitur-fitur terbaru.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-primary btn-sm",
+    style: {
+      padding: "6px 14px",
+      fontSize: 13,
+      fontWeight: 600,
+      borderRadius: 8,
+      cursor: "pointer",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6
+    },
+    onClick: handleUpdate
+  }, "🔄 Perbarui Sekarang"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    "aria-label": "Tutup",
+    style: {
+      background: "transparent",
+      border: "none",
+      color: "var(--text-secondary)",
+      cursor: "pointer",
+      fontSize: 16,
+      padding: "4px 8px",
+      borderRadius: 6,
+      lineHeight: 1
+    },
+    onClick: onClose
+  }, "✕")));
+}
+
 function App() {
+  const [hasAppUpdate, setHasAppUpdate] = useState(() => Boolean(window.__APP_UPDATE_AVAILABLE));
+  useEffect(() => {
+    const onUpdateAvailable = () => setHasAppUpdate(true);
+    window.addEventListener("appupdateavailable", onUpdateAvailable);
+    if (window.__APP_UPDATE_AVAILABLE) {
+      setHasAppUpdate(true);
+    }
+    return () => window.removeEventListener("appupdateavailable", onUpdateAvailable);
+  }, []);
   const [user, setUser] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('tf_theme') || 'light');
   const toggleTheme = useCallback(() => {
@@ -28467,6 +28590,7 @@ function App() {
   }, []);
   window.__logout = logout;
   window.__showToast = showToast;
+  window.showToast = showToast;
 
   // Check existing session on mount
   const [authChecked, setAuthChecked] = useState(!tokenStore.get());
@@ -29024,13 +29148,21 @@ function App() {
     });
   }
   if (!user) {
-    return authPage === "login" ? /*#__PURE__*/React.createElement(LoginPage, {
-      onLogin: handleLogin,
-      onSwitch: () => setAuthPage("register")
-    }) : /*#__PURE__*/React.createElement(RegisterPage, {
-      onLogin: handleLogin,
-      onSwitch: () => setAuthPage("login")
-    });
+    return /*#__PURE__*/React.createElement(React.Fragment, null,
+      authPage === "login" ? /*#__PURE__*/React.createElement(LoginPage, {
+        onLogin: handleLogin,
+        onSwitch: () => setAuthPage("register")
+      }) : /*#__PURE__*/React.createElement(RegisterPage, {
+        onLogin: handleLogin,
+        onSwitch: () => setAuthPage("login")
+      }),
+      hasAppUpdate && /*#__PURE__*/React.createElement(UpdateNotificationBanner, {
+        onClose: () => {
+          setHasAppUpdate(false);
+          window.__APP_UPDATE_AVAILABLE = false;
+        }
+      })
+    );
   }
 
   // Task actions
@@ -30001,12 +30133,88 @@ function App() {
       background: "rgba(0,0,0,0.3)",
       zIndex: 30
     }
-  }), /*#__PURE__*/React.createElement(AttachmentViewer, null), aiReviewOn() && /*#__PURE__*/React.createElement(WeeklyReview, { tasks: tasks, onTaskClick: setSelectedTask, showToast: showToast, onCreate: handleReviewCreate, onAddFocus: handleReviewFocus, onReschedule: handleReviewReschedule, onClarifyNext: handleReviewClarifyNext, onSetDeadline: handleReviewSetDeadline, onComplete: handleReviewComplete }));
+  }), /*#__PURE__*/React.createElement(AttachmentViewer, null), aiReviewOn() && /*#__PURE__*/React.createElement(WeeklyReview, { tasks: tasks, onTaskClick: setSelectedTask, showToast: showToast, onCreate: handleReviewCreate, onAddFocus: handleReviewFocus, onReschedule: handleReviewReschedule, onClarifyNext: handleReviewClarifyNext, onSetDeadline: handleReviewSetDeadline, onComplete: handleReviewComplete }), hasAppUpdate && /*#__PURE__*/React.createElement(UpdateNotificationBanner, {
+    onClose: () => {
+      setHasAppUpdate(false);
+      window.__APP_UPDATE_AVAILABLE = false;
+    }
+  }));
 }
 ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElementById("root"));
 </script>
   <script>
-    // Service Worker
+    // Service Worker & App Update Detection
+    window.__APP_VERSION = "4.0.0";
+    window.__SW_VERSION = "taskflow-v383-app-update-notifier";
+    window.__SW_REGISTRATION = null;
+    window.__APP_UPDATE_AVAILABLE = false;
+
+    function notifyAppUpdateAvailable() {
+      window.__APP_UPDATE_AVAILABLE = true;
+      window.dispatchEvent(new CustomEvent("appupdateavailable"));
+    }
+
+    window.applyAppUpdate = function() {
+      const reg = window.__SW_REGISTRATION;
+      if (reg && reg.waiting) {
+        reg.waiting.postMessage({ type: "SKIP_WAITING" });
+      } else if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: "SKIP_WAITING" });
+        setTimeout(() => window.location.reload(), 300);
+      } else {
+        window.location.reload();
+      }
+    };
+
+    window.checkForAppUpdate = async function(options) {
+      const isManual = Boolean(options && options.manual);
+      const toastFn = window.showToast || window.__showToast;
+      if (isManual && typeof toastFn === "function") {
+        toastFn("Mengecek pembaruan...", "info");
+      }
+
+      let updateFound = false;
+      const reg = window.__SW_REGISTRATION;
+
+      try {
+        if (reg) {
+          await reg.update().catch(err => console.warn("SW update check failed:", err));
+          if (reg.waiting && navigator.serviceWorker.controller) {
+            updateFound = true;
+          }
+        }
+
+        try {
+          const res = await fetch("/api/version?t=" + Date.now(), {
+            cache: "no-store",
+            headers: { "Cache-Control": "no-cache" }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.sw_version && data.sw_version !== window.__SW_VERSION) {
+              updateFound = true;
+            }
+          }
+        } catch (e) {
+          console.warn("Fetch /api/version failed:", e);
+        }
+
+        if (updateFound || (reg && reg.waiting && navigator.serviceWorker.controller)) {
+          notifyAppUpdateAvailable();
+          if (isManual && typeof toastFn === "function") {
+            toastFn("Pembaruan tersedia! Silakan muat ulang.", "info");
+          }
+        } else if (isManual && typeof toastFn === "function") {
+          toastFn("Aplikasi sudah dalam versi terbaru", "success");
+        }
+      } catch (err) {
+        console.error("Error checking for update:", err);
+        if (isManual && typeof toastFn === "function") {
+          toastFn("Gagal memeriksa pembaruan", "error");
+        }
+      }
+    };
+
     if ("serviceWorker" in navigator) {
       let refreshing = false;
       navigator.serviceWorker.addEventListener("controllerchange", () => {
@@ -30015,15 +30223,44 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
           window.location.reload();
         }
       });
+
+      const trackInstall = (reg) => {
+        window.__SW_REGISTRATION = reg;
+        if (reg.waiting && navigator.serviceWorker.controller) {
+          notifyAppUpdateAvailable();
+        }
+        reg.addEventListener("updatefound", () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener("statechange", () => {
+            if (newWorker.state === "installed" && navigator.serviceWorker.controller && reg.waiting) {
+              notifyAppUpdateAvailable();
+            }
+          });
+        });
+      };
+
       window.addEventListener("load", () => {
         navigator.serviceWorker.register("/sw.js", { scope: "/" })
           .then(reg => {
+            trackInstall(reg);
             reg.update().catch(() => {});
           })
           .catch(err => console.warn("SW register failed:", err));
       });
-    }
 
+      // Visibility change: saat tab kembali aktif
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+          window.checkForAppUpdate();
+        }
+      });
+
+      // Auto check setiap 30 menit (1800000 ms)
+      setInterval(() => {
+        window.checkForAppUpdate();
+      }, 1800000);
+    }
   </script>
 
 </body>

@@ -6,6 +6,45 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Fitur Notifikasi & Deteksi Pembaruan Aplikasi (PWA & Web) — 2026-10-11 (Antigravity/Gemini) — SELESAI
+- **Task:** Implementasi notifikasi dan deteksi pembaruan aplikasi Alurik (PWA & Web).
+- **Komponen & Perubahan:**
+  1. `webapp.py`:
+     - Menambahkan header `Cache-Control` (`no-cache, no-store, must-revalidate, max-age=0`), `Pragma: no-cache`, `Expires: 0` pada endpoint `GET /sw.js`.
+     - Menambahkan endpoint publik `GET /api/version` yang mengembalikan info versi JSON (`app_version: "4.0.0"`, `sw_version: "taskflow-v383-app-update-notifier"`, `cache_name`, `timestamp`) dengan header `Cache-Control: no-cache, no-store, must-revalidate`.
+  2. `static/sw.js`:
+     - Bump cache Service Worker ke `taskflow-v383-app-update-notifier`.
+     - Update lifecycle: pada event `install`, jika `!self.registration.active` panggil `self.skipWaiting()`; jika sudah ada SW aktif biarkan masuk state `waiting` sampai pengguna memilih perbarui.
+     - Event listener `message`: menangani string `"SKIP_WAITING"` dan objek `{ type: "SKIP_WAITING" }`.
+     - Route `GET /api/version` diatur sebagai `NETWORK-ONLY` agar bebas dari stale cache.
+  3. `static/index.html` & `static/app.css`:
+     - Komponen melayang `UpdateNotificationBanner` (ikon 🚀, pesan update, tombol "🔄 Perbarui Sekarang", dan tombol tutup "✕") dengan styling `var(--bg-card)` dan animasi `slideUpFade`.
+     - Handler `applyAppUpdate`: mengirim pesan `SKIP_WAITING` ke waiting worker dan reload halaman via event `controllerchange`.
+     - Registrasi Service Worker & deteksi: melacak event `updatefound` dan worker state `installed` saat ada worker waiting.
+     - Global function `window.checkForAppUpdate(options)`: memanggil `reg.update()`, cek `/api/version`, dan menampilkan toast responsif saat dipanggil manual.
+     - Event listener `visibilitychange` (cek update otomatis saat tab dibuka) & auto-check periodik via `setInterval` tiap 30 menit.
+     - Halaman Pengaturan (`SettingsPage`): kartu info versi aplikasi dan tombol "🔍 Cek Pembaruan" (`window.checkForAppUpdate({ manual: true })`).
+  4. Pengujian & Sinkronisasi:
+     - 7 file test offline disinkronkan ke cache `taskflow-v383-app-update-notifier`.
+     - Unit test backend baru `tests/test_version.py` untuk endpoint `/api/version` dan header `/sw.js`.
+     - Unit test offline baru `tests/offline/app_update_notifier.test.js` (9/9 pass).
+- **Verifikasi:**
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node --test tests/offline/app_update_notifier.test.js` ➡️ **9/9 passed**.
+  - `node --test tests/offline/*.test.js` ➡️ **1007/1007 passed (0 failed)** across 8 suites.
+- **Status:** 🟢 SELESAI (SW v383 `taskflow-v383-app-update-notifier`).
+
+## 🟢 Sinkronisasi Repo Lokal dari GitHub — 2026-10-11 (Antigravity/Gemini) — SELESAI
+- **Task:** Sinkronisasi repo lokal yang tertinggal dari GitHub (`origin/main`).
+- **Status Sinkronisasi:**
+  - Branch lokal `main` telah di-fast-forward dari `d57a1a8` ke `2303019` (`origin/main` / `origin/HEAD`), menarik 106 file terubah (+28503, -4615).
+  - Production vendor bundle `draw-app` berhasil di-rebuild via `npm --prefix draw-app run build` (`static/vendor/tldraw/assets/index.js`).
+- **Verifikasi:**
+  - JS offline test suite (`node --test tests/offline/*.test.js`): **998/998 PASS (0 FAIL)** across all 8 suites.
+  - Backend test suite (`venv/bin/python -m pytest tests/`): 132 passed, 1 failed (`test_delete_is_atomic_when_snapshot_fails` di `tests/test_note_trash.py` bawaan dari commit upstream `413f9c0`).
+
 ## 🟢 Perbaikan Pengiriman Chat & Self-Healing Migration Skema Chat — 2026-10-08 (Claude) — SELESAI
 - **Masalah:** Pengguna melaporkan pesan chat tidak bisa terkirim (stuck di status "🕐 mengirim…" pada obrolan grup / shared list atau gagal kirim).
 - **Root Cause:**

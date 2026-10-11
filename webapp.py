@@ -120,7 +120,7 @@ def _today_jkt() -> date:
 
 from fastapi import FastAPI, HTTPException, Depends, Response, Request, status, UploadFile, File as FastAPIFile, BackgroundTasks, Query, Body, Form
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, RedirectResponse, JSONResponse
 import io
 import zipfile
 import csv
@@ -3366,8 +3366,34 @@ async def serve_spa():
 @app.get("/sw.js")
 async def serve_sw():
     sw = STATIC_DIR / "sw.js"
-    return FileResponse(str(sw), media_type="application/javascript",
-                        headers={"Service-Worker-Allowed": "/"})
+    return FileResponse(
+        str(sw),
+        media_type="application/javascript",
+        headers={
+            "Service-Worker-Allowed": "/",
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
+@app.get("/api/version")
+async def get_app_version():
+    sw_cache = "taskflow-v383-app-update-notifier"
+    return JSONResponse(
+        content={
+            "app_version": "4.0.0",
+            "sw_version": sw_cache,
+            "cache_name": sw_cache,
+            "timestamp": int(datetime.utcnow().timestamp()),
+        },
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @app.get("/manifest.json")

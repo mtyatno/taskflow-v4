@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v382-chat-send-self-healing", () => {
-    assert.match(swJs, /taskflow-v382-chat-send-self-healing/);
+  await t.test("sw.js bumped to taskflow-v383-app-update-notifier", () => {
+    assert.match(swJs, /taskflow-v383-app-update-notifier/);
   });
 });

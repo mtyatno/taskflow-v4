@@ -2,6 +2,50 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-11 08:45] - Antigravity (Gemini)
+- **Task:** Implementasi Notifikasi dan Deteksi Pembaruan Aplikasi Alurik (PWA & Web).
+- **Changes:**
+  - `webapp.py`:
+    - Menambahkan header `Cache-Control` (`no-cache, no-store, must-revalidate, max-age=0`), `Pragma`, dan `Expires` pada endpoint `GET /sw.js`.
+    - Menambahkan endpoint publik `GET /api/version` yang mengembalikan info versi JSON (`app_version: "4.0.0"`, `sw_version: "taskflow-v383-app-update-notifier"`, `cache_name`, `timestamp`) dengan header `Cache-Control: no-cache, no-store, must-revalidate`.
+  - `static/sw.js`:
+    - Bump cache version ke `taskflow-v383-app-update-notifier`.
+    - Mengatur lifecycle install: `self.skipWaiting()` hanya dipanggil saat tidak ada SW aktif (`!self.registration.active`); jika ada SW aktif, worker baru menunggu hingga user melakukan prompt update (`SKIP_WAITING`).
+    - Menangani event `message` `"SKIP_WAITING"` / `{ type: "SKIP_WAITING" }`.
+    - Menjadikan endpoint `/api/version` `NETWORK-ONLY`.
+  - `static/index.html`:
+    - Menambahkan komponen melayang `UpdateNotificationBanner` (ikon 🚀, pesan informatif, tombol "🔄 Perbarui Sekarang", tombol "✕").
+    - Menambahkan pelacakan `updatefound` dan worker state `installed` serta `waiting` untuk memicu banner update.
+    - Menambahkan fungsi global `window.checkForAppUpdate(options)` (memanggil `reg.update()`, cek `/api/version`, dan menampilkan toast info/sukses).
+    - Menambahkan listener `visibilitychange` pada dokumen dan auto-check `setInterval` tiap 30 menit.
+    - Di `SettingsPage`: menambahkan kartu versi aplikasi dan tombol "🔍 Cek Pembaruan".
+  - `static/app.css`:
+    - Menambahkan styling `.update-notification-banner` dan animasi `@keyframes slideUpFade` (termasuk responsivitas mobile).
+  - Tests:
+    - Menambahkan unit test backend `tests/test_version.py`.
+    - Menambahkan unit test offline `tests/offline/app_update_notifier.test.js`.
+    - Sinkronisasi versi cache `taskflow-v383-app-update-notifier` di 7 file test offline.
+- **Verification:**
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node --test tests/offline/app_update_notifier.test.js` ➡️ **9/9 passed**.
+  - `node --test tests/offline/*.test.js` ➡️ **1007/1007 passed (0 failed)** across 8 suites.
+- **Files Touch:** `webapp.py`, `static/sw.js`, `static/index.html`, `static/app.css`, `tests/test_version.py`, `tests/offline/app_update_notifier.test.js`, 7 synchronized offline test files, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
+## [2026-10-11 07:45] - Antigravity (Gemini)
+- **Task:** Sinkronisasi repository lokal dengan origin/main di GitHub.
+- **Changes:**
+  - Menjalankan `git fetch origin --prune` dan `git merge --ff-only origin/main`.
+  - Repo lokal berhasil di-fast-forward dari commit `d57a1a8` ke `2303019`.
+  - Membangun ulang bundle vendor `draw-app` via `npm --prefix draw-app run build`.
+- **Verification:**
+  - JS offline tests: `node --test tests/offline/*.test.js` ➡️ **998/998 pass (0 fail)**.
+  - Backend tests: `venv/bin/python -m pytest tests/` ➡️ **132 passed, 1 failed** (`test_delete_is_atomic_when_snapshot_fails` akibat perubahan upstream pada commit `413f9c0`).
+- **Files Touch:** `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Completed
+
 ## [2026-10-08 15:30] - Claude
 - **Task:** Perbaikan chat tidak bisa terkirim & penambahan self-healing migration skema chat/workspace files.
 - **Changes:**
