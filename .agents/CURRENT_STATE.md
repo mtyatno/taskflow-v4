@@ -5,6 +5,50 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
+
+## 🟢 Redesain Split-View Kalender (Layar Lebar >= 1200px) & Sidebar Agenda — 2026-10-11 (Antigravity/Gemini) — SELESAI (Branch `feat/calendar-split-view-redesign`, Commit `466d7db`)
+- **Status:** SELESAI di branch `feat/calendar-split-view-redesign` (commit `466d7db`). Siap untuk branch review / merge.
+- **Spec & Plan:**
+  - `docs/superpowers/specs/2026-10-11-calendar-split-view-redesign.md`
+  - `docs/superpowers/plans/2026-10-11-calendar-split-view-redesign.md`
+  - SDD Task Report: `.superpowers/sdd/2026-10-11-calendar-split-view/task-report.md`
+- **Konteks & Masalah:**
+  - Pada layar lebar (>= 1200px), tampilan kalender bulanan terasa terlalu lapang/terentang dan cell bulanan terbatas tingginya sehingga task chip terpotong cepat (`+N lagi`).
+  - Pengguna menginginkan redesain split-view: grid kalender bulanan di sebelah kiri (dengan tinggi cell desktop ditingkatkan ke 105px dan chip ditampilkan hingga 3 task sebelum `+N lagi`), serta sidebar agenda interaktif yang sticky di sebelah kanan (lebar ~340px) pada layar >= 1200px.
+  - Sidebar agenda menampilkan tanggal aktif (default ke hari ini atau tgl 1), tombol "+ Tugas", daftar tugas pada hari tersebut lengkap dengan checkbox penyelesaian, detail hari libur nasional, serta rangkuman hari libur bulan berjalan.
+  - Pada layar lebar, klik tanggal langsung memperbarui agenda sidebar tanpa modal overlay yang menghalangi. Di layar < 1200px, modal popup dan daftar tanggal tetap berfungsi seperti semula.
+  - Sesuai aturan wajib pengguna: TIDAK ADA garis tepi berwarna di sisi kiri task (`borderLeft` styling dilarang keras).
+- **Perubahan yang Selesai:**
+  - `static/app.css`:
+    - Menambahkan `.cal-split-layout` (2-kolom grid `minmax(0, 1fr) 340px` dengan `gap: 20px; align-items: start;` pada `@media (min-width: 1200px)`).
+    - Menambahkan `.cal-split-sidebar` (`position: sticky; top: 80px;`, tersembunyi `display: none` di bawah 1200px).
+    - Menambahkan styling lengkap agenda header, badge, filter, list item dengan checkbox custom (`.cal-agenda-checkbox`), empty state, dan kartu hari libur nasional.
+  - `static/index.html`:
+    - Mengintegrasikan split layout di `CalendarView`.
+    - Meningkatkan tinggi desktop cell kalender menjadi `minHeight: 105, height: 105` dan menampilkan hingga 3 chip sebelum `+N lagi`.
+    - Menambahkan parameter `onDone` pada `TaskListItems` dan menambahkan checkbox toggle tugas.
+    - Pada klik tanggal di layar lebar (`window.innerWidth >= 1200`), state `selectedDay` diperbarui dan modal overlay disembunyikan agar navigasi sidebar mulus.
+    - Menambahkan default `selectedDay` saat pertama kali render (hari ini jika di bulan aktif, atau tanggal 1 bulan tersebut).
+    - Memperbarui link stylesheet ke `/static/app.css?v=321`.
+    - Memperbarui fallback dan `window.__SW_VERSION` ke `taskflow-v385-calendar-split-view-redesign`.
+  - `webapp.py`:
+    - Memperbarui `sw_cache = "taskflow-v385-calendar-split-view-redesign"`.
+  - `static/sw.js`:
+    - Bump cache Service Worker ke `taskflow-v385-calendar-split-view-redesign`.
+  - `tests/test_version.py`:
+    - Memperbarui asersi versi backend ke `v385`.
+  - `tests/offline/note_toc.test.js`:
+    - Memperbarui asersi stylesheet ke `app.css?v=321`.
+  - Sinkronisasi versi cache SW ke `taskflow-v385-calendar-split-view-redesign` di 8 test suites offline.
+  - `tests/offline/calendar_week_view.test.js`:
+    - Menambahkan test suite offline untuk memvalidasi `cal-split-layout`, sticky sidebar, desktop cell 105px, dan rendering 3 chips.
+- **Verifikasi Pengujian:**
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --test tests/offline/*.test.js` ➡️ **1010/1010 passed (0 failed)** across 8 suites.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+- **Commit:** `466d7db feat(calendar): split-view layout on wide screens with agenda sidebar and bump SW v385`.
+
 ## 🟢 Implementasi Dashboard Full-Width Fluid (Layar Lebar) — 2026-10-11 (Antigravity/Gemini) — SELESAI & DEPLOYED (Merged ke `main`)
 - **Status Integrasi:** Merged ke `main` (commit `459db81`), dipush ke GitHub (`origin/main`). Feature branch `feat/dashboard-full-width-fluid` telah dihapus.
 - **Spec & Plan:**

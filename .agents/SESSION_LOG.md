@@ -2,6 +2,45 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-11 14:35] - Antigravity (Gemini)
+- **Task:** Implementasi Redesain Split-View Kalender (Layar Lebar >= 1200px), Sidebar Agenda, Versi SW v385, dan app.css?v=321.
+- **Changes:**
+  - `static/app.css`:
+    - Menambahkan `.cal-split-layout` 2 kolom grid responsif (`minmax(0, 1fr) 340px`) untuk `@media (min-width: 1200px)`.
+    - Menambahkan `.cal-split-sidebar` (`position: sticky; top: 80px;`, disembunyikan pada viewport < 1200px).
+    - Menambahkan agenda components: `.cal-agenda-card`, `.cal-agenda-header`, `.cal-agenda-filter`, `.cal-agenda-checkbox`, `.cal-agenda-empty`, `.cal-agenda-holiday-item`, `.cal-holidays-summary-card`.
+    - Mentaati larangan `borderLeft`: tidak ada styling border kiri berwarna pada kartu tugas.
+  - `static/index.html`:
+    - Membungkus tampilan bulan dengan `.cal-split-layout` dan `.cal-split-main`.
+    - Meningkatkan tinggi cell kalender desktop dari 80px ke 105px (`minHeight: 105, height: 105`).
+    - Meningkatkan jumlah task chips yang ditampilkan sebelum `+N lagi` dari 2 menjadi 3 chip per cell.
+    - Menambahkan parameter `onDone` pada `TaskListItems` dan checkbox interaktif untuk toggle status tugas.
+    - Mengintegrasikan navigasi tanggal sidebar: klik tanggal di layar lebar (`>= 1200px`) mengatur `selectedDay` tanpa menampilkan modal overlay; di layar < 1200px popup modal tetap aktif.
+    - Menambahkan default `selectedDay` saat pertama kali render (hari ini atau tgl 1 bulan aktif).
+    - Memperbarui stylesheet ke `/static/app.css?v=321`.
+    - Memperbarui fallback dan `window.__SW_VERSION` ke `taskflow-v385-calendar-split-view-redesign`.
+  - `webapp.py`:
+    - Mengubah `sw_cache = "taskflow-v385-calendar-split-view-redesign"`.
+  - `static/sw.js`:
+    - Bump cache Service Worker ke `taskflow-v385-calendar-split-view-redesign`.
+  - Tests:
+    - Memperbarui `tests/test_version.py` ke `v385`.
+    - Memperbarui `tests/offline/note_toc.test.js` ke `app.css?v=321`.
+    - Menambahkan unit test di `tests/offline/calendar_week_view.test.js` untuk layout split-view, sticky sidebar, cell height 105px, dan 3 chip tasks.
+    - Menyinkronkan cache SW v385 di 8 suite test offline.
+  - Dokumen & Ledger:
+    - Spec: `docs/superpowers/specs/2026-10-11-calendar-split-view-redesign.md`.
+    - Plan: `docs/superpowers/plans/2026-10-11-calendar-split-view-redesign.md`.
+    - Report: `.superpowers/sdd/2026-10-11-calendar-split-view/task-report.md`.
+  - Commit: `466d7db feat(calendar): split-view layout on wide screens with agenda sidebar and bump SW v385`.
+- **Verification:**
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --test tests/offline/*.test.js` ➡️ **1010/1010 passed (0 failed)** across 8 suites.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+- **Files Touch:** `static/app.css`, `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/note_toc.test.js`, `tests/offline/calendar_week_view.test.js`, 7 synchronized offline test files, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed (Task 1 Implementation & Tests DONE)
+
 ## [2026-10-11 12:40] - Antigravity (Gemini)
 - **Task:** Finalisasi & Review Implementasi Dashboard Full-Width Fluid (Layar Lebar) & SW v384.
 - **Changes:**
