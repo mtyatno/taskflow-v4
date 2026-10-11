@@ -41,8 +41,8 @@ test("Trailing Empty Block: static/index.html integration presence", async (t) =
     assert.match(indexHtml, /function\s+createTrailingEmptyBlockPlugin\s*\(/);
   });
 
-  await t.test("createTrailingEmptyBlockPlugin(MB) is chained in MilkdownEditor .use()", () => {
-    assert.match(indexHtml, /\.use\(createTrailingEmptyBlockPlugin\(MB\)\)/);
+  await t.test("createTrailingEmptyBlockPlugin(MB) || [] is chained in MilkdownEditor .use()", () => {
+    assert.match(indexHtml, /\.use\(createTrailingEmptyBlockPlugin\(MB\)\s*\|\|\s*\[\]\)/);
   });
 
   await t.test("Initial document trailing empty block check exists in .create().then()", () => {
@@ -58,8 +58,8 @@ test("Trailing Empty Block: static/index.html integration presence", async (t) =
     assert.match(indexHtml, /view\.focus\(\)/);
   });
 
-  await t.test("markdownUpdated normalizes trailing newlines before calling onChange", () => {
-    assert.match(indexHtml, /const\s+cleaned\s*=\s*\(markdown\s*\|\|\s*''\)\.replace\(\/\\n\+\$\/,\s*''\);/);
+  await t.test("markdownUpdated normalizes trailing newlines (LF and CRLF) before calling onChange", () => {
+    assert.match(indexHtml, /const\s+cleaned\s*=\s*\(markdown\s*\|\|\s*''\)\.replace\(\/\[\\r\\n\]\+\$\/,\s*''\);/);
     assert.match(indexHtml, /onChange\(cleaned\);/);
   });
 });
@@ -186,6 +186,14 @@ test("Trailing Empty Block: createTrailingEmptyBlockPlugin logic", async (t) => 
     const trResult = plugin.appendTransaction([{ docChanged: false }], oldState, newState);
     assert.equal(trResult, null, "appendTransaction must return null when doc is unchanged");
   });
+
+  await t.test("Returns empty array [] when MilkdownBundle is falsy or missing prerequisites", () => {
+    [null, undefined, {}, { $prose: () => {} }, { Plugin: function () {} }].forEach((badMB) => {
+      const res = createPlugin(badMB);
+      assert.ok(Array.isArray(res), "Result should be an array");
+      assert.equal(res.length, 0, "Result array should be empty");
+    });
+  });
 });
 
 test("Trailing Empty Block: handleContainerClick bottom empty area navigation", async (t) => {
@@ -243,8 +251,9 @@ test("Trailing Empty Block: handleContainerClick bottom empty area navigation", 
 });
 
 test("Trailing Empty Block: Markdown save normalization", async (t) => {
-  const normalize = (markdown) => (markdown || "").replace(/\n+$/, "");
+  const normalize = (markdown) => (markdown || "").replace(/[\r\n]+$/, "");
 
+  // Unix LF line endings
   assert.equal(normalize("Hello world\n\n"), "Hello world");
   assert.equal(normalize("Hello world\n"), "Hello world");
   assert.equal(normalize("Hello world\n\n\n\n"), "Hello world");
@@ -254,4 +263,14 @@ test("Trailing Empty Block: Markdown save normalization", async (t) => {
   assert.equal(normalize(null), "");
   assert.equal(normalize(undefined), "");
   assert.equal(normalize("\n\n\n"), "");
+
+  // Windows CRLF line endings
+  assert.equal(normalize("Hello world\r\n\r\n"), "Hello world");
+  assert.equal(normalize("Hello world\r\n"), "Hello world");
+  assert.equal(normalize("Hello world\r\n\r\n\r\n\r\n"), "Hello world");
+  assert.equal(normalize("Line 1\r\n\r\nLine 2\r\n\r\n"), "Line 1\r\n\r\nLine 2");
+  assert.equal(normalize("# Title\r\n\r\nParagraph text\r\n"), "# Title\r\n\r\nParagraph text");
+  assert.equal(normalize("\r\n\r\n\r\n"), "");
+  assert.equal(normalize("Mixed\n\r\n"), "Mixed");
+  assert.equal(normalize("Carriage return only\r\r"), "Carriage return only");
 });

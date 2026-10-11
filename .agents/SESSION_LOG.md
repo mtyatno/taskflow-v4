@@ -2,6 +2,57 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-11 22:50] - Antigravity (Gemini)
+- **Task:** Support string CID task ID in handleDone and taskroutes POST /api/tasks/:id/done & GET /api/tasks/:id/child-tasks (SW v392 `taskflow-v392-gtd-inbox-done-cid-fix`).
+- **Changes:**
+  - `static/offline/taskroutes.js`:
+    - Menambahkan rute `POST /api/tasks/:id/done` dengan resolusi `resolveCid` dan `TFrepo.updateTask(cid, { gtd_status: "done" }, opts())` (mengisi `completed_at`).
+    - Menambahkan rute `GET /api/tasks/:id/child-tasks` dengan resolusi `resolveCid` dan memfilter tasks dengan `parent_cid === cid` dan `!r.deleted`.
+  - `static/index.html`:
+    - Di `handleDone`: menambahkan `isIntegerId` check, safe check `(children || []).filter(...)`, dan fallback ke `PUT /api/tasks/:id` jika non-integer id gagal di POST.
+    - Bump fallback SW version ke `taskflow-v392-gtd-inbox-done-cid-fix`.
+  - `webapp.py`:
+    - Bump `sw_cache` ke `taskflow-v392-gtd-inbox-done-cid-fix`.
+  - `static/sw.js`:
+    - Bump `const CACHE = "taskflow-v392-gtd-inbox-done-cid-fix";`.
+  - `tests/test_version.py`:
+    - Bump asersi ke `taskflow-v392-gtd-inbox-done-cid-fix` dan `v392`.
+  - `tests/offline/taskroutes.test.js`:
+    - Menambahkan unit test untuk `POST /api/tasks/:id/done` (via cid dan server_id) dan `GET /api/tasks/:id/child-tasks`.
+  - Sinkronisasi versi cache SW di seluruh 8 test suite offline (`tests/offline/`).
+  - Isolasi ketat: note editor perubahan tidak disentuh dan tidak di-stage.
+- **Commit:** `56e50bf fix(gtd): support string cid task id in handleDone and taskroutes POST done`
+- **Verification:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ 5/5 inline scripts OK.
+  - `node --check static/sw.js` ➡️ OK.
+  - `node --test tests/offline/taskroutes.test.js tests/offline/gtd_inbox_triage.test.js` ➡️ 26 passed, 0 failed.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed, 0 failed.
+  - `node --test tests/offline/*.test.js` ➡️ 1044 passed, 0 failed across 8 suites.
+- **Files Touch:** `static/offline/taskroutes.js`, `tests/offline/taskroutes.test.js`, `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/*.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
+## [2026-10-11 22:30] - Antigravity (Gemini)
+- **Task:** Trailing Empty Block di Note Editor (MilkdownEditor) — Opsi A (Clean UX).
+- **Changes:**
+  - `static/index.html`:
+    - Membuat plugin ProseMirror `createTrailingEmptyBlockPlugin(MB)` menggunakan hook `appendTransaction` untuk mendeteksi perubahan dokumen.
+    - Menyisipkan `<p></p>` kosong di posisi akhir dokumen jika node terakhir belum berupa paragraf kosong.
+    - Menghindari duplikasi blok kosong jika paragraf kosong sudah ada.
+    - Fallback aman `return [];` saat dependensi editor belum siap dan chaining `.use(createTrailingEmptyBlockPlugin(MB) || [])`.
+    - Memeriksa initial document pada callback `.create().then(editor => { ... })` agar trailing block langsung tersedia sejak pertama kali catatan dimuat.
+    - Pada `handleContainerClick`: mendeteksi klik di area kosong kontainer di bawah konten (`e.clientY > lastRect.bottom` atau background wrapper), lalu mengarahkan kursor ke baris kosong terakhir (`TextSelection.near(doc.resolve(Math.max(0, doc.content.size - 1)))`) serta memanggil `view.focus()`.
+    - Pada listener `markdownUpdated`: membersihkan trailing newlines ekstra (LF & CRLF) dengan `replace(/[\r\n]+$/, '')` sebelum `onChange`.
+    - Isolasi ketat: 0 baris berubah pada modul Inbox, GTD, dan tasklist.
+  - `tests/offline/note_editor_trailing_block.test.js`:
+    - Suite unit test baru menguji presence integrasi plugin, chaining `.use()`, logika `appendTransaction` (heading, non-empty paragraph, dedup), navigasi klik area bawah, serta normalisasi Markdown LF dan Windows CRLF.
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ OK (5/5 inline scripts).
+  - `node --test tests/offline/note_editor_trailing_block.test.js` ➡️ 14 passed, 0 failed.
+  - `node --test tests/offline/*.test.js` ➡️ 1042 passed, 0 failed across 8 suites.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed, 0 failed.
+- **Files Touch:** `static/index.html`, `tests/offline/note_editor_trailing_block.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-11 21:50] - Antigravity (Gemini)
 - **Task:** GTD Inbox Triage System (Inline Quick Triage Buttons + Guided '⚡ Proses Inbox' Wizard) (SW v391 `taskflow-v391-gtd-inbox-triage-wizard`, `app.css?v=325`).
 - **Changes:**

@@ -6,6 +6,66 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Fix GTD Wizard '<2m' (Done) String CID Task ID Support — 2026-10-11 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI. SW v392 `taskflow-v392-gtd-inbox-done-cid-fix`. Commit: `56e50bf`.
+- **Konteks & Masalah:**
+  - Ketika menelaah task di GTD Wizard dan memilih '<2m' (Done), muncul error:
+    `Input should be a valid integer, unable to parse string as an integer`.
+  - Root cause:
+    1. Task baru/offline di IndexedDB memiliki format ID berupa string Client ID (`cid`, e.g. `c_172866...`).
+    2. `static/offline/taskroutes.js` belum mendaftarkan rute `POST /api/tasks/:id/done` dan `GET /api/tasks/:id/child-tasks`.
+    3. Akibatnya, request tidak diarahkan ke lokal IndexedDB melainkan dikirim ke server FastAPI (`webapp.py`), di mana path parameter `task_id` bertipe `int` (`task_id: int`). Pydantic menolak string CID dengan HTTP 422 error.
+- **Solusi & Implementasi:**
+  1. **`static/offline/taskroutes.js`:**
+     - Mendaftarkan rute `POST /api/tasks/:id/done` dengan `resolveCid(params.id)` -> `TFrepo.updateTask(cid, { gtd_status: "done" }, opts())` (yang otomatis mengisi `completed_at: now`).
+     - Mendaftarkan rute `GET /api/tasks/:id/child-tasks` dengan `resolveCid(params.id)` -> memfilter tugas anak dengan `parent_cid === cid` dan `!r.deleted`.
+  2. **`static/index.html`:**
+     - Memperbarui `handleDone(taskId)` dengan validasi `isIntegerId = /^\d+$/.test(String(taskId))`.
+     - Melindungi pemanggilan `(children || []).filter(...)` agar tidak error saat children undefined/null.
+     - Menambahkan fallback jika `api.post(/api/tasks/${taskId}/done)` gagal dan `!isIntegerId`, maka memanggil `api.put(/api/tasks/${taskId}, { gtd_status: "done" })`.
+     - Bump fallback SW version ke `taskflow-v392-gtd-inbox-done-cid-fix`.
+  3. **Backend & Service Worker:**
+     - `webapp.py`: bump `sw_cache` ke `taskflow-v392-gtd-inbox-done-cid-fix`.
+     - `static/sw.js`: bump `CACHE` ke `taskflow-v392-gtd-inbox-done-cid-fix`.
+     - `tests/test_version.py`: bump asersi ke `taskflow-v392-gtd-inbox-done-cid-fix` dan `v392`.
+  4. **Pengujian:**
+     - Menambahkan unit test di `tests/offline/taskroutes.test.js` untuk resolusi CID & server_id pada `POST /api/tasks/:id/done` dan `GET /api/tasks/:id/child-tasks`.
+     - Sinkronisasi SW cache string di seluruh test suite offline (`tests/offline/`).
+  5. **Isolasi Ketat:**
+     - Perubahan note editor (MilkdownEditor trailing block) tidak disentuh dan tidak di-stage.
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ OK (5/5 inline scripts).
+  - `node --check static/sw.js` ➡️ OK.
+  - `node --test tests/offline/taskroutes.test.js tests/offline/gtd_inbox_triage.test.js` ➡️ 26/26 passed (0 failed).
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed (0 failed).
+  - `node --test tests/offline/*.test.js` ➡️ 1044/1044 passed across 8 suites.
+
+## 🟢 Trailing Empty Block di Note Editor (MilkdownEditor) — 2026-10-11 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI.
+- **Konteks & Masalah:**
+  - Sebelumnya, jika baris/blok terakhir catatan berisi teks atau elemen (tabel, heading, list, quote), tidak ada baris kosong di bawahnya.
+  - Pengguna harus mengklik baris terakhir yang ada isinya, menempatkan kursor di akhir isi blok, lalu menekan Enter untuk mendapatkan baris baru.
+  - Hal ini memakan waktu dan mengganggu alur penulisan catatan.
+- **Solusi & Implementasi (Opsi A — Clean UX):**
+  1. **ProseMirror Plugin `createTrailingEmptyBlockPlugin(MB)` di `static/index.html`:**
+     - Menggunakan hook `appendTransaction` untuk mendeteksi perubahan dokumen (`docChanged`).
+     - Jika node terakhir (`doc.lastChild`) bukan paragraph kosong (`lastNode.type === schema.nodes.paragraph && lastNode.content.size === 0`), secara otomatis menyisipkan `<p></p>` kosong di posisi akhir dokumen (`doc.content.size`).
+     - Mengembalikan `null` jika dokumen sudah berakhir dengan paragraph kosong (mencegah duplikasi).
+     - Menyediakan fallback aman `return [];` jika `MilkdownBundle` atau prerequisite tidak tersedia, dan chaining `.use(createTrailingEmptyBlockPlugin(MB) || [])`.
+  2. **Verifikasi Initial Document:**
+     - Pada inisialisasi editor (`.create().then(editor => { ... })`), dokumen awal langsung diperiksa dan disisipkan trailing empty paragraph jika belum ada.
+  3. **Navigasi Klik Area Bawah:**
+     - Pada `handleContainerClick` di `MilkdownEditor`: jika pengguna mengklik area kosong kontainer di bawah dokumen atau di bawah elemen anak terakhir (`e.clientY > lastRect.bottom`), kursor langsung diarahkan ke baris kosong terakhir (`TextSelection.near(doc.resolve(Math.max(0, doc.content.size - 1)))`) dan editor difokuskan (`view.focus()`).
+  4. **Normalisasi Markdown Saat Simpan:**
+     - Di listener `markdownUpdated`: membersihkan trailing newlines ekstra (mendukung LF `\n` dan Windows CRLF `\r\n`) menggunakan regex `replace(/[\r\n]+$/, '')` sebelum memanggil `onChange`.
+  5. **Isolasi Penuh:**
+     - Tidak ada intervensi ke Inbox, GTD status, tasklist, maupun task modals.
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --test tests/offline/note_editor_trailing_block.test.js` ➡️ **14/14 passed (0 failed)**.
+  - `node --test tests/offline/*.test.js` ➡️ **1042/1042 passed (0 failed)** across 8 suites.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+
 ## 🟢 Dual-Mode GTD Inbox Triage System (Inline Quick Triage + Guided '⚡ Proses Inbox' Wizard) — 2026-10-11 (Antigravity/Gemini) — SELESAI
 - **Status:** 🟢 SELESAI. SW v391 `taskflow-v391-gtd-inbox-triage-wizard` & `app.css?v=325`. Commits: `ed389d1`, `41e6229`.
 - **Konteks & Masalah:**

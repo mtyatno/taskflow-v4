@@ -162,6 +162,9 @@
       if (patch.progress != null) {
         next.progress = Math.max(0, Math.min(100, patch.progress));
       }
+      if (patch.is_focused != null) {
+        next.is_focused = patch.is_focused ? 1 : 0;
+      }
 
       if (patch.recurrence_renew) {
         next.recurrence_end_date = plus90(opts && opts.today);
@@ -207,7 +210,7 @@
     });
   }
 
-  const exported = { getTask, createTask, updateTask, deleteTask, displayFrom };
+  const exported = { getTask, createTask, updateTask, deleteTask, displayFrom, getRaw };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.taskrepo = exported; }
   return exported;
 });
