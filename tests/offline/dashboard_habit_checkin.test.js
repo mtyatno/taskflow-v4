@@ -89,10 +89,10 @@ test("3. Dashboard component in static/index.html implements habit checkin and C
   assert.match(dashSrc, /centerToast\.type\s*===\s*["']habit["']\s*\?\s*["']activity["']/);
 });
 
-test("4. Service Worker and index.html cache version is taskflow-v391-gtd-inbox-triage-wizard", () => {
+test("4. Service Worker and index.html cache version is taskflow-v392-note-trailing-empty-block", () => {
   const sw = fs.readFileSync(swPath, "utf8");
   const html = fs.readFileSync(htmlPath, "utf8");
 
-  assert.match(sw, /^const CACHE = "taskflow-v391-gtd-inbox-triage-wizard";/m);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v391-gtd-inbox-triage-wizard";/);
+  assert.match(sw, /^const CACHE = "taskflow-v392-note-trailing-empty-block";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v392-note-trailing-empty-block";/);
 });

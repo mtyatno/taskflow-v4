@@ -18361,7 +18361,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v391-gtd-inbox-triage-wizard"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v392-gtd-inbox-done-cid-fix"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -29913,12 +29913,13 @@ function App() {
   // Task actions
   const handleDone = async taskId => {
     try {
+      const isIntegerId = /^\d+$/.test(String(taskId));
       // Check for pending child tasks
       let children = [];
       try {
         children = await api.get(`/api/tasks/${taskId}/child-tasks`);
       } catch (_) {}
-      const pending = children.filter(c => c.gtd_status !== "done" && c.gtd_status !== "archived");
+      const pending = (children || []).filter(c => c.gtd_status !== "done" && c.gtd_status !== "archived");
       if (pending.length > 0) {
         setDoneConfirm({
           taskId,
@@ -29933,7 +29934,15 @@ function App() {
           timer.pause();
         }
       }
-      await api.post(`/api/tasks/${taskId}/done`);
+      try {
+        await api.post(`/api/tasks/${taskId}/done`);
+      } catch (postErr) {
+        if (!isIntegerId) {
+          await api.put(`/api/tasks/${taskId}`, { gtd_status: "done" });
+        } else {
+          throw postErr;
+        }
+      }
       showToast("Task selesai! ✅");
       fetchAll();
       window.dispatchEvent(new CustomEvent("taskUpdated", {
@@ -30952,7 +30961,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v391-gtd-inbox-triage-wizard";
+    window.__SW_VERSION = "taskflow-v392-gtd-inbox-done-cid-fix";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

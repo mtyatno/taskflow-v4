@@ -7,12 +7,12 @@ const htmlPath = path.join(__dirname, "../../static/index.html");
 const cssPath = path.join(__dirname, "../../static/app.css");
 const swPath = path.join(__dirname, "../../static/sw.js");
 
-test("Service Worker and stylesheet versions are synchronized for v391", () => {
+test("Service Worker and stylesheet versions are synchronized for v392", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v391-gtd-inbox-triage-wizard/);
-  assert.match(html, /taskflow-v391-gtd-inbox-triage-wizard/);
+  assert.match(sw, /taskflow-v392-note-trailing-empty-block/);
+  assert.match(html, /taskflow-v392-note-trailing-empty-block/);
   assert.match(html, /app\.css\?v=325/);
 });
 

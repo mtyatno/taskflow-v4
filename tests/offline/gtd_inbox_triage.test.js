@@ -136,11 +136,11 @@ test("6. App provides handleUpdateTaskGtd with optimistic update and offline que
   assert.match(appSrc, /onUpdateGtdStatus:\s*handleUpdateTaskGtd/);
 });
 
-test("7. Service Worker and stylesheet versions are bumped to v391 and app.css?v=325", () => {
+test("7. Service Worker and stylesheet versions are bumped to v392 and app.css?v=325", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
   assert.match(html, /<link rel="stylesheet" href="\/static\/app\.css\?v=325">/);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v391-gtd-inbox-triage-wizard";/);
-  assert.match(sw, /^const CACHE = "taskflow-v391-gtd-inbox-triage-wizard";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v392-note-trailing-empty-block";/);
+  assert.match(sw, /^const CACHE = "taskflow-v392-note-trailing-empty-block";/m);
 });

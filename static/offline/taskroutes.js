@@ -103,6 +103,19 @@
     router.register("DELETE", "/api/tasks/:id", ({ params }) =>
       resolveCid(params.id).then((cid) => (cid ? TFrepo.deleteTask(cid, opts()) : notFound())));
 
+    router.register("POST", "/api/tasks/:id/done", ({ params }) =>
+      resolveCid(params.id)
+        .then((cid) => (cid ? TFrepo.updateTask(cid, { gtd_status: "done" }, opts()) : notFound()))
+        .then(withId));
+
+    router.register("GET", "/api/tasks/:id/child-tasks", ({ params }) =>
+      resolveCid(params.id).then((cid) => {
+        if (!cid) return [];
+        return getAllTasks().then((all) =>
+          all.filter((r) => !r.deleted && r.parent_cid === cid).map(withId)
+        );
+      }));
+
     router.register("GET", "/api/summary", () => TFquery.getSummary(opts()));
     router.register("GET", "/api/projects", () => TFquery.getProjects());
     router.register("GET", "/api/contexts", () => TFquery.getContexts());

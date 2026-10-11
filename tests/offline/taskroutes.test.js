@@ -129,11 +129,61 @@ test("isNoteTagsCall is true only for GET /api/tags?entity_type=note", () => {
   assert.equal(isNoteTagsCall("GET", "/api/tags?entity_type=task"), false);
 });
 
-test("hasRoute is false for un-ported task routes", () => {
+test("hasRoute is false for un-ported task routes and true for ported routes", () => {
   const R = buildTaskRouter();
-  assert.equal(R.hasRoute("POST", "/api/tasks/10/done"), false);
+  assert.equal(R.hasRoute("POST", "/api/tasks/10/done"), true);
+  assert.equal(R.hasRoute("GET", "/api/tasks/10/child-tasks"), true);
   assert.equal(R.hasRoute("POST", "/api/tasks/10/focus"), false);
   assert.equal(R.hasRoute("GET", "/api/tasks/10/subtasks"), false);
+});
+
+test("POST /api/tasks/:id/done marks task done and sets completed_at (resolves by server_id and cid)", async () => {
+  await seedTasks([
+    task({ cid: "t_server", server_id: 101, title: "Server task", gtd_status: "next" }),
+    task({ cid: "t_client", server_id: null, title: "Client task", gtd_status: "inbox" }),
+  ]);
+  const R = buildTaskRouter();
+
+  // Via server_id
+  const resServer = await R.dispatch("POST", "/api/tasks/101/done", undefined);
+  assert.equal(resServer.id, 101);
+  assert.equal(resServer.gtd_status, "done");
+  assert.ok(resServer.completed_at, "completed_at should be populated");
+
+  // Via cid
+  const resClient = await R.dispatch("POST", "/api/tasks/t_client/done", undefined);
+  assert.equal(resClient.id, "t_client");
+  assert.equal(resClient.gtd_status, "done");
+  assert.ok(resClient.completed_at, "completed_at should be populated");
+
+  // Unknown id rejects
+  await assert.rejects(() => R.dispatch("POST", "/api/tasks/unknown/done", undefined));
+});
+
+test("GET /api/tasks/:id/child-tasks resolves child tasks by parent cid", async () => {
+  await seedTasks([
+    task({ cid: "parent_1", server_id: 200, title: "Parent" }),
+    task({ cid: "child_1", server_id: 201, title: "Child 1", parent_cid: "parent_1" }),
+    task({ cid: "child_2", server_id: null, title: "Child 2", parent_cid: "parent_1" }),
+    task({ cid: "child_deleted", server_id: null, title: "Child Deleted", parent_cid: "parent_1", deleted: true }),
+    task({ cid: "other", server_id: 202, title: "Other", parent_cid: "other_parent" }),
+  ]);
+  const R = buildTaskRouter();
+
+  // Via server_id
+  const childrenViaServerId = await R.dispatch("GET", "/api/tasks/200/child-tasks", undefined);
+  assert.equal(childrenViaServerId.length, 2);
+  assert.deepEqual(childrenViaServerId.map((c) => c.title).sort(), ["Child 1", "Child 2"]);
+  assert.equal(childrenViaServerId.find((c) => c.cid === "child_1").id, 201);
+  assert.equal(childrenViaServerId.find((c) => c.cid === "child_2").id, "child_2");
+
+  // Via cid
+  const childrenViaCid = await R.dispatch("GET", "/api/tasks/parent_1/child-tasks", undefined);
+  assert.equal(childrenViaCid.length, 2);
+
+  // Unknown id returns empty array
+  const unknownChildren = await R.dispatch("GET", "/api/tasks/nonexistent/child-tasks", undefined);
+  assert.deepEqual(unknownChildren, []);
 });
 
 async function seedLists(recs) {
