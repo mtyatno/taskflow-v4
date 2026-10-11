@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v384-dashboard-full-width-fluid", () => {
-    assert.match(swJs, /taskflow-v384-dashboard-full-width-fluid/);
+  await t.test("sw.js bumped to taskflow-v385-calendar-split-view-redesign", () => {
+    assert.match(swJs, /taskflow-v385-calendar-split-view-redesign/);
   });
 });

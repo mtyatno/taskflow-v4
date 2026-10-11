@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v384-dashboard-full-width-fluid";
+const CACHE = "taskflow-v385-calendar-split-view-redesign";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",

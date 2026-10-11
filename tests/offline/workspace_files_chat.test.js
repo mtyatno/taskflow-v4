@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v384-dashboard-full-width-fluid', () => {
+  test('Service Worker cache version is bumped to taskflow-v385-calendar-split-view-redesign', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v384-dashboard-full-width-fluid";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v385-calendar-split-view-redesign";/m);
   });
 });
 

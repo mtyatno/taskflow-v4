@@ -10,6 +10,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const indexHtml = fs.readFileSync(path.resolve(__dirname, "../../static/index.html"), "utf8").replace(/\r\n/g, "\n");
+const appCss = fs.readFileSync(path.resolve(__dirname, "../../static/app.css"), "utf8").replace(/\r\n/g, "\n");
 
 function between(startMarker, endMarker) {
   const s = indexHtml.indexOf(startMarker);
@@ -103,4 +104,20 @@ test("CalendarView: week view desktop 7 kolom, mobile berurutan ke bawah, + Task
 test("Kalender: kartu task tanpa garis warna di tepi (preferensi desain user)", () => {
   assert.doesNotMatch(cal, /borderLeft: `3px solid/);
   assert.doesNotMatch(cal, /borderLeft:\s*`\d+px solid \$\{/);
+});
+
+test("CalendarView: split-view layout pada layar lebar (>= 1200px) dan agenda sidebar", () => {
+  assert.match(cal, /className: "cal-split-layout"/);
+  assert.match(cal, /className: "cal-split-sidebar"/);
+  assert.match(cal, /className: "cal-agenda-panel/);
+  assert.match(appCss, /\.cal-split-layout/);
+  assert.match(appCss, /@media\s*\(min-width:\s*1200px\)\s*\{[\s\S]*?\.cal-split-layout/);
+  assert.match(appCss, /\.cal-split-sidebar/);
+});
+
+test("CalendarView: desktop cell minHeight 105 (bukan height: 80 kaku) dan render hingga 3 task chip", () => {
+  assert.doesNotMatch(cal, /height:\s*80/);
+  assert.match(cal, /minHeight:\s*105/);
+  assert.match(cal, /dayTasks\.slice\(0,\s*3\)/);
+  assert.match(cal, /hasMore\s*=\s*dayTasks\.length\s*>\s*3/);
 });

@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=320">
+  <link rel="stylesheet" href="/static/app.css?v=321">
 
 <style>
 .paper-mode-active {
@@ -11470,7 +11470,8 @@ function calWeekLabel(weekStart) {
 function CalendarView({
   tasks,
   onTaskClick,
-  onCreateOnDate
+  onCreateOnDate,
+  onDone
 }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -11690,6 +11691,10 @@ function CalendarView({
   // Tanggal tanpa task → langsung buka modal "Buat Baru" dengan deadline tanggal itu.
   // Tanggal yang sudah ada task → panel daftar task (dengan tombol buat task di tanggal itu).
   const handleDayClick = day => {
+    if (typeof window !== "undefined" && window.innerWidth >= 1200) {
+      setSelectedDay(day);
+      return;
+    }
     if (day === selectedDay) {
       setSelectedDay(null);
       return;
@@ -11720,7 +11725,7 @@ function CalendarView({
     size: 14
   }), "Task");
 
-  // Shared task list renderer (used both in inline panel and desktop modal)
+  // Shared task list renderer (used in inline panel, desktop modal, and split sidebar)
   const TaskListItems = ({
     items,
     onSelect
@@ -11748,7 +11753,41 @@ function CalendarView({
         transition: "opacity 0.15s",
         opacity: isDone ? 0.65 : 1
       }
-    }, /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "checkbox",
+      checked: isDone,
+      onChange: e => {
+        e.stopPropagation();
+        if (t._isRecurring) {
+          setRecurPopup({
+            task: t,
+            date: t._occurrenceDate
+          });
+          return;
+        }
+        if (isDone) {
+          api.patch(`/api/tasks/${t.id}`, { gtd_status: "inbox" }).then(() => {
+            window.dispatchEvent(new CustomEvent("taskUpdated", { detail: { taskId: t.id } }));
+          }).catch(() => {});
+        } else {
+          if (onDone) {
+            onDone(t.id);
+          } else {
+            api.post(`/api/tasks/${t.id}/done`).then(() => {
+              window.dispatchEvent(new CustomEvent("taskUpdated", { detail: { taskId: t.id } }));
+            }).catch(() => {});
+          }
+        }
+      },
+      onClick: e => e.stopPropagation(),
+      style: {
+        cursor: "pointer",
+        accentColor: "var(--accent)",
+        width: 16,
+        height: 16,
+        flexShrink: 0
+      }
+    }), /*#__PURE__*/React.createElement("div", {
       style: {
         flex: 1,
         minWidth: 0
@@ -12161,6 +12200,10 @@ function CalendarView({
     onClick: nextMonth,
     "aria-label": view === "week" ? "Minggu berikutnya" : "Bulan berikutnya"
   }, isMobile && view === "week" ? "\u203A" : "Next \u203A"))), view === "week" ? renderWeek() : /*#__PURE__*/React.createElement("div", {
+    className: "cal-split-layout"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "cal-split-main"
+  }, /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: isMobile ? 8 : 12
@@ -12194,9 +12237,9 @@ function CalendarView({
     }
   }, cells.slice(wi * 7, wi * 7 + 7).map((day, di) => {
     const isToday = day === todayDay;
-    const isSelected = day === selectedDay;
+    const isSelected = day === (selectedDay || (typeof window !== "undefined" && window.innerWidth >= 1200 ? (todayDay > 0 ? todayDay : 1) : null));
     const dayTasks = day ? byDay[day] || [] : [];
-    const hasMore = dayTasks.length > 2;
+    const hasMore = dayTasks.length > 3;
     const dateStr = day ? `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}` : null;
     const holidayName = dateStr ? holidays[dateStr] : null;
     const isWeekend = day ? [0, 6].includes(new Date(year, month, day).getDay()) : false;
@@ -12278,7 +12321,8 @@ function CalendarView({
       key: di,
       onClick: () => day && handleDayClick(day),
       style: {
-        height: 80,
+        minHeight: 105,
+        height: 105,
         overflow: "hidden",
         borderRadius: 6,
         padding: "4px 6px",
@@ -12323,7 +12367,7 @@ function CalendarView({
         minWidth: 16,
         textAlign: "center"
       }
-    }, dayTasks.length))), dayTasks.slice(0, 2).map(t => {
+    }, dayTasks.length))), dayTasks.slice(0, 3).map(t => {
       const c = chipColor(t);
       const chipKey = t._isRecurring ? t.id + '_' + t._occurrenceDate : t.id;
       const isDoneOcc = t._occurrenceStatus === 'done';
@@ -12361,8 +12405,8 @@ function CalendarView({
         fontWeight: 600,
         marginTop: 1
       }
-    }, "+", dayTasks.length - 2, " lagi")));
-  })))), /*#__PURE__*/React.createElement("div", {
+    }, "+", dayTasks.length - 3, " lagi")));
+  }))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 10,
@@ -12414,13 +12458,14 @@ function CalendarView({
       display: "inline-block",
       flexShrink: 0
     }
-  }), "Hari Libur Nasional")), view === "month" && (() => {
+  }), "Hari Libur Nasional"))), view === "month" && (() => {
     const monthHolidays = Object.entries(holidays).filter(([d]) => {
       const [y, m] = d.split("-").map(Number);
       return y === year && m === month + 1;
     }).sort(([a], [b]) => a.localeCompare(b));
     if (!monthHolidays.length) return null;
     return /*#__PURE__*/React.createElement("div", {
+      className: "cal-holidays-bottom",
       style: {
         marginTop: 10,
         padding: "10px 14px",
@@ -12540,7 +12585,120 @@ function CalendarView({
       setSelectedDay(null);
       onTaskClick(t);
     }
-  })), !isMobile && selectedDay && /*#__PURE__*/React.createElement("div", {
+  }))), /*#__PURE__*/React.createElement("aside", {
+    className: "cal-split-sidebar"
+  }, (() => {
+    const activeSidebarDay = selectedDay || (todayDay > 0 ? todayDay : 1);
+    const sidebarDateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(activeSidebarDay).padStart(2, "0")}`;
+    const sidebarDateObj = new Date(year, month, activeSidebarDay);
+    const sidebarDateLabel = sidebarDateObj.toLocaleDateString("id-ID", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric"
+    });
+    const sidebarHoliday = holidays[sidebarDateStr] || null;
+    const sidebarTasks = byDay[activeSidebarDay] || [];
+    const monthHolidays = Object.entries(holidays).filter(([d]) => {
+      const [y, m] = d.split("-").map(Number);
+      return y === year && m === month + 1;
+    }).sort(([a], [b]) => a.localeCompare(b));
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      className: "cal-agenda-panel card"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "cal-agenda-header"
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "cal-agenda-date"
+    }, "\uD83D\uDCC5 ", sidebarDateLabel), sidebarHoliday && /*#__PURE__*/React.createElement("div", {
+      className: "cal-agenda-holiday-tag"
+    }, "\uD83D\uDD34 ", sidebarHoliday), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "var(--text-light)",
+        marginTop: 2
+      }
+    }, sidebarTasks.length, " task")), onCreateOnDate && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "btn btn-primary btn-sm",
+      onClick: () => onCreateOnDate(sidebarDateStr),
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        flexShrink: 0
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "plus",
+      size: 14
+    }), "Task")), /*#__PURE__*/React.createElement("div", {
+      className: "cal-agenda-body"
+    }, sidebarTasks.length === 0 ? /*#__PURE__*/React.createElement("div", {
+      className: "cal-agenda-empty"
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginBottom: 10
+      }
+    }, "Tidak ada task pada tanggal ini"), onCreateOnDate && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "btn btn-secondary btn-sm",
+      onClick: () => onCreateOnDate(sidebarDateStr),
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "plus",
+      size: 14
+    }), "Tambah Task")) : /*#__PURE__*/React.createElement(TaskListItems, {
+      items: sidebarTasks,
+      onSelect: onTaskClick
+    }))), monthHolidays.length > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "cal-agenda-holiday-card"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "cal-agenda-holiday-title"
+    }, "\uD83D\uDD34 Hari Libur Nasional \u2014 ", new Date(year, month, 1).toLocaleDateString("id-ID", {
+      month: "long",
+      year: "numeric"
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "cal-agenda-holiday-list"
+    }, monthHolidays.map(([date, name]) => {
+      const d = new Date(date);
+      const dayLabel = d.toLocaleDateString("id-ID", {
+        weekday: "short",
+        day: "numeric"
+      });
+      const isWd = ![0, 6].includes(d.getDay());
+      return /*#__PURE__*/React.createElement("div", {
+        key: date,
+        className: "cal-agenda-holiday-item"
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: isWd ? "#ef4444" : "var(--text-light)",
+          fontWeight: 600,
+          minWidth: 52
+        }
+      }, dayLabel), /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: "var(--text-primary)",
+          flex: 1
+        }
+      }, name), isWd && /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 10,
+          background: "rgba(239,68,68,0.1)",
+          color: "#ef4444",
+          borderRadius: 4,
+          padding: "1px 5px",
+          fontWeight: 600
+        }
+      }, "Hari Kerja"));
+    }))));
+  })())), !isMobile && (typeof window === "undefined" || window.innerWidth < 1200) && selectedDay && /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
     onClick: () => setSelectedDay(null)
   }, /*#__PURE__*/React.createElement("div", {
@@ -17700,7 +17858,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v384-dashboard-full-width-fluid"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v385-calendar-split-view-redesign"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -29539,7 +29697,8 @@ function App() {
             deadline: dateStr
           });
           setShowForm(true);
-        }
+        },
+        onDone: handleDone
       });
     }
     if (page.startsWith("slist_")) {
@@ -30145,7 +30304,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v384-dashboard-full-width-fluid";
+    window.__SW_VERSION = "taskflow-v385-calendar-split-view-redesign";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
