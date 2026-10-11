@@ -6,8 +6,8 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
-## 🟢 Progressive Disclosure Dashboard & Onboarding Pengguna Baru — 2026-10-11 (Antigravity/Gemini) — SELESAI (Branch `feat/dashboard-progressive-onboarding`, Review Approved)
-- **Status:** 🟢 SELESAI & REVIEW APPROVED di branch `feat/dashboard-progressive-onboarding` (commit `736a8ad`). Siap merge ke `main`.
+## 🟢 Progressive Disclosure Dashboard & Onboarding Pengguna Baru — 2026-10-11 (Antigravity/Gemini) — SELESAI & DEPLOYED (Merged ke `main`)
+- **Status:** 🟢 SELESAI, MERGED ke `main` & PUSHED ke GitHub (`origin/main`). SW v386 `taskflow-v386-dashboard-progressive-onboarding` & `app.css?v=322`. Deploy pipeline VPS aktif otomatis.
 - **Spec & Plan:**
   - `docs/superpowers/specs/2026-10-11-dashboard-progressive-onboarding-design.md` (commit `6acd880`)
   - `docs/superpowers/plans/2026-10-11-dashboard-progressive-onboarding.md` (commit `e950ef6`)
