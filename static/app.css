@@ -6,6 +6,8 @@
       --text-primary: #0f172a;
       --text-secondary: #64748b;
       --text-light: #94a3b8;
+      --text-main: var(--text-primary);
+      --text-muted: var(--text-secondary);
       --accent: #A8C500;
       --accent-hover: #95AD00;
       --p1: #ef4444; --p2: #f97316; --p3: #eab308; --p4: #22c55e;
@@ -19,6 +21,9 @@
       --pomodoro-light: #fef2f2;
       --break: #22c55e;
       --break-light: #f0fdf4;
+      --bg-hover: rgba(15, 23, 42, 0.05);
+      --bg-subtle: rgba(15, 23, 42, 0.025);
+      --radius-lg: 16px;
     }
     [data-theme="dark"] {
       --bg-page: #171717;
@@ -28,8 +33,12 @@
       --text-primary: #e5e5e5;
       --text-secondary: #a3a3a3;
       --text-light: #737373;
+      --text-main: var(--text-primary);
+      --text-muted: var(--text-secondary);
       --border: #404040;
       --outline-guide: #555555;
+      --bg-hover: rgba(255, 255, 255, 0.08);
+      --bg-subtle: rgba(255, 255, 255, 0.03);
     }
     [data-theme="dark"] body { background: #171717; }
     [data-theme="dark"] .input { background: #171717 !important; color: var(--text-primary); }
@@ -3540,5 +3549,189 @@
   align-items: baseline;
   gap: 8px;
 }
+
+/* ── Onboarding Card for New Users (Empty State) ── */
+.dash-onboarding-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 16px);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.onboarding-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.onboarding-head-left {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.onboarding-rocket-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(168, 197, 0, 0.15);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.onboarding-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0 0 4px 0;
+}
+
+.onboarding-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.onboarding-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.onboarding-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  background: rgba(168, 197, 0, 0.15);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.onboarding-dismiss-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+
+.onboarding-dismiss-btn:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+  color: var(--text-main);
+}
+
+.onboarding-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.onboarding-step-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.onboarding-step-item.is-done {
+  opacity: 0.75;
+}
+
+.onboarding-step-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.onboarding-step-item.is-done .onboarding-step-icon {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.onboarding-step-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.onboarding-step-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 2px;
+}
+
+.onboarding-step-item.is-done .onboarding-step-title {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.onboarding-step-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.onboarding-step-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.onboarding-step-btn:hover {
+  background: var(--accent);
+  color: #1a1a1a;
+  border-color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  .onboarding-step-item {
+    flex-wrap: wrap;
+  }
+  .onboarding-step-btn {
+    width: 100%;
+    justify-content: center;
+    margin-top: 6px;
+  }
+}
+
 
 
