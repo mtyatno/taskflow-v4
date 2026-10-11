@@ -7,13 +7,13 @@ const htmlPath = path.join(__dirname, "../../static/index.html");
 const cssPath = path.join(__dirname, "../../static/app.css");
 const swPath = path.join(__dirname, "../../static/sw.js");
 
-test("Service Worker and stylesheet versions are synchronized for v390", () => {
+test("Service Worker and stylesheet versions are synchronized for v391", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v390-dashboard-habit-title-fix/);
-  assert.match(html, /taskflow-v390-dashboard-habit-title-fix/);
-  assert.match(html, /app\.css\?v=324/);
+  assert.match(sw, /taskflow-v391-gtd-inbox-triage-wizard/);
+  assert.match(html, /taskflow-v391-gtd-inbox-triage-wizard/);
+  assert.match(html, /app\.css\?v=325/);
 });
 
 test("Dashboard contains conditional rendering logic for new users (hasTasks)", () => {

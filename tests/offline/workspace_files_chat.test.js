@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v390-dashboard-habit-title-fix', () => {
+  test('Service Worker cache version is bumped to taskflow-v391-gtd-inbox-triage-wizard', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v390-dashboard-habit-title-fix";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v391-gtd-inbox-triage-wizard";/m);
   });
 });
 
