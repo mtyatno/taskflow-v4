@@ -5,16 +5,13 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
-## 🟢 Implementasi Dashboard Full-Width Fluid (Layar Lebar) — 2026-10-11 (Antigravity/Gemini) — SELESAI & REVIEW APPROVED
-- **Branch:** `feat/dashboard-full-width-fluid` (commit: `304c704`, `b20cecf`)
+## 🟢 Implementasi Dashboard Full-Width Fluid (Layar Lebar) — 2026-10-11 (Antigravity/Gemini) — SELESAI & DEPLOYED (Merged ke `main`)
+- **Status Integrasi:** Merged ke `main` (commit `459db81`), dipush ke GitHub (`origin/main`). Feature branch `feat/dashboard-full-width-fluid` telah dihapus.
 - **Spec & Plan:**
   - `docs/superpowers/specs/2026-10-11-dashboard-full-width-fluid-design.md`
   - `docs/superpowers/plans/2026-10-11-dashboard-full-width-fluid.md`
-  - `.superpowers/sdd/2026-10-11-dashboard-full-width-fluid/task-1-brief.md`
-  - `.superpowers/sdd/2026-10-11-dashboard-full-width-fluid/task-1-report.md`
-  - `.superpowers/sdd/2026-10-11-dashboard-full-width-fluid/progress.md`
 - **Konteks & Masalah Selesai:** Di layar laptop/monitor lebar, `.dash` yang sebelumnya dibatasi `max-width: 1320px;` kini telah diubah menjadi `width: 100%; max-width: 100%;` di `static/app.css:2301`.
-- **Perubahan yang Selesai di Commit `304c704` & `b20cecf`:**
+- **Perubahan yang Selesai:**
   - `static/app.css`: `.dash` diubah ke `width: 100%; max-width: 100%;`.
   - `static/index.html`: stylesheet di-bump ke `/static/app.css?v=320`, fallback dan `window.__SW_VERSION` diperbarui ke `taskflow-v384-dashboard-full-width-fluid`.
   - `webapp.py`: `sw_cache = "taskflow-v384-dashboard-full-width-fluid"`.
@@ -30,7 +27,7 @@
   - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
   - `venv/bin/python -m pytest tests/` ➡️ **134 passed, 1 failed** (1 failure adalah kegagalan pre-existing upstream pada commit `413f9c0`).
 - **Review:** Task 1 Review Approved (Spec ✅, Quality Approved); Whole-Branch Review Approved (Ready to merge: Yes).
-- **Status:** 🟢 SELESAI & REVIEW APPROVED (Branch `feat/dashboard-full-width-fluid`). Siap untuk integrasi/merge.
+- **Status:** 🟢 SELESAI, MERGED ke `main` & PUSHED ke GitHub (`origin/main`). SW v384 `taskflow-v384-dashboard-full-width-fluid` & `app.css?v=320`. Deploy pipeline VPS aktif otomatis.
 
 
 ## 🟢 Fitur Notifikasi & Deteksi Pembaruan Aplikasi (PWA & Web) — 2026-10-11 (Antigravity/Gemini) — SELESAI
