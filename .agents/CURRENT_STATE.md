@@ -6,12 +6,11 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
-## 🟢 Redesain Split-View Kalender (Layar Lebar >= 1200px) & Sidebar Agenda — 2026-10-11 (Antigravity/Gemini) — SELESAI (Branch `feat/calendar-split-view-redesign`, Commit `466d7db`)
-- **Status:** SELESAI di branch `feat/calendar-split-view-redesign` (commit `466d7db`). Siap untuk branch review / merge.
+## 🟢 Redesain Split-View Kalender (Layar Lebar >= 1200px) & Sidebar Agenda — 2026-10-11 (Antigravity/Gemini) — SELESAI & REVIEW APPROVED
+- **Status:** 🟢 SELESAI & REVIEW APPROVED di branch `feat/calendar-split-view-redesign` (commits `466d7db`, `cebbec8`, `ae7d1df`). Siap untuk merge ke `main`.
 - **Spec & Plan:**
   - `docs/superpowers/specs/2026-10-11-calendar-split-view-redesign.md`
   - `docs/superpowers/plans/2026-10-11-calendar-split-view-redesign.md`
-  - SDD Task Report: `.superpowers/sdd/2026-10-11-calendar-split-view/task-report.md`
 - **Konteks & Masalah:**
   - Pada layar lebar (>= 1200px), tampilan kalender bulanan terasa terlalu lapang/terentang dan cell bulanan terbatas tingginya sehingga task chip terpotong cepat (`+N lagi`).
   - Pengguna menginginkan redesain split-view: grid kalender bulanan di sebelah kiri (dengan tinggi cell desktop ditingkatkan ke 105px dan chip ditampilkan hingga 3 task sebelum `+N lagi`), serta sidebar agenda interaktif yang sticky di sebelah kanan (lebar ~340px) pada layar >= 1200px.
