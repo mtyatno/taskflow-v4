@@ -6,6 +6,36 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Focus Button Text Label di Prioritas Hari Ini Dashboard — 2026-10-12 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI. SW v396 `taskflow-v396-dash-priority-focus-btn-label` & `app.css?v=328`.
+- **Konteks & Masalah:**
+  - Di Dashboard kartu "Prioritas Hari Ini" (`dash-prio-card`, dirender oleh `TodayRow`), tombol fokus sebelumnya hanya menampilkan ikon target 13px dalam kotak 22x22px tanpa label teks (`dash-focus-btn`).
+  - Pengguna meminta menambahkan label teks fokus sehingga tampilannya sama persis seperti tombol fokus di halaman Fokus Hari Ini (`ftask-focus-btn` di `TodayFocusView`), menampilkan teks "Fokus" atau "Aktif".
+- **Solusi & Implementasi:**
+  1. **`static/app.css`:**
+     - Update styling `.dash-focus-btn`: pill button dengan height 26px, padding 0 10px, border-radius 999px, gap 5px, font-size 11.5px, font-weight 700, warna `#dc2626` dan background tint `rgba(239, 68, 68, 0.06)`, berubah solid `#ef4444` dengan teks putih saat `.is-active` dan hover.
+     - Dukungan penuh untuk dark mode (`[data-theme="dark"] .dash-focus-btn`).
+     - Strict rule: ZERO `border-left` atau `borderLeft`.
+  2. **`static/index.html`:**
+     - Pada `TodayRow`, update tombol fokus `.dash-focus-btn` dengan menambahkan attribute `"aria-pressed": isFocusing` dan elemen `<span className="dash-focus-label">{isFocusing ? "Aktif" : "Fokus"}</span>`.
+     - Update link stylesheet ke `/static/app.css?v=328`.
+     - Update fallback `window.__SW_VERSION` ke `taskflow-v396-dash-priority-focus-btn-label`.
+     - Strict isolation: note editor lines terlindungi tanpa modifikasi.
+  3. **Backend & Service Worker:**
+     - `webapp.py`: bump `sw_cache` ke `taskflow-v396-dash-priority-focus-btn-label`.
+     - `static/sw.js`: bump `CACHE` ke `taskflow-v396-dash-priority-focus-btn-label`.
+     - `tests/test_version.py`: bump asersi ke `taskflow-v396-dash-priority-focus-btn-label` dan `v396`.
+  4. **Pengujian:**
+     - `tests/offline/focus_workstation.test.js`: update asersi height 26px, border-radius 999px, serta teks `dash-focus-label` dan `isFocusing ? "Aktif" : "Fokus"`.
+     - `tests/offline/note_toc.test.js`, `tests/offline/gtd_inbox_triage.test.js`, `tests/offline/dashboard_onboarding.test.js`: update asersi `app.css?v=328`.
+     - Sinkronisasi SW cache `taskflow-v396-dash-priority-focus-btn-label` di seluruh 8 test suite offline.
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `git diff -U0 | grep -iE "border-?left"` ➡️ **0 matches (OK)**.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+  - `node --test tests/offline/*.test.js` ➡️ **1048/1048 passed (0 failed)** across 8 suites.
+
 ## 🟢 Fluid 100% Width Layout pada Page Focus & Page Habit — 2026-10-12 (Antigravity/Gemini) — SELESAI
 - **Status:** 🟢 SELESAI. SW v395 `taskflow-v395-fluid-focus-habit-pages` & `app.css?v=327`.
 - **Konteks & Masalah:**

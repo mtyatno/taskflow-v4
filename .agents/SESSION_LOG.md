@@ -2,6 +2,38 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-12 06:15] - Antigravity (Gemini)
+- **Task:** Add focus text label to priority card task focus button on Dashboard matching Today view (SW v396 `taskflow-v396-dash-priority-focus-btn-label`, `app.css?v=328`).
+- **Changes:**
+  - `static/app.css`:
+    - Update `.dash-focus-btn` styling to pill button: height 26px, padding 0 10px, border-radius 999px, gap 5px, font-size 11.5px, font-weight 700, color `#dc2626` and tint `rgba(239, 68, 68, 0.06)`, hover/active solid `#ef4444` with white text.
+    - Dark mode styling support (`[data-theme="dark"] .dash-focus-btn`).
+    - Zero `border-left` or `borderLeft` styling.
+  - `static/index.html`:
+    - Pada `TodayRow`: update `.dash-focus-btn` dengan attribute `"aria-pressed": isFocusing` dan child `<span className="dash-focus-label">{isFocusing ? "Aktif" : "Fokus"}</span>`.
+    - Update stylesheet link ke `/static/app.css?v=328`.
+    - Update fallback `window.__SW_VERSION` ke `taskflow-v396-dash-priority-focus-btn-label`.
+    - Note editor terlindungi tanpa modifikasi.
+  - `webapp.py`:
+    - Bump `sw_cache` ke `taskflow-v396-dash-priority-focus-btn-label`.
+  - `static/sw.js`:
+    - Bump `const CACHE = "taskflow-v396-dash-priority-focus-btn-label";`.
+  - `tests/test_version.py`:
+    - Bump asersi ke `taskflow-v396-dash-priority-focus-btn-label` dan `v396`.
+  - `tests/offline/focus_workstation.test.js`:
+    - Update asersi height 26px, border-radius 999px, `dash-focus-label`, dan text "Aktif" / "Fokus".
+  - `tests/offline/note_toc.test.js`, `tests/offline/gtd_inbox_triage.test.js`, `tests/offline/dashboard_onboarding.test.js`:
+    - Update asersi `app.css?v=328`.
+  - Sinkronisasi SW cache `taskflow-v396-dash-priority-focus-btn-label` di seluruh 8 test suite offline (`tests/offline/`).
+- **Verification:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ 5/5 inline scripts OK.
+  - `node --check static/sw.js` ➡️ OK.
+  - `git diff -U0 | grep -iE "border-?left"` ➡️ 0 matches (OK).
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed, 0 failed.
+  - `node --test tests/offline/*.test.js` ➡️ 1048 passed, 0 failed across 8 suites.
+- **Files Touch:** `static/app.css`, `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/focus_workstation.test.js`, `tests/offline/note_toc.test.js`, `tests/offline/gtd_inbox_triage.test.js`, `tests/offline/dashboard_onboarding.test.js`, `tests/offline/*.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-12 05:55] - Antigravity (Gemini)
 - **Task:** Make Focus page and Habit page fluid 100% width matching dashboard (SW v395 `taskflow-v395-fluid-focus-habit-pages`, `app.css?v=327`).
 - **Changes:**

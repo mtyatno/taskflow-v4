@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v395-fluid-focus-habit-pages";
+const CACHE = "taskflow-v396-dash-priority-focus-btn-label";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",

@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=327">
+  <link rel="stylesheet" href="/static/app.css?v=328">
 
 <style>
 .paper-mode-active {
@@ -14362,11 +14362,14 @@ function Dashboard({
         onStartFocus(t);
       },
       title: isFocusing ? "Sedang fokus (klik untuk jeda & lepas fokus)" : "Fokuskan tugas & mulai Pomodoro",
-      "aria-label": isFocusing ? "Sedang fokus" : "Fokuskan tugas"
+      "aria-label": isFocusing ? "Sedang fokus" : "Fokuskan tugas",
+      "aria-pressed": isFocusing
     }, /*#__PURE__*/React.createElement(Icon, {
       name: "target",
       size: 13
-    })), isDone ? /*#__PURE__*/React.createElement("span", {
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "dash-focus-label"
+    }, isFocusing ? "Aktif" : "Fokus")), isDone ? /*#__PURE__*/React.createElement("span", {
       className: "dash-check is-done"
     }, /*#__PURE__*/React.createElement(Icon, {
       name: "check",
@@ -18363,7 +18366,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v395-fluid-focus-habit-pages"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v396-dash-priority-focus-btn-label"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -30986,7 +30989,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v395-fluid-focus-habit-pages";
+    window.__SW_VERSION = "taskflow-v396-dash-priority-focus-btn-label";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

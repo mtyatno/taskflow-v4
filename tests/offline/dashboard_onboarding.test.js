@@ -7,13 +7,13 @@ const htmlPath = path.join(__dirname, "../../static/index.html");
 const cssPath = path.join(__dirname, "../../static/app.css");
 const swPath = path.join(__dirname, "../../static/sw.js");
 
-test("Service Worker and stylesheet versions are synchronized for v395", () => {
+test("Service Worker and stylesheet versions are synchronized for v396", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v395-fluid-focus-habit-pages/);
-  assert.match(html, /taskflow-v395-fluid-focus-habit-pages/);
-  assert.match(html, /app\.css\?v=327/);
+  assert.match(sw, /taskflow-v396-dash-priority-focus-btn-label/);
+  assert.match(html, /taskflow-v396-dash-priority-focus-btn-label/);
+  assert.match(html, /app\.css\?v=328/);
 });
 
 test("Dashboard contains conditional rendering logic for new users (hasTasks)", () => {

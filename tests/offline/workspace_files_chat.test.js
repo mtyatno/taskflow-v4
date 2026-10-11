@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v395-fluid-focus-habit-pages', () => {
+  test('Service Worker cache version is bumped to taskflow-v396-dash-priority-focus-btn-label', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v395-fluid-focus-habit-pages";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v396-dash-priority-focus-btn-label";/m);
   });
 });
 
