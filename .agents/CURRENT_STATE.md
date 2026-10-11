@@ -5,7 +5,30 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
- 
+## 🟢 Fix Judul Habit di Quick Habit Pill Dashboard & Center HUD Toast — 2026-10-11 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI. SW v390 `taskflow-v390-dashboard-habit-title-fix`.
+- **Konteks & Masalah:**
+  - Teks subjek / nama habit tidak muncul pada Quick Habit Pill di Hero Dashboard (hanya muncul `◯ HABIT • Selesai? ⚡`).
+  - Root cause: Objek habit dari endpoint `/api/habits/today` dan database menggunakan properti `title` (`nextHabit.title`), bukan `nextHabit.name`.
+- **Solusi & Perubahan:**
+  - `static/index.html`:
+    - Memperbarui title, aria-label, dan label teks `.dash-hero-habit-name` menjadi `nextHabit.title || nextHabit.name || "Habit"`.
+    - Memperbarui Center HUD Toast pada `handleCheckinHabit` menjadi: `title: \`Great, one activity done! 🎉 (${habit.title || habit.name || "Habit"})\``.
+    - Bump fallback SW version ke `taskflow-v390-dashboard-habit-title-fix`.
+  - `webapp.py` & `static/sw.js`:
+    - Bump SW cache ke `taskflow-v390-dashboard-habit-title-fix`.
+  - `tests/test_version.py`:
+    - Update asersi ke `taskflow-v390-dashboard-habit-title-fix` dan `v390`.
+  - `tests/offline/dashboard_habit_checkin.test.js`:
+    - Menambahkan asersi habit title fallback pada `.dash-hero-habit-name`, title, aria-label, dan Center HUD Toast.
+    - Menambahkan unit test SW cache `taskflow-v390-dashboard-habit-title-fix`.
+  - Sinkronisasi SW cache `taskflow-v390-dashboard-habit-title-fix` di seluruh file test offline (`tests/offline/`).
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `node --test tests/offline/*.test.js` ➡️ **1021/1021 passed (0 failed)** across 8 suites.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+
 ## 🟢 Quick Habit Check-in Pill di Hero Dashboard & Center HUD Toast — 2026-10-11 (Antigravity/Gemini) — SELESAI
 - **Status:** 🟢 SELESAI & DEPLOYED (Pushed ke `origin/main`). SW v389 `taskflow-v389-dashboard-habit-checkin` & `app.css?v=324`. Commits: `c5428d3`, `a463b09`. Deploy pipeline VPS aktif otomatis.
 - **Konteks & Solusi:**

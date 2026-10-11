@@ -2,6 +2,30 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-11 19:55] - Antigravity (Gemini)
+- **Task:** Fix habit title display on Quick Habit Pill and Center Toast (SW v390 `taskflow-v390-dashboard-habit-title-fix`).
+- **Changes:**
+  - `static/index.html`:
+    - Memperbarui title, aria-label, dan `.dash-hero-habit-name` pada Quick Habit Pill Hero Dashboard dengan fallback: `nextHabit.title || nextHabit.name || "Habit"`.
+    - Memperbarui Center HUD Toast saat check-in habit agar menyertakan judul habit: `title: \`Great, one activity done! 🎉 (${habit.title || habit.name || "Habit"})\``.
+    - Bump fallback SW version ke `taskflow-v390-dashboard-habit-title-fix`.
+  - `webapp.py` & `static/sw.js`:
+    - Bump SW cache ke `taskflow-v390-dashboard-habit-title-fix`.
+  - `tests/test_version.py`:
+    - Update asersi ke `taskflow-v390-dashboard-habit-title-fix` dan `v390`.
+  - `tests/offline/dashboard_habit_checkin.test.js`:
+    - Menambahkan asersi bahwa `Dashboard` merender `nextHabit.title` pada `.dash-hero-habit-name` dan title/aria-label, serta Center HUD Toast dengan habit title.
+    - Menambahkan unit test SW cache `taskflow-v390-dashboard-habit-title-fix`.
+  - Sinkronisasi SW cache `taskflow-v390-dashboard-habit-title-fix` di 8 offline test suite.
+- **Commit:** `fix(dashboard): show habit title on quick habit pill and center toast`.
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ OK (5/5 inline scripts).
+  - `node --check static/sw.js` ➡️ OK.
+  - `node --test tests/offline/*.test.js` ➡️ 1021 passed, 0 failed.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed, 0 failed.
+- **Files Touch:** `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/dashboard_habit_checkin.test.js`, 8 synchronized offline test suites, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-11 19:15] - Antigravity (Gemini)
 - **Task:** Quick Habit Check-in Pill di Hero Dashboard & Center HUD Toast (SW v389, app.css?v=324).
 - **Changes:**

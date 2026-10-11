@@ -13685,7 +13685,7 @@ function Dashboard({
     setCenterToast({
       id: Date.now(),
       type: "habit",
-      title: "Great, one activity done! 🎉"
+      title: `Great, one activity done! 🎉 (${habit.title || habit.name || "Habit"})`
     });
 
     try {
@@ -14139,8 +14139,8 @@ function Dashboard({
     type: "button",
     className: "dash-hero-habit-pill",
     onClick: () => handleCheckinHabit(nextHabit),
-    title: `Klik untuk selesaikan habit: ${nextHabit.name}`,
-    "aria-label": `Selesaikan habit ${nextHabit.name}`
+    title: `Klik untuk selesaikan habit: ${nextHabit.title || nextHabit.name || "Habit"}`,
+    "aria-label": `Selesaikan habit ${nextHabit.title || nextHabit.name || "Habit"}`
   }, /*#__PURE__*/React.createElement("span", {
     className: "dash-hero-habit-check"
   }, /*#__PURE__*/React.createElement(Icon, {
@@ -14150,7 +14150,7 @@ function Dashboard({
     className: "dash-hero-habit-tag"
   }, "Habit"), /*#__PURE__*/React.createElement("span", {
     className: "dash-hero-habit-name"
-  }, nextHabit.name), /*#__PURE__*/React.createElement("span", {
+  }, nextHabit.title || nextHabit.name || "Habit"), /*#__PURE__*/React.createElement("span", {
     className: "dash-hero-habit-cta"
   }, "• Selesai? ⚡")) : /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-habit-pill is-completed",
@@ -18085,7 +18085,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v389-dashboard-habit-checkin"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v390-dashboard-habit-title-fix"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -30561,7 +30561,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v389-dashboard-habit-checkin";
+    window.__SW_VERSION = "taskflow-v390-dashboard-habit-title-fix";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

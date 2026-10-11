@@ -3380,7 +3380,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v389-dashboard-habit-checkin"
+    sw_cache = "taskflow-v390-dashboard-habit-title-fix"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

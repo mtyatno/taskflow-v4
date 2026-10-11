@@ -72,15 +72,27 @@ test("3. Dashboard component in static/index.html implements habit checkin and C
   // Handler handleCheckinHabit
   assert.match(dashSrc, /const\s+handleCheckinHabit\s*=\s*async\s+habit\s*=>/);
   assert.match(dashSrc, /api\.post\(`\/api\/habits\/\$\{habit\.id\}\/checkin`/);
-  assert.match(dashSrc, /setCenterToast\(\{\s*id:\s*Date\.now\(\),\s*type:\s*["']habit["'],\s*title:\s*["']Great, one activity done! 🎉["']\s*\}\)/);
+  assert.match(dashSrc, /setCenterToast\(\{\s*id:\s*Date\.now\(\),\s*type:\s*["']habit["'],\s*title:\s*`Great, one activity done! 🎉 \(\$\{habit\.title\s*\|\|\s*habit\.name\s*\|\|\s*["']Habit["']\}\)`\s*\}\)/);
   assert.match(dashSrc, /window\.dispatchEvent\(new CustomEvent\(["']habitSaved["']\)\)/);
 
   // Hero strip rendering
   assert.match(dashSrc, /totalHabits\s*>\s*0\s*&&/);
   assert.match(dashSrc, /dash-hero-habit-strip/);
   assert.match(dashSrc, /dash-hero-habit-pill/);
+  assert.match(dashSrc, /title:\s*`Klik untuk selesaikan habit: \$\{nextHabit\.title\s*\|\|\s*nextHabit\.name\s*\|\|\s*["']Habit["']\}`/);
+  assert.match(dashSrc, /["']aria-label["']:\s*`Selesaikan habit \$\{nextHabit\.title\s*\|\|\s*nextHabit\.name\s*\|\|\s*["']Habit["']\}`/);
+  assert.match(dashSrc, /className:\s*["']dash-hero-habit-name["']/);
+  assert.match(dashSrc, /nextHabit\.title\s*\|\|\s*nextHabit\.name\s*\|\|\s*["']Habit["']/);
   assert.match(dashSrc, /Semua habit hari ini selesai/);
 
   // Center HUD toast rendering
   assert.match(dashSrc, /centerToast\.type\s*===\s*["']habit["']\s*\?\s*["']activity["']/);
+});
+
+test("4. Service Worker and index.html cache version is taskflow-v390-dashboard-habit-title-fix", () => {
+  const sw = fs.readFileSync(swPath, "utf8");
+  const html = fs.readFileSync(htmlPath, "utf8");
+
+  assert.match(sw, /^const CACHE = "taskflow-v390-dashboard-habit-title-fix";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v390-dashboard-habit-title-fix";/);
 });
