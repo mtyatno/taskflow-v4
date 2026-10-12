@@ -6,6 +6,40 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Task Insertion (/task, /tasks) di Popup Block Slash Menu Note Editor — 2026-10-12 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI. SW v397 `taskflow-v397-note-block-slash-task`.
+- **Konteks & Masalah:**
+  - Pengguna melaporkan bahwa pada popup menu block slash (`slashMenu` saat ketik `/` atau klik `+` block handle), belum ada opsi untuk memasukkan task (`/tasks` / `/task`). Hanya tersedia `/code`, `/callout`, `/toggle`, `/draw`.
+  - Padahal task link (`[tasklink:...]`) adalah salah satu fitur inti catatan Alurik untuk menyematkan tugas langsung di dalam dokumen catatan.
+- **Solusi & Implementasi:**
+  1. **`static/index.html`:**
+     - Di `MilkdownEditor`:
+       - Menambahkan prop `onInsertTask` dan ref `onInsertTaskRef`.
+       - Di `doSlashAction`: menangani `case 'task':` dengan menghapus pemicu query slash (`/` atau `/task`) dan memanggil `onInsertTaskRef.current?.()`. Menyesuaikan pengecualian pre-deletion `if (type !== 'draw' && type !== 'task')`.
+       - Menambahkan item menu slash `slashMenu.appendChild(makeSlashItem('📌', 'Tugas / Task (/task, /tasks)', 'task'))` di baris item block bersama `/draw`, `/code`, `/callout`, `/toggle`.
+     - Di `NoteDetailModal` (`NoteModal`):
+       - Mengoper `onInsertTask: openTaskDropdown` ke `MilkdownEditor`.
+       - Menambahkan `_taskJustOpened.current = true` di dalam `openTaskDropdown` agar dropdown tidak langsung tertutup saat ProseMirror menghapus slash command.
+       - Memperluas regex inline slash command `/(?:^|\n)\/(todo|todos|task|tasks|tugas)$/i` dengan penghitungan panjang dinamis `cmdLen = todoMatch2[1].length + 1` agar `/tasks` (6 karakter) dan varian lainnya terhapus sempurna.
+     - Di `TaskDetailModal` (`TaskFormModal`):
+       - Mengoper `onInsertTask: openNoteTaskDropdown` ke `MilkdownEditor`.
+       - Menambahkan pelindung `_noteTaskJustOpened.current` dan memperluas regex slash command `/(?:^|\n)\/(todo|todos|task|tasks|tugas)$/i`.
+     - Memperbarui fallback `window.__SW_VERSION` ke `taskflow-v397-note-block-slash-task`.
+  2. **Backend & Service Worker:**
+     - `webapp.py`: bump `sw_cache` ke `taskflow-v397-note-block-slash-task`.
+     - `static/sw.js`: bump `CACHE` ke `taskflow-v397-note-block-slash-task`.
+     - `tests/test_version.py`: bump asersi ke `taskflow-v397-note-block-slash-task` dan `v397`.
+  3. **Pengujian:**
+     - Membuat unit test suite baru `tests/offline/note_slash_task.test.js` (8 tests) memvalidasi `makeSlashItem` untuk task, `doSlashAction` case 'task', integrasi prop `onInsertTask` di kedua modal, regex slash commands, dan cache SW.
+     - Memperbarui regex `tests/offline/block_handle.test.js` untuk mengakomodasi `type !== 'task'`.
+     - Sinkronisasi string cache SW di seluruh 8 test suite offline.
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `git diff -U0 | grep -iE "border-?left"` ➡️ **0 matches (OK)**.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+  - `node --test tests/offline/*.test.js` ➡️ **1056/1056 passed (0 failed)** across 8 suites.
+
 ## 🟢 Focus Button Text Label di Prioritas Hari Ini Dashboard — 2026-10-12 (Antigravity/Gemini) — SELESAI
 - **Status:** 🟢 SELESAI. SW v396 `taskflow-v396-dash-priority-focus-btn-label` & `app.css?v=328`.
 - **Konteks & Masalah:**

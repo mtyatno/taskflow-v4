@@ -2,6 +2,36 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-12 09:05] - Antigravity (Gemini)
+- **Task:** Add task insertion option (`/task`, `/tasks`) to note editor block slash popup menu (SW v397 `taskflow-v397-note-block-slash-task`).
+- **Changes:**
+  - `static/index.html`:
+    - Di `MilkdownEditor`: tambahkan prop `onInsertTask` dan ref `onInsertTaskRef`.
+    - Di `doSlashAction`: tambahkan `case 'task':` yang menghapus pemicu query slash (`/` atau `/task`) dan memanggil `onInsertTaskRef.current?.()`. Perbarui pengecualian pre-deletion ke `if (type !== 'draw' && type !== 'task')`.
+    - Daftarkan item slash baru: `slashMenu.appendChild(makeSlashItem('📌', 'Tugas / Task (/task, /tasks)', 'task'))`.
+    - Di `NoteDetailModal` (`NoteModal`): oper `onInsertTask: openTaskDropdown` ke `MilkdownEditor`, set `_taskJustOpened.current = true` di `openTaskDropdown`, dan perbarui regex inline slash ke `/(?:^|\n)\/(todo|todos|task|tasks|tugas)$/i` dengan panjang dinamis.
+    - Di `TaskDetailModal` (`TaskFormModal`): oper `onInsertTask: openNoteTaskDropdown` ke `MilkdownEditor`, pasang flag `_noteTaskJustOpened`, dan perbarui regex inline slash ke `/(?:^|\n)\/(todo|todos|task|tasks|tugas)$/i`.
+    - Update fallback `window.__SW_VERSION` ke `taskflow-v397-note-block-slash-task`.
+  - `webapp.py`:
+    - Bump `sw_cache` ke `taskflow-v397-note-block-slash-task`.
+  - `static/sw.js`:
+    - Bump `const CACHE = "taskflow-v397-note-block-slash-task";`.
+  - `tests/test_version.py`:
+    - Bump asersi ke `taskflow-v397-note-block-slash-task` dan `v397`.
+  - `tests/offline/note_slash_task.test.js`:
+    - Buat unit test suite baru (8 tests) memvalidasi `makeSlashItem`, `doSlashAction`, integrasi prop, regex aliases, dan SW version.
+  - `tests/offline/block_handle.test.js`:
+    - Sesuaikan regex asersi agar menerima `type !== 'task'`.
+  - Sinkronisasi SW cache `taskflow-v397-note-block-slash-task` di seluruh test suite offline (`tests/offline/*.test.js`).
+- **Verification:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ 5/5 inline scripts OK.
+  - `node --check static/sw.js` ➡️ OK.
+  - `git diff -U0 | grep -iE "border-?left"` ➡️ 0 matches (OK).
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed, 0 failed.
+  - `node --test tests/offline/*.test.js` ➡️ 1056 passed, 0 failed across 8 suites.
+- **Files Touch:** `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/note_slash_task.test.js`, `tests/offline/block_handle.test.js`, `tests/offline/*.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-12 06:15] - Antigravity (Gemini)
 - **Task:** Add focus text label to priority card task focus button on Dashboard matching Today view (SW v396 `taskflow-v396-dash-priority-focus-btn-label`, `app.css?v=328`).
 - **Changes:**

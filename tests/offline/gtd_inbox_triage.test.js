@@ -141,6 +141,6 @@ test("7. Service Worker and stylesheet versions are bumped to v396 and app.css?v
   const sw = fs.readFileSync(swPath, "utf8");
 
   assert.match(html, /<link rel="stylesheet" href="\/static\/app\.css\?v=328">/);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v396-dash-priority-focus-btn-label";/);
-  assert.match(sw, /^const CACHE = "taskflow-v396-dash-priority-focus-btn-label";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v397-note-block-slash-task";/);
+  assert.match(sw, /^const CACHE = "taskflow-v397-note-block-slash-task";/m);
 });

@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v396-dash-priority-focus-btn-label", () => {
-    assert.match(swJs, /taskflow-v396-dash-priority-focus-btn-label/);
+  await t.test("sw.js bumped to taskflow-v397-note-block-slash-task", () => {
+    assert.match(swJs, /taskflow-v397-note-block-slash-task/);
   });
 });

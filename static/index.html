@@ -3092,6 +3092,7 @@ function TaskFormModal({
   const [noteTagDropdown, setNoteTagDropdown] = useState(null);
   const [noteExistingTags, setNoteExistingTags] = useState([]);
   const [noteTaskDropdown, setNoteTaskDropdown] = useState(null);
+  const _noteTaskJustOpened = React.useRef(false);
   const [noteWikiDropdown, setNoteWikiDropdown] = useState(null);
   const [noteTitlesList, setNoteTitlesList] = useState([]);
   const [localNoteNewTasks, setLocalNoteNewTasks] = useState([]);
@@ -3367,12 +3368,13 @@ function TaskFormModal({
     }
     setNoteAiDropdown(null);
     // /todo or /task slash command — buka task link dropdown (sama seperti +Task button)
-    const todoMatch = textBefore.match(/(?:^|\n)\/(todo|task)$/);
+    const todoMatch = textBefore.match(/(?:^|\n)\/(todo|todos|task|tasks|tugas)$/i);
     if (todoMatch) {
+      const cmdLen = todoMatch[1].length + 1;
       editor.action(ctx => {
         const view = ctx.get(MB.editorViewCtx);
         const { from } = view.state.selection;
-        view.dispatch(view.state.tr.delete(from - 5, from));
+        view.dispatch(view.state.tr.delete(from - cmdLen, from));
       });
       openNoteTaskDropdown();
       return;
@@ -3404,7 +3406,11 @@ function TaskFormModal({
         return;
       }
     }
-    setNoteTaskDropdown(null);
+    if (_noteTaskJustOpened.current) {
+      _noteTaskJustOpened.current = false;
+    } else {
+      setNoteTaskDropdown(null);
+    }
     // Wikilink autocomplete: [[query
     const wikiMatch = textBefore.match(/\[\[([^\]]*)$/);
     if (!wikiMatch) {
@@ -3487,6 +3493,7 @@ function TaskFormModal({
         };
       });
     } catch (_) {}
+    _noteTaskJustOpened.current = true;
     setNoteTaskDropdown({
       top: coords.top,
       left: coords.left,
@@ -3943,7 +3950,8 @@ function TaskFormModal({
       tasksGetter: noteTasksGetterRef.current,
       onTasklinkClick: function() {},
       onImagePaste: handleNoteImagePaste,
-      onInsertDrawing: handleOpenNoteInsertDrawing
+      onInsertDrawing: handleOpenNoteInsertDrawing,
+      onInsertTask: openNoteTaskDropdown
     }), notePaperConfig?.enabled && /*#__PURE__*/React.createElement(PaperPageGuides, {
       rootRef: notePaperWrapRef,
       paperConfig: notePaperConfig
@@ -18366,7 +18374,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v396-dash-priority-focus-btn-label"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v397-note-block-slash-task"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -19493,7 +19501,8 @@ function MilkdownEditor({
   tasksGetter,
   onTasklinkClick,
   onImagePaste,
-  onInsertDrawing
+  onInsertDrawing,
+  onInsertTask
 }) {
   const containerRef = React.useRef(null);
   const instanceRef = React.useRef(null);
@@ -19503,6 +19512,8 @@ function MilkdownEditor({
   const blockHandleEnabled = !!(window.MilkdownBundle?.block && window.MilkdownBundle?.BlockProvider) && (BLOCK_HANDLE_ON_TOUCH || !isTouchUI);
   const onInsertDrawingRef = React.useRef(onInsertDrawing);
   React.useEffect(() => { onInsertDrawingRef.current = onInsertDrawing; }, [onInsertDrawing]);
+  const onInsertTaskRef = React.useRef(onInsertTask);
+  React.useEffect(() => { onInsertTaskRef.current = onInsertTask; }, [onInsertTask]);
   const isExternalUpdate = React.useRef(false);
   const [ready, setReady] = React.useState(false);
   const [mathEdit, setMathEdit] = React.useState(null);
@@ -19559,8 +19570,8 @@ function MilkdownEditor({
         const view = ctx.get(MB.editorViewCtx);
         if (!view) return;
         // Hapus karakter pemicu "/" sebelum aksi (menu slash tampil bila karakter tepat
-        // sebelum kursor = "/"); "/" asli teks (and/or) dibiarkan. 'draw' menanganinya sendiri.
-        if (type !== 'draw') {
+        // sebelum kursor = "/"); "/" asli teks (and/or) dibiarkan. 'draw' dan 'task' menanganinya sendiri.
+        if (type !== 'draw' && type !== 'task') {
           const sel0 = view.state.selection;
           if (sel0.empty && isSlashTriggerBefore(sel0.$from)) {
             view.dispatch(view.state.tr.delete(sel0.$from.pos - 1, sel0.$from.pos));
@@ -19684,6 +19695,18 @@ function MilkdownEditor({
               return;
             }
             break;
+          case 'task':
+            {
+              const qFrom2 = state.selection.$from;
+              const qText2 = qFrom2.parent.textBetween(0, qFrom2.parentOffset, null, "￼");
+              const slashIdx2 = qText2.lastIndexOf("/");
+              if (slashIdx2 >= 0 && isSlashTriggerBefore(qFrom2)) {
+                view.dispatch(state.tr.delete(qFrom2.start() + slashIdx2, qFrom2.pos));
+              }
+              onInsertTaskRef.current?.();
+              return;
+            }
+            break;
         }
         // Kursor masuk ke blok baru (list/tabel/divider). Default ProseMirror menaruhnya SESUDAH
         // blok baru → ketikan nyasar ke awal blok berikutnya (terlihat saat "+" di tengah dokumen).
@@ -19736,6 +19759,7 @@ function MilkdownEditor({
     slashMenu.appendChild(makeSlashItem('💡', 'Callout / Info (/callout)', 'callout'));
     slashMenu.appendChild(makeSlashItem('▶', 'Toggle / Lipatan (/toggle)', 'toggle'));
     slashMenu.appendChild(makeSlashItem('🎨', 'Gambar / Sketsa (/draw)', 'draw'));
+    slashMenu.appendChild(makeSlashItem('📌', 'Tugas / Task (/task, /tasks)', 'task'));
 
     // ── Tooltip DOM ─────────────────────────────────────────────────
     const tooltipEl = document.createElement('div');
@@ -22286,20 +22310,20 @@ function NoteModal({
     setNoteAiDropdown(null);
 
     // /todo or /task slash command — buka task link dropdown (sama seperti +Task button)
-    const todoMatch2 = textBefore.match(/(?:^|\n)\/(todo|task)$/);
+    const todoMatch2 = textBefore.match(/(?:^|\n)\/(todo|todos|task|tasks|tugas)$/i);
     if (todoMatch2) {
       const ed = milkdownEditorRef.current;
       if (ed && window.MilkdownBundle?.editorViewCtx) {
         try {
+          const cmdLen = todoMatch2[1].length + 1;
           ed.action(ctx => {
             const view = ctx.get(window.MilkdownBundle.editorViewCtx);
             if (!view) return;
             const { from } = view.state.selection;
-            view.dispatch(view.state.tr.delete(from - 5, from));
+            view.dispatch(view.state.tr.delete(from - cmdLen, from));
           });
         } catch (_) {}
         openTaskDropdown();
-        // Flag to prevent next onChange from closing the dropdown
         _taskJustOpened.current = true;
       }
       return;
@@ -22428,6 +22452,7 @@ function NoteModal({
       query: '',
       activeIdx: 0
     });
+    _taskJustOpened.current = true;
     const editor = milkdownEditorRef.current;
     if (editor) {
       const MB = window.MilkdownBundle;
@@ -23000,7 +23025,8 @@ function NoteModal({
     tasksGetter: tasksGetterRef.current,
     onTasklinkClick: handleTasklinkClick,
     onImagePaste: handleImagePaste,
-    onInsertDrawing: handleOpenInsertDrawing
+    onInsertDrawing: handleOpenInsertDrawing,
+    onInsertTask: openTaskDropdown
   }), paperConfig?.enabled && /*#__PURE__*/React.createElement(PaperPageGuides, {
     rootRef: paperWrapRef,
     paperConfig: paperConfig
@@ -30989,7 +31015,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v396-dash-priority-focus-btn-label";
+    window.__SW_VERSION = "taskflow-v397-note-block-slash-task";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

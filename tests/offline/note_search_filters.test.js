@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v396", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v396-dash-priority-focus-btn-label";/m,
-      "sw.js CACHE must be taskflow-v396-dash-priority-focus-btn-label"
+      /^const CACHE = "taskflow-v397-note-block-slash-task";/m,
+      "sw.js CACHE must be taskflow-v397-note-block-slash-task"
     );
   });
 });

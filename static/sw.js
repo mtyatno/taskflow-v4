@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v396-dash-priority-focus-btn-label";
+const CACHE = "taskflow-v397-note-block-slash-task";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",

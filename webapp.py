@@ -3380,7 +3380,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v396-dash-priority-focus-btn-label"
+    sw_cache = "taskflow-v397-note-block-slash-task"
     return JSONResponse(
         content={
             "app_version": "4.0.0",
