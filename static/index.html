@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=329">
+  <link rel="stylesheet" href="/static/app.css?v=332">
 
 <style>
 /* Mode kertas hanya di layar lebar (>= 769px). Di HP (<= 768px) catatan
@@ -3012,6 +3012,162 @@ function GoalTab({
   //   - TaskFormModal
   // BLOCK LENGTH: ~1887 lines (4246-6133) — LARGEST block in the codebase
 
+// ── Modal "Kapan task ini dikerjakan?" (pilih tanggal saat task baru tanpa deadline) ──
+// Helper murni (dites di tests/offline/task_date_prompt.test.js).
+function taskNeedsDatePrompt(form, recurringOn) {
+  return !!form && !recurringOn && !String(form.deadline || "").trim();
+}
+// Sel kalender satu bulan, minggu mulai Senin: null = sel kosong, angka = tanggal.
+function taskDatePromptCells(year, month) {
+  const startOffset = (new Date(year, month, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+function taskDatePromptKey(year, month, day) {
+  return year + "-" + String(month + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+}
+// Pilihan cepat: hari ini, besok, Senin depan (selalu setelah hari ini).
+function taskDatePromptQuickPicks(base) {
+  const b = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  const at = n => new Date(b.getFullYear(), b.getMonth(), b.getDate() + n);
+  const toMonday = ((8 - b.getDay()) % 7) || 7;
+  return [["Hari ini", at(0)], ["Besok", at(1)], ["Senin depan", at(toMonday)]].map(([label, d]) => ({
+    label,
+    key: taskDatePromptKey(d.getFullYear(), d.getMonth(), d.getDate())
+  }));
+}
+const TASK_DATE_PROMPT_MONTHS = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+function TaskDatePromptModal({ taskTitle, tasks = [], saving, onSkip, onConfirm, onClose }) {
+  const now = new Date();
+  const todayKey = taskDatePromptKey(now.getFullYear(), now.getMonth(), now.getDate());
+  const [view, setView] = useState({ y: now.getFullYear(), m: now.getMonth() });
+  const [picked, setPicked] = useState(null);
+  const shiftMonth = delta => setView(v => {
+    const d = new Date(v.y, v.m + delta, 1);
+    return { y: d.getFullYear(), m: d.getMonth() };
+  });
+  const pickKey = key => {
+    setPicked(key);
+    const [y, m] = key.split("-").map(Number);
+    setView({ y, m: m - 1 });
+  };
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+  // Jumlah task aktif per tanggal di bulan tampil, agar user melihat hari yang sudah padat.
+  const loadByKey = React.useMemo(() => {
+    const map = {};
+    (tasks || []).forEach(t => {
+      if (!t || !t.deadline || t.gtd_status === "done" || t.gtd_status === "archived") return;
+      map[t.deadline] = (map[t.deadline] || 0) + 1;
+    });
+    return map;
+  }, [tasks]);
+  const cells = taskDatePromptCells(view.y, view.m);
+  const pickedLabel = picked ? new Date(picked + "T00:00:00").toLocaleDateString("id-ID", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric"
+  }) : null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "modal-overlay task-date-prompt-overlay",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal-content scale-in task-date-prompt",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-labelledby": "task-date-prompt-title",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tdp-head"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tdp-head-icon"
+  }, /*#__PURE__*/React.createElement(Icon, { name: "calendar", size: 18 })), /*#__PURE__*/React.createElement("div", {
+    className: "tdp-head-text"
+  }, /*#__PURE__*/React.createElement("h3", {
+    id: "task-date-prompt-title"
+  }, "Kapan task ini dikerjakan?"), /*#__PURE__*/React.createElement("div", {
+    className: "tdp-task-title",
+    title: taskTitle
+  }, taskTitle)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tdp-close",
+    "aria-label": "Kembali ke form",
+    title: "Kembali ke form",
+    onClick: onClose
+  }, "✕")), /*#__PURE__*/React.createElement("div", {
+    className: "tdp-quick"
+  }, taskDatePromptQuickPicks(now).map(q => /*#__PURE__*/React.createElement("button", {
+    key: q.label,
+    type: "button",
+    className: "tdp-quick-btn" + (picked === q.key ? " active" : ""),
+    onClick: () => pickKey(q.key)
+  }, q.label))), /*#__PURE__*/React.createElement("div", {
+    className: "tdp-month-nav"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tdp-nav-btn",
+    "aria-label": "Bulan sebelumnya",
+    title: "Bulan sebelumnya",
+    onClick: () => shiftMonth(-1)
+  }, /*#__PURE__*/React.createElement(Icon, { name: "chevronLeft", size: 16 })), /*#__PURE__*/React.createElement("div", {
+    className: "tdp-month-label"
+  }, TASK_DATE_PROMPT_MONTHS[view.m], " ", view.y), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tdp-nav-btn",
+    "aria-label": "Bulan berikutnya",
+    title: "Bulan berikutnya",
+    onClick: () => shiftMonth(1)
+  }, /*#__PURE__*/React.createElement(Icon, { name: "chevronRight", size: 16 }))), /*#__PURE__*/React.createElement("div", {
+    className: "tdp-grid"
+  }, CAL_DAY_SHORT.map(d => /*#__PURE__*/React.createElement("div", {
+    key: "h" + d,
+    className: "tdp-dow"
+  }, d)), cells.map((day, i) => {
+    if (!day) return /*#__PURE__*/React.createElement("div", { key: "e" + i, className: "tdp-cell empty" });
+    const key = taskDatePromptKey(view.y, view.m, day);
+    const load = loadByKey[key] || 0;
+    const cls = ["tdp-cell"];
+    if (key === todayKey) cls.push("today");
+    if (key < todayKey) cls.push("past");
+    if (key === picked) cls.push("picked");
+    return /*#__PURE__*/React.createElement("button", {
+      key: key,
+      type: "button",
+      className: cls.join(" "),
+      "aria-pressed": key === picked,
+      "aria-label": key + (load ? `, ${load} task` : ""),
+      title: load ? `${load} task di tanggal ini` : undefined,
+      onClick: () => setPicked(key)
+    }, /*#__PURE__*/React.createElement("span", { className: "tdp-day-num" }, day), load > 0 && /*#__PURE__*/React.createElement("span", { className: "tdp-load" }, load));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "tdp-picked"
+  }, pickedLabel ? /*#__PURE__*/React.createElement(React.Fragment, null, "Dipilih: ", /*#__PURE__*/React.createElement("strong", null, pickedLabel)) : "Belum ada tanggal dipilih"), /*#__PURE__*/React.createElement("div", {
+    className: "tdp-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary",
+    disabled: saving,
+    onClick: onSkip
+  }, "Tidak perlu (Lewati)"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-primary",
+    disabled: saving || !picked,
+    onClick: () => picked && onConfirm(picked)
+  }, saving ? "Menyimpan..." : "Tambahkan"))));
+}
 function TaskFormModal({
   task,
   onSave,
@@ -3825,8 +3981,17 @@ function TaskFormModal({
       })));
     });
   };
-  const handleSubmit = async e => {
-    e.preventDefault();
+  // Modal pilih tanggal: muncul saat task BARU disimpan tanpa deadline (bukan task berulang).
+  // "Lewati" → simpan tanpa tanggal; "Tambahkan" → simpan dengan tanggal terpilih.
+  const [datePromptOpen, setDatePromptOpen] = useState(false);
+  const handleSubmit = async (e, opts) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (loading) return;
+    if (mode === "task" && !isEdit && !opts && taskNeedsDatePrompt(form, recurringOn)) {
+      if (!form.title.trim()) return;
+      setDatePromptOpen(true);
+      return;
+    }
     setLoading(true);
     // ── Note mode ────────────────────────────────────────────
     if (mode === "note") {
@@ -3907,6 +4072,7 @@ function TaskFormModal({
       } else {
         const newTask = await api.post("/api/tasks", {
           ...form,
+          ...(opts && "deadline" in opts ? { deadline: opts.deadline } : {}),
           ...recurrencePayload
         });
         for (const sub of pendingSubtasks) {
@@ -4933,7 +5099,21 @@ function TaskFormModal({
     type: "submit",
     className: "btn btn-primary",
     disabled: loading
-  }, loading ? "Saving..." : isEdit ? "Update" : "Tambah")))))), noteDrawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
+  }, loading ? "Saving..." : isEdit ? "Update" : "Tambah")))))), datePromptOpen && /*#__PURE__*/React.createElement(TaskDatePromptModal, {
+    taskTitle: form.title,
+    tasks: tasks,
+    saving: loading,
+    onSkip: () => {
+      setDatePromptOpen(false);
+      handleSubmit(null, { deadline: "" });
+    },
+    onConfirm: dateKey => {
+      setDatePromptOpen(false);
+      set("deadline", dateKey);
+      handleSubmit(null, { deadline: dateKey });
+    },
+    onClose: () => setDatePromptOpen(false)
+  }), noteDrawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
     noteTitle: noteForm.title,
     onSelectDrawing: handleNoteDrawingSelected,
     onClose: () => setNoteDrawingInsertOpen(false),
@@ -13751,35 +13931,14 @@ function parseQuickCapture(text, baseDate) {
     return { isTask: false, raw: trimmed };
   }
 
-  const formatPlusDays = days => {
-    const d = baseDate ? new Date(baseDate) : new Date();
-    d.setDate(d.getDate() + days);
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${d.getFullYear()}-${mm}-${dd}`;
-  };
-
-  let deadline = null;
-  if (/\b(?:hari\s+ini|today)\b/i.test(remaining)) {
-    deadline = formatPlusDays(0);
-    remaining = remaining.replace(/\b(?:hari\s+ini|today)\b/gi, "").trim();
-  } else if (/\b(?:besok|tomorrow)\b/i.test(remaining)) {
-    deadline = formatPlusDays(1);
-    remaining = remaining.replace(/\b(?:besok|tomorrow)\b/gi, "").trim();
-  } else if (/\blusa\b/i.test(remaining)) {
-    deadline = formatPlusDays(2);
-    remaining = remaining.replace(/\blusa\b/gi, "").trim();
-  }
-
-  let cleanTitle = remaining.replace(/\s+/g, " ").replace(/^[,:.\-\s]+|[,:.\-\s]+$/g, "").trim();
-  if (!cleanTitle) {
-    cleanTitle = trimmed.slice(prefixMatch[0].length).trim();
-  }
+  // Task dari input hero selalu tanpa tanggal (kata "besok", "hari ini" dst. tetap jadi
+  // bagian judul); tanggal diatur nanti lewat Proses Inbox atau edit task.
+  const cleanTitle = remaining.replace(/\s+/g, " ").replace(/^[,:.\-\s]+|[,:.\-\s]+$/g, "").trim() || remaining;
 
   return {
     isTask: true,
     title: cleanTitle,
-    deadline: deadline
+    deadline: null
   };
 }
 const DashOnboardingCard = ({ tasks, notes, summary, onNav, onFocusInput, onDismiss }) => {
@@ -13977,7 +14136,7 @@ function Dashboard({
     if (parsed.isTask) {
       const taskBody = {
         title: parsed.title,
-        deadline: parsed.deadline || null,
+        deadline: null,
         priority: "P3",
         gtd_status: "inbox"
       };
@@ -18508,7 +18667,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v407-note-callout-render"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v410-task-date-prompt"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -31379,7 +31538,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v407-note-callout-render";
+    window.__SW_VERSION = "taskflow-v410-task-date-prompt";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

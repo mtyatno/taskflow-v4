@@ -19,14 +19,14 @@ function getParseQuickCapture() {
   return factory();
 }
 
-test("parseQuickCapture: deteksi awalan 'tugas,' dan deadline 'besok'", () => {
+test("parseQuickCapture: task dari hero selalu tanpa tanggal, kata 'besok' tetap di judul", () => {
   const parse = getParseQuickCapture();
   const baseDate = new Date("2026-10-07T12:00:00");
   const result = parse("Tugas, beli mobil fortuner besok", baseDate);
 
   assert.equal(result.isTask, true);
-  assert.equal(result.title, "beli mobil fortuner");
-  assert.equal(result.deadline, "2026-10-08");
+  assert.equal(result.title, "beli mobil fortuner besok");
+  assert.equal(result.deadline, null);
 });
 
 test("parseQuickCapture: deteksi awalan 'tugas:' tanpa deadline", () => {
@@ -51,39 +51,29 @@ test("parseQuickCapture: deteksi awalan 'task' dan 'tasks:'", () => {
   assert.equal(r2.deadline, null);
 });
 
-test("parseQuickCapture: deteksi awalan 'todo -' dan deadline 'hari ini'", () => {
+test("parseQuickCapture: kata tanggal (hari ini, lusa, today, tomorrow) tidak jadi deadline", () => {
   const parse = getParseQuickCapture();
   const baseDate = new Date("2026-10-07T08:00:00");
-  const result = parse("todo - selesaikan laporan hari ini", baseDate);
-
-  assert.equal(result.isTask, true);
-  assert.equal(result.title, "selesaikan laporan");
-  assert.equal(result.deadline, "2026-10-07");
+  const cases = [
+    ["todo - selesaikan laporan hari ini", "selesaikan laporan hari ini"],
+    ["todos antar adik ke stasiun lusa", "antar adik ke stasiun lusa"],
+    ["task workout today", "workout today"],
+    ["todo buy groceries tomorrow", "buy groceries tomorrow"]
+  ];
+  for (const [input, title] of cases) {
+    const r = parse(input, baseDate);
+    assert.equal(r.isTask, true, input);
+    assert.equal(r.title, title, input);
+    assert.equal(r.deadline, null, input);
+  }
 });
 
-test("parseQuickCapture: deteksi awalan 'todos' dan deadline 'lusa'", () => {
-  const parse = getParseQuickCapture();
-  const baseDate = new Date("2026-10-07T09:00:00");
-  const result = parse("todos antar adik ke stasiun lusa", baseDate);
-
-  assert.equal(result.isTask, true);
-  assert.equal(result.title, "antar adik ke stasiun");
-  assert.equal(result.deadline, "2026-10-09");
-});
-
-test("parseQuickCapture: deteksi deadline bahasa Inggris 'today' dan 'tomorrow'", () => {
-  const parse = getParseQuickCapture();
-  const baseDate = new Date("2026-10-07T10:00:00");
-
-  const r1 = parse("task workout today", baseDate);
-  assert.equal(r1.isTask, true);
-  assert.equal(r1.title, "workout");
-  assert.equal(r1.deadline, "2026-10-07");
-
-  const r2 = parse("todo buy groceries tomorrow", baseDate);
-  assert.equal(r2.isTask, true);
-  assert.equal(r2.title, "buy groceries");
-  assert.equal(r2.deadline, "2026-10-08");
+test("static/index.html: handleScratch membuat task hero tanpa deadline", () => {
+  const start = indexHtml.indexOf("const handleScratch = async e =>");
+  assert.ok(start > 0);
+  const body = indexHtml.slice(start, indexHtml.indexOf("api.post(\"/api/tasks\"", start));
+  assert.match(body, /deadline: null,/);
+  assert.doesNotMatch(body, /parsed\.deadline/);
 });
 
 test("parseQuickCapture: fallback ke note jika bukan task", () => {

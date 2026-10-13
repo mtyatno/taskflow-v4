@@ -3242,3 +3242,10 @@
 - **Changes:** PR #21 ditandai ready lalu di-merge (`8f166c4`); Deploy Taskflow V4 run #886 sukses. Catatan `.agents` diperbarui.
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/version melaporkan v407.
+
+## [2026-10-13 23:50] - Claude (pilih tanggal saat tambah task, task hero tanpa tanggal)
+- **Task:** Bapak (item 4 & 5 permintaan Eisenhower): modal kalender saat task baru tanpa tanggal; task dari input hero dibuat tanpa tanggal.
+- **Changes:** `TaskDatePromptModal` + helper di `static/index.html`, `handleSubmit(e, opts)` di TaskFormModal; `parseQuickCapture` tanpa deteksi tanggal; CSS `.task-date-prompt` di app.css (tanpa garis aksen); SW v410, app.css?v=332.
+- **Verifikasi:** Playwright lokal (terang/gelap, desktop/mobile): modal muncul, task tersimpan dengan tanggal terpilih; hero "tugas: beli buku besok" → task "beli buku besok" deadline null. JS 1096/1097 (1 gagal pra-ada: draw_local_reactive), test_version OK, inline 5/5. Screenshot di `/mnt/project-files/pilih-tanggal-task/`.
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `webapp.py`, `tests/test_version.py`, `tests/offline/*.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR, tunggu "merge dan deploy").
