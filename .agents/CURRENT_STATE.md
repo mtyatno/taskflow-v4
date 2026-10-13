@@ -3,7 +3,19 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
-3. NEVER guess bugs; isolate and reproduce them systematically.
+## 🟡 RENCANA KERJA (SESI MALAM HARI): Adaptasi Responsif Layar Kecil (Mobile) untuk Mode Kertas Note Viewer & Note Editor
+- **Status:** 🟡 TERJADWAL UNTUK SESI MALAM HARI (Scheduled for evening session).
+- **Rencana Kerja Tertulis:** `docs/superpowers/plans/2026-10-13-mobile-responsive-paper-mode.md`.
+- **Konteks & Kebutuhan:**
+  - Pengguna mencatat bahwa pada perangkat mobile berlayar kecil, tampilan kertas dengan lebar fisik 210mm dan padding 20mm memaksa pengguna menggeser-geser layar secara horizontal (*horizontal scroll*) sehingga tulisan sulit dibaca.
+  - Solusi yang disepakati:
+    - **Layar Lebar & Besar (Desktop / Laptop / Tablet >= 769px):** Tampilan kertas tetap aktif dan memberikan sensasi membaca & menulis lembaran fisik A4 yang memuaskan.
+    - **Layar Kecil / Mobile (<= 768px):** Tampilan **BUKAN tampilan kertas**, melainkan otomatis mengalir *fluid full-width* 100% tanpa *box-shadow*, tanpa batas fisik 210mm, padding natural, mengikuti tema aktif HP (gelap/terang), serta menyembunyikan garis panduan halaman (`PaperPageGuides`) dan dropdown select kertas di toolbar.
+- **Rencana Langkah Eksekusi (Malam Hari):**
+  1. Tambahkan CSS responsif `@media (max-width: 768px)` untuk `.paper-mode-active`, `.paper-inner-wrap`, `.milkdown-editor`, `.note-rendered`, `.paper-page-guides`, dan `select.paper-select` di `static/index.html`.
+  2. Tambahkan unit test di `tests/offline/note_paper_mode.test.js` untuk memverifikasi aturan responsif mobile.
+  3. Verifikasi menyeluruh: inline scripts OK, tests passed 100%, ZERO `border-left`.
+
 ## 🟢 Mode Kertas (Paper Mode) di Note Viewer (NotePanel) — 2026-10-13 (Antigravity/Gemini) — SELESAI
 - **Status:** 🟢 SELESAI. Branch `feat/note-viewer-paper-mode`. SW v400 `taskflow-v400-note-viewer-paper-mode`.
 - **Konteks & Masalah:**
