@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v405-android-icon-margin', () => {
+  test('Service Worker cache version is bumped to taskflow-v406-pwa-icon-refresh', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v405-android-icon-margin";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v406-pwa-icon-refresh";/m);
   });
 });
 

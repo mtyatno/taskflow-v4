@@ -3,6 +3,11 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+## 🟠 Ikon PWA tidak ter-update setelah pasang ulang — 2026-10-13 (Claude) — NEEDS REVIEW
+- **Status:** Draft PR dari `claude/android-icon-margin-8g31kx`, SW v406 `taskflow-v406-pwa-icon-refresh`. Tunggu "merge dan deploy".
+- **Masalah:** setelah PR #18 (v405) Bapak uninstall + install ulang PWA, ikon tetap lama. SW lama menyajikan `/manifest.json` dan `icon-*.png` cache-first dari precache (SW baru menunggu tombol update), dan uninstall PWA tidak menghapus cache/SW situs.
+- **Fix:** URL manifest dan ikon diberi `?v=2` (index.html, manifest.json, precache sw.js) supaya cache lama tidak cocok; SW: manifest + `/static/icon-*.png` network-first; precache pakai `cache: "reload"`; `/manifest.json` dikirim dengan `Cache-Control: no-cache`.
+
 ## 🟡 Margin Ikon Aplikasi Android (PWA maskable + Tauri) — 2026-10-13 (Claude) — DI-MERGE
 - **Status:** 🟡 PR #18 di-merge atas "merge dan deploy" Bapak (2026-10-13), SW v405 `taskflow-v405-android-icon-margin`.
 - **Masalah:** `icon-192/512.png` (logo memenuhi seluruh kanvas) juga dipakai sebagai `purpose: maskable`, jadi launcher Android memotong logo dan tanpa margin.

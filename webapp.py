@@ -3380,7 +3380,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v405-android-icon-margin"
+    sw_cache = "taskflow-v406-pwa-icon-refresh"
     return JSONResponse(
         content={
             "app_version": "4.0.0",
@@ -3399,7 +3399,8 @@ async def get_app_version():
 @app.get("/manifest.json")
 async def serve_manifest():
     mf = STATIC_DIR / "manifest.json"
-    return FileResponse(str(mf), media_type="application/manifest+json")
+    return FileResponse(str(mf), media_type="application/manifest+json",
+                        headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/config.js")
