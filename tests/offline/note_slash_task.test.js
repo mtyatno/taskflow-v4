@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v398-note-editor-default-paper-mode in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v398-note-editor-default-paper-mode";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v398-note-editor-default-paper-mode"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v398-note-editor-default-paper-mode";/);
+  await t.test("Service Worker cache is taskflow-v399-user-switch-localdb-isolation in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v399-user-switch-localdb-isolation";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v399-user-switch-localdb-isolation"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v399-user-switch-localdb-isolation";/);
   });
 });

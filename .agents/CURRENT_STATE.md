@@ -5,6 +5,98 @@
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
+## 🟢 Modernisasi Ikon Note Editor Toolbar (NoteToolbar) ke Lucide SVG Icons — 2026-10-13 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI.
+- **Konteks & Masalah:**
+  - Toolbar editor catatan (`NoteToolbar`) sebelumnya menggunakan campuran emoji lawas dan karakter teks unicode (seperti `\uD83D\uDCCB`, `H \u25BE`, `B`, `I`, `</>`, `\u2261`, `\u2611`, `\u275D`, `\u2014`, `\uD83D\uDCCE`, `📄 Kertas`, dll.) yang inkonsisten dan kurang modern.
+  - Pengguna membutuhkan standarisasi ikon Lucide SVG seragam dengan standar industri (`viewBox="0 0 24 24"`, `stroke="currentColor"`, `strokeWidth=1.9`, `fill="none"`) dan penataan layout tombol yang rapi serta presisi.
+- **Solusi & Implementasi:**
+  1. **`static/ui-components.js`:**
+     - Mendaftarkan seluruh ikon SVG Lucide yang dibutuhkan ke kamus `ICONS`: `bold`, `italic`, `code`, `heading`, `checkSquare`, `quote`, `listOrdered`, `strikethrough`, `table`, `minus`, `mic`, `fileText`.
+  2. **`static/index.html`:**
+     - Memodernisasi seluruh tombol pada `NoteToolbar` dengan `React.createElement(Icon, ...)`:
+       - Template: `[Icon('clipboardCheck'), span('Template'), Icon('chevronDown')]`
+       - Heading: `[Icon('heading'), Icon('chevronDown')]`
+       - Bold: `Icon('bold')`
+       - Italic: `Icon('italic')`
+       - Inline Code: `Icon('code')`
+       - Bullet List: `Icon('list')`
+       - Checklist: `Icon('checkSquare')`
+       - Blockquote: `Icon('quote')`
+       - + Task: `[Icon('checkSquare'), span('Task')]`
+       - + Gambar: `[Icon('draw'), span('Gambar')]`
+       - Format Lainnya (+): `Icon('plus')`
+         - Numbered List: `Icon('listOrdered')`
+         - Strikethrough: `Icon('strikethrough')`
+         - Table: `Icon('table')`
+         - Wikilink: `[Icon('link'), span('Wiki')]`
+       - Horizontal Rule: `Icon('minus')`
+       - Lampirkan File: `Icon('paperclip')`
+       - Dikte Suara: `Icon('mic')` + indikator status dot (merah untuk listening, kuning untuk paused)
+       - Mode Kertas: `[Icon('fileText'), span('Kertas')]` dengan seluruh prop, title, dan select size/orientation tetap utuh.
+     - Strict isolation: Baris-baris note editor di luar `NoteToolbar` dan file-file di `static/offline/` terlindungi utuh tanpa modifikasi.
+  3. **`static/app.css`:**
+     - Memperbarui styling `.note-toolbar button` dan `.note-mic-btn`: height 28px, border-radius 7px, gap 3px, padding 0 8px, align-items center, justify-content center, dan zero border (left).
+  4. **Pengujian:**
+     - Membuat unit test suite baru `tests/offline/note_toolbar_icons.test.js` (6 unit tests):
+       - Validasi kamus `ICONS` di `ui-components.js`.
+       - Validasi pemanggilan `React.createElement(Icon, ...)` untuk setiap tombol di `NoteToolbar`.
+       - Validasi ketiadaan emoji/unicode lawas di tombol `NoteToolbar`.
+       - Validasi kelengkapan atribut dan kontrol Mode Kertas.
+       - Validasi styling modern `.note-toolbar button` di `static/app.css`.
+     - Seluruh 93 tes note editor offline passed (`note_toolbar_icons.test.js`, `note_paper_mode.test.js`, `note_toc.test.js`, `interactive_note_viewer.test.js`, `note_editor_trailing_block.test.js`).
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/ui-components.js` ➡️ **OK**.
+  - `git diff -U0 | grep -iE "border-?left"` ➡️ **0 matches (OK)**.
+  - `node --test tests/offline/note_toolbar_icons.test.js tests/offline/note_paper_mode.test.js tests/offline/note_toc.test.js tests/offline/interactive_note_viewer.test.js tests/offline/note_editor_trailing_block.test.js` ➡️ **93/93 passed (0 failed)**.
+
+## 🟢 Multi-Account Local DB & Session Isolation pada Logout & Account Switch — 2026-10-13 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI. SW v399 `taskflow-v399-user-switch-localdb-isolation`.
+- **Konteks & Masalah:**
+  - Pengguna melaporkan bahwa dalam satu laptop yang sama di mana beberapa anggota keluarga bergantian menggunakan Alurik via Google Chrome PWA dengan akun masing-masing, ketika ada akun yang logout dan akun lain login, akun yang baru masuk masih membaca data local database (IndexedDB `taskflow-offline` & `taskflow-legacy-cache`, serta CacheStorage API cache) milik akun sebelumnya.
+  - Akar masalah:
+    1. Fungsi `logout()` sebelumnya hanya mereset state in-memory React dan menghapus token, tanpa membersihkan object store di IndexedDB `taskflow-offline` (`tasks`, `habits`, `scratchpad_notes`, `_outbox`, dll.) maupun `taskflow-legacy-cache` (`cache` dan `queue`).
+    2. Singleton `api._localRouter` tetap aktif merutekan request `/api/tasks` dsb. ke IndexedDB lokal yang masih berisi rekaman pengguna sebelumnya.
+    3. `handleLogin()` dan `tryAuth()` tidak membandingkan ID akun yang masuk (`user_id`) dengan akun sebelumnya yang tercatat di local storage.
+    4. Service Worker CacheStorage menyimpan cache respons GET `/api/*` sehingga saat offline atau cache hit, data API lama dapat terambil.
+- **Solusi & Implementasi:**
+  1. **`static/offline/db.js`:**
+     - Menambahkan fungsi `clearAll()` yang membuka database `taskflow-offline` dan mengosongkan seluruh object store dalam satu transaksi `readwrite`, serta mengeksposnya pada `publicApi` dan module exports.
+  2. **`static/index.html`:**
+     - Pada `OfflineDB`: menambahkan `cacheClear()` dan `clearAll()` untuk mengosongkan store `cache` dan `queue` pada `taskflow-legacy-cache`.
+     - Menambahkan fungsi komprehensif `clearLocalUserData()` yang:
+       - Memanggil `TF.db.clearAll()` untuk mengosongkan IndexedDB `taskflow-offline`.
+       - Memanggil `OfflineDB.clearAll()` untuk mengosongkan IndexedDB `taskflow-legacy-cache`.
+       - Menghapus entri endpoint `/api/` dari semua cache di `window.caches` (CacheStorage).
+       - Menghapus key `localStorage` terikat user: `tf_user_id`, `tf_pomo_state`, `tf_last_review`, `tf_review_snooze`, `tf_last_backup`, `tf_backup_snooze`, `tf_dismiss_onboarding`, `tf_ai_review_optin`.
+       - Mereset singleton lokal `api._localRouter = null`, `TF.db._reset()`, dan mengosongkan user closures pada `chatrepo`, `noterepo`, dan `mindmaprepo`.
+     - Integrasi pada `logout()`: jika online, mencoba flush outbox via `window.__pushNow()` sebelum logout agar data offline pengguna lama terunggah ke akunnya, memanggil endpoint logout server, mengeksekusi `await clearLocalUserData()`, mereset `initialLoad.current = true`, dan mengosongkan seluruh state in-memory React.
+     - Integrasi pada `handleLogin(data)`: mendeteksi pergantian user ID (`prevUserId !== data.user_id`), memanggil `await clearLocalUserData()` jika berganti akun, dan mencatat `tf_user_id` baru.
+     - Integrasi pada `tryAuth()`: mendeteksi pergantian user ID pada `/api/auth/me` berhasil maupun token decode fallback offline, memanggil `clearLocalUserData()` jika akun berbeda; serta memanggil `clearLocalUserData()` saat error 401 Unauthorized.
+     - Bump fallback `window.__SW_VERSION` dan info About modal ke `taskflow-v399-user-switch-localdb-isolation`.
+     - Strict isolation: Baris note editor (Milkdown, dll.) 100% terjaga. ZERO border (left).
+  3. **Backend & Service Worker:**
+     - `webapp.py`: bump `sw_cache` ke `taskflow-v399-user-switch-localdb-isolation`.
+     - `static/sw.js`: bump `CACHE` ke `taskflow-v399-user-switch-localdb-isolation`.
+     - `tests/test_version.py`: bump asersi ke `taskflow-v399-user-switch-localdb-isolation` dan `v399`.
+  4. **Pengujian Komprehensif:**
+     - Menambahkan unit test di `tests/offline/db.test.js`: verifikasi `clearAll` mengosongkan seluruh entity dan system stores.
+     - Membuat unit test suite baru `tests/offline/user_session_isolation.test.js` (7 tests):
+       - `TF.db.clearAll()` mengosongkan seluruh store `taskflow-offline`.
+       - `OfflineDB.clearAll()` mengosongkan `cache` dan `queue`.
+       - Logika cache purge menghapus request `/api/` dan mempertahankan aset statis.
+       - `clearLocalUserData()` menghapus key user localStorage dan mereset router sambil mempertahankan setting umum (`theme`).
+       - Account switch detection di `handleLogin` mendeteksi pergantian user ID dan memicu pembersihan.
+       - Validasi keberadaan deklarasi fungsi pembersihan dan wiring di `index.html`.
+       - Sinkronisasi konsistensi versi SW cache.
+     - Sinkronisasi string cache SW di seluruh 12 test suite offline.
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `git diff -U0 | grep -iE "border-?left"` ➡️ **0 matches (OK)**.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+  - `node --test tests/offline/*.test.js` ➡️ **1071/1071 passed (0 failed)** across 8 suites.
 
 ## 🟢 Smart Direct GTD Inbox Wizard dari KPI Inbox Dashboard — 2026-10-13 (Antigravity/Gemini) — SELESAI
 - **Status:** 🟢 SELESAI. Branch `feat/dashboard-inbox-kpi-wizard`.

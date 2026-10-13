@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v398-note-editor-default-paper-mode", () => {
-    assert.match(swJs, /taskflow-v398-note-editor-default-paper-mode/);
+  await t.test("sw.js bumped to taskflow-v399-user-switch-localdb-isolation", () => {
+    assert.match(swJs, /taskflow-v399-user-switch-localdb-isolation/);
   });
 });

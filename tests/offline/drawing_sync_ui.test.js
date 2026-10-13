@@ -246,8 +246,8 @@ test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan"
 });
 
 // ── Cache bust ───────────────────────────────────────────────────────────────
-test("sw.js CACHE = taskflow-v398-note-editor-default-paper-mode (tldraw di-cache cache-first)", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v398-note-editor-default-paper-mode";/m);
+test("sw.js CACHE = taskflow-v399-user-switch-localdb-isolation (tldraw di-cache cache-first)", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v399-user-switch-localdb-isolation";/m);
 });
 
 // ══ Putaran pengerasan (review independen) ══════════════════════════════════════

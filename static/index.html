@@ -18461,7 +18461,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v398-note-editor-default-paper-mode"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v399-user-switch-localdb-isolation"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -19218,7 +19218,7 @@ onPaperConfigChange
       alignItems: 'center',
       gap: 3
     }
-  }, "\uD83D\uDCCB Template \u25BE"), tplOpen && isEmpty && /*#__PURE__*/React.createElement("div", {
+  }, [React.createElement(Icon, { name: "clipboardCheck", size: 13, key: "ic" }), React.createElement("span", { key: "tx", style: { marginLeft: 4, marginRight: 2 } }, "Template"), React.createElement(Icon, { name: "chevronDown", size: 10, key: "ch" })]), tplOpen && isEmpty && /*#__PURE__*/React.createElement("div", {
     className: "tpl-dropdown"
   }, tplGroupKeys.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
@@ -19267,7 +19267,7 @@ onPaperConfigChange
     style: {
       letterSpacing: 0.5
     }
-  }, "H \u25BE"), hOpen && /*#__PURE__*/React.createElement("div", {
+  }, [React.createElement(Icon, { name: "heading", size: 13, key: "ic" }), React.createElement(Icon, { name: "chevronDown", size: 10, key: "ch", style: { marginLeft: 2 } })]), hOpen && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "absolute",
       top: "calc(100% + 4px)",
@@ -19312,68 +19312,45 @@ onPaperConfigChange
     }
   }, h.hint))))), /*#__PURE__*/React.createElement("div", {
     className: "sep"
-  }), /*#__PURE__*/React.createElement("button", {
+  }),  /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
       cmd(window.MilkdownBundle?.toggleStrongCommand?.key);
     },
-    title: "Bold",
-    style: {
-      fontWeight: 700,
-      fontFamily: "serif",
-      fontSize: 15
-    }
-  }, "B"), /*#__PURE__*/React.createElement("button", {
+    title: "Bold"
+  }, React.createElement(Icon, { name: "bold", size: 13 })), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
       cmd(window.MilkdownBundle?.toggleEmphasisCommand?.key);
     },
-    title: "Italic",
-    style: {
-      fontStyle: "italic",
-      fontFamily: "serif",
-      fontSize: 15
-    }
-  }, "I"), /*#__PURE__*/React.createElement("button", {
+    title: "Italic"
+  }, React.createElement(Icon, { name: "italic", size: 13 })), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
       cmd(window.MilkdownBundle?.toggleInlineCodeCommand?.key);
     },
-    title: "Inline code",
-    style: {
-      fontFamily: "monospace",
-      fontSize: 12
-    }
-  }, "</>"), /*#__PURE__*/React.createElement("div", {
+    title: "Inline code"
+  }, React.createElement(Icon, { name: "code", size: 13 })), /*#__PURE__*/React.createElement("div", {
     className: "sep"
   }), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
       cmd(window.MilkdownBundle?.wrapInBulletListCommand?.key);
     },
-    title: "Bullet list",
-    style: {
-      fontSize: 14
-    }
-  }, "\u2261"), /*#__PURE__*/React.createElement("button", {
+    title: "Bullet list"
+  }, React.createElement(Icon, { name: "list", size: 14 })), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
       insertTaskList();
     },
-    title: "Checklist / Task",
-    style: {
-      fontSize: 13
-    }
-  }, "\u2611"), /*#__PURE__*/React.createElement("button", {
+    title: "Checklist / Task"
+  }, React.createElement(Icon, { name: "checkSquare", size: 14 })), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
       cmd(window.MilkdownBundle?.wrapInBlockquoteCommand?.key);
     },
-    title: "Blockquote",
-    style: {
-      fontSize: 15
-    }
-  }, "\u275D"), /*#__PURE__*/React.createElement("div", {
+    title: "Blockquote"
+  }, React.createElement(Icon, { name: "quote", size: 13 })), /*#__PURE__*/React.createElement("div", {
     className: "sep"
   }), /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -19395,7 +19372,7 @@ onPaperConfigChange
       display: 'inline-flex',
       alignItems: 'center'
     }
-  }, "+ Task"), /*#__PURE__*/React.createElement("div", {
+  }, [React.createElement(Icon, { name: "checkSquare", size: 12, key: "ic" }), React.createElement("span", { key: "tx", style: { marginLeft: 4 } }, "Task")]), /*#__PURE__*/React.createElement("div", {
     className: "sep"
   }), /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -19418,7 +19395,7 @@ onPaperConfigChange
       alignItems: 'center',
       gap: 3
     }
-  }, "🎨 +Gambar"), /*#__PURE__*/React.createElement("div", {
+  }, [React.createElement(Icon, { name: "draw", size: 12, key: "ic" }), React.createElement("span", { key: "tx", style: { marginLeft: 4 } }, "Gambar")]), /*#__PURE__*/React.createElement("div", {
     className: "sep"
   }), /*#__PURE__*/React.createElement("div", {
     ref: moreRef,
@@ -19438,7 +19415,7 @@ onPaperConfigChange
       color: moreOpen ? "var(--accent)" : undefined,
       borderColor: moreOpen ? "var(--accent)" : undefined
     }
-  }, "+"), moreOpen && /*#__PURE__*/React.createElement("div", {
+  }, React.createElement(Icon, { name: "plus", size: 13 })), moreOpen && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "absolute",
       top: "calc(100% + 6px)",
@@ -19460,23 +19437,15 @@ onPaperConfigChange
       cmd(window.MilkdownBundle?.wrapInOrderedListCommand?.key);
       setMoreOpen(false);
     },
-    title: "Numbered list",
-    style: {
-      fontSize: 12,
-      fontWeight: 700
-    }
-  }, "1."), /*#__PURE__*/React.createElement("button", {
+    title: "Numbered list"
+  }, React.createElement(Icon, { name: "listOrdered", size: 13 })), /*#__PURE__*/React.createElement("button", {
     onPointerDown: e => {
       e.preventDefault();
       cmd(window.MilkdownBundle?.toggleStrikethroughCommand?.key);
       setMoreOpen(false);
     },
-    title: "Strikethrough",
-    style: {
-      textDecoration: "line-through",
-      fontSize: 13
-    }
-  }, "S"), /*#__PURE__*/React.createElement("div", {
+    title: "Strikethrough"
+  }, React.createElement(Icon, { name: "strikethrough", size: 13 })), /*#__PURE__*/React.createElement("div", {
     className: "sep"
   }), /*#__PURE__*/React.createElement("button", {
     onPointerDown: e => {
@@ -19484,34 +19453,23 @@ onPaperConfigChange
       cmd(window.MilkdownBundle?.insertTableCommand?.key);
       setMoreOpen(false);
     },
-    title: "Insert table",
-    style: {
-      fontSize: 13
-    }
-  }, "\u229E"), /*#__PURE__*/React.createElement("button", {
+    title: "Insert table"
+  }, React.createElement(Icon, { name: "table", size: 13 })), /*#__PURE__*/React.createElement("button", {
     onPointerDown: e => {
       e.preventDefault();
       insertText('[[');
       setMoreOpen(false);
     },
-    title: "Internal link [[wiki]]",
-    style: {
-      fontSize: 11,
-      fontWeight: 700
-    }
-  }, "[[]]"))), /*#__PURE__*/React.createElement("div", {
+    title: "Internal link [[wiki]]"
+  }, [React.createElement(Icon, { name: "link", size: 12, key: "ic" }), React.createElement("span", { key: "tx", style: { marginLeft: 3, fontSize: 11 } }, "Wiki")]))), /*#__PURE__*/React.createElement("div", {
     className: "sep"
   }), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
       cmd(window.MilkdownBundle?.insertHrCommand?.key);
     },
-    title: "Horizontal rule",
-    style: {
-      fontSize: 13,
-      letterSpacing: -1
-    }
-  }, "\u2014"), /*#__PURE__*/React.createElement("input", {
+    title: "Horizontal rule"
+  }, React.createElement(Icon, { name: "minus", size: 13 })), /*#__PURE__*/React.createElement("input", {
     ref: fileInputRef,
     type: "file",
     accept: ".png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vsd,.vsdx,.vsdm,.mpp,.mpt,.dwg,.dxf",
@@ -19527,16 +19485,28 @@ onPaperConfigChange
     title: noteId ? 'Lampirkan file' : 'Simpan note dulu',
     disabled: uploading || !noteId,
     style: {
-      opacity: noteId ? 1 : 0.4,
-      fontSize: 15
+      opacity: noteId ? 1 : 0.4
     }
-  }, "\uD83D\uDCCE"), voiceState && voiceState !== 'unsupported' ? /*#__PURE__*/React.createElement("button", {
+  }, React.createElement(Icon, { name: "paperclip", size: 14 })), voiceState && voiceState !== 'unsupported' ? /*#__PURE__*/React.createElement("button", {
     type: "button",
     onPointerDown: function(e) { e.preventDefault(); if (onToggleVoice) onToggleVoice(); },
     className: "note-mic-btn" + (voiceState === 'listening' ? ' listening' : '') + (voiceState === 'paused' ? ' paused' : ''),
     title: voiceState === 'listening' ? 'Stop rekaman' : voiceState === 'paused' ? 'Menunggu suara...' : 'Mulai dikte suara',
     style: { marginLeft: 4 }
-  }, voiceState === 'listening' ? "\uD83D\uDD34" : voiceState === 'paused' ? "\uD83D\uDFE1" : "\uD83C\uDF99\uFE0F") : null,
+  }, voiceState === 'listening' || voiceState === 'paused' ? [
+    React.createElement(Icon, { name: "mic", size: 14, key: "ic" }),
+    React.createElement("span", {
+      key: "dot",
+      style: {
+        width: 6,
+        height: 6,
+        borderRadius: "50%",
+        background: voiceState === 'listening' ? "#ef4444" : "#eab308",
+        marginLeft: 3,
+        display: "inline-block"
+      }
+    })
+  ] : React.createElement(Icon, { name: "mic", size: 14 })) : null,
     
     // --- PAPER MODE BUTTONS ---
     onPaperConfigChange && React.createElement("div", { style: { display: 'inline-flex', alignItems: 'center', marginLeft: 8, paddingLeft: 8, borderLeft: '1px solid var(--border)' } },
@@ -19544,7 +19514,7 @@ onPaperConfigChange
         className: paperConfig?.enabled ? "paper-btn-active" : "",
         onPointerDown: (e) => { e.preventDefault(); onPaperConfigChange(p => ({ ...p, enabled: !p.enabled, user_toggled: true })); },
         title: "Mode Kertas"
-      }, "📄 Kertas"),
+      }, [React.createElement(Icon, { name: "fileText", size: 13, key: "ic" }), React.createElement("span", { key: "tx", style: { marginLeft: 4 } }, "Kertas")]),
       paperConfig?.enabled && React.createElement("select", {
         className: "paper-select",
         value: paperConfig.size,
@@ -31144,7 +31114,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v398-note-editor-default-paper-mode";
+    window.__SW_VERSION = "taskflow-v399-user-switch-localdb-isolation";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
