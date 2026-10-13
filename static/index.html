@@ -61,7 +61,11 @@
     overflow: auto !important;
     display: block !important;
 }
-.paper-mode-active .paper-inner-wrap .milkdown-editor {
+[data-theme="dark"] .paper-mode-active {
+    background-color: #18181b !important;
+}
+.paper-mode-active .paper-inner-wrap .milkdown-editor,
+.paper-mode-active .paper-inner-wrap .note-rendered {
     background-color: white !important;
     box-shadow: 0 4px 10px rgba(0,0,0,0.15) !important;
     margin: 0 auto !important;
@@ -78,53 +82,66 @@
 /* Paper mode: paksa palet dokumen gelap-di-atas-putih (kertas selalu putih,
    walau tema app dark — mencegah teks abu-abu tak terbaca) */
 .paper-mode-active .paper-inner-wrap .milkdown-editor,
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror {
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror,
+.paper-mode-active .paper-inner-wrap .note-rendered {
     color: #1e293b !important;
 }
 .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror p.is-editor-empty:first-child::before {
     color: #94a3b8 !important;
 }
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror blockquote {
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror blockquote,
+.paper-mode-active .paper-inner-wrap .note-rendered blockquote {
     color: #475569 !important;
     border-left-color: #94a3b8 !important;
 }
 .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror pre,
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror code {
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror code,
+.paper-mode-active .paper-inner-wrap .note-rendered pre,
+.paper-mode-active .paper-inner-wrap .note-rendered code {
     background: #f1f5f9 !important;
     color: #0f172a !important;
 }
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror a {
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror a,
+.paper-mode-active .paper-inner-wrap .note-rendered a {
     color: #2563eb !important;
 }
 .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror th,
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror td {
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror td,
+.paper-mode-active .paper-inner-wrap .note-rendered th,
+.paper-mode-active .paper-inner-wrap .note-rendered td {
     border-color: #cbd5e1 !important;
 }
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror th {
+.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror th,
+.paper-mode-active .paper-inner-wrap .note-rendered th {
     background: #f1f5f9 !important;
 }
-.paper-mode-active .paper-inner-wrap .wikilink-node {
+.paper-mode-active .paper-inner-wrap .wikilink-node,
+.paper-mode-active .paper-inner-wrap .note-rendered .wikilink-node {
     color: #4d7c0f !important;
     background: rgba(168,197,0,0.18) !important;
     border-bottom-color: #4d7c0f !important;
 }
-.paper-mode-active .paper-inner-wrap .tasklink-node {
+.paper-mode-active .paper-inner-wrap .tasklink-node,
+.paper-mode-active .paper-inner-wrap .note-rendered .tasklink-node {
     background: #fef9c3 !important;
     border-color: #fde68a !important;
     color: #92400e !important;
 }
-.paper-mode-active .paper-inner-wrap .tasklink-node-fallback {
+.paper-mode-active .paper-inner-wrap .tasklink-node-fallback,
+.paper-mode-active .paper-inner-wrap .note-rendered .tasklink-node-fallback {
     background: #f1f5f9 !important;
     border-color: #cbd5e1 !important;
     color: #475569 !important;
 }
 /* Toolbar paper controls — seragam dengan .note-toolbar button */
-.note-toolbar button.paper-btn-active {
+.note-toolbar button.paper-btn-active,
+.notes-panel-actions button.paper-btn-active {
     background: color-mix(in srgb, var(--accent) 14%, transparent);
     border-color: var(--accent);
     color: var(--accent);
 }
-.note-toolbar select.paper-select {
+.note-toolbar select.paper-select,
+.notes-panel-actions select.paper-select {
     background: none;
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -138,15 +155,18 @@
     font-family: inherit;
     transition: all 0.12s;
 }
-.note-toolbar select.paper-select:hover {
+.note-toolbar select.paper-select:hover,
+.notes-panel-actions select.paper-select:hover {
     background: var(--bg-primary);
     border-color: var(--accent);
 }
-.note-toolbar select.paper-select option {
+.note-toolbar select.paper-select option,
+.notes-panel-actions select.paper-select option {
     background: var(--bg-primary);
     color: var(--text-primary);
 }
-[data-theme="dark"] .note-toolbar select.paper-select {
+[data-theme="dark"] .note-toolbar select.paper-select,
+[data-theme="dark"] .notes-panel-actions select.paper-select {
     color-scheme: dark;
     background: #262626;
 }
@@ -18461,7 +18481,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v399-user-switch-localdb-isolation"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v400-note-viewer-paper-mode"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -21621,7 +21641,7 @@ function PaperPageGuides({ rootRef, paperConfig }) {
     const compute = () => {
       const root = rootRef.current;
       if (!root) return;
-      const pm = root.querySelector('.ProseMirror');
+      const pm = root.querySelector('.ProseMirror') || root.querySelector('.note-rendered');
       if (!pm) { if (lastSigRef.current !== "[]") { lastSigRef.current = "[]"; setGuides([]); } return; }
       const pmRect = pm.getBoundingClientRect();
       if (!pmRect.height) { if (lastSigRef.current !== "[]") { lastSigRef.current = "[]"; setGuides([]); } return; }
@@ -23719,6 +23739,59 @@ function NotePanel({
   const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
   const [panelAttachments, setPanelAttachments] = React.useState([]);
 
+  const initViewerPaperConfig = () => {
+    try {
+      const meta = JSON.parse(note?.meta_json || "{}");
+      if (meta.paper_mode && typeof meta.paper_mode.enabled === 'boolean') {
+        if (meta.paper_mode.user_toggled) {
+          return {
+            enabled: meta.paper_mode.enabled,
+            size: meta.paper_mode.size || 'A4',
+            orientation: meta.paper_mode.orientation || 'portrait',
+            user_toggled: true
+          };
+        }
+        return {
+          enabled: true,
+          size: meta.paper_mode.size || 'A4',
+          orientation: meta.paper_mode.orientation || 'portrait'
+        };
+      }
+      return { enabled: true, size: 'A4', orientation: 'portrait' };
+    } catch {
+      return { enabled: true, size: 'A4', orientation: 'portrait' };
+    }
+  };
+  const [viewerPaperConfig, setViewerPaperConfig] = useState(initViewerPaperConfig);
+  const viewerPaperWrapRef = React.useRef(null);
+  React.useEffect(() => {
+    setViewerPaperConfig(initViewerPaperConfig());
+  }, [note?.id, note?.meta_json]);
+
+  const saveViewerPaperConfig = async (nextConfig) => {
+    setViewerPaperConfig(nextConfig);
+    if (!note?.id) return;
+    try {
+      let currentMeta = {};
+      try { currentMeta = JSON.parse(note.meta_json || "{}"); } catch (_) {}
+      currentMeta.paper_mode = nextConfig;
+      const newMetaJson = JSON.stringify(currentMeta);
+      note.meta_json = newMetaJson;
+      await api.put(`/api/scratchpad/${note.id}`, { ...note, meta_json: newMetaJson });
+      window.dispatchEvent(new CustomEvent("noteSaved"));
+    } catch (err) {
+      if (typeof isOfflineErr === 'function' && isOfflineErr(err)) {
+        try {
+          const cached = (await OfflineDB.cacheGet("scratchpad_notes")) || [];
+          const updated = cached.map(n => n.id === note.id ? { ...n, meta_json: note.meta_json, updated_at: new Date().toISOString() } : n);
+          await OfflineDB.cacheSet("scratchpad_notes", updated);
+          await OfflineDB.queueAdd({ method: "PUT", url: `/api/scratchpad/${note.id}`, body: { ...note } });
+          window.dispatchEvent(new CustomEvent("noteSaved"));
+        } catch (_) {}
+      }
+    }
+  };
+
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const [titleDraft, setTitleDraft] = React.useState(note?.title || "");
   React.useEffect(() => {
@@ -24388,6 +24461,36 @@ function NotePanel({
     window.addEventListener("drawingSaved", handler);
     return () => window.removeEventListener("drawingSaved", handler);
   }, [note?.id, note?.content]);
+
+  const renderedNoteEl = /*#__PURE__*/React.createElement("div", {
+    className: "note-rendered",
+    ref: tocSpyRef,
+    style: {
+      lineHeight: 1.75
+    },
+    onClick: handlePreviewClick,
+    onDoubleClick: e => {
+      if (e.target && e.target.closest && e.target.closest('input, a, button, [data-tasklink], [data-wiki-id], [data-wiki-title], [data-drawing-preview]')) return;
+      const container = e.currentTarget;
+      const blockEl = e.target && e.target.closest ? e.target.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, tr, td, th') : null;
+      let blockTarget = null;
+      if (blockEl && container) {
+        const allBlocks = Array.from(container.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, tr, td, th'));
+        const idx = allBlocks.indexOf(blockEl);
+        blockTarget = {
+          text: (blockEl.textContent || '').trim().slice(0, 80),
+          index: idx >= 0 ? idx : 0,
+          tag: blockEl.tagName ? blockEl.tagName.toLowerCase() : 'p'
+        };
+      }
+      if (typeof onEdit === 'function') onEdit(blockTarget);
+    },
+    title: "Double-click untuk mengedit catatan",
+    dangerouslySetInnerHTML: {
+      __html: renderMarkdown(note.content || "", titleStrings, allNotes, tasks) || '<span style="color:var(--text-light);font-style:italic">Catatan kosong.</span>'
+    }
+  });
+
   return /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -24753,6 +24856,43 @@ function NotePanel({
     onMouseEnter: e => e.currentTarget.style.background = "var(--bg-primary)",
     onMouseLeave: e => e.currentTarget.style.background = "transparent"
   }, /*#__PURE__*/React.createElement("span", null, "📝"), "Markdown (.md)"))), /*#__PURE__*/React.createElement("button", {
+    onClick: () => saveViewerPaperConfig({ ...viewerPaperConfig, enabled: !viewerPaperConfig?.enabled, user_toggled: true }),
+    title: viewerPaperConfig?.enabled ? "Matikan Mode Kertas" : "Mode Kertas",
+    className: viewerPaperConfig?.enabled ? "paper-btn-active" : "",
+    style: {
+      background: viewerPaperConfig?.enabled ? "rgba(168,197,0,0.15)" : "none",
+      border: viewerPaperConfig?.enabled ? "1.5px solid var(--accent)" : "1px solid var(--border)",
+      borderRadius: 7,
+      fontSize: 12,
+      fontWeight: 600,
+      color: viewerPaperConfig?.enabled ? "var(--accent)" : "var(--text-light)",
+      cursor: "pointer",
+      padding: "4px 9px",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4
+    }
+  }, /*#__PURE__*/React.createElement(Icon, { name: "fileText", size: 14 }), /*#__PURE__*/React.createElement("span", { className: "note-act-label" }, "Kertas")), viewerPaperConfig?.enabled && /*#__PURE__*/React.createElement("select", {
+    className: "paper-select",
+    value: viewerPaperConfig.size || "A4",
+    onChange: e => saveViewerPaperConfig({ ...viewerPaperConfig, size: e.target.value }),
+    title: "Ukuran Kertas",
+    style: { height: 26, fontSize: 11, padding: "0 2px" }
+  },
+    /*#__PURE__*/React.createElement("option", { value: "A4" }, "A4"),
+    /*#__PURE__*/React.createElement("option", { value: "Letter" }, "Letter"),
+    /*#__PURE__*/React.createElement("option", { value: "A3" }, "A3"),
+    /*#__PURE__*/React.createElement("option", { value: "Legal" }, "Legal")
+  ), viewerPaperConfig?.enabled && /*#__PURE__*/React.createElement("select", {
+    className: "paper-select",
+    value: viewerPaperConfig.orientation || "portrait",
+    onChange: e => saveViewerPaperConfig({ ...viewerPaperConfig, orientation: e.target.value }),
+    title: "Orientasi Kertas",
+    style: { height: 26, fontSize: 11, padding: "0 2px" }
+  },
+    /*#__PURE__*/React.createElement("option", { value: "portrait" }, "Portrait"),
+    /*#__PURE__*/React.createElement("option", { value: "landscape" }, "Landscape")
+  ), /*#__PURE__*/React.createElement("button", {
     onClick: onEdit,
     style: {
       background: "none",
@@ -24801,34 +24941,33 @@ function NotePanel({
       display: "flex",
       alignItems: "center"
     }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "x", size: 18 })))), /*#__PURE__*/React.createElement("div", {
-    className: "note-rendered",
-    ref: tocSpyRef,
+  }, /*#__PURE__*/React.createElement(Icon, { name: "x", size: 18 })))), viewerPaperConfig?.enabled ? React.createElement("div", {
+    className: "paper-mode-active",
     style: {
-      lineHeight: 1.75
-    },
-    onClick: handlePreviewClick,
-    onDoubleClick: e => {
-      if (e.target && e.target.closest && e.target.closest('input, a, button, [data-tasklink], [data-wiki-id], [data-wiki-title], [data-drawing-preview]')) return;
-      const container = e.currentTarget;
-      const blockEl = e.target && e.target.closest ? e.target.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, tr, td, th') : null;
-      let blockTarget = null;
-      if (blockEl && container) {
-        const allBlocks = Array.from(container.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, tr, td, th'));
-        const idx = allBlocks.indexOf(blockEl);
-        blockTarget = {
-          text: (blockEl.textContent || '').trim().slice(0, 80),
-          index: idx >= 0 ? idx : 0,
-          tag: blockEl.tagName ? blockEl.tagName.toLowerCase() : 'p'
-        };
-      }
-      if (typeof onEdit === 'function') onEdit(blockTarget);
-    },
-    title: "Double-click untuk mengedit catatan",
-    dangerouslySetInnerHTML: {
-      __html: renderMarkdown(note.content || "", titleStrings, allNotes, tasks) || '<span style="color:var(--text-light);font-style:italic">Catatan kosong.</span>'
+      position: "relative",
+      marginTop: 14,
+      marginBottom: 16,
+      borderRadius: 8,
+      "--paper-width": viewerPaperConfig.orientation === 'landscape' ? 
+                       (viewerPaperConfig.size === 'A4' ? '297mm' : viewerPaperConfig.size === 'A3' ? '420mm' : '279.4mm') : 
+                       (viewerPaperConfig.size === 'A4' ? '210mm' : viewerPaperConfig.size === 'A3' ? '297mm' : '215.9mm'),
+      "--paper-height": viewerPaperConfig.orientation === 'landscape' ? 
+                       (viewerPaperConfig.size === 'A4' ? '210mm' : viewerPaperConfig.size === 'A3' ? '297mm' : '215.9mm') : 
+                       (viewerPaperConfig.size === 'A4' ? '297mm' : viewerPaperConfig.size === 'A3' ? '420mm' : '279.4mm')
     }
-  }), (note.tags || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, React.createElement("div", {
+    ref: viewerPaperWrapRef,
+    className: "paper-inner-wrap",
+    style: {
+      position: "relative",
+      width: "var(--paper-width, 210mm)",
+      margin: "0 auto",
+      flexShrink: 0
+    }
+  }, renderedNoteEl, React.createElement(PaperPageGuides, {
+    rootRef: viewerPaperWrapRef,
+    paperConfig: viewerPaperConfig
+  }))) : renderedNoteEl, (note.tags || []).length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 5,
@@ -31114,7 +31253,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v399-user-switch-localdb-isolation";
+    window.__SW_VERSION = "taskflow-v400-note-viewer-paper-mode";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

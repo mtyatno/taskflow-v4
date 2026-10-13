@@ -2,6 +2,39 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-13 14:50] - Antigravity (Gemini)
+- **Task:** Implementasi Mode Kertas (Paper Mode) di Note Viewer (`NotePanel`) dengan Standar Industri Pencegahan Konflik (SW v400 `taskflow-v400-note-viewer-paper-mode`).
+- **Changes:**
+  - `static/index.html`:
+    - Menambahkan background dark desk untuk paper mode pada dark theme: `[data-theme="dark"] .paper-mode-active { background-color: #18181b !important; }`.
+    - Memperluas CSS `.paper-mode-active .paper-inner-wrap` agar mencakup `.note-rendered` (latar putih, bayangan, padding 20mm, lebar & tinggi responsif kertas, tipografi teks dokumen #1e293b, blockquote, pre/code, table, links, wikilinks, tasklinks).
+    - Menambahkan styling `.notes-panel-actions button.paper-btn-active` dan `.notes-panel-actions select.paper-select` (termasuk dukungan tema gelap).
+    - Memperbarui `PaperPageGuides`: `const pm = root.querySelector('.ProseMirror') || root.querySelector('.note-rendered');` sehingga pembatas halaman otomatis menghitung tinggi dokumen di Note Viewer.
+    - Pada `NotePanel`:
+      - Menambahkan state `viewerPaperConfig` dengan `initViewerPaperConfig` membaca `meta_json.paper_mode` (default A4 portrait enabled).
+      - Menambahkan handler `saveViewerPaperConfig` untuk persistensi ke `note.meta_json` via `PUT /api/scratchpad/:id` dengan antrean offline `OfflineDB.queueAdd`.
+      - Menambahkan tombol toggle "Kertas" dengan ikon Lucide `fileText` dan dropdown select ukuran kertas (A4, Letter, A3, Legal) serta orientasi (portrait, landscape) di `.notes-panel-actions`.
+      - Membungkus `.note-rendered` ke dalam `.paper-mode-active` dan `.paper-inner-wrap` dengan CSS variables `--paper-width` & `--paper-height` serta `PaperPageGuides` ketika paper mode aktif.
+    - Bump fallback SW version ke `taskflow-v400-note-viewer-paper-mode`.
+    - Strict isolation: Baris NoteToolbar (18990-19570), NoteModal, MilkdownEditor, Dashboard, GTD Wizard, auth isolation terlindungi 100% tanpa modifikasi. ZERO `border-left` atau `borderLeft`.
+  - `webapp.py`:
+    - Bump `sw_cache` ke `taskflow-v400-note-viewer-paper-mode`.
+  - `static/sw.js`:
+    - Bump `const CACHE = "taskflow-v400-note-viewer-paper-mode";`.
+  - `tests/test_version.py`:
+    - Bump asersi ke `taskflow-v400-note-viewer-paper-mode` dan `v400`.
+  - `tests/offline/note_paper_mode.test.js`:
+    - Menambahkan unit test suite baru `NotePanel Note Viewer Paper Mode (Viewer Mode Kertas)` (7 unit tests): validasi versi SW v400, inisialisasi state, default & user_toggled, toggle & select buttons di NotePanel, pembungkus paper-mode-active & PaperPageGuides, serta CSS rules untuk note-rendered dan dark desk.
+  - Sinkronisasi SW cache `taskflow-v400-note-viewer-paper-mode` di seluruh test suite offline (`tests/offline/*.test.js`).
+- **Verification:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ 5/5 inline scripts OK.
+  - `node --check static/sw.js` ➡️ OK.
+  - `git diff -U0 | grep -iE "border-?left"` ➡️ 0 matches (OK).
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed, 0 failed.
+  - `node --test tests/offline/*.test.js` ➡️ 1085 passed, 0 failed across 8 suites.
+- **Files Touch:** `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/note_paper_mode.test.js`, 8 synchronized offline test files, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed & Code Reviewed (Approved)
+
 ## [2026-10-13 14:03] - Antigravity (Gemini)
 - **Task:** Modernize Note Editor Toolbar (`NoteToolbar`) icons to Lucide SVG icons with strict isolation.
 - **Changes:**

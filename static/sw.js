@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v399-user-switch-localdb-isolation";
+const CACHE = "taskflow-v400-note-viewer-paper-mode";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",

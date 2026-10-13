@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v399-user-switch-localdb-isolation/,
-      "sw.js should be bumped to taskflow-v399-user-switch-localdb-isolation"
+      /taskflow-v400-note-viewer-paper-mode/,
+      "sw.js should be bumped to taskflow-v400-note-viewer-paper-mode"
     );
   });
 

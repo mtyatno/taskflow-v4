@@ -337,13 +337,13 @@ test("6. static/index.html includes clearLocalUserData, OfflineDB.clearAll, and 
   );
 });
 
-test("7. Service Worker cache version is taskflow-v399-user-switch-localdb-isolation", () => {
+test("7. Service Worker cache version is taskflow-v400-note-viewer-paper-mode", () => {
   const sw = fs.readFileSync(swPath, "utf8");
   const html = fs.readFileSync(htmlPath, "utf8");
   const webapp = fs.readFileSync(webappPath, "utf8");
 
-  assert.match(sw, /^const CACHE = "taskflow-v399-user-switch-localdb-isolation";/m, "sw.js CACHE must be v399");
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v399-user-switch-localdb-isolation";/, "index.html fallback SW version must be v399");
-  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v399-user-switch-localdb-isolation"/, "index.html About modal SW version fallback must be v399");
-  assert.match(webapp, /sw_cache = "taskflow-v399-user-switch-localdb-isolation"/, "webapp.py sw_cache must be v399");
+  assert.match(sw, /^const CACHE = "taskflow-v400-note-viewer-paper-mode";/m, "sw.js CACHE must be v400");
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v400-note-viewer-paper-mode";/, "index.html fallback SW version must be v400");
+  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v400-note-viewer-paper-mode"/, "index.html About modal SW version fallback must be v400");
+  assert.match(webapp, /sw_cache = "taskflow-v400-note-viewer-paper-mode"/, "webapp.py sw_cache must be v400");
 });

@@ -3380,7 +3380,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v399-user-switch-localdb-isolation"
+    sw_cache = "taskflow-v400-note-viewer-paper-mode"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

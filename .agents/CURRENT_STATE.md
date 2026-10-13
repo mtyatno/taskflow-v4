@@ -4,7 +4,38 @@
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
 3. NEVER guess bugs; isolate and reproduce them systematically.
-4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
+## 🟢 Mode Kertas (Paper Mode) di Note Viewer (NotePanel) — 2026-10-13 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI. Branch `feat/note-viewer-paper-mode`. SW v400 `taskflow-v400-note-viewer-paper-mode`.
+- **Konteks & Masalah:**
+  - Sebelumnya, tampilan lembaran kertas (Paper Mode) hanya tersedia saat mode edit di Note Editor (`NoteModal`). Pengguna menginginkan opsi tampilan kertas yang sama juga tersedia saat membaca catatan di Note Viewer (`NotePanel`) baik pada dark theme maupun light theme.
+  - Sesi ini dijalankan secara terisolasi dengan standar industri (branch terisolasi dan zero-touch ke NoteToolbar/NoteModal) untuk menjamin tidak ada konflik dengan sesi paralel sebelah.
+- **Solusi & Implementasi:**
+  1. **`static/index.html`:**
+     - Menambahkan styling desk gelap untuk dark theme: `[data-theme="dark"] .paper-mode-active { background-color: #18181b !important; }`.
+     - Memperluas selector CSS `.paper-mode-active .paper-inner-wrap .milkdown-editor` agar mencakup `.note-rendered` (background putih solid, box shadow, min-height, padding 20mm, box-sizing, tipografi `#1e293b` untuk blockquote, code, pre, table, link, wikilink, tasklink).
+     - Menambahkan styling `.notes-panel-actions button.paper-btn-active` dan `.notes-panel-actions select.paper-select` (lengkap dengan mode gelap).
+     - Memperbarui `PaperPageGuides`: `const pm = root.querySelector('.ProseMirror') || root.querySelector('.note-rendered');` sehingga garis pembatas halaman otomatis menghitung tinggi dokumen di Note Viewer.
+     - Pada `NotePanel`:
+       - Menambahkan state `viewerPaperConfig` dengan inisialisasi cerdas `initViewerPaperConfig` yang membaca `meta_json.paper_mode` (default `enabled: true, size: 'A4', orientation: 'portrait'`, serta menjaga `user_toggled: true`).
+       - Menambahkan handler `saveViewerPaperConfig` dengan update instan ke state dan `note.meta_json` via `PUT /api/scratchpad/:id` serta antrean outbox offline `OfflineDB.queueAdd`.
+       - Menambahkan tombol toggle "Kertas" (`React.createElement(Icon, { name: "fileText", size: 14 })`) serta dropdown ukuran kertas (`A4`, `Letter`, `A3`, `Legal`) dan orientasi (`portrait`, `landscape`) di `.notes-panel-actions`.
+       - Membungkus `.note-rendered` ke dalam `.paper-mode-active` dan `.paper-inner-wrap` dengan CSS variables `--paper-width` & `--paper-height` serta `PaperPageGuides` ketika paper mode aktif.
+     - Bump fallback SW version ke `taskflow-v400-note-viewer-paper-mode`.
+     - Strict isolation: Baris NoteToolbar (18990-19570), NoteModal, MilkdownEditor, Dashboard, GTD Wizard, auth isolation terlindungi 100% tanpa modifikasi. ZERO `border-left` atau `borderLeft`.
+  2. **Backend & Service Worker:**
+     - `webapp.py`: bump `sw_cache` ke `taskflow-v400-note-viewer-paper-mode`.
+     - `static/sw.js`: bump `CACHE` ke `taskflow-v400-note-viewer-paper-mode`.
+     - `tests/test_version.py`: bump asersi ke `taskflow-v400-note-viewer-paper-mode` dan `v400`.
+  3. **Pengujian:**
+     - Menambahkan suite pengujian komprehensif baru di `tests/offline/note_paper_mode.test.js` (7 tests) memvalidasi Note Viewer Paper Mode, inisialisasi state, default & user_toggled, toggle & select buttons di NotePanel, pembungkus paper-mode-active & PaperPageGuides, serta CSS rules untuk note-rendered dan dark desk.
+     - Sinkronisasi SW cache `taskflow-v400-note-viewer-paper-mode` di seluruh 8 test suite offline.
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `git diff -U0 | grep -iE "border-?left"` ➡️ **0 matches (OK)**.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+  - `node --test tests/offline/*.test.js` ➡️ **1085/1085 passed (0 failed)** across 8 suites.
+
 ## 🟢 Modernisasi Ikon Note Editor Toolbar (NoteToolbar) ke Lucide SVG Icons — 2026-10-13 (Antigravity/Gemini) — SELESAI
 - **Status:** 🟢 SELESAI.
 - **Konteks & Masalah:**
