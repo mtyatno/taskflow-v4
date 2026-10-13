@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v396", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v397-note-block-slash-task";/m,
-      "sw.js CACHE must be taskflow-v397-note-block-slash-task"
+      /^const CACHE = "taskflow-v398-note-editor-default-paper-mode";/m,
+      "sw.js CACHE must be taskflow-v398-note-editor-default-paper-mode"
     );
   });
 });

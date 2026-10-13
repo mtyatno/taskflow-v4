@@ -2,6 +2,56 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-13 13:14] - Antigravity (Gemini)
+- **Task:** Wire Dashboard Inbox KPI to in-place GTD Inbox Wizard Modal (`GtdInboxWizardModal`) with zero-touch note editor isolation.
+- **Changes:**
+  - `static/index.html`:
+    - `GtdInboxWizardModal`: tambahkan prop `onNav`, dan tombol aksi `"Buka Inbox ↗"` di samping tombol tutup saat `onNav` tersedia agar pengguna dapat berpindah ke tampilan daftar konvensional dengan 1 klik.
+    - `Dashboard`: tambahkan prop `onUpdateGtdStatus`, state `[inboxWizardOpen, setInboxWizardOpen]`, penghitungan `inboxTasks`, dan modifikasi KPI Inbox click handler (jika `inboxCount > 0` buka wizard di Dashboard, jika 0 fallback ke `onNav("inbox")`). Render `GtdInboxWizardModal` di dalam Dashboard return tree.
+    - `App`: teruskan callback `onUpdateGtdStatus: handleUpdateTaskGtd` ke `<Dashboard>`.
+    - Strict isolation: Baris note editor (MilkdownEditor, NoteModal, scratchpad, dll.) terlindungi 100% tanpa modifikasi. ZERO `border-left` atau `borderLeft`.
+  - `tests/offline/gtd_inbox_triage.test.js`:
+    - Tambahkan unit test 8 memvalidasi plumbing `Dashboard` -> `GtdInboxWizardModal`, conditional KPI click, filter task, passing callback dari `App`, dan tombol navigasi link Inbox.
+  - Sinkronisasi seluruh test suites offline (`tests/offline/*.test.js`).
+- **Verification:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ 5/5 inline scripts OK.
+  - `node --check static/sw.js` ➡️ OK.
+  - `git diff -U0 | grep -iE "border-?left"` ➡️ 0 matches (OK).
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed, 0 failed.
+  - `node --test tests/offline/*.test.js` ➡️ 1064 passed, 0 failed across 8 suites.
+- **Files Touch:** `static/index.html`, `tests/offline/gtd_inbox_triage.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
+## [2026-10-13 13:10] - Antigravity (Gemini)
+- **Task:** Implement default paper view (Mode Kertas) for Note Editor in Alurik with strict isolation (SW v398 `taskflow-v398-note-editor-default-paper-mode`).
+- **Changes:**
+  - `static/index.html`:
+    - `TaskFormModal`: Inisialisasi state `notePaperConfig` diubah ke default `{ enabled: true, size: 'A4', orientation: 'portrait' }`.
+    - `NoteToolbar`: Ketika pengguna mengklik tombol toggle mode kertas, set `user_toggled: true`: `onPointerDown: (e) => { e.preventDefault(); onPaperConfigChange(p => ({ ...p, enabled: !p.enabled, user_toggled: true })); }`.
+    - `NoteModal`: Pembaruan `initPaperConfig` untuk default ke `enabled: true` pada catatan baru dan catatan legacy, namun tetap mempertahankan preferensi pengguna saat `user_toggled: true` ada di `meta_json`.
+    - Bump fallback `window.__SW_VERSION` dan info About modal ke `taskflow-v398-note-editor-default-paper-mode`.
+    - Strict isolation: Baris Dashboard dan GtdInboxWizardModal milik sesi paralel pengguna terlindungi utuh tanpa modifikasi. ZERO `border-left` atau `borderLeft`.
+  - `webapp.py`:
+    - Bump `sw_cache` ke `taskflow-v398-note-editor-default-paper-mode`.
+  - `static/sw.js`:
+    - Bump `const CACHE = "taskflow-v398-note-editor-default-paper-mode";`.
+  - `tests/test_version.py`:
+    - Bump asersi ke `taskflow-v398-note-editor-default-paper-mode` dan `v398`.
+  - `tests/offline/note_paper_mode.test.js`:
+    - Update asersi `TaskFormModal` state `notePaperConfig` ke `enabled: true`.
+    - Tambah suite pengujian komprehensif untuk `NoteModal` `initPaperConfig` covering: new note (enabled: true), legacy note (enabled: true), explicitly toggled off (enabled: false), explicitly enabled (enabled: true), serta `NoteToolbar` `user_toggled: true`.
+  - `tests/offline/*.test.js`:
+    - Sinkronisasi SW cache `taskflow-v398-note-editor-default-paper-mode` di seluruh test suite offline.
+- **Verification:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ 5/5 inline scripts OK.
+  - `node --check static/sw.js` ➡️ OK.
+  - `git diff -U0 | grep -iE "border-?left"` ➡️ 0 matches (OK).
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ 2 passed, 0 failed.
+  - `node --test tests/offline/*.test.js` ➡️ 1064 passed, 0 failed across 8 suites.
+  - Git diff verifikasi: perbaikan Dashboard dan GtdInboxWizardModal dari sesi paralel pengguna tetap utuh tanpa modifikasi.
+- **Files Touch:** `static/index.html`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/note_paper_mode.test.js`, `tests/offline/*.test.js`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`.
+- **Status:** Completed
+
 ## [2026-10-12 09:05] - Antigravity (Gemini)
 - **Task:** Add task insertion option (`/task`, `/tasks`) to note editor block slash popup menu (SW v397 `taskflow-v397-note-block-slash-task`).
 - **Changes:**

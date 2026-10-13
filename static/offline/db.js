@@ -124,12 +124,35 @@
     return _dbPromise;
   }
 
+  function clearAll() {
+    return openDB().then((db) => {
+      const storeNames = Array.from(db.objectStoreNames);
+      if (!storeNames.length) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        try {
+          const tx = db.transaction(storeNames, "readwrite");
+          for (const name of storeNames) {
+            tx.objectStore(name).clear();
+          }
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+          tx.onabort = () => reject(tx.error || new Error("clearAll aborted"));
+        } catch (err) {
+          reject(err);
+        }
+      });
+    }).catch((err) => {
+      try { console.warn("taskflow-offline clearAll failed:", err); } catch (_) {}
+      return null;
+    });
+  }
+
   function _reset() {
     if (_db) { try { _db.close(); } catch (_) {} _db = null; }
     _dbPromise = null;
   }
 
-  const publicApi = { DB_NAME, DB_VERSION, ENTITY_STORES, ENTITY_STORE_NAMES, openDB };
+  const publicApi = { DB_NAME, DB_VERSION, ENTITY_STORES, ENTITY_STORE_NAMES, openDB, clearAll };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.db = publicApi; }
   return Object.assign({ _reset }, publicApi);
 });

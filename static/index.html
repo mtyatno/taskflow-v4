@@ -318,6 +318,8 @@ const OfflineDB = (() => {
   return {
     cacheGet: k => tr("cache", "readonly", s => s.get(k)),
     cacheSet: (k, v) => tr("cache", "readwrite", s => s.put(v, k)),
+    cacheClear: () => tr("cache", "readwrite", s => s.clear()),
+    clearAll: () => Promise.all([tr("cache", "readwrite", s => s.clear()), tr("queue", "readwrite", s => s.clear())]).catch(() => null),
     queueAdd: v => tr("queue", "readwrite", s => s.add({
       ...v,
       createdAt: Date.now()
@@ -331,6 +333,55 @@ const OfflineDB = (() => {
     queueClear: () => tr("queue", "readwrite", s => s.clear())
   };
 })();
+window.OfflineDB = OfflineDB;
+
+async function clearLocalUserData() {
+  try {
+    if (window.TF?.db?.clearAll) {
+      await window.TF.db.clearAll();
+    }
+  } catch (_) {}
+  try {
+    if (typeof OfflineDB !== "undefined" && OfflineDB.clearAll) {
+      await OfflineDB.clearAll();
+    }
+  } catch (_) {}
+  try {
+    if (typeof window !== "undefined" && window.caches) {
+      const names = await window.caches.keys();
+      await Promise.all(names.map(async name => {
+        try {
+          const c = await window.caches.open(name);
+          const requests = await c.keys();
+          await Promise.all(requests.filter(r => {
+            try { return new URL(r.url).pathname.startsWith("/api/"); } catch (_) { return false; }
+          }).map(r => c.delete(r)));
+        } catch (_) {}
+      }));
+    }
+  } catch (_) {}
+  try {
+    const userKeys = [
+      "tf_user_id",
+      "tf_pomo_state",
+      "tf_last_review",
+      "tf_review_snooze",
+      "tf_last_backup",
+      "tf_backup_snooze",
+      "tf_dismiss_onboarding",
+      "tf_ai_review_optin"
+    ];
+    for (const k of userKeys) {
+      try { localStorage.removeItem(k); } catch (_) {}
+    }
+  } catch (_) {}
+  try { if (typeof api !== "undefined" && api) api._localRouter = null; } catch (_) {}
+  try { if (window.TF?.db?._reset) window.TF.db._reset(); } catch (_) {}
+  try { if (window.TF?.chatrepo?.setCurrentUser) window.TF.chatrepo.setCurrentUser(null); } catch (_) {}
+  try { if (window.TF?.noterepo?.setCurrentUser) window.TF.noterepo.setCurrentUser(null); } catch (_) {}
+  try { if (window.TF?.mindmaprepo?.setCurrentUser) window.TF.mindmaprepo.setCurrentUser(null); } catch (_) {}
+}
+window.clearLocalUserData = clearLocalUserData;
 
 // ── API helper ──────────────────────────────────────────────
 const genId = () => typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -2962,7 +3013,7 @@ function TaskFormModal({
   const noteSavedIdRef = React.useRef(null);
   const [noteDrawingInsertOpen, setNoteDrawingInsertOpen] = useState(false);
   const [noteQuickDrawState, setNoteQuickDrawState] = useState(null);
-  const [notePaperConfig, setNotePaperConfig] = useState({ enabled: false, size: 'A4', orientation: 'portrait' });
+  const [notePaperConfig, setNotePaperConfig] = useState({ enabled: true, size: 'A4', orientation: 'portrait' });
   const notePaperWrapRef = React.useRef(null);
 
   // Klik preview gambar (event editDrawingModal) ditangani SATU QuickDrawModal global di App;
@@ -10587,7 +10638,8 @@ function GtdInboxWizardModal({
   tasks = [],
   onClose,
   onUpdateGtdStatus,
-  onDone
+  onDone,
+  onNav
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
 
@@ -10646,7 +10698,25 @@ function GtdInboxWizardModal({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "zap",
     size: 18
-  }), "Proses Inbox"), /*#__PURE__*/React.createElement("button", {
+  }), "Proses Inbox"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 4
+    }
+  }, onNav && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-ghost btn-xs",
+    onClick: () => {
+      onClose();
+      onNav("inbox");
+    },
+    style: {
+      fontSize: 12,
+      color: "var(--text-muted)",
+      marginRight: 4
+    }
+  }, "Buka Inbox ↗"), /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "btn btn-ghost btn-sm",
     onClick: onClose,
@@ -10655,7 +10725,7 @@ function GtdInboxWizardModal({
       fontSize: 16,
       lineHeight: 1
     }
-  }, "✕")), !currentTask || tasks.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, "✕"))), !currentTask || tasks.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "gtd-wizard-zero"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -13757,7 +13827,8 @@ function Dashboard({
   showToast,
   focusTask,
   timer,
-  onStartFocus
+  onStartFocus,
+  onUpdateGtdStatus
 }) {
   const [dismissedOnboarding, setDismissedOnboarding] = useState(() => {
     try {
@@ -13778,6 +13849,8 @@ function Dashboard({
   const q2Tasks = tasks.filter(t => t.quadrant === "Q2" && t.gtd_status !== "done").sort(SORT_PRI);
   const q3Tasks = tasks.filter(t => t.quadrant === "Q3" && t.gtd_status !== "done").sort(SORT_PRI);
   const q4Tasks = tasks.filter(t => t.quadrant === "Q4" && t.gtd_status !== "done").sort(SORT_PRI);
+  const inboxTasks = tasks.filter(t => t.gtd_status === "inbox" && t.gtd_status !== "done" && t.gtd_status !== "archived").sort(SORT_PRI);
+  const [inboxWizardOpen, setInboxWizardOpen] = useState(false);
   const [dashModal, setDashModal] = useState(null);
   const [scratchInput, setScratchInput] = useState("");
   const [centerToast, setCenterToast] = useState(null);
@@ -14210,7 +14283,13 @@ function Dashboard({
       caption: "dari task aktif",
       label: `${inboxCount} dari ${activeCount} task aktif masih di Inbox (${dashPct(kpiStats.inboxShare)})`
     }),
-    onClick: () => onNav("inbox")
+    onClick: () => {
+      if (inboxCount > 0) {
+        setInboxWizardOpen(true);
+      } else {
+        onNav("inbox");
+      }
+    }
   }];
   const eisenTooltip = {
     Lakukan: "Q1 – Mendesak & Penting. Kerjakan sekarang juga. Deadline ketat, krisis, atau task kritis (P1/P2, deadline ≤ 7 hari).",
@@ -14953,7 +15032,15 @@ function Dashboard({
     size: 18
   })), /*#__PURE__*/React.createElement("span", {
     className: "center-hud-title"
-  }, centerToast.title))
+  }, centerToast.title)),
+
+  inboxWizardOpen && /*#__PURE__*/React.createElement(GtdInboxWizardModal, {
+    tasks: inboxTasks,
+    onClose: () => setInboxWizardOpen(false),
+    onUpdateGtdStatus: onUpdateGtdStatus,
+    onDone: onDone,
+    onNav: onNav
+  })
 );
 }
 
@@ -18374,7 +18461,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v397-note-block-slash-task"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v398-note-editor-default-paper-mode"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -19455,7 +19542,7 @@ onPaperConfigChange
     onPaperConfigChange && React.createElement("div", { style: { display: 'inline-flex', alignItems: 'center', marginLeft: 8, paddingLeft: 8, borderLeft: '1px solid var(--border)' } },
       React.createElement("button", {
         className: paperConfig?.enabled ? "paper-btn-active" : "",
-        onPointerDown: (e) => { e.preventDefault(); onPaperConfigChange(p => ({ ...p, enabled: !p.enabled })); },
+        onPointerDown: (e) => { e.preventDefault(); onPaperConfigChange(p => ({ ...p, enabled: !p.enabled, user_toggled: true })); },
         title: "Mode Kertas"
       }, "📄 Kertas"),
       paperConfig?.enabled && React.createElement("select", {
@@ -21682,9 +21769,24 @@ function NoteModal({
   const initPaperConfig = () => {
     try {
       const meta = JSON.parse(note?.meta_json || "{}");
-      return meta.paper_mode || { enabled: false, size: 'A4', orientation: 'portrait' };
+      if (meta.paper_mode && typeof meta.paper_mode.enabled === 'boolean') {
+        if (meta.paper_mode.user_toggled) {
+          return {
+            enabled: meta.paper_mode.enabled,
+            size: meta.paper_mode.size || 'A4',
+            orientation: meta.paper_mode.orientation || 'portrait',
+            user_toggled: true
+          };
+        }
+        return {
+          enabled: true,
+          size: meta.paper_mode.size || 'A4',
+          orientation: meta.paper_mode.orientation || 'portrait'
+        };
+      }
+      return { enabled: true, size: 'A4', orientation: 'portrait' };
     } catch {
-      return { enabled: false, size: 'A4', orientation: 'portrait' };
+      return { enabled: true, size: 'A4', orientation: 'portrait' };
     }
   };
   const [paperConfig, setPaperConfig] = useState(initPaperConfig);
@@ -29277,6 +29379,7 @@ function App() {
   const [toast, setToast] = useState(null);
   const [loading, setLoading] = useState(false);
   const [doneConfirm, setDoneConfirm] = useState(null); // { taskId, count, children }
+  const initialLoad = useRef(true);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [showSearch, setShowSearch] = useState(false);
   const [queueSize, setQueueSize] = useState(0);
@@ -29333,14 +29436,21 @@ function App() {
   }, [focusTask, timer, showToast]);
   const logout = useCallback(async () => {
     if (!tokenStore.get()) return;
+    if (navigator.onLine && window.__pushNow) {
+      try {
+        await window.__pushNow();
+      } catch (_) {}
+    }
     try {
       await api.post("/api/auth/logout", {});
     } catch (e) {}
+    await clearLocalUserData();
     tokenStore.clear();
     // Also remove from native filesystem backup
     if (API_BASE && window.__TAURI__?.core?.invoke) {
       window.__TAURI__.core.invoke("delete_token").catch(() => {});
     }
+    initialLoad.current = true;
     setUser(null);
     setTasks([]);
     setSharedLists([]);
@@ -29376,41 +29486,54 @@ function App() {
         if (token) tokenStore.set(token);
       }
       if (token) {
-      api.get("/api/auth/me").then(u => {
-        setUser(u);
-        if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
-        if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
-        if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
-        setAuthChecked(true);
-      }).catch(err => {
-        // Only log out when the server EXPLICITLY rejects the token (HTTP 401).
-        // For offline / server-down / 5xx / timeout we keep the token and run in
-        // offline mode using the token payload — otherwise a broken or unreachable
-        // server would lock the user out with no way back in.
-        if (err && err.status === 401) {
-          tokenStore.clear();
-          // Also remove from native filesystem (invalid/expired token)
-          if (API_BASE && window.__TAURI__?.core?.invoke) {
-            window.__TAURI__.core.invoke("delete_token").catch(() => {});
+        api.get("/api/auth/me").then(async u => {
+          const prevUserId = localStorage.getItem("tf_user_id");
+          if (prevUserId && String(prevUserId) !== String(u.id)) {
+            await clearLocalUserData();
+            initialLoad.current = true;
           }
-          setShowForm(false);
+          localStorage.setItem("tf_user_id", String(u.id));
+          setUser(u);
+          if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
+          if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
+          if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
           setAuthChecked(true);
-          return;
-        }
-        try {
-          const payload = JSON.parse(atob(tokenStore.get().split(".")[1]));
-          setUser({
-            id: payload.sub,
-            username: payload.username || payload.sub,
-            display_name: payload.display_name || payload.username || payload.sub
-          });
-          if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
-          if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
-          if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
-        } catch (_) {}
-        setAuthChecked(true);
-      });
-    }
+        }).catch(async err => {
+          // Only log out when the server EXPLICITLY rejects the token (HTTP 401).
+          // For offline / server-down / 5xx / timeout we keep the token and run in
+          // offline mode using the token payload — otherwise a broken or unreachable
+          // server would lock the user out with no way back in.
+          if (err && err.status === 401) {
+            await clearLocalUserData();
+            tokenStore.clear();
+            // Also remove from native filesystem (invalid/expired token)
+            if (API_BASE && window.__TAURI__?.core?.invoke) {
+              window.__TAURI__.core.invoke("delete_token").catch(() => {});
+            }
+            setShowForm(false);
+            setAuthChecked(true);
+            return;
+          }
+          try {
+            const payload = JSON.parse(atob(tokenStore.get().split(".")[1]));
+            const prevUserId = localStorage.getItem("tf_user_id");
+            if (prevUserId && String(prevUserId) !== String(payload.sub)) {
+              await clearLocalUserData();
+              initialLoad.current = true;
+            }
+            localStorage.setItem("tf_user_id", String(payload.sub));
+            setUser({
+              id: payload.sub,
+              username: payload.username || payload.sub,
+              display_name: payload.display_name || payload.username || payload.sub
+            });
+            if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
+            if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
+            if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
+          } catch (_) {}
+          setAuthChecked(true);
+        });
+      }
     };
     tryAuth();
   }, []);
@@ -29582,7 +29705,6 @@ function App() {
   }, [page, user]);
 
   // Fetch data
-  const initialLoad = useRef(true);
   const isSyncing = useRef(false);
   const fetchAll = useCallback(async () => {
     if (!user) return;
@@ -29879,7 +30001,13 @@ function App() {
   }, [showNotifPanel]);
 
   // Auth handlers
-  const handleLogin = data => {
+  const handleLogin = async data => {
+    const prevUserId = localStorage.getItem("tf_user_id");
+    if (!prevUserId || String(prevUserId) !== String(data.user_id)) {
+      await clearLocalUserData();
+    }
+    localStorage.setItem("tf_user_id", String(data.user_id));
+    initialLoad.current = true;
     tokenStore.set(data.token);
     // Backup to native filesystem — survives Android WebView cache clears
     if (API_BASE && window.__TAURI__?.core?.invoke) {
@@ -30360,7 +30488,8 @@ function App() {
         showToast: showToast,
         focusTask: focusTask,
         timer: timer,
-        onStartFocus: handleStartFocus
+        onStartFocus: handleStartFocus,
+        onUpdateGtdStatus: handleUpdateTaskGtd
       });
     }
     if (page === "today") {
@@ -31015,7 +31144,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v397-note-block-slash-task";
+    window.__SW_VERSION = "taskflow-v398-note-editor-default-paper-mode";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

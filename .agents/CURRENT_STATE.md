@@ -6,6 +6,65 @@
 3. NEVER guess bugs; isolate and reproduce them systematically.
 4. Always run `pytest` (e.g. `python -m pytest tests/test_docx_export.py` and `tests/test_drawings.py`) and verify JS syntax before pushing code.
 
+## 🟢 Smart Direct GTD Inbox Wizard dari KPI Inbox Dashboard — 2026-10-13 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI. Branch `feat/dashboard-inbox-kpi-wizard`.
+- **Konteks & Masalah:**
+  - Sebelumnya, mengklik kartu KPI Inbox di Dashboard langsung melakukan navigasi ke halaman GTD Inbox (`onNav("inbox")`). Dari sana pengguna baru mengklik tombol "⚡ Proses Inbox".
+  - Alur ini memiliki *friction* 2 langkah dan mengalihkan konteks halaman. Pengguna menginginkan proses telaah inbox dipercepat langsung dari Dashboard.
+- **Solusi & Implementasi:**
+  1. **`static/index.html`:**
+     - Pada `GtdInboxWizardModal`:
+       - Menambahkan prop `onNav`.
+       - Di header modal di samping tombol tutup, menambahkan tombol aksi `"Buka Inbox ↗"` (`className="btn btn-ghost btn-xs"`) saat `onNav` tersedia, sehingga pengguna sewaktu-waktu dapat beralih ke tampilan daftar list konvensional dengan 1 klik.
+     - Pada `Dashboard`:
+       - Menerima prop `onUpdateGtdStatus`.
+       - Menambahkan state `[inboxWizardOpen, setInboxWizardOpen] = useState(false)`.
+       - Menghitung `inboxTasks` (`tasks.filter(t => t.gtd_status === "inbox" && t.gtd_status !== "done" && t.gtd_status !== "archived").sort(SORT_PRI)`).
+       - Pada kartu KPI `"inbox"`: jika `inboxCount > 0`, klik membuka modal wizard secara instan (`setInboxWizardOpen(true)`); jika `inboxCount === 0`, jatuh ke `onNav("inbox")`.
+       - Merender `inboxWizardOpen && React.createElement(GtdInboxWizardModal, { tasks: inboxTasks, onClose: () => setInboxWizardOpen(false), onUpdateGtdStatus, onDone, onNav })`.
+     - Pada `App`:
+       - Mengoper `onUpdateGtdStatus: handleUpdateTaskGtd` ke komponen `<Dashboard>`.
+     - Strict isolation: Baris-baris Note Editor (MilkdownEditor, NoteModal, scratchpad, dll.) terlindungi 100% tanpa modifikasi dari pekerjaan sesi ini. ZERO `border-left` atau `borderLeft`.
+  2. **Pengujian:**
+     - Menambahkan Unit Test 8 di `tests/offline/gtd_inbox_triage.test.js`: memvalidasi `Dashboard` menerima `onUpdateGtdStatus`, state `inboxWizardOpen`, filter `inboxTasks`, KPI click logic (`inboxCount > 0` vs `0`), rendering `GtdInboxWizardModal`, passing prop dari `App`, dan tombol `"Buka Inbox ↗"`.
+     - Sinkronisasi seluruh pengujian offline (`node --test tests/offline/*.test.js`).
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `git diff -U0 | grep -iE "border-?left"` ➡️ **0 matches (OK)**.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+  - `node --test tests/offline/*.test.js` ➡️ **1064/1064 passed (0 failed)** across 8 suites.
+
+## 🟢 Default Paper View (Mode Kertas) Note Editor & User Toggled Preservation — 2026-10-13 (Antigravity/Gemini) — SELESAI
+- **Status:** 🟢 SELESAI. SW v398 `taskflow-v398-note-editor-default-paper-mode`.
+- **Konteks & Masalah:**
+  - Sebelumnya, tampilan Note Editor (Mode Kertas / Paper View) secara default tidak aktif (`enabled: false`). Pengguna menginginkan Mode Kertas aktif secara default saat membuat catatan baru atau membuka catatan lama tanpa modifikasi eksplisit, namun tetap mempertahankan preferensi pengguna jika pengguna secara sengaja mematikan Mode Kertas (`user_toggled: true`).
+- **Solusi & Implementasi:**
+  1. **`static/index.html`:**
+     - `TaskFormModal` (line 2965): Inisialisasi state `notePaperConfig` diubah ke default `{ enabled: true, size: 'A4', orientation: 'portrait' }`.
+     - `NoteToolbar` (line 19494): Pada saat pengguna mengklik tombol toggle mode kertas, dicatat flag `user_toggled: true`: `onPointerDown: (e) => { e.preventDefault(); onPaperConfigChange(p => ({ ...p, enabled: !p.enabled, user_toggled: true })); }`.
+     - `NoteModal` (line 21718): Pembaruan fungsi `initPaperConfig`:
+       - Catatan baru (tanpa `meta_json` atau `paper_mode` kosong) -> default `{ enabled: true, size: 'A4', orientation: 'portrait' }`.
+       - Catatan lama/legacy (`meta.paper_mode.enabled === false` tanpa `user_toggled`) -> default `{ enabled: true, size: meta.paper_mode.size || 'A4', orientation: meta.paper_mode.orientation || 'portrait' }`.
+       - Catatan dengan toggle eksplisit (`user_toggled === true`) -> mempertahankan preferensi pengguna (`enabled: meta.paper_mode.enabled`, `user_toggled: true`).
+     - Versi Service Worker fallback dan About modal di-bump ke `taskflow-v398-note-editor-default-paper-mode`.
+     - Strict isolation: baris Dashboard dan GtdInboxWizardModal milik sesi paralel pengguna tidak disentuh dan terlindungi seutuhnya. ZERO `border-left` atau `borderLeft`.
+  2. **Backend & Service Worker:**
+     - `webapp.py`: bump `sw_cache` ke `taskflow-v398-note-editor-default-paper-mode`.
+     - `static/sw.js`: bump `CACHE` ke `taskflow-v398-note-editor-default-paper-mode`.
+     - `tests/test_version.py`: bump asersi ke `taskflow-v398-note-editor-default-paper-mode` dan `v398`.
+  3. **Pengujian:**
+     - `tests/offline/note_paper_mode.test.js`:
+       - Update asersi `TaskFormModal` state `notePaperConfig` ke `enabled: true`.
+       - Tambah unit test komprehensif menguji `NoteModal` `initPaperConfig` untuk new note, legacy note, user-toggled off note, user-toggled on note, dan `NoteToolbar` `user_toggled: true`.
+     - Sinkronisasi SW cache `taskflow-v398-note-editor-default-paper-mode` di seluruh test suite offline (`tests/offline/`).
+- **Verifikasi Pengujian:**
+  - `node temporary_files/check_inline_scripts.js static/index.html` ➡️ **5/5 inline scripts OK**.
+  - `node --check static/sw.js` ➡️ **OK**.
+  - `git diff -U0 | grep -iE "border-?left"` ➡️ **0 matches (OK)**.
+  - `venv/bin/python -m pytest tests/test_version.py` ➡️ **2 passed (0 failed)**.
+  - `node --test tests/offline/*.test.js` ➡️ **1064/1064 passed (0 failed)** across 8 suites.
+
 ## 🟢 Task Insertion (/task, /tasks) di Popup Block Slash Menu Note Editor — 2026-10-12 (Antigravity/Gemini) — SELESAI
 - **Status:** 🟢 SELESAI. SW v397 `taskflow-v397-note-block-slash-task`.
 - **Konteks & Masalah:**
