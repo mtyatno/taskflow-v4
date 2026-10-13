@@ -62,6 +62,13 @@ test("taskToUpdatePayload has progress, reconstructs title, no parent/list keys"
   assert.equal("list_id" in p, false);
 });
 
+test("taskToUpdatePayload sends an empty deadline so a cleared date clears on the server", () => {
+  assert.equal(taskToUpdatePayload(task({ cid: "a", deadline: null }), []).deadline, "");
+  assert.equal(taskToUpdatePayload(task({ cid: "a", deadline: "2026-10-20" }), []).deadline, "2026-10-20");
+  // create keeps null (no deadline) since POST accepts it
+  assert.equal(taskToCreatePayload(task({ cid: "a", deadline: null }), []).deadline, null);
+});
+
 test("markPayload returns {status}", () => {
   assert.deepEqual(markPayload({ status: "done" }), { status: "done" });
 });

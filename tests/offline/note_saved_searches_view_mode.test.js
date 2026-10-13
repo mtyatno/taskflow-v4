@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v407-note-callout-render", () => {
-    assert.match(swJs, /taskflow-v407-note-callout-render/);
+  await t.test("sw.js bumped to taskflow-v408-inbox-wizard-edit", () => {
+    assert.match(swJs, /taskflow-v408-inbox-wizard-edit/);
   });
 });

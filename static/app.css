@@ -4136,5 +4136,139 @@
   padding: 30px 20px;
 }
 
+/* Proses Inbox wizard: editable priority / project / date */
+.gtd-wizard-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+.gtd-wizard-field {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.gtd-wizard-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.gtd-wizard-pri {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.gtd-wizard-pri-btn {
+  border: none;
+  cursor: pointer;
+  min-width: 44px;
+  justify-content: center;
+  opacity: 0.45;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.gtd-wizard-pri-btn:hover {
+  opacity: 0.8;
+}
+.gtd-wizard-pri-btn.is-active {
+  opacity: 1;
+  transform: scale(1.05);
+}
+.gtd-wizard-input.input {
+  padding: 6px 10px;
+  font-size: 13px;
+  min-height: 34px;
+}
+.gtd-wizard-inline {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.gtd-wizard-inline .gtd-wizard-input {
+  flex: 1;
+  min-width: 0;
+}
+.gtd-wizard-date {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.gtd-wizard-date .gtd-wizard-input {
+  width: auto;
+  flex: 0 0 auto;
+}
+.gtd-wizard-overlay {
+  /* above the mobile quick-add FAB, which shares z-index 50 */
+  z-index: 60;
+}
+.gtd-wizard-edit:last-child {
+  margin-bottom: 0;
+}
+.gtd-wizard-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.gtd-wizard-chip {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.gtd-wizard-chip:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.gtd-wizard-chip.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.gtd-wizard-chip-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+}
+.gtd-wizard-chip-clear:hover {
+  color: #ef4444;
+  border-color: #ef4444;
+}
+@media (max-width: 520px) {
+  .gtd-wizard-card {
+    padding: 14px;
+  }
+  .gtd-wizard-edit {
+    padding: 10px;
+  }
+  .gtd-wizard-field {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .gtd-wizard-date,
+  .gtd-wizard-date .gtd-wizard-inline {
+    align-self: stretch;
+  }
+  .gtd-wizard-date .gtd-wizard-input {
+    flex: 1 1 auto;
+  }
+}
+
 
 

@@ -136,13 +136,13 @@ test("6. App provides handleUpdateTaskGtd with optimistic update and offline que
   assert.match(appSrc, /onUpdateGtdStatus:\s*handleUpdateTaskGtd/);
 });
 
-test("7. Service Worker and stylesheet versions are bumped to v399 and app.css?v=329", () => {
+test("7. Service Worker and stylesheet versions are bumped to v408 and app.css?v=330", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(html, /<link rel="stylesheet" href="\/static\/app\.css\?v=329">/);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v407-note-callout-render";/);
-  assert.match(sw, /^const CACHE = "taskflow-v407-note-callout-render";/m);
+  assert.match(html, /<link rel="stylesheet" href="\/static\/app\.css\?v=330">/);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v408-inbox-wizard-edit";/);
+  assert.match(sw, /^const CACHE = "taskflow-v408-inbox-wizard-edit";/m);
 });
 
 test("8. Dashboard KPI Inbox integrates GtdInboxWizardModal and navigations", () => {
@@ -174,3 +174,47 @@ test("8. Dashboard KPI Inbox integrates GtdInboxWizardModal and navigations", ()
   assert.match(wizardSrc, /Buka Inbox ↗/);
 });
 
+
+test("9. Proses Inbox wizard lets the user edit priority, project and date inline", () => {
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const css = fs.readFileSync(cssPath, "utf8");
+  const wizardSrc = fnSource("GtdInboxWizardModal", html);
+  const editSrc = fnSource("GtdWizardEditFields", html);
+  const appSrc = fnSource("App", html);
+  const dashSrc = fnSource("Dashboard", html);
+  const tlvSrc = fnSource("TaskListView", html);
+
+  // Wizard renders the edit fields for the current task, keyed by task id
+  assert.match(wizardSrc, /React\.createElement\(GtdWizardEditFields,\s*\{\s*key:\s*currentTask\.id/);
+  // The card stays on the edited task when the list re-sorts
+  assert.match(wizardSrc, /pinnedIdRef/);
+  assert.match(wizardSrc, /tasks\.findIndex\(t\s*=>\s*t\.id\s*===\s*pinnedIdRef\.current\)/);
+
+  // Priority P1-P4, project select with "new project", date input + quick chips + clear
+  assert.match(editSrc, /\["P1",\s*"P2",\s*"P3",\s*"P4"\]/);
+  assert.match(editSrc, /save\(\{\s*priority:\s*p\s*\}\)/);
+  assert.match(editSrc, /__new__/);
+  assert.match(editSrc, /save\(\{\s*project:\s*v\s*\}\)/);
+  assert.match(editSrc, /type:\s*"date"/);
+  assert.match(editSrc, /save\(\{\s*deadline:\s*v\s*\}\)/);
+  assert.match(editSrc, /save\(\{\s*deadline:\s*""\s*\}\)/);
+  assert.match(editSrc, /Hari ini/);
+  assert.match(editSrc, /Besok/);
+  assert.doesNotMatch(editSrc, /borderLeft/i);
+
+  // App saves a partial PUT, optimistic, with offline queue; wired to both wizards
+  assert.match(appSrc, /const\s+handleUpdateTaskFields\s*=\s*async\s*\(taskId,\s*patch\)/);
+  assert.match(appSrc, /api\.put\(`\/api\/tasks\/\$\{taskId\}`,\s*patch\)/);
+  assert.match(appSrc, /React\.createElement\(Dashboard,\s*\{[\s\S]*?onUpdateTask:\s*handleUpdateTaskFields,\s*projects:\s*projects/);
+  assert.match(appSrc, /React\.createElement\(TaskListView,\s*\{[\s\S]*?onUpdateTask:\s*handleUpdateTaskFields/);
+  assert.match(dashSrc, /onUpdateTask:\s*onUpdateTask,\s*projects:\s*projects/);
+  assert.match(tlvSrc, /onUpdateTask:\s*onUpdateTask/);
+
+  // Styles, without coloured side stripes
+  const editCss = css.match(/\/\* Proses Inbox wizard: editable[\s\S]*?@media \(max-width: 520px\)[\s\S]*?\}\s*\}/);
+  assert.ok(editCss, "wizard edit CSS block must exist");
+  assert.match(editCss[0], /\.gtd-wizard-edit\s*\{/);
+  assert.match(editCss[0], /\.gtd-wizard-pri-btn\.is-active\s*\{/);
+  assert.match(editCss[0], /\.gtd-wizard-chip\s*\{/);
+  assert.doesNotMatch(editCss[0], /border-left/i);
+});

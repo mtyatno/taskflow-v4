@@ -3242,3 +3242,10 @@
 - **Changes:** PR #21 ditandai ready lalu di-merge (`8f166c4`); Deploy Taskflow V4 run #886 sukses. Catatan `.agents` diperbarui.
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/version melaporkan v407.
+
+## [2026-10-13 23:50] - Claude (Proses Inbox bisa edit prioritas/project/tanggal)
+- **Task:** Bapak (item 6): di wizard Proses Inbox, tanggal, project, dan prioritas bisa diubah selama proses.
+- **Changes:** komponen `GtdWizardEditFields` + `handleUpdateTaskFields` (App), diteruskan lewat Dashboard dan TaskListView; pin kartu ke task yang diedit; CSS `.gtd-wizard-edit/field/pri-btn/chip` tanpa garis aksen; overlay di atas FAB; `taskToUpdatePayload` kirim `deadline: ""` agar hapus tanggal tersinkron; SW v408, app.css?v=330; tes baru di `gtd_inbox_triage.test.js` dan `syncpush.test.js`.
+- **Verifikasi:** Playwright end-to-end (lewati → ubah P2 → kartu tetap → project baru → Besok → hapus tanggal → Next Action), DB server sesuai. JS 1093/1094 (1 gagal pra-ada: draw_local_reactive), pytest 134/135 (pra-ada: note_trash atomic), inline 5/5. Screenshot di `/mnt/project-files/inbox-wizard-edit/`.
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `static/offline/syncpush.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/*.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR, tunggu "merge dan deploy").

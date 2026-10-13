@@ -47,7 +47,8 @@
       priority: record.priority || "P3",
       project: record.project != null ? record.project : "",
       context: record.context != null ? record.context : "",
-      deadline: record.deadline != null ? record.deadline : null,
+      // PUT ignores a null deadline; "" is how the server clears it.
+      deadline: record.deadline != null ? record.deadline : "",
       gtd_status: record.gtd_status || "inbox",
       waiting_for: record.waiting_for != null ? record.waiting_for : "",
       assigned_to: record.assigned_to != null ? record.assigned_to : null,
