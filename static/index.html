@@ -3184,7 +3184,7 @@ function TaskFormModal({
   const [form, setForm] = useState({
     title: task?.title || "",
     description: task?.description || "",
-    priority: task?.priority || "P3",
+    priority: task?.priority || "P2",
     gtd_status: task?.gtd_status || "inbox",
     project: task?.project || "",
     context: task?.context || "",
@@ -3763,7 +3763,7 @@ function TaskFormModal({
     try {
       const created = await api.post('/api/tasks', {
         title: taskTitle.trim(),
-        priority: 'P3',
+        priority: 'P2',
         gtd_status: 'inbox'
       });
       noteAllTasksRef.current = [...noteAllTasksRef.current, created];
@@ -14137,7 +14137,7 @@ function Dashboard({
       const taskBody = {
         title: parsed.title,
         deadline: null,
-        priority: "P3",
+        priority: "P2",
         gtd_status: "inbox"
       };
       try {
@@ -14942,7 +14942,7 @@ function Dashboard({
     key: "q1",
     cls: "eq1",
     title: "Lakukan",
-    sub: "Mendesak & penting",
+    sub: "Penting, mendesak \u2264 7 hari",
     tip: eisenTooltip.Lakukan,
     icon: "flame",
     color: "#ef4444",
@@ -14951,7 +14951,7 @@ function Dashboard({
     key: "q2",
     cls: "eq2",
     title: "Rencanakan",
-    sub: "Penting, tidak mendesak",
+    sub: "Penting, tidak mendesak > 7 hari",
     tip: eisenTooltip.Rencanakan,
     icon: "calendar",
     color: "#A8C500",
@@ -22843,7 +22843,7 @@ function NoteModal({
     try {
       const created = await api.post('/api/tasks', {
         title: taskTitle.trim(),
-        priority: 'P3',
+        priority: 'P2',
         gtd_status: 'inbox'
       });
       // Eagerly update ref so toDOM renders badge correctly before React re-render
@@ -30637,7 +30637,7 @@ function App() {
     }
   };
   const handleReviewCreate = ({ title, project }) =>
-    api.post("/api/tasks", { title: title, gtd_status: "next", project: project || "", priority: "P3" })
+    api.post("/api/tasks", { title: title, gtd_status: "next", project: project || "", priority: "P2" })
       .then(() => { if (window.__refreshTasks) window.__refreshTasks(); showToast("Task dibuat ✅"); })
       .catch(() => showToast("Gagal membuat task", "error"));
   const handleReviewFocus = (taskId) =>
