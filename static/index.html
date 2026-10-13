@@ -3028,7 +3028,7 @@ function TaskFormModal({
   const [form, setForm] = useState({
     title: task?.title || "",
     description: task?.description || "",
-    priority: task?.priority || "P3",
+    priority: task?.priority || "P2",
     gtd_status: task?.gtd_status || "inbox",
     project: task?.project || "",
     context: task?.context || "",
@@ -3607,7 +3607,7 @@ function TaskFormModal({
     try {
       const created = await api.post('/api/tasks', {
         title: taskTitle.trim(),
-        priority: 'P3',
+        priority: 'P2',
         gtd_status: 'inbox'
       });
       noteAllTasksRef.current = [...noteAllTasksRef.current, created];
@@ -13978,7 +13978,7 @@ function Dashboard({
       const taskBody = {
         title: parsed.title,
         deadline: parsed.deadline || null,
-        priority: "P3",
+        priority: "P2",
         gtd_status: "inbox"
       };
       try {
@@ -14783,7 +14783,7 @@ function Dashboard({
     key: "q1",
     cls: "eq1",
     title: "Lakukan",
-    sub: "Mendesak & penting",
+    sub: "Penting, mendesak \u2264 7 hari",
     tip: eisenTooltip.Lakukan,
     icon: "flame",
     color: "#ef4444",
@@ -14792,7 +14792,7 @@ function Dashboard({
     key: "q2",
     cls: "eq2",
     title: "Rencanakan",
-    sub: "Penting, tidak mendesak",
+    sub: "Penting, tidak mendesak > 7 hari",
     tip: eisenTooltip.Rencanakan,
     icon: "calendar",
     color: "#A8C500",
@@ -18508,7 +18508,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v407-note-callout-render"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v408-eisen-label-p2"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -22684,7 +22684,7 @@ function NoteModal({
     try {
       const created = await api.post('/api/tasks', {
         title: taskTitle.trim(),
-        priority: 'P3',
+        priority: 'P2',
         gtd_status: 'inbox'
       });
       // Eagerly update ref so toDOM renders badge correctly before React re-render
@@ -30478,7 +30478,7 @@ function App() {
     }
   };
   const handleReviewCreate = ({ title, project }) =>
-    api.post("/api/tasks", { title: title, gtd_status: "next", project: project || "", priority: "P3" })
+    api.post("/api/tasks", { title: title, gtd_status: "next", project: project || "", priority: "P2" })
       .then(() => { if (window.__refreshTasks) window.__refreshTasks(); showToast("Task dibuat ✅"); })
       .catch(() => showToast("Gagal membuat task", "error"));
   const handleReviewFocus = (taskId) =>
@@ -31379,7 +31379,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v407-note-callout-render";
+    window.__SW_VERSION = "taskflow-v408-eisen-label-p2";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

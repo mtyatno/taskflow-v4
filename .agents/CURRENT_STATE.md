@@ -3,6 +3,11 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+## 🟠 Keterangan kartu Eisenhower + prioritas default P2 — 2026-10-13 (Claude) — NEEDS REVIEW
+- **Status:** Draft PR dari `claude/project-thread-rp03qw`, SW v408 `taskflow-v408-eisen-label-p2` (app.css tidak berubah). Tunggu "merge dan deploy".
+- **Perubahan:** sub kartu Q1 "Penting, mendesak ≤ 7 hari", Q2 "Penting, tidak mendesak > 7 hari" (logika kuadran tidak berubah; Q2 tetap P1/P2 deadline jauh atau tanpa deadline). Default prioritas task baru P2: TaskModal, quick capture hero, task inline dari catatan (2 tempat), review mingguan, `TaskCreate` API, `createTask` offline (`taskrepo.js`), bot `/quick`.
+- **Catatan:** item 4-6 permintaan Bapak (modal tanggal, hero tanpa tanggal, inbox wizard editable) dikerjakan thread lain.
+
 ## 🟢 Callout "> [!NOTE]" tampil mentah di penampil catatan — 2026-10-13 (Claude) — DI-MERGE & DEPLOY
 - **Status:** PR #21 di-merge (`8f166c4`) atas "merge dan deploy" Bapak; Deploy Taskflow V4 run #886 sukses. SW v407 `taskflow-v407-note-callout-render`, app.css?v=329. `webapp.py` (/api/version) baru aktif setelah `sudo systemctl restart taskflow-web`.
 - **Penyebab:** menu `/callout` menyisipkan teks `> [!NOTE]\n> ` ke paragraf (insertText) → Milkdown menyimpan `\> \[!NOTE] > isi` (ter-escape), jadi penampil menampilkan teks mentah. `>` yang diketik setelah Shift+Enter juga tersimpan `\>`.

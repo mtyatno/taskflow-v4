@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v401", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v407-note-callout-render";/m,
-      "sw.js CACHE must be taskflow-v407-note-callout-render"
+      /^const CACHE = "taskflow-v408-eisen-label-p2";/m,
+      "sw.js CACHE must be taskflow-v408-eisen-label-p2"
     );
   });
 });

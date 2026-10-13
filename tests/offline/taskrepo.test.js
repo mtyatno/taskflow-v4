@@ -62,7 +62,7 @@ test("createTask applies defaults, uppercases priority, sets timestamps", async 
   assert.equal(t.server_id, null);
   assert.equal(t.title, "Beli kopi");
   assert.equal(t.description, "");
-  assert.equal(t.priority, "P3");
+  assert.equal(t.priority, "P2");
   assert.equal(t.gtd_status, "inbox");
   assert.equal(t.project, "");
   assert.equal(t.context, "");
