@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=332">
+  <link rel="stylesheet" href="/static/app.css?v=333">
 
 <style>
 /* Mode kertas hanya di layar lebar (>= 769px). Di HP (<= 768px) catatan
@@ -10860,15 +10860,161 @@ function KanbanView({
   })));
 }
 
+// ── GTD Inbox Wizard: editable priority / project / date ────
+// Each change is saved right away through onUpdateTask(taskId, patch), so the
+// user can clarify a task without leaving the wizard. Keyed by task id by the
+// caller, so the "new project" draft resets when the card moves on.
+function GtdWizardEditFields({
+  task,
+  projects = [],
+  onUpdateTask
+}) {
+  const [newProject, setNewProject] = useState(null);
+  const [pickDate, setPickDate] = useState(false);
+  const save = patch => {
+    if (onUpdateTask) onUpdateTask(task.id, patch);
+  };
+  const deadline = task.deadline ? String(task.deadline).slice(0, 10) : "";
+  const dayISO = n => window.plusDaysISO ? window.plusDaysISO(n) : new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+  const quickDates = [["Hari ini", dayISO(0)], ["Besok", dayISO(1)], ["+7 hari", dayISO(7)]];
+  const dateLabel = iso => {
+    const quick = quickDates.find(([, q]) => q === iso);
+    if (quick && quick[0] !== "+7 hari") return quick[0];
+    const d = new Date(iso + "T00:00:00");
+    return isNaN(d) ? iso : d.toLocaleDateString("id-ID", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric"
+    });
+  };
+  const projectOptions = task.project && !projects.includes(task.project) ? [task.project, ...projects] : projects;
+  const commitNewProject = () => {
+    const v = (newProject || "").trim();
+    setNewProject(null);
+    if (v && v !== task.project) save({
+      project: v
+    });
+  };
+  const PRI_OPTIONS = [["P1", "🔴 P1 Critical"], ["P2", "🟠 P2 High"], ["P3", "🟡 P3 Medium"], ["P4", "🟢 P4 Low"]];
+  const priority = /*#__PURE__*/React.createElement("select", {
+    className: `input gtd-wizard-input gtd-wizard-pri-select pri-${String(task.priority || "").toLowerCase()}`,
+    value: task.priority || "P3",
+    "aria-label": "Prioritas",
+    title: "Prioritas",
+    onChange: e => e.target.value !== task.priority && save({
+      priority: e.target.value
+    })
+  }, PRI_OPTIONS.map(([v, label]) => /*#__PURE__*/React.createElement("option", {
+    key: v,
+    value: v
+  }, label)));
+  const project = newProject !== null ? /*#__PURE__*/React.createElement("input", {
+    className: "input gtd-wizard-input",
+    autoFocus: true,
+    value: newProject,
+    placeholder: "Project baru, Enter untuk simpan",
+    "aria-label": "Nama project baru",
+    onChange: e => setNewProject(e.target.value),
+    onBlur: commitNewProject,
+    onKeyDown: e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commitNewProject();
+      } else if (e.key === "Escape") {
+        e.stopPropagation();
+        setNewProject(null);
+      }
+    }
+  }) : /*#__PURE__*/React.createElement("select", {
+    className: "input gtd-wizard-input",
+    value: task.project || "",
+    "aria-label": "Project",
+    title: "Project",
+    onChange: e => {
+      const v = e.target.value;
+      if (v === "__new__") setNewProject("");else if (v !== (task.project || "")) save({
+        project: v
+      });
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "📁 Tanpa project"), projectOptions.map(o => /*#__PURE__*/React.createElement("option", {
+    key: o,
+    value: o
+  }, "📁 ", o)), /*#__PURE__*/React.createElement("option", {
+    value: "__new__"
+  }, "＋ Project baru..."));
+  const date = pickDate ? /*#__PURE__*/React.createElement("input", {
+    className: "input gtd-wizard-input",
+    type: "date",
+    autoFocus: true,
+    defaultValue: deadline,
+    "aria-label": "Tanggal task",
+    ref: el => {
+      if (el && el.showPicker && !el.dataset.opened) {
+        el.dataset.opened = "1";
+        try {
+          el.showPicker();
+        } catch (_) {}
+      }
+    },
+    onChange: e => {
+      const v = e.target.value;
+      if (v) {
+        setPickDate(false);
+        if (v !== deadline) save({
+          deadline: v
+        });
+      }
+    },
+    onBlur: () => setPickDate(false),
+    onKeyDown: e => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setPickDate(false);
+      }
+    }
+  }) : /*#__PURE__*/React.createElement("select", {
+    className: "input gtd-wizard-input",
+    value: deadline ? "__current__" : "",
+    "aria-label": "Tanggal",
+    title: "Tanggal",
+    onChange: e => {
+      const v = e.target.value;
+      if (v === "__pick__") setPickDate(true);else if (v !== "__current__" && v !== deadline) save({
+        deadline: v
+      });
+    }
+  }, deadline && /*#__PURE__*/React.createElement("option", {
+    value: "__current__"
+  }, "📅 ", dateLabel(deadline)), /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "📅 Tanpa tanggal"), quickDates.filter(([, iso]) => iso !== deadline).map(([label, iso]) => /*#__PURE__*/React.createElement("option", {
+    key: label,
+    value: iso
+  }, label)), /*#__PURE__*/React.createElement("option", {
+    value: "__pick__"
+  }, "Pilih tanggal..."));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "gtd-wizard-edit"
+  }, priority, project, date);
+}
+
 // ── GTD Inbox Wizard Modal ──────────────────────────────────
 function GtdInboxWizardModal({
   tasks = [],
   onClose,
   onUpdateGtdStatus,
+  onUpdateTask,
+  projects = [],
   onDone,
   onNav
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
+  // Editing priority or date re-sorts the inbox list, so keep the card pinned
+  // to the task being edited instead of to its old position.
+  const pinnedIdRef = useRef(null);
 
   useEffect(() => {
     const handleKeyDown = e => {
@@ -10880,8 +11026,13 @@ function GtdInboxWizardModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const safeIndex = tasks.length > 0 ? Math.min(currentIndex, tasks.length - 1) : 0;
+  const pinnedIndex = pinnedIdRef.current != null ? tasks.findIndex(t => t.id === pinnedIdRef.current) : -1;
+  const safeIndex = pinnedIndex >= 0 ? pinnedIndex : tasks.length > 0 ? Math.min(currentIndex, tasks.length - 1) : 0;
   const currentTask = tasks[safeIndex];
+  useEffect(() => {
+    pinnedIdRef.current = currentTask ? currentTask.id : null;
+    if (safeIndex !== currentIndex) setCurrentIndex(safeIndex);
+  }, [currentTask && currentTask.id, safeIndex]);
 
   const handleAction = async targetStatus => {
     if (!currentTask) return;
@@ -10897,7 +11048,7 @@ function GtdInboxWizardModal({
   };
 
   return /*#__PURE__*/React.createElement("div", {
-    className: "modal-overlay",
+    className: "modal-overlay gtd-wizard-overlay",
     onClick: onClose
   }, /*#__PURE__*/React.createElement("div", {
     className: "modal-content scale-in",
@@ -10981,26 +11132,27 @@ function GtdInboxWizardModal({
     className: "gtd-wizard-title"
   }, currentTask.title), /*#__PURE__*/React.createElement("div", {
     className: "gtd-wizard-meta"
-  }, /*#__PURE__*/React.createElement(PriBadge, {
-    p: currentTask.priority
-  }), currentTask.project && /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement(QuadBadge, {
+    q: currentTask.quadrant
+  }), currentTask.context && /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 12,
       color: "var(--text-light)"
     }
-  }, "📁 ", currentTask.project), currentTask.context && /*#__PURE__*/React.createElement("span", {
+  }, currentTask.context), currentTask.is_overdue && /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 12,
-      color: "var(--text-light)"
+      fontWeight: 600,
+      color: "#ef4444"
     }
-  }, currentTask.context), currentTask.deadline && /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      color: currentTask.is_overdue ? "#ef4444" : "var(--text-light)"
-    }
-  }, "📅 ", formatDate(currentTask.deadline))), currentTask.description ? /*#__PURE__*/React.createElement("div", {
+  }, "Terlambat")), currentTask.description ? /*#__PURE__*/React.createElement("div", {
     className: "gtd-wizard-desc"
-  }, currentTask.description) : null), /*#__PURE__*/React.createElement("div", {
+  }, currentTask.description) : null, onUpdateTask ? /*#__PURE__*/React.createElement(GtdWizardEditFields, {
+    key: currentTask.id,
+    task: currentTask,
+    projects: projects,
+    onUpdateTask: onUpdateTask
+  }) : null), /*#__PURE__*/React.createElement("div", {
     className: "gtd-wizard-nudge"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "zap",
@@ -11065,7 +11217,10 @@ function GtdInboxWizardModal({
   }, /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "btn btn-ghost btn-sm",
-    onClick: () => setCurrentIndex(prev => (prev + 1 >= tasks.length ? 0 : prev + 1)),
+    onClick: () => {
+      pinnedIdRef.current = null;
+      setCurrentIndex(prev => (prev + 1 >= tasks.length ? 0 : prev + 1));
+    },
     title: "Lewati tugas ini untuk saat ini"
   }, "Lewati ⏩"), /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -11107,7 +11262,8 @@ function TaskListView({
   collaborators = [],
   showToast,
   page,
-  onUpdateGtdStatus
+  onUpdateGtdStatus,
+  onUpdateTask
 }) {
   const isInbox = page === "inbox" || title === "Inbox";
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -11634,6 +11790,8 @@ function TaskListView({
     tasks: filtered,
     onClose: () => setWizardOpen(false),
     onUpdateGtdStatus: onUpdateGtdStatus,
+    onUpdateTask: onUpdateTask,
+    projects: projects || [],
     onDone: onDone
   }));
 }
@@ -14034,7 +14192,9 @@ function Dashboard({
   focusTask,
   timer,
   onStartFocus,
-  onUpdateGtdStatus
+  onUpdateGtdStatus,
+  onUpdateTask,
+  projects = []
 }) {
   const [dismissedOnboarding, setDismissedOnboarding] = useState(() => {
     try {
@@ -15244,6 +15404,8 @@ function Dashboard({
     tasks: inboxTasks,
     onClose: () => setInboxWizardOpen(false),
     onUpdateGtdStatus: onUpdateGtdStatus,
+    onUpdateTask: onUpdateTask,
+    projects: projects,
     onDone: onDone,
     onNav: onNav
   })
@@ -18667,7 +18829,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v410-task-date-prompt"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v411-inbox-wizard-edit"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -30692,6 +30854,37 @@ function App() {
     setEditTask(task);
     setShowForm(true);
   };
+  // Inline edits from the "Proses Inbox" wizard (priority, project, deadline).
+  // The server recomputes the quadrant, so take its row back when online.
+  const handleUpdateTaskFields = async (taskId, patch) => {
+    const existingTask = tasks.find(t => t.id === taskId);
+    if (!existingTask) return;
+    const previous = {};
+    Object.keys(patch).forEach(k => {
+      previous[k] = existingTask[k];
+    });
+    const localPatch = { ...patch };
+    if ("deadline" in patch) localPatch.deadline = patch.deadline || null;
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...localPatch } : t));
+    try {
+      const row = await api.put(`/api/tasks/${taskId}`, patch);
+      if (row && row.id === taskId) setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...row } : t));
+      fetchAll();
+      window.dispatchEvent(new CustomEvent("taskUpdated", { detail: { taskId } }));
+    } catch (err) {
+      if (isOfflineErr(err) && typeof OfflineDB !== "undefined" && OfflineDB.queueAdd) {
+        await OfflineDB.queueAdd({
+          method: "PUT",
+          url: `/api/tasks/${taskId}`,
+          body: patch
+        });
+        showToast?.("📶 Tersimpan offline, akan sync saat online");
+      } else {
+        showToast?.(err.message || "Gagal menyimpan perubahan task", "error");
+        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...previous } : t));
+      }
+    }
+  };
   const handleUpdateTaskGtd = async (taskId, targetStatus) => {
     if (targetStatus === "done") {
       return handleDone(taskId);
@@ -30883,7 +31076,9 @@ function App() {
         focusTask: focusTask,
         timer: timer,
         onStartFocus: handleStartFocus,
-        onUpdateGtdStatus: handleUpdateTaskGtd
+        onUpdateGtdStatus: handleUpdateTaskGtd,
+        onUpdateTask: handleUpdateTaskFields,
+        projects: projects
       });
     }
     if (page === "today") {
@@ -30988,7 +31183,8 @@ function App() {
         collaborators: collaborators,
         showToast: showToast,
         page: page,
-        onUpdateGtdStatus: handleUpdateTaskGtd
+        onUpdateGtdStatus: handleUpdateTaskGtd,
+        onUpdateTask: handleUpdateTaskFields
       }));
     }
     return /*#__PURE__*/React.createElement(TaskListView, {
@@ -31006,7 +31202,8 @@ function App() {
       collaborators: page.startsWith("slist_") ? collaborators : [],
       showToast: showToast,
       page: page,
-      onUpdateGtdStatus: handleUpdateTaskGtd
+      onUpdateGtdStatus: handleUpdateTaskGtd,
+      onUpdateTask: handleUpdateTaskFields
     });
   };
   return /*#__PURE__*/React.createElement("div", null, extAuthState && user && /*#__PURE__*/React.createElement(ExtAuthOverlay, {
@@ -31538,7 +31735,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v410-task-date-prompt";
+    window.__SW_VERSION = "taskflow-v411-inbox-wizard-edit";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

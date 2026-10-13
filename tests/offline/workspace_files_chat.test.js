@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v410-task-date-prompt', () => {
+  test('Service Worker cache version is bumped to taskflow-v411-inbox-wizard-edit', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v410-task-date-prompt";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v411-inbox-wizard-edit";/m);
   });
 });
 

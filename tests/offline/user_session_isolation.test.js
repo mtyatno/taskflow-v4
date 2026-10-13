@@ -337,13 +337,13 @@ test("6. static/index.html includes clearLocalUserData, OfflineDB.clearAll, and 
   );
 });
 
-test("7. Service Worker cache version is taskflow-v410-task-date-prompt", () => {
+test("7. Service Worker cache version is taskflow-v411-inbox-wizard-edit", () => {
   const sw = fs.readFileSync(swPath, "utf8");
   const html = fs.readFileSync(htmlPath, "utf8");
   const webapp = fs.readFileSync(webappPath, "utf8");
 
-  assert.match(sw, /^const CACHE = "taskflow-v410-task-date-prompt";/m, "sw.js CACHE must be v401");
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v410-task-date-prompt";/, "index.html fallback SW version must be v401");
-  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v410-task-date-prompt"/, "index.html About modal SW version fallback must be v401");
-  assert.match(webapp, /sw_cache = "taskflow-v410-task-date-prompt"/, "webapp.py sw_cache must be v401");
+  assert.match(sw, /^const CACHE = "taskflow-v411-inbox-wizard-edit";/m, "sw.js CACHE must be v401");
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v411-inbox-wizard-edit";/, "index.html fallback SW version must be v401");
+  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v411-inbox-wizard-edit"/, "index.html About modal SW version fallback must be v401");
+  assert.match(webapp, /sw_cache = "taskflow-v411-inbox-wizard-edit"/, "webapp.py sw_cache must be v401");
 });

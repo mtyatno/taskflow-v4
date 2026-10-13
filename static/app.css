@@ -4136,6 +4136,51 @@
   padding: 30px 20px;
 }
 
+/* Proses Inbox wizard: editable priority / project / date, one row of dropdowns */
+.gtd-wizard-edit {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.9fr) minmax(0, 1.2fr) minmax(140px, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.gtd-wizard-edit:last-child {
+  margin-bottom: 0;
+}
+.gtd-wizard-input.input {
+  padding: 6px 10px;
+  font-size: 13px;
+  min-height: 36px;
+  min-width: 0;
+  width: 100%;
+}
+.gtd-wizard-pri-select.pri-p1 { color: #dc2626; font-weight: 700; }
+.gtd-wizard-pri-select.pri-p2 { color: #ea580c; font-weight: 700; }
+.gtd-wizard-pri-select.pri-p3 { color: #ca8a04; font-weight: 600; }
+.gtd-wizard-pri-select.pri-p4 { color: #16a34a; font-weight: 600; }
+[data-theme="dark"] .gtd-wizard-pri-select.pri-p1 { color: #f87171; }
+[data-theme="dark"] .gtd-wizard-pri-select.pri-p2 { color: #fb923c; }
+[data-theme="dark"] .gtd-wizard-pri-select.pri-p3 { color: #facc15; }
+[data-theme="dark"] .gtd-wizard-pri-select.pri-p4 { color: #4ade80; }
+.gtd-wizard-pri-select option {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.gtd-wizard-overlay {
+  /* above the mobile quick-add FAB, which shares z-index 50 */
+  z-index: 60;
+}
+@media (max-width: 520px) {
+  .gtd-wizard-card {
+    padding: 14px;
+  }
+  .gtd-wizard-edit {
+    grid-template-columns: 1fr 1fr;
+  }
+  .gtd-wizard-edit > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
 
 
 
