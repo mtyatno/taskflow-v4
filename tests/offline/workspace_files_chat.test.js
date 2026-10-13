@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v408-eisen-label-p2', () => {
+  test('Service Worker cache version is bumped to taskflow-v410-task-date-prompt', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v408-eisen-label-p2";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v410-task-date-prompt";/m);
   });
 });
 

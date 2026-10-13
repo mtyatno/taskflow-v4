@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v408-eisen-label-p2", () => {
-    assert.match(swJs, /taskflow-v408-eisen-label-p2/);
+  await t.test("sw.js bumped to taskflow-v410-task-date-prompt", () => {
+    assert.match(swJs, /taskflow-v410-task-date-prompt/);
   });
 });

@@ -3380,7 +3380,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v408-eisen-label-p2"
+    sw_cache = "taskflow-v410-task-date-prompt"
     return JSONResponse(
         content={
             "app_version": "4.0.0",
