@@ -3222,3 +3222,10 @@
 - **Verifikasi:** manifest JSON valid, `node --check sw.js` OK, inline 5/5, pytest test_version 2/2, JS 1084/1085 (1 gagal pra-ada di main), 0 border-left.
 - **Files Touch:** `static/{manifest.json,sw.js,index.html,icon-*.png}`, `src-tauri/icons/android/*`, `scripts/gen_app_icons.py`, `webapp.py`, `tests/*`, `.agents/*`
 - **Status:** Done — di-merge atas "merge dan deploy" Bapak.
+
+## [2026-10-13 10:15] - Claude (ikon PWA tidak ter-update)
+- **Task:** Bapak: sudah uninstall + install ulang PWA, ikon masih lama.
+- **Changes:** URL ikon/manifest ber-versi `?v=2`, SW network-first untuk manifest dan ikon, precache `cache: "reload"`, header no-cache di `/manifest.json`, SW v406.
+- **Verifikasi:** JSON manifest valid, sw OK, inline 5/5, pytest test_version 2/2, JS 1089/1090 (1 gagal pra-ada di main).
+- **Files Touch:** `static/{index.html,manifest.json,sw.js}`, `webapp.py`, `tests/*`, `.agents/*`
+- **Status:** Needs Review (draft PR, tunggu "merge dan deploy").

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v405-android-icon-margin";
+const CACHE = "taskflow-v406-pwa-icon-refresh";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -79,12 +79,12 @@ const STATIC = [
   "/static/vendor/katex/fonts/KaTeX_Size3-Regular.woff2",
   "/static/vendor/katex/fonts/KaTeX_Size4-Regular.woff2",
   "/static/vendor/katex/fonts/KaTeX_Typewriter-Regular.woff2",
-  "/manifest.json",
+  "/manifest.json?v=2",
   "/config.js",
-  "/static/icon-192.png",
-  "/static/icon-512.png",
-  "/static/icon-maskable-192.png",
-  "/static/icon-maskable-512.png",
+  "/static/icon-192.png?v=2",
+  "/static/icon-512.png?v=2",
+  "/static/icon-maskable-192.png?v=2",
+  "/static/icon-maskable-512.png?v=2",
   "/static/icon-new-task.svg",
 ];
 
@@ -114,7 +114,7 @@ self.addEventListener("message", e => {
 self.addEventListener("install", e => {
   e.waitUntil(
     caches.open(CACHE)
-      .then(cache => Promise.allSettled(STATIC.map(url => cache.add(url))))
+      .then(cache => Promise.allSettled(STATIC.map(url => cache.add(new Request(url, { cache: "reload" })))))
       .then(() => {
         if (!self.registration.active) {
           self.skipWaiting();
@@ -161,6 +161,23 @@ self.addEventListener("fetch", e => {
           cached || new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })
         )
       )
+    )
+    return
+  }
+
+  // Manifest & ikon aplikasi — network-first, supaya launcher/instalasi PWA selalu
+  // mendapat ikon terbaru (cache-first dulu membuat ikon lama terus terpakai).
+  if (request.method === "GET" && (url.pathname === "/manifest.json" || /^\/static\/icon-[\w-]+\.png$/.test(url.pathname))) {
+    e.respondWith(
+      fetch(request, { cache: "no-cache" }).then(res => {
+        if (res.ok) {
+          const clone = res.clone()
+          caches.open(CACHE).then(c => c.put(request, clone))
+        }
+        return res
+      }).catch(() => caches.match(request, { ignoreSearch: true }).then(cached =>
+        cached || new Response("Offline", { status: 503 })
+      ))
     )
     return
   }
