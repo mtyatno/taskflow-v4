@@ -1081,7 +1081,7 @@
       #note-print-area .note-rendered h3 { font-size: 13pt; margin: 12pt 0 4pt; }
       #note-print-area .note-rendered h4, #note-print-area .note-rendered h5, #note-print-area .note-rendered h6 { font-size: 11pt; margin: 10pt 0 4pt; }
       #note-print-area .note-rendered ul, #note-print-area .note-rendered ol { padding-left: 20pt; }
-      #note-print-area .note-rendered blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 12pt; color: #555 !important; }
+      #note-print-area .note-rendered blockquote { margin-left: 0; padding: 6pt 10pt; background: #f4f4f5; border-radius: 6pt; color: #555 !important; }
       #note-print-area .note-rendered code { font-family: monospace; background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
       #note-print-area .note-rendered hr { border: none; border-top: 1px solid #e5e7eb; margin: 14pt 0; }
       #note-print-area .wikilink, #note-print-area .wikilink-broken { color: #333 !important; border-bottom: none !important; font-style: normal !important; }
@@ -1291,7 +1291,31 @@
     .note-rendered strong { font-weight: 700; }
     .note-rendered em { font-style: italic; color: var(--text-secondary); }
     .note-rendered hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
-    .note-rendered blockquote { border-left: 3px solid var(--accent); padding-left: 10px; color: var(--text-secondary); margin: 6px 0; font-style: italic; }
+    /* Kutipan: latar lembut + ikon tanda kutip (tanpa garis warna di sisi) */
+    .note-rendered blockquote,
+    .milkdown-editor .ProseMirror blockquote {
+      position: relative;
+      margin: 8px 0;
+      padding: 8px 12px 8px 36px;
+      background: rgba(148, 163, 184, 0.12);
+      border-radius: 10px;
+      color: var(--text-secondary);
+    }
+    .note-rendered blockquote { font-style: italic; }
+    .note-rendered blockquote::before,
+    .milkdown-editor .ProseMirror blockquote:not(.note-callout-editing)::before {
+      content: "\201C";
+      position: absolute;
+      left: 11px;
+      top: 4px;
+      font: 700 26px/1 Georgia, "Times New Roman", serif;
+      color: var(--accent);
+      pointer-events: none;
+    }
+    .note-rendered blockquote > :first-child,
+    .milkdown-editor .ProseMirror blockquote > :first-child { margin-top: 0; }
+    .note-rendered blockquote > :last-child,
+    .milkdown-editor .ProseMirror blockquote > :last-child { margin-bottom: 0; }
 
     /* Mobile Notes Modal */
     @media (max-width: 768px) {
@@ -1434,12 +1458,6 @@
     .milkdown-editor .ProseMirror ul  { list-style: disc; padding-left: 1.5em; margin: 0.3em 0; }
     .milkdown-editor .ProseMirror ol  { list-style: decimal; padding-left: 1.5em; margin: 0.3em 0; }
     .milkdown-editor .ProseMirror li  { margin: 0.1em 0; }
-    .milkdown-editor .ProseMirror blockquote {
-      border-left: 3px solid var(--accent);
-      padding-left: 12px;
-      color: var(--text-secondary);
-      margin: 0.5em 0;
-    }
     .milkdown-editor .ProseMirror code {
       background: rgba(0,0,0,0.06);
       border-radius: 3px;
@@ -2785,11 +2803,31 @@
 
 /* Callout Alerts */
 .note-callout {
-  border-left: 4px solid var(--accent);
-  border-radius: 0 8px 8px 0;
+  border-radius: 10px;
   padding: 10px 14px;
   margin: 12px 0;
   background: rgba(168, 197, 0, 0.08);
+}
+/* Callout di editor (blockquote "[!NOTE] ..." — kelas dari createCalloutBlockquotePlugin) */
+.milkdown-editor .ProseMirror blockquote.note-callout-editing {
+  padding: 10px 14px 10px 38px;
+  margin: 12px 0;
+  color: var(--text-primary);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.milkdown-editor .ProseMirror blockquote.note-callout-editing::before {
+  content: attr(data-callout-icon);
+  position: absolute;
+  left: 13px;
+  top: 11px;
+  font-size: 14px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.milkdown-editor .ProseMirror blockquote.note-callout-editing > p:first-child {
+  font-size: 13px;
+  font-weight: 700;
 }
 .note-callout-header {
   display: flex;
@@ -2820,40 +2858,45 @@
 }
 
 /* Callout Types */
-.note-callout-note {
-  border-left-color: #3b82f6;
+.note-callout-note,
+.milkdown-editor .ProseMirror blockquote.note-callout-note {
   background: rgba(59, 130, 246, 0.08);
 }
-.note-callout-tip {
-  border-left-color: #22c55e;
+.note-callout-tip,
+.milkdown-editor .ProseMirror blockquote.note-callout-tip {
   background: rgba(34, 197, 94, 0.08);
 }
-.note-callout-warning {
-  border-left-color: #f59e0b;
+.note-callout-warning,
+.milkdown-editor .ProseMirror blockquote.note-callout-warning {
   background: rgba(245, 158, 11, 0.08);
 }
-.note-callout-important {
-  border-left-color: #a855f7;
+.note-callout-important,
+.milkdown-editor .ProseMirror blockquote.note-callout-important {
   background: rgba(168, 85, 247, 0.08);
 }
-.note-callout-caution {
-  border-left-color: #ef4444;
+.note-callout-caution,
+.milkdown-editor .ProseMirror blockquote.note-callout-caution {
   background: rgba(239, 68, 68, 0.08);
 }
 
-[data-theme="dark"] .note-callout-note {
+[data-theme="dark"] .note-callout-note,
+[data-theme="dark"] .milkdown-editor .ProseMirror blockquote.note-callout-note {
   background: rgba(59, 130, 246, 0.12);
 }
-[data-theme="dark"] .note-callout-tip {
+[data-theme="dark"] .note-callout-tip,
+[data-theme="dark"] .milkdown-editor .ProseMirror blockquote.note-callout-tip {
   background: rgba(34, 197, 94, 0.12);
 }
-[data-theme="dark"] .note-callout-warning {
+[data-theme="dark"] .note-callout-warning,
+[data-theme="dark"] .milkdown-editor .ProseMirror blockquote.note-callout-warning {
   background: rgba(245, 158, 11, 0.12);
 }
-[data-theme="dark"] .note-callout-important {
+[data-theme="dark"] .note-callout-important,
+[data-theme="dark"] .milkdown-editor .ProseMirror blockquote.note-callout-important {
   background: rgba(168, 85, 247, 0.12);
 }
-[data-theme="dark"] .note-callout-caution {
+[data-theme="dark"] .note-callout-caution,
+[data-theme="dark"] .milkdown-editor .ProseMirror blockquote.note-callout-caution {
   background: rgba(239, 68, 68, 0.12);
 }
 

@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=328">
+  <link rel="stylesheet" href="/static/app.css?v=329">
 
 <style>
 /* Mode kertas hanya di layar lebar (>= 769px). Di HP (<= 768px) catatan
@@ -95,7 +95,18 @@
     .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror blockquote,
     .paper-mode-active .paper-inner-wrap .note-rendered blockquote {
         color: #475569 !important;
-        border-left-color: #94a3b8 !important;
+    }
+    /* Callout & toggle di kertas putih: teks gelap juga saat tema app gelap */
+    .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror blockquote.note-callout-editing,
+    .paper-mode-active .paper-inner-wrap .note-rendered .note-callout-header,
+    .paper-mode-active .paper-inner-wrap .note-rendered .note-callout-content,
+    .paper-mode-active .paper-inner-wrap .note-rendered details summary {
+        color: #1e293b !important;
+    }
+    .paper-mode-active .paper-inner-wrap .note-rendered details,
+    .paper-mode-active .paper-inner-wrap .note-rendered details[open] {
+        background: #ffffff !important;
+        border-color: #e2e8f0 !important;
     }
     .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror pre,
     .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror code,
@@ -18497,7 +18508,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v406-pwa-icon-refresh"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v407-note-callout-render"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -18699,9 +18710,56 @@ function parseDirectiveAttrs(attrStr) {
   return attrs;
 }
 
+// Callout "> [!NOTE] ..." (GitHub/Obsidian) — dipakai penampil (renderMarkdown) dan editor (createCalloutBlockquotePlugin)
+const NOTE_CALLOUT_TYPES = {
+  NOTE: { icon: 'ℹ️', title: 'Catatan', cls: 'note' },
+  INFO: { icon: 'ℹ️', title: 'Informasi', cls: 'note' },
+  TIP: { icon: '💡', title: 'Tips', cls: 'tip' },
+  WARNING: { icon: '⚠️', title: 'Perhatian', cls: 'warning' },
+  IMPORTANT: { icon: '📌', title: 'Penting', cls: 'important' },
+  CAUTION: { icon: '🚨', title: 'Peringatan', cls: 'caution' }
+};
+
+// Perbaiki markdown kutipan yang ter-escape. Menu /callout lama menyisipkan "> [!NOTE]" sebagai
+// teks biasa, dan ">" yang diketik setelah Shift+Enter juga jadi teks; Milkdown menyimpannya
+// sebagai "\> \[!NOTE] > isi", sehingga tampil mentah. Baris "\>" (di luar blok kode) dijadikan
+// kutipan lagi, dan callout satu baris "> [!NOTE] > isi" dipecah jadi judul + isi.
+function repairQuoteMarkdown(md) {
+  if (!md || (md.indexOf('\\>') === -1 && md.indexOf('[!') === -1)) return md;
+  const lines = md.split('\n');
+  const out = [];
+  let fence = null;
+  for (const line of lines) {
+    const f = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (f) {
+      if (!fence) fence = f[1][0];
+      else if (f[1][0] === fence) fence = null;
+      out.push(line);
+      continue;
+    }
+    if (fence) { out.push(line); continue; }
+    let cur = line;
+    const esc = /^(\s{0,3})\\>(.*)$/.exec(cur);
+    if (esc) {
+      cur = esc[1] + '>' + esc[2];
+      // "\" di akhir baris sebelumnya = hard break; tanpa baris lanjutan ia jadi garis miring mentah
+      const prev = out.length ? out[out.length - 1] : '';
+      if (!/^\s{0,3}>/.test(prev) && /(^|[^\\])(\\\\)*\\$/.test(prev)) out[out.length - 1] = prev.slice(0, -1);
+    }
+    const one = /^(\s{0,3})>\s*\\?\[!(NOTE|INFO|TIP|WARNING|IMPORTANT|CAUTION)\\?\]\s*\\?>\s*(.*)$/i.exec(cur);
+    if (one) {
+      out.push(one[1] + '> [!' + one[2].toUpperCase() + ']', one[1] + '>');
+      cur = one[1] + '> ' + one[3];
+    }
+    out.push(cur);
+  }
+  return out.join('\n');
+}
+
 function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   if (!text) return "";
   _markedHIdx = 0;
+  text = repairQuoteMarkdown(text);
 
   // Step 0: Extract math BEFORE all other processing so markdown doesn't mangle LaTeX.
   // Block math first ($$...$$), then inline ($...$) to avoid double-match.
@@ -18869,14 +18927,7 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   const cleanMd = cleanLines.join('\n');
 
   let html = marked.parse(cleanMd);
-  const ALERT_TYPES = {
-    NOTE: { icon: 'ℹ️', title: 'Catatan', cls: 'note' },
-    INFO: { icon: 'ℹ️', title: 'Informasi', cls: 'note' },
-    TIP: { icon: '💡', title: 'Tips', cls: 'tip' },
-    WARNING: { icon: '⚠️', title: 'Perhatian', cls: 'warning' },
-    IMPORTANT: { icon: '📌', title: 'Penting', cls: 'important' },
-    CAUTION: { icon: '🚨', title: 'Peringatan', cls: 'caution' }
-  };
+  const ALERT_TYPES = NOTE_CALLOUT_TYPES;
   html = html.replace(/<blockquote>\s*<p>\[!(NOTE|INFO|TIP|WARNING|IMPORTANT|CAUTION)\]([^\n<]*)(?:<\/p>|(?:\n|<br\/?>)?([\s\S]*?)<\/p>)([\s\S]*?)<\/blockquote>/gi, (match, typeRaw, titleRaw, firstParaRest, remainingContent) => {
     const type = typeRaw.toUpperCase();
     const conf = ALERT_TYPES[type] || { icon: 'ℹ️', title: type, cls: 'note' };
@@ -19763,8 +19814,23 @@ function MilkdownEditor({
             break;
           case 'callout':
             {
-              const template = '> [!NOTE]\n> ';
-              tr = tr.insertText(template, from, to);
+              // Blok kutipan sungguhan: [!NOTE] di paragraf pertama, kursor di paragraf isi.
+              // (Dulu teks "> [!NOTE]" disisipkan apa adanya → tersimpan "\> \[!NOTE]" dan tampil mentah.)
+              const cqNode = state.schema.nodes.blockquote;
+              const cPara = state.schema.nodes.paragraph;
+              if (!cqNode || !cPara) break;
+              const $c = state.selection.$from;
+              const callout = cqNode.create(null, [cPara.create(null, state.schema.text('[!NOTE]')), cPara.create()]);
+              let at;
+              if ($c.depth >= 1 && $c.parent.type === cPara && $c.parent.content.size === 0) {
+                at = $c.before();
+                tr = tr.replaceWith(at, $c.after(), callout);
+              } else {
+                at = $c.depth >= 1 ? $c.after() : $c.pos;
+                tr = tr.insert(at, callout);
+              }
+              const bodyPos = at + 1 + callout.firstChild.nodeSize + 1;
+              tr.setSelection(MB.TextSelection.create(tr.doc, bodyPos));
             }
             break;
           case 'toggle':
@@ -20114,7 +20180,7 @@ function MilkdownEditor({
 
     MB.Editor.make().config(ctx => {
       ctx.set(MB.rootCtx, containerRef.current);
-      ctx.set(MB.defaultValueCtx, value || '');
+      ctx.set(MB.defaultValueCtx, repairQuoteMarkdown(value || ''));
       ctx.get(MB.listenerCtx).markdownUpdated((_ctx, markdown) => {
         if (!isExternalUpdate.current) {
           const cleaned = (markdown || '').replace(/[\r\n]+$/, '');
@@ -20251,7 +20317,7 @@ function MilkdownEditor({
           }
         });
       }
-    }).use(MB.commonmark).use(MB.gfm).use(MB.columnResizingPlugin || []).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(tableToolbarPair).use(blockHandleEnabled ? touchGuardPlugin : []).use(blockHandleEnabled ? MB.block : []).use(dropCursorPlugin || []).use(MB.trailing).use(createTrailingEmptyBlockPlugin(MB) || []).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).use(createDrawingPlugin(MB)).create().then(editor => {
+    }).use(MB.commonmark).use(MB.gfm).use(MB.columnResizingPlugin || []).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(tableToolbarPair).use(blockHandleEnabled ? touchGuardPlugin : []).use(blockHandleEnabled ? MB.block : []).use(dropCursorPlugin || []).use(MB.trailing).use(createTrailingEmptyBlockPlugin(MB) || []).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).use(createCalloutBlockquotePlugin()).use(createDrawingPlugin(MB)).create().then(editor => {
       if (cancelled) {
         editor.destroy();
         return;
@@ -20360,9 +20426,10 @@ function MilkdownEditor({
       const serializer = ctx.get(MB.serializerCtx);
       return serializer(view.state.doc);
     });
-    if (current.trim() !== (value || '').trim()) {
+    const next = repairQuoteMarkdown(value || '');
+    if (current.trim() !== next.trim() && current.trim() !== (value || '').trim()) {
       isExternalUpdate.current = true;
-      editor.action(MB.replaceAll(value || ''));
+      editor.action(MB.replaceAll(next));
       setTimeout(() => {
         isExternalUpdate.current = false;
       }, 0);
@@ -21142,6 +21209,45 @@ function createMarkdownPastePlugin(onImagePaste) {
         const slice = doc.slice(0, doc.content.size);
         view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
         return true;
+      }
+    }
+  }));
+}
+// Callout di editor: blockquote yang paragraf pertamanya diawali "[!NOTE]" dst. diberi kelas
+// .note-callout-editing + ikon (data-callout-icon), supaya tampilannya sama dengan penampil.
+function calloutTypeOfBlockquote(node) {
+  const first = node && node.firstChild;
+  if (!first || !first.isTextblock) return null;
+  const m = /^\s*\[!(NOTE|INFO|TIP|WARNING|IMPORTANT|CAUTION)\]/i.exec(first.textContent);
+  return m ? m[1].toUpperCase() : null;
+}
+function createCalloutBlockquotePlugin() {
+  const MB = window.MilkdownBundle;
+  return MB.$prose(() => new MB.Plugin({
+    key: new MB.PluginKey('MILKDOWN_CALLOUT_BLOCKQUOTE'),
+    props: {
+      nodeViews: {
+        blockquote: initialNode => {
+          const dom = document.createElement('blockquote');
+          let nodeType = initialNode.type;
+          const apply = n => {
+            const conf = NOTE_CALLOUT_TYPES[calloutTypeOfBlockquote(n)];
+            dom.className = conf ? 'note-callout-editing note-callout-' + conf.cls : '';
+            if (conf) dom.setAttribute('data-callout-icon', conf.icon);
+            else dom.removeAttribute('data-callout-icon');
+          };
+          apply(initialNode);
+          return {
+            dom,
+            contentDOM: dom,
+            update: n => {
+              if (n.type !== nodeType) return false;
+              apply(n);
+              return true;
+            },
+            ignoreMutation: m => m.type === 'attributes' && m.target === dom
+          };
+        }
       }
     }
   }));
@@ -31273,7 +31379,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v406-pwa-icon-refresh";
+    window.__SW_VERSION = "taskflow-v407-note-callout-render";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
