@@ -3,8 +3,8 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
-## 🟠 Callout "> [!NOTE]" tampil mentah di penampil catatan — 2026-10-13 (Claude) — NEEDS REVIEW
-- **Status:** Draft PR dari `claude/fix-note-callout-render-u18l68`, SW v407 `taskflow-v407-note-callout-render`, app.css?v=329. Tunggu "merge dan deploy".
+## 🟢 Callout "> [!NOTE]" tampil mentah di penampil catatan — 2026-10-13 (Claude) — DI-MERGE & DEPLOY
+- **Status:** PR #21 di-merge (`8f166c4`) atas "merge dan deploy" Bapak; Deploy Taskflow V4 run #886 sukses. SW v407 `taskflow-v407-note-callout-render`, app.css?v=329. `webapp.py` (/api/version) baru aktif setelah `sudo systemctl restart taskflow-web`.
 - **Penyebab:** menu `/callout` menyisipkan teks `> [!NOTE]\n> ` ke paragraf (insertText) → Milkdown menyimpan `\> \[!NOTE] > isi` (ter-escape), jadi penampil menampilkan teks mentah. `>` yang diketik setelah Shift+Enter juga tersimpan `\>`.
 - **Fix:** `/callout` membuat blockquote sungguhan (`[!NOTE]` + paragraf isi); `repairQuoteMarkdown()` (sebelum `renderMarkdown`) mengubah baris `\>` di luar blok kode jadi kutipan dan memecah callout satu baris lama; editor memuat markdown lewat fungsi yang sama dan memberi kelas `note-callout-editing` + ikon lewat node view `createCalloutBlockquotePlugin`. Callout dan blockquote kini tanpa garis kiri (latar lembut + ikon); teks callout/toggle terbaca di Mode Kertas saat tema gelap. `NOTE_CALLOUT_TYPES` dipakai bersama.
 - **Belum:** halaman catatan publik (`/p/...`, mistune di webapp.py) belum merender callout dan masih bergaris kiri.

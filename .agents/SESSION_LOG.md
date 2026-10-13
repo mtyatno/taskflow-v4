@@ -3236,3 +3236,9 @@
 - **Verifikasi:** Playwright: sebelum = `\> \[!NOTE] > isi` tersimpan dan tampil mentah; sesudah = callout + kutipan terrender (mobile/desktop, terang/gelap), editor menampilkan callout. JS 1091/1092 (1 gagal pra-ada: draw_local_reactive), pytest 132/135 (pra-ada: note_trash atomic + 2 bookmark karena modul tidak terpasang di sesi), inline 5/5, sw OK. Screenshot di `/mnt/project-files/callout-render/`.
 - **Files Touch:** `static/{index.html,app.css,sw.js}`, `webapp.py`, `tests/test_version.py`, `tests/offline/*.test.js`, `.agents/*`
 - **Status:** Needs Review (draft PR, tunggu "merge dan deploy").
+
+## [2026-10-13 12:00] - Claude (PR #21 merge & deploy)
+- **Task:** Bapak: "Merge dan deploy" untuk PR #21 (callout terrender).
+- **Changes:** PR #21 ditandai ready lalu di-merge (`8f166c4`); Deploy Taskflow V4 run #886 sukses. Catatan `.agents` diperbarui.
+- **Files Touch:** `.agents/*`
+- **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/version melaporkan v407.
