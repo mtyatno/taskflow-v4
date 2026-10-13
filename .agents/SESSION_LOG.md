@@ -3249,3 +3249,10 @@
 - **Verifikasi:** Playwright end-to-end (lewati → ubah P2 → kartu tetap → project baru → Besok → hapus tanggal → Next Action), DB server sesuai. JS 1093/1094 (1 gagal pra-ada: draw_local_reactive), pytest 134/135 (pra-ada: note_trash atomic), inline 5/5. Screenshot di `/mnt/project-files/inbox-wizard-edit/`.
 - **Files Touch:** `static/{index.html,app.css,sw.js}`, `static/offline/syncpush.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/*.test.js`, `.agents/*`
 - **Status:** Needs Review (draft PR, tunggu "merge dan deploy").
+
+## [2026-10-13 23:59] - Claude (revisi: editor wizard satu baris)
+- **Task:** Bapak: di layar besar editor wizard cukup satu baris dropdown tanpa label.
+- **Changes:** `GtdWizardEditFields` jadi 3 select (prioritas, project, tanggal) tanpa label; tanggal "Pilih tanggal..." menampilkan input date + showPicker; CSS grid 3 kolom, 2 kolom di HP; tes 9 diperbarui.
+- **Verifikasi:** Playwright end-to-end (P2, project baru, Besok, pilih 5 Nov, Tanpa tanggal) + DB server sesuai; JS 1093/1094 (pra-ada draw_local_reactive). Screenshot di `/mnt/project-files/inbox-wizard-edit/revisi-satu-baris/`.
+- **Files Touch:** `static/{index.html,app.css}`, `tests/offline/gtd_inbox_triage.test.js`, `.agents/*`
+- **Status:** Needs Review.

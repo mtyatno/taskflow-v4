@@ -190,16 +190,19 @@ test("9. Proses Inbox wizard lets the user edit priority, project and date inlin
   assert.match(wizardSrc, /pinnedIdRef/);
   assert.match(wizardSrc, /tasks\.findIndex\(t\s*=>\s*t\.id\s*===\s*pinnedIdRef\.current\)/);
 
-  // Priority P1-P4, project select with "new project", date input + quick chips + clear
-  assert.match(editSrc, /\["P1",\s*"P2",\s*"P3",\s*"P4"\]/);
-  assert.match(editSrc, /save\(\{\s*priority:\s*p\s*\}\)/);
+  // One row of dropdowns: priority P1-P4, project (+ new), date (quick picks + calendar + clear)
+  assert.match(editSrc, /\["P1",\s*"[^"]*P1 Critical"\]/);
+  assert.match(editSrc, /"aria-label":\s*"Prioritas"/);
+  assert.match(editSrc, /save\(\{\s*priority:\s*e\.target\.value\s*\}\)/);
   assert.match(editSrc, /__new__/);
   assert.match(editSrc, /save\(\{\s*project:\s*v\s*\}\)/);
+  assert.match(editSrc, /__pick__/);
   assert.match(editSrc, /type:\s*"date"/);
   assert.match(editSrc, /save\(\{\s*deadline:\s*v\s*\}\)/);
-  assert.match(editSrc, /save\(\{\s*deadline:\s*""\s*\}\)/);
+  assert.match(editSrc, /Tanpa tanggal/);
   assert.match(editSrc, /Hari ini/);
   assert.match(editSrc, /Besok/);
+  assert.doesNotMatch(editSrc, /input-label/, "no field labels in the one-row editor");
   assert.doesNotMatch(editSrc, /borderLeft/i);
 
   // App saves a partial PUT, optimistic, with offline queue; wired to both wizards
@@ -213,8 +216,7 @@ test("9. Proses Inbox wizard lets the user edit priority, project and date inlin
   // Styles, without coloured side stripes
   const editCss = css.match(/\/\* Proses Inbox wizard: editable[\s\S]*?@media \(max-width: 520px\)[\s\S]*?\}\s*\}/);
   assert.ok(editCss, "wizard edit CSS block must exist");
-  assert.match(editCss[0], /\.gtd-wizard-edit\s*\{/);
-  assert.match(editCss[0], /\.gtd-wizard-pri-btn\.is-active\s*\{/);
-  assert.match(editCss[0], /\.gtd-wizard-chip\s*\{/);
+  assert.match(editCss[0], /\.gtd-wizard-edit\s*\{[^}]*grid-template-columns:[^;]*,[^;]*,/);
+  assert.match(editCss[0], /\.gtd-wizard-pri-select\.pri-p1\s*\{/);
   assert.doesNotMatch(editCss[0], /border-left/i);
 });

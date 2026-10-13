@@ -10690,11 +10690,24 @@ function GtdWizardEditFields({
   onUpdateTask
 }) {
   const [newProject, setNewProject] = useState(null);
+  const [pickDate, setPickDate] = useState(false);
   const save = patch => {
     if (onUpdateTask) onUpdateTask(task.id, patch);
   };
   const deadline = task.deadline ? String(task.deadline).slice(0, 10) : "";
   const dayISO = n => window.plusDaysISO ? window.plusDaysISO(n) : new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+  const quickDates = [["Hari ini", dayISO(0)], ["Besok", dayISO(1)], ["+7 hari", dayISO(7)]];
+  const dateLabel = iso => {
+    const quick = quickDates.find(([, q]) => q === iso);
+    if (quick && quick[0] !== "+7 hari") return quick[0];
+    const d = new Date(iso + "T00:00:00");
+    return isNaN(d) ? iso : d.toLocaleDateString("id-ID", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric"
+    });
+  };
   const projectOptions = task.project && !projects.includes(task.project) ? [task.project, ...projects] : projects;
   const commitNewProject = () => {
     const v = (newProject || "").trim();
@@ -10703,44 +10716,27 @@ function GtdWizardEditFields({
       project: v
     });
   };
-  const dateChips = [["Hari ini", dayISO(0)], ["Besok", dayISO(1)], ["+7 hari", dayISO(7)]];
-  return /*#__PURE__*/React.createElement("div", {
-    className: "gtd-wizard-edit"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "gtd-wizard-field"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "gtd-wizard-field-label"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "alert",
-    size: 13
-  }), "Prioritas"), /*#__PURE__*/React.createElement("div", {
-    className: "gtd-wizard-pri",
-    role: "radiogroup",
-    "aria-label": "Prioritas"
-  }, ["P1", "P2", "P3", "P4"].map(p => /*#__PURE__*/React.createElement("button", {
-    key: p,
-    type: "button",
-    role: "radio",
-    "aria-checked": task.priority === p,
-    className: `gtd-wizard-pri-btn badge badge-${p.toLowerCase()}${task.priority === p ? " is-active" : ""}`,
-    onClick: () => task.priority !== p && save({
-      priority: p
+  const PRI_OPTIONS = [["P1", "🔴 P1 Critical"], ["P2", "🟠 P2 High"], ["P3", "🟡 P3 Medium"], ["P4", "🟢 P4 Low"]];
+  const priority = /*#__PURE__*/React.createElement("select", {
+    className: `input gtd-wizard-input gtd-wizard-pri-select pri-${String(task.priority || "").toLowerCase()}`,
+    value: task.priority || "P3",
+    "aria-label": "Prioritas",
+    title: "Prioritas",
+    onChange: e => e.target.value !== task.priority && save({
+      priority: e.target.value
     })
-  }, p)))), /*#__PURE__*/React.createElement("div", {
-    className: "gtd-wizard-field"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "gtd-wizard-field-label"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "folder",
-    size: 13
-  }), "Project"), newProject !== null ? /*#__PURE__*/React.createElement("div", {
-    className: "gtd-wizard-inline"
-  }, /*#__PURE__*/React.createElement("input", {
+  }, PRI_OPTIONS.map(([v, label]) => /*#__PURE__*/React.createElement("option", {
+    key: v,
+    value: v
+  }, label)));
+  const project = newProject !== null ? /*#__PURE__*/React.createElement("input", {
     className: "input gtd-wizard-input",
     autoFocus: true,
     value: newProject,
-    placeholder: "Nama project baru",
+    placeholder: "Project baru, Enter untuk simpan",
+    "aria-label": "Nama project baru",
     onChange: e => setNewProject(e.target.value),
+    onBlur: commitNewProject,
     onKeyDown: e => {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -10750,17 +10746,11 @@ function GtdWizardEditFields({
         setNewProject(null);
       }
     }
-  }), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "btn btn-primary btn-sm",
-    onClick: commitNewProject
-  }, "Simpan"), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "btn btn-ghost btn-sm",
-    onClick: () => setNewProject(null)
-  }, "Batal")) : /*#__PURE__*/React.createElement("select", {
+  }) : /*#__PURE__*/React.createElement("select", {
     className: "input gtd-wizard-input",
     value: task.project || "",
+    "aria-label": "Project",
+    title: "Project",
     onChange: e => {
       const v = e.target.value;
       if (v === "__new__") setNewProject("");else if (v !== (task.project || "")) save({
@@ -10769,54 +10759,66 @@ function GtdWizardEditFields({
     }
   }, /*#__PURE__*/React.createElement("option", {
     value: ""
-  }, "— Tanpa project —"), projectOptions.map(o => /*#__PURE__*/React.createElement("option", {
+  }, "📁 Tanpa project"), projectOptions.map(o => /*#__PURE__*/React.createElement("option", {
     key: o,
     value: o
-  }, o)), /*#__PURE__*/React.createElement("option", {
+  }, "📁 ", o)), /*#__PURE__*/React.createElement("option", {
     value: "__new__"
-  }, "＋ Project baru..."))), /*#__PURE__*/React.createElement("div", {
-    className: "gtd-wizard-field"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "gtd-wizard-field-label"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "calendar",
-    size: 13
-  }), "Tanggal"), /*#__PURE__*/React.createElement("div", {
-    className: "gtd-wizard-date"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "gtd-wizard-inline"
-  }, /*#__PURE__*/React.createElement("input", {
+  }, "＋ Project baru..."));
+  const date = pickDate ? /*#__PURE__*/React.createElement("input", {
     className: "input gtd-wizard-input",
     type: "date",
-    value: deadline,
+    autoFocus: true,
+    defaultValue: deadline,
     "aria-label": "Tanggal task",
+    ref: el => {
+      if (el && el.showPicker && !el.dataset.opened) {
+        el.dataset.opened = "1";
+        try {
+          el.showPicker();
+        } catch (_) {}
+      }
+    },
     onChange: e => {
       const v = e.target.value;
-      if (v && v !== deadline) save({
+      if (v) {
+        setPickDate(false);
+        if (v !== deadline) save({
+          deadline: v
+        });
+      }
+    },
+    onBlur: () => setPickDate(false),
+    onKeyDown: e => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setPickDate(false);
+      }
+    }
+  }) : /*#__PURE__*/React.createElement("select", {
+    className: "input gtd-wizard-input",
+    value: deadline ? "__current__" : "",
+    "aria-label": "Tanggal",
+    title: "Tanggal",
+    onChange: e => {
+      const v = e.target.value;
+      if (v === "__pick__") setPickDate(true);else if (v !== "__current__" && v !== deadline) save({
         deadline: v
       });
     }
-  }), deadline && /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "gtd-wizard-chip gtd-wizard-chip-clear",
-    title: "Hapus tanggal",
-    "aria-label": "Hapus tanggal",
-    onClick: () => save({
-      deadline: ""
-    })
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "x",
-    size: 13
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "gtd-wizard-chips"
-  }, dateChips.map(([label, iso]) => /*#__PURE__*/React.createElement("button", {
+  }, deadline && /*#__PURE__*/React.createElement("option", {
+    value: "__current__"
+  }, "📅 ", dateLabel(deadline)), /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "📅 Tanpa tanggal"), quickDates.filter(([, iso]) => iso !== deadline).map(([label, iso]) => /*#__PURE__*/React.createElement("option", {
     key: label,
-    type: "button",
-    className: `gtd-wizard-chip${deadline === iso ? " is-active" : ""}`,
-    onClick: () => iso !== deadline && save({
-      deadline: iso
-    })
-  }, label))))));
+    value: iso
+  }, label)), /*#__PURE__*/React.createElement("option", {
+    value: "__pick__"
+  }, "Pilih tanggal..."));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "gtd-wizard-edit"
+  }, priority, project, date);
 }
 
 // ── GTD Inbox Wizard Modal ──────────────────────────────────
