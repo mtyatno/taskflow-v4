@@ -3201,3 +3201,10 @@
 - **Changes:** PR #15 ditandai ready lalu di-merge (`22bab21`, head `5ab667f`); Deploy Taskflow V4 run #840 sukses (VPS fast-forward ca335d1..22bab21). Catatan `.agents` & memori versi diperbarui (main kini v364 / app.css?v=312).
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Pertanyaan `.note-callout` masih menunggu user.
+
+## [2026-10-13 09:50] - Claude (margin ikon Android)
+- **Task:** Ikon Alurik di Android terlihat terpotong tanpa margin dibanding Gmail/Telegram.
+- **Changes:** ikon maskable terpisah dengan padding (`static/icon-maskable-{192,512}.png`), ikon any diberi padding, ikon Tauri Android diganti logo Alurik, generator `scripts/gen_app_icons.py`, SW v403.
+- **Verifikasi:** manifest JSON valid, `node --check sw.js` OK, inline 5/5, pytest test_version 2/2, JS 1084/1085 (1 gagal pra-ada di main), 0 border-left.
+- **Files Touch:** `static/{manifest.json,sw.js,index.html,icon-*.png}`, `src-tauri/icons/android/*`, `scripts/gen_app_icons.py`, `webapp.py`, `tests/*`, `.agents/*`
+- **Status:** Needs Review (draft PR, tunggu "merge dan deploy").

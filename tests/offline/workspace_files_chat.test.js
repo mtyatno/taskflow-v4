@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v400-note-viewer-paper-mode', () => {
+  test('Service Worker cache version is bumped to taskflow-v403-android-icon-margin', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v400-note-viewer-paper-mode";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v403-android-icon-margin";/m);
   });
 });
 

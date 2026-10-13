@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v400-note-viewer-paper-mode";
+const CACHE = "taskflow-v403-android-icon-margin";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -83,6 +83,8 @@ const STATIC = [
   "/config.js",
   "/static/icon-192.png",
   "/static/icon-512.png",
+  "/static/icon-maskable-192.png",
+  "/static/icon-maskable-512.png",
   "/static/icon-new-task.svg",
 ];
 

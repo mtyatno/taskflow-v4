@@ -11,8 +11,8 @@ test("Service Worker and stylesheet versions are synchronized for v396", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v400-note-viewer-paper-mode/);
-  assert.match(html, /taskflow-v400-note-viewer-paper-mode/);
+  assert.match(sw, /taskflow-v403-android-icon-margin/);
+  assert.match(html, /taskflow-v403-android-icon-margin/);
   assert.match(html, /app\.css\?v=328/);
 });
 

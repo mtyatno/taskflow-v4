@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v400-note-viewer-paper-mode", () => {
-    assert.match(swJs, /taskflow-v400-note-viewer-paper-mode/);
+  await t.test("sw.js bumped to taskflow-v403-android-icon-margin", () => {
+    assert.match(swJs, /taskflow-v403-android-icon-margin/);
   });
 });

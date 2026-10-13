@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v400-note-viewer-paper-mode in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v400-note-viewer-paper-mode";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v400-note-viewer-paper-mode"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v400-note-viewer-paper-mode";/);
+  await t.test("Service Worker cache is taskflow-v403-android-icon-margin in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v403-android-icon-margin";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v403-android-icon-margin"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v403-android-icon-margin";/);
   });
 });

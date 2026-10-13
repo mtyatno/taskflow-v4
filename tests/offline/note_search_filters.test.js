@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v400", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v400-note-viewer-paper-mode";/m,
-      "sw.js CACHE must be taskflow-v400-note-viewer-paper-mode"
+      /^const CACHE = "taskflow-v403-android-icon-margin";/m,
+      "sw.js CACHE must be taskflow-v403-android-icon-margin"
     );
   });
 });
