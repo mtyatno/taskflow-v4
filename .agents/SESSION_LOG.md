@@ -3209,9 +3209,16 @@
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Pertanyaan `.note-callout` masih menunggu user.
 
+## [2026-10-13 09:50] - Claude (fix tombol + blok di editor catatan mobile)
+- **Task:** Bug Bapak: di mobile, ketuk ikon + di depan blok memunculkan "/" dan kursor pindah ke blok bawah tanpa menu.
+- **Changes:** `addBtn` touchend `preventDefault` (non-passive) agar click sintetis tidak jatuh ke editor; SW v404 `taskflow-v404-mobile-block-plus-menu` (sw.js, webapp.py, index.html, test_version.py, tes offline); subtes baru di `block_handle.test.js`.
+- **Verifikasi:** Playwright 390px + emulasi sentuh: sebelum = click mendarat di `.milkdown-editor`, slash menu tidak tampil; sesudah = slash menu tampil, pilih Heading 2 lalu mengetik berhasil. JS 1089/1090 (1 gagal pra-ada di main: draw_local_reactive), pytest 134/135 (1 gagal pra-ada di main: test_delete_is_atomic_when_snapshot_fails), inline 5/5, sw OK, 0 border-left. Screenshot di `/mnt/project-files/plus-blok-mobile/`.
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py`, `tests/test_version.py`, `tests/offline/*.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR, tunggu "merge dan deploy").
+
 ## [2026-10-13 09:50] - Claude (margin ikon Android)
 - **Task:** Ikon Alurik di Android terlihat terpotong tanpa margin dibanding Gmail/Telegram.
-- **Changes:** ikon maskable terpisah dengan padding (`static/icon-maskable-{192,512}.png`), ikon any diberi padding, ikon Tauri Android diganti logo Alurik, generator `scripts/gen_app_icons.py`, SW v403.
+- **Changes:** ikon maskable terpisah dengan padding (`static/icon-maskable-{192,512}.png`), ikon any diberi padding, ikon Tauri Android diganti logo Alurik, generator `scripts/gen_app_icons.py`, SW v405 (v403 → v405 setelah PR #17 v401 dan PR #19 v404 masuk main).
 - **Verifikasi:** manifest JSON valid, `node --check sw.js` OK, inline 5/5, pytest test_version 2/2, JS 1084/1085 (1 gagal pra-ada di main), 0 border-left.
 - **Files Touch:** `static/{manifest.json,sw.js,index.html,icon-*.png}`, `src-tauri/icons/android/*`, `scripts/gen_app_icons.py`, `webapp.py`, `tests/*`, `.agents/*`
-- **Status:** Needs Review (draft PR, tunggu "merge dan deploy").
+- **Status:** Done — di-merge atas "merge dan deploy" Bapak.

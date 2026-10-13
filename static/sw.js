@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v403-android-icon-margin";
+const CACHE = "taskflow-v405-android-icon-margin";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
