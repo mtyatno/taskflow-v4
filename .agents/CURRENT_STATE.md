@@ -3,14 +3,18 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
-## 🟡 Margin Ikon Aplikasi Android (PWA maskable + Tauri) — 2026-10-13 (Claude) — MENUNGGU REVIEW
-- **Status:** 🟡 Draft PR dari branch `claude/android-icon-margin-8g31kx`, SW v403 `taskflow-v403-android-icon-margin`. Tunggu Bapak bilang "merge dan deploy".
+## 🟡 Margin Ikon Aplikasi Android (PWA maskable + Tauri) — 2026-10-13 (Claude) — DI-MERGE
+- **Status:** 🟡 PR #18 di-merge atas "merge dan deploy" Bapak (2026-10-13), SW v403 `taskflow-v403-android-icon-margin`.
 - **Masalah:** `icon-192/512.png` (logo memenuhi seluruh kanvas) juga dipakai sebagai `purpose: maskable`, jadi launcher Android memotong logo dan tanpa margin.
 - **Solusi:** `scripts/gen_app_icons.py` mengangkat logo dari `src-tauri/icons/icon-source.png` (tidak diubah) ke latar putih solid: `icon-192/512.png` (any, logo 72%), `icon-maskable-192/512.png` baru (logo 56%, di dalam safe zone 80%), dan ikon Tauri Android `mipmap-*/ic_launcher*.png` (sebelumnya masih logo TaskFlow lama). `manifest.json` menunjuk ikon maskable baru; `sw.js` meng-cache keduanya.
-- **Catatan:** v401/v402 sengaja dilewati karena thread editor catatan mobile mungkin memakainya. Di Android, ikon baru bisa jadi baru muncul setelah uninstall + pasang ulang. `draw_local_reactive.test.js` 1 gagal sudah ada di main.
+- **Catatan:** v402 dilewati (v401 dipakai PR #17). Di Android, ikon baru bisa jadi baru muncul setelah uninstall + pasang ulang. `draw_local_reactive.test.js` 1 gagal sudah ada di main.
 
-## 🟡 RENCANA KERJA (SESI MALAM HARI): Adaptasi Responsif Layar Kecil (Mobile) untuk Mode Kertas Note Viewer & Note Editor
-- **Status:** 🟡 TERJADWAL UNTUK SESI MALAM HARI (Scheduled for evening session).
+## 🟠 Mode Kertas di HP lebar penuh — 2026-10-13 (Claude) — NEEDS REVIEW
+- **Status:** Draft PR dari branch `claude/mobile-paper-mode-loyv6u`, SW v401 `taskflow-v401-mobile-paper-mode`. Menunggu Bapak bilang "merge dan deploy".
+- Gaya lembar kertas kini di dalam `@media (min-width: 769px)`; di <= 768px catatan tampil normal (lebar penuh, ikut tema), garis halaman dan kontrol kertas (`.paper-controls`) disembunyikan. Pilihan kertas per catatan (meta_json) tidak berubah. Detail di SESSION_LOG.
+
+## ✅ (dieksekusi, lihat di atas) RENCANA KERJA: Adaptasi Responsif Layar Kecil (Mobile) untuk Mode Kertas Note Viewer & Note Editor
+- **Status:** Dieksekusi 2026-10-13 oleh Claude (lihat bagian di atas).
 - **Rencana Kerja Tertulis:** `docs/superpowers/plans/2026-10-13-mobile-responsive-paper-mode.md`.
 - **Konteks & Kebutuhan:**
   - Pengguna mencatat bahwa pada perangkat mobile berlayar kecil, tampilan kertas dengan lebar fisik 210mm dan padding 20mm memaksa pengguna menggeser-geser layar secara horizontal (*horizontal scroll*) sehingga tulisan sulit dibaca.

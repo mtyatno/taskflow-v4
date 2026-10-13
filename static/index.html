@@ -55,83 +55,99 @@
   <link rel="stylesheet" href="/static/app.css?v=328">
 
 <style>
-.paper-mode-active {
-    background-color: #e5e7eb !important;
-    padding: 2rem 0 !important;
-    overflow: auto !important;
-    display: block !important;
+/* Mode kertas hanya di layar lebar (>= 769px). Di HP (<= 768px) catatan
+   tampil biasa: lebar penuh, tanpa lembar/bayangan, warna ikut tema app. */
+@media (min-width: 769px) {
+    .paper-mode-active {
+        background-color: #e5e7eb !important;
+        padding: 2rem 0 !important;
+        overflow: auto !important;
+        display: block !important;
+    }
+    [data-theme="dark"] .paper-mode-active {
+        background-color: #18181b !important;
+    }
+    .paper-mode-active .paper-inner-wrap .milkdown-editor,
+    .paper-mode-active .paper-inner-wrap .note-rendered {
+        background-color: white !important;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.15) !important;
+        margin: 0 auto !important;
+        width: var(--paper-width, 210mm) !important;
+        min-height: var(--paper-height, 297mm) !important;
+        padding: 20mm !important;
+        box-sizing: border-box !important;
+        transition: width 0.3s ease, min-height 0.3s ease !important;
+    }
+    .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror {
+        padding: 0 !important;
+        min-height: calc(var(--paper-height, 297mm) - 40mm) !important;
+    }
+    /* Paper mode: paksa palet dokumen gelap-di-atas-putih (kertas selalu putih,
+       walau tema app dark — mencegah teks abu-abu tak terbaca) */
+    .paper-mode-active .paper-inner-wrap .milkdown-editor,
+    .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror,
+    .paper-mode-active .paper-inner-wrap .note-rendered {
+        color: #1e293b !important;
+    }
+    .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror p.is-editor-empty:first-child::before {
+        color: #94a3b8 !important;
+    }
+    .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror blockquote,
+    .paper-mode-active .paper-inner-wrap .note-rendered blockquote {
+        color: #475569 !important;
+        border-left-color: #94a3b8 !important;
+    }
+    .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror pre,
+    .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror code,
+    .paper-mode-active .paper-inner-wrap .note-rendered pre,
+    .paper-mode-active .paper-inner-wrap .note-rendered code {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+    }
+    .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror a,
+    .paper-mode-active .paper-inner-wrap .note-rendered a {
+        color: #2563eb !important;
+    }
+    .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror th,
+    .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror td,
+    .paper-mode-active .paper-inner-wrap .note-rendered th,
+    .paper-mode-active .paper-inner-wrap .note-rendered td {
+        border-color: #cbd5e1 !important;
+    }
+    .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror th,
+    .paper-mode-active .paper-inner-wrap .note-rendered th {
+        background: #f1f5f9 !important;
+    }
+    .paper-mode-active .paper-inner-wrap .wikilink-node,
+    .paper-mode-active .paper-inner-wrap .note-rendered .wikilink-node {
+        color: #4d7c0f !important;
+        background: rgba(168,197,0,0.18) !important;
+        border-bottom-color: #4d7c0f !important;
+    }
+    .paper-mode-active .paper-inner-wrap .tasklink-node,
+    .paper-mode-active .paper-inner-wrap .note-rendered .tasklink-node {
+        background: #fef9c3 !important;
+        border-color: #fde68a !important;
+        color: #92400e !important;
+    }
+    .paper-mode-active .paper-inner-wrap .tasklink-node-fallback,
+    .paper-mode-active .paper-inner-wrap .note-rendered .tasklink-node-fallback {
+        background: #f1f5f9 !important;
+        border-color: #cbd5e1 !important;
+        color: #475569 !important;
+    }
 }
-[data-theme="dark"] .paper-mode-active {
-    background-color: #18181b !important;
-}
-.paper-mode-active .paper-inner-wrap .milkdown-editor,
-.paper-mode-active .paper-inner-wrap .note-rendered {
-    background-color: white !important;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.15) !important;
-    margin: 0 auto !important;
-    width: var(--paper-width, 210mm) !important;
-    min-height: var(--paper-height, 297mm) !important;
-    padding: 20mm !important;
-    box-sizing: border-box !important;
-    transition: width 0.3s ease, min-height 0.3s ease !important;
-}
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror {
-    padding: 0 !important;
-    min-height: calc(var(--paper-height, 297mm) - 40mm) !important;
-}
-/* Paper mode: paksa palet dokumen gelap-di-atas-putih (kertas selalu putih,
-   walau tema app dark — mencegah teks abu-abu tak terbaca) */
-.paper-mode-active .paper-inner-wrap .milkdown-editor,
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror,
-.paper-mode-active .paper-inner-wrap .note-rendered {
-    color: #1e293b !important;
-}
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror p.is-editor-empty:first-child::before {
-    color: #94a3b8 !important;
-}
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror blockquote,
-.paper-mode-active .paper-inner-wrap .note-rendered blockquote {
-    color: #475569 !important;
-    border-left-color: #94a3b8 !important;
-}
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror pre,
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror code,
-.paper-mode-active .paper-inner-wrap .note-rendered pre,
-.paper-mode-active .paper-inner-wrap .note-rendered code {
-    background: #f1f5f9 !important;
-    color: #0f172a !important;
-}
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror a,
-.paper-mode-active .paper-inner-wrap .note-rendered a {
-    color: #2563eb !important;
-}
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror th,
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror td,
-.paper-mode-active .paper-inner-wrap .note-rendered th,
-.paper-mode-active .paper-inner-wrap .note-rendered td {
-    border-color: #cbd5e1 !important;
-}
-.paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror th,
-.paper-mode-active .paper-inner-wrap .note-rendered th {
-    background: #f1f5f9 !important;
-}
-.paper-mode-active .paper-inner-wrap .wikilink-node,
-.paper-mode-active .paper-inner-wrap .note-rendered .wikilink-node {
-    color: #4d7c0f !important;
-    background: rgba(168,197,0,0.18) !important;
-    border-bottom-color: #4d7c0f !important;
-}
-.paper-mode-active .paper-inner-wrap .tasklink-node,
-.paper-mode-active .paper-inner-wrap .note-rendered .tasklink-node {
-    background: #fef9c3 !important;
-    border-color: #fde68a !important;
-    color: #92400e !important;
-}
-.paper-mode-active .paper-inner-wrap .tasklink-node-fallback,
-.paper-mode-active .paper-inner-wrap .note-rendered .tasklink-node-fallback {
-    background: #f1f5f9 !important;
-    border-color: #cbd5e1 !important;
-    color: #475569 !important;
+@media (max-width: 768px) {
+    /* Timpa lebar kertas inline (var(--paper-width)) agar tidak meluber */
+    .paper-inner-wrap {
+        width: 100% !important;
+        margin: 0 !important;
+    }
+    /* Garis batas halaman & kontrol kertas tidak berguna di HP */
+    .paper-page-guides,
+    .paper-controls {
+        display: none !important;
+    }
 }
 /* Toolbar paper controls — seragam dengan .note-toolbar button */
 .note-toolbar button.paper-btn-active,
@@ -19529,7 +19545,7 @@ onPaperConfigChange
   ] : React.createElement(Icon, { name: "mic", size: 14 })) : null,
     
     // --- PAPER MODE BUTTONS ---
-    onPaperConfigChange && React.createElement("div", { style: { display: 'inline-flex', alignItems: 'center', marginLeft: 8, paddingLeft: 8, borderLeft: '1px solid var(--border)' } },
+    onPaperConfigChange && React.createElement("div", { className: "paper-controls", style: { display: 'inline-flex', alignItems: 'center', marginLeft: 8, paddingLeft: 8, borderLeft: '1px solid var(--border)' } },
       React.createElement("button", {
         className: paperConfig?.enabled ? "paper-btn-active" : "",
         onPointerDown: (e) => { e.preventDefault(); onPaperConfigChange(p => ({ ...p, enabled: !p.enabled, user_toggled: true })); },
@@ -24858,7 +24874,7 @@ function NotePanel({
   }, /*#__PURE__*/React.createElement("span", null, "📝"), "Markdown (.md)"))), /*#__PURE__*/React.createElement("button", {
     onClick: () => saveViewerPaperConfig({ ...viewerPaperConfig, enabled: !viewerPaperConfig?.enabled, user_toggled: true }),
     title: viewerPaperConfig?.enabled ? "Matikan Mode Kertas" : "Mode Kertas",
-    className: viewerPaperConfig?.enabled ? "paper-btn-active" : "",
+    className: viewerPaperConfig?.enabled ? "paper-controls paper-btn-active" : "paper-controls",
     style: {
       background: viewerPaperConfig?.enabled ? "rgba(168,197,0,0.15)" : "none",
       border: viewerPaperConfig?.enabled ? "1.5px solid var(--accent)" : "1px solid var(--border)",
@@ -24873,7 +24889,7 @@ function NotePanel({
       gap: 4
     }
   }, /*#__PURE__*/React.createElement(Icon, { name: "fileText", size: 14 }), /*#__PURE__*/React.createElement("span", { className: "note-act-label" }, "Kertas")), viewerPaperConfig?.enabled && /*#__PURE__*/React.createElement("select", {
-    className: "paper-select",
+    className: "paper-select paper-controls",
     value: viewerPaperConfig.size || "A4",
     onChange: e => saveViewerPaperConfig({ ...viewerPaperConfig, size: e.target.value }),
     title: "Ukuran Kertas",
@@ -24884,7 +24900,7 @@ function NotePanel({
     /*#__PURE__*/React.createElement("option", { value: "A3" }, "A3"),
     /*#__PURE__*/React.createElement("option", { value: "Legal" }, "Legal")
   ), viewerPaperConfig?.enabled && /*#__PURE__*/React.createElement("select", {
-    className: "paper-select",
+    className: "paper-select paper-controls",
     value: viewerPaperConfig.orientation || "portrait",
     onChange: e => saveViewerPaperConfig({ ...viewerPaperConfig, orientation: e.target.value }),
     title: "Orientasi Kertas",
