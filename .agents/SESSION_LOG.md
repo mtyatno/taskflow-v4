@@ -3274,3 +3274,9 @@
 - **Verifikasi:** JS 1096/1097, pytest 134/135 (dua-duanya gagal pra-ada), inline 5/5.
 - **Files Touch:** konflik versi di `static/*`, `webapp.py`, `tests/*`, `.agents/*`
 - **Status:** Done (merged).
+
+## [2026-10-13 23:58] - Claude (PR #22 merge & deploy)
+- **Task:** Bapak: "merge dan deploy" untuk PR #22 (keterangan Eisenhower + default P2).
+- **Changes:** PR #22 di-merge (`a57c623`), Deploy run #888 sukses. Catatan `.agents` diperbarui.
+- **Files Touch:** `.agents/*`
+- **Status:** Done. Restart `taskflow-web` diperlukan agar API memakai default P2 dan /api/version terbaru.
