@@ -181,11 +181,11 @@ test("NotePanel Note Viewer Paper Mode (Viewer Mode Kertas)", async (t) => {
   const webappPath = path.resolve(__dirname, "../../webapp.py");
   const webappPy = fs.readFileSync(webappPath, "utf8");
 
-  await t.test("Service Worker and cache version is taskflow-v400-note-viewer-paper-mode", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v400-note-viewer-paper-mode";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v400-note-viewer-paper-mode";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v400-note-viewer-paper-mode"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v400-note-viewer-paper-mode"/);
+  await t.test("Service Worker and cache version is taskflow-v401-mobile-paper-mode", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v401-mobile-paper-mode";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v401-mobile-paper-mode";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v401-mobile-paper-mode"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v401-mobile-paper-mode"/);
   });
 
   const notePanelMatch = indexHtml.match(/function NotePanel\([\s\S]*?^function /m);
@@ -263,7 +263,7 @@ test("NotePanel Note Viewer Paper Mode (Viewer Mode Kertas)", async (t) => {
     );
     assert.match(
       notePanelCode,
-      /className:\s*viewerPaperConfig\?\.enabled\s*\?\s*"paper-btn-active"\s*:\s*""/,
+      /className:\s*viewerPaperConfig\?\.enabled\s*\?\s*"paper-controls paper-btn-active"\s*:\s*"paper-controls"/,
       "NotePanel Kertas button should apply paper-btn-active when enabled"
     );
     assert.match(
@@ -278,12 +278,12 @@ test("NotePanel Note Viewer Paper Mode (Viewer Mode Kertas)", async (t) => {
     );
     assert.match(
       notePanelCode,
-      /viewerPaperConfig\?\.enabled\s*&&\s*(?:\/\*#__PURE__\*\/\s*)?React\.createElement\("select",\s*\{[\s\S]*?className:\s*"paper-select"[\s\S]*?value:\s*viewerPaperConfig\.size/,
+      /viewerPaperConfig\?\.enabled\s*&&\s*(?:\/\*#__PURE__\*\/\s*)?React\.createElement\("select",\s*\{[\s\S]*?className:\s*"paper-select paper-controls"[\s\S]*?value:\s*viewerPaperConfig\.size/,
       "NotePanel should render size select when paper mode is enabled"
     );
     assert.match(
       notePanelCode,
-      /viewerPaperConfig\?\.enabled\s*&&\s*(?:\/\*#__PURE__\*\/\s*)?React\.createElement\("select",\s*\{[\s\S]*?className:\s*"paper-select"[\s\S]*?value:\s*viewerPaperConfig\.orientation/,
+      /viewerPaperConfig\?\.enabled\s*&&\s*(?:\/\*#__PURE__\*\/\s*)?React\.createElement\("select",\s*\{[\s\S]*?className:\s*"paper-select paper-controls"[\s\S]*?value:\s*viewerPaperConfig\.orientation/,
       "NotePanel should render orientation select when paper mode is enabled"
     );
   });
@@ -394,5 +394,34 @@ test("NotePanel Note Viewer Paper Mode (Viewer Mode Kertas)", async (t) => {
       /\[data-theme="dark"\]\s+\.notes-panel-actions\s+select\.paper-select/,
       "CSS should support dark mode for .notes-panel-actions select.paper-select"
     );
+  });
+});
+
+test("Paper mode is desktop-only: fluid full width on mobile (<= 768px)", async (t) => {
+  const styleMatch = indexHtml.match(/<style>([\s\S]*?)<\/style>/);
+  const css = styleMatch ? styleMatch[1] : "";
+
+  await t.test("paper sheet styles live inside @media (min-width: 769px)", () => {
+    const desk = css.match(/@media \(min-width: 769px\) \{([\s\S]*?)\n\}/);
+    assert.ok(desk, "paper sheet styles should be wrapped in @media (min-width: 769px)");
+    assert.match(desk[1], /\.paper-mode-active\s*\{[\s\S]*?background-color:\s*#e5e7eb/);
+    assert.match(desk[1], /\.paper-mode-active\s+\.paper-inner-wrap\s+\.note-rendered\s*\{[\s\S]*?width:\s*var\(--paper-width,\s*210mm\)/);
+    assert.match(desk[1], /color:\s*#1e293b\s*!important/);
+    const outside = css.replace(desk[0], "");
+    assert.doesNotMatch(outside, /box-shadow:\s*0\s+4px\s+10px/, "no paper shadow outside the desktop media query");
+    assert.doesNotMatch(outside, /#1e293b/, "no forced paper text colour outside the desktop media query");
+  });
+
+  await t.test("mobile overrides the inline paper width and hides guides and controls", () => {
+    const mobile = css.match(/@media \(max-width: 768px\) \{([\s\S]*?)\n\}/);
+    assert.ok(mobile, "a @media (max-width: 768px) block should exist");
+    assert.match(mobile[1], /\.paper-inner-wrap\s*\{[\s\S]*?width:\s*100%\s*!important;[\s\S]*?margin:\s*0\s*!important;/);
+    assert.match(mobile[1], /\.paper-page-guides,\s*\.paper-controls\s*\{[\s\S]*?display:\s*none\s*!important;/);
+  });
+
+  await t.test("paper controls carry the paper-controls class in NoteToolbar and NotePanel", () => {
+    assert.match(indexHtml, /onPaperConfigChange && React\.createElement\("div", \{ className: "paper-controls"/);
+    assert.match(indexHtml, /className: viewerPaperConfig\?\.enabled \? "paper-controls paper-btn-active" : "paper-controls"/);
+    assert.equal((indexHtml.match(/className: "paper-select paper-controls",\s*value: viewerPaperConfig\./g) || []).length, 2);
   });
 });

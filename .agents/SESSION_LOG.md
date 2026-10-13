@@ -2,6 +2,13 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-13 16:45] - Claude (mode kertas di HP jadi lebar penuh)
+- **Task:** Eksekusi rencana `docs/superpowers/plans/2026-10-13-mobile-responsive-paper-mode.md`.
+- **Changes:** Aturan lembar kertas (meja abu, lembar putih, bayangan, lebar/tinggi kertas, warna teks paksa) dibungkus `@media (min-width: 769px)`, jadi di <= 768px catatan memakai gaya normal app (lebar penuh, ikut tema). Blok `@media (max-width: 768px)` menimpa lebar inline `.paper-inner-wrap` (100%, margin 0) dan menyembunyikan `.paper-page-guides` + `.paper-controls`. Kelas `paper-controls` ditambahkan ke grup kontrol kertas NoteToolbar dan ke tombol "Kertas" + dua select di NotePanel. Berlaku untuk NotePanel, NoteModal, dan tab Catatan TaskFormModal. meta_json tidak diubah. SW v401 `taskflow-v401-mobile-paper-mode` (app.css tetap v=328, CSS ada di index.html).
+- **Verifikasi:** JS 1088/1089 (1 fail pra-ada di main: draw_local_reactive; perlu `npm install --no-save fake-indexeddb`), pytest 134/135 (1 fail pra-ada di main: test_note_trash atomic), inline 5/5. Playwright 390px: lebar catatan 375px (sebelum 808px), editor 352px (sebelum 748px); desktop 1440px tetap kertas. Screenshot di `/mnt/project-files/mode-kertas-mobile/`.
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py`, `tests/test_version.py`, `tests/offline/*.test.js` (versi + note_paper_mode), `.agents/*`
+- **Status:** Needs Review (draft PR, tunggu "merge dan deploy").
+
 ## [2026-10-13 15:24] - Antigravity (Gemini)
 - **Task:** Penyusunan Dokumen Rencana Kerja Adaptasi Responsif Layar Kecil (Mobile) untuk Mode Kertas Note Viewer & Note Editor.
 - **Changes:**
