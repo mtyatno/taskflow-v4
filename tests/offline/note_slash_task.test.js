@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v408-inbox-wizard-edit in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v408-inbox-wizard-edit";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v408-inbox-wizard-edit"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v408-inbox-wizard-edit";/);
+  await t.test("Service Worker cache is taskflow-v409-inbox-wizard-edit in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v409-inbox-wizard-edit";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v409-inbox-wizard-edit"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v409-inbox-wizard-edit";/);
   });
 });

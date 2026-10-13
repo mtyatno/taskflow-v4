@@ -4,9 +4,13 @@
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
 ## 🟠 Proses Inbox: prioritas, project, tanggal bisa diedit — 2026-10-13 (Claude) — NEEDS REVIEW
-- **Status:** Draft PR dari `claude/project-thread-yxh0y6`, SW v408 `taskflow-v408-inbox-wizard-edit`, app.css?v=330. Tunggu "merge dan deploy". Item 6 dari daftar Eisenhower/task Bapak; item 1-5 dikerjakan thread lain (bisa bentrok versi SW, cek main sebelum merge).
+- **Status:** Draft PR dari `claude/project-thread-yxh0y6`, SW v409 `taskflow-v409-inbox-wizard-edit` (v408 dipakai PR #22), app.css?v=330. Tunggu "merge dan deploy". Item 6 dari daftar Eisenhower/task Bapak; item 1-5 dikerjakan thread lain (bisa bentrok versi SW, cek main sebelum merge).
 - **Fitur:** `GtdWizardEditFields` di `GtdInboxWizardModal`: atas permintaan Bapak satu baris dropdown tanpa label di layar besar (prioritas berwarna, project + "Project baru...", tanggal: Tanpa tanggal/Hari ini/Besok/+7 hari/Pilih tanggal... yang membuka kalender). Di HP prioritas+project sebaris, tanggal di baris kedua. Tiap perubahan langsung disimpan lewat `handleUpdateTaskFields` (App, PUT parsial, optimistik, antre offline). Kuadran tampil sebagai badge dan ikut berubah. Kartu "dikunci" ke task yang sedang diedit (`pinnedIdRef`) karena daftar inbox diurutkan ulang saat prioritas berubah. Overlay wizard z-index 60 agar FAB mobile tidak menutupi tombol.
 - **Bug ikut diperbaiki:** `taskToUpdatePayload` (static/offline/syncpush.js) mengirim `deadline: null` saat tanggal dihapus, padahal server mengabaikan null → hapus tanggal tidak pernah tersinkron. Sekarang mengirim `""`.
+## 🟠 Keterangan kartu Eisenhower + prioritas default P2 — 2026-10-13 (Claude) — NEEDS REVIEW
+- **Status:** Draft PR dari `claude/project-thread-rp03qw`, SW v408 `taskflow-v408-eisen-label-p2` (app.css tidak berubah). Tunggu "merge dan deploy".
+- **Perubahan:** sub kartu Q1 "Penting, mendesak ≤ 7 hari", Q2 "Penting, tidak mendesak > 7 hari" (logika kuadran tidak berubah; Q2 tetap P1/P2 deadline jauh atau tanpa deadline). Default prioritas task baru P2: TaskModal, quick capture hero, task inline dari catatan (2 tempat), review mingguan, `TaskCreate` API, `createTask` offline (`taskrepo.js`), bot `/quick`.
+- **Catatan:** item 4-6 permintaan Bapak (modal tanggal, hero tanpa tanggal, inbox wizard editable) dikerjakan thread lain.
 
 ## 🟢 Callout "> [!NOTE]" tampil mentah di penampil catatan — 2026-10-13 (Claude) — DI-MERGE & DEPLOY
 - **Status:** PR #21 di-merge (`8f166c4`) atas "merge dan deploy" Bapak; Deploy Taskflow V4 run #886 sukses. SW v407 `taskflow-v407-note-callout-render`, app.css?v=329. `webapp.py` (/api/version) baru aktif setelah `sudo systemctl restart taskflow-web`.

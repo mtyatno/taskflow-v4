@@ -91,7 +91,7 @@
     if (!cleanTitle) {
       return Promise.reject(new Error("Judul tidak boleh kosong setelah strip tag"));
     }
-    const priority = String(input.priority || "P3").toUpperCase();
+    const priority = String(input.priority || "P2").toUpperCase();
     const deadline = input.deadline || null;
     const rc = normRecurrence(input.recurrence_type, input.recurrence_days);
     const rec = {

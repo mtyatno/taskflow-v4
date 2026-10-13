@@ -410,7 +410,7 @@ async def cmd_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     raw = " ".join(context.args)
-    priority = Priority.P3
+    priority = Priority.P2
     project = ""
     ctx = ""
     deadline = None
