@@ -8,8 +8,8 @@
 - **Item 4:** `TaskFormModal` → task BARU tanpa deadline dan tidak berulang memunculkan `TaskDatePromptModal` (kalender 1 bulan, prev/next, pilihan cepat Hari ini/Besok/Senin depan, badge jumlah task per tanggal). "Tidak perlu (Lewati)" simpan tanpa tanggal, "Tambahkan" simpan dengan tanggal. ✕/Esc/klik luar kembali ke form. Helper murni `taskNeedsDatePrompt`, `taskDatePromptCells`, `taskDatePromptQuickPicks`.
 - **Item 5:** `parseQuickCapture` tidak lagi mengurai "besok/hari ini/lusa/today/tomorrow"; task dari input hero selalu `deadline: null`, kata tanggal tetap di judul.
 - Tes: `tests/offline/task_date_prompt.test.js` (baru), `quick_capture_detect.test.js` diperbarui.
-## 🟠 Keterangan kartu Eisenhower + prioritas default P2 — 2026-10-13 (Claude) — NEEDS REVIEW
-- **Status:** Draft PR dari `claude/project-thread-rp03qw`, SW v408 `taskflow-v408-eisen-label-p2` (app.css tidak berubah). Tunggu "merge dan deploy".
+## 🟢 Keterangan kartu Eisenhower + prioritas default P2 — 2026-10-13 (Claude) — DI-MERGE & DEPLOY
+- **Status:** PR #22 di-merge (`a57c623`) atas "merge dan deploy" Bapak; Deploy Taskflow V4 run #888 sukses. SW v408 (kemudian digantikan v410 dari PR #23). Default P2 di `TaskCreate` (webapp.py) dan bot `/quick` baru aktif setelah restart `taskflow-web` (dan bot).
 - **Perubahan:** sub kartu Q1 "Penting, mendesak ≤ 7 hari", Q2 "Penting, tidak mendesak > 7 hari" (logika kuadran tidak berubah; Q2 tetap P1/P2 deadline jauh atau tanpa deadline). Default prioritas task baru P2: TaskModal, quick capture hero, task inline dari catatan (2 tempat), review mingguan, `TaskCreate` API, `createTask` offline (`taskrepo.js`), bot `/quick`.
 - **Catatan:** item 4-6 permintaan Bapak (modal tanggal, hero tanpa tanggal, inbox wizard editable) dikerjakan thread lain.
 
