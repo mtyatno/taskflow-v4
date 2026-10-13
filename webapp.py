@@ -860,7 +860,7 @@ class ResetReq(BaseModel):
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1)
     description: str = ""
-    priority: str = "P3"
+    priority: str = "P2"
     project: str = ""
     context: str = ""
     deadline: Optional[str] = None
@@ -3380,7 +3380,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v407-note-callout-render"
+    sw_cache = "taskflow-v408-eisen-label-p2"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

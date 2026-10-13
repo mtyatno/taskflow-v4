@@ -3242,3 +3242,10 @@
 - **Changes:** PR #21 ditandai ready lalu di-merge (`8f166c4`); Deploy Taskflow V4 run #886 sukses. Catatan `.agents` diperbarui.
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/version melaporkan v407.
+
+## [2026-10-13 23:45] - Claude (keterangan Eisenhower + default P2)
+- **Task:** Bapak: keterangan "Penting, mendesak < 7 hari" di Q1, "Penting, tidak mendesak > 7 hari" di Q2, default prioritas P2 saat membuat task.
+- **Changes:** sub kartu Q1/Q2 di dashboard (Q1 memakai ≤ karena deadline tepat 7 hari masih Q1), default P2 di semua jalur pembuatan task web/API/offline/bot `/quick`, SW v408.
+- **Verifikasi:** JS 1091/1092 (1 gagal pra-ada: draw_local_reactive), pytest 134/135 (pra-ada: note_trash atomic), inline 5/5, sw OK, POST /api/tasks tanpa priority → P2/Q2. Screenshot di `/mnt/project-files/eisenhower-label-p2/`. 0 border-left baru.
+- **Files Touch:** `static/{index.html,sw.js,offline/taskrepo.js}`, `webapp.py`, `bot.py`, `tests/*`, `.agents/*`
+- **Status:** Needs Review (draft PR, tunggu "merge dan deploy").
