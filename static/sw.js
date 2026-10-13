@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v409-inbox-wizard-edit";
+const CACHE = "taskflow-v411-inbox-wizard-edit";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",

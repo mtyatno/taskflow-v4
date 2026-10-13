@@ -3256,9 +3256,21 @@
 - **Verifikasi:** Playwright end-to-end (P2, project baru, Besok, pilih 5 Nov, Tanpa tanggal) + DB server sesuai; JS 1093/1094 (pra-ada draw_local_reactive). Screenshot di `/mnt/project-files/inbox-wizard-edit/revisi-satu-baris/`.
 - **Files Touch:** `static/{index.html,app.css}`, `tests/offline/gtd_inbox_triage.test.js`, `.agents/*`
 - **Status:** Needs Review.
+## [2026-10-13 23:50] - Claude (pilih tanggal saat tambah task, task hero tanpa tanggal)
+- **Task:** Bapak (item 4 & 5 permintaan Eisenhower): modal kalender saat task baru tanpa tanggal; task dari input hero dibuat tanpa tanggal.
+- **Changes:** `TaskDatePromptModal` + helper di `static/index.html`, `handleSubmit(e, opts)` di TaskFormModal; `parseQuickCapture` tanpa deteksi tanggal; CSS `.task-date-prompt` di app.css (tanpa garis aksen); SW v410, app.css?v=332.
+- **Verifikasi:** Playwright lokal (terang/gelap, desktop/mobile): modal muncul, task tersimpan dengan tanggal terpilih; hero "tugas: beli buku besok" → task "beli buku besok" deadline null. JS 1096/1097 (1 gagal pra-ada: draw_local_reactive), test_version OK, inline 5/5. Screenshot di `/mnt/project-files/pilih-tanggal-task/`.
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `webapp.py`, `tests/test_version.py`, `tests/offline/*.test.js`, `.agents/*`
 ## [2026-10-13 23:45] - Claude (keterangan Eisenhower + default P2)
 - **Task:** Bapak: keterangan "Penting, mendesak < 7 hari" di Q1, "Penting, tidak mendesak > 7 hari" di Q2, default prioritas P2 saat membuat task.
 - **Changes:** sub kartu Q1/Q2 di dashboard (Q1 memakai ≤ karena deadline tepat 7 hari masih Q1), default P2 di semua jalur pembuatan task web/API/offline/bot `/quick`, SW v408.
 - **Verifikasi:** JS 1091/1092 (1 gagal pra-ada: draw_local_reactive), pytest 134/135 (pra-ada: note_trash atomic), inline 5/5, sw OK, POST /api/tasks tanpa priority → P2/Q2. Screenshot di `/mnt/project-files/eisenhower-label-p2/`. 0 border-left baru.
 - **Files Touch:** `static/{index.html,sw.js,offline/taskrepo.js}`, `webapp.py`, `bot.py`, `tests/*`, `.agents/*`
 - **Status:** Needs Review (draft PR, tunggu "merge dan deploy").
+
+## [2026-10-13 23:55] - Claude (PR #23 merge & deploy)
+- **Task:** Bapak: "merge dan deploy" PR #23; UX: setelah modal tanggal tidak ada langkah lagi, task langsung tersimpan dan tertutup.
+- **Changes:** main (PR #22, SW v408) di-merge ke branch: versi tetap v410, hero task P2 + deadline null. Dicek ulang: Lewati → modal tertutup, task tanpa tanggal; Tambahkan → task dengan tanggal.
+- **Verifikasi:** JS 1096/1097, pytest 134/135 (dua-duanya gagal pra-ada), inline 5/5.
+- **Files Touch:** konflik versi di `static/*`, `webapp.py`, `tests/*`, `.agents/*`
+- **Status:** Done (merged).
