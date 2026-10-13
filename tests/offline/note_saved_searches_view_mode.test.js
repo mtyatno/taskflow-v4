@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v404-mobile-block-plus-menu", () => {
-    assert.match(swJs, /taskflow-v404-mobile-block-plus-menu/);
+  await t.test("sw.js bumped to taskflow-v405-android-icon-margin", () => {
+    assert.match(swJs, /taskflow-v405-android-icon-margin/);
   });
 });

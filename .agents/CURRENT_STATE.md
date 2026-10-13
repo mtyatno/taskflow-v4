@@ -3,6 +3,12 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+## 🟡 Margin Ikon Aplikasi Android (PWA maskable + Tauri) — 2026-10-13 (Claude) — DI-MERGE
+- **Status:** 🟡 PR #18 di-merge atas "merge dan deploy" Bapak (2026-10-13), SW v405 `taskflow-v405-android-icon-margin`.
+- **Masalah:** `icon-192/512.png` (logo memenuhi seluruh kanvas) juga dipakai sebagai `purpose: maskable`, jadi launcher Android memotong logo dan tanpa margin.
+- **Solusi:** `scripts/gen_app_icons.py` mengangkat logo dari `src-tauri/icons/icon-source.png` (tidak diubah) ke latar putih solid: `icon-192/512.png` (any, logo 72%), `icon-maskable-192/512.png` baru (logo 56%, di dalam safe zone 80%), dan ikon Tauri Android `mipmap-*/ic_launcher*.png` (sebelumnya masih logo TaskFlow lama). `manifest.json` menunjuk ikon maskable baru; `sw.js` meng-cache keduanya.
+- **Catatan:** v403 dinaikkan ke v405 karena PR #17 (v401) dan PR #19 (v404) masuk main lebih dulu. Di Android, ikon baru bisa jadi baru muncul setelah uninstall + pasang ulang. `draw_local_reactive.test.js` 1 gagal sudah ada di main.
+
 ## 🟠 Tombol + blok di editor catatan (mobile) — 2026-10-13 (Claude) — NEEDS REVIEW
 - **Status:** Draft PR dari branch `claude/fix-mobile-block-plus-menu-yssn7h`, SW v404 `taskflow-v404-mobile-block-plus-menu` (v402/v403 dilewati: v403 dipakai branch android-icon-margin). Menunggu Bapak bilang "merge dan deploy".
 - **Bug:** di HP, ketuk "+" di depan blok → "/" muncul di paragraf baru tapi slash menu tidak terbuka, kursor pindah ke blok bawah.

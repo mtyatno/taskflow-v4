@@ -98,12 +98,12 @@ test("3. Dashboard component in static/index.html implements habit checkin and C
   assert.match(dashSrc, /centerToast\.type\s*===\s*["']habit["']\s*\?\s*["']activity["']/);
 });
 
-test("4. Service Worker and index.html cache version is taskflow-v404-mobile-block-plus-menu", () => {
+test("4. Service Worker and index.html cache version is taskflow-v405-android-icon-margin", () => {
   const sw = fs.readFileSync(swPath, "utf8");
   const html = fs.readFileSync(htmlPath, "utf8");
 
-  assert.match(sw, /^const CACHE = "taskflow-v404-mobile-block-plus-menu";/m);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v404-mobile-block-plus-menu";/);
+  assert.match(sw, /^const CACHE = "taskflow-v405-android-icon-margin";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v405-android-icon-margin";/);
 });
 
 test("5. Habit pill CSS anti-overflow and responsive media queries", () => {

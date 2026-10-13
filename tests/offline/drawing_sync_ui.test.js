@@ -246,8 +246,8 @@ test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan"
 });
 
 // ── Cache bust ───────────────────────────────────────────────────────────────
-test("sw.js CACHE = taskflow-v404-mobile-block-plus-menu (tldraw di-cache cache-first)", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v404-mobile-block-plus-menu";/m);
+test("sw.js CACHE = taskflow-v405-android-icon-margin (tldraw di-cache cache-first)", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v405-android-icon-margin";/m);
 });
 
 // ══ Putaran pengerasan (review independen) ══════════════════════════════════════
