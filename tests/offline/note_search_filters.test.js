@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v401", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v401-mobile-paper-mode";/m,
-      "sw.js CACHE must be taskflow-v401-mobile-paper-mode"
+      /^const CACHE = "taskflow-v404-mobile-block-plus-menu";/m,
+      "sw.js CACHE must be taskflow-v404-mobile-block-plus-menu"
     );
   });
 });

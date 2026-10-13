@@ -3208,3 +3208,10 @@
 - **Changes:** PR #15 ditandai ready lalu di-merge (`22bab21`, head `5ab667f`); Deploy Taskflow V4 run #840 sukses (VPS fast-forward ca335d1..22bab21). Catatan `.agents` & memori versi diperbarui (main kini v364 / app.css?v=312).
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Pertanyaan `.note-callout` masih menunggu user.
+
+## [2026-10-13 09:50] - Claude (fix tombol + blok di editor catatan mobile)
+- **Task:** Bug Bapak: di mobile, ketuk ikon + di depan blok memunculkan "/" dan kursor pindah ke blok bawah tanpa menu.
+- **Changes:** `addBtn` touchend `preventDefault` (non-passive) agar click sintetis tidak jatuh ke editor; SW v404 `taskflow-v404-mobile-block-plus-menu` (sw.js, webapp.py, index.html, test_version.py, tes offline); subtes baru di `block_handle.test.js`.
+- **Verifikasi:** Playwright 390px + emulasi sentuh: sebelum = click mendarat di `.milkdown-editor`, slash menu tidak tampil; sesudah = slash menu tampil, pilih Heading 2 lalu mengetik berhasil. JS 1089/1090 (1 gagal pra-ada di main: draw_local_reactive), pytest 134/135 (1 gagal pra-ada di main: test_delete_is_atomic_when_snapshot_fails), inline 5/5, sw OK, 0 border-left. Screenshot di `/mnt/project-files/plus-blok-mobile/`.
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py`, `tests/test_version.py`, `tests/offline/*.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR, tunggu "merge dan deploy").

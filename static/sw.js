@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v401-mobile-paper-mode";
+const CACHE = "taskflow-v404-mobile-block-plus-menu";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",

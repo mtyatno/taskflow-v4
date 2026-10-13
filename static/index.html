@@ -18497,7 +18497,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v401-mobile-paper-mode"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v404-mobile-block-plus-menu"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -20036,6 +20036,10 @@ function MilkdownEditor({
     // cadangan bila browser tetap mengirim mousedown: cegah NodeSelection oleh service plugin
     addBtn.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
     addBtn.addEventListener('pointerup', e => { e.preventDefault(); e.stopPropagation(); onBlockAdd(); });
+    // Touch: preventDefault di pointerdown TIDAK membatalkan "click" kompatibilitas. Saat click itu tiba,
+    // handle sudah tersembunyi (dokumen berubah) → click jatuh ke .milkdown-editor dan handler "klik area
+    // kosong" memindahkan kursor ke baris terakhir → "/" tertinggal tanpa slash menu. Batalkan di touchend.
+    addBtn.addEventListener('touchend', e => { if (e.cancelable) e.preventDefault(); }, { passive: false });
     // Touch: blok tempat kursor (aturan sama dgn filterNodes — isi table/blockquote → ancestor-nya)
     const findCursorBlock = (view) => {
       const { selection: sel, doc } = view.state;
@@ -31269,7 +31273,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v401-mobile-paper-mode";
+    window.__SW_VERSION = "taskflow-v404-mobile-block-plus-menu";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

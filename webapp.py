@@ -3380,7 +3380,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v401-mobile-paper-mode"
+    sw_cache = "taskflow-v404-mobile-block-plus-menu"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

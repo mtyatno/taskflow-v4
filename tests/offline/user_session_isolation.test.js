@@ -337,13 +337,13 @@ test("6. static/index.html includes clearLocalUserData, OfflineDB.clearAll, and 
   );
 });
 
-test("7. Service Worker cache version is taskflow-v401-mobile-paper-mode", () => {
+test("7. Service Worker cache version is taskflow-v404-mobile-block-plus-menu", () => {
   const sw = fs.readFileSync(swPath, "utf8");
   const html = fs.readFileSync(htmlPath, "utf8");
   const webapp = fs.readFileSync(webappPath, "utf8");
 
-  assert.match(sw, /^const CACHE = "taskflow-v401-mobile-paper-mode";/m, "sw.js CACHE must be v401");
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v401-mobile-paper-mode";/, "index.html fallback SW version must be v401");
-  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v401-mobile-paper-mode"/, "index.html About modal SW version fallback must be v401");
-  assert.match(webapp, /sw_cache = "taskflow-v401-mobile-paper-mode"/, "webapp.py sw_cache must be v401");
+  assert.match(sw, /^const CACHE = "taskflow-v404-mobile-block-plus-menu";/m, "sw.js CACHE must be v401");
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v404-mobile-block-plus-menu";/, "index.html fallback SW version must be v401");
+  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v404-mobile-block-plus-menu"/, "index.html About modal SW version fallback must be v401");
+  assert.match(webapp, /sw_cache = "taskflow-v404-mobile-block-plus-menu"/, "webapp.py sw_cache must be v401");
 });

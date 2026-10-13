@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v401-mobile-paper-mode/,
-      "sw.js should be bumped to taskflow-v401-mobile-paper-mode"
+      /taskflow-v404-mobile-block-plus-menu/,
+      "sw.js should be bumped to taskflow-v404-mobile-block-plus-menu"
     );
   });
 
