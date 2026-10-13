@@ -3,8 +3,8 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
-## 🟠 Proses Inbox: prioritas, project, tanggal bisa diedit — 2026-10-13 (Claude) — NEEDS REVIEW
-- **Status:** Draft PR dari `claude/project-thread-yxh0y6`, SW v411 `taskflow-v411-inbox-wizard-edit`, app.css?v=333 (v408 dipakai PR #22, v410 PR #23), app.css?v=330. Tunggu "merge dan deploy". Item 6 dari daftar Eisenhower/task Bapak; item 1-5 dikerjakan thread lain (bisa bentrok versi SW, cek main sebelum merge).
+## 🟢 Proses Inbox: prioritas, project, tanggal bisa diedit — 2026-10-13 (Claude) — DI-MERGE & DEPLOY
+- **Status:** PR #24 di-merge (`62ee970`) atas persetujuan Bapak, Deploy Taskflow V4 run #891 sukses. `webapp.py` (/api/version) baru aktif setelah `sudo systemctl restart taskflow-web`. Dari `claude/project-thread-yxh0y6`, SW v411 `taskflow-v411-inbox-wizard-edit`, app.css?v=333 (v408 dipakai PR #22, v410 PR #23), app.css?v=330. Tunggu "merge dan deploy". Item 6 dari daftar Eisenhower/task Bapak; item 1-5 dikerjakan thread lain (bisa bentrok versi SW, cek main sebelum merge).
 - **Fitur:** `GtdWizardEditFields` di `GtdInboxWizardModal`: atas permintaan Bapak satu baris dropdown tanpa label di layar besar (prioritas berwarna, project + "Project baru...", tanggal: Tanpa tanggal/Hari ini/Besok/+7 hari/Pilih tanggal... yang membuka kalender). Di HP prioritas+project sebaris, tanggal di baris kedua. Tiap perubahan langsung disimpan lewat `handleUpdateTaskFields` (App, PUT parsial, optimistik, antre offline). Kuadran tampil sebagai badge dan ikut berubah. Kartu "dikunci" ke task yang sedang diedit (`pinnedIdRef`) karena daftar inbox diurutkan ulang saat prioritas berubah. Overlay wizard z-index 60 agar FAB mobile tidak menutupi tombol.
 - **Bug ikut diperbaiki:** `taskToUpdatePayload` (static/offline/syncpush.js) mengirim `deadline: null` saat tanggal dihapus, padahal server mengabaikan null → hapus tanggal tidak pernah tersinkron. Sekarang mengirim `""`.
 ## 🟢 Pilih tanggal saat tambah task + task hero tanpa tanggal — 2026-10-13 (Claude) — DI-MERGE & DEPLOY

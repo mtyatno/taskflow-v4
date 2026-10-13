@@ -3280,3 +3280,9 @@
 - **Changes:** PR #22 di-merge (`a57c623`), Deploy run #888 sukses. Catatan `.agents` diperbarui.
 - **Files Touch:** `.agents/*`
 - **Status:** Done. Restart `taskflow-web` diperlukan agar API memakai default P2 dan /api/version terbaru.
+
+## [2026-10-14 00:00] - Claude (PR #24 merge & deploy)
+- **Task:** Bapak setuju merge dan deploy PR #24 (editor satu baris di wizard Proses Inbox).
+- **Changes:** main (PR #22 v408, PR #23 v410) di-merge ke branch, SW dinaikkan ke v411 `taskflow-v411-inbox-wizard-edit`, app.css?v=333; tes JS 1098/1099 dan pytest 134/135 (kegagalan pra-ada sama). PR #24 di-merge (`62ee970`), Deploy run #891 sukses.
+- **Files Touch:** `.agents/*`
+- **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/version melaporkan v411.
