@@ -202,6 +202,15 @@ test("MilkdownEditor: block handle ala Notion", async (t) => {
     assert.match(editorCode, /addBtn\.addEventListener\('mousedown', e => \{ e\.preventDefault\(\);/);
   });
 
+  await t.test("tombol + (touch): touchend dicegah agar click kompatibilitas tidak memindahkan kursor", () => {
+    // Bug mobile: setelah ketuk +, handle tersembunyi lalu "click" sintetis jatuh ke .milkdown-editor →
+    // handler klik-area-kosong memindahkan kursor ke baris terakhir, "/" tertinggal tanpa slash menu.
+    const te = editorCode.match(/addBtn\.addEventListener\('touchend', (e => \{[^}]*\}), (\{[^}]*\})\)/);
+    assert.ok(te, "listener touchend tombol + harus ada");
+    assert.match(te[1], /e\.preventDefault\(\)/);
+    assert.match(te[2], /passive: false/, "touchend harus non-passive agar preventDefault berlaku");
+  });
+
   await t.test("onBlockAdd: abaikan active basi, sisipkan paragraf setelah blok lalu ketik '/'", () => {
     const body = extractArrowFn(editorCode, "const onBlockAdd = ");
     assert.ok(body, "onBlockAdd harus ada");

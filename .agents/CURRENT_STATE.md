@@ -3,6 +3,12 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+## 🟠 Tombol + blok di editor catatan (mobile) — 2026-10-13 (Claude) — NEEDS REVIEW
+- **Status:** Draft PR dari branch `claude/fix-mobile-block-plus-menu-yssn7h`, SW v404 `taskflow-v404-mobile-block-plus-menu` (v402/v403 dilewati: v403 dipakai branch android-icon-margin). Menunggu Bapak bilang "merge dan deploy".
+- **Bug:** di HP, ketuk "+" di depan blok → "/" muncul di paragraf baru tapi slash menu tidak terbuka, kursor pindah ke blok bawah.
+- **Penyebab:** `preventDefault` di `pointerdown` tidak membatalkan `click` kompatibilitas dari ketukan. Saat click tiba, handle sudah tersembunyi (dokumen berubah) → click jatuh ke `.milkdown-editor`, handler "klik area kosong" memindahkan kursor ke baris terakhir, slash menu batal.
+- **Fix:** `addBtn` listener `touchend` non-passive dengan `preventDefault()` (MilkdownEditor, static/index.html). Tes baru di `tests/offline/block_handle.test.js`.
+
 ## 🟠 Mode Kertas di HP lebar penuh — 2026-10-13 (Claude) — NEEDS REVIEW
 - **Status:** Draft PR dari branch `claude/mobile-paper-mode-loyv6u`, SW v401 `taskflow-v401-mobile-paper-mode`. Menunggu Bapak bilang "merge dan deploy".
 - Gaya lembar kertas kini di dalam `@media (min-width: 769px)`; di <= 768px catatan tampil normal (lebar penuh, ikut tema), garis halaman dan kontrol kertas (`.paper-controls`) disembunyikan. Pilihan kertas per catatan (meta_json) tidak berubah. Detail di SESSION_LOG.
