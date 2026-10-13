@@ -3380,7 +3380,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v406-pwa-icon-refresh"
+    sw_cache = "taskflow-v407-note-callout-render"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

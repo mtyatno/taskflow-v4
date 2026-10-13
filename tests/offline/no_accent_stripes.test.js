@@ -17,14 +17,25 @@ test("no coloured accent stripes", async (t) => {
     assert.deepStrictEqual(hits, []);
   });
 
-  await t.test("CSS: no thick coloured left/top/right border outside blockquotes", () => {
+  await t.test("CSS: no thick coloured left/top/right border (blockquote and callout included)", () => {
     const hits = [];
     const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
     let m;
     while ((m = ruleRe.exec(appCss))) {
       const selector = m[1].trim();
-      if (/blockquote|note-callout/.test(selector)) continue;
       if (/border-(left|top|right)\s*:\s*([2-9]|\d{2,})px\s+solid\s+(?!transparent)/.test(m[2])) hits.push(selector);
+    }
+    assert.deepStrictEqual(hits, []);
+  });
+
+  await t.test("blockquote and callout carry no side line at all", () => {
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+    const hits = [];
+    for (const src of [appCss, indexHtml]) {
+      let m;
+      while ((m = ruleRe.exec(src))) {
+        if (/blockquote|note-callout/.test(m[1]) && /border-(left|top|right)(-color)?\s*:/.test(m[2])) hits.push(m[1].trim());
+      }
     }
     assert.deepStrictEqual(hits, []);
   });

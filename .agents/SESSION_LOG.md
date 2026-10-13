@@ -3229,3 +3229,10 @@
 - **Verifikasi:** JSON manifest valid, sw OK, inline 5/5, pytest test_version 2/2, JS 1089/1090 (1 gagal pra-ada di main).
 - **Files Touch:** `static/{index.html,manifest.json,sw.js}`, `webapp.py`, `tests/*`, `.agents/*`
 - **Status:** Needs Review (draft PR, tunggu "merge dan deploy").
+
+## [2026-10-13 10:50] - Claude (callout tidak terrender di penampil catatan)
+- **Task:** Bapak: callout `> [!NOTE]` dan kutipan tampil mentah di HP; code block dan toggle sudah benar.
+- **Changes:** `/callout` membuat blockquote sungguhan; `repairQuoteMarkdown` memperbaiki markdown `\>` lama di penampil dan editor; node view callout di editor; CSS callout/blockquote tanpa garis kiri, warna di Mode Kertas gelap; SW v407, app.css?v=329; tes baru di `note_rich_blocks.test.js`, `no_accent_stripes.test.js` kini juga melarang garis di blockquote/callout.
+- **Verifikasi:** Playwright: sebelum = `\> \[!NOTE] > isi` tersimpan dan tampil mentah; sesudah = callout + kutipan terrender (mobile/desktop, terang/gelap), editor menampilkan callout. JS 1091/1092 (1 gagal pra-ada: draw_local_reactive), pytest 132/135 (pra-ada: note_trash atomic + 2 bookmark karena modul tidak terpasang di sesi), inline 5/5, sw OK. Screenshot di `/mnt/project-files/callout-render/`.
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `webapp.py`, `tests/test_version.py`, `tests/offline/*.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR, tunggu "merge dan deploy").

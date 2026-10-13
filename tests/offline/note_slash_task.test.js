@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v406-pwa-icon-refresh in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v406-pwa-icon-refresh";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v406-pwa-icon-refresh"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v406-pwa-icon-refresh";/);
+  await t.test("Service Worker cache is taskflow-v407-note-callout-render in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v407-note-callout-render";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v407-note-callout-render"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v407-note-callout-render";/);
   });
 });

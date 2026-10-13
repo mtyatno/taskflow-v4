@@ -222,6 +222,39 @@ test("Task 1: Vendor Assets, Styling, and Markdown Parser for Rich Blocks", asyn
     const renderedToggle = sandbox.renderMarkdown(toggleMd);
     assert.ok(renderedToggle.includes('<details>'), "Should preserve details tag");
     assert.ok(renderedToggle.includes('<summary>Judul Toggle</summary>'), "Should preserve summary tag");
+
+    // Test F: markdown kutipan ter-escape dari editor (menu /callout lama, ">" setelah Shift+Enter)
+    const legacyOneLine = "Halo\n\n\\> \\[!NOTE] > Isi callout";
+    const renderedLegacy = sandbox.renderMarkdown(legacyOneLine);
+    assert.ok(renderedLegacy.includes('class="note-callout note-callout-note"'), "Escaped one-line callout should render as callout");
+    assert.ok(renderedLegacy.includes('Isi callout'), "Callout body kept");
+    assert.ok(!renderedLegacy.includes('&gt;'), "No raw > left");
+
+    const escapedQuote = "Baris satu\\\n\\> kutipan setelah shift enter";
+    const renderedEscQuote = sandbox.renderMarkdown(escapedQuote);
+    assert.ok(renderedEscQuote.includes('<blockquote>'), "Escaped > line should render as blockquote");
+    assert.ok(!renderedEscQuote.includes('&gt;'), "No raw > left");
+    assert.ok(!/Baris satu\\/.test(renderedEscQuote), "Dangling hard-break backslash removed");
+
+    const editorCallout = "> \\[!TIP] Judul tip\n>\n> isi tip";
+    const renderedEditorCallout = sandbox.renderMarkdown(editorCallout);
+    assert.ok(renderedEditorCallout.includes('class="note-callout note-callout-tip"'), "Editor-serialized callout renders");
+    assert.ok(renderedEditorCallout.includes('Judul tip') && renderedEditorCallout.includes('isi tip'));
+
+    const fenced = "```\n\\> tetap di kode\n```";
+    assert.ok(sandbox.renderMarkdown(fenced).includes('\\&gt; tetap di kode') || sandbox.renderMarkdown(fenced).includes('\\> tetap di kode'), "Code block content untouched");
+  });
+
+  await t.test("6. Slash /callout inserts a real blockquote, editor styles callouts", () => {
+    const start = indexHtml.indexOf("case 'callout':");
+    const block = indexHtml.slice(start, indexHtml.indexOf("case 'toggle':", start));
+    assert.ok(start > 0);
+    assert.doesNotMatch(block, /insertText\(/, "callout must not be inserted as plain text");
+    assert.match(block, /schema\.nodes\.blockquote/);
+    assert.match(block, /\[!NOTE\]/);
+    assert.match(indexHtml, /\.use\(createCalloutBlockquotePlugin\(\)\)/, "editor uses the callout node view");
+    assert.match(indexHtml, /defaultValueCtx, repairQuoteMarkdown\(/, "editor repairs escaped quotes on load");
+    assert.match(appCss, /blockquote\.note-callout-editing::before\s*\{[^}]*attr\(data-callout-icon\)/);
   });
 
   await t.test("5. CSS Rules in static/app.css for Code Cards, Callouts, and Toggles", () => {

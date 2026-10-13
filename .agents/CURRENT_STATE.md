@@ -3,6 +3,12 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+## 🟠 Callout "> [!NOTE]" tampil mentah di penampil catatan — 2026-10-13 (Claude) — NEEDS REVIEW
+- **Status:** Draft PR dari `claude/fix-note-callout-render-u18l68`, SW v407 `taskflow-v407-note-callout-render`, app.css?v=329. Tunggu "merge dan deploy".
+- **Penyebab:** menu `/callout` menyisipkan teks `> [!NOTE]\n> ` ke paragraf (insertText) → Milkdown menyimpan `\> \[!NOTE] > isi` (ter-escape), jadi penampil menampilkan teks mentah. `>` yang diketik setelah Shift+Enter juga tersimpan `\>`.
+- **Fix:** `/callout` membuat blockquote sungguhan (`[!NOTE]` + paragraf isi); `repairQuoteMarkdown()` (sebelum `renderMarkdown`) mengubah baris `\>` di luar blok kode jadi kutipan dan memecah callout satu baris lama; editor memuat markdown lewat fungsi yang sama dan memberi kelas `note-callout-editing` + ikon lewat node view `createCalloutBlockquotePlugin`. Callout dan blockquote kini tanpa garis kiri (latar lembut + ikon); teks callout/toggle terbaca di Mode Kertas saat tema gelap. `NOTE_CALLOUT_TYPES` dipakai bersama.
+- **Belum:** halaman catatan publik (`/p/...`, mistune di webapp.py) belum merender callout dan masih bergaris kiri.
+
 ## 🟠 Ikon PWA tidak ter-update setelah pasang ulang — 2026-10-13 (Claude) — NEEDS REVIEW
 - **Status:** Draft PR dari `claude/android-icon-margin-8g31kx`, SW v406 `taskflow-v406-pwa-icon-refresh`. Tunggu "merge dan deploy".
 - **Masalah:** setelah PR #18 (v405) Bapak uninstall + install ulang PWA, ikon tetap lama. SW lama menyajikan `/manifest.json` dan `icon-*.png` cache-first dari precache (SW baru menunggu tombol update), dan uninstall PWA tidak menghapus cache/SW situs.
