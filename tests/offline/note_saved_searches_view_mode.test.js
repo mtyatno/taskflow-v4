@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v411-inbox-wizard-edit", () => {
-    assert.match(swJs, /taskflow-v411-inbox-wizard-edit/);
+  await t.test("sw.js bumped to taskflow-v412-hero-big-numbers", () => {
+    assert.match(swJs, /taskflow-v412-hero-big-numbers/);
   });
 });

@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v411-inbox-wizard-edit', () => {
+  test('Service Worker cache version is bumped to taskflow-v412-hero-big-numbers', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v411-inbox-wizard-edit";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v412-hero-big-numbers";/m);
   });
 });
 

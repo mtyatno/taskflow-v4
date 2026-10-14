@@ -2448,8 +2448,9 @@
 .dash-hero-progress { display: flex; align-items: center; gap: 12px; flex-shrink: 0; cursor: pointer; padding: 8px 14px 8px 8px; border-radius: 14px; background: var(--bg-card); border: 1px solid var(--dash-card-border); transition: transform 0.15s, box-shadow 0.15s; }
 .dash-hero-progress:hover { transform: translateY(-1px); box-shadow: var(--dash-shadow-hover); }
 .dash-hero-progress-text { display: flex; flex-direction: column; line-height: 1.25; }
-.dash-hero-progress-text b { font-size: 18px; font-weight: 800; color: var(--text-primary); }
-.dash-hero-progress-text span { font-size: 12px; color: var(--text-secondary); }
+.dash-hero-progress-text b { font-size: 18px; font-weight: 800; color: var(--text-primary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dash-hero-progress-text > span { font-size: 12px; color: var(--text-secondary); }
+.dash-num-compact { display: none; }
 .dash-ring { position: relative; flex-shrink: 0; }
 .dash-ring svg { display: block; }
 .dash-ring-track { stroke: rgba(15,23,42,0.08); }
@@ -2710,8 +2711,12 @@
   .dash-hero-summary { font-size: 13px; }
   .dash-hero-progress { padding: 0; border: none; background: none; flex-direction: column; gap: 4px; text-align: center; }
   .dash-hero-progress:hover { transform: none; box-shadow: none; }
-  .dash-hero-progress-text b { font-size: 13px; }
-  .dash-hero-progress-text span { display: none; }
+  .dash-hero-progress { max-width: 76px; }
+  .dash-hero-progress-text { max-width: 100%; }
+  .dash-hero-progress-text b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
+  .dash-hero-progress-text > span { display: none; }
+  .dash-num-full { display: none; }
+  .dash-num-compact { display: inline; }
   .dash-hero .dash-ring { width: 56px !important; height: 56px !important; }
   .dash-hero .dash-ring svg { width: 56px; height: 56px; }
   .dash-hero .dash-ring-label { font-size: 13px; }

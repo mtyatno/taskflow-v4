@@ -3286,3 +3286,10 @@
 - **Changes:** main (PR #22 v408, PR #23 v410) di-merge ke branch, SW dinaikkan ke v411 `taskflow-v411-inbox-wizard-edit`, app.css?v=333; tes JS 1098/1099 dan pytest 134/135 (kegagalan pra-ada sama). PR #24 di-merge (`62ee970`), Deploy run #891 sukses.
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/version melaporkan v411.
+
+## [2026-10-14 03:10] - Claude (hero Dashboard angka besar)
+- **Task:** Bapak: angka 47/67 di hero akan berubah tampilan kalau user punya ratusan/ribuan task, terutama di HP.
+- **Changes:** angka ringkas di HP (12rb/15rb), lengkap dengan pemisah ribuan di desktop (12.480/15.000), title angka lengkap, persen cincin tidak 100% sebelum semua selesai, ringkasan hero dan kartu Prioritas pakai pemisah ribuan. SW v412, app.css?v=334.
+- **Verifikasi:** Playwright lokal dengan 46/66, 999/1250, 12480/15000 di 360px dan 1440px, terang/gelap: kolom cincin HP 61px (sebelumnya 82px), tidak ada overflow. JS 1104/1105 (pra-ada: draw_local_reactive), pytest 134/135 (pra-ada: note_trash atomic), inline 5/5. 0 border-left baru.
+- **Files Touch:** `static/{index.html,app.css,sw.js}`, `webapp.py`, `tests/test_version.py`, `tests/offline/*.test.js`, `.agents/*`
+- **Status:** Needs Review (draft PR, tunggu "merge dan deploy").
