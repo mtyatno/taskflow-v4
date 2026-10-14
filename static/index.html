@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=333">
+  <link rel="stylesheet" href="/static/app.css?v=334">
 
 <style>
 /* Mode kertas hanya di layar lebar (>= 769px). Di HP (<= 768px) catatan
@@ -13857,6 +13857,32 @@ function DashTaskRow({
     className: "dash-row-title"
   }, t.title));
 }
+// ── Angka hero untuk user dengan ratusan/ribuan task ──
+// Lengkap pakai pemisah ribuan Indonesia ("12.480"); ringkas untuk HP ("1,2rb", "12rb", "1,5jt").
+// Dibulatkan ke bawah supaya "selesai" tidak pernah terlihat sudah mencapai total sebelum waktunya.
+const dashFullNum = n => {
+  const v = Math.max(0, Math.floor(Number(n) || 0));
+  return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+};
+const dashCompactNum = n => {
+  const v = Math.max(0, Math.floor(Number(n) || 0));
+  const unit = (x, base, suf) => {
+    const q = x / base;
+    if (q >= 10) return Math.floor(q) + suf;
+    const d = Math.floor(q * 10) / 10;
+    return String(d).replace(".", ",") + suf;
+  };
+  if (v < 1000) return String(v);
+  if (v < 1e6) return unit(v, 1e3, "rb");
+  return unit(v, 1e6, "jt");
+};
+// Persen cincin: 100% hanya jika semua selesai, "<1%" jika baru sedikit (14.990/15.000 bukan 100%).
+const dashRingPct = (done, total) => {
+  if (!(total > 0) || !(done > 0)) return "0%";
+  if (done >= total) return "100%";
+  const p = Math.floor(done / total * 100);
+  return p < 1 ? "<1%" : `${p}%`;
+};
 function DashProgressRing({
   done,
   total,
@@ -13900,7 +13926,7 @@ function DashProgressRing({
     }
   })), /*#__PURE__*/React.createElement("div", {
     className: "dash-ring-label"
-  }, Math.round(pct * 100), "%"));
+  }, dashRingPct(done, total)));
 }
 
 // ── Kartu angka (KPI): ikon gradien + mini visualisasi ──
@@ -14514,7 +14540,7 @@ function Dashboard({
   const shownToday = visibleDone.length + visiblePending.length;
   const totalToday = allToday.length;
   const doneN = doneToday.length;
-  const pctToday = totalToday > 0 ? Math.round(doneN / totalToday * 100) : 0;
+  const pctToday = totalToday > 0 ? (doneN >= totalToday ? 100 : Math.floor(doneN / totalToday * 100)) : 0;
   const allDoneToday = totalToday > 0 && doneN === totalToday;
 
   // ── KPI (angka + data mini chart; "hari ini" = tanggal lokal) ──
@@ -14555,11 +14581,11 @@ function Dashboard({
   const summaryLine = tasks.length === 0
     ? "Selamat datang di Alurik! Mari mulai dengan mencatat tugas atau ide pertamamu."
     : pendingToday.length > 0
-    ? `Ada ${pendingToday.length} prioritas hari ini${overdueCount > 0 ? `, ${overdueCount} terlambat` : ""}.`
+    ? `Ada ${dashFullNum(pendingToday.length)} prioritas hari ini${overdueCount > 0 ? `, ${dashFullNum(overdueCount)} terlambat` : ""}.`
     : totalToday > 0
     ? "Semua prioritas hari ini sudah selesai. Kerja bagus! 🎉"
     : overdueCount > 0
-    ? `Tidak ada prioritas baru, tapi ${overdueCount} task terlambat.`
+    ? `Tidak ada prioritas baru, tapi ${dashFullNum(overdueCount)} task terlambat.`
     : "Tidak ada yang mendesak hari ini. Saat yang pas untuk merencanakan.";
   const scrollToEisen = () => {
     const el = document.querySelector('[data-tour="eisenhower"]');
@@ -14874,7 +14900,13 @@ function Dashboard({
     total: totalToday
   }), /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-progress-text"
-  }, /*#__PURE__*/React.createElement("b", null, doneN, "/", totalToday), /*#__PURE__*/React.createElement("span", null, "selesai hari ini")))), totalHabits > 0 && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("b", {
+    title: `${dashFullNum(doneN)} dari ${dashFullNum(totalToday)} prioritas selesai hari ini`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dash-num-full"
+  }, dashFullNum(doneN), "/", dashFullNum(totalToday)), /*#__PURE__*/React.createElement("span", {
+    className: "dash-num-compact"
+  }, dashCompactNum(doneN), "/", dashCompactNum(totalToday))), /*#__PURE__*/React.createElement("span", null, "selesai hari ini")))), totalHabits > 0 && /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-habit-strip"
   }, nextHabit ? /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -14975,7 +15007,7 @@ function Dashboard({
     icon: "target",
     color: "#ef4444",
     title: "Prioritas Hari Ini",
-    sub: totalToday > 0 ? `${doneN} dari ${totalToday} selesai` : "Q1, terlambat, fokus & deadline hari ini",
+    sub: totalToday > 0 ? `${dashFullNum(doneN)} dari ${dashFullNum(totalToday)} selesai` : "Q1, terlambat, fokus & deadline hari ini",
     link: "Lihat semua →",
     onLink: () => onNav("today")
   }), totalToday > 0 && /*#__PURE__*/React.createElement("div", {
@@ -15008,7 +15040,7 @@ function Dashboard({
     type: "button",
     className: "dash-more",
     onClick: () => onNav("today")
-  }, "+", totalToday - shownToday, " task lagi →")), /*#__PURE__*/React.createElement("div", {
+  }, "+", dashFullNum(totalToday - shownToday), " task lagi →")), /*#__PURE__*/React.createElement("div", {
     className: "dash-pin-wrap"
   }, /*#__PURE__*/React.createElement("div", {
     className: "dash-card dash-pin-card"
@@ -18829,7 +18861,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v411-inbox-wizard-edit"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v412-hero-big-numbers"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -31735,7 +31767,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v411-inbox-wizard-edit";
+    window.__SW_VERSION = "taskflow-v412-hero-big-numbers";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

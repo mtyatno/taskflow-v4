@@ -3,6 +3,12 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+## 🟠 Hero Dashboard: angka besar (ratusan/ribuan task) — 2026-10-14 (Claude) — NEEDS REVIEW
+- **Status:** Draft PR dari `claude/project-thread-h8a8cs`, SW v412 `taskflow-v412-hero-big-numbers`, app.css?v=334. Tunggu "merge dan deploy"; cek main dulu kalau versi sudah dipakai.
+- **Temuan:** dengan 12480/15000 kolom cincin di HP melebar dari 56px ke 82px dan teks tanpa pemisah ribuan; persen dibulatkan sehingga 14.990/15.000 tampil 100%.
+- **Fix:** helper `dashFullNum` ("12.480"), `dashCompactNum` ("1,2rb", "12rb", "1,5jt", dibulatkan ke bawah, maks 5 karakter), `dashRingPct` (100% hanya kalau semua selesai, "<1%"). Hero merender dua span: `.dash-num-full` (layar besar) dan `.dash-num-compact` (<= 640px), title berisi angka lengkap. Ringkasan "Ada 2.520 prioritas", kartu Prioritas "x dari y selesai" dan "+N task lagi" pakai pemisah ribuan; persen kartu Prioritas pakai aturan sama. CSS: nowrap + tabular-nums, max-width 76px di HP, selector `.dash-hero-progress-text > span` (dulu menyembunyikan span di dalam `b`).
+- Tes: `tests/offline/dashboard_hero_numbers.test.js`. Screenshot di `/mnt/project-files/hero-angka-besar/`.
+
 ## 🟢 Proses Inbox: prioritas, project, tanggal bisa diedit — 2026-10-13 (Claude) — DI-MERGE & DEPLOY
 - **Status:** PR #24 di-merge (`62ee970`) atas persetujuan Bapak, Deploy Taskflow V4 run #891 sukses. `webapp.py` (/api/version) baru aktif setelah `sudo systemctl restart taskflow-web`. Dari `claude/project-thread-yxh0y6`, SW v411 `taskflow-v411-inbox-wizard-edit`, app.css?v=333 (v408 dipakai PR #22, v410 PR #23), app.css?v=330. Tunggu "merge dan deploy". Item 6 dari daftar Eisenhower/task Bapak; item 1-5 dikerjakan thread lain (bisa bentrok versi SW, cek main sebelum merge).
 - **Fitur:** `GtdWizardEditFields` di `GtdInboxWizardModal`: atas permintaan Bapak satu baris dropdown tanpa label di layar besar (prioritas berwarna, project + "Project baru...", tanggal: Tanpa tanggal/Hari ini/Besok/+7 hari/Pilih tanggal... yang membuka kalender). Di HP prioritas+project sebaris, tanggal di baris kedua. Tiap perubahan langsung disimpan lewat `handleUpdateTaskFields` (App, PUT parsial, optimistik, antre offline). Kuadran tampil sebagai badge dan ikut berubah. Kartu "dikunci" ke task yang sedang diedit (`pinnedIdRef`) karena daftar inbox diurutkan ulang saat prioritas berubah. Overlay wizard z-index 60 agar FAB mobile tidak menutupi tombol.
