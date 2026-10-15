@@ -3293,3 +3293,10 @@
 - **Changes:** main (PR #22 v408, PR #23 v410) di-merge ke branch, SW dinaikkan ke v411 `taskflow-v411-inbox-wizard-edit`, app.css?v=333; tes JS 1098/1099 dan pytest 134/135 (kegagalan pra-ada sama). PR #24 di-merge (`62ee970`), Deploy run #891 sukses.
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/version melaporkan v411.
+
+## [2026-10-15 08:30] - Claude (note viewer: toggle Kertas + kertas fit-to-display)
+- **Task:** Bapak: tombol Kertas di penampil note selalu kembali ke mode kertas; kertas terpotong di laptop 14" saat daftar catatan terbuka.
+- **Changes:** `meta_json` di `notequery.shape()`; `paperWidthMm`/`paperFitScale`/`usePaperFitScale` + `--paper-fit` zoom di NotePanel; `PaperPageGuides` sadar zoom; SW v414.
+- **Verifikasi:** JS 1257/1258 (pra-ada draw_local_reactive), pytest 159/159, inline 5/5, Playwright sebelum/sesudah.
+- **Files Touch:** `static/{index.html,sw.js,offline/notequery.js}`, `webapp.py`, `tests/*`, `.agents/*`
+- **Status:** Needs Review (draft PR).

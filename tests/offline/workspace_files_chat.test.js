@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v412-sync-audit-fixes', () => {
+  test('Service Worker cache version is bumped to taskflow-v414-paper-fit-viewer', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v412-sync-audit-fixes";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v414-paper-fit-viewer";/m);
   });
 });
 

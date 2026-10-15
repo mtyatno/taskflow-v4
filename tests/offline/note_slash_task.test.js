@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v412-sync-audit-fixes in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v412-sync-audit-fixes";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v412-sync-audit-fixes"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v412-sync-audit-fixes";/);
+  await t.test("Service Worker cache is taskflow-v414-paper-fit-viewer in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v414-paper-fit-viewer";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v414-paper-fit-viewer"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v414-paper-fit-viewer";/);
   });
 });
