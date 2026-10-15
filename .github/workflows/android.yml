@@ -54,11 +54,6 @@ jobs:
         run: node scripts/patch-android-share.js
       - name: Patch gen/android for native speech recognition
         run: node scripts/patch-android-speech.js
-      - name: Pin brotli to 8.0.2 (8.0.1/8.0.3 broken on alloc-no-stdlib)
-        run: |
-          cd src-tauri
-          cargo generate-lockfile
-          cargo update -p brotli --precise 8.0.2
       - name: Build Android APK (unsigned release)
         run: npx tauri android build --apk
       - name: Sign APK
