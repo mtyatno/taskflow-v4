@@ -22,6 +22,10 @@
   const TFpush = req("./syncpush.js", root.TF && root.TF.syncpush);
   const TFhabitrepo = req("./habitrepo.js", root.TF && root.TF.habitrepo);
   const TFhabitlogic = req("./habitlogic.js", root.TF && root.TF.habitlogic);
+  // noterepo dibaca malas (prinsip 7: salinan konflik note); modul lama dari cache SW tanpa helper → jalur LWW lama
+  function noteRepo() {
+    try { return isNode ? require("./noterepo.js") : (root.TF && root.TF.noterepo); } catch (_) { return null; }
+  }
 
   function getAllTasks() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -591,8 +595,31 @@
         deleted: false, dirty: 0, base_rev: s.updated_at != null ? s.updated_at : null,
       }));
   }
+  // Tulis versi server ke record lokal lewat TFdb.mutate (prinsip 4): rev lokal ikut naik supaya push in-flight
+  // yang membaca rev lama tidak menandai hasil pull ini "bersih" dengan sentRev-nya (dulu rev hilang → 0).
   function writeNote(s, cid, cache, extra) {
-    return noteFromServer(s, cid, cache).then((rec) => putNote(Object.assign(rec, extra || {}))).then(() => TFtag.setEntityTags("note", cid, s.tags || []));
+    return noteFromServer(s, cid, cache)
+      .then((rec) => TFdb.mutate("scratchpad_notes", cid, (cur) => Object.assign(rec, extra || {}, { rev: cur ? (cur.rev || 0) + 1 : 0 })))
+      .then(() => TFtag.setEntityTags("note", cid, s.tags || []));
+  }
+  // Prinsip 7 (edit-vs-edit note): versi lokal yang dirty + punya op tertunda TIDAK dibuang/ditimpa — selalu
+  // disimpan sebagai salinan konflik "(konflik) <judul>" dan record asli mengadopsi versi server + notice
+  // conflict_copy (noterepo.keepLocalAsConflictCopy, satu transaksi; op asli dibuang di dalamnya).
+  // Fallback (noterepo lama tanpa helper): LWW lama — server menang hanya bila lebih baru (+ notice overwritten).
+  function noteEditConflict(s, cid, local, cache, result) {
+    const editor = s.last_editor_display_name || s.last_editor_username || "Pengguna lain";
+    const nr = noteRepo();
+    if (nr && typeof nr.keepLocalAsConflictCopy === "function") {
+      return nr.keepLocalAsConflictCopy(cid, s, { noteCidCache: cache, editor: editor }).then((r) => {
+        if (!r) { result.skipped++; return; }
+        result.conflictCopies++;
+        result.changedCids.push(cid, r.copy.cid);
+      });
+    }
+    if (tsEpoch(s.updated_at) > tsEpoch(local.updated_at)) {
+      result.changedCids.push(cid);
+      return dropOutbox("note", cid).then(() => writeNote(s, cid, cache, { notice: { kind: "overwritten", title: s.title, editor: editor } }));
+    }
   }
 
   // fetchOne(serverId) opsional: GET /api/scratchpad/:id → body | {status:404|403} | null — konfirmasi sebelum hapus lokal.
@@ -604,36 +631,38 @@
       .then(([localAll, outboxOps]) => {
         const pendingNoteOps = new Set(outboxOps.filter((o) => o.entity_type === "note").map((o) => o.cid));
         const byCid = {}; for (const r of localAll) byCid[r.cid] = r;
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0, relinked: 0, requeued: 0 };
+        // changedCids: cid yang record lokalnya ditulis/dihapus pull ini (+ salinan konflik) → sync() mengirim
+        // noteSaved {cids} supaya editor yang terbuka memuat ulang / menampilkan banner (T5).
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflictCopies: 0, pinned: 0, relinked: 0, listAdopted: 0, requeued: 0, changedCids: [] };
         let chain = requeueDirtyWithoutOps("note", localAll, pendingNoteOps, result);
         for (const s of list) {
           const cid = cache[s.id];
           const local = byCid[cid];
           chain = chain.then(() => {
-            if (!local || (local.deleted && !pendingNoteOps.has(cid))) { result.created++; return writeNote(s, cid, cache); }
+            if (!local || (local.deleted && !pendingNoteOps.has(cid))) { result.created++; result.changedCids.push(cid); return writeNote(s, cid, cache); }
             if (local.conflict || local.sync_error) { result.skipped++; return; }
             if (local.dirty && pendingNoteOps.has(cid)) {
-              if (s.updated_at !== local.base_rev) {
+              // base_rev null = belum pernah sinkron: baris server berasal dari POST kita sendiri yang responsnya
+              // hilang (cocok lewat client_id) → bukan edit-vs-edit; lokal menang, op create (POST idempoten =
+              // upsert di server) mengirim isi lokal.
+              if (local.base_rev != null && s.updated_at !== local.base_rev) {
+                // edit-vs-edit (prinsip 7): versi lokal → salinan konflik, record asli ← versi server (bukan LWW)
                 result.lwwResolved++;
-                if (tsEpoch(s.updated_at) > tsEpoch(local.updated_at)) {
-                  return dropOutbox("note", cid).then(() => writeNote(s, cid, cache, {
-                    notice: { kind: "overwritten", title: s.title, editor: s.last_editor_display_name || s.last_editor_username || "Pengguna lain" },
-                  })); // server wins (LWW) — leave a notice
-                }
-                return; // local wins
+                return noteEditConflict(s, cid, local, cache, result);
               }
               result.skipped++; return;
             }
             // dirty tanpa op sudah diantre ulang di atas (ada di pendingNoteOps) → tidak pernah sampai sini
             if (s.updated_at !== local.base_rev || local.deleted) {
-              result.updated++; return writeNote(s, cid, cache, local.notice ? { notice: local.notice } : undefined);
+              result.updated++; result.changedCids.push(cid);
+              return writeNote(s, cid, cache, local.notice ? { notice: local.notice } : undefined);
             }
             // updated_at sama, tapi server menautkan note yang kini punya cid lain secara lokal (mis. note dipulihkan
             // dari Sampah → dibuat ulang dengan cid baru): perbarui linked_to_cids saja (rekaman bersih saja).
             if (!local.dirty && linksStale(s, local, cache)) {
               return getNoteRec(cid).then((cur) => {
                 if (!cur || cur.dirty || cur.deleted || !linksStale(s, cur, cache)) return;
-                result.relinked++;
+                result.relinked++; result.changedCids.push(cid);
                 return putNote(Object.assign({}, cur, { linked_to_cids: JSON.stringify(serverLinkCids(s, cache)) }));
               });
             }
@@ -657,12 +686,14 @@
             }
             return confirmGone(fetchOne, r.server_id).then((gone) => {
               if (!gone) { result.skipped++; return; }
-              result.deleted++;
+              result.deleted++; result.changedCids.push(r.cid);
               return deleteNoteRec(r.cid).then(() => TFidmap.mapDelete("note", r.server_id));
             });
           });
         }
-        // pass 4: adopt server pinned for notes with no pending pin op (pin is orthogonal to updated_at).
+        // pass 4: adopt server pinned for notes with no pending pin op (pin is orthogonal to updated_at), dan
+        // K4: list_id server diadopsi walau updated_at sama (share/unshare hanya lewat PATCH /share; PUT tidak
+        // mengirim list_id → nilai server selalu otoritatif, juga untuk record dirty). Lewat TFdb.mutate.
         chain = chain.then(() => {
           const pendingPin = new Set(outboxOps.filter((o) => o.entity_type === "note" && o.op === "pin").map((o) => o.cid));
           return getAllNotes().then((fresh) => {
@@ -671,10 +702,18 @@
             for (const s of list) {
               const cid = cache[s.id];
               const local = freshByCid[cid];
-              if (!local || pendingPin.has(cid)) continue;
-              if (!!local.pinned !== !!s.pinned) {
-                c2 = c2.then(() => { result.pinned++; return putNote(Object.assign({}, local, { pinned: !!s.pinned })); });
-              }
+              if (!local || local.conflict || local.sync_error) continue;
+              const adoptPin = !pendingPin.has(cid) && !!local.pinned !== !!s.pinned;
+              const srvList = s.list_id != null ? s.list_id : null;
+              const adoptList = !local.deleted && (local.list_id != null ? local.list_id : null) !== srvList;
+              if (!adoptPin && !adoptList) continue;
+              c2 = c2.then(() => TFdb.mutate("scratchpad_notes", cid, (cur) => {
+                if (!cur) return undefined;
+                const next = Object.assign({}, cur);
+                if (adoptPin) { result.pinned++; next.pinned = !!s.pinned; }
+                if (adoptList) { result.listAdopted++; next.list_id = srvList; }
+                return next;
+              }));
             }
             return c2;
           });

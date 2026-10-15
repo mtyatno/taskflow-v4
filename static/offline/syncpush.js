@@ -16,6 +16,11 @@
   const TFtag = req("./tagrepo.js", root.TF && root.TF.tagrepo);
   const TFblob = req("./blobstore.js", root.TF && root.TF.blobstore);
   const TFrepo = req("./drawingrepo.js", root.TF && root.TF.drawingrepo);
+  // noterepo: salinan konflik (prinsip 7) & rewrite [tasklink:cid] (S15). Dibaca malas: di browser modul lama
+  // dari cache SW bisa tanpa fungsi itu → jalur lama tetap dipakai.
+  function noteRepo() {
+    try { return isNode ? require("./noterepo.js") : (root.TF && root.TF.noterepo); } catch (_) { return null; }
+  }
 
   function titleWithTags(record, tagNames) {
     const base = String(record.title == null ? "" : record.title).replace(/\s+$/, "");
@@ -110,8 +115,16 @@
       client_id: clientIdOf(record),
     };
   }
+  // PUT note: TANPA list_id (K4 — absen = server tidak mengubahnya; share/unshare hanya lewat PATCH /share,
+  // jadi list_id lokal yang basi tidak pernah meng-unshare / me-re-share catatan) dan TANPA client_id.
+  // base_rev (revisi server yang diketahui) disertakan bila ada → server menjawab 409 REV_MISMATCH bila baris
+  // sudah berubah (prinsip 7), bukan menimpa versi orang lain.
   function noteToUpdatePayload(record, tagNames, taskServerIds) {
-    return noteToCreatePayload(record, tagNames, taskServerIds);
+    const p = noteToCreatePayload(record, tagNames, taskServerIds);
+    delete p.list_id;
+    delete p.client_id;
+    if (record.base_rev != null && record.base_rev !== "") p.base_rev = record.base_rev;
+    return p;
   }
 
   const MM_DEFAULT_DATA = '{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}';
@@ -220,13 +233,21 @@
       tx.onerror = () => reject(tx.error);
     })).then(() => TFoutbox.outboxRemove(op.qid));
   }
-  function dispatchAuthExpired() {
+  function dispatchWindowEvent(name, detail) {
     try {
       const w = (typeof window !== "undefined") ? window : root;
       if (w && typeof w.dispatchEvent === "function" && typeof CustomEvent === "function") {
-        w.dispatchEvent(new CustomEvent("tf:auth-expired", { detail: { source: "syncpush" } }));
+        w.dispatchEvent(new CustomEvent(name, { detail: detail || {} }));
       }
     } catch (_) {}
+  }
+  function dispatchAuthExpired() { dispatchWindowEvent("tf:auth-expired", { source: "syncpush" }); }
+  // S15: task baru punya server id → [tasklink:<cid>] di note lokal diganti [tasklink:<sid>] (note jadi dirty +
+  // op update). Gagal di sini tidak boleh menggagalkan op create-nya.
+  function rewriteNoteTaskLinks(taskCid, sid) {
+    const nr = noteRepo();
+    if (!nr || typeof nr.rewriteTaskLinks !== "function") return Promise.resolve([]);
+    return Promise.resolve().then(() => nr.rewriteTaskLinks(taskCid, sid)).catch(() => []);
   }
 
   // ── CAS/rev (prinsip 4) — helper bersama task / note / habit / habit_log (mindmap: workstream D) ────────
@@ -389,6 +410,7 @@
               .then(() => markPushed("tasks", op.cid, sentRev, updatedAtOf(res), sid, taskAdopt(res.data)))
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => requeueIfDirty("tasks", "task", op.cid))
+              .then(() => rewriteNoteTaskLinks(op.cid, sid)) // S15
               .then(() => { result.pushed++; });
           }
           if (classify(res) === "forbidden") { return accessLost("tasks", op.cid, op, result); }
@@ -635,10 +657,32 @@
     });
   }
 
+  // 409 REV_MISMATCH (prinsip 7): server sudah punya revisi lain → versi lokal jadi salinan konflik pribadi,
+  // record asli mengadopsi baris server (`detail.current`), op tertunda dibuang. Bukan 409 rev (atau noterepo
+  // lama tanpa helper) → false, pemanggil memperlakukannya sebagai error permanen.
+  function noteRevMismatch(res) {
+    const d = res && res.status === 409 && res.data && res.data.detail;
+    return !!(d && typeof d === "object" && d.code === "REV_MISMATCH" && d.current && typeof d.current === "object");
+  }
+  function noteConflictCopy(op, res, result) {
+    const nr = noteRepo();
+    if (!nr || typeof nr.keepLocalAsConflictCopy !== "function") return Promise.resolve(false);
+    const cur = res.data.detail.current;
+    return nr.keepLocalAsConflictCopy(op.cid, cur, { editor: cur.last_editor_display_name || cur.last_editor_username || null })
+      .then((r) => TFoutbox.outboxRemove(op.qid).then(() => {
+        result.conflictCopies = (result.conflictCopies || 0) + 1;
+        if (r && r.copy) dispatchWindowEvent("noteSaved", { source: "syncpush", cids: [op.cid, r.copy.cid] });
+        return true;
+      }));
+  }
+
   function opNoteUpdate(op, transport, result) {
     return Promise.all([getNoteRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
       if (rec.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves; don't re-push against an unreachable note
+      // T4: record bersih (dirty 0 → server sudah memuat versi ini; mis. op update sisa setelah create sukses)
+      // → tidak ada yang dikirim; PUT kosong hanya mem-bump updated_at & "diedit oleh" di server.
+      if (!rec.dirty && !rec.deleted) return TFoutbox.outboxRemove(op.qid);
       return Promise.all([noteTagNames(op.cid), linkedTaskServerIds(rec)]).then(([tags, taskSids]) => {
         const sentRev = rec.rev || 0;
         return send(transport, "PUT", "/api/scratchpad/" + sid, noteToUpdatePayload(rec, tags, taskSids)).then((res) => {
@@ -648,6 +692,9 @@
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => requeueIfDirty("scratchpad_notes", "note", op.cid))
               .then(() => { result.pushed++; });
+          }
+          if (noteRevMismatch(res)) {
+            return noteConflictCopy(op, res, result).then((done) => (done ? null : failPermanent("scratchpad_notes", op.cid, res, op, result)));
           }
           const kind = classify(res);
           if (kind === "gone") {

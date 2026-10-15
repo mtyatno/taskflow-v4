@@ -423,13 +423,19 @@ test("noteToCreatePayload builds the ScratchpadCreate body with tags + task serv
   assert.equal(p.list_id, null);
 });
 
-test("noteToUpdatePayload has the same shape as create", () => {
-  const p = noteToUpdatePayload(note({ cid: "n", title: "T", content: "c" }), ["a"], []);
+// K4 (workstream C): PUT tidak mengirim list_id (absen = server tidak mengubahnya) maupun client_id;
+// base_rev disertakan bila record punya revisi server (prinsip 7 → 409 REV_MISMATCH bila basi).
+test("noteToUpdatePayload omits list_id/client_id and carries base_rev when known", () => {
+  const p = noteToUpdatePayload(note({ cid: "n", title: "T", content: "c", list_id: 9 }), ["a"], []);
   assert.equal(p.title, "T");
   assert.equal(p.content, "c");
   assert.deepEqual(p.tags, ["a"]);
   assert.deepEqual(p.linked_task_ids, []);
-  assert.equal(p.list_id, null);
+  assert.ok(!("list_id" in p), "list_id tidak boleh dikirim pada PUT");
+  assert.ok(!("client_id" in p));
+  assert.ok(!("base_rev" in p), "base_rev null → tidak dikirim (server memakai jalur lama)");
+  const p2 = noteToUpdatePayload(note({ cid: "n", base_rev: "2026-10-15T10:00:00" }), [], []);
+  assert.equal(p2.base_rev, "2026-10-15T10:00:00");
 });
 
 const { mapPut: _mapPutN, cidOf: _cidOfN } = require("../../static/offline/idmap.js");
