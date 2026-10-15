@@ -492,8 +492,9 @@ def migrate_db():
         try:
             try:
                 conn.execute(f"ALTER TABLE {_tbl} ADD COLUMN client_id TEXT")
-            except sqlite3.OperationalError:
-                pass  # kolom sudah ada
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower():
+                    raise  # "database is locked" dsb. tidak boleh ditelan — deploy harus gagal terlihat
             try:
                 conn.execute(
                     f"CREATE UNIQUE INDEX IF NOT EXISTS {_idx} ON {_tbl}(user_id, client_id) WHERE client_id IS NOT NULL"

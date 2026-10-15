@@ -51,14 +51,46 @@
       tx.onerror = () => reject(tx.error);
     }));
   }
-  function ensureCid(serverId, cache) {
+  // T11 (klien): baris server yang dibuat oleh POST kita sendiri (client_id = cid / client_id lokal) tetapi
+  // responsnya hilang (timeout) harus dikenali sebagai record lokal yang sama — bukan dibuatkan cid baru
+  // (duplikat hantu yang bertahan setelah retry POST mengembalikan baris yang sama).
+  function findByClientId(rows, serverObj) {
+    const clientId = serverObj && serverObj.client_id != null ? String(serverObj.client_id) : null;
+    if (!clientId) return undefined;
+    return rows.find((r) => r.cid === clientId || (r.client_id != null && String(r.client_id) === clientId));
+  }
+  function ensureCid(serverId, cache, serverObj, localAll) {
     if (cache[serverId]) return Promise.resolve(cache[serverId]);
     return TFidmap.cidOf("task", serverId).then((cid) => {
       if (cid) { cache[serverId] = cid; return cid; }
-      const fresh = TFids.newCid();
+      const existing = findByClientId(localAll || [], serverObj);
+      const fresh = existing ? existing.cid : TFids.newCid();
       cache[serverId] = fresh;
       return TFidmap.mapPut("task", serverId, fresh).then(() => fresh);
     });
+  }
+  // Tulis record dari server lewat CAS (prinsip 4): hanya bila record masih seperti saat pull membacanya
+  // (rev/dirty/deleted sama; atau tetap belum ada). Berubah selama pull (autosave/edit pengguna) → lewati,
+  // pull berikutnya yang merekonsiliasi. Resolve true bila ditulis.
+  function sameRecState(cur, local) {
+    if (!local) return !cur;
+    return !!cur && (cur.rev || 0) === (local.rev || 0) && !!cur.dirty === !!local.dirty && !!cur.deleted === !!local.deleted;
+  }
+  function putIfUnchanged(storeName, rec, local) {
+    return TFdb.mutate(storeName, rec.cid, (cur) => (sameRecState(cur, local) ? rec : undefined)).then((saved) => !!saved);
+  }
+  // Field turunan server (kuadran dari cron Eisenhower, tanggal akhir/level notif recurring, completed_at) tidak
+  // lagi mem-bump updated_at (K2) → diadopsi terpisah pada record bersih yang "tidak berubah" menurut base_rev.
+  const TASK_DERIVED = ["quadrant", "recurrence_end_date", "recurrence_notif_level", "completed_at"];
+  function adoptTaskDerived(s, local) {
+    const diff = TASK_DERIVED.some((k) => (s[k] != null ? s[k] : null) !== (local[k] != null ? local[k] : null));
+    if (!diff) return Promise.resolve(false);
+    return TFdb.mutate("tasks", local.cid, (cur) => {
+      if (!sameRecState(cur, local)) return undefined;
+      const next = Object.assign({}, cur);
+      for (const k of TASK_DERIVED) next[k] = s[k] != null ? s[k] : null;
+      return next;
+    }).then((saved) => !!saved);
   }
 
   // Normalize a timestamp to epoch ms; treat a tz-less string (server naive) as UTC.
@@ -112,7 +144,8 @@
   function pullTasks(serverList, fetchOne) {
     const list = serverList || [];
     const cache = {}; // serverId -> cid
-    return list.reduce((p, s) => p.then(() => ensureCid(s.id, cache)), Promise.resolve())
+    return getAllTasks()
+      .then((pre) => list.reduce((p, s) => p.then(() => ensureCid(s.id, cache, s, pre)), Promise.resolve()))
       .then(() => Promise.all([getAllTasks(), TFoutbox.outboxAll()]))
       .then(([localAll, outboxOps]) => {
         const pendingTaskOps = new Set(outboxOps.filter((o) => o.entity_type === "task").map((o) => o.cid));
@@ -120,39 +153,57 @@
         for (const r of localAll) localByCid[r.cid] = r;
         const getCid = (sid) => cache[sid] || null;
         // rev (prinsip 4) ikut naik saat pull menimpa record: push in-flight yang membaca rev lama tidak akan
-        // menandai hasil pull ini "bersih" dengan sentRev-nya.
+        // menandai hasil pull ini "bersih" dengan sentRev-nya. Penulisan lewat CAS (putIfUnchanged): record yang
+        // berubah selama pull (edit pengguna) tidak ditimpa.
         const fromServer = (s, localRec) => Object.assign(TFhydrate.taskFromServer(s, getCid), { rev: localRec ? (localRec.rev || 0) + 1 : 0 });
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflicts: 0, requeued: 0 };
+        const write = (s, localRec, counter) => putIfUnchanged("tasks", fromServer(s, localRec), localRec)
+          .then((wrote) => { if (wrote) result[counter]++; else result.skipped++; });
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflicts: 0, requeued: 0, derived: 0 };
         let chain = requeueDirtyWithoutOps("task", localAll, pendingTaskOps, result);
         for (const s of list) {
           const cid = cache[s.id];
           const localRec = localByCid[cid];
           chain = chain.then(() => {
-            if (!localRec || (localRec.deleted && !pendingTaskOps.has(cid))) { result.created++; return putTask(fromServer(s, localRec)); }
+            if (!localRec || (localRec.deleted && !pendingTaskOps.has(cid))) { return write(s, localRec, "created"); }
             if (localRec.conflict || localRec.sync_error) { result.skipped++; return; } // sync_error: tunggu "Coba lagi"/"Buang"
             if (localRec.dirty && pendingTaskOps.has(cid)) {
-              if (s.updated_at !== localRec.base_rev) {
+              // base_rev null = belum pernah sinkron: baris server berasal dari POST kita sendiri yang responsnya
+              // hilang (dikenali lewat client_id) → bukan edit-vs-edit; lokal menang, op create (upsert idempoten
+              // di server) mengirim isi lokal dan memetakan server_id.
+              if (localRec.base_rev != null && s.updated_at !== localRec.base_rev) {
                 // edit-vs-edit conflict → last-write-wins
                 result.lwwResolved++;
                 if (tsEpoch(s.updated_at) > tsEpoch(localRec.updated_at)) {
-                  return dropOutbox("task", cid).then(() => putTask(fromServer(s, localRec))); // server wins
+                  return dropOutbox("task", cid).then(() => write(s, localRec, "updated")); // server wins
                 }
                 return; // local wins — keep dirty, push will send
               }
               result.skipped++; return; // local pending, server unchanged
             }
             // dirty tanpa op sudah diantre ulang di atas (ada di pendingTaskOps) → tidak pernah sampai sini
-            if (s.updated_at !== localRec.base_rev || localRec.deleted) { result.updated++; return putTask(fromServer(s, localRec)); }
-            return; // unchanged
+            if (s.updated_at !== localRec.base_rev || localRec.deleted) { return write(s, localRec, "updated"); }
+            // updated_at sama → hanya field turunan (kuadran cron, dsb.) yang mungkin berubah (K2)
+            return adoptTaskDerived(s, localRec).then((adopted) => { if (adopted) result.derived++; });
           });
         }
         const serverIds = new Set(list.map((s) => String(s.id)));
         for (const r of localAll) {
           if (r.server_id == null) continue;
+          // duplikat hantu: server id yang sama kini dipetakan ke cid lain (baris dikenali lewat client_id) →
+          // buang salinan yang bersih; yang punya edit tertunda dibiarkan (sudah diantre ulang) sampai terkirim
+          const expectedCid = cache[r.server_id];
+          if (expectedCid && r.cid !== expectedCid) {
+            if (!(r.dirty && !r.deleted)) chain = chain.then(() => deleteTask(r.cid));
+            else chain = chain.then(() => { result.skipped++; });
+            continue;
+          }
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
             if (r.conflict || r.sync_error) { result.skipped++; return; }
-            if (r.dirty && pendingTaskOps.has(r.cid)) { result.conflicts++; return putTask(Object.assign({}, r, { conflict: "remote_deleted" })); }
+            if (r.dirty && pendingTaskOps.has(r.cid)) {
+              result.conflicts++;
+              return TFdb.mutate("tasks", r.cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "remote_deleted" }) : undefined));
+            }
             return confirmGone(fetchOne, r.server_id).then((gone) => {
               if (!gone) { result.skipped++; return; }
               result.deleted++;
@@ -222,11 +273,13 @@
       tx.onerror = () => reject(tx.error);
     })).then(() => (TFhabitrepo && TFhabitrepo.deleteLogsOfHabit ? TFhabitrepo.deleteLogsOfHabit(cid) : 0));
   }
-  function ensureHabitCid(serverId, cache) {
+  function ensureHabitCid(serverId, cache, serverObj, localAll) {
     if (cache[serverId]) return Promise.resolve(cache[serverId]);
     return TFidmap.cidOf("habit", serverId).then((cid) => {
       if (cid) { cache[serverId] = cid; return cid; }
-      const fresh = TFids.newCid();
+      // T11: baris hasil POST kita yang responsnya hilang dikenali lewat client_id → bukan duplikat hantu
+      const existing = findByClientId(localAll || [], serverObj);
+      const fresh = existing ? existing.cid : TFids.newCid();
       cache[serverId] = fresh;
       return TFidmap.mapPut("habit", serverId, fresh).then(() => fresh);
     });
@@ -235,7 +288,8 @@
   function pullHabits(serverHabits) {
     const list = serverHabits || [];
     const cache = {};
-    return list.reduce((p, h) => p.then(() => ensureHabitCid(h.id, cache)), Promise.resolve())
+    return getAllHabits()
+      .then((pre) => list.reduce((p, h) => p.then(() => ensureHabitCid(h.id, cache, h, pre)), Promise.resolve()))
       .then(() => Promise.all([getAllHabits(), TFoutbox.outboxAll()]))
       .then(([localAll, outboxOps]) => {
         const pendingHabitOps = new Set(outboxOps.filter((o) => o.entity_type === "habit").map((o) => o.cid));
@@ -244,19 +298,30 @@
         const result = { created: 0, updated: 0, deleted: 0, skipped: 0, requeued: 0 };
         // dirty tanpa op → antre ulang (create/update), jangan timpa; sync_error/conflict → lewati
         let chain = requeueDirtyWithoutOps("habit", localAll, pendingHabitOps, result);
+        const write = (h, cid, localRec, counter) => putIfUnchanged("habits",
+            Object.assign(habitFromServer(h, cid), { rev: localRec ? (localRec.rev || 0) + 1 : 0 }), localRec)
+          .then((wrote) => { if (wrote) result[counter]++; else result.skipped++; });
         for (const h of list) {
           const cid = cache[h.id];
           const localRec = localByCid[cid];
           chain = chain.then(() => {
-            if (!localRec) { result.created++; return putHabit(Object.assign(habitFromServer(h, cid), { rev: 0 })); }
+            // tombstone tanpa op delete (DELETE ditolak permanen / op dibuang) → server masih punya habit-nya →
+            // pulihkan dari server (log-nya kembali lewat pullHabitLogs); dulu record ini dilewati selamanya
+            if (!localRec || (localRec.deleted && !pendingHabitOps.has(cid))) { return write(h, cid, localRec, "created"); }
             if (localRec.dirty || localRec.sync_error || localRec.conflict) { result.skipped++; return; }
-            if (habitChanged(localRec, h)) { result.updated++; return putHabit(Object.assign(habitFromServer(h, cid), { rev: (localRec.rev || 0) + 1 })); }
+            if (habitChanged(localRec, h)) { return write(h, cid, localRec, "updated"); }
             return;
           });
         }
         const serverIds = new Set(list.map((h) => String(h.id)));
         for (const r of localAll) {
           if (r.server_id == null) continue;
+          const expectedCid = cache[r.server_id];
+          if (expectedCid && r.cid !== expectedCid) { // duplikat hantu (lihat pullTasks)
+            if (!(r.dirty && !r.deleted)) chain = chain.then(() => deleteHabitRec(r.cid));
+            else chain = chain.then(() => { result.skipped++; });
+            continue;
+          }
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
             if (r.dirty || r.sync_error || r.conflict) { result.skipped++; return; }
@@ -476,6 +541,7 @@
                 result.created++;
                 return putException({ cid: TFids.newCid(), task_cid: taskCid, occurrence_date: e.occurrence_date, status: e.status, created_at: now, dirty: 0 });
               }
+              if (local.sync_error) { result.skipped++; return; } // ditolak server → tunggu penandaan ulang
               if (pendingByCid.has(local.cid)) {
                 if (local.status !== e.status) { result.skipped++; return; } // op lokal tertunda menang
                 return updateExceptionIfUnchanged(local, { dirty: 0 }).then((saved) => {
@@ -497,7 +563,7 @@
       chain = chain.then(() => localAll.reduce((p, r) => p.then(() => {
         const key = r.task_cid + "|" + r.occurrence_date;
         if (serverKeys.has(key)) return;
-        if (pendingByCid.has(r.cid)) return; // belum terkirim → bukan bukti absen
+        if (pendingByCid.has(r.cid) || r.sync_error) return; // belum terkirim / ditolak → bukan bukti absen
         const d = String(r.occurrence_date);
         if ((from && d < from) || (to && d > to)) return; // di luar jendela
         const sidP = sidByTaskCid[r.task_cid] != null ? Promise.resolve(sidByTaskCid[r.task_cid]) : TFidmap.serverIdOf(r.task_cid);
@@ -598,10 +664,17 @@
   }
   // Tulis versi server ke record lokal lewat TFdb.mutate (prinsip 4): rev lokal ikut naik supaya push in-flight
   // yang membaca rev lama tidak menandai hasil pull ini "bersih" dengan sentRev-nya (dulu rev hilang → 0).
-  function writeNote(s, cid, cache, extra) {
+  // CAS (prinsip 4): `local` = record saat pull membacanya (undefined = belum ada). Record yang berubah selama
+  // pull (autosave editor: dirty + op) TIDAK ditimpa — pull berikutnya merekonsiliasi (sebagai edit-vs-edit).
+  // Resolve true bila ditulis.
+  function writeNote(s, cid, cache, extra, local) {
     return noteFromServer(s, cid, cache)
-      .then((rec) => TFdb.mutate("scratchpad_notes", cid, (cur) => Object.assign(rec, extra || {}, { rev: cur ? (cur.rev || 0) + 1 : 0 })))
-      .then(() => TFtag.setEntityTags("note", cid, s.tags || []));
+      .then((rec) => TFdb.mutate("scratchpad_notes", cid, (cur) => {
+        if (local !== undefined && !sameRecState(cur, local)) return undefined;
+        if (local === undefined && cur && (cur.dirty || (cur.rev || 0) > 0)) return undefined; // dibuat/diedit lokal selama pull
+        return Object.assign(rec, extra || {}, { rev: cur ? (cur.rev || 0) + 1 : 0 });
+      }))
+      .then((saved) => (saved ? TFtag.setEntityTags("note", cid, s.tags || []).then(() => true) : false));
   }
   // Prinsip 7 (edit-vs-edit note): versi lokal yang dirty + punya op tertunda TIDAK dibuang/ditimpa — selalu
   // disimpan sebagai salinan konflik "(konflik) <judul>" dan record asli mengadopsi versi server + notice
@@ -613,13 +686,13 @@
     if (nr && typeof nr.keepLocalAsConflictCopy === "function") {
       return nr.keepLocalAsConflictCopy(cid, s, { noteCidCache: cache, editor: editor }).then((r) => {
         if (!r) { result.skipped++; return; }
-        result.conflictCopies++;
-        result.changedCids.push(cid, r.copy.cid);
+        if (r.copy) { result.conflictCopies++; result.changedCids.push(cid, r.copy.cid); }
+        else { result.updated++; result.changedCids.push(cid); } // isi sama (gema PUT sendiri) → hanya base_rev maju
       });
     }
     if (tsEpoch(s.updated_at) > tsEpoch(local.updated_at)) {
       result.changedCids.push(cid);
-      return dropOutbox("note", cid).then(() => writeNote(s, cid, cache, { notice: { kind: "overwritten", title: s.title, editor: editor } }));
+      return dropOutbox("note", cid).then(() => writeNote(s, cid, cache, { notice: { kind: "overwritten", title: s.title, editor: editor } }, local));
     }
   }
 
@@ -640,7 +713,9 @@
           const cid = cache[s.id];
           const local = byCid[cid];
           chain = chain.then(() => {
-            if (!local || (local.deleted && !pendingNoteOps.has(cid))) { result.created++; result.changedCids.push(cid); return writeNote(s, cid, cache); }
+            if (!local || (local.deleted && !pendingNoteOps.has(cid))) {
+              return writeNote(s, cid, cache, undefined, local).then((wrote) => { if (wrote) { result.created++; result.changedCids.push(cid); } else result.skipped++; });
+            }
             if (local.conflict || local.sync_error) { result.skipped++; return; }
             if (local.dirty && pendingNoteOps.has(cid)) {
               // base_rev null = belum pernah sinkron: baris server berasal dari POST kita sendiri yang responsnya
@@ -655,8 +730,8 @@
             }
             // dirty tanpa op sudah diantre ulang di atas (ada di pendingNoteOps) → tidak pernah sampai sini
             if (s.updated_at !== local.base_rev || local.deleted) {
-              result.updated++; result.changedCids.push(cid);
-              return writeNote(s, cid, cache, local.notice ? { notice: local.notice } : undefined);
+              return writeNote(s, cid, cache, local.notice ? { notice: local.notice } : undefined, local)
+                .then((wrote) => { if (wrote) { result.updated++; result.changedCids.push(cid); } else result.skipped++; });
             }
             // updated_at sama, tapi server menautkan note yang kini punya cid lain secara lokal (mis. note dipulihkan
             // dari Sampah → dibuat ulang dengan cid baru): perbarui linked_to_cids saja (rekaman bersih saja).
@@ -675,14 +750,19 @@
           if (r.server_id == null) continue;
           const expectedCid = cache[r.server_id];
           if (expectedCid && r.cid !== expectedCid) {
-            chain = chain.then(() => deleteNoteRec(r.cid));
+            // duplikat hantu: salinan bersih dibuang; yang punya edit tertunda dibiarkan sampai terkirim
+            if (!(r.dirty && !r.deleted)) chain = chain.then(() => deleteNoteRec(r.cid));
+            else chain = chain.then(() => { result.skipped++; });
             continue;
           }
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
             if (r.conflict || r.sync_error) { result.skipped++; return; }
             if (r.dirty && pendingNoteOps.has(r.cid)) {
-              if (r.list_id != null) { result.skipped++; return putNote(Object.assign({}, r, { conflict: "remote_deleted" })); }
+              if (r.list_id != null) {
+                result.skipped++;
+                return TFdb.mutate("scratchpad_notes", r.cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "remote_deleted" }) : undefined));
+              }
               result.skipped++; return; // personal local-wins; push update→404→re-create
             }
             return confirmGone(fetchOne, r.server_id).then((gone) => {
@@ -745,11 +825,13 @@
       tx.onerror = () => reject(tx.error);
     }));
   }
-  function ensureMindmapCid(serverId, cache) {
+  function ensureMindmapCid(serverId, cache, serverObj, localAll) {
     if (cache[serverId]) return Promise.resolve(cache[serverId]);
     return TFidmap.cidOf("mindmap", serverId).then((cid) => {
       if (cid) { cache[serverId] = cid; return cid; }
-      const fresh = TFids.newCid();
+      // T11: baris hasil POST kita yang responsnya hilang dikenali lewat client_id → bukan duplikat hantu
+      const existing = findByClientId(localAll || [], serverObj);
+      const fresh = existing ? existing.cid : TFids.newCid();
       cache[serverId] = fresh;
       return TFidmap.mapPut("mindmap", serverId, fresh).then(() => fresh);
     });
@@ -784,7 +866,8 @@
   function pullMindmaps(serverList, fetchOne, confirmOne) {
     const list = (serverList || []);
     const cache = {};
-    return list.reduce((p, s) => p.then(() => ensureMindmapCid(s.id, cache)), Promise.resolve())
+    return getAllMindmaps()
+      .then((pre) => list.reduce((p, s) => p.then(() => ensureMindmapCid(s.id, cache, s, pre)), Promise.resolve()))
       .then(() => Promise.all([getAllMindmaps(), TFoutbox.outboxAll()]))
       .then(([localAll, outboxOps]) => {
         const pendingMindmapOps = new Set(outboxOps.filter((o) => o.entity_type === "mindmap").map((o) => o.cid));
@@ -801,7 +884,9 @@
             }
             if (local.conflict || local.sync_error) { result.skipped++; return; }
             if (local.dirty && pendingMindmapOps.has(cid)) {
-              if (s.updated_at !== local.base_rev) {
+              // base_rev null = baris server hasil POST kita sendiri (respons hilang, dikenali lewat client_id) →
+              // bukan edit-vs-edit; lokal menang, op create (upsert idempoten) yang mengirim isi lokal.
+              if (local.base_rev != null && s.updated_at !== local.base_rev) {
                 // Konflik edit-vs-edit (T3 / prinsip 7): BUKAN LWW — versi lokal disimpan sebagai salinan konflik
                 // "(konflik) <judul>", record asli mengadopsi baris server (op asli dibuang, salinan punya op create).
                 return Promise.resolve(fetchOne(s.id)).then((fullRow) => {
@@ -827,6 +912,12 @@
         const serverIds = new Set(list.map((s) => String(s.id)));
         for (const r of localAll) {
           if (r.server_id == null) continue;
+          const expectedCid = cache[r.server_id];
+          if (expectedCid && r.cid !== expectedCid) { // duplikat hantu (lihat pullTasks)
+            if (!(r.dirty && !r.deleted)) chain = chain.then(() => deleteMindmapRec(r.cid));
+            else chain = chain.then(() => { result.skipped++; });
+            continue;
+          }
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
             if (r.conflict || r.sync_error) { result.skipped++; return; }

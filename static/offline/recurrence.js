@@ -62,7 +62,9 @@
         const c = e.target.result;
         if (c) {
           if (c.value.occurrence_date === occurrenceDate) {
-            record = Object.assign({}, c.value, { status: status });
+            // penandaan ulang = percobaan baru: dirty lagi, sync_error (penolakan server sebelumnya) dihapus
+            record = Object.assign({}, c.value, { status: status, dirty: 1 });
+            delete record.sync_error;
             c.update(record);
             return; // matched — stop
           }

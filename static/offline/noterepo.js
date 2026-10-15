@@ -281,16 +281,23 @@
         r.onsuccess = () => {
           const cur = r.result;
           if (!cur || cur.deleted) return;
-          const copy = buildConflictCopy(cur, now);
-          notes.put(copy);
-          ob.add({ ts: Date.now(), retries: 0, op: "create", entity_type: "note", cid: copy.cid, payload: copy });
+          // Isi lokal sama dengan versi server (mis. PUT kita sendiri diterima server tapi responsnya hilang →
+          // base_rev tertinggal): bukan konflik → adopsi server (base_rev maju, op dibuang) TANPA salinan.
+          const sameContent = (cur.title || "") === (fields.title || "")
+            && (cur.content || "") === (fields.content || "")
+            && (cur.meta_json || "{}") === (fields.meta_json || "{}");
+          const copy = sameContent ? null : buildConflictCopy(cur, now);
+          if (copy) {
+            notes.put(copy);
+            ob.add({ ts: Date.now(), retries: 0, op: "create", entity_type: "note", cid: copy.cid, payload: copy });
+          }
           const original = Object.assign({}, cur, fields, {
             server_id: cur.server_id != null ? cur.server_id : (srv.id != null ? srv.id : null),
             deleted: false, dirty: 0,
             base_rev: srv.updated_at != null ? srv.updated_at : null,
             rev: (cur.rev || 0) + 1,
-            notice: { kind: "conflict_copy", title: fields.title, copyTitle: copy.title, editor: editor },
           });
+          if (copy) original.notice = { kind: "conflict_copy", title: fields.title, copyTitle: copy.title, editor: editor };
           delete original.conflict;
           delete original.sync_error;
           notes.put(original);
@@ -308,6 +315,7 @@
         tx.onabort = () => reject(tx.error || new Error("conflict copy aborted"));
       })).then((res) => {
         if (!res) return null;
+        if (!res.copy) return TFtag.setEntityTags("note", cid, srv.tags || []).then(() => res);
         return TFtag.setEntityTags("note", res.copy.cid, localTags.map((t) => t.name))
           .then(() => TFtag.setEntityTags("note", cid, srv.tags || []))
           .then(() => { emitWindowEvent("tf:outbox-queued", { entity: "note", cid: res.copy.cid }); return res; });

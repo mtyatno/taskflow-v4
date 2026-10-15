@@ -9178,7 +9178,17 @@ function MindmapTabInstance({
       }
       setSyncStatus("saved");
       return res;
-    }).catch(() => { if (seq === saveSeqRef.current && !pendingSaveRef.current) pendingEditRef.current = false; setSyncStatus("offline"); return null; });
+    }).catch(() => {
+      // simpan lokal gagal (mis. DB terkunci): edit JANGAN dibuang — kembalikan ke antrean (bila belum ada edit
+      // yang lebih baru) dan coba lagi; tab tetap "dirty" supaya mindmapSynced tidak menimpanya
+      if (seq === saveSeqRef.current && !pendingSaveRef.current) {
+        pendingSaveRef.current = p;
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(doSave, 5000);
+      }
+      setSyncStatus("offline");
+      return null;
+    });
   };
   const scheduleSave = (mid, dataStr) => {
     setSyncStatus("saving");
@@ -30393,10 +30403,25 @@ function App() {
   }, [focusTask, timer, showToast]);
   const logout = useCallback(async () => {
     if (!tokenStore.get()) return;
+    // Logout manual menghapus IndexedDB (data pengguna tidak boleh tertinggal di perangkat bersama) → kirim
+    // dulu op yang belum terkirim. Bila masih ada yang tertahan (offline / sesi sudah berakhir / error),
+    // konfirmasi dulu: perubahan offline itu akan hilang permanen (prinsip 1: tidak ada penghapusan diam-diam).
+    let pending = 0;
     if (navigator.onLine && window.__pushNow) {
       try {
-        await window.__pushNow();
+        const r = await window.__pushNow();
+        if (r && typeof r.remaining === "number" && r.remaining > 0) pending = r.remaining;
+        if (r && r.authExpired && pending > 0) {
+          // sesi berakhir: handleAuthExpired sudah menampilkan form login; data lokal dipertahankan → batal logout
+          return;
+        }
       } catch (_) {}
+    } else if (window.TF?.outbox?.outboxAll) {
+      try { pending = (await window.TF.outbox.outboxAll()).length; } catch (_) {}
+    }
+    if (pending > 0) {
+      const ok = window.confirm(`Masih ada ${pending} perubahan offline yang belum terkirim ke server. Keluar sekarang akan menghapusnya dari perangkat ini. Tetap keluar?`);
+      if (!ok) return;
     }
     try {
       await api.post("/api/auth/logout", {});

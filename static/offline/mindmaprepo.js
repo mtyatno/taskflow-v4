@@ -92,6 +92,7 @@
     const baseTitle = localTitle != null ? localTitle : (cur.title != null ? cur.title : "Untitled");
     return {
       cid: cid, server_id: null, client_id: cid,
+      conflict_of: cur.cid, // asal salinan → edit tab lanjutan untuk konflik yang sama memperbarui salinan ini
       title: (String(baseTitle).indexOf(CONFLICT_PREFIX) === 0 ? "" : CONFLICT_PREFIX) + baseTitle,
       data_json: localData != null ? localData : (cur.data_json != null ? cur.data_json : DEFAULT_DATA),
       pinned: false, list_id: null,
@@ -188,22 +189,46 @@
     });
   }
   // Edit tab yang basis-nya sudah diganti → salinan konflik (satu transaksi mindmaps + _outbox).
+  // Bila pull/409 untuk konflik yang sama BARU SAJA membuat salinan dari versi lokal yang lebih lama
+  // (conflict_of = cid, belum di-push atau dibuat < REUSE_COPY_MS lalu), edit tab (superset-nya) memperbarui salinan
+  // itu — bukan membuat salinan kedua untuk satu sesi edit.
+  const REUSE_COPY_MS = 30 * 60 * 1000;
   function saveAsConflictCopy(cid, stale, patch, now) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       let out = null;
       const tx = db.transaction(["mindmaps", "_outbox"], "readwrite");
       const ms = tx.objectStore("mindmaps");
-      const r = ms.get(cid);
-      r.onsuccess = () => {
-        const cur = r.result;
+      const ob = tx.objectStore("_outbox");
+      const all = ms.getAll();
+      all.onsuccess = () => {
+        const rows = all.result || [];
+        const cur = rows.find((m) => m.cid === cid);
         if (!cur || cur.deleted) return;
-        const copy = conflictCopyOf(cur, patch.title != null ? patch.title : stale.title, patch.data_json != null ? patch.data_json : stale.data_json, now);
+        const nowMs = Date.parse(now) || Date.now();
+        const reusable = rows.find((m) => m.conflict_of === cid && !m.deleted
+          && (m.server_id == null || (nowMs - (Date.parse(m.created_at) || 0)) < REUSE_COPY_MS));
+        const localTitle = patch.title != null ? patch.title : stale.title;
+        const localData = patch.data_json != null ? patch.data_json : stale.data_json;
+        let copy;
+        if (reusable) {
+          copy = Object.assign({}, reusable, {
+            data_json: localData != null ? localData : reusable.data_json,
+            updated_at: now, dirty: 1, rev: (reusable.rev || 0) + 1,
+          });
+          if (localTitle != null) copy.title = (String(localTitle).indexOf(CONFLICT_PREFIX) === 0 ? "" : CONFLICT_PREFIX) + localTitle;
+          ms.put(copy);
+          if (reusable.server_id != null) {
+            ob.add({ ts: Date.now(), retries: 0, op: "update", entity_type: "mindmap", cid: copy.cid, payload: { cid: copy.cid } });
+          } // belum di-push → op create-nya membaca record terkini saat dikirim
+        } else {
+          copy = conflictCopyOf(cur, localTitle, localData, now);
+          ms.put(copy);
+          ob.add({ ts: Date.now(), retries: 0, op: "create", entity_type: "mindmap", cid: copy.cid, payload: { cid: copy.cid } });
+        }
         const original = Object.assign({}, cur, {
           notice: { kind: "conflict_copy", title: cur.title, copyTitle: copy.title, editor: editorOf(cur) },
         });
         ms.put(original);
-        ms.put(copy);
-        tx.objectStore("_outbox").add({ ts: Date.now(), retries: 0, op: "create", entity_type: "mindmap", cid: copy.cid, payload: { cid: copy.cid } });
         out = Object.assign({}, original, { conflict_copy: copy });
       };
       tx.oncomplete = () => (out ? resolve(out) : reject(new Error("Mindmap not found")));

@@ -19,8 +19,13 @@
     try { return isNode ? require("./drawingrepo.js") : (root.TF && root.TF.drawingrepo); } catch (_) { return null; }
   }
 
-  const STORE = { task: "tasks", note: "scratchpad_notes", mindmap: "mindmaps", habit: "habits", drawing: "drawings" };
-  const ENTITIES = ["task", "note", "mindmap", "habit", "drawing"];
+  const STORE = {
+    task: "tasks", note: "scratchpad_notes", mindmap: "mindmaps", habit: "habits", drawing: "drawings",
+    // entitas "anak" tanpa judul sendiri: hanya sync_error (4xx permanen saat push) yang ditampilkan
+    habit_log: "habit_logs", recurring_exception: "recurring_exceptions",
+  };
+  const ENTITIES = ["task", "note", "mindmap", "habit", "drawing", "habit_log", "recurring_exception"];
+  const CHILD = { habit_log: true, recurring_exception: true };
 
   function getAll(store) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -61,13 +66,20 @@
   function listConflicts() {
     return Promise.all(ENTITIES.map((e) => getAll(STORE[e]))).then((rowsPerEntity) => {
       const out = [];
+      const habitTitle = {}; for (const h of rowsPerEntity[ENTITIES.indexOf("habit")]) habitTitle[h.cid] = h.title;
+      const taskTitle = {}; for (const t of rowsPerEntity[ENTITIES.indexOf("task")]) taskTitle[t.cid] = t.title;
+      const titleOf = (entity, r) => {
+        if (entity === "habit_log") return "Check-in " + (r.date || "") + (habitTitle[r.habit_cid] ? " — " + habitTitle[r.habit_cid] : "");
+        if (entity === "recurring_exception") return "Occurrence " + (r.occurrence_date || "") + (taskTitle[r.task_cid] ? " — " + taskTitle[r.task_cid] : "");
+        return r.title;
+      };
       ENTITIES.forEach((entity, i) => {
         for (const r of rowsPerEntity[i]) {
-          if (r.conflict) {
+          if (r.conflict && !CHILD[entity]) {
             out.push({ entity: entity, cid: r.cid, title: r.title, conflict: r.conflict, list_id: r.list_id != null ? r.list_id : null });
           } else if (r.sync_error && !r.deleted) {
             out.push({
-              entity: entity, cid: r.cid, title: r.title, conflict: "sync_error",
+              entity: entity, cid: r.cid, title: titleOf(entity, r), conflict: "sync_error",
               status: r.sync_error.status != null ? r.sync_error.status : null,
               detail: r.sync_error.detail != null ? r.sync_error.detail : "",
               at: r.sync_error.at != null ? r.sync_error.at : null,
@@ -86,6 +98,8 @@
   // Antre op yang tepat untuk record: create bila belum punya server_id, else update.
   // Drawing memakai bentuk op yang dibaca syncpush (payload metadata; data dibaca dari blob saat push).
   function queueRetryOp(entity, rec) {
+    if (entity === "habit_log") return TFoutbox.outboxAdd({ op: "checkin", entity_type: "habit_log", cid: rec.cid, payload: rec });
+    if (entity === "recurring_exception") return TFoutbox.outboxAdd({ op: "mark_occurrence", entity_type: "recurring_exception", cid: rec.cid, payload: rec });
     if (entity === "drawing") {
       if (rec.server_id == null) {
         return TFoutbox.outboxAdd({ op: "create", entity_type: "drawing", cid: rec.cid, payload: drawingMeta(rec) });
@@ -117,7 +131,8 @@
       }
       if (choice === "discard_local") {
         // "Buang perubahan lokal": ambil versi server. Belum pernah di-push (server_id null) → tidak ada versi server → hapus.
-        if (rec.server_id == null) {
+        // Entitas anak (log habit / occurrence) tidak punya server_id: hapus lokal → pull berikutnya memulihkan versi server bila ada.
+        if (rec.server_id == null || CHILD[entity]) {
           return dropOutbox(entity, cid).then(() => deleteRaw(store, cid)).then(() => ({ ok: true }));
         }
         // base_rev null → pull berikutnya melihat revisi server "lebih baru" dan menimpa record ini.

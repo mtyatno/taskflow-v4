@@ -299,6 +299,9 @@
       }
       const unchanged = (cur.rev || 0) === (sentRev || 0);
       next.dirty = (unchanged && !cur.deleted) ? 0 : 1;
+      // request sukses = error permanen sebelumnya (mis. 422) sudah teratasi oleh edit terbaru → hapus tanda
+      // sync_error supaya pull tidak lagi melewati record ini dan conflict bar tidak basi
+      delete next.sync_error;
       if (unchanged && typeof adopt === "function") adopt(next);
       return next;
     });
@@ -472,7 +475,9 @@
           return TFdb.mutate("recurring_exceptions", op.cid, (cur) => (cur ? Object.assign({}, cur, { dirty: 0 }) : undefined))
             .then(() => TFoutbox.outboxRemove(op.qid));
         }
-        return failPermanent(null, null, res, op, result);
+        // 4xx permanen (mis. 400 tanggal di luar masa recurring): record tetap dirty + sync_error → pull tidak
+        // menghapusnya diam-diam (prinsip 1); ditandai ulang saat pengguna menandai lagi (markOccurrence)
+        return failPermanent("recurring_exceptions", op.cid, res, op, result);
       });
     });
   }
@@ -528,6 +533,7 @@
                     if (!cur) return undefined;
                     const next = Object.assign({}, cur, { server_id: nid });
                     next.dirty = ((cur.rev || 0) === sentRev && !cur.deleted) ? 0 : 1;
+                    delete next.sync_error;
                     return next;
                   }))
                   .then(() => TFoutbox.outboxRemove(op.qid))
@@ -673,8 +679,13 @@
     const cur = res.data.detail.current;
     return nr.keepLocalAsConflictCopy(op.cid, cur, { editor: cur.last_editor_display_name || cur.last_editor_username || null })
       .then((r) => TFoutbox.outboxRemove(op.qid).then(() => {
-        result.conflictCopies = (result.conflictCopies || 0) + 1;
-        if (r && r.copy) dispatchWindowEvent("noteSaved", { source: "syncpush", cids: [op.cid, r.copy.cid] });
+        if (r && r.copy) {
+          result.conflictCopies = (result.conflictCopies || 0) + 1;
+          dispatchWindowEvent("noteSaved", { source: "syncpush", cids: [op.cid, r.copy.cid] });
+        } else if (r) {
+          result.pushed++; // isi sama dengan server (gema PUT sendiri) → base_rev maju tanpa salinan
+          dispatchWindowEvent("noteSaved", { source: "syncpush", cids: [op.cid] });
+        }
         return true;
       }));
   }
@@ -717,6 +728,7 @@
                     const ua = updatedAtOf(res2);
                     if (ua != null) next.base_rev = ua; // baris server baru → base_rev-nya
                     next.dirty = ((cur.rev || 0) === sentRev && !cur.deleted) ? 0 : 1;
+                    delete next.sync_error;
                     return next;
                   }))
                   .then(() => TFoutbox.outboxRemove(op.qid))
@@ -748,9 +760,10 @@
             .then(() => { result.pushed++; });
         }
         if (classify(res) === "forbidden") {
-          return (rec
-              ? putNoteRaw(Object.assign({}, rec, { deleted: false, dirty: 0, notice: { kind: "delete_refused", title: rec.title } }))
-              : Promise.resolve())
+          // hapus ditolak (hanya pemilik): batalkan tombstone pada record TERKINI (prinsip 4), beri notice
+          return TFdb.mutate("scratchpad_notes", op.cid, (cur) => (cur
+              ? Object.assign({}, cur, { deleted: false, dirty: 0, rev: (cur.rev || 0) + 1, notice: { kind: "delete_refused", title: cur.title } })
+              : undefined))
             .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
         }
         return failPermanent(null, null, res, op, result);
@@ -821,6 +834,7 @@
         else { next.base_blob_ref = null; needBase = true; } // dasar basi tidak boleh tersisa (jendela: union)
       }
       next.dirty = ((cur.rev || 0) === sentRev && !cur.deleted) ? 0 : 1;
+      delete next.sync_error; // request sukses → error permanen sebelumnya sudah teratasi
       return next;
     }).then((saved) => {
       if (!saved || !advanced) return saved;
