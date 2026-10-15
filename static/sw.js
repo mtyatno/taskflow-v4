@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v411-inbox-wizard-edit";
+const CACHE = "taskflow-v412-sync-audit-fixes";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -215,13 +215,22 @@ self.addEventListener("fetch", e => {
       );
       return;
     }
-    // "/" tanpa params: stale-while-revalidate, fallback ke network jika cache error
+    // "/" tanpa params: stale-while-revalidate, fallback ke network jika cache error.
+    // S11 (audit sinkron 2026-10-15): index.html hasil revalidasi hanya disimpan ke cache SW ini bila versinya
+    // SAMA dengan SW ini (`window.__SW_VERSION = "<CACHE>"`). Dulu index.html versi baru menimpa cache versi
+    // lama sementara modul static/offline/*.js lama tetap cache-first → app jalan dengan campuran versi
+    // (index.html baru + syncpush/syncpull lama). Versi baru dipakai setelah SW baru aktif (precache lengkap).
     e.respondWith(
       caches.open(CACHE).then(cache =>
         cache.match(request).then(cached => {
           const networkFetch = fetch(request).then(res => {
-            if (res.ok) cache.put(request, res.clone()).catch(() => {});
-            return res;
+            if (!res.ok) return res;
+            return res.clone().text().then(html => {
+              const sameVersion = html.indexOf('__SW_VERSION = "' + CACHE + '"') !== -1;
+              if (sameVersion) cache.put(request, res.clone()).catch(() => {});
+              // versi berbeda & ada salinan cache yang konsisten dengan modul → pakai salinan cache
+              return (!sameVersion && cached) ? cached : res;
+            }).catch(() => res);
           }).catch(() =>
             cached || new Response("Offline — buka kembali saat terhubung ke internet", { status: 503 })
           );

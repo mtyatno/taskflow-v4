@@ -3480,7 +3480,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v411-inbox-wizard-edit"
+    sw_cache = "taskflow-v412-sync-audit-fixes"
     return JSONResponse(
         content={
             "app_version": "4.0.0",
