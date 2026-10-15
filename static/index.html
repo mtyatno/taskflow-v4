@@ -692,7 +692,7 @@ function schedulePush() {
   clearTimeout(__pushTimer);
   __pushTimer = setTimeout(() => {
     runSyncExclusive(() => window.TF.syncpush.pushOutbox(__syncTransport))
-      .then((r) => { if (r && r.busy) schedulePush(); }) // push lain masih berjalan → jadwalkan ulang agar edit terakhir tetap terkirim
+      .then((r) => { if (r && r.busy) schedulePush(); renderConflicts(); }) // push lain masih berjalan → jadwalkan ulang agar edit terakhir tetap terkirim; sync_error/salinan konflik dari push terjadwal langsung tampil
       .catch(() => {});
   }, 1500);
 }
@@ -704,6 +704,8 @@ const __syncRawFetch = (u, timeoutMs) => {
   if (__token) headers.Authorization = "Bearer " + __token;
   return syncFetch(apiUrl(u), { headers }, timeoutMs);
 };
+// Dipakai editor (poll note bersama, T5): baca server langsung, network-only, tanpa router lokal / cache SW
+window.__syncRawFetch = __syncRawFetch;
 if (window.TF && window.TF.drawingrepo && window.TF.idmap) {
   window.TF.drawingrepo.configureFetcher((idOrCid) => {
     if (/^\d+$/.test(String(idOrCid))) {
@@ -752,8 +754,10 @@ function sync() {
     .then(() => step(() => {
       if (!window.TF.syncpull.pullNotesAndReconcile) return null;
       return window.TF.syncpull.pullNotesAndReconcile(__syncRawFetch).then((notesRes) => {
-        if (notesRes && (notesRes.created > 0 || notesRes.updated > 0 || notesRes.deleted > 0 || notesRes.relinked > 0)) {
-          window.dispatchEvent(new CustomEvent("noteSaved"));
+        // T5: detail.cids = record note yang ditulis pull ini (+ salinan konflik) → editor yang terbuka memuat ulang / banner
+        const cids = (notesRes && Array.isArray(notesRes.changedCids)) ? notesRes.changedCids : [];
+        if (notesRes && (cids.length > 0 || notesRes.created > 0 || notesRes.updated > 0 || notesRes.deleted > 0 || notesRes.relinked > 0 || notesRes.conflictCopies > 0 || notesRes.listAdopted > 0)) {
+          window.dispatchEvent(new CustomEvent("noteSaved", { detail: { source: "sync", cids: cids } }));
         }
         return notesRes;
       });
@@ -774,6 +778,17 @@ function sync() {
   __syncPending = pending;
   return pending;
 }
+// Teks notice conflict bar (syncconflict.listNotices): "overwritten" (LWW lama) tetap didukung; "conflict_copy"
+// (prinsip 7) = edit lokal disimpan sebagai salinan "(konflik) <judul>" karena record diubah di perangkat lain.
+function noticeLabel(n) {
+  const title = n.title || "(tanpa judul)";
+  if (n.kind === "delete_refused") return "🔔 '" + title + "' tidak bisa dihapus — hanya pemilik yang bisa menghapus.";
+  if (n.kind === "conflict_copy") {
+    const what = n.entity === "mindmap" ? "peta" : "catatan";
+    return "✂ Edit offline-mu pada '" + title + "' disimpan sebagai '" + (n.copyTitle || "(konflik) " + title) + "' karena " + what + " diubah di perangkat lain" + (n.editor ? " (oleh " + n.editor + ")" : "") + ".";
+  }
+  return "🔔 Edit offline-mu pada '" + title + "' ditimpa oleh " + (n.editor || "pengguna lain") + ".";
+}
 function renderConflicts() {
   if (!(window.TF && window.TF.syncconflict)) return;
   window.TF.syncconflict.listConflicts().then(list => {
@@ -792,9 +807,7 @@ function renderConflicts() {
           const row = document.createElement("div");
           row.style.cssText = "display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap;";
           const label = document.createElement("span");
-          label.textContent = n.kind === "delete_refused"
-            ? "🔔 '" + (n.title || "(tanpa judul)") + "' tidak bisa dihapus — hanya pemilik yang bisa menghapus."
-            : "🔔 Edit offline-mu pada '" + (n.title || "(tanpa judul)") + "' ditimpa oleh " + (n.editor || "pengguna lain") + ".";
+          label.textContent = noticeLabel(n);
           row.appendChild(label);
           const b = document.createElement("button");
           b.textContent = "Tutup";
@@ -855,9 +868,7 @@ function renderConflicts() {
         const row = document.createElement("div");
         row.style.cssText = "display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap;";
         const label = document.createElement("span");
-        label.textContent = n.kind === "delete_refused"
-          ? "🔔 '" + (n.title || "(tanpa judul)") + "' tidak bisa dihapus — hanya pemilik yang bisa menghapus."
-          : "🔔 Edit offline-mu pada '" + (n.title || "(tanpa judul)") + "' ditimpa oleh " + (n.editor || "pengguna lain") + ".";
+        label.textContent = noticeLabel(n);
         row.appendChild(label);
         const b = document.createElement("button");
         b.textContent = "Tutup";
@@ -18137,7 +18148,7 @@ function NoteTemplatesSettings({
   const handleDelete = async t => {
     if (!window.confirm('Hapus template ini?')) return;
     try {
-      await api.delete(`/api/note-templates/${t.id}`);
+      await api.del(`/api/note-templates/${t.id}`); // api.delete tidak ada (hanya api.del) — hapus template selalu gagal
       _tplCache = null;
       showToast('Template dihapus');
       await fetchTemplates();
@@ -18569,7 +18580,7 @@ function SettingsPage({
     if (!confirm("Revoke semua token Browser Clipper? Extension perlu connect ulang.")) return;
     setExtRevoking(true);
     try {
-      await api.delete("/api/ext-auth/revoke");
+      await api.del("/api/ext-auth/revoke"); // api.delete tidak ada (hanya api.del)
       setExtToken(null);
       showToast("Token Browser Clipper berhasil direvoke ✅");
     } catch (err) {
@@ -22252,9 +22263,9 @@ function NoteModal({
   const [drawingInsertOpen, setDrawingInsertOpen] = useState(false);
   const [quickDrawState, setQuickDrawState] = useState(null);
   
-  const initPaperConfig = () => {
+  const paperConfigFromMeta = metaJson => {
     try {
-      const meta = JSON.parse(note?.meta_json || "{}");
+      const meta = JSON.parse(metaJson || "{}");
       if (meta.paper_mode && typeof meta.paper_mode.enabled === 'boolean') {
         if (meta.paper_mode.user_toggled) {
           return {
@@ -22275,8 +22286,184 @@ function NoteModal({
       return { enabled: true, size: 'A4', orientation: 'portrait' };
     }
   };
+  const initPaperConfig = () => paperConfigFromMeta(note?.meta_json);
   const [paperConfig, setPaperConfig] = useState(initPaperConfig);
   const paperWrapRef = React.useRef(null);
+
+  // ── T4/T5/T6: autosave berbasis snapshot + deteksi revisi record lokal ───────────────────────
+  // Snapshot = (judul, isi, tag, id task tertaut, konfigurasi kertas) yang terakhir DIMUAT atau DISIMPAN editor.
+  // Autosave hanya berjalan bila snapshot editor berbeda → render pertama / normalisasi editor tidak memicu PUT
+  // (yang mem-bump updated_at & "diedit oleh" tanpa ketikan nyata, lalu memenangkan konflik).
+  const noteSnapOf = st => JSON.stringify({
+    t: st.title || "",
+    c: String(st.content || "").replace(/\s+$/, ""),
+    g: (st.tags || []).slice().sort(),
+    l: (st.linkedTaskIds || []).map(String).sort(),
+    p: st.paperConfig || null
+  });
+  const editorStateRef = useRef(null);
+  editorStateRef.current = { title, content, tags, linkedTaskIds, paperConfig };
+  const lastSavedSnapRef = useRef(null);
+  if (lastSavedSnapRef.current === null) lastSavedSnapRef.current = noteSnapOf(editorStateRef.current);
+  // Revisi server yang diketahui record lokal saat editor memuatnya (base_rev); lastKnownAtRef = updated_at record
+  // lokal yang terakhir dimuat/ditulis editor ini. Record ditulis pihak lain (pull / perangkat lain / tab lain)
+  // ⇔ updated_at record ≠ lastKnownAt (push sendiri hanya memajukan base_rev, updated_at tetap → bukan "pihak lain").
+  const loadedBaseRevRef = useRef(note?.base_rev ?? null);
+  const persistInFlightRef = useRef(null);
+  // Baca record lokal terkini lewat router lokal (jalan offline): bentuk API + cid/base_rev (notequery.shape).
+  const readLocalNote = () => (note?.id ? api.get(`/api/scratchpad/${note.id}`).catch(() => null) : Promise.resolve(null));
+  const recordChangedElsewhere = fresh => {
+    if (!fresh) return false;
+    if ((fresh.updated_at ?? null) === (lastKnownAtRef.current ?? null)) {
+      loadedBaseRevRef.current = fresh.base_rev ?? loadedBaseRevRef.current; // gema push sendiri: base_rev maju, isi tetap
+      return false;
+    }
+    return true;
+  };
+  // Muat ulang editor dari record lokal (versi pihak lain) — snapshot & penanda ikut diset supaya tidak memicu PUT.
+  const applyFreshToEditor = fresh => {
+    const nextTitle = fresh.title || "";
+    const nextContent = fresh.content || "";
+    const nextTags = fresh.tags || [];
+    const nextIds = [...new Set([...extractTaskIdsFromContent(nextContent), ...(fresh.linked_task_ids || [])])];
+    const nextPaper = paperConfigFromMeta(fresh.meta_json);
+    setTitle(nextTitle);
+    setContent(nextContent);
+    setTags(nextTags);
+    setLinkedTaskIds(nextIds);
+    setPaperConfig(nextPaper);
+    lastSavedSnapRef.current = noteSnapOf({ title: nextTitle, content: nextContent, tags: nextTags, linkedTaskIds: nextIds, paperConfig: nextPaper });
+    lastKnownAtRef.current = fresh.updated_at ?? null;
+    loadedBaseRevRef.current = fresh.base_rev ?? null;
+    isDirtyRef.current = false;
+    setConflictBanner(null);
+  };
+  const showRemoteBanner = fresh => {
+    setConflictBanner({
+      editor: fresh.last_editor_display_name || fresh.last_editor_username || "Pengguna lain",
+      rec: fresh,
+      updated_at: fresh.updated_at
+    });
+  };
+  // Dipanggil saat mount, tiap event noteSaved, dan poll: record lokal berganti versi sejak dimuat?
+  //   editor tidak dirty → muat ulang diam-diam; dirty → banner "Muat perubahan" / "Simpan versi saya".
+  const checkLocalRevision = async () => {
+    if (!note?.id) return;
+    const fresh = await readLocalNote();
+    if (!recordChangedElsewhere(fresh)) return;
+    if (!isDirtyRef.current) applyFreshToEditor(fresh); else showRemoteBanner(fresh);
+  };
+  // Tulis versi editor ke record lokal (PUT router lokal — jalan offline, T6), lalu perbarui snapshot dan
+  // lastKnownAt supaya editan sendiri tidak dianggap "perubahan pengguna lain" (T5).
+  const persistEditor = async overrides => {
+    const st = Object.assign({}, editorStateRef.current, overrides || {});
+    const snap = noteSnapOf(st);
+    const p = api.put(`/api/scratchpad/${note.id}`, {
+      title: st.title,
+      content: st.content,
+      tags: st.tags,
+      linked_task_ids: st.linkedTaskIds, // S15: boleh berisi cid task yang belum di-push (noterepo menyimpannya di linked_task_cids)
+      linked_task_id: st.linkedTaskIds.find(id => typeof id === 'number') || null,
+      meta_json: JSON.stringify({ paper_mode: st.paperConfig })
+    });
+    persistInFlightRef.current = p.catch(() => null);
+    const saved = await p;
+    lastSavedSnapRef.current = snap;
+    if (saved && saved.updated_at) lastKnownAtRef.current = saved.updated_at;
+    if (saved && saved.base_rev !== undefined) loadedBaseRevRef.current = saved.base_rev ?? null;
+    if (noteSnapOf(editorStateRef.current) === snap) isDirtyRef.current = false; // tidak ada ketikan selama PUT
+    return saved;
+  };
+  // Autosave: hanya bila berbeda dari snapshot; sebelum menulis cek revisi record lokal (T5) — bila sudah
+  // berganti versi, editor TIDAK ditimpa dan tidak menimpa: banner yang memutuskan.
+  const autosaveNow = async () => {
+    if (!note?.id) return false;
+    if (noteSnapOf(editorStateRef.current) === lastSavedSnapRef.current) { isDirtyRef.current = false; return false; }
+    const fresh = await readLocalNote();
+    if (recordChangedElsewhere(fresh)) { showRemoteBanner(fresh); return false; }
+    try {
+      await persistEditor();
+      return true;
+    } catch (e) {
+      if (!isOfflineErr(e)) console.warn("Autosave failed:", e.message);
+      return false;
+    }
+  };
+  // T6: simpan editan yang masih menunggu debounce saat modal ditutup (termasuk offline). Bila record sudah
+  // berganti versi (perangkat lain) dan editor masih dirty, KEDUA versi dipertahankan (prinsip 1): versi lain
+  // → salinan konflik "(konflik) <judul>", teks editor → record ini (sama seperti "Simpan versi saya").
+  const flushAutosave = async () => {
+    if (!note?.id) return false;
+    clearTimeout(autosaveTimerRef.current);
+    if (noteSnapOf(editorStateRef.current) === lastSavedSnapRef.current) return false;
+    try {
+      const fresh = await readLocalNote();
+      if (recordChangedElsewhere(fresh)) {
+        const copier = window.TF?.noterepo?.makeConflictCopy;
+        if (typeof copier === "function") await copier(note.id, {});
+      }
+      await persistEditor();
+      window.dispatchEvent(new CustomEvent("noteSaved", { detail: { source: "editor", cids: fresh?.cid ? [fresh.cid] : [] } }));
+      return true;
+    } catch (e) {
+      if (!isOfflineErr(e)) console.warn("Flush autosave gagal:", e.message);
+      return false;
+    }
+  };
+  const flushAutosaveRef = useRef(flushAutosave);
+  flushAutosaveRef.current = flushAutosave;
+  // Unmount (semua jalur tutup: Batal, ✕, klik tasklink, navigasi) → flush; PUT ke router lokal tetap selesai
+  // setelah komponen hilang.
+  useEffect(() => () => { try { flushAutosaveRef.current(); } catch (_) {} }, []);
+  // Mount: record lokal bisa lebih baru dari prop `note` (daftar basi) → sejajarkan editor dengan record.
+  useEffect(() => { checkLocalRevision().catch(() => {}); }, []);
+  // T5: pull / push 409 / editor lain menulis record ini → muat ulang atau banner (note pribadi juga, bukan
+  // hanya note list_id). detail.cids (dari sync) membatasi ke note yang memang berubah; tanpa detail → cek.
+  useEffect(() => {
+    if (!note?.id) return;
+    const handler = ev => {
+      const cids = ev?.detail && Array.isArray(ev.detail.cids) ? ev.detail.cids : null;
+      const myCid = note?.cid || null;
+      if (cids && myCid && !cids.includes(myCid)) return;
+      Promise.resolve(persistInFlightRef.current).then(() => checkLocalRevision()).catch(() => {});
+    };
+    window.addEventListener("noteSaved", handler);
+    return () => window.removeEventListener("noteSaved", handler);
+  }, [note?.id]);
+  // S15: task yang dibuat inline (id = cid) sudah punya server id → ganti attr node tasklink di dokumen editor
+  // (tanpa mereset kursor); onChange editor lalu menyimpan isi dengan id server (record lokal sudah ditulis
+  // ulang oleh noterepo.rewriteTaskLinks, updated_at tidak berubah → bukan "perubahan pihak lain").
+  useEffect(() => {
+    const handler = ev => {
+      const d = ev?.detail;
+      if (!d || !d.task_cid || d.task_id == null) return;
+      if (String(editorStateRef.current.content || "").indexOf("tasklink:" + d.task_cid) === -1) return;
+      const view = getEditorView();
+      if (view) {
+        try {
+          let tr = view.state.tr;
+          let n = 0;
+          view.state.doc.descendants((node, pos) => {
+            if (node.type.name === 'tasklink' && String(node.attrs.taskId) === String(d.task_cid)) {
+              tr = tr.setNodeMarkup(pos, undefined, { ...node.attrs, taskId: d.task_id });
+              n++;
+            }
+          });
+          if (n) view.dispatch(tr);
+        } catch (_) {}
+      } else {
+        const re = new RegExp("(\\\\?\\[tasklink:)" + String(d.task_cid).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\\\?\\])", "g");
+        setContent(c => c.replace(re, "$1" + d.task_id + "$2"));
+      }
+      setLinkedTaskIds(prev => prev.map(id => (String(id) === String(d.task_cid) ? d.task_id : id)));
+      // badge tasklink mencari task lewat id → task yang dibuat inline ikut memakai id server
+      const remap = t => ((t.id === d.task_cid || t.cid === d.task_cid) ? { ...t, id: d.task_id, cid: t.cid || d.task_cid } : t);
+      allKnownTasksRef.current = allKnownTasksRef.current.map(remap);
+      setLocalNewTasks(prev => prev.map(remap));
+    };
+    window.addEventListener("tf:note-tasklinks-rewritten", handler);
+    return () => window.removeEventListener("tf:note-tasklinks-rewritten", handler);
+  }, []);
 
   // Klik preview gambar (event editDrawingModal) ditangani SATU QuickDrawModal global di App;
   // modal milik NoteModal hanya untuk alur sisip gambar baru (handleDrawingSelected).
@@ -22443,6 +22630,19 @@ function NoteModal({
         list_id: listId
       });
       setNoteListId(updated.list_id ?? null);
+      // K4 klien: record lokal mengadopsi list_id + updated_at→base_rev dari baris server (share mem-bump
+      // updated_at; PUT berikutnya membawa base_rev baru dan tidak mengirim list_id). Penanda editor ikut
+      // disamakan supaya share sendiri tidak terbaca sebagai "perubahan pengguna lain".
+      const adopt = window.TF?.noterepo?.adoptServerFields;
+      if (typeof adopt === "function") {
+        try {
+          const rec = await adopt(note.id, updated);
+          if (rec) {
+            if (rec.updated_at) lastKnownAtRef.current = rec.updated_at;
+            loadedBaseRevRef.current = rec.base_rev ?? loadedBaseRevRef.current;
+          }
+        } catch (_) {}
+      }
       window.dispatchEvent(new CustomEvent("noteSaved"));
     } catch (e) {/* silent */}
   };
@@ -22763,64 +22963,43 @@ function NoteModal({
     }
   }
 
-  // Autosave: debounced 2.5s setelah perubahan, hanya untuk note yang sudah ada
+  // Autosave: debounced 2.5s setelah perubahan NYATA (T4: tidak pada render pertama; dibandingkan dengan snapshot
+  // terakhir yang dimuat/disimpan), hanya untuk note yang sudah ada. Tanpa guard "sedang online" (T6): PUT ke
+  // router lokal jalan offline; push menyusul saat online.
   useEffect(() => {
     if (!note?.id) return;
+    if (noteSnapOf(editorStateRef.current) === lastSavedSnapRef.current) { isDirtyRef.current = false; return; }
     isDirtyRef.current = true;
     clearTimeout(autosaveTimerRef.current);
-    autosaveTimerRef.current = setTimeout(async () => {
-      if (!navigator.onLine) return;
-      try {
-        await api.put(`/api/scratchpad/${note.id}`, {
-          title,
-          content,
-          tags,
-          linked_task_ids: linkedTaskIds.filter(id => typeof id === 'number'),
-          linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null,
-          meta_json: JSON.stringify({ paper_mode: paperConfig })
-        });
-        isDirtyRef.current = false;
-      } catch (e) {
-        if (!isOfflineErr(e)) console.warn("Autosave failed:", e.message);
-      }
-    }, 2500);
+    autosaveTimerRef.current = setTimeout(() => { autosaveNow().catch(() => {}); }, 2500);
     return () => clearTimeout(autosaveTimerRef.current);
   }, [title, content, tags, linkedTaskIds, paperConfig]);
 
-  // Polling: setiap 5 detik untuk shared notes saja
+  // Polling 5 detik untuk note bersama (T5): baca SERVER langsung (window.__syncRawFetch: X-TF-Sync, network-only —
+  // bukan router lokal yang hanya memantulkan IndexedDB) bila online. Server menyimpan revisi yang belum dikenal
+  // record lokal (updated_at ≠ base_rev) → sync() supaya pull mengadopsinya (atau membuat salinan konflik bila
+  // ada op tertunda), lalu noteSaved → checkLocalRevision (muat ulang / banner). Offline / gagal → record lokal.
   useEffect(() => {
-    if (!note?.id || !note?.list_id) return;
+    if (!note?.id || !noteListId) return;
     const interval = setInterval(async () => {
-      if (!navigator.onLine) return;
       try {
-        const fresh = await api.get(`/api/scratchpad/${note.id}`);
-        if (!fresh?.updated_at) return;
-        const serverTime = new Date(fresh.updated_at).getTime();
-        const localTime = new Date(lastKnownAtRef.current || note?.updated_at).getTime();
-        if (serverTime <= localTime) return;
-        // Ada versi lebih baru dari server
-        if (!isDirtyRef.current) {
-          // User tidak sedang mengetik — update silent
-          setContent(fresh.content || "");
-          setTitle(fresh.title || "");
-          lastKnownAtRef.current = fresh.updated_at;
-          setConflictBanner(null);
-        } else {
-          // User sedang mengetik — tampilkan banner
-          const editorName = fresh.last_editor_display_name || fresh.last_editor_username || "Pengguna lain";
-          setConflictBanner({
-            editor: editorName,
-            content: fresh.content,
-            title: fresh.title,
-            tags: fresh.tags || [],
-            linked_task_ids: fresh.linked_task_ids || [],
-            updated_at: fresh.updated_at
-          });
+        const sid = /^\d+$/.test(String(note.id)) ? String(note.id) : null;
+        const rawFetch = window.__syncRawFetch;
+        if (navigator.onLine && sid && typeof rawFetch === "function") {
+          const r = await rawFetch(`/api/scratchpad/${sid}`, 8000);
+          if (r && r.ok) {
+            const srv = await r.json();
+            const local = await readLocalNote();
+            if (srv?.updated_at && local && local.base_rev !== undefined && srv.updated_at !== (local.base_rev ?? null)) {
+              if (typeof window.__syncNow === "function") { await window.__syncNow().catch(() => {}); return; }
+            }
+          }
         }
+        await checkLocalRevision();
       } catch (_) {/* ignore poll errors */}
     }, 5000);
     return () => clearInterval(interval);
-  }, [note?.id, note?.list_id]);
+  }, [note?.id, noteListId]);
   useEffect(() => {
     if (noteTitlesProp.length === 0) {
       api.get("/api/scratchpad/titles").then(setNoteTitles).catch(() => {});
@@ -23144,13 +23323,8 @@ function NoteModal({
         }) : null;
         if (latestContent !== null && latestContent !== undefined) {
           try {
-            await api.put(`/api/scratchpad/${note.id}`, {
-              title,
-              content: latestContent,
-              tags,
-              linked_task_ids: linkedTaskIds.filter(id => typeof id === 'number'),
-              linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null
-            });
+            // lewat persistEditor: snapshot & lastKnownAt ikut diperbarui (bukan "perubahan pihak lain")
+            await persistEditor({ content: latestContent });
             window.dispatchEvent(new CustomEvent("noteSaved"));
           } catch (e) {
             if (!isOfflineErr(e)) console.warn("createNewNote save parent failed:", e.message);
@@ -23432,20 +23606,37 @@ function NoteModal({
   const saveOnly = async () => {
     setSaving(true);
     clearTimeout(autosaveTimerRef.current);
-    const saved = await onSave({
-      title,
-      content,
-      tags,
-      linked_task_ids: linkedTaskIds.filter(id => typeof id === 'number'),
-      linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null,
-      meta_json: JSON.stringify({ paper_mode: paperConfig })
-    });
-    if (saved?.id && !savedNoteId) setSavedNoteId(saved.id);
-    isDirtyRef.current = false;
-    setSaving(false);
+    const snap = noteSnapOf(editorStateRef.current);
+    try {
+      if (note?.id) {
+        // prinsip 1: record lokal sudah berganti versi (perangkat lain) dan editor belum memuatnya → versi itu
+        // diselamatkan dulu sebagai salinan konflik, baru teks editor ditulis (sama seperti "Simpan versi saya")
+        const fresh = await readLocalNote();
+        if (recordChangedElsewhere(fresh)) {
+          const copier = window.TF?.noterepo?.makeConflictCopy;
+          if (typeof copier === "function") await copier(note.id, {}).catch(() => null);
+        }
+      }
+      const saved = await onSave({
+        title,
+        content,
+        tags,
+        linked_task_ids: linkedTaskIds, // S15: id task boleh cid (task belum di-push)
+        linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null,
+        meta_json: JSON.stringify({ paper_mode: paperConfig })
+      });
+      if (saved?.id && !savedNoteId) setSavedNoteId(saved.id);
+      // sudah tersimpan lewat onSave → flush saat unmount tidak perlu menulis lagi
+      lastSavedSnapRef.current = snap;
+      if (saved?.updated_at) lastKnownAtRef.current = saved.updated_at;
+      isDirtyRef.current = false;
+    } finally {
+      setSaving(false);
+    }
   };
   const handleSave = async () => {
-    await saveOnly();
+    // T4: note lama tanpa perubahan nyata → tidak ada PUT (tidak mem-bump updated_at / "diedit oleh"); note baru selalu disimpan
+    if (!note?.id || noteSnapOf(editorStateRef.current) !== lastSavedSnapRef.current) await saveOnly();
     onClose();
   };
 
@@ -23487,13 +23678,9 @@ function NoteModal({
     }
   }, "\u270F\uFE0F ", /*#__PURE__*/React.createElement("b", null, conflictBanner.editor), " baru saja menyimpan perubahan."), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
-      setContent(conflictBanner.content || "");
-      setTitle(conflictBanner.title || "");
-      setTags(conflictBanner.tags || []);
-      setLinkedTaskIds(conflictBanner.linked_task_ids || []);
-      lastKnownAtRef.current = conflictBanner.updated_at || lastKnownAtRef.current;
-      isDirtyRef.current = false;
-      setConflictBanner(null);
+      // versi pihak lain (sudah ada di record lokal) menggantikan isi editor; ketikan yang belum tersimpan dilepas
+      if (conflictBanner.rec) applyFreshToEditor(conflictBanner.rec);
+      else { lastKnownAtRef.current = conflictBanner.updated_at || lastKnownAtRef.current; isDirtyRef.current = false; setConflictBanner(null); }
     },
     style: {
       background: "#f59e0b",
@@ -23507,6 +23694,34 @@ function NoteModal({
       flexShrink: 0
     }
   }, "Muat perubahan"), /*#__PURE__*/React.createElement("button", {
+    onClick: async () => {
+      // "Simpan versi saya" (prinsip 7): versi pihak lain yang sudah masuk ke record lokal \u2192 salinan konflik
+      // "(konflik) <judul>" (note pribadi, antre create), teks editor \u2192 record ini (base_rev tetap = revisi
+      // server \u2192 push CAS cocok). Tidak ada sisi yang dibuang.
+      const b = conflictBanner;
+      setConflictBanner(null);
+      try {
+        const copier = window.TF?.noterepo?.makeConflictCopy;
+        const copy = typeof copier === "function" ? await copier(note.id, {}) : null;
+        await persistEditor();
+        window.dispatchEvent(new CustomEvent("noteSaved", { detail: { source: "editor", cids: copy ? [copy.cid] : [] } }));
+        if (copy && typeof showToast === "function") showToast(`Versi ${b.editor} disimpan sebagai "${copy.title}"`, "info");
+      } catch (e) {
+        if (!isOfflineErr(e)) console.warn("Simpan versi saya gagal:", e.message);
+      }
+    },
+    style: {
+      background: "#fff",
+      border: "1px solid #f59e0b",
+      borderRadius: 5,
+      fontSize: 11,
+      fontWeight: 700,
+      color: "#92400e",
+      cursor: "pointer",
+      padding: "3px 8px",
+      flexShrink: 0
+    }
+  }, "Simpan versi saya"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setConflictBanner(null),
     style: {
       background: "none",
@@ -24126,9 +24341,10 @@ function NoteModal({
     onMouseLeave: e => e.currentTarget.style.background = "transparent"
   }, "Batal berbagi"))), /*#__PURE__*/React.createElement("button", {
     onClick: async () => {
+      // T4/T6: tutup = flush editan yang belum tersimpan saja (bukan PUT tanpa syarat yang mem-bump updated_at)
       if (note?.id) {
         try {
-          await saveOnly();
+          await flushAutosave();
         } catch {}
       }
       onClose();
@@ -24386,9 +24602,12 @@ function NotePanel({
   const handleShare = async listId => {
     setShareOpen(false);
     try {
-      await api.patch(`/api/scratchpad/${note.id}/share`, {
+      const updated = await api.patch(`/api/scratchpad/${note.id}/share`, {
         list_id: listId
       });
+      // K4 klien: record lokal mengadopsi list_id + updated_at→base_rev dari baris server (lihat NoteModal.handleModalShare)
+      const adopt = window.TF?.noterepo?.adoptServerFields;
+      if (typeof adopt === "function") { try { await adopt(note.id, updated); } catch (_) {} }
       window.dispatchEvent(new CustomEvent("noteSaved"));
     } catch (e) {/* silent — note still works */}
   };

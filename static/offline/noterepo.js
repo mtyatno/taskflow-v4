@@ -326,13 +326,14 @@
   }
   function rewriteTaskLinks(taskCid, taskSid) {
     if (!taskCid || taskSid == null) return Promise.resolve([]);
-    const needle = "tasklink:" + taskCid;
+    // regex (bukan indexOf): "tasklink:abc" juga awalan dari "tasklink:abc-2" → hanya tautan utuh yang cocok
+    const hasLink = (c) => typeof c === "string" && tasklinkRegex(taskCid).test(c);
     return getAll("scratchpad_notes").then((all) => {
-      const targets = all.filter((n) => !n.deleted && typeof n.content === "string" && n.content.indexOf(needle) !== -1);
+      const targets = all.filter((n) => !n.deleted && hasLink(n.content));
       const done = [];
       return targets.reduce((p, n) => p.then(() =>
         TFdb.mutate("scratchpad_notes", n.cid, (cur) => {
-          if (!cur || cur.deleted || typeof cur.content !== "string" || cur.content.indexOf(needle) === -1) return undefined;
+          if (!cur || cur.deleted || !hasLink(cur.content)) return undefined;
           return Object.assign({}, cur, {
             content: cur.content.replace(tasklinkRegex(taskCid), "$1" + taskSid + "$2"),
             dirty: 1, rev: (cur.rev || 0) + 1,

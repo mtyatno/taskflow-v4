@@ -114,12 +114,15 @@ test("NoteModal initPaperConfig defaults and user_toggled behavior", async (t) =
   const noteModalCode = noteModalMatch ? noteModalMatch[0] : "";
   assert.ok(noteModalCode.length > 0, "NoteModal function should be present in static/index.html");
 
-  const initPaperConfigMatch = noteModalCode.match(/const initPaperConfig = \(\) => \{([\s\S]*?)\n\s*\};\s*const \[paperConfig/);
-  assert.ok(initPaperConfigMatch, "initPaperConfig function should be present in NoteModal");
+  // Workstream C (T5): logika dipindah ke paperConfigFromMeta(metaJson) supaya editor bisa memuat ulang konfigurasi
+  // kertas dari record lain; initPaperConfig = () => paperConfigFromMeta(note?.meta_json).
+  const initPaperConfigMatch = noteModalCode.match(/const paperConfigFromMeta = metaJson => \{([\s\S]*?)\n\s*\};\s*const initPaperConfig = \(\) => paperConfigFromMeta\(note\?\.meta_json\);\s*const \[paperConfig/);
+  assert.ok(initPaperConfigMatch, "paperConfigFromMeta + initPaperConfig should be present in NoteModal");
 
   const runInitPaperConfig = (note) => {
     const fn = new Function("note", `
-      const initPaperConfig = () => { ${initPaperConfigMatch[1]} };
+      const paperConfigFromMeta = metaJson => { ${initPaperConfigMatch[1]} };
+      const initPaperConfig = () => paperConfigFromMeta(note?.meta_json);
       return initPaperConfig();
     `);
     return fn(note);
