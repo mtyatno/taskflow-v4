@@ -55,6 +55,14 @@
       return map;
     });
   }
+  // S13: log hanya dihitung bila habit-nya masih ada dan belum dihapus (server: JOIN habits) — log yatim
+  // (habit dihapus di perangkat lain / lokal) tidak boleh ikut statistik.
+  function liveLogs() {
+    return Promise.all([liveHabits(), getAll("habit_logs")]).then(([habits, logs]) => {
+      const live = new Set(habits.map((h) => h.cid));
+      return { habits: habits, logs: logs.filter((l) => live.has(l.habit_cid)) };
+    });
+  }
 
   function getHabitsToday(opts) {
     const today = (opts && opts.today) || TFlogic.todayJkt();
@@ -71,15 +79,12 @@
   function getHabitsMonthly(opts) {
     const today = (opts && opts.today) || TFlogic.todayJkt();
     const [y, m, dd] = today.split("-").map(Number);
-    return getAll("habit_logs").then((all) => TFlogic.monthly(all, y, m, dd));
+    return liveLogs().then(({ logs }) => TFlogic.monthly(logs, y, m, dd));
   }
 
   function getHabitsMonthlyCompletion(opts) {
     const today = (opts && opts.today) || TFlogic.todayJkt();
-    return Promise.all([liveHabits(), getAll("habit_logs")]).then(([habits, logs]) => {
-      const live = new Set(habits.map((h) => h.cid));
-      return TFlogic.monthlyCompletion(logs.filter((l) => live.has(l.habit_cid)), habits.length, today);
-    });
+    return liveLogs().then(({ habits, logs }) => TFlogic.monthlyCompletion(logs, habits.length, today));
   }
 
   const exported = { getHabits, getHabitsToday, getHabitsMonthly, getHabitsMonthlyCompletion };

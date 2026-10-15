@@ -75,11 +75,24 @@
     return base === "/api/scratchpad/trash" || base.startsWith("/api/scratchpad/trash/");
   }
 
+  // K6: GET /api/tasks/:id/subtasks|notes|attachments — store lokalnya tidak pernah diisi (tidak ada pull),
+  // jadi rute lokal hanya dipakai untuk task yang belum tersinkron (id = cid → `[]`); id numerik (task sudah
+  // ada di server) diteruskan ke jaringan supaya subtask/catatan/lampiran dari server tampil lagi.
+  function isTaskChildListCall(method, path) {
+    if (String(method || "GET").toUpperCase() !== "GET") return false;
+    const q = path.indexOf("?");
+    const base = (q === -1 ? path : path.slice(0, q)).replace(/\/+$/, "");
+    const m = /^\/api\/tasks\/([^/]+)\/(subtasks|notes|attachments)$/.exec(base);
+    return m ? { id: m[1], kind: m[2], numeric: /^\d+$/.test(m[1]) } : null;
+  }
+
   // Keputusan api wrapper (index.html): layani dari router lokal, atau teruskan ke jaringan.
   function shouldRouteLocally(router, method, path) {
     if (!router) return false;
     const m = String(method || "GET").toUpperCase();
     if (isNoteTagsCall(m, path) || isNoteTrashCall(m, path)) return false;
+    const child = isTaskChildListCall(m, path);
+    if (child && child.numeric) return false; // K6: data ada di server, bukan di store lokal
     return router.hasRoute(m, path);
   }
 
@@ -203,7 +216,7 @@
     return router;
   }
 
-  const exported = { buildTaskRouter, isNoteTagsCall, isNoteTrashCall, shouldRouteLocally };
+  const exported = { buildTaskRouter, isNoteTagsCall, isNoteTrashCall, isTaskChildListCall, shouldRouteLocally };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.taskroutes = exported; }
   return exported;
 });

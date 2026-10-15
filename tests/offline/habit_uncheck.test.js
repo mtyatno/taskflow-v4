@@ -99,3 +99,148 @@ test("syncpush processes op uncheck by posting to /api/habits/:sid/checkin and r
   const uncheckOpRemaining = remainingOps.find((o) => o.entity_type === "habit_log" && o.op === "uncheck");
   assert.equal(uncheckOpRemaining, undefined, "Uncheck op should be removed from outbox after push");
 });
+
+// ── Workstream A2 (audit 2026-10-15) T9 + S13 + S8 ───────────────────────────────────────────────
+const { pullHabitLogs, pullHabits, pullHabitsAndLogs } = require("../../static/offline/syncpull.js");
+const { getHabitsMonthly, getHabitsMonthlyCompletion, getHabitsToday } = require("../../static/offline/habitquery.js");
+const { deleteHabit, deleteLogsOfHabit, resolveDate } = require("../../static/offline/habitrepo.js");
+const { todayJkt } = require("../../static/offline/habitlogic.js");
+
+async function seed(store, recs) {
+  const db = await openDB();
+  await new Promise((res, rej) => {
+    const tx = db.transaction(store, "readwrite");
+    for (const r of recs) tx.objectStore(store).put(r);
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+  });
+}
+async function allOf(store) {
+  const db = await openDB();
+  return new Promise((res) => { const q = db.transaction(store).objectStore(store).getAll(); q.onsuccess = () => res(q.result || []); });
+}
+
+test("T9: uncheck on another device (log absent from the server list) deletes the clean local log inside the window", async () => {
+  await seed("habits", [{ cid: "h", server_id: 5, title: "H", deleted: false, dirty: 0 }]);
+  await mapPut("habit", 5, "h");
+  await seed("habit_logs", [
+    { cid: "l1", habit_cid: "h", date: "2026-10-14", status: "done", skip_reason: "", dirty: 0 }, // di-uncheck di perangkat lain
+    { cid: "l2", habit_cid: "h", date: "2026-10-13", status: "done", skip_reason: "", dirty: 0 }, // masih ada di server
+    { cid: "l3", habit_cid: "h", date: "2026-01-01", status: "done", skip_reason: "", dirty: 0 }, // di luar jendela → bukti tidak ada
+    { cid: "l4", habit_cid: "h", date: "2026-10-12", status: "done", skip_reason: "", dirty: 1 }, // dirty → local-wins
+  ]);
+  const r = await pullHabitLogs([{ habit_id: 5, date: "2026-10-13", status: "done", skip_reason: "" }], { from: "2026-07-17" });
+  assert.equal(r.deleted, 1);
+  assert.deepEqual((await allOf("habit_logs")).map((l) => l.cid).sort(), ["l2", "l3", "l4"]);
+});
+
+test("T9: logs of a never-pushed habit (no server id) are never deleted by the window pass", async () => {
+  await seed("habits", [{ cid: "hl", server_id: null, title: "Lokal", deleted: false, dirty: 1 }]);
+  await seed("habit_logs", [{ cid: "l1", habit_cid: "hl", date: "2026-10-14", status: "done", skip_reason: "", dirty: 0 }]);
+  const r = await pullHabitLogs([], { from: "2026-07-17" });
+  assert.equal(r.deleted, 0);
+  assert.equal((await allOf("habit_logs")).length, 1);
+});
+
+test("T9: a dirty log whose status+skip_reason already equal the server's becomes clean and its checkin op is dropped", async () => {
+  await seed("habits", [{ cid: "h", server_id: 5, title: "H", deleted: false, dirty: 0 }]);
+  await mapPut("habit", 5, "h");
+  await seed("habit_logs", [
+    { cid: "same", habit_cid: "h", date: "2026-10-14", status: "skipped", skip_reason: "hujan", dirty: 1 },
+    { cid: "diff", habit_cid: "h", date: "2026-10-13", status: "done", skip_reason: "", dirty: 1 },
+  ]);
+  await seed("_outbox", [
+    { qid: 1, op: "checkin", entity_type: "habit_log", cid: "same", payload: {} },
+    { qid: 2, op: "checkin", entity_type: "habit_log", cid: "diff", payload: {} },
+  ]);
+  const r = await pullHabitLogs([
+    { habit_id: 5, date: "2026-10-14", status: "skipped", skip_reason: "hujan" },
+    { habit_id: 5, date: "2026-10-13", status: "skipped", skip_reason: "" },
+  ], { from: "2026-07-17" });
+  assert.equal(r.confirmed, 1);
+  assert.equal(r.skipped, 1);
+  const logs = await allOf("habit_logs");
+  assert.equal(logs.find((l) => l.cid === "same").dirty, 0);
+  assert.equal(logs.find((l) => l.cid === "diff").dirty, 1);
+  assert.equal(logs.find((l) => l.cid === "diff").status, "done");
+  assert.deepEqual((await outboxAll()).map((o) => o.cid), ["diff"]);
+});
+
+test("T9: a server log is not resurrected locally while a local uncheck op for it is still queued", async () => {
+  const h = await createHabit({ title: "Yoga" }, { now: NOW });
+  await mapPut("habit", 42, h.cid);
+  await checkin(h.cid, "2026-10-14", "done", "", {});
+  await checkin(h.cid, "2026-10-14", "uncheck", "", {});
+  const r = await pullHabitLogs([{ habit_id: 42, date: "2026-10-14", status: "done", skip_reason: "" }], { from: "2026-07-17" });
+  assert.equal(r.created, 0);
+  assert.equal(await logFor(h.cid, "2026-10-14"), undefined);
+});
+
+test("pullHabitsAndLogs requests the log list with an explicit `since` equal to the client window start", async () => {
+  const urls = [];
+  const rawFetch = (u) => {
+    urls.push(u);
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) });
+  };
+  await pullHabitsAndLogs(rawFetch);
+  const logUrl = urls.find((u) => u.startsWith("/api/habits/logs"));
+  const m = /since=(\d{4}-\d{2}-\d{2})$/.exec(logUrl);
+  assert.ok(m, "since harus dikirim: " + logUrl);
+  const [y, mo, d] = todayJkt().split("-").map(Number);
+  const expect = new Date(Date.UTC(y, mo - 1, d) - 90 * 86400000).toISOString().slice(0, 10);
+  assert.equal(m[1], expect);
+});
+
+test("S13: deleteHabit (local) removes the habit's logs and their checkin/uncheck ops", async () => {
+  const h = await createHabit({ title: "Lari" }, { now: NOW });
+  const other = await createHabit({ title: "Baca" }, { now: NOW });
+  await checkin(h.cid, "2026-10-14", "done", "", {});
+  await checkin(h.cid, "2026-10-13", "done", "", {});
+  await checkin(h.cid, "2026-10-12", "uncheck", "", {});
+  await checkin(other.cid, "2026-10-14", "done", "", {});
+  await deleteHabit(h.cid, {});
+  const logs = await allOf("habit_logs");
+  assert.deepEqual(logs.map((l) => l.habit_cid), [other.cid]);
+  const ops = await outboxAll();
+  assert.ok(!ops.some((o) => o.entity_type === "habit_log" && (o.payload && o.payload.habit_cid === h.cid)), "op log habit yang dihapus dibuang");
+  assert.ok(ops.some((o) => o.entity_type === "habit_log" && o.payload && o.payload.habit_cid === other.cid), "op log habit lain tetap");
+  assert.ok(ops.some((o) => o.entity_type === "habit" && o.op === "delete" && o.cid === h.cid));
+  assert.equal(await deleteLogsOfHabit("nope"), 0);
+});
+
+test("S13: pullHabits deleting a habit gone from the server also deletes its logs", async () => {
+  await seed("habits", [{ cid: "h", server_id: 5, title: "H", deleted: false, dirty: 0 }]);
+  await mapPut("habit", 5, "h");
+  await seed("habit_logs", [{ cid: "l1", habit_cid: "h", date: "2026-10-14", status: "done", skip_reason: "", dirty: 0 }]);
+  const r = await pullHabits([]);
+  assert.equal(r.deleted, 1);
+  assert.equal((await allOf("habits")).length, 0);
+  assert.equal((await allOf("habit_logs")).length, 0);
+});
+
+test("S13: orphan logs (habit missing or deleted) are excluded from monthly stats and completion", async () => {
+  await seed("habits", [
+    { cid: "live", server_id: 1, title: "Live", phase: "pagi", frequency: '["mon"]', deleted: false },
+    { cid: "dead", server_id: 2, title: "Dead", phase: "pagi", frequency: '["mon"]', deleted: true },
+  ]);
+  await seed("habit_logs", [
+    { cid: "l1", habit_cid: "live", date: "2026-10-01", status: "done", skip_reason: "" },
+    { cid: "l2", habit_cid: "dead", date: "2026-10-01", status: "done", skip_reason: "" },
+    { cid: "l3", habit_cid: "ghost", date: "2026-10-01", status: "done", skip_reason: "" },
+  ]);
+  const m = await getHabitsMonthly({ today: "2026-10-02" });
+  assert.equal(m.days[0].done, 1);
+  const c = await getHabitsMonthlyCompletion({ today: "2026-10-02" });
+  assert.deepEqual(c.days, [{ date: "2026-10-01", total_habits: 1, done_count: 1 }]);
+  const today = await getHabitsToday({ today: "2026-10-01" });
+  assert.deepEqual(today.map((h) => h.cid), ["live"]);
+});
+
+test("S8: habitrepo.checkin defaults the date to the Jakarta day when the caller omits or garbles it", async () => {
+  assert.equal(resolveDate(undefined), todayJkt());
+  assert.equal(resolveDate(""), todayJkt());
+  assert.equal(resolveDate("2026-10-14T23:59:00"), "2026-10-14");
+  assert.equal(resolveDate("2026-10-14"), "2026-10-14");
+  const h = await createHabit({ title: "Air" }, { now: NOW });
+  const log = await checkin(h.cid, undefined, "done", "", {});
+  assert.equal(log.date, todayJkt());
+});

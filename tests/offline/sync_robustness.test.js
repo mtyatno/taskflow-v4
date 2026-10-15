@@ -257,7 +257,7 @@ test("resolveConflict retry on a drawing queues the create/update op shape syncp
   assert.equal((await get("drawings", "e")).sync_error, undefined);
 });
 
-test("resolveConflict keep_as_new on access_lost drops list_id so the re-create is personal", async () => {
+test("resolveConflict keep_as_new on access_lost drops list_id so the re-create is personal (+ fresh client_id)", async () => {
   await put("tasks", [task({ cid: "a", server_id: 10, list_id: 7, conflict: "access_lost" })]);
   await mapPut("task", 10, "a");
   await resolveConflict("task", "a", "keep_as_new");
@@ -265,6 +265,7 @@ test("resolveConflict keep_as_new on access_lost drops list_id so the re-create 
   assert.equal(rec.conflict, undefined);
   assert.equal(rec.list_id, null);
   assert.equal(rec.server_id, null);
+  assert.ok(rec.client_id && rec.client_id !== "a", "client_id segar supaya server tidak mengembalikan baris lama (T11)");
   assert.equal(await cidOf("task", 10), undefined);
   assert.equal((await outboxAll())[0].op, "create");
 });
@@ -560,7 +561,7 @@ test("index.html sync(): one failing pull step does not skip the others and push
   const okStep = (name) => () => { calls.push(name); return Promise.resolve({ created: 0, updated: 0, deleted: 0 }); };
   const win = {
     TF: {
-      syncpull: { pullAndReconcile: fail("tasks"), pullHabitsAndLogs: okStep("habits"), pullNotesAndReconcile: fail("notes"), pullMindmapsAndReconcile: okStep("mindmaps"), pullDrawingsAndReconcile: okStep("drawings") },
+      syncpull: { pullAndReconcile: fail("tasks"), pullRecurringExceptions: fail("recurring"), pullHabitsAndLogs: okStep("habits"), pullNotesAndReconcile: fail("notes"), pullMindmapsAndReconcile: okStep("mindmaps"), pullDrawingsAndReconcile: okStep("drawings") },
       listsync: { pullAndReconcileLists: okStep("lists") },
       syncpush: { pushOutbox: () => { calls.push("push"); return Promise.resolve({ pushed: 1, remaining: 0 }); } },
     },
@@ -569,7 +570,8 @@ test("index.html sync(): one failing pull step does not skip the others and push
   const sync = new Function("window", "renderConflicts", "schedulePush", "__syncRawFetch", "__syncTransport", "runSyncExclusive", "CustomEvent",
     "let __syncPending = null;\n" + m[0] + "\nreturn sync;")(win, () => {}, () => {}, () => {}, {}, (task) => Promise.resolve().then(task), function () {});
   const r = await sync();
-  assert.deepEqual(calls, ["tasks", "lists", "habits", "notes", "mindmaps", "drawings", "push"]);
+  // T8 (A2): pullRecurringExceptions berjalan tepat setelah tasks (idmap task sudah terisi), terisolasi seperti langkah lain
+  assert.deepEqual(calls, ["tasks", "recurring", "lists", "habits", "notes", "mindmaps", "drawings", "push"]);
   assert.equal(r.pushed, 1);
 });
 
@@ -599,7 +601,7 @@ test("index.html: local router errors are tagged __local and isOfflineErr ignore
   assert.equal(isOfflineErr(new Error("OFFLINE")), true);
 });
 
-test("index.html: conflict bar renders sync_error (retry / discard_local) and access_lost (keep_as_new / discard) rows", () => {
+test("index.html: conflict bar renders sync_error (retry / discard_local) and access_lost (keep_as_personal / discard) rows", () => {
   const m = indexHtml.match(/function renderConflicts\(\) \{[\s\S]*?\n\}/);
   assert.ok(m, "renderConflicts harus ada");
   const code = m[0];
@@ -608,7 +610,8 @@ test("index.html: conflict bar renders sync_error (retry / discard_local) and ac
   assert.match(code, /\["Coba lagi", "retry"\], \["Buang perubahan lokal", "discard_local"\]/);
   assert.match(code, /c\.conflict === "access_lost"/);
   assert.match(code, /akses ke list ini hilang/);
-  assert.match(code, /\["Simpan sebagai baru", "keep_as_new"\], \["Buang", "discard"\]/);
+  // S1 (A2): akses hilang → "Simpan sebagai pribadi" = keep_as_personal (list_id null, client_id baru)
+  assert.match(code, /\["Simpan sebagai pribadi", "keep_as_personal"\], \["Buang", "discard"\]/);
   assert.match(code, /dihapus di perangkat lain, tapi ada perubahan lokal/, "baris remote_deleted tetap ada");
 });
 

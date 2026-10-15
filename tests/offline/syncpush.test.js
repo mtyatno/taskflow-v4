@@ -571,3 +571,144 @@ test("pushOutbox drawing upsert PUTs to /api/drawings/{noteSid}, sets dirty 0 + 
   assert.equal(row.base_rev, "2026-06-06T12:00:00");
   assert.equal(r.remaining, 0);
 });
+
+// ── Workstream A2 (audit 2026-10-15): T10 tahan op bergantung, T11 client_id, T12 recurrence_renew, K6 is_focused ──
+const { pendingCreateCids } = require("../../static/offline/syncpush.js");
+const { mapPut: _mapPutA2 } = require("../../static/offline/idmap.js");
+
+async function getRec(store, cid) {
+  const db = await openDB();
+  return new Promise((res) => { const q = db.transaction(store).objectStore(store).get(cid); q.onsuccess = () => res(q.result); });
+}
+
+test("T11: create payloads carry client_id (= cid, or the record's own client_id for 'keep as new' copies)", () => {
+  assert.equal(taskToCreatePayload(task({ cid: "a" }), [], null).client_id, "a");
+  assert.equal(taskToCreatePayload(task({ cid: "a", client_id: "fresh" }), [], null).client_id, "fresh");
+  assert.equal("client_id" in taskToUpdatePayload(task({ cid: "a" }), []), false);
+  assert.equal(habitToCreatePayload(habit({ cid: "h" }), []).client_id, "h");
+  assert.equal(habitToCreatePayload(habit({ cid: "h", client_id: "fresh" }), []).client_id, "fresh");
+  assert.equal("client_id" in habitToUpdatePayload(habit({ cid: "h" }), []), false);
+  assert.equal(noteToCreatePayload(note({ cid: "n" }), [], []).client_id, "n");
+  assert.equal(noteToCreatePayload(note({ cid: "n", client_id: "fresh" }), [], []).client_id, "fresh");
+});
+
+test("K6: taskToUpdatePayload sends is_focused as a boolean", () => {
+  assert.equal(taskToUpdatePayload(task({ cid: "a", is_focused: 1 }), []).is_focused, true);
+  assert.equal(taskToUpdatePayload(task({ cid: "a", is_focused: 0 }), []).is_focused, false);
+  assert.equal(taskToUpdatePayload(task({ cid: "a" }), []).is_focused, false);
+});
+
+test("T12: taskToUpdatePayload includes recurrence_renew only while recurrence_renew_pending is set; PUT success clears it and adopts the server end date", async () => {
+  assert.equal("recurrence_renew" in taskToUpdatePayload(task({ cid: "a" }), []), false);
+  assert.equal(taskToUpdatePayload(task({ cid: "a", recurrence_renew_pending: 1 }), []).recurrence_renew, true);
+  await put("tasks", [task({ cid: "a", server_id: 10, recurrence_type: "daily", recurrence_end_date: "2027-01-13", recurrence_renew_pending: 1, rev: 2 })]);
+  await _mapPutA2("task", 10, "a");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "task", cid: "a", payload: {} }]);
+  const tr = fakeTransport((m, p, b) => {
+    assert.equal(b.recurrence_renew, true);
+    return { status: 200, data: { id: 10, updated_at: "2026-10-15T10:00:00", recurrence_end_date: "2027-01-14", recurrence_notif_level: null, quadrant: "Q2" } };
+  });
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  const rec = await getRec("tasks", "a");
+  assert.equal(rec.recurrence_renew_pending, undefined);
+  assert.equal(rec.recurrence_end_date, "2027-01-14");
+  assert.equal(rec.dirty, 0);
+});
+
+test("T12: taskrepo.updateTask({recurrence_renew:true}) sets recurrence_renew_pending", async () => {
+  const taskrepo = require("../../static/offline/taskrepo.js");
+  const t = await taskrepo.createTask({ title: "R", recurrence_type: "daily" }, { now: "2026-10-15T00:00:00.000Z", today: "2026-10-15" });
+  await taskrepo.updateTask(t.cid, { recurrence_renew: true }, { now: "2026-10-15T00:01:00.000Z", today: "2026-10-15" });
+  const rec = await getRec("tasks", t.cid);
+  assert.equal(rec.recurrence_renew_pending, 1);
+  assert.equal(rec.recurrence_end_date, "2027-01-13");
+});
+
+test("T10: pendingCreateCids collects cids with a create (or chat send) op", () => {
+  const s = pendingCreateCids([
+    { op: "create", entity_type: "task", cid: "a" }, { op: "update", entity_type: "task", cid: "b" },
+    { op: "send", entity_type: "message", cid: "m" }, { op: "checkin", entity_type: "habit_log", cid: "l" },
+  ]);
+  assert.deepEqual([...s].sort(), ["a", "m"]);
+});
+
+test("T10: habit checkin/uncheck and mark_occurrence are HELD while the parent create is still queued (parent 503), not dropped", async () => {
+  await put("habits", [habit({ cid: "h", title: "H" })]);
+  await putLogRow({ cid: "log1", habit_cid: "h", date: "2026-10-14", status: "done", skip_reason: "", dirty: 1 });
+  await put("tasks", [task({ cid: "r", title: "R", recurrence_type: "daily" })]);
+  await put("_outbox", [
+    { qid: 1, op: "create", entity_type: "habit", cid: "h", payload: {} },
+    { qid: 2, op: "checkin", entity_type: "habit_log", cid: "log1", payload: {} },
+    { qid: 3, op: "uncheck", entity_type: "habit_log", cid: "u1", payload: { habit_cid: "h", date: "2026-10-13", status: "uncheck" } },
+    { qid: 4, op: "create", entity_type: "task", cid: "r", payload: {} },
+    { qid: 5, op: "mark_occurrence", entity_type: "recurring_exception", cid: "x", payload: { task_cid: "r", occurrence_date: "2026-10-14", status: "done" } },
+  ]);
+  // server sibuk: kedua create gagal sementara → op anak harus tetap antre
+  const tr = fakeTransport(() => ({ status: 503, data: {} }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 0);
+  assert.equal(tr.calls.length, 2, "hanya dua POST create; op anak tidak dikirim & tidak dibuang");
+  assert.equal((await outboxAll()).length, 5);
+  // server pulih: create lalu anaknya dalam SATU drain (induk lebih dulu di FIFO)
+  const tr2 = fakeTransport((m, p) => {
+    if (p === "/api/habits") return { status: 200, data: { id: 50 } };
+    if (p === "/api/tasks") return { status: 201, data: { id: 60, updated_at: "u" } };
+    return { status: 200, data: { ok: true } };
+  });
+  const r2 = await pushOutbox(tr2);
+  assert.equal(r2.pushed, 5);
+  assert.deepEqual(tr2.calls.map((c) => c.path), ["/api/habits", "/api/habits/50/checkin", "/api/habits/50/checkin", "/api/tasks", "/api/tasks/60/occurrences/2026-10-14/mark"]);
+  assert.equal((await outboxAll()).length, 0);
+});
+
+test("T10: dependent ops are dropped only when the parent has no create op at all (no deadlock)", async () => {
+  await putLogRow({ cid: "log1", habit_cid: "gone", date: "2026-10-14", status: "done", skip_reason: "", dirty: 1 });
+  await put("_outbox", [
+    { qid: 1, op: "checkin", entity_type: "habit_log", cid: "log1", payload: {} },
+    { qid: 2, op: "mark_occurrence", entity_type: "recurring_exception", cid: "x", payload: { task_cid: "no-task", occurrence_date: "2026-10-14", status: "done" } },
+  ]);
+  const tr = fakeTransport(() => { throw new Error("should not call"); });
+  const r = await pushOutbox(tr);
+  assert.equal(tr.calls.length, 0);
+  assert.equal(r.remaining, 0);
+});
+
+test("T10: a child task create is held while the parent's create is queued, then sent with the real parent_id", async () => {
+  await put("tasks", [task({ cid: "par", title: "Parent" }), task({ cid: "kid", title: "Kid", parent_cid: "par" })]);
+  await put("_outbox", [
+    { qid: 1, op: "create", entity_type: "task", cid: "par", payload: {} },
+    { qid: 2, op: "create", entity_type: "task", cid: "kid", payload: {} },
+  ]);
+  // induk gagal sementara (503 → op tetap), anak harus ditahan — bukan dikirim dengan parent_id null
+  const tr = fakeTransport(() => ({ status: 503, data: {} }));
+  const r = await pushOutbox(tr);
+  assert.equal(tr.calls.length, 1, "anak ditahan");
+  assert.equal(r.remaining, 2);
+  let next = 500;
+  const tr2 = fakeTransport(() => ({ status: 201, data: { id: next++ } }));
+  const r2 = await pushOutbox(tr2);
+  assert.equal(r2.pushed, 2);
+  assert.equal(tr2.calls[1].body.parent_id, 500);
+});
+
+test("T10: a child task whose parent has no create op (permanent failure earlier) is sent with parent_id null", async () => {
+  await put("tasks", [task({ cid: "par", title: "Parent", sync_error: { status: 422, detail: "x", at: "t" } }), task({ cid: "kid", title: "Kid", parent_cid: "par" })]);
+  await put("_outbox", [{ qid: 2, op: "create", entity_type: "task", cid: "kid", payload: {} }]);
+  const tr = fakeTransport(() => ({ status: 201, data: { id: 9 } }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(tr.calls[0].body.parent_id, null);
+});
+
+test("a task created then deleted offline is never POSTed (create op dropped, delete op ends locally)", async () => {
+  await put("tasks", [task({ cid: "a", title: "A", deleted: true })]);
+  await put("_outbox", [
+    { qid: 1, op: "create", entity_type: "task", cid: "a", payload: {} },
+    { qid: 2, op: "delete", entity_type: "task", cid: "a", payload: { cid: "a" } },
+  ]);
+  const tr = fakeTransport(() => { throw new Error("should not call"); });
+  const r = await pushOutbox(tr);
+  assert.equal(tr.calls.length, 0);
+  assert.equal(r.remaining, 0);
+});

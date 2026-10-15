@@ -745,6 +745,8 @@ function sync() {
   const stepFailed = (e) => { if (e && e.status === 401 && typeof handleAuthExpired === "function") handleAuthExpired(); return null; };
   const step = (fn) => Promise.resolve().then(fn).catch(stepFailed);
   const pending = runSyncExclusive(() => { __syncPending = null; return window.TF.syncpull.pullAndReconcile(__syncRawFetch).catch(stepFailed)
+    // T8: penanda occurrence task berulang (jendela ±60 hari) — setelah tasks supaya idmap task sudah terisi
+    .then(() => step(() => (window.TF.syncpull.pullRecurringExceptions ? window.TF.syncpull.pullRecurringExceptions(__syncRawFetch) : null)))
     .then(() => step(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null)))
     .then(() => step(() => (window.TF.syncpull.pullHabitsAndLogs ? window.TF.syncpull.pullHabitsAndLogs(__syncRawFetch) : null)))
     .then(() => step(() => {
@@ -822,9 +824,10 @@ function renderConflicts() {
         label.textContent = "⚠ '" + title + "' gagal disinkronkan" + (why ? " (" + why + ")" : "") + ".";
         choices = [["Coba lagi", "retry"], ["Buang perubahan lokal", "discard_local"]];
       } else if (c.conflict === "access_lost") {
-        // 403 saat push: dikeluarkan dari list → konten lokal dipertahankan sampai dipilih
+        // 403 saat push: dikeluarkan dari list → konten lokal dipertahankan sampai dipilih (S1):
+        // "Simpan sebagai pribadi" = keep_as_personal (list_id null, dibuat ulang dengan client_id baru)
         label.textContent = "🔒 '" + title + "' — akses ke list ini hilang.";
-        choices = [["Simpan sebagai baru", "keep_as_new"], ["Buang", "discard"]];
+        choices = [["Simpan sebagai pribadi", "keep_as_personal"], ["Buang", "discard"]];
       } else {
         label.textContent = "🔔 '" + title + "' dihapus di perangkat lain, tapi ada perubahan lokal.";
         choices = c.list_id != null
@@ -12547,7 +12550,8 @@ function CalendarView({
           return;
         }
         if (isDone) {
-          api.patch(`/api/tasks/${t.id}`, { gtd_status: "inbox" }).then(() => {
+          // PATCH /api/tasks/:id tidak ada (server & router lokal hanya PUT) — dulu un-done selalu gagal diam-diam
+          api.put(`/api/tasks/${t.id}`, { gtd_status: "inbox" }).then(() => {
             window.dispatchEvent(new CustomEvent("taskUpdated", { detail: { taskId: t.id } }));
           }).catch(() => {});
         } else {
@@ -14439,8 +14443,12 @@ function Dashboard({
   };
   const handleCheckinHabit = async habit => {
     if (!habit) return;
+    // S8: tanggal check-in = hari Jakarta (server, habitlogic, dan habitrepo memakai hari yang sama);
+    // hari lokal perangkat hanya cadangan bila modul offline belum termuat.
     const _d = new Date();
-    const today = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
+    const today = (window.TF && window.TF.habitlogic && window.TF.habitlogic.todayJkt)
+      ? window.TF.habitlogic.todayJkt()
+      : `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
 
     // Optimistic update
     setHabits(prev => prev.map(h => h.id === habit.id ? { ...h, today_status: "done" } : h));
@@ -28090,8 +28098,11 @@ function HabitPage({
   }, [habits]);
 
   const handleCheckin = async (habitId, status, skipReason) => {
+    // S8: tanggal check-in = hari Jakarta (lihat handleCheckinHabit di Dashboard)
     const _d = new Date();
-    const today = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
+    const today = (window.TF && window.TF.habitlogic && window.TF.habitlogic.todayJkt)
+      ? window.TF.habitlogic.todayJkt()
+      : `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
     try {
       await api.post(`/api/habits/${habitId}/checkin`, {
         status,

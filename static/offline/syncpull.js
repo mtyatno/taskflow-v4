@@ -20,6 +20,8 @@
   const BlobStore = TFblob ? TFblob.makeBlobStore() : null;
   const TFrepo = req("./drawingrepo.js", root.TF && root.TF.drawingrepo);
   const TFpush = req("./syncpush.js", root.TF && root.TF.syncpush);
+  const TFhabitrepo = req("./habitrepo.js", root.TF && root.TF.habitrepo);
+  const TFhabitlogic = req("./habitlogic.js", root.TF && root.TF.habitlogic);
 
   function getAllTasks() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -112,27 +114,30 @@
         const localByCid = {};
         for (const r of localAll) localByCid[r.cid] = r;
         const getCid = (sid) => cache[sid] || null;
+        // rev (prinsip 4) ikut naik saat pull menimpa record: push in-flight yang membaca rev lama tidak akan
+        // menandai hasil pull ini "bersih" dengan sentRev-nya.
+        const fromServer = (s, localRec) => Object.assign(TFhydrate.taskFromServer(s, getCid), { rev: localRec ? (localRec.rev || 0) + 1 : 0 });
         const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflicts: 0, requeued: 0 };
         let chain = requeueDirtyWithoutOps("task", localAll, pendingTaskOps, result);
         for (const s of list) {
           const cid = cache[s.id];
           const localRec = localByCid[cid];
           chain = chain.then(() => {
-            if (!localRec || (localRec.deleted && !pendingTaskOps.has(cid))) { result.created++; return putTask(TFhydrate.taskFromServer(s, getCid)); }
+            if (!localRec || (localRec.deleted && !pendingTaskOps.has(cid))) { result.created++; return putTask(fromServer(s, localRec)); }
             if (localRec.conflict || localRec.sync_error) { result.skipped++; return; } // sync_error: tunggu "Coba lagi"/"Buang"
             if (localRec.dirty && pendingTaskOps.has(cid)) {
               if (s.updated_at !== localRec.base_rev) {
                 // edit-vs-edit conflict → last-write-wins
                 result.lwwResolved++;
                 if (tsEpoch(s.updated_at) > tsEpoch(localRec.updated_at)) {
-                  return dropOutbox("task", cid).then(() => putTask(TFhydrate.taskFromServer(s, getCid))); // server wins
+                  return dropOutbox("task", cid).then(() => putTask(fromServer(s, localRec))); // server wins
                 }
                 return; // local wins — keep dirty, push will send
               }
               result.skipped++; return; // local pending, server unchanged
             }
             // dirty tanpa op sudah diantre ulang di atas (ada di pendingTaskOps) → tidak pernah sampai sini
-            if (s.updated_at !== localRec.base_rev || localRec.deleted) { result.updated++; return putTask(TFhydrate.taskFromServer(s, getCid)); }
+            if (s.updated_at !== localRec.base_rev || localRec.deleted) { result.updated++; return putTask(fromServer(s, localRec)); }
             return; // unchanged
           });
         }
@@ -202,13 +207,15 @@
       tx.onerror = () => reject(tx.error);
     }));
   }
+  // Habit hilang di server → hapus record + semua log-nya (+ op checkin/uncheck-nya). S13: log yatim tidak
+  // boleh tinggal (ikut dihitung statistik; server menghapusnya lewat ON DELETE).
   function deleteHabitRec(cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const tx = db.transaction("habits", "readwrite");
       tx.objectStore("habits").delete(cid);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
-    }));
+    })).then(() => (TFhabitrepo && TFhabitrepo.deleteLogsOfHabit ? TFhabitrepo.deleteLogsOfHabit(cid) : 0));
   }
   function ensureHabitCid(serverId, cache) {
     if (cache[serverId]) return Promise.resolve(cache[serverId]);
@@ -236,9 +243,9 @@
           const cid = cache[h.id];
           const localRec = localByCid[cid];
           chain = chain.then(() => {
-            if (!localRec) { result.created++; return putHabit(habitFromServer(h, cid)); }
+            if (!localRec) { result.created++; return putHabit(Object.assign(habitFromServer(h, cid), { rev: 0 })); }
             if (localRec.dirty || localRec.sync_error || localRec.conflict) { result.skipped++; return; }
-            if (habitChanged(localRec, h)) { result.updated++; return putHabit(habitFromServer(h, cid)); }
+            if (habitChanged(localRec, h)) { result.updated++; return putHabit(Object.assign(habitFromServer(h, cid), { rev: (localRec.rev || 0) + 1 })); }
             return;
           });
         }
@@ -271,22 +278,69 @@
       tx.onerror = () => reject(tx.error);
     }));
   }
-  function pullHabitLogs(serverLogs) {
+  function getAllLogs() {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("habit_logs", "readonly").objectStore("habit_logs").getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function deleteLogRec(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("habit_logs", "readwrite");
+      tx.objectStore("habit_logs").delete(cid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  // Jendela daftar log server (/api/habits/logs tanpa `since` = 90 hari terakhir, hari Jakarta, tanpa batas atas).
+  const LOG_WINDOW_DAYS = 90;
+  function logWindowFrom(opts) {
+    if (opts && opts.from) return String(opts.from).slice(0, 10);
+    const today = (opts && opts.today) || (TFhabitlogic ? TFhabitlogic.todayJkt() : new Date().toISOString().slice(0, 10));
+    const [y, m, d] = String(today).slice(0, 10).split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d) - LOG_WINDOW_DAYS * 86400000).toISOString().slice(0, 10);
+  }
+  // T9 + S13: rekonsiliasi log habit terhadap daftar server (jendela `from`..∞):
+  //   - log server tanpa padanan lokal → dibuat (dirty 0);
+  //   - log lokal dirty yang status+skip_reason-nya sudah sama dengan server → dirty 0 + op checkin-nya dibuang
+  //     (op dibuang dulu oleh error sementara, atau check-in yang sama dari perangkat lain);
+  //   - log lokal dirty lain → tetap (local-wins; tanpa op & tanpa sync_error → antre ulang);
+  //   - log lokal bersih (dirty 0) di dalam jendela yang ABSEN di server → dihapus ("uncheck" dari perangkat
+  //     lain menghapus barisnya di server; dulu tak pernah menyebar).
+  // opts.from (YYYY-MM-DD) = awal jendela bila daftar diambil dengan `since` lain; default hari ini − 90.
+  function pullHabitLogs(serverLogs, opts) {
     const list = serverLogs || [];
     const cache = {};
-    const result = { created: 0, updated: 0, skipped: 0, requeued: 0 };
+    const result = { created: 0, updated: 0, deleted: 0, skipped: 0, requeued: 0, confirmed: 0 };
     const appendOp = TFoutbox.outboxAppend || TFoutbox.outboxAdd;
+    const from = logWindowFrom(opts);
     return TFoutbox.outboxAll().then((outboxOps) => {
-      const pendingLogOps = new Set(outboxOps.filter((o) => o.entity_type === "habit_log").map((o) => o.cid));
+      const logOps = outboxOps.filter((o) => o.entity_type === "habit_log");
+      const pendingLogOps = new Set(logOps.map((o) => o.cid));
+      // uncheck lokal yang belum terkirim: jangan hidupkan lagi log server yang akan dihapus push berikutnya
+      const pendingUncheck = new Set(logOps.filter((o) => o.op === "uncheck" && o.payload).map((o) => o.payload.habit_cid + "|" + o.payload.date));
+      const seen = new Set(); // "habit_cid|date" yang ada di server
       return list.reduce((p, l) => p.then(() =>
-        ensureHabitCid(l.habit_id, cache).then((hcid) =>
-          getLogByHabitDate(hcid, l.date).then((local) => {
+        ensureHabitCid(l.habit_id, cache).then((hcid) => {
+          seen.add(hcid + "|" + l.date);
+          return getLogByHabitDate(hcid, l.date).then((local) => {
             const skip = l.skip_reason != null ? l.skip_reason : "";
             if (!local) {
+              if (pendingUncheck.has(hcid + "|" + l.date)) { result.skipped++; return; }
               result.created++;
-              return putLog({ cid: TFids.newCid(), habit_cid: hcid, date: l.date, status: l.status, skip_reason: skip, dirty: 0 });
+              return putLog({ cid: TFids.newCid(), habit_cid: hcid, date: l.date, status: l.status, skip_reason: skip, dirty: 0, rev: 0 });
             }
+            const same = local.status === l.status && (local.skip_reason || "") === skip;
             if (local.dirty) {
+              if (same) {
+                // server sudah memegang status yang sama → tidak perlu dikirim lagi
+                result.confirmed++;
+                const next = Object.assign({}, local, { dirty: 0 });
+                delete next.sync_error;
+                return putLog(next).then(() => logOps.filter((o) => o.cid === local.cid && o.op === "checkin")
+                  .reduce((q, o) => q.then(() => TFoutbox.outboxRemove(o.qid)), Promise.resolve()));
+              }
               result.skipped++;
               // log dirty tanpa op checkin (op dibuang dulu / bug) → antre ulang; sync_error → tunggu pengguna
               if (!local.sync_error && !pendingLogOps.has(local.cid)) {
@@ -296,24 +350,167 @@
               }
               return;
             }
-            if (local.status !== l.status || (local.skip_reason || "") !== skip) {
+            if (!same) {
               result.updated++;
-              return putLog(Object.assign({}, local, { status: l.status, skip_reason: skip, dirty: 0 }));
+              return putLog(Object.assign({}, local, { status: l.status, skip_reason: skip, dirty: 0, rev: (local.rev || 0) + 1 }));
             }
             return;
-          })
-        )
-      ), Promise.resolve()).then(() => result);
+          });
+        })
+      ), Promise.resolve())
+        // pass 2: log lokal bersih di jendela yang tidak ada di server → dihapus (uncheck dari perangkat lain)
+        .then(() => getAllLogs())
+        .then((allLogs) => allLogs.reduce((p, lg) => p.then(() => {
+          if (lg.dirty || lg.sync_error) return;
+          if (String(lg.date) < from) return; // di luar jendela daftar server → tidak ada bukti
+          if (seen.has(lg.habit_cid + "|" + lg.date)) return;
+          // habit yang belum pernah di-push (tanpa server_id) tidak mungkin punya log di server → biarkan
+          return TFidmap.serverIdOf(lg.habit_cid).then((sid) => {
+            if (sid == null) return;
+            result.deleted++;
+            return deleteLogRec(lg.cid);
+          });
+        }), Promise.resolve()))
+        .then(() => result);
     });
   }
   function pullHabitsAndLogs(rawFetch) {
+    // Jendela log dikirim eksplisit (`since`) supaya batas jendela klien = server persis (tidak bergantung
+    // selisih jam/hari antara perangkat dan server) — pass hapus T9 hanya berlaku di dalam jendela ini.
+    const from = logWindowFrom(null);
     // Kedua respons dicek statusnya (T1): 503 OFFLINE / 401 / 5xx → throw, tidak ada yang ditimpa/dihapus.
     return Promise.all([
       Promise.resolve(rawFetch("/api/habits")).then(listJsonOrThrow),
-      Promise.resolve(rawFetch("/api/habits/logs")).then(listJsonOrThrow),
+      Promise.resolve(rawFetch("/api/habits/logs?since=" + encodeURIComponent(from))).then(listJsonOrThrow),
     ]).then(([habits, logs]) =>
       pullHabits(habits || []).then((hb) =>
-        pullHabitLogs(logs || []).then((lg) => ({ habits: hb, logs: lg }))));
+        pullHabitLogs(logs || [], { from: from }).then((lg) => ({ habits: hb, logs: lg }))));
+  }
+
+  // ── T8: penanda occurrence task berulang (recurring_exceptions) ─────────────────────────────────
+  function getAllExceptions() {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("recurring_exceptions", "readonly").objectStore("recurring_exceptions").getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function putException(rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("recurring_exceptions", "readwrite");
+      tx.objectStore("recurring_exceptions").put(rec);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  // CAS: tulis/hapus hanya bila record masih seperti saat dibaca (pengguna bisa menandai occurrence saat pull).
+  function sameExceptionState(cur, expect) {
+    return !!cur && cur.status === expect.status && !!cur.dirty === !!expect.dirty;
+  }
+  function updateExceptionIfUnchanged(expect, patch) {
+    return TFdb.mutate("recurring_exceptions", expect.cid, (cur) =>
+      (sameExceptionState(cur, expect) ? Object.assign({}, cur, patch) : undefined));
+  }
+  function deleteExceptionIfUnchanged(expect) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      let done = false;
+      const tx = db.transaction("recurring_exceptions", "readwrite");
+      const os = tx.objectStore("recurring_exceptions");
+      const r = os.get(expect.cid);
+      r.onsuccess = () => {
+        if (!sameExceptionState(r.result, expect)) return;
+        os.delete(expect.cid);
+        done = true;
+      };
+      tx.oncomplete = () => resolve(done);
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  const EXC_WINDOW_DAYS = 60;
+  function todayJktStr() {
+    return TFhabitlogic ? TFhabitlogic.todayJkt() : new Date().toISOString().slice(0, 10);
+  }
+  function addDaysStr(dateStr, n) {
+    const [y, m, d] = String(dateStr).slice(0, 10).split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d) + n * 86400000).toISOString().slice(0, 10);
+  }
+  // Rekonsiliasi per (task_cid, occurrence_date) terhadap peta server { "<task_id>": [{occurrence_date, status}] }
+  // untuk jendela opts.from..opts.to:
+  //   - task id server yang tidak dikenal idmap → dilewati (task-nya belum di-pull);
+  //   - entri lokal dengan op mark_occurrence tertunda MENANG (status sama dengan server → op dibuang, dirty 0);
+  //   - selain itu status server diadopsi (dibuat / diperbarui, dirty 0) — termasuk record `dirty` legacy tanpa
+  //     op (dulu push tidak pernah membersihkan dirty), karena server adalah sumber kebenaran setelah terkirim;
+  //   - entri lokal bersih di dalam jendela yang absen di server (dan task-nya punya server id) → dihapus.
+  function reconcileRecurringExceptions(serverMap, opts) {
+    const map = (serverMap && typeof serverMap === "object" && !Array.isArray(serverMap)) ? serverMap : {};
+    const from = opts && opts.from ? String(opts.from) : null;
+    const to = opts && opts.to ? String(opts.to) : null;
+    const now = (opts && opts.now) || new Date().toISOString();
+    const result = { created: 0, updated: 0, deleted: 0, skipped: 0, confirmed: 0, unknownTasks: 0 };
+    return Promise.all([getAllExceptions(), TFoutbox.outboxAll()]).then(([localAll, ops]) => {
+      const markOps = ops.filter((o) => o.entity_type === "recurring_exception" && o.op === "mark_occurrence");
+      const pendingByCid = new Set(markOps.map((o) => o.cid));
+      const localByKey = {};
+      for (const r of localAll) localByKey[r.task_cid + "|" + r.occurrence_date] = r;
+      const serverKeys = new Set();
+      const sidByTaskCid = {}; // task_cid → server id (dari peta server)
+      let chain = Promise.resolve();
+      for (const sidStr of Object.keys(map)) {
+        const entries = Array.isArray(map[sidStr]) ? map[sidStr] : [];
+        chain = chain.then(() => TFidmap.cidOf("task", /^\d+$/.test(sidStr) ? Number(sidStr) : sidStr)).then((taskCid) => {
+          if (!taskCid) { result.unknownTasks++; return; }
+          sidByTaskCid[taskCid] = sidStr;
+          let c2 = Promise.resolve();
+          for (const e of entries) {
+            if (!e || !e.occurrence_date) continue;
+            const key = taskCid + "|" + e.occurrence_date;
+            serverKeys.add(key);
+            const local = localByKey[key];
+            c2 = c2.then(() => {
+              if (!local) {
+                result.created++;
+                return putException({ cid: TFids.newCid(), task_cid: taskCid, occurrence_date: e.occurrence_date, status: e.status, created_at: now, dirty: 0 });
+              }
+              if (pendingByCid.has(local.cid)) {
+                if (local.status !== e.status) { result.skipped++; return; } // op lokal tertunda menang
+                return updateExceptionIfUnchanged(local, { dirty: 0 }).then((saved) => {
+                  if (!saved) { result.skipped++; return; } // berubah selama pull → biarkan push yang mengirim
+                  result.confirmed++;
+                  return markOps.filter((o) => o.cid === local.cid).reduce((q, o) => q.then(() => TFoutbox.outboxRemove(o.qid)), Promise.resolve());
+                });
+              }
+              if (local.status !== e.status || local.dirty) {
+                return updateExceptionIfUnchanged(local, { status: e.status, dirty: 0 })
+                  .then((saved) => { if (saved) result.updated++; else result.skipped++; });
+              }
+            });
+          }
+          return c2;
+        });
+      }
+      // pass 2: entri lokal di jendela yang absen di server → hapus (hanya bila task-nya sudah punya server id)
+      chain = chain.then(() => localAll.reduce((p, r) => p.then(() => {
+        const key = r.task_cid + "|" + r.occurrence_date;
+        if (serverKeys.has(key)) return;
+        if (pendingByCid.has(r.cid)) return; // belum terkirim → bukan bukti absen
+        const d = String(r.occurrence_date);
+        if ((from && d < from) || (to && d > to)) return; // di luar jendela
+        const sidP = sidByTaskCid[r.task_cid] != null ? Promise.resolve(sidByTaskCid[r.task_cid]) : TFidmap.serverIdOf(r.task_cid);
+        return sidP.then((sid) => {
+          if (sid == null) return; // task belum pernah di-push
+          return deleteExceptionIfUnchanged(r).then((done) => { if (done) result.deleted++; else result.skipped++; });
+        });
+      }), Promise.resolve()));
+      return chain.then(() => result);
+    });
+  }
+  function pullRecurringExceptions(rawFetch, opts) {
+    const today = (opts && opts.today) || todayJktStr();
+    const from = addDaysStr(today, -EXC_WINDOW_DAYS);
+    const to = addDaysStr(today, EXC_WINDOW_DAYS);
+    return Promise.resolve(rawFetch("/api/recurring/exceptions?from=" + from + "&to=" + to))
+      .then(listJsonOrThrow)
+      .then((body) => reconcileRecurringExceptions(body || {}, { from: from, to: to }));
   }
 
   function getAllNotes() {
@@ -347,8 +544,9 @@
       if (cid) { cache[serverId] = cid; return cid; }
       return getAllNotes().then((allNotes) => {
         const clientId = serverObj && serverObj.client_id ? String(serverObj.client_id) : null;
+        // salinan "simpan sebagai baru/pribadi" memakai client_id terpisah dari cid → cocokkan keduanya
         const existing = allNotes.find((n) => n.server_id != null && String(n.server_id) === String(serverId))
-          || (clientId ? allNotes.find((n) => n.cid === clientId) : undefined);
+          || (clientId ? allNotes.find((n) => n.cid === clientId || (n.client_id != null && String(n.client_id) === clientId)) : undefined);
         if (existing && existing.cid) {
           cache[serverId] = existing.cid;
           return TFidmap.mapPut("note", serverId, existing.cid).then(() => existing.cid);
@@ -652,7 +850,7 @@
         const existing = allDrawings.find((d) =>
           d.note_cid === undefined && (
             (d.server_id != null && String(d.server_id) === String(serverId)) ||
-            (serverObj && serverObj.client_id && d.cid === serverObj.client_id)
+            (serverObj && serverObj.client_id && (d.cid === serverObj.client_id || (d.client_id != null && String(d.client_id) === String(serverObj.client_id))))
           )
         );
         if (existing && existing.cid) {
@@ -1173,6 +1371,7 @@
 
   const exported = {
     pullTasks, pullAndReconcile,
+    reconcileRecurringExceptions, pullRecurringExceptions,
     pullHabits, pullHabitLogs, pullHabitsAndLogs,
     pullNotes, pullNotesAndReconcile,
     pullMindmaps, pullMindmapsAndReconcile,

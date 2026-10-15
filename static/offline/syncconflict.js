@@ -11,6 +11,7 @@
   const isNode = (typeof module !== "undefined" && module.exports);
   const req = (m, g) => (isNode ? require(m) : g);
   const TFdb = req("./db.js", root.TF && root.TF.db);
+  const TFids = req("./ids.js", root.TF && root.TF.ids);
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
   const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
   // drawingrepo dibaca malas: di browser bisa berasal dari cache SW lama tanpa ensureDrawingUpdateOp → fallback op polos
@@ -57,7 +58,8 @@
   }
 
   // Konflik yang ditampilkan di conflict bar:
-  //   conflict: "remote_deleted" | "access_lost"  → pilihan discard / keep_as_new
+  //   conflict: "remote_deleted"  → pilihan discard / keep_as_new
+  //   conflict: "access_lost"     → pilihan discard / keep_as_personal (S1: list_id null, dibuat ulang sebagai pribadi)
   //   conflict: "sync_error" (record.sync_error, 4xx permanen saat push) → pilihan retry / discard_local
   function listConflicts() {
     return Promise.all(ENTITIES.map((e) => getAll(STORE[e]))).then((rowsPerEntity) => {
@@ -98,6 +100,12 @@
     return TFoutbox.outboxAdd({ op: rec.server_id == null ? "create" : "update", entity_type: entity, cid: rec.cid, payload: {} });
   }
 
+  // Semua penulisan record memakai TFdb.mutate (prinsip 4): perubahan diterapkan ke record TERKINI, bukan ke
+  // objek yang dibaca sebelum jeda async (pengguna bisa mengedit saat conflict bar ditekan).
+  function patchRec(store, cid, fn) {
+    return TFdb.mutate(store, cid, (cur) => (cur ? fn(Object.assign({}, cur), cur) : undefined));
+  }
+
   function resolveConflict(entity, cid, choice) {
     const store = STORE[entity];
     if (!store) return Promise.reject(new Error("unknown entity: " + entity));
@@ -105,11 +113,9 @@
       if (!rec) return { ok: false };
       if (choice === "retry") {
         // "Coba lagi": hapus sync_error, antre op lagi (record tetap dirty → dikirim pada push berikutnya)
-        const next = Object.assign({}, rec, { dirty: 1 });
-        delete next.sync_error;
         return dropOutbox(entity, cid)
-          .then(() => putRaw(store, next))
-          .then(() => queueRetryOp(entity, next))
+          .then(() => patchRec(store, cid, (next) => { next.dirty = 1; delete next.sync_error; return next; }))
+          .then((next) => (next ? queueRetryOp(entity, next) : null))
           .then(() => ({ ok: true }));
       }
       if (choice === "discard_local") {
@@ -118,25 +124,38 @@
           return dropOutbox(entity, cid).then(() => deleteRaw(store, cid)).then(() => ({ ok: true }));
         }
         // base_rev null → pull berikutnya melihat revisi server "lebih baru" dan menimpa record ini.
-        const next = Object.assign({}, rec, { dirty: 0, base_rev: null });
-        delete next.sync_error;
-        return dropOutbox(entity, cid).then(() => putRaw(store, next)).then(() => ({ ok: true }));
+        return dropOutbox(entity, cid)
+          .then(() => patchRec(store, cid, (next) => { next.dirty = 0; next.base_rev = null; delete next.sync_error; return next; }))
+          .then(() => ({ ok: true }));
       }
       const cleanup = dropOutbox(entity, cid)
         .then(() => (rec.server_id != null ? TFidmap.mapDelete(entity, rec.server_id) : null));
       if (choice === "discard") {
         return cleanup.then(() => deleteRaw(store, cid)).then(() => ({ ok: true }));
       }
-      if (choice === "keep_as_new") {
-        const next = Object.assign({}, rec, { server_id: null, dirty: 1 });
-        delete next.conflict;
-        delete next.sync_error;
-        // access_lost: list sudah tidak bisa diakses → simpan sebagai entitas pribadi (list_id null)
-        if (rec.conflict === "access_lost" && "list_id" in next) next.list_id = null;
+      if (choice === "keep_as_new" || choice === "keep_as_personal") {
+        // Dibuat ulang sebagai entitas baru: server_id dikosongkan, op create diantre. `client_id` SEGAR (T11):
+        // cid tetap kunci lokal, tetapi payload create memakai client_id → server tidak mengembalikan baris
+        // LAMA (yang terhapus / tidak bisa diakses) untuk salinan ini.
+        const personal = (choice === "keep_as_personal" || rec.conflict === "access_lost");
         return cleanup
-          .then(() => putRaw(store, next))
-          .then(() => (entity === "drawing"
-            ? TFoutbox.outboxAdd({ op: "create", entity_type: "drawing", cid: cid, payload: drawingMeta(next) })
+          .then(() => patchRec(store, cid, (next, cur) => {
+            next.server_id = null;
+            next.dirty = 1;
+            next.rev = (cur.rev || 0) + 1;
+            next.client_id = TFids.newCid();
+            delete next.conflict;
+            delete next.sync_error;
+            // S1 keep_as_personal (akses ke list hilang) / keep_as_new pada access_lost: simpan sebagai entitas
+            // pribadi — list_id (dan list_cid task) dikosongkan.
+            if (personal) {
+              if ("list_id" in next || entity !== "drawing") next.list_id = null;
+              if ("list_cid" in next || entity === "task") next.list_cid = null;
+            }
+            return next;
+          }))
+          .then((next) => (entity === "drawing"
+            ? TFoutbox.outboxAdd({ op: "create", entity_type: "drawing", cid: cid, payload: drawingMeta(next || rec) })
             : TFoutbox.outboxAdd({ op: "create", entity_type: entity, cid: cid, payload: {} })))
           .then(() => ({ ok: true }));
       }

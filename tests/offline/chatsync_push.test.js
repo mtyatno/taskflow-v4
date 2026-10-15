@@ -53,13 +53,27 @@ test("opChatSend POSTs with client_id, sets server_id + idmap + created_at, clea
   assert.equal((await outboxAll()).length, 0);
 });
 
-test("opChatSend holds when reply target (a cid) has no server id yet", async () => {
-  await put("chat_messages", [msg({ cid: "c2", content: "reply", reply_to_id: "c-target" })]);
-  await put("_outbox", [{ qid: 1, op: "send", entity_type: "message", cid: "c2", payload: {} }]);
-  const tr = fakeTransport(() => { throw new Error("should not POST while held"); });
+test("opChatSend holds when reply target (a cid) has no server id yet but its send op is still queued (T10)", async () => {
+  await put("chat_messages", [msg({ cid: "c-target", content: "asal" }), msg({ cid: "c2", content: "reply", reply_to_id: "c-target" })]);
+  await put("_outbox", [
+    { qid: 1, op: "send", entity_type: "message", cid: "c-target", payload: {} },
+    { qid: 2, op: "send", entity_type: "message", cid: "c2", payload: {} },
+  ]);
+  // target gagal sementara (503) → op-nya tetap antre → balasan ditahan, bukan dikirim tanpa induk / dibuang
+  const tr = fakeTransport((m, p, b) => (b.content === "asal" ? { status: 503, data: {} } : { status: 200, data: { id: 9 } }));
   const r = await pushOutbox(tr);
   assert.equal(r.pushed, 0);
-  assert.equal((await outboxAll()).length, 1); // op retained for retry
+  assert.equal(tr.calls.length, 1); // hanya POST target
+  assert.equal((await outboxAll()).length, 2); // kedua op dipertahankan
+});
+
+test("opChatSend sends a reply without reply_to_id when the target cid has no send op left (no deadlock)", async () => {
+  await put("chat_messages", [msg({ cid: "c2", content: "reply", reply_to_id: "c-target" })]);
+  await put("_outbox", [{ qid: 1, op: "send", entity_type: "message", cid: "c2", payload: {} }]);
+  const tr = fakeTransport((m, p, b) => { assert.equal(b.reply_to_id, null); return { status: 200, data: { id: 501, created_at: "x" } }; });
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal((await outboxAll()).length, 0);
 });
 
 test("opChatSend resolves a cid reply target via idmap to a server id", async () => {

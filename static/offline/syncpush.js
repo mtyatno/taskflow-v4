@@ -22,6 +22,14 @@
     return base + (tagNames || []).map((t) => " #" + t).join("");
   }
 
+  // T11 (prinsip 6): client_id untuk idempotensi create — server mengembalikan baris yang sudah ada bila
+  // (user_id, client_id) cocok (retry setelah respons hilang tidak menduplikasi). Salinan "simpan sebagai
+  // baru/pribadi" (syncconflict) memakai `client_id` terpisah yang segar supaya server tidak mengembalikan
+  // baris LAMA; cid tetap kunci lokal.
+  function clientIdOf(record) {
+    return record.client_id || record.cid || null;
+  }
+
   function taskToCreatePayload(record, tagNames, parentServerId) {
     return {
       title: titleWithTags(record, tagNames),
@@ -37,11 +45,12 @@
       parent_id: parentServerId != null ? parentServerId : null,
       recurrence_type: record.recurrence_type != null ? record.recurrence_type : null,
       recurrence_days: record.recurrence_days ? JSON.parse(record.recurrence_days) : null,
+      client_id: clientIdOf(record),
     };
   }
 
   function taskToUpdatePayload(record, tagNames) {
-    return {
+    const p = {
       title: titleWithTags(record, tagNames),
       description: record.description != null ? record.description : "",
       priority: record.priority || "P3",
@@ -53,9 +62,14 @@
       waiting_for: record.waiting_for != null ? record.waiting_for : "",
       assigned_to: record.assigned_to != null ? record.assigned_to : null,
       progress: record.progress != null ? record.progress : 0,
+      // K6: status fokus (POST /focus dilayani lokal) harus sampai ke server
+      is_focused: record.is_focused ? true : false,
       recurrence_type: record.recurrence_type != null ? record.recurrence_type : null,
       recurrence_days: record.recurrence_days ? JSON.parse(record.recurrence_days) : null,
     };
+    // T12: "Perpanjang" hanya berlaku di server lewat flag; flag dibersihkan setelah PUT sukses (CAS)
+    if (record.recurrence_renew_pending) p.recurrence_renew = true;
+    return p;
   }
 
   function markPayload(record) {
@@ -69,10 +83,13 @@
       micro_target: record.micro_target != null ? record.micro_target : "",
       frequency: record.frequency ? JSON.parse(record.frequency) : [],
       identity_pillar: record.identity_pillar != null ? record.identity_pillar : "",
+      client_id: clientIdOf(record),
     };
   }
   function habitToUpdatePayload(record, tagNames) {
-    return habitToCreatePayload(record, tagNames);
+    const p = habitToCreatePayload(record, tagNames);
+    delete p.client_id;
+    return p;
   }
   function checkinPayload(record) {
     return {
@@ -90,7 +107,7 @@
       linked_task_ids: taskServerIds || [],
       list_id: record.list_id != null ? record.list_id : null,
       meta_json: record.meta_json != null ? record.meta_json : '{}',
-      client_id: record.cid || null,
+      client_id: clientIdOf(record),
     };
   }
   function noteToUpdatePayload(record, tagNames, taskServerIds) {
@@ -103,10 +120,13 @@
       title: record.title != null ? record.title : "Untitled",
       data_json: record.data_json != null ? record.data_json : MM_DEFAULT_DATA,
       list_id: record.list_id != null ? record.list_id : null,
+      client_id: clientIdOf(record),
     };
   }
   function mindmapToUpdatePayload(record) {
-    return mindmapToCreatePayload(record);
+    const p = mindmapToCreatePayload(record);
+    delete p.client_id;
+    return p;
   }
 
   function getTaskRaw(cid) {
@@ -116,28 +136,12 @@
       r.onerror = () => reject(r.error);
     }));
   }
-  function putTaskRaw(rec) {
-    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction("tasks", "readwrite");
-      tx.objectStore("tasks").put(rec);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    }));
-  }
 
   function getHabitRaw(cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const r = db.transaction("habits", "readonly").objectStore("habits").get(cid);
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
-    }));
-  }
-  function putHabitRaw(rec) {
-    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction("habits", "readwrite");
-      tx.objectStore("habits").put(rec);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
     }));
   }
   function deleteHabitRaw(cid) {
@@ -225,6 +229,102 @@
     } catch (_) {}
   }
 
+  // ── CAS/rev (prinsip 4) — helper bersama task / note / habit / habit_log (mindmap: workstream D) ────────
+  // Epoch ms dari timestamp server; format SQLite "YYYY-MM-DD HH:MM:SS" dinormalkan ke "T" (S9), tanpa zona = UTC.
+  function tsEpoch(ts) {
+    if (ts == null) return 0;
+    let s = String(ts).trim();
+    const m = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(.*)$/.exec(s);
+    if (m) s = m[1] + "T" + m[2] + m[3];
+    const hasTz = /[zZ]|[+-]\d\d:?\d\d$/.test(s);
+    const v = Date.parse(hasTz ? s : s + "Z");
+    return isNaN(v) ? 0 : v;
+  }
+  // Timestamp server bisa bermikrodetik; Date.parse memotong ke milidetik → tambahkan digit sisanya.
+  function tsPrecise(ts) {
+    if (ts == null) return 0;
+    const str = String(ts);
+    const m = str.match(/T\d\d:\d\d:\d\d\.(\d+)/);
+    const sub = (m && m[1].length > 3) ? Number("0." + m[1].slice(3)) : 0;
+    return tsEpoch(str) + sub;
+  }
+  // true bila revisi server a LEBIH BARU dari b (b kosong = belum pernah sinkron → a dianggap lebih baru).
+  function tsNewer(a, b) {
+    if (a == null || a === "") return false;
+    if (b == null || b === "") return true;
+    return tsPrecise(a) > tsPrecise(b);
+  }
+  // Tandai record terkirim lewat CAS (satu transaksi baca-ubah-tulis, TIDAK pernah menulis objek yang dibaca
+  // sebelum request):
+  //   dirty      = 0 hanya bila rev masih sama dengan saat payload dibaca (`sentRev`) dan record belum dihapus;
+  //                ada edit selama in-flight → tetap dirty (versi lokal yang lebih baru dikirim ulang).
+  //   base_rev   hanya MAJU (pull bisa sudah mengadopsi revisi server yang lebih baru selama request).
+  //   server_id  diisi bila masih kosong.
+  //   adopt(next) (opsional) → menerapkan field turunan server (kuadran, tanggal akhir recurring, …) pada
+  //                record baru, hanya bila rev tidak berubah — jangan menimpa field yang baru diedit pengguna.
+  function markPushed(storeName, cid, sentRev, updatedAt, sid, adopt) {
+    return TFdb.mutate(storeName, cid, (cur) => {
+      if (!cur) return undefined;
+      const next = Object.assign({}, cur);
+      if (sid != null && next.server_id == null) next.server_id = sid;
+      // base_rev maju ke revisi respons; dipertahankan hanya bila pull sudah mengadopsi revisi server yang
+      // terbukti LEBIH BARU selama request. Timestamp yang tak terbaca (epoch 0) tidak bisa dibandingkan →
+      // respons PUT/POST (otoritatif untuk record ini) yang dipakai.
+      if (updatedAt != null && (tsNewer(updatedAt, cur.base_rev) || !tsPrecise(updatedAt) || !tsPrecise(cur.base_rev))) {
+        next.base_rev = updatedAt;
+      }
+      const unchanged = (cur.rev || 0) === (sentRev || 0);
+      next.dirty = (unchanged && !cur.deleted) ? 0 : 1;
+      if (unchanged && typeof adopt === "function") adopt(next);
+      return next;
+    });
+  }
+  function getRawOf(storeName, cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction(storeName, "readonly").objectStore(storeName).get(cid);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  // Pastikan ada op create/update untuk record (satu transaksi _outbox; tidak menggandakan bila sudah ada).
+  function ensureEntityOp(entityType, rec) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      let added = false;
+      const tx = db.transaction("_outbox", "readwrite");
+      const os = tx.objectStore("_outbox");
+      const r = os.getAll();
+      r.onsuccess = () => {
+        const ops = (r.result || []).filter((o) => o.entity_type === entityType && o.cid === rec.cid && (o.op === "create" || o.op === "update"));
+        if (ops.length) return;
+        os.add({ ts: Date.now(), retries: 0, entity_type: entityType, op: rec.server_id == null ? "create" : "update", cid: rec.cid, payload: {} });
+        added = true;
+      };
+      tx.oncomplete = () => resolve(added);
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  // Masih dirty setelah request sukses (ada edit selama in-flight) → pastikan ada op susulan agar versi
+  // lokal yang lebih baru tetap terkirim (repo biasanya sudah mengantre op; ini jaring pengaman).
+  function requeueIfDirty(storeName, entityType, cid) {
+    return getRawOf(storeName, cid).then((cur) => (cur && cur.dirty && !cur.deleted && !cur.conflict && !cur.sync_error
+      ? ensureEntityOp(entityType, cur)
+      : false));
+  }
+  // Field turunan server yang diadopsi setelah POST/PUT task sukses (hanya bila rev tidak berubah, lihat markPushed).
+  function taskAdopt(data) {
+    return (next) => {
+      const d = (data && typeof data === "object") ? data : {};
+      delete next.recurrence_renew_pending; // T12: perpanjangan sudah diterima server
+      if (d.quadrant != null) next.quadrant = d.quadrant;
+      if ("recurrence_end_date" in d) next.recurrence_end_date = d.recurrence_end_date != null ? d.recurrence_end_date : null;
+      if ("completed_at" in d) next.completed_at = d.completed_at != null ? d.completed_at : null;
+      if ("recurrence_notif_level" in d) next.recurrence_notif_level = d.recurrence_notif_level != null ? d.recurrence_notif_level : null;
+    };
+  }
+  function updatedAtOf(res) {
+    return res && res.data && res.data.updated_at != null ? res.data.updated_at : null;
+  }
+
   function send(transport, method, path, body) {
     return transport.request(method, path, body).then(
       (res) => {
@@ -259,25 +359,42 @@
   function ok(res) { return res && res.status >= 200 && res.status < 300; }
   function tagsOf(cid, tagsFor) { return tagsFor(cid); }
 
-  function opCreate(op, transport, tagsFor, result) {
+  // T10: op yang bergantung pada create induk yang masih antre (server id belum ada) DITAHAN, bukan dibuang.
+  // `pending` = Set cid yang punya op create/send di outbox saat drain dimulai (dihitung sekali di pushOutbox).
+  // Induk selalu lebih dulu di FIFO (qid lebih kecil) → sukses: drain ini juga mengirim anaknya; 429/5xx/
+  // timeout: anak ikut menunggu drain berikutnya. Create induk yang gagal permanen (sync_error) sudah tidak
+  // punya op → set berikutnya tidak memuatnya → op anak dibuang (checkin/mark) atau dikirim tanpa induk
+  // (task: parent_id null; chat: reply_to_id null) — tidak bisa deadlock.
+  function parentCreatePending(pending, parentCid) {
+    return !!(pending && parentCid && pending.has(parentCid));
+  }
+
+  function opCreate(op, transport, tagsFor, result, pending) {
     return getTaskRaw(op.cid).then((rec) => {
       if (!rec) return TFoutbox.outboxRemove(op.qid);
       if (rec.conflict) return; // held until user resolves the conflict
       if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
+      // dibuat lalu dihapus offline (belum pernah di-push): tidak perlu POST+DELETE; op delete-nya juga
+      // berhenti sendiri (server_id null)
+      if (rec.deleted) return TFoutbox.outboxRemove(op.qid);
       const parentP = rec.parent_cid ? TFidmap.serverIdOf(rec.parent_cid) : Promise.resolve(null);
-      return Promise.all([parentP, tagsOf(op.cid, tagsFor)]).then(([parentSid, tags]) =>
-        send(transport, "POST", "/api/tasks", taskToCreatePayload(rec, tags, parentSid != null ? parentSid : null)).then((res) => {
+      return Promise.all([parentP, tagsOf(op.cid, tagsFor)]).then(([parentSid, tags]) => {
+        // T10: induk belum punya server id tapi create-nya masih antre → tahan (jangan kirim parent_id null)
+        if (rec.parent_cid && parentSid == null && parentCreatePending(pending, rec.parent_cid)) return;
+        const sentRev = rec.rev || 0;
+        return send(transport, "POST", "/api/tasks", taskToCreatePayload(rec, tags, parentSid != null ? parentSid : null)).then((res) => {
           if (ok(res)) {
             const sid = res.data.id;
             return TFidmap.mapPut("task", sid, op.cid)
-              .then(() => putTaskRaw(Object.assign({}, rec, { server_id: sid, dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev })))
+              .then(() => markPushed("tasks", op.cid, sentRev, updatedAtOf(res), sid, taskAdopt(res.data)))
               .then(() => TFoutbox.outboxRemove(op.qid))
+              .then(() => requeueIfDirty("tasks", "task", op.cid))
               .then(() => { result.pushed++; });
           }
           if (classify(res) === "forbidden") { return accessLost("tasks", op.cid, op, result); }
           return failPermanent("tasks", op.cid, res, op, result);
-        })
-      );
+        });
+      });
     });
   }
 
@@ -285,15 +402,23 @@
     return Promise.all([getTaskRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
       if (rec.conflict) return; // held until user resolves the conflict
-      return tagsOf(op.cid, tagsFor).then((tags) =>
-        send(transport, "PUT", "/api/tasks/" + sid, taskToUpdatePayload(rec, tags)).then((res) => {
-          if (ok(res)) { return putTaskRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev })).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; }); }
+      return tagsOf(op.cid, tagsFor).then((tags) => {
+        const sentRev = rec.rev || 0;
+        return send(transport, "PUT", "/api/tasks/" + sid, taskToUpdatePayload(rec, tags)).then((res) => {
+          if (ok(res)) {
+            return markPushed("tasks", op.cid, sentRev, updatedAtOf(res), null, taskAdopt(res.data))
+              .then(() => TFoutbox.outboxRemove(op.qid))
+              .then(() => requeueIfDirty("tasks", "task", op.cid))
+              .then(() => { result.pushed++; });
+          }
           const kind = classify(res);
-          if (kind === "gone") { return putTaskRaw(Object.assign({}, rec, { conflict: "remote_deleted" })); } // safety net: flag, keep op
+          if (kind === "gone") { // safety net: flag, keep op (CAS: jangan menulis objek pra-request)
+            return TFdb.mutate("tasks", op.cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "remote_deleted" }) : undefined));
+          }
           if (kind === "forbidden") { return accessLost("tasks", op.cid, op, result); }
           return failPermanent("tasks", op.cid, res, op, result);
-        })
-      );
+        });
+      });
     });
   }
 
@@ -308,12 +433,20 @@
     });
   }
 
-  function opMark(op, transport, result) {
+  function opMark(op, transport, result, pending) {
     const p = op.payload || {};
     return TFidmap.serverIdOf(p.task_cid).then((sid) => {
-      if (sid == null) return TFoutbox.outboxRemove(op.qid);
+      if (sid == null) {
+        if (parentCreatePending(pending, p.task_cid)) return; // T10: tahan sampai create task terkirim
+        return TFoutbox.outboxRemove(op.qid);
+      }
       return send(transport, "POST", "/api/tasks/" + sid + "/occurrences/" + p.occurrence_date + "/mark", markPayload(p)).then((res) => {
-        if (ok(res)) { result.pushed++; return TFoutbox.outboxRemove(op.qid); }
+        if (ok(res)) {
+          result.pushed++;
+          // T8: tandai entri lokal bersih supaya pull jendela bisa merekonsiliasinya (op-nya sudah terkirim)
+          return TFdb.mutate("recurring_exceptions", op.cid, (cur) => (cur ? Object.assign({}, cur, { dirty: 0 }) : undefined))
+            .then(() => TFoutbox.outboxRemove(op.qid));
+        }
         return failPermanent(null, null, res, op, result);
       });
     });
@@ -323,41 +456,58 @@
     return getHabitRaw(op.cid).then((rec) => {
       if (!rec) return TFoutbox.outboxRemove(op.qid);
       if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
-      return habitTagsFor(op.cid).then((tags) =>
-        send(transport, "POST", "/api/habits", habitToCreatePayload(rec, tags)).then((res) => {
+      if (rec.conflict) return; // held until user resolves
+      if (rec.deleted) return TFoutbox.outboxRemove(op.qid); // dibuat lalu dihapus offline
+      return habitTagsFor(op.cid).then((tags) => {
+        const sentRev = rec.rev || 0;
+        return send(transport, "POST", "/api/habits", habitToCreatePayload(rec, tags)).then((res) => {
           if (ok(res)) {
             const sid = res.data.id;
             return TFidmap.mapPut("habit", sid, op.cid)
-              .then(() => putHabitRaw(Object.assign({}, rec, { server_id: sid, dirty: 0 })))
+              .then(() => markPushed("habits", op.cid, sentRev, null, sid, null))
               .then(() => TFoutbox.outboxRemove(op.qid))
+              .then(() => requeueIfDirty("habits", "habit", op.cid))
               .then(() => { result.pushed++; });
           }
           if (classify(res) === "forbidden") { return accessLost("habits", op.cid, op, result); }
           return failPermanent("habits", op.cid, res, op, result);
-        })
-      );
+        });
+      });
     });
   }
 
   function opHabitUpdate(op, transport, habitTagsFor, result) {
     return Promise.all([getHabitRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
-      return habitTagsFor(op.cid).then((tags) =>
-        send(transport, "POST", "/api/habits/" + sid + "/update", habitToUpdatePayload(rec, tags)).then((res) => {
+      if (rec.conflict) return; // held until user resolves
+      return habitTagsFor(op.cid).then((tags) => {
+        const sentRev = rec.rev || 0;
+        return send(transport, "POST", "/api/habits/" + sid + "/update", habitToUpdatePayload(rec, tags)).then((res) => {
           if (ok(res)) {
-            return putHabitRaw(Object.assign({}, rec, { dirty: 0 }))
-              .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+            return markPushed("habits", op.cid, sentRev, null, null, null)
+              .then(() => TFoutbox.outboxRemove(op.qid))
+              .then(() => requeueIfDirty("habits", "habit", op.cid))
+              .then(() => { result.pushed++; });
           }
           const kind = classify(res);
           if (kind === "gone") {
-            // habit deleted on server → local-wins: re-create, then remap idmap
-            return send(transport, "POST", "/api/habits", habitToCreatePayload(rec, tags)).then((res2) => {
+            // habit deleted on server → local-wins: re-create (baris lama sudah terhapus, jadi client_id = cid
+            // tidak mengembalikan baris lama), lalu remap idmap
+            const payload = habitToCreatePayload(rec, tags);
+            return send(transport, "POST", "/api/habits", payload).then((res2) => {
               if (ok(res2)) {
                 const nid = res2.data.id;
                 return TFidmap.mapDelete("habit", sid)
                   .then(() => TFidmap.mapPut("habit", nid, op.cid))
-                  .then(() => putHabitRaw(Object.assign({}, rec, { server_id: nid, dirty: 0 })))
-                  .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+                  .then(() => TFdb.mutate("habits", op.cid, (cur) => {
+                    if (!cur) return undefined;
+                    const next = Object.assign({}, cur, { server_id: nid });
+                    next.dirty = ((cur.rev || 0) === sentRev && !cur.deleted) ? 0 : 1;
+                    return next;
+                  }))
+                  .then(() => TFoutbox.outboxRemove(op.qid))
+                  .then(() => requeueIfDirty("habits", "habit", op.cid))
+                  .then(() => { result.pushed++; });
               }
               if (classify(res2) === "forbidden") { return accessLost("habits", op.cid, op, result); }
               return failPermanent("habits", op.cid, res2, op, result);
@@ -365,8 +515,8 @@
           }
           if (kind === "forbidden") { return accessLost("habits", op.cid, op, result); }
           return failPermanent("habits", op.cid, res, op, result);
-        })
-      );
+        });
+      });
     });
   }
 
@@ -377,37 +527,48 @@
       r.onerror = () => reject(r.error);
     }));
   }
-  function putLogRaw(rec) {
-    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction("habit_logs", "readwrite");
-      tx.objectStore("habit_logs").put(rec);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    }));
-  }
-  function opHabitCheckin(op, transport, result) {
+  function opHabitCheckin(op, transport, result, pending) {
     return getLogRaw(op.cid).then((log) => {
       if (!log) return TFoutbox.outboxRemove(op.qid);
       return TFidmap.serverIdOf(log.habit_cid).then((sid) => {
-        if (sid == null) return TFoutbox.outboxRemove(op.qid);
+        if (sid == null) {
+          if (parentCreatePending(pending, log.habit_cid)) return; // T10: tahan sampai create habit terkirim
+          return TFoutbox.outboxRemove(op.qid);
+        }
+        const sentRev = log.rev || 0;
         return send(transport, "POST", "/api/habits/" + sid + "/checkin", checkinPayload(log)).then((res) => {
           if (ok(res)) {
-            return putLogRaw(Object.assign({}, log, { dirty: 0 }))
-              .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+            // CAS: check-in ulang selama in-flight (rev naik) → tetap dirty, op barunya mengirim status terkini
+            return markPushed("habit_logs", op.cid, sentRev, null, null, null)
+              .then(() => TFoutbox.outboxRemove(op.qid))
+              .then(() => getLogRaw(op.cid))
+              .then((cur) => (cur && cur.dirty && !cur.sync_error
+                ? ensureLogCheckinOp(cur)
+                : null))
+              .then(() => { result.pushed++; });
           }
-          // 403/404/4xx: log tetap dirty + sync_error (pull melewatinya; rekonsiliasi log = workstream A2/T9)
+          // 403/404/4xx: log tetap dirty + sync_error (pull melewatinya; T9: rekonsiliasi saat status sama dengan server)
           return failPermanent("habit_logs", op.cid, res, op, result);
         });
       });
     });
   }
+  // Jaring pengaman: log masih dirty setelah push sukses tapi tidak punya op checkin → antre satu.
+  function ensureLogCheckinOp(log) {
+    return TFoutbox.outboxByEntity("habit_log", log.cid).then((ops) =>
+      (ops.some((o) => o.op === "checkin") ? null
+        : (TFoutbox.outboxAppend || TFoutbox.outboxAdd)({ op: "checkin", entity_type: "habit_log", cid: log.cid, payload: log })));
+  }
 
-  function opHabitUncheck(op, transport, result) {
+  function opHabitUncheck(op, transport, result, pending) {
     const payload = op.payload || {};
     const habitCid = payload.habit_cid;
     if (!habitCid) return TFoutbox.outboxRemove(op.qid);
     return TFidmap.serverIdOf(habitCid).then((sid) => {
-      if (sid == null) return TFoutbox.outboxRemove(op.qid);
+      if (sid == null) {
+        if (parentCreatePending(pending, habitCid)) return; // T10: tahan sampai create habit terkirim
+        return TFoutbox.outboxRemove(op.qid);
+      }
       return send(transport, "POST", "/api/habits/" + sid + "/checkin", {
         date: payload.date,
         status: "uncheck",
@@ -456,19 +617,21 @@
       if (!rec) return TFoutbox.outboxRemove(op.qid);
       if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
       if (rec.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves (access_lost → keep_as_new mengantre ulang)
-      return Promise.all([noteTagNames(op.cid), linkedTaskServerIds(rec)]).then(([tags, taskSids]) =>
-        send(transport, "POST", "/api/scratchpad", noteToCreatePayload(rec, tags, taskSids)).then((res) => {
+      return Promise.all([noteTagNames(op.cid), linkedTaskServerIds(rec)]).then(([tags, taskSids]) => {
+        const sentRev = rec.rev || 0;
+        return send(transport, "POST", "/api/scratchpad", noteToCreatePayload(rec, tags, taskSids)).then((res) => {
           if (ok(res)) {
             const sid = res.data.id;
             return TFidmap.mapPut("note", sid, op.cid)
-              .then(() => putNoteRaw(Object.assign({}, rec, { server_id: sid, dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev })))
+              .then(() => markPushed("scratchpad_notes", op.cid, sentRev, updatedAtOf(res), sid, null))
               .then(() => TFoutbox.outboxRemove(op.qid))
+              .then(() => requeueIfDirty("scratchpad_notes", "note", op.cid))
               .then(() => { result.pushed++; });
           }
           if (classify(res) === "forbidden") { return accessLost("scratchpad_notes", op.cid, op, result); }
           return failPermanent("scratchpad_notes", op.cid, res, op, result);
-        })
-      );
+        });
+      });
     });
   }
 
@@ -476,17 +639,21 @@
     return Promise.all([getNoteRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
       if (rec.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves; don't re-push against an unreachable note
-      return Promise.all([noteTagNames(op.cid), linkedTaskServerIds(rec)]).then(([tags, taskSids]) =>
-        send(transport, "PUT", "/api/scratchpad/" + sid, noteToUpdatePayload(rec, tags, taskSids)).then((res) => {
+      return Promise.all([noteTagNames(op.cid), linkedTaskServerIds(rec)]).then(([tags, taskSids]) => {
+        const sentRev = rec.rev || 0;
+        return send(transport, "PUT", "/api/scratchpad/" + sid, noteToUpdatePayload(rec, tags, taskSids)).then((res) => {
           if (ok(res)) {
-            return putNoteRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev }))
-              .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+            // CAS (K5 untuk note): edit selama in-flight (rev naik) → tetap dirty, versi terbaru dikirim ulang
+            return markPushed("scratchpad_notes", op.cid, sentRev, updatedAtOf(res), null, null)
+              .then(() => TFoutbox.outboxRemove(op.qid))
+              .then(() => requeueIfDirty("scratchpad_notes", "note", op.cid))
+              .then(() => { result.pushed++; });
           }
           const kind = classify(res);
           if (kind === "gone") {
             if (rec.list_id != null) {
               // shared note deleted by owner (or access lost): do not re-create — surface edit-vs-delete.
-              return putNoteRaw(Object.assign({}, rec, { conflict: "remote_deleted" }))
+              return TFdb.mutate("scratchpad_notes", op.cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "remote_deleted" }) : undefined))
                 .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
             }
             return send(transport, "POST", "/api/scratchpad", noteToCreatePayload(rec, tags, taskSids)).then((res2) => {
@@ -494,8 +661,17 @@
                 const nid = res2.data.id;
                 return TFidmap.mapDelete("note", sid)
                   .then(() => TFidmap.mapPut("note", nid, op.cid))
-                  .then(() => putNoteRaw(Object.assign({}, rec, { server_id: nid, dirty: 0, base_rev: res2.data && res2.data.updated_at != null ? res2.data.updated_at : rec.base_rev })))
-                  .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+                  .then(() => TFdb.mutate("scratchpad_notes", op.cid, (cur) => {
+                    if (!cur) return undefined;
+                    const next = Object.assign({}, cur, { server_id: nid });
+                    const ua = updatedAtOf(res2);
+                    if (ua != null) next.base_rev = ua; // baris server baru → base_rev-nya
+                    next.dirty = ((cur.rev || 0) === sentRev && !cur.deleted) ? 0 : 1;
+                    return next;
+                  }))
+                  .then(() => TFoutbox.outboxRemove(op.qid))
+                  .then(() => requeueIfDirty("scratchpad_notes", "note", op.cid))
+                  .then(() => { result.pushed++; });
               }
               if (classify(res2) === "forbidden") { return accessLost("scratchpad_notes", op.cid, op, result); }
               return failPermanent("scratchpad_notes", op.cid, res2, op, result);
@@ -503,8 +679,8 @@
           }
           if (kind === "forbidden") { return accessLost("scratchpad_notes", op.cid, op, result); }
           return failPermanent("scratchpad_notes", op.cid, res, op, result);
-        })
-      );
+        });
+      });
     });
   }
 
@@ -601,11 +777,14 @@
       if (!rec0) return TFoutbox.outboxRemove(op.qid);
       if (rec0.server_id != null) return TFoutbox.outboxRemove(op.qid);
       if (rec0.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves (access_lost)
+      // dibuat lalu dihapus offline (belum pernah di-push): jangan POST lalu DELETE; op delete-nya berhenti sendiri
+      if (rec0.deleted) return TFoutbox.outboxRemove(op.qid);
       const payload = op.payload || {};
       // tag dulu, lalu record+blob terkini dibaca berurutan (tanpa jeda async lain sebelum dikirim)
       return drawingTagsOf(rec0.cid, payload.tags).then((tagNames) => drawingStateOf(rec0.cid, payload).then(({ rec, data }) => {
         if (!rec) return TFoutbox.outboxRemove(op.qid);
         if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
+        if (rec.deleted) return TFoutbox.outboxRemove(op.qid);
         const sentRev = rec.rev || 0;
         const dataJson = data != null ? data : "{}";
         _inflightDrawing.set(rec.cid, dataJson);
@@ -615,7 +794,7 @@
           svg_preview: rec.svg_preview || "",
           is_pinned: rec.is_pinned ? 1 : 0,
           tags: tagNames || [],
-          client_id: rec.cid || null,
+          client_id: clientIdOf(rec), // salinan "simpan sebagai baru" punya client_id segar (bukan cid lama)
         }).then((res) => {
           if (ok(res) && res.data && res.data.id != null) {
             const sid = res.data.id;
@@ -896,13 +1075,16 @@
     return TFidmap.serverIdOf(rt).then((sid) => (sid != null ? { serverId: sid, hold: false } : { hold: true }));
   }
 
-  function opChatSend(op, transport, result) {
+  function opChatSend(op, transport, result, pending) {
     return getChatRaw(op.cid).then((rec) => {
       if (!rec) return TFoutbox.outboxRemove(op.qid);
       if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
       return resolveReplyServerId(rec).then((rep) => {
-        if (rep.hold) return; // reply target not on the server yet; retry next drain (FIFO)
-        return send(transport, "POST", "/api/lists/" + rec.list_id + "/messages", chatSendPayload(rec, rep.serverId)).then((res) => {
+        // T10: target balasan belum di server → tahan hanya selama op send-nya masih antre (FIFO: dikirim lebih
+        // dulu); target yang tidak punya op lagi (gagal permanen) → kirim tanpa reply_to_id, pesan tidak hilang.
+        if (rep.hold && parentCreatePending(pending, rec.reply_to_id)) return;
+        const replySid = rep.hold ? null : rep.serverId;
+        return send(transport, "POST", "/api/lists/" + rec.list_id + "/messages", chatSendPayload(rec, replySid)).then((res) => {
           if (ok(res)) {
             const sid = res.data.id;
             return TFidmap.mapPut("message", sid, op.cid)
@@ -946,16 +1128,22 @@
     });
   }
 
-  function processOp(op, transport, tagsFor, habitTagsFor, result) {
-    if (op.entity_type === "task" && op.op === "create") return opCreate(op, transport, tagsFor, result);
+  // cid yang masih punya op create (task/habit/note/mindmap/drawing) atau send (pesan) → induk yang "sedang
+  // menunggu dikirim"; op anak yang bergantung padanya ditahan (T10), bukan dibuang.
+  function pendingCreateCids(ops) {
+    return new Set((ops || []).filter((o) => o.op === "create" || o.op === "send").map((o) => o.cid));
+  }
+
+  function processOp(op, transport, tagsFor, habitTagsFor, result, pending) {
+    if (op.entity_type === "task" && op.op === "create") return opCreate(op, transport, tagsFor, result, pending);
     if (op.entity_type === "task" && op.op === "update") return opUpdate(op, transport, tagsFor, result);
     if (op.entity_type === "task" && op.op === "delete") return opDelete(op, transport, result);
-    if (op.entity_type === "recurring_exception" && op.op === "mark_occurrence") return opMark(op, transport, result);
+    if (op.entity_type === "recurring_exception" && op.op === "mark_occurrence") return opMark(op, transport, result, pending);
     if (op.entity_type === "habit" && op.op === "create") return opHabitCreate(op, transport, habitTagsFor, result);
     if (op.entity_type === "habit" && op.op === "update") return opHabitUpdate(op, transport, habitTagsFor, result);
     if (op.entity_type === "habit" && op.op === "delete") return opHabitDelete(op, transport, result);
-    if (op.entity_type === "habit_log" && op.op === "checkin") return opHabitCheckin(op, transport, result);
-    if (op.entity_type === "habit_log" && op.op === "uncheck") return opHabitUncheck(op, transport, result);
+    if (op.entity_type === "habit_log" && op.op === "checkin") return opHabitCheckin(op, transport, result, pending);
+    if (op.entity_type === "habit_log" && op.op === "uncheck") return opHabitUncheck(op, transport, result, pending);
     if (op.entity_type === "note" && op.op === "create") return opNoteCreate(op, transport, result);
     if (op.entity_type === "note" && op.op === "update") return opNoteUpdate(op, transport, result);
     if (op.entity_type === "note" && op.op === "delete") return opNoteDelete(op, transport, result);
@@ -969,7 +1157,7 @@
     if (op.entity_type === "mindmap" && op.op === "update") return opMindmapUpdate(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "delete") return opMindmapDelete(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "pin") return opMindmapPin(op, transport, result);
-    if (op.entity_type === "message" && op.op === "send") return opChatSend(op, transport, result);
+    if (op.entity_type === "message" && op.op === "send") return opChatSend(op, transport, result, pending);
     return TFoutbox.outboxRemove(op.qid);
   }
 
@@ -1059,15 +1247,16 @@
     const result = { pushed: 0, failed: 0, remaining: 0 };
     let stopped = false;
     let timeouts = 0;
+    let pending = null; // T10: Set cid dengan op create/send saat drain dimulai
     return Promise.resolve()
       .then(() => (TFrepo && TFrepo.upgradeLegacyDrawingOps ? TFrepo.upgradeLegacyDrawingOps().catch(() => 0) : 0))
       .then(() => healStrandedNotes())
       .then(() => healStrandedDrawings())
       .then(() => TFoutbox.outboxAll())
-      .then((ops) => ops.slice().sort((a, b) => a.qid - b.qid))
+      .then((ops) => { pending = pendingCreateCids(ops); return ops.slice().sort((a, b) => a.qid - b.qid); })
       .then((ops) => ops.reduce((chain, op) => chain.then(() => {
         if (stopped) return;
-        return processOp(op, transport, tagsFor, habitTagsFor, result).catch((err) => {
+        return processOp(op, transport, tagsFor, habitTagsFor, result, pending).catch((err) => {
           if (err && err.__auth) {
             stopped = true; // 401: sesi berakhir → hentikan drain, op tetap antre (dikirim setelah login ulang)
             result.authExpired = true;
@@ -1085,7 +1274,13 @@
       .then((r) => { _running = false; return r; }, (e) => { _running = false; throw e; });
   }
 
-  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, noteToCreatePayload, noteToUpdatePayload, mindmapToCreatePayload, mindmapToUpdatePayload, healStrandedNotes, healStrandedDrawings, pushOutbox, inflightDrawingData, classify, markSyncError };
+  const exported = {
+    taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload,
+    noteToCreatePayload, noteToUpdatePayload, mindmapToCreatePayload, mindmapToUpdatePayload,
+    healStrandedNotes, healStrandedDrawings, pushOutbox, inflightDrawingData, classify, markSyncError,
+    // CAS/rev helper bersama (prinsip 4) — dipakai juga workstream D (mindmap)
+    tsEpoch, tsNewer, markPushed, requeueIfDirty, ensureEntityOp, pendingCreateCids,
+  };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpush = exported; }
   return exported;
 });

@@ -98,6 +98,7 @@
         last_edited_by: curUid(),
         last_editor_username: null, last_editor_display_name: null,
         created_at: now, updated_at: now, deleted: false, dirty: 1, base_rev: null,
+        rev: 1, // penghitung versi lokal — CAS push (prinsip 4)
       };
       return putNote(rec)
         .then(() => TFoutbox.outboxAdd({ op: "create", entity_type: "note", cid: rec.cid, payload: rec }))
@@ -121,7 +122,7 @@
           linked_task_cids: JSON.stringify(taskCids),
           last_edited_by: curUid(),
           last_editor_username: null, last_editor_display_name: null, // I edited it now — clear stale "edited by X"
-          updated_at: now, dirty: 1,
+          updated_at: now, dirty: 1, rev: (rec.rev || 0) + 1,
         });
         return putNote(next)
           .then(() => TFoutbox.outboxAdd({ op: "update", entity_type: "note", cid: cid, payload: next }))
@@ -134,7 +135,7 @@
   function deleteNote(cid, opts) {
     return getNoteRaw(cid).then((rec) => {
       if (!rec || rec.deleted) return Promise.reject(new Error("Note not found"));
-      const next = Object.assign({}, rec, { deleted: true, dirty: 1 });
+      const next = Object.assign({}, rec, { deleted: true, dirty: 1, rev: (rec.rev || 0) + 1 });
       return putNote(next)
         .then(() => TFoutbox.outboxAdd({ op: "delete", entity_type: "note", cid: cid, payload: { cid: cid } }))
         .then(() => ({ ok: true }));
@@ -160,7 +161,7 @@
   function togglePin(cid, opts) {
     return getNoteRaw(cid).then((rec) => {
       if (!rec || rec.deleted) return Promise.reject(new Error("Note not found"));
-      const next = Object.assign({}, rec, { pinned: !rec.pinned });
+      const next = Object.assign({}, rec, { pinned: !rec.pinned, rev: (rec.rev || 0) + 1 });
       return putNote(next)
         .then(() => TFoutbox.outboxAdd({ op: "pin", entity_type: "note", cid: cid, payload: { pinned: next.pinned } }))
         .then(() => next);
