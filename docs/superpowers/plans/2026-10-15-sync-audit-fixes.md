@@ -41,7 +41,7 @@ File: `static/offline/syncpush.js`, `syncpull.js`, `listsync.js`, `syncconflict.
 - Hapus blok rute trash duplikat (±4550, dead code); pastikan `tests/test_note_trash.py::test_delete_is_atomic_when_snapshot_fails` lulus (gagal di baseline).
 - Tes pytest untuk setiap poin (idempotensi client_id, 409, share bump, quadrant tidak bump, tag note, is_focused).
 
-## Workstream A2 — Kebenaran data task/habit/recurring (klien, setelah A1)
+## Workstream A2 — Kebenaran data task/habit/recurring (klien, setelah A1) — SELESAI (commit 44ca631)
 File: `static/offline/db.js` (helper `mutate`), `taskrepo.js`, `taskroutes.js`, `habitrepo.js`, `noterepo.js` (hanya `rev`), `recurrence.js`, `syncpush.js`, `syncpull.js`, `hydrate.js`, tes terkait.
 - Prinsip 4: `TFdb.mutate`; `rev` pada task/note/habit (+log); push task/note/habit memakai CAS (K5 untuk mindmap dikerjakan D dengan helper yang sama). Setelah PUT/POST task sukses adopsi field turunan server dari `res.data` (`quadrant`, `recurrence_end_date`, `completed_at`, `updated_at`→`base_rev`) tanpa menimpa field yang berubah sejak `sentRev`.
 - K6: `taskToUpdatePayload` mengirim `is_focused`; rute lokal `GET /api/tasks/:id/subtasks|notes|attachments` hanya dilayani lokal (→ `[]`) bila id **bukan** angka (task belum tersinkron); id numerik diteruskan ke jaringan (`shouldRouteLocally`).
