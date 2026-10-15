@@ -55,9 +55,13 @@
   }
 
   // Normalize a timestamp to epoch ms; treat a tz-less string (server naive) as UTC.
+  // S9: format SQLite "YYYY-MM-DD HH:MM:SS(.fff)" (spasi) dinormalkan ke "T" dulu — Safari/iOS mengembalikan NaN
+  // untuk bentuk berspasi, yang dulu membuat sisi server selalu kalah (0).
   function tsEpoch(ts) {
     if (ts == null) return 0;
-    const s = String(ts);
+    let s = String(ts).trim();
+    const m = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(.*)$/.exec(s);
+    if (m) s = m[1] + "T" + m[2] + m[3];
     const hasTz = /[zZ]|[+-]\d\d:?\d\d$/.test(s);
     const v = Date.parse(hasTz ? s : s + "Z");
     return isNaN(v) ? 0 : v;
@@ -66,8 +70,39 @@
     return TFoutbox.outboxByEntity(entityType, cid).then((ops) =>
       ops.reduce((p, o) => p.then(() => TFoutbox.outboxRemove(o.qid)), Promise.resolve()));
   }
+  // Prinsip 2: record dirty tanpa op outbox adalah bug → antre ulang op (create bila belum punya server_id,
+  // else update) alih-alih menimpanya dari server. Record ber-sync_error dilewati (ditampilkan ke pengguna).
+  function requeueOp(entityType, rec) {
+    const appendOp = TFoutbox.outboxAppend || TFoutbox.outboxAdd;
+    return appendOp({ entity_type: entityType, op: rec.server_id == null ? "create" : "update", cid: rec.cid, payload: {} });
+  }
+  function needsRequeue(rec, pendingSet) {
+    return !!(rec && rec.dirty && !rec.deleted && !rec.conflict && !rec.sync_error && !pendingSet.has(rec.cid));
+  }
+  // Antre ulang semua record dirty tanpa op (sebelum pass pull) dan masukkan cid-nya ke pendingSet.
+  function requeueDirtyWithoutOps(entityType, localAll, pendingSet, result) {
+    let chain = Promise.resolve();
+    for (const r of localAll) {
+      if (!needsRequeue(r, pendingSet)) continue;
+      pendingSet.add(r.cid);
+      chain = chain.then(() => requeueOp(entityType, r)).then(() => { result.requeued++; });
+    }
+    return chain;
+  }
+  // Konfirmasi per item sebelum hapus lokal (prinsip 5): hanya 404 eksplisit (terhapus) atau 403 (akses hilang)
+  // yang dianggap bukti; null (OFFLINE/401/5xx/jaringan) atau body berisi id → record dipertahankan.
+  function confirmedGone(answer) {
+    return !!(answer && answer.id == null && (answer.status === 404 || answer.status === 403));
+  }
+  function confirmGone(fetchOne, serverId) {
+    return fetchOne
+      ? Promise.resolve().then(() => fetchOne(serverId)).then((a) => confirmedGone(a), () => false)
+      : Promise.resolve(true); // tanpa fetchOne (tes lama) → perilaku lama: daftar ok sudah cukup
+  }
 
-  function pullTasks(serverList) {
+  // fetchOne(serverId) opsional: GET /api/tasks/:id → body | {status:404|403} | null — hanya untuk konfirmasi
+  // sebelum hapus lokal (daftar bisa parsial / diambil saat POST in-flight). Tanpa fetchOne → perilaku lama.
+  function pullTasks(serverList, fetchOne) {
     const list = serverList || [];
     const cache = {}; // serverId -> cid
     return list.reduce((p, s) => p.then(() => ensureCid(s.id, cache)), Promise.resolve())
@@ -77,14 +112,14 @@
         const localByCid = {};
         for (const r of localAll) localByCid[r.cid] = r;
         const getCid = (sid) => cache[sid] || null;
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflicts: 0 };
-        let chain = Promise.resolve();
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflicts: 0, requeued: 0 };
+        let chain = requeueDirtyWithoutOps("task", localAll, pendingTaskOps, result);
         for (const s of list) {
           const cid = cache[s.id];
           const localRec = localByCid[cid];
           chain = chain.then(() => {
             if (!localRec || (localRec.deleted && !pendingTaskOps.has(cid))) { result.created++; return putTask(TFhydrate.taskFromServer(s, getCid)); }
-            if (localRec.conflict) { result.skipped++; return; }
+            if (localRec.conflict || localRec.sync_error) { result.skipped++; return; } // sync_error: tunggu "Coba lagi"/"Buang"
             if (localRec.dirty && pendingTaskOps.has(cid)) {
               if (s.updated_at !== localRec.base_rev) {
                 // edit-vs-edit conflict → last-write-wins
@@ -96,7 +131,8 @@
               }
               result.skipped++; return; // local pending, server unchanged
             }
-            if (s.updated_at !== localRec.base_rev || localRec.deleted || (localRec.dirty && !pendingTaskOps.has(cid))) { result.updated++; return putTask(TFhydrate.taskFromServer(s, getCid)); }
+            // dirty tanpa op sudah diantre ulang di atas (ada di pendingTaskOps) → tidak pernah sampai sini
+            if (s.updated_at !== localRec.base_rev || localRec.deleted) { result.updated++; return putTask(TFhydrate.taskFromServer(s, getCid)); }
             return; // unchanged
           });
         }
@@ -105,10 +141,13 @@
           if (r.server_id == null) continue;
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
-            if (r.conflict) { result.skipped++; return; }
+            if (r.conflict || r.sync_error) { result.skipped++; return; }
             if (r.dirty && pendingTaskOps.has(r.cid)) { result.conflicts++; return putTask(Object.assign({}, r, { conflict: "remote_deleted" })); }
-            result.deleted++;
-            return deleteTask(r.cid);
+            return confirmGone(fetchOne, r.server_id).then((gone) => {
+              if (!gone) { result.skipped++; return; }
+              result.deleted++;
+              return deleteTask(r.cid);
+            });
           });
         }
         return chain.then(() => result);
@@ -116,9 +155,10 @@
   }
 
   function pullAndReconcile(rawFetch) {
+    const fetchOne = (sid) => Promise.resolve(rawFetch("/api/tasks/" + sid)).then(goneOrJson).catch(() => null);
     return Promise.resolve(rawFetch("/api/tasks?include_done=true"))
-      .then((res) => (res && typeof res.json === "function" ? res.json() : res))
-      .then((list) => pullTasks(list || []));
+      .then(listJsonOrThrow)
+      .then((list) => pullTasks(list || [], fetchOne));
   }
 
   const DEFAULT_FREQ = JSON.stringify(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
@@ -184,18 +224,20 @@
     const list = serverHabits || [];
     const cache = {};
     return list.reduce((p, h) => p.then(() => ensureHabitCid(h.id, cache)), Promise.resolve())
-      .then(() => getAllHabits())
-      .then((localAll) => {
+      .then(() => Promise.all([getAllHabits(), TFoutbox.outboxAll()]))
+      .then(([localAll, outboxOps]) => {
+        const pendingHabitOps = new Set(outboxOps.filter((o) => o.entity_type === "habit").map((o) => o.cid));
         const localByCid = {};
         for (const r of localAll) localByCid[r.cid] = r;
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0 };
-        let chain = Promise.resolve();
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, requeued: 0 };
+        // dirty tanpa op → antre ulang (create/update), jangan timpa; sync_error/conflict → lewati
+        let chain = requeueDirtyWithoutOps("habit", localAll, pendingHabitOps, result);
         for (const h of list) {
           const cid = cache[h.id];
           const localRec = localByCid[cid];
           chain = chain.then(() => {
             if (!localRec) { result.created++; return putHabit(habitFromServer(h, cid)); }
-            if (localRec.dirty) { result.skipped++; return; }
+            if (localRec.dirty || localRec.sync_error || localRec.conflict) { result.skipped++; return; }
             if (habitChanged(localRec, h)) { result.updated++; return putHabit(habitFromServer(h, cid)); }
             return;
           });
@@ -205,7 +247,7 @@
           if (r.server_id == null) continue;
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
-            if (r.dirty) { result.skipped++; return; }
+            if (r.dirty || r.sync_error || r.conflict) { result.skipped++; return; }
             result.deleted++;
             return deleteHabitRec(r.cid).then(() => TFidmap.mapDelete("habit", r.server_id));
           });
@@ -232,29 +274,43 @@
   function pullHabitLogs(serverLogs) {
     const list = serverLogs || [];
     const cache = {};
-    const result = { created: 0, updated: 0, skipped: 0 };
-    return list.reduce((p, l) => p.then(() =>
-      ensureHabitCid(l.habit_id, cache).then((hcid) =>
-        getLogByHabitDate(hcid, l.date).then((local) => {
-          const skip = l.skip_reason != null ? l.skip_reason : "";
-          if (!local) {
-            result.created++;
-            return putLog({ cid: TFids.newCid(), habit_cid: hcid, date: l.date, status: l.status, skip_reason: skip, dirty: 0 });
-          }
-          if (local.dirty) { result.skipped++; return; }
-          if (local.status !== l.status || (local.skip_reason || "") !== skip) {
-            result.updated++;
-            return putLog(Object.assign({}, local, { status: l.status, skip_reason: skip, dirty: 0 }));
-          }
-          return;
-        })
-      )
-    ), Promise.resolve()).then(() => result);
+    const result = { created: 0, updated: 0, skipped: 0, requeued: 0 };
+    const appendOp = TFoutbox.outboxAppend || TFoutbox.outboxAdd;
+    return TFoutbox.outboxAll().then((outboxOps) => {
+      const pendingLogOps = new Set(outboxOps.filter((o) => o.entity_type === "habit_log").map((o) => o.cid));
+      return list.reduce((p, l) => p.then(() =>
+        ensureHabitCid(l.habit_id, cache).then((hcid) =>
+          getLogByHabitDate(hcid, l.date).then((local) => {
+            const skip = l.skip_reason != null ? l.skip_reason : "";
+            if (!local) {
+              result.created++;
+              return putLog({ cid: TFids.newCid(), habit_cid: hcid, date: l.date, status: l.status, skip_reason: skip, dirty: 0 });
+            }
+            if (local.dirty) {
+              result.skipped++;
+              // log dirty tanpa op checkin (op dibuang dulu / bug) → antre ulang; sync_error → tunggu pengguna
+              if (!local.sync_error && !pendingLogOps.has(local.cid)) {
+                pendingLogOps.add(local.cid);
+                result.requeued++;
+                return appendOp({ op: "checkin", entity_type: "habit_log", cid: local.cid, payload: local });
+              }
+              return;
+            }
+            if (local.status !== l.status || (local.skip_reason || "") !== skip) {
+              result.updated++;
+              return putLog(Object.assign({}, local, { status: l.status, skip_reason: skip, dirty: 0 }));
+            }
+            return;
+          })
+        )
+      ), Promise.resolve()).then(() => result);
+    });
   }
   function pullHabitsAndLogs(rawFetch) {
+    // Kedua respons dicek statusnya (T1): 503 OFFLINE / 401 / 5xx → throw, tidak ada yang ditimpa/dihapus.
     return Promise.all([
-      Promise.resolve(rawFetch("/api/habits")).then((r) => (r && typeof r.json === "function" ? r.json() : r)),
-      Promise.resolve(rawFetch("/api/habits/logs")).then((r) => (r && typeof r.json === "function" ? r.json() : r)),
+      Promise.resolve(rawFetch("/api/habits")).then(listJsonOrThrow),
+      Promise.resolve(rawFetch("/api/habits/logs")).then(listJsonOrThrow),
     ]).then(([habits, logs]) =>
       pullHabits(habits || []).then((hb) =>
         pullHabitLogs(logs || []).then((lg) => ({ habits: hb, logs: lg }))));
@@ -283,17 +339,21 @@
       tx.onerror = () => reject(tx.error);
     }));
   }
-  function ensureNoteCid(serverId, cache) {
+  // S17: tanpa idmap & tanpa server_id lokal, cocokkan client_id server dengan cid lokal (note yang dibuat
+  // di perangkat ini tapi respons create-nya hilang) — seperti ensureDrawingCid; client_id dipakai sebagai cid baru.
+  function ensureNoteCid(serverId, cache, serverObj) {
     if (cache[serverId]) return Promise.resolve(cache[serverId]);
     return TFidmap.cidOf("note", serverId).then((cid) => {
       if (cid) { cache[serverId] = cid; return cid; }
       return getAllNotes().then((allNotes) => {
-        const existing = allNotes.find((n) => n.server_id === serverId);
+        const clientId = serverObj && serverObj.client_id ? String(serverObj.client_id) : null;
+        const existing = allNotes.find((n) => n.server_id != null && String(n.server_id) === String(serverId))
+          || (clientId ? allNotes.find((n) => n.cid === clientId) : undefined);
         if (existing && existing.cid) {
           cache[serverId] = existing.cid;
           return TFidmap.mapPut("note", serverId, existing.cid).then(() => existing.cid);
         }
-        const fresh = TFids.newCid();
+        const fresh = clientId || TFids.newCid();
         cache[serverId] = fresh;
         return TFidmap.mapPut("note", serverId, fresh).then(() => fresh);
       });
@@ -337,22 +397,23 @@
     return noteFromServer(s, cid, cache).then((rec) => putNote(Object.assign(rec, extra || {}))).then(() => TFtag.setEntityTags("note", cid, s.tags || []));
   }
 
-  function pullNotes(serverNotes) {
+  // fetchOne(serverId) opsional: GET /api/scratchpad/:id → body | {status:404|403} | null — konfirmasi sebelum hapus lokal.
+  function pullNotes(serverNotes, fetchOne) {
     const list = (serverNotes || []);
     const cache = {};
-    return list.reduce((p, s) => p.then(() => ensureNoteCid(s.id, cache)), Promise.resolve())
+    return list.reduce((p, s) => p.then(() => ensureNoteCid(s.id, cache, s)), Promise.resolve())
       .then(() => Promise.all([getAllNotes(), TFoutbox.outboxAll()]))
       .then(([localAll, outboxOps]) => {
         const pendingNoteOps = new Set(outboxOps.filter((o) => o.entity_type === "note").map((o) => o.cid));
         const byCid = {}; for (const r of localAll) byCid[r.cid] = r;
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0, relinked: 0 };
-        let chain = Promise.resolve();
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0, relinked: 0, requeued: 0 };
+        let chain = requeueDirtyWithoutOps("note", localAll, pendingNoteOps, result);
         for (const s of list) {
           const cid = cache[s.id];
           const local = byCid[cid];
           chain = chain.then(() => {
             if (!local || (local.deleted && !pendingNoteOps.has(cid))) { result.created++; return writeNote(s, cid, cache); }
-            if (local.conflict) { result.skipped++; return; }
+            if (local.conflict || local.sync_error) { result.skipped++; return; }
             if (local.dirty && pendingNoteOps.has(cid)) {
               if (s.updated_at !== local.base_rev) {
                 result.lwwResolved++;
@@ -365,7 +426,8 @@
               }
               result.skipped++; return;
             }
-            if (s.updated_at !== local.base_rev || local.deleted || (local.dirty && !pendingNoteOps.has(cid))) {
+            // dirty tanpa op sudah diantre ulang di atas (ada di pendingNoteOps) → tidak pernah sampai sini
+            if (s.updated_at !== local.base_rev || local.deleted) {
               result.updated++; return writeNote(s, cid, cache, local.notice ? { notice: local.notice } : undefined);
             }
             // updated_at sama, tapi server menautkan note yang kini punya cid lain secara lokal (mis. note dipulihkan
@@ -390,12 +452,16 @@
           }
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
+            if (r.conflict || r.sync_error) { result.skipped++; return; }
             if (r.dirty && pendingNoteOps.has(r.cid)) {
               if (r.list_id != null) { result.skipped++; return putNote(Object.assign({}, r, { conflict: "remote_deleted" })); }
               result.skipped++; return; // personal local-wins; push update→404→re-create
             }
-            result.deleted++;
-            return deleteNoteRec(r.cid).then(() => TFidmap.mapDelete("note", r.server_id));
+            return confirmGone(fetchOne, r.server_id).then((gone) => {
+              if (!gone) { result.skipped++; return; }
+              result.deleted++;
+              return deleteNoteRec(r.cid).then(() => TFidmap.mapDelete("note", r.server_id));
+            });
           });
         }
         // pass 4: adopt server pinned for notes with no pending pin op (pin is orthogonal to updated_at).
@@ -420,9 +486,10 @@
   }
 
   function pullNotesAndReconcile(rawFetch) {
+    const fetchOne = (sid) => Promise.resolve(rawFetch("/api/scratchpad/" + sid)).then(goneOrJson).catch(() => null);
     return Promise.resolve(rawFetch("/api/scratchpad"))
-      .then((res) => (res && typeof res.json === "function" ? res.json() : res))
-      .then((list) => pullNotes(list || []));
+      .then(listJsonOrThrow)
+      .then((list) => pullNotes(list || [], fetchOne));
   }
 
   function getAllMindmaps() {
@@ -475,11 +542,14 @@
     };
   }
   function writeMindmapFull(serverId, cid, fetchOne, extra) {
-    return Promise.resolve(fetchOne(serverId)).then((fullRow) => (fullRow ? putMindmap(Object.assign(mindmapFromServer(fullRow, cid), extra || {})) : null));
+    // body tanpa id (null / {status:404|403} / body error) → bukan peta: jangan tulis apa pun
+    return Promise.resolve(fetchOne(serverId)).then((fullRow) => ((fullRow && fullRow.id != null) ? putMindmap(Object.assign(mindmapFromServer(fullRow, cid), extra || {})) : null));
   }
 
   // serverList = GET /api/mindmaps (metadata, no data_json). fetchOne(serverId) = GET /api/mindmaps/:id (full).
-  function pullMindmaps(serverList, fetchOne) {
+  // confirmOne(serverId) opsional: body | {status:404|403} | null — konfirmasi per item sebelum hapus lokal
+  // (tanpa confirmOne → perilaku lama: hilang dari daftar = hapus).
+  function pullMindmaps(serverList, fetchOne, confirmOne) {
     const list = (serverList || []);
     const cache = {};
     return list.reduce((p, s) => p.then(() => ensureMindmapCid(s.id, cache)), Promise.resolve())
@@ -487,14 +557,14 @@
       .then(([localAll, outboxOps]) => {
         const pendingMindmapOps = new Set(outboxOps.filter((o) => o.entity_type === "mindmap").map((o) => o.cid));
         const byCid = {}; for (const r of localAll) byCid[r.cid] = r;
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0 };
-        let chain = Promise.resolve();
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0, requeued: 0 };
+        let chain = requeueDirtyWithoutOps("mindmap", localAll, pendingMindmapOps, result);
         for (const s of list) {
           const cid = cache[s.id];
           const local = byCid[cid];
           chain = chain.then(() => {
             if (!local || (local.deleted && !pendingMindmapOps.has(cid))) { result.created++; return writeMindmapFull(s.id, cid, fetchOne); }
-            if (local.conflict) { result.skipped++; return; }
+            if (local.conflict || local.sync_error) { result.skipped++; return; }
             if (local.dirty && pendingMindmapOps.has(cid)) {
               if (s.updated_at !== local.base_rev) {
                 result.lwwResolved++;
@@ -507,7 +577,8 @@
               }
               result.skipped++; return;
             }
-            if (s.updated_at !== local.base_rev || local.deleted || (local.dirty && !pendingMindmapOps.has(cid))) {
+            // dirty tanpa op sudah diantre ulang di atas (ada di pendingMindmapOps) → tidak pernah sampai sini
+            if (s.updated_at !== local.base_rev || local.deleted) {
               result.updated++; return writeMindmapFull(s.id, cid, fetchOne, local.notice ? { notice: local.notice } : undefined);
             }
             return;
@@ -518,12 +589,16 @@
           if (r.server_id == null) continue;
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
+            if (r.conflict || r.sync_error) { result.skipped++; return; }
             if (r.dirty && pendingMindmapOps.has(r.cid)) {
               if (r.list_id != null) { result.skipped++; return putMindmap(Object.assign({}, r, { conflict: "remote_deleted" })); }
               result.skipped++; return; // personal local-wins; push update→404→re-create
             }
-            result.deleted++;
-            return deleteMindmapRec(r.cid).then(() => TFidmap.mapDelete("mindmap", r.server_id));
+            return confirmGone(confirmOne, r.server_id).then((gone) => {
+              if (!gone) { result.skipped++; return; }
+              result.deleted++;
+              return deleteMindmapRec(r.cid).then(() => TFidmap.mapDelete("mindmap", r.server_id));
+            });
           });
         }
         // pin-adopt: list metadata carries is_pinned; respect a pending pin op.
@@ -555,9 +630,11 @@
         return body && body.status === 404 && body.id == null ? null : body;
       })
       .catch(() => null);
+    // Konfirmasi hapus: 404/403 eksplisit → {status}; gagal lain → null (dipertahankan)
+    const confirmOne = (sid) => Promise.resolve(rawFetch("/api/mindmaps/" + sid)).then(goneOrJson).catch(() => null);
     return Promise.resolve(rawFetch("/api/mindmaps"))
-      .then((res) => (res && typeof res.json === "function" ? res.json() : res))
-      .then((listRows) => pullMindmaps(listRows || [], fetchOne));
+      .then(listJsonOrThrow)
+      .then((listRows) => pullMindmaps(listRows || [], fetchOne, confirmOne));
   }
 
   function getAllDrawings() {
@@ -964,8 +1041,8 @@
                 if (wrote) result.created++; else result.skipped++;
               });
             }
-            if (local.conflict || local.deleted) {
-              result.skipped++; // konflik / hapus lokal tertunda → biarkan push
+            if (local.conflict || local.deleted || local.sync_error) {
+              result.skipped++; // konflik / hapus lokal tertunda / sync_error (4xx permanen, T13) → biarkan push / pengguna
               return;
             }
             // Dirty tanpa op tertunda (mis. op gagal & dibuang) → antre op update, JANGAN timpa data lokal.
@@ -999,7 +1076,8 @@
           if (expectedCid && r.cid !== expectedCid) {
             if (r.dirty && !r.deleted) {
               // Duplikat yang punya edit belum terkirim: kirim dulu (op update), hapus di pull berikutnya.
-              chain = chain.then(() => TFrepo.ensureDrawingUpdateOp(r.cid, { title: r.title, svg_preview: r.svg_preview || "", is_pinned: r.is_pinned ? 1 : 0 }))
+              // sync_error → jangan antre ulang (T13); biarkan sampai pengguna memutuskan.
+              chain = chain.then(() => (r.sync_error ? null : TFrepo.ensureDrawingUpdateOp(r.cid, { title: r.title, svg_preview: r.svg_preview || "", is_pinned: r.is_pinned ? 1 : 0 })))
                 .then(() => { result.skipped++; });
               continue;
             }
@@ -1008,7 +1086,7 @@
           }
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
-            if (r.dirty && pendingDrawingOps.has(r.cid)) {
+            if (r.sync_error || r.conflict || (r.dirty && pendingDrawingOps.has(r.cid))) {
               result.skipped++;
               return;
             }
@@ -1066,9 +1144,20 @@
     if (res.ok === false || (typeof res.status === "number" && res.status >= 400)) return null;
     return res.json();
   }
+  // Konfirmasi hapus per item: 404 (terhapus) / 403 (akses hilang) → {status}; 2xx → body; gagal lain → null.
+  function goneOrJson(res) {
+    if (!res || typeof res.json !== "function") return res || null;
+    if (res.status === 404 || res.status === 403) return { status: res.status };
+    if (res.ok === false || (typeof res.status === "number" && res.status >= 400)) return null;
+    return res.json();
+  }
+  // T1 / prinsip 5: respons daftar yang gagal (503 OFFLINE dari SW, 401, 5xx, atau objek {ok:false}) → throw,
+  // jangan pernah mengurai body error sebagai daftar (daftar kosong = hapus lokal massal).
   function listJsonOrThrow(res) {
-    if (res && typeof res.json === "function" && (res.ok === false || (typeof res.status === "number" && res.status >= 400))) {
-      throw new Error("http " + res.status);
+    if (res && (res.ok === false || (typeof res.status === "number" && res.status >= 400))) {
+      const e = new Error("http " + res.status);
+      e.status = res.status;
+      throw e;
     }
     return res && typeof res.json === "function" ? res.json() : res;
   }
@@ -1089,6 +1178,7 @@
     pullMindmaps, pullMindmapsAndReconcile,
     pullDrawings, pullDrawingsAndReconcile,
     mergeDrawingSnapshots,
+    tsEpoch, ensureNoteCid, listJsonOrThrow, goneOrJson,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpull = exported; }
   return exported;

@@ -61,13 +61,20 @@ test("personal update 404 still re-creates (regression guard)", async () => {
   assert.equal(await serverIdOf("n"), 99);
 });
 
-test("shared create 403 (lost membership) drops op + deletes local + idmap", async () => {
-  await put("scratchpad_notes", [note({ cid: "n", server_id: null, list_id: 9 })]);
+test("shared create 403 (lost membership) drops op + flags local access_lost (content kept, not deleted)", async () => {
+  await put("scratchpad_notes", [note({ cid: "n", server_id: null, list_id: 9, content: "ketikan panjang offline" })]);
   await put("_outbox", [{ qid: 1, op: "create", entity_type: "note", cid: "n", payload: {} }]);
   const tr = fakeTransport(() => ({ status: 403, data: { detail: "Not a member" } }));
   await pushOutbox(tr);
   assert.equal((await outboxAll()).length, 0);
-  assert.equal(await getNote("n"), undefined);
+  const rec = await getNote("n");
+  assert.equal(rec.conflict, "access_lost");
+  assert.equal(rec.content, "ketikan panjang offline");
+  // healStrandedNotes tidak mengantre ulang note ber-conflict (tidak ada loop 403)
+  const tr2 = fakeTransport(() => { throw new Error("should not POST a conflicted note"); });
+  await pushOutbox(tr2);
+  assert.equal(tr2.calls.length, 0);
+  assert.equal((await outboxAll()).length, 0);
 });
 
 test("member delete 403 reverts the tombstone + records a notice", async () => {

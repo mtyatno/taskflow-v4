@@ -154,7 +154,7 @@ test("pushOutbox stops on network error, leaving remaining ops", async () => {
   assert.equal(r.remaining, 1);
 });
 
-test("pushOutbox drops a 4xx op and counts it failed", async () => {
+test("pushOutbox drops a permanent 4xx op, counts it failed, and marks the record dirty + sync_error", async () => {
   await put("tasks", [task({ cid: "a", server_id: 10, title: "A" })]);
   const { mapPut } = require("../../static/offline/idmap.js");
   await mapPut("task", 10, "a");
@@ -163,6 +163,11 @@ test("pushOutbox drops a 4xx op and counts it failed", async () => {
   const r = await pushOutbox(tr);
   assert.equal(r.failed, 1);
   assert.equal(r.remaining, 0);
+  const db = await openDB();
+  const rec = await new Promise((res) => { const q = db.transaction("tasks").objectStore("tasks").get("a"); q.onsuccess = () => res(q.result); });
+  assert.equal(rec.dirty, 1); // perubahan lokal tidak dibuang
+  assert.equal(rec.sync_error.status, 400);
+  assert.equal(rec.sync_error.detail, "bad request");
 });
 
 test("pushOutbox skips a create whose record already has server_id (idempotent)", async () => {
@@ -230,17 +235,20 @@ test("taskToCreatePayload includes the record's list_id", () => {
   assert.equal(taskToCreatePayload(task({ cid: "a", title: "A" }), [], null).list_id, null);
 });
 
-test("pushOutbox update 403 (removed from list) deletes the task locally + idmap + op", async () => {
-  await put("tasks", [task({ cid: "a", server_id: 10, title: "A", list_id: 7 })]);
+test("pushOutbox update 403 (removed from list) flags the task access_lost, keeps local content, drops the op", async () => {
+  await put("tasks", [task({ cid: "a", server_id: 10, title: "A", list_id: 7, description: "edit offline" })]);
   await _mapPutL("task", 10, "a");
   await put("_outbox", [{ qid: 1, op: "update", entity_type: "task", cid: "a", payload: {} }]);
   const tr = fakeTransport(() => ({ status: 403, data: { detail: "Not a member" } }));
   const r = await pushOutbox(tr);
   const db = await openDB();
   const rec = await new Promise((res) => { const q = db.transaction("tasks").objectStore("tasks").get("a"); q.onsuccess = () => res(q.result); });
-  assert.equal(rec, undefined);
-  assert.equal(await _cidOfL("task", 10), undefined);
+  assert.equal(rec.conflict, "access_lost"); // bukan dihapus (prinsip 1: tidak ada penghapusan diam-diam)
+  assert.equal(rec.description, "edit offline");
+  assert.equal(rec.dirty, 1);
+  assert.equal(await _cidOfL("task", 10), "a"); // idmap tetap; resolveConflict yang membersihkan
   assert.equal(r.remaining, 0);
+  assert.equal(r.failed, 1);
 });
 
 const {

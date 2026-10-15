@@ -86,10 +86,24 @@
     })));
   }
 
+  // T1: respons gagal (503 OFFLINE dari SW, 401, 5xx) → throw; body error tidak boleh diurai sebagai daftar
+  // (daftar kosong = semua list lokal dihapus). Daftar yang ok boleh menghapus list lokal yang hilang.
+  function listJsonOrThrow(res) {
+    if (res && (res.ok === false || (typeof res.status === "number" && res.status >= 400))) {
+      const e = new Error("http " + res.status);
+      e.status = res.status;
+      throw e;
+    }
+    return res && typeof res.json === "function" ? res.json() : res;
+  }
+
   function pullAndReconcileLists(rawFetch) {
     return Promise.resolve(rawFetch("/api/lists"))
-      .then((res) => (res && typeof res.json === "function" ? res.json() : res))
-      .then((l) => pullLists(l || []));
+      .then(listJsonOrThrow)
+      .then((l) => {
+        if (l != null && !Array.isArray(l)) throw new Error("bad list body"); // body bukan daftar → jangan hapus apa pun
+        return pullLists(l || []);
+      });
   }
 
   const exported = { pullLists, getLocalLists, pullAndReconcileLists, listFromServer };

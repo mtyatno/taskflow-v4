@@ -125,14 +125,6 @@
     }));
   }
 
-  function deleteTaskRaw(cid) {
-    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction("tasks", "readwrite");
-      tx.objectStore("tasks").delete(cid);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    }));
-  }
   function getHabitRaw(cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const r = db.transaction("habits", "readonly").objectStore("habits").get(cid);
@@ -157,19 +149,99 @@
     }));
   }
 
-  // Removed from the shared list (HTTP 403): drop access — delete local task + idmap + op.
-  function lostAccess(rec, op) {
-    return (rec.server_id != null ? TFidmap.mapDelete("task", rec.server_id) : Promise.resolve())
-      .then(() => deleteTaskRaw(rec.cid))
-      .then(() => TFoutbox.outboxRemove(op.qid));
+  // ── Klasifikasi respons push (prinsip 3 rencana audit 2026-10-15) ──────────────────────────────
+  //   "ok"        2xx
+  //   "auth"      401 → drain berhenti, op tetap, event tf:auth-expired (sesi berakhir ≠ ganti pengguna)
+  //   "retry"     429 / 5xx / timeout → op tetap antre, op lain tetap dikirim
+  //   "forbidden" 403 → conflict "access_lost" (bukan hapus lokal)
+  //   "gone"      404 → remote_deleted / re-create (per entitas)
+  //   "permanent" 400 / 409 / 413 / 422 / 4xx lain → op dibuang, record tetap dirty + sync_error
+  function classify(res) {
+    if (!res || typeof res.status !== "number") return "retry";
+    const st = res.status;
+    if (st >= 200 && st < 300) return "ok";
+    if (st === 401) return "auth";
+    if (st === 429 || st >= 500) return "retry";
+    if (st === 403) return "forbidden";
+    if (st === 404) return "gone";
+    return "permanent";
+  }
+  function errDetail(res) {
+    const d = res && res.data && res.data.detail;
+    let s = "";
+    if (typeof d === "string") s = d;
+    else if (Array.isArray(d)) s = d.map((e) => (e && e.msg) || (typeof e === "string" ? e : JSON.stringify(e))).join(", ");
+    else if (d != null) { try { s = JSON.stringify(d); } catch (_) { s = String(d); } }
+    return s.length > 200 ? s.slice(0, 200) + "…" : s;
+  }
+  // Tandai sync_error pada record (satu transaksi baca-ubah-tulis; dirty TIDAK diubah) → muncul di conflict bar
+  // ("Coba lagi" / "Buang perubahan lokal"). Pull melewati record ber-sync_error (tidak ditimpa, tidak dihapus).
+  function markSyncError(storeName, cid, res) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      const os = tx.objectStore(storeName);
+      const r = os.get(cid);
+      r.onsuccess = () => {
+        const cur = r.result;
+        if (!cur) return;
+        os.put(Object.assign({}, cur, {
+          sync_error: { status: res && res.status != null ? res.status : null, detail: errDetail(res), at: new Date().toISOString() },
+        }));
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  // Error permanen: buang op (mengulang hanya akan gagal lagi), record tetap dirty + sync_error.
+  // storeName null (op tanpa record, mis. mark_occurrence/uncheck/pin) → op dibuang + dihitung gagal.
+  function failPermanent(storeName, cid, res, op, result) {
+    result.failed++;
+    const markP = (storeName && cid != null) ? markSyncError(storeName, cid, res) : Promise.resolve();
+    return markP.then(() => TFoutbox.outboxRemove(op.qid));
+  }
+  // 403: akses ke list hilang → conflict "access_lost" (konten lokal TIDAK dihapus), op dibuang.
+  // Conflict bar menawarkan "Simpan sebagai baru" (keep_as_new) / "Buang" (discard).
+  function accessLost(storeName, cid, op, result) {
+    result.failed++;
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      const os = tx.objectStore(storeName);
+      const r = os.get(cid);
+      r.onsuccess = () => {
+        const cur = r.result;
+        if (!cur) return;
+        os.put(Object.assign({}, cur, { conflict: "access_lost" }));
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    })).then(() => TFoutbox.outboxRemove(op.qid));
+  }
+  function dispatchAuthExpired() {
+    try {
+      const w = (typeof window !== "undefined") ? window : root;
+      if (w && typeof w.dispatchEvent === "function" && typeof CustomEvent === "function") {
+        w.dispatchEvent(new CustomEvent("tf:auth-expired", { detail: { source: "syncpush" } }));
+      }
+    } catch (_) {}
   }
 
   function send(transport, method, path, body) {
     return transport.request(method, path, body).then(
       (res) => {
-        if (res && res.status >= 500) {
-          const e = new Error("server_error_" + res.status);
-          e.__network = false; // reached server, but server error 5xx
+        const kind = classify(res);
+        if (kind === "auth") {
+          // Token kedaluwarsa: hentikan drain (op tetap), minta login ulang — JANGAN buang data lokal.
+          dispatchAuthExpired();
+          const e = new Error("auth_expired");
+          e.__auth = true;
+          e.__network = false;
+          e.status = res.status;
+          throw e;
+        }
+        if (kind === "retry") {
+          const e = new Error((res.status === 429 ? "rate_limited_" : "server_error_") + res.status);
+          e.__network = false; // reached server, but 429/5xx: op tetap antre, lanjut op lain
+          e.__retry = true;
           e.status = res.status;
           throw e;
         }
@@ -202,9 +274,8 @@
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => { result.pushed++; });
           }
-          if (res.status === 403) { return lostAccess(rec, op); }
-          result.failed++;
-          return TFoutbox.outboxRemove(op.qid);
+          if (classify(res) === "forbidden") { return accessLost("tasks", op.cid, op, result); }
+          return failPermanent("tasks", op.cid, res, op, result);
         })
       );
     });
@@ -217,10 +288,10 @@
       return tagsOf(op.cid, tagsFor).then((tags) =>
         send(transport, "PUT", "/api/tasks/" + sid, taskToUpdatePayload(rec, tags)).then((res) => {
           if (ok(res)) { return putTaskRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev })).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; }); }
-          if (res.status === 404) { return putTaskRaw(Object.assign({}, rec, { conflict: "remote_deleted" })); } // safety net: flag, keep op
-          if (res.status === 403) { return lostAccess(rec, op); }
-          result.failed++;
-          return TFoutbox.outboxRemove(op.qid);
+          const kind = classify(res);
+          if (kind === "gone") { return putTaskRaw(Object.assign({}, rec, { conflict: "remote_deleted" })); } // safety net: flag, keep op
+          if (kind === "forbidden") { return accessLost("tasks", op.cid, op, result); }
+          return failPermanent("tasks", op.cid, res, op, result);
         })
       );
     });
@@ -231,8 +302,8 @@
       if (sid == null) return TFoutbox.outboxRemove(op.qid);
       return send(transport, "DELETE", "/api/tasks/" + sid, undefined).then((res) => {
         if (ok(res) || res.status === 404) { result.pushed++; return TFoutbox.outboxRemove(op.qid); }
-        result.failed++;
-        return TFoutbox.outboxRemove(op.qid);
+        // 403/4xx: op dibuang; tombstone lokal (deleted, dirty, tanpa op) dipulihkan oleh pull berikutnya (server menang).
+        return failPermanent(null, op.cid, res, op, result);
       });
     });
   }
@@ -243,8 +314,7 @@
       if (sid == null) return TFoutbox.outboxRemove(op.qid);
       return send(transport, "POST", "/api/tasks/" + sid + "/occurrences/" + p.occurrence_date + "/mark", markPayload(p)).then((res) => {
         if (ok(res)) { result.pushed++; return TFoutbox.outboxRemove(op.qid); }
-        result.failed++;
-        return TFoutbox.outboxRemove(op.qid);
+        return failPermanent(null, null, res, op, result);
       });
     });
   }
@@ -262,8 +332,8 @@
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => { result.pushed++; });
           }
-          result.failed++;
-          return TFoutbox.outboxRemove(op.qid);
+          if (classify(res) === "forbidden") { return accessLost("habits", op.cid, op, result); }
+          return failPermanent("habits", op.cid, res, op, result);
         })
       );
     });
@@ -278,7 +348,8 @@
             return putHabitRaw(Object.assign({}, rec, { dirty: 0 }))
               .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
           }
-          if (res.status === 404) {
+          const kind = classify(res);
+          if (kind === "gone") {
             // habit deleted on server → local-wins: re-create, then remap idmap
             return send(transport, "POST", "/api/habits", habitToCreatePayload(rec, tags)).then((res2) => {
               if (ok(res2)) {
@@ -288,12 +359,12 @@
                   .then(() => putHabitRaw(Object.assign({}, rec, { server_id: nid, dirty: 0 })))
                   .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
               }
-              result.failed++;
-              return TFoutbox.outboxRemove(op.qid);
+              if (classify(res2) === "forbidden") { return accessLost("habits", op.cid, op, result); }
+              return failPermanent("habits", op.cid, res2, op, result);
             });
           }
-          result.failed++;
-          return TFoutbox.outboxRemove(op.qid);
+          if (kind === "forbidden") { return accessLost("habits", op.cid, op, result); }
+          return failPermanent("habits", op.cid, res, op, result);
         })
       );
     });
@@ -324,8 +395,8 @@
             return putLogRaw(Object.assign({}, log, { dirty: 0 }))
               .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
           }
-          result.failed++;
-          return TFoutbox.outboxRemove(op.qid);
+          // 403/404/4xx: log tetap dirty + sync_error (pull melewatinya; rekonsiliasi log = workstream A2/T9)
+          return failPermanent("habit_logs", op.cid, res, op, result);
         });
       });
     });
@@ -344,8 +415,7 @@
         if (ok(res)) {
           return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; });
         }
-        result.failed++;
-        return TFoutbox.outboxRemove(op.qid);
+        return failPermanent(null, null, res, op, result);
       });
     });
   }
@@ -385,6 +455,7 @@
     return getNoteRaw(op.cid).then((rec) => {
       if (!rec) return TFoutbox.outboxRemove(op.qid);
       if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
+      if (rec.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves (access_lost → keep_as_new mengantre ulang)
       return Promise.all([noteTagNames(op.cid), linkedTaskServerIds(rec)]).then(([tags, taskSids]) =>
         send(transport, "POST", "/api/scratchpad", noteToCreatePayload(rec, tags, taskSids)).then((res) => {
           if (ok(res)) {
@@ -394,11 +465,8 @@
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => { result.pushed++; });
           }
-          if (res.status === 403) {
-            return deleteNoteRaw(op.cid).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
-          }
-          result.failed++;
-          return TFoutbox.outboxRemove(op.qid);
+          if (classify(res) === "forbidden") { return accessLost("scratchpad_notes", op.cid, op, result); }
+          return failPermanent("scratchpad_notes", op.cid, res, op, result);
         })
       );
     });
@@ -414,7 +482,8 @@
             return putNoteRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev }))
               .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
           }
-          if (res.status === 404) {
+          const kind = classify(res);
+          if (kind === "gone") {
             if (rec.list_id != null) {
               // shared note deleted by owner (or access lost): do not re-create — surface edit-vs-delete.
               return putNoteRaw(Object.assign({}, rec, { conflict: "remote_deleted" }))
@@ -428,17 +497,12 @@
                   .then(() => putNoteRaw(Object.assign({}, rec, { server_id: nid, dirty: 0, base_rev: res2.data && res2.data.updated_at != null ? res2.data.updated_at : rec.base_rev })))
                   .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
               }
-              result.failed++;
-              return TFoutbox.outboxRemove(op.qid);
+              if (classify(res2) === "forbidden") { return accessLost("scratchpad_notes", op.cid, op, result); }
+              return failPermanent("scratchpad_notes", op.cid, res2, op, result);
             });
           }
-          if (res.status === 403) {
-            return TFidmap.mapDelete("note", sid)
-              .then(() => deleteNoteRaw(op.cid))
-              .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
-          }
-          result.failed++;
-          return TFoutbox.outboxRemove(op.qid);
+          if (kind === "forbidden") { return accessLost("scratchpad_notes", op.cid, op, result); }
+          return failPermanent("scratchpad_notes", op.cid, res, op, result);
         })
       );
     });
@@ -457,14 +521,13 @@
             .then(() => TFoutbox.outboxRemove(op.qid))
             .then(() => { result.pushed++; });
         }
-        if (res.status === 403) {
+        if (classify(res) === "forbidden") {
           return (rec
               ? putNoteRaw(Object.assign({}, rec, { deleted: false, dirty: 0, notice: { kind: "delete_refused", title: rec.title } }))
               : Promise.resolve())
             .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
         }
-        result.failed++;
-        return TFoutbox.outboxRemove(op.qid);
+        return failPermanent(null, null, res, op, result);
       });
     });
   }
@@ -485,15 +548,6 @@
       tx.onerror = () => reject(tx.error);
     }));
   }
-  function deleteDrawingRaw(cid) {
-    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction("drawings", "readwrite");
-      tx.objectStore("drawings").delete(cid);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    }));
-  }
-
   // Data drawing yang sedang dikirim (cid → data_json). Pull memakai ini untuk mengenali gema push sendiri
   // (server sudah menerima PUT tapi record lokal belum ditandai) agar tidak di-merge sebagai perubahan remote.
   const _inflightDrawing = new Map();
@@ -546,6 +600,7 @@
     return getDrawingRaw(op.cid).then((rec0) => {
       if (!rec0) return TFoutbox.outboxRemove(op.qid);
       if (rec0.server_id != null) return TFoutbox.outboxRemove(op.qid);
+      if (rec0.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves (access_lost)
       const payload = op.payload || {};
       // tag dulu, lalu record+blob terkini dibaca berurutan (tanpa jeda async lain sebelum dikirim)
       return drawingTagsOf(rec0.cid, payload.tags).then((tagNames) => drawingStateOf(rec0.cid, payload).then(({ rec, data }) => {
@@ -570,11 +625,9 @@
               .then(() => requeueDrawingIfDirty(rec.cid))
               .then(() => { result.pushed++; });
           }
-          if (res.status === 403) {
-            return deleteDrawingRaw(op.cid).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
-          }
-          result.failed++;
-          return TFoutbox.outboxRemove(op.qid);
+          if (classify(res) === "forbidden") { return accessLost("drawings", op.cid, op, result); }
+          // 4xx permanen (mis. 422 data_json terlalu besar): sync_error → heal/pull tidak mengantre ulang (T13)
+          return failPermanent("drawings", op.cid, res, op, result);
         }).finally(() => { _inflightDrawing.delete(rec.cid); });
       }));
     });
@@ -583,6 +636,7 @@
   function opDrawingUpdate(op, transport, result) {
     return getDrawingRaw(op.cid).then((rec0) => {
       if (!rec0) return TFoutbox.outboxRemove(op.qid);
+      if (rec0.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves (access_lost)
       return TFidmap.serverIdOf(rec0.cid).then((mapped) => {
         // Record dari getDrawing versi lama bisa punya server_id tanpa entri idmap → jangan ditahan selamanya.
         const sid = mapped != null ? mapped : rec0.server_id;
@@ -608,9 +662,12 @@
                 .then(() => requeueDrawingIfDirty(rec.cid))
                 .then(() => { result.pushed++; });
             }
-            // 404 = dihapus di server → buang op; record tetap dirty, pull yang merekonsiliasi.
-            result.failed++;
-            return TFoutbox.outboxRemove(op.qid);
+            const kind = classify(res);
+            if (kind === "forbidden") { return accessLost("drawings", op.cid, op, result); }
+            // 404 = dihapus di server → buang op; record tetap dirty, pull yang merekonsiliasi (S2: workstream D).
+            if (kind === "gone") { result.failed++; return TFoutbox.outboxRemove(op.qid); }
+            // 4xx permanen (mis. 422 data_json terlalu besar): sync_error → heal/pull tidak mengantre ulang (T13)
+            return failPermanent("drawings", op.cid, res, op, result);
           }).finally(() => { _inflightDrawing.delete(rec.cid); });
         }));
       });
@@ -624,15 +681,15 @@
       const sid = mapped != null ? mapped : rec.server_id;
       if (sid == null) return; // hold: create belum terkirim (op create diproses lebih dulu, FIFO)
       return send(transport, "GET", "/api/drawings/" + sid, undefined).then((res) => {
-        if (!ok(res)) { result.failed++; return TFoutbox.outboxRemove(op.qid); }
+        // pin tidak punya record sync_error: server dipulihkan oleh pass adopsi pin pada pull berikutnya
+        if (!ok(res)) { return failPermanent(null, null, res, op, result); }
         const want = !!rec.is_pinned; // status lokal TERKINI (toggle beruntun tetap benar)
         if (!!(res.data && res.data.is_pinned) === want) {
           return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); // sudah sama
         }
         return send(transport, "PATCH", "/api/drawings/" + sid + "/pin", undefined).then((res2) => {
           if (ok(res2)) { return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); }
-          result.failed++;
-          return TFoutbox.outboxRemove(op.qid);
+          return failPermanent(null, null, res2, op, result);
         });
       });
     });
@@ -644,8 +701,7 @@
       if (sid == null) return TFoutbox.outboxRemove(op.qid);
       return send(transport, "DELETE", "/api/drawings/" + sid, undefined).then((res) => {
         if (ok(res)) { return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); }
-        result.failed++;
-        return TFoutbox.outboxRemove(op.qid);
+        return failPermanent(null, null, res, op, result);
       });
     });
   }
@@ -661,8 +717,7 @@
               return putDrawingRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev }))
                 .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
             }
-            result.failed++;
-            return TFoutbox.outboxRemove(op.qid);
+            return failPermanent("drawings", op.cid, res, op, result);
           }));
       });
     });
@@ -672,14 +727,13 @@
     return Promise.all([getNoteRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
       return send(transport, "GET", "/api/scratchpad/" + sid, undefined).then((res) => {
-        if (!ok(res)) { result.failed++; return TFoutbox.outboxRemove(op.qid); }
+        if (!ok(res)) { return failPermanent(null, null, res, op, result); }
         if (!!(res.data && res.data.pinned) === !!rec.pinned) {
           return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); // already in sync
         }
         return send(transport, "PATCH", "/api/scratchpad/" + sid + "/pin", undefined).then((res2) => {
           if (ok(res2)) { return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); }
-          result.failed++;
-          return TFoutbox.outboxRemove(op.qid);
+          return failPermanent(null, null, res2, op, result);
         });
       });
     });
@@ -713,6 +767,7 @@
     return getMindmapRaw(op.cid).then((rec) => {
       if (!rec) return TFoutbox.outboxRemove(op.qid);
       if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
+      if (rec.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves (access_lost)
       return send(transport, "POST", "/api/mindmaps", mindmapToCreatePayload(rec)).then((res) => {
         if (ok(res)) {
           const sid = res.data.id;
@@ -720,11 +775,8 @@
             .then(() => putMindmapRaw(Object.assign({}, rec, { server_id: sid, dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev })))
             .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
         }
-        if (res.status === 403) {
-          return deleteMindmapRaw(op.cid).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
-        }
-        result.failed++;
-        return TFoutbox.outboxRemove(op.qid);
+        if (classify(res) === "forbidden") { return accessLost("mindmaps", op.cid, op, result); }
+        return failPermanent("mindmaps", op.cid, res, op, result);
       });
     });
   }
@@ -738,7 +790,8 @@
           return putMindmapRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev }))
             .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
         }
-        if (res.status === 404) {
+        const kind = classify(res);
+        if (kind === "gone") {
           if (rec.list_id != null) {
             return putMindmapRaw(Object.assign({}, rec, { conflict: "remote_deleted" }))
               .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
@@ -751,17 +804,12 @@
                 .then(() => putMindmapRaw(Object.assign({}, rec, { server_id: nid, dirty: 0, base_rev: res2.data && res2.data.updated_at != null ? res2.data.updated_at : rec.base_rev })))
                 .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
             }
-            result.failed++;
-            return TFoutbox.outboxRemove(op.qid);
+            if (classify(res2) === "forbidden") { return accessLost("mindmaps", op.cid, op, result); }
+            return failPermanent("mindmaps", op.cid, res2, op, result);
           });
         }
-        if (res.status === 403) {
-          return TFidmap.mapDelete("mindmap", sid)
-            .then(() => deleteMindmapRaw(op.cid))
-            .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
-        }
-        result.failed++;
-        return TFoutbox.outboxRemove(op.qid);
+        if (kind === "forbidden") { return accessLost("mindmaps", op.cid, op, result); }
+        return failPermanent("mindmaps", op.cid, res, op, result);
       });
     });
   }
@@ -777,15 +825,14 @@
             .then(() => deleteMindmapRaw(op.cid))
             .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
         }
-        if (res.status === 403) {
+        if (classify(res) === "forbidden") {
           return getMindmapRaw(op.cid).then((rec) =>
             (rec
               ? putMindmapRaw(Object.assign({}, rec, { deleted: false, dirty: 0, notice: { kind: "delete_refused", title: rec.title } }))
               : Promise.resolve()))
             .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
         }
-        result.failed++;
-        return TFoutbox.outboxRemove(op.qid);
+        return failPermanent(null, null, res, op, result);
       });
     });
   }
@@ -794,15 +841,14 @@
     return Promise.all([getMindmapRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
       return send(transport, "GET", "/api/mindmaps/" + sid, undefined).then((res) => {
-        if (!ok(res)) { result.failed++; return TFoutbox.outboxRemove(op.qid); }
+        if (!ok(res)) { return failPermanent(null, null, res, op, result); }
         const serverPinned = !!(res.data && res.data.is_pinned);
         if (serverPinned === !!rec.pinned) {
           return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); // already in sync
         }
         return send(transport, "PATCH", "/api/mindmaps/" + sid + "/pin", undefined).then((res2) => {
           if (ok(res2)) { return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); }
-          result.failed++;
-          return TFoutbox.outboxRemove(op.qid);
+          return failPermanent(null, null, res2, op, result);
         });
       });
     });
@@ -872,11 +918,12 @@
               })))
               .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
           }
-          if (res.status === 403) {
+          if (classify(res) === "forbidden") {
+            // pesan optimistis ke list yang aksesnya hilang: tidak ada versi server untuk diadopsi → hapus lokal
             return deleteChatRaw(op.cid).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
           }
-          result.failed++;
-          return TFoutbox.outboxRemove(op.qid);
+          // 4xx permanen: pesan tetap pending + sync_error (tidak dikirim ulang otomatis)
+          return failPermanent("chat_messages", op.cid, res, op, result);
         });
       });
     });
@@ -894,8 +941,7 @@
             .then(() => TFoutbox.outboxRemove(op.qid))
             .then(() => { result.pushed++; });
         }
-        result.failed++;
-        return TFoutbox.outboxRemove(op.qid);
+        return failPermanent(null, null, res, op, result);
       });
     });
   }
@@ -944,7 +990,8 @@
       return getAllNotesRaw().then((allNotes) => {
         let chain = Promise.resolve(0);
         for (const r of allNotes) {
-          if (r.server_id == null && !r.deleted && !noteCreateCids.has(r.cid)) {
+          // sync_error (4xx permanen) / conflict (access_lost): JANGAN antre ulang — tunggu keputusan pengguna
+          if (r.server_id == null && !r.deleted && !r.sync_error && !r.conflict && !noteCreateCids.has(r.cid)) {
             chain = chain.then((count) =>
               appendOp({
                 entity_type: "note",
@@ -976,7 +1023,8 @@
       return getAllDrawingsRaw().then((allDrawings) => {
         let chain = Promise.resolve(0);
         for (const r of allDrawings) {
-          if (r.server_id == null && !r.deleted && r.note_cid === undefined && !drawingCreateCids.has(r.cid)) {
+          // sync_error (mis. 422 data terlalu besar) / conflict: JANGAN antre ulang tiap sync (T13)
+          if (r.server_id == null && !r.deleted && !r.sync_error && !r.conflict && r.note_cid === undefined && !drawingCreateCids.has(r.cid)) {
             chain = chain.then((count) => {
               const tagP = (TFtag && TFtag.getEntityTags) ? TFtag.getEntityTags("drawing", r.cid).then((ts) => ts.map((t) => t.name)) : Promise.resolve([]);
               // Payload metadata saja: push create membaca data terkini dari blob record.
@@ -1020,12 +1068,15 @@
       .then((ops) => ops.reduce((chain, op) => chain.then(() => {
         if (stopped) return;
         return processOp(op, transport, tagsFor, habitTagsFor, result).catch((err) => {
-          if (err && err.__timeout && ++timeouts < 2) {
+          if (err && err.__auth) {
+            stopped = true; // 401: sesi berakhir → hentikan drain, op tetap antre (dikirim setelah login ulang)
+            result.authExpired = true;
+          } else if (err && err.__timeout && ++timeouts < 2) {
             result.failed++; // satu request lambat (mis. upload besar) → op tetap antre, op lain tetap dikirim
           } else if (err && err.__network) {
             stopped = true; // Actual network loss / offline (atau timeout berulang), stop remaining queue
           } else {
-            result.failed++; // Server error on this op, do not block unrelated ops
+            result.failed++; // 429/5xx/error tak terduga pada op ini: op tetap antre, op lain tetap dikirim
           }
         });
       }), Promise.resolve()))
@@ -1034,7 +1085,7 @@
       .then((r) => { _running = false; return r; }, (e) => { _running = false; throw e; });
   }
 
-  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, noteToCreatePayload, noteToUpdatePayload, mindmapToCreatePayload, mindmapToUpdatePayload, healStrandedNotes, healStrandedDrawings, pushOutbox, inflightDrawingData };
+  const exported = { taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload, noteToCreatePayload, noteToUpdatePayload, mindmapToCreatePayload, mindmapToUpdatePayload, healStrandedNotes, healStrandedDrawings, pushOutbox, inflightDrawingData, classify, markSyncError };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpush = exported; }
   return exported;
 });
