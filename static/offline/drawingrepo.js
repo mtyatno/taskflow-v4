@@ -121,28 +121,6 @@
     });
   }
 
-  function getByNoteCid(noteCid) {
-    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      try {
-        const os = db.transaction("drawings", "readonly").objectStore("drawings");
-        if (os.indexNames.contains("note_cid")) {
-          const r = os.index("note_cid").get(noteCid);
-          r.onsuccess = () => resolve(r.result || null);
-          r.onerror = () => resolve(null);
-        } else {
-          const allReq = os.getAll();
-          allReq.onsuccess = () => {
-            const found = (allReq.result || []).find(d => d && d.note_cid === noteCid);
-            resolve(found || null);
-          };
-          allReq.onerror = () => resolve(null);
-        }
-      } catch (err) {
-        resolve(null);
-      }
-    }));
-  }
-
   function putRec(rec) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const tx = db.transaction("drawings", "readwrite");
@@ -306,6 +284,22 @@
   function dropBlob(ref) {
     return ref ? Promise.resolve(BlobStore.delete(ref)).catch(() => {}) : Promise.resolve();
   }
+  // ── Blob dasar (T2, three-way merge) ─────────────────────────────────────────
+  // record.base_blob_ref = snapshot pada base_rev (versi server yang terakhir diadopsi / data yang terakhir
+  // terkirim), record.base_title = judulnya. Boleh BERBAGI id dengan blob_ref (record bersih) → blob lama hanya
+  // dibuang bila tidak lagi dirujuk oleh blob_ref maupun base_blob_ref record. Dipakai pull untuk membedakan
+  // "dihapus di satu sisi" dari "ditambah di sisi lain".
+  // Buang blob kandidat `refs` yang tidak ada di `keep` (ref yang masih dipakai record), tanpa duplikat.
+  function releaseBlobs(refs, keep) {
+    const keepSet = new Set((keep || []).filter(Boolean));
+    const seen = new Set();
+    return (refs || []).filter(Boolean).reduce((p, ref) => {
+      if (keepSet.has(ref) || seen.has(ref)) return p;
+      seen.add(ref);
+      return p.then(() => dropBlob(ref));
+    }, Promise.resolve());
+  }
+  function refsOf(rec) { return rec ? [rec.blob_ref, rec.base_blob_ref] : []; }
 
   // ── Standalone Drawing Methods ──────────────────────────────────────────────
 
@@ -387,6 +381,8 @@
         deleted: false,
         dirty: 0,
         base_rev: missing ? null : srv.updated_at,
+        base_blob_ref: ref, // snapshot dasar = data server yang diadopsi (berbagi blob dengan blob_ref)
+        base_title: srv.title != null ? srv.title : "Untitled Drawing",
         data_missing: missing ? 1 : 0,
         rev: 0,
       };
@@ -404,10 +400,10 @@
   function refreshFromServer(local, srv) {
     const readRev = local.rev || 0;
     return BlobStore.put(srv.data_json, { mime: "application/json" }).then((newRef) => {
-      let oldRef = null;
+      let oldRefs = [];
       return mutateDrawing(local.cid, (cur) => {
         if (!cur || cur.deleted || cur.dirty || (cur.rev || 0) !== readRev) return undefined;
-        oldRef = cur.blob_ref;
+        oldRefs = refsOf(cur);
         return Object.assign({}, cur, {
           server_id: srv.id != null ? srv.id : cur.server_id,
           blob_ref: newRef,
@@ -418,13 +414,15 @@
           is_pinned: srv.is_pinned ? 1 : 0,
           updated_at: srv.updated_at,
           base_rev: srv.updated_at,
+          base_blob_ref: newRef, // T2: data server yang diadopsi = snapshot dasar
+          base_title: srv.title != null ? srv.title : cur.title,
           dirty: 0,
           rev: readRev + 1,
         });
       }).then((saved) => {
         if (!saved) return dropBlob(newRef).then(() => getRaw(local.cid));
         return Promise.all([
-          oldRef && oldRef !== newRef ? dropBlob(oldRef) : null,
+          releaseBlobs(oldRefs, refsOf(saved)),
           setTags(saved.cid, srv.tags || []),
           mapIdIfMissing(srv.id, saved.cid),
         ]).then(() => saved);
@@ -438,15 +436,16 @@
     const readRev = local.rev || 0;
     const now = new Date().toISOString();
     return BlobStore.put(mergedJson, { mime: "application/json" }).then((newRef) => {
-      let oldRef = null;
+      let oldRefs = [];
       return mutateDrawing(local.cid, (cur) => {
         if (!cur || cur.deleted || cur.dirty || (cur.rev || 0) !== readRev) return undefined;
-        oldRef = cur.blob_ref;
-        return Object.assign({}, cur, { blob_ref: newRef, dirty: 1, rev: readRev + 1, updated_at: now, svg_stale: 1 });
+        oldRefs = refsOf(cur);
+        // S4: blob nyata ditulis → data_missing dibersihkan
+        return Object.assign({}, cur, { blob_ref: newRef, dirty: 1, rev: readRev + 1, updated_at: now, svg_stale: 1, data_missing: 0 });
       }).then((saved) => {
         if (!saved) return dropBlob(newRef).then(() => getRaw(local.cid));
         return Promise.all([
-          oldRef && oldRef !== newRef ? dropBlob(oldRef) : null,
+          releaseBlobs(oldRefs, refsOf(saved)),
           ensureDrawingUpdateOp(saved.cid, metaOf(saved)),
         ]).then(() => { notifyQueued(); return saved; });
       });
@@ -526,6 +525,7 @@
     const online = opts.online != null ? opts.online : true;
 
     return getRaw(idOrCid).then((rec) => {
+      // S6: hanya format standalone; record legacy ber-note_cid dikonversi upgradeLegacyNoteDrawings saat push
       const standalone = rec && rec.note_cid === undefined ? rec : null;
       // Record dirty: data lokal selalu menang (pull yang merge) → tidak perlu menunggu jaringan.
       const wantFetch = fetcher && online && !(standalone && standalone.dirty && !standalone.deleted);
@@ -540,58 +540,36 @@
           // Standalone drawing dari server → rekonsiliasi dengan record TERKINI (bisa berubah selama fetch)
           return (standalone ? getRec(standalone.cid) : Promise.resolve(null))
             .then((cur) => reconcileWithServer(cur, srv));
-        } else if (srv && srv.data_json != null) {
-           // Legacy note-attached drawing fetched from server
-           return getDrawingLocal(idOrCid).then((local) => {
-              if (!local || (local.dirty === 0 && tsEpoch(srv.updated_at) > tsEpoch(local.base_rev))) {
-                 return cacheServerDrawing(idOrCid, srv.data_json, srv.updated_at).then(() => getByNoteCid(idOrCid));
-              }
-              return local;
-           });
         }
-
         // Fetch failed or not online, fallback to whatever we have locally
-        if (rec && !rec.deleted && rec.note_cid === undefined) {
-           return rec;
-        }
-        return getDrawingLocal(idOrCid);
+        return (standalone && !standalone.deleted) ? standalone : null;
       }).then((finalRec) => {
          if (!finalRec || finalRec.deleted) return null;
-
-         if (finalRec.note_cid === undefined) {
-            // Standalone drawing format — baca record & blob TERKINI (jangan pakai objek basi: blob-nya
-            // bisa sudah dihapus edit bersamaan → "{}" palsu)
-            return readDrawingState(finalRec.cid).then(({ rec: cur, bytes }) => {
-              if (!cur || cur.deleted) return null;
-              // Data gambar tidak tersedia (detail server belum pernah terambil / placeholder lama) → JANGAN
-              // pernah dikembalikan sebagai gambar kosong: parent membuka read-only + toast.
-              const missing = !serverSaysEmpty && isDataMissing(cur, bytes);
-              const markP = (missing && !cur.data_missing) ? markDataMissing(cur) : Promise.resolve();
-              const tagP = (typeof TFtag !== "undefined" && TFtag.getEntityTags)
-                ? TFtag.getEntityTags("drawing", cur.cid).then((tags) => tags.map((t) => t.name))
-                : Promise.resolve([]);
-              return Promise.all([tagP, markP]).then(([tagNames]) => ({
-                id: cur.server_id != null ? cur.server_id : cur.cid,
-                cid: cur.cid,
-                server_id: cur.server_id,
-                title: cur.title || "Untitled Drawing",
-                data_json: missing ? null : (bytes || "{}"),
-                data_missing: missing ? 1 : 0,
-                svg_preview: cur.svg_preview || "",
-                svg_stale: cur.svg_stale ? 1 : 0,
-                is_pinned: cur.is_pinned || 0,
-                tags: tagNames,
-                created_at: cur.created_at,
-                updated_at: cur.updated_at,
-              }));
-            });
-         } else {
-            // Legacy Note-attached format
-            return Promise.resolve(BlobStore.getBytes(finalRec.blob_ref)).then((bytes) => ({
-              data_json: bytes,
-              updated_at: finalRec.updated_at,
-            }));
-         }
+         // Baca record & blob TERKINI (jangan pakai objek basi: blob-nya bisa sudah dihapus edit bersamaan → "{}" palsu)
+         return readDrawingState(finalRec.cid).then(({ rec: cur, bytes }) => {
+           if (!cur || cur.deleted) return null;
+           // Data gambar tidak tersedia (detail server belum pernah terambil / placeholder lama) → JANGAN
+           // pernah dikembalikan sebagai gambar kosong: parent membuka read-only + toast.
+           const missing = !serverSaysEmpty && isDataMissing(cur, bytes);
+           const markP = (missing && !cur.data_missing) ? markDataMissing(cur) : Promise.resolve();
+           const tagP = (typeof TFtag !== "undefined" && TFtag.getEntityTags)
+             ? TFtag.getEntityTags("drawing", cur.cid).then((tags) => tags.map((t) => t.name))
+             : Promise.resolve([]);
+           return Promise.all([tagP, markP]).then(([tagNames]) => ({
+             id: cur.server_id != null ? cur.server_id : cur.cid,
+             cid: cur.cid,
+             server_id: cur.server_id,
+             title: cur.title || "Untitled Drawing",
+             data_json: missing ? null : (bytes || "{}"),
+             data_missing: missing ? 1 : 0,
+             svg_preview: cur.svg_preview || "",
+             svg_stale: cur.svg_stale ? 1 : 0,
+             is_pinned: cur.is_pinned || 0,
+             tags: tagNames,
+             created_at: cur.created_at,
+             updated_at: cur.updated_at,
+           }));
+         });
       });
     });
   }
@@ -599,8 +577,9 @@
   function listDrawings(opts) {
     opts = opts || {};
     const token = typeof localStorage !== "undefined" ? localStorage.getItem("tf_token") : null;
+    // X-TF-Sync: SW meneruskan network-only (jangan pernah membaca cache GET /api/drawings yang basi)
     const fetchOnline = (typeof navigator !== "undefined" && navigator.onLine && token)
-      ? window.fetch("/api/drawings", { headers: { Authorization: "Bearer " + token } }).then(r => r.ok ? r.json() : []).catch(()=>[])
+      ? window.fetch("/api/drawings", { headers: { Authorization: "Bearer " + token, "X-TF-Sync": "1" } }).then(r => r.ok ? r.json() : []).catch(()=>[])
       : Promise.resolve([]);
 
     return Promise.all([fetchOnline, getAllRaw()]).then(([serverData, all]) => {
@@ -695,7 +674,8 @@
           const tagP = (Array.isArray(patch.tags) && TFtag && TFtag.setEntityTags)
             ? TFtag.setEntityTags("drawing", cid, patch.tags)
             : Promise.resolve();
-          return Promise.all([oldRef && oldRef !== newRef ? dropBlob(oldRef) : null, tagP])
+          // blob lama dipertahankan bila masih menjadi snapshot dasar (base_blob_ref) untuk merge 3-arah
+          return Promise.all([releaseBlobs([oldRef], refsOf(saved)), tagP])
             .then(() => queueDrawingUpdate(cid, metaOf(saved), patch.tags))
             .then(() => (hasData ? patch.data_json : readBytes(saved.blob_ref)))
             .then((dataJson) => ({
@@ -717,12 +697,28 @@
     }));
   }
 
+  // Hapus op create/update tertunda milik cid (gambar yang belum pernah di-push lalu dihapus: tidak perlu POST).
+  function dropPendingContentOps(cid) {
+    return TFoutbox.outboxByEntity("drawing", cid).then((ops) =>
+      ops.filter((o) => o.op === "create" || o.op === "update" || o.op === "upsert")
+        .reduce((p, o) => p.then(() => TFoutbox.outboxRemove(o.qid)), Promise.resolve()));
+  }
+
   function deleteDrawing(idOrCid) {
     return getRaw(idOrCid).then((rec) => {
       if (!rec) return { ok: true };
-      return mutateDrawing(rec.cid, (cur) => (cur
-        ? Object.assign({}, cur, { deleted: true, dirty: 1, rev: (cur.rev || 0) + 1 })
-        : undefined))
+      let dropped = [];
+      return mutateDrawing(rec.cid, (cur) => {
+        if (!cur) return undefined;
+        const next = Object.assign({}, cur, { deleted: true, dirty: 1, rev: (cur.rev || 0) + 1 });
+        // Belum pernah di-push: blob tidak diperlukan lagi (tombstone tetap sampai op delete menghapus record —
+        // POST yang mungkin sedang in-flight tetap tertangani oleh op delete).
+        if (cur.server_id == null) { dropped = refsOf(cur); next.blob_ref = null; next.base_blob_ref = null; }
+        return next;
+      })
+        .then((saved) => (saved && saved.server_id == null
+          ? releaseBlobs(dropped, []).then(() => dropPendingContentOps(saved.cid))
+          : null))
         .then(() => TFoutbox.outboxAdd({
           op: "delete",
           entity_type: "drawing",
@@ -730,6 +726,18 @@
           payload: {},
         }))
         .then(() => ({ ok: true }));
+    });
+  }
+  // Hapus record + blob-nya (dipakai op delete untuk gambar tanpa server_id, dan resolusi konflik "buang").
+  function purgeDrawing(cid) {
+    return getRec(cid).then((rec) => {
+      if (!rec) return false;
+      return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction("drawings", "readwrite");
+        tx.objectStore("drawings").delete(cid);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })).then(() => releaseBlobs(refsOf(rec), [])).then(() => true);
     });
   }
 
@@ -813,7 +821,7 @@
             if (svgFresh) upd.svg_preview = op.payload.svg_preview;
             return Object.assign({}, cur, upd);
           }).then((saved) => (saved
-            ? (oldRef && oldRef !== newRef ? dropBlob(oldRef) : null)
+            ? releaseBlobs([oldRef], refsOf(saved))
             : dropBlob(newRef)));
         });
       });
@@ -826,46 +834,56 @@
         && o.payload && typeof o.payload.data_json === "string");
       return legacy.reduce((chain, op) => chain.then(() => upgradeLegacyOp(op).catch(() => null)), Promise.resolve())
         .then(() => legacy.length);
+    }).then((n) => upgradeLegacyNoteDrawings().then((m) => n + m));
+  }
+
+  // ── S6: record legacy "gambar di dalam note" (note_cid) ─────────────────────
+  // Versi lama menyimpan gambar sebagai record ber-`note_cid` dan mendorongnya dengan op `upsert` ke
+  // PUT /api/drawings/{noteSid} — server menganggap itu id DRAWING (menimpa gambar lain / 404). Konversi menjadi
+  // drawing standalone: note_cid dihapus, server_id null, blob dipertahankan, op create (client_id = cid).
+  // Resolve record hasil konversi, atau null bila record tidak ada / bukan legacy.
+  function convertLegacyNoteDrawing(cid, opts) {
+    opts = opts || {};
+    const now = opts.now || new Date().toISOString();
+    let converted = null;
+    return mutateDrawing(cid, (cur) => {
+      if (!cur || cur.note_cid === undefined) return undefined;
+      if (cur.deleted) { converted = null; return undefined; }
+      const next = Object.assign({}, cur);
+      delete next.note_cid;
+      next.server_id = null;
+      next.client_id = cid;
+      next.title = cur.title || "Untitled Drawing";
+      next.svg_preview = cur.svg_preview || "";
+      next.svg_stale = 1;
+      next.is_pinned = cur.is_pinned ? 1 : 0;
+      next.created_at = cur.created_at || cur.updated_at || now;
+      next.updated_at = cur.updated_at || now;
+      next.dirty = 1;
+      next.base_rev = null;
+      next.base_blob_ref = null;
+      next.rev = (cur.rev || 0) + 1;
+      converted = next;
+      return next;
+    }).then((saved) => {
+      if (!saved) return null;
+      return TFoutbox.outboxByEntity("drawing", cid).then((ops) => {
+        // op upsert lama dibuang (processOp juga membuangnya); pastikan satu op create
+        const stale = ops.filter((o) => o.op === "upsert");
+        return stale.reduce((p, o) => p.then(() => TFoutbox.outboxRemove(o.qid)), Promise.resolve())
+          .then(() => (ops.some((o) => o.op === "create")
+            ? null
+            : TFoutbox.outboxAdd({ op: "create", entity_type: "drawing", cid: cid, payload: metaOf(saved) })));
+      }).then(() => converted);
     });
   }
-
-  // ── Legacy Note-Attached Drawing Compatibility ──────────────────────────────
-
-  function _store(noteCid, dataJson, updatedAt, dirty, baseRev, existing) {
-    const oldRef = existing && existing.blob_ref;
-    return BlobStore.put(dataJson, { mime: "application/json" }).then((ref) => {
-      const rec = {
-        cid: existing ? existing.cid : TFids.newCid(),
-        note_cid: noteCid,
-        blob_ref: ref,
-        updated_at: updatedAt,
-        deleted: false,
-        dirty: dirty,
-        base_rev: baseRev,
-      };
-      return putRec(rec)
-        .then(() => (oldRef && oldRef !== ref ? BlobStore.delete(oldRef) : null))
-        .then(() => rec);
+  function upgradeLegacyNoteDrawings() {
+    return getAllRaw().then((all) => {
+      const legacy = all.filter((r) => r && r.note_cid !== undefined);
+      return legacy.reduce((chain, r) => chain.then((n) => (r.deleted
+        ? purgeDrawing(r.cid).then(() => n)
+        : convertLegacyNoteDrawing(r.cid).then((c) => (c ? n + 1 : n)).catch(() => n))), Promise.resolve(0));
     });
-  }
-
-  function putDrawing(noteCid, dataJson, opts) {
-    const now = (opts && opts.now) || new Date().toISOString();
-    return getByNoteCid(noteCid).then((existing) =>
-      _store(noteCid, dataJson, now, 1, existing ? existing.base_rev : null, existing).then((rec) =>
-        TFoutbox.outboxByEntity("drawing", rec.cid).then((ops) => {
-          if (ops.some((o) => o.op === "upsert")) return rec;
-          return TFoutbox.outboxAdd({ op: "upsert", entity_type: "drawing", cid: rec.cid, payload: { note_cid: noteCid } }).then(() => rec);
-        })));
-  }
-
-  function getDrawingLocal(noteCid) {
-    return getByNoteCid(noteCid).then((rec) => (rec && !rec.deleted ? rec : null));
-  }
-
-  function cacheServerDrawing(noteCid, dataJson, updatedAt) {
-    return getByNoteCid(noteCid).then((existing) =>
-      _store(noteCid, dataJson, updatedAt, 0, updatedAt, existing));
   }
 
   function configureFetcher(fn) { _fetcher = fn; }
@@ -883,11 +901,12 @@
     tsNewer,
     ensureDrawingUpdateOp,
     upgradeLegacyDrawingOps,
+    upgradeLegacyNoteDrawings,
+    convertLegacyNoteDrawing,
+    purgeDrawing,
+    releaseBlobs,
     isTldrawSnapshot,
     sameContent,
-    putDrawing,
-    getDrawingLocal,
-    cacheServerDrawing,
     configureFetcher,
     _BlobStore: BlobStore,
   };

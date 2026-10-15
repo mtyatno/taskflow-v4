@@ -65,8 +65,9 @@ Catatan implementasi: (1) deteksi "record ditulis pihak lain" di NoteModal memak
 - S15: setelah create task sukses (`opCreate`), ganti `[tasklink:<cid>]` → `[tasklink:<sid>]` di semua note lokal yang memuatnya (tandai dirty + antre update); autosave tidak lagi membuang link ke task ber-cid (`linked_task_ids` boleh berisi cid; `noterepo` menyimpannya di `linked_task_cids`).
 - Low: `api.delete` → `api.del` (±18091, ±18523).
 
-## Workstream D — Mindmap & Drawing (setelah A2, paralel dengan C)
+## Workstream D — Mindmap & Drawing (setelah A2, paralel dengan C) — SELESAI (commit 7e91cff, 188c751, fc17953, cffb39f, 3c0cca2)
 File: `mindmaprepo.js`, `drawingrepo.js`, bagian mindmap/drawing di `syncpush.js`/`syncpull.js`, `index.html` tab mindmap (±9064–9128), `sync()` event mindmap (±733), `draw-app/src/App.jsx`.
+Catatan implementasi: tab mindmap juga mengirim `if_updated_at` pada autosave (router lokal membuat salinan konflik bila record sudah diganti pull — menutup celah pull saat debounce autosave); share mindmap mengadopsi `updated_at` server sebagai `base_rev`; drawing menyimpan `base_blob_ref`/`base_title` (berbagi blob dengan `blob_ref` saat bersih, `releaseBlobs` hanya membuang blob yang tak lagi dirujuk); S5 dikerjakan (diff + proteksi record yang belum terkirim + `basedOn` dari host); bundle vendor tetap dibangun saat deploy.
 - K5: `rev` + CAS (`TFdb.mutate`) untuk mindmap create/update; `dedupeUpdates` aman karena CAS.
 - T3: pull mindmap mengirim event `mindmapSynced {cids}`; tab yang tidak dirty memuat ulang `data_json`; `mindmapToUpdatePayload` menyertakan `base_rev`; 409 → salinan konflik (`"(konflik) <judul>"`, client_id baru) + adopsi server; `pullMindmaps` server-wins juga membuat salinan konflik, bukan notice saja.
 - T13: drawing 4xx permanen → `sync_error` (helper A1); `healStrandedDrawings`/pull tidak mengantre ulang record `sync_error`.

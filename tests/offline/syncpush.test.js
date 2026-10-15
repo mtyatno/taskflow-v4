@@ -547,35 +547,49 @@ test("pushOutbox note pin is a no-op PATCH when server already matches", async (
   assert.equal(tr.calls[0].method, "GET");
 });
 
-const { putDrawing: _putDrawing } = require("../../static/offline/drawingrepo.js");
+const { makeBlobStore: _mkBlobStore } = require("../../static/offline/blobstore.js");
+const { outboxAdd: _outboxAddD } = require("../../static/offline/outbox.js");
 const { mapPut: _mapPutD } = require("../../static/offline/idmap.js");
 
 async function getDrawingRow(cid) {
   const db = await openDB();
   return new Promise((res) => { const q = db.transaction("drawings").objectStore("drawings").get(cid); q.onsuccess = () => res(q.result); });
 }
+// Record legacy "gambar di dalam note" persis seperti yang ditulis putDrawing() versi lama (+ op upsert).
+async function legacyNoteDrawing(cid, noteCid, dataJson) {
+  const ref = await _mkBlobStore().put(dataJson, { mime: "application/json" });
+  const db = await openDB();
+  await new Promise((res) => { const tx = db.transaction("drawings", "readwrite"); tx.objectStore("drawings").put({ cid, note_cid: noteCid, blob_ref: ref, updated_at: "2026-06-06T00:00:00Z", deleted: false, dirty: 1, base_rev: null }); tx.oncomplete = res; });
+  await _outboxAddD({ op: "upsert", entity_type: "drawing", cid, payload: { note_cid: noteCid } });
+}
 
-test("pushOutbox drawing upsert holds the op when the note is not yet pushed", async () => {
-  const rec = await _putDrawing("ncid", '{"x":1}', {}); // creates outbox op too
-  const tr = fakeTransport(() => { throw new Error("should not call without note server_id"); });
-  const r = await pushOutbox(tr);
-  assert.equal(tr.calls.length, 0);
-  assert.equal(r.remaining, 1); // op held
-});
-
-test("pushOutbox drawing upsert PUTs to /api/drawings/{noteSid}, sets dirty 0 + base_rev", async () => {
-  const rec = await _putDrawing("ncid", '{"x":1}', {});
-  await _mapPutD("note", 70, "ncid"); // note now has a server id
-  const tr = fakeTransport(() => ({ status: 200, data: { updated_at: "2026-06-06T12:00:00" } }));
+// S6 (workstream D): op upsert legacy TIDAK pernah lagi PUT ke /api/drawings/{noteSid} (id note ≠ id drawing).
+// Record dikonversi menjadi drawing standalone dan di-POST sebagai drawing baru (client_id = cid).
+test("pushOutbox drawing upsert (legacy) → converted to a standalone drawing and POSTed even without a note server id", async () => {
+  await legacyNoteDrawing("dleg", "ncid", '{"store":{"x":1},"schema":{}}');
+  const tr = fakeTransport(() => ({ status: 200, data: { id: 88, updated_at: "2026-06-06T12:00:00" } }));
   const r = await pushOutbox(tr);
   assert.equal(r.pushed, 1);
-  assert.equal(tr.calls[0].method, "PUT");
-  assert.equal(tr.calls[0].path, "/api/drawings/70");
-  assert.equal(tr.calls[0].body.data_json, '{"x":1}');
-  const row = await getDrawingRow(rec.cid);
+  assert.equal(tr.calls.length, 1);
+  assert.equal(tr.calls[0].method, "POST");
+  assert.equal(tr.calls[0].path, "/api/drawings");
+  assert.equal(tr.calls[0].body.data_json, '{"store":{"x":1},"schema":{}}');
+  assert.equal(tr.calls[0].body.client_id, "dleg");
+  const row = await getDrawingRow("dleg");
+  assert.equal(row.note_cid, undefined);
+  assert.equal(row.server_id, 88);
   assert.equal(row.dirty, 0);
   assert.equal(row.base_rev, "2026-06-06T12:00:00");
   assert.equal(r.remaining, 0);
+});
+
+test("pushOutbox drawing upsert (legacy) never PUTs /api/drawings/{noteSid} even when the note has a server id", async () => {
+  await legacyNoteDrawing("dleg2", "ncid", '{"store":{"x":2},"schema":{}}');
+  await _mapPutD("note", 70, "ncid"); // dulu: PUT /api/drawings/70 → menimpa drawing lain ber-id 70
+  const tr = fakeTransport(() => ({ status: 200, data: { id: 89, updated_at: "2026-06-06T12:00:00" } }));
+  await pushOutbox(tr);
+  assert.ok(tr.calls.every((c) => c.method === "POST" && c.path === "/api/drawings"));
+  assert.equal((await getDrawingRow("dleg2")).server_id, 89);
 });
 
 // ── Workstream A2 (audit 2026-10-15): T10 tahan op bergantung, T11 client_id, T12 recurrence_renew, K6 is_focused ──

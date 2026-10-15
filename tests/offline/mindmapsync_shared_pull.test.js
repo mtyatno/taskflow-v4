@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { deleteDB } = require("./setup.js");
 const { DB_NAME, _reset, openDB } = require("../../static/offline/db.js");
 const { mapPut } = require("../../static/offline/idmap.js");
-const { outboxAdd } = require("../../static/offline/outbox.js");
+const { outboxAdd, outboxAll } = require("../../static/offline/outbox.js");
 const { pullMindmaps } = require("../../static/offline/syncpull.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
@@ -41,16 +41,31 @@ test("pullMindmaps reconciles shared mindmaps + carries collaborator fields", as
   assert.equal(local.last_editor_display_name, "Bob");
 });
 
-test("LWW-loss on a dirty shared mindmap attaches an overwritten notice", async () => {
-  await put("mindmaps", [localMM({ cid: "m", server_id: 5, list_id: 9, dirty: 1, title: "MineOld", updated_at: "2026-06-12T01:00:00", base_rev: "2026-06-12T00:00:00" })]);
+test("edit-vs-edit on a dirty shared mindmap → local kept as a personal conflict copy, original adopts server + notice", async () => {
+  await put("mindmaps", [localMM({ cid: "m", server_id: 5, list_id: 9, dirty: 1, title: "MineOld", data_json: "{\"mine\":1}", updated_at: "2026-06-12T01:00:00", base_rev: "2026-06-12T00:00:00" })]);
   await mapPut("mindmap", 5, "m");
   await outboxAdd({ op: "update", entity_type: "mindmap", cid: "m", payload: {} });
-  const rows = [metaRow({ id: 5, list_id: 9, title: "Theirs", updated_at: "2026-06-12T05:00:00", last_edited_by: 7, last_editor_display_name: "Bob" })];
+  const rows = [metaRow({ id: 5, list_id: 9, title: "Theirs", data_json: "{\"theirs\":1}", updated_at: "2026-06-12T05:00:00", last_edited_by: 7, last_editor_display_name: "Bob" })];
   const res = await pullMindmaps(rows, fullFor(rows));
-  assert.equal(res.lwwResolved, 1);
-  const local = (await getAll("mindmaps"))[0];
-  assert.equal(local.notice.kind, "overwritten");
-  assert.equal(local.notice.editor, "Bob");
+  assert.equal(res.conflictCopies, 1);
+  const all = await getAll("mindmaps");
+  const orig = all.find((m) => m.cid === "m");
+  const copy = all.find((m) => m.cid !== "m");
+  assert.equal(orig.title, "Theirs");
+  assert.equal(orig.data_json, "{\"theirs\":1}");
+  assert.equal(orig.list_id, 9);
+  assert.equal(orig.dirty, 0);
+  assert.equal(orig.notice.kind, "conflict_copy");
+  assert.equal(orig.notice.editor, "Bob");
+  assert.equal(orig.notice.copyTitle, "(konflik) MineOld");
+  // salinan: pribadi (list_id null), isi lokal, op create sendiri; op update milik record asli dibuang
+  assert.equal(copy.title, "(konflik) MineOld");
+  assert.equal(copy.data_json, "{\"mine\":1}");
+  assert.equal(copy.list_id, null);
+  assert.equal(copy.server_id, null);
+  assert.equal(copy.dirty, 1);
+  const ops = await outboxAll();
+  assert.deepEqual(ops.map((o) => [o.op, o.cid]), [["create", copy.cid]]);
 });
 
 test("shared dirty mindmap vanished from server -> conflict remote_deleted", async () => {

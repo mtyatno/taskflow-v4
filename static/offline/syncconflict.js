@@ -36,15 +36,12 @@
       r.onerror = () => reject(r.error);
     }));
   }
-  function putRaw(store, rec) {
-    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction(store, "readwrite");
-      tx.objectStore(store).put(rec);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    }));
-  }
   function deleteRaw(store, cid) {
+    // drawing: record + blob (+ blob dasar) dibuang bersama (tidak ada blob yatim)
+    if (store === "drawings") {
+      const repo = drawingRepo();
+      if (repo && typeof repo.purgeDrawing === "function") return repo.purgeDrawing(cid).then(() => undefined);
+    }
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const tx = db.transaction(store, "readwrite");
       tx.objectStore(store).delete(cid);
@@ -138,12 +135,14 @@
         // cid tetap kunci lokal, tetapi payload create memakai client_id → server tidak mengembalikan baris
         // LAMA (yang terhapus / tidak bisa diakses) untuk salinan ini.
         const personal = (choice === "keep_as_personal" || rec.conflict === "access_lost");
+        let oldBase = null;
         return cleanup
           .then(() => patchRec(store, cid, (next, cur) => {
             next.server_id = null;
             next.dirty = 1;
             next.rev = (cur.rev || 0) + 1;
             next.client_id = TFids.newCid();
+            next.base_rev = null; // entitas baru: revisi server lama tidak berlaku (push create mengisi yang baru)
             delete next.conflict;
             delete next.sync_error;
             // S1 keep_as_personal (akses ke list hilang) / keep_as_new pada access_lost: simpan sebagai entitas
@@ -152,11 +151,16 @@
               if ("list_id" in next || entity !== "drawing") next.list_id = null;
               if ("list_cid" in next || entity === "task") next.list_cid = null;
             }
+            if (entity === "drawing") { oldBase = cur.base_blob_ref || null; next.base_blob_ref = null; next.base_title = null; }
             return next;
           }))
-          .then((next) => (entity === "drawing"
-            ? TFoutbox.outboxAdd({ op: "create", entity_type: "drawing", cid: cid, payload: drawingMeta(next || rec) })
-            : TFoutbox.outboxAdd({ op: "create", entity_type: entity, cid: cid, payload: {} })))
+          .then((next) => {
+            const repo = entity === "drawing" ? drawingRepo() : null;
+            const relP = (repo && repo.releaseBlobs && oldBase) ? repo.releaseBlobs([oldBase], [next && next.blob_ref]) : Promise.resolve();
+            return relP.then(() => (entity === "drawing"
+              ? TFoutbox.outboxAdd({ op: "create", entity_type: "drawing", cid: cid, payload: drawingMeta(next || rec) })
+              : TFoutbox.outboxAdd({ op: "create", entity_type: entity, cid: cid, payload: {} })));
+          })
           .then(() => ({ ok: true }));
       }
       return Promise.reject(new Error("unknown choice: " + choice));

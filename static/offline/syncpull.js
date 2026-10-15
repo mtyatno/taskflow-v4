@@ -26,6 +26,7 @@
   function noteRepo() {
     try { return isNode ? require("./noterepo.js") : (root.TF && root.TF.noterepo); } catch (_) { return null; }
   }
+  const TFmm = req("./mindmaprepo.js", root.TF && root.TF.mindmaprepo);
 
   function getAllTasks() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -736,14 +737,6 @@
       r.onerror = () => reject(r.error);
     }));
   }
-  function putMindmap(rec) {
-    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction("mindmaps", "readwrite");
-      tx.objectStore("mindmaps").put(rec);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    }));
-  }
   function deleteMindmapRec(cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const tx = db.transaction("mindmaps", "readwrite");
@@ -761,31 +754,33 @@
       return TFidmap.mapPut("mindmap", serverId, fresh).then(() => fresh);
     });
   }
-  const MM_DEFAULT_DATA = '{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}';
-  function mindmapFromServer(s, cid) {
-    return {
-      cid: cid, server_id: s.id,
-      title: s.title != null ? s.title : "Untitled",
-      data_json: s.data_json != null ? s.data_json : MM_DEFAULT_DATA,
-      pinned: !!s.is_pinned,
-      list_id: s.list_id != null ? s.list_id : null,
-      user_id: s.user_id != null ? s.user_id : null,
-      last_edited_by: s.last_edited_by != null ? s.last_edited_by : null,
-      last_editor_username: s.last_editor_username != null ? s.last_editor_username : null,
-      last_editor_display_name: s.last_editor_display_name != null ? s.last_editor_display_name : null,
-      created_at: s.created_at != null ? s.created_at : null,
-      updated_at: s.updated_at != null ? s.updated_at : null,
-      deleted: false, dirty: 0, base_rev: s.updated_at != null ? s.updated_at : null,
-    };
+  // Record masih seperti saat dibaca pull (CAS rev/dirty/deleted; tanpa localRec → harus masih belum ada).
+  function sameMindmapState(cur, local) {
+    if (!local) return !cur;
+    return !!cur && (cur.rev || 0) === (local.rev || 0) && !!cur.dirty === !!local.dirty && !!cur.deleted === !!local.deleted;
   }
-  function writeMindmapFull(serverId, cid, fetchOne, extra) {
-    // body tanpa id (null / {status:404|403} / body error) → bukan peta: jangan tulis apa pun
-    return Promise.resolve(fetchOne(serverId)).then((fullRow) => ((fullRow && fullRow.id != null) ? putMindmap(Object.assign(mindmapFromServer(fullRow, cid), extra || {})) : null));
+  // Tulis baris server lengkap lewat TFdb.mutate (prinsip 4): rev naik (push in-flight yang membaca rev lama
+  // tidak menandai hasil pull ini "bersih"); batal bila record berubah selama fetchOne (edit lokal selamat).
+  // body tanpa id (null / {status:404|403} / body error) → bukan peta: jangan tulis apa pun. Resolve true bila ditulis.
+  function writeMindmapFull(serverId, cid, fetchOne, extra, localRec) {
+    return Promise.resolve(fetchOne(serverId)).then((fullRow) => {
+      if (!(fullRow && fullRow.id != null)) return false;
+      return TFdb.mutate("mindmaps", cid, (cur) => {
+        if (!sameMindmapState(cur, localRec)) return undefined;
+        const rec = Object.assign(TFmm.recordFromServer(fullRow, cid), { rev: cur ? (cur.rev || 0) + 1 : 0 }, extra || {});
+        if (cur) {
+          rec.pinned = !!cur.pinned; // pin lokal dipertahankan (op pin bisa tertunda); adopsi pin server di pass pin
+          if (cur.client_id != null) rec.client_id = cur.client_id;
+        }
+        return rec;
+      }).then((saved) => !!saved);
+    });
   }
 
   // serverList = GET /api/mindmaps (metadata, no data_json). fetchOne(serverId) = GET /api/mindmaps/:id (full).
   // confirmOne(serverId) opsional: body | {status:404|403} | null — konfirmasi per item sebelum hapus lokal
   // (tanpa confirmOne → perilaku lama: hilang dari daftar = hapus).
+  // result.changed = [{cid, server_id}] record yang dibuat/diganti → sync() mengirim event mindmapSynced (T3).
   function pullMindmaps(serverList, fetchOne, confirmOne) {
     const list = (serverList || []);
     const cache = {};
@@ -794,29 +789,37 @@
       .then(([localAll, outboxOps]) => {
         const pendingMindmapOps = new Set(outboxOps.filter((o) => o.entity_type === "mindmap").map((o) => o.cid));
         const byCid = {}; for (const r of localAll) byCid[r.cid] = r;
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0, requeued: 0 };
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflictCopies: 0, pinned: 0, requeued: 0, changed: [] };
+        const changed = (cid, sid) => { result.changed.push({ cid: cid, server_id: sid != null ? sid : null }); };
         let chain = requeueDirtyWithoutOps("mindmap", localAll, pendingMindmapOps, result);
         for (const s of list) {
           const cid = cache[s.id];
           const local = byCid[cid];
           chain = chain.then(() => {
-            if (!local || (local.deleted && !pendingMindmapOps.has(cid))) { result.created++; return writeMindmapFull(s.id, cid, fetchOne); }
+            if (!local || (local.deleted && !pendingMindmapOps.has(cid))) {
+              return writeMindmapFull(s.id, cid, fetchOne, undefined, local).then((wrote) => { if (wrote) { result.created++; changed(cid, s.id); } else result.skipped++; });
+            }
             if (local.conflict || local.sync_error) { result.skipped++; return; }
             if (local.dirty && pendingMindmapOps.has(cid)) {
               if (s.updated_at !== local.base_rev) {
-                result.lwwResolved++;
-                if (tsEpoch(s.updated_at) > tsEpoch(local.updated_at)) {
-                  return dropOutbox("mindmap", cid).then(() => writeMindmapFull(s.id, cid, fetchOne, {
-                    notice: { kind: "overwritten", title: s.title, editor: s.last_editor_display_name || s.last_editor_username || "Pengguna lain" },
-                  })); // server wins (LWW) — leave a notice
-                }
-                return; // local wins
+                // Konflik edit-vs-edit (T3 / prinsip 7): BUKAN LWW — versi lokal disimpan sebagai salinan konflik
+                // "(konflik) <judul>", record asli mengadopsi baris server (op asli dibuang, salinan punya op create).
+                return Promise.resolve(fetchOne(s.id)).then((fullRow) => {
+                  if (!(fullRow && fullRow.id != null)) { result.skipped++; return; }
+                  return TFmm.adoptServerWithConflictCopy(cid, fullRow, { expectRev: local.rev || 0 }).then((out) => {
+                    if (!out) { result.skipped++; return; } // berubah selama fetch → pull berikutnya
+                    result.conflictCopies++;
+                    changed(cid, s.id);
+                    if (out.copy) changed(out.copy.cid, null);
+                  });
+                });
               }
-              result.skipped++; return;
+              result.skipped++; return; // local pending, server unchanged
             }
             // dirty tanpa op sudah diantre ulang di atas (ada di pendingMindmapOps) → tidak pernah sampai sini
             if (s.updated_at !== local.base_rev || local.deleted) {
-              result.updated++; return writeMindmapFull(s.id, cid, fetchOne, local.notice ? { notice: local.notice } : undefined);
+              return writeMindmapFull(s.id, cid, fetchOne, local.notice ? { notice: local.notice } : undefined, local)
+                .then((wrote) => { if (wrote) { result.updated++; changed(cid, s.id); } else result.skipped++; });
             }
             return;
           });
@@ -828,12 +831,16 @@
           chain = chain.then(() => {
             if (r.conflict || r.sync_error) { result.skipped++; return; }
             if (r.dirty && pendingMindmapOps.has(r.cid)) {
-              if (r.list_id != null) { result.skipped++; return putMindmap(Object.assign({}, r, { conflict: "remote_deleted" })); }
+              if (r.list_id != null) {
+                result.skipped++;
+                return TFdb.mutate("mindmaps", r.cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "remote_deleted" }) : undefined));
+              }
               result.skipped++; return; // personal local-wins; push update→404→re-create
             }
             return confirmGone(confirmOne, r.server_id).then((gone) => {
               if (!gone) { result.skipped++; return; }
               result.deleted++;
+              changed(r.cid, r.server_id);
               return deleteMindmapRec(r.cid).then(() => TFidmap.mapDelete("mindmap", r.server_id));
             });
           });
@@ -849,7 +856,9 @@
               const local = freshByCid[cid];
               if (!local || pendingPin.has(cid)) continue;
               if (!!local.pinned !== !!s.is_pinned) {
-                c2 = c2.then(() => { result.pinned++; return putMindmap(Object.assign({}, local, { pinned: !!s.is_pinned })); });
+                c2 = c2.then(() => TFdb.mutate("mindmaps", cid, (cur) => ((cur && (cur.rev || 0) === (local.rev || 0))
+                  ? Object.assign({}, cur, { pinned: !!s.is_pinned, rev: (cur.rev || 0) + 1 })
+                  : undefined)).then((saved) => { if (saved) result.pinned++; }));
               }
             }
             return c2;
@@ -927,9 +936,16 @@
   function dropBlob(ref) {
     return (ref && BlobStore) ? Promise.resolve(BlobStore.delete(ref)).catch(() => {}) : Promise.resolve();
   }
-  // Hapus record hanya bila tidak berubah sejak dibaca (CAS); blob ikut dibuang. Resolve true bila terhapus.
+  // Buang blob lama yang tidak lagi dirujuk record (blob_ref / base_blob_ref bisa berbagi id — T2).
+  function releaseBlobs(refs, keep) {
+    if (TFrepo && TFrepo.releaseBlobs) return TFrepo.releaseBlobs(refs, keep);
+    const keepSet = new Set((keep || []).filter(Boolean));
+    return (refs || []).filter((r) => r && !keepSet.has(r)).reduce((p, r) => p.then(() => dropBlob(r)), Promise.resolve());
+  }
+  const refsOf = (rec) => (rec ? [rec.blob_ref, rec.base_blob_ref] : []);
+  // Hapus record hanya bila tidak berubah sejak dibaca (CAS); blob (+ blob dasar) ikut dibuang. Resolve true bila terhapus.
   function deleteDrawingIfUnchanged(cid, expect) {
-    let ref = null;
+    let refs = [];
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       let done = false;
       const tx = db.transaction("drawings", "readwrite");
@@ -938,13 +954,13 @@
       r.onsuccess = () => {
         const cur = r.result;
         if (!cur || !sameDrawingState(cur, expect)) return;
-        ref = cur.blob_ref || null;
+        refs = refsOf(cur);
         os.delete(cid);
         done = true;
       };
       tx.oncomplete = () => resolve(done);
       tx.onerror = () => reject(tx.error);
-    })).then((done) => (done ? dropBlob(ref).then(() => true) : false));
+    })).then((done) => (done ? releaseBlobs(refs, []).then(() => true) : false));
   }
   function writeDrawing(s, cid, localRec) {
     const dataJson = s.data_json;
@@ -954,11 +970,11 @@
     const missing = dataJson == null && !(localRec && localRec.blob_ref);
     const blobP = (dataJson != null && BlobStore) ? BlobStore.put(dataJson, { mime: "application/json" }) : Promise.resolve(null);
     return blobP.then((newRef) => {
-      let oldRef = null;
+      let oldRefs = [];
       return TFrepo.mutateDrawing(cid, (cur) => {
         if (!sameDrawingState(cur, localRec)) return undefined;
         const keepRef = cur ? cur.blob_ref : null;
-        if (newRef) oldRef = keepRef;
+        oldRefs = refsOf(cur);
         const rec = Object.assign(drawingFromServer(s, cid), {
           blob_ref: newRef || keepRef,
           rev: cur ? (cur.rev || 0) + 1 : 0,
@@ -966,6 +982,9 @@
           data_missing: missing ? 1 : 0,
         });
         if (missing) rec.base_rev = null;
+        // T2: data server yang diadopsi = snapshot dasar (berbagi blob dengan blob_ref; tanpa data → dasar kosong)
+        rec.base_blob_ref = missing ? null : rec.blob_ref;
+        rec.base_title = rec.title;
         // pin lokal dipertahankan (bisa ada op pin tertunda); adopsi pin server dilakukan Pass 5 yang mengecek op
         if (cur) rec.is_pinned = cur.is_pinned ? 1 : 0;
         // client_id server (cid mesin pembuat = id di direktif note) → getRaw bisa menemukan record ini
@@ -975,7 +994,7 @@
       }).then((saved) => {
         if (!saved) return dropBlob(newRef).then(() => false);
         return Promise.all([
-          oldRef && oldRef !== newRef ? dropBlob(oldRef) : null,
+          releaseBlobs(oldRefs, refsOf(saved)),
           (s.tags && TFtag && TFtag.setEntityTags) ? TFtag.setEntityTags("drawing", cid, s.tags) : null,
         ]).then(() => true);
       });
@@ -1000,7 +1019,21 @@
     return v !== null && typeof v === "object" && !Array.isArray(v);
   }
 
-  function deepMerge(localVal, remoteVal, opts) {
+  // Serialisasi kanonik (kunci terurut) → kesetaraan isi tanpa peduli urutan kunci.
+  function canon(v) {
+    if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
+    if (v && typeof v === "object") {
+      return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}";
+    }
+    return JSON.stringify(v === undefined ? null : v);
+  }
+  function deepEqual(a, b) { return a === b || canon(a) === canon(b); }
+
+  // Gabung dua nilai; `baseVal` (opsional, T2) = nilai pada snapshot dasar → merge 3-arah per field:
+  //   sisi yang SAMA dengan dasar kalah dari sisi yang berubah; keduanya berubah → preferRemote menentukan;
+  //   field ada di dasar tapi hilang di satu sisi dan tidak berubah di sisi lain → dihapus.
+  // Tanpa dasar (undefined) → perilaku union lama (kunci di salah satu sisi selalu bertahan).
+  function deepMerge(localVal, remoteVal, opts, baseVal) {
     const preferRemote = !!(opts && opts.preferRemote);
 
     if (localVal === undefined) return remoteVal;
@@ -1008,21 +1041,30 @@
     if (localVal === remoteVal) return localVal;
 
     if (isPlainObject(localVal) && isPlainObject(remoteVal)) {
+      const base = isPlainObject(baseVal) ? baseVal : null;
       const merged = {};
       const keys = new Set([...Object.keys(localVal), ...Object.keys(remoteVal)]);
       for (const k of keys) {
-        if (k in localVal && !(k in remoteVal)) {
-          merged[k] = localVal[k];
-        } else if (k in remoteVal && !(k in localVal)) {
-          merged[k] = remoteVal[k];
+        const inL = k in localVal, inR = k in remoteVal;
+        if (inL && inR) {
+          merged[k] = deepMerge(localVal[k], remoteVal[k], opts, base ? base[k] : undefined);
+        } else if (base && k in base) {
+          // ada di dasar, hilang di satu sisi: sisi lain tidak mengubahnya → hapus menang; mengubahnya → perubahan menang
+          const other = inL ? localVal[k] : remoteVal[k];
+          if (!deepEqual(other, base[k])) merged[k] = other;
         } else {
-          merged[k] = deepMerge(localVal[k], remoteVal[k], opts);
+          merged[k] = inL ? localVal[k] : remoteVal[k];
         }
       }
       return merged;
     }
 
     // Primitive or array collision
+    if (deepEqual(localVal, remoteVal)) return localVal;
+    if (baseVal !== undefined) {
+      if (deepEqual(localVal, baseVal)) return remoteVal; // hanya remote yang berubah
+      if (deepEqual(remoteVal, baseVal)) return localVal; // hanya lokal yang berubah
+    }
     return preferRemote ? remoteVal : localVal;
   }
 
@@ -1111,18 +1153,24 @@
     };
   }
 
+  // Gabung snapshot tldraw lokal & remote. opts.base (T2, opsional) = snapshot dasar (versi pada base_rev):
+  // record ada di dasar tapi hilang di satu sisi & tidak berubah di sisi lain → dihapus (coretan yang dihapus
+  // tidak hidup lagi); hilang di satu sisi tapi BERUBAH di sisi lain → dipertahankan; ada di keduanya → merge
+  // per field; tidak ada di dasar → tambahan (dipertahankan). Tanpa opts.base → union lama.
   function mergeDrawingSnapshots(localSnap, remoteSnap, opts) {
     const localObj = parseSnapshot(localSnap);
     const remoteObj = parseSnapshot(remoteSnap);
 
     const localData = extractSnapshotData(localObj);
     const remoteData = extractSnapshotData(remoteObj);
+    const baseRaw = opts && opts.base != null ? opts.base : undefined;
+    const baseData = baseRaw !== undefined ? extractSnapshotData(parseSnapshot(baseRaw)) : null;
 
     const format = remoteData.format || localData.format || "direct";
     const schema = remoteData.schema || localData.schema || undefined;
     const otherFields = Object.assign({}, localData.otherFields, remoteData.otherFields);
 
-    const mergedRecords = deepMerge(localData.records, remoteData.records, opts);
+    const mergedRecords = deepMerge(localData.records, remoteData.records, opts, baseData && baseData.format ? baseData.records : undefined);
 
     let outputObj;
     if (format === "store") {
@@ -1171,13 +1219,17 @@
     }));
   }
 
-  // Record dirty + server berubah sejak base_rev → gabung (union) data lokal & server lewat CAS rev.
+  // Record dirty + server berubah sejak base_rev → gabung data lokal & server lewat CAS rev.
+  // T2: merge 3-arah terhadap snapshot dasar (base_blob_ref = versi pada base_rev) — coretan yang dihapus di satu
+  // sisi tidak hidup lagi; tanpa dasar → union lama. Setelah merge, data REMOTE menjadi dasar baru (base_rev =
+  // updated_at server). S3: judul — sisi yang berbeda dari dasar menang (rename lokal tidak hilang bila remote
+  // hanya menambah coretan). S4: blob nyata ditulis → data_missing dibersihkan.
   function mergeDirtyDrawing(s, cid, local, fetchOne, result) {
     const fetchP = fetchOne ? Promise.resolve(fetchOne(s.id)).catch(() => null) : Promise.resolve(null);
-    const localDataJsonP = (local.blob_ref && BlobStore)
-      ? Promise.resolve(BlobStore.getBytes(local.blob_ref)).then((b) => b || "{}").catch(() => "{}")
-      : Promise.resolve("{}");
-    return Promise.all([fetchP, localDataJsonP]).then(([remoteFullRow, localDataJson]) => {
+    const readBlob = (ref) => ((ref && BlobStore) ? Promise.resolve(BlobStore.getBytes(ref)).catch(() => undefined) : Promise.resolve(undefined));
+    const localDataJsonP = readBlob(local.blob_ref).then((b) => b || "{}");
+    const baseJsonP = readBlob(local.base_blob_ref);
+    return Promise.all([fetchP, localDataJsonP, baseJsonP]).then(([remoteFullRow, localDataJson, baseJson]) => {
       const remoteFull = (remoteFullRow && remoteFullRow.id != null) ? remoteFullRow : s;
       const remoteDataJson = remoteFull.data_json != null ? remoteFull.data_json : s.data_json;
       // Data server gagal diambil → jangan klaim sudah menggabung (base_rev tetap; coba pull berikutnya).
@@ -1188,39 +1240,60 @@
       const inflight = (TFpush && TFpush.inflightDrawingData) ? TFpush.inflightDrawingData(cid) : undefined;
       if (inflight !== undefined && inflight === remoteDataJson) { result.skipped++; return; }
       const preferRemote = tsEpoch(s.updated_at) > tsEpoch(local.updated_at);
-      const mergedJson = mergeDrawingSnapshots(localDataJson, remoteDataJson, { preferRemote });
-      const mergedTitle = (remoteFull && remoteFull.title) || s.title || local.title || "Untitled Drawing";
+      const hasBase = TFrepo.isTldrawSnapshot(baseJson);
+      const mergedJson = mergeDrawingSnapshots(localDataJson, remoteDataJson, hasBase ? { preferRemote, base: baseJson } : { preferRemote });
+      const remoteTitle = (remoteFull && remoteFull.title) || s.title || null;
+      const localRenamed = local.base_title != null && local.title != null && local.title !== local.base_title;
+      const remoteRenamed = local.base_title != null && remoteTitle != null && remoteTitle !== local.base_title;
+      const mergedTitle = (localRenamed && !remoteRenamed) ? local.title : (remoteTitle || local.title || "Untitled Drawing");
       const mergedSvg = (remoteFull && remoteFull.svg_preview) || s.svg_preview || local.svg_preview || "";
       const readRev = local.rev || 0;
       const sameData = TFrepo.sameContent(mergedJson, localDataJson);
+      // Dasar baru = data remote: berbagi blob lokal bila isinya sama (gema push yang responsnya hilang), else blob baru.
+      const remoteIsLocal = TFrepo.sameContent(remoteDataJson, localDataJson);
+      const baseBlobP = (!remoteIsLocal && BlobStore) ? BlobStore.put(remoteDataJson, { mime: "application/json" }) : Promise.resolve(null);
       if (sameData && mergedTitle === local.title) {
-        // Server tidak menambah apa pun (mis. gema push kita sendiri) → cukup catat base_rev.
-        return TFrepo.mutateDrawing(cid, (cur) => {
-          if (!cur || cur.deleted || (cur.rev || 0) !== readRev || cur.base_rev !== local.base_rev) return undefined;
-          return Object.assign({}, cur, { base_rev: s.updated_at, server_id: cur.server_id != null ? cur.server_id : s.id });
-        }).then((saved) => { if (saved) result.merged++; else result.skipped++; });
+        // Server tidak menambah apa pun (mis. gema push kita sendiri) → cukup catat base_rev (+ dasar baru).
+        return baseBlobP.then((newBaseRef) => {
+          let oldRefs = [];
+          return TFrepo.mutateDrawing(cid, (cur) => {
+            if (!cur || cur.deleted || (cur.rev || 0) !== readRev || cur.base_rev !== local.base_rev) return undefined;
+            oldRefs = [cur.base_blob_ref];
+            return Object.assign({}, cur, {
+              base_rev: s.updated_at, server_id: cur.server_id != null ? cur.server_id : s.id,
+              base_blob_ref: newBaseRef || cur.blob_ref, base_title: remoteTitle != null ? remoteTitle : cur.base_title,
+            });
+          }).then((saved) => {
+            if (!saved) { result.skipped++; return dropBlob(newBaseRef); }
+            result.merged++;
+            return releaseBlobs(oldRefs, refsOf(saved));
+          });
+        });
       }
       const blobP = BlobStore ? BlobStore.put(mergedJson, { mime: "application/json" }) : Promise.resolve(null);
-      return blobP.then((newBlobRef) => {
-        let oldRef = null;
+      return Promise.all([blobP, baseBlobP]).then(([newBlobRef, newBaseRef]) => {
+        let oldRefs = [];
         return TFrepo.mutateDrawing(cid, (cur) => {
           // CAS: rev (edit lokal) DAN base_rev (push selesai selama pull) harus sama dengan saat dibaca
           if (!cur || cur.deleted || (cur.rev || 0) !== readRev || cur.base_rev !== local.base_rev) return undefined;
-          oldRef = cur.blob_ref;
+          oldRefs = refsOf(cur);
           return Object.assign({}, cur, {
             server_id: cur.server_id != null ? cur.server_id : s.id,
             blob_ref: newBlobRef,
             title: mergedTitle,
             svg_preview: mergedSvg,
             svg_stale: 1,
+            data_missing: 0,
             base_rev: s.updated_at,
+            base_blob_ref: newBaseRef || cur.blob_ref,
+            base_title: remoteTitle != null ? remoteTitle : cur.base_title,
             dirty: 1,
             rev: readRev + 1,
           });
         }).then((saved) => {
-          if (!saved) { result.skipped++; return dropBlob(newBlobRef); }
+          if (!saved) { result.skipped++; return releaseBlobs([newBlobRef, newBaseRef], []); }
           return Promise.all([
-            oldRef && oldRef !== newBlobRef ? dropBlob(oldRef) : null,
+            releaseBlobs(oldRefs, refsOf(saved)),
             updateDrawingOutboxMeta(cid, mergedTitle, mergedSvg),
           ]).then(() => { result.merged = (result.merged || 0) + 1; });
         });
@@ -1313,8 +1386,8 @@
           if (expectedCid && r.cid !== expectedCid) {
             if (r.dirty && !r.deleted) {
               // Duplikat yang punya edit belum terkirim: kirim dulu (op update), hapus di pull berikutnya.
-              // sync_error → jangan antre ulang (T13); biarkan sampai pengguna memutuskan.
-              chain = chain.then(() => (r.sync_error ? null : TFrepo.ensureDrawingUpdateOp(r.cid, { title: r.title, svg_preview: r.svg_preview || "", is_pinned: r.is_pinned ? 1 : 0 })))
+              // sync_error (T13) / conflict (S2) → jangan antre ulang; biarkan sampai pengguna memutuskan.
+              chain = chain.then(() => ((r.sync_error || r.conflict) ? null : TFrepo.ensureDrawingUpdateOp(r.cid, { title: r.title, svg_preview: r.svg_preview || "", is_pinned: r.is_pinned ? 1 : 0 })))
                 .then(() => { result.skipped++; });
               continue;
             }

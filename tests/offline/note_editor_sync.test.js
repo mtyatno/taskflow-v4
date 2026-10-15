@@ -442,19 +442,19 @@ test("index.html sync(): noteSaved carries detail.cids from pullNotes.changedCid
 });
 
 test("index.html conflict bar: conflict_copy notice text (both render paths) + overwritten kept; scheduled push re-renders the bar", () => {
-  const nl = indexHtml.match(/function noticeLabel\(n\) \{[\s\S]*?\n\}/);
-  assert.ok(nl, "noticeLabel harus ada");
-  const noticeLabel = new Function(nl[0] + "\nreturn noticeLabel;")();
+  const nl = indexHtml.match(/const __entityNoun = [\s\S]*?\nfunction noticeText\(n\) \{[\s\S]*?\n\}/);
+  assert.ok(nl, "noticeText harus ada");
+  const noticeText = new Function(nl[0] + "\nreturn noticeText;")();
   assert.equal(
-    noticeLabel({ entity: "note", kind: "conflict_copy", title: "Rapat", copyTitle: "(konflik) Rapat", editor: "Bob" }),
-    "✂ Edit offline-mu pada 'Rapat' disimpan sebagai '(konflik) Rapat' karena catatan diubah di perangkat lain (oleh Bob).",
+    noticeText({ entity: "note", kind: "conflict_copy", title: "Rapat", copyTitle: "(konflik) Rapat", editor: "Bob" }),
+    "✂ Edit offline-mu pada 'Rapat' disimpan sebagai '(konflik) Rapat' karena catatan diubah di perangkat lain (Bob).",
   );
-  assert.equal(noticeLabel({ entity: "mindmap", kind: "conflict_copy", title: "Peta", copyTitle: "(konflik) Peta" }),
+  assert.equal(noticeText({ entity: "mindmap", kind: "conflict_copy", title: "Peta", copyTitle: "(konflik) Peta" }),
     "✂ Edit offline-mu pada 'Peta' disimpan sebagai '(konflik) Peta' karena peta diubah di perangkat lain.");
-  assert.equal(noticeLabel({ kind: "overwritten", title: "Doc", editor: "Bob" }), "🔔 Edit offline-mu pada 'Doc' ditimpa oleh Bob.");
-  assert.equal(noticeLabel({ kind: "delete_refused", title: "Doc" }), "🔔 'Doc' tidak bisa dihapus — hanya pemilik yang bisa menghapus.");
+  assert.equal(noticeText({ kind: "overwritten", title: "Doc", editor: "Bob" }), "🔔 Edit offline-mu pada 'Doc' ditimpa oleh Bob.");
+  assert.equal(noticeText({ kind: "delete_refused", title: "Doc" }), "🔔 'Doc' tidak bisa dihapus — hanya pemilik yang bisa menghapus.");
   const rc = indexHtml.match(/function renderConflicts\(\) \{[\s\S]*?\n\}/);
-  assert.equal((rc[0].match(/label\.textContent = noticeLabel\(n\);/g) || []).length, 2, "kedua jalur render notice memakai noticeLabel");
+  assert.equal((rc[0].match(/label\.textContent = noticeText\(n\);/g) || []).length, 2, "kedua jalur render notice memakai noticeText");
   assert.match(rc[0], /b\.textContent = "Tutup";/);
   assert.match(indexHtml, /if \(r && r\.busy\) schedulePush\(\); renderConflicts\(\); \}\)/, "push terjadwal → conflict bar diperbarui");
 });
