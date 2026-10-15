@@ -10039,7 +10039,11 @@ function DrawingTabInstance({
       const updatedId = e.detail?.id;
       if (!updatedId || String(updatedId) === String(tab?.id)) {
         try {
+          // S5: basedOn = snapshot terakhir yang diketahui host SEBELUM membaca record; iframe membandingkannya dengan
+          // snapshot terakhir yang ia kirim → kiriman iframe yang bersilang dengan load ini tidak tertimpa.
+          const basedOn = lastLoadedJsonRef.current;
           const fresh = await api.get(`/api/drawings/${tab.id}`);
+          if (lastLoadedJsonRef.current !== basedOn) return; // iframe mengirim perubahan selama baca → load ini basi
           if (fresh && fresh.data_json && !fresh.data_missing && iframeRef.current?.contentWindow) {
             if (fresh.data_json === lastLoadedJsonRef.current) return;
             lastLoadedJsonRef.current = fresh.data_json;
@@ -10048,7 +10052,8 @@ function DrawingTabInstance({
               v: 2,
               data: fresh.data_json,
               empty: isEmptyDrawingData(fresh.data_json),
-              svgStale: !!fresh.svg_stale
+              svgStale: !!fresh.svg_stale,
+              basedOn
             }, window.location.origin);
           }
         } catch (_) {}
@@ -22004,11 +22009,14 @@ function QuickDrawModal({
       const updatedId = e.detail?.id;
       if (!updatedId || String(updatedId) === String(drawingId)) {
         try {
+          // S5: basedOn = snapshot terakhir yang diketahui host SEBELUM membaca record (lihat DrawingTabInstance)
+          const basedOn = lastLoadedJsonRef.current;
           const fresh = await api.get(`/api/drawings/${drawingId}`);
           if (fresh && fresh.title) {
             setTitle(fresh.title);
             setTitleInput(fresh.title);
           }
+          if (lastLoadedJsonRef.current !== basedOn) return; // iframe mengirim perubahan selama baca → load ini basi
           if (fresh && fresh.data_json && !fresh.data_missing && iframeRef.current?.contentWindow) {
             if (fresh.data_json === lastLoadedJsonRef.current) return;
             lastLoadedJsonRef.current = fresh.data_json;
@@ -22017,7 +22025,8 @@ function QuickDrawModal({
               v: 2,
               data: fresh.data_json,
               empty: isEmptyDrawingData(fresh.data_json),
-              svgStale: !!fresh.svg_stale
+              svgStale: !!fresh.svg_stale,
+              basedOn
             }, window.location.origin);
           }
         } catch (_) {}
