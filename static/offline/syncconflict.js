@@ -36,14 +36,6 @@
       r.onerror = () => reject(r.error);
     }));
   }
-  function putRaw(store, rec) {
-    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction(store, "readwrite");
-      tx.objectStore(store).put(rec);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    }));
-  }
   function deleteRaw(store, cid) {
     // drawing: record + blob (+ blob dasar) dibuang bersama (tidak ada blob yatim)
     if (store === "drawings") {
@@ -195,12 +187,13 @@
   function dismissNotice(entity, cid) {
     const store = STORE[entity];
     if (!store) return Promise.reject(new Error("unknown entity: " + entity));
-    return getRaw(store, cid).then((rec) => {
-      if (!rec) return { ok: false };
-      const next = Object.assign({}, rec);
+    // lewat TFdb.mutate (prinsip 4): hanya field notice yang dihapus dari record TERKINI (editor bisa menyimpan bersamaan)
+    return TFdb.mutate(store, cid, (cur) => {
+      if (!cur) return undefined;
+      const next = Object.assign({}, cur);
       delete next.notice;
-      return putRaw(store, next).then(() => ({ ok: true }));
-    });
+      return next;
+    }).then((saved) => ({ ok: !!saved }));
   }
 
   const exported = { listConflicts, resolveConflict, listNotices, dismissNotice };
