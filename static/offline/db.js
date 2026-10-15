@@ -147,12 +147,39 @@
     });
   }
 
+  // ── Mutasi atomik (prinsip 4 rencana audit 2026-10-15: CAS/rev) ─────────────────────────────
+  // Satu transaksi readwrite: get(key) → next = fn(current|null) (sinkron; undefined/null = batal, tidak
+  // menulis) → put(next). Resolve record yang ditulis, atau null bila batal. Semua penulisan record setelah
+  // jeda async (push setelah respons server, pull, resolusi konflik) WAJIB lewat sini supaya tidak pernah
+  // menulis objek basi yang dibaca sebelum request — pola yang sama dengan drawingrepo.mutateDrawing.
+  function mutate(storeName, key, fn) {
+    return openDB().then((db) => new Promise((resolve, reject) => {
+      let out = null;
+      let failed = null;
+      let tx;
+      try { tx = db.transaction(storeName, "readwrite"); } catch (err) { reject(err); return; }
+      const os = tx.objectStore(storeName);
+      const r = os.get(key);
+      r.onsuccess = () => {
+        let next;
+        try { next = fn(r.result || null); } catch (err) { failed = err; try { tx.abort(); } catch (_) {} return; }
+        if (next == null) return;
+        os.put(next);
+        out = next;
+      };
+      r.onerror = () => { failed = r.error; };
+      tx.oncomplete = () => resolve(out);
+      tx.onerror = () => reject(failed || tx.error);
+      tx.onabort = () => reject(failed || tx.error || new Error(storeName + " mutation aborted"));
+    }));
+  }
+
   function _reset() {
     if (_db) { try { _db.close(); } catch (_) {} _db = null; }
     _dbPromise = null;
   }
 
-  const publicApi = { DB_NAME, DB_VERSION, ENTITY_STORES, ENTITY_STORE_NAMES, openDB, clearAll };
+  const publicApi = { DB_NAME, DB_VERSION, ENTITY_STORES, ENTITY_STORE_NAMES, openDB, clearAll, mutate };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.db = publicApi; }
   return Object.assign({ _reset }, publicApi);
 });

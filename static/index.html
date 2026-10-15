@@ -546,7 +546,13 @@ const api = {
         if (_local) {
           const _body = opts.body ? JSON.parse(opts.body) : undefined;
           const _res = await _router.dispatch(_method, url, _body)
-            .catch(err => { throw new Error(err && err.message ? err.message : "local route error"); });
+            .catch(err => {
+              // S14: error router lokal BUKAN error jaringan → isOfflineErr false (jangan masuk antrean legacy OfflineDB)
+              const eLocal = new Error(err && err.message ? err.message : "local route error");
+              eLocal.__local = true;
+              if (err && err.status != null) eLocal.status = err.status;
+              throw eLocal;
+            });
           if (_method !== "GET") schedulePush();
           return _res;
         }
@@ -567,11 +573,10 @@ const api = {
       });
       clearTimeout(timer);
       if (res.status === 401 && !url.includes("/api/auth/")) {
-        tokenStore.clear();
-        if (typeof API_BASE !== "undefined" && API_BASE && window.__TAURI__?.core?.invoke) {
-          window.__TAURI__.core.invoke("delete_token").catch(() => {});
-        }
-        window.__logout?.();
+        // K1: sesi berakhir ≠ ganti pengguna — satu jalur (handleAuthExpired): hapus token, tampilkan login,
+        // IndexedDB/outbox TIDAK dihapus. (Dulu token dihapus dulu lalu logout dipanggil, padahal logout
+        // langsung return bila token kosong → sesi "zombie".)
+        if (typeof window.__handleAuthExpired === "function") window.__handleAuthExpired();
         const e401 = new Error("Unauthorized");
         e401.status = 401;
         throw e401;
@@ -687,7 +692,7 @@ function schedulePush() {
   clearTimeout(__pushTimer);
   __pushTimer = setTimeout(() => {
     runSyncExclusive(() => window.TF.syncpush.pushOutbox(__syncTransport))
-      .then((r) => { if (r && r.busy) schedulePush(); }) // push lain masih berjalan → jadwalkan ulang agar edit terakhir tetap terkirim
+      .then((r) => { if (r && r.busy) schedulePush(); renderConflicts(); }) // push lain masih berjalan → jadwalkan ulang agar edit terakhir tetap terkirim; sync_error/salinan konflik dari push terjadwal langsung tampil
       .catch(() => {});
   }, 1500);
 }
@@ -699,6 +704,8 @@ const __syncRawFetch = (u, timeoutMs) => {
   if (__token) headers.Authorization = "Bearer " + __token;
   return syncFetch(apiUrl(u), { headers }, timeoutMs);
 };
+// Dipakai editor (poll note bersama, T5): baca server langsung, network-only, tanpa router lokal / cache SW
+window.__syncRawFetch = __syncRawFetch;
 if (window.TF && window.TF.drawingrepo && window.TF.idmap) {
   window.TF.drawingrepo.configureFetcher((idOrCid) => {
     if (/^\d+$/.test(String(idOrCid))) {
@@ -714,24 +721,64 @@ if (window.TF && window.TF.chatrepo) {
   window.TF.chatrepo.configureFetcher((url) =>
     __syncRawFetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error("http " + r.status)))));
 }
+// ── Sesi berakhir (401) ≠ ganti pengguna (K1) ──
+// Satu jalur untuk api.fetch 401, tryAuth 401, dan push 401 (event tf:auth-expired dari syncpush):
+// hapus token (+ cadangan native), tampilkan form login, toast. IndexedDB/outbox TIDAK dihapus — perubahan
+// offline dikirim setelah masuk lagi dengan akun yang sama (handleLogin membersihkan hanya bila akunnya beda).
+function handleAuthExpired() {
+  // token sudah kosong = sudah ditangani (beberapa request paralel sama-sama 401) atau memang belum login
+  if (!tokenStore.get()) return;
+  tokenStore.clear();
+  if (typeof API_BASE !== "undefined" && API_BASE && window.__TAURI__?.core?.invoke) {
+    window.__TAURI__.core.invoke("delete_token").catch(() => {});
+  }
+  try { if (typeof window.__onAuthExpired === "function") window.__onAuthExpired(); } catch (_) {}
+}
+window.__handleAuthExpired = handleAuthExpired;
+window.addEventListener("tf:auth-expired", handleAuthExpired);
+
 let __syncPending = null; // sync() yang sudah antre tapi belum mulai (pemanggilan berikutnya digabung)
 function sync() {
   if (!(window.TF && window.TF.syncpull && window.TF.syncpush)) { renderConflicts(); return Promise.resolve(null); }
   if (__syncPending) return __syncPending;
-  const pending = runSyncExclusive(() => { __syncPending = null; return window.TF.syncpull.pullAndReconcile(__syncRawFetch)
-    .then(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null))
-    .then(() => (window.TF.syncpull.pullHabitsAndLogs ? window.TF.syncpull.pullHabitsAndLogs(__syncRawFetch) : null))
-    .then(() => {
+  // Prinsip 5: tiap langkah pull terisolasi — gagal satu (503 OFFLINE, 401, 5xx; pull* kini throw bila !ok)
+  // tidak melewati langkah lain, dan push outbox SELALU dijalankan di akhir (dulu error pull pertama
+  // menghentikan seluruh rantai tanpa push). 401 saat pull → jalur sesi berakhir yang sama.
+  const stepFailed = (e) => { if (e && e.status === 401 && typeof handleAuthExpired === "function") handleAuthExpired(); return null; };
+  const step = (fn) => Promise.resolve().then(fn).catch(stepFailed);
+  const pending = runSyncExclusive(() => { __syncPending = null; return window.TF.syncpull.pullAndReconcile(__syncRawFetch).catch(stepFailed)
+    // T8: penanda occurrence task berulang (jendela ±60 hari) — setelah tasks supaya idmap task sudah terisi
+    .then(() => step(() => (window.TF.syncpull.pullRecurringExceptions ? window.TF.syncpull.pullRecurringExceptions(__syncRawFetch) : null)))
+    .then(() => step(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null)))
+    .then(() => step(() => (window.TF.syncpull.pullHabitsAndLogs ? window.TF.syncpull.pullHabitsAndLogs(__syncRawFetch) : null)))
+    .then(() => step(() => {
       if (!window.TF.syncpull.pullNotesAndReconcile) return null;
       return window.TF.syncpull.pullNotesAndReconcile(__syncRawFetch).then((notesRes) => {
-        if (notesRes && (notesRes.created > 0 || notesRes.updated > 0 || notesRes.deleted > 0 || notesRes.relinked > 0)) {
-          window.dispatchEvent(new CustomEvent("noteSaved"));
+        // T5: detail.cids = record note yang ditulis pull ini (+ salinan konflik) → editor yang terbuka memuat ulang / banner
+        const cids = (notesRes && Array.isArray(notesRes.changedCids)) ? notesRes.changedCids : [];
+        if (notesRes && (cids.length > 0 || notesRes.created > 0 || notesRes.updated > 0 || notesRes.deleted > 0 || notesRes.relinked > 0 || notesRes.conflictCopies > 0 || notesRes.listAdopted > 0)) {
+          window.dispatchEvent(new CustomEvent("noteSaved", { detail: { source: "sync", cids: cids } }));
         }
         return notesRes;
       });
-    })
-    .then(() => (window.TF.syncpull.pullMindmapsAndReconcile ? window.TF.syncpull.pullMindmapsAndReconcile(__syncRawFetch) : null))
-    .then(() => {
+    }))
+    .then(() => step(() => {
+      if (!window.TF.syncpull.pullMindmapsAndReconcile) return null;
+      return window.TF.syncpull.pullMindmapsAndReconcile(__syncRawFetch).then((mmRes) => {
+        if (!mmRes) return mmRes;
+        // T3: record mindmap dibuat/diganti/dihapus oleh pull → tab yang tidak punya edit tertunda memuat ulang
+        // data_json dari record lokal (mindmapSynced {cids, ids}); daftar sidebar/pinned dimuat ulang (mindmapSaved)
+        const changed = Array.isArray(mmRes.changed) ? mmRes.changed : [];
+        if (changed.length) {
+          window.dispatchEvent(new CustomEvent("mindmapSynced", {
+            detail: { source: "sync", cids: changed.map((c) => c.cid), ids: changed.filter((c) => c.server_id != null).map((c) => c.server_id) },
+          }));
+        }
+        if (changed.length || mmRes.pinned > 0 || mmRes.conflictCopies > 0) window.dispatchEvent(new CustomEvent("mindmapSaved", { detail: { source: "sync" } }));
+        return mmRes;
+      });
+    }))
+    .then(() => step(() => {
       if (!window.TF.syncpull.pullDrawingsAndReconcile) return null;
       return window.TF.syncpull.pullDrawingsAndReconcile(__syncRawFetch).then((drawRes) => {
         if (drawRes && (drawRes.created > 0 || drawRes.updated > 0 || drawRes.deleted > 0 || drawRes.pinned > 0 || drawRes.merged > 0)) {
@@ -739,12 +786,23 @@ function sync() {
         }
         return drawRes;
       });
-    })
-    .then(() => window.TF.syncpush.pushOutbox(__syncTransport))
+    }))
+    .then(() => window.TF.syncpush.pushOutbox(__syncTransport)) // 401 di sini → drain berhenti, op tetap, event tf:auth-expired
     .then((r) => { if (r && r.busy) schedulePush(); renderConflicts(); return r; })
     .catch(() => { renderConflicts(); return null; }); });
   __syncPending = pending;
   return pending;
+}
+// Teks notice (informasi, hanya tombol "Tutup"). conflict_copy (prinsip 7, workstream D): versi lokal yang kalah
+// disimpan sebagai entitas baru "(konflik) <judul>" — tidak ada yang dibuang.
+const __entityNoun = (entity) => (entity === "mindmap" ? "peta" : entity === "note" ? "catatan" : entity === "drawing" ? "gambar" : "item");
+function noticeText(n) {
+  const title = n.title || "(tanpa judul)";
+  if (n.kind === "delete_refused") return "🔔 '" + title + "' tidak bisa dihapus — hanya pemilik yang bisa menghapus.";
+  if (n.kind === "conflict_copy") {
+    return "✂ Edit offline-mu pada '" + title + "' disimpan sebagai '" + (n.copyTitle || "(konflik) " + title) + "' karena " + __entityNoun(n.entity) + " diubah di perangkat lain" + (n.editor ? " (" + n.editor + ")" : "") + ".";
+  }
+  return "🔔 Edit offline-mu pada '" + title + "' ditimpa oleh " + (n.editor || "pengguna lain") + ".";
 }
 function renderConflicts() {
   if (!(window.TF && window.TF.syncconflict)) return;
@@ -764,9 +822,7 @@ function renderConflicts() {
           const row = document.createElement("div");
           row.style.cssText = "display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap;";
           const label = document.createElement("span");
-          label.textContent = n.kind === "delete_refused"
-            ? "🔔 '" + (n.title || "(tanpa judul)") + "' tidak bisa dihapus — hanya pemilik yang bisa menghapus."
-            : "🔔 Edit offline-mu pada '" + (n.title || "(tanpa judul)") + "' ditimpa oleh " + (n.editor || "pengguna lain") + ".";
+          label.textContent = noticeText(n);
           row.appendChild(label);
           const b = document.createElement("button");
           b.textContent = "Tutup";
@@ -788,11 +844,26 @@ function renderConflicts() {
       const row = document.createElement("div");
       row.style.cssText = "display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap;";
       const label = document.createElement("span");
-      label.textContent = "🔔 '" + (c.title || "(tanpa judul)") + "' dihapus di perangkat lain, tapi ada perubahan lokal.";
+      const title = c.title || "(tanpa judul)";
+      let choices;
+      if (c.conflict === "sync_error") {
+        // 4xx permanen saat push (K3/T13): op dibuang, perubahan lokal tetap ada → pengguna memutuskan
+        const why = [c.status, c.detail].filter(Boolean).join(" ");
+        label.textContent = "⚠ '" + title + "' gagal disinkronkan" + (why ? " (" + why + ")" : "") + ".";
+        choices = [["Coba lagi", "retry"], ["Buang perubahan lokal", "discard_local"]];
+      } else if (c.conflict === "access_lost") {
+        // 403 saat push: dikeluarkan dari list → konten lokal dipertahankan sampai dipilih (S1):
+        // "Simpan sebagai pribadi" = keep_as_personal (list_id null, dibuat ulang dengan client_id baru)
+        label.textContent = "🔒 '" + title + "' — akses ke list ini hilang.";
+        choices = [["Simpan sebagai pribadi", "keep_as_personal"], ["Buang", "discard"]];
+      } else {
+        label.textContent = "🔔 '" + title + "' dihapus di perangkat lain, tapi ada perubahan lokal.";
+        // S2: drawing/mindmap/note pribadi juga bisa disimpan sebagai entitas baru (client_id baru, op create)
+        choices = c.list_id != null
+          ? [["Buang perubahan", "discard"]]
+          : [["Buang perubahan", "discard"], ["Simpan sebagai " + (c.entity === "task" || !c.entity ? "task" : __entityNoun(c.entity)) + " baru", "keep_as_new"]];
+      }
       row.appendChild(label);
-      const choices = c.list_id != null
-        ? [["Buang perubahan", "discard"]]
-        : [["Buang perubahan", "discard"], ["Simpan sebagai task baru", "keep_as_new"]];
       choices.forEach(([text, choice]) => {
         const b = document.createElement("button");
         b.textContent = text;
@@ -813,9 +884,7 @@ function renderConflicts() {
         const row = document.createElement("div");
         row.style.cssText = "display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap;";
         const label = document.createElement("span");
-        label.textContent = n.kind === "delete_refused"
-          ? "🔔 '" + (n.title || "(tanpa judul)") + "' tidak bisa dihapus — hanya pemilik yang bisa menghapus."
-          : "🔔 Edit offline-mu pada '" + (n.title || "(tanpa judul)") + "' ditimpa oleh " + (n.editor || "pengguna lain") + ".";
+        label.textContent = noticeText(n);
         row.appendChild(label);
         const b = document.createElement("button");
         b.textContent = "Tutup";
@@ -829,7 +898,9 @@ function renderConflicts() {
 }
 window.__syncNow = () => sync();
 window.addEventListener("online", sync);
-const isOfflineErr = err => !navigator.onLine || err?.message === "OFFLINE" || err instanceof TypeError || /failed to fetch|networkerror|name_not_resolved/i.test(err?.message || "");
+// S14: error dari router lokal (err.__local) bukan masalah jaringan — jangan masuk antrean legacy OfflineDB
+// yang memutar ulang body lama berhari-hari kemudian menimpa versi terkini.
+const isOfflineErr = err => !err?.__local && (!navigator.onLine || err?.message === "OFFLINE" || err instanceof TypeError || /failed to fetch|networkerror|name_not_resolved/i.test(err?.message || ""));
 
 // ── Context ─────────────────────────────────────────────────
   // ═══ DEPENDENCIES: AppContext ═══
@@ -9057,20 +9128,106 @@ function MindmapTabInstance({
   const outlineTreeRef = useRef(null);
   outlineTreeRef.current = outlineTree;
 
-  useEffect(() => {
-    return () => clearTimeout(saveTimerRef.current);
-  }, []);
+  // T3 (workstream D): tab memegang salinan dokumen. lastKnownAtRef = updated_at record lokal saat tab memuat /
+  // menyimpan terakhir; dikirim sebagai if_updated_at pada autosave → bila record sudah diganti pull (peta diubah
+  // di perangkat lain), router lokal menyimpan edit tab sebagai "(konflik) <judul>" dan membalas versi server
+  // (conflict_copy) → tab memuat ulang. pendingEditRef = ada edit yang belum tersimpan ("tab dirty"): event
+  // mindmapSynced diabaikan sampai autosave berikutnya memutuskan lewat if_updated_at.
+  const lastKnownAtRef = useRef(null);
+  const pendingEditRef = useRef(false);
+  const saveSeqRef = useRef(0);
 
+  // Terapkan isi record (versi server dari pull/409/conflict_copy) ke tab: outline, kanvas iframe, judul.
+  const applyRecordToTab = (doc) => {
+    if (!doc) return;
+    let data = null;
+    try { data = typeof doc.data_json === "string" ? JSON.parse(doc.data_json) : doc.data_json; } catch (_) {}
+    lastKnownAtRef.current = doc.updated_at != null ? doc.updated_at : lastKnownAtRef.current;
+    if (!data) return;
+    if (data.nodeData) data.nodeData.root = true;
+    setOutlineTree(data);
+    setDirection(typeof data.direction === "number" ? data.direction : 2);
+    setJustify(Boolean(data.justify));
+    try {
+      iframeRef.current?.contentWindow?.postMessage({ type: "load", data, title: doc.title || tab?.title || "" }, window.location.origin);
+    } catch (_) {}
+    if (doc.title != null && tab && doc.title !== tab.title && onUpdateTitle) onUpdateTitle(tab.id, doc.title);
+  };
+
+  const pendingSaveRef = useRef(null); // {mid, dataStr} edit terakhir yang belum dikirim ke router lokal
+  const doSave = () => {
+    const p = pendingSaveRef.current;
+    pendingSaveRef.current = null;
+    if (!p) return Promise.resolve(null);
+    const seq = ++saveSeqRef.current;
+    return api.put(`/api/mindmaps/${p.mid}`, {
+      data_json: p.dataStr,
+      if_updated_at: lastKnownAtRef.current
+    }).then((res) => {
+      if (seq === saveSeqRef.current && !pendingSaveRef.current) pendingEditRef.current = false;
+      if (res && res.conflict_copy) {
+        // record sudah diganti versi server selama tab diedit → edit tab tersimpan sebagai salinan konflik
+        pendingSaveRef.current = null;
+        pendingEditRef.current = false;
+        applyRecordToTab(res);
+        showToast && showToast(`✂ Peta diubah di perangkat lain — edit-mu disimpan sebagai '${res.conflict_copy.title}'`, "error");
+        window.dispatchEvent(new CustomEvent("mindmapSaved", { detail: { source: "conflict_copy" } }));
+        if (typeof renderConflicts === "function") renderConflicts();
+      } else if (res && res.updated_at != null) {
+        lastKnownAtRef.current = res.updated_at;
+      }
+      setSyncStatus("saved");
+      return res;
+    }).catch(() => {
+      // simpan lokal gagal (mis. DB terkunci): edit JANGAN dibuang — kembalikan ke antrean (bila belum ada edit
+      // yang lebih baru) dan coba lagi; tab tetap "dirty" supaya mindmapSynced tidak menimpanya
+      if (seq === saveSeqRef.current && !pendingSaveRef.current) {
+        pendingSaveRef.current = p;
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(doSave, 5000);
+      }
+      setSyncStatus("offline");
+      return null;
+    });
+  };
   const scheduleSave = (mid, dataStr) => {
     setSyncStatus("saving");
+    pendingEditRef.current = true;
+    pendingSaveRef.current = { mid, dataStr };
     clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      api.put(`/api/mindmaps/${mid}`, {
-        data_json: dataStr
-      }).then(() => setSyncStatus("saved"))
-        .catch(() => setSyncStatus("offline"));
-    }, 1000);
+    saveTimerRef.current = setTimeout(doSave, 1000);
   };
+  // Kirim edit tertunda sekarang (sebelum rename / tutup) supaya if_updated_at tidak pernah basi oleh tulisan tab sendiri.
+  const flushSave = () => {
+    clearTimeout(saveTimerRef.current);
+    return doSave();
+  };
+  useEffect(() => {
+    // tab ditutup saat masih ada edit tertunda → kirim sekarang (router lokal), jangan dibuang
+    return () => { clearTimeout(saveTimerRef.current); if (pendingSaveRef.current) doSave(); };
+  }, []);
+
+  // Pull mengganti record peta ini (perangkat lain mengedit) → tab tanpa edit tertunda memuat ulang dari record
+  // lokal; tab dengan edit tertunda mempertahankan isinya (autosave berikutnya lewat if_updated_at → salinan konflik).
+  useEffect(() => {
+    if (!tab) return;
+    const handler = (e) => {
+      const d = (e && e.detail) || {};
+      const id = String(tab.id);
+      const hit = (d.cids || []).some((c) => String(c) === id) || (d.ids || []).some((s) => String(s) === id);
+      if (!hit) return;
+      if (pendingEditRef.current) return;
+      api.get(`/api/mindmaps/${tab.id}`).then((fresh) => {
+        if (!fresh || pendingEditRef.current) return;
+        if (fresh.updated_at != null && String(fresh.updated_at) === String(lastKnownAtRef.current)) return;
+        applyRecordToTab(fresh);
+        // 409 saat push (perangkat lain menyimpan lebih dulu): versi tab barusan jadi salinan konflik → beri tahu
+        if (d.source === "push" && showToast) showToast("✂ Peta diubah di perangkat lain — versimu disimpan sebagai salinan '(konflik)'", "error");
+      }).catch(() => {});
+    };
+    window.addEventListener("mindmapSynced", handler);
+    return () => window.removeEventListener("mindmapSynced", handler);
+  }, [tab?.id]);
 
   const handleToggleJustify = () => {
     const next = !justify;
@@ -9104,6 +9261,8 @@ function MindmapTabInstance({
     setSyncStatus("saved");
     setDeleteConfirm(false);
     setRenaming(false);
+    lastKnownAtRef.current = tab.updated_at != null ? tab.updated_at : null;
+    pendingEditRef.current = false;
     let data = null;
     try { data = JSON.parse(tab.data_json); } catch (_) {}
     if (data && data.nodeData) data.nodeData.root = true;
@@ -9163,14 +9322,21 @@ function MindmapTabInstance({
           });
           const match = all.find(m => m.cid === tab.id || (m.server_id != null && String(m.server_id) === String(tab.id)) || (updated.id != null && String(m.server_id) === String(updated.id)));
           if (match) {
-            match.list_id = updated.list_id !== undefined ? updated.list_id : listId;
-            if (updated.updated_at) match.updated_at = updated.updated_at;
-            await new Promise((res, rej) => {
-              const tx = db.transaction("mindmaps", "readwrite");
-              tx.objectStore("mindmaps").put(match);
-              tx.oncomplete = () => res();
-              tx.onerror = () => rej(tx.error);
-            });
+            // Server mem-bump updated_at saat share → adopsi sebagai base_rev (revisi ini milik kita; tanpa ini PUT
+            // berikutnya membawa base_rev lama → 409 → salinan konflik palsu). Tulis lewat TFdb.mutate (prinsip 4).
+            const patch = { list_id: updated.list_id !== undefined ? updated.list_id : listId };
+            if (updated.updated_at) { patch.updated_at = updated.updated_at; patch.base_rev = updated.updated_at; }
+            if (window.TF.db.mutate) {
+              await window.TF.db.mutate("mindmaps", match.cid, cur => (cur ? Object.assign({}, cur, patch, { rev: (cur.rev || 0) + 1 }) : undefined));
+            } else {
+              await new Promise((res, rej) => {
+                const tx = db.transaction("mindmaps", "readwrite");
+                tx.objectStore("mindmaps").put(Object.assign(match, patch));
+                tx.oncomplete = () => res();
+                tx.onerror = () => rej(tx.error);
+              });
+            }
+            if (updated.updated_at) lastKnownAtRef.current = updated.updated_at;
           }
         } catch (dbErr) {
           console.warn("Failed to persist mindmap share to IndexedDB:", dbErr);
@@ -9257,10 +9423,12 @@ function MindmapTabInstance({
   const handleRename = async () => {
     if (!renameVal.trim() || !tab) return;
     try {
+      await flushSave(); // edit tertunda dulu (rename mem-bump updated_at record)
+      // hanya judul: tab.data_json bisa basi (record sudah diganti pull) — jangan pernah mengirim ulang isi lama
       const updated = await api.put(`/api/mindmaps/${tab.id}`, {
-        title: renameVal.trim(),
-        data_json: tab.data_json
+        title: renameVal.trim()
       });
+      if (updated && updated.updated_at != null) lastKnownAtRef.current = updated.updated_at;
       onUpdateTitle && onUpdateTitle(tab.id, updated.title);
       setRenaming(false);
     } catch {
@@ -9558,6 +9726,24 @@ function MindmapPage({
     window.addEventListener("openMindmap", handler);
     return () => window.removeEventListener("openMindmap", handler);
   }, [mindmaps]);
+
+  // T3: pull / adopsi 409 mengubah record peta (judul, salinan konflik baru, hapus) → muat ulang daftar sidebar
+  // dari router lokal dan sesuaikan judul tab yang terbuka (isi tab diurus MindmapTabInstance).
+  useEffect(() => {
+    const handler = () => {
+      api.get("/api/mindmaps").then(data => {
+        const list = data || [];
+        setMindmaps(list);
+        setOpenTabs(prev => prev.map(t => {
+          const m = list.find(x => String(x.id) === String(t.id));
+          return (m && m.title != null && m.title !== t.title) ? { ...t, title: m.title } : t;
+        }));
+      }).catch(() => {});
+    };
+    window.addEventListener("mindmapSynced", handler);
+    window.addEventListener("mindmapSaved", handler);
+    return () => { window.removeEventListener("mindmapSynced", handler); window.removeEventListener("mindmapSaved", handler); };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("tf_mindmap_sidebar", sidebarOpen ? "open" : "collapsed");
@@ -9874,7 +10060,11 @@ function DrawingTabInstance({
       const updatedId = e.detail?.id;
       if (!updatedId || String(updatedId) === String(tab?.id)) {
         try {
+          // S5: basedOn = snapshot terakhir yang diketahui host SEBELUM membaca record; iframe membandingkannya dengan
+          // snapshot terakhir yang ia kirim → kiriman iframe yang bersilang dengan load ini tidak tertimpa.
+          const basedOn = lastLoadedJsonRef.current;
           const fresh = await api.get(`/api/drawings/${tab.id}`);
+          if (lastLoadedJsonRef.current !== basedOn) return; // iframe mengirim perubahan selama baca → load ini basi
           if (fresh && fresh.data_json && !fresh.data_missing && iframeRef.current?.contentWindow) {
             if (fresh.data_json === lastLoadedJsonRef.current) return;
             lastLoadedJsonRef.current = fresh.data_json;
@@ -9883,7 +10073,8 @@ function DrawingTabInstance({
               v: 2,
               data: fresh.data_json,
               empty: isEmptyDrawingData(fresh.data_json),
-              svgStale: !!fresh.svg_stale
+              svgStale: !!fresh.svg_stale,
+              basedOn
             }, window.location.origin);
           }
         } catch (_) {}
@@ -12506,7 +12697,8 @@ function CalendarView({
           return;
         }
         if (isDone) {
-          api.patch(`/api/tasks/${t.id}`, { gtd_status: "inbox" }).then(() => {
+          // PATCH /api/tasks/:id tidak ada (server & router lokal hanya PUT) — dulu un-done selalu gagal diam-diam
+          api.put(`/api/tasks/${t.id}`, { gtd_status: "inbox" }).then(() => {
             window.dispatchEvent(new CustomEvent("taskUpdated", { detail: { taskId: t.id } }));
           }).catch(() => {});
         } else {
@@ -14398,8 +14590,12 @@ function Dashboard({
   };
   const handleCheckinHabit = async habit => {
     if (!habit) return;
+    // S8: tanggal check-in = hari Jakarta (server, habitlogic, dan habitrepo memakai hari yang sama);
+    // hari lokal perangkat hanya cadangan bila modul offline belum termuat.
     const _d = new Date();
-    const today = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
+    const today = (window.TF && window.TF.habitlogic && window.TF.habitlogic.todayJkt)
+      ? window.TF.habitlogic.todayJkt()
+      : `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
 
     // Optimistic update
     setHabits(prev => prev.map(h => h.id === habit.id ? { ...h, today_status: "done" } : h));
@@ -18088,7 +18284,7 @@ function NoteTemplatesSettings({
   const handleDelete = async t => {
     if (!window.confirm('Hapus template ini?')) return;
     try {
-      await api.delete(`/api/note-templates/${t.id}`);
+      await api.del(`/api/note-templates/${t.id}`); // api.delete tidak ada (hanya api.del) — hapus template selalu gagal
       _tplCache = null;
       showToast('Template dihapus');
       await fetchTemplates();
@@ -18520,7 +18716,7 @@ function SettingsPage({
     if (!confirm("Revoke semua token Browser Clipper? Extension perlu connect ulang.")) return;
     setExtRevoking(true);
     try {
-      await api.delete("/api/ext-auth/revoke");
+      await api.del("/api/ext-auth/revoke"); // api.delete tidak ada (hanya api.del)
       setExtToken(null);
       showToast("Token Browser Clipper berhasil direvoke ✅");
     } catch (err) {
@@ -18829,7 +19025,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v411-inbox-wizard-edit"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v412-sync-audit-fixes"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -21834,11 +22030,14 @@ function QuickDrawModal({
       const updatedId = e.detail?.id;
       if (!updatedId || String(updatedId) === String(drawingId)) {
         try {
+          // S5: basedOn = snapshot terakhir yang diketahui host SEBELUM membaca record (lihat DrawingTabInstance)
+          const basedOn = lastLoadedJsonRef.current;
           const fresh = await api.get(`/api/drawings/${drawingId}`);
           if (fresh && fresh.title) {
             setTitle(fresh.title);
             setTitleInput(fresh.title);
           }
+          if (lastLoadedJsonRef.current !== basedOn) return; // iframe mengirim perubahan selama baca → load ini basi
           if (fresh && fresh.data_json && !fresh.data_missing && iframeRef.current?.contentWindow) {
             if (fresh.data_json === lastLoadedJsonRef.current) return;
             lastLoadedJsonRef.current = fresh.data_json;
@@ -21847,7 +22046,8 @@ function QuickDrawModal({
               v: 2,
               data: fresh.data_json,
               empty: isEmptyDrawingData(fresh.data_json),
-              svgStale: !!fresh.svg_stale
+              svgStale: !!fresh.svg_stale,
+              basedOn
             }, window.location.origin);
           }
         } catch (_) {}
@@ -22203,9 +22403,9 @@ function NoteModal({
   const [drawingInsertOpen, setDrawingInsertOpen] = useState(false);
   const [quickDrawState, setQuickDrawState] = useState(null);
   
-  const initPaperConfig = () => {
+  const paperConfigFromMeta = metaJson => {
     try {
-      const meta = JSON.parse(note?.meta_json || "{}");
+      const meta = JSON.parse(metaJson || "{}");
       if (meta.paper_mode && typeof meta.paper_mode.enabled === 'boolean') {
         if (meta.paper_mode.user_toggled) {
           return {
@@ -22226,8 +22426,184 @@ function NoteModal({
       return { enabled: true, size: 'A4', orientation: 'portrait' };
     }
   };
+  const initPaperConfig = () => paperConfigFromMeta(note?.meta_json);
   const [paperConfig, setPaperConfig] = useState(initPaperConfig);
   const paperWrapRef = React.useRef(null);
+
+  // ── T4/T5/T6: autosave berbasis snapshot + deteksi revisi record lokal ───────────────────────
+  // Snapshot = (judul, isi, tag, id task tertaut, konfigurasi kertas) yang terakhir DIMUAT atau DISIMPAN editor.
+  // Autosave hanya berjalan bila snapshot editor berbeda → render pertama / normalisasi editor tidak memicu PUT
+  // (yang mem-bump updated_at & "diedit oleh" tanpa ketikan nyata, lalu memenangkan konflik).
+  const noteSnapOf = st => JSON.stringify({
+    t: st.title || "",
+    c: String(st.content || "").replace(/\s+$/, ""),
+    g: (st.tags || []).slice().sort(),
+    l: (st.linkedTaskIds || []).map(String).sort(),
+    p: st.paperConfig || null
+  });
+  const editorStateRef = useRef(null);
+  editorStateRef.current = { title, content, tags, linkedTaskIds, paperConfig };
+  const lastSavedSnapRef = useRef(null);
+  if (lastSavedSnapRef.current === null) lastSavedSnapRef.current = noteSnapOf(editorStateRef.current);
+  // Revisi server yang diketahui record lokal saat editor memuatnya (base_rev); lastKnownAtRef = updated_at record
+  // lokal yang terakhir dimuat/ditulis editor ini. Record ditulis pihak lain (pull / perangkat lain / tab lain)
+  // ⇔ updated_at record ≠ lastKnownAt (push sendiri hanya memajukan base_rev, updated_at tetap → bukan "pihak lain").
+  const loadedBaseRevRef = useRef(note?.base_rev ?? null);
+  const persistInFlightRef = useRef(null);
+  // Baca record lokal terkini lewat router lokal (jalan offline): bentuk API + cid/base_rev (notequery.shape).
+  const readLocalNote = () => (note?.id ? api.get(`/api/scratchpad/${note.id}`).catch(() => null) : Promise.resolve(null));
+  const recordChangedElsewhere = fresh => {
+    if (!fresh) return false;
+    if ((fresh.updated_at ?? null) === (lastKnownAtRef.current ?? null)) {
+      loadedBaseRevRef.current = fresh.base_rev ?? loadedBaseRevRef.current; // gema push sendiri: base_rev maju, isi tetap
+      return false;
+    }
+    return true;
+  };
+  // Muat ulang editor dari record lokal (versi pihak lain) — snapshot & penanda ikut diset supaya tidak memicu PUT.
+  const applyFreshToEditor = fresh => {
+    const nextTitle = fresh.title || "";
+    const nextContent = fresh.content || "";
+    const nextTags = fresh.tags || [];
+    const nextIds = [...new Set([...extractTaskIdsFromContent(nextContent), ...(fresh.linked_task_ids || [])])];
+    const nextPaper = paperConfigFromMeta(fresh.meta_json);
+    setTitle(nextTitle);
+    setContent(nextContent);
+    setTags(nextTags);
+    setLinkedTaskIds(nextIds);
+    setPaperConfig(nextPaper);
+    lastSavedSnapRef.current = noteSnapOf({ title: nextTitle, content: nextContent, tags: nextTags, linkedTaskIds: nextIds, paperConfig: nextPaper });
+    lastKnownAtRef.current = fresh.updated_at ?? null;
+    loadedBaseRevRef.current = fresh.base_rev ?? null;
+    isDirtyRef.current = false;
+    setConflictBanner(null);
+  };
+  const showRemoteBanner = fresh => {
+    setConflictBanner({
+      editor: fresh.last_editor_display_name || fresh.last_editor_username || "Pengguna lain",
+      rec: fresh,
+      updated_at: fresh.updated_at
+    });
+  };
+  // Dipanggil saat mount, tiap event noteSaved, dan poll: record lokal berganti versi sejak dimuat?
+  //   editor tidak dirty → muat ulang diam-diam; dirty → banner "Muat perubahan" / "Simpan versi saya".
+  const checkLocalRevision = async () => {
+    if (!note?.id) return;
+    const fresh = await readLocalNote();
+    if (!recordChangedElsewhere(fresh)) return;
+    if (!isDirtyRef.current) applyFreshToEditor(fresh); else showRemoteBanner(fresh);
+  };
+  // Tulis versi editor ke record lokal (PUT router lokal — jalan offline, T6), lalu perbarui snapshot dan
+  // lastKnownAt supaya editan sendiri tidak dianggap "perubahan pengguna lain" (T5).
+  const persistEditor = async overrides => {
+    const st = Object.assign({}, editorStateRef.current, overrides || {});
+    const snap = noteSnapOf(st);
+    const p = api.put(`/api/scratchpad/${note.id}`, {
+      title: st.title,
+      content: st.content,
+      tags: st.tags,
+      linked_task_ids: st.linkedTaskIds, // S15: boleh berisi cid task yang belum di-push (noterepo menyimpannya di linked_task_cids)
+      linked_task_id: st.linkedTaskIds.find(id => typeof id === 'number') || null,
+      meta_json: JSON.stringify({ paper_mode: st.paperConfig })
+    });
+    persistInFlightRef.current = p.catch(() => null);
+    const saved = await p;
+    lastSavedSnapRef.current = snap;
+    if (saved && saved.updated_at) lastKnownAtRef.current = saved.updated_at;
+    if (saved && saved.base_rev !== undefined) loadedBaseRevRef.current = saved.base_rev ?? null;
+    if (noteSnapOf(editorStateRef.current) === snap) isDirtyRef.current = false; // tidak ada ketikan selama PUT
+    return saved;
+  };
+  // Autosave: hanya bila berbeda dari snapshot; sebelum menulis cek revisi record lokal (T5) — bila sudah
+  // berganti versi, editor TIDAK ditimpa dan tidak menimpa: banner yang memutuskan.
+  const autosaveNow = async () => {
+    if (!note?.id) return false;
+    if (noteSnapOf(editorStateRef.current) === lastSavedSnapRef.current) { isDirtyRef.current = false; return false; }
+    const fresh = await readLocalNote();
+    if (recordChangedElsewhere(fresh)) { showRemoteBanner(fresh); return false; }
+    try {
+      await persistEditor();
+      return true;
+    } catch (e) {
+      if (!isOfflineErr(e)) console.warn("Autosave failed:", e.message);
+      return false;
+    }
+  };
+  // T6: simpan editan yang masih menunggu debounce saat modal ditutup (termasuk offline). Bila record sudah
+  // berganti versi (perangkat lain) dan editor masih dirty, KEDUA versi dipertahankan (prinsip 1): versi lain
+  // → salinan konflik "(konflik) <judul>", teks editor → record ini (sama seperti "Simpan versi saya").
+  const flushAutosave = async () => {
+    if (!note?.id) return false;
+    clearTimeout(autosaveTimerRef.current);
+    if (noteSnapOf(editorStateRef.current) === lastSavedSnapRef.current) return false;
+    try {
+      const fresh = await readLocalNote();
+      if (recordChangedElsewhere(fresh)) {
+        const copier = window.TF?.noterepo?.makeConflictCopy;
+        if (typeof copier === "function") await copier(note.id, {});
+      }
+      await persistEditor();
+      window.dispatchEvent(new CustomEvent("noteSaved", { detail: { source: "editor", cids: fresh?.cid ? [fresh.cid] : [] } }));
+      return true;
+    } catch (e) {
+      if (!isOfflineErr(e)) console.warn("Flush autosave gagal:", e.message);
+      return false;
+    }
+  };
+  const flushAutosaveRef = useRef(flushAutosave);
+  flushAutosaveRef.current = flushAutosave;
+  // Unmount (semua jalur tutup: Batal, ✕, klik tasklink, navigasi) → flush; PUT ke router lokal tetap selesai
+  // setelah komponen hilang.
+  useEffect(() => () => { try { flushAutosaveRef.current(); } catch (_) {} }, []);
+  // Mount: record lokal bisa lebih baru dari prop `note` (daftar basi) → sejajarkan editor dengan record.
+  useEffect(() => { checkLocalRevision().catch(() => {}); }, []);
+  // T5: pull / push 409 / editor lain menulis record ini → muat ulang atau banner (note pribadi juga, bukan
+  // hanya note list_id). detail.cids (dari sync) membatasi ke note yang memang berubah; tanpa detail → cek.
+  useEffect(() => {
+    if (!note?.id) return;
+    const handler = ev => {
+      const cids = ev?.detail && Array.isArray(ev.detail.cids) ? ev.detail.cids : null;
+      const myCid = note?.cid || null;
+      if (cids && myCid && !cids.includes(myCid)) return;
+      Promise.resolve(persistInFlightRef.current).then(() => checkLocalRevision()).catch(() => {});
+    };
+    window.addEventListener("noteSaved", handler);
+    return () => window.removeEventListener("noteSaved", handler);
+  }, [note?.id]);
+  // S15: task yang dibuat inline (id = cid) sudah punya server id → ganti attr node tasklink di dokumen editor
+  // (tanpa mereset kursor); onChange editor lalu menyimpan isi dengan id server (record lokal sudah ditulis
+  // ulang oleh noterepo.rewriteTaskLinks, updated_at tidak berubah → bukan "perubahan pihak lain").
+  useEffect(() => {
+    const handler = ev => {
+      const d = ev?.detail;
+      if (!d || !d.task_cid || d.task_id == null) return;
+      if (String(editorStateRef.current.content || "").indexOf("tasklink:" + d.task_cid) === -1) return;
+      const view = getEditorView();
+      if (view) {
+        try {
+          let tr = view.state.tr;
+          let n = 0;
+          view.state.doc.descendants((node, pos) => {
+            if (node.type.name === 'tasklink' && String(node.attrs.taskId) === String(d.task_cid)) {
+              tr = tr.setNodeMarkup(pos, undefined, { ...node.attrs, taskId: d.task_id });
+              n++;
+            }
+          });
+          if (n) view.dispatch(tr);
+        } catch (_) {}
+      } else {
+        const re = new RegExp("(\\\\?\\[tasklink:)" + String(d.task_cid).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\\\?\\])", "g");
+        setContent(c => c.replace(re, "$1" + d.task_id + "$2"));
+      }
+      setLinkedTaskIds(prev => prev.map(id => (String(id) === String(d.task_cid) ? d.task_id : id)));
+      // badge tasklink mencari task lewat id → task yang dibuat inline ikut memakai id server
+      const remap = t => ((t.id === d.task_cid || t.cid === d.task_cid) ? { ...t, id: d.task_id, cid: t.cid || d.task_cid } : t);
+      allKnownTasksRef.current = allKnownTasksRef.current.map(remap);
+      setLocalNewTasks(prev => prev.map(remap));
+    };
+    window.addEventListener("tf:note-tasklinks-rewritten", handler);
+    return () => window.removeEventListener("tf:note-tasklinks-rewritten", handler);
+  }, []);
 
   // Klik preview gambar (event editDrawingModal) ditangani SATU QuickDrawModal global di App;
   // modal milik NoteModal hanya untuk alur sisip gambar baru (handleDrawingSelected).
@@ -22394,6 +22770,19 @@ function NoteModal({
         list_id: listId
       });
       setNoteListId(updated.list_id ?? null);
+      // K4 klien: record lokal mengadopsi list_id + updated_at→base_rev dari baris server (share mem-bump
+      // updated_at; PUT berikutnya membawa base_rev baru dan tidak mengirim list_id). Penanda editor ikut
+      // disamakan supaya share sendiri tidak terbaca sebagai "perubahan pengguna lain".
+      const adopt = window.TF?.noterepo?.adoptServerFields;
+      if (typeof adopt === "function") {
+        try {
+          const rec = await adopt(note.id, updated);
+          if (rec) {
+            if (rec.updated_at) lastKnownAtRef.current = rec.updated_at;
+            loadedBaseRevRef.current = rec.base_rev ?? loadedBaseRevRef.current;
+          }
+        } catch (_) {}
+      }
       window.dispatchEvent(new CustomEvent("noteSaved"));
     } catch (e) {/* silent */}
   };
@@ -22714,64 +23103,43 @@ function NoteModal({
     }
   }
 
-  // Autosave: debounced 2.5s setelah perubahan, hanya untuk note yang sudah ada
+  // Autosave: debounced 2.5s setelah perubahan NYATA (T4: tidak pada render pertama; dibandingkan dengan snapshot
+  // terakhir yang dimuat/disimpan), hanya untuk note yang sudah ada. Tanpa guard "sedang online" (T6): PUT ke
+  // router lokal jalan offline; push menyusul saat online.
   useEffect(() => {
     if (!note?.id) return;
+    if (noteSnapOf(editorStateRef.current) === lastSavedSnapRef.current) { isDirtyRef.current = false; return; }
     isDirtyRef.current = true;
     clearTimeout(autosaveTimerRef.current);
-    autosaveTimerRef.current = setTimeout(async () => {
-      if (!navigator.onLine) return;
-      try {
-        await api.put(`/api/scratchpad/${note.id}`, {
-          title,
-          content,
-          tags,
-          linked_task_ids: linkedTaskIds.filter(id => typeof id === 'number'),
-          linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null,
-          meta_json: JSON.stringify({ paper_mode: paperConfig })
-        });
-        isDirtyRef.current = false;
-      } catch (e) {
-        if (!isOfflineErr(e)) console.warn("Autosave failed:", e.message);
-      }
-    }, 2500);
+    autosaveTimerRef.current = setTimeout(() => { autosaveNow().catch(() => {}); }, 2500);
     return () => clearTimeout(autosaveTimerRef.current);
   }, [title, content, tags, linkedTaskIds, paperConfig]);
 
-  // Polling: setiap 5 detik untuk shared notes saja
+  // Polling 5 detik untuk note bersama (T5): baca SERVER langsung (window.__syncRawFetch: X-TF-Sync, network-only —
+  // bukan router lokal yang hanya memantulkan IndexedDB) bila online. Server menyimpan revisi yang belum dikenal
+  // record lokal (updated_at ≠ base_rev) → sync() supaya pull mengadopsinya (atau membuat salinan konflik bila
+  // ada op tertunda), lalu noteSaved → checkLocalRevision (muat ulang / banner). Offline / gagal → record lokal.
   useEffect(() => {
-    if (!note?.id || !note?.list_id) return;
+    if (!note?.id || !noteListId) return;
     const interval = setInterval(async () => {
-      if (!navigator.onLine) return;
       try {
-        const fresh = await api.get(`/api/scratchpad/${note.id}`);
-        if (!fresh?.updated_at) return;
-        const serverTime = new Date(fresh.updated_at).getTime();
-        const localTime = new Date(lastKnownAtRef.current || note?.updated_at).getTime();
-        if (serverTime <= localTime) return;
-        // Ada versi lebih baru dari server
-        if (!isDirtyRef.current) {
-          // User tidak sedang mengetik — update silent
-          setContent(fresh.content || "");
-          setTitle(fresh.title || "");
-          lastKnownAtRef.current = fresh.updated_at;
-          setConflictBanner(null);
-        } else {
-          // User sedang mengetik — tampilkan banner
-          const editorName = fresh.last_editor_display_name || fresh.last_editor_username || "Pengguna lain";
-          setConflictBanner({
-            editor: editorName,
-            content: fresh.content,
-            title: fresh.title,
-            tags: fresh.tags || [],
-            linked_task_ids: fresh.linked_task_ids || [],
-            updated_at: fresh.updated_at
-          });
+        const sid = /^\d+$/.test(String(note.id)) ? String(note.id) : null;
+        const rawFetch = window.__syncRawFetch;
+        if (navigator.onLine && sid && typeof rawFetch === "function") {
+          const r = await rawFetch(`/api/scratchpad/${sid}`, 8000);
+          if (r && r.ok) {
+            const srv = await r.json();
+            const local = await readLocalNote();
+            if (srv?.updated_at && local && local.base_rev !== undefined && srv.updated_at !== (local.base_rev ?? null)) {
+              if (typeof window.__syncNow === "function") { await window.__syncNow().catch(() => {}); return; }
+            }
+          }
         }
+        await checkLocalRevision();
       } catch (_) {/* ignore poll errors */}
     }, 5000);
     return () => clearInterval(interval);
-  }, [note?.id, note?.list_id]);
+  }, [note?.id, noteListId]);
   useEffect(() => {
     if (noteTitlesProp.length === 0) {
       api.get("/api/scratchpad/titles").then(setNoteTitles).catch(() => {});
@@ -23095,13 +23463,8 @@ function NoteModal({
         }) : null;
         if (latestContent !== null && latestContent !== undefined) {
           try {
-            await api.put(`/api/scratchpad/${note.id}`, {
-              title,
-              content: latestContent,
-              tags,
-              linked_task_ids: linkedTaskIds.filter(id => typeof id === 'number'),
-              linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null
-            });
+            // lewat persistEditor: snapshot & lastKnownAt ikut diperbarui (bukan "perubahan pihak lain")
+            await persistEditor({ content: latestContent });
             window.dispatchEvent(new CustomEvent("noteSaved"));
           } catch (e) {
             if (!isOfflineErr(e)) console.warn("createNewNote save parent failed:", e.message);
@@ -23383,20 +23746,37 @@ function NoteModal({
   const saveOnly = async () => {
     setSaving(true);
     clearTimeout(autosaveTimerRef.current);
-    const saved = await onSave({
-      title,
-      content,
-      tags,
-      linked_task_ids: linkedTaskIds.filter(id => typeof id === 'number'),
-      linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null,
-      meta_json: JSON.stringify({ paper_mode: paperConfig })
-    });
-    if (saved?.id && !savedNoteId) setSavedNoteId(saved.id);
-    isDirtyRef.current = false;
-    setSaving(false);
+    const snap = noteSnapOf(editorStateRef.current);
+    try {
+      if (note?.id) {
+        // prinsip 1: record lokal sudah berganti versi (perangkat lain) dan editor belum memuatnya → versi itu
+        // diselamatkan dulu sebagai salinan konflik, baru teks editor ditulis (sama seperti "Simpan versi saya")
+        const fresh = await readLocalNote();
+        if (recordChangedElsewhere(fresh)) {
+          const copier = window.TF?.noterepo?.makeConflictCopy;
+          if (typeof copier === "function") await copier(note.id, {}).catch(() => null);
+        }
+      }
+      const saved = await onSave({
+        title,
+        content,
+        tags,
+        linked_task_ids: linkedTaskIds, // S15: id task boleh cid (task belum di-push)
+        linked_task_id: linkedTaskIds.find(id => typeof id === 'number') || null,
+        meta_json: JSON.stringify({ paper_mode: paperConfig })
+      });
+      if (saved?.id && !savedNoteId) setSavedNoteId(saved.id);
+      // sudah tersimpan lewat onSave → flush saat unmount tidak perlu menulis lagi
+      lastSavedSnapRef.current = snap;
+      if (saved?.updated_at) lastKnownAtRef.current = saved.updated_at;
+      isDirtyRef.current = false;
+    } finally {
+      setSaving(false);
+    }
   };
   const handleSave = async () => {
-    await saveOnly();
+    // T4: note lama tanpa perubahan nyata → tidak ada PUT (tidak mem-bump updated_at / "diedit oleh"); note baru selalu disimpan
+    if (!note?.id || noteSnapOf(editorStateRef.current) !== lastSavedSnapRef.current) await saveOnly();
     onClose();
   };
 
@@ -23438,13 +23818,9 @@ function NoteModal({
     }
   }, "\u270F\uFE0F ", /*#__PURE__*/React.createElement("b", null, conflictBanner.editor), " baru saja menyimpan perubahan."), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
-      setContent(conflictBanner.content || "");
-      setTitle(conflictBanner.title || "");
-      setTags(conflictBanner.tags || []);
-      setLinkedTaskIds(conflictBanner.linked_task_ids || []);
-      lastKnownAtRef.current = conflictBanner.updated_at || lastKnownAtRef.current;
-      isDirtyRef.current = false;
-      setConflictBanner(null);
+      // versi pihak lain (sudah ada di record lokal) menggantikan isi editor; ketikan yang belum tersimpan dilepas
+      if (conflictBanner.rec) applyFreshToEditor(conflictBanner.rec);
+      else { lastKnownAtRef.current = conflictBanner.updated_at || lastKnownAtRef.current; isDirtyRef.current = false; setConflictBanner(null); }
     },
     style: {
       background: "#f59e0b",
@@ -23458,6 +23834,34 @@ function NoteModal({
       flexShrink: 0
     }
   }, "Muat perubahan"), /*#__PURE__*/React.createElement("button", {
+    onClick: async () => {
+      // "Simpan versi saya" (prinsip 7): versi pihak lain yang sudah masuk ke record lokal \u2192 salinan konflik
+      // "(konflik) <judul>" (note pribadi, antre create), teks editor \u2192 record ini (base_rev tetap = revisi
+      // server \u2192 push CAS cocok). Tidak ada sisi yang dibuang.
+      const b = conflictBanner;
+      setConflictBanner(null);
+      try {
+        const copier = window.TF?.noterepo?.makeConflictCopy;
+        const copy = typeof copier === "function" ? await copier(note.id, {}) : null;
+        await persistEditor();
+        window.dispatchEvent(new CustomEvent("noteSaved", { detail: { source: "editor", cids: copy ? [copy.cid] : [] } }));
+        if (copy && typeof showToast === "function") showToast(`Versi ${b.editor} disimpan sebagai "${copy.title}"`, "info");
+      } catch (e) {
+        if (!isOfflineErr(e)) console.warn("Simpan versi saya gagal:", e.message);
+      }
+    },
+    style: {
+      background: "#fff",
+      border: "1px solid #f59e0b",
+      borderRadius: 5,
+      fontSize: 11,
+      fontWeight: 700,
+      color: "#92400e",
+      cursor: "pointer",
+      padding: "3px 8px",
+      flexShrink: 0
+    }
+  }, "Simpan versi saya"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setConflictBanner(null),
     style: {
       background: "none",
@@ -24077,9 +24481,10 @@ function NoteModal({
     onMouseLeave: e => e.currentTarget.style.background = "transparent"
   }, "Batal berbagi"))), /*#__PURE__*/React.createElement("button", {
     onClick: async () => {
+      // T4/T6: tutup = flush editan yang belum tersimpan saja (bukan PUT tanpa syarat yang mem-bump updated_at)
       if (note?.id) {
         try {
-          await saveOnly();
+          await flushAutosave();
         } catch {}
       }
       onClose();
@@ -24337,9 +24742,12 @@ function NotePanel({
   const handleShare = async listId => {
     setShareOpen(false);
     try {
-      await api.patch(`/api/scratchpad/${note.id}/share`, {
+      const updated = await api.patch(`/api/scratchpad/${note.id}/share`, {
         list_id: listId
       });
+      // K4 klien: record lokal mengadopsi list_id + updated_at→base_rev dari baris server (lihat NoteModal.handleModalShare)
+      const adopt = window.TF?.noterepo?.adoptServerFields;
+      if (typeof adopt === "function") { try { await adopt(note.id, updated); } catch (_) {} }
       window.dispatchEvent(new CustomEvent("noteSaved"));
     } catch (e) {/* silent — note still works */}
   };
@@ -28049,8 +28457,11 @@ function HabitPage({
   }, [habits]);
 
   const handleCheckin = async (habitId, status, skipReason) => {
+    // S8: tanggal check-in = hari Jakarta (lihat handleCheckinHabit di Dashboard)
     const _d = new Date();
-    const today = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
+    const today = (window.TF && window.TF.habitlogic && window.TF.habitlogic.todayJkt)
+      ? window.TF.habitlogic.todayJkt()
+      : `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
     try {
       await api.post(`/api/habits/${habitId}/checkin`, {
         status,
@@ -29992,10 +30403,25 @@ function App() {
   }, [focusTask, timer, showToast]);
   const logout = useCallback(async () => {
     if (!tokenStore.get()) return;
+    // Logout manual menghapus IndexedDB (data pengguna tidak boleh tertinggal di perangkat bersama) → kirim
+    // dulu op yang belum terkirim. Bila masih ada yang tertahan (offline / sesi sudah berakhir / error),
+    // konfirmasi dulu: perubahan offline itu akan hilang permanen (prinsip 1: tidak ada penghapusan diam-diam).
+    let pending = 0;
     if (navigator.onLine && window.__pushNow) {
       try {
-        await window.__pushNow();
+        const r = await window.__pushNow();
+        if (r && typeof r.remaining === "number" && r.remaining > 0) pending = r.remaining;
+        if (r && r.authExpired && pending > 0) {
+          // sesi berakhir: handleAuthExpired sudah menampilkan form login; data lokal dipertahankan → batal logout
+          return;
+        }
       } catch (_) {}
+    } else if (window.TF?.outbox?.outboxAll) {
+      try { pending = (await window.TF.outbox.outboxAll()).length; } catch (_) {}
+    }
+    if (pending > 0) {
+      const ok = window.confirm(`Masih ada ${pending} perubahan offline yang belum terkirim ke server. Keluar sekarang akan menghapusnya dari perangkat ini. Tetap keluar?`);
+      if (!ok) return;
     }
     try {
       await api.post("/api/auth/logout", {});
@@ -30032,6 +30458,17 @@ function App() {
 
   // Check existing session on mount
   const [authChecked, setAuthChecked] = useState(!tokenStore.get());
+  // K1: dipanggil handleAuthExpired (api.fetch 401 / tryAuth 401 / push 401 via tf:auth-expired):
+  // kembali ke form login TANPA menghapus data lokal; toast menjelaskan bahwa perubahan offline aman.
+  const onAuthExpired = useCallback(() => {
+    initialLoad.current = true;
+    setShowForm(false);
+    setUser(null);
+    setAuthPage("login");
+    setAuthChecked(true);
+    showToast("Sesi berakhir — masuk lagi. Perubahan offline tetap tersimpan dan akan dikirim setelah masuk.", "error");
+  }, [showToast]);
+  window.__onAuthExpired = onAuthExpired;
   useEffect(() => {
     const tryAuth = async () => {
       let token = tokenStore.get();
@@ -30060,12 +30497,11 @@ function App() {
           // offline mode using the token payload — otherwise a broken or unreachable
           // server would lock the user out with no way back in.
           if (err && err.status === 401) {
-            await clearLocalUserData();
-            tokenStore.clear();
-            // Also remove from native filesystem (invalid/expired token)
-            if (API_BASE && window.__TAURI__?.core?.invoke) {
-              window.__TAURI__.core.invoke("delete_token").catch(() => {});
-            }
+            // K1: token kedaluwarsa (72 jam) ≠ ganti pengguna — JANGAN clearLocalUserData (menghapus outbox &
+            // edit offline). Cukup hapus token + tampilkan login; data lokal dikirim setelah masuk lagi.
+            // Akun berbeda saat login → handleLogin yang membersihkan.
+            if (typeof window.__handleAuthExpired === "function") window.__handleAuthExpired();
+            else tokenStore.clear();
             setShowForm(false);
             setAuthChecked(true);
             return;
@@ -30559,7 +30995,17 @@ function App() {
   // Auth handlers
   const handleLogin = async data => {
     const prevUserId = localStorage.getItem("tf_user_id");
-    if (!prevUserId || String(prevUserId) !== String(data.user_id)) {
+    const sameUser = !!prevUserId && String(prevUserId) === String(data.user_id);
+    if (!sameUser) {
+      // Akun berbeda (atau belum pernah login di perangkat ini): data lokal milik akun lama dibersihkan.
+      // Bila masih ada op outbox yang belum terkirim (mis. sesi berakhir lalu masuk akun lain), minta konfirmasi.
+      if (prevUserId) {
+        let pendingOps = 0;
+        try { pendingOps = window.TF?.outbox?.outboxAll ? (await window.TF.outbox.outboxAll()).length : 0; } catch (_) {}
+        if (pendingOps > 0 && !window.confirm("Ada " + pendingOps + " perubahan offline milik akun sebelumnya yang belum terkirim. Masuk dengan akun lain akan menghapusnya. Lanjutkan?")) {
+          return;
+        }
+      }
       await clearLocalUserData();
     }
     localStorage.setItem("tf_user_id", String(data.user_id));
@@ -30579,6 +31025,8 @@ function App() {
     if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: data.user_id, username: data.username, display_name: data.display_name || data.username });
     if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: data.user_id, username: data.username, display_name: data.display_name || data.username });
     setAuthChecked(true);
+    // Akun sama: data lokal dipertahankan → kirim op outbox yang tertunda selama sesi berakhir (pull → push)
+    if (sameUser && navigator.onLine) { try { window.__syncNow?.(); } catch (_) {} }
   };
   if (!authChecked) {
     return /*#__PURE__*/React.createElement("div", {
@@ -30617,6 +31065,13 @@ function App() {
           setHasAppUpdate(false);
           window.__APP_UPDATE_AVAILABLE = false;
         }
+      }),
+      // toast "Sesi berakhir" (K1) harus terlihat di form login juga
+      toast && /*#__PURE__*/React.createElement(Toast, {
+        message: toast.message,
+        type: toast.type,
+        action: toast.action,
+        onClose: () => setToast(null)
       })
     );
   }
@@ -31735,7 +32190,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v411-inbox-wizard-edit";
+    window.__SW_VERSION = "taskflow-v412-sync-audit-fixes";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

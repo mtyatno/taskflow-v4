@@ -366,24 +366,41 @@ test("pullNotes updates a clean local note when updated_at differs", async () =>
   assert.equal((await getNoteRec("n")).base_rev, "2026-06-05T00:00:00");
 });
 
-test("pullNotes edit-vs-edit LWW: server newer wins and drops outbox", async () => {
-  await putNotes([localNote({ cid: "n", server_id: 5, title: "Local", base_rev: "2026-06-01T00:00:00", updated_at: "2026-06-04T01:00:00.000Z", dirty: 1 })]);
+// Prinsip 7 (audit 2026-10-15, workstream C): edit-vs-edit tidak lagi LWW — versi lokal SELALU disimpan sebagai
+// salinan konflik "(konflik) <judul>" (note pribadi baru + op create), record asli mengadopsi versi server.
+test("pullNotes edit-vs-edit (server newer): local kept as conflict copy, original adopts server, original ops dropped", async () => {
+  await putNotes([localNote({ cid: "n", server_id: 5, title: "Local", content: "isi lokal", base_rev: "2026-06-01T00:00:00", updated_at: "2026-06-04T01:00:00.000Z", dirty: 1 })]);
   await mapPut("note", 5, "n");
   await outboxAdd({ op: "update", entity_type: "note", cid: "n", payload: {} });
-  const r = await pullNotes([srvNote({ id: 5, title: "Server", updated_at: "2026-06-04T05:00:00" })]);
+  const r = await pullNotes([srvNote({ id: 5, title: "Server", content: "isi server", updated_at: "2026-06-04T05:00:00" })]);
   assert.equal(r.lwwResolved, 1);
-  assert.equal((await getNoteRec("n")).title, "Server");
-  assert.equal((await getNoteRec("n")).dirty, 0);
-  assert.equal((await outboxAll()).length, 0);
+  assert.equal(r.conflictCopies, 1);
+  const orig = await getNoteRec("n");
+  assert.equal(orig.title, "Server");
+  assert.equal(orig.content, "isi server");
+  assert.equal(orig.dirty, 0);
+  assert.equal(orig.base_rev, "2026-06-04T05:00:00");
+  assert.equal(orig.notice.kind, "conflict_copy");
+  const copy = (await allNotesP()).find((n) => n.cid !== "n");
+  assert.ok(copy, "salinan konflik harus ada");
+  assert.equal(copy.title, "(konflik) Local");
+  assert.equal(copy.content, "isi lokal");
+  assert.equal(copy.server_id, null);
+  assert.equal(copy.dirty, 1);
+  const ops = await outboxAll();
+  assert.deepEqual(ops.map((o) => [o.op, o.cid]), [["create", copy.cid]]);
+  assert.ok(r.changedCids.includes("n") && r.changedCids.includes(copy.cid));
 });
 
-test("pullNotes edit-vs-edit LWW: local newer wins and keeps local + outbox", async () => {
+test("pullNotes edit-vs-edit (local newer): still a conflict copy — no side is dropped", async () => {
   await putNotes([localNote({ cid: "n", server_id: 5, title: "Local", base_rev: "2026-06-01T00:00:00", updated_at: "2026-06-04T09:00:00.000Z", dirty: 1 })]);
   await mapPut("note", 5, "n");
   await outboxAdd({ op: "update", entity_type: "note", cid: "n", payload: {} });
-  const r = await pullNotes([srvNote({ id: 5, title: "Server", updated_at: "2026-06-04T02:00:00" })]);
-  assert.equal((await getNoteRec("n")).title, "Local");
-  assert.equal((await outboxAll()).length, 1);
+  await pullNotes([srvNote({ id: 5, title: "Server", updated_at: "2026-06-04T02:00:00" })]);
+  assert.equal((await getNoteRec("n")).title, "Server");
+  const titles = (await allNotesP()).map((n) => n.title).sort();
+  assert.deepEqual(titles, ["(konflik) Local", "Server"]);
+  assert.equal((await outboxAll()).length, 1); // hanya create salinan
 });
 
 test("pullNotes deletes a clean local note whose server_id vanished + clears idmap", async () => {

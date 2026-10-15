@@ -827,11 +827,13 @@ class TaskRepository:
     # ── Eisenhower recalculation ───────────────────────────────────────────
 
     def update_quadrant(self, task_id: int, quadrant: Quadrant):
-        now = datetime.now().isoformat()
+        # Kuadran = field turunan (prioritas + deadline), bukan edit pengguna: JANGAN bump
+        # updated_at, karena klien memakai updated_at sebagai rev untuk LWW/base_rev —
+        # bump di sini membuat edit offline pengguna kalah dari cron (audit K2).
         with self._connect() as conn:
             conn.execute(
-                "UPDATE tasks SET quadrant = ?, updated_at = ? WHERE id = ?",
-                (quadrant.value, now, task_id),
+                "UPDATE tasks SET quadrant = ? WHERE id = ?",
+                (quadrant.value, task_id),
             )
 
     def list_for_eisenhower_calc(self) -> list[Task]:

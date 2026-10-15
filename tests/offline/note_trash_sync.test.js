@@ -53,7 +53,9 @@ function makeServer() {
   };
 }
 
-const N10 = { id: 10, title: "Alpha", content: "isi alpha", tags: [], linked_to: [], linked_task_ids: [], list_id: null, user_id: 1, updated_at: "T1", client_id: "orig-cid" };
+// Tanpa client_id: baris server ber-client_id kini mempertahankan cid yang sama saat dibuat ulang (S17,
+// lihat sync_robustness.test.js); skenario "cid baru → relink" di bawah memakai baris tanpa client_id.
+const N10 = { id: 10, title: "Alpha", content: "isi alpha", tags: [], linked_to: [], linked_task_ids: [], list_id: null, user_id: 1, updated_at: "T1" };
 const N20 = { id: 20, title: "Beta", content: "lihat [[Alpha]]", tags: [], linked_to: [10], linked_task_ids: [], list_id: null, user_id: 1, updated_at: "T2" };
 function seeded() { const S = makeServer(); S.notes.set(10, { ...N10 }); S.notes.set(20, { ...N20 }); return S; }
 

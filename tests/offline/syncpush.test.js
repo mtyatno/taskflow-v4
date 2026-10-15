@@ -154,7 +154,7 @@ test("pushOutbox stops on network error, leaving remaining ops", async () => {
   assert.equal(r.remaining, 1);
 });
 
-test("pushOutbox drops a 4xx op and counts it failed", async () => {
+test("pushOutbox drops a permanent 4xx op, counts it failed, and marks the record dirty + sync_error", async () => {
   await put("tasks", [task({ cid: "a", server_id: 10, title: "A" })]);
   const { mapPut } = require("../../static/offline/idmap.js");
   await mapPut("task", 10, "a");
@@ -163,6 +163,11 @@ test("pushOutbox drops a 4xx op and counts it failed", async () => {
   const r = await pushOutbox(tr);
   assert.equal(r.failed, 1);
   assert.equal(r.remaining, 0);
+  const db = await openDB();
+  const rec = await new Promise((res) => { const q = db.transaction("tasks").objectStore("tasks").get("a"); q.onsuccess = () => res(q.result); });
+  assert.equal(rec.dirty, 1); // perubahan lokal tidak dibuang
+  assert.equal(rec.sync_error.status, 400);
+  assert.equal(rec.sync_error.detail, "bad request");
 });
 
 test("pushOutbox skips a create whose record already has server_id (idempotent)", async () => {
@@ -230,17 +235,20 @@ test("taskToCreatePayload includes the record's list_id", () => {
   assert.equal(taskToCreatePayload(task({ cid: "a", title: "A" }), [], null).list_id, null);
 });
 
-test("pushOutbox update 403 (removed from list) deletes the task locally + idmap + op", async () => {
-  await put("tasks", [task({ cid: "a", server_id: 10, title: "A", list_id: 7 })]);
+test("pushOutbox update 403 (removed from list) flags the task access_lost, keeps local content, drops the op", async () => {
+  await put("tasks", [task({ cid: "a", server_id: 10, title: "A", list_id: 7, description: "edit offline" })]);
   await _mapPutL("task", 10, "a");
   await put("_outbox", [{ qid: 1, op: "update", entity_type: "task", cid: "a", payload: {} }]);
   const tr = fakeTransport(() => ({ status: 403, data: { detail: "Not a member" } }));
   const r = await pushOutbox(tr);
   const db = await openDB();
   const rec = await new Promise((res) => { const q = db.transaction("tasks").objectStore("tasks").get("a"); q.onsuccess = () => res(q.result); });
-  assert.equal(rec, undefined);
-  assert.equal(await _cidOfL("task", 10), undefined);
+  assert.equal(rec.conflict, "access_lost"); // bukan dihapus (prinsip 1: tidak ada penghapusan diam-diam)
+  assert.equal(rec.description, "edit offline");
+  assert.equal(rec.dirty, 1);
+  assert.equal(await _cidOfL("task", 10), "a"); // idmap tetap; resolveConflict yang membersihkan
   assert.equal(r.remaining, 0);
+  assert.equal(r.failed, 1);
 });
 
 const {
@@ -415,13 +423,19 @@ test("noteToCreatePayload builds the ScratchpadCreate body with tags + task serv
   assert.equal(p.list_id, null);
 });
 
-test("noteToUpdatePayload has the same shape as create", () => {
-  const p = noteToUpdatePayload(note({ cid: "n", title: "T", content: "c" }), ["a"], []);
+// K4 (workstream C): PUT tidak mengirim list_id (absen = server tidak mengubahnya) maupun client_id;
+// base_rev disertakan bila record punya revisi server (prinsip 7 → 409 REV_MISMATCH bila basi).
+test("noteToUpdatePayload omits list_id/client_id and carries base_rev when known", () => {
+  const p = noteToUpdatePayload(note({ cid: "n", title: "T", content: "c", list_id: 9 }), ["a"], []);
   assert.equal(p.title, "T");
   assert.equal(p.content, "c");
   assert.deepEqual(p.tags, ["a"]);
   assert.deepEqual(p.linked_task_ids, []);
-  assert.equal(p.list_id, null);
+  assert.ok(!("list_id" in p), "list_id tidak boleh dikirim pada PUT");
+  assert.ok(!("client_id" in p));
+  assert.ok(!("base_rev" in p), "base_rev null → tidak dikirim (server memakai jalur lama)");
+  const p2 = noteToUpdatePayload(note({ cid: "n", base_rev: "2026-10-15T10:00:00" }), [], []);
+  assert.equal(p2.base_rev, "2026-10-15T10:00:00");
 });
 
 const { mapPut: _mapPutN, cidOf: _cidOfN } = require("../../static/offline/idmap.js");
@@ -533,33 +547,188 @@ test("pushOutbox note pin is a no-op PATCH when server already matches", async (
   assert.equal(tr.calls[0].method, "GET");
 });
 
-const { putDrawing: _putDrawing } = require("../../static/offline/drawingrepo.js");
+const { makeBlobStore: _mkBlobStore } = require("../../static/offline/blobstore.js");
+const { outboxAdd: _outboxAddD } = require("../../static/offline/outbox.js");
 const { mapPut: _mapPutD } = require("../../static/offline/idmap.js");
 
 async function getDrawingRow(cid) {
   const db = await openDB();
   return new Promise((res) => { const q = db.transaction("drawings").objectStore("drawings").get(cid); q.onsuccess = () => res(q.result); });
 }
+// Record legacy "gambar di dalam note" persis seperti yang ditulis putDrawing() versi lama (+ op upsert).
+async function legacyNoteDrawing(cid, noteCid, dataJson) {
+  const ref = await _mkBlobStore().put(dataJson, { mime: "application/json" });
+  const db = await openDB();
+  await new Promise((res) => { const tx = db.transaction("drawings", "readwrite"); tx.objectStore("drawings").put({ cid, note_cid: noteCid, blob_ref: ref, updated_at: "2026-06-06T00:00:00Z", deleted: false, dirty: 1, base_rev: null }); tx.oncomplete = res; });
+  await _outboxAddD({ op: "upsert", entity_type: "drawing", cid, payload: { note_cid: noteCid } });
+}
 
-test("pushOutbox drawing upsert holds the op when the note is not yet pushed", async () => {
-  const rec = await _putDrawing("ncid", '{"x":1}', {}); // creates outbox op too
-  const tr = fakeTransport(() => { throw new Error("should not call without note server_id"); });
-  const r = await pushOutbox(tr);
-  assert.equal(tr.calls.length, 0);
-  assert.equal(r.remaining, 1); // op held
-});
-
-test("pushOutbox drawing upsert PUTs to /api/drawings/{noteSid}, sets dirty 0 + base_rev", async () => {
-  const rec = await _putDrawing("ncid", '{"x":1}', {});
-  await _mapPutD("note", 70, "ncid"); // note now has a server id
-  const tr = fakeTransport(() => ({ status: 200, data: { updated_at: "2026-06-06T12:00:00" } }));
+// S6 (workstream D): op upsert legacy TIDAK pernah lagi PUT ke /api/drawings/{noteSid} (id note ≠ id drawing).
+// Record dikonversi menjadi drawing standalone dan di-POST sebagai drawing baru (client_id = cid).
+test("pushOutbox drawing upsert (legacy) → converted to a standalone drawing and POSTed even without a note server id", async () => {
+  await legacyNoteDrawing("dleg", "ncid", '{"store":{"x":1},"schema":{}}');
+  const tr = fakeTransport(() => ({ status: 200, data: { id: 88, updated_at: "2026-06-06T12:00:00" } }));
   const r = await pushOutbox(tr);
   assert.equal(r.pushed, 1);
-  assert.equal(tr.calls[0].method, "PUT");
-  assert.equal(tr.calls[0].path, "/api/drawings/70");
-  assert.equal(tr.calls[0].body.data_json, '{"x":1}');
-  const row = await getDrawingRow(rec.cid);
+  assert.equal(tr.calls.length, 1);
+  assert.equal(tr.calls[0].method, "POST");
+  assert.equal(tr.calls[0].path, "/api/drawings");
+  assert.equal(tr.calls[0].body.data_json, '{"store":{"x":1},"schema":{}}');
+  assert.equal(tr.calls[0].body.client_id, "dleg");
+  const row = await getDrawingRow("dleg");
+  assert.equal(row.note_cid, undefined);
+  assert.equal(row.server_id, 88);
   assert.equal(row.dirty, 0);
   assert.equal(row.base_rev, "2026-06-06T12:00:00");
+  assert.equal(r.remaining, 0);
+});
+
+test("pushOutbox drawing upsert (legacy) never PUTs /api/drawings/{noteSid} even when the note has a server id", async () => {
+  await legacyNoteDrawing("dleg2", "ncid", '{"store":{"x":2},"schema":{}}');
+  await _mapPutD("note", 70, "ncid"); // dulu: PUT /api/drawings/70 → menimpa drawing lain ber-id 70
+  const tr = fakeTransport(() => ({ status: 200, data: { id: 89, updated_at: "2026-06-06T12:00:00" } }));
+  await pushOutbox(tr);
+  assert.ok(tr.calls.every((c) => c.method === "POST" && c.path === "/api/drawings"));
+  assert.equal((await getDrawingRow("dleg2")).server_id, 89);
+});
+
+// ── Workstream A2 (audit 2026-10-15): T10 tahan op bergantung, T11 client_id, T12 recurrence_renew, K6 is_focused ──
+const { pendingCreateCids } = require("../../static/offline/syncpush.js");
+const { mapPut: _mapPutA2 } = require("../../static/offline/idmap.js");
+
+async function getRec(store, cid) {
+  const db = await openDB();
+  return new Promise((res) => { const q = db.transaction(store).objectStore(store).get(cid); q.onsuccess = () => res(q.result); });
+}
+
+test("T11: create payloads carry client_id (= cid, or the record's own client_id for 'keep as new' copies)", () => {
+  assert.equal(taskToCreatePayload(task({ cid: "a" }), [], null).client_id, "a");
+  assert.equal(taskToCreatePayload(task({ cid: "a", client_id: "fresh" }), [], null).client_id, "fresh");
+  assert.equal("client_id" in taskToUpdatePayload(task({ cid: "a" }), []), false);
+  assert.equal(habitToCreatePayload(habit({ cid: "h" }), []).client_id, "h");
+  assert.equal(habitToCreatePayload(habit({ cid: "h", client_id: "fresh" }), []).client_id, "fresh");
+  assert.equal("client_id" in habitToUpdatePayload(habit({ cid: "h" }), []), false);
+  assert.equal(noteToCreatePayload(note({ cid: "n" }), [], []).client_id, "n");
+  assert.equal(noteToCreatePayload(note({ cid: "n", client_id: "fresh" }), [], []).client_id, "fresh");
+});
+
+test("K6: taskToUpdatePayload sends is_focused as a boolean", () => {
+  assert.equal(taskToUpdatePayload(task({ cid: "a", is_focused: 1 }), []).is_focused, true);
+  assert.equal(taskToUpdatePayload(task({ cid: "a", is_focused: 0 }), []).is_focused, false);
+  assert.equal(taskToUpdatePayload(task({ cid: "a" }), []).is_focused, false);
+});
+
+test("T12: taskToUpdatePayload includes recurrence_renew only while recurrence_renew_pending is set; PUT success clears it and adopts the server end date", async () => {
+  assert.equal("recurrence_renew" in taskToUpdatePayload(task({ cid: "a" }), []), false);
+  assert.equal(taskToUpdatePayload(task({ cid: "a", recurrence_renew_pending: 1 }), []).recurrence_renew, true);
+  await put("tasks", [task({ cid: "a", server_id: 10, recurrence_type: "daily", recurrence_end_date: "2027-01-13", recurrence_renew_pending: 1, rev: 2 })]);
+  await _mapPutA2("task", 10, "a");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "task", cid: "a", payload: {} }]);
+  const tr = fakeTransport((m, p, b) => {
+    assert.equal(b.recurrence_renew, true);
+    return { status: 200, data: { id: 10, updated_at: "2026-10-15T10:00:00", recurrence_end_date: "2027-01-14", recurrence_notif_level: null, quadrant: "Q2" } };
+  });
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  const rec = await getRec("tasks", "a");
+  assert.equal(rec.recurrence_renew_pending, undefined);
+  assert.equal(rec.recurrence_end_date, "2027-01-14");
+  assert.equal(rec.dirty, 0);
+});
+
+test("T12: taskrepo.updateTask({recurrence_renew:true}) sets recurrence_renew_pending", async () => {
+  const taskrepo = require("../../static/offline/taskrepo.js");
+  const t = await taskrepo.createTask({ title: "R", recurrence_type: "daily" }, { now: "2026-10-15T00:00:00.000Z", today: "2026-10-15" });
+  await taskrepo.updateTask(t.cid, { recurrence_renew: true }, { now: "2026-10-15T00:01:00.000Z", today: "2026-10-15" });
+  const rec = await getRec("tasks", t.cid);
+  assert.equal(rec.recurrence_renew_pending, 1);
+  assert.equal(rec.recurrence_end_date, "2027-01-13");
+});
+
+test("T10: pendingCreateCids collects cids with a create (or chat send) op", () => {
+  const s = pendingCreateCids([
+    { op: "create", entity_type: "task", cid: "a" }, { op: "update", entity_type: "task", cid: "b" },
+    { op: "send", entity_type: "message", cid: "m" }, { op: "checkin", entity_type: "habit_log", cid: "l" },
+  ]);
+  assert.deepEqual([...s].sort(), ["a", "m"]);
+});
+
+test("T10: habit checkin/uncheck and mark_occurrence are HELD while the parent create is still queued (parent 503), not dropped", async () => {
+  await put("habits", [habit({ cid: "h", title: "H" })]);
+  await putLogRow({ cid: "log1", habit_cid: "h", date: "2026-10-14", status: "done", skip_reason: "", dirty: 1 });
+  await put("tasks", [task({ cid: "r", title: "R", recurrence_type: "daily" })]);
+  await put("_outbox", [
+    { qid: 1, op: "create", entity_type: "habit", cid: "h", payload: {} },
+    { qid: 2, op: "checkin", entity_type: "habit_log", cid: "log1", payload: {} },
+    { qid: 3, op: "uncheck", entity_type: "habit_log", cid: "u1", payload: { habit_cid: "h", date: "2026-10-13", status: "uncheck" } },
+    { qid: 4, op: "create", entity_type: "task", cid: "r", payload: {} },
+    { qid: 5, op: "mark_occurrence", entity_type: "recurring_exception", cid: "x", payload: { task_cid: "r", occurrence_date: "2026-10-14", status: "done" } },
+  ]);
+  // server sibuk: kedua create gagal sementara → op anak harus tetap antre
+  const tr = fakeTransport(() => ({ status: 503, data: {} }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 0);
+  assert.equal(tr.calls.length, 2, "hanya dua POST create; op anak tidak dikirim & tidak dibuang");
+  assert.equal((await outboxAll()).length, 5);
+  // server pulih: create lalu anaknya dalam SATU drain (induk lebih dulu di FIFO)
+  const tr2 = fakeTransport((m, p) => {
+    if (p === "/api/habits") return { status: 200, data: { id: 50 } };
+    if (p === "/api/tasks") return { status: 201, data: { id: 60, updated_at: "u" } };
+    return { status: 200, data: { ok: true } };
+  });
+  const r2 = await pushOutbox(tr2);
+  assert.equal(r2.pushed, 5);
+  assert.deepEqual(tr2.calls.map((c) => c.path), ["/api/habits", "/api/habits/50/checkin", "/api/habits/50/checkin", "/api/tasks", "/api/tasks/60/occurrences/2026-10-14/mark"]);
+  assert.equal((await outboxAll()).length, 0);
+});
+
+test("T10: dependent ops are dropped only when the parent has no create op at all (no deadlock)", async () => {
+  await putLogRow({ cid: "log1", habit_cid: "gone", date: "2026-10-14", status: "done", skip_reason: "", dirty: 1 });
+  await put("_outbox", [
+    { qid: 1, op: "checkin", entity_type: "habit_log", cid: "log1", payload: {} },
+    { qid: 2, op: "mark_occurrence", entity_type: "recurring_exception", cid: "x", payload: { task_cid: "no-task", occurrence_date: "2026-10-14", status: "done" } },
+  ]);
+  const tr = fakeTransport(() => { throw new Error("should not call"); });
+  const r = await pushOutbox(tr);
+  assert.equal(tr.calls.length, 0);
+  assert.equal(r.remaining, 0);
+});
+
+test("T10: a child task create is held while the parent's create is queued, then sent with the real parent_id", async () => {
+  await put("tasks", [task({ cid: "par", title: "Parent" }), task({ cid: "kid", title: "Kid", parent_cid: "par" })]);
+  await put("_outbox", [
+    { qid: 1, op: "create", entity_type: "task", cid: "par", payload: {} },
+    { qid: 2, op: "create", entity_type: "task", cid: "kid", payload: {} },
+  ]);
+  // induk gagal sementara (503 → op tetap), anak harus ditahan — bukan dikirim dengan parent_id null
+  const tr = fakeTransport(() => ({ status: 503, data: {} }));
+  const r = await pushOutbox(tr);
+  assert.equal(tr.calls.length, 1, "anak ditahan");
+  assert.equal(r.remaining, 2);
+  let next = 500;
+  const tr2 = fakeTransport(() => ({ status: 201, data: { id: next++ } }));
+  const r2 = await pushOutbox(tr2);
+  assert.equal(r2.pushed, 2);
+  assert.equal(tr2.calls[1].body.parent_id, 500);
+});
+
+test("T10: a child task whose parent has no create op (permanent failure earlier) is sent with parent_id null", async () => {
+  await put("tasks", [task({ cid: "par", title: "Parent", sync_error: { status: 422, detail: "x", at: "t" } }), task({ cid: "kid", title: "Kid", parent_cid: "par" })]);
+  await put("_outbox", [{ qid: 2, op: "create", entity_type: "task", cid: "kid", payload: {} }]);
+  const tr = fakeTransport(() => ({ status: 201, data: { id: 9 } }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(tr.calls[0].body.parent_id, null);
+});
+
+test("a task created then deleted offline is never POSTed (create op dropped, delete op ends locally)", async () => {
+  await put("tasks", [task({ cid: "a", title: "A", deleted: true })]);
+  await put("_outbox", [
+    { qid: 1, op: "create", entity_type: "task", cid: "a", payload: {} },
+    { qid: 2, op: "delete", entity_type: "task", cid: "a", payload: { cid: "a" } },
+  ]);
+  const tr = fakeTransport(() => { throw new Error("should not call"); });
+  const r = await pushOutbox(tr);
+  assert.equal(tr.calls.length, 0);
   assert.equal(r.remaining, 0);
 });

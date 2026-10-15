@@ -41,6 +41,9 @@
       last_editor_username: rec.last_editor_username != null ? rec.last_editor_username : null,
       last_editor_display_name: rec.last_editor_display_name != null ? rec.last_editor_display_name : null,
       created_at: rec.created_at, updated_at: rec.updated_at,
+      // T5: editor (NoteModal) melacak record lokal yang dimuatnya — cid + revisi server yang diketahui (base_rev)
+      cid: rec.cid,
+      base_rev: rec.base_rev != null ? rec.base_rev : null,
     };
   }
 

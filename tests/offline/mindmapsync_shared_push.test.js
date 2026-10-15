@@ -60,13 +60,15 @@ test("personal update 404 still re-creates (regression guard)", async () => {
   assert.equal(await serverIdOf("m"), 99);
 });
 
-test("shared create 403 drops op + deletes local + idmap", async () => {
+test("shared create 403 drops op + flags local access_lost (content kept, not deleted)", async () => {
   await put("mindmaps", [mm({ cid: "m", server_id: null, list_id: 9 })]);
   await put("_outbox", [{ qid: 1, op: "create", entity_type: "mindmap", cid: "m", payload: {} }]);
   const tr = fakeTransport(() => ({ status: 403, data: {} }));
   await pushOutbox(tr);
   assert.equal((await outboxAll()).length, 0);
-  assert.equal(await getMM("m"), undefined);
+  const rec = await getMM("m");
+  assert.equal(rec.conflict, "access_lost");
+  assert.equal(rec.dirty, 1);
 });
 
 test("member delete 403 reverts the tombstone + records a notice", async () => {

@@ -363,3 +363,27 @@ test("POST /api/habits/:id/checkin records a local log via the router", async ()
   assert.equal(run.week_log.length, 7);
   assert.equal(run.today_status === "done" || run.today_status === null, true);
 });
+
+// ── Workstream A2 (audit 2026-10-15) K6 ──────────────────────────────────────────────────────────
+const { shouldRouteLocally, isTaskChildListCall } = require("../../static/offline/taskroutes.js");
+
+test("K6: GET /api/tasks/:id/subtasks|notes|attachments go to the network for numeric ids, local ([]) for cids", async () => {
+  await seedTasks([task({ cid: "t_client", server_id: null, title: "Belum sinkron" })]);
+  const R = buildTaskRouter();
+  for (const kind of ["subtasks", "notes", "attachments"]) {
+    // task sudah di server → data ada di server (store lokal tidak pernah diisi) → jaringan
+    assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/501/" + kind), false, kind + " numerik");
+    assert.equal(shouldRouteLocally(R, "get", "/api/tasks/501/" + kind + "?x=1"), false, kind + " numerik + query");
+    // task belum tersinkron (id = cid) → server tidak mengenalnya → lokal, []
+    assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/t_client/" + kind), true, kind + " cid");
+    assert.deepEqual(await R.dispatch("GET", "/api/tasks/t_client/" + kind, undefined), []);
+    // registrasi rute tetap ada (fallback index.html lama memakai hasRoute)
+    assert.equal(R.hasRoute("GET", "/api/tasks/501/" + kind), true);
+  }
+  // rute task lain tidak terpengaruh
+  assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/501"), true);
+  assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/501/child-tasks"), true);
+  assert.equal(shouldRouteLocally(R, "POST", "/api/tasks/501/subtasks"), false); // tidak terdaftar → jaringan
+  assert.deepEqual(isTaskChildListCall("GET", "/api/tasks/12/notes"), { id: "12", kind: "notes", numeric: true });
+  assert.equal(isTaskChildListCall("GET", "/api/tasks/12/tags"), null);
+});

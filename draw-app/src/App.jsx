@@ -140,6 +140,51 @@ async function doExport(editor, shapeIds, format, helpers) {
   }
 }
 
+// ── S5: snapshot masuk diterapkan sebagai DIFF, bukan clear+put ─────────────────────────────────
+// Record berskop dokumen (shape/page/asset/binding/document) yang berubah/baru di-put, yang hilang dihapus;
+// record sesi (kamera, instance, pointer) tidak disentuh → kanvas tidak melompat. Record yang disentuh user
+// dan BELUM terkirim ke parent (localTouched/localRemoved) dilindungi: versi kanvas menang untuk record itu
+// sampai terkirim — parent menggabungkannya lagi (merge 3-arah di pull).
+const DOC_TYPES = new Set(['document', 'page', 'shape', 'asset', 'binding'])
+function canonJson(v) {
+  if (Array.isArray(v)) return '[' + v.map(canonJson).join(',') + ']'
+  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + canonJson(v[k])).join(',') + '}'
+  return JSON.stringify(v === undefined ? null : v)
+}
+function applySnapshotDiff(editor, snapshot, protect) {
+  const store = editor.store
+  const doc = (snapshot && snapshot.store) ? snapshot : (snapshot && snapshot.document) || snapshot
+  const migrated = store.schema.migrateStoreSnapshot({ store: doc.store, schema: doc.schema || store.schema.serialize() })
+  if (!migrated || migrated.type !== 'success') throw new Error('migrasi snapshot gagal: ' + (migrated && migrated.reason))
+  const incoming = migrated.value || {}
+  const current = store.getStoreSnapshot().store || {}
+  const docTypes = (store.scopedTypes && store.scopedTypes.document) || DOC_TYPES
+  const touched = (protect && protect.touched) || new Set()
+  const removed = (protect && protect.removed) || new Set()
+  const puts = []
+  const removes = []
+  for (const id of Object.keys(incoming)) {
+    const rec = incoming[id]
+    if (!rec || !docTypes.has(rec.typeName)) continue
+    if (touched.has(id) || removed.has(id)) continue // edit lokal yang belum terkirim menang
+    const cur = current[id]
+    if (!cur || canonJson(cur) !== canonJson(rec)) puts.push(rec)
+  }
+  for (const id of Object.keys(current)) {
+    const rec = current[id]
+    if (!rec || !docTypes.has(rec.typeName)) continue
+    if (touched.has(id)) continue
+    if (!(id in incoming)) removes.push(id)
+  }
+  if (!puts.length && !removes.length) return { puts: 0, removes: 0 }
+  store.mergeRemoteChanges(() => {
+    if (removes.length) store.remove(removes)
+    if (puts.length) store.put(puts)
+    if (typeof store.ensureStoreIsUsable === 'function') store.ensureStoreIsUsable()
+  })
+  return { puts: puts.length, removes: removes.length }
+}
+
 export default function App() {
   const noteId = new URLSearchParams(window.location.search).get('noteId') || 'default'
   const editorRef = useRef(null)
@@ -151,6 +196,10 @@ export default function App() {
   const syncSeqRef = useRef(0)            // nomor urut snapshot yang diambil
   const postedSeqRef = useRef(0)          // nomor urut snapshot terakhir yang terkirim
   const debounceTimerRef = useRef(null)
+  const localTouchedRef = useRef(new Set()) // id record dokumen yang diubah/ditambah user & belum terkirim (S5)
+  const localRemovedRef = useRef(new Set()) // id record dokumen yang dihapus user & belum terkirim (S5)
+  const pointerDownRef = useRef(false)      // pointer sedang ditekan (coretan berjalan) → load ditunda (S5)
+  const pendingLoadRef = useRef(null)       // load yang ditunda saat pointer ditekan: {snapshot, incomingStr, svgStale}
 
   const uiOverrides = useMemo(() => ({
     actions(editor, actions, defaultHelpers) {
@@ -223,6 +272,11 @@ export default function App() {
       const rev = userRevRef.current;
       const seq = ++syncSeqRef.current;
       const snapshot = JSON.stringify(editor.store.getStoreSnapshot());
+      // record yang disentuh sampai snapshot ini ikut terkirim → tidak perlu dilindungi lagi dari load berikutnya (S5);
+      // load yang masih tertunda (tiba sebelum kiriman ini) kini basi → dibuang, parent mengirim lagi bila perlu
+      localTouchedRef.current = new Set();
+      localRemovedRef.current = new Set();
+      pendingLoadRef.current = null;
       rememberSent(snapshot);
       const svg = await generateSvgString(editor);
       if (seq < postedSeqRef.current) {
@@ -260,9 +314,23 @@ export default function App() {
           if (hasStore) {
             // Gema: snapshot yang baru saja dikirim iframe ini sendiri → abaikan (jangan timpa coretan yang lebih baru)
             const isEcho = incomingStr === lastSnapshotStrRef.current || recentSentRef.current.includes(incomingStr);
-            if (!isEcho) {
-              // Muat sebagai perubahan REMOTE: tidak memicu listener source 'user' (tidak dikirim balik) dan
-              // tanpa jendela buta — coretan user sesaat setelah load tetap terekam & tersimpan.
+            if (!isEcho && loadedRef.current) {
+              // Load susulan (hasil pull/merge di parent) — S5.
+              // basedOn = snapshot terakhir yang diketahui parent saat mengirim; beda dengan yang terakhir kami kirim
+              // → pesan bersilang (parent belum melihat kiriman terbaru kami): load ini basi, parent mengirim lagi
+              // setelah menggabungkan — jangan terapkan (akan menghapus coretan yang baru terkirim).
+              const basedOn = e.data.basedOn;
+              if (basedOn != null && basedOn !== lastSnapshotStrRef.current) return;
+              if (pointerDownRef.current) {
+                // coretan sedang berjalan → tunda sampai pointer dilepas (yang terbaru yang dipakai)
+                pendingLoadRef.current = { snapshot, incomingStr, svgStale: !!e.data.svgStale };
+                return;
+              }
+              applySnapshotDiff(editor, snapshot, { touched: localTouchedRef.current, removed: localRemovedRef.current });
+              lastSnapshotStrRef.current = incomingStr;
+            } else if (!isEcho) {
+              // Load pertama: muat sebagai perubahan REMOTE: tidak memicu listener source 'user' (tidak dikirim balik)
+              // dan tanpa jendela buta — coretan user sesaat setelah load tetap terekam & tersimpan.
               editor.store.mergeRemoteChanges(() => {
                 loadSnapshot(editor.store, snapshot);
               });
@@ -317,6 +385,9 @@ export default function App() {
           window.parent.postMessage({ type: 'change', noteId, data: snapshot }, '*');
           postedSeqRef.current = ++syncSeqRef.current;
           sentRevRef.current = userRevRef.current;
+          localTouchedRef.current = new Set();
+          localRemovedRef.current = new Set();
+          pendingLoadRef.current = null;
           rememberSent(snapshot);
         } catch (_) {}
       }
@@ -333,6 +404,48 @@ export default function App() {
     }
   }, [noteId])
 
+  useEffect(() => {
+    // S5: load yang tiba saat pointer ditekan (coretan berjalan) ditunda; diterapkan saat pointer dilepas /
+    // keluar jendela. Record yang disentuh user & belum terkirim tetap dilindungi oleh applySnapshotDiff.
+    const down = () => { pointerDownRef.current = true }
+    const up = () => {
+      pointerDownRef.current = false
+      const p = pendingLoadRef.current
+      if (!p) return
+      pendingLoadRef.current = null
+      const editor = editorRef.current
+      if (!editor || !loadedRef.current) return
+      try {
+        applySnapshotDiff(editor, p.snapshot, { touched: localTouchedRef.current, removed: localRemovedRef.current })
+        lastSnapshotStrRef.current = p.incomingStr
+        if (p.svgStale) setTimeout(() => syncToParent(), 50)
+      } catch (err) {
+        console.error('deferred load error:', err)
+      }
+    }
+    document.addEventListener('pointerdown', down, true)
+    document.addEventListener('pointerup', up, true)
+    document.addEventListener('pointercancel', up, true)
+    window.addEventListener('blur', up)
+    return () => {
+      document.removeEventListener('pointerdown', down, true)
+      document.removeEventListener('pointerup', up, true)
+      document.removeEventListener('pointercancel', up, true)
+      window.removeEventListener('blur', up)
+    }
+  }, [])
+
+  // S5: catat record yang disentuh user sampai terkirim → load susulan tidak menimpa/menghapusnya
+  const noteUserChanges = (entry) => {
+    try {
+      const ch = entry && entry.changes;
+      if (!ch) return;
+      for (const id of Object.keys(ch.added || {})) { localTouchedRef.current.add(id); localRemovedRef.current.delete(id); }
+      for (const id of Object.keys(ch.updated || {})) { localTouchedRef.current.add(id); }
+      for (const id of Object.keys(ch.removed || {})) { localTouchedRef.current.delete(id); localRemovedRef.current.add(id); }
+    } catch (_) {}
+  }
+
   const handleMount = (editor) => {
     editorRef.current = editor
     // Read-only sampai 'load' pertama dari parent diterapkan: menutup sebelum data tiba tidak boleh
@@ -342,8 +455,9 @@ export default function App() {
 
     // Hanya perubahan dokumen oleh USER yang dikirim ke parent; snapshot yang dimuat dari parent
     // (mergeRemoteChanges → source 'remote') tidak memicu listener ini.
-    editor.store.listen(() => {
+    editor.store.listen((entry) => {
       if (!loadedRef.current) return;
+      noteUserChanges(entry);
       userRevRef.current++;
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = setTimeout(() => syncToParent(), 600);

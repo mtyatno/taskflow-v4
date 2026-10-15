@@ -330,20 +330,34 @@ test("6. static/index.html includes clearLocalUserData, OfflineDB.clearAll, and 
     /api\.get\("\/api\/auth\/me"\)\.then\(async u =>\s*\{[\s\S]*?const prevUserId = localStorage\.getItem\("tf_user_id"\);[\s\S]*?await clearLocalUserData\(\);[\s\S]*?localStorage\.setItem\("tf_user_id", String\(u\.id\)\);/,
     "tryAuth success must detect account switch"
   );
-  assert.match(
-    html,
-    /if \(err && err\.status === 401\) \{\s*await clearLocalUserData\(\);\s*tokenStore\.clear\(\);/,
-    "tryAuth 401 handler must call clearLocalUserData()"
-  );
+  // K1 (audit 2026-10-15): token kedaluwarsa ≠ ganti pengguna — tryAuth 401 TIDAK boleh menghapus data lokal
+  // (outbox & edit offline); cukup jalur handleAuthExpired (hapus token, tampilkan login, toast).
+  const m401 = html.match(/if \(err && err\.status === 401\) \{([\s\S]*?)\n\s*return;\s*\}/);
+  assert.ok(m401, "tryAuth 401 handler must exist");
+  assert.ok(!m401[1].includes("clearLocalUserData("), "tryAuth 401 handler must NOT call clearLocalUserData()");
+  assert.match(m401[1], /__handleAuthExpired/, "tryAuth 401 handler must go through handleAuthExpired");
+  const hae = html.match(/function handleAuthExpired\(\) \{[\s\S]*?\n\}/);
+  assert.ok(hae, "handleAuthExpired must be defined");
+  assert.ok(!hae[0].includes("clearLocalUserData("), "handleAuthExpired must NOT wipe local data");
+  assert.match(hae[0], /tokenStore\.clear\(\)/);
+  assert.match(html, /window\.addEventListener\("tf:auth-expired", handleAuthExpired\);/);
+  // api.fetch 401: tidak lagi tokenStore.clear() lalu __logout() (sesi zombie) — satu jalur handleAuthExpired
+  const apiFetch401 = html.match(/if \(res\.status === 401 && !url\.includes\("\/api\/auth\/"\)\) \{[\s\S]*?\n\s*\}/);
+  assert.ok(apiFetch401, "api.fetch 401 branch must exist");
+  assert.match(apiFetch401[0], /__handleAuthExpired/);
+  assert.ok(!apiFetch401[0].includes("window.__logout"), "api.fetch 401 must not call __logout (early-returns once token is cleared)");
+  assert.ok(!apiFetch401[0].includes("tokenStore.clear()"), "api.fetch 401 must not clear the token itself (handleAuthExpired does, once)");
+  // handleLogin: akun sama → data lokal dipertahankan dan push dijalankan (__syncNow)
+  assert.match(html, /const handleLogin = async data =>\s*\{[\s\S]*?sameUser[\s\S]*?window\.__syncNow\?\.\(\)/);
 });
 
-test("7. Service Worker cache version is taskflow-v411-inbox-wizard-edit", () => {
+test("7. Service Worker cache version is taskflow-v412-sync-audit-fixes", () => {
   const sw = fs.readFileSync(swPath, "utf8");
   const html = fs.readFileSync(htmlPath, "utf8");
   const webapp = fs.readFileSync(webappPath, "utf8");
 
-  assert.match(sw, /^const CACHE = "taskflow-v411-inbox-wizard-edit";/m, "sw.js CACHE must be v401");
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v411-inbox-wizard-edit";/, "index.html fallback SW version must be v401");
-  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v411-inbox-wizard-edit"/, "index.html About modal SW version fallback must be v401");
-  assert.match(webapp, /sw_cache = "taskflow-v411-inbox-wizard-edit"/, "webapp.py sw_cache must be v401");
+  assert.match(sw, /^const CACHE = "taskflow-v412-sync-audit-fixes";/m, "sw.js CACHE must be v401");
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v412-sync-audit-fixes";/, "index.html fallback SW version must be v401");
+  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v412-sync-audit-fixes"/, "index.html About modal SW version fallback must be v401");
+  assert.match(webapp, /sw_cache = "taskflow-v412-sync-audit-fixes"/, "webapp.py sw_cache must be v401");
 });

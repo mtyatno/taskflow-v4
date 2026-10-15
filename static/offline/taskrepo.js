@@ -122,6 +122,8 @@
       deleted: false,
       dirty: 1,
       base_rev: null,
+      // rev = penghitung versi lokal (naik di setiap tulis lokal); push memakainya sebagai CAS (prinsip 4)
+      rev: 1,
     };
     return putRaw(rec)
       .then(() => TFoutbox.outboxAdd({ op: "create", entity_type: "task", cid: rec.cid, payload: rec }))
@@ -167,8 +169,12 @@
       }
 
       if (patch.recurrence_renew) {
+        // T12: perpanjangan baru berlaku di server lewat flag `recurrence_renew` di PUT (server tidak membaca
+        // recurrence_end_date). Simpan flag sampai PUT sukses (syncpush membersihkannya lewat CAS) — tanggal
+        // akhir lokal hanya perkiraan tampilan, nilai server diadopsi dari respons PUT.
         next.recurrence_end_date = plus90(opts && opts.today);
         next.recurrence_notif_level = null;
+        next.recurrence_renew_pending = 1;
       } else if ("recurrence_type" in patch) {
         const rc = normRecurrence(patch.recurrence_type, patch.recurrence_days);
         if (rc.type) {
@@ -185,6 +191,7 @@
 
       next.updated_at = now;
       next.dirty = 1;
+      next.rev = (rec.rev || 0) + 1;
       next.quadrant = TFlogic.calculateQuadrant(
         { priority: next.priority, deadline: next.deadline },
         opts && opts.today
@@ -203,7 +210,7 @@
       if (!rec || rec.deleted) {
         return Promise.reject(new Error("Task not found"));
       }
-      const next = Object.assign({}, rec, { deleted: true, dirty: 1, updated_at: now });
+      const next = Object.assign({}, rec, { deleted: true, dirty: 1, updated_at: now, rev: (rec.rev || 0) + 1 });
       return putRaw(next)
         .then(() => TFoutbox.outboxAdd({ op: "delete", entity_type: "task", cid: cid, payload: { cid: cid } }))
         .then(() => ({ ok: true }));
