@@ -79,7 +79,7 @@ Catatan implementasi: tab mindmap juga mengirim `if_updated_at` pada autosave (r
 - S5 (opsional bila waktu): `App.jsx` menerapkan snapshot masuk sebagai diff dan menunda saat pointer ditekan / `userRev !== sentRev`.
 - Low: blob dibuang saat drawing yang belum pernah di-push dihapus; 403 create membuang blob.
 
-## Workstream E — Penutup
+## Workstream E — Penutup — SELESAI (SW v412, review independen + 12 perbaikan di commit b6dbae6)
 - Bump SW v412 di `static/sw.js`, fallback `static/index.html`, `webapp.py sw_cache`, `tests/test_version.py`, semua string cache di `tests/offline/*.test.js`; `app.css?v=` hanya bila CSS berubah.
 - `node temporary_files/check_inline_scripts.js static/index.html`, `node --check` modul yang diubah, `node --test tests/offline/*.test.js`, `python -m pytest tests/ -q`, `git diff -U0 | grep -iE "border-?left"` = 0.
 - Review kode oleh agen terpisah; perbaiki temuan.
