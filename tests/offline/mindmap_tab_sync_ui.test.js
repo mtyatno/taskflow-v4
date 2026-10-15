@@ -78,6 +78,10 @@ test("MindmapTabInstance: autosave carries if_updated_at, handles conflict_copy,
   assert.doesNotMatch(code, /title: renameVal\.trim\(\),\s*data_json: tab\.data_json/);
   // tab ditutup → edit tertunda tidak dibuang
   assert.match(code, /if \(pendingSaveRef\.current\) doSave\(\);/);
+  // share mem-bump updated_at di server → diadopsi sebagai base_rev + lastKnownAt (bukan 409 / salinan konflik palsu)
+  assert.match(code, /patch\.updated_at = updated\.updated_at; patch\.base_rev = updated\.updated_at;/);
+  assert.match(code, /window\.TF\.db\.mutate\("mindmaps", match\.cid, cur =>/);
+  assert.match(code, /if \(updated\.updated_at\) lastKnownAtRef\.current = updated\.updated_at;/);
 });
 
 test("MindmapPage reloads the sidebar list on mindmapSynced / mindmapSaved", () => {

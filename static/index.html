@@ -9308,14 +9308,21 @@ function MindmapTabInstance({
           });
           const match = all.find(m => m.cid === tab.id || (m.server_id != null && String(m.server_id) === String(tab.id)) || (updated.id != null && String(m.server_id) === String(updated.id)));
           if (match) {
-            match.list_id = updated.list_id !== undefined ? updated.list_id : listId;
-            if (updated.updated_at) match.updated_at = updated.updated_at;
-            await new Promise((res, rej) => {
-              const tx = db.transaction("mindmaps", "readwrite");
-              tx.objectStore("mindmaps").put(match);
-              tx.oncomplete = () => res();
-              tx.onerror = () => rej(tx.error);
-            });
+            // Server mem-bump updated_at saat share → adopsi sebagai base_rev (revisi ini milik kita; tanpa ini PUT
+            // berikutnya membawa base_rev lama → 409 → salinan konflik palsu). Tulis lewat TFdb.mutate (prinsip 4).
+            const patch = { list_id: updated.list_id !== undefined ? updated.list_id : listId };
+            if (updated.updated_at) { patch.updated_at = updated.updated_at; patch.base_rev = updated.updated_at; }
+            if (window.TF.db.mutate) {
+              await window.TF.db.mutate("mindmaps", match.cid, cur => (cur ? Object.assign({}, cur, patch, { rev: (cur.rev || 0) + 1 }) : undefined));
+            } else {
+              await new Promise((res, rej) => {
+                const tx = db.transaction("mindmaps", "readwrite");
+                tx.objectStore("mindmaps").put(Object.assign(match, patch));
+                tx.oncomplete = () => res();
+                tx.onerror = () => rej(tx.error);
+              });
+            }
+            if (updated.updated_at) lastKnownAtRef.current = updated.updated_at;
           }
         } catch (dbErr) {
           console.warn("Failed to persist mindmap share to IndexedDB:", dbErr);
