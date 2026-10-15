@@ -184,11 +184,11 @@ test("NotePanel Note Viewer Paper Mode (Viewer Mode Kertas)", async (t) => {
   const webappPath = path.resolve(__dirname, "../../webapp.py");
   const webappPy = fs.readFileSync(webappPath, "utf8");
 
-  await t.test("Service Worker and cache version is taskflow-v412-sync-audit-fixes", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v412-sync-audit-fixes";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v412-sync-audit-fixes";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v412-sync-audit-fixes"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v412-sync-audit-fixes"/);
+  await t.test("Service Worker and cache version is taskflow-v414-paper-fit-viewer", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v414-paper-fit-viewer";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v414-paper-fit-viewer";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v414-paper-fit-viewer"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v414-paper-fit-viewer"/);
   });
 
   const notePanelMatch = indexHtml.match(/function NotePanel\([\s\S]*?^function /m);
@@ -294,7 +294,7 @@ test("NotePanel Note Viewer Paper Mode (Viewer Mode Kertas)", async (t) => {
   await t.test("NotePanel wraps rendered note with paper-mode-active, paper-inner-wrap and PaperPageGuides", () => {
     assert.match(
       notePanelCode,
-      /viewerPaperConfig\?\.enabled\s*\?\s*React\.createElement\("div",\s*\{[\s\S]*?className:\s*"paper-mode-active"/,
+      /viewerPaperConfig\?\.enabled\s*\?\s*React\.createElement\("div",\s*\{[\s\S]*?className:\s*"paper-mode-active(?: paper-fit-area)?"/,
       "NotePanel should wrap note in paper-mode-active div when enabled"
     );
     assert.match(
@@ -426,5 +426,41 @@ test("Paper mode is desktop-only: fluid full width on mobile (<= 768px)", async 
     assert.match(indexHtml, /onPaperConfigChange && React\.createElement\("div", \{ className: "paper-controls"/);
     assert.match(indexHtml, /className: viewerPaperConfig\?\.enabled \? "paper-controls paper-btn-active" : "paper-controls"/);
     assert.equal((indexHtml.match(/className: "paper-select paper-controls",\s*value: viewerPaperConfig\./g) || []).length, 2);
+  });
+});
+
+test("NotePanel viewer paper fits the display area (fit-to-width)", async (t) => {
+  const grab = (re) => { const m = indexHtml.match(re); assert.ok(m, "missing " + re); return m[0]; };
+  const paperWidthMm = new Function(grab(/function paperWidthMm\(cfg\) \{[\s\S]*?\n\}/) + "; return paperWidthMm;")();
+  const paperFitScale = new Function(grab(/function paperFitScale\([^)]*\) \{[\s\S]*?\n\}/) + "; return paperFitScale;")();
+
+  await t.test("paperWidthMm matches the --paper-width the viewer sets", () => {
+    assert.equal(paperWidthMm({ size: "A4", orientation: "portrait" }), 210);
+    assert.equal(paperWidthMm({ size: "A4", orientation: "landscape" }), 297);
+    assert.equal(paperWidthMm({ size: "A3", orientation: "portrait" }), 297);
+    assert.equal(paperWidthMm({ size: "A3", orientation: "landscape" }), 420);
+    assert.equal(paperWidthMm({ size: "Letter", orientation: "portrait" }), 215.9);
+    assert.equal(paperWidthMm({ size: "Legal", orientation: "landscape" }), 279.4);
+    assert.equal(paperWidthMm(null), 210);
+  });
+
+  await t.test("paperFitScale keeps normal size when the paper fits, shrinks it otherwise", () => {
+    const a4 = 210 * 96 / 25.4; // ~794px
+    assert.equal(paperFitScale(852, a4), 1);   // 1366px laptop, note list open: fits
+    assert.equal(paperFitScale(1106, a4), 1);  // note list closed
+    const s = paperFitScale(766, a4);          // 1280px laptop, note list open
+    assert.ok(s < 1 && s > 0.89, "scale " + s);
+    assert.ok(766 - a4 * s >= 48 - 1, "paper + gutters must fit without horizontal scroll");
+    assert.equal(paperFitScale(100, a4), 0.4); // floor
+    assert.equal(paperFitScale(0, a4), 1);     // not measured yet
+  });
+
+  await t.test("NotePanel wires the measured area and --paper-fit; CSS zooms only on desktop", () => {
+    const notePanelCode = grab(/function NotePanel\([\s\S]*?^function /m);
+    assert.match(notePanelCode, /const viewerPaperScale = usePaperFitScale\(viewerPaperAreaRef, viewerPaperConfig\)/);
+    assert.match(notePanelCode, /ref: viewerPaperAreaRef,\s*className: "paper-mode-active paper-fit-area"/);
+    assert.match(notePanelCode, /"--paper-fit": viewerPaperScale/);
+    const desktopCss = grab(/@media \(min-width: 769px\) \{[\s\S]*?\n\}/);
+    assert.match(desktopCss, /\.paper-fit-area \.paper-inner-wrap \{\s*zoom: var\(--paper-fit, 1\);/);
   });
 });

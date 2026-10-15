@@ -119,3 +119,12 @@ test("getPinned returns only non-deleted pinned notes sorted by updated_at DESC 
   assert.equal(rows[1].pinned, true);
 });
 
+
+test("getNotes/getNote carry meta_json so per-note paper mode survives a reload", async () => {
+  const meta = JSON.stringify({ paper_mode: { enabled: false, size: "A4", orientation: "portrait", user_toggled: true } });
+  await put("scratchpad_notes", [note({ cid: "p", title: "Plain", meta_json: meta }), note({ cid: "q", title: "Legacy" })]);
+  const rows = await getNotes({});
+  assert.equal(rows.find((r) => r.id === "p").meta_json, meta);
+  assert.equal(rows.find((r) => r.id === "q").meta_json, "{}");
+  assert.equal((await getNote("p")).meta_json, meta);
+});

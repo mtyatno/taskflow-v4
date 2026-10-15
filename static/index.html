@@ -78,6 +78,11 @@
         box-sizing: border-box !important;
         transition: width 0.3s ease, min-height 0.3s ease !important;
     }
+    /* Fit-to-width penampil: kertas diperkecil (zoom ikut tata letak, tanpa ruang kosong)
+       bila area tampilan lebih sempit dari kertas; --paper-fit = 1 saat muat. */
+    .paper-fit-area .paper-inner-wrap {
+        zoom: var(--paper-fit, 1);
+    }
     .paper-mode-active .paper-inner-wrap .milkdown-editor .ProseMirror {
         padding: 0 !important;
         min-height: calc(var(--paper-height, 297mm) - 40mm) !important;
@@ -19025,7 +19030,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v412-sync-audit-fixes"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v414-paper-fit-viewer"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -22272,6 +22277,48 @@ function DrawingInsertModal({
   )));
 }
 
+// ── Paper Mode: fit-to-width (penampil desktop) ───────────────────
+// Lebar kertas (mm) — sama dengan --paper-width yang dipasang di wadah kertas (Letter & Legal sama lebar).
+function paperWidthMm(cfg) {
+  const land = cfg?.orientation === 'landscape';
+  const size = cfg?.size || 'A4';
+  if (size === 'A4') return land ? 297 : 210;
+  if (size === 'A3') return land ? 420 : 297;
+  return land ? 279.4 : 215.9;
+}
+// Skala kertas agar muat di area tampilan: 1 bila sudah muat (ukuran normal), kurang dari 1 bila
+// area lebih sempit dari kertas + gutter (mis. laptop 14" dengan daftar catatan terbuka).
+function paperFitScale(availPx, paperPx, gutterPx = 24, minScale = 0.4) {
+  if (!(availPx > 0) || !(paperPx > 0)) return 1;
+  const s = (availPx - 2 * gutterPx) / paperPx;
+  if (s >= 1) return 1;
+  return Math.max(minScale, Math.floor(s * 1000) / 1000);
+}
+// Mengukur lebar wadah kertas (ResizeObserver) → skala. Ikut berubah saat daftar catatan
+// dibuka/ditutup atau jendela di-resize. Perubahan < 0.5% diabaikan agar tidak berosilasi
+// (tinggi kertas mengecil → scrollbar panel hilang → lebar bertambah sedikit).
+function usePaperFitScale(containerRef, cfg) {
+  const [scale, setScale] = useState(1);
+  const enabled = !!cfg?.enabled;
+  const widthMm = paperWidthMm(cfg);
+  useEffect(() => {
+    if (!enabled) { setScale(1); return; }
+    const el = containerRef.current;
+    if (!el) return;
+    const paperPx = widthMm * 96 / 25.4;
+    const compute = () => {
+      const next = paperFitScale(el.clientWidth, paperPx);
+      setScale(prev => (Math.abs(prev - next) < 0.005 && next !== 1 ? prev : next));
+    };
+    compute();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(compute);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [containerRef, enabled, widthMm]);
+  return scale;
+}
+
 // ── Paper Mode: page-break guide overlay ──────────────────────────
 // Mengukur alur konten nyata ProseMirror lalu menggambar garis putus
 // + label "Halaman N" di tiap batas halaman (overlay, tidak menyentuh dokumen).
@@ -22292,13 +22339,15 @@ function PaperPageGuides({ rootRef, paperConfig }) {
       if (!pm) { if (lastSigRef.current !== "[]") { lastSigRef.current = "[]"; setGuides([]); } return; }
       const pmRect = pm.getBoundingClientRect();
       if (!pmRect.height) { if (lastSigRef.current !== "[]") { lastSigRef.current = "[]"; setGuides([]); } return; }
+      // Kertas bisa diperkecil (zoom fit-to-width); rect berada di ruang visual, guide di ruang kertas.
+      const zoom = pm.offsetWidth ? (pmRect.width / pm.offsetWidth) || 1 : 1;
       const lines = [];
       let prevBottom = 0;
       for (const b of pm.children) {
         if (b.nodeType !== 1) continue;
         const r = b.getBoundingClientRect();
-        const top = r.top - pmRect.top;
-        const bottom = r.bottom - pmRect.top;
+        const top = (r.top - pmRect.top) / zoom;
+        const bottom = (r.bottom - pmRect.top) / zoom;
         if (bottom <= 0) continue;
         const solid = b.tagName === 'IMG' || b.tagName === 'TABLE' || b.tagName === 'IFRAME' || b.tagName === 'PRE' ||
           (b.querySelector && b.querySelector('img, iframe, table, pre, .draw-embed'));
@@ -24616,6 +24665,8 @@ function NotePanel({
   };
   const [viewerPaperConfig, setViewerPaperConfig] = useState(initViewerPaperConfig);
   const viewerPaperWrapRef = React.useRef(null);
+  const viewerPaperAreaRef = React.useRef(null);
+  const viewerPaperScale = usePaperFitScale(viewerPaperAreaRef, viewerPaperConfig);
   React.useEffect(() => {
     setViewerPaperConfig(initViewerPaperConfig());
   }, [note?.id, note?.meta_json]);
@@ -25797,12 +25848,14 @@ function NotePanel({
       alignItems: "center"
     }
   }, /*#__PURE__*/React.createElement(Icon, { name: "x", size: 18 })))), viewerPaperConfig?.enabled ? React.createElement("div", {
-    className: "paper-mode-active",
+    ref: viewerPaperAreaRef,
+    className: "paper-mode-active paper-fit-area",
     style: {
       position: "relative",
       marginTop: 14,
       marginBottom: 16,
       borderRadius: 8,
+      "--paper-fit": viewerPaperScale,
       "--paper-width": viewerPaperConfig.orientation === 'landscape' ? 
                        (viewerPaperConfig.size === 'A4' ? '297mm' : viewerPaperConfig.size === 'A3' ? '420mm' : '279.4mm') : 
                        (viewerPaperConfig.size === 'A4' ? '210mm' : viewerPaperConfig.size === 'A3' ? '297mm' : '215.9mm'),
@@ -32190,7 +32243,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v412-sync-audit-fixes";
+    window.__SW_VERSION = "taskflow-v414-paper-fit-viewer";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
