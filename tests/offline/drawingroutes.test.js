@@ -1,43 +1,45 @@
 "use strict";
+// Rute drawing router lokal (S6: hanya drawing standalone — tanpa fallback "gambar di dalam note").
 const { test, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { deleteDB } = require("./setup.js");
 const { DB_NAME, _reset, openDB } = require("../../static/offline/db.js");
 const { buildTaskRouter } = require("../../static/offline/taskroutes.js");
+const { mapPut } = require("../../static/offline/idmap.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
 
-async function putNote(rec) {
+async function putDrawing(rec) {
   const db = await openDB();
   await new Promise((res, rej) => {
-    const tx = db.transaction("scratchpad_notes", "readwrite");
-    tx.objectStore("scratchpad_notes").put(rec);
+    const tx = db.transaction("drawings", "readwrite");
+    tx.objectStore("drawings").put(rec);
     tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
   });
 }
-function note(over) {
-  return Object.assign({ cid: over.cid, server_id: null, title: "N", content: "", linked_task_cids: "[]", linked_to_cids: "[]", pinned: false, list_id: null, deleted: false, dirty: 0 }, over);
-}
 
-test("PUT then GET /api/drawings/:id round-trips via the router (by cid)", async () => {
-  await putNote(note({ cid: "ncid" }));
+test("POST → PUT → GET /api/drawings/:id round-trips via the router (by cid)", async () => {
   const R = buildTaskRouter();
-  const put = await R.dispatch("PUT", "/api/drawings/ncid", { data_json: '{"a":1}' });
+  const created = await R.dispatch("POST", "/api/drawings", { title: "D", data_json: '{"store":{},"schema":{}}' });
+  const put = await R.dispatch("PUT", "/api/drawings/" + created.cid, { data_json: '{"store":{"a":1},"schema":{}}' });
   assert.ok(put.updated_at);
-  const got = await R.dispatch("GET", "/api/drawings/ncid", undefined);
-  assert.equal(got.data_json, '{"a":1}');
+  const got = await R.dispatch("GET", "/api/drawings/" + created.cid, undefined);
+  assert.equal(got.data_json, '{"store":{"a":1},"schema":{}}');
 });
 
-test("GET /api/drawings/:id resolves a note by server_id", async () => {
-  await putNote(note({ cid: "ncid", server_id: 42 }));
+test("GET /api/drawings/:id resolves a drawing by server_id", async () => {
   const R = buildTaskRouter();
-  await R.dispatch("PUT", "/api/drawings/ncid", { data_json: '{"b":2}' });
+  const created = await R.dispatch("POST", "/api/drawings", { title: "D", data_json: '{"store":{"b":2},"schema":{}}' });
+  await mapPut("drawing", 42, created.cid);
+  const db = await openDB();
+  const rec = await new Promise((res) => { const q = db.transaction("drawings").objectStore("drawings").get(created.cid); q.onsuccess = () => res(q.result); });
+  await putDrawing(Object.assign({}, rec, { server_id: 42 }));
   const got = await R.dispatch("GET", "/api/drawings/42", undefined);
-  assert.equal(got.data_json, '{"b":2}');
+  assert.equal(got.data_json, '{"store":{"b":2},"schema":{}}');
 });
 
-test("GET /api/drawings/:id rejects when there is no local drawing (offline miss)", async () => {
-  await putNote(note({ cid: "ncid" }));
+test("GET / PUT /api/drawings/:id reject when there is no local drawing (no note fallback)", async () => {
   const R = buildTaskRouter();
-  await assert.rejects(() => R.dispatch("GET", "/api/drawings/ncid", undefined));
+  await assert.rejects(() => R.dispatch("GET", "/api/drawings/ncid", undefined), /Drawing not found/);
+  await assert.rejects(() => R.dispatch("PUT", "/api/drawings/ncid", { data_json: '{"a":1}' }), /Drawing not found/);
 });

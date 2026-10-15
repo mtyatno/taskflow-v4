@@ -719,14 +719,6 @@
       r.onerror = () => reject(r.error);
     }));
   }
-  function putDrawingRaw(rec) {
-    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction("drawings", "readwrite");
-      tx.objectStore("drawings").put(rec);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    }));
-  }
   // Data drawing yang sedang dikirim (cid → data_json). Pull memakai ini untuk mengenali gema push sendiri
   // (server sudah menerima PUT tapi record lokal belum ditandai) agar tidak di-merge sebagai perubahan remote.
   const _inflightDrawing = new Map();
@@ -734,13 +726,15 @@
     return _inflightDrawing.has(cid) ? _inflightDrawing.get(cid) : undefined;
   }
   // Data terkini drawing: record + blob dibaca konsisten (sumber kebenaran). Fallback salinan payload op lama.
+  // `ref` = id blob yang isinya = data (null bila data dari payload / tidak ada) — dipakai sebagai blob dasar (T2).
   function drawingStateOf(cid, payload) {
     return TFrepo.readDrawingState(cid).then(({ rec, bytes }) => {
       // Record data_missing (detail server belum terambil): JANGAN pernah mengirim datanya (server yang benar)
-      if (rec && rec.data_missing) return { rec, data: undefined };
+      if (rec && rec.data_missing) return { rec, data: undefined, ref: null };
       let data = bytes;
+      let ref = (bytes != null && rec) ? rec.blob_ref : null;
       if (data == null && payload && typeof payload.data_json === "string") data = payload.data_json;
-      return { rec, data };
+      return { rec, data, ref };
     });
   }
   function drawingTagsOf(cid, fallback) {
@@ -757,15 +751,38 @@
   }
   // Tandai terkirim lewat CAS: bersih hanya bila tidak ada edit (rev) sejak data dibaca untuk dikirim.
   // Tidak pernah menulis objek basi — selalu menerapkan perubahan ke record terkini.
-  function markDrawingPushed(cid, sentRev, updatedAt, sid) {
+  // T2: data yang TERKIRIM menjadi snapshot dasar (base_blob_ref/base_title) bila base_rev maju ke revisi respons:
+  // blob_ref masih blob yang dikirim → dibagi; sudah diganti edit in-flight (atau data dari payload) → data terkirim
+  // disimpan ke blob baru. sent = { ref, data, title } (ref/data null = PUT tanpa data → base dikosongkan, union).
+  function markDrawingPushed(cid, sentRev, updatedAt, sid, sent) {
+    sent = sent || {};
+    let advanced = false;
+    let needBase = false;
+    let oldRefs = [];
     return TFrepo.mutateDrawing(cid, (cur) => {
       if (!cur) return undefined;
       const next = Object.assign({}, cur);
       if (sid != null && next.server_id == null) next.server_id = sid;
       // base_rev hanya boleh MAJU (pull bisa sudah menggabung revisi server yang lebih baru selama request)
-      if (updatedAt != null && TFrepo.tsNewer(updatedAt, cur.base_rev)) next.base_rev = updatedAt;
+      advanced = updatedAt != null && TFrepo.tsNewer(updatedAt, cur.base_rev);
+      if (advanced) {
+        next.base_rev = updatedAt;
+        oldRefs = [cur.base_blob_ref];
+        next.base_title = sent.title != null ? sent.title : cur.title;
+        if (sent.data == null) { next.base_blob_ref = null; needBase = false; }
+        else if (sent.ref && cur.blob_ref === sent.ref) { next.base_blob_ref = sent.ref; needBase = false; }
+        else { next.base_blob_ref = null; needBase = true; } // dasar basi tidak boleh tersisa (jendela: union)
+      }
       next.dirty = ((cur.rev || 0) === sentRev && !cur.deleted) ? 0 : 1;
       return next;
+    }).then((saved) => {
+      if (!saved || !advanced) return saved;
+      if (!needBase) return TFrepo.releaseBlobs(oldRefs, [saved.blob_ref, saved.base_blob_ref]).then(() => saved);
+      return _BlobStore.put(sent.data, { mime: "application/json" }).then((ref) =>
+        TFrepo.mutateDrawing(cid, (cur) => ((cur && cur.base_rev === updatedAt) ? Object.assign({}, cur, { base_blob_ref: ref }) : undefined))
+          .then((saved2) => (saved2
+            ? TFrepo.releaseBlobs(oldRefs, [saved2.blob_ref, saved2.base_blob_ref]).then(() => saved2)
+            : TFrepo.releaseBlobs([ref], []).then(() => saved))));
     });
   }
   // Masih dirty setelah request (ada edit selama in-flight) → pastikan ada op update susulan.
@@ -784,15 +801,16 @@
       if (rec0.deleted) return TFoutbox.outboxRemove(op.qid);
       const payload = op.payload || {};
       // tag dulu, lalu record+blob terkini dibaca berurutan (tanpa jeda async lain sebelum dikirim)
-      return drawingTagsOf(rec0.cid, payload.tags).then((tagNames) => drawingStateOf(rec0.cid, payload).then(({ rec, data }) => {
+      return drawingTagsOf(rec0.cid, payload.tags).then((tagNames) => drawingStateOf(rec0.cid, payload).then(({ rec, data, ref }) => {
         if (!rec) return TFoutbox.outboxRemove(op.qid);
         if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
         if (rec.deleted) return TFoutbox.outboxRemove(op.qid);
         const sentRev = rec.rev || 0;
         const dataJson = data != null ? data : "{}";
+        const sentTitle = rec.title || payload.title || "Untitled Drawing";
         _inflightDrawing.set(rec.cid, dataJson);
         return send(transport, "POST", "/api/drawings", {
-          title: rec.title || payload.title || "Untitled Drawing",
+          title: sentTitle,
           data_json: dataJson,
           svg_preview: rec.svg_preview || "",
           is_pinned: rec.is_pinned ? 1 : 0,
@@ -802,7 +820,7 @@
           if (ok(res) && res.data && res.data.id != null) {
             const sid = res.data.id;
             return TFidmap.mapPut("drawing", sid, rec.cid)
-              .then(() => markDrawingPushed(rec.cid, sentRev, res.data.updated_at, sid))
+              .then(() => markDrawingPushed(rec.cid, sentRev, res.data.updated_at, sid, { ref: data != null ? ref : null, data: dataJson, title: sentTitle }))
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => requeueDrawingIfDirty(rec.cid))
               .then(() => { result.pushed++; });
@@ -826,8 +844,9 @@
         const payload = op.payload || {};
         // Tag hanya dikirim bila ada perubahan tag lokal tertunda (payload.tags) agar tidak menimpa tag dari mesin lain.
         const tagsP = Array.isArray(payload.tags) ? drawingTagsOf(rec0.cid, payload.tags) : Promise.resolve(undefined);
-        return tagsP.then((tags) => drawingStateOf(rec0.cid, payload).then(({ rec, data }) => {
+        return tagsP.then((tags) => drawingStateOf(rec0.cid, payload).then(({ rec, data, ref }) => {
           if (!rec) return TFoutbox.outboxRemove(op.qid);
+          if (rec.deleted) return TFoutbox.outboxRemove(op.qid); // op delete yang menyusul yang mengurus server
           const sentRev = rec.rev || 0;
           const body = {
             title: rec.title || payload.title || "Untitled Drawing",
@@ -839,15 +858,21 @@
           if (data != null) _inflightDrawing.set(rec.cid, data);
           return send(transport, "PUT", "/api/drawings/" + sid, body).then((res) => {
             if (ok(res)) {
-              return markDrawingPushed(rec.cid, sentRev, res.data && res.data.updated_at != null ? res.data.updated_at : null, null)
+              return markDrawingPushed(rec.cid, sentRev, res.data && res.data.updated_at != null ? res.data.updated_at : null, null,
+                { ref: data != null ? ref : null, data: data != null ? data : null, title: body.title })
                 .then(() => TFoutbox.outboxRemove(op.qid))
                 .then(() => requeueDrawingIfDirty(rec.cid))
                 .then(() => { result.pushed++; });
             }
             const kind = classify(res);
             if (kind === "forbidden") { return accessLost("drawings", op.cid, op, result); }
-            // 404 = dihapus di server → buang op; record tetap dirty, pull yang merekonsiliasi (S2: workstream D).
-            if (kind === "gone") { result.failed++; return TFoutbox.outboxRemove(op.qid); }
+            // S2: 404 = dihapus di server saat ada edit lokal → conflict "remote_deleted" (record + blob DIPERTAHANKAN,
+            // pull melewatinya); conflict bar: "Buang perubahan" / "Simpan sebagai gambar baru" (keep_as_new).
+            if (kind === "gone") {
+              result.failed++;
+              return TFrepo.mutateDrawing(rec.cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "remote_deleted" }) : undefined))
+                .then(() => TFoutbox.outboxRemove(op.qid));
+            }
             // 4xx permanen (mis. 422 data_json terlalu besar): sync_error → heal/pull tidak mengantre ulang (T13)
             return failPermanent("drawings", op.cid, res, op, result);
           }).finally(() => { _inflightDrawing.delete(rec.cid); });
@@ -880,28 +905,30 @@
   function opDrawingDelete(op, transport, result) {
     return Promise.all([TFidmap.serverIdOf(op.cid), getDrawingRaw(op.cid)]).then(([mapped, rec]) => {
       const sid = mapped != null ? mapped : (rec && rec.server_id != null ? rec.server_id : null);
-      if (sid == null) return TFoutbox.outboxRemove(op.qid);
+      if (sid == null) {
+        // Belum pernah di-push: tidak ada yang perlu dihapus di server → buang tombstone + blob-nya (tanpa sisa)
+        return (rec && rec.deleted ? TFrepo.purgeDrawing(rec.cid) : Promise.resolve())
+          .then(() => TFoutbox.outboxRemove(op.qid));
+      }
       return send(transport, "DELETE", "/api/drawings/" + sid, undefined).then((res) => {
-        if (ok(res)) { return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); }
+        if (ok(res) || res.status === 404) {
+          // record tombstone + blob dibuang setelah server mengonfirmasi (404 = sudah tidak ada)
+          return (rec && rec.deleted ? TFrepo.purgeDrawing(rec.cid) : Promise.resolve())
+            .then(() => TFidmap.mapDelete("drawing", sid))
+            .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+        }
         return failPermanent(null, null, res, op, result);
       });
     });
   }
 
+  // S6: op `upsert` legacy (gambar di dalam note → PUT /api/drawings/{noteSid}, id note dianggap id drawing!)
+  // tidak pernah dikirim lagi: record dikonversi menjadi drawing standalone (op create), op upsert dibuang.
   function opDrawingUpsert(op, transport, result) {
     return getDrawingRaw(op.cid).then((rec) => {
       if (!rec) return TFoutbox.outboxRemove(op.qid);
-      return TFidmap.serverIdOf(rec.note_cid).then((noteSid) => {
-        if (noteSid == null) return; // hold: note not pushed yet (FIFO → note create runs first; retry next drain)
-        return Promise.resolve(_BlobStore.getBytes(rec.blob_ref)).then((dataJson) =>
-          send(transport, "PUT", "/api/drawings/" + noteSid, { data_json: dataJson, svg_preview: rec.svg_preview || "" }).then((res) => {
-            if (ok(res)) {
-              return putDrawingRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev }))
-                .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
-            }
-            return failPermanent("drawings", op.cid, res, op, result);
-          }));
-      });
+      return (rec.note_cid !== undefined ? TFrepo.convertLegacyNoteDrawing(rec.cid) : Promise.resolve(null))
+        .then(() => TFoutbox.outboxRemove(op.qid));
     });
   }
 

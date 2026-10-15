@@ -10,28 +10,14 @@
 
   const isNode = (typeof module !== "undefined" && module.exports);
   const req = (m, g) => (isNode ? require(m) : g);
-  const TFdb = req("./db.js", root.TF && root.TF.db);
   const TFrepo = req("./drawingrepo.js", root.TF && root.TF.drawingrepo);
 
   function notFound() { return Promise.reject(new Error("Drawing not found")); }
   const onlineNow = () => (typeof navigator !== "undefined" ? navigator.onLine : true);
 
-  function allNotes() {
-    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const r = db.transaction("scratchpad_notes", "readonly").objectStore("scratchpad_notes").getAll();
-      r.onsuccess = () => resolve(r.result || []);
-      r.onerror = () => reject(r.error);
-    }));
-  }
-
-  function resolveNoteCid(idOrCid) {
-    return allNotes().then((all) => {
-      for (const n of all) if (n.cid === idOrCid) return n.cid;
-      for (const n of all) if (n.server_id != null && String(n.server_id) === String(idOrCid)) return n.cid;
-      return null;
-    });
-  }
-
+  // S6: hanya drawing standalone. Jalur legacy "gambar di dalam note" (PUT /api/drawings/{noteId} → record
+  // ber-note_cid + op upsert ke id note di server) dihapus; record lama dikonversi saat push
+  // (drawingrepo.upgradeLegacyNoteDrawings).
   function registerDrawingRoutes(router) {
     // List drawings (standalone)
     router.register("GET", "/api/drawings", ({ query }) => {
@@ -43,30 +29,14 @@
       return TFrepo.createDrawing(body || {});
     });
 
-    // Get single drawing (standalone or note drawing)
+    // Get single drawing (by cid / server_id / client_id)
     router.register("GET", "/api/drawings/:id", ({ params }) => {
-      return TFrepo.getDrawing(params.id, { online: onlineNow() }).then((d) => {
-        if (d) return d;
-        return resolveNoteCid(params.id).then((noteCid) => {
-          if (!noteCid) return notFound();
-          return TFrepo.getDrawing(noteCid, { online: onlineNow() }).then((nd) => (nd ? nd : notFound()));
-        });
-      });
+      return TFrepo.getDrawing(params.id, { online: onlineNow() }).then((d) => (d ? d : notFound()));
     });
 
-    // Update drawing (standalone or note drawing)
+    // Update drawing
     router.register("PUT", "/api/drawings/:id", ({ params, body }) => {
-      return TFrepo.getRaw(params.id).then((raw) => {
-        if (raw && raw.note_cid === undefined) {
-          return TFrepo.updateDrawing(params.id, body || {});
-        }
-        return resolveNoteCid(params.id).then((noteCid) => {
-          if (noteCid) {
-            return TFrepo.putDrawing(noteCid, (body || {}).data_json, {}).then((rec) => ({ updated_at: rec.updated_at }));
-          }
-          return TFrepo.updateDrawing(params.id, body || {});
-        });
-      });
+      return TFrepo.updateDrawing(params.id, body || {});
     });
 
     // Toggle pin
