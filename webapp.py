@@ -296,6 +296,7 @@ def migrate_db():
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='habit_templates'"
         ).fetchone()
         if ht and "'weekly'" not in (ht["sql"] or ""):
+            conn.execute("PRAGMA legacy_alter_table=ON")  # jangan tulis ulang trigger tabel lain ke habit_templates_old
             conn.execute("ALTER TABLE habit_templates RENAME TO habit_templates_old")
             conn.execute("""
                 CREATE TABLE habit_templates (
@@ -401,6 +402,7 @@ def migrate_db():
         if table:
             cols = [r["name"] for r in conn.execute("PRAGMA table_info(drawings)").fetchall()]
             if "title" not in cols or "note_id" in cols:
+                conn.execute("PRAGMA legacy_alter_table=ON")  # jangan tulis ulang trigger tabel lain ke drawings_old
                 conn.execute("ALTER TABLE drawings RENAME TO drawings_old")
                 conn.execute("""
                     CREATE TABLE drawings (
@@ -580,6 +582,7 @@ def migrate_db():
     try:
         et = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='entity_tags'").fetchone()
         if et and "'drawing'" not in (et["sql"] or ""):
+            conn.execute("PRAGMA legacy_alter_table=ON")  # jangan tulis ulang trigger tabel lain ke entity_tags_old
             conn.execute("ALTER TABLE entity_tags RENAME TO entity_tags_old")
             conn.execute("""
                 CREATE TABLE entity_tags (
@@ -771,6 +774,52 @@ def migrate_db():
             conn.commit()
     finally:
         conn.close()
+
+    # Terakhir: pulihkan trigger yang rusak oleh rebuild tabel lama (lihat _heal_broken_triggers).
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        _heal_broken_triggers(conn)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+_OLD_TABLE_REF = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)_old\b")
+
+
+def _heal_broken_triggers(conn) -> list:
+    """Perbaiki trigger yang merujuk tabel `<nama>_old` yang sudah di-DROP.
+
+    Rebuild tabel lama (ALTER TABLE x RENAME TO x_old → CREATE x → DROP x_old) di SQLite >= 3.26 ikut
+    menulis ulang trigger tabel LAIN yang merujuk `x` menjadi `x_old` (legacy_alter_table=OFF). Setelah
+    `x_old` di-drop, setiap pemicu trigger gagal "no such table: main.x_old" — insiden 2026-10-15:
+    trg_delete_note_tags/task_tags/habit_tags merujuk entity_tags_old sehingga SEMUA DELETE note/task/habit
+    di server gagal 500 sejak migrasi entity_tags (2026-10-11). Trigger dibuat ulang dengan `x_old` → `x`
+    bila tabel `x` ada; bila tidak ada, trigger di-drop (tidak mungkin berjalan). Idempoten.
+    Mengembalikan daftar nama trigger yang diperbaiki."""
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    healed = []
+    for name, sql in conn.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND sql IS NOT NULL"
+    ).fetchall():
+        missing = [m.group(0) for m in _OLD_TABLE_REF.finditer(sql) if m.group(0) not in tables]
+        if not missing:
+            continue
+        conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')
+        fixed = sql
+        restorable = True
+        for old_name in set(missing):
+            base = old_name[:-4]
+            if base in tables:
+                fixed = re.sub(rf"\b{re.escape(old_name)}\b", base, fixed)
+            else:
+                restorable = False
+        if restorable:
+            conn.execute(fixed)
+        healed.append(name)
+        print(f"[migrate_db] trigger rusak diperbaiki: {name} ({', '.join(sorted(set(missing)))})")
+    return healed
 
 
 # ── Password hashing (no external deps) ───────────────────────────────────────
