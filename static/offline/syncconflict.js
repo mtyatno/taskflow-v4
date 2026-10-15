@@ -163,10 +163,24 @@
     });
   }
 
+  // Notice (informasi, hanya tombol "Tutup"):
+  //   kind "overwritten"   → edit lokal ditimpa versi server (LWW lama)
+  //   kind "delete_refused"→ hapus ditolak server (hanya pemilik)
+  //   kind "conflict_copy" → prinsip 7: edit lokal disimpan sebagai salinan "(konflik) <judul>" (copyTitle),
+  //                          record asli mengadopsi versi server dari `editor`
   function listNotices() {
     return Promise.all([getAll("scratchpad_notes"), getAll("mindmaps")]).then(([notes, mindmaps]) => {
       const out = [];
-      const add = (entity, rows) => { for (const r of rows) if (r.notice) out.push({ entity: entity, cid: r.cid, kind: r.notice.kind, title: r.notice.title, editor: r.notice.editor != null ? r.notice.editor : null }); };
+      const add = (entity, rows) => {
+        for (const r of rows) {
+          if (!r.notice) continue;
+          out.push({
+            entity: entity, cid: r.cid, kind: r.notice.kind, title: r.notice.title,
+            editor: r.notice.editor != null ? r.notice.editor : null,
+            copyTitle: r.notice.copyTitle != null ? r.notice.copyTitle : null,
+          });
+        }
+      };
       add("note", notes); add("mindmap", mindmaps);
       return out;
     });
@@ -175,12 +189,9 @@
   function dismissNotice(entity, cid) {
     const store = STORE[entity];
     if (!store) return Promise.reject(new Error("unknown entity: " + entity));
-    return getRaw(store, cid).then((rec) => {
-      if (!rec) return { ok: false };
-      const next = Object.assign({}, rec);
-      delete next.notice;
-      return putRaw(store, next).then(() => ({ ok: true }));
-    });
+    // prinsip 4: hapus notice pada record TERKINI (pengguna bisa sedang mengedit note itu)
+    return patchRec(store, cid, (next) => { delete next.notice; return next; })
+      .then((next) => ({ ok: !!next }));
   }
 
   const exported = { listConflicts, resolveConflict, listNotices, dismissNotice };

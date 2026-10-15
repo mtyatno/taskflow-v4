@@ -52,16 +52,26 @@ test("pullNotes reconciles shared notes (no longer personal-only) + carries coll
   assert.equal(local.last_editor_display_name, "Bob");
 });
 
-test("LWW-loss on a dirty shared note attaches an overwritten notice", async () => {
-  await put("scratchpad_notes", [localNote({ cid: "n", server_id: 5, list_id: 9, dirty: 1, title: "MineOld", updated_at: "2026-06-12T01:00:00", base_rev: "2026-06-12T00:00:00" })]);
+// Prinsip 7 (workstream C): edit-vs-edit pada note bersama → versi lokal jadi salinan konflik PRIBADI
+// (list_id null), record asli mengadopsi versi Bob + notice conflict_copy (bukan lagi "overwritten").
+test("edit-vs-edit on a dirty shared note keeps mine as a personal conflict copy and attaches a conflict_copy notice", async () => {
+  await put("scratchpad_notes", [localNote({ cid: "n", server_id: 5, list_id: 9, dirty: 1, title: "MineOld", content: "ketikan saya", updated_at: "2026-06-12T01:00:00", base_rev: "2026-06-12T00:00:00" })]);
   await mapPut("note", 5, "n");
   await outboxAdd({ op: "update", entity_type: "note", cid: "n", payload: {} });
   const res = await pullNotes([srv({ id: 5, list_id: 9, title: "Theirs", updated_at: "2026-06-12T05:00:00", last_edited_by: 7, last_editor_display_name: "Bob" })]);
   assert.equal(res.lwwResolved, 1);
-  const local = (await getAll("scratchpad_notes"))[0];
+  assert.equal(res.conflictCopies, 1);
+  const rows = await getAll("scratchpad_notes");
+  const local = rows.find((r) => r.cid === "n");
   assert.equal(local.title, "Theirs");
-  assert.equal(local.notice.kind, "overwritten");
+  assert.equal(local.list_id, 9);
+  assert.equal(local.notice.kind, "conflict_copy");
   assert.equal(local.notice.editor, "Bob");
+  assert.equal(local.notice.copyTitle, "(konflik) MineOld");
+  const copy = rows.find((r) => r.cid !== "n");
+  assert.equal(copy.title, "(konflik) MineOld");
+  assert.equal(copy.content, "ketikan saya");
+  assert.equal(copy.list_id, null); // salinan pribadi
 });
 
 test("an un-dismissed notice survives a later ordinary (clean) server update", async () => {
