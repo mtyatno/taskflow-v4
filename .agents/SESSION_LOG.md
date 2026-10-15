@@ -3300,3 +3300,9 @@
 - **Verifikasi:** JS 1257/1258 (pra-ada draw_local_reactive), pytest 159/159, inline 5/5, Playwright sebelum/sesudah.
 - **Files Touch:** `static/{index.html,sw.js,offline/notequery.js}`, `webapp.py`, `tests/*`, `.agents/*`
 - **Status:** Needs Review (draft PR).
+
+## [2026-10-15 08:10] - Claude (PR #27 merge & deploy)
+- **Task:** Bapak setuju merge dan deploy PR #27 (tombol Kertas + kertas fit ke layar).
+- **Changes:** main tidak bergerak sejak branch dibuat (544316c), SW v414 tetap. PR #27 di-merge, deploy lewat workflow push ke main.
+- **Files Touch:** `.agents/*`
+- **Status:** Done.
