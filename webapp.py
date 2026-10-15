@@ -479,6 +479,31 @@ def migrate_db():
     finally:
         conn.close()
 
+    # client_id: idempotensi retry sync tasks/habits/mindmaps (audit T11) — pola sama dengan drawings/notes:
+    # ALTER idempoten (OperationalError = kolom sudah ada) + unique partial index (user_id, client_id).
+    # CREATE UNIQUE INDEX dilindungi IntegrityError: bila DB lama sudah punya kolom dengan nilai duplikat,
+    # index dilewati dan idempotensi tetap dijaga oleh SELECT di handler POST.
+    for _tbl, _idx in (
+        ("tasks", "idx_tasks_user_client"),
+        ("habits", "idx_habits_user_client"),
+        ("mindmaps", "idx_mindmaps_user_client"),
+    ):
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            try:
+                conn.execute(f"ALTER TABLE {_tbl} ADD COLUMN client_id TEXT")
+            except sqlite3.OperationalError:
+                pass  # kolom sudah ada
+            try:
+                conn.execute(
+                    f"CREATE UNIQUE INDEX IF NOT EXISTS {_idx} ON {_tbl}(user_id, client_id) WHERE client_id IS NOT NULL"
+                )
+            except sqlite3.IntegrityError:
+                pass  # duplikat lama di DB; handler tetap idempoten lewat SELECT (user_id, client_id)
+            conn.commit()
+        finally:
+            conn.close()
+
     # Trash note: snapshot note yang dihapus (dipulihkan lewat /api/scratchpad/trash/{id}/restore)
     conn = sqlite3.connect(DB_PATH)
     try:
@@ -871,6 +896,8 @@ class TaskCreate(BaseModel):
     parent_id: Optional[int] = None
     recurrence_type: Optional[str] = None   # daily|weekly|monthly|weekdays
     recurrence_days: Optional[list] = None  # [0,2,4] untuk weekly Sen/Rab/Jum
+    # Idempotensi retry sync (audit T11): (user_id, client_id) sudah ada → kembalikan baris itu, bukan insert
+    client_id: Optional[str] = Field(default=None, max_length=64)
 
 class ReviewSnapshotIn(BaseModel):
     score: int
@@ -894,6 +921,9 @@ class TaskUpdate(BaseModel):
     recurrence_type: Optional[str] = None
     recurrence_days: Optional[list] = None
     recurrence_renew: Optional[bool] = None  # True = perpanjang 3 bulan
+    is_focused: Optional[bool] = None  # audit K6: status fokus ikut dikirim push offline (disimpan 0/1)
+    # base_rev: updated_at yang diketahui klien; bila dikirim dan ≠ server → 409 REV_MISMATCH (prinsip 7)
+    base_rev: Optional[str] = None
 
 class SharedListCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
@@ -904,6 +934,7 @@ class HabitCreate(BaseModel):
     micro_target: str = ""
     frequency: list = ["mon","tue","wed","thu","fri","sat","sun"]
     identity_pillar: str = ""
+    client_id: Optional[str] = Field(default=None, max_length=64)  # idempotensi retry sync (audit T11)
 
 class HabitUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
@@ -973,6 +1004,8 @@ class DrawingUpdate(BaseModel):
     data_json: Optional[str] = Field(default=None, max_length=5_000_000)
     svg_preview: Optional[str] = Field(default=None, max_length=5_000_000)
     tags: Optional[list[str]] = None
+    # base_rev: updated_at yang diketahui klien; bila dikirim dan ≠ server → 409 REV_MISMATCH (prinsip 7)
+    base_rev: Optional[str] = None
 
     @field_validator("data_json")
     @classmethod
@@ -990,6 +1023,8 @@ class MindmapCreate(BaseModel):
         default='{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}',
         max_length=5_000_000
     )
+    list_id: Optional[int] = None  # audit S7: peta yang dibuat (offline) di list bersama; dicek keanggotaan
+    client_id: Optional[str] = Field(default=None, max_length=64)  # idempotensi retry sync (audit T11)
 
     @field_validator("data_json")
     @classmethod
@@ -1003,6 +1038,8 @@ class MindmapCreate(BaseModel):
 class MindmapUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
     data_json: Optional[str] = Field(default=None, max_length=5_000_000)
+    # base_rev: updated_at yang diketahui klien; bila dikirim dan ≠ server → 409 REV_MISMATCH (prinsip 7)
+    base_rev: Optional[str] = None
 
     @field_validator("data_json")
     @classmethod
@@ -1030,8 +1067,11 @@ class ScratchpadUpdate(BaseModel):
     tags: list[str] = []
     linked_task_id: Optional[int] = None
     linked_task_ids: list[int] = []
+    # list_id: hanya diterapkan bila ADA di payload (model_fields_set); absen = tidak berubah (audit K4)
     list_id: Optional[int] = None
     meta_json: Optional[str] = None
+    # base_rev: updated_at yang diketahui klien; bila dikirim dan ≠ server → 409 REV_MISMATCH (prinsip 7)
+    base_rev: Optional[str] = None
 
 class ExtAuthConfirmReq(BaseModel):
     state: str
@@ -1132,6 +1172,21 @@ def _can_access_task(conn, task_id: int, user_id: int, write: bool = False):
         if repo.is_list_member_or_owner(list_id, user_id):
             return row
     raise HTTPException(status_code=403, detail="Not authorized")
+
+
+def _check_base_rev(req, existing, current_fn) -> None:
+    """Konflik edit-vs-edit (prinsip 7 audit sinkron): bila klien mengirim base_rev (updated_at yang
+    ia ketahui) dan nilainya ≠ updated_at server saat ini, tolak dengan 409 REV_MISMATCH dan sertakan
+    baris server terkini supaya klien bisa membuat salinan konflik / merge. Tanpa base_rev → perilaku
+    lama (LWW) tidak berubah. `current_fn` dipanggil malas hanya saat konflik."""
+    base_rev = getattr(req, "base_rev", None)
+    if base_rev is None:
+        return
+    if base_rev != existing["updated_at"]:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "REV_MISMATCH", "current": current_fn()},
+        )
 
 
 async def _notify_members_bg(list_id: int, actor_user_id: int, message: str, task_id: Optional[int] = None):
@@ -1622,18 +1677,35 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
         recurrence_end_date = (date.today() + timedelta(days=90)).isoformat()
 
     with get_db() as conn:
-        cur = conn.execute(
-            """INSERT INTO tasks
-               (title, description, gtd_status, priority, quadrant,
-                project, context, deadline, waiting_for, user_id, list_id, assigned_to, parent_id,
-                recurrence_type, recurrence_days, recurrence_end_date,
-                created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (req.title, req.description, req.gtd_status, req.priority.upper(), quadrant,
-             req.project, req.context, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, parent_id,
-             recurrence_type, recurrence_days_json, recurrence_end_date,
-             now, now),
-        )
+        # Idempotensi retry sync (audit T11): POST ulang dengan client_id yang sama (respons hilang /
+        # timeout) mengembalikan baris yang sudah ada — tanpa insert, tanpa notifikasi ulang.
+        if req.client_id:
+            dup = conn.execute(
+                "SELECT * FROM tasks WHERE user_id = ? AND client_id = ?", (uid, req.client_id)
+            ).fetchone()
+            if dup:
+                return task_row_to_dict(dup, conn)
+        try:
+            cur = conn.execute(
+                """INSERT INTO tasks
+                   (title, description, gtd_status, priority, quadrant,
+                    project, context, deadline, waiting_for, user_id, list_id, assigned_to, parent_id,
+                    recurrence_type, recurrence_days, recurrence_end_date,
+                    created_at, updated_at, client_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (req.title, req.description, req.gtd_status, req.priority.upper(), quadrant,
+                 req.project, req.context, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, parent_id,
+                 recurrence_type, recurrence_days_json, recurrence_end_date,
+                 now, now, req.client_id),
+            )
+        except sqlite3.IntegrityError:
+            # Race: request kembar menyisipkan (user_id, client_id) yang sama lebih dulu → ambil barisnya.
+            dup = conn.execute(
+                "SELECT * FROM tasks WHERE user_id = ? AND client_id = ?", (uid, req.client_id)
+            ).fetchone() if req.client_id else None
+            if not dup:
+                raise
+            return task_row_to_dict(dup, conn)
         task_id = cur.lastrowid
         if task_tags:
             _upsert_tags_for_entity(conn, task_id, uid, 'task', task_tags)
@@ -1704,6 +1776,7 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
 
     with get_db() as conn:
         existing = _can_access_task(conn, task_id, uid, write=True)
+        _check_base_rev(req, existing, lambda: task_row_to_dict(existing, conn))
 
         updates = {}
         if req.title is not None:
@@ -1732,6 +1805,8 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
             updates["assigned_to"] = req.assigned_to if req.assigned_to != 0 else None
         if req.progress is not None:
             updates["progress"] = max(0, min(100, req.progress))
+        if req.is_focused is not None:
+            updates["is_focused"] = 1 if req.is_focused else 0
 
         if req.recurrence_renew:
             updates["recurrence_end_date"] = (date.today() + timedelta(days=90)).isoformat()
@@ -2072,8 +2147,8 @@ async def recalculate_eisenhower(user=Depends(get_current_user)):
             task_obj = Task(priority=Priority.from_str(row["priority"]), deadline=dl)
             new_q = calculate_quadrant(task_obj).value
             if new_q != row["quadrant"]:
-                conn.execute("UPDATE tasks SET quadrant=?, updated_at=? WHERE id=?",
-                             (new_q, datetime.now().isoformat(), row["id"]))
+                # Kuadran = field turunan: tidak mem-bump updated_at (audit K2, lihat repository.update_quadrant)
+                conn.execute("UPDATE tasks SET quadrant=? WHERE id=?", (new_q, row["id"]))
                 changed += 1
     return {"changed": changed, "total": len(rows)}
 
@@ -2687,13 +2762,27 @@ async def post_message(list_id: int, req: MessageCreate, user=Depends(get_curren
             ).fetchone()
             if not file_row:
                 raise HTTPException(status_code=400, detail="Berkas tidak ditemukan atau telah dihapus di workspace ini")
-        # Save message
-        cur = conn.execute(
-            "INSERT INTO messages (list_id, user_id, content, task_id, note_id, file_id, msg_type, reply_to_id, client_id, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (list_id, uid, req.content, req.task_id, req.note_id, req.file_id, req.msg_type, req.reply_to_id, req.client_id, now),
-        )
-        msg_id = cur.lastrowid
+        # Idempotensi retry sync (audit T11): pesan dengan (list_id, user_id, client_id) yang sama sudah
+        # tersimpan (respons hilang → outbox mengirim ulang) → kembalikan yang ada, tanpa insert,
+        # tanpa notifikasi mention ulang, tanpa siaran SSE ulang.
+        existing_id = None
+        if req.client_id:
+            dup = conn.execute(
+                "SELECT id FROM messages WHERE list_id = ? AND user_id = ? AND client_id = ? ORDER BY id LIMIT 1",
+                (list_id, uid, req.client_id),
+            ).fetchone()
+            if dup:
+                existing_id = dup["id"]
+        if existing_id is None:
+            # Save message
+            cur = conn.execute(
+                "INSERT INTO messages (list_id, user_id, content, task_id, note_id, file_id, msg_type, reply_to_id, client_id, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (list_id, uid, req.content, req.task_id, req.note_id, req.file_id, req.msg_type, req.reply_to_id, req.client_id, now),
+            )
+            msg_id = cur.lastrowid
+        else:
+            msg_id = existing_id
         # Fetch with joined data for broadcast
         row = conn.execute(
             """SELECT m.id, m.list_id, m.user_id, m.content, m.task_id, m.note_id, m.msg_type,
@@ -2723,6 +2812,8 @@ async def post_message(list_id: int, req: MessageCreate, user=Depends(get_curren
             (msg_id,),
         ).fetchone()
         msg_dict = dict(row)
+        if existing_id is not None:
+            return msg_dict
         # Process @mentions
         mentions = set(re.findall(r'@(\w+)', req.content))
         if mentions:
@@ -3238,6 +3329,15 @@ async def dm_post_message(conv_id: int, req: DmMessageCreate, user=Depends(get_c
             ).fetchone()
             if not ok:
                 raise HTTPException(status_code=400, detail="Pesan yang dibalas tidak ada di percakapan ini")
+        # Idempotensi retry sync (audit T11): (conversation_id, user_id, client_id) sudah ada →
+        # kembalikan pesan itu tanpa insert/notifikasi/siaran SSE ulang.
+        if req.client_id:
+            dup = conn.execute(
+                "SELECT id FROM dm_messages WHERE conversation_id = ? AND user_id = ? AND client_id = ? ORDER BY id LIMIT 1",
+                (conv_id, uid, req.client_id),
+            ).fetchone()
+            if dup:
+                return dict(conn.execute(_DM_MSG_SELECT + "WHERE m.id = ?", (dup["id"],)).fetchone())
         cur = conn.execute(
             "INSERT INTO dm_messages (conversation_id, user_id, content, reply_to_id, client_id, created_at) "
             "VALUES (?,?,?,?,?,?)",
@@ -3451,11 +3551,26 @@ async def create_habit(req: HabitCreate, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="phase harus pagi/siang/malam")
     freq_json = json.dumps(req.frequency)
     with get_db() as conn:
-        cur = conn.execute(
-            """INSERT INTO habits (user_id, title, phase, micro_target, frequency, identity_pillar)
-               VALUES (?,?,?,?,?,?)""",
-            (uid, req.title, req.phase, req.micro_target, freq_json, req.identity_pillar)
-        )
+        # Idempotensi retry sync (audit T11): (user_id, client_id) sudah ada → kembalikan baris itu.
+        if req.client_id:
+            dup = conn.execute(
+                "SELECT * FROM habits WHERE user_id = ? AND client_id = ?", (uid, req.client_id)
+            ).fetchone()
+            if dup:
+                return dict(dup)
+        try:
+            cur = conn.execute(
+                """INSERT INTO habits (user_id, title, phase, micro_target, frequency, identity_pillar, client_id)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (uid, req.title, req.phase, req.micro_target, freq_json, req.identity_pillar, req.client_id)
+            )
+        except sqlite3.IntegrityError:
+            dup = conn.execute(
+                "SELECT * FROM habits WHERE user_id = ? AND client_id = ?", (uid, req.client_id)
+            ).fetchone() if req.client_id else None
+            if not dup:
+                raise
+            return dict(dup)
         habit_id = cur.lastrowid
         if habit_tags:
             _upsert_tags_for_entity(conn, habit_id, uid, 'habit', habit_tags)
@@ -3706,8 +3821,9 @@ def _scratchpad_row(row, conn=None, uid=None) -> dict:
     d = dict(row)
     d["server_id"] = d.get("id")
     if conn and d.get("id"):
+        # DISTINCT: baris entity_tags lama per-editor bisa memuat nama tag yang sama dari user berbeda (audit T7)
         tag_rows = conn.execute("""
-            SELECT t.name FROM tags t
+            SELECT DISTINCT t.name FROM tags t
             JOIN entity_tags et ON t.id = et.tag_id
             WHERE et.entity_type = 'note' AND et.entity_id = ?
             ORDER BY t.name ASC
@@ -4528,122 +4644,6 @@ async def empty_trashed_notes(user=Depends(get_current_user)):
     with get_db() as conn:
         _ensure_trashed_notes_table(conn)
         cur = conn.execute("DELETE FROM trashed_notes WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = ''", (uid, str(uid)))
-        deleted = cur.rowcount
-    return {"ok": True, "deleted": deleted}
-    for r in rows:
-        try:
-            snap = json.loads(r["snapshot_json"])
-        except Exception:
-            snap = {}
-        note = snap.get("note") or {}
-        out.append({
-            "id": r["note_id"],
-            "title": r["title"],
-            "preview": _trash_preview(note.get("content", "")),
-            "tags": snap.get("tags") or [],
-            "list_id": note.get("list_id"),
-            "deleted_at": r["deleted_at"],
-            "days_left": _trash_days_left(r["deleted_at"]),
-        })
-    return out
-
-@app.post("/api/scratchpad/trash/{note_id}/restore")
-async def restore_trashed_note(note_id: int, user=Depends(get_current_user)):
-    uid = user["sub"]
-    with get_db() as conn:
-        _purge_expired_trashed_notes(conn)
-        trow = conn.execute(
-            "SELECT snapshot_json FROM trashed_notes WHERE note_id = ? AND user_id = ?", (note_id, uid)
-        ).fetchone()
-        if not trow:
-            raise HTTPException(status_code=404, detail="Note tidak ada di Sampah")
-        if conn.execute("SELECT 1 FROM scratchpad_notes WHERE id = ?", (note_id,)).fetchone():
-            raise HTTPException(status_code=409, detail="Note dengan id ini sudah ada")
-        snap = json.loads(trow["snapshot_json"])
-        note = dict(snap.get("note") or {})
-        note["id"] = note_id
-        note["user_id"] = uid
-
-        def _user_exists(user_id) -> bool:
-            return user_id is not None and conn.execute(
-                "SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is not None
-
-        # list_id: harus masih ada dan user masih owner/anggota, kalau tidak -> NULL
-        lid = note.get("list_id")
-        if lid is not None:
-            ok = conn.execute(
-                "SELECT 1 FROM shared_lists WHERE id = ? AND (owner_id = ? OR id IN "
-                "(SELECT list_id FROM list_members WHERE user_id = ?))", (lid, uid, uid)).fetchone()
-            if not ok:
-                note["list_id"] = None
-        # task tertaut yang sudah hilang dibuang
-        def _task_exists(tid) -> bool:
-            return conn.execute("SELECT 1 FROM tasks WHERE id = ?", (tid,)).fetchone() is not None
-        if note.get("linked_task_id") is not None and not _task_exists(note["linked_task_id"]):
-            note["linked_task_id"] = None
-        try:
-            ids = json.loads(note.get("linked_task_ids") or "[]")
-        except Exception:
-            ids = []
-        note["linked_task_ids"] = json.dumps([t for t in ids if _task_exists(t)])
-        # client_id bentrok dengan note lain milik user -> NULL
-        if note.get("client_id") and conn.execute(
-                "SELECT 1 FROM scratchpad_notes WHERE user_id = ? AND client_id = ?",
-                (uid, note["client_id"])).fetchone():
-            note["client_id"] = None
-        # last_edited_by user yang sudah tidak ada -> NULL
-        if note.get("last_edited_by") is not None and not _user_exists(note["last_edited_by"]):
-            note["last_edited_by"] = None
-
-        live_cols = set(_table_columns(conn, "scratchpad_notes"))
-        cols = [c for c in note if c in live_cols]
-        conn.execute(
-            f"INSERT INTO scratchpad_notes ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
-            [note[c] for c in cols])
-
-        _upsert_tags_for_note(conn, note_id, uid, snap.get("tags") or [])
-        for pid in dict.fromkeys(snap.get("pins") or []):
-            if _user_exists(pid):
-                conn.execute("INSERT OR IGNORE INTO note_pins (user_id, note_id) VALUES (?, ?)", (pid, note_id))
-
-        pub = snap.get("published")
-        if pub and not conn.execute(
-                "SELECT 1 FROM published_notes WHERE slug = ?", (pub.get("slug"),)).fetchone():
-            conn.execute(
-                "INSERT INTO published_notes (note_id, user_id, slug, password_hash, published_at) VALUES (?,?,?,?,?)",
-                (note_id, pub["user_id"] if _user_exists(pub.get("user_id")) else uid,
-                 pub["slug"], pub.get("password_hash"), pub["published_at"]))
-
-        att_cols = set(_table_columns(conn, "note_attachments"))
-        for a in snap.get("attachments") or []:
-            a = dict(a)
-            a["note_id"] = note_id
-            if not _user_exists(a.get("user_id")):
-                a["user_id"] = uid
-            acols = [c for c in a if c in att_cols]
-            conn.execute(
-                f"INSERT OR IGNORE INTO note_attachments ({','.join(acols)}) VALUES ({','.join('?' * len(acols))})",
-                [a[c] for c in acols])
-
-        conn.execute("DELETE FROM trashed_notes WHERE note_id = ?", (note_id,))
-        conn.commit()
-        restored = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
-        return _scratchpad_row(restored, conn, uid)
-
-@app.delete("/api/scratchpad/trash/{note_id}")
-async def purge_trashed_note(note_id: int, user=Depends(get_current_user)):
-    uid = user["sub"]
-    with get_db() as conn:
-        _ensure_trashed_notes_table(conn)
-        conn.execute("DELETE FROM trashed_notes WHERE note_id = ? AND user_id = ?", (note_id, uid))
-    return {"ok": True}
-
-@app.delete("/api/scratchpad/trash")
-async def empty_trashed_notes(user=Depends(get_current_user)):
-    uid = user["sub"]
-    with get_db() as conn:
-        _ensure_trashed_notes_table(conn)
-        cur = conn.execute("DELETE FROM trashed_notes WHERE user_id = ?", (uid,))
         deleted = cur.rowcount
     return {"ok": True, "deleted": deleted}
 
@@ -5517,15 +5517,20 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
     access_clause, access_params = _note_access_clause(uid)
     with get_db() as conn:
         existing = conn.execute(f"""
-            SELECT id, user_id, list_id FROM scratchpad_notes
+            SELECT * FROM scratchpad_notes
             WHERE id = ? AND {access_clause}
         """, [note_id] + access_params).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        _check_base_rev(req, existing, lambda: _scratchpad_row(existing, conn, uid))
         titles = _parse_wikilinks(req.content)
         linked_ids = _resolve_linked_to(titles, uid, conn)
-        # list_id: only owner can change it; members cannot move the note to another list
-        new_list_id = req.list_id if existing["user_id"] == uid else existing["list_id"]
+        # list_id: only owner can change it; members cannot move the note to another list.
+        # Absen di payload = tidak berubah (audit K4: autosave tanpa list_id tidak boleh meng-unshare).
+        if existing["user_id"] == uid and "list_id" in req.model_fields_set:
+            new_list_id = req.list_id
+        else:
+            new_list_id = existing["list_id"]
         conn.execute(
             """UPDATE scratchpad_notes
                SET title=?, content=?, tags=?, linked_task_id=?, linked_task_ids=?,
@@ -5535,8 +5540,10 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
              task_ids[0] if task_ids else None, json.dumps(task_ids),
              json.dumps(linked_ids), new_list_id, uid, now, req.meta_json, note_id)
         )
-        conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=? AND user_id=?", (note_id, uid))
-        _upsert_tags_for_note(conn, note_id, uid, tag_names)
+        # Tag note berskop NOTE (audit T7): hapus semua relasi tag note ini (milik siapa pun),
+        # lalu upsert di bawah user_id PEMILIK note agar tidak ada tag "zombie" per editor.
+        conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=?", (note_id,))
+        _upsert_tags_for_note(conn, note_id, existing["user_id"], tag_names)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row(updated, conn, uid)
@@ -5551,10 +5558,9 @@ async def delete_scratchpad(note_id: int, user=Depends(get_current_user)):
         if row["user_id"] is not None and str(row["user_id"]) != str(uid):
             raise HTTPException(status_code=403, detail="Hanya pemilik yang bisa menghapus catatan ini")
         # Snapshot + cascade delete dalam SATU transaksi (get_db rollback bila ada exception).
-        try:
-            _snapshot_note_to_trash(conn, row, fallback_uid=uid)
-        except Exception:
-            pass
+        # Error tak terduga saat snapshot HARUS menggagalkan hapus (500) agar note tidak hilang
+        # tanpa salinan di Sampah; self-healing tabel ada di dalam _snapshot_note_to_trash.
+        _snapshot_note_to_trash(conn, row, fallback_uid=uid)
         try:
             conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=?", (note_id,))
         except Exception:
@@ -5603,8 +5609,11 @@ async def share_scratchpad(note_id: int, req: NoteShareReq, user=Depends(get_cur
             repo = TaskRepository(DB_PATH)
             if not repo.is_list_member_or_owner(req.list_id, uid):
                 raise HTTPException(status_code=403, detail="Kamu bukan anggota list ini")
+        # Bump updated_at (audit K4): share/unshare adalah edit pengguna; tanpa bump, pull klien
+        # tidak mengadopsi list_id baru dan PUT berikutnya meng-unshare / me-re-share catatan.
+        now = datetime.now(_TZ_JKT).isoformat()
         conn.execute(
-            "UPDATE scratchpad_notes SET list_id = ? WHERE id = ?", (req.list_id, note_id)
+            "UPDATE scratchpad_notes SET list_id = ?, updated_at = ? WHERE id = ?", (req.list_id, now, note_id)
         )
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
@@ -6909,7 +6918,7 @@ async def list_mindmaps(user=Depends(get_current_user)):
     with get_db() as conn:
         access_clause, access_params = _mindmap_access_clause(uid)
         rows = conn.execute(
-            "SELECT id, title, is_pinned, list_id, user_id, last_edited_by, created_at, updated_at FROM mindmaps "
+            "SELECT id, title, is_pinned, list_id, user_id, last_edited_by, created_at, updated_at, client_id FROM mindmaps "
             f"WHERE {access_clause} ORDER BY is_pinned DESC, updated_at DESC",
             access_params
         ).fetchall()
@@ -7097,7 +7106,7 @@ async def share_mindmap(mid: str, req: MindmapShareReq, user=Depends(get_current
                 raise HTTPException(status_code=403, detail="Bukan anggota list ini")
         now = datetime.now(_TZ_JKT).isoformat()
         conn.execute("UPDATE mindmaps SET list_id = ?, updated_at = ? WHERE id = ?", (list_id, now, real_mid))
-        updated = conn.execute("SELECT id, title, is_pinned, list_id, user_id, last_edited_by, created_at, updated_at FROM mindmaps WHERE id = ?", (real_mid,)).fetchone()
+        updated = conn.execute("SELECT id, title, is_pinned, list_id, user_id, last_edited_by, created_at, updated_at, client_id FROM mindmaps WHERE id = ?", (real_mid,)).fetchone()
         return _mindmap_enrich(dict(updated), conn)
 
 
@@ -7119,12 +7128,33 @@ async def get_list_mindmaps(list_id: int, user=Depends(get_current_user)):
 async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
+    # audit S7: list_id saat create disimpan (dulu diabaikan → peta offline di list bersama jadi pribadi);
+    # keanggotaan dicek seperti di /share.
+    if req.list_id is not None:
+        repo = TaskRepository(DB_PATH)
+        if not repo.is_list_member_or_owner(req.list_id, uid):
+            raise HTTPException(status_code=403, detail="Bukan anggota list ini")
     with get_db() as conn:
-        cur = conn.execute(
-            "INSERT INTO mindmaps (user_id, title, data_json, is_pinned, created_at, updated_at) "
-            "VALUES (?, ?, ?, 0, ?, ?)",
-            (uid, req.title, req.data_json, now, now)
-        )
+        # Idempotensi retry sync (audit T11): (user_id, client_id) sudah ada → kembalikan baris itu.
+        if req.client_id:
+            dup = conn.execute(
+                "SELECT * FROM mindmaps WHERE user_id = ? AND client_id = ?", (uid, req.client_id)
+            ).fetchone()
+            if dup:
+                return dict(dup)
+        try:
+            cur = conn.execute(
+                "INSERT INTO mindmaps (user_id, title, data_json, is_pinned, created_at, updated_at, list_id, client_id) "
+                "VALUES (?, ?, ?, 0, ?, ?, ?, ?)",
+                (uid, req.title, req.data_json, now, now, req.list_id, req.client_id)
+            )
+        except sqlite3.IntegrityError:
+            dup = conn.execute(
+                "SELECT * FROM mindmaps WHERE user_id = ? AND client_id = ?", (uid, req.client_id)
+            ).fetchone() if req.client_id else None
+            if not dup:
+                raise
+            return dict(dup)
         row = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (cur.lastrowid,)).fetchone()
         return dict(row)
 
@@ -7147,10 +7177,11 @@ async def update_mindmap(mid: int, req: MindmapUpdate, user=Depends(get_current_
     with get_db() as conn:
         access_clause, access_params = _mindmap_access_clause(uid)
         row = conn.execute(
-            f"SELECT id, title, data_json FROM mindmaps WHERE id = ? AND {access_clause}", [mid] + access_params
+            f"SELECT * FROM mindmaps WHERE id = ? AND {access_clause}", [mid] + access_params
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
+        _check_base_rev(req, row, lambda: _mindmap_enrich(dict(row), conn))
         new_title = req.title if req.title is not None else row["title"]
         new_data = req.data_json if req.data_json is not None else row["data_json"]
         conn.execute(
@@ -7306,6 +7337,7 @@ async def update_drawing_detail(did: str, req: DrawingUpdate, user=Depends(get_c
             ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        _check_base_rev(req, row, lambda: _drawing_enrich(dict(row), conn))
         target_id = row["id"]
         new_title = req.title if req.title is not None else row["title"]
         new_data = req.data_json if req.data_json is not None else row["data_json"]

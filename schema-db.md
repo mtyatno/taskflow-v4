@@ -12,7 +12,8 @@ CREATE TABLE tasks (
                     created_at      TEXT NOT NULL,
                     updated_at      TEXT NOT NULL,
                     completed_at    TEXT DEFAULT NULL
-                , user_id INTEGER DEFAULT NULL, is_focused INTEGER DEFAULT 0, list_id INTEGER DEFAULT NULL, assigned_to INTEGER DEFAULT NULL, progress INTEGER DEFAULT 0, parent_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL);
+                , user_id INTEGER DEFAULT NULL, is_focused INTEGER DEFAULT 0, list_id INTEGER DEFAULT NULL, assigned_to INTEGER DEFAULT NULL, progress INTEGER DEFAULT 0, parent_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL, client_id TEXT);
+CREATE UNIQUE INDEX idx_tasks_user_client ON tasks(user_id, client_id) WHERE client_id IS NOT NULL;
 CREATE TABLE sqlite_sequence(name,seq);
 CREATE INDEX idx_tasks_gtd_status ON tasks(gtd_status)
             ;
@@ -125,8 +126,9 @@ CREATE TABLE habits (
                     frequency       TEXT DEFAULT '["mon","tue","wed","thu","fri","sat","sun"]',
                     identity_pillar TEXT DEFAULT '',
                     created_at      TEXT DEFAULT (datetime('now'))
-                );
+                , client_id TEXT);
 CREATE INDEX idx_habits_user ON habits(user_id);
+CREATE UNIQUE INDEX idx_habits_user_client ON habits(user_id, client_id) WHERE client_id IS NOT NULL;
 CREATE TABLE habit_logs (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
                     habit_id    INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
@@ -150,6 +152,31 @@ CREATE TABLE scratchpad_notes (
                     updated_at  TEXT    DEFAULT (datetime('now'))
                 , linked_to TEXT NOT NULL DEFAULT '[]', linked_task_ids TEXT NOT NULL DEFAULT '[]');
 CREATE INDEX idx_scratchpad_user ON scratchpad_notes(user_id, updated_at);
+CREATE UNIQUE INDEX idx_scratchpad_notes_user_client ON scratchpad_notes(user_id, client_id) WHERE client_id IS NOT NULL;
+CREATE TABLE mindmaps (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                title      TEXT NOT NULL DEFAULT 'Untitled',
+                data_json  TEXT NOT NULL DEFAULT '{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}',
+                is_pinned  INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            , list_id INTEGER DEFAULT NULL, last_edited_by INTEGER, client_id TEXT);
+CREATE UNIQUE INDEX idx_mindmaps_user_client ON mindmaps(user_id, client_id) WHERE client_id IS NOT NULL;
+
+## Idempotensi sinkron: `client_id` (user_id, client_id)
+
+Kolom `client_id TEXT` + unique partial index `(user_id, client_id) WHERE client_id IS NOT NULL` ada di
+`tasks`, `habits`, `mindmaps`, `scratchpad_notes`, `drawings` (migrasi idempoten di `webapp.migrate_db`,
+audit sinkron 2026-10-15 T11). Klien offline mengirim `client_id` (cid lokal) saat POST; bila baris
+`(user_id, client_id)` sudah ada, server mengembalikan baris itu (HTTP 200) alih-alih menyisipkan duplikat.
+`messages.client_id` dan `dm_messages.client_id` tidak berindeks unik (data lama bisa duplikat); dedup
+dilakukan di handler lewat `(list_id, user_id, client_id)` / `(conversation_id, user_id, client_id)`.
+
+Catatan `updated_at`: kolom `tasks.updated_at` hanya di-bump oleh edit pengguna (PUT, /done, /focus, bot).
+Perhitungan ulang kuadran Eisenhower (`repository.update_quadrant`, `POST /api/recalculate`) **tidak**
+menyentuh `updated_at` karena kuadran adalah field turunan dan klien memakai `updated_at` sebagai revisi
+(`base_rev`) untuk deteksi konflik (409 `REV_MISMATCH` pada PUT task/note/mindmap/drawing).
 
 ## Tag System (Universal)
 
