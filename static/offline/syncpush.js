@@ -16,6 +16,7 @@
   const TFtag = req("./tagrepo.js", root.TF && root.TF.tagrepo);
   const TFblob = req("./blobstore.js", root.TF && root.TF.blobstore);
   const TFrepo = req("./drawingrepo.js", root.TF && root.TF.drawingrepo);
+  const TFmm = req("./mindmaprepo.js", root.TF && root.TF.mindmaprepo);
 
   function titleWithTags(record, tagNames) {
     const base = String(record.title == null ? "" : record.title).replace(/\s+$/, "");
@@ -126,6 +127,8 @@
   function mindmapToUpdatePayload(record) {
     const p = mindmapToCreatePayload(record);
     delete p.client_id;
+    // T3 / prinsip 7: revisi server yang diketahui klien → server menjawab 409 REV_MISMATCH bila sudah berubah
+    if (record.base_rev != null) p.base_rev = record.base_rev;
     return p;
   }
 
@@ -925,14 +928,6 @@
       r.onerror = () => reject(r.error);
     }));
   }
-  function putMindmapRaw(rec) {
-    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction("mindmaps", "readwrite");
-      tx.objectStore("mindmaps").put(rec);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    }));
-  }
   function deleteMindmapRaw(cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const tx = db.transaction("mindmaps", "readwrite");
@@ -942,17 +937,49 @@
     }));
   }
 
+  // Beri tahu UI bahwa record mindmap diganti di luar jalur editor (adopsi 409): tab yang tidak punya edit
+  // tertunda memuat ulang data_json; sidebar memuat ulang daftar (salinan konflik baru).
+  function notifyMindmapSynced(cids, ids) {
+    try {
+      const w = (typeof window !== "undefined") ? window : root;
+      if (w && typeof w.dispatchEvent === "function" && typeof CustomEvent === "function") {
+        w.dispatchEvent(new CustomEvent("mindmapSynced", { detail: { source: "push", cids: cids || [], ids: ids || [] } }));
+      }
+    } catch (_) {}
+  }
+  // 409 dengan body {detail:{code:"REV_MISMATCH", current:<baris server>}} (prinsip 7) — 409 lain = permanen.
+  function revMismatchRow(res) {
+    const d = res && res.status === 409 && res.data && res.data.detail;
+    return (d && typeof d === "object" && d.code === "REV_MISMATCH" && d.current && d.current.id != null) ? d.current : null;
+  }
+  // T3 / prinsip 7: PUT ditolak karena peta sudah diubah di perangkat lain → versi LOKAL disimpan sebagai
+  // salinan konflik "(konflik) <judul>" (pribadi, client_id baru, op create), record asli mengadopsi baris
+  // server `current` (bersih, base_rev baru, notice conflict_copy). Satu transaksi; op asli dibuang.
+  // Record berubah selama request (rev ≠ sentRev) → biarkan op: push berikutnya mengirim versi terkini.
+  function mindmapRevMismatch(op, current, sentRev, result) {
+    return TFmm.adoptServerWithConflictCopy(op.cid, current, { expectRev: sentRev }).then((out) => {
+      if (!out) return;
+      result.conflicts = (result.conflicts || 0) + 1;
+      return TFoutbox.outboxRemove(op.qid).then(() => notifyMindmapSynced([op.cid], [current.id]));
+    });
+  }
+
   function opMindmapCreate(op, transport, result) {
     return getMindmapRaw(op.cid).then((rec) => {
       if (!rec) return TFoutbox.outboxRemove(op.qid);
       if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
       if (rec.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves (access_lost)
+      if (rec.deleted) return TFoutbox.outboxRemove(op.qid); // dibuat lalu dihapus offline: jangan POST lalu DELETE
+      const sentRev = rec.rev || 0;
       return send(transport, "POST", "/api/mindmaps", mindmapToCreatePayload(rec)).then((res) => {
         if (ok(res)) {
           const sid = res.data.id;
+          // K5: CAS — bersih hanya bila tidak ada edit selama in-flight; JANGAN menulis `rec` pra-request
           return TFidmap.mapPut("mindmap", sid, op.cid)
-            .then(() => putMindmapRaw(Object.assign({}, rec, { server_id: sid, dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev })))
-            .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+            .then(() => markPushed("mindmaps", op.cid, sentRev, updatedAtOf(res), sid, null))
+            .then(() => TFoutbox.outboxRemove(op.qid))
+            .then(() => requeueIfDirty("mindmaps", "mindmap", op.cid))
+            .then(() => { result.pushed++; });
         }
         if (classify(res) === "forbidden") { return accessLost("mindmaps", op.cid, op, result); }
         return failPermanent("mindmaps", op.cid, res, op, result);
@@ -964,15 +991,21 @@
     return Promise.all([getMindmapRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
       if (rec.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves
+      const sentRev = rec.rev || 0;
       return send(transport, "PUT", "/api/mindmaps/" + sid, mindmapToUpdatePayload(rec)).then((res) => {
         if (ok(res)) {
-          return putMindmapRaw(Object.assign({}, rec, { dirty: 0, base_rev: res.data && res.data.updated_at != null ? res.data.updated_at : rec.base_rev }))
-            .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+          // K5: CAS — edit selama in-flight (rev naik) → tetap dirty, versi terbaru dikirim ulang
+          return markPushed("mindmaps", op.cid, sentRev, updatedAtOf(res), null, null)
+            .then(() => TFoutbox.outboxRemove(op.qid))
+            .then(() => requeueIfDirty("mindmaps", "mindmap", op.cid))
+            .then(() => { result.pushed++; });
         }
+        const current = revMismatchRow(res);
+        if (current) return mindmapRevMismatch(op, current, sentRev, result);
         const kind = classify(res);
         if (kind === "gone") {
           if (rec.list_id != null) {
-            return putMindmapRaw(Object.assign({}, rec, { conflict: "remote_deleted" }))
+            return TFdb.mutate("mindmaps", op.cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "remote_deleted" }) : undefined))
               .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
           }
           return send(transport, "POST", "/api/mindmaps", mindmapToCreatePayload(rec)).then((res2) => {
@@ -980,8 +1013,17 @@
               const nid = res2.data.id;
               return TFidmap.mapDelete("mindmap", sid)
                 .then(() => TFidmap.mapPut("mindmap", nid, op.cid))
-                .then(() => putMindmapRaw(Object.assign({}, rec, { server_id: nid, dirty: 0, base_rev: res2.data && res2.data.updated_at != null ? res2.data.updated_at : rec.base_rev })))
-                .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+                .then(() => TFdb.mutate("mindmaps", op.cid, (cur) => {
+                  if (!cur) return undefined;
+                  const next = Object.assign({}, cur, { server_id: nid });
+                  const ua = updatedAtOf(res2);
+                  if (ua != null) next.base_rev = ua; // baris server baru → base_rev-nya
+                  next.dirty = ((cur.rev || 0) === sentRev && !cur.deleted) ? 0 : 1;
+                  return next;
+                }))
+                .then(() => TFoutbox.outboxRemove(op.qid))
+                .then(() => requeueIfDirty("mindmaps", "mindmap", op.cid))
+                .then(() => { result.pushed++; });
             }
             if (classify(res2) === "forbidden") { return accessLost("mindmaps", op.cid, op, result); }
             return failPermanent("mindmaps", op.cid, res2, op, result);
@@ -1005,10 +1047,9 @@
             .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
         }
         if (classify(res) === "forbidden") {
-          return getMindmapRaw(op.cid).then((rec) =>
-            (rec
-              ? putMindmapRaw(Object.assign({}, rec, { deleted: false, dirty: 0, notice: { kind: "delete_refused", title: rec.title } }))
-              : Promise.resolve()))
+          return TFdb.mutate("mindmaps", op.cid, (cur) => (cur
+              ? Object.assign({}, cur, { deleted: false, dirty: 0, rev: (cur.rev || 0) + 1, notice: { kind: "delete_refused", title: cur.title } })
+              : undefined))
             .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
         }
         return failPermanent(null, null, res, op, result);

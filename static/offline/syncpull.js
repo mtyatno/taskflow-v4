@@ -22,6 +22,7 @@
   const TFpush = req("./syncpush.js", root.TF && root.TF.syncpush);
   const TFhabitrepo = req("./habitrepo.js", root.TF && root.TF.habitrepo);
   const TFhabitlogic = req("./habitlogic.js", root.TF && root.TF.habitlogic);
+  const TFmm = req("./mindmaprepo.js", root.TF && root.TF.mindmaprepo);
 
   function getAllTasks() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -697,14 +698,6 @@
       r.onerror = () => reject(r.error);
     }));
   }
-  function putMindmap(rec) {
-    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction("mindmaps", "readwrite");
-      tx.objectStore("mindmaps").put(rec);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    }));
-  }
   function deleteMindmapRec(cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const tx = db.transaction("mindmaps", "readwrite");
@@ -722,31 +715,33 @@
       return TFidmap.mapPut("mindmap", serverId, fresh).then(() => fresh);
     });
   }
-  const MM_DEFAULT_DATA = '{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}';
-  function mindmapFromServer(s, cid) {
-    return {
-      cid: cid, server_id: s.id,
-      title: s.title != null ? s.title : "Untitled",
-      data_json: s.data_json != null ? s.data_json : MM_DEFAULT_DATA,
-      pinned: !!s.is_pinned,
-      list_id: s.list_id != null ? s.list_id : null,
-      user_id: s.user_id != null ? s.user_id : null,
-      last_edited_by: s.last_edited_by != null ? s.last_edited_by : null,
-      last_editor_username: s.last_editor_username != null ? s.last_editor_username : null,
-      last_editor_display_name: s.last_editor_display_name != null ? s.last_editor_display_name : null,
-      created_at: s.created_at != null ? s.created_at : null,
-      updated_at: s.updated_at != null ? s.updated_at : null,
-      deleted: false, dirty: 0, base_rev: s.updated_at != null ? s.updated_at : null,
-    };
+  // Record masih seperti saat dibaca pull (CAS rev/dirty/deleted; tanpa localRec → harus masih belum ada).
+  function sameMindmapState(cur, local) {
+    if (!local) return !cur;
+    return !!cur && (cur.rev || 0) === (local.rev || 0) && !!cur.dirty === !!local.dirty && !!cur.deleted === !!local.deleted;
   }
-  function writeMindmapFull(serverId, cid, fetchOne, extra) {
-    // body tanpa id (null / {status:404|403} / body error) → bukan peta: jangan tulis apa pun
-    return Promise.resolve(fetchOne(serverId)).then((fullRow) => ((fullRow && fullRow.id != null) ? putMindmap(Object.assign(mindmapFromServer(fullRow, cid), extra || {})) : null));
+  // Tulis baris server lengkap lewat TFdb.mutate (prinsip 4): rev naik (push in-flight yang membaca rev lama
+  // tidak menandai hasil pull ini "bersih"); batal bila record berubah selama fetchOne (edit lokal selamat).
+  // body tanpa id (null / {status:404|403} / body error) → bukan peta: jangan tulis apa pun. Resolve true bila ditulis.
+  function writeMindmapFull(serverId, cid, fetchOne, extra, localRec) {
+    return Promise.resolve(fetchOne(serverId)).then((fullRow) => {
+      if (!(fullRow && fullRow.id != null)) return false;
+      return TFdb.mutate("mindmaps", cid, (cur) => {
+        if (!sameMindmapState(cur, localRec)) return undefined;
+        const rec = Object.assign(TFmm.recordFromServer(fullRow, cid), { rev: cur ? (cur.rev || 0) + 1 : 0 }, extra || {});
+        if (cur) {
+          rec.pinned = !!cur.pinned; // pin lokal dipertahankan (op pin bisa tertunda); adopsi pin server di pass pin
+          if (cur.client_id != null) rec.client_id = cur.client_id;
+        }
+        return rec;
+      }).then((saved) => !!saved);
+    });
   }
 
   // serverList = GET /api/mindmaps (metadata, no data_json). fetchOne(serverId) = GET /api/mindmaps/:id (full).
   // confirmOne(serverId) opsional: body | {status:404|403} | null — konfirmasi per item sebelum hapus lokal
   // (tanpa confirmOne → perilaku lama: hilang dari daftar = hapus).
+  // result.changed = [{cid, server_id}] record yang dibuat/diganti → sync() mengirim event mindmapSynced (T3).
   function pullMindmaps(serverList, fetchOne, confirmOne) {
     const list = (serverList || []);
     const cache = {};
@@ -755,29 +750,37 @@
       .then(([localAll, outboxOps]) => {
         const pendingMindmapOps = new Set(outboxOps.filter((o) => o.entity_type === "mindmap").map((o) => o.cid));
         const byCid = {}; for (const r of localAll) byCid[r.cid] = r;
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, pinned: 0, requeued: 0 };
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflictCopies: 0, pinned: 0, requeued: 0, changed: [] };
+        const changed = (cid, sid) => { result.changed.push({ cid: cid, server_id: sid != null ? sid : null }); };
         let chain = requeueDirtyWithoutOps("mindmap", localAll, pendingMindmapOps, result);
         for (const s of list) {
           const cid = cache[s.id];
           const local = byCid[cid];
           chain = chain.then(() => {
-            if (!local || (local.deleted && !pendingMindmapOps.has(cid))) { result.created++; return writeMindmapFull(s.id, cid, fetchOne); }
+            if (!local || (local.deleted && !pendingMindmapOps.has(cid))) {
+              return writeMindmapFull(s.id, cid, fetchOne, undefined, local).then((wrote) => { if (wrote) { result.created++; changed(cid, s.id); } else result.skipped++; });
+            }
             if (local.conflict || local.sync_error) { result.skipped++; return; }
             if (local.dirty && pendingMindmapOps.has(cid)) {
               if (s.updated_at !== local.base_rev) {
-                result.lwwResolved++;
-                if (tsEpoch(s.updated_at) > tsEpoch(local.updated_at)) {
-                  return dropOutbox("mindmap", cid).then(() => writeMindmapFull(s.id, cid, fetchOne, {
-                    notice: { kind: "overwritten", title: s.title, editor: s.last_editor_display_name || s.last_editor_username || "Pengguna lain" },
-                  })); // server wins (LWW) — leave a notice
-                }
-                return; // local wins
+                // Konflik edit-vs-edit (T3 / prinsip 7): BUKAN LWW — versi lokal disimpan sebagai salinan konflik
+                // "(konflik) <judul>", record asli mengadopsi baris server (op asli dibuang, salinan punya op create).
+                return Promise.resolve(fetchOne(s.id)).then((fullRow) => {
+                  if (!(fullRow && fullRow.id != null)) { result.skipped++; return; }
+                  return TFmm.adoptServerWithConflictCopy(cid, fullRow, { expectRev: local.rev || 0 }).then((out) => {
+                    if (!out) { result.skipped++; return; } // berubah selama fetch → pull berikutnya
+                    result.conflictCopies++;
+                    changed(cid, s.id);
+                    if (out.copy) changed(out.copy.cid, null);
+                  });
+                });
               }
-              result.skipped++; return;
+              result.skipped++; return; // local pending, server unchanged
             }
             // dirty tanpa op sudah diantre ulang di atas (ada di pendingMindmapOps) → tidak pernah sampai sini
             if (s.updated_at !== local.base_rev || local.deleted) {
-              result.updated++; return writeMindmapFull(s.id, cid, fetchOne, local.notice ? { notice: local.notice } : undefined);
+              return writeMindmapFull(s.id, cid, fetchOne, local.notice ? { notice: local.notice } : undefined, local)
+                .then((wrote) => { if (wrote) { result.updated++; changed(cid, s.id); } else result.skipped++; });
             }
             return;
           });
@@ -789,12 +792,16 @@
           chain = chain.then(() => {
             if (r.conflict || r.sync_error) { result.skipped++; return; }
             if (r.dirty && pendingMindmapOps.has(r.cid)) {
-              if (r.list_id != null) { result.skipped++; return putMindmap(Object.assign({}, r, { conflict: "remote_deleted" })); }
+              if (r.list_id != null) {
+                result.skipped++;
+                return TFdb.mutate("mindmaps", r.cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "remote_deleted" }) : undefined));
+              }
               result.skipped++; return; // personal local-wins; push update→404→re-create
             }
             return confirmGone(confirmOne, r.server_id).then((gone) => {
               if (!gone) { result.skipped++; return; }
               result.deleted++;
+              changed(r.cid, r.server_id);
               return deleteMindmapRec(r.cid).then(() => TFidmap.mapDelete("mindmap", r.server_id));
             });
           });
@@ -810,7 +817,9 @@
               const local = freshByCid[cid];
               if (!local || pendingPin.has(cid)) continue;
               if (!!local.pinned !== !!s.is_pinned) {
-                c2 = c2.then(() => { result.pinned++; return putMindmap(Object.assign({}, local, { pinned: !!s.is_pinned })); });
+                c2 = c2.then(() => TFdb.mutate("mindmaps", cid, (cur) => ((cur && (cur.rev || 0) === (local.rev || 0))
+                  ? Object.assign({}, cur, { pinned: !!s.is_pinned, rev: (cur.rev || 0) + 1 })
+                  : undefined)).then((saved) => { if (saved) result.pinned++; }));
               }
             }
             return c2;

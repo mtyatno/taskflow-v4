@@ -505,7 +505,9 @@ test("pullMindmapsAndReconcile never writes an error body as a mindmap", async (
   const rows = [{ id: 5, title: "Srv", is_pinned: 0, list_id: null, created_at: "x", updated_at: "u" }];
   const rawFetch = (u) => (u === "/api/mindmaps" ? Promise.resolve(httpRes(200, rows)) : Promise.resolve(httpRes(404, { detail: "nf" })));
   const res = await pullMindmapsAndReconcile(rawFetch);
-  assert.equal(res.created, 1); // dihitung, tetapi tidak ada record yang ditulis tanpa body valid
+  assert.equal(res.created, 0); // tidak ada record yang ditulis tanpa body valid (D: dihitung skipped, bukan created)
+  assert.equal(res.skipped, 1);
+  assert.deepEqual(res.changed, []);
   assert.equal((await all("mindmaps")).length, 0);
 });
 

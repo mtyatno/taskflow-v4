@@ -66,16 +66,45 @@ test("unchanged clean local is not fetched or rewritten", async () => {
   assert.equal(fetchCount, 0);
 });
 
-test("dirty local is skipped (local-wins / deferred)", async () => {
-  await put("mindmaps", [{ cid: "m", server_id: 5, title: "MineEdited", data_json: "{}", pinned: false, list_id: null, created_at: "x", updated_at: "2026-06-10T09:00:00", deleted: false, dirty: 1, base_rev: "2026-06-10T00:00:00" }]);
+test("dirty local + server changed since base_rev → conflict copy (no LWW, local newer or not)", async () => {
+  await put("mindmaps", [{ cid: "m", server_id: 5, title: "MineEdited", data_json: "{\"mine\":1}", pinned: false, list_id: null, created_at: "x", updated_at: "2026-06-10T09:00:00", deleted: false, dirty: 1, base_rev: "2026-06-10T00:00:00", rev: 3 }]);
   await mapPut("mindmap", 5, "m");
   await outboxAdd({ op: "update", entity_type: "mindmap", cid: "m", payload: {} });
-  const rows = [metaRow({ id: 5, title: "ServerOlder", updated_at: "2026-06-10T01:00:00" })];
+  const rows = [metaRow({ id: 5, title: "ServerOlder", updated_at: "2026-06-10T01:00:00", data_json: "{\"srv\":1}" })];
   const res = await pullMindmaps(rows, fullFor(rows));
-  // local newer → local wins
-  assert.equal(res.lwwResolved, 1);
-  const local = (await getAll("mindmaps"))[0];
-  assert.equal(local.title, "MineEdited");
+  // T3 / prinsip 7: tidak ada LWW — versi lokal (walau jam lokal lebih baru) jadi salinan konflik, asli = server
+  assert.equal(res.lwwResolved, 0);
+  assert.equal(res.conflictCopies, 1);
+  const all = await getAll("mindmaps");
+  const orig = all.find((m) => m.cid === "m");
+  const copy = all.find((m) => m.cid !== "m");
+  assert.equal(orig.title, "ServerOlder");
+  assert.equal(orig.data_json, "{\"srv\":1}");
+  assert.equal(orig.dirty, 0);
+  assert.equal(orig.base_rev, "2026-06-10T01:00:00");
+  assert.equal(orig.rev, 4);
+  assert.equal(orig.notice.kind, "conflict_copy");
+  assert.equal(copy.title, "(konflik) MineEdited");
+  assert.equal(copy.data_json, "{\"mine\":1}");
+  assert.equal(copy.server_id, null);
+  assert.equal(copy.dirty, 1);
+  assert.ok(res.changed.some((c) => c.cid === "m" && c.server_id === 5));
+  assert.ok(res.changed.some((c) => c.cid === copy.cid));
+});
+
+test("dirty local with pending op + server unchanged (base_rev matches) → skipped, local kept", async () => {
+  await put("mindmaps", [{ cid: "m", server_id: 5, title: "MineEdited", data_json: "{}", pinned: false, list_id: null, created_at: "x", updated_at: "2026-06-10T09:00:00", deleted: false, dirty: 1, base_rev: "2026-06-10T00:00:00", rev: 2 }]);
+  await mapPut("mindmap", 5, "m");
+  await outboxAdd({ op: "update", entity_type: "mindmap", cid: "m", payload: {} });
+  const rows = [metaRow({ id: 5, title: "Srv", updated_at: "2026-06-10T00:00:00" })];
+  const res = await pullMindmaps(rows, fullFor(rows));
+  assert.equal(res.conflictCopies, 0);
+  assert.equal(res.skipped, 1);
+  const all = await getAll("mindmaps");
+  assert.equal(all.length, 1);
+  assert.equal(all[0].title, "MineEdited");
+  assert.equal(all[0].dirty, 1);
+  assert.deepEqual(res.changed, []);
 });
 
 test("clean local vanished from server is deleted + unmapped", async () => {

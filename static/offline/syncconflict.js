@@ -163,10 +163,18 @@
     });
   }
 
+  // Notice (informasi, hanya "Tutup"): overwritten (LWW lama), delete_refused, conflict_copy (prinsip 7:
+  // versi lokal disimpan sebagai "(konflik) <judul>" = copyTitle, record asli mengadopsi versi server).
   function listNotices() {
     return Promise.all([getAll("scratchpad_notes"), getAll("mindmaps")]).then(([notes, mindmaps]) => {
       const out = [];
-      const add = (entity, rows) => { for (const r of rows) if (r.notice) out.push({ entity: entity, cid: r.cid, kind: r.notice.kind, title: r.notice.title, editor: r.notice.editor != null ? r.notice.editor : null }); };
+      const add = (entity, rows) => {
+        for (const r of rows) if (r.notice) out.push({
+          entity: entity, cid: r.cid, kind: r.notice.kind, title: r.notice.title,
+          editor: r.notice.editor != null ? r.notice.editor : null,
+          copyTitle: r.notice.copyTitle != null ? r.notice.copyTitle : null,
+        });
+      };
       add("note", notes); add("mindmap", mindmaps);
       return out;
     });
