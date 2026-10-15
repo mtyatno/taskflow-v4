@@ -16,10 +16,10 @@ Prinsip desain yang disepakati untuk semua workstream:
 4. **CAS/rev untuk semua entitas yang di-push** (task, note, habit, mindmap; drawing sudah): record punya `rev` (naik di setiap tulis lokal). Push membaca `sentRev` sebelum request dan setelah sukses memakai `TFdb.mutate(store, cid, fn)` (satu transaksi readwrite baca-ubah-tulis): `dirty = (cur.rev === sentRev) ? 0 : 1`, `base_rev` hanya maju, `server_id` diisi bila kosong. Tidak pernah menulis objek yang dibaca sebelum request.
 5. **Pull defensif**: cek `res.ok` (throw bila tidak); tiap langkah pull di `sync()` terisolasi (`catch` per langkah) dan push selalu dijalankan di akhir; hapus lokal hanya setelah GET per item mengembalikan **404 eksplisit** (pola drawing) untuk task, note, mindmap; habit cukup bila daftar `ok`.
 6. **Idempotensi create**: semua payload create mengirim `client_id: rec.cid`; server mengembalikan baris yang sudah ada bila `(user_id, client_id)` cocok.
-7. **Konflik edit-vs-edit**: untuk note & mindmap, sisi yang kalah **tidak dibuang** — dibuat salinan konflik (entitas baru pribadi, judul `"(konflik) <judul>"`, `client_id` baru) + notice. Server menerima `base_rev` opsional pada PUT note/mindmap/task/drawing dan menjawab **409** bila `updated_at` saat ini ≠ `base_rev` (body: `{detail:"REV_MISMATCH", current:<row>}`).
+7. **Konflik edit-vs-edit**: untuk note & mindmap, sisi yang kalah **tidak dibuang** — dibuat salinan konflik (entitas baru pribadi, judul `"(konflik) <judul>"`, `client_id` baru) + notice. Server menerima `base_rev` opsional pada PUT note/mindmap/task/drawing dan menjawab **409** bila `updated_at` saat ini ≠ `base_rev` (body: `{"detail": {"code": "REV_MISMATCH", "current": <row>}}` — klien membaca `body.detail.code`).
 8. Timestamp: klien `tsEpoch` menormalkan `"YYYY-MM-DD HH:MM:SS"` → `"T"`; server tidak mengubah format (di luar cakupan), tetapi **tidak boleh** mem-bump `updated_at` untuk perubahan non-pengguna (kuadran).
 
-## Workstream A1 — Ketahanan sinkron (klien)
+## Workstream A1 — Ketahanan sinkron (klien) — SELESAI (commit 1fd4e75)
 File: `static/offline/syncpush.js`, `syncpull.js`, `listsync.js`, `syncconflict.js`, `static/index.html` (bagian API helper/Sync Transport baris ±385–832, `api.fetch` 401 ±569, `logout` ±29993, `tryAuth` ±30044–30075, `handleLogin` ±30560).
 - K1: 401 ≠ ganti pengguna. `tryAuth` 401 → **jangan** `clearLocalUserData`; hapus token, tampilkan login, toast "Sesi berakhir — masuk lagi; perubahan offline tetap tersimpan dan akan dikirim." `api.fetch` 401 → panggil handler yang sama (jangan `tokenStore.clear()` sebelum `__logout`; `logout()` normal tetap seperti sekarang untuk logout manual). `handleLogin` dengan `tf_user_id` sama → jangan clear, lalu panggil `window.__syncNow()`. Listener `tf:auth-expired` → handler yang sama.
 - K3 + T13: klasifikasi respons (prinsip 3) untuk SEMUA op di `processOp`; helper `markSyncError(store, cid, res)`; `syncconflict.listConflicts` memasukkan `sync_error` (entity task/note/mindmap/habit/drawing) dan `resolveConflict(entity,cid,"retry"|"discard_local")`; `renderConflicts` di index.html menampilkan teks & tombolnya. `healStranded*` dan `ensureDrawingUpdateOp` di pull melewati record dengan `sync_error`.
@@ -30,14 +30,14 @@ File: `static/offline/syncpush.js`, `syncpull.js`, `listsync.js`, `syncconflict.
 - S17: `ensureNoteCid` mencocokkan `s.client_id` dengan cid lokal (seperti `ensureDrawingCid`).
 - Tes: `tests/offline/syncpush.test.js`, `syncpull.test.js`, `syncconflict.test.js` (+ baru `sync_robustness.test.js`) mencakup: 401 menahan op; 422 → sync_error + conflict bar + retry; dirty tanpa op → requeue bukan timpa; pull 503 tidak menghapus; hapus lokal hanya setelah 404.
 
-## Workstream B — Server (`webapp.py`, `repository.py`, `tests/test_*.py`)
+## Workstream B — Server (`webapp.py`, `repository.py`, `tests/test_*.py`) — SELESAI (commit 7827679)
 - K2: `repository.update_quadrant` dan `POST /api/recalculate` tidak lagi menulis `updated_at` (kuadran = field turunan). Cari pemicu non-pengguna lain yang mem-bump `updated_at` (notif level recurring, dsb.) dan perlakukan sama.
 - K4: `PATCH /api/scratchpad/{id}/share` mem-bump `updated_at`; `ScratchpadUpdate.list_id` hanya diterapkan bila ada di `model_fields_set` (absen = tidak berubah).
 - K6: `TaskUpdate.is_focused: Optional[bool]` diterapkan di PUT.
 - T11: kolom `client_id TEXT` + unique partial index `(user_id, client_id)` untuk `tasks`, `habits`, `mindmaps` (migrasi di `migrate_db`, pola drawings baris ±458–466); `TaskCreate/HabitCreate/MindmapCreate.client_id` → bila sudah ada baris dengan `(user_id, client_id)` kembalikan baris itu (200, bukan insert). `POST /api/lists/{id}/messages`: bila `client_id` ada dan pesan `(list_id, user_id, client_id)` sudah ada → kembalikan yang ada. DM `POST` serupa bila mudah.
 - T7: tag note berskop note: PUT menghapus semua `entity_tags` note itu (bukan hanya milik editor) lalu upsert di bawah `user_id` **pemilik** note; `_scratchpad_row` memakai `DISTINCT`.
 - S7: `MindmapCreate.list_id` (cek keanggotaan) disimpan.
-- Prinsip 7: `base_rev: Optional[str]` pada `TaskUpdate`, `ScratchpadUpdate`, `MindmapUpdate`, `DrawingUpdate` → 409 `{"detail":"REV_MISMATCH","current":<row dict>}` bila `base_rev` dikirim dan ≠ `updated_at` saat ini.
+- Prinsip 7: `base_rev: Optional[str]` pada `TaskUpdate`, `ScratchpadUpdate`, `MindmapUpdate`, `DrawingUpdate` → 409 `{"detail": {"code":"REV_MISMATCH","current":<row dict>}}` bila `base_rev` dikirim dan ≠ `updated_at` saat ini.
 - Hapus blok rute trash duplikat (±4550, dead code); pastikan `tests/test_note_trash.py::test_delete_is_atomic_when_snapshot_fails` lulus (gagal di baseline).
 - Tes pytest untuk setiap poin (idempotensi client_id, 409, share bump, quadrant tidak bump, tag note, is_focused).
 
