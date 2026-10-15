@@ -3306,3 +3306,11 @@
 - **Changes:** main tidak bergerak sejak branch dibuat (544316c), SW v414 tetap. PR #27 di-merge, deploy lewat workflow push ke main.
 - **Files Touch:** `.agents/*`
 - **Status:** Done.
+
+## [2026-10-15 21:00] - Claude (CI APK Android + review APK vs PWA)
+- **Task:** Bapak minta file APK Alurik; lalu: apakah APK dari GitHub sudah standar industri, apakah fitur/offline-first/sync sama dengan PWA, pendapat soal widget, dan apakah Tauri base terbaik.
+- **Changes:** `android.yml`: setup-android v3→v4, hapus step pin brotli, input `release` + step publish GitHub Release (pre-release `apk-<tanggal>-<sha>` + sha256), `permissions: contents: write`; `appimage.yml`/`tauri.yml`: hapus step pin brotli; `src-tauri/Cargo.lock` baru (tauri 2.12.4, brotli 9.0.0). Draft PR #29.
+- **Verifikasi:** run 38742125765 (main, sebelum fix) gagal di Setup Android SDK; run 38742682537 gagal di pin brotli (direproduksi lokal: `brotli = "^9"` required by tauri-utils 2.10.2); run 38744455078 sukses; run 38744839864 sukses + release `apk-20261015-1354-cfce2b2`. APK diperiksa: 4 ABI, META-INF/TASKFLOW.RSA, sha256 cocok; dikirim ke Bapak (zip, batas unggah 30 MiB). Catatan: log job & artifact Actions tidak bisa diunduh dari sesi Claude (blob storage diblokir) — release asset bisa.
+- **Review (ringkas):** pipeline layak sideload, belum rilis publik — versi beku 4.0.0/versionCode 4000000, gen/android regenerate+patch, keystore tanpa cadangan, tanpa AAB, token plaintext & di query string (APK), tanpa update check yang jalan. Paritas: modul offline/sync identik (bundled), tapi UI beku saat build, DB lokal terpisah per origin, SW tak terverifikasi, 3 `fetch` relatif tanpa `API_BASE`, ekspor blob download gagal di WebView, `tf_user_id` tak dicadangkan, AI flag dipaksa on. Widget: perlu kode native + snapshot offline-first; saran MVP "Hari Ini" + "Tambah cepat"; pertimbangkan Capacitor untuk Android bila roadmap widget/notifikasi/Play Store.
+- **Files Touch:** `.github/workflows/{android,appimage,tauri}.yml`, `src-tauri/Cargo.lock`, `.agents/*`
+- **Status:** Needs Review (draft PR #29, tunggu "merge dan deploy").
