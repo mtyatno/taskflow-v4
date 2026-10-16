@@ -3,6 +3,11 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+## 🔵 KEPUTUSAN ARAH MOBILE: Tauri → Capacitor (Android + iOS, widget, Play Store, App Store) — 2026-10-16 (Claude) — RENCANA, BELUM DIKERJAKAN
+- **Keputusan Bapak (2026-10-16):** target mobile = widget layar utama + Google Play + App Store; shell mobile pindah ke Capacitor, Tauri dilepas untuk mobile (tetap untuk desktop).
+- **Dokumen acuan:** "Roadmap & WBS Migrasi Mobile Alurik: Tauri → Capacitor" (Claude Docs, proyek alurik) — 9 fase F0–F8, WBS per paket kerja (ID, file, kriteria selesai, hk), prinsip ADR-007..012 (TF.native satu antarmuka; offline-first tetap satu-satunya jalur tulis; applicationId `id.web.yatno.taskflow` + keystore lama dipertahankan; versi dari SW `4.NNN.0`; token di Keystore/Keychain + refresh token; SW hanya web; proyek native di-commit), desain widget (snapshot JSON turunan + antrean aksi → outbox), kesiapan toko, risiko, urutan 16 PR. Estimasi ±57–74 hk (12–15 minggu); Android di Play ≈ minggu 6–7.
+- **Belum ada kode.** Langkah pertama bila disetujui: ADR-007..012 di `DECISIONS.md`, akun Play/Apple, cadangan keystore, halaman privasi + hapus akun, rilis Tauri Android terakhir dengan banner sinkronisasi. Catatan teknis penting: origin Capacitor Android `http://localhost` → `static/config.js` saat ini akan mengosongkan `API_BASE` (harus deteksi platform, bukan hostname); data IndexedDB APK Tauri (`tauri.localhost`) tidak terbawa ke APK Capacitor.
+
 ## 🟠 CI APK Android hidup lagi + review standar/paritas APK vs PWA — 2026-10-15 (Claude) — NEEDS REVIEW
 - **Status:** Draft PR #29 dari `claude/fix-android-ci-setup-android-v4`. Hanya CI (`.github/workflows/{android,appimage,tauri}.yml`) + `src-tauri/Cargo.lock`; tidak ada perubahan kode app/SW/CSS. Tunggu "merge dan deploy" (merge saja; deploy.yml tidak terpengaruh).
 - **Masalah:** workflow Build Android APK gagal sejak Google menghapus paket SDK `tools` (`android-actions/setup-android@v3` memasangnya default) dan `cargo update -p brotli --precise 8.0.2` ditolak (tauri-utils 2.10.2 butuh brotli ^9). Build sukses terakhir sebelum fix: 2026-08-29 (`a84ad30`) → APK lama **belum memuat PR #26 (hardening sync)**.

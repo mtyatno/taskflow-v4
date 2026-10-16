@@ -3314,3 +3314,9 @@
 - **Review (ringkas):** pipeline layak sideload, belum rilis publik — versi beku 4.0.0/versionCode 4000000, gen/android regenerate+patch, keystore tanpa cadangan, tanpa AAB, token plaintext & di query string (APK), tanpa update check yang jalan. Paritas: modul offline/sync identik (bundled), tapi UI beku saat build, DB lokal terpisah per origin, SW tak terverifikasi, 3 `fetch` relatif tanpa `API_BASE`, ekspor blob download gagal di WebView, `tf_user_id` tak dicadangkan, AI flag dipaksa on. Widget: perlu kode native + snapshot offline-first; saran MVP "Hari Ini" + "Tambah cepat"; pertimbangkan Capacitor untuk Android bila roadmap widget/notifikasi/Play Store.
 - **Files Touch:** `.github/workflows/{android,appimage,tauri}.yml`, `src-tauri/Cargo.lock`, `.agents/*`
 - **Status:** Needs Review (draft PR #29, tunggu "merge dan deploy").
+
+## [2026-10-16 07:30] - Claude (roadmap & WBS migrasi mobile Tauri → Capacitor)
+- **Task:** Bapak memutuskan target mobile = widget + Play Store + App Store dan minta roadmap + WBS detail untuk pindah dari Tauri ke Capacitor (tanpa koding/rilis).
+- **Changes:** Dokumen Claude Docs "Roadmap & WBS Migrasi Mobile Alurik: Tauri → Capacitor" (ringkasan, as-is dari repo, arsitektur target + diagram, 10 prinsip/ADR kandidat, roadmap bertanggal F0–F8, WBS ±60 paket kerja, daftar periksa paritas, desain widget Android/iOS, kesiapan toko, risiko, urutan PR). Ringkasan ditambahkan ke CURRENT_STATE.
+- **Files Touch:** `.agents/*` saja.
+- **Status:** Needs Review (menunggu keputusan Bapak: akun pribadi/badan usaha, iOS segera atau ditunda, OTA ya/tidak, perangkat uji).
