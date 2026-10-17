@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v414-paper-fit-viewer";
+const CACHE = "taskflow-v415-multi-tab-session";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",

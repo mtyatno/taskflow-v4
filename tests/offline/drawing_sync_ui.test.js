@@ -28,7 +28,7 @@ function loadSchedulePush(pushImpl) {
   const fakeSetTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
   const win = { TF: { syncpush: { pushOutbox: pushImpl } } };
   const factory = new Function("window", "navigator", "setTimeout", "clearTimeout", "__syncTransport", "runSyncExclusive",
-    "let __pushTimer = null;\n" + m[0] + "\nreturn schedulePush;");
+    "let __pushTimer = null;\nconst __tabReloading = false;\n" + m[0] + "\nreturn schedulePush;");
   const passThrough = (task) => Promise.resolve().then(task); // antrian sinkron diuji terpisah
   return { schedulePush: factory(win, { onLine: true }, fakeSetTimeout, () => {}, {}, passThrough), timers };
 }
@@ -246,8 +246,8 @@ test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan"
 });
 
 // ── Cache bust ───────────────────────────────────────────────────────────────
-test("sw.js CACHE = taskflow-v414-paper-fit-viewer (tldraw di-cache cache-first)", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v414-paper-fit-viewer";/m);
+test("sw.js CACHE = taskflow-v415-multi-tab-session (tldraw di-cache cache-first)", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v415-multi-tab-session";/m);
 });
 
 // ══ Putaran pengerasan (review independen) ══════════════════════════════════════
@@ -420,7 +420,7 @@ function loadSyncFetch(fetchImpl) {
   const timers = []; const cleared = [];
   const fakeSet = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
   const fakeClear = (id) => { cleared.push(id); };
-  const fn = new Function("window", "setTimeout", "clearTimeout", "AbortController", consts + "\n" + m[0] + "\nreturn syncFetch;")(
+  const fn = new Function("window", "setTimeout", "clearTimeout", "AbortController", consts + "\nconst __tabReloading = false;\n" + m[0] + "\nreturn syncFetch;")(
     { fetch: fetchImpl }, fakeSet, fakeClear, AbortController);
   return { fn, timers, cleared };
 }

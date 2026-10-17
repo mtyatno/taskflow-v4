@@ -3306,3 +3306,10 @@
 - **Changes:** main tidak bergerak sejak branch dibuat (544316c), SW v414 tetap. PR #27 di-merge, deploy lewat workflow push ke main.
 - **Files Touch:** `.agents/*`
 - **Status:** Done.
+
+## [2026-10-17 23:55] - Claude (sesi login koheren antar-tab + perpanjangan token)
+- **Task:** Bapak: "sudah login dan berpindah tab, kadang perlu login kembali".
+- **Changes:** Diagnosis + reproduksi Playwright (S1 tab lain tetap di form login setelah login, S2 401 basi menghapus token baru, S3 logout tidak mengeluarkan tab lain); rencana `docs/superpowers/plans/2026-10-17-multi-tab-session.md`; implementasi via subagent server (refresh token, klaim iat/auth_time/pwv, `_resolve_user` header→cookie dengan fallback akun sama) dan klien (sinkron token antar-tab, `handleAuthExpired(failedToken)`, `sharedTokenAction`, `beginTabReload`, `maybeRenewToken` + guard logout); review independen 2 putaran; ADR-007; SW v415.
+- **Verifikasi:** JS 1311/1312 (pra-ada draw_local_reactive), pytest 178/178, inline 5/5, sw OK, Playwright S1–S5 (main vs branch).
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py`, `tests/test_auth_session.py`, `tests/test_version.py`, `tests/offline/*.test.js`, `docs/superpowers/plans/2026-10-17-multi-tab-session.md`, `temporary_files/repro_multi_tab_session.py`, `.agents/*`
+- **Status:** Needs Review (draft PR #30, tunggu "merge dan deploy"; restart `taskflow-web` wajib).
