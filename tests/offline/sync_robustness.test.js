@@ -577,20 +577,27 @@ test("index.html sync(): one failing pull step does not skip the others and push
   assert.equal(r.pushed, 1);
 });
 
-test("index.html sync(): a 401 during pull goes through handleAuthExpired", async () => {
+test("index.html sync(): a 401 during pull is reported once by the transport, not again by sync()", async () => {
+  // __syncRawFetch melapor 401 ke handleAuthExpired dengan token yang dikirim; stepFailed tidak melapor lagi
+  // (laporan kedua tanpa token akan menghapus token yang baru diadopsi dari tab lain).
   const m = indexHtml.match(/function sync\(\) \{[\s\S]*?\n\}/);
   let expired = 0;
+  const calls = [];
   const win = {
     TF: {
       syncpull: { pullAndReconcile: () => Promise.reject(Object.assign(new Error("http 401"), { status: 401 })) },
-      syncpush: { pushOutbox: () => Promise.resolve({ pushed: 0 }) },
+      syncpush: { pushOutbox: () => { calls.push("push"); return Promise.resolve({ pushed: 0 }); } },
     },
     dispatchEvent() {},
   };
   const sync = new Function("window", "renderConflicts", "schedulePush", "__syncRawFetch", "__syncTransport", "runSyncExclusive", "CustomEvent", "handleAuthExpired",
     "let __syncPending = null;\n" + m[0] + "\nreturn sync;")(win, () => {}, () => {}, () => {}, {}, (task) => Promise.resolve().then(task), function () {}, () => { expired++; });
   await sync();
-  assert.equal(expired, 1);
+  assert.equal(expired, 0, "sync() tidak melaporkan 401 kedua kali");
+  assert.deepEqual(calls, ["push"], "push tetap dijalankan");
+  const raw = indexHtml.match(/const __syncRawFetch = \([\s\S]*?\n\};/);
+  assert.ok(raw);
+  assert.match(raw[0], /const tok = __token;[\s\S]*?status === 401\) handleAuthExpired\(tok\)/);
 });
 
 test("index.html: local router errors are tagged __local and isOfflineErr ignores them (S14)", () => {
@@ -618,11 +625,13 @@ test("index.html: conflict bar renders sync_error (retry / discard_local) and ac
 });
 
 test("index.html: expired-session handling never wipes local data and the login screen shows the toast", () => {
-  const hae = indexHtml.match(/function handleAuthExpired\(\) \{[\s\S]*?\n\}/);
+  const hae = indexHtml.match(/function handleAuthExpired\(failedToken\) \{[\s\S]*?\n\}/);
   assert.ok(hae);
   assert.ok(!hae[0].includes("clearLocalUserData("));
   assert.match(hae[0], /window\.__onAuthExpired/);
-  assert.match(indexHtml, /window\.addEventListener\("tf:auth-expired", handleAuthExpired\);/);
+  // satu jalur: push 401 dilaporkan __syncTransport dengan token yang dipakai (tanpa listener tf:auth-expired)
+  assert.ok(!indexHtml.includes('window.addEventListener("tf:auth-expired"'));
+  assert.match(indexHtml, /if \(r\.status === 401\) handleAuthExpired\(tok\);/);
   assert.match(indexHtml, /Sesi berakhir — masuk lagi\. Perubahan offline tetap tersimpan dan akan dikirim setelah masuk\./);
   // toast dirender juga pada cabang !user (form login)
   const loginBranch = indexHtml.match(/if \(!user\) \{\s*return \/\*#__PURE__\*\/React\.createElement\(React\.Fragment[\s\S]*?\n  \}/);

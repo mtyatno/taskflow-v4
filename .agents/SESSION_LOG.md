@@ -3320,3 +3320,16 @@
 - **Changes:** Dokumen Claude Docs "Roadmap & WBS Migrasi Mobile Alurik: Tauri → Capacitor" (ringkasan, as-is dari repo, arsitektur target + diagram, 10 prinsip/ADR kandidat, roadmap bertanggal F0–F8, WBS ±60 paket kerja, daftar periksa paritas, desain widget Android/iOS, kesiapan toko, risiko, urutan PR). Ringkasan ditambahkan ke CURRENT_STATE.
 - **Files Touch:** `.agents/*` saja.
 - **Status:** Needs Review (menunggu keputusan Bapak: akun pribadi/badan usaha, iOS segera atau ditunda, OTA ya/tidak, perangkat uji).
+
+## [2026-10-17 23:55] - Claude (sesi login koheren antar-tab + perpanjangan token)
+- **Task:** Bapak: "sudah login dan berpindah tab, kadang perlu login kembali".
+- **Changes:** Diagnosis + reproduksi Playwright (S1 tab lain tetap di form login setelah login, S2 401 basi menghapus token baru, S3 logout tidak mengeluarkan tab lain); rencana `docs/superpowers/plans/2026-10-17-multi-tab-session.md`; implementasi via subagent server (refresh token, klaim iat/auth_time/pwv, `_resolve_user` header→cookie dengan fallback akun sama) dan klien (sinkron token antar-tab, `handleAuthExpired(failedToken)`, `sharedTokenAction`, `beginTabReload`, `maybeRenewToken` + guard logout); review independen 2 putaran; ADR-007; SW v415.
+- **Verifikasi:** JS 1311/1312 (pra-ada draw_local_reactive), pytest 178/178, inline 5/5, sw OK, Playwright S1–S5 (main vs branch).
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py`, `tests/test_auth_session.py`, `tests/test_version.py`, `tests/offline/*.test.js`, `docs/superpowers/plans/2026-10-17-multi-tab-session.md`, `temporary_files/repro_multi_tab_session.py`, `.agents/*`
+- **Status:** Needs Review (draft PR #30, tunggu "merge dan deploy"; restart `taskflow-web` wajib).
+
+## [2026-10-17 23:58] - Claude (PR #30 merge & deploy)
+- **Task:** Bapak: logout A lalu login B — apakah data A muncul di B? Bila tidak, merge dan deploy.
+- **Changes:** Dicek dari kode: jalur pembersihan logout/handleLogin/tryAuth tidak berubah; PR #30 justru menutup celah multi-tab (tab lain yang masih akun A kini ikut keluar / reload sebagai B, tanpa request sampai reload; token akun lain tidak diadopsi; perpanjangan tidak menghidupkan sesi setelah logout). PR #30 ditandai ready lalu di-merge (`fcd64e3`), Deploy run #898 sukses.
+- **Files Touch:** `.agents/*`
+- **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/auth/refresh dan /api/version v415 aktif.

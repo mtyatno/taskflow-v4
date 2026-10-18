@@ -19,7 +19,7 @@ import math
 import re
 import html
 from collections import defaultdict
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Literal, Any, Dict
 from contextlib import contextmanager
@@ -162,6 +162,8 @@ def _verify_cookie(signed: str) -> str | None:
     expected = hmac.new(SECRET_KEY.encode(), slug.encode(), "sha256").hexdigest()[:24]
     return slug if hmac.compare_digest(h, expected) else None
 JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "72"))
+# Batas absolut sesi sejak login password; /api/auth/refresh menolak memperpanjang lewat dari ini
+SESSION_MAX_DAYS = int(os.getenv("SESSION_MAX_DAYS", "30"))
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
 
@@ -840,12 +842,24 @@ def verify_password(password: str, stored: str) -> bool:
 
 # ── JWT helpers ────────────────────────────────────────────────────────────────
 
-def create_token(user_id: int, username: str) -> str:
+def _pw_fingerprint(password_hash: str) -> str:
+    """Sidik jari pendek hash password — klaim `pwv`, berubah saat password diganti."""
+    return hashlib.sha256((password_hash or "").encode()).hexdigest()[:16]
+
+
+def create_token(user_id: int, username: str, auth_time: int = None, pwv: str = None) -> str:
+    now = datetime.now(timezone.utc)
+    iat = int(now.timestamp())
     payload = {
         "sub": str(user_id),
         "username": username,
-        "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS),
+        "iat": iat,
+        # auth_time = saat login password; dibawa terus oleh refresh (batas SESSION_MAX_DAYS)
+        "auth_time": int(auth_time) if auth_time is not None else iat,
+        "exp": now + timedelta(hours=JWT_EXPIRE_HOURS),
     }
+    if pwv:
+        payload["pwv"] = pwv
     return jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
@@ -870,18 +884,7 @@ def decode_token(token: str) -> dict:
 
 # ── Auth dependency ────────────────────────────────────────────────────────────
 
-async def _resolve_user(request: Request, allow_query: bool) -> dict:
-    token = request.cookies.get("token")
-    if not token:
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
-    if not token and allow_query:
-        # EventSource (SSE) cannot send the Authorization header cross-origin (Tauri desktop),
-        # so the stream endpoint also accepts the token as a query param. Scoped to SSE only.
-        token = request.query_params.get("token")
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+def _validate_token(token: str) -> dict:
     data = decode_token(token)
     data["sub"] = int(data["sub"])
     if data.get("scope") == "ext":
@@ -892,6 +895,50 @@ async def _resolve_user(request: Request, allow_query: bool) -> dict:
         if not row:
             raise HTTPException(status_code=401, detail="Token sudah direvoke")
     return data
+
+
+def _unverified_sub(token: str):
+    """sub dari payload tanpa cek tanda tangan/exp; None bila tak terbaca."""
+    try:
+        data = jwt.decode(token, options={"verify_signature": False, "verify_exp": False})
+        return int(data["sub"])
+    except Exception:
+        return None
+
+
+async def _resolve_user(request: Request, allow_query: bool) -> dict:
+    # Urutan: header Bearer (identitas tab ini) → cookie → query. Cookie dipakai bersama
+    # semua tab, jadi tidak boleh menimpa header; kandidat rusak/expired dilewati.
+    candidates = []
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and auth[7:].strip():
+        candidates.append(auth[7:].strip())
+    cookie_tok = request.cookies.get("token")
+    if cookie_tok:
+        candidates.append(cookie_tok)
+    if allow_query:
+        # EventSource (SSE) cannot send the Authorization header cross-origin (Tauri desktop),
+        # so the stream endpoint also accepts the token as a query param. Scoped to SSE only.
+        q_tok = request.query_params.get("token")
+        if q_tok:
+            candidates.append(q_tok)
+    seen = set()
+    candidates = [t for t in candidates if not (t in seen or seen.add(t))]
+    if not candidates:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    # Identitas yang diklaim kandidat pertama (sub tanpa verifikasi). Fallback hanya
+    # boleh ke token akun yang SAMA — cookie bisa milik akun lain dari tab lain.
+    claimed = _unverified_sub(candidates[0])
+    first_err = None
+    for i, tok in enumerate(candidates):
+        try:
+            data = _validate_token(tok)
+        except HTTPException as e:
+            first_err = first_err or e
+            continue
+        if i == 0 or claimed is None or data["sub"] == claimed:
+            return data
+    raise first_err
 
 
 async def get_current_user(request: Request) -> dict:
@@ -1360,13 +1407,14 @@ async def register(req: RegisterReq, response: Response):
             raise HTTPException(status_code=400, detail="Email sudah terdaftar")
 
         now = datetime.now().isoformat()
+        ph = hash_password(req.password)
         cur = conn.execute(
             "INSERT INTO users (username, password_hash, display_name, email, created_at) VALUES (?,?,?,?,?)",
-            (req.username, hash_password(req.password), req.display_name or req.username, email, now),
+            (req.username, ph, req.display_name or req.username, email, now),
         )
         user_id = cur.lastrowid
 
-    token = create_token(user_id, req.username)
+    token = create_token(user_id, req.username, pwv=_pw_fingerprint(ph))
     response.set_cookie("token", token, httponly=True, samesite="lax", max_age=JWT_EXPIRE_HOURS * 3600)
     return {"user_id": user_id, "username": req.username, "email": email, "token": token}
 
@@ -1378,7 +1426,7 @@ async def login(req: LoginReq, response: Response):
         if not user or not verify_password(req.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Username atau password salah")
 
-    token = create_token(user["id"], user["username"])
+    token = create_token(user["id"], user["username"], pwv=_pw_fingerprint(user["password_hash"]))
     response.set_cookie("token", token, httponly=True, samesite="lax", max_age=JWT_EXPIRE_HOURS * 3600)
     return {"user_id": user["id"], "username": user["username"], "display_name": user["display_name"], "email": user["email"], "token": token}
 
@@ -1392,6 +1440,37 @@ async def get_me(user=Depends(get_current_user)):
     result = dict(row)
     result["telegram_linked"] = bool(result.pop("telegram_id"))
     return result
+
+
+@app.post("/api/auth/refresh")
+async def refresh_token(request: Request, response: Response, user=Depends(get_current_user)):
+    """Perpanjangan geser untuk klien web/app: dipanggil saat umur token ≥1/3 masa
+    berlakunya. Batas absolut SESSION_MAX_DAYS sejak login password (auth_time);
+    ditolak bila password sudah diganti. Tanpa revokasi token lama, jadi refresh
+    bersamaan dari beberapa tab aman. Cookie hanya diperbarui bila request membawa
+    cookie `token` (SPA web) — klien header-saja (Tauri) tak butuh, dan refresh
+    setelah logout tidak menghidupkan lagi cookie yang sudah dihapus."""
+    if user.get("scope") == "ext":
+        raise HTTPException(status_code=403, detail="Token ekstensi tidak bisa diperpanjang")
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, username, password_hash FROM users WHERE id = ?", (user["sub"],)
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=401, detail="User not found")
+    pwv = _pw_fingerprint(row["password_hash"])
+    if user.get("pwv") and user["pwv"] != pwv:
+        raise HTTPException(status_code=401, detail="Password sudah diganti — masuk lagi")
+    auth_time = user.get("auth_time")
+    if auth_time is None:
+        # token lama tanpa auth_time: perkirakan dari exp
+        auth_time = int(user["exp"]) - JWT_EXPIRE_HOURS * 3600
+    if int(_time.time()) - int(auth_time) > SESSION_MAX_DAYS * 86400:
+        return {"renewed": False, "reason": "max_age"}
+    token = create_token(row["id"], row["username"], auth_time=auth_time, pwv=pwv)
+    if request.cookies.get("token"):
+        response.set_cookie("token", token, httponly=True, samesite="lax", max_age=JWT_EXPIRE_HOURS * 3600)
+    return {"renewed": True, "token": token, "expires_in": JWT_EXPIRE_HOURS * 3600}
 
 
 @app.post("/api/auth/telegram-link-token")
@@ -1600,10 +1679,10 @@ async def magic_login(token: str):
             </body></html>
         """, status_code=400)
     with get_db() as conn:
-        row = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT username, password_hash FROM users WHERE id = ?", (user_id,)).fetchone()
     if not row:
         return _HTML("<html><body>User tidak ditemukan.</body></html>", status_code=400)
-    jwt_token = create_token(user_id, row["username"])
+    jwt_token = create_token(user_id, row["username"], pwv=_pw_fingerprint(row["password_hash"]))
     response = RedirectResponse(url="/", status_code=302)
     response.set_cookie("token", jwt_token, httponly=True, max_age=JWT_EXPIRE_HOURS * 3600, samesite="lax")
     return response
@@ -3530,7 +3609,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v414-paper-fit-viewer"
+    sw_cache = "taskflow-v415-multi-tab-session"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

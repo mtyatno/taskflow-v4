@@ -322,23 +322,81 @@ const {
   useContext
 } = React;
 
-// ── Token storage (simple variable + localStorage) ────────
+// ── Token storage ─────────────────────────────────────────
+// localStorage.tf_token = sumber kebenaran bersama semua tab; __token = cache per tab, disinkronkan
+// (event storage + baca ulang saat visibilitychange/focus/pageshow, lihat onSharedTokenChanged).
 let __token = localStorage.getItem("tf_token") || null;
+// Tab akan reload (akun lain masuk di tab lain, C1): sampai unload tidak ada request berkredensial — baik
+// header (__token) maupun cookie bersama (server memakai cookie bila header kosong = akun lain).
+let __tabReloading = false;
+function beginTabReload() {
+  __tabReloading = true;
+  __token = null;
+  try { window.location.reload(); } catch (_) {}
+}
+// I3: setItem gagal (kuota / mode privat) → localStorage berisi nilai basi; jangan disinkronkan/diadopsi
+let __tokenWriteFailed = false;
+function readStoredToken() {
+  try {
+    return localStorage.getItem("tf_token") || null;
+  } catch (e) {
+    return __token;
+  }
+}
 const tokenStore = {
   get: () => __token,
   set: t => {
     __token = t;
     try {
       localStorage.setItem("tf_token", t);
-    } catch (e) {}
+      __tokenWriteFailed = false;
+    } catch (e) {
+      __tokenWriteFailed = true;
+    }
   },
   clear: () => {
     __token = null;
     try {
       localStorage.removeItem("tf_token");
+      __tokenWriteFailed = false;
+    } catch (e) {}
+  },
+  // adopsi nilai localStorage (tab lain login/logout/perpanjang) → true bila berubah
+  syncFromStorage: () => {
+    if (__tokenWriteFailed) return false;
+    const stored = readStoredToken();
+    if (stored === __token) return false;
+    __token = stored;
+    return true;
+  },
+  // hapus localStorage hanya bila isinya masih token t (jangan hapus token baru milik tab lain, S2)
+  clearIfStored: t => {
+    __token = null;
+    try {
+      if (t && localStorage.getItem("tf_token") === t) localStorage.removeItem("tf_token");
     } catch (e) {}
   }
 };
+// Payload JWT (base64url) → objek; null bila gagal
+function tokenPayload(t) {
+  try {
+    const seg = String(t).split(".")[1];
+    if (!seg) return null;
+    let b64 = seg.replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) b64 += "=";
+    const bin = atob(b64);
+    let json;
+    try {
+      json = decodeURIComponent(Array.prototype.map.call(bin, c => "%" + ("0" + c.charCodeAt(0).toString(16)).slice(-2)).join(""));
+    } catch (_) {
+      json = bin;
+    }
+    const p = JSON.parse(json);
+    return p && typeof p === "object" ? p : null;
+  } catch (e) {
+    return null;
+  }
+}
 
 // ── Offline — IndexedDB ─────────────────────────────────────
 const OfflineDB = (() => {
@@ -567,12 +625,16 @@ const api = {
       "Content-Type": "application/json",
       ...(opts.headers || {})
     };
-    if (__token) headers["Authorization"] = "Bearer " + __token;
+    if (__tabReloading) throw new TypeError("Failed to fetch (tab reloading)");
+    // token yang benar-benar dikirim request ini (401 dilaporkan dengan token ini, bukan token terkini)
+    const reqToken = __token;
+    if (reqToken) headers["Authorization"] = "Bearer " + reqToken;
+    const { __authRetried, ...fetchOpts } = opts;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
       const res = await fetch(apiUrl(url), {
-        ...opts,
+        ...fetchOpts,
         headers,
         signal: controller.signal
       });
@@ -581,7 +643,9 @@ const api = {
         // K1: sesi berakhir ≠ ganti pengguna — satu jalur (handleAuthExpired): hapus token, tampilkan login,
         // IndexedDB/outbox TIDAK dihapus. (Dulu token dihapus dulu lalu logout dipanggil, padahal logout
         // langsung return bila token kosong → sesi "zombie".)
-        if (typeof window.__handleAuthExpired === "function") window.__handleAuthExpired();
+        // Tab lain sudah login / token diperpanjang → token baru diadopsi, ulangi SEKALI (tanpa form login).
+        const adopted = typeof window.__handleAuthExpired === "function" ? window.__handleAuthExpired(reqToken) : false;
+        if (adopted === true && !__authRetried) return api.fetch(url, { ...fetchOpts, __authRetried: true });
         const e401 = new Error("Unauthorized");
         e401.status = 401;
         throw e401;
@@ -652,6 +716,8 @@ const SYNC_FETCH_TIMEOUT_MS = 30000;
 const SYNC_UPLOAD_MAX_MS = 600000; // batas atas untuk upload besar di jaringan lambat (10 menit)
 const DRAWING_FETCH_TIMEOUT_MS = 8000; // buka gambar: interaktif → jatuh ke data lokal lebih cepat
 function syncFetch(url, opts, timeoutMs) {
+  // tab akan reload → tolak seperti jaringan putus (syncpush: __network → drain berhenti, op tetap)
+  if (__tabReloading) return Promise.reject(new TypeError("Failed to fetch (tab reloading)"));
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   let ms = timeoutMs || SYNC_FETCH_TIMEOUT_MS;
   const body = opts && opts.body;
@@ -665,12 +731,20 @@ function syncFetch(url, opts, timeoutMs) {
 }
 
 // ── Offline push (TF.syncpush) — raw-fetch transport bypasses the api intercept ──
+// 401 dilaporkan ke handleAuthExpired dengan token yang dikirim (satu laporan per request); respons tetap
+// dikembalikan apa adanya → syncpush tetap menghentikan drain dan menyimpan op.
 const __syncTransport = {
-  request: (method, path, body) => syncFetch(apiUrl(path), {
-    method,
-    headers: Object.assign({ "Content-Type": "application/json", "X-TF-Sync": "1" }, __token ? { Authorization: "Bearer " + __token } : {}),
-    body: body != null ? JSON.stringify(body) : undefined,
-  }).then(r => r.text().then(t => ({ status: r.status, data: t ? JSON.parse(t) : null }))),
+  request: (method, path, body) => {
+    const tok = __token;
+    return syncFetch(apiUrl(path), {
+      method,
+      headers: Object.assign({ "Content-Type": "application/json", "X-TF-Sync": "1" }, tok ? { Authorization: "Bearer " + tok } : {}),
+      body: body != null ? JSON.stringify(body) : undefined,
+    }).then(r => {
+      if (r.status === 401) handleAuthExpired(tok);
+      return r.text().then(t => ({ status: r.status, data: t ? JSON.parse(t) : null }));
+    });
+  },
 };
 
 // ── Antrian sinkron tunggal: sync() (pull→push), push terjadwal & __pushNow tidak pernah tumpang tindih ──
@@ -693,7 +767,7 @@ function runSyncExclusive(task) {
 
 let __pushTimer = null;
 function schedulePush() {
-  if (!navigator.onLine || !(window.TF && window.TF.syncpush)) return;
+  if (__tabReloading || !navigator.onLine || !(window.TF && window.TF.syncpush)) return;
   clearTimeout(__pushTimer);
   __pushTimer = setTimeout(() => {
     runSyncExclusive(() => window.TF.syncpush.pushOutbox(__syncTransport))
@@ -706,8 +780,13 @@ window.__pushNow = () => (window.TF && window.TF.syncpush) ? runSyncExclusive(()
 window.addEventListener("tf:outbox-queued", () => schedulePush());
 const __syncRawFetch = (u, timeoutMs) => {
   const headers = { "X-TF-Sync": "1" };
-  if (__token) headers.Authorization = "Bearer " + __token;
-  return syncFetch(apiUrl(u), { headers }, timeoutMs);
+  const tok = __token;
+  if (tok) headers.Authorization = "Bearer " + tok;
+  // pull tetap throw {status:401} sendiri; laporan sesi di sini (dengan token yang dikirim)
+  return syncFetch(apiUrl(u), { headers }, timeoutMs).then(r => {
+    if (r && r.status === 401) handleAuthExpired(tok);
+    return r;
+  });
 };
 // Dipakai editor (poll note bersama, T5): baca server langsung, network-only, tanpa router lokal / cache SW
 window.__syncRawFetch = __syncRawFetch;
@@ -727,20 +806,148 @@ if (window.TF && window.TF.chatrepo) {
     __syncRawFetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error("http " + r.status)))));
 }
 // ── Sesi berakhir (401) ≠ ganti pengguna (K1) ──
-// Satu jalur untuk api.fetch 401, tryAuth 401, dan push 401 (event tf:auth-expired dari syncpush):
-// hapus token (+ cadangan native), tampilkan form login, toast. IndexedDB/outbox TIDAK dihapus — perubahan
-// offline dikirim setelah masuk lagi dengan akun yang sama (handleLogin membersihkan hanya bila akunnya beda).
-function handleAuthExpired() {
-  // token sudah kosong = sudah ditangani (beberapa request paralel sama-sama 401) atau memang belum login
-  if (!tokenStore.get()) return;
-  tokenStore.clear();
+// Satu jalur untuk api.fetch 401, tryAuth 401, push 401 (__syncTransport) dan pull 401 (__syncRawFetch),
+// masing-masing dengan token yang DIKIRIM request itu (failedToken; undefined = token tab ini sekarang).
+// - localStorage berisi token lain AKUN SAMA (tab lain login / token diperpanjang setelah request dikirim)
+//   → adopsi, return true (pemanggil boleh mengulang), tidak ada form login, tidak ada yang dihapus (S2).
+// - token akun lain / tak terbaca → serahkan ke onSharedTokenChanged (App: reload/restore), return false
+//   (C1: request & outbox akun X tidak boleh dikirim ulang sebagai Y).
+// - selain itu: hapus token (hanya bila masih token yang gagal) + cadangan native, form login, toast.
+// IndexedDB/outbox TIDAK dihapus — perubahan offline dikirim setelah masuk lagi dengan akun yang sama
+// (handleLogin membersihkan hanya bila akunnya beda).
+function handleAuthExpired(failedToken) {
+  if (__tabReloading) return false;
+  const used = failedToken === undefined ? tokenStore.get() : failedToken;
+  const stored = __tokenWriteFailed ? null : readStoredToken(); // I3: nilai tersimpan basi
+  if (stored && stored !== used) {
+    const sp = tokenPayload(stored), up = tokenPayload(used);
+    const sameUser = !!(sp && up && sp.sub != null && up.sub != null && String(sp.sub) === String(up.sub));
+    if (!sameUser) {
+      onSharedTokenChanged();
+      return false;
+    }
+    tokenStore.syncFromStorage();
+    try { if (typeof schedulePush === "function") schedulePush(); } catch (_) {}
+    return true;
+  }
+  // tab ini sudah memegang token yang lebih baru (mis. hasil login di tab ini, localStorage diblokir)
+  if (tokenStore.get() && used && tokenStore.get() !== used) return true;
+  // tidak ada token sama sekali = sudah ditangani (beberapa request paralel sama-sama 401) atau belum login
+  if (!tokenStore.get() && !stored) return false;
+  tokenStore.clearIfStored(used);
   if (typeof API_BASE !== "undefined" && API_BASE && window.__TAURI__?.core?.invoke) {
     window.__TAURI__.core.invoke("delete_token").catch(() => {});
   }
   try { if (typeof window.__onAuthExpired === "function") window.__onAuthExpired(); } catch (_) {}
+  return false;
 }
 window.__handleAuthExpired = handleAuthExpired;
-window.addEventListener("tf:auth-expired", handleAuthExpired);
+// Tidak ada listener tf:auth-expired: push 401 sudah dilaporkan __syncTransport dengan token yang tepat;
+// laporan kedua tanpa token akan menghapus token yang baru saja diadopsi.
+
+// ── Token berubah di tab lain (S1/S3) ──
+// Aksi untuk tab ini: "reload" | "expire" | "restore" | "none" (fungsi murni, diuji).
+function sharedTokenAction(token, currentUserId, lastUserId, storedUserId) {
+  if (!token) {
+    if (currentUserId == null) return "none"; // sudah di form login
+    // tf_user_id masih ada → sesi berakhir di tab lain; logout manual menghapus tf_user_id (+ IndexedDB)
+    return storedUserId ? "expire" : "reload";
+  }
+  const p = tokenPayload(token);
+  const sub = p && p.sub != null ? String(p.sub) : null;
+  if (currentUserId != null) {
+    // akun lain masuk di tab lain (data lokal sudah dibersihkan untuknya) → reload; perpanjangan / akun sama → none
+    return sub && sub !== String(currentUserId) ? "reload" : "none";
+  }
+  // tab ini di form login: akun sama (atau belum pernah masuk di tab ini) → pulihkan sesi tanpa login
+  if (lastUserId != null && sub && sub !== String(lastUserId)) return "reload";
+  return "restore";
+}
+function onSharedTokenChanged() {
+  if (__tabReloading) return false;
+  const prev = tokenStore.get();
+  if (!tokenStore.syncFromStorage()) return false;
+  const next = tokenStore.get();
+  try { if (typeof window.__onSharedTokenChanged === "function") window.__onSharedTokenChanged(next, prev); } catch (_) {}
+  return true;
+}
+
+// ── Perpanjangan token (sliding) ──
+// Token berumur ≥ 1/3 masa berlaku (24 jam dari 72) diganti lewat POST /api/auth/refresh saat app dipakai.
+// Batas absolut (30 hari sejak login password) ditegakkan server → {renewed:false}. Semua error diabaikan.
+const TOKEN_RENEW_THROTTLE_MS = 10 * 60 * 1000;
+const TOKEN_RENEW_CHECK_MS = 60 * 60 * 1000;
+const TOKEN_DEFAULT_LIFETIME_MS = 72 * 60 * 60 * 1000;
+function tokenRenewDue(payload, nowMs) {
+  if (!payload || typeof payload.exp !== "number") return false;
+  const remaining = payload.exp * 1000 - nowMs;
+  if (remaining <= 0) return false; // sudah kedaluwarsa → tidak bisa diperpanjang
+  const lifetime = typeof payload.iat === "number" && payload.exp > payload.iat ? (payload.exp - payload.iat) * 1000 : TOKEN_DEFAULT_LIFETIME_MS;
+  return lifetime - remaining >= lifetime / 3;
+}
+let __tokenRenewInFlight = null;
+function maybeRenewToken() {
+  if (__tokenRenewInFlight) return __tokenRenewInFlight;
+  if (__tabReloading) return Promise.resolve(false);
+  const tok = tokenStore.get();
+  if (!tok || (typeof navigator !== "undefined" && navigator.onLine === false)) return Promise.resolve(false);
+  if (!tokenRenewDue(tokenPayload(tok), Date.now())) return Promise.resolve(false);
+  // throttle antar-tab: satu tab saja yang memperpanjang (tab lain menerima token lewat event storage)
+  try {
+    const last = Number(localStorage.getItem("tf_token_renew_at")) || 0;
+    if (Date.now() - last < TOKEN_RENEW_THROTTLE_MS) return Promise.resolve(false);
+    localStorage.setItem("tf_token_renew_at", String(Date.now()));
+  } catch (_) {}
+  const startedAt = Date.now();
+  const p = Promise.resolve().then(() => window.fetch(apiUrl("/api/auth/refresh"), {
+    method: "POST",
+    headers: { Authorization: "Bearer " + tok }
+  })).then(r => (r && r.ok ? r.json() : null)).then(d => {
+    // token berganti saat in-flight (login/logout/adopsi) → jangan ditimpa
+    if (!(d && d.token) || tokenStore.get() !== tok || readStoredToken() !== tok) return false;
+    // C2: logout (tab ini / tab lain) dimulai setelah request → jangan hidupkan sesi lagi
+    if (__logoutInProgress || __tabReloading) return false;
+    let logoutAt = 0;
+    try { logoutAt = Number(localStorage.getItem("tf_logout_at")) || 0; } catch (_) {}
+    if (logoutAt >= startedAt) return false;
+    tokenStore.set(d.token);
+    if (typeof API_BASE !== "undefined" && API_BASE && window.__TAURI__?.core?.invoke) {
+      window.__TAURI__.core.invoke("save_token", { token: d.token }).catch(() => {});
+    }
+    return true;
+  }).catch(() => false).then(ok => {
+    __tokenRenewInFlight = null;
+    return ok;
+  });
+  __tokenRenewInFlight = p;
+  return p;
+}
+// C2: logout manual menunggu perpanjangan in-flight dan menandai tf_logout_at (dibaca tab lain)
+let __logoutInProgress = false;
+function beginLogoutGuard() {
+  __logoutInProgress = true;
+  try { localStorage.setItem("tf_logout_at", String(Date.now())); } catch (_) {}
+  return __tokenRenewInFlight || Promise.resolve();
+}
+function endLogoutGuard() {
+  __logoutInProgress = false;
+}
+window.__maybeRenewToken = maybeRenewToken;
+// Listener level atas (terpasang sebelum React mount → jalan sebelum visibilitychange → fetchAll milik App)
+window.addEventListener("storage", e => {
+  if (e.key !== "tf_token" && e.key !== null) return;
+  if (typeof localStorage !== "undefined" && e.storageArea && e.storageArea !== localStorage) return;
+  onSharedTokenChanged();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  onSharedTokenChanged();
+  maybeRenewToken();
+});
+window.addEventListener("focus", () => onSharedTokenChanged());
+window.addEventListener("pageshow", () => onSharedTokenChanged());
+window.addEventListener("online", () => maybeRenewToken());
+setInterval(maybeRenewToken, TOKEN_RENEW_CHECK_MS);
 
 let __syncPending = null; // sync() yang sudah antre tapi belum mulai (pemanggilan berikutnya digabung)
 function sync() {
@@ -748,8 +955,9 @@ function sync() {
   if (__syncPending) return __syncPending;
   // Prinsip 5: tiap langkah pull terisolasi — gagal satu (503 OFFLINE, 401, 5xx; pull* kini throw bila !ok)
   // tidak melewati langkah lain, dan push outbox SELALU dijalankan di akhir (dulu error pull pertama
-  // menghentikan seluruh rantai tanpa push). 401 saat pull → jalur sesi berakhir yang sama.
-  const stepFailed = (e) => { if (e && e.status === 401 && typeof handleAuthExpired === "function") handleAuthExpired(); return null; };
+  // menghentikan seluruh rantai tanpa push). 401 saat pull/push sudah dilaporkan transport (__syncRawFetch /
+  // __syncTransport) dengan token yang dipakai; laporan kedua tanpa token akan menghapus token yang baru diadopsi.
+  const stepFailed = () => null;
   const step = (fn) => Promise.resolve().then(fn).catch(stepFailed);
   const pending = runSyncExclusive(() => { __syncPending = null; return window.TF.syncpull.pullAndReconcile(__syncRawFetch).catch(stepFailed)
     // T8: penanda occurrence task berulang (jendela ±60 hari) — setelah tasks supaya idmap task sudah terisi
@@ -792,7 +1000,7 @@ function sync() {
         return drawRes;
       });
     }))
-    .then(() => window.TF.syncpush.pushOutbox(__syncTransport)) // 401 di sini → drain berhenti, op tetap, event tf:auth-expired
+    .then(() => window.TF.syncpush.pushOutbox(__syncTransport)) // 401 di sini → drain berhenti, op tetap; transport melapor ke handleAuthExpired
     .then((r) => { if (r && r.busy) schedulePush(); renderConflicts(); return r; })
     .catch(() => { renderConflicts(); return null; }); });
   __syncPending = pending;
@@ -19030,7 +19238,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v414-paper-fit-viewer"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v415-multi-tab-session"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -30360,6 +30568,13 @@ function App() {
     return () => window.removeEventListener("appupdateavailable", onUpdateAvailable);
   }, []);
   const [user, setUser] = useState(null);
+  // dibaca handler token antar-tab (window.__onSharedTokenChanged); lastUserIdRef = id terakhir yang masuk di tab ini
+  const userRef = useRef(null);
+  const lastUserIdRef = useRef(null);
+  useEffect(() => {
+    userRef.current = user;
+    if (user && user.id != null) lastUserIdRef.current = user.id;
+  }, [user]);
   const [theme, setTheme] = useState(() => localStorage.getItem('tf_theme') || 'light');
   const toggleTheme = useCallback(() => {
     setTheme(prev => {
@@ -30462,10 +30677,19 @@ function App() {
     let pending = 0;
     if (navigator.onLine && window.__pushNow) {
       try {
-        const r = await window.__pushNow();
+        let r = await window.__pushNow();
         if (r && typeof r.remaining === "number" && r.remaining > 0) pending = r.remaining;
-        if (r && r.authExpired && pending > 0) {
-          // sesi berakhir: handleAuthExpired sudah menampilkan form login; data lokal dipertahankan → batal logout
+        if (r && r.authExpired && tokenStore.get()) {
+          // 401 berakhir dengan adopsi token baru akun sama (tab lain login/perpanjang) → kirim ulang sekali.
+          // Token akun lain / tab akan reload → batal logout (reload sudah dijadwalkan).
+          const adoptedSub = tokenPayload(tokenStore.get())?.sub;
+          const curId = userRef.current?.id;
+          if (__tabReloading || adoptedSub == null || curId == null || String(adoptedSub) !== String(curId)) return;
+          r = await window.__pushNow();
+          pending = r && typeof r.remaining === "number" && r.remaining > 0 ? r.remaining : 0;
+        }
+        if (r && r.authExpired && !tokenStore.get() && pending > 0) {
+          // sesi benar-benar berakhir: handleAuthExpired sudah menampilkan form login; data lokal dipertahankan → batal logout
           return;
         }
       } catch (_) {}
@@ -30476,34 +30700,40 @@ function App() {
       const ok = window.confirm(`Masih ada ${pending} perubahan offline yang belum terkirim ke server. Keluar sekarang akan menghapusnya dari perangkat ini. Tetap keluar?`);
       if (!ok) return;
     }
+    // C2: mulai di sini (setelah semua konfirmasi) — tunggu perpanjangan in-flight, tandai tf_logout_at untuk tab lain
+    try { await beginLogoutGuard(); } catch (_) {}
     try {
-      await api.post("/api/auth/logout", {});
-    } catch (e) {}
-    await clearLocalUserData();
-    tokenStore.clear();
-    // Also remove from native filesystem backup
-    if (API_BASE && window.__TAURI__?.core?.invoke) {
-      window.__TAURI__.core.invoke("delete_token").catch(() => {});
+      try {
+        await api.post("/api/auth/logout", {});
+      } catch (e) {}
+      await clearLocalUserData();
+      tokenStore.clear();
+      // Also remove from native filesystem backup
+      if (API_BASE && window.__TAURI__?.core?.invoke) {
+        window.__TAURI__.core.invoke("delete_token").catch(() => {});
+      }
+      initialLoad.current = true;
+      setUser(null);
+      setTasks([]);
+      setSharedLists([]);
+      setProjects([]);
+      setContexts([]);
+      setCollaborators([]);
+      setNotifications([]);
+      setUnreadCount(0);
+      setFocusTaskId(null);
+      setTaskPomodoros({});
+      setSummary({
+        by_status: {},
+        by_quadrant: {},
+        overdue: 0,
+        total_active: 0,
+        total_done: 0
+      });
+      setPage("dashboard");
+    } finally {
+      endLogoutGuard();
     }
-    initialLoad.current = true;
-    setUser(null);
-    setTasks([]);
-    setSharedLists([]);
-    setProjects([]);
-    setContexts([]);
-    setCollaborators([]);
-    setNotifications([]);
-    setUnreadCount(0);
-    setFocusTaskId(null);
-    setTaskPomodoros({});
-    setSummary({
-      by_status: {},
-      by_quadrant: {},
-      overdue: 0,
-      total_active: 0,
-      total_done: 0
-    });
-    setPage("dashboard");
   }, []);
   window.__logout = logout;
   window.__showToast = showToast;
@@ -30511,7 +30741,7 @@ function App() {
 
   // Check existing session on mount
   const [authChecked, setAuthChecked] = useState(!tokenStore.get());
-  // K1: dipanggil handleAuthExpired (api.fetch 401 / tryAuth 401 / push 401 via tf:auth-expired):
+  // K1: dipanggil handleAuthExpired (401 api.fetch / tryAuth / transport sinkron, token masih token tersimpan):
   // kembali ke form login TANPA menghapus data lokal; toast menjelaskan bahwa perubahan offline aman.
   const onAuthExpired = useCallback(() => {
     initialLoad.current = true;
@@ -30533,6 +30763,8 @@ function App() {
       }
       if (token) {
         api.get("/api/auth/me").then(async u => {
+          // sesi aktif → perpanjang token bila sudah berumur ≥ 1/3 masa berlaku
+          if (typeof maybeRenewToken === "function") maybeRenewToken();
           const prevUserId = localStorage.getItem("tf_user_id");
           if (prevUserId && String(prevUserId) !== String(u.id)) {
             await clearLocalUserData();
@@ -30553,8 +30785,14 @@ function App() {
             // K1: token kedaluwarsa (72 jam) ≠ ganti pengguna — JANGAN clearLocalUserData (menghapus outbox &
             // edit offline). Cukup hapus token + tampilkan login; data lokal dikirim setelah masuk lagi.
             // Akun berbeda saat login → handleLogin yang membersihkan.
-            if (typeof window.__handleAuthExpired === "function") window.__handleAuthExpired();
-            else tokenStore.clear();
+            // Token yang dipakai = token; tab lain sudah login → token baru diadopsi, cek ulang tanpa form login.
+            const adopted = typeof window.__handleAuthExpired === "function" ? window.__handleAuthExpired(token) : (tokenStore.clear(), false);
+            if (adopted === true) {
+              tryAuth();
+              return;
+            }
+            // token akun lain diserahkan ke handler App (restore / reload) → jangan tampilkan form login
+            if (tokenStore.get()) return;
             setShowForm(false);
             setAuthChecked(true);
             return;
@@ -30580,8 +30818,25 @@ function App() {
         });
       }
     };
+    // dipanggil ulang saat tab lain login dengan akun yang sama (sharedTokenAction "restore")
+    window.__restoreSession = () => tryAuth();
     tryAuth();
   }, []);
+  // Token berubah di tab lain (event storage / tab kembali aktif): login, logout, sesi berakhir, perpanjangan
+  useEffect(() => {
+    const handler = token => {
+      let storedUserId = null;
+      try { storedUserId = localStorage.getItem("tf_user_id"); } catch (_) {}
+      const action = sharedTokenAction(token, userRef.current?.id ?? null, lastUserIdRef.current, storedUserId);
+      if (action === "reload") beginTabReload();
+      else if (action === "expire") onAuthExpired();
+      else if (action === "restore" && typeof window.__restoreSession === "function") window.__restoreSession();
+    };
+    window.__onSharedTokenChanged = handler;
+    return () => {
+      if (window.__onSharedTokenChanged === handler) window.__onSharedTokenChanged = null;
+    };
+  }, [onAuthExpired]);
 
   // Handle ?reset_token=<token> dari link email reset password
   const [resetToken, setResetToken] = useState(() => {
@@ -32243,7 +32498,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v414-paper-fit-viewer";
+    window.__SW_VERSION = "taskflow-v415-multi-tab-session";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
