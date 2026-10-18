@@ -76,9 +76,12 @@ test("verifyStructure checks nesting (R7)", () => {
   const t1 = T(md1); t1.children.reverse(); const r1 = NM.applyMindData(md1, P(md1), t1);
   assert.equal(r1.markdown, "# B\ny\n## A\nx\n");
   assert.equal(NM.verifyStructure(r1.markdown, t1), false);
+  // (Sebelum R10 kasus ini menambah node baru "### N" di bawah R; kini node baru
+  // mengikuti saudara sebelumnya ("## N", lihat tes R10). Kasus sarang yang tetap
+  // harus ditolak: menukar urutan x/y yang levelnya tidak rata.)
   const md2 = "# R\n### x\n## y\n";
-  const t2 = T(md2); t2.children[0].children.push({ id: "n", topic: "N", children: [] }); const r2 = NM.applyMindData(md2, P(md2), t2);
-  assert.equal(r2.markdown, "# R\n### x\n## y\n\n### N\n");
+  const t2 = T(md2); t2.children[0].children.reverse(); const r2 = NM.applyMindData(md2, P(md2), t2);
+  assert.equal(r2.markdown, "# R\n## y\n### x\n");
   assert.equal(NM.verifyStructure(r2.markdown, t2), false);
 });
 test("broken trees are rejected with BAD_TREE", () => {
@@ -119,4 +122,19 @@ test("topic ending in whitespace + #s reads back as the same text", () => {
     assert.equal(NM.verifyStructure(r.markdown, t), true, topic);
   }
   const t = T(BASE); t.children[1].topic = "C #"; assert.equal(NM.applyMindData(BASE, P(BASE), t).markdown, "Intro\n# A\nisi a\n## B\nisi b\n# C # #\nisi c\n");
+});
+test("R10: non-same nodes take the previous emitted sibling's level", () => {
+  const md1 = "# A\n### X\n## Y\n";
+  const t1 = T(md1); t1.children[0].children.push({ id: "n", topic: "N", children: [] }); const r1 = NM.applyMindData(md1, P(md1), t1);
+  assert.equal(r1.markdown, "# A\n### X\n## Y\n\n## N\n");
+  assert.equal(NM.verifyStructure(r1.markdown, t1), true);
+  const md2 = "## A\n# B\n";
+  const t2 = T(md2); t2.children.push({ id: "n", topic: "N", children: [] }); const r2 = NM.applyMindData(md2, P(md2), t2);
+  assert.equal(r2.markdown, "## A\n# B\n\n# N\n");
+  assert.equal(NM.verifyStructure(r2.markdown, t2), true);
+  // node pindahan / salinan di induk lain juga mengikuti saudara sebelumnya
+  const md3 = "# A\n### X\n## Y\n# B\n## Z\n";
+  const t3 = T(md3); t3.children[0].children.push(t3.children[1].children.pop()); const r3 = NM.applyMindData(md3, P(md3), t3);
+  assert.equal(r3.markdown, "# A\n### X\n## Y\n## Z\n# B\n");
+  assert.equal(NM.verifyStructure(r3.markdown, t3), true);
 });

@@ -407,7 +407,11 @@
       const srcs = children.map((n) => known.get(nodeSid(n)));
       const isSame = (src) => !!src && src.parentSid === P.origSid;
       const firstSame = srcs.find(isSame);
-      const base = firstSame ? firstSame.level + P.shift : P.isRoot ? T0 : P.level + 1;
+      // R10: node non-same (baru, asing, pindahan, salinan di induk lain) memakai
+      // level saudara sebelumnya yang sudah ditulis; bila tidak ada, level saudara
+      // same pertama; bila tidak ada juga, T0 / level induk + 1.
+      const fallback = firstSame ? firstSame.level + P.shift : P.isRoot ? T0 : P.level + 1;
+      let prevLevel = null;
 
       for (let i = 0; i < children.length; i++) {
         const n = children[i];
@@ -415,7 +419,8 @@
         const isCopy = !!src && used.has(src.sid);
         if (src && !isCopy) used.add(src.sid);
 
-        const level = isSame(src) ? src.level + P.shift : base;
+        const level = isSame(src) ? src.level + P.shift : prevLevel != null ? prevLevel : fallback;
+        prevLevel = level;
         if (level > MAX_LEVEL) return false;
         // Topik yang tidak diubah memakai teks asli apa adanya (tanpa sanitasi),
         // sehingga heading seperti "# #tag" atau "## # A" tidak ditulis ulang.
