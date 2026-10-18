@@ -5331,8 +5331,14 @@ def _make_drawing_resolver(uid: int):
 
 
 def _make_image_resolver(uid: int, note_id: int = None):
+    """Resolver lampiran gambar untuk ekspor DOCX. File diambil server dari Nextcloud dengan kredensial server,
+    sedangkan isi note dan note_id bisa datang bebas dari klien (POST /api/scratchpad/export/docx), jadi
+    lampiran hanya ter-resolve bila note-nya bisa diakses pengekspor (_note_access_clause: miliknya, atau di
+    workspace tempat ia owner/anggota), baik lewat id lampiran maupun lewat nama di note_id. Nama yang tidak
+    ketemu di note_id (atau tanpa note_id) hanya jatuh ke lampiran milik uid sendiri."""
     _img_cache: dict[str, Optional[bytes]] = {}
     _nc_disabled = False
+    access_clause, access_params = _note_access_clause(uid, "n")
 
     def _resolve_image(src: str, alt: str = None):
         nonlocal _nc_disabled
@@ -5352,11 +5358,19 @@ def _make_image_resolver(uid: int, note_id: int = None):
         with get_db() as conn:
             att = None
             if att_id:
-                att = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
+                att = conn.execute(
+                    "SELECT a.* FROM note_attachments a JOIN scratchpad_notes n ON n.id = a.note_id "
+                    f"WHERE a.id = ? AND {access_clause}",
+                    [att_id] + access_params
+                ).fetchone()
             else:
-                # 1. Look in attachments of this note
+                # 1. Look in attachments of this note (only if the exporter can access that note)
                 if note_id:
-                    for row in conn.execute("SELECT * FROM note_attachments WHERE note_id = ?", (note_id,)).fetchall():
+                    for row in conn.execute(
+                        "SELECT a.* FROM note_attachments a JOIN scratchpad_notes n ON n.id = a.note_id "
+                        f"WHERE a.note_id = ? AND {access_clause}",
+                        [note_id] + access_params
+                    ).fetchall():
                         orig = (row["original_name"] or "").strip().lower()
                         no_ext = os.path.splitext(orig)[0]
                         if orig in (clean_fn, clean_alt) or no_ext in (clean_fn, clean_alt) or (clean_fn and (clean_fn.endswith(orig) or orig.endswith(clean_fn))):
