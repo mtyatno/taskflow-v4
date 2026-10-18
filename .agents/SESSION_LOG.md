@@ -3333,3 +3333,10 @@
 - **Changes:** Dicek dari kode: jalur pembersihan logout/handleLogin/tryAuth tidak berubah; PR #30 justru menutup celah multi-tab (tab lain yang masih akun A kini ikut keluar / reload sebagai B, tanpa request sampai reload; token akun lain tidak diadopsi; perpanjangan tidak menghidupkan sesi setelah logout). PR #30 ditandai ready lalu di-merge (`fcd64e3`), Deploy run #898 sukses.
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/auth/refresh dan /api/version v415 aktif.
+
+## [2026-10-18 11:20] - Claude (workflow tim + jadwal per sesi + papan pemantauan migrasi mobile)
+- **Task:** Bapak menyetujui roadmap Capacitor; minta workflow pengembangan tim dengan Claude Code, jadwal per sesi (laptop dipakai bergantian), dan update progres yang bisa dipantau.
+- **Changes:** `scripts/mobile_schedule.py` + `docs/mobile/{plan.json,README.md}` (62 sesi, 153 jam, selesai 15 Des 2026). Di proyek Claude: Playbook Pengembangan Alurik Mobile dan Papan Sesi Alurik (artifact + db bersama). Review independen atas playbook/papan → perbaikan: status review dihitung selesai untuk kesiapan dan posisi, jam aktual + `blocked_since`/`review_since`, jendela merge Sen–Kam + branch bertumpuk, CI `npm test` (S03), env cloud bersama oleh Owner, akses papan, kontrak data tulisan Claude, kunci upload baru bila keystore pernah bocor, review produksi Play sebelum lepas Tauri (S61 10 Des, S62 15 Des). Roadmap diperbarui (prinsip 3–5, verifikasi developer Android, nomor ADR-008..013). PR #29 di-merge dengan `main` (konflik `.agents/*` dengan PR #30) dan kembali clean.
+- **Verifikasi:** penjadwal dijalankan (Bapak 24,5 / Dev A 68 / Dev B 60,5 jam); papan diuji di Chromium headless (KPI, simpan status + jam aktual, id pengguna lambat/null tanpa loop, fallback WIB, 390 px tanpa scroll horizontal); db papan dibaca ulang di level view; `git diff origin/main` PR #29 hanya workflow + `Cargo.lock` + `.agents/*`.
+- **Files Touch:** `scripts/mobile_schedule.py`, `docs/mobile/{plan.json,README.md}`, `.agents/{CURRENT_STATE,SESSION_LOG}.md`
+- **Status:** Needs Review (draft PR, base = branch PR #29).
