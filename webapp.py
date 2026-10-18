@@ -7240,17 +7240,19 @@ async def share_mindmap(mid: str, req: MindmapShareReq, user=Depends(get_current
     list_id = req.list_id
     with get_db() as conn:
         if mid.isdigit():
-            mm = conn.execute("SELECT id, user_id FROM mindmaps WHERE id = ?", (int(mid),)).fetchone()
+            mm = conn.execute("SELECT id, user_id, source_note_id FROM mindmaps WHERE id = ?", (int(mid),)).fetchone()
         else:
             cols = [r["name"] for r in conn.execute("PRAGMA table_info(mindmaps)").fetchall()]
             if "client_id" in cols:
-                mm = conn.execute("SELECT id, user_id FROM mindmaps WHERE client_id = ?", (mid,)).fetchone()
+                mm = conn.execute("SELECT id, user_id, source_note_id FROM mindmaps WHERE client_id = ?", (mid,)).fetchone()
             else:
                 mm = None
         if not mm:
             raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
         if mm["user_id"] != uid:
             raise HTTPException(status_code=403, detail="Hanya pemilik mindmap yang bisa berbagi")
+        if mm["source_note_id"] is not None:
+            raise HTTPException(status_code=409, detail="Peta tertaut mengikuti catatan")
         real_mid = mm["id"]
         if list_id is not None:
             repo = TaskRepository(DB_PATH)
@@ -7374,8 +7376,19 @@ async def update_mindmap(mid: int, req: MindmapUpdate, user=Depends(get_current_
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
-        _check_base_rev(req, row, lambda: _mindmap_enrich(dict(row), conn))
-        new_title = req.title if req.title is not None else row["title"]
+        if row["source_note_id"] is not None:
+            # Peta tertaut: data_json hanya view-state; judul/list mengikuti catatan; tanpa base_rev.
+            if req.data_json is not None:
+                try:
+                    parsed = json.loads(req.data_json)
+                except ValueError:
+                    parsed = None
+                if not isinstance(parsed, dict) or "nodeData" in parsed:
+                    raise HTTPException(status_code=400, detail={"code": "LINKED_TREE_REJECTED"})
+            new_title = row["title"]
+        else:
+            _check_base_rev(req, row, lambda: _mindmap_enrich(dict(row), conn))
+            new_title = req.title if req.title is not None else row["title"]
         new_data = req.data_json if req.data_json is not None else row["data_json"]
         conn.execute(
             "UPDATE mindmaps SET title = ?, data_json = ?, last_edited_by = ?, updated_at = ? WHERE id = ?",

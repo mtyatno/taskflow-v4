@@ -32,6 +32,7 @@ class U:
     def get(self, url, **kw): return self._call("get", url, **kw)
     def post(self, url, **kw): return self._call("post", url, **kw)
     def put(self, url, **kw): return self._call("put", url, **kw)
+    def patch(self, url, **kw): return self._call("patch", url, **kw)
     def delete(self, url, **kw): return self._call("delete", url, **kw)
 
 
@@ -126,3 +127,38 @@ def test_lists_hide_linked_without_flag(client):
     assert linked["id"] not in ids(o.get(f"/api/lists/{lid}/mindmaps"))
     assert linked["id"] in ids(o.get(f"/api/lists/{lid}/mindmaps?linked=1"))
     assert o.get(f"/api/mindmaps/{linked['id']}").json()["source_note_id"] == n["id"]
+
+
+# ── B4: aturan PUT dan share untuk peta tertaut ───────────────────────────────
+
+def _linked(o, **note_kw):
+    n = _mk_note(o, title="Sumber", **note_kw)
+    return n, o.post("/api/mindmaps", json={"title": "x", "source_note_id": n["id"]}).json()
+
+
+def test_put_linked_rejects_tree_and_ignores_title_base_rev(client):
+    o = U(client); n, mm = _linked(o)
+    r = o.put(f"/api/mindmaps/{mm['id']}", json={"data_json": '{"nodeData":{"id":"root"}}'})
+    assert r.status_code == 400 and r.json() == {"detail": {"code": "LINKED_TREE_REJECTED"}}
+    for bad in ("[1,2]", "42"):  # JSON tak valid sudah ditolak 422 oleh validator model
+        r = o.put(f"/api/mindmaps/{mm['id']}", json={"data_json": bad})
+        assert r.status_code == 400 and r.json() == {"detail": {"code": "LINKED_TREE_REJECTED"}}
+    vs = '{"linked":1,"direction":3,"justify":true,"collapsed":["A"],"summary":false}'
+    r = o.put(f"/api/mindmaps/{mm['id']}", json={"title": "Lain", "data_json": vs, "base_rev": "basi"})
+    assert r.status_code == 200 and r.json()["title"] == "Sumber" and r.json()["data_json"] == vs
+
+
+def test_put_linked_keeps_list_id(client):
+    o = U(client); lid = _mk_list(o); n, mm = _linked(o)
+    before = _row("SELECT list_id FROM mindmaps WHERE id = ?", mm["id"])["list_id"]
+    r = o.put(f"/api/mindmaps/{mm['id']}", json={"list_id": lid, "data_json": '{"linked":1}'})
+    assert r.status_code == 200
+    assert _row("SELECT list_id FROM mindmaps WHERE id = ?", mm["id"])["list_id"] == before
+
+
+def test_share_linked_409_and_normal_put_still_checks_base_rev(client):
+    o = U(client); lid = _mk_list(o); n, mm = _linked(o)
+    r = o.patch(f"/api/mindmaps/{mm['id']}/share", json={"list_id": lid})
+    assert r.status_code == 409 and "Peta tertaut mengikuti catatan" in r.text
+    normal = _mk_mindmap(o)
+    assert o.put(f"/api/mindmaps/{normal['id']}", json={"data_json": "{}", "base_rev": "basi"}).status_code == 409
