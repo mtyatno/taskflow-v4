@@ -1138,6 +1138,7 @@ class MindmapCreate(BaseModel):
     )
     list_id: Optional[int] = None  # audit S7: peta yang dibuat (offline) di list bersama; dicek keanggotaan
     client_id: Optional[str] = Field(default=None, max_length=64)  # idempotensi retry sync (audit T11)
+    source_note_id: Optional[int] = None  # Petakan: buat/ambil peta tertaut milik catatan ini
 
     @field_validator("data_json")
     @classmethod
@@ -4431,6 +4432,10 @@ def _mindmap_access_clause(uid: int, prefix: str = "") -> tuple[str, list]:
     return clause, [uid, uid, uid]
 
 
+# Petakan: data_json peta tertaut hanya pengaturan tampilan; isi pohon selalu dari catatan.
+LINKED_VIEW_STATE_DEFAULT = '{"linked":1,"direction":2,"justify":false,"collapsed":[],"summary":true}'
+
+
 def _mindmap_enrich(d: dict, conn) -> dict:
     """Add last_editor_username/display_name when last_edited_by is set and != owner."""
     if d.get("last_edited_by") and d["last_edited_by"] != d.get("user_id"):
@@ -7273,6 +7278,44 @@ async def get_list_mindmaps(list_id: int, user=Depends(get_current_user)):
 async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
+    if req.source_note_id is not None:
+        # Petakan: satu peta tertaut per catatan (idempoten per catatan, abaikan title/data_json/list_id klien).
+        note_ac, note_params = _note_access_clause(uid)
+        with get_db() as conn:
+            note = conn.execute(
+                f"SELECT id, user_id, list_id, title FROM scratchpad_notes WHERE id = ? AND {note_ac}",
+                [req.source_note_id] + note_params
+            ).fetchone()
+            if not note:
+                raise HTTPException(status_code=404, detail="Catatan tidak ditemukan")
+            existing = conn.execute(
+                "SELECT * FROM mindmaps WHERE source_note_id = ?", (note["id"],)
+            ).fetchone()
+            if existing:
+                return _mindmap_enrich(dict(existing), conn)
+            if req.client_id:
+                dup = conn.execute(
+                    "SELECT * FROM mindmaps WHERE user_id = ? AND client_id = ?", (uid, req.client_id)
+                ).fetchone()
+                if dup:
+                    return dict(dup)
+            try:
+                cur = conn.execute(
+                    "INSERT INTO mindmaps (user_id, title, data_json, is_pinned, created_at, updated_at, "
+                    "list_id, client_id, last_edited_by, source_note_id) "
+                    "VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)",
+                    (note["user_id"], note["title"] or "Tanpa judul", LINKED_VIEW_STATE_DEFAULT, now, now,
+                     note["list_id"], req.client_id, uid, note["id"])
+                )
+            except sqlite3.IntegrityError:
+                existing = conn.execute(
+                    "SELECT * FROM mindmaps WHERE source_note_id = ?", (note["id"],)
+                ).fetchone()
+                if not existing:
+                    raise
+                return _mindmap_enrich(dict(existing), conn)
+            row = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (cur.lastrowid,)).fetchone()
+            return _mindmap_enrich(dict(row), conn)
     # audit S7: list_id saat create disimpan (dulu diabaikan → peta offline di list bersama jadi pribadi);
     # keanggotaan dicek seperti di /share.
     if req.list_id is not None:
