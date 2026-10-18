@@ -5,8 +5,9 @@ note_id dari path setelah cek akses) dan ekspor live (POST /api/scratchpad/expor
 note_id bebas dari klien). File lampiran diambil server dari Nextcloud dengan kredensial server, jadi lampiran
 hanya boleh ter-resolve bila note-nya lolos `_note_access_clause` (milik pengekspor, atau di workspace tempat ia
 owner/anggota): baik dirujuk lewat id (/api/scratchpad/attachments/<id>/view dan /pub/attachments/<id>) maupun
-lewat nama + note_id. Nama yang tidak ketemu di note_id (atau tanpa note_id) hanya jatuh ke lampiran
-milik pengekspor sendiri.
+lewat nama + note_id. Pengecualian hanya untuk id: lampiran note publish tanpa password milik siapa pun juga
+boleh (sudah bisa dibuka siapa pun di /pub/attachments/<id>). Nama yang tidak ketemu di note_id (atau tanpa
+note_id) hanya jatuh ke lampiran milik pengekspor sendiri.
 
 Pengambilan Nextcloud dipalsukan di `requests.get`: fake mencatat URL dan menjawab 200 + b"BYTES:<url>".
 DB tes dipakai bersama satu sesi pytest: username, nama file, dan path Nextcloud dibuat unik.
@@ -88,6 +89,12 @@ def _attachment(note_id, user_id, name, path):
         conn.close()
 
 
+def _publish(client, headers, note_id, password=None):
+    """Publish note milik user (tanpa password, atau berpassword bila diisi)."""
+    r = client.post(f"/api/scratchpad/{note_id}/publish", json={"password": password} if password else {}, headers=headers)
+    assert r.status_code == 200, r.text
+
+
 @pytest.fixture
 def nc_calls(monkeypatch):
     """Ganti pengambilan Nextcloud di resolver (requests.get) dengan fake yang mencatat URL dan menjawab
@@ -135,7 +142,7 @@ def _scenario(client):
         return _attachment(note_id, owner_id, f"{label}-{tag}.png", f"/exp-att-scope/{tag}/{label}.png")
 
     return SimpleNamespace(
-        ha=ha, uid_a=uid_a,
+        ha=ha, uid_a=uid_a, hb=hb, uid_b=uid_b,
         a_note=a_note, a_att=att(a_note, uid_a, "a-own"),
         b_priv_note=b_priv_note, b_priv_att=att(b_priv_note, uid_b, "b-priv"),
         b_in_note=b_in_note, b_in_att=att(b_in_note, uid_b, "b-in"),
@@ -201,6 +208,33 @@ def test_export_image_resolver_allows_accessible_attachments(client, nc_calls):
     }
     wrong = [case for case, (data, att) in cases.items() if not _is_fetch_of(data, att)]
     assert not wrong, f"lampiran yang bisa diakses tidak ter-resolve ke file yang benar: {wrong}"
+
+
+def test_export_image_resolver_allows_publicly_visible_attachments(client, nc_calls):
+    """Lampiran note publish TANPA password milik user lain boleh dipakai ekspor lewat id: file itu sudah bisa dibuka
+    siapa pun di /pub/attachments/<id> (mis. gambar di note sendiri yang menunjuk ke sana). Lampiran note berpassword
+    dan note yang tidak dipublish tetap tidak ter-resolve, dan note_id dari request tetap hanya lolos cek akses."""
+    s = _scenario(client)
+    tag = _uniq()
+
+    def b_note_with_attachment(label, publish=False, password=None):
+        note_id = _create_note(client, s.hb, f"Note {label} B {tag}")
+        if publish:
+            _publish(client, s.hb, note_id, password=password)
+        return note_id, _attachment(note_id, s.uid_b, f"{label}-{tag}.png", f"/exp-att-scope/{tag}/{label}.png")
+
+    open_note, open_att = b_note_with_attachment("b-open", publish=True)
+    _, locked_att = b_note_with_attachment("b-locked", publish=True, password="rahasia123")
+    _, draft_att = b_note_with_attachment("b-draft")
+    res = webapp._make_image_resolver(s.uid_a)
+
+    assert _is_fetch_of(res(f"/pub/attachments/{open_att['id']}"), open_att)
+    for label, att in (("berpassword", locked_att), ("tidak dipublish", draft_att)):
+        for form in ("/pub/attachments/{}", "/api/scratchpad/attachments/{}/view"):
+            assert res(form.format(att["id"])) is None, f"lampiran note {label} ter-resolve lewat {form}"
+    assert _fetched(nc_calls, locked_att) == [] and _fetched(nc_calls, draft_att) == [], nc_calls
+    # note_id dari request tetap hanya dicek aksesnya: note publish terbuka milik B bukan note yang bisa diakses A
+    assert webapp._make_image_resolver(s.uid_a, note_id=open_note)(open_att["name"]) is None
 
 
 # ── Endpoint ekspor live ─────────────────────────────────────────────────────

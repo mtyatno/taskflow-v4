@@ -4037,10 +4037,14 @@ def _generate_publish_slug(conn, title: str = "") -> str:
     raise HTTPException(status_code=500, detail="Gagal generate slug unik — coba lagi")
 
 # ── Akses publik drawing ───────────────────────────────────────────────────────
-# Drawing tampil di halaman publik hanya bila dirujuk ::draw[token] oleh note publish PRIBADI (list_id kosong)
-# milik pemilik drawing. Note publish bersama (list_id terisi) tidak menampilkan drawing apa pun dan tidak
+# Drawing tampil di halaman publik hanya bila dirujuk ::draw[token] oleh note publish TEPERCAYA milik pemilik
+# drawing, yaitu isinya hanya ditulis penerbit: note pribadi (list_id kosong), milik penerbit sendiri, dan terakhir
+# disunting pemiliknya (last_edited_by kosong atau = pemilik; semua penulisan isi lewat POST/PUT /api/scratchpad
+# mengisinya dengan penulis). Note publish bersama (list_id terisi) tidak menampilkan drawing apa pun dan tidak
 # dihitung sebagai rujukan: anggota workspace ikut mengedit isinya, jadi rujukan di dalamnya bukan bukti bahwa
 # pemilik drawing mau menampilkannya (anggota bisa menyisipkan ::draw[1..N] ke note bersama yang dipublish).
+# list_id kosong saja tidak cukup: note yang sempat diedit orang lain lalu kembali pribadi (workspace dihapus =
+# list_id SET NULL, atau di-unshare) tetap membawa isi suntikan itu, sehingga last_edited_by harus pemiliknya.
 # Token = id angka atau client_id (UUID, format default sejak offline-first). Bentuk ter-escape oleh
 # serializer markdown (::draw\[x\]) ikut dikenali.
 _DRAW_DIRECTIVE_RE = re.compile(r'\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?')
@@ -4052,8 +4056,9 @@ def _draw_tokens(content: Optional[str]) -> set[str]:
     return {m.group(1) for m in _DRAW_DIRECTIVE_RE.finditer(content or "")}
 
 def _draw_token_id(token: str) -> Optional[int]:
-    """Token angka ASCII → id baris drawings. None bila bukan angka atau di luar INTEGER 64-bit SQLite
-    (int() terlalu panjang atau OverflowError akan jadi 500, padahal barisnya pasti tidak ada)."""
+    """Token angka ASCII → id baris (drawing, id note di wikilink publik, id lampiran di /pub/attachments). None bila
+    bukan angka ASCII atau di luar INTEGER 64-bit SQLite (digit Unicode membuat int() gagal, angka terlalu besar jadi
+    OverflowError saat di-bind: keduanya 500, padahal barisnya pasti tidak ada)."""
     if token.isascii() and token.isdigit() and len(token) <= 19:
         value = int(token)
         if value <= 2**63 - 1:
@@ -4087,10 +4092,10 @@ def _pub_note_unlocked(request: Request, slug: str, password_hash: Optional[str]
 def _published_drawing_for_request(conn, token: str, request: Request) -> Optional[sqlite3.Row]:
     """Drawing yang boleh dibaca publik lewat /pub/drawings/{token}, atau None.
     Kandidat: drawing ber-id token (bila angka) dan drawing ber-client_id token (milik siapa pun).
-    Kandidat D lolos bila note publish PRIBADI (list_id kosong) milik D.user_id merujuknya lewat ::draw[...]
-    (id atau client_id) dan note itu terbuka bagi request ini (tanpa password, atau cookie unlock valid).
-    Rujukan saja tidak cukup: pemilik note publish harus pemilik drawing, dan note bersama tidak dihitung
-    karena anggota workspace ikut mengedit isinya (lihat catatan di atas)."""
+    Kandidat D lolos bila note publish TEPERCAYA milik D.user_id merujuknya lewat ::draw[...] (id atau client_id)
+    dan note itu terbuka bagi request ini (tanpa password, atau cookie unlock valid). Tepercaya = pribadi (list_id
+    kosong), milik penerbit, dan terakhir disunting pemiliknya (lihat catatan di atas). Rujukan saja tidak cukup:
+    note bersama, atau note yang terakhir disunting orang lain, tidak dihitung karena isinya bukan tulisan penerbit."""
     if not _DRAW_TOKEN_RE.fullmatch(token):
         return None
     candidates = []
@@ -4106,7 +4111,9 @@ def _published_drawing_for_request(conn, token: str, request: Request) -> Option
             refs.add(d["client_id"])
         published = conn.execute(
             "SELECT p.slug, p.password_hash, n.content FROM published_notes p "
-            "JOIN scratchpad_notes n ON n.id = p.note_id WHERE p.user_id = ? AND n.list_id IS NULL",
+            "JOIN scratchpad_notes n ON n.id = p.note_id "
+            "WHERE p.user_id = ? AND n.list_id IS NULL AND n.user_id = p.user_id "
+            "AND (n.last_edited_by IS NULL OR n.last_edited_by = n.user_id)",
             (d["user_id"],)
         ).fetchall()
         for p in published:
@@ -4123,9 +4130,11 @@ def _pub_href(username: str, slug: str) -> str:
 
 def _render_published_content(raw_content: str, conn, note_id: int = None, owner_id: int = None) -> str:
     """Process raw markdown for public page: strip internal tokens, resolve wikilinks, render to HTML.
-    owner_id = penerbit note pribadi; token ::draw[...] hanya di-resolve ke drawing miliknya, dan wikilink ke
-    note berpassword hanya di-resolve bila note target milik penerbit yang sama.
-    owner_id=None (note bersama, atau tanpa penerbit) = tidak ada drawing dan tidak ada note berpassword yang di-resolve."""
+    owner_id = penerbit note publish tepercaya (pribadi, milik penerbit, terakhir disunting pemiliknya); token
+    ::draw[...] hanya di-resolve ke drawing miliknya, dan wikilink ke note berpassword hanya di-resolve bila note
+    target milik penerbit yang sama.
+    owner_id=None (note bersama, note yang terakhir disunting orang lain, atau tanpa penerbit) = tidak ada drawing
+    dan tidak ada note berpassword yang di-resolve."""
     import re as _re
     content = raw_content or ""
 
@@ -4136,7 +4145,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
     content = _re.sub(r'\\?==([^=\n]+)==', r'<mark>\1</mark>', content)
 
     # 3. Build wikilink map: title → (username, slug) for published notes.
-    # Target berpassword hanya jadi target bila owner_id (penerbit note pribadi) = penerbit target; selain itu
+    # Target berpassword hanya jadi target bila owner_id (penerbit note tepercaya) = penerbit target; selain itu
     # diperlakukan seperti note yang tidak dipublish (teks biasa), supaya slug dan judulnya tidak bocor lewat note orang lain.
     def _wikilink_target_ok(password_hash, target_user_id):
         return not password_hash or (owner_id is not None and target_user_id == owner_id)
@@ -4159,19 +4168,13 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         if norm in published_map:
             uname, uslug = published_map[norm]
             return f'<a href="{_pub_href(uname, uslug)}">[[{title}]]</a>'
-        # Check by id: prefix
-        m_id = _re.match(r'^(?:id|note)\s*:\s*(\d+)$', norm, _re.IGNORECASE)
-        if m_id:
+        # Check by id: "id:N" / "note:N" / N polos. Id yang tidak bisa jadi id baris (digit Unicode, di luar
+        # INTEGER SQLite) = tidak ditemukan, bukan 500 (note bersama bisa disunting anggota lain).
+        m_id = _re.match(r'^(?:(?:id|note)\s*:\s*)?(\d+)$', norm)
+        nid = _draw_token_id(m_id.group(1)) if m_id else None
+        if nid is not None:
             row2 = conn.execute(
-                "SELECT p.slug, p.password_hash, p.user_id, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (int(m_id.group(1)),)
-            ).fetchone()
-            if row2 and _wikilink_target_ok(row2["password_hash"], row2["user_id"]):
-                un = row2["username"]; sl = row2["slug"]
-                return f'<a href="{_pub_href(un, sl)}">[[{title}]]</a>'
-        # Check by numeric id
-        if norm.isdigit():
-            row2 = conn.execute(
-                "SELECT p.slug, p.password_hash, p.user_id, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (int(norm),)
+                "SELECT p.slug, p.password_hash, p.user_id, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (nid,)
             ).fetchone()
             if row2 and _wikilink_target_ok(row2["password_hash"], row2["user_id"]):
                 un = row2["username"]; sl = row2["slug"]
@@ -4325,7 +4328,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         width_val = width or ('50%' if size == 'S' else '75%' if size == 'M' else '100%')
         height_val = height or ('200px' if size == 'S' else '300px' if size == 'M' else '400px')
 
-        # Hanya drawing milik penerbit note pribadi (id angka, lalu client_id); owner_id None = tidak ada.
+        # Hanya drawing milik penerbit note tepercaya (id angka, lalu client_id); owner_id None = tidak ada.
         # Judul dan id note tidak dipakai sebagai kunci.
         d_row = _resolve_owned_drawing(conn, drawing_id, owner_id) if owner_id is not None else None
 
@@ -5296,18 +5299,24 @@ async def get_scratchpad_note(note_id: int, user=Depends(get_current_user)):
         return _scratchpad_row(row, conn, uid)
 
 
+_UUID_TOKEN_RE = re.compile(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
+
 def _make_drawing_resolver(uid: int):
     """Resolver drawing untuk ekspor DOCX. Semua pencarian terscope ke pengekspor (user_id = uid): isi note
     bisa berisi ::draw[...] apa pun (POST /api/scratchpad/export/docx menerima isi bebas dari klien), jadi
     drawing user lain, walau di-pin, tidak pernah ter-resolve. Tidak ada fallback ke drawing ber-id sama
-    dengan id note."""
+    dengan id note. Aplikasi menulis direktif ::draw[<id atau uuid>]{title="<judul>"}: token berbentuk id/UUID
+    yang tidak ter-resolve (drawing orang lain, mis. anggota mengekspor note bersama pemilik) tidak boleh
+    ditebak lewat judul, karena akan menyematkan drawing pengekspor sendiri yang kebetulan berjudul sama."""
     def _resolve_drawing(did, title=None):
+        token = str(did)
+        id_like = _draw_token_id(token) is not None or bool(_UUID_TOKEN_RE.fullmatch(token))
         with get_db() as conn:
             # 1. By numeric ID, then client_id (format default direktif sejak offline-first)
-            row = _resolve_owned_drawing(conn, str(did), uid)
+            row = _resolve_owned_drawing(conn, token, uid)
 
-            # 2. By title parameter
-            if not row and title:
+            # 2. By title parameter (hanya untuk token yang bukan id/UUID)
+            if not row and title and not id_like:
                 row = conn.execute(
                     "SELECT id, title, svg_preview FROM drawings WHERE title = ? AND user_id = ?",
                     (title.strip(), uid)
@@ -5334,8 +5343,10 @@ def _make_image_resolver(uid: int, note_id: int = None):
     """Resolver lampiran gambar untuk ekspor DOCX. File diambil server dari Nextcloud dengan kredensial server,
     sedangkan isi note dan note_id bisa datang bebas dari klien (POST /api/scratchpad/export/docx), jadi
     lampiran hanya ter-resolve bila note-nya bisa diakses pengekspor (_note_access_clause: miliknya, atau di
-    workspace tempat ia owner/anggota), baik lewat id lampiran maupun lewat nama di note_id. Nama yang tidak
-    ketemu di note_id (atau tanpa note_id) hanya jatuh ke lampiran milik uid sendiri."""
+    workspace tempat ia owner/anggota), baik lewat id lampiran maupun lewat nama di note_id. Pengecualian hanya
+    untuk id lampiran: lampiran note publish TANPA password milik siapa pun juga boleh, karena file itu sudah
+    bisa dibuka siapa pun di /pub/attachments/<id> (note_id dari request tetap hanya dicek aksesnya). Nama yang
+    tidak ketemu di note_id (atau tanpa note_id) hanya jatuh ke lampiran milik uid sendiri."""
     _img_cache: dict[str, Optional[bytes]] = {}
     _nc_disabled = False
     access_clause, access_params = _note_access_clause(uid, "n")
@@ -5360,7 +5371,9 @@ def _make_image_resolver(uid: int, note_id: int = None):
             if att_id:
                 att = conn.execute(
                     "SELECT a.* FROM note_attachments a JOIN scratchpad_notes n ON n.id = a.note_id "
-                    f"WHERE a.id = ? AND {access_clause}",
+                    f"WHERE a.id = ? AND ({access_clause} OR EXISTS ("
+                    "SELECT 1 FROM published_notes p WHERE p.note_id = a.note_id "
+                    "AND (p.password_hash IS NULL OR p.password_hash = '')))",
                     [att_id] + access_params
                 ).fetchone()
             else:
@@ -6589,16 +6602,20 @@ _PASSWORD_GATE_HTML = """<!DOCTYPE html>
 </body></html>"""
 
 @app.get("/pub/attachments/{att_id}")
-async def view_published_attachment(att_id: int, request: Request):
+async def view_published_attachment(att_id: str, request: Request):
     """Public attachment view — only if the parent note is published and, when it is
     password-protected, unlocked for this request (valid unlock cookie)."""
     import requests as _req
+    att_row_id = _draw_token_id(att_id)
+    if att_row_id is None:
+        # bukan id angka dalam INTEGER SQLite: pasti tidak ada, 404 yang sama dan bukan OverflowError → 500
+        raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
     with get_db() as conn:
         att = conn.execute(
             """SELECT a.*, p.slug, p.password_hash FROM note_attachments a
                JOIN published_notes p ON p.note_id = a.note_id
                WHERE a.id = ?""",
-            (att_id,)
+            (att_row_id,)
         ).fetchone()
         if not att or not _pub_note_unlocked(request, att["slug"], att["password_hash"]):
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
@@ -6635,7 +6652,8 @@ async def view_published_attachment(att_id: int, request: Request):
 
 @app.get("/pub/drawings/{drawing_id}")
 async def get_published_drawing(drawing_id: str, request: Request):
-    """Public drawing retrieval: hanya drawing yang di-embed penerbit di note publish yang terbuka bagi request ini."""
+    """Public drawing retrieval: hanya drawing yang di-embed penerbit di note publish pribadi yang tepercaya (isinya
+    terakhir ditulis pemiliknya, bukan note bersama) dan terbuka bagi request ini."""
     with get_db() as conn:
         row = _published_drawing_for_request(conn, drawing_id, request)
         if not row:
@@ -6664,7 +6682,8 @@ async def view_published_note(username: str, slug: str, request: Request):
     """Public page for a published note. Server-side rendered HTML with OG meta."""
     with get_db() as conn:
         row = conn.execute(
-            """SELECT n.title, n.content, n.updated_at, n.list_id, p.published_at, p.password_hash, p.note_id, p.user_id, u.username
+            """SELECT n.title, n.content, n.updated_at, n.list_id, n.user_id AS note_user_id, n.last_edited_by,
+                      p.published_at, p.password_hash, p.note_id, p.user_id, u.username
                FROM published_notes p
                JOIN scratchpad_notes n ON n.id = p.note_id
                JOIN users u ON u.id = p.user_id
@@ -6713,10 +6732,16 @@ async def view_published_note(username: str, slug: str, request: Request):
         desc_clean = _re.sub(r'==([^=\n]+)==', r'\1', desc_clean)
         desc_clean = _re.sub(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]', r'\1', desc_clean)
         description = html.escape(desc_clean[:200].replace('\n', ' ').strip())
-        # Note bersama (list_id terisi): anggota workspace ikut mengedit isinya, jadi token ::draw di dalamnya
-        # bukan bukti pemilik drawing mau menampilkannya. owner_id=None -> semua token jadi kartu "tidak tersedia".
-        drawing_owner_id = row["user_id"] if row["list_id"] is None else None
-        body_html = _render_published_content(raw_content, conn, note_id=row["note_id"], owner_id=drawing_owner_id)
+        # Note tepercaya = isinya hanya ditulis penerbit: pribadi (list_id kosong), milik penerbit, dan terakhir disunting
+        # pemiliknya (aturan sama dengan _published_drawing_for_request). Selain itu (note bersama, atau note yang pernah
+        # diedit orang lain lalu kembali pribadi) token ::draw di dalamnya bukan bukti pemilik drawing mau menampilkannya.
+        # trusted_owner_id gerbang resolusi drawing DAN wikilink berpassword; None -> semua token jadi kartu "tidak tersedia".
+        trusted = (
+            row["list_id"] is None and row["note_user_id"] == row["user_id"]
+            and (row["last_edited_by"] is None or row["last_edited_by"] == row["note_user_id"])
+        )
+        trusted_owner_id = row["user_id"] if trusted else None
+        body_html = _render_published_content(raw_content, conn, note_id=row["note_id"], owner_id=trusted_owner_id)
 
         # Dates
         created_date = _safe_date(row["published_at"])

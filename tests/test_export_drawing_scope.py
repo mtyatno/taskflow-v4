@@ -4,7 +4,8 @@
 ekspor live (POST /api/scratchpad/export/docx, isinya bebas dari klien). Token direktif ::draw[...]
 di-resolve lewat id angka, client_id, lalu judul (persis, lalu heuristik "gambar/canvas -"), dan semuanya
 terscope ke user_id pengekspor: drawing user lain (walau di-pin), judul milik user lain, dan fallback lama
-"id drawing = id note" tidak pernah ter-resolve.
+"id drawing = id note" tidak pernah ter-resolve. Token berbentuk id angka atau UUID yang tidak ter-resolve
+tidak ditebak lewat judul (akan menyematkan drawing pengekspor sendiri yang kebetulan berjudul sama).
 
 DB tes dipakai bersama satu sesi pytest: username, judul, client_id, dan marker dibuat unik.
 """
@@ -73,10 +74,34 @@ def _scenario(client):
     )
 
 
-def _create_note(client, headers, title, content):
-    r = client.post("/api/scratchpad", json={"title": title, "content": content}, headers=headers)
+def _create_note(client, headers, title, content, list_id=None):
+    """Buat note (pribadi, atau di workspace bila list_id diisi); kembalikan id-nya."""
+    payload = {"title": title, "content": content}
+    if list_id is not None:
+        payload["list_id"] = list_id
+    r = client.post("/api/scratchpad", json=payload, headers=headers)
     assert r.status_code == 200, r.text
     return r.json()["id"]
+
+
+def _workspace(client, headers, name):
+    """Buat workspace (shared list) milik user; kembalikan id-nya."""
+    r = client.post("/api/lists", json={"name": name}, headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def _add_member(list_id, user_id):
+    """Jadikan user anggota workspace langsung lewat DB (alur undangan tidak relevan untuk tes ini)."""
+    conn = db()
+    try:
+        conn.execute(
+            "INSERT INTO list_members (list_id, user_id, joined_at) VALUES (?, ?, '2026-10-18T00:00:00')",
+            (list_id, user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _plant_drawing_with_next_note_id(client, headers, owner_id, title, svg):
@@ -197,3 +222,54 @@ def test_export_endpoints_embed_only_exporters_drawings(client):
         assert pictures == 3, kind
         assert text.count(s.a["title"]) == 3, kind  # keterangan ketiga gambar itu: drawing A
         assert sorted(_placeholders(text)) == unresolved, kind  # tepat tiga rujukan ke drawing B yang tidak ter-resolve
+
+
+# ── Token id/UUID tidak pernah ditebak lewat judul ───────────────────────────
+
+def test_export_resolver_does_not_guess_by_title_for_id_tokens(client):
+    """Aplikasi menulis direktif ::draw[<id atau uuid>]{title="<judul drawing>"} (judul bawaan "Untitled Drawing").
+    Token id/UUID yang tidak ter-resolve untuk pengekspor (drawing milik orang lain, mis. note bersama pemilik lain)
+    tidak boleh jatuh ke drawing PENGEKSPOR SENDIRI yang kebetulan berjudul sama. Token biasa tetap memakai judul."""
+    tag = _uniq()
+    ha = _auth(client, f"expguessa_{tag}")
+    hm = _auth(client, f"expguessm_{tag}")
+    uid_m = _uid(f"expguessm_{tag}")
+    a = _drawing(client, ha, "Untitled Drawing", _svg(f"MARKER-GA-{tag}"), str(uuid.uuid4()))
+    m = _drawing(client, hm, "Untitled Drawing", _svg(f"MARKER-GM-{tag}"), str(uuid.uuid4()))
+    res = webapp._make_drawing_resolver(uid_m)
+
+    assert res(str(a["id"]), title="Untitled Drawing") is None
+    assert res(a["client_id"], title="Untitled Drawing") is None
+    assert res(a["client_id"].upper(), title="Untitled Drawing") is None
+    # kontrol: drawing sendiri tetap ter-resolve lewat id, dan token biasa tetap memakai heuristik judul
+    assert res(str(m["id"]), title="Untitled Drawing")["id"] == m["id"]
+    assert res("tidak-ada", title="Untitled Drawing")["id"] == m["id"]
+
+
+def test_export_member_of_shared_note_does_not_get_own_lookalike_drawing(client):
+    """M anggota workspace A. Note bersama A merujuk drawing pribadi A lewat id dan UUID dengan judul bawaan
+    "Untitled Drawing" (persis seperti yang ditulis aplikasi). Ekspor DOCX oleh M tidak boleh menyematkan drawing M
+    sendiri yang kebetulan berjudul sama: tidak ada gambar, hanya placeholder. Kontrol: rujukan ke drawing M sendiri
+    di note M tetap menjadi satu gambar."""
+    tag = _uniq()
+    ha = _auth(client, f"expmema_{tag}")
+    m_name = f"expmemm_{tag}"
+    hm = _auth(client, m_name)
+    a = _drawing(client, ha, "Untitled Drawing", _svg(f"MARKER-MA-{tag}"), str(uuid.uuid4()))
+    m = _drawing(client, hm, "Untitled Drawing", _svg(f"MARKER-MM-{tag}"), str(uuid.uuid4()))
+    w = _workspace(client, ha, f"Workspace {tag}")
+    _add_member(w, _uid(m_name))
+    content = "\n\n".join([
+        f'::draw[{a["id"]}]{{title="Untitled Drawing"}}',
+        f'::draw[{a["client_id"]}]{{title="Untitled Drawing"}}',
+    ])
+    shared_note = _create_note(client, ha, f"Note bersama A {tag}", content, list_id=w)
+
+    for kind, (text, pictures) in _exports(client, hm, shared_note, content).items():
+        assert pictures == 0, f"{kind}: drawing M sendiri tersemat untuk rujukan ke drawing A"
+        assert _placeholders(text) == ["Untitled Drawing"] * 2, kind
+
+    own_content = f'::draw[{m["id"]}]{{title="Untitled Drawing"}}'
+    own_note = _create_note(client, hm, f"Note M {tag}", own_content)
+    for kind, (text, pictures) in _exports(client, hm, own_note, own_content).items():
+        assert pictures == 1, kind

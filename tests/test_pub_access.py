@@ -1,13 +1,17 @@
 """Akses publik drawing: /pub/drawings dan render halaman publik (/pub/{user}/{slug}).
 
-Drawing hanya boleh tampil publik bila dirujuk ::draw[id|client_id] oleh note publish PRIBADI
-(list_id kosong) milik pemiliknya, dan note itu terbuka (tanpa password, atau cookie unlock
-valid). Note publish bersama (list_id terisi, anggota workspace ikut mengedit isinya) tidak
-menampilkan drawing apa pun dan tidak dihitung sebagai rujukan. Semua penolakan menjawab 404
-yang sama dengan "tidak ada". Lampiran (/pub/attachments) dan bagian "Related" (backlink)
-mengikuti gerbang password note publish yang sama. Wikilink ke note berpassword hanya di-resolve di
-note pribadi milik penerbit note itu sendiri (tidak pernah di note bersama), dan judul, username, serta
-slug milik user lain di-escape di halaman publik. Spec: docs/superpowers/specs/
+Drawing hanya boleh tampil publik bila dirujuk ::draw[id|client_id] oleh note publish TEPERCAYA
+milik pemiliknya (isinya hanya ditulis penerbit: list_id kosong, milik penerbit, dan terakhir
+disunting pemiliknya sendiri, yaitu last_edited_by kosong atau = pemilik), dan note itu terbuka
+(tanpa password, atau cookie unlock valid). Note publish bersama (list_id terisi, anggota workspace
+ikut mengedit isinya), dan note yang pernah diedit orang lain lalu kembali pribadi (workspace
+dihapus atau di-unshare), tidak menampilkan drawing apa pun dan tidak dihitung sebagai rujukan.
+Semua penolakan menjawab 404 yang sama dengan "tidak ada". Lampiran (/pub/attachments) dan bagian
+"Related" (backlink) mengikuti gerbang password note publish yang sama. Wikilink ke note
+berpassword hanya di-resolve di note tepercaya milik penerbit note itu sendiri (tidak pernah di
+note bersama), dan judul, username, serta slug milik user lain di-escape di halaman publik. Id
+buatan (digit Unicode, di luar INTEGER SQLite) di wikilink dan /pub/attachments menjawab "tidak
+ditemukan", bukan error server. Spec: docs/superpowers/specs/
 2026-10-18-workspace-drawing-project-design.md §3.
 
 DB tes dipakai bersama satu sesi pytest: username, judul, client_id, dan marker dibuat unik.
@@ -16,6 +20,7 @@ import os
 import uuid
 from html.parser import HTMLParser
 
+import pytest
 from starlette.testclient import TestClient
 
 import webapp
@@ -318,6 +323,145 @@ def test_pub_member_injection_blocked(client):
     assert "Gambar tidak tersedia" in page.text  # penyisipan memang masuk ke isi yang dipublish
     assert pub.get(f"/pub/drawings/{p['id']}").status_code == 404
     assert pub.get(f"/pub/drawings/{p['client_id']}").status_code == 404
+
+
+# ── Note publish "pribadi" harus juga terakhir disunting pemiliknya ──────────
+
+def test_pub_workspace_delete_does_not_expose_member_drawings(client):
+    """Pemilik workspace O (bukan penerbit) menyunting note bersama milik anggota V yang dipublish (pemilik dan anggota
+    boleh menyunting note bersama): menyisipkan ::draw[...] ke drawing pribadi V dan [[id:K]] ke note berpassword V,
+    lalu menghapus workspace (notes.list_id SET NULL). Note itu kini tampak pribadi, tetapi isinya bukan tulisan V:
+    halaman publik tidak boleh menanam drawing V maupun menautkan K, dan /pub/drawings tetap 404."""
+    tag = _uniq()
+    ho = _auth(client, f"pubwsdelo_{tag}")
+    v_name = f"pubwsdelv_{tag}"
+    hv = _auth(client, v_name)
+    w = _workspace(client, ho, f"Workspace {tag}")
+    _add_member(w, _uid(v_name))
+    m1, m2 = f"MARKER-WD1-{tag}", f"MARKER-WD2-{tag}"
+    p1 = _drawing(client, hv, f"pribadi-wd1-{tag}", svg=_svg(m1))
+    p2 = _drawing(client, hv, f"pribadi-wd2-{tag}", svg=_svg(m2), cid=f"cid-wd2-{tag}")
+    k_id, k_slug, _ = _publish(client, hv, f"Terkunci milik V {tag}", "isi rahasia", password="rahasia123")
+    title, old_content = f"Note bersama V {tag}", f"Isi awal {tag}"
+    note_id, slug, username = _publish(client, hv, title, old_content, list_id=w)
+
+    injected = f"{old_content}\n\n::draw[{p1['id']}]\n\n::draw[{p2['client_id']}]\n\n[[id:{k_id}]]"
+    r = client.put(f"/api/scratchpad/{note_id}", json={"title": title, "content": injected}, headers=ho)
+    assert r.status_code == 200, r.text
+    assert client.delete(f"/api/lists/{w}", headers=ho).status_code == 200
+    conn = db()
+    try:
+        assert conn.execute("SELECT list_id FROM scratchpad_notes WHERE id = ?", (note_id,)).fetchone()["list_id"] is None
+    finally:
+        conn.close()
+
+    pub = anon()
+    page = pub.get(f"/pub/{username}/{slug}")
+    assert page.status_code == 200
+    assert old_content in page.text
+    assert m1 not in page.text and m2 not in page.text
+    assert k_slug not in page.text
+    assert page.text.count("Gambar tidak tersedia") == 2
+    assert pub.get(f"/pub/drawings/{p1['id']}").status_code == 404
+    assert pub.get(f"/pub/drawings/{p2['client_id']}").status_code == 404
+
+
+def test_pub_unshare_after_member_edit_hides_drawings(client):
+    """Anggota M menyisipkan ::draw[id drawing pribadi A] ke note bersama milik A yang dipublish, lalu A meng-unshare
+    note itu. Note kembali pribadi, tetapi isinya terakhir ditulis M: drawing A tidak boleh tampil di halaman publik
+    dan /pub/drawings tetap 404."""
+    tag = _uniq()
+    ha = _auth(client, f"pubunsha_{tag}")
+    m_name = f"pubunshm_{tag}"
+    hm = _auth(client, m_name)
+    marker = f"MARKER-US-{tag}"
+    p = _drawing(client, ha, f"pribadi-us-{tag}", svg=_svg(marker))
+    w = _workspace(client, ha, f"Workspace {tag}")
+    _add_member(w, _uid(m_name))
+    title, old_content = f"Note bersama A {tag}", f"Isi awal {tag}"
+    note_id, slug, username = _publish(client, ha, title, old_content, list_id=w)
+
+    r = client.put(f"/api/scratchpad/{note_id}", json={"title": title, "content": f"{old_content}\n\n::draw[{p['id']}]"},
+                   headers=hm)
+    assert r.status_code == 200, r.text
+    u = client.patch(f"/api/scratchpad/{note_id}/share", json={"list_id": None}, headers=ha)
+    assert u.status_code == 200, u.text
+    assert u.json()["list_id"] is None
+
+    pub = anon()
+    page = pub.get(f"/pub/{username}/{slug}")
+    assert page.status_code == 200
+    assert old_content in page.text
+    assert marker not in page.text
+    assert "Gambar tidak tersedia" in page.text
+    assert pub.get(f"/pub/drawings/{p['id']}").status_code == 404
+
+
+def test_pub_private_note_trusted_only_when_last_edited_by_owner(client):
+    """Syarat tepercaya satu per satu: tulisan pemilik lewat PUT tampil; last_edited_by kosong (data lama) tetap
+    tampil; terakhir disunting user lain tidak. Halaman dan /pub/drawings harus selalu sepakat."""
+    tag = _uniq()
+    v_name, o_name = f"pubtrustv_{tag}", f"pubtrusto_{tag}"
+    hv = _auth(client, v_name)
+    _auth(client, o_name)
+    uid_v, uid_o = _uid(v_name), _uid(o_name)
+    marker = f"MARKER-TR-{tag}"
+    d = _drawing(client, hv, f"pribadi-tr-{tag}", svg=_svg(marker), cid=f"cid-tr-{tag}")
+    title = f"Note tepercaya {tag}"
+    note_id, slug, username = _publish(client, hv, title, "belum ada gambar")
+    r = client.put(f"/api/scratchpad/{note_id}", json={"title": title, "content": f"::draw[{d['id']}]"}, headers=hv)
+    assert r.status_code == 200, r.text
+
+    pub = anon()
+
+    def exposed():
+        page = pub.get(f"/pub/{username}/{slug}")
+        assert page.status_code == 200
+        endpoint = pub.get(f"/pub/drawings/{d['id']}").status_code
+        assert endpoint in (200, 404)
+        assert (marker in page.text) == (endpoint == 200), "halaman dan /pub/drawings tidak sepakat"
+        return endpoint == 200
+
+    def set_last_editor(user_id):
+        conn = db()
+        try:
+            conn.execute("UPDATE scratchpad_notes SET last_edited_by = ? WHERE id = ?", (user_id, note_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+    assert exposed()  # ditulis pemilik lewat PUT
+    set_last_editor(None)
+    assert exposed()  # data lama: NULL = pemilik
+    set_last_editor(uid_o)
+    assert not exposed()  # terakhir disunting user lain
+    set_last_editor(uid_v)
+    assert exposed()
+
+
+def test_pub_note_published_under_another_user_is_not_trusted(client):
+    """Note milik V yang terbit atas nama O (mustahil lewat API: hanya pemilik yang bisa publish) bukan tulisan
+    penerbit O, jadi ::draw[...] di dalamnya tidak boleh membuka drawing pribadi O (pertahanan berlapis)."""
+    tag = _uniq()
+    v_name, o_name = f"pubunderv_{tag}", f"pubundero_{tag}"
+    hv = _auth(client, v_name)
+    ho = _auth(client, o_name)
+    marker = f"MARKER-UN-{tag}"
+    d = _drawing(client, ho, f"pribadi-un-{tag}", svg=_svg(marker))
+    note_id, slug, _ = _publish(client, hv, f"Note V {tag}", f"::draw[{d['id']}]")
+    conn = db()
+    try:
+        conn.execute("UPDATE published_notes SET user_id = ? WHERE note_id = ?", (_uid(o_name), note_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+    pub = anon()
+    page = pub.get(f"/pub/{o_name}/{slug}")
+    assert page.status_code == 200
+    assert marker not in page.text
+    assert "Gambar tidak tersedia" in page.text
+    assert pub.get(f"/pub/drawings/{d['id']}").status_code == 404
 
 
 # ── Render halaman publik ────────────────────────────────────────────────────
@@ -640,3 +784,46 @@ def test_pub_related_escapes_usernames(client):
     assert '"><i>' not in page.text
     assert f'href="/pub/pubevil_%22%3E%3Ci%3E{tag}/{e_slug}"' in page.text
     assert anon().get(f"/pub/pubevil_%22%3E%3Ci%3E{tag}/{e_slug}").status_code == 200
+
+
+# ── Input buatan di rute publik tidak boleh error server ─────────────────────
+
+@pytest.mark.parametrize("ref", [
+    "[[\u00b2]]",
+    "[[123456789012345678901234]]",
+    "[[id:123456789012345678901234]]",
+    "[[note:123456789012345678901234]]",
+    "[[9223372036854775808]]",
+    "[[id:9223372036854775808]]",
+])
+def test_published_page_crafted_wikilink_id_renders_as_plain_text(client, ref):
+    """Isi note bisa disunting orang lain (note bersama), jadi satu wikilink buruk tidak boleh merusak halaman publik:
+    digit Unicode (isdigit() True tetapi int() gagal), angka di atas INTEGER SQLite (20+ digit, dan tepat 2**63), serta
+    bentuk id:N / note:N dengan angka itu. Semuanya tampil sebagai teks biasa seperti target yang tidak dipublish."""
+    tag = _uniq()
+    h = _auth(client, f"pubwlcraft_{tag}")
+    note_id, slug, username = _publish(client, h, f"Note wikilink aneh {tag}", "isi awal")
+    # Isi ditulis langsung ke DB: POST/PUT /api/scratchpad memanggil _resolve_linked_to yang sendiri gagal (500) pada id
+    # raksasa sehingga isi seperti ini tidak bisa disimpan lewat API; renderer publik tetap tidak boleh bergantung pada itu.
+    conn = db()
+    try:
+        conn.execute("UPDATE scratchpad_notes SET content = ? WHERE id = ?", (f"sebelum {ref} sesudah", note_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+    page = anon().get(f"/pub/{username}/{slug}")
+    assert page.status_code == 200
+    assert f"sebelum {ref} sesudah" in page.text
+    assert f"{ref}</a>" not in page.text  # teks biasa, bukan tautan
+
+
+def test_pub_attachment_id_out_of_range_is_404_not_500(client):
+    """Id lampiran di luar INTEGER SQLite (di atas maupun di bawah rentangnya) menjawab 404 yang identik dengan
+    id yang tidak ada, bukan error server."""
+    pub = anon()
+    missing = pub.get("/pub/attachments/2147483647")
+    assert (missing.status_code, missing.json()) == (404, {"detail": "Attachment tidak ditemukan"})
+    for att_id in ("123456789012345678901234", "9223372036854775808", "9" * 5000, "-9223372036854775809", "-1"):
+        r = pub.get(f"/pub/attachments/{att_id}")
+        assert (r.status_code, r.json()) == (missing.status_code, missing.json()), att_id[:30]
