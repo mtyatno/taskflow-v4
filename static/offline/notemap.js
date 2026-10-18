@@ -302,5 +302,110 @@
     };
   }
 
-  return { parseNote, summarizeSection, pathKey, buildMindData, LINKED_VIEW_STATE_DEFAULT };
+  // ---- applyMindData / verifyStructure ----------------------------------
+
+  const MAX_LEVEL = 6;
+  const NEW_NODE_TEXT = "Node baru";
+
+  function sanitizeTopic(text) {
+    return String(text == null ? "" : text)
+      .replace(/\r\n|\r|\n/g, " ")
+      .replace(/^#+\s*/, "")
+      .trim();
+  }
+
+  const kids = (n) => (n && Array.isArray(n.children) ? n.children : []);
+  const nodeSid = (n) => (n && n.nm ? n.nm.sid : undefined);
+
+  // Susun ulang markdown dari pohon peta. Bagian yang tidak berubah (level dan
+  // teks sama, bukan salinan) memakai headingLine aslinya, jadi tanpa edit hasilnya
+  // identik byte per byte. Menandai tiap node non-root dengan nm.level / nm.text
+  // hasil serialisasi (dipakai verifyStructure).
+  function applyMindData(markdown, parsed, edited) {
+    const eol = parsed.eol;
+    const known = new Map(parsed.sections.map((s) => [s.sid, s]));
+    const used = new Set();
+    const rootLevels = parsed.sections.filter((s) => s.parentSid === null).map((s) => s.level);
+    const T0 = rootLevels.length ? Math.min(...rootLevels) : 1;
+    let out = parsed.intro;
+
+    const visit = (P) => {
+      const children = kids(P.node);
+      const srcs = children.map((n) => known.get(nodeSid(n)));
+      const isSame = (src) => !!src && src.parentSid === P.origSid;
+      const firstSame = srcs.find(isSame);
+      const base = firstSame ? firstSame.level + P.shift : P.isRoot ? T0 : P.level + 1;
+
+      for (let i = 0; i < children.length; i++) {
+        const n = children[i];
+        const src = srcs[i];
+        const isCopy = !!src && used.has(src.sid);
+        if (src && !isCopy) used.add(src.sid);
+
+        const level = isSame(src) ? src.level + P.shift : base;
+        if (level > MAX_LEVEL) return false;
+        const text = sanitizeTopic(n.topic) || (src ? src.text : NEW_NODE_TEXT);
+        n.nm = Object.assign({}, n.nm, { level, text });
+
+        const heading = src && !isCopy && level === src.level && text === src.text
+          ? src.headingLine
+          : "#".repeat(level) + " " + text + eol;
+        if (out !== "" && !out.endsWith("\n")) out += eol;
+        if (!src && out !== "" && !/\n\r?\n$/.test(out)) out += eol;
+        out += heading + (src ? src.body : "");
+
+        const ok = visit({
+          node: n,
+          isRoot: false,
+          level,
+          shift: src ? level - src.level : 0,
+          origSid: src ? src.sid : null,
+        });
+        if (!ok) return false;
+      }
+      return true;
+    };
+
+    if (!visit({ node: edited, isRoot: true, level: 0, shift: 0, origSid: null })) {
+      return { ok: false, code: "LEVEL_OVERFLOW" };
+    }
+
+    const lost = parsed.sections.filter((s) => !used.has(s.sid));
+    return {
+      ok: true,
+      markdown: out,
+      title: sanitizeTopic(edited && edited.topic),
+      removed: {
+        count: lost.length,
+        hasContent: lost.some((s) => s.body.trim() !== ""),
+        firstTitle: lost.length ? lost[0].text : null,
+      },
+    };
+  }
+
+  // Benar bila markdown hasil serialisasi mengurai kembali menjadi bagian yang
+  // sama (jumlah, urutan, level, teks) dengan node non-root pohon (pre-order).
+  function verifyStructure(markdown, edited) {
+    const sections = parseNote(markdown).sections;
+    const nodes = [];
+    const walk = (n) => kids(n).forEach((c) => { nodes.push(c); walk(c); });
+    walk(edited);
+    if (nodes.length !== sections.length) return false;
+    return nodes.every((n, i) => {
+      const nm = n.nm || {};
+      const text = nm.text != null ? nm.text : sanitizeTopic(n.topic);
+      return sections[i].level === nm.level && sections[i].text === text;
+    });
+  }
+
+  return {
+    parseNote,
+    summarizeSection,
+    pathKey,
+    buildMindData,
+    LINKED_VIEW_STATE_DEFAULT,
+    sanitizeTopic,
+    applyMindData,
+    verifyStructure,
+  };
 });
