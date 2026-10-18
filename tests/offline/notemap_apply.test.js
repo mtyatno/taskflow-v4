@@ -8,7 +8,8 @@ const T = (md, title = "T") => JSON.parse(JSON.stringify(NM.buildMindData(P(md),
 const run = (md, mutate, title = "T") => { const t = T(md, title); mutate(t); return NM.applyMindData(md, P(md), t); };
 const BASE = "Intro\n# A\nisi a\n## B\nisi b\n# C\nisi c\n";
 const FIXTURES = [ "", "teks", "# A", "# A\nx", BASE, "# A\r\nx\r\n## B\r\ny", "## A ##\n```\n# kode\n```\n> ## q\n",
-  "<details>\n<summary>S</summary>\n\n## in\n</details>\n# Luar\n", "# A\n## \n#### Lompat\n", "# 😀 Émoji\n::draw[d1]{title=\"G\"}\n[tasklink:t1]\n| a |\n|---|\n$$\nx\n$$\n" ];
+  "<details>\n<summary>S</summary>\n\n## in\n</details>\n# Luar\n", "# A\n## \n#### Lompat\n", "# 😀 Émoji\n::draw[d1]{title=\"G\"}\n[tasklink:t1]\n| a |\n|---|\n$$\nx\n$$\n",
+  "# #tag thing\n", "## # A\n" ];
 
 test("identity on fixtures", () => { for (const md of FIXTURES) { const r = run(md, () => {}); assert.equal(r.markdown, md); assert.equal(r.removed.count, 0); } });
 test("identity on 200 generated documents", () => {
@@ -97,4 +98,17 @@ test("placeholder root title is not returned as the note title", () => {
   assert.equal(NM.applyMindData(BASE, P(BASE), t).title, "");
   t.topic = "Judul Asli"; assert.equal(NM.applyMindData(BASE, P(BASE), t).title, "Judul Asli");
   assert.equal(run(BASE, () => {}, "Tanpa judul").title, "Tanpa judul"); // judul sungguhan, bukan placeholder
+});
+test("untouched headings starting with # survive an edit elsewhere byte-identical", () => {
+  const md = "# #tag thing\nx\n## # A\ny\n# B\n";
+  const e = T(md); e.children[1].topic = "B2"; const r = NM.applyMindData(md, P(md), e);
+  assert.equal(r.markdown, "# #tag thing\nx\n## # A\ny\n# B2\n");
+  assert.equal(NM.verifyStructure(r.markdown, e), true);
+  const c = run(md, (t) => t.children.push(JSON.parse(JSON.stringify(t.children[0]))));
+  assert.equal(c.markdown, md + "# #tag thing\nx\n## # A\ny\n");
+  const w = run(md, (t) => { t.children[0] = { id: "p", topic: "P", children: [t.children[0]] }; });
+  assert.equal(w.markdown, "# P\n## #tag thing\nx\n### # A\ny\n# B\n");
+  assert.equal(NM.sanitizeTopic("#tag"), "#tag");
+  assert.equal(NM.sanitizeTopic("## Baru\nbaris"), "Baru baris");
+  assert.equal(run("# A\n", (t) => t.children.push({ id: "n", topic: "#tag", children: [] })).markdown, "# A\n\n# #tag\n");
 });

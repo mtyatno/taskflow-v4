@@ -368,7 +368,7 @@
   function sanitizeTopic(text) {
     return String(text == null ? "" : text)
       .replace(/\r\n|\r|\n/g, " ")
-      .replace(/^#+\s*/, "")
+      .replace(/^#{1,6}[ \t]+/, "")
       .trim();
   }
 
@@ -417,7 +417,11 @@
 
         const level = isSame(src) ? src.level + P.shift : base;
         if (level > MAX_LEVEL) return false;
-        const text = sanitizeTopic(n.topic) || (src ? src.text : NEW_NODE_TEXT);
+        // Topik yang tidak diubah memakai teks asli apa adanya (tanpa sanitasi),
+        // sehingga heading seperti "# #tag" atau "## # A" tidak ditulis ulang.
+        const text = src && n.topic === src.text
+          ? src.text
+          : sanitizeTopic(n.topic) || (src ? src.text : NEW_NODE_TEXT);
         n.nm = Object.assign({}, n.nm, { level, text });
 
         const heading = src && !isCopy && level === src.level && text === src.text
