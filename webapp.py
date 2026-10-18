@@ -4036,7 +4036,10 @@ def _generate_publish_slug(conn, title: str = "") -> str:
     raise HTTPException(status_code=500, detail="Gagal generate slug unik — coba lagi")
 
 # ── Akses publik drawing ───────────────────────────────────────────────────────
-# Drawing tampil di halaman publik hanya bila dirujuk ::draw[token] oleh note publish milik pemiliknya.
+# Drawing tampil di halaman publik hanya bila dirujuk ::draw[token] oleh note publish PRIBADI (list_id kosong)
+# milik pemilik drawing. Note publish bersama (list_id terisi) tidak menampilkan drawing apa pun dan tidak
+# dihitung sebagai rujukan: anggota workspace ikut mengedit isinya, jadi rujukan di dalamnya bukan bukti bahwa
+# pemilik drawing mau menampilkannya (anggota bisa menyisipkan ::draw[1..N] ke note bersama yang dipublish).
 # Token = id angka atau client_id (UUID, format default sejak offline-first). Bentuk ter-escape oleh
 # serializer markdown (::draw\[x\]) ikut dikenali.
 _DRAW_DIRECTIVE_RE = re.compile(r'\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?')
@@ -4083,9 +4086,10 @@ def _pub_note_unlocked(request: Request, slug: str, password_hash: Optional[str]
 def _published_drawing_for_request(conn, token: str, request: Request) -> Optional[sqlite3.Row]:
     """Drawing yang boleh dibaca publik lewat /pub/drawings/{token}, atau None.
     Kandidat: drawing ber-id token (bila angka) dan drawing ber-client_id token (milik siapa pun).
-    Kandidat D lolos bila note publish milik D.user_id merujuknya lewat ::draw[...] (id atau client_id)
-    dan note itu terbuka bagi request ini (tanpa password, atau cookie unlock valid). Rujukan saja tidak
-    cukup karena isi note dikendalikan penerbit, jadi pemilik note publish harus pemilik drawing."""
+    Kandidat D lolos bila note publish PRIBADI (list_id kosong) milik D.user_id merujuknya lewat ::draw[...]
+    (id atau client_id) dan note itu terbuka bagi request ini (tanpa password, atau cookie unlock valid).
+    Rujukan saja tidak cukup: pemilik note publish harus pemilik drawing, dan note bersama tidak dihitung
+    karena anggota workspace ikut mengedit isinya (lihat catatan di atas)."""
     if not _DRAW_TOKEN_RE.fullmatch(token):
         return None
     candidates = []
@@ -4101,7 +4105,7 @@ def _published_drawing_for_request(conn, token: str, request: Request) -> Option
             refs.add(d["client_id"])
         published = conn.execute(
             "SELECT p.slug, p.password_hash, n.content FROM published_notes p "
-            "JOIN scratchpad_notes n ON n.id = p.note_id WHERE p.user_id = ?",
+            "JOIN scratchpad_notes n ON n.id = p.note_id WHERE p.user_id = ? AND n.list_id IS NULL",
             (d["user_id"],)
         ).fetchall()
         for p in published:
@@ -4111,7 +4115,8 @@ def _published_drawing_for_request(conn, token: str, request: Request) -> Option
 
 def _render_published_content(raw_content: str, conn, note_id: int = None, owner_id: int = None) -> str:
     """Process raw markdown for public page: strip internal tokens, resolve wikilinks, render to HTML.
-    owner_id = penerbit note; token ::draw[...] hanya di-resolve ke drawing miliknya."""
+    owner_id = penerbit note pribadi; token ::draw[...] hanya di-resolve ke drawing miliknya.
+    owner_id=None (note bersama, atau tanpa penerbit) = tidak ada drawing yang di-resolve."""
     import re as _re
     content = raw_content or ""
 
@@ -4304,7 +4309,8 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         width_val = width or ('50%' if size == 'S' else '75%' if size == 'M' else '100%')
         height_val = height or ('200px' if size == 'S' else '300px' if size == 'M' else '400px')
 
-        # Hanya drawing milik penerbit (id angka, lalu client_id). Judul dan id note tidak dipakai sebagai kunci.
+        # Hanya drawing milik penerbit note pribadi (id angka, lalu client_id); owner_id None = tidak ada.
+        # Judul dan id note tidak dipakai sebagai kunci.
         d_row = _resolve_owned_drawing(conn, drawing_id, owner_id) if owner_id is not None else None
 
         if d_row and not title:
@@ -6652,7 +6658,7 @@ async def view_published_note(username: str, slug: str, request: Request):
     """Public page for a published note. Server-side rendered HTML with OG meta."""
     with get_db() as conn:
         row = conn.execute(
-            """SELECT n.title, n.content, n.updated_at, p.published_at, p.password_hash, p.note_id, p.user_id, u.username
+            """SELECT n.title, n.content, n.updated_at, n.list_id, p.published_at, p.password_hash, p.note_id, p.user_id, u.username
                FROM published_notes p
                JOIN scratchpad_notes n ON n.id = p.note_id
                JOIN users u ON u.id = p.user_id
@@ -6701,7 +6707,10 @@ async def view_published_note(username: str, slug: str, request: Request):
         desc_clean = _re.sub(r'==([^=\n]+)==', r'\1', desc_clean)
         desc_clean = _re.sub(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]', r'\1', desc_clean)
         description = html.escape(desc_clean[:200].replace('\n', ' ').strip())
-        body_html = _render_published_content(raw_content, conn, note_id=row["note_id"], owner_id=row["user_id"])
+        # Note bersama (list_id terisi): anggota workspace ikut mengedit isinya, jadi token ::draw di dalamnya
+        # bukan bukti pemilik drawing mau menampilkannya. owner_id=None -> semua token jadi kartu "tidak tersedia".
+        drawing_owner_id = row["user_id"] if row["list_id"] is None else None
+        body_html = _render_published_content(raw_content, conn, note_id=row["note_id"], owner_id=drawing_owner_id)
 
         # Dates
         created_date = _safe_date(row["published_at"])

@@ -1,8 +1,10 @@
 """Akses publik drawing: /pub/drawings dan render halaman publik (/pub/{user}/{slug}).
 
-Drawing hanya boleh tampil publik bila dirujuk ::draw[id|client_id] oleh note publish milik
-pemiliknya, dan note itu terbuka (tanpa password, atau cookie unlock valid). Semua penolakan
-menjawab 404 yang sama dengan "tidak ada". Spec: docs/superpowers/specs/
+Drawing hanya boleh tampil publik bila dirujuk ::draw[id|client_id] oleh note publish PRIBADI
+(list_id kosong) milik pemiliknya, dan note itu terbuka (tanpa password, atau cookie unlock
+valid). Note publish bersama (list_id terisi, anggota workspace ikut mengedit isinya) tidak
+menampilkan drawing apa pun dan tidak dihitung sebagai rujukan. Semua penolakan menjawab 404
+yang sama dengan "tidak ada". Spec: docs/superpowers/specs/
 2026-10-18-workspace-drawing-project-design.md §3.
 
 DB tes dipakai bersama satu sesi pytest: username, judul, client_id, dan marker dibuat unik.
@@ -52,15 +54,38 @@ def _drawing(client, headers, title, svg="", cid=None):
     return r.json()
 
 
-def _publish(client, headers, title, content, password=None):
-    """Buat note lalu publish; kembalikan (note_id, slug, username)."""
-    r = client.post("/api/scratchpad", json={"title": title, "content": content}, headers=headers)
+def _publish(client, headers, title, content, password=None, list_id=None):
+    """Buat note (pribadi, atau bersama bila list_id diisi) lalu publish; kembalikan (note_id, slug, username)."""
+    payload = {"title": title, "content": content}
+    if list_id is not None:
+        payload["list_id"] = list_id
+    r = client.post("/api/scratchpad", json=payload, headers=headers)
     assert r.status_code == 200, r.text
     note_id = r.json()["id"]
     p = client.post(f"/api/scratchpad/{note_id}/publish",
                     json={"password": password} if password else {}, headers=headers)
     assert p.status_code == 200, p.text
     return note_id, p.json()["slug"], p.json()["username"]
+
+
+def _workspace(client, headers, name):
+    """Buat workspace (shared list) milik user; kembalikan id-nya."""
+    r = client.post("/api/lists", json={"name": name}, headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def _add_member(list_id, user_id):
+    """Jadikan user anggota workspace langsung lewat DB (alur undangan tidak relevan untuk tes ini)."""
+    conn = db()
+    try:
+        conn.execute(
+            "INSERT INTO list_members (list_id, user_id, joined_at) VALUES (?, ?, '2026-10-18T00:00:00')",
+            (list_id, user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _unlock_cookie(slug):
@@ -208,6 +233,63 @@ def test_pub_other_users_drawing_not_exposed(client):
     assert "Gambar tidak tersedia" in page.text
     assert f'data-drawing-preview="{b["id"]}"' not in page.text
     assert f'data-drawing-preview="{b["client_id"]}"' not in page.text
+
+
+# ── Note publish bersama (workspace) ─────────────────────────────────────────
+
+def test_pub_shared_note_drawings_not_public(client):
+    """Note publish bersama (list_id terisi) tidak menampilkan drawing apa pun di halaman publiknya dan tidak
+    dihitung sebagai rujukan oleh /pub/drawings, walau drawing-nya milik penerbit sendiri. Kontrol: begitu
+    note PRIBADI penerbit merujuk drawing yang sama, endpoint publik terbuka, tetapi halaman note bersama
+    tetap kosong dari drawing (jadi yang menahan tadi memang aturan note bersama)."""
+    tag = _uniq()
+    h = _auth(client, f"pubshare_{tag}")
+    marker = f"MARKER-SH-{tag}"
+    d = _drawing(client, h, f"gambar-sh-{tag}", svg=_svg(marker), cid=f"cid-sh-{tag}")
+    w = _workspace(client, h, f"Workspace {tag}")
+    _, slug, username = _publish(client, h, f"Note bersama {tag}",
+                                 f"::draw[{d['id']}]\n\n::draw[{d['client_id']}]", list_id=w)
+
+    pub = anon()
+    page = pub.get(f"/pub/{username}/{slug}")
+    assert page.status_code == 200
+    assert marker not in page.text
+    assert "Gambar tidak tersedia" in page.text
+    assert f'data-drawing-preview="{d["id"]}"' not in page.text
+    assert pub.get(f"/pub/drawings/{d['id']}").status_code == 404
+    assert pub.get(f"/pub/drawings/{d['client_id']}").status_code == 404
+
+    _publish(client, h, f"Note pribadi {tag}", f"::draw[{d['id']}]")
+    assert pub.get(f"/pub/drawings/{d['id']}").status_code == 200
+    assert marker not in pub.get(f"/pub/{username}/{slug}").text
+
+
+def test_pub_member_injection_blocked(client):
+    """Anggota workspace ikut mengedit isi note bersama. Ia tidak boleh bisa membuka drawing pribadi pemilik
+    lewat halaman publik dengan menyisipkan ::draw[id] / ::draw[client_id] ke note bersama yang dipublish."""
+    tag = _uniq()
+    ha = _auth(client, f"pubowner_{tag}")
+    member = f"pubmember_{tag}"
+    hb = _auth(client, member)
+    marker = f"MARKER-P-{tag}"
+    p = _drawing(client, ha, f"pribadi-{tag}", svg=_svg(marker), cid=f"cid-p-{tag}")  # tidak dirujuk di mana pun
+    w = _workspace(client, ha, f"Workspace {tag}")
+    _add_member(w, _uid(member))
+    title, old_content = f"Note bersama {tag}", f"Isi awal {tag}"
+    note_id, slug, username = _publish(client, ha, title, old_content, list_id=w)
+
+    injected = f"{old_content}\n\n::draw[{p['id']}]\n\n::draw[{p['client_id']}]"
+    r = client.put(f"/api/scratchpad/{note_id}", json={"title": title, "content": injected}, headers=hb)
+    assert r.status_code == 200, r.text
+
+    pub = anon()
+    page = pub.get(f"/pub/{username}/{slug}")
+    assert page.status_code == 200
+    assert old_content in page.text
+    assert marker not in page.text
+    assert "Gambar tidak tersedia" in page.text  # penyisipan memang masuk ke isi yang dipublish
+    assert pub.get(f"/pub/drawings/{p['id']}").status_code == 404
+    assert pub.get(f"/pub/drawings/{p['client_id']}").status_code == 404
 
 
 # ── Render halaman publik ────────────────────────────────────────────────────
