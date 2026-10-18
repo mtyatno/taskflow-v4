@@ -235,5 +235,72 @@
     return empty ? null : { excerpt, items, more, counts };
   }
 
-  return { parseNote, summarizeSection };
+  // ---- buildMindData ----------------------------------------------------
+
+  const KEY_SEP = "\u001f";
+  const COLLAPSE_NODE_LIMIT = 30;
+  const DEFAULT_ROOT_TITLE = "Tanpa judul";
+
+  const LINKED_VIEW_STATE_DEFAULT = Object.freeze({
+    linked: 1,
+    direction: 2,
+    justify: false,
+    collapsed: Object.freeze([]),
+    summary: true,
+  });
+
+  // Satu lintasan: sid -> kunci jalur (teks kembar sesama saudara diberi #2, #3, ...).
+  function computePathKeys(parsed) {
+    const bySid = new Map(parsed.sections.map((s) => [s.sid, s]));
+    const keys = new Map();
+    const visit = (sids, prefix) => {
+      const seen = new Map();
+      for (const sid of sids) {
+        const sec = bySid.get(sid);
+        const n = (seen.get(sec.text) || 0) + 1;
+        seen.set(sec.text, n);
+        const key = prefix + (prefix ? KEY_SEP : "") + sec.text + (n > 1 ? "#" + n : "");
+        keys.set(sid, key);
+        visit(sec.childSids, key);
+      }
+    };
+    visit(parsed.sections.filter((s) => s.parentSid === null).map((s) => s.sid), "");
+    return keys;
+  }
+
+  function pathKey(parsed, sid) {
+    return computePathKeys(parsed).get(sid);
+  }
+
+  function buildMindData(parsed, opts) {
+    const o = opts || {};
+    const saved = o.viewState && Array.isArray(o.viewState.collapsed) ? new Set(o.viewState.collapsed) : null;
+    const keys = computePathKeys(parsed);
+    const bySid = new Map(parsed.sections.map((s) => [s.sid, s]));
+    const collapseDeep = !saved && parsed.sections.length > COLLAPSE_NODE_LIMIT;
+
+    const make = (sid, depth) => {
+      const sec = bySid.get(sid);
+      return {
+        id: sid,
+        topic: sec.text,
+        expanded: saved ? !saved.has(keys.get(sid)) : !(collapseDeep && depth >= 2),
+        children: sec.childSids.map((c) => make(c, depth + 1)),
+        nm: { sid, level: sec.level, summary: summarizeSection(sec.body) },
+      };
+    };
+
+    return {
+      nodeData: {
+        id: "root",
+        topic: o.title || DEFAULT_ROOT_TITLE,
+        root: true,
+        expanded: true,
+        nm: { sid: null, level: 0, summary: summarizeSection(parsed.intro) },
+        children: parsed.sections.filter((s) => s.parentSid === null).map((s) => make(s.sid, 1)),
+      },
+    };
+  }
+
+  return { parseNote, summarizeSection, pathKey, buildMindData, LINKED_VIEW_STATE_DEFAULT };
 });
