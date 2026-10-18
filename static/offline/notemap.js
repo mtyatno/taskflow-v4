@@ -342,13 +342,16 @@
       };
     };
 
+    const rootNm = { sid: null, level: 0, summary: summarizeSection(parsed.intro) };
+    // Judul placeholder ditandai agar applyMindData tidak mengembalikannya sebagai judul.
+    if (!o.title) rootNm.titleIsDefault = true;
     return {
       nodeData: {
         id: "root",
         topic: o.title || DEFAULT_ROOT_TITLE,
         root: true,
         expanded: true,
-        nm: { sid: null, level: 0, summary: summarizeSection(parsed.intro) },
+        nm: rootNm,
         children: parsed.sections.filter((s) => s.parentSid === null).map((s) => make(s.sid, 1)),
       },
     };
@@ -369,6 +372,11 @@
       .trim();
   }
 
+  function titleOf(root) {
+    const t = sanitizeTopic(root.topic);
+    return root.nm && root.nm.titleIsDefault && t === DEFAULT_ROOT_TITLE ? "" : t;
+  }
+
   const kids = (n) => (n && Array.isArray(n.children) ? n.children : []);
   const nodeSid = (n) => (n && n.nm ? n.nm.sid : undefined);
 
@@ -377,6 +385,16 @@
   // identik byte per byte. Menandai tiap node non-root dengan nm.level / nm.text
   // hasil serialisasi (dipakai verifyStructure).
   function applyMindData(markdown, parsed, edited) {
+    if (!edited || typeof edited !== "object" || !Array.isArray(edited.children)) {
+      return { ok: false, code: "BAD_TREE" };
+    }
+    // parsed harus hasil parseNote(markdown) saat ini; selain itu bagian-bagiannya
+    // bisa sudah bergeser dan isi catatan akan ditulis dari potongan basi.
+    const src = String(markdown == null ? "" : markdown);
+    if (!parsed || !Array.isArray(parsed.sections) ||
+        parsed.intro + parsed.sections.map((s) => s.headingLine + s.body).join("") !== src) {
+      return { ok: false, code: "STALE_PARSE" };
+    }
     const eol = parsed.eol;
     const known = new Map(parsed.sections.map((s) => [s.sid, s]));
     const used = new Set();
@@ -429,7 +447,7 @@
     return {
       ok: true,
       markdown: out,
-      title: sanitizeTopic(edited && edited.topic),
+      title: titleOf(edited),
       removed: {
         count: lost.length,
         hasContent: lost.some((s) => s.body.trim() !== ""),

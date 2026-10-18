@@ -80,3 +80,21 @@ test("verifyStructure checks nesting (R7)", () => {
   assert.equal(r2.markdown, "# R\n### x\n## y\n\n### N\n");
   assert.equal(NM.verifyStructure(r2.markdown, t2), false);
 });
+test("broken trees are rejected with BAD_TREE", () => {
+  for (const bad of [null, undefined, "x", 3, {}, { topic: "T", children: "no" }]) {
+    assert.deepEqual(NM.applyMindData(BASE, P(BASE), bad), { ok: false, code: "BAD_TREE" });
+  }
+});
+test("stale parse (markdown changed since parseNote) is rejected", () => {
+  const t = T(BASE);
+  assert.deepEqual(NM.applyMindData(BASE + "tambahan\n", P(BASE), t), { ok: false, code: "STALE_PARSE" });
+  assert.deepEqual(NM.applyMindData("lain", P(BASE), t), { ok: false, code: "STALE_PARSE" });
+  assert.equal(NM.applyMindData(BASE, P(BASE), t).ok, true);
+});
+test("placeholder root title is not returned as the note title", () => {
+  const t = JSON.parse(JSON.stringify(NM.buildMindData(P(BASE), { title: "" }).nodeData));
+  assert.equal(t.topic, "Tanpa judul");
+  assert.equal(NM.applyMindData(BASE, P(BASE), t).title, "");
+  t.topic = "Judul Asli"; assert.equal(NM.applyMindData(BASE, P(BASE), t).title, "Judul Asli");
+  assert.equal(run(BASE, () => {}, "Tanpa judul").title, "Tanpa judul"); // judul sungguhan, bukan placeholder
+});
