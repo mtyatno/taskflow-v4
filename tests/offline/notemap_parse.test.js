@@ -51,3 +51,16 @@ test("CRLF heading with closing hashes and no trailing newline", () => {
 test("eol defaults to LF", () => {
   assert.equal(NM.parseNote("# A").eol, "\n");
 });
+test("details tags count only at line start/end; headings never open details", () => {
+  assert.deepEqual(texts(NM.parseNote("# A\nUse `<details>` tag\n# B\n## C\n")), ["A", "B", "C"]);
+  assert.deepEqual(texts(NM.parseNote("## About <details>\n# B\n## C\n")), ["About <details>", "B", "C"]);
+  assert.deepEqual(texts(NM.parseNote("<details>\n## in\ntutup di sini </details>\n# Luar\n")), ["Luar"]);
+  assert.deepEqual(texts(NM.parseNote("<DETAILS open>\n## in\n</details> lalu teks\n# Luar\n")), ["Luar"]);
+  assert.deepEqual(texts(NM.parseNote("<details><summary>S</summary>isi</details>\n# Luar\n")), ["Luar"]);
+  assert.deepEqual(texts(NM.parseNote("<details>\nteks </details> masih teks\n## in\n</details>\n# Luar\n")), ["Luar"]);
+});
+test("backtick fence opener with a backtick in the info string is not a fence", () => {
+  assert.deepEqual(texts(NM.parseNote("# A\n```js`x\n# B\n")), ["A", "B"]);
+  assert.deepEqual(texts(NM.parseNote("# A\n``` kode ```\n# B\n")), ["A", "B"]);
+  assert.deepEqual(texts(NM.parseNote("# A\n~~~ a`b\n# B\n~~~\n# C\n")), ["A", "C"]);
+});

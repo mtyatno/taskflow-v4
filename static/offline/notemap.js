@@ -15,7 +15,10 @@
     (isNode ? require("./mindmapoutline.js") : root.TF.mindmapoutline).sanitizeHrefs(html);
 
   const HEADING_RE = /^(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*\r?$/;
-  const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/;
+  const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})([\s\S]*)$/;
+  const DETAILS_OPEN_RE = /^\s*<details\b/i;
+  const DETAILS_CLOSE_START_RE = /^<\/details>/i;
+  const DETAILS_CLOSE_END_RE = /<\/details>$/i;
   const QUOTE_RE = /^ {0,3}>/;
 
   // Pisah baris beserta pemisahnya, sehingga gabungan semua baris == input.
@@ -24,6 +27,25 @@
   }
 
   const countMatches = (s, re) => (s.match(re) || []).length;
+
+  // Pembuka fence (CommonMark): ``` / ~~~ ≥ 3; info string fence backtick tidak
+  // boleh memuat backtick (``` a ``` di satu baris = kode inline, bukan fence).
+  function fenceOpen(line) {
+    const f = line.match(FENCE_OPEN_RE);
+    if (!f || (f[1][0] === "`" && f[2].includes("`"))) return null;
+    return { ch: f[1][0], len: f[1].length };
+  }
+
+  // Perubahan kedalaman <details> oleh satu baris non-heading. Tag pembuka hanya
+  // dihitung bila baris diawali "<details"; tag penutup hanya bila baris (trim)
+  // diawali atau diakhiri "</details>" — sebutan tag di tengah kalimat diabaikan.
+  function detailsDelta(line) {
+    let d = 0;
+    if (DETAILS_OPEN_RE.test(line)) d += countMatches(line, /<details\b/gi);
+    const t = line.trim();
+    if (DETAILS_CLOSE_START_RE.test(t) || DETAILS_CLOSE_END_RE.test(t)) d -= countMatches(line, /<\/details>/gi);
+    return d;
+  }
 
   function parseNote(markdown) {
     const md = String(markdown == null ? "" : markdown);
@@ -45,18 +67,16 @@
         const m = line.match(/^ {0,3}(`+|~+)[ \t]*$/);
         if (m && m[1][0] === fence.ch && m[1].length >= fence.len) fence = null;
       } else {
-        const f = line.match(FENCE_OPEN_RE);
+        const f = fenceOpen(line);
         if (f) {
-          fence = { ch: f[1][0], len: f[1].length };
+          fence = f;
         } else {
-          const wasOutside = detailsDepth === 0;
-          if (wasOutside && !QUOTE_RE.test(line)) {
+          if (detailsDepth === 0 && !QUOTE_RE.test(line)) {
             const h = line.match(HEADING_RE);
             if (h && h[2].trim() !== "") heading = h;
           }
-          detailsDepth += countMatches(line, /<details\b/gi);
-          detailsDepth -= countMatches(line, /<\/details>/gi);
-          if (detailsDepth < 0) detailsDepth = 0;
+          // Heading tidak pernah mengubah kedalaman <details>.
+          if (!heading) detailsDepth = Math.max(0, detailsDepth + detailsDelta(line));
         }
       }
 
@@ -120,9 +140,9 @@
         if (m && m[1][0] === fence.ch && m[1].length >= fence.len) fence = null;
         out.push("");
       } else {
-        const f = line.match(FENCE_OPEN_RE);
+        const f = fenceOpen(line);
         if (f) {
-          fence = { ch: f[1][0], len: f[1].length };
+          fence = f;
           out.push("");
         } else out.push(line);
       }
