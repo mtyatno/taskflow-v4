@@ -1029,8 +1029,9 @@ class TaskRepository:
                     "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
                 ).fetchone():
                     conn.execute(
-                        "UPDATE mindmaps SET list_id = NULL WHERE list_id = ? AND source_note_id IS NOT NULL",
-                        (list_id,),
+                        "UPDATE mindmaps SET list_id = NULL, updated_at = ? "
+                        "WHERE list_id = ? AND source_note_id IS NOT NULL",
+                        (datetime.now(_TZ_JKT).isoformat(), list_id),
                     )
             except sqlite3.OperationalError:
                 pass  # tabel/kolom mindmaps belum dimigrasi

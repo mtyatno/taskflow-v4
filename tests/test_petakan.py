@@ -157,12 +157,30 @@ def test_put_linked_rejects_tree_and_ignores_title_base_rev(client):
     assert r.status_code == 200 and r.json()["title"] == "Sumber" and r.json()["data_json"] == vs
 
 
-def test_put_linked_keeps_list_id(client):
-    o = U(client); lid = _mk_list(o); n, mm = _linked(o)
-    before = _row("SELECT list_id FROM mindmaps WHERE id = ?", mm["id"])["list_id"]
-    r = o.put(f"/api/mindmaps/{mm['id']}", json={"list_id": lid, "data_json": '{"linked":1}'})
-    assert r.status_code == 200
-    assert _row("SELECT list_id FROM mindmaps WHERE id = ?", mm["id"])["list_id"] == before
+def test_put_linked_persists_view_state_bumps_updated_at_and_editor(client):
+    o, m = U(client), U(client); lid = _mk_list(o, m)
+    n = _mk_note(o, title="Sumber", list_id=lid)
+    mm = o.post("/api/mindmaps", json={"title": "x", "source_note_id": n["id"]}).json()
+    before = _row("SELECT updated_at, last_edited_by FROM mindmaps WHERE id = ?", mm["id"])
+    vs = '{"linked":1,"direction":3,"justify":true,"collapsed":["A"],"summary":false}'
+    r = m.put(f"/api/mindmaps/{mm['id']}", json={"data_json": vs})
+    assert r.status_code == 200, r.text
+    after = _row("SELECT data_json, updated_at, last_edited_by, list_id FROM mindmaps WHERE id = ?", mm["id"])
+    assert after["data_json"] == vs
+    assert after["updated_at"] != before["updated_at"]
+    assert after["last_edited_by"] == m.id and before["last_edited_by"] != m.id
+    assert after["list_id"] == lid
+
+
+def test_normal_maps_with_null_source_note_id_insert_fine():
+    conn = db()
+    try:
+        for t in ("n1", "n2"):
+            conn.execute("INSERT INTO mindmaps (user_id,title,created_at,updated_at,source_note_id) VALUES (1,?,'x','x',NULL)", (t,))
+        conn.commit()
+    finally:
+        conn.execute("DELETE FROM mindmaps WHERE title IN ('n1','n2') AND source_note_id IS NULL AND created_at='x'")
+        conn.commit(); conn.close()
 
 
 def test_share_linked_409_and_normal_put_still_checks_base_rev(client):
@@ -235,3 +253,61 @@ def test_empty_title_falls_back_and_list_deletion_nulls_map_list(client):
     assert repo.delete_shared_list(lid, o.id)
     assert _row("SELECT list_id FROM scratchpad_notes WHERE id=?", n["id"])["list_id"] is None
     assert _row("SELECT list_id FROM mindmaps WHERE id=?", mm["id"])["list_id"] is None
+
+
+# ── Final review fixes ────────────────────────────────────────────────────────
+
+def test_purge_expired_deletes_maps_before_trash_rows(client, monkeypatch):
+    o = U(client); n, mm = _linked(o); o.delete(f"/api/scratchpad/{n['id']}")
+    _exec("UPDATE trashed_notes SET deleted_at='2000-01-01T00:00:00+07:00' WHERE note_id=?", n["id"])
+
+    def boom(conn, ids):
+        raise RuntimeError("gagal hapus peta")
+    monkeypatch.setattr(webapp, "_delete_linked_mindmaps", boom)
+    conn = db(); webapp._purge_expired_trashed_notes(conn); conn.commit(); conn.close()
+    # peta gagal dihapus -> baris sampah harus masih ada (tidak ada peta yatim)
+    assert _row("SELECT note_id FROM trashed_notes WHERE note_id=?", n["id"]) is not None
+    assert _row("SELECT id FROM mindmaps WHERE id=?", mm["id"]) is not None
+
+
+def test_empty_trash_deletes_map_of_note_trashed_between_statements(client, monkeypatch):
+    import contextlib
+    o = U(client)
+    n1, mm1 = _linked(o); o.delete(f"/api/scratchpad/{n1['id']}")
+    n2, mm2 = _linked(o); o.delete(f"/api/scratchpad/{n2['id']}")
+    saved = dict(_row("SELECT * FROM trashed_notes WHERE note_id=?", n2["id"]))
+    _exec("DELETE FROM trashed_notes WHERE note_id=?", n2["id"])  # n2 belum 'masuk sampah' saat request mulai
+    fired = []
+
+    def inject(stmt):
+        if not fired and stmt.lstrip().upper().startswith("DELETE FROM TRASHED_NOTES"):
+            fired.append(1)
+            cols = list(saved)
+            _exec(f"INSERT INTO trashed_notes ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", *saved.values())
+
+    real = webapp.get_db
+
+    @contextlib.contextmanager
+    def traced():
+        with real() as conn:
+            conn.set_trace_callback(inject)
+            yield conn
+
+    monkeypatch.setattr(webapp, "get_db", traced)
+    assert o.delete("/api/scratchpad/trash").status_code == 200
+    monkeypatch.setattr(webapp, "get_db", real)
+    assert fired
+    assert _row("SELECT note_id FROM trashed_notes WHERE note_id=?", n2["id"]) is None
+    assert _row("SELECT id FROM mindmaps WHERE id=?", mm1["id"]) is None
+    assert _row("SELECT id FROM mindmaps WHERE id=?", mm2["id"]) is None
+
+
+def test_delete_shared_list_bumps_linked_map_updated_at(client):
+    o = U(client); lid = _mk_list(o)
+    n = _mk_note(o, title="Judul", list_id=lid)
+    mm = o.post("/api/mindmaps", json={"title": "x", "source_note_id": n["id"]}).json()
+    _exec("UPDATE mindmaps SET updated_at='2000-01-01T00:00:00+07:00' WHERE id=?", mm["id"])
+    assert TaskRepository(os.environ["DB_PATH"]).delete_shared_list(lid, o.id)
+    row = _row("SELECT list_id, updated_at FROM mindmaps WHERE id=?", mm["id"])
+    assert row["list_id"] is None
+    assert row["updated_at"] != "2000-01-01T00:00:00+07:00" and row["updated_at"] > "2000-01-01T00:00:00+07:00"

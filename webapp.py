@@ -4674,8 +4674,9 @@ def _purge_expired_trashed_notes(conn) -> None:
     try:
         expired = [r["note_id"] for r in conn.execute(
             "SELECT note_id FROM trashed_notes WHERE deleted_at < ?", (cutoff,)).fetchall()]
-        conn.execute("DELETE FROM trashed_notes WHERE deleted_at < ?", (cutoff,))
+        # Peta tertaut dihapus DULU, baru baris sampah: kegagalan tidak boleh meninggalkan peta yatim.
         _delete_linked_mindmaps(conn, expired)
+        conn.execute("DELETE FROM trashed_notes WHERE deleted_at < ?", (cutoff,))
     except Exception:
         pass
 
@@ -4827,12 +4828,12 @@ async def empty_trashed_notes(user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
         _ensure_trashed_notes_table(conn)
-        mine = [r["note_id"] for r in conn.execute(
-            "SELECT note_id FROM trashed_notes WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = ''",
+        # Atomik: RETURNING memberi id persis baris yang terhapus (tanpa celah SELECT→DELETE).
+        gone = [r["note_id"] for r in conn.execute(
+            "DELETE FROM trashed_notes WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '' RETURNING note_id",
             (uid, str(uid))).fetchall()]
-        cur = conn.execute("DELETE FROM trashed_notes WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = ''", (uid, str(uid)))
-        deleted = cur.rowcount
-        _delete_linked_mindmaps(conn, mine)
+        deleted = len(gone)
+        _delete_linked_mindmaps(conn, gone)
     return {"ok": True, "deleted": deleted}
 
 @app.get("/api/scratchpad/recent")
