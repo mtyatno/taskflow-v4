@@ -3,6 +3,21 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+## 🟡 Petakan — catatan ↔ mindmap tertaut (cermin murni) — 2026-10-18 (Claude) — RENCANA MENUNGGU REVIEW
+- **Status:** Spec disetujui Bapak (2026-10-18 11:19). Spec: `docs/superpowers/specs/2026-10-18-petakan-note-mindmap-design.md`; rencana implementasi: `docs/superpowers/plans/2026-10-18-petakan-note-mindmap.md` (21 task, 3 PR: A `notemap.js` + tes → B backend → C frontend/offline). Keduanya di draft PR #31 (`claude/petakan-note-mindmap-spec`, hanya dokumen). ADR-008. **Belum ada kode.** Langkah berikutnya: Bapak meninjau rencana dan memilih cara eksekusi (subagent-driven / native), lalu mulai dari Bagian A.
+- **Inti keputusan:** dua arah; cermin murni dengan catatan sebagai satu-satunya sumber data; peta tertaut = baris `mindmaps` + `source_note_id`, `data_json` hanya pengaturan tampilan; ringkasan per node berbasis aturan (kalimat pertama + 3 butir daftar + baris hitungan); Ctrl/Cmd+Click, klik kanan, atau tombol Ops → `NoteModal` di atas peta tepat di heading (tetap di halaman Mindmap); pemilik dan `list_id` peta = catatan; edit yang bentrok dibatalkan; tanpa LLM.
+- **Temuan review fitur mindmap (2026-10-18) — belum dikerjakan, Bapak minta diselesaikan satu per satu nanti:**
+  1. Link quick-create di Outline (`LinkPickerModal` → `api.post` lokal) menyimpan cid; pull task/mindmap membuat cid baru (`syncpull.js` `ensureCid` / `ensureMindmapCid`) → link mati di perangkat lain. Note aman (pull memakai `client_id` sebagai cid). Dibuktikan probe node.
+  2. Picker link di iframe kanvas memakai `fetch` mentah (`/api/search`, POST scratchpad/tasks/mindmaps) → tidak jalan offline, item baru belum ada di IndexedDB sampai sync berikutnya, APK tanpa `API_BASE`.
+  3. Kartu link node = snapshot (judul/prioritas/deadline/status saat ditautkan), tidak ikut berubah.
+  4. Kolaborasi mindmap bersama tidak real-time (sync 30 detik; edit bersamaan → salinan konflik seluruh peta).
+  5. Hapus mindmap = hard delete (tanpa Sampah/riwayat).
+  6. Mindmap tidak ikut `/api/export/download`.
+  7. Global search `data_json LIKE` cocok ke kunci JSON ("topic", "children"); hasil hanya judul.
+  8. Kecil: pin oleh anggota gagal diam-diam (pin hanya pemilik); sidebar tanpa penanda peta bersama; state `filterListId` tanpa UI.
+  9. Daftar isi mode baca (`extractHeadings`) ikut menghitung baris `#` di dalam blok kode → item palsu dan indeks `note-h-*` bisa bergeser.
+  Detail dan lokasi kode: doc project claude.ai `claude/fitur-mindmap-2026-10-18.md`.
+
 ## 🟢 Sesi login koheren antar-tab + perpanjangan token otomatis — 2026-10-17 (Claude) — DI-MERGE & DEPLOY (BELUM RESTART)
 - **Status:** PR #30 di-merge (`fcd64e3`) atas persetujuan Bapak (2026-10-17 23:53 WIB, setelah dipastikan tidak memunculkan lagi bug data akun A tampil di akun B), Deploy Taskflow V4 run #898 sukses. SW **v415** `taskflow-v415-multi-tab-session` (app.css tidak berubah, v=333). **`taskflow-web` belum di-restart dari sesi ini** — kode server (refresh token, urutan header→cookie) baru aktif setelah restart; sebelum itu klien v415 tetap jalan (panggilan `/api/auth/refresh` gagal diam-diam, perpanjangan belum terjadi). **Deploy wajib `sudo systemctl restart taskflow-web`** (endpoint baru `/api/auth/refresh`, klaim token baru, urutan header→cookie); tanpa migrasi DB, token lama tetap valid.
 - **Laporan Bapak:** "sudah login, pindah tab, kadang perlu login kembali".
