@@ -187,7 +187,7 @@ test("export surface is complete", () => {
     "findNode", "addChild", "addSibling", "renameNode", "deleteNode", "duplicateNode",
     "moveNode", "moveSibling", "moveInto", "indentNode", "outdentNode", "toggleExpand",
     "expandAll", "collapseAll", "cloneSubtree", "insertSubtree", "searchNodes", "ancestorsOf",
-    "renderTopicMd", "wrapSelection", "prefixLines", "insertBlock", "setNodeAlign",
+    "renderTopicMd", "sanitizeHrefs", "wrapSelection", "prefixLines", "insertBlock", "setNodeAlign",
     "addNodeLink", "removeNodeLink",
   ].sort();
   assert.deepEqual(Object.keys(MO).sort(), expected);
@@ -346,4 +346,10 @@ test("renderTopicMd strips the single-paragraph <p> wrapper (no phantom block)",
   const multi = MO.renderTopicMd("para1\n\npara2");
   assert.match(multi, /<p>para1<\/p>/);
   assert.match(multi, /<p>para2<\/p>/);
+});
+
+test("sanitizeHrefs blocks javascript: and keeps https", () => {
+  const out = MO.sanitizeHrefs('<a href="javascript:x">a</a><a href="https://e.id">b</a>');
+  assert.ok(out.includes('href="#"'));
+  assert.ok(out.includes('href="https://e.id"'));
 });

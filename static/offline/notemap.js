@@ -8,6 +8,12 @@
 })(typeof self !== "undefined" ? self : globalThis, function (root) {
   "use strict";
 
+  const isNode = typeof module !== "undefined" && module.exports;
+  const markedLib = isNode ? require("../vendor/marked.min.js") : root.marked;
+  // Dimuat malas: urutan skrip di halaman tidak dijamin saat modul didefinisikan.
+  const sanitizeHrefs = (html) =>
+    (isNode ? require("./mindmapoutline.js") : root.TF.mindmapoutline).sanitizeHrefs(html);
+
   const HEADING_RE = /^(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*\r?$/;
   const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/;
   const QUOTE_RE = /^ {0,3}>/;
@@ -406,6 +412,78 @@
     });
   }
 
+  function plainHeadingText(text) {
+    return String(text == null ? "" : text)
+      .replace(/\[\[([^\]]*)\]\]/g, "$1")
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/`([^`]*)`/g, "$1")
+      .replace(/==([^=]+)==/g, "$1")
+      .replace(/(\*\*|__)(.+?)\1/g, "$2")
+      .replace(/[*_~]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  const norm = (x) => plainHeadingText(x).toLowerCase().replace(/\s+/g, " ").trim();
+
+  function locateHeading(parsed, sid) {
+    if (sid == null || !parsed || !Array.isArray(parsed.sections)) return null;
+    const list = parsed.sections;
+    const index = list.findIndex((s) => s.sid === sid);
+    if (index < 0) return null;
+    const key = norm(list[index].text);
+    let occurrence = 0;
+    for (let i = 0; i < index; i++) if (norm(list[i].text) === key) occurrence++;
+    return { index, text: list[index].text, occurrence };
+  }
+
+  function matchHeading(list, target) {
+    if (!Array.isArray(list) || !target) return -1;
+    const key = norm(target.text);
+    const at = list[target.index];
+    if (at && norm(at.text) === key) return target.index;
+    let seen = 0;
+    for (let i = 0; i < list.length; i++) {
+      if (norm(list[i].text) !== key) continue;
+      if (seen === target.occurrence) return i;
+      seen++;
+    }
+    return -1;
+  }
+
+  const escHtml = (s) =>
+    String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  function renderTopicNoteInline(topic) {
+    const pre = escHtml(topic)
+      .replace(/\[\[([^\]]*)\]\]/g, "$1")
+      .replace(/==([^=]+)==/g, "<mark>$1</mark>");
+    try {
+      let out;
+      if (markedLib && typeof markedLib.parseInline === "function") out = markedLib.parseInline(pre, { gfm: true });
+      else return pre;
+      return sanitizeHrefs(out);
+    } catch (_) {
+      return pre;
+    }
+  }
+
+  function renderSummaryHtml(summary) {
+    if (!summary) return "";
+    const c = summary.counts || {};
+    const items = Array.isArray(summary.items) ? summary.items : [];
+    const parts = [];
+    if (c.checkTotal > 0) parts.push("☑ " + (c.checkDone || 0) + "/" + c.checkTotal);
+    if (c.images > 0) parts.push("🖼 " + c.images);
+    if (c.tables > 0) parts.push("⊞ " + c.tables);
+    const ex = summary.excerpt ? '<div class="nm-sum-ex">' + escHtml(summary.excerpt) + "</div>" : "";
+    const it = items.length
+      ? '<div class="nm-sum-it">' + escHtml("• " + items.join(" • ") + (summary.more ? " +" + summary.more : "")) + "</div>"
+      : "";
+    const ct = parts.length ? '<div class="nm-sum-ct">' + escHtml(parts.join(" · ")) + "</div>" : "";
+    return '<div class="nm-sum">' + ex + it + ct + "</div>";
+  }
+
   return {
     parseNote,
     summarizeSection,
@@ -415,5 +493,10 @@
     sanitizeTopic,
     applyMindData,
     verifyStructure,
+    plainHeadingText,
+    locateHeading,
+    matchHeading,
+    renderTopicNoteInline,
+    renderSummaryHtml,
   };
 });

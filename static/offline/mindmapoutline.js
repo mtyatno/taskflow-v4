@@ -235,6 +235,21 @@
     return out.reverse();
   }
 
+  // marked does not strip dangerous URL schemes — block anything that has a
+  // scheme other than the safe allowlist (relative, #, /, mailto, tel ok).
+  // The escape-first step turned raw &, <, > in URLs into entities; write
+  // them back as percent-encodings so the attribute never entity-decodes
+  // (keeps query strings intact and entity-obfuscated schemes inert).
+  function sanitizeHrefs(html) {
+    return String(html).replace(/href="([^"]*)"/gi, (m, url) => {
+      const clean = url
+        .replace(/&amp;/g, "%26")
+        .replace(/&lt;/g, "%3C")
+        .replace(/&gt;/g, "%3E");
+      return (/^[a-z][a-z0-9+.-]*:/i.test(clean) && !/^(https?|mailto|tel):/i.test(clean)) ? 'href="#"' : 'href="' + clean + '"';
+    });
+  }
+
   function renderTopicMd(topic) {
     const t = String(topic == null ? "" : topic);
     // Escape all raw HTML first (topics render in innerHTML on two surfaces;
@@ -252,18 +267,7 @@
       if (markedLib && typeof markedLib.parse === "function") out = markedLib.parse(pre, { gfm: true, breaks: true });
       else if (markedLib) out = markedLib(pre);
       else return pre;
-      // marked does not strip dangerous URL schemes — block anything that has a
-      // scheme other than the safe allowlist (relative, #, /, mailto, tel ok).
-      // The escape-first step turned raw &, <, > in URLs into entities; write
-      // them back as percent-encodings so the attribute never entity-decodes
-      // (keeps query strings intact and entity-obfuscated schemes inert).
-      const cleaned = out.replace(/href="([^"]*)"/gi, (m, url) => {
-        const clean = url
-          .replace(/&amp;/g, "%26")
-          .replace(/&lt;/g, "%3C")
-          .replace(/&gt;/g, "%3E");
-        return (/^[a-z][a-z0-9+.-]*:/i.test(clean) && !/^(https?|mailto|tel):/i.test(clean)) ? 'href="#"' : 'href="' + clean + '"';
-      });
+      const cleaned = sanitizeHrefs(out);
       // marked appends a trailing \n and wraps single paragraphs in <p> —
       // inside pre-wrap topic boxes both draw as phantom blank lines / extra
       // block height. Strip the trailing newline always; strip the outer <p>
@@ -336,7 +340,7 @@
     findNode, addChild, addSibling, renameNode, deleteNode, duplicateNode,
     moveNode, moveSibling, moveInto, indentNode, outdentNode, toggleExpand,
     expandAll, collapseAll, cloneSubtree, insertSubtree, searchNodes, ancestorsOf,
-    renderTopicMd, wrapSelection, prefixLines, insertBlock, setNodeAlign,
+    renderTopicMd, sanitizeHrefs, wrapSelection, prefixLines, insertBlock, setNodeAlign,
     addNodeLink, removeNodeLink,
   };
 });
