@@ -44,6 +44,15 @@ def _row(sql, *params):
         conn.close()
 
 
+def _exec(sql, *params):
+    conn = db()
+    try:
+        conn.execute(sql, params)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _mk_list(owner, *members, name="Tim Petakan"):
     repo = TaskRepository(os.environ["DB_PATH"])
     lst = repo.create_shared_list(name, owner.id)
@@ -162,3 +171,67 @@ def test_share_linked_409_and_normal_put_still_checks_base_rev(client):
     assert r.status_code == 409 and "Peta tertaut mengikuti catatan" in r.text
     normal = _mk_mindmap(o)
     assert o.put(f"/api/mindmaps/{normal['id']}", json={"data_json": "{}", "base_rev": "basi"}).status_code == 409
+
+
+# ── B5: penyamaan dari catatan + hapus permanen ───────────────────────────────
+
+def test_share_unshare_rename_sync_and_noop(client):
+    o = U(client); lid = _mk_list(o); n, mm = _linked(o)
+    before = _row("SELECT updated_at FROM mindmaps WHERE id=?", mm["id"])["updated_at"]
+    o.put(f"/api/scratchpad/{n['id']}", json={"title": "Sumber", "content": "isi baru"})
+    assert _row("SELECT updated_at FROM mindmaps WHERE id=?", mm["id"])["updated_at"] == before
+    o.patch(f"/api/scratchpad/{n['id']}/share", json={"list_id": lid})
+    assert _row("SELECT list_id FROM mindmaps WHERE id=?", mm["id"])["list_id"] == lid
+    o.patch(f"/api/scratchpad/{n['id']}/share", json={"list_id": None})
+    assert _row("SELECT list_id FROM mindmaps WHERE id=?", mm["id"])["list_id"] is None
+    o.put(f"/api/scratchpad/{n['id']}", json={"title": "Baru", "content": "isi baru"})
+    assert _row("SELECT title FROM mindmaps WHERE id=?", mm["id"])["title"] == "Baru"
+
+
+def test_trash_keeps_map_restore_and_purges_delete_it(client):
+    o = U(client); n, mm = _linked(o)
+    o.delete(f"/api/scratchpad/{n['id']}")
+    assert _row("SELECT source_note_id FROM mindmaps WHERE id=?", mm["id"])["source_note_id"] == n["id"]
+    assert o.post(f"/api/scratchpad/trash/{n['id']}/restore").status_code == 200
+    o.delete(f"/api/scratchpad/{n['id']}"); o.delete(f"/api/scratchpad/trash/{n['id']}")
+    assert _row("SELECT id FROM mindmaps WHERE id=?", mm["id"]) is None
+    n2, mm2 = _linked(o); o.delete(f"/api/scratchpad/{n2['id']}"); o.delete("/api/scratchpad/trash")
+    assert _row("SELECT id FROM mindmaps WHERE id=?", mm2["id"]) is None
+    n3, mm3 = _linked(o); o.delete(f"/api/scratchpad/{n3['id']}")
+    _exec("UPDATE trashed_notes SET deleted_at='2000-01-01T00:00:00+07:00' WHERE note_id=?", n3["id"])
+    conn = db(); webapp._purge_expired_trashed_notes(conn); conn.commit(); conn.close()
+    assert _row("SELECT id FROM mindmaps WHERE id=?", mm3["id"]) is None
+
+
+def test_create_with_existing_client_id_syncs_linked_map(client):
+    o = U(client); lid = _mk_list(o)
+    cid = uuid.uuid4().hex
+    n = _mk_note(o, title="Awal", client_id=cid)
+    mm = o.post("/api/mindmaps", json={"title": "x", "source_note_id": n["id"]}).json()
+    r = o.post("/api/scratchpad", json={"title": "Dari retry", "content": "z", "client_id": cid, "list_id": lid})
+    assert r.status_code == 200 and r.json()["id"] == n["id"]
+    row = _row("SELECT title, list_id FROM mindmaps WHERE id=?", mm["id"])
+    assert (row["title"], row["list_id"]) == ("Dari retry", lid)
+
+
+def test_restore_syncs_map_when_list_access_lost(client):
+    o = U(client); m = U(client); lid = _mk_list(o, m)
+    n = _mk_note(o, title="Bersama", list_id=lid)
+    mm = o.post("/api/mindmaps", json={"title": "x", "source_note_id": n["id"]}).json()
+    assert mm["list_id"] == lid
+    o.delete(f"/api/scratchpad/{n['id']}")
+    _exec("DELETE FROM shared_lists WHERE id=?", lid)
+    assert o.post(f"/api/scratchpad/trash/{n['id']}/restore").status_code == 200
+    assert _row("SELECT list_id FROM mindmaps WHERE id=?", mm["id"])["list_id"] is None
+
+
+def test_empty_title_falls_back_and_list_deletion_nulls_map_list(client):
+    o = U(client); lid = _mk_list(o)
+    n = _mk_note(o, title="Judul", list_id=lid)
+    mm = o.post("/api/mindmaps", json={"title": "x", "source_note_id": n["id"]}).json()
+    o.put(f"/api/scratchpad/{n['id']}", json={"title": "", "content": "isi"})
+    assert _row("SELECT title FROM mindmaps WHERE id=?", mm["id"])["title"] == "Tanpa judul"
+    repo = TaskRepository(os.environ["DB_PATH"])
+    assert repo.delete_shared_list(lid, o.id)
+    assert _row("SELECT list_id FROM scratchpad_notes WHERE id=?", n["id"])["list_id"] is None
+    assert _row("SELECT list_id FROM mindmaps WHERE id=?", mm["id"])["list_id"] is None

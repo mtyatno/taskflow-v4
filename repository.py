@@ -1023,6 +1023,17 @@ class TaskRepository:
 
     def delete_shared_list(self, list_id: int, owner_id: int) -> bool:
         with self._connect() as conn:
+            # Petakan: catatan kehilangan list_id lewat FK SET NULL; peta tertaut (tanpa FK) harus ikut NULL.
+            try:
+                if conn.execute(
+                    "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
+                ).fetchone():
+                    conn.execute(
+                        "UPDATE mindmaps SET list_id = NULL WHERE list_id = ? AND source_note_id IS NOT NULL",
+                        (list_id,),
+                    )
+            except sqlite3.OperationalError:
+                pass  # tabel/kolom mindmaps belum dimigrasi
             cur = conn.execute(
                 "DELETE FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
             )

@@ -4447,6 +4447,34 @@ def _mindmap_enrich(d: dict, conn) -> dict:
             d["last_editor_display_name"] = editor["display_name"]
     return d
 
+def _sync_linked_mindmap(conn, note_id: int) -> None:
+    """Petakan: peta tertaut mengikuti list_id/judul/pemilik catatannya (dipanggil setelah tiap tulis catatan,
+    di koneksi/transaksi yang sama). No-op bila catatan tidak ada; updated_at hanya berubah bila ada yang berubah."""
+    note = conn.execute(
+        "SELECT user_id, list_id, title FROM scratchpad_notes WHERE id = ?", (note_id,)
+    ).fetchone()
+    if not note:
+        return
+    title = note["title"] or "Tanpa judul"
+    conn.execute(
+        "UPDATE mindmaps SET list_id = ?, title = ?, user_id = ?, updated_at = ? "
+        "WHERE source_note_id = ? AND (list_id IS NOT ? OR title IS NOT ? OR user_id IS NOT ?)",
+        (note["list_id"], title, note["user_id"], datetime.now(_TZ_JKT).isoformat(), note_id,
+         note["list_id"], title, note["user_id"]),
+    )
+
+
+def _delete_linked_mindmaps(conn, note_ids: list) -> None:
+    """Petakan: hapus peta tertaut milik catatan yang dihapus permanen (purge Sampah).
+    Sama dengan DELETE /api/mindmaps/{id}: mindmaps tidak punya tabel dependen (pin = kolom is_pinned)."""
+    ids = [int(i) for i in dict.fromkeys(note_ids) if i is not None]
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        conn.execute(
+            f"DELETE FROM mindmaps WHERE source_note_id IN ({','.join('?' * len(chunk))})", chunk
+        )
+
+
 def _sanitize_fts5_token(token: str) -> str:
     cleaned = re.sub(r'[^\w\s-]', '', token).strip(' -')
     if not cleaned:
@@ -4644,7 +4672,10 @@ def _purge_expired_trashed_notes(conn) -> None:
     _ensure_trashed_notes_table(conn)
     cutoff = (datetime.now(_TZ_JKT) - timedelta(days=NOTE_TRASH_RETENTION_DAYS)).isoformat()
     try:
+        expired = [r["note_id"] for r in conn.execute(
+            "SELECT note_id FROM trashed_notes WHERE deleted_at < ?", (cutoff,)).fetchall()]
         conn.execute("DELETE FROM trashed_notes WHERE deleted_at < ?", (cutoff,))
+        _delete_linked_mindmaps(conn, expired)
     except Exception:
         pass
 
@@ -4776,6 +4807,7 @@ async def restore_trashed_note(note_id: int, user=Depends(get_current_user)):
                 [a[c] for c in acols])
 
         conn.execute("DELETE FROM trashed_notes WHERE note_id = ?", (note_id,))
+        _sync_linked_mindmap(conn, note_id)
         conn.commit()
         restored = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row(restored, conn, uid)
@@ -4785,7 +4817,9 @@ async def purge_trashed_note(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
         _ensure_trashed_notes_table(conn)
-        conn.execute("DELETE FROM trashed_notes WHERE note_id = ? AND (user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '')", (note_id, uid, str(uid)))
+        cur = conn.execute("DELETE FROM trashed_notes WHERE note_id = ? AND (user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '')", (note_id, uid, str(uid)))
+        if cur.rowcount:
+            _delete_linked_mindmaps(conn, [note_id])
     return {"ok": True}
 
 @app.delete("/api/scratchpad/trash")
@@ -4793,8 +4827,12 @@ async def empty_trashed_notes(user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
         _ensure_trashed_notes_table(conn)
+        mine = [r["note_id"] for r in conn.execute(
+            "SELECT note_id FROM trashed_notes WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = ''",
+            (uid, str(uid))).fetchall()]
         cur = conn.execute("DELETE FROM trashed_notes WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = ''", (uid, str(uid)))
         deleted = cur.rowcount
+        _delete_linked_mindmaps(conn, mine)
     return {"ok": True, "deleted": deleted}
 
 @app.get("/api/scratchpad/recent")
@@ -5493,6 +5531,7 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
                 )
                 conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=? AND user_id=?", (note_id, uid))
                 _upsert_tags_for_note(conn, note_id, uid, tag_names)
+                _sync_linked_mindmap(conn, note_id)
                 conn.commit()
                 row = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
                 return _scratchpad_row(row, conn, uid)
@@ -5694,6 +5733,7 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
         # lalu upsert di bawah user_id PEMILIK note agar tidak ada tag "zombie" per editor.
         conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=?", (note_id,))
         _upsert_tags_for_note(conn, note_id, existing["user_id"], tag_names)
+        _sync_linked_mindmap(conn, note_id)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row(updated, conn, uid)
@@ -5765,6 +5805,7 @@ async def share_scratchpad(note_id: int, req: NoteShareReq, user=Depends(get_cur
         conn.execute(
             "UPDATE scratchpad_notes SET list_id = ?, updated_at = ? WHERE id = ?", (req.list_id, now, note_id)
         )
+        _sync_linked_mindmap(conn, note_id)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row(updated, conn, uid)
