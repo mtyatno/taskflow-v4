@@ -37,3 +37,15 @@ test("counts tables and nested checklists; empty → null", () => {
   assert.equal(NM.summarizeSection("  \n\n"), null);
   assert.equal(NM.summarizeSection("```\nkode saja\n```\n"), null);
 });
+test("no quadratic regex blow-up on pathological bodies (each < 200 ms)", () => {
+  const time = (s) => { const t0 = performance.now(); NM.summarizeSection(s); return performance.now() - t0; };
+  for (const s of ["a<b ".repeat(50000), "[a".repeat(50000), "![".repeat(50000), "[](".repeat(30000), "::draw[".repeat(12000),
+    "::draw[]{".repeat(10000), "[tasklink:".repeat(8000), "[[".repeat(40000), "|a\n|" + "-".repeat(80000) + "x\n", "> ".repeat(40000) + "x"]) {
+    const ms = time(s); assert.ok(ms < 200, JSON.stringify(s.slice(0, 12)) + " took " + ms.toFixed(0) + " ms");
+  }
+});
+test("bounded patterns still clean ordinary markup", () => {
+  const s = NM.summarizeSection("Lihat <b>tebal</b> [[Wiki]] [teks](http://u/a) ![g](a.png) ::draw[x]{t=1} [tasklink:q] akhir.\n|a|\n|:-:|\n");
+  assert.equal(s.excerpt, "Lihat tebal Wiki teks akhir.");
+  assert.equal(s.counts.images, 2); assert.equal(s.counts.tables, 1);
+});

@@ -64,3 +64,16 @@ test("backtick fence opener with a backtick in the info string is not a fence", 
   assert.deepEqual(texts(NM.parseNote("# A\n``` kode ```\n# B\n")), ["A", "B"]);
   assert.deepEqual(texts(NM.parseNote("# A\n~~~ a`b\n# B\n~~~\n# C\n")), ["A", "C"]);
 });
+test("heading parse is linear on long whitespace runs and matches the old regex semantics", () => {
+  const t0 = performance.now(); NM.parseNote("# a" + " ".repeat(80000) + "b\n" + "## x" + "\t ".repeat(40000) + "#\n");
+  assert.ok(performance.now() - t0 < 200);
+  const OLD = /^(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*\r?$/;
+  const parts = ["#", "##", " ", "\t", "a", "b ", "#a", " #", "\\#", "x#", "\r", "\u2028", "\u00a0"];
+  let a = 7; const rnd = () => { a = (a * 1103515245 + 12345) & 0x7fffffff; return a / 0x7fffffff; };
+  for (let i = 0; i < 3000; i++) {
+    const line = Array.from({ length: 1 + Math.floor(rnd() * 7) }, () => parts[Math.floor(rnd() * parts.length)]).join("");
+    const h = line.replace(/\r$/, "").match(OLD); const want = h && h[2].trim() !== "" ? [h[1].length, h[2].trim()] : null;
+    const s = NM.parseNote(line).sections[0]; const got = s ? [s.level, s.text] : null;
+    assert.deepEqual(got, want, JSON.stringify(line));
+  }
+});

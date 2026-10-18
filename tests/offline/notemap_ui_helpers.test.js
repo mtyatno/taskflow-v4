@@ -35,3 +35,9 @@ test("plainHeadingText unescapes markdown backslash escapes before normalizing",
   assert.equal(NM.matchHeading([{ text: "snake_case" }], target), 0);
   assert.equal(NM.plainHeadingText("a\\*b\\* \\[x\\] \\\\ \\q"), "ab [x] \\ \\q");
 });
+test("heading helpers stay fast on pathological text (< 200 ms)", () => {
+  for (const f of [() => NM.plainHeadingText("[a".repeat(40000)), () => NM.plainHeadingText("[[".repeat(40000)), () => NM.renderTopicNoteInline("[[".repeat(40000))]) {
+    const t0 = performance.now(); f(); assert.ok(performance.now() - t0 < 200);
+  }
+  assert.equal(NM.plainHeadingText("[[A]] [b](u) x"), "A b x");
+});

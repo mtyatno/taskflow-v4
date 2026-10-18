@@ -14,7 +14,29 @@
   const sanitizeHrefs = (html) =>
     (isNode ? require("./mindmapoutline.js") : root.TF.mindmapoutline).sanitizeHrefs(html);
 
-  const HEADING_RE = /^(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*\r?$/;
+  // Heading ATX. Setara dengan /^(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*\r?$/
+  // (hasil [tanda pagar, teks mentah]), tetapi linear: regex itu kuadratik pada
+  // deretan spasi panjang di tengah baris.
+  const isSpTab = (c) => c === " " || c === "\t";
+  function matchHeadingLine(line) {
+    let n = 0;
+    while (n < line.length && line[n] === "#") n++;
+    if (n < 1 || n > 6 || !isSpTab(line[n])) return null;
+    let i = n;
+    while (i < line.length && isSpTab(line[i])) i++;
+    let rest = line.slice(i);
+    if (rest.endsWith("\r")) rest = rest.slice(0, -1);
+    if (/[\r\n\u2028\u2029]/.test(rest)) return null; // "." regex lama tidak melintasinya
+    let e = rest.length;
+    while (e > 0 && isSpTab(rest[e - 1])) e--;
+    let j = e;
+    while (j > 0 && rest[j - 1] === "#") j--;
+    if (j < e && j > 0 && isSpTab(rest[j - 1])) {
+      e = j;
+      while (e > 0 && isSpTab(rest[e - 1])) e--;
+    }
+    return [line, line.slice(0, n), rest.slice(0, e)];
+  }
   const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})([\s\S]*)$/;
   const DETAILS_OPEN_RE = /^\s*<details\b/i;
   const DETAILS_CLOSE_START_RE = /^<\/details>/i;
@@ -72,7 +94,7 @@
           fence = f;
         } else {
           if (detailsDepth === 0 && !QUOTE_RE.test(line)) {
-            const h = line.match(HEADING_RE);
+            const h = matchHeadingLine(line);
             if (h && h[2].trim() !== "") heading = h;
           }
           // Heading tidak pernah mengubah kedalaman <details>.
@@ -116,7 +138,9 @@
   const ITEMS_LIMIT = 3;
   const LIST_RE = /^(\s*)(?:[-*+]|\d+\.)\s+(.*)$/;
   const TASK_RE = /^\[([ xX])\](?:\s+|$)/;
-  const TABLE_DELIM_RE = /^\s*\|[\s:|-]*-[\s:|-]*$/;
+  const TABLE_DELIM_RE = /^\s*\|[\s:|]*-[\s:|-]*$/;
+  const LINK_WIKI_RE = /\[\[([^[\]\n]*)\]\]/g;
+  const LINK_MD_RE = /\[([^[\]\n]*)\]\([^()[\]\n]*\)/g;
 
   // Potong di batas kata (bila ada) sehingga hasil ≤ max, lalu tambah "…".
   function truncate(s, max) {
@@ -164,13 +188,15 @@
     let images = 0;
 
     text = stripFences(text).replace(/\$\$[\s\S]*?\$\$/g, "");
-    text = text.replace(/<\/?[a-zA-Z][^>]*>/g, "");
-    text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, () => (images++, ""));
-    text = text.replace(/::draw\[[^\]]*\](?:\{[^}]*\})?/g, () => (images++, ""));
+    // Semua pola dibatasi (tanpa baris baru / pembuka berikutnya) agar linear:
+    // kelas "[^>]*" dsb. kuadratik pada teks panjang tanpa penutup.
+    text = text.replace(/<\/?[a-zA-Z][^<>\n]*>/g, "");
+    text = text.replace(/!\[[^[\]\n]*\]\([^()[\]\n]*\)/g, () => (images++, ""));
+    text = text.replace(/::draw\[[^[\]\n]*\](?:\{[^{}\n]*\})?/g, () => (images++, ""));
     text = text
-      .replace(/\[tasklink:[^\]]*\]/g, "")
-      .replace(/\[\[([^\]]*)\]\]/g, "$1")
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+      .replace(/\[tasklink:[^[\]\n]*\]/g, "")
+      .replace(LINK_WIKI_RE, "$1")
+      .replace(LINK_MD_RE, "$1");
 
     // Klasifikasi baris.
     const rows = [];
@@ -436,8 +462,8 @@
     return String(text == null ? "" : text)
       // Lepas escape markdown dulu (snake\_case → snake_case), sebelum normalisasi.
       .replace(/\\([!-\/:-@\[-`{-~])/g, "$1")
-      .replace(/\[\[([^\]]*)\]\]/g, "$1")
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(LINK_WIKI_RE, "$1")
+      .replace(LINK_MD_RE, "$1")
       .replace(/`([^`]*)`/g, "$1")
       .replace(/==([^=]+)==/g, "$1")
       .replace(/(\*\*|__)(.+?)\1/g, "$2")
@@ -478,7 +504,7 @@
 
   function renderTopicNoteInline(topic) {
     const pre = escHtml(topic)
-      .replace(/\[\[([^\]]*)\]\]/g, "$1")
+      .replace(LINK_WIKI_RE, "$1")
       .replace(/==([^=]+)==/g, "<mark>$1</mark>");
     try {
       let out;
