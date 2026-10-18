@@ -3,8 +3,8 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
-## 🟡 Petakan — catatan ↔ mindmap tertaut (cermin murni) — 2026-10-18 (Claude) — SPEC MENUNGGU REVIEW
-- **Status:** Brainstorming selesai; desain disetujui Bapak per bagian. Spec: `docs/superpowers/specs/2026-10-18-petakan-note-mindmap-design.md` (branch `claude/petakan-note-mindmap-spec`, hanya dokumen). ADR-008. **Belum ada kode.** Langkah berikutnya: Bapak meninjau spec → `writing-plans` → 3 PR (`notemap.js` + tes → backend → frontend/offline).
+## 🟡 Petakan — catatan ↔ mindmap tertaut (cermin murni) — 2026-10-18 (Claude) — RENCANA MENUNGGU REVIEW
+- **Status:** Spec disetujui Bapak (2026-10-18 11:19). Spec: `docs/superpowers/specs/2026-10-18-petakan-note-mindmap-design.md`; rencana implementasi: `docs/superpowers/plans/2026-10-18-petakan-note-mindmap.md` (21 task, 3 PR: A `notemap.js` + tes → B backend → C frontend/offline). Keduanya di draft PR #31 (`claude/petakan-note-mindmap-spec`, hanya dokumen). ADR-008. **Belum ada kode.** Langkah berikutnya: Bapak meninjau rencana dan memilih cara eksekusi (subagent-driven / native), lalu mulai dari Bagian A.
 - **Inti keputusan:** dua arah; cermin murni dengan catatan sebagai satu-satunya sumber data; peta tertaut = baris `mindmaps` + `source_note_id`, `data_json` hanya pengaturan tampilan; ringkasan per node berbasis aturan (kalimat pertama + 3 butir daftar + baris hitungan); Ctrl/Cmd+Click, klik kanan, atau tombol Ops → `NoteModal` di atas peta tepat di heading (tetap di halaman Mindmap); pemilik dan `list_id` peta = catatan; edit yang bentrok dibatalkan; tanpa LLM.
 - **Temuan review fitur mindmap (2026-10-18) — belum dikerjakan, Bapak minta diselesaikan satu per satu nanti:**
   1. Link quick-create di Outline (`LinkPickerModal` → `api.post` lokal) menyimpan cid; pull task/mindmap membuat cid baru (`syncpull.js` `ensureCid` / `ensureMindmapCid`) → link mati di perangkat lain. Note aman (pull memakai `client_id` sebagai cid). Dibuktikan probe node.

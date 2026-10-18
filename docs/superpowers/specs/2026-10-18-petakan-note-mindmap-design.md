@@ -52,7 +52,7 @@ Catatan (markdown) ─parseNote─► bagian + ringkasan ─buildMindData─► 
 | `webapp.py` | Kolom `source_note_id`, pembuatan idempoten per catatan, penyamaan `list_id`/judul/pemilik dari catatan, penolakan pohon untuk peta tertaut, penghapusan saat catatan dihapus permanen, penyaringan `?linked=1`. |
 | `static/offline/mindmaprepo.js`, `mindmaproutes.js`, `syncpush.js`, `syncpull.js` | Field `source_note_cid`/`source_note_id`, create idempoten lokal, op create ditahan sampai catatan punya id server, pengaturan tampilan tanpa salinan konflik. |
 | `static/offline/noterepo.js` | `applyMapEdit(cid, baseContent, next)`: menulis isi dan judul hasil peta di dalam `TFdb.mutate`, dan menolak bila isi catatan sudah berubah. |
-| `static/index.html` | Mode tertaut di `MindmapTabInstance` dan `MindmapOutline`; "+ Dari Catatan" dan badge di `MindmapPage`; tombol "🧠 Petakan" di `NotePanel` dan `NoteModal`; prop `initialHeading` di `NoteModal` dan `NotesPage`. |
+| `static/index.html` | Mode tertaut di `MindmapTabInstance` dan `MindmapOutline`; "+ Dari Catatan" dan badge di `MindmapPage`; tombol "🧠 Petakan" di `NotePanel` dan `NoteModal`; `NoteModal` memakai prop `initialBlockTarget` yang sudah ada dengan `kind: "heading"`; prop `initialHeading` di `NotesPage`/`NotePanel`. |
 | `static/vendor/mind-elixir/index.html` | Opsi mesin untuk mode tertaut, render ringkasan, menu klik kanan, Ctrl/Cmd+Click, tombol Ops "Buka di catatan", fitur yang dimatikan, penerusan Ctrl+Z ke parent. |
 
 ### 3.1 API `notemap.js`
@@ -65,9 +65,12 @@ summarizeSection(body) → { excerpt, items, more, counts } | null
 applyMindData(markdown, parsed, editedNodeData) →
     { ok: true, markdown, title, removed: { count, hasContent } }
   | { ok: false, code: "LEVEL_OVERFLOW" }
+verifyStructure(markdown, editedNodeData) → boolean            // susunan baru tetap terurai sama (§5.5)
 pathKey(parsed, sid) → string                                  // kunci lipatan yang stabil (§4.2)
 locateHeading(parsed, sid) → { index, text, occurrence }       // untuk "Buka di catatan" (§8.3)
+matchHeading(list, target) → index | -1                        // pencocokan heading di editor/halaman Notes
 renderTopicNoteInline(topic) → html                             // aturan format inline catatan (§5.2)
+renderSummaryHtml(summary) → html                               // ringkasan ter-escape (§8.2)
 ```
 
 Node hasil `buildMindData`:
@@ -171,7 +174,7 @@ Masukan: `body` bagian itu saja (sub-bagian tidak ikut). Untuk root, masukannya 
 ### 5.5 Alur tulis, konfirmasi, dan undo
 
 1. Setiap event `change` dari kanvas atau outline menjadwalkan simpan dengan jeda sekitar 800 ms; yang dipakai adalah pohon terakhir.
-2. Tab memegang `baseContent` (isi catatan saat peta dibangun) beserta hasil urainya. `applyMindData` menghasilkan `next`. Bila `next.markdown === baseContent` dan judulnya sama, tidak ada yang ditulis.
+2. Tab memegang `baseContent` (isi catatan saat peta dibangun) beserta hasil urainya. `applyMindData` menghasilkan `next`. Bila `next.markdown === baseContent` dan judulnya sama, tidak ada yang ditulis. Bila susunan baru terurai berbeda dari pohon yang diedit (`verifyStructure` gagal, misalnya blok kode atau toggle yang tidak ditutup ikut dipindah dan menelan bagian sesudahnya), edit ditolak dengan toast "Perubahan ini akan merusak struktur catatan (ada blok kode/toggle yang tidak ditutup) — ubah lewat catatan" dan peta dimuat ulang. Setelah tulisan berhasil, `sid` node di peta disegarkan sesuai urutan baru (pesan `remapSids`, §8.4).
 3. Bila `removed.hasContent` (ada teks selain spasi di bagian yang hilang), muncul dialog "Hapus bagian «X» beserta isinya dari catatan?" yang menyebut jumlah sub-bagiannya. Batal → peta dimuat ulang dari catatan.
 4. `noterepo.applyMapEdit(cid, baseContent, next)`: di dalam `TFdb.mutate`, bila `cur.content !== baseContent` → batal dan kembalikan `{ stale: true }`; bila sama → tulis `content`, `title`, `updated_at`, `dirty: 1`, dan `rev + 1`. Setelah itu gabungkan op update di outbox (`coalesceUpdateOp`), hitung ulang tautan wikilink seperti di `updateNote`, lalu kirim event `noteSaved { source: "notemap", cids }`.
 5. Bila `stale`, peta dibangun ulang dari isi terbaru dan muncul toast "Catatan baru saja berubah — peta dimuat ulang, ulangi perubahanmu".
@@ -222,7 +225,7 @@ Hapus permanen catatan → `DELETE FROM mindmaps WHERE source_note_id IN (…)`.
 
 ## 7. Offline & sinkron
 
-- **Route lokal `POST /api/mindmaps`** dengan `source_note_cid`/`source_note_id`: bila sudah ada peta lokal (tidak terhapus) untuk catatan itu, peta itu dikembalikan. Bila belum, peta dibuat dengan `list_id`, `user_id`, dan `title` dari catatan lokal, serta pengaturan default.
+- **Route lokal `POST /api/mindmaps`** dengan `source_note_ref` (cid atau id server catatan): bila sudah ada peta lokal (tidak terhapus) untuk catatan itu, peta itu dikembalikan. Bila belum, peta dibuat dengan `list_id`, `user_id`, dan `title` dari catatan lokal, serta pengaturan default.
 - **Push create:** bila catatan belum punya id server, op ditahan (tetap di outbox dan dicoba lagi pada drain berikutnya; pola T10). Payload menyertakan `source_note_id`. Bila server mengembalikan peta yang sudah ada (dibuat perangkat lain), record lokal mengadopsi id server itu. Bila sudah ada record lain dengan id server yang sama, keduanya digabung dan pengaturan tampilan yang lebih baru dipakai.
 - **Push update:** hanya pengaturan tampilan, tanpa `base_rev`. Respons 400 `LINKED_TREE_REJECTED` → `sync_error` (seharusnya tidak pernah terjadi).
 - **Pull:** memakai `?linked=1`. `source_note_id` dipetakan ke cid catatan lokal lewat idmap; di `sync()`, pull catatan memang sudah berjalan sebelum pull mindmap. Peta tertaut tidak pernah melewati `adoptServerWithConflictCopy`; data server diadopsi bila record lokal tidak dirty.
@@ -264,6 +267,7 @@ Hapus permanen catatan → `DELETE FROM mindmaps WHERE source_note_id IN (…)`.
   - `load` membawa `linked: true` dan `showSummary`. Mesin untuk tab itu dibuat dengan `allowUndo: false`, `newTopicName: "Node baru"`, hook `markdown` = teks heading (aturan catatan) + blok ringkasan, dan
     `contextMenu: { focus: true, link: false, extend: [ { name: "📄 Buka di catatan", key: "Ctrl+Click", onclick }, { name: "↗ Buka di halaman Notes", onclick } ] }`.
   - `setSummary { show }`.
+  - `remapSids { pairs: [[nodeId, sid], …] }` — setelah tulisan berhasil, menyegarkan `nm.sid` tiap node tanpa render ulang.
 - **iframe → parent:** `openNoteAt { sid, target: "modal" | "page" }`, `undoRequest`, `redoRequest`. Event `change` tetap membawa pohon penuh.
 
 ## 9. Penanganan error
@@ -277,6 +281,7 @@ Hapus permanen catatan → `DELETE FROM mindmaps WHERE source_note_id IN (…)`.
 | Catatan dihapus permanen | Peta dihapus server; bila masih tampil dari cache: pesan + tombol "Hapus peta" |
 | Catatan berubah di tengah edit peta | Edit dibatalkan, peta dimuat ulang + toast (§5.5) |
 | Level di atas H6 | Edit ditolak, peta dimuat ulang + toast |
+| Blok kode/toggle tidak ditutup ikut dipindah | Edit ditolak (`verifyStructure`), peta dimuat ulang + toast (§5.5) |
 | Konfirmasi hapus dibatalkan | Peta dimuat ulang dari catatan |
 | Node ditempel dari peta lain | Sid asing → heading baru tanpa isi |
 | Pohon dikirim ke server untuk peta tertaut | 400 `LINKED_TREE_REJECTED` |

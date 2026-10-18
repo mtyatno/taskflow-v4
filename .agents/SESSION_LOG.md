@@ -6,7 +6,8 @@
 - **Task:** Review menyeluruh fitur mindmap (backend, UI, iframe mind-elixir, offline/sync), lalu brainstorming fitur baru "Petakan" (catatan ↔ mindmap dua arah, cermin murni dari heading catatan, tanpa LLM) dengan skill `superpowers:brainstorming`.
 - **Changes:** Spec `docs/superpowers/specs/2026-10-18-petakan-note-mindmap-design.md`; ADR-008 di `DECISIONS.md`; `CURRENT_STATE.md` (status Petakan + 9 temuan review mindmap). Tes mindmap yang ada dijalankan di `main`: JS 110/110 (`tests/offline/mindmap*.test.js` + `syncconflict_mindmaps`), pytest mindmap 5/5. Probe throwaway (di luar repo) membuktikan temuan #1 (link cid lintas perangkat). Tidak ada perubahan kode.
 - **Files Touch:** `docs/superpowers/specs/2026-10-18-petakan-note-mindmap-design.md`, `.agents/DECISIONS.md`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
-- **Status:** Needs Review (spec; tunggu review Bapak sebelum rencana implementasi)
+- **Lanjutan (11:30):** spec disetujui; rencana implementasi `docs/superpowers/plans/2026-10-18-petakan-note-mindmap.md` ditulis (writing-plans). Spec dirapikan sesuai temuan saat menyusun rencana: `verifyStructure` (tolak susunan yang mengubah struktur karena blok kode/toggle tidak ditutup), pesan iframe `remapSids`, route lokal memakai `source_note_ref`, `NoteModal` memakai `initialBlockTarget` `kind: "heading"`.
+- **Status:** Needs Review (rencana; tunggu Bapak memilih cara eksekusi)
 
 ## [2026-10-15 14:40] - Claude (hardening offline-first & sinkronisasi — eksekusi audit)
 - **Task:** Audit menyeluruh offline/sync (spec `docs/superpowers/specs/2026-10-15-offline-sync-audit.md`, 6 kritis/13 tinggi/17 sedang) lalu eksekusi rencana `docs/superpowers/plans/2026-10-15-sync-audit-fixes.md` (workstream A1, B, A2, C, D, E) + review independen (12 temuan diperbaiki).
