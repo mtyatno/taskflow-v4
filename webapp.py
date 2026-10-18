@@ -5296,21 +5296,15 @@ async def get_scratchpad_note(note_id: int, user=Depends(get_current_user)):
         return _scratchpad_row(row, conn, uid)
 
 
-def _make_drawing_resolver(uid: int, note_id: int = None):
+def _make_drawing_resolver(uid: int):
+    """Resolver drawing untuk ekspor DOCX. Semua pencarian terscope ke pengekspor (user_id = uid): isi note
+    bisa berisi ::draw[...] apa pun (POST /api/scratchpad/export/docx menerima isi bebas dari klien), jadi
+    drawing user lain, walau di-pin, tidak pernah ter-resolve. Tidak ada fallback ke drawing ber-id sama
+    dengan id note."""
     def _resolve_drawing(did, title=None):
         with get_db() as conn:
-            row = None
-            # 1. By numeric ID
-            if str(did).isdigit():
-                row = conn.execute(
-                    "SELECT id, title, svg_preview FROM drawings WHERE id = ? AND (user_id = ? OR is_pinned = 1)",
-                    (int(did), uid)
-                ).fetchone()
-                if not row:
-                    row = conn.execute(
-                        "SELECT id, title, svg_preview FROM drawings WHERE id = ?",
-                        (int(did),)
-                    ).fetchone()
+            # 1. By numeric ID, then client_id (format default direktif sejak offline-first)
+            row = _resolve_owned_drawing(conn, str(did), uid)
 
             # 2. By title parameter
             if not row and title:
@@ -5319,31 +5313,12 @@ def _make_drawing_resolver(uid: int, note_id: int = None):
                     (title.strip(), uid)
                 ).fetchone()
                 if not row:
-                    row = conn.execute(
-                        "SELECT id, title, svg_preview FROM drawings WHERE title = ?",
-                        (title.strip(),)
-                    ).fetchone()
-                if not row:
                     clean_t = re.sub(r'^(?:gambar|canvas)\s*[-:]*\s*', '', title, flags=re.IGNORECASE).strip()
                     if clean_t:
                         row = conn.execute(
                             "SELECT id, title, svg_preview FROM drawings WHERE title LIKE ? AND user_id = ?",
                             (f"%{clean_t}%", uid)
                         ).fetchone()
-
-            # 3. By string did (title or cid)
-            if not row:
-                row = conn.execute(
-                    "SELECT id, title, svg_preview FROM drawings WHERE title = ? OR id = ?",
-                    (str(did), str(did))
-                ).fetchone()
-
-            # 4. Fallback by note_id
-            if not row and note_id:
-                row = conn.execute(
-                    "SELECT id, title, svg_preview FROM drawings WHERE id = ?",
-                    (note_id,)
-                ).fetchone()
 
             if row:
                 return {
@@ -5433,7 +5408,7 @@ async def export_scratchpad_docx(note_id: int, user=Depends(get_current_user)):
         "tags": note_dict.get("tags") or [],
         "updated_at": note_dict.get("updated_at")
     }
-    drawing_res = _make_drawing_resolver(uid, note_id=note_id)
+    drawing_res = _make_drawing_resolver(uid)
     image_res = _make_image_resolver(uid, note_id=note_id)
     try:
         doc_io = markdown_to_docx(title, content, meta, drawing_resolver=drawing_res, image_resolver=image_res)
@@ -5490,7 +5465,7 @@ async def export_scratchpad_docx_live(req: NoteExportLiveRequest, user=Depends(g
     client_drawings = req.drawings or {}
     client_images = req.images or {}
 
-    db_draw_res = _make_drawing_resolver(uid, note_id=req.note_id)
+    db_draw_res = _make_drawing_resolver(uid)
 
     def combined_drawing_res(did, title=None):
         if client_drawings:
