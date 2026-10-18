@@ -3326,3 +3326,10 @@
 - **Changes:** Dicek dari kode: jalur pembersihan logout/handleLogin/tryAuth tidak berubah; PR #30 justru menutup celah multi-tab (tab lain yang masih akun A kini ikut keluar / reload sebagai B, tanpa request sampai reload; token akun lain tidak diadopsi; perpanjangan tidak menghidupkan sesi setelah logout). PR #30 ditandai ready lalu di-merge (`fcd64e3`), Deploy run #898 sukses.
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/auth/refresh dan /api/version v415 aktif.
+
+## [2026-10-18 16:00] - Claude (PR 1 keamanan halaman publik & ekspor DOCX)
+- **Task:** Bapak menyetujui spec drawing & project workspace (opsi C untuk hak kelola project) dan PR 1: perbaikan celah `/pub/drawings`.
+- **Changes:** Spec + rencana di `docs/superpowers/`. Eksekusi superpowers SDD (subagent implementer + reviewer per task): Task 1 `/pub/drawings` + render publik dibatasi ke drawing penerbit di note publish pribadi (seksi kanvas legacy dihapus); Task 2 password note untuk lampiran, "Related" & wikilink tanpa note berpassword orang lain, escape metadata lintas user; Task 3 resolver drawing ekspor DOCX dibatasi ke pengekspor; Task 4 resolver lampiran ekspor mengikuti akses note. Review akhir (opus) menemukan owner workspace bisa membuka drawing pribadi anggota (sisipkan rujukan lalu hapus workspace) → aturan note tepercaya (`last_edited_by`), plus tanpa tebak-judul untuk token id/UUID di ekspor, id aneh → 404, ekspor menerima lampiran note publish terbuka. ADR-009. XSS isi note (PR 1b) dan SSRF ekspor dilaporkan, tidak dikerjakan.
+- **Verifikasi:** pytest 223/223, JS 1311/1312 (pra-ada draw_local_reactive), smoke uvicorn.
+- **Files Touch:** `webapp.py`, `tests/test_pub_access.py`, `tests/test_export_drawing_scope.py`, `tests/test_export_attachment_scope.py`, `tests/test_drawings.py`, `docs/superpowers/specs/2026-10-18-workspace-drawing-project-design.md`, `docs/superpowers/plans/2026-10-18-pub-drawing-access.md`, `.agents/*`
+- **Status:** Needs Review (draft PR #35, tunggu "merge dan deploy"; restart `taskflow-web` wajib).
