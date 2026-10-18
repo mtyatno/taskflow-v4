@@ -2,6 +2,12 @@
  
  Chronological history of work performed by AI agents in this workspace.
 
+## [2026-10-18 11:20] - Claude (review fitur mindmap + brainstorming & spec Petakan)
+- **Task:** Review menyeluruh fitur mindmap (backend, UI, iframe mind-elixir, offline/sync), lalu brainstorming fitur baru "Petakan" (catatan ↔ mindmap dua arah, cermin murni dari heading catatan, tanpa LLM) dengan skill `superpowers:brainstorming`.
+- **Changes:** Spec `docs/superpowers/specs/2026-10-18-petakan-note-mindmap-design.md`; ADR-008 di `DECISIONS.md`; `CURRENT_STATE.md` (status Petakan + 9 temuan review mindmap). Tes mindmap yang ada dijalankan di `main`: JS 110/110 (`tests/offline/mindmap*.test.js` + `syncconflict_mindmaps`), pytest mindmap 5/5. Probe throwaway (di luar repo) membuktikan temuan #1 (link cid lintas perangkat). Tidak ada perubahan kode.
+- **Files Touch:** `docs/superpowers/specs/2026-10-18-petakan-note-mindmap-design.md`, `.agents/DECISIONS.md`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Needs Review (spec; tunggu review Bapak sebelum rencana implementasi)
+
 ## [2026-10-15 14:40] - Claude (hardening offline-first & sinkronisasi — eksekusi audit)
 - **Task:** Audit menyeluruh offline/sync (spec `docs/superpowers/specs/2026-10-15-offline-sync-audit.md`, 6 kritis/13 tinggi/17 sedang) lalu eksekusi rencana `docs/superpowers/plans/2026-10-15-sync-audit-fixes.md` (workstream A1, B, A2, C, D, E) + review independen (12 temuan diperbaiki).
 - **Changes:** sesi 401 tidak menghapus IndexedDB; klasifikasi respons push (401 tahan, 403 access_lost, 404 remote_deleted, 4xx permanen sync_error + conflict bar); CAS/rev untuk task/note/habit/mindmap/drawing (`TFdb.mutate`, `markPushed`); pull defensif (cek status, isolasi langkah, konfirmasi 404, CAS tulis); `client_id` idempoten + `base_rev`/409 di server; `/share` bump updated_at; kuadran cron tanpa bump updated_at (klien adopsi field turunan); salinan konflik "(konflik) <judul>" untuk note/mindmap; NoteModal autosave/flush/revisi; tab mindmap reload + `if_updated_at`; subtask/notes/lampiran task tampil lagi (K6); pull recurring_exceptions; rekonsiliasi log habit; recurrence_renew; op anak ditahan; three-way merge drawing (`base_blob_ref`), S2/S4/S6, App.jsx diff load; SW S11; SW v412.
