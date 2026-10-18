@@ -3326,3 +3326,9 @@
 - **Changes:** Dicek dari kode: jalur pembersihan logout/handleLogin/tryAuth tidak berubah; PR #30 justru menutup celah multi-tab (tab lain yang masih akun A kini ikut keluar / reload sebagai B, tanpa request sampai reload; token akun lain tidak diadopsi; perpanjangan tidak menghidupkan sesi setelah logout). PR #30 ditandai ready lalu di-merge (`fcd64e3`), Deploy run #898 sukses.
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/auth/refresh dan /api/version v415 aktif.
+
+## [2026-10-18 13:40] - Claude (Petakan Bagian A — subagent-driven)
+- **Task:** Eksekusi rencana Petakan Bagian A (Task A1–A6) dengan subagent per task + review per task + review akhir seluruh branch.
+- **Changes:** `static/offline/notemap.js` baru (UMD `TF.notemap`): `parseNote`, `summarizeSection`, `LINKED_VIEW_STATE_DEFAULT`, `pathKey`, `buildMindData`, `sanitizeTopic`, `applyMindData` (identik byte per byte tanpa edit; STALE_PARSE/BAD_TREE/LEVEL_OVERFLOW), `verifyStructure`, `plainHeadingText`, `locateHeading`, `matchHeading`, `renderTopicNoteInline` (tanpa `<img>`), `renderSummaryHtml`. `mindmapoutline.js`: `sanitizeHrefs` diekstrak + renderer gambar per panggilan yang meng-escape atribut (celah alt `onerror` lama tertutup). Spec §5 diperbarui (aturan level saudara sebelumnya + pemeriksaan hasil).
+- **Files Touch:** `static/offline/notemap.js`, `static/offline/mindmapoutline.js`, `tests/offline/notemap_*.test.js`, `tests/offline/mindmapoutline.test.js`, `docs/superpowers/specs/2026-10-18-petakan-note-mindmap-design.md`, `.agents/*`
+- **Status:** PR 1/3 draft, menunggu review Bapak. JS 1366/1367 (gagal pra-ada `draw_local_reactive`), pytest 178/178.
