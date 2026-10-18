@@ -3326,3 +3326,9 @@
 - **Changes:** Dicek dari kode: jalur pembersihan logout/handleLogin/tryAuth tidak berubah; PR #30 justru menutup celah multi-tab (tab lain yang masih akun A kini ikut keluar / reload sebagai B, tanpa request sampai reload; token akun lain tidak diadopsi; perpanjangan tidak menghidupkan sesi setelah logout). PR #30 ditandai ready lalu di-merge (`fcd64e3`), Deploy run #898 sukses.
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/auth/refresh dan /api/version v415 aktif.
+
+## [2026-10-18 14:30] - Claude (Petakan Bagian B — backend, subagent-driven)
+- **Task:** Task B1–B6: backend peta tertaut.
+- **Changes:** migrasi `mindmaps.source_note_id` + `ux_mindmaps_source_note`; POST linked idempoten per catatan; filter `?linked=1` di dua endpoint daftar; PUT/share peta tertaut; `_sync_linked_mindmap` (create/update/share/restore catatan + hapus list di repository.py, bump updated_at); `_delete_linked_mindmaps` di purge kedaluwarsa (peta dihapus lebih dulu), hapus selamanya, kosongkan Sampah (`DELETE … RETURNING`, atomik). Review per task + review akhir (tanpa Critical/Important; minor diperbaiki).
+- **Files Touch:** `webapp.py`, `repository.py`, `schema-db.md`, `tests/test_petakan.py`, `.agents/*`
+- **Status:** PR 2/3 draft. pytest 196/196. Deploy wajib `sudo systemctl restart taskflow-web`.
