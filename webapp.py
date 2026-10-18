@@ -646,6 +646,22 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Migrate mindmaps.source_note_id (Petakan: peta tertaut ke catatan, satu peta per catatan).
+    # Tanpa FK (catatan bisa dihapus/dipulihkan); index unik parsial dibuat walau kolom sudah ada.
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(mindmaps)").fetchall()]
+        if "source_note_id" not in cols:
+            conn.execute("ALTER TABLE mindmaps ADD COLUMN source_note_id INTEGER DEFAULT NULL")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_mindmaps_source_note "
+            "ON mindmaps(source_note_id) WHERE source_note_id IS NOT NULL"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
     # Migrate messages.note_id column
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
