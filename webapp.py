@@ -6584,17 +6584,18 @@ _PASSWORD_GATE_HTML = """<!DOCTYPE html>
 </body></html>"""
 
 @app.get("/pub/attachments/{att_id}")
-async def view_published_attachment(att_id: int):
-    """Public attachment view — only if the parent note is published."""
+async def view_published_attachment(att_id: int, request: Request):
+    """Public attachment view — only if the parent note is published and, when it is
+    password-protected, unlocked for this request (valid unlock cookie)."""
     import requests as _req
     with get_db() as conn:
         att = conn.execute(
-            """SELECT a.* FROM note_attachments a
+            """SELECT a.*, p.slug, p.password_hash FROM note_attachments a
                JOIN published_notes p ON p.note_id = a.note_id
                WHERE a.id = ?""",
             (att_id,)
         ).fetchone()
-        if not att:
+        if not att or not _pub_note_unlocked(request, att["slug"], att["password_hash"]):
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
 
         safe_name = (att["original_name"] or "file").replace('"', '_').replace('\r', '').replace('\n', '')
@@ -6817,6 +6818,7 @@ async def view_published_note(username: str, slug: str, request: Request):
             toc_html = f'<section class="pub-toc"><h3>&#128211; Contents</h3><ul>{toc_list}</ul></section>'
 
         # Build backlinks: other published notes that link to this note
+        # (password-protected ones are never listed: their title and slug must not leak to other pages)
         note_title = row["title"] or ""
         backlinks_html = ""
         if note_title.strip():
@@ -6825,7 +6827,8 @@ async def view_published_note(username: str, slug: str, request: Request):
                 """SELECT n.title, n.content, p2.slug, u2.username FROM scratchpad_notes n
                    JOIN published_notes p2 ON p2.note_id = n.id
                    JOIN users u2 ON u2.id = p2.user_id
-                   WHERE n.id != ? ORDER BY n.title""",
+                   WHERE n.id != ? AND (p2.password_hash IS NULL OR p2.password_hash = '')
+                   ORDER BY n.title""",
                 (row["note_id"],)
             ).fetchall()
             backlinks = []

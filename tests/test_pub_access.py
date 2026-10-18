@@ -4,11 +4,13 @@ Drawing hanya boleh tampil publik bila dirujuk ::draw[id|client_id] oleh note pu
 (list_id kosong) milik pemiliknya, dan note itu terbuka (tanpa password, atau cookie unlock
 valid). Note publish bersama (list_id terisi, anggota workspace ikut mengedit isinya) tidak
 menampilkan drawing apa pun dan tidak dihitung sebagai rujukan. Semua penolakan menjawab 404
-yang sama dengan "tidak ada". Spec: docs/superpowers/specs/
+yang sama dengan "tidak ada". Lampiran (/pub/attachments) dan bagian "Related" (backlink)
+mengikuti gerbang password note publish yang sama. Spec: docs/superpowers/specs/
 2026-10-18-workspace-drawing-project-design.md §3.
 
 DB tes dipakai bersama satu sesi pytest: username, judul, client_id, dan marker dibuat unik.
 """
+import os
 import uuid
 from html.parser import HTMLParser
 
@@ -92,6 +94,25 @@ def _unlock_cookie(slug):
     """Header Cookie unlock yang valid untuk slug. Endpoint unlock asli memasang cookie `secure`
     yang tidak dikirim balik TestClient (http), jadi cookie-nya dibuat langsung."""
     return {"Cookie": f"pub_unlock_{slug}={webapp._sign_cookie(slug)}"}
+
+
+def _attachment(note_id, user_id, name, content, mime="text/plain"):
+    """Tulis file lampiran ke UPLOAD_DIR (jalur lokal view_published_attachment; Nextcloud tidak
+    dikonfigurasi di tes) dan sisipkan barisnya di note_attachments; kembalikan id lampiran."""
+    os.makedirs(os.environ["UPLOAD_DIR"], exist_ok=True)
+    with open(os.path.join(os.environ["UPLOAD_DIR"], name), "w", encoding="utf-8") as f:
+        f.write(content)
+    conn = db()
+    try:
+        cur = conn.execute(
+            "INSERT INTO note_attachments (note_id, user_id, nextcloud_path, original_name, file_size, mime_type) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (note_id, user_id, f"{webapp.NEXTCLOUD_FOLDER}/{name}", name, len(content.encode("utf-8")), mime),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
 
 
 def _svg(marker):
@@ -440,3 +461,57 @@ def test_published_page_password_gate_uses_unlock_cookie(client):
     assert unlocked.status_code == 200
     assert body_marker in unlocked.text
     assert "dilindungi password" not in unlocked.text
+
+
+# ── Lampiran dan backlink mengikuti password note publish ────────────────────
+
+def test_pub_attachment_respects_note_password(client):
+    """Lampiran note publish berpassword hanya terbaca dengan cookie unlock yang valid untuk slug note-nya.
+    Tanpa cookie, atau dengan cookie unlock note lain, jawabannya 404 yang identik dengan id yang tidak ada.
+    Lampiran note publish terbuka tetap terbaca tanpa cookie."""
+    tag = _uniq()
+    username = f"pubatt_{tag}"
+    h = _auth(client, username)
+    uid = _uid(username)
+    locked_text, open_text = f"ISI-LAMPIRAN-TERKUNCI-{tag}", f"ISI-LAMPIRAN-TERBUKA-{tag}"
+    locked_note, locked_slug, _ = _publish(client, h, f"Note lampiran terkunci {tag}", "isi", password="rahasia123")
+    _, other_slug, _ = _publish(client, h, f"Note terkunci lain {tag}", "isi lain", password="rahasia456")
+    open_note, _, _ = _publish(client, h, f"Note lampiran terbuka {tag}", "isi")
+    locked_att = _attachment(locked_note, uid, f"pubatt-{tag}-terkunci.txt", locked_text)
+    open_att = _attachment(open_note, uid, f"pubatt-{tag}-terbuka.txt", open_text)
+
+    pub = anon()
+    url = f"/pub/attachments/{locked_att}"
+    denied = pub.get(url)
+    assert denied.status_code == 404
+    assert denied.json() == {"detail": "Attachment tidak ditemukan"}
+    missing = pub.get("/pub/attachments/2147483647")  # id yang memang tidak ada
+    assert (missing.status_code, missing.json()) == (denied.status_code, denied.json())
+    # cookie unlock yang valid, tetapi milik note lain
+    assert pub.get(url, headers=_unlock_cookie(other_slug)).status_code == 404
+
+    unlocked = pub.get(url, headers=_unlock_cookie(locked_slug))
+    assert unlocked.status_code == 200
+    assert unlocked.content == locked_text.encode("utf-8")
+
+    opened = pub.get(f"/pub/attachments/{open_att}")
+    assert opened.status_code == 200
+    assert opened.content == open_text.encode("utf-8")
+
+
+def test_pub_backlinks_hide_password_protected_notes(client):
+    """Bagian "Related" halaman publik tidak boleh membocorkan judul maupun slug note publish berpassword
+    yang menautkan ke note ini. Note publish terbuka yang menautkan tetap tampil."""
+    tag = _uniq()
+    h = _auth(client, f"pubbl_{tag}")
+    target_title = f"Sasaran tautan {tag}"
+    protected_title, open_title = f"Penaut rahasia {tag}", f"Penaut terbuka {tag}"
+    _, target_slug, username = _publish(client, h, target_title, "Isi sasaran")
+    _, protected_slug, _ = _publish(client, h, protected_title, f"Lihat [[{target_title}]]", password="rahasia123")
+    _publish(client, h, open_title, f"Lihat juga [[{target_title}]]")
+
+    page = anon().get(f"/pub/{username}/{target_slug}")
+    assert page.status_code == 200
+    assert open_title in page.text
+    assert protected_title not in page.text
+    assert protected_slug not in page.text
