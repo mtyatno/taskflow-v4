@@ -47,7 +47,8 @@ Aturan perbaikan:
 - Kalau note berpassword, wajib cookie `pub_unlock_{slug}` yang valid (`_verify_cookie`), sama seperti `view_published_note`. Drawing yang dirujuk beberapa note publish cukup lolos di salah satunya.
 - Render publik me-resolve token hanya di antara drawing yang lolos aturan di atas (id atau `client_id`). Pencocokan judul dan fallback `id = note_id` dihapus. Token yang tidak ter-resolve tampil sebagai kartu "Gambar tidak tersedia".
 - Seksi kanvas legacy per-note dihapus dari halaman publish.
-- `/pub/attachments/{id}` memeriksa password note induknya. Backlink "Related" tidak memuat note publish berpassword.
+- `/pub/attachments/{id}` memeriksa password note induknya. Backlink "Related" tidak memuat note publish berpassword. Wikilink (`[[Judul]]`, `[[id:N]]`) hanya me-resolve note berpassword milik penerbit sendiri dari note publish pribadinya.
+- Judul, username, dan slug milik user lain yang tampil di halaman publik di-escape (XSS lintas user). Kebijakan HTML untuk isi note sendiri tetap di PR 1b.
 - Ekspor DOCX hanya memakai drawing milik pengekspor (setelah PR 2: yang bisa ia akses), lewat id, `client_id`, atau judul; tanpa fallback `id = note_id`.
 - Semua penolakan menjawab 404 dengan pesan yang sama seperti "tidak ditemukan", supaya keberadaan drawing atau lampiran tidak bocor.
 

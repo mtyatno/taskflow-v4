@@ -134,6 +134,11 @@ git add webapp.py tests/test_pub_access.py
 git commit -m "fix(pub): lampiran dan backlink menghormati password note publish"
 ```
 
+**Amandemen Task 2 (dari laporan implementer, sebelum review).** Dua celah sejenis di blok yang sama:
+- Wikilink `[[Judul]]` dan `[[id:N]]` me-resolve ke note publish berpassword milik siapa pun. Slug (diturunkan dari judul) bocor, dan `[[id:1..N]]` bisa dipakai untuk menebak judul note berpassword orang lain. Aturan: target berpassword hanya di-resolve bila `owner_id` render tidak None (note pribadi) **dan** pemilik target = `owner_id`; selain itu diperlakukan seperti wikilink yang tidak ditemukan.
+- Judul, username, dan slug milik user lain ditanam mentah di HTML (seksi "Related" dan href wikilink). Username tidak dibatasi karakternya, jadi ini XSS lintas user. Aturan: judul di-`html.escape`; username dan slug di href di-`urllib.parse.quote(..., safe='')` lalu `html.escape(..., quote=True)`. Kebijakan HTML isi note tetap di PR 1b.
+- Tes `test_pub_wikilinks_skip_password_protected_notes` (note terbuka milik C berisi `[[<judul T>]]` dan `[[id:<id T>]]`, T note berpassword milik A → HTML tanpa slug T; kontrol: note terbuka milik A yang sama merujuk T → slug T ada), `test_pub_related_escapes_other_users_titles` (judul `<img src=x onerror=alert(1)>…` tidak muncul mentah, bentuk ter-escape muncul), dan `test_pub_related_escapes_usernames` (username berisi `"><i>` tidak muncul mentah di href).
+
 ### Task 3 — Ekspor DOCX hanya memakai drawing milik pengekspor
 
 Ditambahkan dari review Task 1 (celah 3e di spec): `_make_drawing_resolver` me-resolve drawing tanpa filter pemilik, dan `POST /api/scratchpad/export/docx` menerima isi bebas.
