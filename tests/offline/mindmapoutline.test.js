@@ -353,3 +353,9 @@ test("sanitizeHrefs blocks javascript: and keeps https", () => {
   assert.ok(out.includes('href="#"'));
   assert.ok(out.includes('href="https://e.id"'));
 });
+
+test("renderTopicMd: image alt cannot inject attributes, normal images still render", () => {
+  const bad = MO.renderTopicMd('![a" onerror="alert(1)](http://x/y.png)');
+  assert.ok(!/<img[^>]*\sonerror=/.test(bad.replace(/"[^"]*"/g, '""')));
+  assert.match(MO.renderTopicMd("![ok](https://e.id/a.png)"), /<img src="https:\/\/e\.id\/a\.png" alt="ok">/);
+});

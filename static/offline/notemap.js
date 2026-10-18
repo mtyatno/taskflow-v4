@@ -460,8 +460,14 @@
       .replace(/==([^=]+)==/g, "<mark>$1</mark>");
     try {
       let out;
-      if (markedLib && typeof markedLib.parseInline === "function") out = markedLib.parseInline(pre, { gfm: true });
-      else return pre;
+      if (markedLib && typeof markedLib.parseInline === "function") {
+        // Gambar tidak pernah jadi <img>: tampilkan teks alt (sudah lolos escape
+        // `& < >`; tanda kutip diubah agar aman). Renderer khusus panggilan ini,
+        // tanpa mengubah marked global.
+        const renderer = new markedLib.Renderer();
+        renderer.image = (tok) => String(tok.text == null ? "" : tok.text).replace(/"/g, "&quot;");
+        out = markedLib.parseInline(pre, { gfm: true, renderer });
+      } else return pre;
       return sanitizeHrefs(out);
     } catch (_) {
       return pre;

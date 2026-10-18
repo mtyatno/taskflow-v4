@@ -25,3 +25,8 @@ test("renderSummaryHtml escapes and formats", () => {
   assert.ok(!h.includes("<b>")); assert.match(h, /• a • b \+2/); assert.match(h, /☑ 1\/3 · 🖼 2/); assert.ok(!h.includes("⊞"));
   assert.equal(NM.renderSummaryHtml(null), "");
 });
+test("renderTopicNoteInline never emits <img> (alt-attribute injection)", () => {
+  const a = NM.renderTopicNoteInline('![a" onerror="x](http://x/y.png)');
+  assert.ok(!a.includes("<img")); assert.ok(!/<[^>]*onerror=/.test(a.replace(/"[^"]*"/g, '""')));
+  assert.ok(!NM.renderTopicNoteInline("![x](javascript:alert(1))").includes("<img"));
+});

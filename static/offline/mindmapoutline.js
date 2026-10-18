@@ -264,8 +264,15 @@
     const pre = escaped.replace(/__([^_]+?)__/g, '<strong class="underscore-emphasis">$1</strong>');
     try {
       let out;
-      if (markedLib && typeof markedLib.parse === "function") out = markedLib.parse(pre, { gfm: true, breaks: true });
-      else if (markedLib) out = markedLib(pre);
+      if (markedLib && typeof markedLib.parse === "function") {
+        // marked puts image alt/title into attributes unescaped; escape quotes so
+        // an alt like `a" onerror="..` cannot inject attributes.
+        const renderer = new markedLib.Renderer();
+        const q = (v) => String(v == null ? "" : v).replace(/"/g, "&quot;");
+        renderer.image = (tok) =>
+          '<img src="' + q(tok.href) + '" alt="' + q(tok.text) + '"' + (tok.title ? ' title="' + q(tok.title) + '"' : "") + ">";
+        out = markedLib.parse(pre, { gfm: true, breaks: true, renderer });
+      } else if (markedLib) out = markedLib(pre);
       else return pre;
       const cleaned = sanitizeHrefs(out);
       // marked appends a trailing \n and wraps single paragraphs in <p> —
