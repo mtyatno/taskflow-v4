@@ -50,6 +50,7 @@ Aturan perbaikan:
 - `/pub/attachments/{id}` memeriksa password note induknya. Backlink "Related" tidak memuat note publish berpassword. Wikilink (`[[Judul]]`, `[[id:N]]`) hanya me-resolve note berpassword milik penerbit sendiri dari note publish pribadinya.
 - Judul, username, dan slug milik user lain yang tampil di halaman publik di-escape (XSS lintas user). Kebijakan HTML untuk isi note sendiri tetap di PR 1b.
 - Ekspor DOCX hanya memakai drawing milik pengekspor (setelah PR 2: yang bisa ia akses), lewat id, `client_id`, atau judul; tanpa fallback `id = note_id`.
+- Ekspor DOCX hanya memakai lampiran dari note yang bisa diakses pengekspor (lewat id lampiran maupun `note_id` dari request).
 - Semua penolakan menjawab 404 dengan pesan yang sama seperti "tidak ditemukan", supaya keberadaan drawing atau lampiran tidak bocor.
 
 Efek yang terlihat pengguna:
@@ -57,7 +58,7 @@ Efek yang terlihat pengguna:
 - Halaman publish tidak lagi punya seksi "🎨 Drawing" di bawah konten.
 - Anggota yang mengekspor note bersama tidak mendapat drawing pribadi pemilik note, sama seperti di aplikasi.
 
-Di luar §3 tetapi ditemukan saat mengerjakannya: halaman publish menampilkan HTML mentah dari isi note (`mistune` dengan `escape=False`, tanpa sanitasi dan tanpa CSP), satu origin dengan aplikasi yang menyimpan token di `localStorage`. Ini XSS tersimpan; perbaikannya PR terpisah dan butuh keputusan HTML apa yang boleh di note publish.
+Di luar §3 tetapi ditemukan saat mengerjakannya (PR terpisah): (1) ekspor DOCX mengambil URL http(s) apa pun dari isi note di sisi server (SSRF buta), dan rute ekspor live mengembalikan traceback Python ke klien saat gagal; (2) halaman publish menampilkan HTML mentah dari isi note (`mistune` dengan `escape=False`, tanpa sanitasi dan tanpa CSP), satu origin dengan aplikasi yang menyimpan token di `localStorage`. Ini XSS tersimpan; perbaikannya PR terpisah dan butuh keputusan HTML apa yang boleh di note publish.
 
 ## 4. Drawing milik workspace (meniru mindmap)
 

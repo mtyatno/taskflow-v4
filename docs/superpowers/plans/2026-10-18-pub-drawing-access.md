@@ -177,3 +177,45 @@ Run: `python3 -m pytest tests/test_export_drawing_scope.py tests/test_docx_expor
 git add webapp.py tests/test_export_drawing_scope.py
 git commit -m "fix(export): resolver drawing DOCX hanya untuk drawing milik pengekspor"
 ```
+
+### Task 4 — Ekspor DOCX hanya memakai lampiran dari note yang bisa diakses pengekspor
+
+Ditambahkan dari review Task 3 (kelas yang sama dengan 3e): `_make_image_resolver` mencari `note_attachments` lewat id tanpa filter, dan `note_id` dari body `POST /api/scratchpad/export/docx` dipakai tanpa cek akses. User mana pun bisa menarik gambar lampiran user lain (diambil server dari Nextcloud dengan kredensial server) ke DOCX-nya.
+
+**Files:**
+- Modify: `webapp.py` (`_make_image_resolver` ±5337–5385)
+- Create: `tests/test_export_attachment_scope.py`
+
+**Interfaces:**
+- Signature tetap `_make_image_resolver(uid: int, note_id: int = None)` → `_resolve_image(src, alt=None) -> Optional[bytes]`.
+- Consumes: `_note_access_clause(uid, prefix)` yang sudah ada (pemilik note, atau owner/anggota list note itu).
+
+- [ ] **Step 1: Tulis tes yang gagal**
+
+Tes memalsukan pengambilan Nextcloud: `monkeypatch.setattr(requests, "get", fake)` dengan `fake(url, **kw)` yang mencatat URL dan mengembalikan objek `status_code=200`, `content=b"BYTES:" + url.encode()`. `NEXTCLOUD_URL` kosong di tes, jadi URL berisi `nextcloud_path` apa adanya. Baris `note_attachments` dibuat langsung lewat `conftest.db()` dengan `nextcloud_path` unik.
+
+15. `test_export_image_resolver_rejects_other_users_attachment_by_id`: lampiran di note pribadi B → `_make_image_resolver(uid_A)("/api/scratchpad/attachments/<id>/view")` dan bentuk `/pub/attachments/<id>` → `None`, dan `fake` tidak pernah dipanggil dengan path B.
+16. `test_export_image_resolver_rejects_foreign_note_id`: note pribadi B punya lampiran `original_name` unik → `_make_image_resolver(uid_A, note_id=<note B>)(<nama itu>)` → `None`.
+17. `test_export_image_resolver_allows_accessible_attachments`: lampiran di note A sendiri (lewat id dan lewat nama + `note_id`) → bytes; lampiran di note bersama milik B di workspace W tempat A menjadi anggota (`list_members` lewat `conftest.db()`) → bytes.
+18. `test_export_live_docx_ignores_foreign_attachment`: A memanggil `POST /api/scratchpad/export/docx` dengan isi `![x](/api/scratchpad/attachments/<id lampiran B>/view)` dan `note_id` note B → 200, dan `fake` tidak pernah dipanggil dengan path B.
+
+- [ ] **Step 2: Jalankan, pastikan gagal**
+
+Run: `python3 -m pytest tests/test_export_attachment_scope.py -q` → 15, 16, 18 FAIL; 17 boleh lulus.
+
+- [ ] **Step 3: Implementasi**
+
+- Lampiran lewat id: `SELECT a.* FROM note_attachments a JOIN scratchpad_notes n ON n.id = a.note_id WHERE a.id = ? AND <_note_access_clause(uid, "n")>`.
+- Jalur `note_id`: hanya dipakai bila note itu lolos `_note_access_clause(uid)`.
+- Fallback lampiran milik `uid` sendiri tetap.
+
+- [ ] **Step 4: Jalankan tes**
+
+Run: `python3 -m pytest tests/test_export_attachment_scope.py tests/test_docx_export.py -q` lalu `python3 -m pytest tests -q` → semua PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add webapp.py tests/test_export_attachment_scope.py
+git commit -m "fix(export): lampiran DOCX hanya dari note yang bisa diakses pengekspor"
+```
