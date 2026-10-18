@@ -39,18 +39,24 @@ Halaman publik (`/pub/...`) bisa dibuka tanpa login. Ada empat celah:
 | 3b | `_render_published_content` | Token `::draw[x]` dicari dengan `WHERE id = x OR title = x` tanpa filter pemilik, lalu SVG-nya ditanam di halaman. Siapa pun bisa mempublish note berisi `::draw[123]` untuk menampilkan gambar orang lain. Kalau `x` adalah `client_id` (UUID, format default sejak offline-first), pencarian gagal lalu jatuh ke `WHERE id = note_id`, sehingga halaman bisa menampilkan gambar user lain yang id-nya kebetulan sama dengan id note. |
 | 3c | `view_published_note`, seksi "🎨 Drawing" | Setiap halaman publish mencari `drawings WHERE id = note_id` (tanpa filter pemilik) sebagai "kanvas legacy per-note", lalu menanam `data_json` lengkapnya. Kanvas per-note sudah tidak ada di app (S6 audit 2026-10-15), jadi yang tampil hanyalah gambar yang id-nya kebetulan sama, bisa milik user lain. |
 | 3d | `/pub/attachments/{id}` dan seksi "Related" | Lampiran note publish berpassword bisa diunduh tanpa password. Seksi backlink "Related" menampilkan judul note publish berpassword yang menautkan ke halaman ini. |
+| 3e | Ekspor DOCX (`_make_drawing_resolver`) | Dipakai `GET /api/scratchpad/{id}/export/docx` dan `POST /api/scratchpad/export/docx`. Drawing dicari tanpa filter pemilik: `is_pinned = 1` milik siapa pun, judul, `title = x OR id = x`, dan fallback `id = note_id`. Endpoint POST menerima isi bebas, jadi user terdaftar mana pun (pendaftaran terbuka) bisa mengekspor drawing orang lain. |
 
 Aturan perbaikan:
-- Drawing boleh tampil publik hanya kalau **dirujuk `::draw[id|client_id]` oleh note publish dan dimiliki penerbit note itu**. Rujukan saja tidak cukup, karena isi note dikendalikan penerbit. Setelah PR 2, "dimiliki" menjadi "bisa diakses penerbit" (pemilik, atau anggota workspace drawing itu).
+- **Note publish pribadi** (`list_id` kosong, hanya pemilik yang bisa mengedit isinya): drawing tampil hanya kalau dirujuk `::draw[id|client_id]` di note itu **dan dimiliki penerbit**. Rujukan saja tidak cukup, karena isi note dikendalikan penulisnya.
+- **Note publish bersama** (`list_id` = W, anggota W ikut mengedit isinya): di PR 1 tidak ada drawing yang tampil publik. Kalau aturan "dimiliki penerbit" dipakai di sini, anggota bisa menyisipkan `::draw[k]` ke note bersama yang dipublish untuk membuka drawing pribadi pemilik note lewat halaman publik. Setelah PR 2, drawing tampil kalau `drawings.list_id = W` (sudah terlihat oleh semua anggota W).
 - Kalau note berpassword, wajib cookie `pub_unlock_{slug}` yang valid (`_verify_cookie`), sama seperti `view_published_note`. Drawing yang dirujuk beberapa note publish cukup lolos di salah satunya.
-- Render publik me-resolve token hanya di antara drawing milik penerbit (id atau `client_id`). Pencocokan judul dan fallback `id = note_id` dihapus. Token yang tidak ter-resolve tampil sebagai kartu "Gambar tidak tersedia".
+- Render publik me-resolve token hanya di antara drawing yang lolos aturan di atas (id atau `client_id`). Pencocokan judul dan fallback `id = note_id` dihapus. Token yang tidak ter-resolve tampil sebagai kartu "Gambar tidak tersedia".
 - Seksi kanvas legacy per-note dihapus dari halaman publish.
 - `/pub/attachments/{id}` memeriksa password note induknya. Backlink "Related" tidak memuat note publish berpassword.
+- Ekspor DOCX hanya memakai drawing milik pengekspor (setelah PR 2: yang bisa ia akses), lewat id, `client_id`, atau judul; tanpa fallback `id = note_id`.
 - Semua penolakan menjawab 404 dengan pesan yang sama seperti "tidak ditemukan", supaya keberadaan drawing atau lampiran tidak bocor.
 
 Efek yang terlihat pengguna:
-- Drawing milik user lain di dalam note publish (misalnya disisipkan anggota ke note bersama) tidak tampil di halaman publik sampai PR 2 menjadikannya drawing workspace.
+- Drawing di note publish bersama, dan drawing milik user lain di note publish pribadi, tidak tampil di halaman publik sampai PR 2 (backfill §4.6 memindahkan drawing pemilik note bersama ke W).
 - Halaman publish tidak lagi punya seksi "🎨 Drawing" di bawah konten.
+- Anggota yang mengekspor note bersama tidak mendapat drawing pribadi pemilik note, sama seperti di aplikasi.
+
+Di luar §3 tetapi ditemukan saat mengerjakannya: halaman publish menampilkan HTML mentah dari isi note (`mistune` dengan `escape=False`, tanpa sanitasi dan tanpa CSP), satu origin dengan aplikasi yang menyimpan token di `localStorage`. Ini XSS tersimpan; perbaikannya PR terpisah dan butuh keputusan HTML apa yang boleh di note publish.
 
 ## 4. Drawing milik workspace (meniru mindmap)
 
@@ -86,7 +92,7 @@ Dengan `ON DELETE SET NULL`, kalau workspace dihapus, drawing kembali menjadi dr
 - `POST /api/drawings/{did}/copy {list_id: null|int, title?}`: buat drawing baru milik penyalin di scope tujuan (keanggotaan tujuan dicek), lalu salin `data_json` dan `svg_preview`.
 - `GET /api/lists/{list_id}/leave-impact`: daftar note pribadi milik user yang memuat drawing W milik orang lain. Dipakai untuk menawarkan salinan sebelum user keluar.
 - `_drawing_enrich(row, conn, viewer_uid)`: `linked_notes` memakai `_note_access_clause(viewer_uid)`, bukan `user_id` pemilik drawing.
-- Akses publik (§3) diperluas: drawing tampil di halaman publish bila bisa diakses penerbit, memakai access clause yang sama.
+- Akses publik (§3) setelah PR 2: note publish pribadi → drawing yang bisa diakses penerbit (access clause yang sama); note publish bersama di W → hanya drawing dengan `list_id = W`. Ekspor DOCX memakai access clause pengekspor.
 
 ### 4.4 Sinkron note → drawing (di server)
 
@@ -96,8 +102,8 @@ Helper `_pull_note_drawings_into_list(conn, note, actor_uid)` dipanggil setelah 
 2. Ambil semua `::draw[x]` dari content, pakai regex yang sama dengan render publik (`_DRAW_DIRECTIVE_RE`, PR 1).
 3. Untuk tiap drawing D:
    - Kalau `D.list_id == note.list_id`, lewati.
-   - Kalau `D.list_id IS NULL` dan `D.user_id ∈ {actor_uid, note.user_id}`: set `D.list_id = note.list_id`, bump `updated_at`, lalu masukkan D ke `moved_drawings` di respons.
-   - Selain itu (milik workspace lain, atau drawing pribadi orang lain): **server tidak mengubahnya**, cukup masukkan ke `unresolved_drawings` di respons.
+   - Kalau `D.list_id IS NULL` dan `D.user_id = actor_uid`: set `D.list_id = note.list_id`, bump `updated_at`, lalu masukkan D ke `moved_drawings` di respons.
+   - Selain itu (milik workspace lain, atau drawing pribadi orang lain, **termasuk milik pemilik note**): **server tidak mengubahnya**, cukup masukkan ke `unresolved_drawings` di respons. Drawing tidak pernah dipindahkan oleh edit orang lain; kalau tidak, anggota bisa menarik drawing pribadi pemilik note ke W hanya dengan menyisipkan `::draw[k]`.
 4. Server tidak pernah menulis ulang content note, supaya tidak bentrok dengan edit offline. Penggantian referensi ke salinan dilakukan oleh klien.
 
 ### 4.5 Tabel aturan (final)
@@ -123,6 +129,7 @@ Placeholder memakai satu pesan yang tidak membocorkan keberadaan drawing: *"Gamb
 Sekarang drawing belum bisa di-share, jadi note bersama yang memuat drawing sudah melanggar prinsip 1. Migrasi (idempoten):
 - Untuk tiap note dengan `list_id` terisi: drawing yang dirujuk, yang `list_id IS NULL` dan `user_id = note.user_id`, di-set `list_id = note.list_id`.
 - Drawing yang dirujuk oleh note bersama di lebih dari satu workspace ikut workspace dari note yang paling baru diubah. Sisanya dicatat di log migrasi untuk ditangani manual (perkiraannya jarang atau tidak ada).
+- Backfill menganggap rujukan ke drawing pemilik note di note bersama dibuat oleh pemilik itu sendiri. Rujukan yang disisipkan anggota sebelum migrasi tidak bisa dibedakan, tetapi sebelum PR 1 anggota tidak mendapat apa pun dari menyisipkannya, jadi kasus ini dianggap tidak realistis.
 
 ### 4.7 UI
 
@@ -228,7 +235,8 @@ Satu helper di `repository.py`, dipakai oleh webapp dan bot:
 
 ## 6. Urutan PR
 
-1. **Keamanan halaman publik (§3).** Backend saja (`webapp.py` + tes), tanpa kenaikan versi SW. Deploy perlu `sudo systemctl restart taskflow-web`. Rencana: `docs/superpowers/plans/2026-10-18-pub-drawing-access.md`.
+1. **Keamanan halaman publik dan ekspor (§3).** Backend saja (`webapp.py` + tes), tanpa kenaikan versi SW. Deploy perlu `sudo systemctl restart taskflow-web`. Rencana: `docs/superpowers/plans/2026-10-18-pub-drawing-access.md`.
+1b. **XSS halaman publish** (temuan di luar §3): PR terpisah setelah keputusan HTML yang boleh dipakai di note publish.
 2. Drawing workspace, backend: skema, akses, share, copy, daftar per W, `linked_notes`, sinkron note → drawing, aturan 409, backfill, akses publik sesuai §4.3, dan pytest.
 3. Drawing workspace, frontend dan offline.
 4. Project, backend: tabel, backfill, API, resolusi task, bot, dan pytest.
@@ -239,7 +247,8 @@ Setiap PR yang mengubah frontend menaikkan versi SW. Semua PR menjalankan `npm t
 ## 7. Tes kunci
 
 **pytest**
-- PR 1: `/pub/drawings` untuk drawing yang tidak dipublish → 404; drawing yang di-embed di note publish (lewat id, `client_id`, atau direktif ter-escape) → 200; drawing user lain yang dirujuk note publish → 404 dan tidak tertanam di HTML; note berpassword tanpa cookie atau dengan cookie palsu → 404, dengan cookie valid → 200; setelah unpublish → 404; render publik tidak memakai judul maupun fallback `id = note_id`; seksi kanvas legacy hilang; `/pub/attachments` note berpassword → 404 tanpa cookie; backlink tidak memuat note berpassword.
+- PR 1: `/pub/drawings` untuk drawing yang tidak dipublish → 404; drawing yang di-embed di note publish pribadi (lewat id, `client_id`, atau direktif ter-escape) → 200; drawing user lain yang dirujuk note publish → 404 dan tidak tertanam di HTML; note publish bersama tidak menampilkan drawing, termasuk saat anggota menyisipkan `::draw[k]` milik pemilik note; note berpassword tanpa cookie atau dengan cookie palsu → 404, dengan cookie valid → 200; setelah unpublish → 404; render publik tidak memakai judul maupun fallback `id = note_id`; seksi kanvas legacy hilang; `/pub/attachments` note berpassword → 404 tanpa cookie; backlink tidak memuat note berpassword; resolver ekspor DOCX tidak me-resolve drawing user lain (id, `client_id`, judul, pin).
+- PR 2: edit anggota yang menyisipkan drawing pribadi pemilik note tidak memindahkan drawing itu ke W.
 - Akses drawing oleh anggota dan non-anggota; share dan hapus hanya oleh pemilik.
 - `linked_notes` tidak memuat note pribadi milik orang lain.
 - Sinkron note → drawing (lewat share, PUT dengan embed baru, POST dengan `list_id`). Drawing milik orang lain dan milik W2 tidak ikut diubah.

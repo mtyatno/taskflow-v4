@@ -4,7 +4,7 @@
 
 Tanggal: 2026-10-18 · Agent: Claude · Branch: `claude/pub-drawing-access` · Backend saja, **tanpa** kenaikan versi SW
 
-**Goal:** Halaman dan endpoint publik (`/pub/...`) hanya menampilkan drawing yang memang di-embed penerbit di note publish, dan menghormati password note publish untuk drawing, lampiran, dan backlink.
+**Goal:** Halaman dan endpoint publik (`/pub/...`) hanya menampilkan drawing yang memang di-embed penerbit di note publish pribadi, dan menghormati password note publish untuk drawing, lampiran, dan backlink. Ekspor DOCX hanya memakai drawing milik pengekspor.
 
 **Architecture:** Satu set helper di `webapp.py`: regex direktif `::draw` bersama, resolusi token drawing yang dibatasi ke pemilik note, dan cek cookie unlock. `GET /pub/drawings/{token}`, render konten publish, `/pub/attachments/{id}`, dan backlink "Related" memakai helper itu. Seksi "kanvas legacy per-note" (`drawings.id == note_id`) dihapus.
 
@@ -21,6 +21,7 @@ Tanggal: 2026-10-18 · Agent: Claude · Branch: `claude/pub-drawing-access` · B
 - "Penerbit" = `published_notes.user_id` (hanya pemilik note yang bisa publish, jadi sama dengan `scratchpad_notes.user_id`).
 - Cookie unlock: nama `pub_unlock_{slug}`, diverifikasi dengan `_verify_cookie(cookie) == slug` (fungsi yang sudah ada). Tes membuat cookie dengan `webapp._sign_cookie(slug)`.
 - Teks kartu untuk token yang tidak ter-resolve: tepat `Gambar tidak tersedia`.
+- Note publish **bersama** (`scratchpad_notes.list_id` terisi; anggota workspace bisa mengedit isinya) tidak menampilkan drawing apa pun di PR 1, dan tidak dihitung sebagai rujukan oleh `/pub/drawings`. (Amandemen dari review Task 1; spec §3.)
 - Commit diakhiri dua baris trailer:
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` dan
   `Claude-Session: https://claude.ai/code/session_01QibHmWHTKzbucVmVw4YuuX`
@@ -92,6 +93,13 @@ git add webapp.py tests/test_pub_access.py tests/test_drawings.py
 git commit -m "fix(pub): drawing publik hanya yang di-embed penerbit di note publish"
 ```
 
+**Amandemen (fix round 1, dari review Task 1).** Premis "isi note dikendalikan penerbit" tidak berlaku untuk note bersama: `update_scratchpad` mengizinkan anggota workspace mengedit `content`. Anggota bisa menyisipkan `::draw[1..N]` ke note bersama yang dipublish pemilik, lalu membaca drawing pribadi pemilik lewat halaman publik.
+
+- `view_published_note`: ambil `n.list_id`; teruskan `owner_id=row["user_id"]` hanya bila `list_id` NULL, selain itu `owner_id=None` (semua token jadi kartu `Gambar tidak tersedia`).
+- `_published_drawing_for_request`: hanya note publish dengan `n.list_id IS NULL` yang dihitung sebagai rujukan.
+- Tes `test_pub_shared_note_drawings_not_public`: A membuat workspace W (`POST /api/lists {name}`), note A dengan `list_id = W` berisi `::draw[{D.id}]` (D milik A), dipublish → HTML tanpa marker D dan memuat `Gambar tidak tersedia`; anon `/pub/drawings/{D.id}` = 404.
+- Tes `test_pub_member_injection_blocked`: drawing pribadi P milik A tidak dirujuk di mana pun; note bersama N milik A (list W) dipublish; B dijadikan anggota W (insert `list_members(list_id, user_id, joined_at)` lewat `conftest.db()`); B `PUT /api/scratchpad/{N}` menambah `::draw[{P.id}]` dan `::draw[{P.cid}]` (assert 200) → HTML halaman N tanpa marker P; anon `/pub/drawings/{P.id}` dan `/{P.cid}` = 404.
+
 ### Task 2 — Password note publish untuk lampiran dan backlink
 
 **Files:**
@@ -124,4 +132,43 @@ Run: `python3 -m pytest tests/test_pub_access.py -q` lalu `python3 -m pytest tes
 ```bash
 git add webapp.py tests/test_pub_access.py
 git commit -m "fix(pub): lampiran dan backlink menghormati password note publish"
+```
+
+### Task 3 — Ekspor DOCX hanya memakai drawing milik pengekspor
+
+Ditambahkan dari review Task 1 (celah 3e di spec): `_make_drawing_resolver` me-resolve drawing tanpa filter pemilik, dan `POST /api/scratchpad/export/docx` menerima isi bebas.
+
+**Files:**
+- Modify: `webapp.py` (`_make_drawing_resolver` ±5277–5332 dan dua pemanggilnya: ekspor note tersimpan ±5414, ekspor live ±5471)
+- Create: `tests/test_export_drawing_scope.py`
+
+**Interfaces:**
+- `_make_drawing_resolver(uid: int)` → `_resolve_drawing(did, title=None) -> Optional[dict]` dengan kunci `id`, `title`, `svg` (bentuk dan perilaku pemanggil `docx_exporter` tidak berubah). Parameter `note_id` dihapus beserta fallback-nya; pemanggil diperbarui.
+- Consumes dari Task 1: `_draw_token_id(token)` dan `_resolve_owned_drawing(conn, token, owner_id)` bila cocok dipakai ulang (boleh, tidak wajib).
+
+- [ ] **Step 1: Tulis tes yang gagal di `tests/test_export_drawing_scope.py`**
+
+Buat user A dan B; drawing A (svg marker, `client_id`, judul unik) dan drawing B (svg marker, `client_id`, judul unik, di-pin lewat `PATCH /api/drawings/{id}/pin`). `res = webapp._make_drawing_resolver(uid_A)`.
+
+12. `test_export_resolver_rejects_other_users_drawings`: `res(str(B.id))`, `res(B.cid)`, `res("tidak-ada", title=B.title)`, dan `res(B.title)` semuanya `None`.
+13. `test_export_resolver_resolves_own_drawings`: `res(str(A.id))["svg"]`, `res(A.cid)["svg"]` (dukungan `client_id` baru), dan `res("tidak-ada", title=A.title)["svg"]` sama dengan marker A.
+14. `test_export_resolver_no_note_id_fallback`: drawing B dengan id yang sama dengan id note A (paksa seperti tes 9 di Task 1); resolver untuk A dengan token tak dikenal `00000000-0000-0000-0000-000000000000` → `None`.
+
+- [ ] **Step 2: Jalankan, pastikan gagal**
+
+Run: `python3 -m pytest tests/test_export_drawing_scope.py -q` → 12 dan 13 (bagian `client_id`) FAIL; 14 FAIL atau ERROR karena signature lama.
+
+- [ ] **Step 3: Implementasi**
+
+Semua query di resolver memakai `AND user_id = uid`. Urutan: token angka → `id`; token → `client_id`; judul direktif persis; judul `LIKE` yang sudah ada (heuristik "gambar/canvas -"). Hapus klausa `is_pinned = 1`, query `title = ? OR id = ?` tanpa filter, dan fallback `id = note_id`.
+
+- [ ] **Step 4: Jalankan tes**
+
+Run: `python3 -m pytest tests/test_export_drawing_scope.py tests/test_docx_export.py -q` lalu `python3 -m pytest tests -q` → semua PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add webapp.py tests/test_export_drawing_scope.py
+git commit -m "fix(export): resolver drawing DOCX hanya untuk drawing milik pengekspor"
 ```
