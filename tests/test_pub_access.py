@@ -5,7 +5,9 @@ Drawing hanya boleh tampil publik bila dirujuk ::draw[id|client_id] oleh note pu
 valid). Note publish bersama (list_id terisi, anggota workspace ikut mengedit isinya) tidak
 menampilkan drawing apa pun dan tidak dihitung sebagai rujukan. Semua penolakan menjawab 404
 yang sama dengan "tidak ada". Lampiran (/pub/attachments) dan bagian "Related" (backlink)
-mengikuti gerbang password note publish yang sama. Spec: docs/superpowers/specs/
+mengikuti gerbang password note publish yang sama. Wikilink ke note berpassword hanya di-resolve di
+note pribadi milik penerbit note itu sendiri (tidak pernah di note bersama), dan judul, username, serta
+slug milik user lain di-escape di halaman publik. Spec: docs/superpowers/specs/
 2026-10-18-workspace-drawing-project-design.md §3.
 
 DB tes dipakai bersama satu sesi pytest: username, judul, client_id, dan marker dibuat unik.
@@ -113,6 +115,11 @@ def _attachment(note_id, user_id, name, content, mime="text/plain"):
         return cur.lastrowid
     finally:
         conn.close()
+
+
+def _wikilink_refs(title, note_id):
+    """Empat bentuk wikilink ke satu note: judul, id:N, note:N, dan N polos."""
+    return [f"[[{title}]]", f"[[id:{note_id}]]", f"[[note:{note_id}]]", f"[[{note_id}]]"]
 
 
 def _svg(marker):
@@ -515,3 +522,121 @@ def test_pub_backlinks_hide_password_protected_notes(client):
     assert open_title in page.text
     assert protected_title not in page.text
     assert protected_slug not in page.text
+
+
+# ── Wikilink dan metadata lintas user di halaman publik ──────────────────────
+
+def test_pub_wikilinks_skip_password_protected_notes(client):
+    """Wikilink (judul, id:N, note:N, N polos) di halaman publik tidak me-resolve ke note berpassword milik user
+    lain: slug-nya (diturunkan dari judul) tidak boleh muncul, dan wikilink tampil sebagai teks biasa seperti
+    target yang tidak dipublish. Kontrol: note pribadi penerbit target yang sama tetap me-resolve keempatnya."""
+    tag = _uniq()
+    ha = _auth(client, f"pubwla_{tag}")
+    hc = _auth(client, f"pubwlc_{tag}")
+    t_title = f"Terkunci wikilink {tag}"
+    t_id, t_slug, _ = _publish(client, ha, t_title, "isi rahasia", password="rahasia123")
+    refs = _wikilink_refs(t_title, t_id)
+    _, c_slug, c_user = _publish(client, hc, f"Penaut wikilink {tag}", "\n\n".join(refs))
+
+    page = anon().get(f"/pub/{c_user}/{c_slug}")
+    assert page.status_code == 200
+    assert t_slug not in page.text
+    for ref in refs:
+        assert ref in page.text, ref  # isi note tetap dirender; hanya tautannya yang tidak dibuat
+
+    _, a_slug, a_user = _publish(client, ha, f"Pemilik wikilink {tag}", "\n\n".join(refs))
+    own_page = anon().get(f"/pub/{a_user}/{a_slug}")
+    assert own_page.text.count(f'href="/pub/{a_user}/{t_slug}"') == 4
+
+
+def test_pub_wikilinks_shared_note_skips_protected_notes(client):
+    """Note publish bersama bisa diedit anggota workspace, jadi isinya bukan bukti penerbit mau menautkan note
+    berpasswordnya: wikilink di note bersama tidak me-resolve note berpassword, walau milik penerbit yang sama."""
+    tag = _uniq()
+    h = _auth(client, f"pubwlshare_{tag}")
+    t_title = f"Terkunci bersama {tag}"
+    t_id, t_slug, _ = _publish(client, h, t_title, "isi rahasia", password="rahasia123")
+    w = _workspace(client, h, f"Workspace {tag}")
+    refs = _wikilink_refs(t_title, t_id)
+    _, s_slug, s_user = _publish(client, h, f"Note bersama wikilink {tag}", "\n\n".join(refs), list_id=w)
+
+    page = anon().get(f"/pub/{s_user}/{s_slug}")
+    assert page.status_code == 200
+    assert t_slug not in page.text
+    for ref in refs:
+        assert ref in page.text, ref
+
+
+def test_pub_wikilinks_protected_note_does_not_shadow_open_note_with_same_title(client):
+    """Judul tidak unik antar user. Note berpassword milik A yang berjudul sama dengan note terbuka milik B tidak
+    boleh menggeser tautan ke note terbuka itu: wikilink judul tersebut me-resolve ke note B, bukan ke note A."""
+    tag = _uniq()
+    ha = _auth(client, f"pubshadowa_{tag}")
+    hb = _auth(client, f"pubshadowb_{tag}")
+    hc = _auth(client, f"pubshadowc_{tag}")
+    title = f"Judul kembar {tag}"
+    _, open_slug, open_user = _publish(client, hb, title, "isi terbuka")  # terbit lebih dulu
+    _, locked_slug, _ = _publish(client, ha, title, "isi rahasia", password="rahasia123")  # terbit belakangan
+    _, c_slug, c_user = _publish(client, hc, f"Penaut kembar {tag}", f"[[{title}]]")
+
+    page = anon().get(f"/pub/{c_user}/{c_slug}")
+    assert page.status_code == 200
+    assert f'href="/pub/{open_user}/{open_slug}"' in page.text
+    assert locked_slug not in page.text
+
+
+def test_pub_wikilinks_escape_target_username(client):
+    """Href wikilink ke note publik user lain memuat username target. Username tidak dibatasi karakternya,
+    jadi tiap segmen href di-percent-encode (semua bentuk wikilink), bukan ditanam mentah."""
+    tag = _uniq()
+    ha = _auth(client, f"pubwlx_{tag}")
+    evil_user = f'pubwlevil_"><i>{tag}'
+    he = _auth(client, evil_user)
+    w_title = f"Target username wikilink {tag}"
+    w_id, w_slug, w_user = _publish(client, he, w_title, "isi target")
+    assert w_user == evil_user
+    refs = _wikilink_refs(w_title, w_id)
+    _, p_slug, p_user = _publish(client, ha, f"Penaut username wikilink {tag}", "\n\n".join(refs))
+
+    page = anon().get(f"/pub/{p_user}/{p_slug}")
+    assert page.status_code == 200
+    assert '"><i>' not in page.text
+    assert page.text.count(f'href="/pub/pubwlevil_%22%3E%3Ci%3E{tag}/{w_slug}"') == 4
+    # tautan ter-encode itu tetap membuka halaman target
+    assert anon().get(f"/pub/pubwlevil_%22%3E%3Ci%3E{tag}/{w_slug}").status_code == 200
+
+
+def test_pub_related_escapes_other_users_titles(client):
+    """Judul note publik user lain ikut tampil di "Related" halaman ini. Judul itu di-escape sebagai teks HTML,
+    bukan ditanam mentah (XSS lintas user)."""
+    tag = _uniq()
+    ha = _auth(client, f"pubrelt_a_{tag}")
+    hb = _auth(client, f"pubrelt_b_{tag}")
+    x_title = f"Sasaran judul {tag}"
+    payload = "<img src=x onerror=alert(1)>"
+    _, x_slug, x_user = _publish(client, ha, x_title, "isi")
+    _publish(client, hb, f"{payload}{tag}", f"[[{x_title}]]")
+
+    page = anon().get(f"/pub/{x_user}/{x_slug}")
+    assert page.status_code == 200
+    assert payload not in page.text
+    assert f"&lt;img src=x onerror=alert(1)&gt;{tag}" in page.text
+
+
+def test_pub_related_escapes_usernames(client):
+    """Username tidak dibatasi karakternya. Username user lain di href "Related" tidak boleh bisa menutup atribut
+    dan menyisipkan markup: tiap segmen href di-percent-encode, dan tautannya tetap membuka halaman penaut."""
+    tag = _uniq()
+    ha = _auth(client, f"pubrelu_{tag}")
+    evil_user = f'pubevil_"><i>{tag}'
+    he = _auth(client, evil_user)
+    x_title = f"Sasaran username {tag}"
+    _, x_slug, x_user = _publish(client, ha, x_title, "isi")
+    _, e_slug, e_user = _publish(client, he, f"Penaut username {tag}", f"[[{x_title}]]")
+    assert e_user == evil_user
+
+    page = anon().get(f"/pub/{x_user}/{x_slug}")
+    assert page.status_code == 200
+    assert '"><i>' not in page.text
+    assert f'href="/pub/pubevil_%22%3E%3Ci%3E{tag}/{e_slug}"' in page.text
+    assert anon().get(f"/pub/pubevil_%22%3E%3Ci%3E{tag}/{e_slug}").status_code == 200

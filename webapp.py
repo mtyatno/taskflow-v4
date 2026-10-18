@@ -18,6 +18,7 @@ import json
 import math
 import re
 import html
+import urllib.parse
 from collections import defaultdict
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
@@ -4113,10 +4114,18 @@ def _published_drawing_for_request(conn, token: str, request: Request) -> Option
                 return d
     return None
 
+def _pub_href(username: str, slug: str) -> str:
+    """Path /pub/{username}/{slug} yang aman ditanam di atribut href. Username dan slug target berasal dari
+    data user lain (username tidak dibatasi karakternya): tiap segmen di-percent-encode lalu di-escape HTML."""
+    def seg(value):
+        return html.escape(urllib.parse.quote(value, safe=''), quote=True)
+    return f"/pub/{seg(username)}/{seg(slug)}"
+
 def _render_published_content(raw_content: str, conn, note_id: int = None, owner_id: int = None) -> str:
     """Process raw markdown for public page: strip internal tokens, resolve wikilinks, render to HTML.
-    owner_id = penerbit note pribadi; token ::draw[...] hanya di-resolve ke drawing miliknya.
-    owner_id=None (note bersama, atau tanpa penerbit) = tidak ada drawing yang di-resolve."""
+    owner_id = penerbit note pribadi; token ::draw[...] hanya di-resolve ke drawing miliknya, dan wikilink ke
+    note berpassword hanya di-resolve bila note target milik penerbit yang sama.
+    owner_id=None (note bersama, atau tanpa penerbit) = tidak ada drawing dan tidak ada note berpassword yang di-resolve."""
     import re as _re
     content = raw_content or ""
 
@@ -4126,11 +4135,18 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
     # 2. Strip ==highlight== → render as <mark>
     content = _re.sub(r'\\?==([^=\n]+)==', r'<mark>\1</mark>', content)
 
-    # 3. Build wikilink map: title → (username, slug) for published notes
+    # 3. Build wikilink map: title → (username, slug) for published notes.
+    # Target berpassword hanya jadi target bila owner_id (penerbit note pribadi) = penerbit target; selain itu
+    # diperlakukan seperti note yang tidak dipublish (teks biasa), supaya slug dan judulnya tidak bocor lewat note orang lain.
+    def _wikilink_target_ok(password_hash, target_user_id):
+        return not password_hash or (owner_id is not None and target_user_id == owner_id)
+
     published_map = {}
     for row in conn.execute(
-        "SELECT n.title, p.slug, u.username FROM published_notes p JOIN scratchpad_notes n ON n.id = p.note_id JOIN users u ON u.id = p.user_id"
+        "SELECT n.title, p.slug, p.password_hash, p.user_id, u.username FROM published_notes p JOIN scratchpad_notes n ON n.id = p.note_id JOIN users u ON u.id = p.user_id"
     ).fetchall():
+        if not _wikilink_target_ok(row["password_hash"], row["user_id"]):
+            continue
         key = row["title"].strip().lower()
         published_map[key] = (row["username"], row["slug"])
 
@@ -4142,24 +4158,24 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         # Check by title
         if norm in published_map:
             uname, uslug = published_map[norm]
-            return f'<a href="/pub/{uname}/{uslug}">[[{title}]]</a>'
+            return f'<a href="{_pub_href(uname, uslug)}">[[{title}]]</a>'
         # Check by id: prefix
         m_id = _re.match(r'^(?:id|note)\s*:\s*(\d+)$', norm, _re.IGNORECASE)
         if m_id:
             row2 = conn.execute(
-                "SELECT p.slug, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (int(m_id.group(1)),)
+                "SELECT p.slug, p.password_hash, p.user_id, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (int(m_id.group(1)),)
             ).fetchone()
-            if row2:
+            if row2 and _wikilink_target_ok(row2["password_hash"], row2["user_id"]):
                 un = row2["username"]; sl = row2["slug"]
-                return f'<a href="/pub/{un}/{sl}">[[{title}]]</a>'
+                return f'<a href="{_pub_href(un, sl)}">[[{title}]]</a>'
         # Check by numeric id
         if norm.isdigit():
             row2 = conn.execute(
-                "SELECT p.slug, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (int(norm),)
+                "SELECT p.slug, p.password_hash, p.user_id, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (int(norm),)
             ).fetchone()
-            if row2:
+            if row2 and _wikilink_target_ok(row2["password_hash"], row2["user_id"]):
                 un = row2["username"]; sl = row2["slug"]
-                return f'<a href="/pub/{un}/{sl}">[[{title}]]</a>'
+                return f'<a href="{_pub_href(un, sl)}">[[{title}]]</a>'
         # Not published → plain text
         return f'[[{title}]]'
 
@@ -6837,8 +6853,9 @@ async def view_published_note(username: str, slug: str, request: Request):
                 if f"[[{t}]]" in c or f"\\[\\[{t}]]" in c:
                     backlinks.append(b)
             if backlinks:
+                # judul, username, dan slug berasal dari note user lain: di-escape, bukan ditanam mentah
                 items = "".join(
-                    f'<li><a href="/pub/{b["username"]}/{b["slug"]}">{_esc(b["title"] or "Untitled")}</a></li>'
+                    f'<li><a href="{_pub_href(b["username"], b["slug"])}">{html.escape(b["title"] or "Untitled")}</a></li>'
                     for b in backlinks
                 )
                 backlinks_html = f'<section><h3>&#128279; Related</h3><ul>{items}</ul></section>'
