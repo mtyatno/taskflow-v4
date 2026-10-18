@@ -64,3 +64,19 @@ test("verifyStructure detects an unclosed fence swallowing later sections", () =
   assert.equal(NM.verifyStructure(r.markdown, t), false);
   const ok = T(BASE); assert.equal(NM.verifyStructure(BASE, ok), true);
 });
+test("old sections under a new node are re-leveled (R6)", () => {
+  const w = run(BASE, (t) => { t.children[0] = { id: "p", topic: "P", children: [t.children[0]] }; });
+  assert.equal(w.markdown, "Intro\n\n# P\n## A\nisi a\n### B\nisi b\n# C\nisi c\n");
+  const m = run(BASE, (t) => { const c = t.children.pop(); t.children.push({ id: "n", topic: "N", children: [c] }); });
+  assert.equal(m.markdown, "Intro\n# A\nisi a\n## B\nisi b\n\n# N\n## C\nisi c\n");
+});
+test("verifyStructure checks nesting (R7)", () => {
+  const md1 = "## A\nx\n# B\ny\n";
+  const t1 = T(md1); t1.children.reverse(); const r1 = NM.applyMindData(md1, P(md1), t1);
+  assert.equal(r1.markdown, "# B\ny\n## A\nx\n");
+  assert.equal(NM.verifyStructure(r1.markdown, t1), false);
+  const md2 = "# R\n### x\n## y\n";
+  const t2 = T(md2); t2.children[0].children.push({ id: "n", topic: "N", children: [] }); const r2 = NM.applyMindData(md2, P(md2), t2);
+  assert.equal(r2.markdown, "# R\n### x\n## y\n\n### N\n");
+  assert.equal(NM.verifyStructure(r2.markdown, t2), false);
+});

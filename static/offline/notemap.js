@@ -306,6 +306,9 @@
 
   const MAX_LEVEL = 6;
   const NEW_NODE_TEXT = "Node baru";
+  // origSid node baru/asing: tidak cocok dengan parentSid bagian mana pun, dan
+  // berbeda dari null milik root (bagian tingkat atas di bawah node baru ≠ same).
+  const NO_SID = Symbol("no-sid");
 
   function sanitizeTopic(text) {
     return String(text == null ? "" : text)
@@ -359,7 +362,7 @@
           isRoot: false,
           level,
           shift: src ? level - src.level : 0,
-          origSid: src ? src.sid : null,
+          origSid: src ? src.sid : NO_SID,
         });
         if (!ok) return false;
       }
@@ -384,17 +387,22 @@
   }
 
   // Benar bila markdown hasil serialisasi mengurai kembali menjadi bagian yang
-  // sama (jumlah, urutan, level, teks) dengan node non-root pohon (pre-order).
+  // sama (jumlah, urutan, level, teks, induk) dengan node non-root pohon (pre-order).
   function verifyStructure(markdown, edited) {
     const sections = parseNote(markdown).sections;
-    const nodes = [];
-    const walk = (n) => kids(n).forEach((c) => { nodes.push(c); walk(c); });
-    walk(edited);
+    const nodes = []; // { node, parentPos } — parentPos -1 = root
+    const walk = (n, parentPos) => kids(n).forEach((c) => {
+      const pos = nodes.length;
+      nodes.push({ node: c, parentPos });
+      walk(c, pos);
+    });
+    walk(edited, -1);
     if (nodes.length !== sections.length) return false;
-    return nodes.every((n, i) => {
+    return nodes.every(({ node: n, parentPos }, i) => {
       const nm = n.nm || {};
       const text = nm.text != null ? nm.text : sanitizeTopic(n.topic);
-      return sections[i].level === nm.level && sections[i].text === text;
+      const parentSid = parentPos < 0 ? null : sections[parentPos].sid;
+      return sections[i].level === nm.level && sections[i].text === text && sections[i].parentSid === parentSid;
     });
   }
 
