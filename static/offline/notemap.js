@@ -382,8 +382,10 @@
 
   // Susun ulang markdown dari pohon peta. Bagian yang tidak berubah (level dan
   // teks sama, bukan salinan) memakai headingLine aslinya, jadi tanpa edit hasilnya
-  // identik byte per byte. Menandai tiap node non-root dengan nm.level / nm.text
-  // hasil serialisasi (dipakai verifyStructure).
+  // identik byte per byte. Menandai tiap node non-root dengan hasil serialisasi
+  // (dipakai verifyStructure): nm.level, nm.text, nm.line (baris heading persis
+  // yang ditulis, termasuk akhir barisnya) dan nm.body (isi bagian sumber, atau
+  // null untuk node tanpa sumber).
   function applyMindData(markdown, parsed, edited) {
     if (!edited || typeof edited !== "object" || !Array.isArray(edited.children)) {
       return { ok: false, code: "BAD_TREE" };
@@ -401,6 +403,16 @@
     const rootLevels = parsed.sections.filter((s) => s.parentSid === null).map((s) => s.level);
     const T0 = rootLevels.length ? Math.min(...rootLevels) : 1;
     let out = parsed.intro;
+    let last = null; // { nm, bodyEmpty } node terakhir yang ditulis
+
+    // Pastikan keluaran berakhir dengan baris baru sebelum menulis heading lain.
+    // Bila yang terpotong adalah baris heading node terakhir (isinya kosong),
+    // nm.line ikut diperbarui agar tetap sama persis dengan hasil parse ulang.
+    const endLine = () => {
+      if (out === "" || out.endsWith("\n")) return;
+      out += eol;
+      if (last && last.bodyEmpty) last.nm.line += eol;
+    };
 
     const visit = (P) => {
       const children = kids(P.node);
@@ -427,16 +439,18 @@
         const text = src && n.topic === src.text
           ? src.text
           : sanitizeTopic(n.topic) || (src ? src.text : NEW_NODE_TEXT);
-        n.nm = Object.assign({}, n.nm, { level, text });
-
         const heading = src && !isCopy && level === src.level && text === src.text
           ? src.headingLine
           // Teks berakhiran spasi + "#" akan terbaca sebagai urutan penutup;
           // tambahkan " #" agar terbaca kembali sebagai teks yang sama.
           : "#".repeat(level) + " " + text + (/[ \t]#+$/.test(text) ? " #" : "") + eol;
-        if (out !== "" && !out.endsWith("\n")) out += eol;
+        const body = src ? src.body : null;
+        n.nm = Object.assign({}, n.nm, { level, text, line: heading, body });
+
+        endLine();
         if (!src && out !== "" && !/\n\r?\n$/.test(out)) out += eol;
-        out += heading + (src ? src.body : "");
+        out += heading + (body || "");
+        last = { nm: n.nm, bodyEmpty: !body };
 
         const ok = visit({
           node: n,
@@ -469,6 +483,11 @@
 
   // Benar bila markdown hasil serialisasi mengurai kembali menjadi bagian yang
   // sama (jumlah, urutan, level, teks, induk) dengan node non-root pohon (pre-order).
+  // Hanya bermakna untuk pohon yang BARU SAJA melewati applyMindData: anotasi
+  // nm.line / nm.body darinya juga diperiksa (baris heading harus persis sama dan
+  // isi bagian harus diawali isi sumbernya — menangkap heading salinan yang masuk
+  // ke fence/details terbuka sementara jumlahnya kebetulan tetap). Pohon tanpa
+  // anotasi hanya diperiksa level/teks/induk.
   function verifyStructure(markdown, edited) {
     const sections = parseNote(markdown).sections;
     const nodes = []; // { node, parentPos } — parentPos -1 = root
@@ -483,7 +502,10 @@
       const nm = n.nm || {};
       const text = nm.text != null ? nm.text : sanitizeTopic(n.topic);
       const parentSid = parentPos < 0 ? null : sections[parentPos].sid;
-      return sections[i].level === nm.level && sections[i].text === text && sections[i].parentSid === parentSid;
+      const sec = sections[i];
+      if (typeof nm.line === "string" && sec.headingLine !== nm.line) return false;
+      if (typeof nm.body === "string" && !sec.body.startsWith(nm.body)) return false;
+      return sec.level === nm.level && sec.text === text && sec.parentSid === parentSid;
     });
   }
 

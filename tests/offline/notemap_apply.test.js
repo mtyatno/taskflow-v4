@@ -138,3 +138,33 @@ test("R10: non-same nodes take the previous emitted sibling's level", () => {
   assert.equal(r3.markdown, "# A\n### X\n## Y\n## Z\n# B\n");
   assert.equal(NM.verifyStructure(r3.markdown, t3), true);
 });
+test("verifyStructure rejects scrambled layouts (heading line + source body checks)", () => {
+  const md = "# A\n```\n# A\n";
+  const t = T(md); t.children.push(JSON.parse(JSON.stringify(t.children[0]))); const r = NM.applyMindData(md, P(md), t);
+  assert.equal(r.markdown, "# A\n```\n# A\n# A\n```\n# A\n");
+  assert.equal(NM.verifyStructure(r.markdown, t), false);
+  const md2 = "# A\nx\n# B\n<details>\n";
+  const t2 = T(md2); t2.children.reverse(); const r2 = NM.applyMindData(md2, P(md2), t2);
+  assert.equal(r2.markdown, "# B\n<details>\n# A\nx\n");
+  assert.equal(NM.verifyStructure(r2.markdown, t2), false);
+  const md3 = "# A\n<details>\n# A\n";
+  const t3 = T(md3); t3.children.push({ id: "n", topic: "N", children: [] }); const r3 = NM.applyMindData(md3, P(md3), t3);
+  assert.equal(NM.verifyStructure(r3.markdown, t3), false);
+});
+test("verifyStructure accepts honest outputs, including last heading without newline", () => {
+  const cases = [["# A\n# B", (t) => t.children.reverse()], ["# A", (t) => t.children.push({ id: "n", topic: "N", children: [] })],
+    ["# A\nx", (t) => t.children.push({ id: "n", topic: "N", children: [] })], ["# A\r\nisi\r\n# B\r\nakhir", (t) => t.children.reverse()],
+    [BASE, (t) => t.children.push(JSON.parse(JSON.stringify(t.children[0])))], [BASE, (t) => { t.children[0].children[0].topic = "Beta"; }],
+    [BASE, (t) => { t.children[0] = { id: "p", topic: "P", children: [t.children[0]] }; }], [BASE, () => {}]];
+  for (const [md, mutate] of cases) {
+    const t = T(md); mutate(t); const r = NM.applyMindData(md, P(md), t);
+    assert.equal(NM.verifyStructure(r.markdown, t), true, JSON.stringify(md));
+    assert.ok(t.children.every((c) => typeof c.nm.line === "string"));
+  }
+});
+test("stale nm.line/nm.body on a new node are overwritten by applyMindData", () => {
+  const t = T(BASE); t.children.push({ id: "n", topic: "N", nm: { line: "# X\n", body: "zzz" }, children: [] });
+  const r = NM.applyMindData(BASE, P(BASE), t);
+  assert.equal(t.children[2].nm.body, null); assert.equal(t.children[2].nm.line, "# N\n");
+  assert.equal(NM.verifyStructure(r.markdown, t), true);
+});
