@@ -94,3 +94,14 @@ def test_create_linked_map_inaccessible_note_404(client):
     o, s = U(client), U(client); n = _mk_note(o)
     assert s.post("/api/mindmaps", json={"title": "x", "source_note_id": n["id"]}).status_code == 404
     assert o.post("/api/mindmaps", json={"title": "x", "source_note_id": 99999999}).status_code == 404
+
+
+def test_create_linked_map_ignores_client_id_of_existing_normal_map(client):
+    o = U(client); n = _mk_note(o)
+    normal = o.post("/api/mindmaps", json={"title": "Biasa", "client_id": "dup1"}).json()
+    r = o.post("/api/mindmaps", json={"title": "x", "source_note_id": n["id"], "client_id": "dup1"})
+    assert r.status_code == 200, r.text
+    mm = r.json()
+    assert mm["id"] != normal["id"]
+    assert mm["source_note_id"] == n["id"]
+    assert _row("SELECT source_note_id FROM mindmaps WHERE id = ?", normal["id"])["source_note_id"] is None

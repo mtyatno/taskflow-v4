@@ -7293,19 +7293,20 @@ async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
             ).fetchone()
             if existing:
                 return _mindmap_enrich(dict(existing), conn)
-            if req.client_id:
-                dup = conn.execute(
-                    "SELECT * FROM mindmaps WHERE user_id = ? AND client_id = ?", (uid, req.client_id)
-                ).fetchone()
-                if dup:
-                    return dict(dup)
+            # Idempotensi peta tertaut hanya per catatan. Indeks unik (user_id, client_id) memakai pemilik
+            # catatan; bila pemilik sudah punya baris dengan client_id itu, simpan NULL agar INSERT tidak bentrok.
+            link_cid = req.client_id
+            if link_cid and conn.execute(
+                "SELECT 1 FROM mindmaps WHERE user_id = ? AND client_id = ?", (note["user_id"], link_cid)
+            ).fetchone():
+                link_cid = None
             try:
                 cur = conn.execute(
                     "INSERT INTO mindmaps (user_id, title, data_json, is_pinned, created_at, updated_at, "
                     "list_id, client_id, last_edited_by, source_note_id) "
                     "VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)",
                     (note["user_id"], note["title"] or "Tanpa judul", LINKED_VIEW_STATE_DEFAULT, now, now,
-                     note["list_id"], req.client_id, uid, note["id"])
+                     note["list_id"], link_cid, uid, note["id"])
                 )
             except sqlite3.IntegrityError:
                 existing = conn.execute(
