@@ -121,7 +121,7 @@
   },
   {
    "id": "S07",
-   "title": "ADR-008..013 dan skema versi mobile",
+   "title": "ADR mobile M1..M6 dan skema versi mobile",
    "phase": "F0",
    "wbs": "0.1, 0.7",
    "owner": "Dev A",
@@ -130,7 +130,7 @@
    "deps": [
     "S03"
    ],
-   "exit": "DECISIONS.md memuat 6 ADR baru dan disetujui Bapak",
+   "exit": "DECISIONS.md memuat 6 ADR mobile dengan nomor kosong berikutnya dan disetujui Bapak",
    "planned": "2026-10-22",
    "milestone": null
   },
