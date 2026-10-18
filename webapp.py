@@ -4035,8 +4035,83 @@ def _generate_publish_slug(conn, title: str = "") -> str:
             return slug
     raise HTTPException(status_code=500, detail="Gagal generate slug unik — coba lagi")
 
-def _render_published_content(raw_content: str, conn, note_id: int = None) -> str:
-    """Process raw markdown for public page: strip internal tokens, resolve wikilinks, render to HTML."""
+# ── Akses publik drawing ───────────────────────────────────────────────────────
+# Drawing tampil di halaman publik hanya bila dirujuk ::draw[token] oleh note publish milik pemiliknya.
+# Token = id angka atau client_id (UUID, format default sejak offline-first). Bentuk ter-escape oleh
+# serializer markdown (::draw\[x\]) ikut dikenali.
+_DRAW_DIRECTIVE_RE = re.compile(r'\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?')
+_DRAW_TOKEN_RE = re.compile(r'[0-9a-zA-Z_-]+')
+_DRAWING_COLS = "id, user_id, client_id, title, svg_preview, data_json"
+
+def _draw_tokens(content: Optional[str]) -> set[str]:
+    """Semua token direktif ::draw[...] di content (id angka atau client_id)."""
+    return {m.group(1) for m in _DRAW_DIRECTIVE_RE.finditer(content or "")}
+
+def _draw_token_id(token: str) -> Optional[int]:
+    """Token angka ASCII → id baris drawings. None bila bukan angka atau di luar INTEGER 64-bit SQLite
+    (int() terlalu panjang atau OverflowError akan jadi 500, padahal barisnya pasti tidak ada)."""
+    if token.isascii() and token.isdigit() and len(token) <= 19:
+        value = int(token)
+        if value <= 2**63 - 1:
+            return value
+    return None
+
+def _resolve_owned_drawing(conn, token: str, owner_id: int) -> Optional[sqlite3.Row]:
+    """Drawing milik owner_id yang dirujuk token direktif: id angka dulu, lalu client_id.
+    Selalu terscope ke pemilik; judul drawing tidak pernah dipakai sebagai kunci."""
+    did = _draw_token_id(token)
+    if did is not None:
+        row = conn.execute(
+            f"SELECT {_DRAWING_COLS} FROM drawings WHERE id = ? AND user_id = ?", (did, owner_id)
+        ).fetchone()
+        if row:
+            return row
+    return conn.execute(
+        f"SELECT {_DRAWING_COLS} FROM drawings WHERE client_id = ? AND user_id = ?", (token, owner_id)
+    ).fetchone()
+
+def _pub_note_unlocked(request: Request, slug: str, password_hash: Optional[str]) -> bool:
+    """True bila note publish tanpa password, atau request membawa cookie unlock yang valid untuk slug-nya."""
+    if not password_hash:
+        return True
+    cookie_val = request.cookies.get(f"pub_unlock_{slug}", "")
+    try:
+        return bool(cookie_val) and _verify_cookie(cookie_val) == slug
+    except TypeError:  # hmac.compare_digest menolak str non-ASCII: cookie rusak = terkunci, bukan 500
+        return False
+
+def _published_drawing_for_request(conn, token: str, request: Request) -> Optional[sqlite3.Row]:
+    """Drawing yang boleh dibaca publik lewat /pub/drawings/{token}, atau None.
+    Kandidat: drawing ber-id token (bila angka) dan drawing ber-client_id token (milik siapa pun).
+    Kandidat D lolos bila note publish milik D.user_id merujuknya lewat ::draw[...] (id atau client_id)
+    dan note itu terbuka bagi request ini (tanpa password, atau cookie unlock valid). Rujukan saja tidak
+    cukup karena isi note dikendalikan penerbit, jadi pemilik note publish harus pemilik drawing."""
+    if not _DRAW_TOKEN_RE.fullmatch(token):
+        return None
+    candidates = []
+    did = _draw_token_id(token)
+    if did is not None:
+        row = conn.execute(f"SELECT {_DRAWING_COLS} FROM drawings WHERE id = ?", (did,)).fetchone()
+        if row:
+            candidates.append(row)
+    candidates.extend(conn.execute(f"SELECT {_DRAWING_COLS} FROM drawings WHERE client_id = ?", (token,)).fetchall())
+    for d in candidates:
+        refs = {str(d["id"])}
+        if d["client_id"]:
+            refs.add(d["client_id"])
+        published = conn.execute(
+            "SELECT p.slug, p.password_hash, n.content FROM published_notes p "
+            "JOIN scratchpad_notes n ON n.id = p.note_id WHERE p.user_id = ?",
+            (d["user_id"],)
+        ).fetchall()
+        for p in published:
+            if (_draw_tokens(p["content"]) & refs) and _pub_note_unlocked(request, p["slug"], p["password_hash"]):
+                return d
+    return None
+
+def _render_published_content(raw_content: str, conn, note_id: int = None, owner_id: int = None) -> str:
+    """Process raw markdown for public page: strip internal tokens, resolve wikilinks, render to HTML.
+    owner_id = penerbit note; token ::draw[...] hanya di-resolve ke drawing miliknya."""
     import re as _re
     content = raw_content or ""
 
@@ -4229,31 +4304,35 @@ def _render_published_content(raw_content: str, conn, note_id: int = None) -> st
         width_val = width or ('50%' if size == 'S' else '75%' if size == 'M' else '100%')
         height_val = height or ('200px' if size == 'S' else '300px' if size == 'M' else '400px')
 
-        # Fetch drawing from database by id or title, with note_id fallback
-        d_row = conn.execute(
-            "SELECT id, title, svg_preview, data_json FROM drawings WHERE id = ? OR title = ?",
-            (drawing_id, drawing_id)
-        ).fetchone()
+        # Hanya drawing milik penerbit (id angka, lalu client_id). Judul dan id note tidak dipakai sebagai kunci.
+        d_row = _resolve_owned_drawing(conn, drawing_id, owner_id) if owner_id is not None else None
 
-        if not d_row and note_id:
-            d_row = conn.execute(
-                "SELECT id, title, svg_preview, data_json FROM drawings WHERE id = ?",
-                (note_id,)
-            ).fetchone()
-
-        actual_id = d_row["id"] if d_row else drawing_id
         if d_row and not title:
             title = d_row["title"]
         if not title:
             title = "Gambar"
 
         safe_title = html.escape(title)
-        if d_row and d_row["svg_preview"] and d_row["svg_preview"].strip().startswith("<svg"):
+        card_style = f"width:{width_val};max-width:{width_val};margin:16px auto;" if width_val != '100%' else "width:100%;margin:16px 0;"
+
+        if not d_row:
+            # Token tak ter-resolve: kartu netral tanpa data-drawing-id/-preview dan tanpa iframe,
+            # supaya halaman tidak memanggil /pub/drawings/<token> dan tidak menanam gambar siapa pun.
+            # size/width/height berasal dari isi note, jadi di-escape sebelum masuk ke atribut HTML.
+            safe_height = html.escape(height_val)
+            draw_map[key] = (
+                f'<div class="note-draw-card" data-size="{html.escape(size)}" style="{html.escape(card_style)}">'
+                f'<div class="note-draw-header"><span>🎨 {safe_title}</span></div>'
+                f'<div class="note-draw-preview-container" style="height:{safe_height};max-height:{safe_height};">Gambar tidak tersedia</div>'
+                f'</div>'
+            )
+            return key
+
+        actual_id = d_row["id"]
+        if d_row["svg_preview"] and d_row["svg_preview"].strip().startswith("<svg"):
             svg_html = d_row["svg_preview"]
         else:
             svg_html = f'<iframe src="/static/vendor/tldraw/index.html?noteId={html.escape(str(actual_id))}" style="width:100%;height:{height_val};border:none;" title="Drawing"></iframe>'
-
-        card_style = f"width:{width_val};max-width:{width_val};margin:16px auto;" if width_val != '100%' else "width:100%;margin:16px 0;"
 
         draw_map[key] = (
             f'<div class="note-draw-card" data-drawing-id="{html.escape(str(actual_id))}" data-size="{size}" style="{card_style}">'
@@ -4263,7 +4342,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None) -> st
         )
         return key
 
-    content = _re.sub(r'\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?', _replace_draw, content)
+    content = _DRAW_DIRECTIVE_RE.sub(_replace_draw, content)
 
     # 7. Render markdown → HTML via mistune (with table & common plugins)
     try:
@@ -6543,20 +6622,10 @@ async def view_published_attachment(att_id: int):
         raise HTTPException(status_code=404, detail="File tidak ditemukan")
 
 @app.get("/pub/drawings/{drawing_id}")
-async def get_published_drawing(drawing_id: str):
-    """Public drawing retrieval for published notes."""
+async def get_published_drawing(drawing_id: str, request: Request):
+    """Public drawing retrieval: hanya drawing yang di-embed penerbit di note publish yang terbuka bagi request ini."""
     with get_db() as conn:
-        row = None
-        if drawing_id.isdigit():
-            row = conn.execute(
-                "SELECT id, title, data_json, svg_preview FROM drawings WHERE id = ?",
-                (int(drawing_id),)
-            ).fetchone()
-        if not row:
-            row = conn.execute(
-                "SELECT id, title, data_json, svg_preview FROM drawings WHERE client_id = ?",
-                (drawing_id,)
-            ).fetchone()
+        row = _published_drawing_for_request(conn, drawing_id, request)
         if not row:
             raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
         return {
@@ -6583,7 +6652,7 @@ async def view_published_note(username: str, slug: str, request: Request):
     """Public page for a published note. Server-side rendered HTML with OG meta."""
     with get_db() as conn:
         row = conn.execute(
-            """SELECT n.title, n.content, n.updated_at, p.published_at, p.password_hash, p.note_id, u.username
+            """SELECT n.title, n.content, n.updated_at, p.published_at, p.password_hash, p.note_id, p.user_id, u.username
                FROM published_notes p
                JOIN scratchpad_notes n ON n.id = p.note_id
                JOIN users u ON u.id = p.user_id
@@ -6597,17 +6666,14 @@ async def view_published_note(username: str, slug: str, request: Request):
             )
 
         # Password gate
-        if row["password_hash"]:
-            cookie_key = f"pub_unlock_{slug}"
-            cookie_val = request.cookies.get(cookie_key, "")
-            if not cookie_val or _verify_cookie(cookie_val) != slug:
-                # Show password form
-                return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
-                    username=username,
-                    slug=slug,
-                    error_html="",
-                    css=_PUBLIC_CSS
-                ))
+        if not _pub_note_unlocked(request, slug, row["password_hash"]):
+            # Show password form
+            return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
+                username=username,
+                slug=slug,
+                error_html="",
+                css=_PUBLIC_CSS
+            ))
 
         import re as _re
 
@@ -6635,7 +6701,7 @@ async def view_published_note(username: str, slug: str, request: Request):
         desc_clean = _re.sub(r'==([^=\n]+)==', r'\1', desc_clean)
         desc_clean = _re.sub(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]', r'\1', desc_clean)
         description = html.escape(desc_clean[:200].replace('\n', ' ').strip())
-        body_html = _render_published_content(raw_content, conn, note_id=row["note_id"])
+        body_html = _render_published_content(raw_content, conn, note_id=row["note_id"], owner_id=row["user_id"])
 
         # Dates
         created_date = _safe_date(row["published_at"])
@@ -6765,25 +6831,6 @@ async def view_published_note(username: str, slug: str, request: Request):
                 )
                 backlinks_html = f'<section><h3>&#128279; Related</h3><ul>{items}</ul></section>'
 
-        # Drawing canvas (read-only embed for legacy per-note canvas)
-        drawing_html = ''
-        drawing_data_js = 'null'
-        if row["note_id"]:
-            did = str(row["note_id"])
-            # Check if drawing data exists
-            draw_row = conn.execute(
-                "SELECT data_json FROM drawings WHERE id = ?", (did,)
-            ).fetchone()
-            if draw_row and draw_row["data_json"] and draw_row["data_json"].strip() not in ('{}', ''):
-                import json as _json
-                drawing_data_js = _json.dumps(draw_row["data_json"])
-                drawing_html = f'''<section class="pub-drawing">
-<h3>&#127912; Drawing</h3>
-<div class="pub-drawing-container" id="drawing-container">
-  <iframe src="/static/vendor/tldraw/index.html?noteId={did}" id="drawing-iframe" title="Drawing" style="width:100%;height:100%;border:none"></iframe>
-</div>
-</section>'''
-
         try:
             page_html = _PUBLIC_PAGE_HTML.format(
                 title=_esc(row["title"] or "Untitled"),
@@ -6804,8 +6851,8 @@ async def view_published_note(username: str, slug: str, request: Request):
                 tags_html=tags_html,
                 cover_html=cover_html,
                 attachments_html=attachments_html,
-                drawing_html=drawing_html,
-                drawing_data_js=drawing_data_js,
+                drawing_html='',  # kanvas legacy per-note sudah dihapus; slot template dibiarkan kosong
+                drawing_data_js='null',
             )
             return HTMLResponse(content=page_html)
         except Exception:
