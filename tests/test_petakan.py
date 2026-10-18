@@ -57,6 +57,12 @@ def _mk_note(u, title="Catatan", content="isi", **kw):
     return r.json()
 
 
+def _mk_mindmap(u, **kw):
+    r = u.post("/api/mindmaps", json={"title": "Peta", **kw})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 def test_migration_adds_source_note_id_and_unique_index():
     webapp.migrate_db(); webapp.migrate_db()  # idempoten
     conn = db()
@@ -105,3 +111,18 @@ def test_create_linked_map_ignores_client_id_of_existing_normal_map(client):
     assert mm["id"] != normal["id"]
     assert mm["source_note_id"] == n["id"]
     assert _row("SELECT source_note_id FROM mindmaps WHERE id = ?", normal["id"])["source_note_id"] is None
+
+
+# ── B3: daftar menyaring peta tertaut kecuali ?linked=1 ───────────────────────
+
+def test_lists_hide_linked_without_flag(client):
+    o = U(client); lid = _mk_list(o); n = _mk_note(o, list_id=lid)
+    normal = _mk_mindmap(o, list_id=lid); linked = o.post("/api/mindmaps", json={"title": "x", "source_note_id": n["id"]}).json()
+    ids = lambda r: {x["id"] for x in r.json()}
+    assert normal["id"] in ids(o.get("/api/mindmaps")) and linked["id"] not in ids(o.get("/api/mindmaps"))
+    both = o.get("/api/mindmaps?linked=1").json()
+    assert {normal["id"], linked["id"]} <= {x["id"] for x in both}
+    assert next(x for x in both if x["id"] == linked["id"])["source_note_id"] == n["id"]
+    assert linked["id"] not in ids(o.get(f"/api/lists/{lid}/mindmaps"))
+    assert linked["id"] in ids(o.get(f"/api/lists/{lid}/mindmaps?linked=1"))
+    assert o.get(f"/api/mindmaps/{linked['id']}").json()["source_note_id"] == n["id"]

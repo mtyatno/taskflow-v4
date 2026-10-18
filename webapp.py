@@ -7063,13 +7063,15 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
 # ── Mindmap endpoints ────────────────────────────────────────────────────────
 
 @app.get("/api/mindmaps")
-async def list_mindmaps(user=Depends(get_current_user)):
+async def list_mindmaps(linked: int = 0, user=Depends(get_current_user)):
+    # Petakan: klien lama tidak mengenal peta tertaut → disembunyikan kecuali ?linked=1.
     uid = user["sub"]
     with get_db() as conn:
         access_clause, access_params = _mindmap_access_clause(uid)
+        linked_clause = "" if linked == 1 else " AND source_note_id IS NULL"
         rows = conn.execute(
-            "SELECT id, title, is_pinned, list_id, user_id, last_edited_by, created_at, updated_at, client_id FROM mindmaps "
-            f"WHERE {access_clause} ORDER BY is_pinned DESC, updated_at DESC",
+            "SELECT id, title, is_pinned, list_id, user_id, last_edited_by, created_at, updated_at, client_id, source_note_id FROM mindmaps "
+            f"WHERE {access_clause}{linked_clause} ORDER BY is_pinned DESC, updated_at DESC",
             access_params
         ).fetchall()
         return [_mindmap_enrich(dict(r), conn) for r in rows]
@@ -7262,14 +7264,16 @@ async def share_mindmap(mid: str, req: MindmapShareReq, user=Depends(get_current
 
 
 @app.get("/api/lists/{list_id}/mindmaps")
-async def get_list_mindmaps(list_id: int, user=Depends(get_current_user)):
+async def get_list_mindmaps(list_id: int, linked: int = 0, user=Depends(get_current_user)):
     uid = user["sub"]
     repo = TaskRepository(DB_PATH)
     if not repo.is_list_member_or_owner(list_id, uid):
         raise HTTPException(status_code=403, detail="Bukan anggota list ini")
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, title, updated_at FROM mindmaps WHERE list_id = ? ORDER BY updated_at DESC",
+            "SELECT id, title, updated_at, source_note_id FROM mindmaps WHERE list_id = ?"
+            + ("" if linked == 1 else " AND source_note_id IS NULL")
+            + " ORDER BY updated_at DESC",
             (list_id,)
         ).fetchall()
     return [dict(r) for r in rows]
