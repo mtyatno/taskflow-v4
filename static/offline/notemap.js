@@ -434,6 +434,8 @@
 
   function plainHeadingText(text) {
     return String(text == null ? "" : text)
+      // Lepas escape markdown dulu (snake\_case → snake_case), sebelum normalisasi.
+      .replace(/\\([!-\/:-@\[-`{-~])/g, "$1")
       .replace(/\[\[([^\]]*)\]\]/g, "$1")
       .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
       .replace(/`([^`]*)`/g, "$1")

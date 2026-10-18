@@ -30,3 +30,8 @@ test("renderTopicNoteInline never emits <img> (alt-attribute injection)", () => 
   assert.ok(!a.includes("<img")); assert.ok(!/<[^>]*onerror=/.test(a.replace(/"[^"]*"/g, '""')));
   assert.ok(!NM.renderTopicNoteInline("![x](javascript:alert(1))").includes("<img"));
 });
+test("plainHeadingText unescapes markdown backslash escapes before normalizing", () => {
+  const target = NM.locateHeading(NM.parseNote("# snake\\_case"), "s0");
+  assert.equal(NM.matchHeading([{ text: "snake_case" }], target), 0);
+  assert.equal(NM.plainHeadingText("a\\*b\\* \\[x\\] \\\\ \\q"), "ab [x] \\ \\q");
+});
