@@ -112,3 +112,11 @@ test("untouched headings starting with # survive an edit elsewhere byte-identica
   assert.equal(NM.sanitizeTopic("## Baru\nbaris"), "Baru baris");
   assert.equal(run("# A\n", (t) => t.children.push({ id: "n", topic: "#tag", children: [] })).markdown, "# A\n\n# #tag\n");
 });
+test("topic ending in whitespace + #s reads back as the same text", () => {
+  for (const topic of ["C #", "Issue ##", "#"]) {
+    const t = T(BASE); t.children[1].topic = topic; const r = NM.applyMindData(BASE, P(BASE), t);
+    assert.equal(P(r.markdown).sections[2].text, topic);
+    assert.equal(NM.verifyStructure(r.markdown, t), true, topic);
+  }
+  const t = T(BASE); t.children[1].topic = "C #"; assert.equal(NM.applyMindData(BASE, P(BASE), t).markdown, "Intro\n# A\nisi a\n## B\nisi b\n# C # #\nisi c\n");
+});

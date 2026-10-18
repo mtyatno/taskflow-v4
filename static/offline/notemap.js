@@ -426,7 +426,9 @@
 
         const heading = src && !isCopy && level === src.level && text === src.text
           ? src.headingLine
-          : "#".repeat(level) + " " + text + eol;
+          // Teks berakhiran spasi + "#" akan terbaca sebagai urutan penutup;
+          // tambahkan " #" agar terbaca kembali sebagai teks yang sama.
+          : "#".repeat(level) + " " + text + (/[ \t]#+$/.test(text) ? " #" : "") + eol;
         if (out !== "" && !out.endsWith("\n")) out += eol;
         if (!src && out !== "" && !/\n\r?\n$/.test(out)) out += eol;
         out += heading + (src ? src.body : "");
