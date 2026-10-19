@@ -4188,22 +4188,14 @@ async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_cu
 
 # ── Scratchpad Notes ──────────────────────────────────────────────────────────
 
-_ALL_TOKENS = object()
-
-
-def _note_with_drawing_sync(conn, note_id: int, uid: int, now: str, previous_content=_ALL_TOKENS) -> dict:
+def _note_with_drawing_sync(conn, note_id: int, uid: int, now: str, move: bool = False) -> dict:
     """Jalankan sinkron drawing (spec §4.4) untuk note sebagaimana tersimpan; kembalikan dua daftar respons.
-    previous_content: tidak diberikan = semua token boleh dipindah (POST baru, PATCH share); string/None = isi note
-    sebelum tulisan ini, hanya token yang ditambahkan yang boleh dipindah (PUT, POST idempoten; bila list_id note berubah = tindakan berbagi, semua token); False = restore dari trash
-    (tidak ada token yang dipindah)."""
+    move=True hanya bila tulisan ini menetapkan atau mengubah list_id note (POST note baru ber-list_id, PATCH share,
+    PUT/POST idempoten yang mengganti list_id): semua token drawing pribadi aktor dipindah ke workspace note.
+    Tulisan lain (PUT/autosave biasa, POST idempoten tanpa ganti list_id, restore dari trash) tidak memindah apa pun;
+    token yang tak dipindah dilaporkan di unresolved_drawings. Lihat drawing_scope.pull_note_drawings_into_list."""
     stored = conn.execute("SELECT list_id, content FROM scratchpad_notes WHERE id = ?", (note_id,)).fetchone()
-    if previous_content is _ALL_TOKENS:
-        movable = None
-    elif previous_content is False:
-        movable = set()
-    else:
-        movable = _draw_tokens(stored["content"]) - _draw_tokens(previous_content)
-    return drawing_scope.pull_note_drawings_into_list(conn, stored, uid, now, movable)
+    return drawing_scope.pull_note_drawings_into_list(conn, stored, uid, now, move)
 
 
 def _scratchpad_row_synced(row, conn, uid, sync: dict) -> dict:
@@ -4354,6 +4346,7 @@ def _published_drawing_for_request(conn, token: str, request: Request) -> Option
         published = conn.execute(
             "SELECT p.slug, p.password_hash, n.content "
             "FROM published_notes p JOIN scratchpad_notes n ON n.id = p.note_id "
+            # SQLite LIKE tak peka huruf besar/kecil untuk ASCII: ::DRAW ikut lolos prefilter ini
             "WHERE n.content LIKE '%::draw%' AND ("
             "  (n.list_id IS NULL AND n.user_id = p.user_id "
             "   AND (n.last_edited_by IS NULL OR n.last_edited_by = n.user_id) "
@@ -5018,7 +5011,7 @@ def _trash_preview(content: str, limit: int = 120) -> str:
     # Potong dulu: regex link di bawah bisa kuadratik pada content panjang (mis. 'a[' * 50000 ≈ 18 dtk,
     # memblokir event loop); preview hanya memakai ≤limit char pertama.
     s = (content or "")[:2000]
-    s = re.sub(r"::draw\[[^\]]*\]", " ", s)
+    s = re.sub(r"::draw\[[^\]]*\]", " ", s, flags=re.IGNORECASE)
     s = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", s)               # [teks](url) -> teks
     s = re.sub(r"(?:\\?\[){2}([^\[\]\\|]*)(?:\|[^\[\]\\]*)?(?:\\?\]){2}", r"\1", s)  # [[Judul|alias]] -> Judul
     s = re.sub(r"[#*_`~>|\[\]\\]", "", s)
@@ -5143,7 +5136,7 @@ async def restore_trashed_note(note_id: int, user=Depends(get_current_user)):
 
         conn.execute("DELETE FROM trashed_notes WHERE note_id = ?", (note_id,))
         _sync_linked_mindmap(conn, note_id)
-        sync = _note_with_drawing_sync(conn, note_id, uid, datetime.now(_TZ_JKT).isoformat(), previous_content=False)
+        sync = _note_with_drawing_sync(conn, note_id, uid, datetime.now(_TZ_JKT).isoformat(), move=False)
         conn.commit()
         restored = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row_synced(restored, conn, uid, sync)
@@ -5869,9 +5862,7 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
                 conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=? AND user_id=?", (note_id, uid))
                 _upsert_tags_for_note(conn, note_id, uid, tag_names)
                 _sync_linked_mindmap(conn, note_id)
-                sync = _note_with_drawing_sync(
-                    conn, note_id, uid, now,
-                    previous_content=existing["content"] if existing["list_id"] == req.list_id else _ALL_TOKENS)
+                sync = _note_with_drawing_sync(conn, note_id, uid, now, move=existing["list_id"] != req.list_id)
                 conn.commit()
                 row = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
                 return _scratchpad_row_synced(row, conn, uid, sync)
@@ -5887,7 +5878,7 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
         )
         note_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         _upsert_tags_for_note(conn, note_id, uid, tag_names)
-        sync = _note_with_drawing_sync(conn, note_id, uid, now)
+        sync = _note_with_drawing_sync(conn, note_id, uid, now, move=True)
         conn.commit()
         row = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row_synced(row, conn, uid, sync)
@@ -6075,7 +6066,7 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
         conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=?", (note_id,))
         _upsert_tags_for_note(conn, note_id, existing["user_id"], tag_names)
         _sync_linked_mindmap(conn, note_id)
-        sync = _note_with_drawing_sync(conn, note_id, uid, now, previous_content=existing["content"] if existing["list_id"] == new_list_id else _ALL_TOKENS)
+        sync = _note_with_drawing_sync(conn, note_id, uid, now, move=existing["list_id"] != new_list_id)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row_synced(updated, conn, uid, sync)
@@ -6148,7 +6139,7 @@ async def share_scratchpad(note_id: int, req: NoteShareReq, user=Depends(get_cur
             "UPDATE scratchpad_notes SET list_id = ?, updated_at = ? WHERE id = ?", (req.list_id, now, note_id)
         )
         _sync_linked_mindmap(conn, note_id)
-        sync = _note_with_drawing_sync(conn, note_id, uid, now)
+        sync = _note_with_drawing_sync(conn, note_id, uid, now, move=True)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row_synced(updated, conn, uid, sync)
@@ -7029,7 +7020,7 @@ async def view_published_note(username: str, slug: str, request: Request):
                     return str(d_str)[:10]
 
         raw_content = row["content"] or ""
-        desc_clean = _re.sub(r'\\?::draw\\?\[[^\]]*\](?:\s*\\?\{[^}]*\\?\})?', '', raw_content)
+        desc_clean = _re.sub(r'\\?::draw\\?\[[^\]]*\](?:\s*\\?\{[^}]*\\?\})?', '', raw_content, flags=_re.IGNORECASE)
         desc_clean = _re.sub(r'\\?\[tasklink:[^\]]*\]', '', desc_clean)
         desc_clean = _re.sub(r'==([^=\n]+)==', r'\1', desc_clean)
         desc_clean = _re.sub(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]', r'\1', desc_clean)
@@ -7804,6 +7795,7 @@ def _drawing_note_index(conn, viewer_uid: int) -> list:
     """Note yang bisa diakses viewer dan memuat ::draw, urut updated_at DESC, sebagai [(id, title, tokens)].
     Satu query untuk seluruh daftar drawing (jalur pull sinkron), bukan satu per drawing."""
     note_ac, note_ap = _note_access_clause(viewer_uid)
+    # SQLite LIKE tak peka huruf besar/kecil untuk ASCII: ::DRAW ikut lolos prefilter ini
     rows = conn.execute(
         f"SELECT id, title, content FROM scratchpad_notes WHERE {note_ac} AND content LIKE '%::draw%' "
         "ORDER BY updated_at DESC",
@@ -7837,7 +7829,17 @@ def _drawing_enrich(row_dict: dict, conn, viewer_uid: int, note_index: Optional[
     # (bentuk ter-escape ::draw\[x\] ikut dihitung).
     refs = drawing_scope.refs_of(row_dict)
     if note_index is None:
-        note_index = _drawing_note_index(conn, viewer_uid)
+        # Jalur satu drawing: prefilter SQL per rujukan (id/client_id) alih-alih memuat semua note ber-::draw.
+        # LIKE tak peka huruf besar/kecil untuk ASCII (::DRAW lolos); '%' '_' pada client_id lolos lebih luas
+        # tetapi dibuang oleh pencocokan token persis di bawah.
+        note_ac, note_ap = _note_access_clause(viewer_uid)
+        ref_list = sorted(refs)
+        like = " OR ".join("content LIKE ?" for _ in ref_list)
+        rows = conn.execute(
+            f"SELECT id, title, content FROM scratchpad_notes WHERE {note_ac} AND ({like}) ORDER BY updated_at DESC",
+            [*note_ap, *[f"%::draw%[%{r}%]%" for r in ref_list]]
+        ).fetchall()
+        note_index = [(r["id"], r["title"], drawing_scope.draw_tokens(r["content"])) for r in rows]
     row_dict["linked_notes"] = [
         {"id": nid, "title": title} for nid, title, tokens in note_index if tokens & refs
     ][:5]

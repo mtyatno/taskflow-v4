@@ -9,7 +9,8 @@ from typing import Optional
 BACKFILL_KEY = "drawing_list_backfill_v1"
 
 # Token = id angka atau client_id (UUID). Bentuk ter-escape oleh serializer markdown (::draw\[x\]) ikut dikenali.
-DRAW_DIRECTIVE_RE = re.compile(r'\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?')
+# IGNORECASE: klien (static/offline/drawdirective.js) mengenali ::DRAW[x] tanpa membedakan huruf besar/kecil.
+DRAW_DIRECTIVE_RE = re.compile(r'\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?', re.IGNORECASE)
 
 
 def draw_tokens(content: Optional[str]) -> set[str]:
@@ -130,7 +131,8 @@ def refs_of(row) -> set[str]:
 
 def notes_in_list_using(conn, drawing_row, list_id: int, viewer_uid: int) -> tuple[list[dict], int]:
     """Note ber-list_id = list_id yang merujuk drawing ini: ([{"id","title"}] yang bisa diakses viewer,
-    jumlah yang tidak bisa). Prefilter LIKE, lalu cocok persis lewat draw_tokens."""
+    jumlah yang tidak bisa). Prefilter LIKE (SQLite LIKE tak peka huruf besar/kecil untuk ASCII, jadi ::DRAW ikut
+    lolos), lalu cocok persis lewat draw_tokens."""
     refs = refs_of(drawing_row)
     rows = conn.execute(
         "SELECT id, user_id, title, content, "
@@ -182,21 +184,29 @@ def leave_impact(conn, list_id: int, uid: int) -> list[dict]:
     return items
 
 
-def pull_note_drawings_into_list(conn, note_row, actor_uid: int, now: str,
-                                 movable_tokens: Optional[set] = None) -> dict:
-    """Spec §4.4: note di workspace menarik drawing PRIBADI milik AKTOR ke workspace note. Drawing orang lain,
-    drawing di workspace lain, dan token yang tak terlihat aktor tidak pernah dipindah; tokennya dilaporkan
-    mentah-mentah di unresolved_drawings (tanpa judul/id). Note pribadi: tidak melakukan apa-apa.
-    Berbagi hanya lewat tindakan sengaja (prinsip 2): bila movable_tokens diberikan, hanya token di dalamnya yang
-    boleh dipindah (PUT: token yang DITAMBAHKAN aktor pada tulisan ini; restore dari trash: himpunan kosong), sebab
-    anggota lain bisa menyuntik ::draw[k] drawing pribadi aktor ke note W dan simpan ulang/autosave pemilik tidak boleh
-    mengesahkannya. None = semua token (POST note baru, PATCH share). Token yang tidak dipindah dan belum di W tetap
-    dilaporkan di unresolved_drawings (semua token note, bukan hanya kandidat).
+def pull_note_drawings_into_list(conn, note_row, actor_uid: int, now: str, move: bool = True) -> dict:
+    """Spec §4.4 (diubah oleh putusan akhir PR 2): note di workspace menarik drawing PRIBADI milik AKTOR ke workspace
+    note, tetapi HANYA bila move=True, yaitu tulisan ini menetapkan atau mengubah list_id note (POST note baru
+    ber-list_id, PATCH share, PUT/POST idempoten yang mengganti list_id; hanya pemilik yang bisa). Itu tindakan
+    berbagi yang sengaja (prinsip 2). Semua tulisan lain (PUT/autosave biasa, POST idempoten tanpa ganti list_id,
+    restore dari trash) memakai move=False: tidak ada yang dipindah. Diff token mentah sengaja tidak dipakai karena
+    klien menormalkan direktif (::DRAW, bentuk ter-escape) sehingga simpan ulang pemilik bisa "menambah" token yang
+    disuntik anggota lain. Menyisipkan drawing pribadi ke note W yang sudah ada dibagikan klien lewat
+    PATCH /api/drawings/{id}/share (PR 3).
+    Drawing orang lain, drawing di workspace lain, token yang tak terlihat aktor, dan semua token bila aktor bukan
+    pemilik/anggota list note tidak pernah dipindah. Token yang tidak dipindah dan belum di W dilaporkan mentah-mentah
+    di unresolved_drawings (semua token note, tanpa judul/id). Note pribadi: tidak melakukan apa-apa.
     Pemanggil yang commit; content note tidak pernah ditulis ulang."""
     result: dict = {"moved_drawings": [], "unresolved_drawings": []}
     list_id = note_row["list_id"]
     if list_id is None:
         return result
+    if move and not conn.execute(
+        "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ? "
+        "UNION SELECT 1 FROM list_members WHERE list_id = ? AND user_id = ?",
+        (list_id, actor_uid, list_id, actor_uid),
+    ).fetchone():
+        move = False
     moved: dict[int, dict] = {}
     unresolved: set[str] = set()
     for token in sorted(draw_tokens(note_row["content"])):
@@ -205,7 +215,7 @@ def pull_note_drawings_into_list(conn, note_row, actor_uid: int, now: str,
             unresolved.add(token)
         elif d["list_id"] == list_id or d["id"] in moved:
             continue
-        elif d["list_id"] is None and d["user_id"] == actor_uid and (movable_tokens is None or token in movable_tokens):
+        elif move and d["list_id"] is None and d["user_id"] == actor_uid:
             conn.execute("UPDATE drawings SET list_id = ?, updated_at = ? WHERE id = ?", (list_id, now, d["id"]))
             moved[d["id"]] = {"id": d["id"], "client_id": d["client_id"], "list_id": list_id, "updated_at": now}
         else:

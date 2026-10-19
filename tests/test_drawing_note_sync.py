@@ -1,23 +1,22 @@
 """Sinkron note -> drawing di server (PR 2 Task 4, spec §4.4)."""
+import drawing_scope
 from conftest import db
 from drawing_ws_helpers import auth, uid_of, make_drawing, make_note, workspace, add_member, drawing_row
 
 
-def test_put_with_new_embed_moves_actor_drawing(client):
+def test_put_with_new_embed_moves_nothing(client):
+    """PUT/autosave biasa tidak memindah drawing; tokennya dilaporkan unresolved."""
     ha = auth(client, "sync_a1")
     w = workspace(client, ha, "sync_w1")
     d = make_drawing(client, ha, "sync_d1", cid="sync-cid-1")
     n = make_note(client, ha, "sync_n1", "", list_id=w)
     assert n["moved_drawings"] == [] and n["unresolved_drawings"] == []
-    before = drawing_row(d["id"])["updated_at"]
-    r = client.put(f"/api/scratchpad/{n['id']}", json={"title": "sync_n1", "content": "::draw[sync-cid-1]"}, headers=ha)
+    r = client.put(f"/api/scratchpad/{n['id']}", json={"title": "sync_n1", "content": "::draw[sync-cid-1]", "list_id": w}, headers=ha)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert [m["id"] for m in body["moved_drawings"]] == [d["id"]]
-    assert body["moved_drawings"][0]["list_id"] == w and body["moved_drawings"][0]["client_id"] == "sync-cid-1"
-    assert body["unresolved_drawings"] == []
-    row = drawing_row(d["id"])
-    assert row["list_id"] == w and row["updated_at"] != before
+    assert body["moved_drawings"] == []
+    assert body["unresolved_drawings"] == ["sync-cid-1"]
+    assert drawing_row(d["id"])["list_id"] is None
 
 
 def test_post_note_in_workspace_moves_drawing(client):
@@ -143,17 +142,49 @@ def test_owner_save_does_not_move_member_injected_drawing(client):
     assert drawing_row(k["id"])["list_id"] is None
 
 
-def test_put_moves_only_newly_added_token(client):
-    ha = auth(client, "sync_a10")
-    w = workspace(client, ha, "sync_w10")
-    k1 = make_drawing(client, ha, "sync_k10a")
-    k2 = make_drawing(client, ha, "sync_k10b")
-    n = make_note(client, ha, "sync_n10", f"::draw[{k1['id']}]", list_id=w)
-    _reset_personal(k1["id"])
-    r = client.put(f"/api/scratchpad/{n['id']}",
-                   json={"title": "sync_n10", "content": f"::draw[{k1['id']}] ::draw[{k2['id']}]"}, headers=ha)
+def test_owner_save_after_case_variant_injection_does_not_move(client):
+    ha = auth(client, "sync_a11")
+    hb = auth(client, "sync_b11")
+    w = workspace(client, ha, "sync_w11")
+    add_member(w, uid_of("sync_b11"))
+    k = make_drawing(client, ha, "sync_k11")
+    n = make_note(client, ha, "sync_n11", "awal", list_id=w)
+    r = client.put(f"/api/scratchpad/{n['id']}", json={"title": "sync_n11", "content": f"awal ::DRAW[{k['id']}]", "list_id": w}, headers=hb)
     assert r.status_code == 200, r.text
-    assert [m["id"] for m in r.json()["moved_drawings"]] == [k2["id"]]
-    assert r.json()["unresolved_drawings"] == [str(k1["id"])]
-    assert drawing_row(k2["id"])["list_id"] == w
-    assert drawing_row(k1["id"])["list_id"] is None
+    r = client.put(f"/api/scratchpad/{n['id']}",
+                   json={"title": "sync_n11", "content": f'awal ::draw[{k["id"]}]{{title="x"}}', "list_id": w}, headers=ha)
+    assert r.status_code == 200, r.text
+    assert r.json()["moved_drawings"] == []
+    assert drawing_row(k["id"])["list_id"] is None
+
+
+def test_owner_put_changing_list_id_moves_drawings(client):
+    ha = auth(client, "sync_a12")
+    w = workspace(client, ha, "sync_w12")
+    k = make_drawing(client, ha, "sync_k12")
+    n = make_note(client, ha, "sync_n12", f"::draw[{k['id']}]")
+    assert drawing_row(k["id"])["list_id"] is None
+    r = client.put(f"/api/scratchpad/{n['id']}",
+                   json={"title": "sync_n12", "content": f"::draw[{k['id']}]", "list_id": w}, headers=ha)
+    assert r.status_code == 200, r.text
+    assert [m["id"] for m in r.json()["moved_drawings"]] == [k["id"]]
+    assert drawing_row(k["id"])["list_id"] == w
+
+
+def test_non_member_actor_moves_nothing(client):
+    """Aktor yang bukan pemilik/anggota list note (mis. sudah dikeluarkan) tidak memindah apa pun."""
+    ha = auth(client, "sync_a13")
+    hb = auth(client, "sync_b13")
+    w = workspace(client, ha, "sync_w13")
+    k = make_drawing(client, hb, "sync_k13")
+    n = make_note(client, ha, "sync_n13", f"::draw[{k['id']}]", list_id=w)
+    conn = db()
+    try:
+        note = conn.execute("SELECT list_id, content FROM scratchpad_notes WHERE id = ?", (n["id"],)).fetchone()
+        res = drawing_scope.pull_note_drawings_into_list(conn, note, uid_of("sync_b13"), "2026-01-01T00:00:00", True)
+        conn.commit()
+    finally:
+        conn.close()
+    assert res["moved_drawings"] == []
+    assert res["unresolved_drawings"] == [str(k["id"])]
+    assert drawing_row(k["id"])["list_id"] is None

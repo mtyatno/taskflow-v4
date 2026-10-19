@@ -82,6 +82,19 @@ def test_unshare_in_use_matches_by_client_id(client):
     assert r.status_code == 409
 
 
+def test_unshare_in_use_uppercase_directive_409_and_linked_notes(client):
+    ha = auth(client, "shr_a5u")
+    w = workspace(client, ha, "shr_w5u")
+    d = make_drawing(client, ha, "shr_d5u", list_id=w)
+    n = make_note(client, ha, "Upper", f"::DRAW[{d['id']}]", list_id=w)
+    r = client.patch(f"/api/drawings/{d['id']}/share", json={"list_id": None}, headers=ha)
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["notes"] == [{"id": n["id"], "title": "Upper"}]
+    r = client.get(f"/api/drawings/{d['id']}", headers=ha)
+    assert r.status_code == 200, r.text
+    assert r.json()["linked_notes"] == [{"id": n["id"], "title": "Upper"}]
+
+
 def test_unshare_in_use_hides_titles_from_ex_member(client):
     ha, hc = auth(client, "shr_a6"), auth(client, "shr_c6")
     w = workspace(client, hc, "shr_w6")
