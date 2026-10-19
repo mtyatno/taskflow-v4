@@ -285,3 +285,25 @@ test("renderMarkdown resolves TF.safehtml lazily (module loaded after index scri
   assert.ok(after.includes("x<br>y") && after.includes('<a href="https://a.b">ok</a>') && !after.includes("javascript"), after);
   assert.ok(/<script src="\/static\/offline\/safehtml\.js"><\/script>/.test(html), "safehtml.js dimuat di index.html");
 });
+
+// ── renderWikilinksPreview: placeholder ber-nonce, satu lintasan ──────────────────────────────────────────
+test("renderWikilinksPreview: user-typed placeholder text stays literal", () => {
+  const P = (t) => ctx.renderWikilinksPreview(t, 10000);
+  assert.equal(P("WKPREV0WKPREV"), "WKPREV0WKPREV");
+  const out = P("[[Satu]] WKPREV0WKPREV WKPREV1WKPREV");
+  assert.match(out, /^<span class="wikilink" data-wiki-title="Satu">Satu<\/span> WKPREV0WKPREV WKPREV1WKPREV$/);
+  // label wikilink berisi teks mirip placeholder tidak memicu substitusi berantai
+  const chain = P("[[WKPREV0WKPREV]] [[<img src=x onerror=1>]]");
+  assert.equal((chain.match(/<span class="wikilink"/g) || []).length, 2);
+  assert.match(chain, />WKPREV0WKPREV<\/span>/);
+  assert.match(chain, /&lt;img src=x onerror=1&gt;/);
+  assert.doesNotMatch(chain, /<img/);
+  assert.doesNotMatch(P("[[A]]"), /WKPREV/);
+});
+
+test("renderWikilinksPreview uses a per-render nonce and a single replace pass", () => {
+  const f = html.slice(html.indexOf("function renderWikilinksPreview("), html.indexOf("function renderMath("));
+  assert.match(f, /const nonce = markdownPlaceholderNonce\(\);/);
+  assert.match(f, /`WKPREV\$\{nonce\}X\$\{wi\+\+\}WKPREVEND`/);
+  assert.doesNotMatch(f, /\.split\(k\)\.join\(v\)/);
+});

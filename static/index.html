@@ -21052,21 +21052,22 @@ function renderWikilinksPreview(text, maxLen) {
   if (!text) return "";
   const wikiMap = {};
   let wi = 0;
+  // Placeholder ber-nonce per render (sama dengan renderMarkdown): teks ketikan pengguna tidak bisa menebak kunci.
+  const nonce = markdownPlaceholderNonce();
   // Strip tasklink and highlight tokens — they don't belong in card previews
   const stripped = text.replace(/\\?\[tasklink:[0-9a-f-]+\\?\]/g, '').replace(/==([^=\n]+)==/g, '$1');
   const processed = stripped.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
     const title = rawTitle.replace(/\\(.)/g, '$1');
-    const key = `WKPREV${wi++}WKPREV`;
+    const key = `WKPREV${nonce}X${wi++}WKPREVEND`;
     const parsed = parseWikilinkRaw(title);
     const labelEsc = escapeHtml(parsed.label);
     const titleEsc = escapeAttr(parsed.title);
     wikiMap[key] = `<span class="wikilink" data-wiki-title="${titleEsc}">${labelEsc}</span>`;
     return key;
   });
-  let html = escapeHtml(processed);
-  for (const [k, v] of Object.entries(wikiMap)) {
-    html = html.split(k).join(v);
-  }
+  // Satu lintasan: HTML kartu yang disisipkan tidak dipindai ulang.
+  let html = escapeHtml(processed).replace(new RegExp('WKPREV' + nonce + 'X\\d+WKPREVEND', 'g'),
+    (k) => Object.prototype.hasOwnProperty.call(wikiMap, k) ? wikiMap[k] : '');
   if (html.length <= maxLen) return html;
   let truncated = '';
   let inTag = false;
