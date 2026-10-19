@@ -660,6 +660,22 @@ def migrate_db():
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_mindmaps_source_note "
             "ON mindmaps(source_note_id) WHERE source_note_id IS NOT NULL"
         )
+        # Pin pribadi per user (temuan #8a). Kolom lama mindmaps.is_pinned dibiarkan (rollback aman), tidak dipakai lagi.
+        pins_existed = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mindmap_pins'"
+        ).fetchone()
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS mindmap_pins ("
+            "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+            "mindmap_id INTEGER NOT NULL, created_at TEXT, "
+            "PRIMARY KEY (user_id, mindmap_id))"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_mindmap_pins_mm ON mindmap_pins(mindmap_id)")
+        if not pins_existed:
+            conn.execute(
+                "INSERT OR IGNORE INTO mindmap_pins (user_id, mindmap_id, created_at) "
+                "SELECT user_id, id, updated_at FROM mindmaps WHERE is_pinned = 1"
+            )
         conn.commit()
     finally:
         conn.close()
@@ -4749,8 +4765,13 @@ def _mindmap_access_clause(uid: int, prefix: str = "") -> tuple[str, list]:
 LINKED_VIEW_STATE_DEFAULT = '{"linked":1,"direction":2,"justify":false,"collapsed":[],"summary":true}'
 
 
-def _mindmap_enrich(d: dict, conn) -> dict:
-    """Add last_editor_username/display_name when last_edited_by is set and != owner."""
+def _mindmap_enrich(d: dict, conn, uid: Optional[int] = None) -> dict:
+    """Add last_editor_username/display_name when last_edited_by is set and != owner.
+    Bila uid diberikan, is_pinned dihitung dari mindmap_pins (pin pribadi per user)."""
+    if uid is not None:
+        d["is_pinned"] = 1 if conn.execute(
+            "SELECT 1 FROM mindmap_pins WHERE user_id = ? AND mindmap_id = ?", (uid, d["id"])
+        ).fetchone() else 0
     if d.get("last_edited_by") and d["last_edited_by"] != d.get("user_id"):
         editor = conn.execute(
             "SELECT username, display_name FROM users WHERE id = ?", (d["last_edited_by"],)
@@ -4779,13 +4800,16 @@ def _sync_linked_mindmap(conn, note_id: int) -> None:
 
 def _delete_linked_mindmaps(conn, note_ids: list) -> None:
     """Petakan: hapus peta tertaut milik catatan yang dihapus permanen (purge Sampah).
-    Sama dengan DELETE /api/mindmaps/{id}: mindmaps tidak punya tabel dependen (pin = kolom is_pinned)."""
+    Sama dengan DELETE /api/mindmaps/{id}: pin pribadi ada di mindmap_pins."""
     ids = [int(i) for i in dict.fromkeys(note_ids) if i is not None]
     for i in range(0, len(ids), 500):
         chunk = ids[i:i + 500]
+        marks = ','.join('?' * len(chunk))
         conn.execute(
-            f"DELETE FROM mindmaps WHERE source_note_id IN ({','.join('?' * len(chunk))})", chunk
+            "DELETE FROM mindmap_pins WHERE mindmap_id IN "
+            f"(SELECT id FROM mindmaps WHERE source_note_id IN ({marks}))", chunk
         )
+        conn.execute(f"DELETE FROM mindmaps WHERE source_note_id IN ({marks})", chunk)
 
 
 def _sanitize_fts5_token(token: str) -> str:
@@ -7411,9 +7435,10 @@ async def list_mindmaps(linked: int = 0, user=Depends(get_current_user)):
         access_clause, access_params = _mindmap_access_clause(uid)
         linked_clause = "" if linked == 1 else " AND source_note_id IS NULL"
         rows = conn.execute(
-            "SELECT id, title, is_pinned, list_id, user_id, last_edited_by, created_at, updated_at, client_id, source_note_id FROM mindmaps "
-            f"WHERE {access_clause}{linked_clause} ORDER BY is_pinned DESC, updated_at DESC",
-            access_params
+            "SELECT id, title, list_id, user_id, last_edited_by, created_at, updated_at, client_id, source_note_id, "
+            "EXISTS(SELECT 1 FROM mindmap_pins p WHERE p.mindmap_id = mindmaps.id AND p.user_id = ?) AS is_pinned "
+            f"FROM mindmaps WHERE {access_clause}{linked_clause} ORDER BY is_pinned DESC, updated_at DESC",
+            [uid] + access_params
         ).fetchall()
         return [_mindmap_enrich(dict(r), conn) for r in rows]
 
@@ -7602,7 +7627,7 @@ async def share_mindmap(mid: str, req: MindmapShareReq, user=Depends(get_current
         now = datetime.now(_TZ_JKT).isoformat()
         conn.execute("UPDATE mindmaps SET list_id = ?, updated_at = ? WHERE id = ?", (list_id, now, real_mid))
         updated = conn.execute("SELECT id, title, is_pinned, list_id, user_id, last_edited_by, created_at, updated_at, client_id FROM mindmaps WHERE id = ?", (real_mid,)).fetchone()
-        return _mindmap_enrich(dict(updated), conn)
+        return _mindmap_enrich(dict(updated), conn, uid)
 
 
 
@@ -7639,7 +7664,7 @@ async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
                 "SELECT * FROM mindmaps WHERE source_note_id = ?", (note["id"],)
             ).fetchone()
             if existing:
-                return _mindmap_enrich(dict(existing), conn)
+                return _mindmap_enrich(dict(existing), conn, uid)
             # Idempotensi peta tertaut hanya per catatan. Indeks unik (user_id, client_id) memakai pemilik
             # catatan; bila pemilik sudah punya baris dengan client_id itu, simpan NULL agar INSERT tidak bentrok.
             link_cid = req.client_id
@@ -7661,9 +7686,9 @@ async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
                 ).fetchone()
                 if not existing:
                     raise
-                return _mindmap_enrich(dict(existing), conn)
+                return _mindmap_enrich(dict(existing), conn, uid)
             row = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (cur.lastrowid,)).fetchone()
-            return _mindmap_enrich(dict(row), conn)
+            return _mindmap_enrich(dict(row), conn, uid)
     # audit S7: list_id saat create disimpan (dulu diabaikan → peta offline di list bersama jadi pribadi);
     # keanggotaan dicek seperti di /share.
     if req.list_id is not None:
@@ -7677,7 +7702,7 @@ async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
                 "SELECT * FROM mindmaps WHERE user_id = ? AND client_id = ?", (uid, req.client_id)
             ).fetchone()
             if dup:
-                return dict(dup)
+                return _mindmap_enrich(dict(dup), conn, uid)
         try:
             cur = conn.execute(
                 "INSERT INTO mindmaps (user_id, title, data_json, is_pinned, created_at, updated_at, list_id, client_id) "
@@ -7690,9 +7715,9 @@ async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
             ).fetchone() if req.client_id else None
             if not dup:
                 raise
-            return dict(dup)
+            return _mindmap_enrich(dict(dup), conn, uid)
         row = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (cur.lastrowid,)).fetchone()
-        return dict(row)
+        return _mindmap_enrich(dict(row), conn, uid)
 
 @app.get("/api/mindmaps/{mid}")
 async def get_mindmap(mid: int, user=Depends(get_current_user)):
@@ -7704,7 +7729,7 @@ async def get_mindmap(mid: int, user=Depends(get_current_user)):
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
-        return _mindmap_enrich(dict(row), conn)
+        return _mindmap_enrich(dict(row), conn, uid)
 
 @app.put("/api/mindmaps/{mid}")
 async def update_mindmap(mid: int, req: MindmapUpdate, user=Depends(get_current_user)):
@@ -7728,7 +7753,7 @@ async def update_mindmap(mid: int, req: MindmapUpdate, user=Depends(get_current_
                     raise HTTPException(status_code=400, detail={"code": "LINKED_TREE_REJECTED"})
             new_title = row["title"]
         else:
-            _check_base_rev(req, row, lambda: _mindmap_enrich(dict(row), conn))
+            _check_base_rev(req, row, lambda: _mindmap_enrich(dict(row), conn, uid))
             new_title = req.title if req.title is not None else row["title"]
         new_data = req.data_json if req.data_json is not None else row["data_json"]
         conn.execute(
@@ -7736,23 +7761,36 @@ async def update_mindmap(mid: int, req: MindmapUpdate, user=Depends(get_current_
             (new_title, new_data, uid, now, mid)
         )
         updated = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (mid,)).fetchone()
-        return _mindmap_enrich(dict(updated), conn)
+        return _mindmap_enrich(dict(updated), conn, uid)
+
+class MindmapPinReq(BaseModel):
+    pinned: Optional[bool] = None
+
 
 @app.patch("/api/mindmaps/{mid}/pin")
-async def toggle_pin_mindmap(mid: int, user=Depends(get_current_user)):
+async def toggle_pin_mindmap(mid: int, req: Optional[MindmapPinReq] = None, user=Depends(get_current_user)):
+    """Pin pribadi per user (anggota list bersama boleh pin). Tanpa body = toggle; tidak menyentuh updated_at."""
     uid = user["sub"]
     with get_db() as conn:
+        access_clause, access_params = _mindmap_access_clause(uid)
         row = conn.execute(
-            "SELECT id, is_pinned FROM mindmaps WHERE id = ? AND user_id = ?", (mid, uid)
+            f"SELECT id FROM mindmaps WHERE id = ? AND {access_clause}", [mid] + access_params
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
-        conn.execute(
-            "UPDATE mindmaps SET is_pinned = ? WHERE id = ?",
-            (0 if row["is_pinned"] else 1, mid)
-        )
+        currently = conn.execute(
+            "SELECT 1 FROM mindmap_pins WHERE user_id = ? AND mindmap_id = ?", (uid, mid)
+        ).fetchone() is not None
+        want = req.pinned if req and req.pinned is not None else not currently
+        if want:
+            conn.execute(
+                "INSERT OR IGNORE INTO mindmap_pins (user_id, mindmap_id, created_at) VALUES (?, ?, ?)",
+                (uid, mid, datetime.now(_TZ_JKT).isoformat())
+            )
+        else:
+            conn.execute("DELETE FROM mindmap_pins WHERE user_id = ? AND mindmap_id = ?", (uid, mid))
         updated = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (mid,)).fetchone()
-        return dict(updated)
+        return _mindmap_enrich(dict(updated), conn, uid)
 
 @app.delete("/api/mindmaps/{mid}")
 async def delete_mindmap(mid: int, user=Depends(get_current_user)):
@@ -7762,6 +7800,7 @@ async def delete_mindmap(mid: int, user=Depends(get_current_user)):
             "SELECT id FROM mindmaps WHERE id = ? AND user_id = ?", (mid, uid)
         ).fetchone():
             raise HTTPException(status_code=403, detail="Hanya pemilik yang bisa menghapus mindmap ini")
+        conn.execute("DELETE FROM mindmap_pins WHERE mindmap_id = ?", (mid,))
         conn.execute("DELETE FROM mindmaps WHERE id = ?", (mid,))
     return {"ok": True}
 

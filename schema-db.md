@@ -165,6 +165,22 @@ CREATE TABLE mindmaps (
 CREATE UNIQUE INDEX idx_mindmaps_user_client ON mindmaps(user_id, client_id) WHERE client_id IS NOT NULL;
 CREATE UNIQUE INDEX ux_mindmaps_source_note ON mindmaps(source_note_id) WHERE source_note_id IS NOT NULL;
 
+## Pin mindmap pribadi: `mindmap_pins`
+
+```sql
+CREATE TABLE mindmap_pins (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    mindmap_id INTEGER NOT NULL,
+    created_at TEXT,
+    PRIMARY KEY (user_id, mindmap_id)
+);
+CREATE INDEX idx_mindmap_pins_mm ON mindmap_pins(mindmap_id);
+```
+
+Pin per user (anggota list bersama boleh pin tanpa memengaruhi pemilik). `mindmap_id` tanpa FK; baris dibersihkan
+di handler saat peta dihapus. `mindmaps.is_pinned` USANG: tidak lagi dibaca/ditulis, kolom dipertahankan agar rollback
+aman. Migrasi menyalin `is_pinned = 1` ke `mindmap_pins` (atas nama pemilik) sekali, hanya saat tabel baru dibuat.
+
 ## Petakan: `mindmaps.source_note_id` (peta tertaut ke catatan)
 
 Kolom `source_note_id INTEGER DEFAULT NULL` (tanpa FK, migrasi idempoten di `webapp.migrate_db`) menandai
