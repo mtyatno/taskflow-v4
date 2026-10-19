@@ -55,6 +55,14 @@
   <link rel="stylesheet" href="/static/app.css?v=333">
 
 <style>
+/* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
+@keyframes nm-heading-flash-kf { 0%, 60% { background-color: rgba(250, 204, 21, 0.45); } 100% { background-color: transparent; } }
+.nm-heading-flash { animation: nm-heading-flash-kf 1500ms ease-out; border-radius: 4px; }
+/* Petakan: ringkasan node di outline (sama dengan kanvas iframe). */
+.nm-sum{font-size:11px;line-height:1.35;margin-top:4px;max-width:260px;opacity:.75}
+.nm-sum-ex{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.nm-sum-it{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nm-sum-ct{font-size:10px}
 /* Mode kertas hanya di layar lebar (>= 769px). Di HP (<= 768px) catatan
    tampil biasa: lebar penuh, tanpa lembar/bayangan, warna ikut tema app. */
 @media (min-width: 769px) {
@@ -271,6 +279,8 @@
   <script src="/static/offline/drawingroutes.js"></script>
   <script src="/static/offline/drawingtabs.js"></script>
   <script src="/static/offline/mindmapoutline.js"></script>
+  <script src="/static/offline/notemap.js"></script>
+  <script src="/static/offline/notemapsession.js"></script>
   <script src="/static/offline/mindmaptabs.js"></script>
   <script src="/static/offline/mindmapjustify.js"></script>
   <script src="/static/offline/mindmaprepo.js"></script>
@@ -8290,6 +8300,60 @@ function TodayFocusView({
   //   - MindmapPage
   // BLOCK LENGTH: ~1000 lines (8754-9755) — 3 components
 
+// Petakan C9: id peta tertaut untuk sebuah catatan (null bila belum dipetakan). Dimuat sekali per noteId,
+// dimuat ulang hanya saat peta berubah (event mindmapSaved/mindmapSynced), bukan tiap render.
+function useLinkedMapId(noteId) {
+  const [mapId, setMapId] = useState(null);
+  useEffect(() => {
+    if (noteId == null) { setMapId(null); return undefined; }
+    let alive = true;
+    const key = String(noteId);
+    const load = () => api.get("/api/mindmaps").then(list => {
+      if (!alive) return;
+      const hit = (list || []).find(m => (m.source_note_id != null && String(m.source_note_id) === key) || (m.source_note_cid != null && String(m.source_note_cid) === key));
+      setMapId(hit ? hit.id : null);
+    }).catch(() => {});
+    load();
+    window.addEventListener("mindmapSaved", load);
+    window.addEventListener("mindmapSynced", load);
+    return () => { alive = false; window.removeEventListener("mindmapSaved", load); window.removeEventListener("mindmapSynced", load); };
+  }, [noteId]);
+  return mapId;
+}
+
+// Tombol "🧠 Petakan" / "🧠 Buka peta" — keduanya memicu tf:petakan (rute POST idempoten per catatan).
+function PetakanButton({ noteId, variant = "panel" }) {
+  const linkedId = useLinkedMapId(noteId);
+  const pill = variant === "pill";
+  return /*#__PURE__*/React.createElement("button", {
+    onClick: () => window.dispatchEvent(new CustomEvent("tf:petakan", { detail: { noteId } })),
+    title: linkedId != null ? "Buka peta tertaut catatan ini" : "Ubah heading catatan jadi peta pikiran",
+    style: pill ? {
+      background: "none",
+      border: "1.5px solid var(--accent)",
+      borderRadius: 20,
+      cursor: "pointer",
+      fontSize: 12,
+      color: "var(--accent)",
+      fontWeight: 700,
+      padding: "2px 10px",
+      lineHeight: 1.5
+    } : {
+      background: linkedId != null ? "rgba(168,197,0,0.10)" : "none",
+      border: linkedId != null ? "1.5px solid var(--accent)" : "1px solid var(--border)",
+      borderRadius: 7,
+      fontSize: 11,
+      fontWeight: 700,
+      color: linkedId != null ? "var(--accent)" : "var(--text-light)",
+      cursor: "pointer",
+      padding: "4px 10px",
+      display: "flex",
+      alignItems: "center",
+      gap: 3
+    }
+  }, linkedId != null ? "🧠 Buka peta" : "🧠 Petakan");
+}
+
 function MindmapListItem({
   m,
   isSelected,
@@ -8321,7 +8385,10 @@ function MindmapListItem({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, m.title), (hovered || !!m.is_pinned) && /*#__PURE__*/React.createElement("span", {
+  }, m.title), (m.source_note_id != null || m.source_note_cid != null) && /*#__PURE__*/React.createElement("span", {
+    title: "Tertaut ke catatan",
+    style: { fontSize: 11, flexShrink: 0 }
+  }, "📄"), (hovered || !!m.is_pinned) && /*#__PURE__*/React.createElement("span", {
     onClick: e => {
       e.stopPropagation();
       onPin(m);
@@ -8680,8 +8747,9 @@ function LinkPickerModal({
   //   - window.TF.mindmapoutline
   // emits:
   //   - MindmapOutline
-function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap, onRequestLinkPicker }) {
+function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap, onRequestLinkPicker, linked = false, showSummary = true, onOpenNoteAt = null, onUndo = null, onRedo = null }) {
   const MO = window.TF && window.TF.mindmapoutline;
+  const NM = linked && window.TF && window.TF.notemap ? window.TF.notemap : null; // peta tertaut: render aturan catatan
   const [activeId, setActiveId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editVal, setEditVal] = useState("");
@@ -8825,8 +8893,11 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "BUTTON")) return;
     if (e.key === "Escape" && linksPopId) { e.preventDefault(); setLinksPopId(null); return; }
     const ctrl = e.ctrlKey || e.metaKey;
-    if (ctrl && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
-    if (ctrl && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
+    // Peta tertaut: riwayat undo/redo milik tab (tulisan ke catatan), bukan riwayat outline sendiri.
+    const doUndo = linked ? onUndo : undo;
+    const doRedo = linked ? onRedo : redo;
+    if (ctrl && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) { if (typeof doRedo === "function") doRedo(); } else if (typeof doUndo === "function") doUndo(); return; }
+    if (ctrl && e.key.toLowerCase() === "y") { e.preventDefault(); if (typeof doRedo === "function") doRedo(); return; }
     if (ctrl && e.key.toLowerCase() === "c") { e.preventDefault(); if (activeId) copyOp(activeId); return; }
     if (ctrl && e.key.toLowerCase() === "v") { e.preventDefault(); if (activeId) pasteOp(activeId); return; }
     if (ctrl && e.key.toLowerCase() === "d") { e.preventDefault(); if (activeId) duplicateOp(activeId); return; }
@@ -9011,7 +9082,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
           n.topic.slice(idx + q.length));
       }
     }
-    const mdHtml = (MO && MO.renderTopicMd) ? MO.renderTopicMd(n.topic) : null;
+    const mdHtml = NM && NM.renderTopicNoteInline ? NM.renderTopicNoteInline(n.topic) : (MO && MO.renderTopicMd) ? MO.renderTopicMd(n.topic) : null;
     if (mdHtml) {
       return /*#__PURE__*/React.createElement("span", {
         className: "topic-md",
@@ -9029,6 +9100,8 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
     const isActive = activeId === n.id;
     const isDragging = dragId === n.id;
     const dropMark = dragOver && dragOver.id === n.id ? dragOver.pos : null;
+    const openAtNote = target => { if (typeof onOpenNoteAt === "function") onOpenNoteAt(n.nm && n.nm.sid != null ? n.nm.sid : null, target); };
+    const summaryHtml = linked && showSummary && NM && NM.renderSummaryHtml && editingId !== n.id ? NM.renderSummaryHtml(n.nm && n.nm.summary) : "";
     const guideSegStyle = {
       width: 12, flexShrink: 0, alignSelf: "stretch",
       // rows have 4px vertical padding AND 2px transparent borders (drop
@@ -9048,6 +9121,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
     return /*#__PURE__*/React.createElement("div", {
       key: n.id,
       onMouseDown: e => { if (editingId !== n.id) setActiveId(n.id); if (containerRef.current) containerRef.current.focus(); },
+      onClick: e => { if (linked && (e.ctrlKey || e.metaKey)) { e.stopPropagation(); openAtNote("modal"); } },
       onDoubleClick: e => { e.stopPropagation(); if (editingId === n.id) return; startRename(n.id); },
       onContextMenu: e => {
         e.preventDefault();
@@ -9110,7 +9184,11 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
         color: isRoot ? "var(--accent)" : "var(--text-primary)",
         textAlign: n.align || undefined
       }
-    }, renderTopic(n)), linkCount > 0 && /*#__PURE__*/React.createElement("button", {
+    }, renderTopic(n), summaryHtml ? /*#__PURE__*/React.createElement("div", {
+      className: "nm-sum-wrap",
+      dangerouslySetInnerHTML: { __html: summaryHtml },
+      style: { whiteSpace: "normal", fontWeight: 400, fontSize: 11, color: "var(--text-light)", marginTop: 2 }
+    }) : null), linkCount > 0 && !linked && /*#__PURE__*/React.createElement("button", {
       onClick: e => { e.stopPropagation(); setLinksPopId(linksPopId === n.id ? null : n.id); },
       title: "Lihat link node",
       style: {
@@ -9119,7 +9197,11 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
         flexShrink: 0, border: "1px solid var(--border)", background: "var(--bg-card)",
         borderRadius: 8, cursor: "pointer", padding: "1px 7px"
       }
-    }, "🔗", linkCount), isActive && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    }, "🔗", linkCount), isActive && /*#__PURE__*/React.createElement(React.Fragment, null, linked && /*#__PURE__*/React.createElement("button", {
+      onClick: e => { e.stopPropagation(); openAtNote("modal"); },
+      title: "Buka di catatan",
+      style: hovBtn
+    }, "↗"), /*#__PURE__*/React.createElement("button", {
       onClick: e => { e.stopPropagation(); moveOp(n.id, "up"); },
       disabled: isRoot || !f || f.index === 0,
       title: "Geser naik",
@@ -9216,7 +9298,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
     }
   }, rows.map(renderRow), rows.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: { color: "var(--text-light)", fontSize: 12, padding: 16, textAlign: "center" }
-  }, "Tidak ada node cocok")), linksPopId != null && (() => {
+  }, "Tidak ada node cocok")), linksPopId != null && !linked && (() => {
     const lf = find(linksPopId);
     if (!lf || !lf.node) return null; // node gone (tree replaced) — popover auto-dismisses
     const lnode = lf.node;
@@ -9298,7 +9380,9 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
     }
   },
     menuItem("✏️ Rename", () => startRename(activeId)),
-    menuItem("🔗 Tambah link", () => { if (typeof onRequestLinkPicker === "function") onRequestLinkPicker(activeId); }),
+    linked && menuItem("📄 Buka di catatan", () => { if (typeof onOpenNoteAt === "function") onOpenNoteAt(menuF && menuF.node && menuF.node.nm && menuF.node.nm.sid != null ? menuF.node.nm.sid : null, "modal"); }),
+    linked && menuItem("↗ Buka di halaman Notes", () => { if (typeof onOpenNoteAt === "function") onOpenNoteAt(menuF && menuF.node && menuF.node.nm && menuF.node.nm.sid != null ? menuF.node.nm.sid : null, "page"); }),
+    !linked && menuItem("🔗 Tambah link", () => { if (typeof onRequestLinkPicker === "function") onRequestLinkPicker(activeId); }),
     menuItem("↳ Tambah child", () => addChildOp(activeId)),
     menuItem("↵ Tambah sibling", () => addSiblingOp(activeId)),
     menuItem("⧉ Duplikat", () => duplicateOp(activeId), false, menuIsRoot),
@@ -9340,6 +9424,328 @@ function MindmapTabInstance({
   const [justify, setJustify] = useState(false);
   const outlineTreeRef = useRef(null);
   outlineTreeRef.current = outlineTree;
+
+  // ── Petakan: peta tertaut = jendela ke catatan. Isi selalu dari catatan (heading → node), tiap edit peta
+  // ditulis balik lewat noterepo.applyMapEdit (CAS atas baseContent); baris mindmap hanya menyimpan view-state.
+  const isLinked = tab?.source_note_cid != null || tab?.source_note_id != null;
+  const isNoteOwner = tab?.user_id != null && currentUserId != null && String(tab.user_id) === String(currentUserId);
+  const sessionRef = useRef(null); // TF.notemapsession Session
+  const viewStateRef = useRef(null); // view-state terakhir (lipatan/arah/justify/ringkasan)
+  const linkedPendingRef = useRef(null); // data kanvas/outline terakhir yang belum ditulis ke catatan
+  const linkedTimerRef = useRef(null);
+  const linkedBusyRef = useRef(false); // tulis/undo sedang berjalan
+  const linkedLoadingRef = useRef(0); // loadLinked yang sedang berjalan
+  const undoBusyRef = useRef(false);
+  const recheckRef = useRef(false); // noteSaved datang saat sibuk → cek ulang setelahnya
+  const viewTimerRef = useRef(null);
+  const [linkedStatus, setLinkedStatus] = useState(null); // loading | ready | trash | unavailable | offline
+  const [linkedTitle, setLinkedTitle] = useState("");
+  const [linkedEmpty, setLinkedEmpty] = useState(false);
+  const [showSummary, setShowSummary] = useState(true);
+  const showSummaryRef = useRef(true);
+  showSummaryRef.current = showSummary;
+  const [modalBlockTarget, setModalBlockTarget] = useState(null);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const linkedBlocked = isLinked && (linkedStatus === "trash" || linkedStatus === "unavailable" || linkedStatus === "offline");
+  const STALE_MSG = "Catatan baru saja berubah — peta dimuat ulang, ulangi perubahanmu";
+
+  const parseViewState = raw => {
+    const def = (window.TF && window.TF.notemap && window.TF.notemap.LINKED_VIEW_STATE_DEFAULT) || { linked: 1, direction: 2, justify: false, collapsed: [], summary: true };
+    let v = null;
+    try { v = typeof raw === "string" ? JSON.parse(raw) : raw; } catch (_) {}
+    return Object.assign({}, def, v && typeof v === "object" ? v : {}, { linked: 1 });
+  };
+
+  const postLinkedLoad = data => {
+    try {
+      iframeRef.current?.contentWindow?.postMessage({
+        type: "load", data, gen: data ? data.gen : null, title: sessionRef.current ? sessionRef.current.title : "", linked: true, showSummary: showSummaryRef.current
+      }, window.location.origin);
+    } catch (_) {}
+  };
+
+  // Edit peta tertunda dibuang (sid-nya milik generasi sesi yang akan diganti). true bila memang ada.
+  const discardPendingLinked = () => {
+    clearTimeout(linkedTimerRef.current);
+    const had = !!linkedPendingRef.current;
+    linkedPendingRef.current = null;
+    return had;
+  };
+
+  // Bangun ulang peta dari isi catatan terbaru. Sesi baru = gen baru: edit yang masih tertunda saat
+  // muat ulang dimulai atau selesai berasal dari gen lama → dibuang (toast hanya bila ada yang dibuang).
+  const loadLinked = () => {
+    const NS = window.TF && window.TF.notemapsession;
+    const NM = window.TF && window.TF.notemap;
+    if (!NS || !NM || !tab) return Promise.resolve();
+    let toasted = false;
+    const discard = () => {
+      if (discardPendingLinked() && !toasted) { toasted = true; showToast(STALE_MSG, "error"); }
+    };
+    discard();
+    linkedLoadingRef.current++;
+    return api.get('/api/scratchpad/' + (tab.source_note_cid || tab.source_note_id)).then(note => {
+      if (!note) throw new Error("Note not found");
+      const prev = sessionRef.current;
+      const src = { baseContent: note.content || "", title: note.title || "" };
+      const s = prev && prev.noteCid === note.cid ? NS.rebase(prev, src) : NS.createSession(Object.assign({ noteCid: note.cid }, src));
+      sessionRef.current = s;
+      discard();
+      if (!viewStateRef.current) viewStateRef.current = parseViewState(tab.data_json);
+      const vs = viewStateRef.current;
+      // R18: tanpa touched, collapsed default [] diabaikan → aturan lipatan awal (> 30 node) berlaku.
+      const buildVs = vs.touched ? vs : Object.assign({}, vs, { collapsed: undefined });
+      // Node dicap gen sesi (nm.ns): sid tanpa cap gen ini dianggap asing oleh planWrite.
+      const built = NM.buildMindData(s.parsed, { title: s.title, viewState: buildVs }).nodeData;
+      const data = { nodeData: NS.stampTree(built, s.gen), direction: vs.direction, justify: Boolean(vs.justify), gen: s.gen };
+      setLinkedTitle(s.title);
+      setLinkedEmpty(s.parsed.sections.length === 0);
+      setOutlineTree(data);
+      setDirection(typeof vs.direction === "number" ? vs.direction : 2);
+      setJustify(Boolean(vs.justify));
+      setShowSummary(vs.summary !== false);
+      showSummaryRef.current = vs.summary !== false;
+      setLinkedStatus("ready");
+      setSyncStatus("saved");
+      postLinkedLoad(data);
+    }).catch(() => {
+      sessionRef.current = null;
+      setOutlineTree(null);
+      if (!navigator.onLine) { setLinkedStatus("offline"); return; }
+      return api.get("/api/scratchpad/trash").then(items => {
+        const inTrash = tab.source_note_id != null && (items || []).some(it => String(it.id) === String(tab.source_note_id));
+        setLinkedStatus(inTrash ? "trash" : "unavailable");
+      }).catch(() => setLinkedStatus("unavailable"));
+    }).finally(() => { linkedLoadingRef.current--; });
+  };
+
+  // noteSaved / modal ditutup: muat ulang hanya bila isi catatan bukan lagi baseContent sesi.
+  // Semua cabang (termasuk gagal ambil) tidak memuat ulang di atas edit tertunda / tulisan berjalan: cek ulang setelahnya.
+  const checkNoteChanged = () => {
+    const s = sessionRef.current;
+    if (!s) { loadLinked(); return; }
+    const deferred = () => {
+      if (!linkedBusyRef.current && !linkedPendingRef.current) return false;
+      recheckRef.current = true;
+      return true;
+    };
+    api.get('/api/scratchpad/' + s.noteCid).then(note => {
+      if (deferred()) return;
+      if (!note) return loadLinked();
+      const cur = sessionRef.current;
+      if (cur && note.content === cur.baseContent && (note.title || "") === cur.title) return;
+      loadLinked();
+    }).catch(() => { if (!deferred()) loadLinked(); });
+  };
+
+  const saveViewState = vs => {
+    viewStateRef.current = vs;
+    clearTimeout(viewTimerRef.current);
+    viewTimerRef.current = setTimeout(() => {
+      viewTimerRef.current = null;
+      api.put('/api/mindmaps/' + tab.id, { data_json: JSON.stringify(viewStateRef.current) }).catch(() => {});
+    }, 800);
+  };
+
+  // Ganti nm.sid node sesuai pasangan [nodeId, sid] dan cap gen baru (pohon baru, tanpa mutasi).
+  const withSids = (node, map, gen) => node && Object.assign({}, node, {
+    nm: map.has(node.id) ? Object.assign({}, node.nm, { sid: map.get(node.id), ns: gen }) : node.nm,
+    children: (node.children || []).map(c => withSids(c, map, gen))
+  });
+
+  // Pohon dari generasi sesi lain (sid posisional terhadap versi catatan lain): buang + muat ulang.
+  const dropStaleLinked = () => {
+    discardPendingLinked();
+    showToast(STALE_MSG, "error");
+    if (!linkedLoadingRef.current) loadLinked();
+  };
+
+  // data.gen = gen pohon (iframe: gen pesan change; outline: gen outlineTree). false = tidak dijadwalkan.
+  const scheduleLinked = data => {
+    const s = sessionRef.current;
+    if (!data || !s || data.gen !== s.gen) { dropStaleLinked(); return false; }
+    if (!data.nodeData) return false;
+    linkedPendingRef.current = data;
+    setSyncStatus("saving");
+    clearTimeout(linkedTimerRef.current);
+    linkedTimerRef.current = setTimeout(flushLinked, 800);
+    return true;
+  };
+
+  const flushLinked = async () => {
+    const NS = window.TF && window.TF.notemapsession;
+    const s = sessionRef.current;
+    const data = linkedPendingRef.current;
+    if (!NS || !s || !data) return;
+    if (linkedBusyRef.current) { clearTimeout(linkedTimerRef.current); linkedTimerRef.current = setTimeout(flushLinked, 800); return; }
+    if (data.gen !== s.gen) { dropStaleLinked(); return; }
+    linkedPendingRef.current = null;
+    linkedBusyRef.current = true;
+    let tree = data.nodeData;
+    try {
+      const plan = NS.planWrite(s, tree);
+      if (plan.kind === "overflow") { showToast("Maksimal 6 tingkat heading", "error"); await loadLinked(); return; }
+      if (plan.kind === "unsafe") {
+        showToast(plan.reason === "unclosed"
+          ? "Perubahan ini akan merusak struktur catatan (ada blok kode/toggle yang tidak ditutup) — ubah lewat catatan"
+          : "Urutan ini tidak bisa ditulis ke catatan karena tingkat heading-nya tidak seragam — ubah lewat catatan", "error");
+        await loadLinked();
+        return;
+      }
+      if (plan.kind === "reload") { showToast(STALE_MSG, "error"); await loadLinked(); return; }
+      if (plan.kind === "write") {
+        if (plan.removed && plan.removed.hasContent && !window.confirm("Hapus bagian «" + plan.removed.firstTitle + "» beserta isinya dari catatan?")) {
+          await loadLinked();
+          return;
+        }
+        const res = await window.TF.noterepo.applyMapEdit(s.noteCid, s.baseContent, plan.next);
+        if (!res || !res.ok) { showToast(STALE_MSG, "error"); await loadLinked(); return; }
+        const replaced = sessionRef.current !== s; // muat ulang selesai selama tulisan berjalan
+        sessionRef.current = NS.commitWrite(s, plan.next);
+        if (replaced) { await loadLinked(); return; } // peta di iframe sudah bukan pohon yang ditulis: jangan remap
+        const gen = sessionRef.current.gen;
+        const pairs = NS.remapSids(tree);
+        const map = new Map(pairs);
+        tree = withSids(tree, map, gen);
+        iframeRef.current?.contentWindow?.postMessage({ type: "remapSids", pairs, gen }, window.location.origin);
+        // Hanya pohon dari gen yang baru ditulis yang diterjemahkan ke gen baru; node yang tidak ada di
+        // pasangan (mis. tempelan) tetap bercap gen lama → asing bagi planWrite.
+        setOutlineTree(prev => (prev && prev.nodeData && prev.gen === s.gen ? Object.assign({}, prev, { nodeData: withSids(prev.nodeData, map, gen), gen }) : prev));
+        const pend = linkedPendingRef.current;
+        if (pend && pend.gen === s.gen) linkedPendingRef.current = Object.assign({}, pend, { nodeData: withSids(pend.nodeData, map, gen), gen });
+        setLinkedEmpty(sessionRef.current.parsed.sections.length === 0);
+        if (plan.next.title !== s.title) {
+          setLinkedTitle(plan.next.title);
+          onUpdateTitle && plan.next.title && onUpdateTitle(tab.id, plan.next.title);
+        }
+      }
+      const v = NS.viewStateFrom(Object.assign({}, data, { nodeData: tree }), sessionRef.current.parsed, viewStateRef.current);
+      if (v.changed) saveViewState(v.viewState);
+    } catch (_) {
+      showToast("Gagal menyimpan", "error");
+      await loadLinked();
+    } finally {
+      linkedBusyRef.current = false;
+      if (!linkedPendingRef.current) setSyncStatus("saved");
+      if (recheckRef.current && !linkedPendingRef.current) { recheckRef.current = false; checkNoteChanged(); }
+    }
+  };
+
+  // Undo/redo tulisan peta (riwayat sesi). Permintaan berulang saat masih berjalan diabaikan.
+  const linkedUndoRedo = async dir => {
+    const NS = window.TF && window.TF.notemapsession;
+    if (!NS || !sessionRef.current || undoBusyRef.current) return;
+    undoBusyRef.current = true;
+    try {
+      if (linkedPendingRef.current) { clearTimeout(linkedTimerRef.current); await flushLinked(); }
+      if (linkedBusyRef.current) return;
+      const s = sessionRef.current;
+      if (!s) return;
+      const step = dir === "redo" ? NS.redoStep(s, s.baseContent) : NS.undoStep(s, s.baseContent);
+      if (step.empty) return;
+      if (step.blocked) { showToast("Tidak bisa diurungkan: catatan sudah berubah", "error"); return; }
+      linkedBusyRef.current = true;
+      setSyncStatus("saving");
+      try {
+        const res = await window.TF.noterepo.applyMapEdit(s.noteCid, s.baseContent, step.next);
+        if (res && res.ok) {
+          sessionRef.current = step.session;
+          if (step.next.title !== s.title && step.next.title) onUpdateTitle && onUpdateTitle(tab.id, step.next.title);
+        } else {
+          showToast("Tidak bisa diurungkan: catatan sudah berubah", "error");
+        }
+      } catch (_) {
+        showToast("Gagal menyimpan", "error");
+      } finally {
+        linkedBusyRef.current = false;
+      }
+      recheckRef.current = false;
+      await loadLinked();
+    } finally {
+      undoBusyRef.current = false;
+    }
+  };
+
+  // Buka catatan sumber di heading node (sid null → dari atas). modal = NoteModal di atas peta; page = halaman Notes.
+  const openLinkedNoteAt = (sid, target) => {
+    const s = sessionRef.current;
+    if (!s) return;
+    const NM = window.TF && window.TF.notemap;
+    const heading = sid != null && NM ? NM.locateHeading(s.parsed, sid) : null;
+    api.get('/api/scratchpad/' + s.noteCid).then(note => {
+      if (!note) return;
+      if (target === "page") {
+        window.dispatchEvent(new CustomEvent("tf:open-note-at", { detail: { noteId: note.id, heading } }));
+        return;
+      }
+      setModalBlockTarget(heading ? Object.assign({ kind: "heading" }, heading) : null);
+      setModalNote(note);
+    }).catch(() => showToast("Gagal memuat note", "error"));
+  };
+
+  const handleLinkedRename = async () => {
+    const NS = window.TF && window.TF.notemapsession;
+    const s = sessionRef.current;
+    const title = renameVal.trim();
+    if (!NS || !s || !title) return;
+    if (linkedPendingRef.current) { clearTimeout(linkedTimerRef.current); await flushLinked(); }
+    const cur = sessionRef.current;
+    if (!cur || linkedBusyRef.current) return;
+    const next = { markdown: cur.baseContent, title };
+    linkedBusyRef.current = true;
+    try {
+      const res = await window.TF.noterepo.applyMapEdit(cur.noteCid, cur.baseContent, next);
+      if (res && res.ok) {
+        sessionRef.current = NS.commitWrite(cur, next);
+        onUpdateTitle && onUpdateTitle(tab.id, title);
+        setRenaming(false);
+      } else {
+        showToast(STALE_MSG, "error");
+      }
+    } catch (_) {
+      showToast("Gagal merename mindmap", "error");
+    } finally {
+      linkedBusyRef.current = false;
+    }
+    await loadLinked();
+  };
+
+  const toggleSummary = () => {
+    const next = !showSummary;
+    setShowSummary(next);
+    showSummaryRef.current = next;
+    iframeRef.current?.contentWindow?.postMessage({ type: "setSummary", show: next }, window.location.origin);
+    // R18: hanya ubah summary — touched/collapsed tetap apa adanya (peta yang belum pernah dilipat tetap
+    // memakai lipatan awal). Lipatan hanya ditandai touched lewat viewStateFrom dari pohon nyata.
+    saveViewState(Object.assign({}, viewStateRef.current || parseViewState(tab.data_json), { summary: next }));
+  };
+
+  // Catatan berubah (editor, sync, tulisan peta sendiri) → muat ulang bila isinya bukan baseContent sesi.
+  useEffect(() => {
+    if (!isLinked) return;
+    const handler = e => {
+      const d = (e && e.detail) || {};
+      const cid = sessionRef.current ? sessionRef.current.noteCid : tab.source_note_cid;
+      if (Array.isArray(d.cids) && d.cids.length && cid && d.cids.indexOf(cid) === -1) return;
+      if (linkedBusyRef.current || linkedPendingRef.current) { recheckRef.current = true; return; }
+      checkNoteChanged();
+    };
+    window.addEventListener("noteSaved", handler);
+    return () => window.removeEventListener("noteSaved", handler);
+  }, [tab?.id]);
+
+  useEffect(() => {
+    if (!isLinked) return;
+    // tab ditutup: tulis edit tertunda dan view-state sekarang, jangan dibuang
+    return () => {
+      clearTimeout(linkedTimerRef.current);
+      if (linkedPendingRef.current) flushLinked();
+      if (viewTimerRef.current) {
+        clearTimeout(viewTimerRef.current);
+        api.put('/api/mindmaps/' + tab.id, { data_json: JSON.stringify(viewStateRef.current) }).catch(() => {});
+      }
+    };
+  }, []);
 
   // T3 (workstream D): tab memegang salinan dokumen. lastKnownAtRef = updated_at record lokal saat tab memuat /
   // menyimpan terakhir; dikirim sebagai if_updated_at pada autosave → bila record sudah diganti pull (peta diubah
@@ -9423,7 +9829,7 @@ function MindmapTabInstance({
   // Pull mengganti record peta ini (perangkat lain mengedit) → tab tanpa edit tertunda memuat ulang dari record
   // lokal; tab dengan edit tertunda mempertahankan isinya (autosave berikutnya lewat if_updated_at → salinan konflik).
   useEffect(() => {
-    if (!tab) return;
+    if (!tab || isLinked) return; // peta tertaut mengikuti catatan (noteSaved), bukan record mindmap
     const handler = (e) => {
       const d = (e && e.detail) || {};
       const id = String(tab.id);
@@ -9445,7 +9851,10 @@ function MindmapTabInstance({
   const handleToggleJustify = () => {
     const next = !justify;
     setJustify(next);
-    if (outlineTree) {
+    if (isLinked) {
+      if (outlineTree) setOutlineTree({ ...outlineTree, justify: next });
+      saveViewState(Object.assign({}, viewStateRef.current || parseViewState(tab.data_json), { justify: next }));
+    } else if (outlineTree) {
       const updatedTree = { ...outlineTree, justify: next };
       setOutlineTree(updatedTree);
       scheduleSave(tab.id, JSON.stringify(updatedTree));
@@ -9459,9 +9868,10 @@ function MindmapTabInstance({
   const handleOutlineEdit = nextNodeData => {
     if (!tab || !outlineTree) return;
     if (nextNodeData) nextNodeData.root = true;
-    const next = { ...outlineTree, nodeData: nextNodeData };
+    const next = { ...outlineTree, nodeData: nextNodeData }; // tertaut: membawa gen outlineTree
+    if (isLinked && !scheduleLinked(next)) return;
     setOutlineTree(next);
-    scheduleSave(tab.id, JSON.stringify(next));
+    if (!isLinked) scheduleSave(tab.id, JSON.stringify(next));
     iframeRef.current?.contentWindow?.postMessage({
       type: "refresh",
       data: next
@@ -9476,6 +9886,13 @@ function MindmapTabInstance({
     setRenaming(false);
     lastKnownAtRef.current = tab.updated_at != null ? tab.updated_at : null;
     pendingEditRef.current = false;
+    if (isLinked) {
+      sessionRef.current = null;
+      viewStateRef.current = parseViewState(tab.data_json);
+      setLinkedStatus("loading");
+      loadLinked();
+      return;
+    }
     let data = null;
     try { data = JSON.parse(tab.data_json); } catch (_) {}
     if (data && data.nodeData) data.nodeData.root = true;
@@ -9586,7 +10003,13 @@ function MindmapTabInstance({
     const handler = e => {
       if (e.origin !== window.location.origin) return;
       if (e.source !== iframeRef.current?.contentWindow) return;
-      if (e.data && e.data.type === "ready" && tab) {
+      if (e.data && e.data.type === "ready" && tab && isLinked) {
+        if (outlineTreeRef.current) postLinkedLoad(outlineTreeRef.current);
+        iframeRef.current?.contentWindow?.postMessage({
+          type: "setTheme",
+          theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"
+        }, window.location.origin);
+      } else if (e.data && e.data.type === "ready" && tab) {
         try {
           const tree = outlineTree || JSON.parse(tab.data_json);
           if (!tree) return;
@@ -9616,17 +10039,28 @@ function MindmapTabInstance({
       if (e.data && e.data.type === "openMindmap") {
         window.dispatchEvent(new CustomEvent("openMindmap", { detail: e.data.id }));
       }
-      if (e.data && e.data.type === "requestLinkPicker") {
+      if (e.data && e.data.type === "openNoteAt" && isLinked) {
+        openLinkedNoteAt(e.data.sid != null ? e.data.sid : null, e.data.target === "page" ? "page" : "modal");
+      }
+      if (e.data && (e.data.type === "undoRequest" || e.data.type === "redoRequest") && isLinked) {
+        linkedUndoRedo(e.data.type === "redoRequest" ? "redo" : "undo");
+      }
+      if (e.data && e.data.type === "requestLinkPicker" && !isLinked) {
         setPickerNodeId(e.data.nodeId);
         setShowLinkPicker(true);
       }
       if (e.data && e.data.type === "change" && tab) {
         const data = e.data.data;
         if (data && data.nodeData) data.nodeData.root = true;
+        // Tertaut: gen pesan = generasi sesi yang dimuat iframe; gen lain → dibuang + muat ulang.
+        if (isLinked) {
+          if (data && typeof data === "object") data.gen = e.data.gen;
+          if (!scheduleLinked(data)) return;
+        }
         setOutlineTree(data);
         if (data && typeof data.direction === "number") setDirection(data.direction);
         if (data && typeof data.justify === "boolean") setJustify(data.justify);
-        scheduleSave(tab.id, JSON.stringify(data));
+        if (!isLinked) scheduleSave(tab.id, JSON.stringify(data));
       }
     };
     window.addEventListener("message", handler);
@@ -9635,6 +10069,7 @@ function MindmapTabInstance({
 
   const handleRename = async () => {
     if (!renameVal.trim() || !tab) return;
+    if (isLinked) return handleLinkedRename();
     try {
       await flushSave(); // edit tertunda dulu (rename mem-bump updated_at record)
       // hanya judul: tab.data_json bisa basi (record sudah diganti pull) — jangan pernah mengirim ulang isi lama
@@ -9678,11 +10113,15 @@ function MindmapTabInstance({
     }
   }), /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleRename, style: { fontSize: 11 } }, "Simpan"),
       /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setRenaming(false), style: { fontSize: 11 } }, "Batal")
-  ) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+  ) : /*#__PURE__*/React.createElement(React.Fragment, null, isLinked ? /*#__PURE__*/React.createElement("span", {
+    onClick: () => openLinkedNoteAt(null, "modal"),
+    title: "Buka catatan",
+    style: { fontSize: 13, fontWeight: 600, color: "var(--text-primary)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }
+  }, "📄 Tertaut ke: ", linkedTitle || tab.title || "Tanpa judul", " ↗") : /*#__PURE__*/React.createElement("span", {
     style: { fontSize: 13, fontWeight: 600, color: "var(--text-primary)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
   }, "🧠 ", tab.title), /*#__PURE__*/React.createElement("span", {
     style: { fontSize: 11, color: syncStatus === "offline" ? "#ef4444" : "var(--text-light)", flexShrink: 0 }
-  }, syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : "Tersimpan"),
+  }, syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : isLinked ? "Tersimpan ke catatan" : "Tersimpan"),
       /*#__PURE__*/React.createElement("div", {
         style: { display: "flex", alignItems: "center", gap: 2, background: "var(--bg-primary)", borderRadius: 8, padding: 2, flexShrink: 0 }
       }, /*#__PURE__*/React.createElement("button", {
@@ -9740,8 +10179,21 @@ function MindmapTabInstance({
           flexShrink: 0
         }
       }, "⇤⇥ Justify"),
-      /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => { setRenaming(true); setRenameVal(tab.title); }, style: { fontSize: 11 } }, "Rename"),
-      isOwner && sharedLists.length > 0 ? /*#__PURE__*/React.createElement("div", { ref: shareRef, style: { position: "relative", flexShrink: 0 } },
+      isLinked && /*#__PURE__*/React.createElement("button", {
+        onClick: toggleSummary,
+        title: showSummary ? "Sembunyikan ringkasan bagian" : "Tampilkan ringkasan bagian",
+        style: {
+          border: showSummary ? "1px solid var(--accent)" : "1px solid var(--border)",
+          background: showSummary ? "var(--accent)" : "var(--bg-card)",
+          color: showSummary ? "#000" : "var(--text-secondary)",
+          borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", flexShrink: 0
+        }
+      }, "Ringkasan"),
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => { setRenaming(true); setRenameVal(isLinked ? (linkedTitle || tab.title) : tab.title); }, style: { fontSize: 11 } }, "Rename"),
+      isLinked ? (tab.list_id ? /*#__PURE__*/React.createElement("span", {
+        className: "badge",
+        style: { fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)", flexShrink: 0 }
+      }, `👥 ${sharedLists.find(l => l.id === tab.list_id)?.name || "Shared"}`) : null) : isOwner && sharedLists.length > 0 ? /*#__PURE__*/React.createElement("div", { ref: shareRef, style: { position: "relative", flexShrink: 0 } },
         /*#__PURE__*/React.createElement("button", {
           className: "btn btn-secondary btn-sm",
           onClick: () => setShareOpen(o => !o),
@@ -9769,7 +10221,7 @@ function MindmapTabInstance({
         style: { fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)", flexShrink: 0 }
       }, `👥 ${sharedLists.find(l => l.id === tab.list_id)?.name || "Shared"}`) : null,
 
-      deleteConfirm ? /*#__PURE__*/React.createElement(React.Fragment, null,
+      isLinked && !isNoteOwner ? null : deleteConfirm ? /*#__PURE__*/React.createElement(React.Fragment, null,
         /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "#ef4444", flexShrink: 0 } }, "Hapus?"),
         /*#__PURE__*/React.createElement("button", { onClick: handleDelete, style: { padding: "3px 8px", borderRadius: 6, border: "none", cursor: "pointer", background: "#ef4444", color: "#fff", fontSize: 11 } }, "Ya"),
         /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setDeleteConfirm(false), style: { fontSize: 11 } }, "Batal")
@@ -9777,16 +10229,39 @@ function MindmapTabInstance({
         onClick: () => setDeleteConfirm(true),
         style: { padding: "3px 8px", borderRadius: 6, cursor: "pointer", fontSize: 11, background: "none", border: "1px solid #ef4444", color: "#ef4444" }
       }, "Hapus")
-  )), /*#__PURE__*/React.createElement("div", {
-    style: { flex: 1, display: viewMode === "canvas" ? "flex" : "none", flexDirection: "column", overflow: "hidden", minWidth: 0 }
+  )), linkedBlocked && /*#__PURE__*/React.createElement("div", {
+    style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: 24, textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }
+  }, /*#__PURE__*/React.createElement("div", null,
+    linkedStatus === "trash" ? "Catatan sumber ada di Sampah"
+      : linkedStatus === "offline" ? "Catatan belum tersedia di perangkat ini — sambungkan internet"
+      : "Catatan sumber tidak tersedia untukmu"),
+    linkedStatus === "trash" && /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setTrashOpen(true), style: { fontSize: 12 } }, "Buka Sampah"),
+    linkedStatus === "unavailable" && isNoteOwner && /*#__PURE__*/React.createElement("button", {
+      onClick: handleDelete,
+      style: { padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, background: "none", border: "1px solid #ef4444", color: "#ef4444" }
+    }, "Hapus peta")
+  ), isLinked && linkedStatus === "ready" && linkedEmpty && /*#__PURE__*/React.createElement("div", {
+    style: { padding: "6px 14px", fontSize: 12, color: "var(--text-light)", background: "var(--bg-card)", borderBottom: "1px solid var(--border)", flexShrink: 0 }
+  }, "Tambah node di sini atau heading di catatan"), /*#__PURE__*/React.createElement("div", {
+    style: { flex: 1, display: viewMode === "canvas" && !linkedBlocked ? "flex" : "none", flexDirection: "column", overflow: "hidden", minWidth: 0 }
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
-    src: "/static/vendor/mind-elixir/index.html?v=140",
+    src: "/static/vendor/mind-elixir/index.html?v=142",
     style: { flex: 1, border: "none", width: "100%" },
     title: "Mindmap editor"
   })), /*#__PURE__*/React.createElement("div", {
-    style: { flex: 1, display: viewMode === "outline" ? "flex" : "none", flexDirection: "column", overflow: "hidden", minWidth: 0, background: "var(--bg-card)" }
+    style: { flex: 1, display: viewMode === "outline" && !linkedBlocked ? "flex" : "none", flexDirection: "column", overflow: "hidden", minWidth: 0, background: "var(--bg-card)" },
+    // Peta tertaut: Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y memakai riwayat tulisan ke catatan, bukan undo outline bawaan.
+    onKeyDownCapture: isLinked ? e => {
+      const k = (e.key || "").toLowerCase();
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || (k !== "z" && k !== "y")) return;
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      linkedUndoRedo(k === "y" || e.shiftKey ? "redo" : "undo");
+    } : undefined
   }, outlineTree && tab ? /*#__PURE__*/React.createElement(MindmapOutline, {
     key: tab.id,
     tree: outlineTree.nodeData,
@@ -9796,11 +10271,17 @@ function MindmapTabInstance({
     onOpenMindmap: id => {
       window.dispatchEvent(new CustomEvent("openMindmap", { detail: id }));
     },
-    onRequestLinkPicker: requestOutlineLinkPicker
+    onRequestLinkPicker: requestOutlineLinkPicker,
+    linked: isLinked,
+    showSummary: showSummary,
+    onOpenNoteAt: isLinked ? openLinkedNoteAt : null,
+    onUndo: isLinked ? () => linkedUndoRedo("undo") : null,
+    onRedo: isLinked ? () => linkedUndoRedo("redo") : null
   }) : null),
   showLinkPicker && /*#__PURE__*/React.createElement(LinkPickerModal, {
     existingLinks: currentNodeLinks,
     onSelect: link => {
+      if (isLinked) { setShowLinkPicker(false); setPickerNodeId(null); return; }
       if (viewMode === "outline" && outlineTree) {
         const nextRoot = (window.TF && window.TF.mindmapoutline) ? window.TF.mindmapoutline.addNodeLink(outlineTree.nodeData, pickerNodeId, link) : outlineTree.nodeData;
         if (nextRoot !== outlineTree.nodeData) handleOutlineEdit(nextRoot);
@@ -9814,7 +10295,8 @@ function MindmapTabInstance({
   }),
   modalNote && /*#__PURE__*/React.createElement(NoteModal, {
     note: modalNote, tasks: tasks,
-    onClose: () => setModalNote(null),
+    initialBlockTarget: modalBlockTarget,
+    onClose: () => { setModalNote(null); setModalBlockTarget(null); if (isLinked) checkNoteChanged(); },
     onSave: async updates => {
       try {
         const saved = await api.put(`/api/scratchpad/${modalNote.id}`, updates);
@@ -9828,6 +10310,19 @@ function MindmapTabInstance({
       } catch (e) { if (isOfflineErr(e)) showToast('Tidak dapat menghapus — offline', 'error'); }
     },
     onTaskClick: onTaskClick, showToast: showToast
+  }),
+  trashOpen && /*#__PURE__*/React.createElement(NoteTrashModal, {
+    onClose: () => setTrashOpen(false),
+    onRestored: async note => {
+      try {
+        if (note && note.id != null && window.TF?.noterepo?.discardPendingDelete) await window.TF.noterepo.discardPendingDelete(note.id);
+      } catch (_) {}
+      try { if (window.__syncNow) await window.__syncNow(); } catch (_) {}
+      setTrashOpen(false);
+      setLinkedStatus("loading");
+      loadLinked();
+    },
+    showToast: showToast
   })
   );
 }
@@ -9858,6 +10353,10 @@ function MindmapPage({
   const [filterListId, setFilterListId] = useState(null);
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  // Petakan C9: pemilih catatan untuk "+ Dari Catatan"
+  const [picking, setPicking] = useState(false);
+  const [pickQ, setPickQ] = useState("");
+  const [pickNotes, setPickNotes] = useState([]);
 
   const selected = openTabs.find(t => t.id === activeTabId) || null;
 
@@ -9976,6 +10475,25 @@ function MindmapPage({
       window.dispatchEvent(new CustomEvent("mindmapSaved"));
     } catch (e) {
       showToast("Gagal membuat mindmap", "error");
+    }
+  };
+
+  const openPicker = () => {
+    setPicking(true);
+    setPickQ("");
+    api.get("/api/scratchpad/titles").then(data => setPickNotes(data || [])).catch(() => setPickNotes([]));
+  };
+
+  const handlePickNote = async n => {
+    try {
+      const created = await api.post("/api/mindmaps", { title: "", source_note_ref: n.id });
+      setMindmaps(prev => prev.find(m => String(m.id) === String(created.id)) ? prev : [created, ...prev]);
+      setPicking(false);
+      setPickQ("");
+      selectMindmap(created);
+      window.dispatchEvent(new CustomEvent("mindmapSaved"));
+    } catch (e) {
+      showToast("Gagal membuat peta", "error");
     }
   };
 
@@ -10114,7 +10632,7 @@ function MindmapPage({
               style: { fontSize: 11, padding: "3px 12px", borderRadius: 6, fontWeight: 600 }
             }, "Buat")
           )
-        ) : /*#__PURE__*/React.createElement("button", {
+        ) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
           onClick: () => setCreating(true),
           "data-tour": "mindmap-new",
           style: {
@@ -10133,7 +10651,76 @@ function MindmapPage({
             gap: 6,
             transition: "all 0.15s ease"
           }
-        }, "+ Mindmap Baru")
+        }, "+ Mindmap Baru"), picking ? /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            padding: "8px",
+            marginTop: 6,
+            background: "var(--bg-primary)",
+            border: "1.5px solid var(--accent)",
+            borderRadius: 10
+          }
+        },
+          /*#__PURE__*/React.createElement("input", {
+            placeholder: "Cari catatan...",
+            value: pickQ,
+            onChange: e => setPickQ(e.target.value),
+            onKeyDown: e => { if (e.key === "Escape") setPicking(false); },
+            autoFocus: true,
+            style: {
+              width: "100%",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              padding: "6px 10px",
+              fontSize: 12,
+              background: "var(--bg-card)",
+              color: "var(--text-primary)",
+              outline: "none"
+            }
+          }),
+          /*#__PURE__*/React.createElement("div", { className: "hide-scrollbar", style: { maxHeight: 220, overflowY: "auto" } },
+            (() => {
+              const pq = pickQ.trim().toLowerCase();
+              const hits = pickNotes.filter(n => !pq || (n.title || "").toLowerCase().includes(pq)).slice(0, 20);
+              return hits.length === 0
+                ? /*#__PURE__*/React.createElement("div", { style: { padding: "6px 4px", color: "var(--text-light)", fontSize: 11 } }, "Tidak ditemukan")
+                : hits.map(n => /*#__PURE__*/React.createElement("div", {
+                  key: n.id,
+                  onClick: () => handlePickNote(n),
+                  style: { padding: "6px 8px", fontSize: 12, cursor: "pointer", borderRadius: 6, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+                  onMouseEnter: e => e.currentTarget.style.background = "var(--bg-card)",
+                  onMouseLeave: e => e.currentTarget.style.background = "transparent"
+                }, n.title || "Tanpa judul"));
+            })()
+          ),
+          /*#__PURE__*/React.createElement("div", { style: { display: "flex", justifyContent: "flex-end" } },
+            /*#__PURE__*/React.createElement("button", {
+              className: "btn btn-secondary btn-sm",
+              onClick: () => setPicking(false),
+              style: { fontSize: 11, padding: "3px 10px", borderRadius: 6 }
+            }, "Batal")
+          )
+        ) : /*#__PURE__*/React.createElement("button", {
+          onClick: openPicker,
+          style: {
+            width: "100%",
+            marginTop: 6,
+            padding: "7px 12px",
+            borderRadius: 8,
+            border: "1.5px dashed var(--border)",
+            background: "var(--bg-primary)",
+            color: "var(--accent)",
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6
+          }
+        }, "+ Dari Catatan"))
       ),
       /*#__PURE__*/React.createElement("div", {
         className: "hide-scrollbar", "data-tour": "mindmap-list",
@@ -19238,7 +19825,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v415-multi-tab-session"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v416-petakan"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -22069,6 +22656,14 @@ function extractDocHeadings(doc) {
   });
   return headings;
 }
+// Petakan: beri kelas sorot sementara pada elemen heading (1500 ms).
+function flashHeadingEl(el) {
+  if (!el || !el.classList) return;
+  el.classList.remove("nm-heading-flash");
+  void el.offsetWidth;
+  el.classList.add("nm-heading-flash");
+  setTimeout(() => el.classList && el.classList.remove("nm-heading-flash"), 1500);
+}
 // Jeda scroll-spy setelah klik item ToC: smooth scroll Chromium ±700ms (terukur E2E) — heading yang
 // dilewati selama gulir tidak boleh menimpa pilihan klik. Dipakai NotePanel (baca) & NoteModal (edit).
 const TOC_SPY_PAUSE_MS = 800;
@@ -23129,7 +23724,15 @@ function NoteModal({
       if (!MB?.editorViewCtx) return;
       const doc = view.state.doc;
       let targetPos = null;
+      let flashPos = null;
 
+      // Case H (Petakan): buka tepat di heading dari peta tertaut. Tanpa TF.notemap → perilaku lama.
+      if (initialBlockTarget && initialBlockTarget.kind === "heading" && window.TF && window.TF.notemap) {
+        const hs = extractDocHeadings(doc);
+        const i = window.TF.notemap.matchHeading(hs, initialBlockTarget);
+        targetPos = i >= 0 ? hs[i].pos + 1 : 1;
+        if (i >= 0) flashPos = hs[i].pos;
+      } else
       // Case A: initialBlockTarget is present (double-clicked from viewer)
       if (initialBlockTarget) {
         const cleanText = str => (str || '').toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]/gi, ' ').replace(/\s+/g, ' ').trim();
@@ -23198,6 +23801,9 @@ function NoteModal({
             }
           }
         } catch (_) {}
+        if (flashPos !== null) {
+          try { flashHeadingEl(view.nodeDOM(flashPos)); } catch (_) {}
+        }
       }
     };
     locateAndFocus();
@@ -24664,7 +25270,10 @@ function NoteModal({
     className: "note-hdr-icon"
   }, "\u2922 "), "Expand") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
     className: "note-hdr-icon"
-  }, "\u25CF "), "Focus")), !focusMode && note?.id && note.user_id === currentUserId && sharedLists.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\u25CF "), "Focus")), !focusMode && note?.id && /*#__PURE__*/React.createElement(PetakanButton, {
+    noteId: note.id,
+    variant: "pill"
+  }), !focusMode && note?.id && note.user_id === currentUserId && sharedLists.length > 0 && /*#__PURE__*/React.createElement("div", {
     ref: shareRef,
     style: {
       position: "relative",
@@ -24843,7 +25452,10 @@ function NotePanel({
   publishedMeta,
   onPublish,
   onUnpublish,
-  showToast
+  showToast,
+  initialHeading = null,
+  initialHeadingNoteId = null,
+  onInitialHeadingConsumed
 }) {
   const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
   const [panelAttachments, setPanelAttachments] = React.useState([]);
@@ -25229,6 +25841,31 @@ function NotePanel({
     headings.forEach(h => observer.observe(h));
     return () => observer.disconnect();
   }, [tocItems, note.id]);
+  // Petakan: buka catatan tepat di heading (dari peta tertaut) — gulir + sorot sesaat.
+  React.useEffect(() => {
+    // Hanya berlaku untuk catatan tujuan (id bisa number/string) — bukan catatan lain yang kebetulan terbuka.
+    if (!initialHeading || initialHeadingNoteId == null || String(note.id) !== String(initialHeadingNoteId)) return;
+    let timer = null;
+    let tries = 0;
+    const run = () => {
+      const container = tocSpyRef.current;
+      const els = container ? Array.from(container.querySelectorAll('[id^="note-h-"]')) : [];
+      if (!els.length && ++tries < 20) {
+        timer = setTimeout(run, 80);
+        return;
+      }
+      if (els.length && window.TF && window.TF.notemap) {
+        const i = window.TF.notemap.matchHeading(els.map(el => ({ text: el.textContent })), initialHeading);
+        if (i >= 0) {
+          els[i].scrollIntoView({ behavior: "smooth", block: "start" });
+          flashHeadingEl(els[i]);
+        }
+      }
+      onInitialHeadingConsumed && onInitialHeadingConsumed();
+    };
+    run();
+    return () => clearTimeout(timer);
+  }, [initialHeading, initialHeadingNoteId, note.id]);
   const handlePrint = async () => {
     // Remove any stale print area (e.g. from a previous print whose afterprint
     // never fired on a mobile webview).
@@ -25897,7 +26534,9 @@ function NotePanel({
       display: "flex",
       alignItems: "center"
     }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 15 })), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 15 })), note.id != null && /*#__PURE__*/React.createElement(PetakanButton, {
+    noteId: note.id
+  }), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       const meta = publishedMeta;
       setPublishSlug(meta?.slug || '');
@@ -26507,6 +27146,7 @@ function NotesPage({
   user,
   sharedLists = [],
   initialNoteId = null,
+  initialHeading = null,
   onInitialNoteConsumed
 }) {
   const [notes, setNotes] = useState([]);
@@ -26517,6 +27157,8 @@ function NotesPage({
   const [tagList, setTagList] = useState([]);
   const [selected, setSelected] = useState(null);
   const [initialBlockTarget, setInitialBlockTarget] = useState(null);
+  // Salinan lokal heading tujuan (App mengosongkannya segera setelah catatan dibuka).
+  const [panelHeading, setPanelHeading] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [openTabs, setOpenTabs] = useState([]);   // max 5
   const [activeTabId, setActiveTabId] = useState(null);
@@ -26769,6 +27411,9 @@ function NotesPage({
     }
     if (note) {
       openTab(note);
+    } else {
+      // Catatan tidak ada/di Sampah/tidak terlihat: jangan biarkan heading tujuan menggantung.
+      setPanelHeading(prev => prev && String(prev.noteId) === String(id) ? null : prev);
     }
   }, [allNotes]);
   useEffect(() => {
@@ -26781,6 +27426,7 @@ function NotesPage({
   // so plain navigation to Notes later doesn't reopen a stale note.
   useEffect(() => {
     if (initialNoteId == null) return;
+    setPanelHeading(initialHeading ? { noteId: initialNoteId, heading: initialHeading } : null);
     openNoteById(initialNoteId);
     onInitialNoteConsumed && onInitialNoteConsumed();
   }, [initialNoteId]);
@@ -27614,6 +28260,9 @@ function NotesPage({
       outlinks: panelOutlinks,
       navTrail: navTrail,
       onTaskClick: onTaskClick,
+      initialHeading: panelHeading ? panelHeading.heading : null,
+      initialHeadingNoteId: panelHeading ? panelHeading.noteId : null,
+      onInitialHeadingConsumed: () => setPanelHeading(null),
       tasks: tasks,
       onEdit: blockTarget => openEdit(activeNote, blockTarget),
       onClose: () => closeTab(activeNote.id),
@@ -30603,6 +31252,7 @@ function App() {
   const [selectedTask, setSelectedTask] = useState(null);
   const [selectedNote, setSelectedNote] = useState(null);
   const [pendingNoteId, setPendingNoteId] = useState(null);
+  const [pendingNoteHeading, setPendingNoteHeading] = useState(null);
   const [pendingMindmapId, setPendingMindmapId] = useState(null);
   const [pendingDrawingId, setPendingDrawingId] = useState(null);
   const [activeQuickDraw, setActiveQuickDraw] = useState(null);
@@ -31258,6 +31908,23 @@ function App() {
       }
     }
   };
+  // Petakan C9: catatan → peta tertaut (idempoten per catatan), lalu buka di halaman Mindmap.
+  useEffect(() => {
+    const handler = async e => {
+      const noteId = e.detail && e.detail.noteId;
+      if (noteId == null) return;
+      try {
+        const created = await api.post("/api/mindmaps", { title: "", source_note_ref: noteId });
+        setPendingMindmapId(created.id);
+        setPage("mindmap");
+        window.dispatchEvent(new CustomEvent("mindmapSaved"));
+      } catch (err) {
+        showToast("Gagal membuat peta", "error");
+      }
+    };
+    window.addEventListener("tf:petakan", handler);
+    return () => window.removeEventListener("tf:petakan", handler);
+  }, []);
   const handleSearchMindmapClick = mm => {
     setShowSearch(false);
     setPendingMindmapId(mm.id);
@@ -31280,6 +31947,18 @@ function App() {
     setPendingNoteId(note.id);
     setPage("notes");
   };
+  // Petakan: peta tertaut meminta catatan dibuka di halaman Notes tepat di sebuah heading.
+  useEffect(() => {
+    const handler = e => {
+      const d = e.detail || {};
+      if (d.noteId == null) return;
+      setPendingNoteId(d.noteId);
+      setPendingNoteHeading(d.heading || null);
+      setPage("notes");
+    };
+    window.addEventListener("tf:open-note-at", handler);
+    return () => window.removeEventListener("tf:open-note-at", handler);
+  }, []);
   const openTaskById = async taskId => {
     setShowNotifPanel(false);
     try {
@@ -31789,7 +32468,11 @@ function App() {
         user: user,
         sharedLists: sharedLists,
         initialNoteId: pendingNoteId,
-        onInitialNoteConsumed: () => setPendingNoteId(null)
+        initialHeading: pendingNoteHeading,
+        onInitialNoteConsumed: () => {
+          setPendingNoteId(null);
+          setPendingNoteHeading(null);
+        }
       });
     }
     if (page === "mindmap") {
@@ -32498,7 +33181,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v415-multi-tab-session";
+    window.__SW_VERSION = "taskflow-v416-petakan";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

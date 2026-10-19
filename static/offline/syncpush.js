@@ -129,17 +129,31 @@
   }
 
   const MM_DEFAULT_DATA = '{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}';
-  function mindmapToCreatePayload(record) {
+  // Peta tertaut (Petakan): judul tidak boleh kosong (R15); create membawa `source_note_id` = id server catatan
+  // (`noteSid`, di-resolve saat push; fallback record.source_note_id). Update tertaut TANPA base_rev (server
+  // mengabaikannya; data_json hanya view-state, tidak ada konflik).
+  // Create tertaut tanpa id server catatan TIDAK PERNAH dikirim (R15): pemanggil wajib menahan op lebih dulu;
+  // builder melempar sebagai pengaman (op tetap antre, drain lanjut).
+  function mindmapBasePayload(record) {
     return {
-      title: record.title != null ? record.title : "Untitled",
+      title: TFmm.isLinked(record) ? (record.title || "Tanpa judul") : (record.title != null ? record.title : "Untitled"),
       data_json: record.data_json != null ? record.data_json : MM_DEFAULT_DATA,
       list_id: record.list_id != null ? record.list_id : null,
-      client_id: clientIdOf(record),
     };
   }
+  function mindmapToCreatePayload(record, noteSid) {
+    const p = mindmapBasePayload(record);
+    p.client_id = clientIdOf(record);
+    if (TFmm.isLinked(record)) {
+      const nsid = noteSid != null ? noteSid : record.source_note_id;
+      if (nsid == null) throw new Error("linked mindmap create without source_note_id");
+      p.source_note_id = nsid;
+    }
+    return p;
+  }
   function mindmapToUpdatePayload(record) {
-    const p = mindmapToCreatePayload(record);
-    delete p.client_id;
+    const p = mindmapBasePayload(record);
+    if (TFmm.isLinked(record)) return p;
     // T3 / prinsip 7: revisi server yang diketahui klien → server menjawab 409 REV_MISMATCH bila sudah berubah
     if (record.base_rev != null) p.base_rev = record.base_rev;
     return p;
@@ -1052,25 +1066,158 @@
     });
   }
 
-  function opMindmapCreate(op, transport, result) {
+  // ── Peta tertaut (Petakan) ──────────────────────────────────────────────────────────────────────────────
+  // Id server catatan sumber: { gone: true } catatan hilang/terhapus di perangkat ini; { sid: null } catatan
+  // belum ter-push; { sid }. Record tanpa source_note_cid (hasil pull) → source_note_id sudah id server.
+  function linkedNoteSid(rec) {
+    if (rec.source_note_cid == null) return Promise.resolve({ sid: rec.source_note_id != null ? rec.source_note_id : null });
+    return getRawOf("scratchpad_notes", rec.source_note_cid).then((note) => {
+      if (!note || note.deleted) return { gone: true };
+      if (note.server_id != null) return { sid: note.server_id };
+      return TFidmap.serverIdOf(note.cid).then((sid) => ({ sid: sid != null ? sid : null }));
+    });
+  }
+  // Catatan tidak ada lagi untuk pengguna ini → peta tertaut lokal tidak berarti: hapus record (+ idmap) & op.
+  function dropLinkedLocal(op, sid) {
+    return (sid != null ? TFidmap.mapDelete("mindmap", sid) : Promise.resolve())
+      .then(() => deleteMindmapRaw(op.cid))
+      .then(() => TFoutbox.outboxRemove(op.qid))
+      .then(() => notifyMindmapSynced([op.cid], []));
+  }
+  // Dua perangkat memetakan catatan yang sama offline: server mengembalikan baris yang SUDAH dipetakan ke
+  // record lokal lain (`keepCid`, hasil pull). Satu transaksi: record `keepCid` dipertahankan, data_json
+  // (view-state) diambil dari record yang `updated_at`-nya lebih baru (dirty + rev naik bila berubah),
+  // record `dupCid` dihapus. false bila `keepCid` tidak ada (idmap basi) → pemanggil memetakan seperti biasa.
+  function mergeLinkedDuplicate(dupCid, keepCid) {
+    let merged = false;
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("mindmaps", "readwrite");
+      const os = tx.objectStore("mindmaps");
+      const rk = os.get(keepCid);
+      rk.onsuccess = () => {
+        const keep = rk.result;
+        if (!keep) return;
+        const rd = os.get(dupCid);
+        rd.onsuccess = () => {
+          const dup = rd.result;
+          merged = true;
+          const next = Object.assign({}, keep);
+          if (dup) {
+            if (tsEpoch(dup.updated_at) > tsEpoch(keep.updated_at) && dup.data_json !== keep.data_json) {
+              next.data_json = dup.data_json;
+              next.updated_at = dup.updated_at;
+              next.dirty = 1;
+              next.rev = (keep.rev || 0) + 1;
+            }
+            if (next.source_note_cid == null && dup.source_note_cid != null) next.source_note_cid = dup.source_note_cid;
+            os.put(next);
+            os.delete(dupCid);
+          }
+        };
+      };
+      tx.oncomplete = () => resolve(merged);
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  // POST sukses untuk peta tertaut: id sudah milik record lain → gabung; selain itu idmap + markPushed.
+  function adoptLinkedCreate(op, sid, result) {
+    return TFidmap.cidOf("mindmap", sid).then((other) => {
+      if (other == null || other === op.cid) return false;
+      return mergeLinkedDuplicate(op.cid, other).then((merged) => {
+        if (!merged) return false;
+        return TFoutbox.outboxRemove(op.qid)
+          .then(() => requeueIfDirty("mindmaps", "mindmap", other))
+          .then(() => { result.pushed++; notifyMindmapSynced([op.cid, other], [sid]); return true; });
+      });
+    });
+  }
+  // Server menolak pohon pada peta tertaut (data_json lokal mestinya hanya view-state) → buang op, catat sekali.
+  const linkedTreeWarned = new Set();
+  function hasNodeData(dataJson) {
+    try { const d = JSON.parse(dataJson); return !!(d && typeof d === "object" && "nodeData" in d); } catch (_) { return false; }
+  }
+  function linkedDefaultView() {
+    const nm = isNode ? require("./notemap.js") : (root.TF && root.TF.notemap);
+    return JSON.stringify(nm.LINKED_VIEW_STATE_DEFAULT);
+  }
+  function linkedTreeRejected(res) {
+    const d = res && res.status === 400 && res.data && res.data.detail;
+    return !!(d && typeof d === "object" && d.code === "LINKED_TREE_REJECTED");
+  }
+
+  // `pending` (T10) diterima demi keseragaman, tetapi create tertaut SELALU ditahan selama catatan belum punya
+  // id server: tanpa catatan di server peta tertaut tidak bisa dibuat (op lain tetap jalan).
+  function opMindmapCreate(op, transport, result, pending) {
     return getMindmapRaw(op.cid).then((rec) => {
       if (!rec) return TFoutbox.outboxRemove(op.qid);
       if (rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
       if (rec.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves (access_lost)
       if (rec.deleted) return TFoutbox.outboxRemove(op.qid); // dibuat lalu dihapus offline: jangan POST lalu DELETE
-      const sentRev = rec.rev || 0;
-      return send(transport, "POST", "/api/mindmaps", mindmapToCreatePayload(rec)).then((res) => {
-        if (ok(res)) {
-          const sid = res.data.id;
+      if (!TFmm.isLinked(rec)) return postMindmapCreate(op, transport, result, rec, null);
+      return linkedNoteSid(rec).then((n) => {
+        if (n.gone) return dropLinkedLocal(op, null);
+        if (n.sid == null) return; // tahan: create catatan belum ter-push
+        return postMindmapCreate(op, transport, result, rec, n.sid);
+      });
+    });
+  }
+  function postMindmapCreate(op, transport, result, rec, noteSid) {
+    const linked = TFmm.isLinked(rec);
+    const sentRev = rec.rev || 0;
+    return send(transport, "POST", "/api/mindmaps", mindmapToCreatePayload(rec, noteSid)).then((res) => {
+      if (ok(res)) {
+        const sid = res.data.id;
+        return (linked ? adoptLinkedCreate(op, sid, result) : Promise.resolve(false)).then((done) => {
+          if (done) return;
           // K5: CAS — bersih hanya bila tidak ada edit selama in-flight; JANGAN menulis `rec` pra-request
           return TFidmap.mapPut("mindmap", sid, op.cid)
             .then(() => markPushed("mindmaps", op.cid, sentRev, updatedAtOf(res), sid, null))
+            .then(() => (linked && noteSid != null
+              ? TFdb.mutate("mindmaps", op.cid, (cur) => (cur && cur.source_note_id == null ? Object.assign({}, cur, { source_note_id: noteSid }) : undefined))
+              : null))
             .then(() => TFoutbox.outboxRemove(op.qid))
             .then(() => requeueIfDirty("mindmaps", "mindmap", op.cid))
             .then(() => { result.pushed++; });
+        });
+      }
+      if (linked && res.status === 404) return dropLinkedLocal(op, null); // catatan tidak tersedia untukmu / di Sampah
+      if (classify(res) === "forbidden") { return accessLost("mindmaps", op.cid, op, result); }
+      return failPermanent("mindmaps", op.cid, res, op, result);
+    });
+  }
+
+  // POST ulang setelah PUT 404 sukses: record mengadopsi baris server baru (idmap lama sudah dihapus pemanggil).
+  function adoptRecreated(op, res2, sentRev, result) {
+    const nid = res2.data.id;
+    return TFidmap.mapPut("mindmap", nid, op.cid)
+      .then(() => TFdb.mutate("mindmaps", op.cid, (cur) => {
+        if (!cur) return undefined;
+        const next = Object.assign({}, cur, { server_id: nid });
+        const ua = updatedAtOf(res2);
+        if (ua != null) next.base_rev = ua; // baris server baru → base_rev-nya
+        next.dirty = ((cur.rev || 0) === sentRev && !cur.deleted) ? 0 : 1;
+        return next;
+      }))
+      .then(() => TFoutbox.outboxRemove(op.qid))
+      .then(() => requeueIfDirty("mindmaps", "mindmap", op.cid))
+      .then(() => { result.pushed++; });
+  }
+  // PUT peta tertaut 404: POST ulang SELALU dengan source_note_id (R15) — server mengembalikan peta tertaut
+  // catatan itu (yang ada / baru); bila sudah dipetakan ke record lokal lain → gabung. Catatan hilang di
+  // perangkat ini atau POST 404 (catatan tidak tersedia / di Sampah) → peta lokal dihapus.
+  function recreateLinked(op, transport, result, rec, sid, sentRev) {
+    return linkedNoteSid(rec).then((n) => {
+      if (n.gone) return dropLinkedLocal(op, sid);
+      if (n.sid == null) return; // tahan (R15): catatan belum punya id server → jangan POST tanpa source_note_id
+      return send(transport, "POST", "/api/mindmaps", mindmapToCreatePayload(rec, n.sid)).then((res2) => {
+        if (ok(res2)) {
+          return TFidmap.mapDelete("mindmap", sid)
+            .then(() => adoptLinkedCreate(op, res2.data.id, result))
+            .then((done) => (done ? null : adoptRecreated(op, res2, sentRev, result)));
         }
-        if (classify(res) === "forbidden") { return accessLost("mindmaps", op.cid, op, result); }
-        return failPermanent("mindmaps", op.cid, res, op, result);
+        if (res2.status === 404) return dropLinkedLocal(op, sid);
+        if (classify(res2) === "forbidden") { return accessLost("mindmaps", op.cid, op, result); }
+        return failPermanent("mindmaps", op.cid, res2, op, result);
       });
     });
   }
@@ -1088,9 +1235,26 @@
             .then(() => requeueIfDirty("mindmaps", "mindmap", op.cid))
             .then(() => { result.pushed++; });
         }
-        const current = revMismatchRow(res);
+        const linked = TFmm.isLinked(rec);
+        if (linked && linkedTreeRejected(res)) {
+          // tidak pernah salinan konflik untuk peta tertaut; record dibiarkan apa adanya
+          if (!linkedTreeWarned.has(op.cid)) {
+            linkedTreeWarned.add(op.cid);
+            try { console.warn("[syncpush] LINKED_TREE_REJECTED: op update peta tertaut dibuang", op.cid); } catch (_) {}
+          }
+          // Bersihkan dirty (CAS rev) supaya pull tidak mengantre ulang 400 yang sama tiap siklus; pohon di
+          // data_json peta tertaut pasti tidak sah → kembali ke view-state default.
+          return TFdb.mutate("mindmaps", op.cid, (cur) => {
+            if (!cur || (cur.rev || 0) !== sentRev) return undefined;
+            const next = Object.assign({}, cur, { dirty: 0 });
+            if (hasNodeData(cur.data_json)) next.data_json = linkedDefaultView();
+            return next;
+          }).then(() => TFoutbox.outboxRemove(op.qid));
+        }
+        const current = linked ? null : revMismatchRow(res);
         if (current) return mindmapRevMismatch(op, current, sentRev, result);
         const kind = classify(res);
+        if (kind === "gone" && linked) return recreateLinked(op, transport, result, rec, sid, sentRev);
         if (kind === "gone") {
           if (rec.list_id != null) {
             return TFdb.mutate("mindmaps", op.cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "remote_deleted" }) : undefined))
@@ -1098,20 +1262,7 @@
           }
           return send(transport, "POST", "/api/mindmaps", mindmapToCreatePayload(rec)).then((res2) => {
             if (ok(res2)) {
-              const nid = res2.data.id;
-              return TFidmap.mapDelete("mindmap", sid)
-                .then(() => TFidmap.mapPut("mindmap", nid, op.cid))
-                .then(() => TFdb.mutate("mindmaps", op.cid, (cur) => {
-                  if (!cur) return undefined;
-                  const next = Object.assign({}, cur, { server_id: nid });
-                  const ua = updatedAtOf(res2);
-                  if (ua != null) next.base_rev = ua; // baris server baru → base_rev-nya
-                  next.dirty = ((cur.rev || 0) === sentRev && !cur.deleted) ? 0 : 1;
-                  return next;
-                }))
-                .then(() => TFoutbox.outboxRemove(op.qid))
-                .then(() => requeueIfDirty("mindmaps", "mindmap", op.cid))
-                .then(() => { result.pushed++; });
+              return TFidmap.mapDelete("mindmap", sid).then(() => adoptRecreated(op, res2, sentRev, result));
             }
             if (classify(res2) === "forbidden") { return accessLost("mindmaps", op.cid, op, result); }
             return failPermanent("mindmaps", op.cid, res2, op, result);
@@ -1282,7 +1433,7 @@
     if (op.entity_type === "drawing" && op.op === "delete") return opDrawingDelete(op, transport, result);
     if (op.entity_type === "drawing" && op.op === "upsert") return opDrawingUpsert(op, transport, result);
     if (op.entity_type === "drawing" && op.op === "pin") return opDrawingPin(op, transport, result);
-    if (op.entity_type === "mindmap" && op.op === "create") return opMindmapCreate(op, transport, result);
+    if (op.entity_type === "mindmap" && op.op === "create") return opMindmapCreate(op, transport, result, pending);
     if (op.entity_type === "mindmap" && op.op === "update") return opMindmapUpdate(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "delete") return opMindmapDelete(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "pin") return opMindmapPin(op, transport, result);

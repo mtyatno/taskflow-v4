@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v415-multi-tab-session";
+const CACHE = "taskflow-v416-petakan";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -38,6 +38,9 @@ const STATIC = [
   "/static/offline/drawingrepo.js",
   "/static/offline/drawingroutes.js",
   "/static/offline/mindmapoutline.js",
+  "/static/offline/mindmapops.js",
+  "/static/offline/notemap.js",
+  "/static/offline/notemapsession.js",
   "/static/offline/mindmaptabs.js",
   "/static/offline/mindmapjustify.js",
   "/static/offline/mindmaprepo.js",

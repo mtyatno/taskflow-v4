@@ -19,6 +19,11 @@
   function getCurrentUser() { return _currentUser; }
   function curUid() { return (_currentUser && _currentUser.user_id != null) ? _currentUser.user_id : null; }
 
+  // Dibaca malas (saat dipanggil) agar urutan muat skrip di browser tidak jadi masalah, seperti syncpush.js.
+  const noterepo = () => req("./noterepo.js", root.TF && root.TF.noterepo);
+  const notemap = () => req("./notemap.js", root.TF && root.TF.notemap);
+  function isLinked(rec) { return !!rec && (rec.source_note_cid != null || rec.source_note_id != null); }
+
   const DEFAULT_DATA = '{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}';
   const CONFLICT_PREFIX = "(konflik) ";
 
@@ -52,6 +57,7 @@
       data_json: s.data_json != null ? s.data_json : DEFAULT_DATA,
       pinned: !!s.is_pinned,
       list_id: s.list_id != null ? s.list_id : null,
+      source_note_id: s.source_note_id != null ? s.source_note_id : null,
       user_id: s.user_id != null ? s.user_id : null,
       last_edited_by: s.last_edited_by != null ? s.last_edited_by : null,
       last_editor_username: s.last_editor_username != null ? s.last_editor_username : null,
@@ -67,7 +73,55 @@
 
   // Record `rev` (prinsip 4 audit 2026-10-15): naik di SETIAP tulis lokal (create 1; update/pin/delete +1).
   // Push membaca sentRev sebelum request; setelah sukses markPushed hanya menandai bersih bila rev tidak berubah.
+  function allMindmapsRaw() {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("mindmaps", "readonly").objectStore("mindmaps").getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  // Peta tertaut ke catatan (satu per catatan): reuse bila ada yang belum terhapus; catatan hilang/terhapus → ditolak.
+  // Serialisasi per cid catatan: pemanggil kedua menunggu yang pertama lalu mengulang pencarian (tidak ada duplikat).
+  const linkedInFlight = new Map();
+  function createLinkedMindmap(input, opts) {
+    return noterepo().findNoteRaw(input.source_note_ref).then((note) => {
+      if (!note || note.deleted) return Promise.reject(new Error("Note not found"));
+      const prev = linkedInFlight.get(note.cid) || Promise.resolve();
+      const run = prev.catch(() => {}).then(() => createLinkedFor(note, opts));
+      const tail = run.catch(() => {});
+      linkedInFlight.set(note.cid, tail);
+      return run.finally(() => { if (linkedInFlight.get(note.cid) === tail) linkedInFlight.delete(note.cid); });
+    });
+  }
+  function createLinkedFor(note, opts) {
+    const now = (opts && opts.now) || new Date().toISOString();
+    {
+      return allMindmapsRaw().then((all) => {
+        const existing = all.find((m) => !m.deleted && (m.source_note_cid === note.cid
+          || (note.server_id != null && m.source_note_id === note.server_id)));
+        if (existing) return existing;
+        const rec = {
+          cid: TFids.newCid(), server_id: null,
+          source_note_cid: note.cid, source_note_id: note.server_id != null ? note.server_id : null,
+          title: note.title || "Tanpa judul",
+          data_json: JSON.stringify(notemap().LINKED_VIEW_STATE_DEFAULT),
+          pinned: false,
+          list_id: note.list_id != null ? note.list_id : null,
+          user_id: note.user_id != null ? note.user_id : curUid(),
+          last_edited_by: curUid(),
+          last_editor_username: null, last_editor_display_name: null,
+          created_at: now, updated_at: now, deleted: false, dirty: 1, base_rev: null, rev: 1,
+        };
+        return putRaw(rec)
+          .then(() => TFoutbox.outboxAdd({ op: "create", entity_type: "mindmap", cid: rec.cid, payload: { cid: rec.cid } }))
+          .then(() => rec);
+      });
+    }
+  }
+
   function createMindmap(input, opts) {
+    input = input || {};
+    if (input.source_note_ref != null) return createLinkedMindmap(input, opts);
     const now = (opts && opts.now) || new Date().toISOString();
     const rec = {
       cid: TFids.newCid(), server_id: null,
@@ -136,6 +190,7 @@
           pinned: !!cur.pinned, // pin lokal dipertahankan (op pin bisa tertunda); pull yang mengadopsi pin server
         });
         if (cur.client_id != null) original.client_id = cur.client_id;
+        if (cur.source_note_cid != null) original.source_note_cid = cur.source_note_cid;
         if (copy) {
           original.notice = { kind: "conflict_copy", title: cur.title, copyTitle: copy.title, editor: editorOf(serverRow) };
         } else if (cur.notice) {
@@ -170,7 +225,7 @@
     let stale = null;
     return TFdb.mutate("mindmaps", cid, (cur) => {
       if (!cur || cur.deleted) return undefined;
-      if (patch.if_updated_at != null && String(cur.updated_at) !== String(patch.if_updated_at)) { stale = cur; return undefined; }
+      if (!isLinked(cur) && patch.if_updated_at != null && String(cur.updated_at) !== String(patch.if_updated_at)) { stale = cur; return undefined; }
       return Object.assign({}, cur, {
         title: patch.title != null ? patch.title : cur.title,
         data_json: patch.data_json != null ? patch.data_json : cur.data_json,
@@ -260,7 +315,7 @@
 
   const exported = {
     createMindmap, updateMindmap, deleteMindmap, togglePin, getRaw, putRaw, setCurrentUser, getCurrentUser,
-    recordFromServer, adoptServerWithConflictCopy, CONFLICT_PREFIX, DEFAULT_DATA,
+    recordFromServer, adoptServerWithConflictCopy, isLinked, CONFLICT_PREFIX, DEFAULT_DATA,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.mindmaprepo = exported; }
   return exported;
