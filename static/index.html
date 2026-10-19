@@ -2467,7 +2467,7 @@ function Sidebar({
   }));
 
   // Count tasks per project — hanya task pribadi (list_id kosong); project workspace tidak di sini
-  const projCounts = sidebarProjectCounts(projects, tasks);
+  const projCounts = React.useMemo(() => sidebarProjectCounts(projects, tasks), [projects, tasks]);
 
   // Count today's focus tasks
   const todayCount = (tasks || []).filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused) && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
@@ -3508,12 +3508,32 @@ function projectWorkspaceBadge(listId, sharedLists) {
 function isPersonalProjectTask(task, name) {
   return !!task && !!task.project && projectScopeOf(task) == null && projectNameFold(task.project) === projectNameFold(name);
 }
+// Satu lintasan: tiap task pribadi aktif dilipat sekali ke Map, lalu tiap project dicari.
 function sidebarProjectCounts(projects, tasks) {
+  const byName = new Map();
+  for (const t of tasks || []) {
+    if (!t || !t.project || projectScopeOf(t) != null || t.gtd_status === "done" || t.gtd_status === "archived") continue;
+    const k = projectNameFold(t.project);
+    byName.set(k, (byName.get(k) || 0) + 1);
+  }
   const counts = {};
   (projects || []).forEach(p => {
-    counts[p] = (tasks || []).filter(t => isPersonalProjectTask(t, p) && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
+    counts[p] = byName.get(projectNameFold(p)) || 0;
   });
   return counts;
+}
+// Drop kanban ke grup project: nama baru, atau null bila no-op (beda scope, atau nama sama NOCASE
+// sehingga kapitalisasi task tidak ditulis ulang).
+function projectDropTarget(task, meta) {
+  if (!task || !meta) return null;
+  if (String(meta.listId ?? "") !== String(projectScopeOf(task) ?? "")) return null;
+  if (task.project && projectNameFold(task.project) === projectNameFold(meta.value)) return null;
+  return meta.value;
+}
+function sameStringList(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 // Grup task per (scope, nama): [{ key, name, listId, badge, tasks }], urut nama NOCASE,
 // pribadi lebih dulu bila nama sama. Task tanpa project tidak masuk grup mana pun.
@@ -12523,11 +12543,9 @@ function TaskListView({
     const task = filtered.find(t => t.id === taskId);
     if (!task) return;
     if (groupBy === "project" && newValue !== "") {
-      const meta = projGroupMetaRef.current[targetGroupKey];
-      if (!meta) return;
-      // Pindah antar scope (pribadi ↔ workspace) tidak lewat drag; ubah lewat form task
-      if (String(meta.listId ?? "") !== String(projectScopeOf(task) ?? "")) return;
-      newValue = meta.value;
+      // Pindah antar scope (pribadi ↔ workspace) tidak lewat drag; nama sama NOCASE → no-op
+      newValue = projectDropTarget(task, projGroupMetaRef.current[targetGroupKey]);
+      if (newValue === null) return;
     }
     const originalValue = task[field];
     if (originalValue === newValue || originalValue == null && newValue === "") return;
@@ -31933,7 +31951,7 @@ function App() {
     const reloadProjects = () => {
       api.get("/api/projects").then(r => {
         if (!Array.isArray(r)) return;
-        setProjects(r);
+        setProjects(prev => sameStringList(prev, r) ? prev : r);
         OfflineDB.cacheSet("projects", r);
       }).catch(() => {});
     };

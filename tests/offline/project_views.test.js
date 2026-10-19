@@ -20,7 +20,7 @@ function sliceFn(startMarker, endMarker) {
 
 function loadViewHelpers() {
   const code = sliceFn("function projectNameFold(", "function fetchScopeProjects(");
-  return new Function(`${code}; return { projectNameFold, projectGroupKey, projectWorkspaceBadge, isPersonalProjectTask, sidebarProjectCounts, groupTasksByProject, mergeProjectNames };`)();
+  return new Function(`${code}; return { projectNameFold, projectGroupKey, projectWorkspaceBadge, isPersonalProjectTask, sidebarProjectCounts, groupTasksByProject, mergeProjectNames, projectDropTarget, sameStringList };`)();
 }
 
 const LISTS = [{ id: 7, name: "Tim Inti", role: "member" }, { id: 9, name: "Rumah", role: "owner" }];
@@ -138,4 +138,43 @@ test("sync pull sukses memancarkan tf:projects-changed; App memuat ulang project
   assert.match(reload, /api\.get\("\/api\/projects"\)/);
   assert.match(reload, /setProjects\(/);
   assert.match(reload, /OfflineDB\.cacheSet\("projects"/);
+});
+
+test("sidebarProjectCounts satu lintasan: hasil sama dengan hitung per project (NOCASE, hanya pribadi aktif)", () => {
+  const { sidebarProjectCounts, isPersonalProjectTask } = loadViewHelpers();
+  const many = [];
+  for (let i = 0; i < 500; i++) many.push({ id: i, project: ["Alpha", "ALPHA", "beta", "Été", "été", ""][i % 6], list_id: i % 7 === 0 ? 3 : null, gtd_status: ["next", "done", "inbox", "archived"][i % 4] });
+  const projects = ["alpha", "Beta", "été", "Été", "none"];
+  const naive = {};
+  projects.forEach(p => { naive[p] = many.filter(t => isPersonalProjectTask(t, p) && t.gtd_status !== "done" && t.gtd_status !== "archived").length; });
+  assert.deepEqual(sidebarProjectCounts(projects, many), naive);
+  const code = sliceFn("function sidebarProjectCounts(", "\nfunction ");
+  assert.doesNotMatch(code, /isPersonalProjectTask/, "tidak boleh P×N pemanggilan per project");
+  assert.match(code, /new Map\(/);
+});
+
+test("Sidebar memoize hitungan project pada [projects, tasks]", () => {
+  const sidebar = sliceFn("const projCounts", "// Count today's focus tasks");
+  assert.match(sidebar, /React\.useMemo\(\(\) => sidebarProjectCounts\(projects, tasks\), \[projects, tasks\]\)/);
+});
+
+test("projectDropTarget: no-op bila nama sama NOCASE atau beda scope; selain itu nama grup", () => {
+  const { projectDropTarget } = loadViewHelpers();
+  assert.equal(projectDropTarget({ project: "TaskFlow", list_id: null }, { value: "taskflow", listId: null }), null);
+  assert.equal(projectDropTarget({ project: "Alpha", list_id: null }, { value: "taskflow", listId: 7 }), null);
+  assert.equal(projectDropTarget({ project: "Alpha", list_id: 7 }, { value: "taskflow", listId: 7 }), "taskflow");
+  assert.equal(projectDropTarget({ project: "", list_id: null }, { value: "Beta", listId: null }), "Beta");
+  assert.equal(projectDropTarget({ project: "x" }, null), null);
+  const view = sliceFn("function TaskListView(", "\nfunction ");
+  assert.match(view, /projectDropTarget\(task, projGroupMetaRef\.current\[targetGroupKey\]\)/);
+});
+
+test("App: reload projects tidak mengganti state bila daftar sama", () => {
+  const { sameStringList } = loadViewHelpers();
+  assert.equal(sameStringList(["a", "b"], ["a", "b"]), true);
+  assert.equal(sameStringList(["a", "b"], ["a", "B"]), false);
+  assert.equal(sameStringList(["a"], ["a", "b"]), false);
+  assert.equal(sameStringList(null, []), false);
+  const reload = sliceFn("const reloadProjects = ", "};");
+  assert.match(reload, /setProjects\(prev => sameStringList\(prev, r\) \? prev : r\)/);
 });
