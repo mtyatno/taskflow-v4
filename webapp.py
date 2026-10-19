@@ -14,6 +14,7 @@ import sqlite3
 import uuid
 import mimetypes
 import asyncio
+import logging
 import json
 import math
 import re
@@ -8081,31 +8082,44 @@ async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
         row = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (cur.lastrowid,)).fetchone()
         return _mindmap_enrich(dict(row), conn, uid)
 
+def _mindmap_push(mid: int, uid: int, q: asyncio.Queue, event: dict) -> None:
+    """Antrean pelanggan dibatasi (100): bila penuh (klien macet) pelanggan dilepas;
+    klien akan menyambung ulang dan menarik keadaan terbaru."""
+    try:
+        q.put_nowait(event)
+    except asyncio.QueueFull:
+        mindmap_subscribers.get(mid, set()).discard((uid, q))
+
+
 async def _mindmap_broadcast(mid: int, event: dict) -> None:
     """Kirim sinyal ke pelanggan stream peta `mid`. Event bukan 'mindmap_deleted' hanya
     sampai ke pelanggan yang MASIH punya akses; sisanya menerima 'mindmap_access_lost'
-    dan dilepas dari daftar pelanggan. Tidak pernah membawa isi peta."""
-    subs = list(mindmap_subscribers.get(mid, set()))
-    if not subs:
-        return
-    if event.get("type") == "mindmap_deleted":
-        for _uid, q in subs:
-            await q.put(event)
-        return
-    verdicts = []
-    with get_db() as conn:
-        for uid, q in subs:
-            ac, ap = _mindmap_access_clause(uid)
-            ok = conn.execute(
-                f"SELECT 1 FROM mindmaps WHERE id = ? AND {ac}", [mid] + ap
-            ).fetchone() is not None
-            verdicts.append((uid, q, ok))
-    for uid, q, ok in verdicts:
-        if ok:
-            await q.put(event)
-        else:
-            await q.put({"type": "mindmap_access_lost", "id": mid})
-            mindmap_subscribers[mid].discard((uid, q))
+    dan dilepas dari daftar pelanggan. Tidak pernah membawa isi peta.
+    Dipanggil setelah commit: kegagalan apa pun hanya dicatat, tidak pernah menggagalkan request."""
+    try:
+        subs = list(mindmap_subscribers.get(mid, set()))
+        if not subs:
+            return
+        if event.get("type") == "mindmap_deleted":
+            for uid, q in subs:
+                _mindmap_push(mid, uid, q, event)
+            return
+        verdicts = []
+        with get_db() as conn:
+            for uid, q in subs:
+                ac, ap = _mindmap_access_clause(uid)
+                ok = conn.execute(
+                    f"SELECT 1 FROM mindmaps WHERE id = ? AND {ac}", [mid] + ap
+                ).fetchone() is not None
+                verdicts.append((uid, q, ok))
+        for uid, q, ok in verdicts:
+            if ok:
+                _mindmap_push(mid, uid, q, event)
+            else:
+                _mindmap_push(mid, uid, q, {"type": "mindmap_access_lost", "id": mid})
+                mindmap_subscribers.get(mid, set()).discard((uid, q))
+    except Exception:
+        logging.getLogger(__name__).exception("mindmap broadcast gagal (mid=%s)", mid)
 
 
 def _mindmap_editor_name(conn, uid: int) -> str:
@@ -8119,11 +8133,15 @@ async def mindmap_stream(mid: int, request: Request, user=Depends(get_current_us
     uid = user["sub"]
     with get_db() as conn:
         ac, ap = _mindmap_access_clause(uid)
-        if not conn.execute(f"SELECT 1 FROM mindmaps WHERE id = ? AND {ac}", [mid] + ap).fetchone():
+        row = conn.execute(
+            f"SELECT source_note_id FROM mindmaps WHERE id = ? AND {ac}", [mid] + ap
+        ).fetchone()
+        # Peta tertaut (Petakan) tidak berlangganan SSE.
+        if not row or row["source_note_id"] is not None:
             raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
 
     async def event_generator():
-        q: asyncio.Queue = asyncio.Queue()
+        q: asyncio.Queue = asyncio.Queue(maxsize=100)
         entry = (uid, q)
         mindmap_subscribers[mid].add(entry)
         try:

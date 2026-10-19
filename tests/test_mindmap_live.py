@@ -1,6 +1,7 @@
 """Temuan mindmap #4: sinyal SSE perubahan peta bersama."""
 import asyncio
 import os
+import sys
 
 import webapp
 from conftest import register_user
@@ -125,3 +126,80 @@ def test_stream_rejects_non_member(client):
     a, c = U(client, "mmlv4a"), U(client, "mmlv4c")
     m = a.mk_map("Privat")
     assert c.get(f"/api/mindmaps/{m['id']}/stream").status_code == 404
+
+
+def test_broadcast_failure_never_breaks_request(client, monkeypatch):
+    a, b = U(client, "mmlv7a"), U(client, "mmlv7b")
+    lid = _shared(a, b, "WS Live 7")
+    m = a.mk_map("Live7", list_id=lid)
+    q = asyncio.Queue()
+    webapp.mindmap_subscribers[m["id"]].add((b.id, q))
+    try:
+        real_get_db = webapp.get_db
+
+        def flaky_get_db():
+            if sys._getframe(1).f_code.co_name == "_mindmap_broadcast":
+                raise RuntimeError("boom")
+            return real_get_db()
+        monkeypatch.setattr(webapp, "get_db", flaky_get_db)
+        r = a.put(f"/api/mindmaps/{m['id']}", json={"title": "Baru"})
+        assert r.status_code == 200
+        monkeypatch.undo()
+        assert a.patch(f"/api/mindmaps/{m['id']}/share", json={"list_id": lid}).status_code == 200
+        assert a.delete(f"/api/mindmaps/{m['id']}").status_code == 200
+    finally:
+        webapp.mindmap_subscribers.pop(m["id"], None)
+
+
+def test_stream_rejects_linked_map(client):
+    a = U(client, "mmlv8")
+    note = a.post("/api/scratchpad", json={"title": "C", "content": "# A\n"}).json()
+    lm = a.mk_map("x", source_note_id=note["id"])
+    assert a.get(f"/api/mindmaps/{lm['id']}/stream").status_code == 404
+
+
+def test_stream_generator_ends_on_deleted_and_cleans_up(client):
+    a = U(client, "mmlv9")
+    m = a.mk_map("Gen")
+
+    class Req:
+        async def is_disconnected(self):
+            return False
+
+    async def run():
+        resp = await webapp.mindmap_stream(m["id"], Req(), user={"sub": a.id})
+        it = resp.body_iterator
+        first = asyncio.ensure_future(it.__anext__())
+        for _ in range(50):
+            if webapp.mindmap_subscribers.get(m["id"]):
+                break
+            await asyncio.sleep(0.01)
+        assert webapp.mindmap_subscribers.get(m["id"])
+        await webapp._mindmap_broadcast(m["id"], {"type": "mindmap_deleted", "id": m["id"]})
+        ev = await asyncio.wait_for(first, 5)
+        ended = False
+        try:
+            await asyncio.wait_for(it.__anext__(), 5)
+        except StopAsyncIteration:
+            ended = True
+        return ev, ended
+    ev, ended = asyncio.run(run())
+    assert '"mindmap_deleted"' in ev["data"]
+    assert ended
+    assert m["id"] not in webapp.mindmap_subscribers
+
+
+def test_full_queue_drops_subscriber(client):
+    a = U(client, "mmlv10")
+    m = a.mk_map("Full")
+
+    async def run():
+        q = asyncio.Queue(maxsize=1)
+        q.put_nowait({"type": "x"})
+        webapp.mindmap_subscribers[m["id"]].add((a.id, q))
+        try:
+            await webapp._mindmap_broadcast(m["id"], {"type": "mindmap_changed", "id": m["id"]})
+            return set(webapp.mindmap_subscribers.get(m["id"], set()))
+        finally:
+            webapp.mindmap_subscribers.pop(m["id"], None)
+    assert asyncio.run(run()) == set()
