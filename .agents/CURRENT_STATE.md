@@ -3,6 +3,11 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+## 🔵 Audio & video di note — spec — 2026-10-19 (Claude) — SPEC MENUNGGU REVIEW, BELUM ADA KODE
+- **Status:** spec `docs/superpowers/specs/2026-10-19-note-media-audio-video-design.md` (salinan di Project claude.ai "alurik" `claude/spec-note-media-audio-video-2026-10-19.md`), draft PR dari `claude/note-media-spec`. Setelah Bapak menyetujui: rencana di `docs/superpowers/plans/` lalu implementasi (SDD).
+- **Keputusan Bapak (brainstorming 2026-10-19):** semua jenis media (suara pendek s.d. video ratusan MB); kuota per paket di sesi terpisah (v1 hanya `MEDIA_MAX_FILE_MB`); penyimpanan `local`/`r2` mulai dari disk VPS, disajikan endpoint Alurik + nginx `X-Accel-Redirect` (Range oleh nginx) dengan URL bertanda tangan HMAC; pemrosesan ringan (ffprobe, faststart, poster, tanpa konversi); unggah hanya online, bertahap & bisa dilanjutkan; belum ada rekam langsung; halaman publik bisa putar + unduh mengikuti password note; media = lampiran milik satu note (`note_attachments` + kolom baru); **semua lampiran note bersama dibuka untuk siapa pun yang bisa membuka note** (hapus: pengunggah/pemilik note); player dari direktif `::media[<client_id>]`, HTML mentah tetap di-escape (PR 1b XSS sesi lain); pemutaran butuh koneksi.
+- **Urutan:** PR backend (butuh `apt install ffmpeg`, `MEDIA_ROOT`, `MEDIA_URL_SECRET`, blok nginx, restart `taskflow-web`) → PR frontend (naik SW) setelah PR 1b XSS di-merge.
+
 ## 🟠 Project sebagai entitas pribadi/workspace — PR 4 backend — 2026-10-19 (Claude) — DI-MERGE & DEPLOY (BELUM RESTART)
 - **Status:** PR #36 di-merge Bapak (`3d87d22`, 2026-10-19 13:09 WIB), Deploy run #906 sukses (migrasi `projects` + backfill sudah jalan via `migrate_db()`). Branch `claude/project-entities-backend`. Backend saja (`webapp.py`, `repository.py`, 3 file tes); tanpa frontend/SW. Migrasi otomatis di `migrate_db()` (tabel `projects`, `tasks.project_id`, backfill). **Deploy wajib restart `taskflow-web` DAN `taskflow` (bot)** karena `repository.py` berubah.
 - **Urutan kerja yang disepakati Bapak (2026-10-19):** PR 4–5 (project) → PR 2–3 (drawing workspace) → PR XSS (1b). PR audio/video di note dikerjakan Bapak di sesi lain.

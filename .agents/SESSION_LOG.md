@@ -3402,6 +3402,11 @@
 - **Files Touch:** `static/offline/{mindmaprepo,mindmaproutes,noterepo,syncpush,syncpull,mindmapops,notemapsession}.js`, `static/index.html`, `static/vendor/mind-elixir/index.html`, `static/sw.js`, `webapp.py` (sw_cache), tes, `.agents/*`
 - **Status:** PR 3/3 draft. JS 1458/1459, pytest 299/299.
 
+## [2026-10-19 14:30] - Claude (spec audio & video di note)
+- **Task:** Brainstorming fitur audio/video di note bersama Bapak, lalu menulis spec.
+- **Changes:** spec baru `docs/superpowers/specs/2026-10-19-note-media-audio-video-design.md`; belum ada kode.
+- **Files Touch:** `docs/superpowers/specs/2026-10-19-note-media-audio-video-design.md`, `.agents/*`
+- **Status:** Needs Review (spec).
 ## [2026-10-19 14:30] - Claude (Temuan mindmap #1 — link node lintas perangkat)
 - **Task:** Bapak minta temuan #1 lalu #2. Petakan selesai (PR #37 di-merge, restart dikonfirmasi).
 - **Root cause:** pull task/mindmap membuat cid acak (bukan `client_id` server) dan resolver lokal hanya mencocokkan cid/server_id → id link uuid (cid perangkat pembuat) tidak ditemukan di perangkat lain/setelah reset.
