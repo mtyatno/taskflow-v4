@@ -19,5 +19,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-web.txt
           pip install pytz python-dotenv dateparser trafilatura pytest httpx mistune
+      # tests/test_safehtml_parity_node.py menjalankan tes paritas JS ↔ Python (node --test)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
       - name: Run tests
         run: python -m pytest tests/ -q

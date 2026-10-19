@@ -4474,6 +4474,12 @@ def _pub_markdown(plugins):
             # entity tetap didecode lalu di-escape ulang (perilaku lama escape=False), keluaran selalu ter-escape
             return safe_entity(text)
 
+        def block_html(self, html):
+            # HTML blok mentah → teks ter-escape TANPA pembungkus <p> (bawaan mistune escape=True membungkus <p>),
+            # sama dengan renderer html() klien; allowlist (<details>/<summary>/…) dikembalikan sesudahnya, jadi
+            # <details> tidak berada di dalam <p>.
+            return safehtml.escape_html(html.strip()) + "\n"
+
         def link(self, text, url, title=None):
             href = safehtml.safe_url(url)
             if href is None:

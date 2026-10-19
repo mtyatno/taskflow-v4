@@ -96,6 +96,24 @@ def test_public_allowlist_block_and_code(client):
     _assert_no_active_markup(body)
 
 
+def test_public_details_block_not_wrapped_in_p(client):
+    """Blok <details> (dipakai pengguna) tidak dibungkus <p>; paragraf isi berada di dalam <details>."""
+    body = _page_body(client, '<details>\n<summary>Judul</summary>\n\nIsi **tebal**\n\n</details>')
+    assert '<p><details>' not in body and '<p>&lt;details' not in body
+    assert '</details></p>' not in body
+    m = re.search(r'<details>\s*<summary>Judul</summary>\s*(.*?)\s*</details>', body, re.S)
+    assert m, body
+    assert m.group(1) == '<p>Isi <strong>tebal</strong></p>', body
+    _assert_no_active_markup(body)
+
+
+def test_pub_markdown_block_html_escaped_without_p():
+    out = webapp._render_pub_markdown('<div onclick=x>\n<b>a</b>\n</div>\n\nteks')
+    assert out.startswith('&lt;div onclick=x&gt;\n&lt;b&gt;a&lt;/b&gt;\n&lt;/div&gt;\n'), out
+    assert '<p>&lt;div' not in out
+    assert '<p>teks</p>' in out
+
+
 def test_public_links_and_images_filtered(client):
     content = ('[a](javascript:alert(1))\n\n![i](x"onerror="alert(1))\n\n[b](https://ok.example)\n\n'
                '![gambar ok](https://ok.example/p.png)\n\n![tolak alt](javascript:alert(2))\n\n'
