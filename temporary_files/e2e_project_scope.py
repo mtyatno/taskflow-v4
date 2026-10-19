@@ -31,6 +31,7 @@ PW = "rahasia123"
 WS = "W"
 PROJ = "Uji W"
 PROJ2 = "Uji W2"
+PROJ_B = "Rumah Budi"  # project pribadi B: penanda dropdown scope "Pribadi" sudah dimuat (langkah 2c)
 TASK_TITLE = "Task uji scope W"
 SECRET = "e2e-project-scope-secret"
 TOURS = ['dashboard', 'tasks', 'today', 'calendar', 'kanban', 'notes', 'mindmap', 'chat', 'habits', 'habit',
@@ -200,6 +201,8 @@ def main():
             c.execute("INSERT INTO list_members (list_id, user_id, joined_at) VALUES (?,?,?)",
                       (ws_id, B["id"], datetime.now().isoformat()))
         check("setup: B anggota W", any(l["id"] == ws_id for l in api(base, B, "GET", "/api/lists")))
+        api(base, B, "POST", "/api/tasks", json={"title": "Task pribadi B", "project": PROJ_B})
+        check("setup: B punya project pribadi '%s'" % PROJ_B, PROJ_B in api(base, B, "GET", "/api/projects"))
         deadline = (date.today() + timedelta(days=3)).isoformat()
 
         with sync_playwright() as pw:
@@ -215,6 +218,9 @@ def main():
             scope.select_option(label="👥 " + WS)
             sel = project_select(a, "Project · " + WS)
             check("1a label 'Project · W' setelah pilih scope", sel.count() == 1)
+            assign = a.locator(".task-quick-attributes select[aria-label='Assign ke']")
+            check("1a2 'Assign ke' tampil di baris cepat setelah pilih scope W (tanpa buka Opsi Tambahan)",
+                  wait_until(lambda: assign.is_visible(), 10))
             sel.select_option(value="__new__")
             inp = project_select(a, "Project · " + WS).locator("input")
             inp.wait_for()
@@ -239,7 +245,7 @@ def main():
             # ── 2. B: dropdown project per scope ─────────────────────────────────────
             def b_cache():
                 sync_now(b)
-                return PROJ in local_scope_names(b, ws_id)
+                return PROJ in local_scope_names(b, ws_id) and PROJ_B in local_scope_names(b, None)
             check("2a B: sync menarik 'Uji W' ke cache lokal", wait_until(b_cache, 30))
             open_new_task_form(b, base)
             b.locator("select[aria-label='Scope task']").select_option(label="👥 " + WS)
@@ -251,9 +257,11 @@ def main():
             shot(b, "02_B_scope_W_dropdown_memuat_Uji_W.png")
             b.locator("select[aria-label='Scope task']").select_option(label="Pribadi")
             sel = project_select(b, "Project · Pribadi")
-            b.wait_for_timeout(1500)  # beri waktu fetch daftar scope pribadi
+            # tunggu sampai opsi benar-benar daftar scope pribadi (project pribadi B muncul), baru cek negatif
+            loaded = wait_until(lambda: PROJ_B in (option_values(sel) or []), 10)
             vals = option_values(sel) or []
-            check("2c B: scope 'Pribadi' → 'Uji W' tidak ada", PROJ not in vals, repr(vals))
+            check("2c B: scope 'Pribadi' → opsi memuat '%s' dan 'Uji W' tidak ada" % PROJ_B,
+                  loaded and PROJ not in vals, repr(vals))
             check("2d B: ganti ke 'Pribadi' mengosongkan pilihan 'Uji W'", sel.input_value() == "", repr(sel.input_value()))
             caption(b, "B · scope Pribadi · opsi project = %r · terpilih = %r" % (vals, sel.input_value()))
             shot(b, "03_B_scope_Pribadi_tanpa_Uji_W.png")
