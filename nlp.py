@@ -8,6 +8,7 @@ Case-insensitive, hyphen-insensitive.
 from __future__ import annotations
 
 import re
+import html as _html
 from datetime import date
 from typing import Optional
 
@@ -322,7 +323,7 @@ def format_confirmation(parsed: dict) -> str:
     lines = [
         "📋 <b>Task terdeteksi:</b>",
         "",
-        f"📝 <b>{title}</b>",
+        f"📝 <b>{_html.escape(str(title), quote=False)}</b>",
         f"{parsed['quadrant_label']}",
         f"└ {urgency_label}  ·  {importance_label}",
         f"🔄 {gtd_icons.get(parsed['gtd_status'], parsed['gtd_status'])}",
@@ -330,9 +331,9 @@ def format_confirmation(parsed: dict) -> str:
     if parsed["deadline"]:
         lines.append(f"📅 Deadline: {format_date(parsed['deadline'])}")
     if parsed["project"]:
-        lines.append(f"📁 Project: {parsed['project']}")
+        lines.append(f"📁 Project: {_html.escape(str(parsed['project']), quote=False)}")
     if parsed["context"]:
-        lines.append(f"🏷️ Context: {parsed['context']}")
+        lines.append(f"🏷️ Context: {_html.escape(str(parsed['context']), quote=False)}")
 
     lines += ["", "<i>Simpan task ini?</i>"]
     return "\n".join(lines)

@@ -1391,6 +1391,11 @@ def _check_base_rev(req, existing, current_fn) -> None:
         )
 
 
+def _esc_msg(v) -> str:
+    """Escape nilai pengguna untuk pesan notifikasi (disimpan sebagai HTML dan dikirim ke Telegram HTML)."""
+    return html.escape(str(v if v is not None else ""), quote=False)
+
+
 async def _notify_members_bg(list_id: int, actor_user_id: int, message: str, task_id: Optional[int] = None):
     """Write in-app notifications + send Telegram to all list members except the actor."""
     if not list_id:
@@ -1997,7 +2002,7 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, req.list_id, uid,
-            f"➕ <b>{actor}</b> menambahkan task <b>{req.title}</b> ke shared list.",
+            f"➕ <b>{_esc_msg(actor)}</b> menambahkan task <b>{_esc_msg(req.title)}</b> ke shared list.",
             task_id=row["id"]
         )
     return task_row_to_dict(row)
@@ -2161,13 +2166,13 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
             # Notify the newly assigned user directly
             background_tasks.add_task(
                 _notify_members_bg, existing["list_id"], uid,
-                f"📌 <b>{actor}</b> menugaskan task <b>{existing['title']}</b> kepadamu.",
+                f"📌 <b>{_esc_msg(actor)}</b> menugaskan task <b>{_esc_msg(existing['title'])}</b> kepadamu.",
                 task_id=task_id
             )
         else:
             background_tasks.add_task(
                 _notify_members_bg, existing["list_id"], uid,
-                f"✏️ <b>{actor}</b> memperbarui task <b>{existing['title']}</b>.",
+                f"✏️ <b>{_esc_msg(actor)}</b> memperbarui task <b>{_esc_msg(existing['title'])}</b>.",
                 task_id=task_id
             )
     return task_row_to_dict(row)
@@ -2189,7 +2194,7 @@ async def mark_done(task_id: int, background_tasks: BackgroundTasks, user=Depend
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, row["list_id"], uid,
-            f"✅ <b>{actor}</b> menyelesaikan task <b>{row['title']}</b>.",
+            f"✅ <b>{_esc_msg(actor)}</b> menyelesaikan task <b>{_esc_msg(row['title'])}</b>.",
             task_id=task_id
         )
     return task_row_to_dict(updated_row)
@@ -2325,19 +2330,20 @@ async def check_recurring_expiry(background_tasks: BackgroundTasks, user=Depends
         new_level = None
         msg = None
         tg_msg = None
+        title_e = _esc_msg(t["title"])
 
         if days_left < 0 and current_level in (None, "week", "day"):
             new_level = "expired"
-            msg = f'🔄 Recurring task "{t["title"]}" telah berakhir. Buat ulang jika masih diperlukan.'
-            tg_msg = f'🔄 <b>Recurring Task Berakhir</b>\n"{t["title"]}" telah berakhir.\nBuka Alurik untuk membuat ulang.'
+            msg = f'🔄 Recurring task "{title_e}" telah berakhir. Buat ulang jika masih diperlukan.'
+            tg_msg = f'🔄 <b>Recurring Task Berakhir</b>\n"{title_e}" telah berakhir.\nBuka Alurik untuk membuat ulang.'
         elif days_left <= 1 and current_level == "week":
             new_level = "day"
-            msg = f'⚠️ Recurring task "{t["title"]}" berakhir besok. Perpanjang jika masih diperlukan.'
-            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" berakhir besok.\nBuka Alurik untuk memperpanjang.'
+            msg = f'⚠️ Recurring task "{title_e}" berakhir besok. Perpanjang jika masih diperlukan.'
+            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{title_e}" berakhir besok.\nBuka Alurik untuk memperpanjang.'
         elif days_left <= 7 and current_level is None:
             new_level = "week"
-            msg = f'⚠️ Recurring task "{t["title"]}" akan berakhir dalam {days_left} hari. Perpanjang jika masih diperlukan.'
-            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" akan berakhir dalam {days_left} hari.\nBuka Alurik untuk memperpanjang.'
+            msg = f'⚠️ Recurring task "{title_e}" akan berakhir dalam {days_left} hari. Perpanjang jika masih diperlukan.'
+            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{title_e}" akan berakhir dalam {days_left} hari.\nBuka Alurik untuk memperpanjang.'
         else:
             continue
 
@@ -2632,7 +2638,7 @@ async def create_subtask(task_id: int, req: SubtaskCreate, background_tasks: Bac
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, row["list_id"], uid,
-            f"📝 <b>{actor}</b> menambah subtask di task <b>{row['title']}</b>.",
+            f"📝 <b>{_esc_msg(actor)}</b> menambah subtask di task <b>{_esc_msg(row['title'])}</b>.",
             task_id=task_id
         )
     return result
@@ -2686,7 +2692,7 @@ async def create_note(task_id: int, req: NoteCreate, background_tasks: Backgroun
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, row["list_id"], uid,
-            f"💬 <b>{actor}</b> menambahkan komentar di task <b>{row['title']}</b>:\n{req.content[:100]}",
+            f"💬 <b>{_esc_msg(actor)}</b> menambahkan komentar di task <b>{_esc_msg(row['title'])}</b>:\n{_esc_msg(req.content[:100])}",
             task_id=task_id
         )
     return note
@@ -2750,7 +2756,7 @@ async def upload_attachment(task_id: int, background_tasks: BackgroundTasks, fil
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, task_row["list_id"], uid,
-            f"📎 <b>{actor}</b> mengunggah file <b>{original_name}</b> di task <b>{task_row['title']}</b>.",
+            f"📎 <b>{_esc_msg(actor)}</b> mengunggah file <b>{_esc_msg(original_name)}</b> di task <b>{_esc_msg(task_row['title'])}</b>.",
             task_id=task_id
         )
     return result
@@ -2890,7 +2896,7 @@ async def join_list_by_code(req: JoinListReq, user=Depends(get_current_user)):
             joiner = user.get("username", f"user#{uid}")
             asyncio.create_task(_tg_bot.send_message(
                 chat_id=owner["telegram_id"],
-                text=f"👥 <b>{joiner}</b> bergabung ke shared list <b>{lst['name']}</b>.",
+                text=f"👥 <b>{_esc_msg(joiner)}</b> bergabung ke shared list <b>{_esc_msg(lst['name'])}</b>.",
                 parse_mode="HTML",
             ))
         except Exception:
@@ -3028,7 +3034,7 @@ async def invite_to_list(list_id: int, req: InviteUserReq, user=Depends(get_curr
             asyncio.create_task(
                 _tg_bot.send_message(
                     chat_id=target["telegram_id"],
-                    text=f"👥 <b>{inviter}</b> mengundangmu ke shared list <b>{lst['name']}</b>!\n"
+                    text=f"👥 <b>{_esc_msg(inviter)}</b> mengundangmu ke shared list <b>{_esc_msg(lst['name'])}</b>!\n"
                          f"Kamu sekarang bisa melihat dan mengedit task di list ini.",
                     parse_mode="HTML"
                 )
@@ -3293,7 +3299,7 @@ async def post_message(list_id: int, req: MessageCreate, user=Depends(get_curren
                         "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, created_at) "
                         "VALUES (?,?,0,?,NULL,?)",
                         (mentioned["id"],
-                         f"💬 {sender_username} menyebut kamu di diskusi '{list_name}'",
+                         f"💬 {_esc_msg(sender_username)} menyebut kamu di diskusi '{_esc_msg(list_name)}'",
                          list_id, now),
                     )
     # Broadcast to all SSE subscribers of this list
@@ -3811,7 +3817,7 @@ async def dm_post_message(conv_id: int, req: DmMessageCreate, user=Depends(get_c
         watching = any(sub_uid == recipient for sub_uid, _q in dm_subscribers.get(conv_id, set()))
         if not watching:
             # Nama dari DB (bukan klaim JWT) agar teks & dedup konsisten setelah user ganti username.
-            notif = f"💬 {msg_dict['username']} mengirim pesan pribadi"
+            notif = f"💬 {_esc_msg(msg_dict['username'])} mengirim pesan pribadi"
             dup = conn.execute(
                 "SELECT 1 FROM notifications WHERE user_id = ? AND message = ? AND is_read = 0 LIMIT 1",
                 (recipient, notif),

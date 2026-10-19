@@ -32,6 +32,7 @@ Commands:
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import os
 import re
@@ -136,6 +137,11 @@ def authorized_callback(func):
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+def h(s) -> str:
+    """Escape nilai dari pengguna sebelum masuk pesan ParseMode.HTML (& < >)."""
+    return html.escape(str(s or ""), quote=False)
+
 
 def paginate(tasks: list[Task], page: int = 0, per_page: int = 10) -> tuple[list[Task], int]:
     total_pages = max(1, (len(tasks) + per_page - 1) // per_page)
@@ -284,14 +290,14 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             is_auto = uname.startswith("tg_")
             if is_auto:
                 await update.message.reply_text(
-                    f"🔗 Telegram kamu terhubung ke akun otomatis: <b>{dname}</b>\n\n"
+                    f"🔗 Telegram kamu terhubung ke akun otomatis: <b>{h(dname)}</b>\n\n"
                     "Untuk sync dengan akun web, jalankan:\n"
                     "<code>/link username_web password_web</code>",
                     parse_mode=ParseMode.HTML,
                 )
             else:
                 await update.message.reply_text(
-                    f"✅ Telegram kamu sudah terhubung ke akun web: <b>{uname}</b> ({dname})\n"
+                    f"✅ Telegram kamu sudah terhubung ke akun web: <b>{h(uname)}</b> ({h(dname)})\n"
                     "Task dari Telegram dan Web sudah sync!",
                     parse_mode=ParseMode.HTML,
                 )
@@ -331,7 +337,7 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.commit()
             context.user_data["db_user_id"] = row["user_id"]
             await update.message.reply_text(
-                f"✅ Berhasil! Telegram terhubung ke akun <b>{user_row['username']}</b>. 🎉\n"
+                f"✅ Berhasil! Telegram terhubung ke akun <b>{h(user_row['username'])}</b>. 🎉\n"
                 "Task dari Telegram dan Web sekarang sync!",
                 parse_mode=ParseMode.HTML,
             )
@@ -356,7 +362,7 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if linked_user_id:
             context.user_data["db_user_id"] = linked_user_id
             await update.message.reply_text(
-                f"✅ Berhasil! Telegram terhubung ke akun web <b>{username}</b>.\n"
+                f"✅ Berhasil! Telegram terhubung ke akun web <b>{h(username)}</b>.\n"
                 "Task dari Telegram dan Web sekarang sync! 🎉",
                 parse_mode=ParseMode.HTML,
             )
@@ -568,7 +574,7 @@ async def _show_context_picker(query, context):
     keyboard.append([InlineKeyboardButton("⏭️ Skip", callback_data="addctx___skip__")])
 
     proj = context.user_data.get("new_project", "")
-    proj_text = f"📁 Project: <b>{proj}</b>\n\n" if proj else ""
+    proj_text = f"📁 Project: <b>{h(proj)}</b>\n\n" if proj else ""
 
     await query.edit_message_text(
         f"{proj_text}🏷️ Pilih context:",
@@ -677,7 +683,7 @@ def _build_view_message(task, subtasks, is_focused=False, notes=None, attachment
         text += f"<code>{bar}</code>\n"
         for s in subtasks:
             icon = "☑️" if s["is_done"] else "☐"
-            strike = f"<s>{s['title']}</s>" if s["is_done"] else s["title"]
+            strike = f"<s>{h(s['title'])}</s>" if s["is_done"] else h(s["title"])
             text += f"\n  {icon} {strike}"
 
     if notes:
@@ -689,7 +695,7 @@ def _build_view_message(task, subtasks, is_focused=False, notes=None, attachment
             from datetime import date as dt_date
             today = dt_date.today().isoformat()
             prefix = time_str if date_str == today else f"{date_str[5:]} {time_str}"
-            text += f"\n  <i>{prefix}</i> — {n['content']}"
+            text += f"\n  <i>{prefix}</i> — {h(n['content'])}"
 
     if attachments:
         def _fmt_size(b):
@@ -698,7 +704,7 @@ def _build_view_message(task, subtasks, is_focused=False, notes=None, attachment
             return f"{b//(1024*1024)}MB"
         text += f"\n\n📎 <b>Lampiran</b> ({len(attachments)})\n"
         for a in attachments:
-            text += f"\n  📄 {a['original_name']}  <i>({_fmt_size(a['file_size'])})</i>"
+            text += f"\n  📄 {h(a['original_name'])}  <i>({_fmt_size(a['file_size'])})</i>"
 
     return text
 
@@ -809,7 +815,7 @@ async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await update.message.reply_text(
-        f"⚠️ Hapus task #{task_id}: <b>{task.title}</b>?",
+        f"⚠️ Hapus task #{task_id}: <b>{h(task.title)}</b>?",
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
@@ -835,7 +841,7 @@ async def cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
             task.gtd_status = GTDStatus.DONE
             task.completed_at = datetime.now()
             repo.update(task)
-            results.append(f"✅ #{task.id} {task.title}")
+            results.append(f"✅ #{task.id} {h(task.title)}")
         else:
             results.append(f"❌ #{arg} tidak ditemukan / sudah selesai")
 
@@ -888,16 +894,16 @@ async def cmd_projects(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tasks = repo.list_by_project(proj, uid(context))
         pri_icon = {"P1": "🔴", "P2": "🟠", "P3": "🟡", "P4": "🟢"}
 
-        lines.append(f"📂  <b>{proj}</b>  —  {len(tasks)} task(s)")
+        lines.append(f"📂  <b>{h(proj)}</b>  —  {len(tasks)} task(s)")
         lines.append("")
         for t in tasks[:5]:
             icon = pri_icon.get(t.priority.value, "⚪")
             overdue_tag = "  ⚠️" if t.is_overdue else ""
-            lines.append(f"    {icon}  {t.title}{overdue_tag}")
+            lines.append(f"    {icon}  {h(t.title)}{overdue_tag}")
             lines.append(f"        #{t.id}  ·  {t.priority.value}  ·  {t.quadrant.value}")
             lines.append("")
         if len(tasks) > 5:
-            lines.append(f"    <i>+{len(tasks)-5} lagi → /list #{proj}</i>")
+            lines.append(f"    <i>+{len(tasks)-5} lagi → /list #{h(proj)}</i>")
             lines.append("")
         if i < len(projects) - 1:
             lines.append("──────────────────")
@@ -1074,9 +1080,9 @@ async def cmd_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if quadrant:
         filter_desc.append(f"quadrant={quadrant.value}")
     if project:
-        filter_desc.append(f"project={project}")
+        filter_desc.append(f"project={h(project)}")
     if ctx:
-        filter_desc.append(f"context={ctx}")
+        filter_desc.append(f"context={h(ctx)}")
     title = "📋  <b>TASK LIST</b>"
     if filter_desc:
         title += f" ({', '.join(filter_desc)})"
@@ -1151,7 +1157,7 @@ async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for t in focus[:4]:
             icon = pri_icon.get(t.priority.value, "⚪")
             tag = " ⚠️" if t.is_overdue else ""
-            lines.append(f"  {icon} {t.title}{tag}")
+            lines.append(f"  {icon} {h(t.title)}{tag}")
         if len(focus) > 4:
             lines.append(f"  <i>+{len(focus)-4} lagi...</i>")
         lines.append("")
@@ -1236,7 +1242,7 @@ async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for t in overdue[:5]:
             icon = pri_icon.get(t.priority.value, "⚪")
             days = abs(t.days_until_deadline) if t.days_until_deadline else 0
-            lines.append(f"  {icon} #{t.id} {t.title} <i>({days}h lalu)</i>")
+            lines.append(f"  {icon} #{t.id} {h(t.title)} <i>({days}h lalu)</i>")
         if len(overdue) > 5:
             lines.append(f"  <i>+{len(overdue)-5} lagi → /overdue</i>")
         lines.append("")
@@ -1245,8 +1251,8 @@ async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if waiting:
         lines.append(f"⏳ <b>Cek Waiting For</b>")
         for t in waiting[:5]:
-            wf = f" → <i>{t.waiting_for}</i>" if t.waiting_for else ""
-            lines.append(f"  #{t.id} {t.title}{wf}")
+            wf = f" → <i>{h(t.waiting_for)}</i>" if t.waiting_for else ""
+            lines.append(f"  #{t.id} {h(t.title)}{wf}")
         lines.append("")
 
     # ── Someday review ──
@@ -1254,7 +1260,7 @@ async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"💭 <b>Cek Someday/Maybe</b>")
         lines.append(f"  <i>Ada yang siap dipromosikan ke Next?</i>")
         for t in someday[:4]:
-            lines.append(f"  #{t.id} {t.title}")
+            lines.append(f"  #{t.id} {h(t.title)}")
         if len(someday) > 4:
             lines.append(f"  <i>+{len(someday)-4} lagi → /someday</i>")
         lines.append("")
@@ -1470,7 +1476,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 actor = update.effective_user.full_name or update.effective_user.username
                 asyncio.create_task(_notify_list_members(
                     context.bot, task.list_id, uid(context),
-                    f"✅ <b>{actor}</b> menyelesaikan task <b>{task.title}</b>."
+                    f"✅ <b>{h(actor)}</b> menyelesaikan task <b>{h(task.title)}</b>."
                 ))
         else:
             await query.answer("Task not found")
@@ -1494,7 +1500,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 actor = update.effective_user.full_name or update.effective_user.username
                 asyncio.create_task(_notify_list_members(
                     context.bot, task.list_id, uid(context),
-                    f"✏️ <b>{actor}</b> memindahkan task <b>{task.title}</b> → {new_status.value}."
+                    f"✏️ <b>{h(actor)}</b> memindahkan task <b>{h(task.title)}</b> → {new_status.value}."
                 ))
 
     # ── Process inbox ──
@@ -1589,7 +1595,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task = repo.get(task_id, uid(context))
         await query.answer()
         await query.edit_message_text(
-            f"⚠️ Hapus task #{task_id}: <b>{task.title if task else '?'}</b>?",
+            f"⚠️ Hapus task #{task_id}: <b>{h(task.title) if task else '?'}</b>?",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
@@ -1654,7 +1660,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         buttons.append([InlineKeyboardButton("⬅️ Kembali", callback_data=f"viewrefresh_{task_id}")])
         await query.answer()
         await query.edit_message_text(
-            f"🗑 <b>Hapus subtask mana?</b>\n\nTask: #{task_id} {task.title if task else ''}",
+            f"🗑 <b>Hapus subtask mana?</b>\n\nTask: #{task_id} {h(task.title) if task else ''}",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(buttons),
         )
@@ -1860,7 +1866,7 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     text = _build_view_message(task, subtasks, focused, notes, attachments)
     markup = _build_view_buttons(task, subtasks, focused, notes, attachments)
     await update.message.reply_text(
-        f"📎 File <b>{original_name}</b> berhasil dilampirkan!\n\n{text}",
+        f"📎 File <b>{h(original_name)}</b> berhasil dilampirkan!\n\n{text}",
         parse_mode=ParseMode.HTML,
         reply_markup=markup,
     )
@@ -1901,7 +1907,7 @@ async def _handle_nlp_query(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         }
         status = status_map.get(value, GTDStatus.INBOX)
         tasks = repo.list_by_status(status, u)
-        title = f"{gtd_icons.get(value, '📋')} <b>{value.upper()}</b>"
+        title = f"{gtd_icons.get(value, '📋')} <b>{h(value.upper())}</b>"
 
     elif view == "quadrant":
         quad_map = {"Q1": Quadrant.Q1, "Q2": Quadrant.Q2, "Q3": Quadrant.Q3, "Q4": Quadrant.Q4}
@@ -1912,20 +1918,20 @@ async def _handle_nlp_query(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             "Q4": "🗑 Q4 — Drop",
         }
         tasks = repo.list_by_quadrant(quad_map.get(value, Quadrant.Q1), u)
-        title = f"<b>{quad_labels.get(value, value)}</b>"
+        title = f"<b>{h(quad_labels.get(value, value))}</b>"
 
     elif view == "priority":
         tasks = repo.list_filtered(priority=value, user_id=u)
         pri_icons = {"P1": "🔴", "P2": "🟠", "P3": "🟡", "P4": "🟢"}
-        title = f"{pri_icons.get(value, '')} <b>Priority {value}</b>"
+        title = f"{pri_icons.get(value, '')} <b>Priority {h(value)}</b>"
 
     elif view == "project":
         tasks = repo.list_by_project(value, u)
-        title = f"📁 <b>Project: {value}</b>"
+        title = f"📁 <b>Project: {h(value)}</b>"
 
     elif view == "context":
         tasks = repo.list_filtered(context=f"@{value}", user_id=u)
-        title = f"🏷️ <b>Context: @{value}</b>"
+        title = f"🏷️ <b>Context: @{h(value)}</b>"
 
     else:  # all
         tasks = repo.list_active(u)
@@ -2030,7 +2036,7 @@ async def cmd_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
     notes = repo.get_notes(task_id)
     await update.message.reply_text(
         f"📓 Catatan ditambahkan ke <b>#{task_id}</b>\n"
-        f"   {content}\n\n"
+        f"   {h(content)}\n\n"
         f"📓 Total catatan: {len(notes)}",
         parse_mode=ParseMode.HTML,
     )
@@ -2060,7 +2066,7 @@ async def cmd_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     done_count = sum(1 for s in subtasks if s["is_done"])
     await update.message.reply_text(
         f"✅ Subtask ditambahkan ke <b>#{task_id}</b>\n"
-        f"   ☐ {title}\n\n"
+        f"   ☐ {h(title)}\n\n"
         f"📝 Subtasks: {done_count}/{len(subtasks)}",
         parse_mode=ParseMode.HTML,
     )
@@ -2086,16 +2092,16 @@ def _send_phase_habits(habits: list[dict], header: str) -> list[str]:
 async def _send_habit_checkins(bot, telegram_id: int, habits: list[dict], header: str):
     """Send header + one inline-keyboard message per habit."""
     await bot.send_message(chat_id=telegram_id, text=header, parse_mode=ParseMode.HTML)
-    for h in habits:
-        streak = repo.get_habit_streak(h["id"])
+    for hb in habits:
+        streak = repo.get_habit_streak(hb["id"])
         streak_txt = f"  🔥 {streak} hari" if streak > 0 else ""
-        micro = f"\n<i>{h['micro_target']}</i>" if h.get("micro_target") else ""
-        text = f"🔁 <b>{h['title']}</b>{micro}{streak_txt}"
+        micro = f"\n<i>{h(hb['micro_target'])}</i>" if hb.get("micro_target") else ""
+        text = f"🔁 <b>{h(hb['title'])}</b>{micro}{streak_txt}"
         await bot.send_message(
             chat_id=telegram_id,
             text=text,
             parse_mode=ParseMode.HTML,
-            reply_markup=_habit_checkin_keyboard(h["id"]),
+            reply_markup=_habit_checkin_keyboard(hb["id"]),
         )
 
 
@@ -2115,9 +2121,9 @@ async def cmd_habittoday(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending = repo.get_habits_pending_today(u, phase)
         if pending:
             lines.append(f"<b>{phase_labels[phase]}</b>")
-            for h in pending:
-                lines.append(f"  · {h['title']}")
-                all_pending.append(h)
+            for hb in pending:
+                lines.append(f"  · {h(hb['title'])}")
+                all_pending.append(hb)
             lines.append("")
 
     if not all_pending:
@@ -2128,15 +2134,15 @@ async def cmd_habittoday(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
-    for h in all_pending:
-        streak = repo.get_habit_streak(h["id"])
+    for hb in all_pending:
+        streak = repo.get_habit_streak(hb["id"])
         streak_txt = f"  🔥 {streak} hari" if streak > 0 else ""
-        micro = f"\n<i>{h['micro_target']}</i>" if h.get("micro_target") else ""
-        text = f"🔁 <b>{h['title']}</b>{micro}{streak_txt}"
+        micro = f"\n<i>{h(hb['micro_target'])}</i>" if hb.get("micro_target") else ""
+        text = f"🔁 <b>{h(hb['title'])}</b>{micro}{streak_txt}"
         await update.message.reply_text(
             text,
             parse_mode=ParseMode.HTML,
-            reply_markup=_habit_checkin_keyboard(h["id"]),
+            reply_markup=_habit_checkin_keyboard(hb["id"]),
         )
 
 
@@ -2155,9 +2161,9 @@ async def cmd_streak(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     streaks = []
-    for h in habits:
-        s = repo.get_habit_streak(h["id"])
-        streaks.append((s, h["title"], h["phase"]))
+    for hb in habits:
+        s = repo.get_habit_streak(hb["id"])
+        streaks.append((s, hb["title"], hb["phase"]))
     streaks.sort(reverse=True)
 
     phase_icon = {"pagi": "☀️", "siang": "⚡", "malam": "🌙"}
@@ -2165,7 +2171,7 @@ async def cmd_streak(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for i, (s, title, phase) in enumerate(streaks):
         icon = phase_icon.get(phase, "🔁")
         bar = "🟩" * min(s, 7) + "⬜" * max(0, 7 - s)
-        lines.append(f"{i+1}. {icon} <b>{title}</b>")
+        lines.append(f"{i+1}. {icon} <b>{h(title)}</b>")
         lines.append(f"   {bar}  {s} hari")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
@@ -2182,34 +2188,34 @@ async def handle_habit_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if data.startswith("habit_done_"):
         habit_id = int(data.replace("habit_done_", ""))
         with repo._connect() as conn:
-            h = conn.execute(
+            hb = conn.execute(
                 "SELECT * FROM habits WHERE id = ? AND user_id = ?", (habit_id, u)
             ).fetchone()
-        if not h:
+        if not hb:
             await query.answer("Habit tidak ditemukan.")
             return
         repo.upsert_habit_log(habit_id, today, "done")
         streak = repo.get_habit_streak(habit_id)
         await query.answer("✅ Done!")
         await query.edit_message_text(
-            f"✅ <b>{h['title']}</b> selesai!\n🔥 Streak: {streak} hari",
+            f"✅ <b>{h(hb['title'])}</b> selesai!\n🔥 Streak: {streak} hari",
             parse_mode=ParseMode.HTML,
         )
 
     elif data.startswith("habit_skip_"):
         habit_id = int(data.replace("habit_skip_", ""))
         with repo._connect() as conn:
-            h = conn.execute(
+            hb = conn.execute(
                 "SELECT * FROM habits WHERE id = ? AND user_id = ?", (habit_id, u)
             ).fetchone()
-        if not h:
+        if not hb:
             await query.answer("Habit tidak ditemukan.")
             return
         repo.upsert_habit_log(habit_id, today, "skipped")
         context.user_data[f"skip_reason_habit_{habit_id}"] = query.message.message_id
         await query.answer("⏭️ Di-skip")
         await query.edit_message_text(
-            f"⏭️ <b>{h['title']}</b> di-skip.\n\n"
+            f"⏭️ <b>{h(hb['title'])}</b> di-skip.\n\n"
             f"Balas pesan ini dengan alasan singkat (opsional), atau abaikan.",
             parse_mode=ParseMode.HTML,
         )
@@ -2228,7 +2234,7 @@ async def _handle_skip_reason(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.user_data.pop(key)
             repo.upsert_habit_log(habit_id, today, "skipped", skip_reason=text)
             await update.message.reply_text(
-                f"📝 Alasan skip disimpan: <i>{text}</i>",
+                f"📝 Alasan skip disimpan: <i>{h(text)}</i>",
                 parse_mode=ParseMode.HTML,
             )
             return True
@@ -2302,8 +2308,8 @@ async def habit_weekly_heatmap_job(context: ContextTypes.DEFAULT_TYPE):
             if not habits:
                 continue
             lines = ["📅 <b>Habit Minggu Ini</b>\n"]
-            for h in habits:
-                week_log = repo.get_habit_week_log(h["id"])
+            for hb in habits:
+                week_log = repo.get_habit_week_log(hb["id"])
                 dots = []
                 done_count = 0
                 for status in week_log:
@@ -2317,7 +2323,7 @@ async def habit_weekly_heatmap_job(context: ContextTypes.DEFAULT_TYPE):
                         dots.append("⬜")
                 total_scheduled = sum(1 for s in week_log if s is not None)
                 pct = round(done_count / total_scheduled * 100) if total_scheduled else 0
-                lines.append(f"🔁 <b>{h['title']}</b>")
+                lines.append(f"🔁 <b>{h(hb['title'])}</b>")
                 lines.append(f"   {''.join(dots)}  ({pct}%)")
             await context.bot.send_message(
                 chat_id=user["telegram_id"],
@@ -2383,7 +2389,7 @@ def _build_daily_summary(user_id: int) -> str:
         for t in focus[:7]:
             pri_icon = {"P1": "🔴", "P2": "🟠", "P3": "🟡", "P4": "🟢"}.get(t.priority.value, "⚪")
             overdue_tag = " ⚠️" if t.is_overdue else ""
-            lines.append(f"  {pri_icon} {t.title}{overdue_tag}")
+            lines.append(f"  {pri_icon} {h(t.title)}{overdue_tag}")
         if len(focus) > 7:
             lines.append(f"  ... +{len(focus) - 7} lagi")
         lines.append("")
@@ -2441,13 +2447,13 @@ def _build_weekly_review(user_id: int) -> str:
     if waiting:
         lines.append(f"\n<b>⏳ Cek Waiting For:</b>")
         for t in waiting[:5]:
-            wf = f" → {t.waiting_for}" if t.waiting_for else ""
-            lines.append(f"  #{t.id} {t.title}{wf}")
+            wf = f" → {h(t.waiting_for)}" if t.waiting_for else ""
+            lines.append(f"  #{t.id} {h(t.title)}{wf}")
 
     if someday:
         lines.append(f"\n<b>💭 Cek Someday/Maybe:</b>")
         for t in someday[:5]:
-            lines.append(f"  #{t.id} {t.title}")
+            lines.append(f"  #{t.id} {h(t.title)}")
 
     lines.append("\n💡 <i>Luangkan 15 menit untuk review dan bersihkan sistem.</i>")
 
@@ -2484,8 +2490,8 @@ async def cmd_mylist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for l in lists:
         role_icon = "👑" if l["role"] == "owner" else "👥"
         mc = l["member_count"]
-        lines.append(f"{role_icon} <b>{l['name']}</b> (ID: {l['id']})")
-        lines.append(f"   {mc} anggota · role: {l['role']}")
+        lines.append(f"{role_icon} <b>{h(l['name'])}</b> (ID: {l['id']})")
+        lines.append(f"   {mc} anggota · role: {h(l['role'])}")
         lines.append("")
 
     lines.append("Gunakan /createlist, /invite, /leavelist")
@@ -2512,7 +2518,7 @@ async def cmd_createlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lst = repo.create_shared_list(name, uid(context))
     await update.message.reply_text(
-        f"✅ <b>Shared list dibuat:</b> {lst['name']}\n"
+        f"✅ <b>Shared list dibuat:</b> {h(lst['name'])}\n"
         f"ID: <code>{lst['id']}</code>\n\n"
         f"Undang anggota dengan:\n<code>/invite {lst['id']} @username</code>",
         parse_mode=ParseMode.HTML,
@@ -2559,7 +2565,7 @@ async def cmd_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target = repo.get_user_by_display_name(raw_username)
     if not target:
         await update.message.reply_text(
-            f"❌ User <b>{raw_username}</b> tidak ditemukan di Alurik.\n"
+            f"❌ User <b>{h(raw_username)}</b> tidak ditemukan di Alurik.\n"
             f"Pastikan mereka sudah pernah menggunakan bot ini.",
             parse_mode=ParseMode.HTML,
         )
@@ -2571,7 +2577,7 @@ async def cmd_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if repo.is_list_member_or_owner(list_id, target["id"]):
         await update.message.reply_text(
-            f"ℹ️ <b>{target['display_name']}</b> sudah menjadi anggota list ini.",
+            f"ℹ️ <b>{h(target['display_name'])}</b> sudah menjadi anggota list ini.",
             parse_mode=ParseMode.HTML,
         )
         return
@@ -2584,7 +2590,7 @@ async def cmd_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(
                 chat_id=target["telegram_id"],
-                text=f"👥 <b>{inviter_name}</b> mengundangmu ke shared list <b>{lst['name']}</b>!\n"
+                text=f"👥 <b>{h(inviter_name)}</b> mengundangmu ke shared list <b>{h(lst['name'])}</b>!\n"
                      f"Kamu sekarang bisa melihat dan mengerjakan task di list ini.\n\n"
                      f"Lihat di: /mylist",
                 parse_mode=ParseMode.HTML,
@@ -2593,7 +2599,7 @@ async def cmd_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Gagal notif ke {target['telegram_id']}: {e}")
 
     await update.message.reply_text(
-        f"✅ <b>{target['display_name']}</b> berhasil ditambahkan ke list <b>{lst['name']}</b>!",
+        f"✅ <b>{h(target['display_name'])}</b> berhasil ditambahkan ke list <b>{h(lst['name'])}</b>!",
         parse_mode=ParseMode.HTML,
     )
 
@@ -2623,13 +2629,13 @@ async def cmd_kickmember(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw_username = context.args[1].lstrip("@")
     target = repo.get_user_by_username(raw_username) or repo.get_user_by_display_name(raw_username)
     if not target:
-        await update.message.reply_text(f"❌ User <b>{raw_username}</b> tidak ditemukan.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"❌ User <b>{h(raw_username)}</b> tidak ditemukan.", parse_mode=ParseMode.HTML)
         return
 
     removed = repo.remove_list_member(list_id, target["id"])
     if removed:
         await update.message.reply_text(
-            f"✅ <b>{target['display_name']}</b> telah dihapus dari list <b>{lst['name']}</b>.",
+            f"✅ <b>{h(target['display_name'])}</b> telah dihapus dari list <b>{h(lst['name'])}</b>.",
             parse_mode=ParseMode.HTML,
         )
     else:
@@ -2664,7 +2670,7 @@ async def cmd_leavelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     removed = repo.remove_list_member(list_id, uid(context))
     if removed:
-        await update.message.reply_text(f"✅ Kamu keluar dari list <b>{lst['name']}</b>.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"✅ Kamu keluar dari list <b>{h(lst['name'])}</b>.", parse_mode=ParseMode.HTML)
     else:
         await update.message.reply_text("ℹ️ Kamu bukan anggota list ini.")
 
@@ -2692,7 +2698,7 @@ async def cmd_deletelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         InlineKeyboardButton("❌ Batal", callback_data="dlist_cancel"),
     ]])
     await update.message.reply_text(
-        f"⚠️ Hapus shared list <b>{lst['name']}</b>?\n"
+        f"⚠️ Hapus shared list <b>{h(lst['name'])}</b>?\n"
         f"Semua task di list ini akan ikut terhapus.",
         parse_mode=ParseMode.HTML,
         reply_markup=keyboard,
