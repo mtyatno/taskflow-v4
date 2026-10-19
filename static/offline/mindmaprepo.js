@@ -564,9 +564,23 @@
     });
   }
 
+  // Detail event window "mindmapConflictCopy" (#4): push 409 / pull membuat salinan "(konflik)" → UI memberi toast
+  // (jalur simpan tab memberi toast sendiri lewat respons router). editor = nama di baris server, null bila tidak ada
+  // (mis. pemilik yang mengedit — server hanya mengisi last_editor_* untuk editor ≠ pemilik). null bila tanpa salinan.
+  function conflictCopyDetail(out, serverRow, source) {
+    if (!out || !out.copy) return null;
+    const s = serverRow || {};
+    const o = out.original || {};
+    return {
+      cid: o.cid != null ? o.cid : null, copyCid: out.copy.cid, title: o.title != null ? o.title : (s.title || null),
+      copyTitle: out.copy.title, editor: s.last_editor_display_name || s.last_editor_username || null, source: source || null,
+    };
+  }
+
   const exported = {
     createMindmap, updateMindmap, deleteMindmap, restoreLocal, notInTrashError, togglePin, getRaw, putRaw, setCurrentUser, getCurrentUser,
     recordFromServer, adoptServerWithConflictCopy, mergeServerIntoLocal, setBaseFromServer, isLinked, CONFLICT_PREFIX, DEFAULT_DATA,
+    conflictCopyDetail,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.mindmaprepo = exported; }
   return exported;

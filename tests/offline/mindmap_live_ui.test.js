@@ -152,6 +152,21 @@ test("offerRemote → applied advances base and if_updated_at together; skipped 
   assert.equal(r.pendingRemoteRef.current.size, 0);
 });
 
+test("offerRemote with content equal to the base (e.g. echo of own save) → null, no canvas reload; if_updated_at advances", () => {
+  const r = makeRefs(); const L = live.createTabLive(r);
+  L.load({ data_json: D(["A"]), updated_at: "t1" });
+  assert.equal(L.offerRemote({ data_json: D(["A"]), updated_at: "t2", title: "M" }, { title: "M" }), null);
+  assert.deepEqual([r.baseDocRef.current, r.lastKnownAtRef.current, r.pendingRemoteRef.current.size, r.remoteSeqRef.current], [D(["A"]), "t2", 0, 0]);
+  // judul berubah → tetap ditawarkan (iframe memakai judul untuk nama ekspor)
+  const m = L.offerRemote({ data_json: D(["A"]), updated_at: "t3", title: "M2" }, { title: "M" });
+  assert.equal(m && m.type, "remoteUpdate");
+  // ada tawaran lain di jalan → tidak dipotong (urutan seq tetap berlaku)
+  const r2 = makeRefs(); const L2 = live.createTabLive(r2);
+  L2.load({ data_json: D(["A"]), updated_at: "t1" });
+  L2.offerRemote({ data_json: D(["B"]), updated_at: "t2" });
+  assert.equal(L2.offerRemote({ data_json: D(["A"]), updated_at: "t3" }).type, "remoteUpdate");
+});
+
 test("offerRemote with unparseable data → null, nothing pending", () => {
   const r = makeRefs(); const L = live.createTabLive(r);
   assert.equal(L.offerRemote({ data_json: "{oops", updated_at: "t2" }), null);

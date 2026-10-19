@@ -21,3 +21,5 @@ src-tauri/gen/
 *.db-shm
 temporary_files/tmp_scripts/
 .claude/
+# Screenshot E2E (lokal saja)
+temporary_files/e2e_mindmap_live/

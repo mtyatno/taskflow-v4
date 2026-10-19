@@ -325,6 +325,37 @@ test("behavior: non-linked map keeps the old data_json autosave path", async () 
   assert.ok(findText(h.out, "Tersimpan") && !findText(h.out, "Tersimpan ke catatan"));
 });
 
+// B6 fix: kanvas peta biasa menerima tepat SATU load saat dibuka (dari "ready"); load kedua dari timer efek muat
+// menginisialisasi ulang mesin ±100 ms kemudian dan menyapu seleksi / kotak edit node yang baru dibuka.
+test("behavior B6: opening a map posts exactly one load (on ready), never a second delayed load", async () => {
+  const data = { nodeData: { id: "root", topic: "M", root: true, children: [] }, direction: 2 };
+  const h = mountTab({ note: null, tabExtra: { source_note_cid: null, source_note_id: null, data_json: JSON.stringify(data), updated_at: "t0" } });
+  await h.settle();
+  await h.message({ type: "ready" });
+  await h.flushTimers();
+  assert.equal(h.posted.filter((m) => m.type === "load").length, 1);
+});
+
+test("behavior B6: sync with unchanged content (newer updated_at) does not reload the canvas", async () => {
+  const live = require("../../static/offline/mindmaplive.js");
+  const data = JSON.stringify({ nodeData: { id: "root", topic: "M", root: true, children: [] }, direction: 2 });
+  const h = mountTab({
+    note: null, tfExtra: { mindmaplive: live },
+    tabExtra: { source_note_cid: null, source_note_id: null, data_json: data, updated_at: "t0" },
+    getImpl: (url) => (url === "/api/mindmaps/3" ? Promise.resolve({ id: 3, title: "Judul", data_json: data, updated_at: "t1" }) : null),
+  });
+  await h.settle();
+  await h.message({ type: "ready" });
+  h.win.dispatchEvent({ type: "mindmapSynced", detail: { source: "live", ids: [3] } });
+  await h.settle();
+  assert.equal(h.posted.filter((m) => m.type === "remoteUpdate" || m.type === "refresh").length, 0);
+  // if_updated_at maju ke revisi yang isinya sama → simpan berikutnya bukan tulis basi
+  const edited = JSON.parse(data); edited.nodeData.children.push({ id: "x", topic: "Anak", children: [] });
+  await h.message({ type: "change", data: edited });
+  await h.flushTimers();
+  assert.equal(h.puts[0].body.if_updated_at, "t1");
+});
+
 // #4 (B5): pembaruan jarak jauh lewat remoteUpdate; basis + if_updated_at maju hanya setelah remoteApplied.
 test("behavior B5: remote update skipped while typing → save sends the old base; merged result applied via remoteUpdate", async () => {
   const live = require("../../static/offline/mindmaplive.js");

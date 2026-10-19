@@ -3,7 +3,7 @@
 Dua akun (A pemilik workspace W, B anggota), dua browser context, peta bersama W (satu peta per skenario):
   1  A mengubah node X, B mengubah node Y bersamaan → ≤ 5 s keduanya melihat X dan Y, tanpa "(konflik)"
   2  keduanya mengubah teks node yang sama → peta memakai versi yang tersimpan lebih dulu di server; pihak lain
-     mendapat salinan "(konflik)" + notice (+ toast, dicek terpisah)
+     mendapat toast + salinan "(konflik)" + notice; merge bersih tanpa toast konflik
   3  B sedang mengetik di node saat A menyimpan → ketikan B tidak hilang; setelah B selesai keduanya tergabung
   4  A menghapus peta → tab B tertutup dengan toast "Peta ini dihapus oleh pemiliknya"
   5  B offline mengedit, A mengedit node lain, B online → tergabung
@@ -49,6 +49,12 @@ ES_TRACKER = """(() => {
   W.__tfWrapped = true;
   window.EventSource = W;
   if (window.top === window) {
+    // catat semua toast (window.__showToast dipasang App) untuk pemeriksaan
+    window.__toasts = [];
+    let st = null;
+    Object.defineProperty(window, '__showToast', { configurable: true,
+      get() { return st; },
+      set(fn) { st = (msg, kind) => { window.__toasts.push(String(msg)); return fn(msg, kind); }; } });
     window.__msgs = [];
     window.addEventListener('message', (e) => { const t = e.data && e.data.type; if (t) window.__msgs.push([Date.now(), t]); });
   } else {
@@ -201,17 +207,11 @@ def open_map(page, base, title, reload=True):
 
 
 def wait_live(page, timeout=15):
-    ok = wait_until(lambda: active_tab(page).get_by_text(LIVE, exact=True).count() == 1, timeout)
-    settle(page)
-    return ok
+    return wait_until(lambda: active_tab(page).get_by_text(LIVE, exact=True).count() == 1, timeout)
 
 
-def settle(page, quiet_ms=1200, timeout=10):
-    # Tunggu sampai iframe tidak lagi menerima load/remoteUpdate/refresh (muat awal + kejar ketinggalan saat stream
-    # terbuka) selama quiet_ms — klik/edit sebelum itu bisa tersapu oleh pemuatan ulang kanvas.
-    return wait_until(lambda: page.evaluate("""(q) => {
-        const xs = (window.__msgs || []).filter(m => /^in:(load|remoteUpdate|refresh)$/.test(m[1]));
-        return !xs.length || Date.now() - xs[xs.length - 1][0] >= q; }""", quiet_ms), timeout, 0.2)
+def toasts(page):
+    return page.evaluate("() => window.__toasts || []")
 
 
 def edit_node(page, nid, text, commit=True):
@@ -298,6 +298,9 @@ def main():
             open_map(a, base, "Peta Bersamaan")
             open_map(b, base, "Peta Bersamaan")
             check("1a kedua tab menampilkan '🟢 Langsung'", wait_live(a) and wait_live(b))
+            time.sleep(1)
+            loads = [len([m for m in p.evaluate("() => window.__msgs") if m[1] == "in:load"]) for p in (a, b)]
+            check("1a2 membuka peta: kanvas menerima tepat satu load (tanpa muat ulang susulan)", loads == [1, 1], repr(loads))
             edit_node(a, s + "x", "X oleh Ana")
             edit_node(b, s + "y", "Y oleh Budi")
             t0 = time.time()
@@ -316,6 +319,8 @@ def main():
             time.sleep(1)
             check("1e tidak ada '(konflik)'", not konflik_titles(base, A) and not konflik_titles(base, B)
                   and a.locator("#tf-conflict-bar").count() == 0 and b.locator("#tf-conflict-bar").count() == 0)
+            check("1f tidak ada toast konflik (merge bersih)",
+                  not [t for t in toasts(a) + toasts(b) if "bentrok" in t or "(konflik)" in t], repr(toasts(a) + toasts(b)))
             shot(a, "01_A_node_berbeda_tergabung.png")
             shot(b, "01_B_node_berbeda_tergabung.png")
 
@@ -354,9 +359,11 @@ def main():
                       bar.inner_text() if bar.count() else "(tanpa bar)")
                 copy = konflik_titles(base, loser)
                 check("2e salinan berjudul '(konflik) Peta Bentrok'", "(konflik) Peta Bentrok" in copy, repr(copy))
-                toast = lp.get_by_text(re.compile("Sebagian perubahanmu bentrok|edit-mu disimpan sebagai"))
-                check("2f pihak kalah: toast konflik", wait_until(lambda: toast.count() > 0, 3),
-                      "toast hanya dari jalur router lokal (simpan tab); jalur push 409/pull hanya notice")
+                # pemenang = pemilik (Ana) → server tidak mengisi last_editor_* → "anggota lain"; pemenang Budi → namanya
+                who = "anggota lain" if loser is B else "budi"
+                want_toast = "✂ Sebagian perubahanmu bentrok dengan %s — versimu disimpan sebagai '(konflik) Peta Bentrok'" % who
+                check("2f pihak kalah: toast konflik", wait_until(lambda: want_toast in toasts(lp), 10), repr(toasts(lp)))
+                check("2g pemenang tanpa toast konflik", not [t for t in toasts(wp) if "bentrok" in t], repr(toasts(wp)))
                 shot(lp, "02_kalah_notice_salinan_konflik.png")
                 shot(wp, "02_menang_versi_server.png")
                 lp.evaluate("""() => Promise.resolve(window.TF.syncconflict.listNotices()).then(ns =>

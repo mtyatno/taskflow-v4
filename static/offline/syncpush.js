@@ -1116,8 +1116,10 @@
       if (out.merged) result.merged = (result.merged || 0) + 1;
       if (out.copy) result.conflicts = (result.conflicts || 0) + 1;
       if (!sameBase && out.original && out.original.dirty) result.requeued = (result.requeued || 0) + 1;
+      const copyEv = TFmm.conflictCopyDetail ? TFmm.conflictCopyDetail(out, current, "push") : null;
       return TFoutbox.outboxRemove(op.qid)
-        .then(() => notifyMindmapSynced([op.cid].concat(out.copy ? [out.copy.cid] : []), [current.id]));
+        .then(() => notifyMindmapSynced([op.cid].concat(out.copy ? [out.copy.cid] : []), [current.id]))
+        .then(() => { if (copyEv) dispatchWindowEvent("mindmapConflictCopy", copyEv); });
     });
   }
   // Basis merge (#4) maju bersama base_rev setelah PUT/POST sukses (peta biasa; respons = baris lengkap dengan

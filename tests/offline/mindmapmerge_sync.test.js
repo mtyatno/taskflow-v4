@@ -273,3 +273,60 @@ test("index.html schedules another push when a merge requeued an update", () => 
   const html = require("fs").readFileSync(require("path").join(__dirname, "../../static/index.html"), "utf8");
   assert.ok((html.match(/r\.busy \|\| r\.requeued/g) || []).length >= 2);
 });
+
+// ── Fix round B6: toast salinan konflik dari jalur push 409 / pull (event mindmapConflictCopy) ─────────
+async function captureEvents(name, fn) {
+  const got = [];
+  const prev = globalThis.dispatchEvent;
+  globalThis.dispatchEvent = (ev) => { if (ev && ev.type === name) got.push(ev.detail); return true; };
+  try { await fn(); } finally { if (prev === undefined) delete globalThis.dispatchEvent; else globalThis.dispatchEvent = prev; }
+  return got;
+}
+
+test("push 409 same node → mindmapConflictCopy event with copy title and the server editor", async () => {
+  const L2 = D(["A lokal", "B lokal"]);
+  await put("mindmaps", [rec(Object.assign({ cid: "m", server_id: 10, title: "M", data_json: L2, dirty: 1, rev: 1 }, based))]);
+  await mapPut("mindmap", 10, "m");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "mindmap", cid: "m", payload: {} }]);
+  const tr = transport(() => rev409(srvRow({ id: 10, title: "M", data_json: S, updated_at: "t2" })));
+  const evs = await captureEvents("mindmapConflictCopy", () => pushOutbox(tr));
+  assert.equal(evs.length, 1);
+  assert.equal(evs[0].copyTitle, "(konflik) M");
+  assert.equal(evs[0].editor, "Bob");
+  assert.equal(evs[0].title, "M");
+  assert.equal(evs[0].source, "push");
+});
+
+test("push 409 merged without conflict → no mindmapConflictCopy event", async () => {
+  await put("mindmaps", [rec(Object.assign({ cid: "m", server_id: 10, title: "M", data_json: L, dirty: 1, rev: 1 }, based))]);
+  await mapPut("mindmap", 10, "m");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "mindmap", cid: "m", payload: {} }]);
+  const tr = transport((m, p, body, n) => (n === 1
+    ? rev409(srvRow({ id: 10, title: "M", data_json: S, updated_at: "t2" }))
+    : { status: 200, data: srvRow({ id: 10, title: "M", data_json: body.data_json, updated_at: "t3" }) }));
+  const evs = await captureEvents("mindmapConflictCopy", () => pushOutbox(tr));
+  assert.equal(evs.length, 0);
+});
+
+test("pull copy → mindmapConflictCopy event; editor null when the row names none (owner edited)", async () => {
+  await put("mindmaps", [rec({ cid: "m", server_id: 10, title: "M", data_json: L, base_rev: "t1", dirty: 1, rev: 1 })]);
+  await mapPut("mindmap", 10, "m");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "mindmap", cid: "m", payload: {} }]);
+  const row = srvRow({ id: 10, title: "M", data_json: S, updated_at: "t2", last_edited_by: 1, last_editor_username: undefined, last_editor_display_name: undefined });
+  const evs = await captureEvents("mindmapConflictCopy", () => pullMindmaps([row], () => Promise.resolve(row), null));
+  assert.equal(evs.length, 1);
+  assert.equal(evs[0].copyTitle, "(konflik) M");
+  assert.equal(evs[0].editor, null);
+  assert.equal(evs[0].source, "pull");
+});
+
+test("index.html toasts mindmapConflictCopy with the local-save conflict wording; tab no longer toasts every push sync", () => {
+  const fs = require("fs"); const path = require("path");
+  const html = fs.readFileSync(path.join(__dirname, "../../static/index.html"), "utf8");
+  const i = html.indexOf('window.addEventListener("mindmapConflictCopy"');
+  assert.ok(i !== -1, "listener global mindmapConflictCopy");
+  const block = html.slice(i, html.indexOf("});", i));
+  assert.match(block, /mindmaplive\.conflictToast\(/);
+  assert.match(block, /__showToast/);
+  assert.doesNotMatch(html, /Peta diubah di perangkat lain — versimu disimpan sebagai salinan '\(konflik\)'/);
+});

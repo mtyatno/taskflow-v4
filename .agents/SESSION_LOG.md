@@ -3456,6 +3456,13 @@
 ## [2026-10-19 18:32] - Claude (PR B temuan mindmap #4 — rilis B6)
 - **Task:** Task B6 rencana `docs/superpowers/plans/2026-10-19-mindmap-findings-3-8.md`: wiring rilis PR B.
 - **Changes:** tag `<script>` `mindmapmerge.js` sebelum `mindmaprepo.js` + precache SW (tanpa ini jalur merge di browser mati); SW `taskflow-v422-mindmap-live` di semua tempat (sw.js, `__SW_VERSION` + fallback About, `webapp.py` `sw_cache`, `tests/test_version.py`, 14 tes JS); iframe `?v=145`; `app.css` tidak berubah; tes urutan tag/precache di `tests/offline/mindmap_live_ui.test.js`; ADR-014; E2E Playwright dua context `temporary_files/e2e_mindmap_live.py` (7 skenario, screenshot `temporary_files/e2e_mindmap_live/`).
-- **Verifikasi:** pytest 388, JS 1705/1706 (pra-ada `draw_local_reactive`), inline OK, border-left hanya di teks docs rencana/spec (sama seperti PR A), E2E 37/38 — gagal 2f: bentrok node sama lewat push 409 hanya notice + salinan, tanpa toast.
+- **Verifikasi:** pytest 388, JS 1705/1706 (pra-ada `draw_local_reactive`), inline OK, grep aksen kiri hanya cocok di teks docs rencana/spec (sama seperti PR A), E2E 37/38 — gagal 2f: bentrok node sama lewat push 409 hanya notice + salinan, tanpa toast.
 - **Files Touch:** `static/{index.html,sw.js}`, `webapp.py` (`sw_cache`), `tests/**` (versi SW + tes tag), `temporary_files/e2e_mindmap_live.py`, `.agents/*`
 - **Status:** Needs Review (review akhir + draft PR oleh controller; PR #44 harus merge dulu; deploy butuh `sudo systemctl restart taskflow-web`).
+
+## [2026-10-19 19:10] - Claude (PR B temuan mindmap #4 — B6 fix round 1)
+- **Task:** ruling controller atas concern B6.
+- **Changes:** toast salinan konflik untuk jalur push 409 / pull (`mindmaprepo.conflictCopyDetail` → event `mindmapConflictCopy` dari syncpush/syncpull → listener global `index.html` memakai `TF.mindmaplive.conflictToast`); hapus toast lama "Peta diubah di perangkat lain…" di handler `mindmapSynced` tab (muncul juga untuk merge bersih). Akar `load` kedua: efek muat `MindmapTabInstance` menjadwalkan `sendLoad` 200 ms setelah mount padahal handler `ready` iframe sudah mengirim `load` → mesin diinisialisasi ulang ±100 ms setelah dibuka (seleksi/kotak edit tersapu; juga peta pribadi). Perbaikan: `iframeReadyRef`, timer hanya bila iframe sudah siap; `offerRemote(doc, {title})` mengembalikan null bila isi = basis dan judul sama (tanpa refresh, `if_updated_at` maju). E2E: tangkap toast, tanpa jeda "settle", cek satu `load`. Screenshot E2E dikeluarkan dari git (+ `.gitignore`).
+- **Verifikasi:** pytest 388, JS 1712/1713 (pra-ada `draw_local_reactive`), inline OK, E2E 41/41.
+- **Files Touch:** `static/index.html`, `static/offline/{mindmaplive,mindmaprepo,syncpull,syncpush}.js`, `tests/offline/{mindmap_live_ui,mindmapmerge_sync,petakan_tab_ui}.test.js`, `temporary_files/e2e_mindmap_live.py`, `.gitignore`, `.agents/*`
+- **Status:** Needs Review.

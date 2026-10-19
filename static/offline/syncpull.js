@@ -28,6 +28,14 @@
   }
   const TFmm = req("./mindmaprepo.js", root.TF && root.TF.mindmaprepo);
   const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
+  function dispatchMindmapEvent(name, detail) {
+    try {
+      const w = (typeof window !== "undefined") ? window : root;
+      if (w && typeof w.dispatchEvent === "function" && typeof CustomEvent === "function") {
+        w.dispatchEvent(new CustomEvent(name, { detail: detail || {} }));
+      }
+    } catch (_) {}
+  }
 
   function getAllTasks() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -1032,7 +1040,12 @@
                   return TFmm.mergeServerIntoLocal(cid, fullRow, { expectRev: local.rev || 0 }).then((out) => {
                     if (!out) { result.skipped++; return; } // berubah selama fetch → pull berikutnya
                     if (out.merged) result.merged++;
-                    if (out.copy) { result.conflictCopies++; changed(out.copy.cid, null); }
+                    if (out.copy) {
+                      result.conflictCopies++; changed(out.copy.cid, null);
+                      // #4: salinan konflik dari pull → UI memberi toast (lihat index.html "mindmapConflictCopy")
+                      const ev = TFmm.conflictCopyDetail ? TFmm.conflictCopyDetail(out, fullRow, "pull") : null;
+                      if (ev) dispatchMindmapEvent("mindmapConflictCopy", ev);
+                    }
                     changed(cid, s.id);
                   });
                 });

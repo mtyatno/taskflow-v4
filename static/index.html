@@ -825,6 +825,15 @@ window.__mindmapLive = (sid) => {
     if (res.dirty || res.merged) return window.__pushNow();
   }).then((r) => { if (r && (r.busy || r.requeued)) schedulePush(); renderConflicts(); }).catch(() => {});
 };
+// #4: push 409 / pull membuat salinan "(konflik)" peta (syncpush/syncpull → event mindmapConflictCopy) → toast dengan
+// kata-kata yang sama seperti konflik simpan tab; nama editor dari baris server bila ada, selain itu "anggota lain".
+window.addEventListener("mindmapConflictCopy", (e) => {
+  const d = (e && e.detail) || {};
+  if (!d.copyTitle) return;
+  const msg = (window.TF && window.TF.mindmaplive) ? window.TF.mindmaplive.conflictToast(d.editor, d.copyTitle)
+    : "✂ Sebagian perubahanmu bentrok dengan " + (d.editor || "anggota lain") + " — versimu disimpan sebagai '" + d.copyTitle + "'";
+  window.__showToast?.(msg, "error");
+});
 if (window.TF && window.TF.drawingrepo && window.TF.idmap) {
   window.TF.drawingrepo.configureFetcher((idOrCid) => {
     if (/^\d+$/.test(String(idOrCid))) {
@@ -10262,6 +10271,10 @@ function MindmapTabInstance({
     liveRef.current = window.TF.mindmaplive.createTabLive({ baseDocRef, lastKnownAtRef, remoteStaleRef, remoteSeqRef, pendingRemoteRef });
   }
   const [liveOn, setLiveOn] = useState(false);
+  // iframe sudah mengirim "ready" (dan menerima load dari handler ready) — efek muat hanya mengirim load sendiri bila
+  // iframe SUDAH siap; kalau belum, load kedua yang tertunda menginisialisasi ulang mesin setelah load dari "ready"
+  // dan menyapu seleksi / kotak edit node yang baru dibuka pengguna.
+  const iframeReadyRef = useRef(false);
 
   // Terapkan isi record (versi server dari pull/409/merge/conflict_copy) ke tab lewat iframe ({type:"remoteUpdate"}).
   // Outline, judul, basis dan if_updated_at diperbarui saat iframe membalas remoteApplied (bukan sebelumnya).
@@ -10269,7 +10282,7 @@ function MindmapTabInstance({
     if (!doc || !liveRef.current) return;
     const ed = doc.last_editor_display_name || doc.last_editor_username;
     if (ed && (currentUserId == null || String(doc.last_edited_by) !== String(currentUserId))) lastRemoteEditorRef.current = ed;
-    const msg = liveRef.current.offerRemote(doc);
+    const msg = liveRef.current.offerRemote(doc, { title: tab?.title });
     if (!msg) return;
     try {
       iframeRef.current?.contentWindow?.postMessage({ type: "remoteUpdate", data: msg.data, title: msg.title, seq: msg.seq }, window.location.origin);
@@ -10376,8 +10389,8 @@ function MindmapTabInstance({
         if (!fresh || pendingEditRef.current) return;
         if (fresh.updated_at != null && String(fresh.updated_at) === String(lastKnownAtRef.current)) return;
         applyRecordToTab(fresh);
-        // 409 saat push (perangkat lain menyimpan lebih dulu): versi tab barusan jadi salinan konflik → beri tahu
-        if (d.source === "push" && showToast) showToast("✂ Peta diubah di perangkat lain — versimu disimpan sebagai salinan '(konflik)'", "error");
+        // Salinan konflik dari push 409 / pull → toast global "mindmapConflictCopy" (bukan di sini: 409 yang
+        // ter-merge bersih tidak membuat salinan dan tidak boleh memberi toast konflik).
       }).catch(() => {});
     };
     window.addEventListener("mindmapSynced", handler);
@@ -10451,7 +10464,7 @@ function MindmapTabInstance({
         }, window.location.origin);
       } catch (_) {}
     };
-    if (iframeRef.current?.contentWindow) {
+    if (iframeReadyRef.current && iframeRef.current?.contentWindow) {
       setTimeout(sendLoad, 200);
     }
   }, [tab?.id]);
@@ -10651,6 +10664,7 @@ function MindmapTabInstance({
     const handler = e => {
       if (e.origin !== window.location.origin) return;
       if (e.source !== iframeRef.current?.contentWindow) return;
+      if (e.data && e.data.type === "ready") iframeReadyRef.current = true;
       if (e.data && e.data.type === "ready" && tab && isLinked) {
         if (outlineTreeRef.current) postLinkedLoad(outlineTreeRef.current);
         iframeRef.current?.contentWindow?.postMessage({

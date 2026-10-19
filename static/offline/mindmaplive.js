@@ -72,12 +72,20 @@
         pending().clear();
       },
       // Pesan induk→iframe untuk record jarak jauh (null bila data tak terbaca). Basis BELUM maju.
-      offerRemote(doc) {
+      // Isi sama dengan basis (mis. gema simpan sendiri setelah push, catch-up tanpa perubahan) dan judul tidak berubah
+      // (opts.title = judul tab) dan tidak ada tawaran lain di jalan → null: kanvas TIDAK dimuat ulang (refresh
+      // mengosongkan seleksi + riwayat undo); hanya if_updated_at yang maju (isi record = basis, jadi pasangan tetap sah).
+      offerRemote(doc, opts) {
         if (!doc) return null;
         const data = parseData(doc.data_json);
         if (!data) return null;
-        const seq = ++refs.remoteSeqRef.current;
         const dataStr = typeof doc.data_json === "string" ? doc.data_json : JSON.stringify(doc.data_json);
+        const sameTitle = !opts || opts.title == null || doc.title == null || String(doc.title) === String(opts.title);
+        if (dataStr === refs.baseDocRef.current && sameTitle && pending().size === 0) {
+          if (doc.updated_at != null) refs.lastKnownAtRef.current = doc.updated_at;
+          return null;
+        }
+        const seq = ++refs.remoteSeqRef.current;
         pending().set(seq, {
           data, dataStr, updatedAt: doc.updated_at != null ? doc.updated_at : null,
           title: doc.title != null ? doc.title : null,
