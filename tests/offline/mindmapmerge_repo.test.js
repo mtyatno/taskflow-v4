@@ -198,14 +198,14 @@ test("linked map: first edit does not capture a base", async () => {
   assert.equal((await get("mindmaps", "ln")).base_data_json, undefined);
 });
 
-test("router merge conflict reuses the recent conflict copy of the same map from the same tab version", async () => {
+test("router merge conflict reuses the recent conflict copy made by the same tab session", async () => {
   const S2 = D(["A server", "B"]);
   await put("mindmaps", [rec({ cid: "m", server_id: 10, title: "M", data_json: S2, updated_at: "t2", dirty: 0, base_rev: "t2" }),
-    rec({ cid: "old", client_id: "old", conflict_of: "m", conflict_base: "t1", title: "(konflik) M", data_json: L, dirty: 1, rev: 1 })]);
+    rec({ cid: "old", client_id: "old", conflict_of: "m", conflict_base: "t1", conflict_session: "tabA", title: "(konflik) M", data_json: L, dirty: 1, rev: 1 })]);
   await put("_outbox", [{ qid: 1, op: "create", entity_type: "mindmap", cid: "old", payload: { cid: "old" } }]);
   const R = buildTaskRouter();
   const L3 = D(["A tab", "B"]);
-  const res = await R.dispatch("PUT", "/api/mindmaps/10", { data_json: L3, base_data_json: B, if_updated_at: "t1" });
+  const res = await R.dispatch("PUT", "/api/mindmaps/10", { data_json: L3, base_data_json: B, if_updated_at: "t1", session_id: "tabA" });
   assert.equal(res.merge_conflicts, 1);
   assert.equal((await all("mindmaps")).length, 2);
   const old = await get("mindmaps", "old");
@@ -231,16 +231,53 @@ test("pull-merge copy is never overwritten by a later router conflict from anoth
   assert.equal(copies.length, 2);
 });
 
-test("stale save without base reuses a pull copy only when the tab came from that same local version", async () => {
-  await put("mindmaps", [rec({ cid: "m", server_id: 10, title: "M", data_json: S, updated_at: "t2", dirty: 0, base_rev: "t2" }),
-    rec({ cid: "pc", client_id: "pc", conflict_of: "m", conflict_base: "t1x", title: "(konflik) M", data_json: L, dirty: 1, rev: 1 })]);
+// Fix round 3: pemakaian ulang salinan hanya dengan session_id tab yang sama.
+const copiesOf = async (cid) => (await all("mindmaps")).filter((m) => m.conflict_of === cid);
+const seedConflict = () => put("mindmaps", [rec({ cid: "m", server_id: 10, title: "M", data_json: D(["A server", "B"]), updated_at: "t2", dirty: 0, base_rev: "t2" })]);
+
+test("two tabs from the same version (different session ids) → two copies, both values preserved", async () => {
+  await seedConflict();
   const R = buildTaskRouter();
-  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: D(["other", "B"]), if_updated_at: "t0" });
-  assert.equal((await get("mindmaps", "pc")).data_json, L); // versi lain → salinan baru
-  assert.equal((await all("mindmaps")).filter((m) => m.conflict_of === "m").length, 2);
-  const T = D(["A lokal lagi", "B"]);
-  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: T, if_updated_at: "t1x" });
-  assert.equal((await get("mindmaps", "pc")).data_json, T); // tab dari versi t1x = lanjutan isi salinan → dipakai ulang
+  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: D(["A tabA", "B"]), base_data_json: B, if_updated_at: "t1", session_id: "sa" });
+  // record kini hasil merge (A server); tab B masih dari versi t1
+  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: D(["A tabB", "B"]), base_data_json: B, if_updated_at: "t1", session_id: "sb" });
+  const topics = (await copiesOf("m")).map((c) => JSON.parse(c.data_json).nodeData.children[0].topic).sort();
+  assert.deepEqual(topics, ["A tabA", "A tabB"]);
+});
+
+test("same tab session twice → one copy, updated", async () => {
+  await seedConflict();
+  const R = buildTaskRouter();
+  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: D(["A tab1", "B"]), base_data_json: B, if_updated_at: "t1", session_id: "sa" });
+  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: D(["A tab2", "B"]), base_data_json: B, if_updated_at: "t1", session_id: "sa" });
+  const cs = await copiesOf("m");
+  assert.equal(cs.length, 1);
+  assert.equal(JSON.parse(cs[0].data_json).nodeData.children[0].topic, "A tab2");
+  assert.equal(cs[0].conflict_session, "sa");
+});
+
+test("no session_id → new copy each time (merge path and old copy path)", async () => {
+  await seedConflict();
+  const R = buildTaskRouter();
+  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: D(["A x1", "B"]), base_data_json: B, if_updated_at: "t1" });
+  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: D(["A x2", "B"]), base_data_json: B, if_updated_at: "t1" });
+  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: D(["A x3", "B"]), if_updated_at: "t0" });
+  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: D(["A x4", "B"]), if_updated_at: "t0" });
+  assert.equal((await copiesOf("m")).length, 4);
+});
+
+test("pull copy then tab save (with session) → separate copies; old copy path with session reuses its own copy", async () => {
+  await put("mindmaps", [rec({ cid: "m", server_id: 10, title: "M", data_json: D(["A lokal", "B"]), base_data_json: B, base_title: "M",
+    base_rev: "t1", base_data_rev: "t1", updated_at: "t1x", dirty: 1, rev: 1 })]);
+  const out = await mm.mergeServerIntoLocal("m", srvRow({ id: 10, title: "M", data_json: D(["A server", "B"]), updated_at: "t2" }), { expectRev: 1 });
+  assert.equal(out.copy.conflict_session, null);
+  const R = buildTaskRouter();
+  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: D(["A tab", "B"]), if_updated_at: "t1x", session_id: "sa" });
+  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: D(["A tab2", "B"]), if_updated_at: "t1x", session_id: "sa" });
+  assert.equal(JSON.parse((await get("mindmaps", out.copy.cid)).data_json).nodeData.children[0].topic, "A lokal");
+  const cs = await copiesOf("m");
+  assert.equal(cs.length, 2);
+  assert.deepEqual(cs.map((c) => JSON.parse(c.data_json).nodeData.children[0].topic).sort(), ["A lokal", "A tab2"]);
 });
 
 test("if_updated_at current but tab base older than the record → merge keeps the remote change", async () => {

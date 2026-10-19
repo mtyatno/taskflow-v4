@@ -149,14 +149,16 @@
   // Salinan konflik (prinsip 7): versi LOKAL yang kalah disimpan sebagai peta pribadi baru
   // "(konflik) <judul>" dengan cid (= client_id) baru, dirty + op create. Tidak ada yang dibuang.
   // conflictBase = versi lokal (updated_at) asal isi salinan: untuk salinan pull/409 = updated_at record lokal yang
-  // disalin; untuk salinan tab = if_updated_at tab. Salinan hanya dipakai ulang oleh edit tab dari versi yang SAMA.
-  function conflictCopyOf(cur, localTitle, localData, now, conflictBase) {
+  // disalin; untuk salinan tab = if_updated_at tab (informasi). conflictSession = session_id instans tab yang
+  // membuat salinan (null untuk salinan pull/409) — SATU-SATUNYA kunci pemakaian ulang salinan.
+  function conflictCopyOf(cur, localTitle, localData, now, conflictBase, conflictSession) {
     const cid = TFids.newCid();
     const baseTitle = localTitle != null ? localTitle : (cur.title != null ? cur.title : "Untitled");
     return {
       cid: cid, server_id: null, client_id: cid,
       conflict_of: cur.cid, // asal salinan → edit tab lanjutan untuk konflik yang sama memperbarui salinan ini
       conflict_base: conflictBase != null ? String(conflictBase) : null,
+      conflict_session: conflictSession != null && conflictSession !== "" ? String(conflictSession) : null,
       title: (String(baseTitle).indexOf(CONFLICT_PREFIX) === 0 ? "" : CONFLICT_PREFIX) + baseTitle,
       data_json: localData != null ? localData : (cur.data_json != null ? cur.data_json : DEFAULT_DATA),
       pinned: false, list_id: null,
@@ -387,7 +389,7 @@
             const out = Object.assign({}, next, { merged: true, merge_conflicts: n });
             if (!n) return out;
             const tabData = patch.data_json != null ? patch.data_json : staleCur.data_json;
-            return saveTabConflictCopy(staleCur, patch.title != null ? patch.title : staleCur.title, tabData, now, patch.if_updated_at)
+            return saveTabConflictCopy(staleCur, patch.title != null ? patch.title : staleCur.title, tabData, now, patch.if_updated_at, patch.session_id)
               .then((copy) => Object.assign(out, { conflict_copy: copy }));
           });
       }
@@ -396,13 +398,13 @@
     });
   }
   // Salinan konflik versi tab dari merge router (record asli TIDAK diganti): satu transaksi mindmaps + _outbox.
-  function saveTabConflictCopy(cur, title, data, now, conflictBase) {
+  function saveTabConflictCopy(cur, title, data, now, conflictBase, sessionId) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       let copy = null;
       const tx = db.transaction(["mindmaps", "_outbox"], "readwrite");
       const ms = tx.objectStore("mindmaps");
       const all = ms.getAll();
-      all.onsuccess = () => { copy = upsertConflictCopyInTx(ms, tx.objectStore("_outbox"), all.result || [], cur, title, data, now, conflictBase); };
+      all.onsuccess = () => { copy = upsertConflictCopyInTx(ms, tx.objectStore("_outbox"), all.result || [], cur, title, data, now, conflictBase, sessionId); };
       tx.oncomplete = () => resolve(copy);
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error || new Error("mindmaps conflict copy aborted"));
@@ -414,13 +416,15 @@
   // itu — bukan membuat salinan kedua untuk satu sesi edit.
   const REUSE_COPY_MS = 30 * 60 * 1000;
   // Salinan konflik versi tab dalam transaksi pemanggil: pakai ulang salinan yang baru dibuat untuk konflik yang
-  // sama (conflict_of = cur.cid, belum di-push atau < REUSE_COPY_MS) DAN dari versi asal yang sama
-  // (conflict_base === if_updated_at tab: isi tab adalah lanjutan isi salinan) atau buat baru (+ op create).
-  // Salinan dari versi lain (mis. salinan merge pull yang isinya tidak lagi ada di tab) tidak pernah ditimpa.
-  function upsertConflictCopyInTx(ms, ob, rows, cur, localTitle, localData, now, conflictBase) {
+  // sama (conflict_of = cur.cid, belum di-push atau < REUSE_COPY_MS) DAN dari instans tab yang sama
+  // (conflict_session === session_id tab, tidak kosong: isi tab adalah lanjutan isi salinan) atau buat baru
+  // (+ op create). Tanpa session_id → selalu salinan baru; salinan pull/409 (tanpa sesi) dan salinan tab lain
+  // tidak pernah ditimpa.
+  function upsertConflictCopyInTx(ms, ob, rows, cur, localTitle, localData, now, conflictBase, sessionId) {
     const nowMs = Date.parse(now) || Date.now();
-    const reusable = conflictBase == null ? null : rows.find((m) => m.conflict_of === cur.cid && !m.deleted
-      && m.conflict_base != null && String(m.conflict_base) === String(conflictBase)
+    const sid = (sessionId != null && sessionId !== "") ? String(sessionId) : null;
+    const reusable = sid == null ? null : rows.find((m) => m.conflict_of === cur.cid && !m.deleted
+      && m.conflict_session != null && m.conflict_session === sid
       && (m.server_id == null || (nowMs - (Date.parse(m.created_at) || 0)) < REUSE_COPY_MS));
     let copy;
     if (reusable) {
@@ -434,7 +438,7 @@
         ob.add({ ts: Date.now(), retries: 0, op: "update", entity_type: "mindmap", cid: copy.cid, payload: { cid: copy.cid } });
       } // belum di-push → op create-nya membaca record terkini saat dikirim
     } else {
-      copy = conflictCopyOf(cur, localTitle, localData, now, conflictBase);
+      copy = conflictCopyOf(cur, localTitle, localData, now, conflictBase, sid);
       ms.put(copy);
       ob.add({ ts: Date.now(), retries: 0, op: "create", entity_type: "mindmap", cid: copy.cid, payload: { cid: copy.cid } });
     }
@@ -453,7 +457,7 @@
         if (!cur || cur.deleted) return;
         const localTitle = patch.title != null ? patch.title : stale.title;
         const localData = patch.data_json != null ? patch.data_json : stale.data_json;
-        const copy = upsertConflictCopyInTx(ms, ob, rows, cur, localTitle, localData, now, patch.if_updated_at);
+        const copy = upsertConflictCopyInTx(ms, ob, rows, cur, localTitle, localData, now, patch.if_updated_at, patch.session_id);
         const original = Object.assign({}, cur, {
           notice: { kind: "conflict_copy", title: cur.title, copyTitle: copy.title, editor: editorOf(cur) },
         });
