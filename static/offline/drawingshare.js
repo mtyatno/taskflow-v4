@@ -14,7 +14,9 @@
   const req = (m, g) => (isNode ? require(m) : g);
   const TFdb = req("./db.js", root.TF && root.TF.db);
   const TFrepo = req("./drawingrepo.js", root.TF && root.TF.drawingrepo);
-  const TFdir = req("./drawdirective.js", root.TF && root.TF.drawdirective);
+  // drawdirective.js dimuat SETELAH modul ini di index.html → di browser dicari saat dipakai, bukan saat dimuat.
+  const TFdirNode = isNode ? require("./drawdirective.js") : null;
+  function dir() { return TFdirNode || (root.TF && root.TF.drawdirective); }
 
   const OFFLINE_SHARE_MSG = "Butuh koneksi untuk membagikan gambar.";
   const OFFLINE_DATA_MSG = "Data gambar belum tersedia offline.";
@@ -52,7 +54,7 @@
   }
 
   // ── Token direktif ::draw[...] ──────────────────────────────────────────────
-  function globalDrawRegex() { return new RegExp(TFdir.DRAW_REGEX.source, "gi"); }
+  function globalDrawRegex() { return new RegExp(dir().DRAW_REGEX.source, "gi"); }
   function tokensOf(drawing) {
     const out = [];
     for (const v of [drawing && drawing.server_id, drawing && drawing.client_id, drawing && drawing.cid, drawing && drawing.id]) {
@@ -62,7 +64,7 @@
   }
   function idOfToken(t) {
     const s = String(t == null ? "" : t);
-    const m = TFdir.DRAW_REGEX.exec(s);
+    const m = dir().DRAW_REGEX.exec(s);
     return m ? m[1] : s;
   }
 

@@ -226,3 +226,22 @@ test("opNoteUpdate: a rejecting applyMovedDrawings is logged and never fails the
     assert.equal((await outboxAll()).length, 0);
   } finally { share.applyMovedDrawings = orig; console.warn = ow; }
 });
+
+// E2E PR 3 Task 6: di browser drawingshare.js dimuat SEBELUM drawdirective.js (urutan <script> di index.html).
+// Modul harus mencari TF.drawdirective saat dipakai; versi lama menangkap undefined saat dimuat →
+// planNoteShare/replaceDrawingToken melempar "Cannot read properties of undefined (reading 'DRAW_REGEX')".
+test("browser: drawingshare dimuat sebelum drawdirective tetap bisa membaca token ::draw", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const vm = require("node:vm");
+  const dirOf = (f) => path.join(__dirname, "../../static/offline", f);
+  const sandbox = { TF: { db: {}, drawingrepo: {} }, console };
+  sandbox.self = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(dirOf("drawingshare.js"), "utf8"), sandbox);
+  vm.runInContext(fs.readFileSync(dirOf("drawdirective.js"), "utf8"), sandbox);
+  const s = sandbox.TF.drawingshare;
+  const plan = s.planNoteShare("a ::draw[cl-1]{title=\"D\"}", 5, { "cl-1": { cid: "c1", server_id: 11, client_id: "cl-1", list_id: null, user_id: 1 } }, 1);
+  assert.equal(plan.move.length, 1);
+  assert.equal(s.replaceDrawingToken("::draw[cl-1]", { client_id: "cl-1" }, "cl-2"), "::draw[cl-2]");
+});
