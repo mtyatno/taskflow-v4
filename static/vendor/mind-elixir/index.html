@@ -245,47 +245,6 @@
     }
     .lp-add-btn:hover { border-color: var(--side-accent); }
 
-    #lp-picker-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.55);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 9999; font-family: system-ui, sans-serif;
-    }
-    #lp-picker-box {
-      background: var(--side-bg); border: 1px solid var(--side-border); border-radius: 12px;
-      padding: 20px; width: 420px; max-width: 95vw; max-height: 70vh;
-      display: flex; flex-direction: column; gap: 12px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-    }
-    #lp-picker-header { display: flex; justify-content: space-between; align-items: center; }
-    #lp-picker-title { font-weight: 700; font-size: 15px; color: var(--side-text); }
-    #lp-picker-close { cursor: pointer; color: var(--side-muted); font-size: 20px; line-height: 1; padding: 0 4px; }
-    #lp-picker-close:hover { color: var(--side-text); }
-    #lp-picker-input {
-      width: 100%; padding: 9px 13px; border-radius: 8px;
-      border: 1px solid var(--side-border); background: var(--side-bg);
-      color: var(--side-text); font-size: 13px; outline: none; box-sizing: border-box;
-    }
-    #lp-picker-input:focus { border-color: var(--side-accent); }
-    #lp-picker-tabs { display: flex; gap: 6px; }
-    .lp-tab {
-      padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
-      cursor: pointer; border: 1px solid var(--side-border); color: var(--side-muted); background: transparent;
-    }
-    .lp-tab.active { background: var(--side-accent); color: var(--side-accent-ink); border-color: var(--side-accent); }
-    #lp-picker-results { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
-    .lp-result-item {
-      display: flex; align-items: center; gap: 8px; padding: 8px 10px;
-      border-radius: 8px; border: 1px solid var(--side-border); cursor: pointer;
-    }
-    .lp-result-item:hover { border-color: var(--side-accent); background: var(--side-card); }
-    .lp-result-badge {
-      border-radius: 3px; padding: 1px 6px; font-size: 10px; font-weight: 700;
-      color: var(--side-accent-ink); flex-shrink: 0;
-    }
-    .lp-result-title { font-size: 13px; font-weight: 600; color: var(--side-text); flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .lp-result-meta { font-size: 10px; color: var(--side-muted); flex-shrink: 0; }
-    .lp-picker-hint { color: var(--side-muted); font-size: 13px; text-align: center; padding: 20px; }
-
     .map-container me-tpc .node-link-badge,
     .node-link-badge {
       position: absolute;
@@ -716,7 +675,7 @@
       const addBtn = document.createElement('button');
       addBtn.className = 'lp-add-btn';
       addBtn.textContent = '+ Tambah link';
-      addBtn.onclick = () => showLinkPicker();
+      addBtn.onclick = () => requestLinkPicker();
       container.appendChild(addBtn);
 
       showPanel();
@@ -730,176 +689,17 @@
       postChange();
     }
 
-    function showLinkPicker() {
-      if (!currentNodeId || !currentNodeData) return;
-      if (document.getElementById('lp-picker-overlay')) return;
-
-      const token = localStorage.getItem('tf_token');
-      let activeTab = 'all';
-      let searchResults = null;
-      let debounceTimer = null;
-      const existingSet = new Set((currentNodeData.links || []).map(l => `${l.type}-${l.id}`));
-
-      const overlay = document.createElement('div');
-      overlay.id = 'lp-picker-overlay';
-      overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
-
-      overlay.innerHTML = `
-        <div id="lp-picker-box">
-          <div id="lp-picker-header">
-            <span id="lp-picker-title">🔗 Tambah Link</span>
-            <span id="lp-picker-close">✕</span>
-          </div>
-          <input id="lp-picker-input" placeholder="Cari note, task, atau mindmap..." autocomplete="off" />
-          <div id="lp-picker-tabs">
-            <button class="lp-tab active" data-tab="all">Semua</button>
-            <button class="lp-tab" data-tab="notes">Notes</button>
-            <button class="lp-tab" data-tab="tasks">Tasks</button>
-            <button class="lp-tab" data-tab="mindmaps">Mindmaps</button>
-          </div>
-          <div id="lp-picker-results"><p class="lp-picker-hint">Ketik untuk mencari...</p></div>
-          <div id="lp-picker-create" style="display:flex; gap:6px; flex-shrink:0;">
-            <button id="lp-create-note" class="lp-add-btn" style="flex:1;">➕ Note: <span id="lp-create-note-q"></span></button>
-            <button id="lp-create-task" class="lp-add-btn" style="flex:1;">➕ Task: <span id="lp-create-task-q"></span></button>
-            <button id="lp-create-mindmap" class="lp-add-btn" style="flex:1;">➕ Map: <span id="lp-create-mindmap-q"></span></button>
-          </div>
-        </div>`;
-
-      document.getElementById('app').appendChild(overlay);
-
-      const input = overlay.querySelector('#lp-picker-input');
-      const resultsEl = overlay.querySelector('#lp-picker-results');
-      input.focus();
-
-      overlay.querySelector('#lp-picker-close').onclick = () => overlay.remove();
-
-      overlay.querySelectorAll('.lp-tab').forEach(btn => {
-        btn.onclick = () => {
-          activeTab = btn.dataset.tab;
-          overlay.querySelectorAll('.lp-tab').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          renderResults();
-        };
-      });
-
-      function renderResults() {
-        if (!searchResults) { resultsEl.innerHTML = '<p class="lp-picker-hint">Ketik untuk mencari...</p>'; return; }
-        const notes = (searchResults.notes || []).filter(n => !existingSet.has(`note-${n.id}`));
-        const tasks = (searchResults.tasks || []).filter(t => !existingSet.has(`task-${t.id}`));
-        const mindmaps = (searchResults.mindmaps || []).filter(m => !existingSet.has(`mindmap-${m.id}`));
-        const items = activeTab === 'notes' ? notes.map(n => ({...n, _type:'note'}))
-                    : activeTab === 'tasks' ? tasks.map(t => ({...t, _type:'task'}))
-                    : activeTab === 'mindmaps' ? mindmaps.map(m => ({...m, _type:'mindmap'}))
-                    : [...notes.map(n => ({...n, _type:'note'})), ...tasks.map(t => ({...t, _type:'task'})), ...mindmaps.map(m => ({...m, _type:'mindmap'}))];
-        if (items.length === 0) { resultsEl.innerHTML = '<p class="lp-picker-hint">Tidak ada hasil</p>'; return; }
-        resultsEl.innerHTML = '';
-        items.forEach(item => {
-          const el = document.createElement('div');
-          el.className = 'lp-result-item';
-          const color = item._type === 'note' ? 'var(--side-accent)' : item._type === 'mindmap' ? '#8b5cf6' : '#e0a06c';
-          const label = item._type === 'note' ? 'NOTE' : item._type === 'mindmap' ? 'MAP' : 'TASK';
-          const meta = item._type === 'task' && item.priority ? item.priority : '';
-          el.innerHTML = `<span class="lp-result-badge" style="background:${color}">${label}</span>
-            <span class="lp-result-title">${item.title}</span>
-            ${meta ? `<span class="lp-result-meta">${meta}</span>` : ''}`;
-          el.onclick = () => {
-            const link = item._type === 'note'
-              ? { type: 'note', id: item.id, title: item.title, preview: (item.content || '').slice(0, 60) }
-              : item._type === 'mindmap'
-              ? { type: 'mindmap', id: item.id, title: item.title }
-              : { type: 'task', id: item.id, title: item.title, priority: item.priority, deadline: item.deadline, status: item.gtd_status };
-            if (!currentNodeData.links) currentNodeData.links = [];
-            if (!currentNodeData.links.some(l => l.type === link.type && l.id === link.id)) {
-              currentNodeData.links.push(link);
-              renderPanel(currentNodeData.topic, currentNodeData.links);
-              updateBadges();
-              postChange();
-            }
-            overlay.remove();
-          };
-          resultsEl.appendChild(el);
-        });
+    // Picker link milik induk (LinkPickerModal): pencarian + buat cepat lewat lapisan offline
+    // (api.get/api.post lokal-first). Induk membalas dengan addLink { nodeId, link }.
+    function requestLinkPicker() {
+      if (!currentNodeId || !currentNodeData || linkedMode) return;
+      const msg = { type: 'requestLinkPicker', nodeId: currentNodeId, links: currentNodeData.links || [] };
+      const send = () => window.parent.postMessage(msg, window.location.origin);
+      if (document.fullscreenElement) {
+        document.exitFullscreen().finally(send);
+      } else {
+        send();
       }
-
-      input.oninput = () => {
-        clearTimeout(debounceTimer);
-        updateCreateBtns();
-        const q = input.value.trim();
-        if (!q) { searchResults = null; renderResults(); return; }
-        resultsEl.innerHTML = '<p class="lp-picker-hint">Mencari...</p>';
-        debounceTimer = setTimeout(() => {
-          fetch(`/api/search?q=${encodeURIComponent(q)}`, {
-            headers: token ? { 'Authorization': 'Bearer ' + token } : {}
-          })
-            .then(r => r.json())
-            .then(data => { searchResults = data; renderResults(); })
-            .catch(() => { resultsEl.innerHTML = '<p class="lp-picker-hint">Gagal mencari</p>'; });
-        }, 300);
-      };
-
-      const createQ = () => input.value.trim();
-      const updateCreateBtns = () => {
-        const q = createQ();
-        document.getElementById('lp-create-note-q').textContent = q;
-        document.getElementById('lp-create-task-q').textContent = q;
-        document.getElementById('lp-create-mindmap-q').textContent = q;
-        const disabled = !q;
-        ['lp-create-note', 'lp-create-task', 'lp-create-mindmap'].forEach(id => {
-          const btn = document.getElementById(id);
-          btn.style.opacity = disabled ? '0.5' : '1';
-          btn.style.pointerEvents = disabled ? 'none' : 'auto';
-        });
-      };
-      updateCreateBtns();
-
-      let creating = false;
-      async function createAndLink(type) {
-        if (creating) return;
-        const q = createQ();
-        if (!q) return;
-        creating = true;
-        const hints = document.getElementById('lp-picker-results');
-        hints.innerHTML = '<p class="lp-picker-hint">Membuat...</p>';
-        try {
-          let url = '/api/scratchpad';
-          let body = { title: q };
-          if (type === 'task') {
-            url = '/api/tasks';
-          } else if (type === 'mindmap') {
-            url = '/api/mindmaps';
-            body = {
-              title: q,
-              data_json: JSON.stringify({
-                nodeData: { id: 'root', topic: q, root: true, children: [] }
-              })
-            };
-          }
-          const r = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': 'Bearer ' + token } : {}) },
-            body: JSON.stringify(body)
-          });
-          if (!r.ok) throw new Error('HTTP ' + r.status);
-          const created = await r.json();
-          const link = type === 'note'
-            ? { type: 'note', id: created.id, title: created.title || q, preview: '' }
-            : type === 'mindmap'
-            ? { type: 'mindmap', id: created.id, title: created.title || q }
-            : { type: 'task', id: created.id, title: created.title || q, priority: created.priority, deadline: created.deadline, status: created.gtd_status };
-          if (!currentNodeData.links) currentNodeData.links = [];
-          currentNodeData.links.push(link);
-          renderPanel(currentNodeData.topic, currentNodeData.links);
-          updateBadges();
-          postChange();
-          overlay.remove();
-        } catch (_) {
-          creating = false;
-          hints.innerHTML = '<p class="lp-picker-hint">Gagal membuat — coba lagi</p>';
-        }
-      }
-      document.getElementById('lp-create-note').onclick = () => createAndLink('note');
-      document.getElementById('lp-create-task').onclick = () => createAndLink('task');
-      document.getElementById('lp-create-mindmap').onclick = () => createAndLink('mindmap');
     }
 
     let activePopover = null;
