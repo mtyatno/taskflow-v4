@@ -374,7 +374,7 @@ test("Floating ToC — NoteModal (mode edit) menggantikan kolom samping NoteToc"
   });
 
   await t.test("daftar heading dari dokumen editor; extractHeadings(content) hanya fallback sebelum editor siap", () => {
-    assert.match(noteModalCode, /const mdTocItems = React\.useMemo\(\(\) => extractHeadings\(content\), \[content\]\);/);
+    assert.match(noteModalCode, /const mdTocItems = React\.useMemo\(\(\) => editorToc \? \[\] : extractHeadings\(content\), \[content, !!editorToc\]\);/);
     assert.match(noteModalCode, /const \[editorToc, setEditorToc\] = React\.useState\(null\);/);
     assert.match(noteModalCode, /const tocItems = editorToc \|\| mdTocItems;/);
     assert.match(noteModalCode, /ctx\.get\(MB\.editorViewCtx\)/);

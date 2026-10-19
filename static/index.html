@@ -19880,6 +19880,10 @@ window.copyCodeBlock = function(codeId, btn) {
   }
 };
 
+// Item task berisi blok? Dipakai listitem renderer dan extractHeadings agar penomoran heading sama.
+function taskItemHasBlock(item) {
+  return !!(item.tokens && item.tokens.some(t => t.type === 'blockquote' || t.type === 'list' || t.type === 'paragraph' || t.type === 'space'));
+}
 let _markedHIdx = 0;
 marked.use({
   gfm: true,
@@ -19923,7 +19927,7 @@ marked.use({
         const chk = `<input type="checkbox" disabled${item.checked ? " checked" : ""}/>`;
         // Use parser for items containing block-level content (blockquotes, nested lists)
         // — item.text is raw markdown, wrapping in <span> would hide the > markers
-        const hasBlock = item.tokens && item.tokens.some(t => t.type === 'blockquote' || t.type === 'list' || t.type === 'paragraph' || t.type === 'space');
+        const hasBlock = taskItemHasBlock(item);
         if (hasBlock) {
           return `<div class="${cls}">${chk}${this.parser.parse(item.tokens)}</div>\n`;
         }
@@ -20091,39 +20095,30 @@ function repairQuoteMarkdown(md) {
   return out.join('\n');
 }
 
-// Pra-proses markdown yang memengaruhi struktur blok (dipakai renderMarkdown DAN extractHeadings
-// supaya daftar isi mode baca sejalan dengan id "note-h-N"): perbaikan kutipan + placeholder math.
-// Mengembalikan teks ber-placeholder dan peta key -> {latex, block}.
-function prepMarkdownBlocks(text) {
+// Pra-proses markdown sebelum marked.parse. Dipakai renderMarkdown DAN extractHeadings supaya
+// daftar isi mode baca sejalan dengan id "note-h-N": semua langkah yang bisa mengubah struktur blok
+// (kutipan, math, wikilink, tasklink, ==highlight==, ::draw, unescape link/gambar, normalisasi tabel)
+// ada di sini. Mengembalikan teks ber-placeholder (text) + peta placeholder -> HTML / sumber mentah.
+function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
   text = repairQuoteMarkdown(text);
-  // Extract math BEFORE all other processing so markdown doesn't mangle LaTeX.
-  // Block math first ($$...$$), then inline ($...$) to avoid double-match.
-  const mathSrc = {};
-  let mi = 0;
-  const preMath0 = text.replace(/\$\$([\s\S]*?)\$\$/g, (_, latex) => {
-    const key = `MATH${mi++}MATHEND`;
-    mathSrc[key] = { latex, block: true };
-    return key;
-  });
-  const preMath1 = preMath0.replace(/\$(?!\s)([^$\n\r]+?)(?<!\s)\$/g, (_, latex) => {
-    const key = `MATH${mi++}MATHEND`;
-    mathSrc[key] = { latex, block: false };
-    return key;
-  });
-  return { text: preMath1, mathSrc };
-}
+  const rawMap = {};
 
-function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
-  if (!text) return "";
-  _markedHIdx = 0;
-  const prepped = prepMarkdownBlocks(text);
+  // Step 0: Extract math BEFORE all other processing so markdown doesn't mangle LaTeX.
+  // Block math first ($$...$$), then inline ($...$) to avoid double-match.
   const mathMap = {};
-  for (const [key, m] of Object.entries(prepped.mathSrc)) {
-    mathMap[key] = m.block
-      ? `<div class="math-block">${renderMath(m.latex.trim(), true)}</div>`
-      : `<span class="math-inline">${renderMath(m.latex, false)}</span>`;
-  }
-  const preMath1 = prepped.text;
+  let mi = 0;
+  const preMath0 = text.replace(/\$\$([\s\S]*?)\$\$/g, (rawFull, latex) => {
+    const key = `MATH${mi++}MATHEND`;
+    rawMap[key] = rawFull;
+    mathMap[key] = `<div class="math-block">${renderMath(latex.trim(), true)}</div>`;
+    return key;
+  });
+  const preMath1 = preMath0.replace(/\$(?!\s)([^$\n\r]+?)(?<!\s)\$/g, (rawFull, latex) => {
+    const key = `MATH${mi++}MATHEND`;
+    rawMap[key] = rawFull;
+    mathMap[key] = `<span class="math-inline">${renderMath(latex, false)}</span>`;
+    return key;
+  });
 
   const titleSet = new Set((noteTitles || []).map(t => normalizeWikiText(t)));
   const notesById = new Map((allNotes || []).map(n => [String(n.id), n]));
@@ -20134,9 +20129,10 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   }
   const wikiMap = {};
   let wi = 0;
-  const processed = preMath1.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
+  const processed = preMath1.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (rawFull, rawTitle) => {
     const title = rawTitle.replace(/\\(.)/g, '$1'); // unescape remark-stringify escapes
     const key = `WKLN${wi++}WKLNEND`;
+    rawMap[key] = rawFull;
     const parsed = parseWikilinkRaw(title);
     const normTitle = normalizeWikiText(parsed.title);
     let target = null;
@@ -20168,10 +20164,11 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   };
   const taskMap = {};
   let ti = 0;
-  const processed2 = processed.replace(/\\?\[tasklink:([0-9a-f-]+)\\?\]/g, (_, idStr) => {
+  const processed2 = processed.replace(/\\?\[tasklink:([0-9a-f-]+)\\?\]/g, (rawFull, idStr) => {
     const isUuid = idStr.includes('-');
     const taskId = isUuid ? idStr : Number(idStr);
     const key = `TKLNK${ti++}TKLNKEND`;
+    rawMap[key] = rawFull;
     const task = (tasks || []).find(t =>
       t.id === taskId ||
       (isUuid && (t.cid === idStr || String(t.id) === idStr))
@@ -20192,8 +20189,9 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   // Pre-process ==highlight== tokens before marked.parse
   const hlMap = {};
   let hi = 0;
-  const processed3 = processed2.replace(/\\?==([^=\n]+)==/g, (_, val) => {
+  const processed3 = processed2.replace(/\\?==([^=\n]+)==/g, (rawFull, val) => {
     const key = `HLMK${hi++}HLMKEND`;
+    rawMap[key] = rawFull;
     hlMap[key] = `<mark class="highlight-mark">${escapeHtml(val)}</mark>`;
     return key;
   });
@@ -20203,6 +20201,7 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   let di = 0;
   const processed4 = processed3.replace(/\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?/gi, (rawMatch, idStr, attrRaw) => {
     const key = `DRWBLK${di++}DRWBLKEND`;
+    rawMap[key] = rawMatch;
     const safeId = escapeAttr(idStr);
     const attrs = parseDirectiveAttrs(attrRaw);
     const titleRaw = attrs.title || 'Gambar';
@@ -20274,6 +20273,14 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
     cleanLines.push(line);
   }
   const cleanMd = cleanLines.join('\n');
+
+  return { text: cleanMd, rawMap, mathMap, wikiMap, taskMap, hlMap, drawMap };
+}
+
+function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
+  if (!text) return "";
+  _markedHIdx = 0;
+  const { text: cleanMd, mathMap, wikiMap, taskMap, hlMap, drawMap } = prepMarkdownBlocks(text, noteTitles, allNotes, tasks);
 
   let html = marked.parse(cleanMd);
   const ALERT_TYPES = NOTE_CALLOUT_TYPES;
@@ -22669,10 +22676,7 @@ function extractHeadings(content) {
   if (typeof marked !== "undefined" && marked && typeof marked.lexer === "function") {
     try {
       const prepped = prepMarkdownBlocks(content);
-      const restore = (t) => String(t || "").replace(/MATH\d+MATHEND/g, (k) => {
-        const m = prepped.mathSrc[k];
-        return m ? (m.block ? "$$" + m.latex + "$$" : "$" + m.latex + "$") : "";
-      });
+      const restore = (t) => String(t || "").replace(/(?:MATH|WKLN|TKLNK|HLMK|DRWBLK)\d+(?:MATH|WKLN|TKLNK|HLMK|DRWBLK)END/g, (k) => prepped.rawMap[k] || "");
       const walk = (tokens) => {
         for (const tk of tokens || []) {
           if (!tk) continue;
@@ -22681,7 +22685,7 @@ function extractHeadings(content) {
           else if (tk.type === "list") {
             for (const it of tk.items || []) {
               // renderer listitem: task tanpa blok memakai item.text mentah (tanpa heading)
-              if (it.task && !(it.tokens || []).some(t => t.type === "blockquote" || t.type === "list" || t.type === "paragraph" || t.type === "space")) continue;
+              if (it.task && !taskItemHasBlock(it)) continue;
               walk(it.tokens);
             }
           }
@@ -22690,6 +22694,7 @@ function extractHeadings(content) {
       walk(marked.lexer(prepped.text));
       return headings;
     } catch (e) {
+      console.warn('extractHeadings: marked.lexer gagal, pakai fallback', e);
       headings.length = 0; idx = 0;
     }
   }
@@ -23716,8 +23721,9 @@ function NoteModal({
   // ── Daftar isi (📑) mode edit ─────────────────────────────────
   // Sumber heading = dokumen ProseMirror editor (akurat; "# ..." di code block tidak ikut).
   // Editor Milkdown siap asinkron → sebelum siap, fallback extractHeadings(content) utk tampilan.
-  const mdTocItems = React.useMemo(() => extractHeadings(content), [content]);
   const [editorToc, setEditorToc] = React.useState(null);
+  // Lexing mahal: lewati selama TOC editor aktif (hook tetap dipanggil, urutan stabil).
+  const mdTocItems = React.useMemo(() => editorToc ? [] : extractHeadings(content), [content, !!editorToc]);
   const tocItems = editorToc || mdTocItems;
   const [tocActiveIdx, setTocActiveIdx] = React.useState(null);
   const tocSpyNodesRef = React.useRef([]);

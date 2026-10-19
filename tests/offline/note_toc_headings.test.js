@@ -35,7 +35,7 @@ function makeCtx({ withMarked = true } = {}) {
     "function parseWikilinkRaw(t){return {title:t,label:t,raw:t};}",
     "function parseDirectiveAttrs(){return {};}",
     "function normalizeWikiText(s){return String(s).trim().toLowerCase();}",
-    withMarked ? slice("let _markedHIdx = 0;", "\n});\n") + "\n});\n" : "var _markedHIdx = 0;",
+    withMarked ? slice("// Item task berisi blok?", "\n});\n") + "\n});\n" : "var _markedHIdx = 0;",
     slice("function repairQuoteMarkdown(md) {", "window.hydrateDrawingPreviews = function"),
     slice("function extractHeadings(content) {", "// Heading top-level dokumen ProseMirror"),
     "this.renderMarkdown = renderMarkdown; this.extractHeadings = extractHeadings;",
@@ -135,4 +135,27 @@ test("fallback tanpa marked melewati isi fence", () => {
   const c2 = makeCtx({ withMarked: false });
   const md = "```\n# x\n```\n~~~~\n~~~\n# y\n~~~~\n# Asli\n#\n## B";
   assert.deepEqual(c2.extractHeadings(md).map(h => [h.text, h.idx]), [["Asli", 0], ["B", 2]]);
+});
+
+test("8. wikilink lintas baris tidak membuat heading palsu", () => {
+  const md = "[[a\n# x]]\n# R";
+  const hs = ctx.extractHeadings(md);
+  const r = rendered(md);
+  assert.deepEqual(hs.map(h => [h.idx, h.text]), r.map(h => [h.idx, h.text]));
+});
+
+test("9. normalisasi tabel tidak menggeser heading", () => {
+  const md = "# A\ntext\n| a | b |\n|---|---|\n| 1 | 2 |\n# B\n\\| x \\|\n## C";
+  const hs = ctx.extractHeadings(md);
+  const r = rendered(md);
+  assert.deepEqual(hs.map(h => [h.idx, h.level, h.text]), r.map(h => [h.idx, h.level, h.text]));
+});
+
+test("10. ::draw dan ==highlight== di heading: teks mentah, idx sejalan", () => {
+  const md = "# ==pen== judul\n\n::draw[abc]{title: x\n# palsu\n}\n\n## Z";
+  const hs = ctx.extractHeadings(md);
+  const r = rendered(md);
+  assert.ok(!hs.some(h => /HLMK|DRWBLK|MATH\d/.test(h.text)));
+  for (const h of hs) assert.equal(r.find(x => x.idx === h.idx).level, h.level);
+  assert.ok(!hs.some(h => h.text === "palsu"));
 });
