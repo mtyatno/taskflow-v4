@@ -1,11 +1,18 @@
 name: Build Android APK
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Publikasikan APK sebagai GitHub pre-release (bisa diunduh langsung dari HP)"
+        type: boolean
+        default: false
   push:
     tags: ["v*"]
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # gh release create/upload
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,7 +23,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
       - name: Install NDK + platform + build-tools
         run: |
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264"
@@ -54,11 +61,6 @@ jobs:
         run: node scripts/patch-android-share.js
       - name: Patch gen/android for native speech recognition
         run: node scripts/patch-android-speech.js
-      - name: Pin brotli to 8.0.2 (8.0.1/8.0.3 broken on alloc-no-stdlib)
-        run: |
-          cd src-tauri
-          cargo generate-lockfile
-          cargo update -p brotli --precise 8.0.2
       - name: Build Android APK (unsigned release)
         run: npx tauri android build --apk
       - name: Sign APK
@@ -88,3 +90,24 @@ jobs:
           name: taskflow-android-apk
           path: taskflow-release.apk
           if-no-files-found: error
+      - name: Publish GitHub Release (tag v* → release; manual dengan input release → pre-release)
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHORT="${GITHUB_SHA::7}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="$GITHUB_REF_NAME"; EXTRA=()
+          else
+            TAG="apk-$(date -u +%Y%m%d-%H%M)-$SHORT"; EXTRA=(--prerelease)
+          fi
+          ASSET="alurik-$TAG.apk"
+          cp taskflow-release.apk "$ASSET"
+          sha256sum "$ASSET" | tee "$ASSET.sha256"
+          NOTES="APK universal Alurik (arm64-v8a, armeabi-v7a, x86, x86_64) dari commit $GITHUB_SHA (branch/ref: $GITHUB_REF_NAME), ditandatangani dengan key rilis repo. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ASSET" "$ASSET.sha256" --clobber
+          else
+            gh release create "$TAG" "$ASSET" "$ASSET.sha256" --target "$GITHUB_SHA" --title "Alurik Android $TAG" --notes "$NOTES" "${EXTRA[@]}"
+          fi
