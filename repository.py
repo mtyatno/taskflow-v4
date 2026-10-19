@@ -22,6 +22,94 @@ from models import Task, GTDStatus, Priority, Quadrant
 from config import DB_PATH
 
 
+def ensure_projects_schema(conn) -> None:
+    """Tabel `projects` + kolom `tasks.project_id` (idempoten)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS projects (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            user_id     INTEGER DEFAULT NULL REFERENCES users(id) ON DELETE CASCADE,
+            list_id     INTEGER DEFAULT NULL REFERENCES shared_lists(id) ON DELETE CASCADE,
+            color       TEXT DEFAULT NULL,
+            archived    INTEGER NOT NULL DEFAULT 0,
+            created_by  INTEGER DEFAULT NULL REFERENCES users(id) ON DELETE SET NULL,
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL,
+            CHECK ((user_id IS NULL) <> (list_id IS NULL))
+        )
+    """)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_user "
+        "ON projects(user_id, name COLLATE NOCASE) WHERE list_id IS NULL"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_list "
+        "ON projects(list_id, name COLLATE NOCASE) WHERE list_id IS NOT NULL"
+    )
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+    if "project_id" not in cols:
+        conn.execute(
+            "ALTER TABLE tasks ADD COLUMN project_id INTEGER DEFAULT NULL "
+            "REFERENCES projects(id) ON DELETE SET NULL"
+        )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id)")
+
+
+def backfill_projects(conn) -> dict:
+    """Buat/hubungkan project dari teks `tasks.project` yang belum punya project_id.
+
+    Scope: list_id menunjuk shared_lists yang ada -> workspace, selain itu pribadi
+    milik tasks.user_id. Grup = (scope, nama NOCASE). Idempoten. Tidak mengubah
+    updated_at task (bukan edit pengguna). Pemanggil yang commit.
+    """
+    rows = conn.execute("""
+        SELECT t.id, t.project, t.user_id, t.gtd_status, t.created_at, t.updated_at,
+               sl.id AS ws_id
+        FROM tasks t LEFT JOIN shared_lists sl ON sl.id = t.list_id
+        WHERE t.project_id IS NULL AND TRIM(COALESCE(t.project, '')) <> ''
+    """).fetchall()
+
+    groups: dict = {}
+    for r in rows:
+        name = r[1].strip()
+        scope = ("w", r[6]) if r[6] is not None else ("u", r[2])
+        if scope[1] is None:  # yatim: tanpa workspace dan tanpa pemilik
+            continue
+        groups.setdefault((scope, name.lower()), []).append((r, name))
+
+    now = datetime.now().isoformat()
+    created = linked = 0
+    for (scope, _key), members in groups.items():
+        kind, owner = scope
+        if kind == "w":
+            existing = conn.execute(
+                "SELECT id, name FROM projects WHERE list_id=? AND name=? COLLATE NOCASE",
+                (owner, members[0][1])).fetchone()
+        else:
+            existing = conn.execute(
+                "SELECT id, name FROM projects WHERE user_id=? AND list_id IS NULL "
+                "AND name=? COLLATE NOCASE", (owner, members[0][1])).fetchone()
+        if existing:
+            pid, canon = existing[0], existing[1]
+        else:
+            newest = max(members, key=lambda m: (m[0][5] or "", m[0][0]))
+            oldest = min(members, key=lambda m: (m[0][4] or "", m[0][0]))
+            canon = newest[1]
+            created_by = oldest[0][2] if kind == "w" else owner
+            has_active = any(m[0][3] not in ("done", "archived") for m in members)
+            col = "list_id" if kind == "w" else "user_id"
+            cur = conn.execute(
+                f"INSERT INTO projects(name, {col}, archived, created_by, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (canon, owner, 0 if has_active else 1, created_by, now, now))
+            pid = cur.lastrowid
+            created += 1
+        for r, _n in members:
+            conn.execute("UPDATE tasks SET project_id=?, project=? WHERE id=?", (pid, canon, r[0]))
+            linked += 1
+    return {"created": created, "linked": linked}
+
+
 class TaskRepository:
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
@@ -538,6 +626,8 @@ class TaskRepository:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_published_slug ON published_notes(slug)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_published_user ON published_notes(user_id)")
+
+            ensure_projects_schema(conn)
 
     # ── Row to Task mapping ────────────────────────────────────────────────
 

@@ -139,6 +139,7 @@ from models import Task, GTDStatus, Priority, Quadrant
 from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date
 from repository import TaskRepository
+import repository
 import bookmark
 import ai_review
 import review_history
@@ -791,6 +792,17 @@ def migrate_db():
         if "file_id" not in cols:
             conn.execute("ALTER TABLE messages ADD COLUMN file_id INTEGER DEFAULT NULL REFERENCES workspace_files(id)")
             conn.commit()
+    finally:
+        conn.close()
+
+    # Project sebagai entitas: skema + backfill dari tasks.project (idempoten).
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA foreign_keys=ON")
+        repository.ensure_projects_schema(conn)
+        repository.backfill_projects(conn)
+        conn.commit()
     finally:
         conn.close()
 
