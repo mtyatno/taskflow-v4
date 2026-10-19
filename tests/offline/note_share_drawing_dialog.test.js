@@ -21,6 +21,9 @@ const HELPERS = [
   "noteShareDialogSpec", "notePullbackDialogSpec", "pullNoteDrawingsBack", "confirmNoteShareWithDrawings",
   "leaveImpactDialogSpec", "leaveWorkspaceWithDrawings",
 ];
+const BUSY = "Memeriksa gambar…";
+// Toast error/peringatan saja (toast busy "info" dicek terpisah).
+const errToasts = arr => (m, t) => { if (t !== "info") arr.push([m, t]); };
 const H = new Function(HELPERS.map(src).join("\n") + "\nreturn {" + HELPERS.join(",") + "};")();
 
 const UID = 7;
@@ -41,7 +44,7 @@ function mkTF(over = {}) {
     drawingshare: share,
     drawdirective,
     drawingrepo: {
-      listDrawings: async () => over.list || [MINE, OTHER, SAME],
+      listDrawings: async () => { if (over.listFail) throw new Error("idb rusak"); return over.list || [MINE, OTHER, SAME]; },
       currentUid: () => UID,
     },
   };
@@ -66,7 +69,7 @@ test("note share shows move/copy lists and cancels without writes", async () => 
     note: { id: 1, content: CONTENT }, content: CONTENT, targetListId: 5, listName: "Tim A",
     api, TF, showToast: (m, t) => toasts.push([m, t]),
     ask: async spec => { asked.push(spec); return "cancel"; },
-    saveContent: async c => saves.push(c),
+    saveContent: async t => saves.push(t),
   });
   assert.equal(ok, false);
   assert.equal(asked.length, 1);
@@ -79,7 +82,7 @@ test("note share shows move/copy lists and cancels without writes", async () => 
   // Batal: tidak ada salin/simpan/PATCH
   assert.deepEqual(calls, []);
   assert.deepEqual(saves, []);
-  assert.deepEqual(toasts, []);
+  assert.deepEqual(toasts, [[BUSY, "info"]]); // status sibuk selama prepareNoteShare
 
   // Tanpa move/copy → langsung share tanpa dialog (perilaku lama)
   const plain = mkTF();
@@ -87,11 +90,23 @@ test("note share shows move/copy lists and cancels without writes", async () => 
   const asked2 = [];
   const ok2 = await H.confirmNoteShareWithDrawings({
     note: { id: 1 }, content: "x ::draw[33] ::draw[ghost]", targetListId: 5, listName: "Tim A",
-    api: api2, TF: plain.TF, showToast: () => {}, ask: async s => { asked2.push(s); return "share"; }, saveContent: async () => {},
+    api: api2, TF: plain.TF, showToast: () => {}, ask: async s => { asked2.push(s); return "share"; },
+    saveContent: async () => plain.calls.push(["flush"]), pushNow: async () => { plain.calls.push(["push"]); return true; },
   });
   assert.equal(ok2, true);
   assert.equal(asked2.length, 0);
   assert.deepEqual(plain.calls.map(c => c[0]), ["patch", "applyMoved"]);
+
+  // listDrawings gagal → dialog tidak dilewati diam-diam: toast + share dibatalkan
+  const broken = mkTF({ listFail: true });
+  const toasts3 = [];
+  const ok3 = await H.confirmNoteShareWithDrawings({
+    note: { id: 1 }, content: CONTENT, targetListId: 5, listName: "Tim A",
+    api: mkApi(broken.calls), TF: broken.TF, showToast: errToasts(toasts3), ask: async () => "share", saveContent: async () => {},
+  });
+  assert.equal(ok3, false);
+  assert.deepEqual(toasts3, [["Tidak bisa memeriksa gambar; coba lagi.", "error"]]);
+  assert.deepEqual(broken.calls, []);
 });
 
 test("note share copies other-workspace drawings, rewrites tokens, then shares and applies moved_drawings", async () => {
@@ -102,10 +117,10 @@ test("note share copies other-workspace drawings, rewrites tokens, then shares a
   let pushed = 0;
   const ok = await H.confirmNoteShareWithDrawings({
     note: { id: 1, content: CONTENT }, content: CONTENT, targetListId: 5, listName: "Tim A",
-    api, TF, showToast: () => assert.fail("tidak boleh toast"),
+    api, TF, showToast: (m, t) => { if (t !== "info") assert.fail("tidak boleh toast: " + m); },
     ask: async () => "share",
-    saveContent: async c => { calls.push(["save"]); saves.push(c); },
-    pushNow: async () => { calls.push(["push"]); pushed++; },
+    saveContent: async t => { calls.push(["save"]); saves.push(t(CONTENT)); },
+    pushNow: async id => { calls.push(["push", id]); pushed++; return true; },
     onShared: updated => shared.push(updated),
   });
   assert.equal(ok, true);
@@ -115,6 +130,7 @@ test("note share copies other-workspace drawings, rewrites tokens, then shares a
   assert.equal(calls[0][2], 5);
   // token diganti dengan client_id salinan, atribut tetap
   assert.equal(saves[0], "a ::draw[11] b ::draw[c-copy]{size=\"m\"} c ::draw[33] d ::draw[ghost]");
+  assert.deepEqual(calls[2], ["push", 1]);
   assert.deepEqual(calls[3].slice(1), ["/api/scratchpad/1/share", { list_id: 5 }]);
   assert.deepEqual(calls[4][1], [{ id: 11, list_id: 5 }]);
   assert.equal(shared.length, 1);
@@ -126,7 +142,7 @@ test("note share copies other-workspace drawings, rewrites tokens, then shares a
   const toasts = [];
   const ok2 = await H.confirmNoteShareWithDrawings({
     note: { id: 1 }, content: CONTENT, targetListId: 5, listName: "Tim A",
-    api: mkApi(f.calls), TF: f.TF, showToast: (m, t) => toasts.push([m, t]), ask: async () => "share", saveContent: async () => f.calls.push(["save"]),
+    api: mkApi(f.calls), TF: f.TF, showToast: errToasts(toasts), ask: async () => "share", saveContent: async () => f.calls.push(["save"]),
   });
   assert.equal(ok2, false);
   assert.deepEqual(toasts, [["Data gambar belum tersedia offline.", "error"]]);
@@ -138,10 +154,88 @@ test("note share copies other-workspace drawings, rewrites tokens, then shares a
   const ok3 = await H.confirmNoteShareWithDrawings({
     note: { id: 1 }, content: "x", targetListId: 5, listName: "Tim A",
     api: mkApi(g.calls, { patch: async () => { throw new Error("Server error"); } }), TF: g.TF,
-    showToast: (m, t) => toasts3.push([m, t]), ask: async () => "share", saveContent: async () => {},
+    showToast: errToasts(toasts3), ask: async () => "share", saveContent: async () => {},
   });
   assert.equal(ok3, false);
   assert.deepEqual(toasts3, [["Server error", "error"]]);
+
+  // Salinan ke-2 gagal → jumlah salinan yang sudah dibuat disebut di toast; tidak simpan/PATCH
+  const OTHER2 = { id: 23, server_id: 23, cid: "c-o2", title: "Other 2", list_id: 9, user_id: 8 };
+  let n = 0;
+  const h = mkTF({ list: [OTHER, OTHER2], share: { copyDrawing: async (a, d) => { h.calls.push(["copy"]); return ++n === 1 ? { ok: true, drawing: { id: 98, server_id: 98, client_id: "k1" } } : { ok: false, code: "ERROR", message: "x" }; } } });
+  const toasts4 = [];
+  const ok4 = await H.confirmNoteShareWithDrawings({
+    note: { id: 1 }, content: "::draw[c-other] ::draw[c-o2]", targetListId: 5, listName: "Tim A",
+    api: mkApi(h.calls), TF: h.TF, showToast: errToasts(toasts4), ask: async () => "share", saveContent: async () => h.calls.push(["save"]),
+  });
+  assert.equal(ok4, false);
+  assert.deepEqual(toasts4, [["Gagal menyalin gambar (1 salinan sudah dibuat).", "error"]]);
+  assert.deepEqual(h.calls.map(c => c[0]), ["copy", "copy"]);
+});
+
+test("share rewrites tokens against the CURRENT content at save time (late edits kept)", async () => {
+  const { TF, calls } = mkTF();
+  let editor = CONTENT;
+  const ok = await H.confirmNoteShareWithDrawings({
+    note: { id: 1 }, content: editor, targetListId: 5, listName: "Tim A",
+    api: mkApi(calls), TF, showToast: () => {},
+    ask: async () => { editor = editor + "\nketikan baru"; return "share"; }, // diketik saat dialog terbuka
+    saveContent: async t => { editor = t(editor); },
+    pushNow: async () => true,
+  });
+  assert.equal(ok, true);
+  assert.equal(editor, "a ::draw[11] b ::draw[c-copy]{size=\"m\"} c ::draw[33] d ::draw[ghost]\nketikan baru");
+});
+
+test("share aborts before PATCH when the outbox push fails; move-only flushes first; unresolved_drawings toasts", async () => {
+  // push gagal/timeout → tidak ada PATCH, toast persis, note tetap tidak dibagikan
+  const a = mkTF();
+  const toastsA = [];
+  const okA = await H.confirmNoteShareWithDrawings({
+    note: { id: 1 }, content: "::draw[11]", targetListId: 5, listName: "Tim A",
+    api: mkApi(a.calls), TF: a.TF, showToast: errToasts(toastsA), ask: async () => "share",
+    saveContent: async () => a.calls.push(["flush"]), pushNow: async () => { a.calls.push(["push"]); return false; },
+  });
+  assert.equal(okA, false);
+  assert.deepEqual(toastsA, [["Catatan belum tersinkron; coba bagikan lagi sebentar lagi.", "error"]]);
+  assert.deepEqual(a.calls.map(c => c[0]), ["flush", "push"]);
+
+  // move-only: flush (walau isi tidak berubah) → push → patch → applyMoved
+  const b = mkTF();
+  const flushed = [];
+  const okB = await H.confirmNoteShareWithDrawings({
+    note: { id: 1 }, content: "::draw[11]", targetListId: 5, listName: "Tim A",
+    api: mkApi(b.calls), TF: b.TF, showToast: () => {}, ask: async () => "share",
+    saveContent: async t => { b.calls.push(["flush"]); flushed.push(t("::draw[11] x")); }, pushNow: async () => { b.calls.push(["push"]); return true; },
+  });
+  assert.equal(okB, true);
+  assert.deepEqual(b.calls.map(c => c[0]), ["flush", "push", "patch", "applyMoved"]);
+  assert.deepEqual(flushed, ["::draw[11] x"]);
+
+  // unresolved_drawings → toast jumlah
+  const c = mkTF();
+  const toastsC = [];
+  const okC = await H.confirmNoteShareWithDrawings({
+    note: { id: 1 }, content: "x", targetListId: 5, listName: "Tim A",
+    api: mkApi(c.calls, { patch: async (u, body) => ({ id: 1, list_id: 5, moved_drawings: [], unresolved_drawings: ["a", "b"] }) }), TF: c.TF,
+    showToast: errToasts(toastsC), ask: async () => "share", saveContent: async () => {},
+  });
+  assert.equal(okC, true);
+  assert.deepEqual(toastsC, [["2 gambar tidak ikut dibagikan.", "error"]]);
+});
+
+test("noteSharePushNow: true only when push completed and no outbox op remains for the note", async () => {
+  const mk = (pushRes, ops, fresh) => {
+    const win = { __pushNow: async () => { if (pushRes instanceof Error) throw pushRes; return pushRes; }, TF: { outbox: { outboxAll: async () => ops } } };
+    const apiStub = { get: async () => fresh };
+    return new Function("window", "api", src("noteSharePushNow") + "\nreturn noteSharePushNow;")(win, apiStub);
+  };
+  assert.equal(await mk({ pushed: 1, failed: 0, remaining: 0 }, [], { id: 1, cid: "n1" })(1), true);
+  assert.equal(await mk({ pushed: 0, failed: 0, remaining: 1 }, [{ entity_type: "note", cid: "n1" }], { id: 1, cid: "n1" })(1), false);
+  assert.equal(await mk({ pushed: 0, failed: 0, remaining: 1 }, [{ entity_type: "drawing", cid: "n1" }, { entity_type: "note", cid: "zz" }], { id: 1, cid: "n1" })(1), true);
+  assert.equal(await mk({ busy: true }, [], { id: 1, cid: "n1" })(1), false);
+  assert.equal(await mk(null, [], { id: 1, cid: "n1" })(1), false);
+  assert.equal(await mk(new Error("Failed to fetch"), [], { id: 1, cid: "n1" })(1), false);
 });
 
 test("note unshare offers pulling own drawings back; 409 is reported, not swallowed", async () => {
@@ -166,7 +260,7 @@ test("note unshare offers pulling own drawings back; 409 is reported, not swallo
   const toasts = [];
   const ok = await H.confirmNoteShareWithDrawings({
     note: { id: 1, list_id: 5 }, content, targetListId: null, listName: null, oldListId: 5, oldListName: "Tim A",
-    api, TF, showToast: (m, t) => toasts.push([m, t]),
+    api, TF, showToast: errToasts(toasts),
     ask: async spec => { asked.push(spec); return "yes"; }, saveContent: async () => {},
   });
   assert.equal(ok, true);
@@ -197,7 +291,7 @@ test("note unshare offers pulling own drawings back; 409 is reported, not swallo
   const ok3 = await H.confirmNoteShareWithDrawings({
     note: { id: 1, list_id: 5 }, content: "::draw[41]", targetListId: null, oldListId: 5, oldListName: "Tim A",
     api: mkApi(t3.calls, { patch: async () => { throw new Error("Failed to fetch"); } }), TF: t3.TF,
-    showToast: (m, t) => toasts3.push([m, t]), ask: async s => { asked3.push(s); return "yes"; }, saveContent: async () => {},
+    showToast: errToasts(toasts3), ask: async s => { asked3.push(s); return "yes"; }, saveContent: async () => {},
   });
   assert.equal(ok3, false);
   assert.deepEqual(asked3, []);
@@ -220,6 +314,7 @@ test("leave workspace fetches leave-impact and offers copy-then-leave", async ()
         copyDrawing: async (api, d, listId) => {
           calls.push(["copy", d.server_id, listId]);
           if (over.copyFail) return { ok: false, code: "ERROR", message: "Salin gagal" };
+          if (over.secondFail && d.server_id === 42) return { ok: false, code: "ERROR", message: "Salin gagal" };
           return { ok: true, drawing: d.server_id === 41 ? { id: 501, server_id: 501, client_id: "n41" } : { id: 502, server_id: 502, client_id: null } };
         },
       },
@@ -272,6 +367,12 @@ test("leave workspace fetches leave-impact and offers copy-then-leave", async ()
   r = await run("copy", { copyFail: true });
   assert.equal(r.ok, false);
   assert.deepEqual(r.toasts, [["Salin gagal", "error"]]);
+  assert.ok(!r.calls.some(c => c[0] === "del" || c[0] === "put"));
+
+  // Salinan ke-2 gagal → toast menyebut jumlah salinan yang sudah dibuat, tidak keluar
+  r = await run("copy", { secondFail: true });
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.toasts, [["Gagal menyalin gambar (1 salinan sudah dibuat).", "error"]]);
   assert.ok(!r.calls.some(c => c[0] === "del" || c[0] === "put"));
 
   // leave-impact gagal → confirm biasa
