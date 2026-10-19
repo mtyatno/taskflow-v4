@@ -1858,9 +1858,13 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
                 except repository.ProjectScopeError:
                     proj_id = None
             if not proj_id:
+                req_pid = req.project_id
+                if req_pid is not None and conn.execute(
+                        "SELECT 1 FROM projects WHERE id = ?", (req_pid,)).fetchone() is None:
+                    req_pid = None  # project_id tak dikenal (sudah dihapus): resolusi pakai teks
                 proj_id, proj_name = repository.resolve_task_project(
                     conn, owner_id=uid, list_id=req.list_id, name=req.project,
-                    project_id=req.project_id, actor_id=uid)
+                    project_id=req_pid, actor_id=uid)
         except repository.ProjectScopeError:
             raise HTTPException(status_code=400, detail="Project tidak berada di scope task")
         try:
@@ -1965,7 +1969,12 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
             updates["priority"] = req.priority.upper()
         # Resolusi hanya bila project benar-benar berubah (null = tidak diubah, perilaku lama).
         # project_id non-null menang atas nama; selain itu bandingkan nama NOCASE dgn teks sekarang.
-        if req.project_id is not None:
+        stale_pid = (req.project_id is not None and req.project_id != existing["project_id"]
+                     and conn.execute("SELECT 1 FROM projects WHERE id = ?",
+                                      (req.project_id,)).fetchone() is None)
+        if stale_pid:  # project_id basi (project sudah dihapus): anggap tidak berubah
+            project_changed = False
+        elif req.project_id is not None:
             project_changed = req.project_id != existing["project_id"]
         else:
             project_changed = req.project is not None and repository.project_text_changed(
@@ -2336,10 +2345,12 @@ def _project_full(conn, row, uid) -> dict:
     cnt = conn.execute(
         "SELECT COUNT(*) FROM tasks WHERE project_id = ? AND gtd_status NOT IN ('done','archived')",
         (row["id"],)).fetchone()[0]
+    # semua task project ini (status apa pun) = yang dikosongkan DELETE /api/projects/{id}
+    total = conn.execute("SELECT COUNT(*) FROM tasks WHERE project_id = ?", (row["id"],)).fetchone()[0]
     return {
         "id": row["id"], "name": row["name"], "list_id": row["list_id"],
         "user_id": row["user_id"], "color": row["color"], "archived": bool(row["archived"]),
-        "created_by": row["created_by"], "active_task_count": cnt,
+        "created_by": row["created_by"], "active_task_count": cnt, "task_count": total,
         "can_manage": _project_can_manage(conn, row, uid),
     }
 
@@ -2364,9 +2375,20 @@ def _project_for_manage(conn, project_id, uid):
 
 @app.get("/api/projects")
 async def get_projects(list_id: Optional[int] = None, format: Optional[str] = None,
-                       include_archived: int = 0, user=Depends(get_current_user)):
+                       include_archived: int = 0, scope: Optional[str] = None,
+                       user=Depends(get_current_user)):
     uid = user["sub"]
+    if scope == "all" and format != "full":
+        raise HTTPException(400, "scope=all hanya untuk format=full")
     with get_db() as conn:
+        if scope == "all":
+            arch = "" if include_archived else " AND archived = 0"
+            rows = conn.execute(
+                "SELECT * FROM projects WHERE ((list_id IS NULL AND user_id = ?) OR list_id IN ("
+                "SELECT id FROM shared_lists WHERE owner_id = ? "
+                "UNION SELECT list_id FROM list_members WHERE user_id = ?))" + arch +
+                " ORDER BY name COLLATE NOCASE, id", (uid, uid, uid)).fetchall()
+            return [_project_full(conn, r, uid) for r in rows]
         if list_id is not None:
             _require_ws_member(conn, list_id, uid)
             scope_sql, args = "list_id = ?", (list_id,)
@@ -3814,7 +3836,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v419-toc-headings"
+    sw_cache = "taskflow-v420-toc-headings"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

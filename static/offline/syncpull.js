@@ -27,6 +27,7 @@
     try { return isNode ? require("./noterepo.js") : (root.TF && root.TF.noterepo); } catch (_) { return null; }
   }
   const TFmm = req("./mindmaprepo.js", root.TF && root.TF.mindmaprepo);
+  const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
 
   function getAllTasks() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -140,14 +141,21 @@
   }
   // Field turunan server (kuadran dari cron Eisenhower, tanggal akhir/level notif recurring, completed_at) tidak
   // lagi mem-bump updated_at (K2) → diadopsi terpisah pada record bersih yang "tidak berubah" menurut base_rev.
-  const TASK_DERIVED = ["quadrant", "recurrence_end_date", "recurrence_notif_level", "completed_at"];
+  // PR 5: project/project_id ikut — backfill server menautkan project_id (dan mengkanonkan nama) tanpa
+  // menaikkan updated_at.
+  const TASK_DERIVED = ["quadrant", "recurrence_end_date", "recurrence_notif_level", "completed_at", "project", "project_id"];
   function adoptTaskDerived(s, local) {
-    const diff = TASK_DERIVED.some((k) => (s[k] != null ? s[k] : null) !== (local[k] != null ? local[k] : null));
+    // project/project_id hanya bila server mengirimnya (dict lama/parsial tidak mengosongkan nilai lokal)
+    const keys = TASK_DERIVED.filter((k) => (k !== "project" && k !== "project_id") || k in s);
+    const diff = keys.some((k) => (s[k] != null ? s[k] : null) !== (local[k] != null ? local[k] : null));
     if (!diff) return Promise.resolve(false);
     return TFdb.mutate("tasks", local.cid, (cur) => {
       if (!sameRecState(cur, local)) return undefined;
       const next = Object.assign({}, cur);
-      for (const k of TASK_DERIVED) next[k] = s[k] != null ? s[k] : null;
+      for (const k of keys) next[k] = s[k] != null ? s[k] : null;
+      if (keys.indexOf("project_id") >= 0 || keys.indexOf("project") >= 0) {
+        next.project_ref_name = next.project_id != null ? (next.project != null ? next.project : "") : null;
+      }
       return next;
     }).then((saved) => !!saved);
   }
@@ -288,7 +296,11 @@
     const fetchOne = (sid) => Promise.resolve(rawFetch("/api/tasks/" + sid)).then(goneOrJson).catch(() => null);
     return Promise.resolve(rawFetch("/api/tasks?include_done=true"))
       .then(listJsonOrThrow)
-      .then((list) => pullTasks(list || [], fetchOne));
+      .then((list) => pullTasks(list || [], fetchOne))
+      // PR 5: segarkan cache project setelah pull task berhasil; gagal (offline/5xx) tidak menggagalkan pull
+      .then((result) => (TFprojects && TFprojects.refresh
+        ? Promise.resolve().then(() => TFprojects.refresh(rawFetch)).then(() => result, () => result)
+        : result));
   }
 
   const DEFAULT_FREQ = JSON.stringify(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
