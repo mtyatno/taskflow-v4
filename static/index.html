@@ -8680,8 +8680,9 @@ function LinkPickerModal({
   //   - window.TF.mindmapoutline
   // emits:
   //   - MindmapOutline
-function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap, onRequestLinkPicker }) {
+function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap, onRequestLinkPicker, linked = false, showSummary = true, onOpenNoteAt = null, onUndo = null, onRedo = null }) {
   const MO = window.TF && window.TF.mindmapoutline;
+  const NM = linked && window.TF && window.TF.notemap ? window.TF.notemap : null; // peta tertaut: render aturan catatan
   const [activeId, setActiveId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editVal, setEditVal] = useState("");
@@ -8825,8 +8826,11 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "BUTTON")) return;
     if (e.key === "Escape" && linksPopId) { e.preventDefault(); setLinksPopId(null); return; }
     const ctrl = e.ctrlKey || e.metaKey;
-    if (ctrl && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
-    if (ctrl && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
+    // Peta tertaut: riwayat undo/redo milik tab (tulisan ke catatan), bukan riwayat outline sendiri.
+    const doUndo = linked ? onUndo : undo;
+    const doRedo = linked ? onRedo : redo;
+    if (ctrl && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) { if (typeof doRedo === "function") doRedo(); } else if (typeof doUndo === "function") doUndo(); return; }
+    if (ctrl && e.key.toLowerCase() === "y") { e.preventDefault(); if (typeof doRedo === "function") doRedo(); return; }
     if (ctrl && e.key.toLowerCase() === "c") { e.preventDefault(); if (activeId) copyOp(activeId); return; }
     if (ctrl && e.key.toLowerCase() === "v") { e.preventDefault(); if (activeId) pasteOp(activeId); return; }
     if (ctrl && e.key.toLowerCase() === "d") { e.preventDefault(); if (activeId) duplicateOp(activeId); return; }
@@ -9011,7 +9015,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
           n.topic.slice(idx + q.length));
       }
     }
-    const mdHtml = (MO && MO.renderTopicMd) ? MO.renderTopicMd(n.topic) : null;
+    const mdHtml = NM && NM.renderTopicNoteInline ? NM.renderTopicNoteInline(n.topic) : (MO && MO.renderTopicMd) ? MO.renderTopicMd(n.topic) : null;
     if (mdHtml) {
       return /*#__PURE__*/React.createElement("span", {
         className: "topic-md",
@@ -9029,6 +9033,8 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
     const isActive = activeId === n.id;
     const isDragging = dragId === n.id;
     const dropMark = dragOver && dragOver.id === n.id ? dragOver.pos : null;
+    const openAtNote = target => { if (typeof onOpenNoteAt === "function") onOpenNoteAt(n.nm && n.nm.sid != null ? n.nm.sid : null, target); };
+    const summaryHtml = linked && showSummary && NM && NM.renderSummaryHtml && editingId !== n.id ? NM.renderSummaryHtml(n.nm && n.nm.summary) : "";
     const guideSegStyle = {
       width: 12, flexShrink: 0, alignSelf: "stretch",
       // rows have 4px vertical padding AND 2px transparent borders (drop
@@ -9048,6 +9054,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
     return /*#__PURE__*/React.createElement("div", {
       key: n.id,
       onMouseDown: e => { if (editingId !== n.id) setActiveId(n.id); if (containerRef.current) containerRef.current.focus(); },
+      onClick: e => { if (linked && (e.ctrlKey || e.metaKey)) { e.stopPropagation(); openAtNote("modal"); } },
       onDoubleClick: e => { e.stopPropagation(); if (editingId === n.id) return; startRename(n.id); },
       onContextMenu: e => {
         e.preventDefault();
@@ -9110,7 +9117,11 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
         color: isRoot ? "var(--accent)" : "var(--text-primary)",
         textAlign: n.align || undefined
       }
-    }, renderTopic(n)), linkCount > 0 && /*#__PURE__*/React.createElement("button", {
+    }, renderTopic(n), summaryHtml ? /*#__PURE__*/React.createElement("div", {
+      className: "nm-sum-wrap",
+      dangerouslySetInnerHTML: { __html: summaryHtml },
+      style: { whiteSpace: "normal", fontWeight: 400, fontSize: 11, color: "var(--text-light)", marginTop: 2 }
+    }) : null), linkCount > 0 && !linked && /*#__PURE__*/React.createElement("button", {
       onClick: e => { e.stopPropagation(); setLinksPopId(linksPopId === n.id ? null : n.id); },
       title: "Lihat link node",
       style: {
@@ -9119,7 +9130,11 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
         flexShrink: 0, border: "1px solid var(--border)", background: "var(--bg-card)",
         borderRadius: 8, cursor: "pointer", padding: "1px 7px"
       }
-    }, "🔗", linkCount), isActive && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    }, "🔗", linkCount), isActive && /*#__PURE__*/React.createElement(React.Fragment, null, linked && /*#__PURE__*/React.createElement("button", {
+      onClick: e => { e.stopPropagation(); openAtNote("modal"); },
+      title: "Buka di catatan",
+      style: hovBtn
+    }, "↗"), /*#__PURE__*/React.createElement("button", {
       onClick: e => { e.stopPropagation(); moveOp(n.id, "up"); },
       disabled: isRoot || !f || f.index === 0,
       title: "Geser naik",
@@ -9216,7 +9231,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
     }
   }, rows.map(renderRow), rows.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: { color: "var(--text-light)", fontSize: 12, padding: 16, textAlign: "center" }
-  }, "Tidak ada node cocok")), linksPopId != null && (() => {
+  }, "Tidak ada node cocok")), linksPopId != null && !linked && (() => {
     const lf = find(linksPopId);
     if (!lf || !lf.node) return null; // node gone (tree replaced) — popover auto-dismisses
     const lnode = lf.node;
@@ -9298,7 +9313,9 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
     }
   },
     menuItem("✏️ Rename", () => startRename(activeId)),
-    menuItem("🔗 Tambah link", () => { if (typeof onRequestLinkPicker === "function") onRequestLinkPicker(activeId); }),
+    linked && menuItem("📄 Buka di catatan", () => { if (typeof onOpenNoteAt === "function") onOpenNoteAt(menuF && menuF.node && menuF.node.nm && menuF.node.nm.sid != null ? menuF.node.nm.sid : null, "modal"); }),
+    linked && menuItem("↗ Buka di halaman Notes", () => { if (typeof onOpenNoteAt === "function") onOpenNoteAt(menuF && menuF.node && menuF.node.nm && menuF.node.nm.sid != null ? menuF.node.nm.sid : null, "page"); }),
+    !linked && menuItem("🔗 Tambah link", () => { if (typeof onRequestLinkPicker === "function") onRequestLinkPicker(activeId); }),
     menuItem("↳ Tambah child", () => addChildOp(activeId)),
     menuItem("↵ Tambah sibling", () => addSiblingOp(activeId)),
     menuItem("⧉ Duplikat", () => duplicateOp(activeId), false, menuIsRoot),
@@ -10142,7 +10159,12 @@ function MindmapTabInstance({
     onOpenMindmap: id => {
       window.dispatchEvent(new CustomEvent("openMindmap", { detail: id }));
     },
-    onRequestLinkPicker: requestOutlineLinkPicker
+    onRequestLinkPicker: requestOutlineLinkPicker,
+    linked: isLinked,
+    showSummary: showSummary,
+    onOpenNoteAt: isLinked ? openLinkedNoteAt : null,
+    onUndo: isLinked ? () => linkedUndoRedo("undo") : null,
+    onRedo: isLinked ? () => linkedUndoRedo("redo") : null
   }) : null),
   showLinkPicker && /*#__PURE__*/React.createElement(LinkPickerModal, {
     existingLinks: currentNodeLinks,

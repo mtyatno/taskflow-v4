@@ -370,3 +370,56 @@ test("behavior R18: toggling summary on an untouched big map keeps the initial c
   assert.equal(l2.showSummary, false);
   assert.ok(l2.data.nodeData.children.every((c) => c.children.every((g) => g.expanded === false)), "tetap terlipat, bukan terbuka semua");
 });
+
+// Petakan C7: MindmapOutline mode tertaut.
+function extractOutline() {
+  const start = indexHtml.indexOf("function MindmapOutline(");
+  assert.ok(start !== -1, "MindmapOutline harus ada");
+  const end = indexHtml.indexOf("\nfunction MindmapTabInstance(", start);
+  assert.ok(end !== -1);
+  return indexHtml.slice(start, end);
+}
+
+test("C7 MindmapOutline declares the linked props with defaults", () => {
+  const src = extractOutline();
+  assert.match(src, /function MindmapOutline\(\{[^}]*\blinked = false\b[^}]*\}\)/);
+  assert.match(src, /function MindmapOutline\(\{[^}]*\bshowSummary = true\b[^}]*\}\)/);
+  assert.match(src, /function MindmapOutline\(\{[^}]*\bonOpenNoteAt = null\b[^}]*\}\)/);
+  assert.match(src, /function MindmapOutline\(\{[^}]*\bonUndo = null\b[^}]*\bonRedo = null\b[^}]*\}\)/);
+});
+
+test("C7 MindmapOutline renders linked topics and summaries via notemap, normal maps keep renderTopicMd", () => {
+  const src = extractOutline();
+  assert.match(src, /linked[^\n]*renderTopicNoteInline|renderTopicNoteInline[\s\S]{0,200}renderTopicMd/);
+  assert.match(src, /renderSummaryHtml\(n\.nm && n\.nm\.summary\)/);
+  assert.match(src, /linked && showSummary/);
+  assert.match(src, /window\.TF && window\.TF\.notemap/);
+  assert.match(src, /MO\.renderTopicMd\(n\.topic\)/);
+});
+
+test("C7 MindmapOutline linked menu items, open handlers and hidden link features", () => {
+  const src = extractOutline();
+  assert.ok(src.includes('"📄 Buka di catatan"'));
+  assert.ok(src.includes('"↗ Buka di halaman Notes"'));
+  assert.match(src, /onOpenNoteAt\([^)]*"modal"\)/);
+  assert.match(src, /onOpenNoteAt\([^)]*"page"\)/);
+  assert.match(src, /e\.ctrlKey \|\| e\.metaKey/);
+  assert.match(src, /!linked && menuItem\("🔗 Tambah link"/);
+  assert.match(src, /linkCount > 0 && !linked/);
+  assert.match(src, /linksPopId != null && !linked/);
+});
+
+test("C7 MindmapOutline routes undo/redo to onUndo/onRedo when linked", () => {
+  const src = extractOutline();
+  assert.match(src, /linked \? onUndo : undo/);
+  assert.match(src, /linked \? onRedo : redo/);
+});
+
+test("C7 MindmapTabInstance wires the new MindmapOutline props", () => {
+  const src = extractTab();
+  assert.match(src, /linked: isLinked/);
+  assert.match(src, /showSummary: showSummary/);
+  assert.match(src, /onOpenNoteAt: isLinked \? openLinkedNoteAt : null/);
+  assert.match(src, /onUndo: isLinked \? \(\) => linkedUndoRedo\("undo"\) : null/);
+  assert.match(src, /onRedo: isLinked \? \(\) => linkedUndoRedo\("redo"\) : null/);
+});
