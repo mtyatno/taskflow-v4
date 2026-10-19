@@ -11,8 +11,8 @@ test("Service Worker and stylesheet versions are synchronized for v396", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v416-petakan/);
-  assert.match(html, /taskflow-v416-petakan/);
+  assert.match(sw, /taskflow-v418-canvas-linkpicker/);
+  assert.match(html, /taskflow-v418-canvas-linkpicker/);
   assert.match(html, /app\.css\?v=333/);
 });
 
