@@ -167,7 +167,8 @@ Masukan: `body` bagian itu saja (sub-bagian tidak ikut). Untuk root, masukannya 
 - `T0` = level terkecil di antara anak root pada catatan asli; default 1 bila catatan belum punya heading.
 - Δ(induk) = level baru induk − level aslinya (0 untuk root).
 - Node lama yang induknya tetap: level asli + Δ(induk).
-- Node baru, salinan, atau node lama yang pindah induk: memakai level saudara pertama di bawah induk yang sama yang merupakan node lama dengan induk tetap. Bila tidak ada saudara seperti itu: `T0` untuk anak root, atau level induk + 1.
+- Node baru, salinan, atau node lama yang pindah induk: memakai level saudara tepat sebelumnya (yang sudah ditulis) di bawah induk yang sama; bila tidak ada, level saudara pertama di bawah induk yang sama yang merupakan node lama dengan induk tetap; bila tidak ada juga: `T0` untuk anak root, atau level induk + 1. (Diperbarui saat implementasi PR 1: aturan "saudara pertama" bisa membuat node baru tak sengaja masuk ke bawah saudara lain pada catatan yang level heading-nya tidak seragam.)
+- Pemeriksaan hasil (`verifyStructure`): catatan hasil diurai ulang dan harus cocok dengan pohon peta — jumlah, teks, level, induk, baris heading persis, dan isi bagian. Bila tidak cocok, tulisan ditolak (tidak ada penyusunan ulang diam-diam). Ini juga berarti menukar urutan saudara yang level heading-nya berbeda di catatan ditolak; ubah lewat catatan.
 - Turunan node lama yang pindah dan turunan salinan: level asli + (level baru leluhur yang dipindah/disalin − level aslinya). Turunan node baru mengikuti aturan node baru.
 - Bila ada level di atas 6, hasilnya `{ ok: false, code: "LEVEL_OVERFLOW" }`; peta dimuat ulang dengan pesan "Maksimal 6 tingkat heading".
 
