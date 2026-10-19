@@ -211,3 +211,45 @@ test("forbidden delete restores dirty_before_delete and clears trash fields", as
   assert.equal(rec.trashed_at, undefined); assert.equal(rec.dirty_before_delete, undefined);
   assert.equal(rec.notice.kind, "delete_refused");
 });
+
+// ---- fix round 2 ----
+const { pullMindmaps } = require("../../static/offline/syncpull.js");
+
+test("pull keeps a restored (not dirty) map whose restore marker is pending; marker restores it later", async () => {
+  await syncedMap();
+  await mm.deleteMindmap("m1");
+  let restoreStatus = 503;
+  const tr = transport(async (m) => {
+    if (m === "DELETE") { await T.restore("m1"); return { status: 200, data: {} }; }
+    if (m === "POST") return restoreStatus === 200 ? { status: 200, data: srvRow() } : { status: 503, data: {} };
+    return { status: 500, data: {} };
+  });
+  await pushOutbox(tr);
+  assert.equal((await get("mindmaps", "m1")).dirty, 0);
+  // server: baris 9 di Sampah → tidak ada di daftar, GET satuan 404
+  await pullMindmaps([], () => Promise.resolve({ status: 404 }), () => Promise.resolve({ status: 404 }));
+  const rec = await get("mindmaps", "m1");
+  assert.ok(rec, "record must survive pull"); assert.equal(rec.deleted, false);
+  assert.equal(await cidOf("mindmap", 9), "m1");
+  restoreStatus = 200;
+  await pushOutbox(tr);
+  assert.equal(tr.calls.filter((c) => c.method === "POST").length, 2);
+  assert.deepEqual(await outboxAll(), []);
+  assert.equal((await get("mindmaps", "m1")).server_id, 9);
+});
+
+test("deleting again while the restore marker is pending cancels both without a new DELETE", async () => {
+  await syncedMap();
+  await mm.deleteMindmap("m1");
+  const tr = transport(async (m) => {
+    if (m === "DELETE") { await T.restore("m1"); await mm.updateMindmap("m1", { title: "E" }); return { status: 200, data: {} }; }
+    return { status: 503, data: {} };
+  });
+  await pushOutbox(tr);
+  await mm.deleteMindmap("m1");
+  assert.deepEqual(await outboxAll(), []);
+  assert.equal((await get("mindmaps", "m1")).deleted, true);
+  const before = tr.calls.length;
+  await pushOutbox(tr);
+  assert.equal(tr.calls.length, before);
+});

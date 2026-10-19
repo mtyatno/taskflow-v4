@@ -306,8 +306,18 @@
       });
     }).then((next) => {
       if (!next) return Promise.reject(new Error("Mindmap not found"));
-      return TFoutbox.outboxAdd({ op: "delete", entity_type: "mindmap", cid: cid, payload: { cid: cid } })
-        .then(() => ({ ok: true }));
+      return TFoutbox.outboxByEntity("mindmap", cid).then((ops) => {
+        const marker = ops.find((o) => o.op === "delete" && o.payload && o.payload.then_restore_sid != null);
+        if (!marker) {
+          return TFoutbox.outboxAdd({ op: "delete", entity_type: "mindmap", cid: cid, payload: { cid: cid } });
+        }
+        // Dihapus lagi selagi penanda then_restore_sid (syncpush) masih antre: baris server MASIH di Sampah server
+        // → batalkan keduanya (penanda + op update/pin yang ditahan di belakangnya), tanpa DELETE baru. Record tetap
+        // deleted lokal (pull membersihkannya; item muncul dari cermin Sampah). Konsekuensi: edit yang dibuat setelah
+        // pemulihan lokal dan masih ditahan di belakang penanda HILANG — Sampah server berisi snapshot sebelum hapus pertama.
+        return ops.filter((o) => o === marker || o.op === "update" || o.op === "pin")
+          .reduce((p, o) => p.then(() => TFoutbox.outboxRemove(o.qid)), Promise.resolve());
+      }).then(() => ({ ok: true }));
     });
   }
 
