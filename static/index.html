@@ -3653,8 +3653,10 @@ function projectManagerActions(p) {
   if (!p || !p.can_manage) return [];
   return ["rename", p.archived ? "unarchive" : "archive", "delete"];
 }
+// n = task_count (semua status — DELETE mengosongkan semuanya); server lama tanpa task_count → task aktif.
 function projectDeleteConfirmText(p) {
-  return "Hapus project «" + (p && p.name || "") + "»? " + (p && p.active_task_count || 0) + " task akan kehilangan project-nya.";
+  const n = p && p.task_count != null ? p.task_count : p && p.active_task_count || 0;
+  return "Hapus project «" + (p && p.name || "") + "»? " + n + " task akan kehilangan project-nya.";
 }
 function projectColorValid(c) {
   return typeof c === "string" && /^#[0-9a-fA-F]{6}$/.test(c);
@@ -3669,7 +3671,12 @@ function projectManagerAfterChange(tasksChanged) {
     if (!tasksChanged) return null;
     const synced = typeof window.__syncNow === "function" ? Promise.resolve().then(() => window.__syncNow()).catch(() => {}) : Promise.resolve();
     return synced.then(() => {
-      if (typeof window.__refreshTasks === "function") window.__refreshTasks();
+      // muat ulang task gagal ≠ aksi gagal (aksi sudah sukses di server)
+      try {
+        const r = typeof window.__refreshTasks === "function" ? window.__refreshTasks() : null;
+        if (r && typeof r.catch === "function") return r.catch(() => {});
+      } catch (_) {}
+      return null;
     });
   });
 }
@@ -3683,6 +3690,7 @@ function ProjectManagerModal({
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [edit, setEdit] = useState(null); // { id, name, color }
+  const [rowError, setRowError] = useState(null); // { id, msg } — error aksi tampil di baris itu
   const load = React.useCallback(() => {
     if (!navigator.onLine) {
       setError(PROJECT_MANAGER_OFFLINE_TEXT);
@@ -3703,33 +3711,46 @@ function ProjectManagerModal({
       window.removeEventListener("online", load);
     };
   }, [load]);
+  // Escape: batal edit bila sedang edit, selain itu tutup modal
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key !== "Escape") return;
+      if (edit) {
+        setEdit(null);
+        setRowError(null);
+      } else onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [edit, onClose]);
+  const rowFail = (p, msg) => setRowError({ id: p.id, msg });
   const run = (p, fn, okMsg, tasksChanged) => {
     if (!navigator.onLine) {
-      setError(PROJECT_MANAGER_OFFLINE_TEXT);
+      rowFail(p, PROJECT_MANAGER_OFFLINE_TEXT);
       return;
     }
     setBusyId(p.id);
-    setError("");
+    setRowError(null);
     Promise.resolve().then(fn).then(() => {
       setEdit(null);
       if (okMsg && showToast) showToast(okMsg);
       projectManagerAfterChange(tasksChanged);
       return load();
     }).catch(err => {
-      setError(isOfflineErr(err) ? PROJECT_MANAGER_OFFLINE_TEXT : err && err.message || "Gagal menyimpan");
+      rowFail(p, isOfflineErr(err) ? PROJECT_MANAGER_OFFLINE_TEXT : err && err.message || "Gagal menyimpan");
     }).then(() => setBusyId(null));
   };
   const saveEdit = p => {
     const name = (edit.name || "").trim();
     const body = {};
     if (!name) {
-      setError("Nama project tidak boleh kosong");
+      rowFail(p, "Nama project tidak boleh kosong");
       return;
     }
     if (name !== p.name) body.name = name;
     if (edit.color !== (p.color || "") ) {
       if (!projectColorValid(edit.color)) {
-        setError("Warna harus format #rrggbb");
+        rowFail(p, "Warna harus format #rrggbb");
         return;
       }
       body.color = edit.color;
@@ -3753,26 +3774,32 @@ function ProjectManagerModal({
   const renderRow = p => {
     const actions = projectManagerActions(p);
     const busy = busyId === p.id;
+    const errLine = rowError && rowError.id === p.id && h("div", { role: "alert", style: { flexBasis: "100%", fontSize: 12, color: "var(--danger, #dc2626)" } }, rowError.msg);
     if (edit && edit.id === p.id) {
       return h("div", { key: p.id, style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "10px 0", borderBottom: "1px solid var(--border)" } },
         h("input", { type: "color", value: projectColorValid(edit.color) ? edit.color : "#888888", onChange: e => setEdit({ ...edit, color: e.target.value }), "aria-label": "Warna project", style: { width: 36, height: 32, padding: 0, border: "none", background: "none", cursor: "pointer" } }),
         h("input", { className: "input", value: edit.color, onChange: e => setEdit({ ...edit, color: e.target.value }), placeholder: "#rrggbb", "aria-label": "Kode warna", maxLength: 7, style: { width: 96 } }),
         h("input", { className: "input", value: edit.name, onChange: e => setEdit({ ...edit, name: e.target.value }), onKeyDown: e => { if (e.key === "Enter") saveEdit(p); }, "aria-label": "Nama project", autoFocus: true, style: { flex: "1 1 140px", minWidth: 0 } }),
         h("button", { type: "button", className: "btn btn-sm btn-primary", disabled: busy, onClick: () => saveEdit(p) }, busy ? "Menyimpan..." : "Simpan"),
-        h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => setEdit(null) }, "Batal"));
+        h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => { setEdit(null); setRowError(null); } }, "Batal"),
+        errLine);
     }
     return h("div", { key: p.id, style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "10px 0", borderBottom: "1px solid var(--border)", opacity: p.archived ? 0.65 : 1 } },
       swatch(p.color),
       h("div", { style: { flex: "1 1 140px", minWidth: 0 } },
         h("div", { style: { fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, p.name),
         h("div", { style: { fontSize: 12, color: "var(--text-light)" } }, (p.active_task_count || 0) + " task aktif", p.archived ? " · Diarsipkan" : "", projectColorValid(p.color) ? " · " + p.color : "")),
-      actions.includes("rename") && h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => { setError(""); setEdit({ id: p.id, name: p.name || "", color: p.color || "" }); } }, "Ubah"),
+      actions.includes("rename") && h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => { setRowError(null); setEdit({ id: p.id, name: p.name || "", color: p.color || "" }); } }, "Ubah"),
       actions.includes("archive") && h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => toggleArchive(p) }, "Arsipkan"),
       actions.includes("unarchive") && h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => toggleArchive(p) }, "Aktifkan"),
-      actions.includes("delete") && h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => remove(p), style: { color: "var(--danger, #dc2626)" } }, "Hapus"));
+      actions.includes("delete") && h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => remove(p), style: { color: "var(--danger, #dc2626)" } }, "Hapus"),
+      errLine);
   };
   const offline = error === PROJECT_MANAGER_OFFLINE_TEXT;
-  return h("div", { className: "modal-overlay", onClick: onClose },
+  // Klik overlay saat edit terbuka diabaikan (jangan buang perubahan diam-diam)
+  return h("div", { className: "modal-overlay", onClick: () => {
+      if (!edit) onClose();
+    } },
     h("div", { className: "modal-content scale-in", role: "dialog", "aria-modal": "true", "aria-label": "Kelola project", style: { maxWidth: 560, width: "calc(100% - 32px)", maxHeight: "85vh", overflowY: "auto" }, onClick: e => e.stopPropagation() },
       h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
         h("div", null,

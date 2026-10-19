@@ -67,7 +67,7 @@ def _proj(u, name=None, list_id=None):
 
 
 FULL_KEYS = {"id", "name", "list_id", "user_id", "color", "archived", "created_by",
-             "active_task_count", "can_manage"}
+             "active_task_count", "task_count", "can_manage"}
 
 
 def test_post_personal_returns_full_object(client):
@@ -158,7 +158,11 @@ def test_active_task_count(client):
     conn.commit(); conn.close()
     full = {x["id"]: x for x in u.get("/api/projects?format=full").json()}
     assert full[p["id"]]["active_task_count"] == 2
+    # task_count = semua task project itu (status apa pun) — yang dikosongkan DELETE
+    assert full[p["id"]]["task_count"] == 3
     assert t1["project_id"] == p["id"]
+    r = u.delete(f"/api/projects/{p['id']}")
+    assert r.status_code == 200 and r.json()["tasks_cleared"] == 3
 
 
 def test_patch_matrix_workspace(client):

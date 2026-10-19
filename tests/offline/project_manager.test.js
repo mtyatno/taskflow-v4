@@ -63,7 +63,10 @@ test("projectManagerActions: aksi hanya bila can_manage", () => {
 
 test("projectDeleteConfirmText: teks konfirmasi persis", () => {
   const { projectDeleteConfirmText } = loadHelpers();
-  assert.equal(projectDeleteConfirmText({ name: "taskflow", active_task_count: 3 }),
+  // n = task_count (semua status — DELETE mengosongkan semuanya), bukan active_task_count
+  assert.equal(projectDeleteConfirmText({ name: "taskflow", active_task_count: 0, task_count: 12 }),
+    "Hapus project «taskflow»? 12 task akan kehilangan project-nya.");
+  assert.equal(projectDeleteConfirmText({ name: "taskflow", active_task_count: 3, task_count: 3 }),
     "Hapus project «taskflow»? 3 task akan kehilangan project-nya.");
   assert.equal(projectDeleteConfirmText({ name: "Rumah" }),
     "Hapus project «Rumah»? 0 task akan kehilangan project-nya.");
@@ -110,4 +113,66 @@ test("Tombol Kelola project di sidebar PROJECTS dan halaman workspace", () => {
   assert.match(ws, /setProjectManager\(\{ listId: listId/);
   assert.match(ws, /"Kelola project"/);
   assert.match(indexHtml, /React\.createElement\(ProjectManagerModal, \{/);
+});
+
+function loadApi(stubs) {
+  const apiCode = sliceFn("const api = {", "\n};") + "\n};";
+  const names = Object.keys(stubs);
+  return new Function(...names, `${apiCode}\nreturn api;`)(...names.map(n => stubs[n]));
+}
+
+test("api.fetch (perilaku): network:true ke fetch() tanpa opsi network; default lewat router lokal", async () => {
+  const fetchCalls = [];
+  const routerCalls = [];
+  const router = {
+    hasRoute: () => true,
+    dispatch: async (m, u) => { routerCalls.push([m, u]); return ["lokal"]; },
+  };
+  const api = loadApi({
+    window: { TF: { taskroutes: { buildTaskRouter: () => router, shouldRouteLocally: () => true } } },
+    __tabReloading: false,
+    __token: "tok",
+    apiUrl: u => "https://x" + u,
+    schedulePush: () => {},
+    fetch: async (url, opts) => { fetchCalls.push([url, opts]); return { status: 200, ok: true, text: async () => "[{\"id\":1}]" }; },
+    AbortController,
+    setTimeout,
+    clearTimeout,
+  });
+  const local = await api.get("/api/projects");
+  assert.deepEqual(local, ["lokal"]);
+  assert.equal(fetchCalls.length, 0);
+  const net = await api.get("/api/projects?format=full", { network: true });
+  assert.deepEqual(net, [{ id: 1 }]);
+  assert.equal(routerCalls.length, 1);
+  assert.equal(fetchCalls.length, 1);
+  assert.equal(fetchCalls[0][0], "https://x/api/projects?format=full");
+  assert.ok(!("network" in fetchCalls[0][1]), "opsi network tidak boleh diteruskan ke fetch()");
+  assert.equal(fetchCalls[0][1].headers.Authorization, "Bearer tok");
+});
+
+test("ProjectManagerModal: Escape menutup, klik overlay diabaikan saat edit, error tampil di baris", () => {
+  const modal = sliceFn("function ProjectManagerModal(", "\nfunction ");
+  assert.match(modal, /e\.key [!=]== "Escape"/);
+  assert.match(modal, /onClick: \(\) => \{\s*if \(!edit\) onClose\(\);/);
+  // error aksi dirender di dalam baris yang sedang diedit
+  assert.match(modal, /rowError/);
+});
+
+test("projectManagerAfterChange: kegagalan __refreshTasks tidak dilempar", async () => {
+  const after = sliceFn("function projectManagerAfterChange(", "\nfunction ");
+  const events = [];
+  const win = {
+    TF: { projectcache: { refresh: async () => {} } },
+    __syncRawFetch: () => {},
+    __syncNow: async () => {},
+    __refreshTasks: () => { throw new Error("boom"); },
+    dispatchEvent: e => events.push(e.type),
+  };
+  class CustomEvent { constructor(type) { this.type = type; } }
+  const fn = new Function("window", "CustomEvent", `${after}\nreturn projectManagerAfterChange;`)(win, CustomEvent);
+  await fn(true);
+  assert.deepEqual(events, ["tf:projects-changed"]);
+  win.__refreshTasks = async () => { throw new Error("async boom"); };
+  await fn(true);
 });

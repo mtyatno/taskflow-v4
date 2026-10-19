@@ -2345,10 +2345,12 @@ def _project_full(conn, row, uid) -> dict:
     cnt = conn.execute(
         "SELECT COUNT(*) FROM tasks WHERE project_id = ? AND gtd_status NOT IN ('done','archived')",
         (row["id"],)).fetchone()[0]
+    # semua task project ini (status apa pun) = yang dikosongkan DELETE /api/projects/{id}
+    total = conn.execute("SELECT COUNT(*) FROM tasks WHERE project_id = ?", (row["id"],)).fetchone()[0]
     return {
         "id": row["id"], "name": row["name"], "list_id": row["list_id"],
         "user_id": row["user_id"], "color": row["color"], "archived": bool(row["archived"]),
-        "created_by": row["created_by"], "active_task_count": cnt,
+        "created_by": row["created_by"], "active_task_count": cnt, "task_count": total,
         "can_manage": _project_can_manage(conn, row, uid),
     }
 
