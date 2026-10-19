@@ -9882,6 +9882,8 @@ function MindmapTabInstance({
       const seq = ++linkSeqRef.current;
       window.TF.mindmaplinks.resolveLinkInfo(ML.collectLinkRefs(tree.nodeData), api.get).then(info => {
         if (seq !== linkSeqRef.current) return;
+        // Tak berubah (mis. sync berkala) → jangan bangun ulang panel 🔗 yang sedang terbuka.
+        if (JSON.stringify(info) === JSON.stringify(linkInfoRef.current)) return;
         linkInfoRef.current = info;
         setLinkInfo(info);
         iframeRef.current?.contentWindow?.postMessage({ type: "linkInfo", info }, window.location.origin);
@@ -9901,6 +9903,7 @@ function MindmapTabInstance({
     window.addEventListener("noteSaved", refreshLinkInfo);
     window.addEventListener("mindmapSaved", refreshLinkInfo);
     window.addEventListener("mindmapSynced", refreshLinkInfo);
+    window.addEventListener("tf:projects-changed", refreshLinkInfo); // sync menembakkannya untuk task hasil pull
     return () => {
       clearTimeout(linkTimerRef.current);
       linkSeqRef.current++; // buang resolve yang masih berjalan untuk tab sebelumnya
@@ -9909,6 +9912,7 @@ function MindmapTabInstance({
       window.removeEventListener("noteSaved", refreshLinkInfo);
       window.removeEventListener("mindmapSaved", refreshLinkInfo);
       window.removeEventListener("mindmapSynced", refreshLinkInfo);
+      window.removeEventListener("tf:projects-changed", refreshLinkInfo);
     };
   }, [tab?.id, isLinked]);
 

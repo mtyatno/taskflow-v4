@@ -29,6 +29,16 @@ test("MindmapTabInstance resolves link info from local data and posts it", () =>
   assert.match(t, /linkInfo: linkInfo/);
 });
 
+test("link info also refreshes on sync-pulled task changes and skips unchanged info", () => {
+  const t = slice(html, "function MindmapTabInstance(", "\nconst MINDMAP_DIRECTIONS");
+  assert.match(t, /addEventListener\("tf:projects-changed", refreshLinkInfo/);
+  assert.match(t, /removeEventListener\("tf:projects-changed", refreshLinkInfo/);
+  const r = slice(t, "const refreshLinkInfo = ", "const linkRefsML");
+  assert.match(r, /JSON\.stringify\(info\) === JSON\.stringify\(linkInfoRef\.current\)/);
+  assert.ok(r.indexOf("JSON.stringify(info)") < r.indexOf("setLinkInfo(info)"));
+  assert.ok(r.indexOf("JSON.stringify(info)") < r.indexOf('type: "linkInfo"'));
+});
+
 test("MindmapOutline renders link titles via linkDisplay", () => {
   const o = slice(html, "function MindmapOutline(", "\nfunction MindmapTabInstance(");
   assert.match(o, /linkInfo = \{\}/);

@@ -125,3 +125,32 @@ def test_export_includes_owned_mindmaps(client):
     lj = json.loads(z.read("mindmaps/Sumber.json"))
     assert lj["linked"] is True and lj["source_note_id"] == note["id"] and lj["source_note_title"] == "Sumber"
     assert "mindmaps/Sumber.md" not in names
+
+
+def test_export_names_stay_unique_for_mindmaps_and_notes(client):
+    a = U(client, "mmex2")
+    for t in ("A (1)", "A", "A"):
+        a.mk_map(t, data_json=DATA)
+        assert a.post("/api/scratchpad", json={"title": t, "content": "x"}).status_code == 200
+    z = zipfile.ZipFile(io.BytesIO(a.get("/api/export/download").content))
+    names = z.namelist()
+    assert len(names) == len(set(names)), names
+    lower = [n.lower() for n in names]
+    assert len(lower) == len(set(lower))
+    for prefix, ext in (("mindmaps/", ".json"), ("notes/", ".md")):
+        got = sorted(n for n in names if n.startswith(prefix) and n.endswith(ext))
+        assert len(got) == 3, got
+
+
+def test_mindmap_responses_do_not_carry_search_text(client):
+    a = U(client, "mmst1")
+    m = a.mk_map("Tanpa ST", data_json=DATA)
+    assert "search_text" not in m
+    assert "search_text" not in a.get(f"/api/mindmaps/{m['id']}").json()
+    r = a.put(f"/api/mindmaps/{m['id']}", json={"data_json": DATA})
+    assert r.status_code == 200 and "search_text" not in r.json()
+    assert all("search_text" not in x for x in a.get("/api/mindmaps?linked=1").json())
+    conn = db()
+    st = conn.execute("SELECT search_text FROM mindmaps WHERE id = ?", (m["id"],)).fetchone()[0]
+    conn.close()
+    assert "pemasaran" in st

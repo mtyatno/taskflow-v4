@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import pytz
 
+import webapp
 from conftest import db, register_user
 from repository import TaskRepository
 
@@ -73,6 +74,7 @@ def test_delete_moves_to_trash_and_restore_keeps_id_client_id_pin(client):
     row = r.json()
     assert (row["id"], row["client_id"], row["is_pinned"], row["data_json"]) == (m["id"], "cid-tr-1", 1, DATA)
     assert m["id"] not in a.trash_ids()
+    assert _row("SELECT search_text FROM mindmaps WHERE id = ?", m["id"])[0] == webapp._mindmap_search_text(DATA)
 
 
 def test_member_cannot_delete_and_repeat_delete_is_idempotent(client):

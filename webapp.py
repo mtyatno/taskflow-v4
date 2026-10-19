@@ -4830,6 +4830,7 @@ def _mindmap_enrich(d: dict, conn, uid: Optional[int] = None) -> dict:
         if editor:
             d["last_editor_username"] = editor["username"]
             d["last_editor_display_name"] = editor["display_name"]
+    d.pop("search_text", None)  # kolom pencarian internal (hingga 1 MB), jangan ikut respons
     return d
 
 def _sync_linked_mindmap(conn, note_id: int) -> None:
@@ -5641,15 +5642,17 @@ async def export_user_data(user=Depends(get_current_user)):
                 (uid,)
             ).fetchall()
 
-        used: dict[str, int] = {}
+        def _unique(base: str, used: set) -> str:
+            cand, n = base, 0
+            while cand.lower() in used:
+                n += 1
+                cand = f"{base} ({n})"
+            used.add(cand.lower())
+            return cand
+
+        used: set = set()
         for note in notes:
-            base = _sanitize(note["title"], note["id"])
-            if base in used:
-                used[base] += 1
-                fname = f"{base} ({used[base]}).md"
-            else:
-                used[base] = 0
-                fname = f"{base}.md"
+            fname = f"{_unique(_sanitize(note['title'], note['id']), used)}.md"
 
             tags = [t.strip() for t in (note["tag_names"] or "").split(",") if t.strip()]
             tag_str = ", ".join(tags)
@@ -5733,15 +5736,9 @@ async def export_user_data(user=Depends(get_current_user)):
                 "LEFT JOIN scratchpad_notes n ON n.id = m.source_note_id "
                 "WHERE m.user_id = ? ORDER BY m.id", (uid,)
             ).fetchall()
-        used_mm: dict[str, int] = {}
+        used_mm: set = set()
         for m in mm_rows:
-            base = _sanitize(m["title"], m["id"])
-            if base in used_mm:
-                used_mm[base] += 1
-                base = f"{base} ({used_mm[base] - 1})"
-                used_mm[base] = 1
-            else:
-                used_mm[base] = 1
+            base = _unique(_sanitize(m["title"], m["id"]), used_mm)
             try:
                 parsed = json.loads(m["data_json"])
             except Exception:
@@ -7752,7 +7749,7 @@ async def restore_trashed_mindmap(mid: int, user=Depends(get_current_user)):
 
         live_cols = set(_table_columns(conn, "mindmaps"))
         if "search_text" in live_cols:
-            mm["search_text"] = "" if sn is not None else "\n".join(_mindmap_topics(mm.get("data_json")))
+            mm["search_text"] = "" if sn is not None else _mindmap_search_text(mm.get("data_json"))
         cols = [c for c in mm if c in live_cols]
         conn.execute(
             f"INSERT INTO mindmaps ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
