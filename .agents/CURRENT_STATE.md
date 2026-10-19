@@ -3,7 +3,14 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
-## 🟠 Project sebagai entitas pribadi/workspace — PR 4 backend — 2026-10-19 (Claude) — DI-MERGE & DEPLOY (BELUM RESTART)
+## 🟠 Project per scope di aplikasi — PR 5 (frontend + offline) — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+- **Status:** branch `claude/project-entities-ui` (draft PR). SW **v417** `taskflow-v417-project-scope`, `app.css?v=334`. Backend kecil (`scope=all`, `project_id` terhapus diabaikan, `task_count`) → **restart `taskflow-web`** setelah deploy.
+- **Isi:** `static/offline/projectcache.js` (ADR-011), route lokal `GET /api/projects` per scope, `project_id` + `project_ref_name` di record/push/adopt, form task: pilihan scope + "Assign ke" di baris atribut cepat dan dropdown per scope (juga detail & wizard GTD), sidebar/pengelompokan per scope + badge 👥, modal "Kelola project" (online, `{network:true}`), E2E `temporary_files/e2e_project_scope.py` (20/20, screenshot di `temporary_files/e2e_project_scope/`).
+- **Verifikasi:** pytest 307, JS 1520/1521 (pra-ada `draw_local_reactive`), inline OK, E2E 20/20. SDD 6 task + review per task (fix round di Task 4 & 5), review akhir opus → perbaikan (perangkat basi setelah rename/hapus, "Assign ke", bypass cache SW, kanban) + re-review.
+- **Sisa diterima:** pindah project offline ke project yang dihapus sebelum push → tetap di project lama; form edit yang dibuka sebelum pull rename lalu disimpan dengan nama lama → membuat ulang nama lama; chip "👥 shared" di kartu task workspace belum menyebut nama workspace.
+- **Berikutnya (urutan Bapak):** PR 2–3 (drawing workspace), lalu PR XSS (1b).
+
+## 🟠 Project sebagai entitas pribadi/workspace — PR 4 backend — 2026-10-19 (Claude) — DI-MERGE, DEPLOY & AKTIF (restart + cek data 13:19 WIB: 14 pribadi, 1 workspace, 7 arsip, 0 belum tertaut)
 - **Status:** PR #36 di-merge Bapak (`3d87d22`, 2026-10-19 13:09 WIB), Deploy run #906 sukses (migrasi `projects` + backfill sudah jalan via `migrate_db()`). Branch `claude/project-entities-backend`. Backend saja (`webapp.py`, `repository.py`, 3 file tes); tanpa frontend/SW. Migrasi otomatis di `migrate_db()` (tabel `projects`, `tasks.project_id`, backfill). **Deploy wajib restart `taskflow-web` DAN `taskflow` (bot)** karena `repository.py` berubah.
 - **Urutan kerja yang disepakati Bapak (2026-10-19):** PR 4–5 (project) → PR 2–3 (drawing workspace) → PR XSS (1b). PR audio/video di note dikerjakan Bapak di sesi lain.
 - **Isi:** tabel `projects` (ADR-010), resolver `resolve_task_project` di semua jalur tulis task (web + bot), API `GET/POST/PATCH/DELETE /api/projects` (opsi C), bot `/projects` membaca tabel.

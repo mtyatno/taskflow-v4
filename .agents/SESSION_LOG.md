@@ -3401,3 +3401,11 @@
 - **Changes:** mindmaprepo/mindmaproutes (peta tertaut lokal), noterepo.applyMapEdit, syncpush/syncpull tertaut, iframe mind-elixir mode tertaut, `static/offline/notemapsession.js` baru + wiring MindmapTabInstance/MindmapOutline/NoteModal/NotePanel/NotesPage/App/MindmapPage, SW v416, iframe ?v=142. Review akhir menemukan Focus Mode + sid basi/asing bisa mengacak catatan → diperbaiki dengan gen sesi + `nm.ns` + keluar Focus Mode saat muat ulang (Playwright membuktikan).
 - **Files Touch:** `static/offline/{mindmaprepo,mindmaproutes,noterepo,syncpush,syncpull,mindmapops,notemapsession}.js`, `static/index.html`, `static/vendor/mind-elixir/index.html`, `static/sw.js`, `webapp.py` (sw_cache), tes, `.agents/*`
 - **Status:** PR 3/3 draft. JS 1458/1459, pytest 299/299.
+
+## [2026-10-19 16:30] - Claude (PR 5: project per scope di aplikasi)
+- **Task:** Bapak menyetujui rencana PR 5 (`docs/superpowers/plans/2026-10-19-project-entities-ui.md`).
+- **Changes:** SDD 6 task (backend scope=all; cache offline; form; tampilan; kelola; SW v417 + E2E). Review akhir → perbaikan `project_ref_name` (perangkat basi), "Assign ke" di baris cepat, `{network:true}` lewati cache SW, kanban lewat `onUpdateTask`, E2E tunggu nyata. ADR-011; spec §5.3/§5.7 diperbarui.
+- **Verifikasi:** pytest 307, JS 1520/1521, E2E 20/20.
+- **Files Touch:** `webapp.py`, `static/{index.html,sw.js,app.css}`, `static/offline/{projectcache,taskroutes,taskrepo,hydrate,syncpush,syncpull,taskquery}.js`, `tests/**`, `temporary_files/e2e_project_scope*`, `docs/**`, `.agents/*`
+- **Status:** Needs Review (draft PR, tunggu "merge dan deploy"; restart `taskflow-web`).
+

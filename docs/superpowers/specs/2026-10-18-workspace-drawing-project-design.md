@@ -206,7 +206,7 @@ Kolom teks `tasks.project` tetap dipertahankan dan selalu diisi nama project. Bo
 - `PATCH /api/projects/{id} {name?, color?, archived?}`: mengikuti hak kelola. Rename ke nama yang sudah dipakai di scope yang sama → 409. Rename juga memperbarui `tasks.project` dan `updated_at` semua task terkait dalam satu transaksi. Task yang sedang diedit offline akan melewati alur REV_MISMATCH yang sudah ada.
 - `DELETE /api/projects/{id}`: mengikuti hak kelola. Task terkait di-set `project_id = NULL`, `project = ''`, dan `updated_at` di-bump. Klien menampilkan jumlah task sebelum konfirmasi; arsip adalah aksi yang disarankan.
 - Rename, arsip, dan hapus hanya bisa online di v1.
-- **Batasan v1 (PR 4):** PUT task dari klien sekarang last-write-wins tanpa `base_rev`. Perangkat yang masih punya edit tertunda dari sebelum rename/hapus mengirim nama lama, dan server membuat lagi project bernama lama. PR 5 mengirim `project_id` (yang selalu menang atas nama) dan `base_rev` untuk task.
+- **Batasan v1 (PR 4), ditutup di PR 5:** perangkat dengan edit tertunda dari sebelum rename/hapus dulu mengirim nama lama dan server membuat lagi project bernama lama. PR 5 mengirim `project_id` yang diikat ke `project_ref_name` (lihat §5.7); `base_rev` task tidak dipakai.
 - Resolusi hanya berjalan bila project task benar-benar berubah (`project_id` beda, atau nama beda tanpa memperhatikan kapital). Edit lain tidak menyentuh project: arsip tetap bertahan, dan pemilik task yang sudah keluar dari W tetap bisa menyimpan edit lain.
 
 ### 5.4 Resolusi project saat task disimpan
@@ -241,6 +241,7 @@ Satu helper di `repository.py`, dipakai oleh webapp dan bot:
 - Cache dipisah per scope: `projects:personal` dan `projects:list:<id>`. Sekarang App hanya punya satu key `"projects"`.
 - Route lokal `GET /api/projects` di `taskroutes.js` menerima `list_id` dan `format`. Isinya gabungan cache server untuk scope itu dan nama dari task lokal di scope yang sama (`distinctActiveField` difilter `list_id`), supaya project yang dibuat offline langsung muncul.
 - Task yang disimpan offline cukup membawa nama (plus `project_id` kalau sudah diketahui). Server me-resolve saat push.
+- **Implementasi PR 5:** cache project dari server (`static/offline/projectcache.js`, `_meta` "projects:v1", di-refresh setiap sync pull lewat `GET /api/projects?format=full&scope=all&include_archived=1`). Record task menyimpan `project_ref_name` (nama saat `project_id` diikat); push mengirim `project_id` selama teks masih sama dengan nama itu, walau project sudah di-rename/dihapus di server, sehingga perangkat basi tidak membuat ulang project bernama lama (server: id sama → tidak berubah; id yang sudah dihapus → diabaikan). Sisa yang diterima: pindah project offline ke project yang dihapus sebelum push → task tetap di project lama.
 
 ### 5.8 Bot Telegram dan pembaca lain
 
