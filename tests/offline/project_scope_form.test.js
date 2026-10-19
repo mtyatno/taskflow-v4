@@ -84,6 +84,24 @@ test("TaskFormModal: pilihan scope di baris atribut cepat, tepat sebelum Project
   assert.match(form, /projectAfterScopeChange\(f\.project, names\)/);
 });
 
+test("TaskFormModal: \"Assign ke\" di baris atribut cepat setelah Project saat list_id terisi, tidak di Opsi Tambahan", () => {
+  const form = sliceFn("function TaskFormModal({", "\nfunction ModalAttachments(");
+  const quickStart = form.indexOf('className: "task-quick-attributes');
+  const toggle = form.indexOf('className: "task-advanced-toggle"', quickStart);
+  const quick = form.slice(quickStart, toggle);
+  const projectAt = quick.indexOf("projectScopeLabel(form.list_id, sharedLists)");
+  const assignAt = quick.indexOf('"Assign ke"');
+  assert.ok(assignAt > projectAt && projectAt > 0, "Assign ke tepat setelah field Project di baris cepat");
+  assert.match(quick, /form\.list_id && \/\*#__PURE__\*\/React\.createElement\("div", \{\s*className: "task-assign-field"/);
+  assert.match(quick, /"aria-label": "Assign ke"/);
+  assert.match(quick, /listMembers\.map\(/);
+  const advanced = form.slice(toggle, form.indexOf("ModalAttachments", toggle) > 0 ? form.indexOf("ModalAttachments", toggle) : undefined);
+  assert.equal((form.match(/"Assign ke"\)/g) || []).length, 1, "hanya satu label Assign ke di form");
+  assert.equal(advanced.indexOf('"Assign ke")'), -1, "duplikat di Opsi Tambahan dihapus");
+  // anggota workspace tetap dimuat saat list_id berubah
+  assert.match(form, /api\.get\(`\/api\/lists\/\$\{form\.list_id\}\/members`\)\.then\(setListMembers\)/);
+});
+
 test("TaskDetailModal: label dan opsi project mengikuti scope task", () => {
   const detail = sliceFn("function TaskDetailModal({", "\nfunction ");
   assert.match(detail, /useScopeProjects\(task\.list_id\)/);

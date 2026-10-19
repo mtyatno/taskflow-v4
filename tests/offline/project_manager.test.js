@@ -151,6 +151,28 @@ test("api.fetch (perilaku): network:true ke fetch() tanpa opsi network; default 
   assert.equal(fetchCalls[0][1].headers.Authorization, "Bearer tok");
 });
 
+test("api.fetch: network:true menandai X-TF-Sync agar SW network-only (tanpa cache); default tidak", async () => {
+  const fetchCalls = [];
+  const api = loadApi({
+    window: { TF: { taskroutes: { buildTaskRouter: () => ({ hasRoute: () => false }), shouldRouteLocally: () => false } } },
+    __tabReloading: false,
+    __token: "tok",
+    apiUrl: u => u,
+    schedulePush: () => {},
+    fetch: async (url, opts) => { fetchCalls.push([url, opts]); return { status: 200, ok: true, text: async () => "[]" }; },
+    AbortController,
+    setTimeout,
+    clearTimeout,
+  });
+  await api.get("/api/projects?format=full&include_archived=1", { network: true });
+  assert.equal(fetchCalls[0][1].headers["X-TF-Sync"], "1");
+  await api.get("/api/other");
+  assert.equal("X-TF-Sync" in fetchCalls[1][1].headers, false);
+  // SW: header X-TF-Sync = network-only untuk /api/* (tidak membaca/menulis Cache Storage)
+  const sw = fs.readFileSync(path.join(ROOT, "static/sw.js"), "utf8");
+  assert.match(sw, /url\.pathname\.startsWith\("\/api\/"\) && request\.headers\.get\("X-TF-Sync"\) === "1"/);
+});
+
 test("ProjectManagerModal: Escape menutup, klik overlay diabaikan saat edit, error tampil di baris", () => {
   const modal = sliceFn("function ProjectManagerModal(", "\nfunction ");
   assert.match(modal, /e\.key [!=]== "Escape"/);

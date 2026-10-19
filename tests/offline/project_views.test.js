@@ -178,3 +178,19 @@ test("App: reload projects tidak mengganti state bila daftar sama", () => {
   const reload = sliceFn("const reloadProjects = ", "};");
   assert.match(reload, /setProjects\(prev => sameStringList\(prev, r\) \? prev : r\)/);
 });
+
+test("kanban drop (onMoveTask) lewat onUpdateTask App agar array tasks berganti identitas (hitungan sidebar segar)", () => {
+  const start = indexHtml.indexOf("const onMoveTask = async (taskId, targetGroupKey) => {");
+  assert.ok(start > 0);
+  const body = indexHtml.slice(start, indexHtml.indexOf("const buildGroups = tasks =>", start));
+  const viaApp = body.indexOf("if (onUpdateTask) {");
+  assert.ok(viaApp > 0, "onMoveTask harus memakai onUpdateTask bila tersedia");
+  const appBranch = body.slice(viaApp, body.indexOf("return;", viaApp));
+  assert.match(appBranch, /await onUpdateTask\(taskId, \{\s*\[field\]: newValue\s*\}\);/);
+  assert.doesNotMatch(appBranch, /task\[field\] = newValue/, "jalur App tidak memutasi task di tempat");
+  assert.ok(body.indexOf("task[field] = newValue") > viaApp, "mutasi di tempat hanya fallback tanpa onUpdateTask");
+  // App: handleUpdateTaskFields mengganti array (setTasks map) dan memanggil fetchAll
+  const h = indexHtml.slice(indexHtml.indexOf("const handleUpdateTaskFields = async (taskId, patch) => {"));
+  assert.match(h.slice(0, 1200), /setTasks\(prev => prev\.map\(/);
+  assert.match(h.slice(0, 1200), /fetchAll\(\);/);
+});

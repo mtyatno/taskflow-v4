@@ -637,6 +637,9 @@ const api = {
       "Content-Type": "application/json",
       ...(opts.headers || {})
     };
+    // network:true juga melewati cache SW (network-first + fallback cache untuk GET /api/*): X-TF-Sync →
+    // SW network-only, respons tidak masuk Cache Storage dan tidak pernah dibaca dari sana (data kelola segar).
+    if (opts.network) headers["X-TF-Sync"] = "1";
     if (__tabReloading) throw new TypeError("Failed to fetch (tab reloading)");
     // token yang benar-benar dikirim request ini (401 dilaporkan dengan token ini, bukan token terkini)
     const reqToken = __token;
@@ -5347,7 +5350,24 @@ function TaskFormModal({
     options: scopeProjects,
     placeholder: "\u2014 Pilih Project \u2014",
     icon: "\uD83D\uDCC1"
-  }))), !isEdit && /*#__PURE__*/React.createElement("button", {
+  })), form.list_id && /*#__PURE__*/React.createElement("div", {
+    className: "task-assign-field",
+    style: {
+      gridColumn: "1 / -1"
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "input-label"
+  }, "Assign ke"), /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    "aria-label": "Assign ke",
+    value: form.assigned_to || "",
+    onChange: e => set("assigned_to", e.target.value ? parseInt(e.target.value) : null)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014 Tidak ada \u2014"), listMembers.map(u => /*#__PURE__*/React.createElement("option", {
+    key: u.id,
+    value: u.id
+  }, u.display_name || u.username, " ", u.is_self ? "(Saya)" : `(@${u.username})`))))), !isEdit && /*#__PURE__*/React.createElement("button", {
     type: "button",
     onClick: () => setShowAdvanced(prev => !prev),
     className: "task-advanced-toggle"
@@ -5412,21 +5432,7 @@ function TaskFormModal({
     style: {
       marginBottom: 14
     }
-  })), form.list_id && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "Assign ke"), /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: form.assigned_to || "",
-    onChange: e => set("assigned_to", e.target.value ? parseInt(e.target.value) : null),
-    style: {
-      marginBottom: 14
-    }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "\u2014 Tidak ada \u2014"), listMembers.map(u => /*#__PURE__*/React.createElement("option", {
-    key: u.id,
-    value: u.id
-  }, u.display_name || u.username, " ", u.is_self ? "(Saya)" : `(@${u.username})`)))), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 0,
       marginBottom: 14,
@@ -12752,6 +12758,14 @@ function TaskListView({
     }
     const originalValue = task[field];
     if (originalValue === newValue || originalValue == null && newValue === "") return;
+    if (onUpdateTask) {
+      // Lewat jalur update App (setTasks → array baru + fetchAll): hitungan sidebar/memo ikut segar,
+      // rollback dan toast gagal ditangani handleUpdateTaskFields.
+      await onUpdateTask(taskId, {
+        [field]: newValue
+      });
+      return;
+    }
     task[field] = newValue;
     setDragVersion(v => v + 1);
     try {
