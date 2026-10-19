@@ -3370,3 +3370,9 @@
 - **Changes:** `origin/main` (PR #29 + PR #33 Petakan 1/3) di-merge ke `claude/mobile-plan`; konflik `.agents/CURRENT_STATE.md` dan `SESSION_LOG.md` diselesaikan dengan mempertahankan semua entri; base PR #32 dipindah ke `main`. ADR mobile tetap berlabel sementara ADR-M1..M6 (ADR-007/008 sudah terpakai).
 - **Files Touch:** `.agents/{CURRENT_STATE,SESSION_LOG}.md`
 - **Status:** Needs Review (PR #32, tunggu "merge dan deploy").
+
+## [2026-10-19 11:10] - Claude (PR #35 merge & deploy)
+- **Task:** Bapak me-merge PR #35 (keamanan halaman publik & ekspor DOCX) setelah me-merge main ke branch.
+- **Changes:** Dicek: head `8ef11dd` CI hijau dan mergeable; merge commit `67861fb`; Deploy Taskflow V4 run #905 sukses. Workflow deploy tidak me-restart `taskflow-web`, jadi perbaikan belum aktif sampai restart. Pengecekan berkala PR dihentikan.
+- **Files Touch:** `.agents/*`
+- **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar perbaikan aktif.
