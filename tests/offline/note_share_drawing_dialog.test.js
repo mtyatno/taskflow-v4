@@ -225,8 +225,11 @@ test("share aborts before PATCH when the outbox push fails; move-only flushes fi
 });
 
 test("noteSharePushNow: true only when push completed and no outbox op remains for the note", async () => {
-  const mk = (pushRes, ops, fresh) => {
-    const win = { __pushNow: async () => { if (pushRes instanceof Error) throw pushRes; return pushRes; }, TF: { outbox: { outboxAll: async () => ops } } };
+  const mk = (pushRes, ops, fresh, raw) => {
+    const win = { __pushNow: async () => { if (pushRes instanceof Error) throw pushRes; return pushRes; }, TF: {
+      outbox: { outboxAll: async () => ops },
+      noterepo: { getNoteRaw: async cid => (raw !== undefined ? raw : { cid, dirty: 0 }) },
+    } };
     const apiStub = { get: async () => fresh };
     return new Function("window", "api", src("noteSharePushNow") + "\nreturn noteSharePushNow;")(win, apiStub);
   };
@@ -236,6 +239,60 @@ test("noteSharePushNow: true only when push completed and no outbox op remains f
   assert.equal(await mk({ busy: true }, [], { id: 1, cid: "n1" })(1), false);
   assert.equal(await mk(null, [], { id: 1, cid: "n1" })(1), false);
   assert.equal(await mk(new Error("Failed to fetch"), [], { id: 1, cid: "n1" })(1), false);
+  // syncpush membuang op saat gagal permanen / REV_MISMATCH / 403 → outbox kosong tapi tetap gagal
+  assert.equal(await mk({ pushed: 0, failed: 1, remaining: 0 }, [], { id: 1, cid: "n1" })(1), false);
+  assert.equal(await mk({ pushed: 1, failed: 0, remaining: 0, conflictCopies: 1 }, [], { id: 1, cid: "n1" })(1), false);
+  // record lokal: sync_error / dirty / conflict / tak terbaca → gagal
+  assert.equal(await mk({ pushed: 1, failed: 0 }, [], { id: 1, cid: "n1" }, { cid: "n1", sync_error: "x" })(1), false);
+  assert.equal(await mk({ pushed: 1, failed: 0 }, [], { id: 1, cid: "n1" }, { cid: "n1", dirty: 1 })(1), false);
+  assert.equal(await mk({ pushed: 1, failed: 0 }, [], { id: 1, cid: "n1" }, { cid: "n1", conflict: true })(1), false);
+  assert.equal(await mk({ pushed: 1, failed: 0 }, [], { id: 1, cid: "n1" }, null)(1), false);
+  assert.equal(await mk({ pushed: 1, failed: 0 }, [], null)(1), false);
+});
+
+test("push gate failure ({failed:1}, sync_error, unreadable record) → no PATCH, toast", async () => {
+  const gate = new Function("window", "api", src("noteSharePushNow") + "\nreturn noteSharePushNow;");
+  const cases = [
+    [{ pushed: 0, failed: 1, remaining: 0 }, { id: 1, cid: "n1" }, { cid: "n1" }],
+    [{ pushed: 1, failed: 0 }, { id: 1, cid: "n1" }, { cid: "n1", sync_error: "rev mismatch" }],
+    [{ pushed: 1, failed: 0 }, null, null],
+  ];
+  for (const [pushRes, fresh, raw] of cases) {
+    const { TF, calls } = mkTF();
+    const api = mkApi(calls, { get: async () => fresh });
+    const win = { __pushNow: async () => pushRes, TF: { outbox: { outboxAll: async () => [] }, noterepo: { getNoteRaw: async () => raw } } };
+    const toasts = [];
+    const ok = await H.confirmNoteShareWithDrawings({
+      note: { id: 1 }, content: "::draw[11]", targetListId: 5, listName: "Tim A",
+      api, TF, showToast: errToasts(toasts), ask: async () => "share", saveContent: async () => {},
+      pushNow: gate(win, api),
+    });
+    assert.equal(ok, false);
+    assert.ok(!calls.some(c => c[0] === "patch"));
+    assert.deepEqual(toasts, [["Catatan belum tersinkron; coba bagikan lagi sebentar lagi.", "error"]]);
+  }
+});
+
+test("unshare proceeds when drawings cannot be checked (no pull-back offer); busy toast only with ::draw", async () => {
+  const { TF, calls } = mkTF({ listFail: true });
+  const asked = [], toasts = [];
+  const ok = await H.confirmNoteShareWithDrawings({
+    note: { id: 1, list_id: 5 }, content: "::DRAW[41]", targetListId: null, oldListId: 5, oldListName: "Tim A",
+    api: mkApi(calls), TF, showToast: (m, t) => toasts.push([m, t]), ask: async s => { asked.push(s); return "yes"; }, saveContent: async () => {},
+  });
+  assert.equal(ok, true);
+  assert.deepEqual(asked, []);
+  assert.deepEqual(calls.map(c => c[0]), ["patch", "applyMoved"]);
+  assert.deepEqual(toasts, [[BUSY, "info"]]); // isi punya ::DRAW (case-insensitive)
+
+  // tanpa ::draw → tidak ada toast sibuk
+  const plain = mkTF();
+  const toasts2 = [];
+  assert.equal(await H.confirmNoteShareWithDrawings({
+    note: { id: 1 }, content: "teks biasa", targetListId: 5, listName: "Tim A",
+    api: mkApi(plain.calls), TF: plain.TF, showToast: (m, t) => toasts2.push([m, t]), ask: async () => "share", saveContent: async () => {},
+  }), true);
+  assert.deepEqual(toasts2, []);
 });
 
 test("note unshare offers pulling own drawings back; 409 is reported, not swallowed", async () => {

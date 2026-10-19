@@ -21257,8 +21257,9 @@ async function pullNoteDrawingsBack(share, api, items, listName) {
   }
   return errors;
 }
-// Dorong outbox sebelum PATCH share (maks 5 detik). true hanya bila push selesai (tidak gagal/sibuk/timeout)
-// dan outbox tidak lagi memegang op untuk note ini.
+// Dorong outbox sebelum PATCH share (maks 5 detik). true hanya bila push selesai tanpa gagal/salinan konflik
+// (syncpush juga MEMBUANG op saat gagal permanen / REV_MISMATCH / 403), record lokal note terbaca dan bersih
+// (tidak dirty/sync_error/conflict), dan outbox tidak lagi memegang op untuk note ini.
 async function noteSharePushNow(noteId) {
   if (typeof window === "undefined" || typeof window.__pushNow !== "function") return false;
   const TIMEOUT = { timeout: true };
@@ -21268,12 +21269,17 @@ async function noteSharePushNow(noteId) {
     new Promise(res => { timer = setTimeout(() => res(TIMEOUT), 5000); })
   ]).catch(err => { console.warn('[note-share] dorong outbox gagal', err); return TIMEOUT; });
   clearTimeout(timer);
-  if (!r || r === TIMEOUT || r.busy) return false;
-  const ob = window.TF && window.TF.outbox;
-  if (!ob || typeof ob.outboxAll !== "function") return true;
+  if (!r || r === TIMEOUT || r.busy || r.failed > 0 || r.conflictCopies > 0) return false;
   try {
     const fresh = await api.get(`/api/scratchpad/${noteId}`).catch(() => null);
-    const keys = [noteId, fresh && fresh.cid, fresh && fresh.id].filter(k => k != null).map(String);
+    if (!fresh) return false;
+    // Bentuk API tidak membawa penanda sinkron → baca record mentah bila noterepo tersedia.
+    const repo = window.TF && window.TF.noterepo;
+    const raw = fresh.cid != null && repo && typeof repo.getNoteRaw === "function" ? await repo.getNoteRaw(fresh.cid) : fresh;
+    if (!raw || raw.dirty || raw.sync_error || raw.conflict) return false;
+    const ob = window.TF && window.TF.outbox;
+    if (!ob || typeof ob.outboxAll !== "function") return true;
+    const keys = [noteId, fresh.cid, fresh.id].filter(k => k != null).map(String);
     const ops = await ob.outboxAll();
     return !ops.some(o => o && o.entity_type === "note" && o.cid != null && keys.includes(String(o.cid)));
   } catch (err) {
@@ -21293,11 +21299,12 @@ async function confirmNoteShareWithDrawings({ note, content, targetListId, listN
     let plan = null;
     let pullback = [];
     if (tf.drawingshare) {
-      if (typeof showToast === "function") showToast("Memeriksa gambar…", "info");
+      if (typeof showToast === "function" && /::draw/i.test(String(body))) showToast("Memeriksa gambar…", "info");
       const prep = await prepareNoteShare(tf, body, target, prevList);
-      if (prep.error) { toast("Tidak bisa memeriksa gambar; coba lagi."); return false; }
-      pullback = prep.pullback;
-      if (target != null && (prep.plan.move.length || prep.plan.copy.length)) {
+      // Share ke W: dialog tidak boleh dilewati diam-diam → batal. Unshare: tetap jalan, tawaran tarik kembali dilewati.
+      if (prep.error && target != null) { toast("Tidak bisa memeriksa gambar; coba lagi."); return false; }
+      pullback = prep.error ? [] : prep.pullback;
+      if (target != null && !prep.error && (prep.plan.move.length || prep.plan.copy.length)) {
         if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
           toast("Butuh koneksi untuk membagikan gambar.");
           return false;
