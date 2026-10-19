@@ -1121,6 +1121,7 @@ class DrawingCreate(BaseModel):
     svg_preview: str = Field(default="", max_length=5_000_000)
     tags: Optional[list[str]] = None
     client_id: Optional[str] = None
+    list_id: Optional[int] = None
 
     @field_validator("data_json")
     @classmethod
@@ -7368,13 +7369,14 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
         """, mm_ap + [like, like]).fetchall()
 
         # Drawings
-        drawing_rows = conn.execute("""
+        dr_ac, dr_ap = drawing_scope.access_clause(uid)
+        drawing_rows = conn.execute(f"""
             SELECT id, title, updated_at
             FROM drawings
-            WHERE user_id = ? AND (title LIKE ? OR data_json LIKE ?)
+            WHERE {dr_ac} AND (title LIKE ? OR data_json LIKE ?)
             ORDER BY is_pinned DESC, updated_at DESC
             LIMIT 8
-        """, (uid, like, like)).fetchall()
+        """, dr_ap + [like, like]).fetchall()
 
     def snippet(text, length=80):
         if not text:
@@ -7761,7 +7763,7 @@ async def delete_mindmap(mid: int, user=Depends(get_current_user)):
 
 # ── Standalone Drawings endpoints ────────────────────────────────────────────
 
-def _drawing_enrich(row_dict: dict, conn) -> dict:
+def _drawing_enrich(row_dict: dict, conn, viewer_uid: int) -> dict:
     did = row_dict["id"]
     # Penanda baris server: client mengecek d.server_id == null untuk mengenali baris
     # LOKAL yang belum tersinkron (junk-row guard di selectDrawing). Semua baris yang
@@ -7773,36 +7775,47 @@ def _drawing_enrich(row_dict: dict, conn) -> dict:
         (did,)
     ).fetchall()
     row_dict["tags"] = [r["name"] for r in tag_rows]
-    uid = row_dict.get("user_id")
-    if uid:
-        cid = row_dict.get("client_id")
-        if cid:
-            note_rows = conn.execute(
-                "SELECT id, title FROM scratchpad_notes WHERE (content LIKE ? OR content LIKE ?) AND user_id = ? ORDER BY updated_at DESC LIMIT 5",
-                (f"%::draw[{did}]%", f"%::draw[{cid}]%", uid)
-            ).fetchall()
-        else:
-            note_rows = conn.execute(
-                "SELECT id, title FROM scratchpad_notes WHERE content LIKE ? AND user_id = ? ORDER BY updated_at DESC LIMIT 5",
-                (f"%::draw[{did}]%", uid)
-            ).fetchall()
-        row_dict["linked_notes"] = [dict(nr) for nr in note_rows]
-    else:
-        row_dict["linked_notes"] = []
+    row_dict.setdefault("list_id", None)
+    row_dict.setdefault("last_edited_by", None)
+    if row_dict["last_edited_by"] and row_dict["last_edited_by"] != row_dict.get("user_id"):
+        editor = conn.execute(
+            "SELECT username, display_name FROM users WHERE id = ?", (row_dict["last_edited_by"],)
+        ).fetchone()
+        if editor:
+            row_dict["last_editor_username"] = editor["username"]
+            row_dict["last_editor_display_name"] = editor["display_name"]
+    # Note yang merujuk drawing ini DAN bisa diakses viewer. Prefilter LIKE, lalu cocokkan token persis
+    # (bentuk ter-escape ::draw\[x\] ikut dihitung).
+    refs = drawing_scope.refs_of(row_dict)
+    note_ac, note_ap = _note_access_clause(viewer_uid)
+    note_rows = conn.execute(
+        f"SELECT id, title, content FROM scratchpad_notes WHERE {note_ac} AND content LIKE '%::draw%' "
+        "ORDER BY updated_at DESC",
+        note_ap
+    ).fetchall()
+    row_dict["linked_notes"] = [
+        {"id": nr["id"], "title": nr["title"]}
+        for nr in note_rows if drawing_scope.draw_tokens(nr["content"]) & refs
+    ][:5]
     return row_dict
 
 
 @app.get("/api/drawings")
-async def list_drawings(user=Depends(get_current_user)):
+async def list_drawings(shared: int = 0, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        # client_id ikut dikirim: pull di perangkat lain memakai cid yang sama dengan direktif ::draw[...] di note
+        # client_id ikut dikirim: pull di perangkat lain memakai cid yang sama dengan direktif ::draw[...] di note.
+        # Tanpa ?shared=1 hanya milik sendiri (kompat klien lama); shared=1 = semua yang bisa diakses.
+        if shared:
+            ac, ap = drawing_scope.access_clause(uid)
+        else:
+            ac, ap = "user_id = ?", [uid]
         rows = conn.execute(
-            "SELECT id, user_id, client_id, title, svg_preview, is_pinned, created_at, updated_at FROM drawings "
-            "WHERE user_id = ? ORDER BY is_pinned DESC, updated_at DESC",
-            (uid,)
+            "SELECT id, user_id, client_id, title, svg_preview, is_pinned, list_id, last_edited_by, created_at, updated_at "
+            f"FROM drawings WHERE {ac} ORDER BY is_pinned DESC, updated_at DESC",
+            ap
         ).fetchall()
-        return [_drawing_enrich(dict(r), conn) for r in rows]
+        return [_drawing_enrich(dict(r), conn, uid) for r in rows]
 
 
 @app.post("/api/drawings")
@@ -7811,7 +7824,7 @@ async def create_drawing(req: DrawingCreate, user=Depends(get_current_user)):
     now = datetime.now(_TZ_JKT).isoformat()
     with get_db() as conn:
         # Idempotensi retry sync: client yang sama (client_id) + user yang sama → baris yang sama,
-        # tidak pernah menduplikasi walau POST diulang (503/putus jaringan → retry).
+        # tidak pernah menduplikasi walau POST diulang (503/putus jaringan → retry). list_id baris lama tidak diubah.
         if req.client_id:
             existing = conn.execute(
                 "SELECT id FROM drawings WHERE user_id = ? AND client_id = ?",
@@ -7826,37 +7839,29 @@ async def create_drawing(req: DrawingCreate, user=Depends(get_current_user)):
                 if req.tags:
                     _upsert_tags_for_entity(conn, did, uid, "drawing", req.tags)
                 row = conn.execute("SELECT * FROM drawings WHERE id = ?", (did,)).fetchone()
-                return _drawing_enrich(dict(row), conn)
+                return _drawing_enrich(dict(row), conn, uid)
+        if req.list_id is not None and not TaskRepository(DB_PATH).is_list_member_or_owner(req.list_id, uid):
+            raise HTTPException(status_code=403, detail="Bukan anggota list ini")
         cur = conn.execute(
-            "INSERT INTO drawings (user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at, client_id) "
-            "VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
-            (uid, req.title, req.data_json, req.svg_preview, now, now, req.client_id)
+            "INSERT INTO drawings (user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at, client_id, list_id) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
+            (uid, req.title, req.data_json, req.svg_preview, now, now, req.client_id, req.list_id)
         )
         did = cur.lastrowid
         if req.tags:
             _upsert_tags_for_entity(conn, did, uid, "drawing", req.tags)
         row = conn.execute("SELECT * FROM drawings WHERE id = ?", (did,)).fetchone()
-        return _drawing_enrich(dict(row), conn)
+        return _drawing_enrich(dict(row), conn, uid)
 
 
 @app.get("/api/drawings/{did}")
 async def get_drawing_detail(did: str, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        row = None
-        if did.isdigit():
-            row = conn.execute(
-                "SELECT * FROM drawings WHERE id = ? AND user_id = ?",
-                (int(did), uid)
-            ).fetchone()
-        if not row:
-            row = conn.execute(
-                "SELECT * FROM drawings WHERE client_id = ? AND user_id = ?",
-                (did, uid)
-            ).fetchone()
+        row = drawing_scope.find_accessible(conn, did, uid)
         if not row:
             raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
-        return _drawing_enrich(dict(row), conn)
+        return _drawing_enrich(dict(row), conn, uid)
 
 
 @app.put("/api/drawings/{did}")
@@ -7864,53 +7869,42 @@ async def update_drawing_detail(did: str, req: DrawingUpdate, user=Depends(get_c
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
     with get_db() as conn:
-        row = None
-        if did.isdigit():
-            row = conn.execute(
-                "SELECT * FROM drawings WHERE id = ? AND user_id = ?",
-                (int(did), uid)
-            ).fetchone()
-        if not row:
-            row = conn.execute(
-                "SELECT * FROM drawings WHERE client_id = ? AND user_id = ?",
-                (did, uid)
-            ).fetchone()
+        row = drawing_scope.find_accessible(conn, did, uid)
         if not row:
             raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
-        _check_base_rev(req, row, lambda: _drawing_enrich(dict(row), conn))
+        _check_base_rev(req, row, lambda: _drawing_enrich(dict(row), conn, uid))
         target_id = row["id"]
         new_title = req.title if req.title is not None else row["title"]
         new_data = req.data_json if req.data_json is not None else row["data_json"]
         new_svg = req.svg_preview if req.svg_preview is not None else row["svg_preview"]
         conn.execute(
-            "UPDATE drawings SET title = ?, data_json = ?, svg_preview = ?, updated_at = ? WHERE id = ?",
-            (new_title, new_data, new_svg, now, target_id)
+            "UPDATE drawings SET title = ?, data_json = ?, svg_preview = ?, last_edited_by = ?, updated_at = ? WHERE id = ?",
+            (new_title, new_data, new_svg, uid, now, target_id)
         )
         if req.tags is not None:
             conn.execute("DELETE FROM entity_tags WHERE entity_type = 'drawing' AND entity_id = ?", (target_id,))
             if req.tags:
-                _upsert_tags_for_entity(conn, target_id, uid, "drawing", req.tags)
+                # Tag drawing selalu di bawah pemilik drawing, bukan anggota yang menyunting.
+                _upsert_tags_for_entity(conn, target_id, row["user_id"], "drawing", req.tags)
         updated = conn.execute("SELECT * FROM drawings WHERE id = ?", (target_id,)).fetchone()
-        return _drawing_enrich(dict(updated), conn)
+        return _drawing_enrich(dict(updated), conn, uid)
+
+
+def _owned_drawing_or_error(conn, did: str, uid: int, cols: str):
+    """Drawing untuk aksi khusus pemilik (pin/hapus): tidak terlihat → 404, terlihat tapi bukan milik → 403."""
+    row = drawing_scope.find_accessible(conn, did, uid, cols=cols)
+    if not row:
+        raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+    if row["user_id"] != uid:
+        raise HTTPException(status_code=403, detail="Hanya pemilik drawing")
+    return row
 
 
 @app.patch("/api/drawings/{did}/pin")
 async def toggle_pin_drawing(did: str, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        row = None
-        if did.isdigit():
-            row = conn.execute(
-                "SELECT id, is_pinned FROM drawings WHERE id = ? AND user_id = ?",
-                (int(did), uid)
-            ).fetchone()
-        if not row:
-            row = conn.execute(
-                "SELECT id, is_pinned FROM drawings WHERE client_id = ? AND user_id = ?",
-                (did, uid)
-            ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        row = _owned_drawing_or_error(conn, did, uid, "id, user_id, is_pinned")
         target_id = row["id"]
         new_pin = 0 if row["is_pinned"] else 1
         conn.execute("UPDATE drawings SET is_pinned = ? WHERE id = ?", (new_pin, target_id))
@@ -7922,19 +7916,7 @@ async def toggle_pin_drawing(did: str, user=Depends(get_current_user)):
 async def delete_drawing_detail(did: str, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        row = None
-        if did.isdigit():
-            row = conn.execute(
-                "SELECT id FROM drawings WHERE id = ? AND user_id = ?",
-                (int(did), uid)
-            ).fetchone()
-        if not row:
-            row = conn.execute(
-                "SELECT id FROM drawings WHERE client_id = ? AND user_id = ?",
-                (did, uid)
-            ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        row = _owned_drawing_or_error(conn, did, uid, "id, user_id")
         target_id = row["id"]
         conn.execute("DELETE FROM entity_tags WHERE entity_type = 'drawing' AND entity_id = ?", (target_id,))
         conn.execute("DELETE FROM drawings WHERE id = ?", (target_id,))
