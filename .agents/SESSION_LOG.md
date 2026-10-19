@@ -3473,3 +3473,24 @@
 - **Verifikasi:** pytest 389, JS 1717/1718 (pra-ada `draw_local_reactive`), inline OK, E2E 41/41.
 - **Files Touch:** `static/index.html`, `static/offline/{mindmaplive,mindmaprepo}.js`, `webapp.py`, `tests/offline/{mindmap_live_ui,mindmapmerge_sync}.test.js`, `tests/test_mindmap_live.py`, `.agents/*`
 - **Status:** Needs Review.
+
+## [2026-10-19 20:30] - Claude (PR 3: drawing milik workspace, frontend + offline)
+- **Task:** Bapak "lanjut" rencana `docs/superpowers/plans/2026-10-19-drawing-workspace-ui.md`.
+- **Changes:** SDD 6 task + review per task (fix round di T1, T2, T3, T5×2). E2E dua akun menemukan bug urutan muat `drawingshare.js`. Review akhir menemukan `base_rev` dimajukan saat share (edit anggota lain bisa hilang) → diperbaiki bersama scope rekaman lama, gerbang push share note, timeout cek gambar. ADR-013.
+- **Verifikasi:** pytest 358, JS 1633/1634, E2E 28/28.
+- **Status:** Needs Review (draft PR; restart `taskflow-web` setelah deploy).
+
+## [2026-10-19 21:30] - Claude (merge main ke PR A setelah #45)
+- **Task:** Perbarui PR A `claude/mindmap-findings-a` (#44) setelah `origin/main` ee5b8d3 (PR #45 drawing workspace UI, SW v421 + ADR-013).
+- **Changes:** `git merge origin/main` (tanpa rebase). Konflik 21 file: semua hunk kode/tes hanya string versi SW; `index.html`/`sw.js`/`webapp.py` mempertahankan tambahan drawing (main) + mindmap (A). SW PR A → `taskflow-v422-mindmap-trash` di semua tempat; ADR mindmap A → **ADR-014** (ADR-013 tetap milik drawing). Iframe mind-elixir tetap `?v=144` (main 143), `app.css?v=334`.
+- **Verifikasi:** pytest 378, JS 1683/1684 (pra-ada `draw_local_reactive`), inline OK (index 5, mind-elixir 1).
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py`, `tests/**` (versi SW), `.agents/*`
+- **Status:** Needs Review.
+
+## [2026-10-19 21:50] - Claude (merge PR A + main ke PR B)
+- **Task:** Perbarui PR B `claude/mindmap-findings-b` (#46) setelah PR A di-merge dengan `origin/main` (#45).
+- **Changes:** `git merge origin/claude/mindmap-findings-a` (tanpa rebase). Konflik kode/tes hanya string versi SW. SW PR B → `taskflow-v423-mindmap-live` di semua tempat; ADR kolaborasi langsung → **ADR-015** (ADR-013 drawing, ADR-014 sampah mindmap). Iframe mind-elixir `?v=145` (> 144 PR A), `app.css?v=334`.
+- **Verifikasi:** pytest 389, JS 1782/1783 (pra-ada `draw_local_reactive`), inline OK (index 5, mind-elixir 1). E2E tidak diulang.
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py`, `tests/**` (versi SW), `.agents/*`
+- **Status:** Needs Review.
+

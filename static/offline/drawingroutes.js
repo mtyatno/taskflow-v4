@@ -34,6 +34,17 @@
       return TFrepo.getDrawing(params.id, { online: onlineNow() }).then((d) => (d ? d : notFound()));
     });
 
+    // Drawing milik workspace (daftar ringan, terbaru dulu; baris terhapus tidak ikut)
+    router.register("GET", "/api/lists/:id/drawings", ({ params }) => {
+      return TFrepo.listDrawings({ list_id: params.id }).then((rows) => rows
+        .filter((d) => d.list_id != null && String(d.list_id) === String(params.id))
+        .sort((a, b) => (String(b.updated_at) < String(a.updated_at) ? -1 : String(b.updated_at) > String(a.updated_at) ? 1 : 0))
+        .map((d) => ({
+          id: d.id, client_id: d.cid, title: d.title, svg_preview: d.svg_preview,
+          list_id: d.list_id, user_id: d.user_id, updated_at: d.updated_at,
+        })));
+    });
+
     // Update drawing
     router.register("PUT", "/api/drawings/:id", ({ params, body }) => {
       return TFrepo.updateDrawing(params.id, body || {});

@@ -20,6 +20,38 @@
   const BlobStore = TFblob.makeBlobStore();
   let _fetcher = null;
 
+  // User saat ini (diisi index.html seperti mindmaprepo). null = belum diketahui.
+  let _currentUser = null;
+  function setCurrentUser(u) { _currentUser = u || null; }
+  function currentUid() { return (_currentUser && _currentUser.user_id != null) ? _currentUser.user_id : null; }
+  // Guard pemilik lokal: tolak hanya bila baris punya user_id non-null, uid saat ini diketahui, dan beda.
+  // Baris tanpa user_id (legacy lokal) dianggap milik sendiri.
+  function isOthers(rec) {
+    const me = currentUid();
+    return !!rec && rec.user_id != null && me != null && String(rec.user_id) !== String(me);
+  }
+  function ownerOnlyError() {
+    const e = new Error("Hanya pemilik drawing");
+    e.status = 403;
+    e.body = { detail: "Hanya pemilik drawing" };
+    return e;
+  }
+  // Field scope workspace/kolaborator dari baris server (null bila tidak ada).
+  function scopeFromServer(s) {
+    const nn = (v) => (v != null ? v : null);
+    return {
+      list_id: nn(s.list_id), user_id: nn(s.user_id), last_edited_by: nn(s.last_edited_by),
+      last_editor_username: nn(s.last_editor_username), last_editor_display_name: nn(s.last_editor_display_name),
+    };
+  }
+  function scopeOf(r) {
+    const nn = (v) => (v != null ? v : null);
+    return {
+      list_id: nn(r.list_id), user_id: nn(r.user_id), last_edited_by: nn(r.last_edited_by),
+      last_editor_username: nn(r.last_editor_username), last_editor_display_name: nn(r.last_editor_display_name),
+    };
+  }
+
   function tsEpoch(ts) {
     if (ts == null) return 0;
     const s = String(ts);
@@ -319,6 +351,11 @@
         svg_preview: doc.svg_preview || "",
         svg_stale: (dataJson !== "{}" && !doc.svg_preview) ? 1 : 0,
         is_pinned: doc.is_pinned ? 1 : 0,
+        list_id: doc.list_id != null ? doc.list_id : null,
+        user_id: currentUid(),
+        last_edited_by: currentUid(),
+        last_editor_username: null,
+        last_editor_display_name: null,
         created_at: now,
         updated_at: now,
         deleted: false,
@@ -341,8 +378,9 @@
               svg_preview: rec.svg_preview,
               is_pinned: rec.is_pinned,
               tags: doc.tags || [],
+              list_id: rec.list_id,
             },
-          }).then(() => ({
+          }).then(() => Object.assign(scopeOf(rec), {
             id: rec.cid,
             cid: rec.cid,
             server_id: null,
@@ -367,7 +405,7 @@
   function adoptServerDrawing(srv) {
     const missing = srv.data_json == null; // tanpa data → tandai data_missing, JANGAN buat placeholder "{}"
     return (missing ? Promise.resolve(null) : BlobStore.put(srv.data_json, { mime: "application/json" })).then((ref) => {
-      const rec = {
+      const rec = Object.assign(scopeFromServer(srv), {
         cid: srv.client_id || TFids.newCid(),
         server_id: srv.id,
         client_id: srv.client_id || null,
@@ -385,7 +423,7 @@
         base_title: srv.title != null ? srv.title : "Untitled Drawing",
         data_missing: missing ? 1 : 0,
         rev: 0,
-      };
+      });
       return insertDrawingIfAbsent(rec).then((res) => {
         if (!res.inserted) {
           return dropBlob(ref).then(() => (res.rec.note_cid === undefined ? reconcileWithServer(res.rec, srv) : res.rec));
@@ -404,7 +442,7 @@
       return mutateDrawing(local.cid, (cur) => {
         if (!cur || cur.deleted || cur.dirty || (cur.rev || 0) !== readRev) return undefined;
         oldRefs = refsOf(cur);
-        return Object.assign({}, cur, {
+        return Object.assign({}, cur, (srv.user_id !== undefined || srv.list_id !== undefined) ? scopeFromServer(srv) : {}, {
           server_id: srv.id != null ? srv.id : cur.server_id,
           blob_ref: newRef,
           title: srv.title != null ? srv.title : cur.title,
@@ -555,7 +593,7 @@
            const tagP = (typeof TFtag !== "undefined" && TFtag.getEntityTags)
              ? TFtag.getEntityTags("drawing", cur.cid).then((tags) => tags.map((t) => t.name))
              : Promise.resolve([]);
-           return Promise.all([tagP, markP]).then(([tagNames]) => ({
+           return Promise.all([tagP, markP]).then(([tagNames]) => Object.assign(scopeOf(cur), {
              id: cur.server_id != null ? cur.server_id : cur.cid,
              cid: cur.cid,
              server_id: cur.server_id,
@@ -579,7 +617,7 @@
     const token = typeof localStorage !== "undefined" ? localStorage.getItem("tf_token") : null;
     // X-TF-Sync: SW meneruskan network-only (jangan pernah membaca cache GET /api/drawings yang basi)
     const fetchOnline = (typeof navigator !== "undefined" && navigator.onLine && token)
-      ? window.fetch("/api/drawings", { headers: { Authorization: "Bearer " + token, "X-TF-Sync": "1" } }).then(r => r.ok ? r.json() : []).catch(()=>[])
+      ? window.fetch("/api/drawings?shared=1", { headers: { Authorization: "Bearer " + token, "X-TF-Sync": "1" } }).then(r => r.ok ? r.json() : []).catch(()=>[])
       : Promise.resolve([]);
 
     return Promise.all([fetchOnline, getAllRaw()]).then(([serverData, all]) => {
@@ -589,7 +627,7 @@
         const tagP = (typeof TFtag !== "undefined" && TFtag.getEntityTags)
           ? TFtag.getEntityTags("drawing", r.cid).then((tags) => tags.map((t) => t.name))
           : Promise.resolve([]);
-        return tagP.then((tagNames) => ({
+        return tagP.then((tagNames) => Object.assign(scopeOf(r), {
           id: r.server_id != null ? r.server_id : r.cid,
           cid: r.cid,
           server_id: r.server_id,
@@ -628,6 +666,10 @@
           const filterTag = String(opts.tag).toLowerCase();
           list = list.filter((d) => (d.tags || []).some((t) => String(t).toLowerCase() === filterTag));
         }
+        if (opts.list_id != null && opts.list_id !== "") {
+          if (opts.list_id === "personal") list = list.filter((d) => d.list_id == null);
+          else list = list.filter((d) => d.list_id != null && String(d.list_id) === String(opts.list_id));
+        }
         if (opts.is_pinned) {
           list = list.filter((d) => String(d.is_pinned) === "1" || d.is_pinned === true || d.is_pinned === 1);
         }
@@ -663,6 +705,9 @@
           else if (patch.svg_preview !== undefined) next.svg_stale = 0;
           else if (hasData) next.svg_stale = 1;
           if (newRef) { oldRef = cur.blob_ref; next.blob_ref = newRef; next.data_missing = 0; }
+          next.last_edited_by = currentUid();
+          next.last_editor_username = null;
+          next.last_editor_display_name = null;
           next.updated_at = now;
           next.dirty = 1;
           next.rev = (cur.rev || 0) + 1;
@@ -678,7 +723,7 @@
           return Promise.all([releaseBlobs([oldRef], refsOf(saved)), tagP])
             .then(() => queueDrawingUpdate(cid, metaOf(saved), patch.tags))
             .then(() => (hasData ? patch.data_json : readBytes(saved.blob_ref)))
-            .then((dataJson) => ({
+            .then((dataJson) => Object.assign(scopeOf(saved), {
               id: saved.server_id != null ? saved.server_id : saved.cid,
               cid: saved.cid,
               server_id: saved.server_id,
@@ -707,6 +752,7 @@
   function deleteDrawing(idOrCid) {
     return getRaw(idOrCid).then((rec) => {
       if (!rec) return { ok: true };
+      if (isOthers(rec)) return Promise.reject(ownerOnlyError());
       let dropped = [];
       return mutateDrawing(rec.cid, (cur) => {
         if (!cur) return undefined;
@@ -748,6 +794,7 @@
       if (!rec || rec.deleted) {
         return Promise.reject(new Error("Drawing not found"));
       }
+      if (isOthers(rec)) return Promise.reject(ownerOnlyError());
       return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
         let saved = null;
         const tx = db.transaction(["drawings", "_outbox"], "readwrite");
@@ -889,6 +936,9 @@
   function configureFetcher(fn) { _fetcher = fn; }
 
   const exported = {
+    setCurrentUser,
+    currentUid,
+    adoptServerDrawing,
     createDrawing,
     getDrawing,
     listDrawings,

@@ -538,7 +538,7 @@ test("Test 13: pullDrawings adopts server is_pinned status when no pending pin o
 // Test 14: pullDrawingsAndReconcile fetches list and details, calling pullDrawings
 test("Test 14: pullDrawingsAndReconcile fetches list and details, calling pullDrawings", async () => {
   const fakeRawFetch = (url) => {
-    if (url === "/api/drawings") {
+    if (url === "/api/drawings?shared=1") {
       return Promise.resolve({
         json: () => Promise.resolve([
           { id: 808, title: "Fetched Draw", is_pinned: 0, updated_at: "2026-08-25T09:00:00" },
@@ -615,7 +615,7 @@ test("Test 15: pullDrawingsAndReconcile returns result counters for live event d
   await mapPut("drawing", 903, "draw-pin");
 
   const fakeRawFetch = (url) => {
-    if (url === "/api/drawings") {
+    if (url === "/api/drawings?shared=1") {
       return Promise.resolve({
         json: () => Promise.resolve([
           { id: 901, title: "Server Updated Title", is_pinned: 0, updated_at: "2026-08-25T02:00:00" },
