@@ -40,6 +40,8 @@
     return allMindmaps().then((all) => {
       for (const m of all) if (m.cid === idOrCid) return m.cid;
       for (const m of all) if (m.server_id != null && String(m.server_id) === String(idOrCid)) return m.cid;
+      // id dari perangkat lain (link node mindmap = cid pembuat = client_id server; cid lokal bisa berbeda)
+      for (const m of all) if (m.client_id != null && String(m.client_id) === String(idOrCid)) return m.cid;
       return null;
     });
   }
