@@ -3453,6 +3453,27 @@
 - **Files Touch:** `static/{index.html,sw.js}`, `webapp.py` (`sw_cache`), `tests/**` (versi SW), `temporary_files/e2e_mindmap_findings_a.py`, `.agents/*`
 - **Status:** Needs Review (draft PR oleh controller; deploy butuh `sudo systemctl restart taskflow-web`).
 
+## [2026-10-19 18:32] - Claude (PR B temuan mindmap #4 — rilis B6)
+- **Task:** Task B6 rencana `docs/superpowers/plans/2026-10-19-mindmap-findings-3-8.md`: wiring rilis PR B.
+- **Changes:** tag `<script>` `mindmapmerge.js` sebelum `mindmaprepo.js` + precache SW (tanpa ini jalur merge di browser mati); SW `taskflow-v422-mindmap-live` di semua tempat (sw.js, `__SW_VERSION` + fallback About, `webapp.py` `sw_cache`, `tests/test_version.py`, 14 tes JS); iframe `?v=145`; `app.css` tidak berubah; tes urutan tag/precache di `tests/offline/mindmap_live_ui.test.js`; ADR-014; E2E Playwright dua context `temporary_files/e2e_mindmap_live.py` (7 skenario, screenshot `temporary_files/e2e_mindmap_live/`).
+- **Verifikasi:** pytest 388, JS 1705/1706 (pra-ada `draw_local_reactive`), inline OK, grep aksen kiri hanya cocok di teks docs rencana/spec (sama seperti PR A), E2E 37/38 — gagal 2f: bentrok node sama lewat push 409 hanya notice + salinan, tanpa toast.
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py` (`sw_cache`), `tests/**` (versi SW + tes tag), `temporary_files/e2e_mindmap_live.py`, `.agents/*`
+- **Status:** Needs Review (review akhir + draft PR oleh controller; PR #44 harus merge dulu; deploy butuh `sudo systemctl restart taskflow-web`).
+
+## [2026-10-19 19:10] - Claude (PR B temuan mindmap #4 — B6 fix round 1)
+- **Task:** ruling controller atas concern B6.
+- **Changes:** toast salinan konflik untuk jalur push 409 / pull (`mindmaprepo.conflictCopyDetail` → event `mindmapConflictCopy` dari syncpush/syncpull → listener global `index.html` memakai `TF.mindmaplive.conflictToast`); hapus toast lama "Peta diubah di perangkat lain…" di handler `mindmapSynced` tab (muncul juga untuk merge bersih). Akar `load` kedua: efek muat `MindmapTabInstance` menjadwalkan `sendLoad` 200 ms setelah mount padahal handler `ready` iframe sudah mengirim `load` → mesin diinisialisasi ulang ±100 ms setelah dibuka (seleksi/kotak edit tersapu; juga peta pribadi). Perbaikan: `iframeReadyRef`, timer hanya bila iframe sudah siap; `offerRemote(doc, {title})` mengembalikan null bila isi = basis dan judul sama (tanpa refresh, `if_updated_at` maju). E2E: tangkap toast, tanpa jeda "settle", cek satu `load`. Screenshot E2E dikeluarkan dari git (+ `.gitignore`).
+- **Verifikasi:** pytest 388, JS 1712/1713 (pra-ada `draw_local_reactive`), inline OK, E2E 41/41.
+- **Files Touch:** `static/index.html`, `static/offline/{mindmaplive,mindmaprepo,syncpull,syncpush}.js`, `tests/offline/{mindmap_live_ui,mindmapmerge_sync,petakan_tab_ui}.test.js`, `temporary_files/e2e_mindmap_live.py`, `.gitignore`, `.agents/*`
+- **Status:** Needs Review.
+
+## [2026-10-19 19:45] - Claude (PR B temuan mindmap #4 — perbaikan review akhir)
+- **Task:** temuan review akhir seluruh branch PR B (1 Important + 3 minor).
+- **Changes:** `MindmapOutline` menerima `historyEpoch` (tab menaikkannya pada `remoteApplied` dan revert kanvas yang berpapasan) → riwayat undo/redo Outline dikosongkan, Ctrl+Z di Outline tidak lagi menghapus perubahan anggota lain; generator `GET /api/mindmaps/{mid}/stream` berhenti bila entrinya dilepas broadcast (antrean penuh) setelah meneruskan sinyal penutup yang masih antre; `mergeServerIntoLocal` memakai `serverRow.data_json` apa adanya bila hasil merge = server; `conflictCopyDetail.kind` (`merge_conflict` / `conflict_copy`) + `TF.mindmaplive.wholeMapCopyToast` (kata-kata notice salinan seluruh peta). Iframe tidak berubah (tetap `?v=145`), SW tetap v422.
+- **Verifikasi:** pytest 389, JS 1717/1718 (pra-ada `draw_local_reactive`), inline OK, E2E 41/41.
+- **Files Touch:** `static/index.html`, `static/offline/{mindmaplive,mindmaprepo}.js`, `webapp.py`, `tests/offline/{mindmap_live_ui,mindmapmerge_sync}.test.js`, `tests/test_mindmap_live.py`, `.agents/*`
+- **Status:** Needs Review.
+
 ## [2026-10-19 20:30] - Claude (PR 3: drawing milik workspace, frontend + offline)
 - **Task:** Bapak "lanjut" rencana `docs/superpowers/plans/2026-10-19-drawing-workspace-ui.md`.
 - **Changes:** SDD 6 task + review per task (fix round di T1, T2, T3, T5×2). E2E dua akun menemukan bug urutan muat `drawingshare.js`. Review akhir menemukan `base_rev` dimajukan saat share (edit anggota lain bisa hilang) → diperbaiki bersama scope rekaman lama, gerbang push share note, timeout cek gambar. ADR-013.
@@ -3463,6 +3484,13 @@
 - **Task:** Perbarui PR A `claude/mindmap-findings-a` (#44) setelah `origin/main` ee5b8d3 (PR #45 drawing workspace UI, SW v421 + ADR-013).
 - **Changes:** `git merge origin/main` (tanpa rebase). Konflik 21 file: semua hunk kode/tes hanya string versi SW; `index.html`/`sw.js`/`webapp.py` mempertahankan tambahan drawing (main) + mindmap (A). SW PR A → `taskflow-v422-mindmap-trash` di semua tempat; ADR mindmap A → **ADR-014** (ADR-013 tetap milik drawing). Iframe mind-elixir tetap `?v=144` (main 143), `app.css?v=334`.
 - **Verifikasi:** pytest 378, JS 1683/1684 (pra-ada `draw_local_reactive`), inline OK (index 5, mind-elixir 1).
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py`, `tests/**` (versi SW), `.agents/*`
+- **Status:** Needs Review.
+
+## [2026-10-19 21:50] - Claude (merge PR A + main ke PR B)
+- **Task:** Perbarui PR B `claude/mindmap-findings-b` (#46) setelah PR A di-merge dengan `origin/main` (#45).
+- **Changes:** `git merge origin/claude/mindmap-findings-a` (tanpa rebase). Konflik kode/tes hanya string versi SW. SW PR B → `taskflow-v423-mindmap-live` di semua tempat; ADR kolaborasi langsung → **ADR-015** (ADR-013 drawing, ADR-014 sampah mindmap). Iframe mind-elixir `?v=145` (> 144 PR A), `app.css?v=334`.
+- **Verifikasi:** pytest 389, JS 1782/1783 (pra-ada `draw_local_reactive`), inline OK (index 5, mind-elixir 1). E2E tidak diulang.
 - **Files Touch:** `static/{index.html,sw.js}`, `webapp.py`, `tests/**` (versi SW), `.agents/*`
 - **Status:** Needs Review.
 

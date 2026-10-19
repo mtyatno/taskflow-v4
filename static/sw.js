@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v422-mindmap-trash";
+const CACHE = "taskflow-v423-mindmap-live";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -42,11 +42,13 @@ const STATIC = [
   "/static/offline/mindmapoutline.js",
   "/static/offline/mindmaplinks.js",
   "/static/offline/mindmaptrash.js",
+  "/static/offline/mindmaplive.js",
   "/static/offline/mindmapops.js",
   "/static/offline/notemap.js",
   "/static/offline/notemapsession.js",
   "/static/offline/mindmaptabs.js",
   "/static/offline/mindmapjustify.js",
+  "/static/offline/mindmapmerge.js",
   "/static/offline/mindmaprepo.js",
   "/static/offline/mindmaproutes.js",
   "/static/offline/chatrepo.js",
@@ -244,6 +246,18 @@ self.addEventListener("fetch", e => {
           return cached || networkFetch;
         })
       ).catch(() => fetch(request))
+    );
+    return;
+  }
+
+  // Stream langsung mindmap (/api/mindmaps/<id>/stream, SSE #4): NETWORK-ONLY, tidak pernah di-cache.
+  // Offline → 503 OFFLINE (EventSource menyambung ulang sendiri setelah online).
+  if (/^\/api\/mindmaps\/[^/]+\/stream$/.test(url.pathname)) {
+    e.respondWith(
+      fetch(request).catch(() => new Response(
+        JSON.stringify({ detail: "OFFLINE" }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      ))
     );
     return;
   }

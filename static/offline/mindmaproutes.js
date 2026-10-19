@@ -76,12 +76,18 @@
     router.register("GET", "/api/mindmaps/:id", ({ params }) =>
       resolveMindmapCid(params.id).then((cid) => (cid ? getFull(cid) : notFound())));
     // PUT: body.if_updated_at (opsional, dari tab editor) = updated_at yang dimuat tab; bila record sudah diganti
-    // pull/adopsi → edit disimpan sebagai salinan konflik dan respons membawa `conflict_copy` (meta salinan)
+    // pull/adopsi → (tanpa body.base_data_json) edit disimpan sebagai salinan konflik dan respons membawa `conflict_copy` (meta salinan)
     // + isi record asli (versi server) supaya tab memuat ulang (T3).
     router.register("PUT", "/api/mindmaps/:id", ({ params, body }) =>
       resolveMindmapCid(params.id).then((cid) => (cid
-        ? TFrepo.updateMindmap(cid, body || {}, {}).then((saved) => getFull(cid).then((f) =>
-          (saved && saved.conflict_copy ? Object.assign(f, { conflict_copy: full(saved.conflict_copy) }) : f)))
+        ? TFrepo.updateMindmap(cid, body || {}, {}).then((saved) => getFull(cid).then((f) => {
+          if (saved && saved.merged) {
+            // #4: if_updated_at basi + base_data_json → hasil merge3 (salinan konflik hanya bila node sama bentrok)
+            return Object.assign(f, { merged: true, merge_conflicts: saved.merge_conflicts },
+              saved.conflict_copy ? { conflict_copy: full(saved.conflict_copy) } : {});
+          }
+          return saved && saved.conflict_copy ? Object.assign(f, { conflict_copy: full(saved.conflict_copy) }) : f;
+        }))
         : notFound())));
     router.register("PATCH", "/api/mindmaps/:id/pin", ({ params }) =>
       resolveMindmapCid(params.id).then((cid) => (cid ? TFrepo.togglePin(cid).then(() => getFull(cid)) : notFound())));

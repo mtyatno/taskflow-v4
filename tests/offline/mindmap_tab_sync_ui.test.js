@@ -82,7 +82,8 @@ test("MindmapTabInstance: autosave carries if_updated_at, handles conflict_copy,
   // share mem-bump updated_at di server → diadopsi sebagai base_rev + lastKnownAt (bukan 409 / salinan konflik palsu)
   assert.match(code, /patch\.updated_at = updated\.updated_at; patch\.base_rev = updated\.updated_at;/);
   assert.match(code, /window\.TF\.db\.mutate\("mindmaps", match\.cid, cur =>/);
-  assert.match(code, /if \(updated\.updated_at\) lastKnownAtRef\.current = updated\.updated_at;/);
+  // #4 (B5): if_updated_at maju hanya bila isi record = basis tab (basis + if_updated_at dari snapshot yang sama)
+  assert.match(code, /if \(updated\.updated_at && \(isLinked \|\| match\.data_json === baseDocRef\.current\)\) lastKnownAtRef\.current = updated\.updated_at;/);
 });
 
 test("MindmapPage reloads the sidebar list on mindmapSynced / mindmapSaved", () => {

@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v401", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v422-mindmap-trash";/m,
-      "sw.js CACHE must be taskflow-v422-mindmap-trash"
+      /^const CACHE = "taskflow-v423-mindmap-live";/m,
+      "sw.js CACHE must be taskflow-v423-mindmap-live"
     );
   });
 });

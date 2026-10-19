@@ -477,7 +477,7 @@
   <script src="/static/offline/mindmapoutline.js?v=126"></script>
   <script src="/static/offline/mindmaplinks.js?v=1"></script>
   <script src="/static/offline/notemap.js?v=1"></script>
-  <script src="/static/offline/mindmapops.js?v=6"></script>
+  <script src="/static/offline/mindmapops.js?v=7"></script>
   <script src="/static/offline/mindmapjustify.js?v=1"></script>
   <script>
     let mind = null;
@@ -1386,6 +1386,54 @@
         applyJustifyLayout();
         postChange();
       }
+      if (e.data && e.data.type === 'remoteUpdate') {
+        // #4: isi jarak jauh (anggota lain / hasil merge). Bukan edit pengguna → tidak mengirim pesan change ke induk.
+        // Jangan pernah menimpa ketikan: kotak edit node (#input-box) aktif atau alur pilih-link berjalan → remoteSkipped.
+        const box = document.getElementById('input-box');
+        if (!mind || linkFlowActive || (box && box.isConnected && box.offsetParent !== null)) {
+          window.parent.postMessage({ type: 'remoteSkipped', seq: e.data.seq }, window.location.origin);
+          return;
+        }
+        const selId = currentNodeId;
+        hideNodeLinksPopover();
+        // Data baru menggantikan pohon: keluar dari Focus Mode dulu (getData() memakai nodeDataBackup).
+        try { window.TF.mindmapops.exitFocusMode(mind); } catch (_) {}
+        isJustifyActive = Boolean(e.data.data && e.data.data.justify);
+        // refresh() menata ulang tanpa memindah viewport (initX() hanya bila arah berubah)
+        try { mind.refresh(e.data.data); } catch (_) {}
+        // Riwayat undo lama menunjuk pohon sebelum pembaruan → kosongkan (undo tidak boleh menghapus perubahan anggota lain).
+        try { window.TF.mindmapops.resetUndo(mind); } catch (_) {}
+        const d = (e.data.data && typeof e.data.data.direction === 'number') ? e.data.data.direction : mind.direction;
+        if (d !== mind.direction) {
+          try {
+            if (d === 0) mind.initLeft();
+            else if (d === 1) mind.initRight();
+            else if (d === 3) mind.initDown();
+            else mind.initSide();
+          } catch (_) {}
+        }
+        if (typeof e.data.title === 'string' && e.data.title.trim()) currentMindmapTitle = e.data.title.trim();
+        // Pilih ulang node terpilih bila masih ada; bila hilang, tutup panel seperti clearPanel.
+        let reselected = false;
+        if (selId) {
+          try {
+            const el = mind.findEle(selId);
+            if (el) { mind.selectNode(el); reselected = true; }
+          } catch (_) {}
+        }
+        if (!reselected) {
+          currentNodeId = null;
+          currentNodeData = null;
+          clearTimeout(unselectTimer);
+          hidePanel();
+          switchTab(null);
+          if (selId) window.parent.postMessage({ type: 'nodeDeselected' }, window.location.origin);
+        }
+        if (isJustifyActive) setTimeout(applyJustifyLayout, 50);
+        setTimeout(updateBadges, 300);
+        window.parent.postMessage({ type: 'remoteApplied', seq: e.data.seq }, window.location.origin);
+        return;
+      }
       if (e.data && e.data.type === 'refresh') {
         if (!mind) return;
         hideNodeLinksPopover();
@@ -1401,6 +1449,8 @@
         // Data baru menggantikan pohon: keluar dari Focus Mode dulu (getData() memakai nodeDataBackup).
         try { window.TF.mindmapops.exitFocusMode(mind); } catch (_) {}
         try { mind.refresh(e.data.data); } catch (_) {}
+        // Pohon diganti induk (edit Outline / kanvas dikembalikan ke versi lokal): snapshot undo lama tidak berlaku lagi.
+        try { window.TF.mindmapops.resetUndo(mind); } catch (_) {}
         setTimeout(updateBadges, 300);
         return;
       }

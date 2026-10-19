@@ -111,6 +111,16 @@
     }
   }
 
+  // Riwayat undo mesin setelah pohon diganti dari luar (remoteUpdate, refresh dari induk). Plugin undo mind-elixir
+  // menyimpan snapshot `getData()` yang hanya maju pada event "operation"; refresh() tidak memajukannya, sehingga
+  // Ctrl+Z sesudahnya memulihkan pohon SEBELUM pembaruan (perubahan anggota lain terhapus pada simpan berikutnya).
+  // clearHistory() mengosongkan riwayat dan mengambil snapshot baru. false = mesin tanpa undo (allowUndo:false).
+  function resetUndo(mind) {
+    if (!mind || typeof mind.clearHistory !== "function") return false;
+    try { mind.clearHistory(); } catch (_) { return false; }
+    return true;
+  }
+
   // Kontrol yang tidak bisa dipetakan ke catatan (panah, ringkasan engine,
   // tautan node, format blok) disembunyikan di peta tertaut.
   const LINKED_HIDDEN_SELECTORS = [
@@ -132,6 +142,7 @@
     isOpenNoteClick: isOpenNoteClick,
     exitFocusMode: exitFocusMode,
     reloadEngine: reloadEngine,
+    resetUndo: resetUndo,
     LINKED_HIDDEN_SELECTORS: LINKED_HIDDEN_SELECTORS,
   };
 });

@@ -78,7 +78,7 @@ test("linked maps never send addLink and guard against a missing module", () => 
 const NM = require("../../static/offline/notemap.js");
 const NS = require("../../static/offline/notemapsession.js");
 
-function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = () => true }) {
+function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = () => true, tfExtra = {}, getImpl = null, putImpl = null, propsExtra = {}, winExtra = {} }) {
   const slots = [];
   let slot = 0;
   let effects = [];
@@ -97,6 +97,7 @@ function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = ()
     TF: {
       notemap: NM,
       notemapsession: NS,
+      ...tfExtra,
       noterepo: {
         applyMapEdit: (cid, base, next) => {
           if (!store.note || store.note.cid !== cid) return Promise.resolve({ missing: true });
@@ -111,17 +112,19 @@ function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = ()
     removeEventListener: (t, h) => { events[t] = (events[t] || []).filter((x) => x !== h); },
     dispatchEvent: (ev) => { (events[ev.type] || []).slice().forEach((h) => h(ev)); },
     confirm,
+    ...winExtra,
   };
   const iframeWin = { postMessage: (m) => posted.push(m) };
   const api = {
     get: (url) => {
+      if (getImpl) { const r = getImpl(url); if (r) return r; }
       if (store.failGet) return Promise.reject(new Error("offline"));
       if (url === "/api/scratchpad/trash") return Promise.resolve(trash);
       const m = url.match(/^\/api\/scratchpad\/(.+)$/);
       if (m && store.note && (m[1] === store.note.cid || m[1] === String(store.note.id))) return Promise.resolve(Object.assign({}, store.note));
       return Promise.reject(new Error("Note not found"));
     },
-    put: (url, body) => { puts.push({ url, body }); return Promise.resolve({}); },
+    put: (url, body) => { puts.push({ url, body }); return Promise.resolve(putImpl ? putImpl(url, body) : {}); },
     patch: () => Promise.resolve({}),
     del: () => Promise.resolve({}),
   };
@@ -153,7 +156,7 @@ function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = ()
     (fn, ms) => { timers.push(fn); return timers.length; }, () => {});
   const tab = Object.assign({ id: 3, title: "Judul", user_id: 1, source_note_cid: "nc1", source_note_id: 7,
     data_json: JSON.stringify(NM.LINKED_VIEW_STATE_DEFAULT) }, tabExtra);
-  const props = { tab, isActive: true, showToast: (m, k) => toasts.push(m), currentUserId: 1, onUpdateTitle: (id, t) => titles.push(t) };
+  const props = Object.assign({ tab, isActive: true, showToast: (m, k) => toasts.push(m), currentUserId: 1, onUpdateTitle: (id, t) => titles.push(t) }, propsExtra);
   let dirty = false;
   let out = null;
   const render = () => {
@@ -178,7 +181,9 @@ function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = ()
   const post = (data) => { (events.message || []).forEach((h) => h({ origin: "o", source: iframeWin, data })); };
   const message = async (data) => { post(data); await settle(); };
   render();
-  return { store, posted, toasts, puts, titles, settle, flushTimers, message, post, get tree() { return tree; }, get out() { return out; }, win, slots };
+  const setProps = async (p) => { Object.assign(props, p); render(); await settle(); };
+  const unmount = () => { cleanups.forEach((c) => c && c()); };
+  return { store, posted, toasts, puts, titles, settle, flushTimers, message, post, setProps, unmount, timers, get tree() { return tree; }, get out() { return out; }, win, slots };
 }
 
 // gen sesi yang terakhir dikirim ke iframe (load / remapSids) — iframe menyertakannya di tiap change.
@@ -319,6 +324,164 @@ test("behavior: non-linked map keeps the old data_json autosave path", async () 
   assert.equal(JSON.parse(h.puts[0].body.data_json).nodeData.children[0].topic, "Anak");
   assert.ok(findText(h.out, "Tersimpan") && !findText(h.out, "Tersimpan ke catatan"));
 });
+
+// B6 fix: kanvas peta biasa menerima tepat SATU load saat dibuka (dari "ready"); load kedua dari timer efek muat
+// menginisialisasi ulang mesin ±100 ms kemudian dan menyapu seleksi / kotak edit node yang baru dibuka.
+test("behavior B6: opening a map posts exactly one load (on ready), never a second delayed load", async () => {
+  const data = { nodeData: { id: "root", topic: "M", root: true, children: [] }, direction: 2 };
+  const h = mountTab({ note: null, tabExtra: { source_note_cid: null, source_note_id: null, data_json: JSON.stringify(data), updated_at: "t0" } });
+  await h.settle();
+  await h.message({ type: "ready" });
+  await h.flushTimers();
+  assert.equal(h.posted.filter((m) => m.type === "load").length, 1);
+});
+
+test("behavior B6: sync with unchanged content (newer updated_at) does not reload the canvas", async () => {
+  const live = require("../../static/offline/mindmaplive.js");
+  const data = JSON.stringify({ nodeData: { id: "root", topic: "M", root: true, children: [] }, direction: 2 });
+  const h = mountTab({
+    note: null, tfExtra: { mindmaplive: live },
+    tabExtra: { source_note_cid: null, source_note_id: null, data_json: data, updated_at: "t0" },
+    getImpl: (url) => (url === "/api/mindmaps/3" ? Promise.resolve({ id: 3, title: "Judul", data_json: data, updated_at: "t1" }) : null),
+  });
+  await h.settle();
+  await h.message({ type: "ready" });
+  h.win.dispatchEvent({ type: "mindmapSynced", detail: { source: "live", ids: [3] } });
+  await h.settle();
+  assert.equal(h.posted.filter((m) => m.type === "remoteUpdate" || m.type === "refresh").length, 0);
+  // if_updated_at maju ke revisi yang isinya sama → simpan berikutnya bukan tulis basi
+  const edited = JSON.parse(data); edited.nodeData.children.push({ id: "x", topic: "Anak", children: [] });
+  await h.message({ type: "change", data: edited });
+  await h.flushTimers();
+  assert.equal(h.puts[0].body.if_updated_at, "t1");
+});
+
+// #4 (B5): pembaruan jarak jauh lewat remoteUpdate; basis + if_updated_at maju hanya setelah remoteApplied.
+test("behavior B5: remote update skipped while typing → save sends the old base; merged result applied via remoteUpdate", async () => {
+  const live = require("../../static/offline/mindmaplive.js");
+  const doc = (topics) => JSON.stringify({ nodeData: { id: "root", topic: "M", root: true, children: topics.map((t, i) => ({ id: "n" + i, topic: t, children: [] })) }, direction: 2 });
+  const B = doc(["A", "B"]), S = doc(["A", "B server"]), Ltab = doc(["A lokal", "B"]), M = doc(["A lokal", "B server"]);
+  const rec = { id: 3, title: "Judul", data_json: S, updated_at: "t1", last_editor_display_name: "Bob", last_edited_by: 2 };
+  const h = mountTab({
+    note: null, tfExtra: { mindmaplive: live },
+    tabExtra: { source_note_cid: null, source_note_id: null, data_json: B, updated_at: "t0" },
+    getImpl: (url) => (url === "/api/mindmaps/3" ? Promise.resolve(Object.assign({}, rec)) : null),
+    putImpl: (url, body) => {
+      Object.assign(rec, { data_json: M, updated_at: "t2", last_editor_display_name: null, last_edited_by: 1 });
+      return Object.assign({}, rec, { merged: true, merge_conflicts: 0 });
+    },
+  });
+  await h.settle();
+  await h.message({ type: "ready" });
+  // pull (__mindmapLive) mengganti record → mindmapSynced → tab menawarkan isi jarak jauh ke iframe
+  h.win.dispatchEvent({ type: "mindmapSynced", detail: { source: "live", ids: [3] } });
+  await h.settle();
+  const up = h.posted.filter((m) => m.type === "remoteUpdate");
+  assert.equal(up.length, 1);
+  assert.equal(h.posted.filter((m) => m.type === "load").length, 1, "tidak ada load paksa");
+  // pengguna sedang mengetik → iframe melewati
+  await h.message({ type: "remoteSkipped", seq: up[0].seq });
+  await h.message({ type: "change", data: JSON.parse(Ltab) });
+  await h.flushTimers();
+  assert.equal(h.puts.length, 1);
+  const body = h.puts[0].body;
+  assert.equal(body.if_updated_at, "t0");
+  assert.equal(body.base_data_json, B);
+  assert.equal(typeof body.session_id, "string"); assert.ok(body.session_id.length > 0);
+  // hasil merge diterapkan lewat remoteUpdate; setelah remoteApplied basis + if_updated_at = hasil merge
+  const up2 = h.posted.filter((m) => m.type === "remoteUpdate");
+  const last = up2[up2.length - 1];
+  assert.deepEqual(last.data.nodeData.children.map((c) => c.topic), ["A lokal", "B server"]);
+  for (const m of up2.slice(1)) await h.message({ type: "remoteApplied", seq: m.seq });
+  await h.message({ type: "change", data: JSON.parse(doc(["A lokal", "B server", "C"])) });
+  await h.flushTimers();
+  assert.equal(h.puts.length, 2);
+  assert.equal(h.puts[1].body.if_updated_at, "t2");
+  assert.equal(h.puts[1].body.base_data_json, M);
+  assert.equal(h.puts[1].body.session_id, body.session_id, "session_id tetap per instans tab");
+});
+
+// #4 (B5 fix 1): satu stream saja — hanya tab aktif yang berlangganan; catch-up saat aktif; tutup saat tidak aktif.
+function withFakeEventSource(fn) {
+  const made = [];
+  function FakeES(url) { this.url = url; this.closed = false; made.push(this); }
+  FakeES.prototype.close = function () { this.closed = true; };
+  const saved = { EventSource: globalThis.EventSource, apiUrl: globalThis.apiUrl, API_BASE: globalThis.API_BASE, __token: globalThis.__token };
+  Object.assign(globalThis, { EventSource: FakeES, apiUrl: (p) => p, API_BASE: "", __token: null });
+  return Promise.resolve().then(() => fn(made)).finally(() => {
+    for (const k of Object.keys(saved)) { if (saved[k] === undefined) delete globalThis[k]; else globalThis[k] = saved[k]; }
+  });
+}
+const sharedTab = { id: 3, list_id: 5, source_note_cid: null, source_note_id: null,
+  data_json: JSON.stringify({ nodeData: { id: "root", topic: "M", root: true, children: [] } }), updated_at: "t0" };
+
+test("behavior B5: only the active tab holds a stream; activation catches up once; badge only while connected", () => withFakeEventSource(async (made) => {
+  const live = require("../../static/offline/mindmaplive.js");
+  const liveCalls = [];
+  const h = mountTab({ note: null, tfExtra: { mindmaplive: live }, tabExtra: sharedTab, propsExtra: { isActive: false },
+    winExtra: { __mindmapLive: (sid) => { liveCalls.push(sid); return Promise.resolve(); } } });
+  await h.settle();
+  assert.equal(made.length, 0, "tab tidak aktif tidak berlangganan");
+  await h.setProps({ isActive: true });
+  assert.equal(made.length, 1);
+  assert.equal(made[0].url, "/api/mindmaps/3/stream");
+  assert.ok(!findText(h.out, "🟢 Langsung"), "belum tersambung");
+  made[0].onopen(); await h.settle();
+  assert.deepEqual(liveCalls, [3], "catch-up sekali saat aktif");
+  assert.ok(findText(h.out, "🟢 Langsung"));
+  await h.setProps({ isActive: false });
+  assert.equal(made[0].closed, true, "stream ditutup saat tab tidak aktif");
+  assert.ok(!findText(h.out, "🟢 Langsung"));
+  await h.setProps({ isActive: true });
+  assert.equal(made.length, 2);
+  made[1].onopen(); await h.settle();
+  assert.deepEqual(liveCalls, [3, 3]);
+  h.unmount();
+  assert.equal(made[1].closed, true);
+}));
+
+test("behavior B5: deleted signal but map still local → reconnect, not gone; editor_name recorded", () => withFakeEventSource(async (made) => {
+  const live = require("../../static/offline/mindmaplive.js");
+  const h = mountTab({ note: null, tfExtra: { mindmaplive: live }, tabExtra: sharedTab,
+    getImpl: (url) => (url === "/api/mindmaps/3" ? Promise.resolve({ id: 3, data_json: sharedTab.data_json, updated_at: "t0" }) : null),
+    winExtra: { __mindmapLive: () => Promise.resolve() } });
+  await h.settle();
+  made[0].onopen(); await h.settle();
+  made[0].onmessage({ data: JSON.stringify({ type: "mindmap_deleted", id: 3 }) });
+  await h.settle();
+  assert.equal(made[0].closed, true);
+  assert.deepEqual(h.toasts, [], "peta masih ada lokal → tidak ditutup");
+  await h.flushTimers();
+  assert.equal(made.length, 2, "disambung ulang");
+}));
+
+test("behavior B5: stream that never opens and whose map is gone (404) stops retrying and closes the tab", () => withFakeEventSource(async (made) => {
+  const live = require("../../static/offline/mindmaplive.js");
+  const deleted = [];
+  const h = mountTab({ note: null, tfExtra: { mindmaplive: live }, tabExtra: sharedTab,
+    propsExtra: { onDeleteMindmap: (id) => deleted.push(id) },
+    getImpl: (url) => (url === "/api/mindmaps/3" ? Promise.reject(new Error("Mindmap not found")) : null),
+    winExtra: { __mindmapLive: () => Promise.resolve(), __syncRawFetch: () => Promise.resolve({ status: 404, ok: false }) } });
+  await h.settle();
+  made[0].onerror(); await h.settle();
+  await h.flushTimers();
+  assert.equal(made.length, 1, "tidak menyambung ulang ke stream 404");
+  assert.deepEqual(deleted, [3]);
+  assert.equal(h.toasts.length, 1);
+}));
+
+test("behavior B5: failing stream with access intact is capped (no endless retries)", () => withFakeEventSource(async (made) => {
+  const live = require("../../static/offline/mindmaplive.js");
+  const h = mountTab({ note: null, tfExtra: { mindmaplive: live }, tabExtra: sharedTab,
+    winExtra: { __mindmapLive: () => Promise.resolve(), __syncRawFetch: () => Promise.resolve({ status: 200, ok: true }) } });
+  await h.settle();
+  for (let i = 0; i < 40 && made.length; i++) {
+    const es = made[made.length - 1];
+    if (!es.closed) { es.onerror && es.onerror(); await h.settle(); }
+    await h.flushTimers();
+  }
+  assert.equal(made.length, live.RECONNECT_MAX_ATTEMPTS, "berhenti setelah batas percobaan");
+}));
 
 // R18: 3 bagian tingkat atas × 10 anak = 33 node.
 const BIG = [0, 1, 2].map((i) => "# H" + i + "\n" + Array.from({ length: 10 }, (_, k) => "## c" + i + "-" + k + "\n").join("")).join("");
