@@ -694,6 +694,23 @@
     return cids.reduce((p, c) => p.then((acc) => TFidmap.serverIdOf(c).then((sid) => { if (sid != null) acc.push(sid); return acc; })), Promise.resolve([]));
   }
 
+  // Respons simpan/share note membawa moved_drawings: terapkan ke record drawing lokal. Tidak pernah
+  // menggagalkan hasil push (error dicatat saja); modul lama dari cache SW tanpa drawingshare → lewati.
+  function applyMovedFrom(res) {
+    try {
+      const moved = res && res.data && res.data.moved_drawings;
+      if (!moved || !moved.length) return Promise.resolve();
+      const ds = isNode ? require("./drawingshare.js") : (root.TF && root.TF.drawingshare);
+      if (!ds || typeof ds.applyMovedDrawings !== "function") return Promise.resolve();
+      return Promise.resolve(ds.applyMovedDrawings(moved)).catch((err) => {
+        try { console.warn("[syncpush] moved_drawings gagal diterapkan", err); } catch (_) {}
+      });
+    } catch (err) {
+      try { console.warn("[syncpush] moved_drawings gagal diterapkan", err); } catch (_) {}
+      return Promise.resolve();
+    }
+  }
+
   function opNoteCreate(op, transport, result) {
     return getNoteRaw(op.cid).then((rec) => {
       if (!rec) return TFoutbox.outboxRemove(op.qid);
@@ -706,6 +723,7 @@
             const sid = res.data.id;
             return TFidmap.mapPut("note", sid, op.cid)
               .then(() => markPushed("scratchpad_notes", op.cid, sentRev, updatedAtOf(res), sid, null))
+              .then(() => applyMovedFrom(res))
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => requeueIfDirty("scratchpad_notes", "note", op.cid))
               .then(() => { result.pushed++; });
@@ -754,6 +772,7 @@
           if (ok(res)) {
             // CAS (K5 untuk note): edit selama in-flight (rev naik) → tetap dirty, versi terbaru dikirim ulang
             return markPushed("scratchpad_notes", op.cid, sentRev, updatedAtOf(res), null, null)
+              .then(() => applyMovedFrom(res))
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => requeueIfDirty("scratchpad_notes", "note", op.cid))
               .then(() => { result.pushed++; });
@@ -878,6 +897,9 @@
       if (!cur) return undefined;
       const next = Object.assign({}, cur);
       if (sid != null && next.server_id == null) next.server_id = sid;
+      // Respons create membawa pemilik & workspace otoritatif → adopsi (seperti server_id).
+      if (sent.srv && sent.srv.user_id != null) next.user_id = sent.srv.user_id;
+      if (sent.srv && sent.srv.list_id !== undefined) next.list_id = sent.srv.list_id;
       // base_rev hanya boleh MAJU (pull bisa sudah menggabung revisi server yang lebih baru selama request)
       advanced = updatedAt != null && TFrepo.tsNewer(updatedAt, cur.base_rev);
       if (advanced) {
@@ -931,12 +953,13 @@
           svg_preview: rec.svg_preview || "",
           is_pinned: rec.is_pinned ? 1 : 0,
           tags: tagNames || [],
+          list_id: rec.list_id != null ? rec.list_id : (payload.list_id != null ? payload.list_id : null),
           client_id: clientIdOf(rec), // salinan "simpan sebagai baru" punya client_id segar (bukan cid lama)
         }).then((res) => {
           if (ok(res) && res.data && res.data.id != null) {
             const sid = res.data.id;
             return TFidmap.mapPut("drawing", sid, rec.cid)
-              .then(() => markDrawingPushed(rec.cid, sentRev, res.data.updated_at, sid, { ref: data != null ? ref : null, data: dataJson, title: sentTitle }))
+              .then(() => markDrawingPushed(rec.cid, sentRev, res.data.updated_at, sid, { ref: data != null ? ref : null, data: dataJson, title: sentTitle, srv: res.data }))
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => requeueDrawingIfDirty(rec.cid))
               .then(() => { result.pushed++; });

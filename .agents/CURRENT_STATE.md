@@ -3,7 +3,14 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
-## 🟠 Drawing milik workspace — PR 2 backend — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+## 🟠 Drawing milik workspace — PR 3 frontend + offline — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+- **Status:** branch `claude/drawing-workspace-ui` (draft PR). SW **v421** `taskflow-v421-drawing-workspace`, `app.css?v=334`. Tidak ada perubahan backend selain string versi → setelah deploy cukup **restart `taskflow-web`**.
+- **Isi:** `static/offline/drawingshare.js` (baru, ADR-013); scope di `drawingrepo`/`drawingroutes`/`syncpull`/`syncpush`/`syncconflict`; halaman Draw (👥 Share, badge, filter Semua/Pribadi/W, aksi khusus pemilik, dialog "Drawing masih dipakai"); note (sisip per scope, buat baru di W, banner editor, badge + salin di embed, placeholder); dialog share/unshare note dan keluar workspace.
+- **Verifikasi:** pytest 358, JS 1633/1634 (pra-ada `draw_local_reactive`), E2E dua akun `temporary_files/e2e_drawing_workspace.py` 28/28 (screenshot `temporary_files/e2e_drawing_workspace/`). E2E menemukan bug urutan muat skrip (diperbaiki). Review akhir opus → perbaikan `base_rev` saat share (edit anggota bisa hilang), scope rekaman lama, gerbang push share note.
+- **Sisa:** canvas tldraw tidak ikut E2E (vendor tidak ada di checkout); daftar drawing di halaman workspace belum ada (pakai filter di Draw).
+- **Berikutnya:** PR XSS (1b).
+
+## 🟠 Drawing milik workspace — PR 2 backend — 2026-10-19 (Claude) — DI-MERGE (#43), backfill jalan 16:16 WIB (1 drawing)
 - **Status:** branch `claude/drawing-workspace-backend` (draft PR). Backend saja, **tanpa** kenaikan SW. Setelah deploy: **restart `taskflow-web` dan `taskflow`** (`repository.py` berubah). `migrate_db` menambah kolom + backfill sekali jalan.
 - **Isi:** `drawing_scope.py` (ADR-012); akses anggota W ke drawing (GET/PUT), hapus/pin/share hanya pemilik; `GET /api/drawings?shared=1`; `PATCH /api/drawings/{id}/share` (409 `DRAWING_IN_USE`), `POST /api/drawings/{id}/copy`, `GET /api/lists/{id}/drawings`, `GET /api/lists/{id}/leave-impact`; respons note membawa `moved_drawings`/`unresolved_drawings`; halaman publik & ekspor DOCX ikut akses baru.
 - **Aturan penting:** server memindah drawing ke W hanya saat note di-share/dibuat di W (bukan saat autosave) — sisip ke note W yang ada akan di-share eksplisit oleh klien PR 3.

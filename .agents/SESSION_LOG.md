@@ -3440,3 +3440,9 @@
 - **Files Touch:** `drawing_scope.py`, `webapp.py`, `repository.py`, `tests/**`, `docs/**`, `.agents/*`
 - **Status:** Needs Review (draft PR; restart `taskflow-web` + `taskflow` setelah deploy).
 
+## [2026-10-19 20:30] - Claude (PR 3: drawing milik workspace, frontend + offline)
+- **Task:** Bapak "lanjut" rencana `docs/superpowers/plans/2026-10-19-drawing-workspace-ui.md`.
+- **Changes:** SDD 6 task + review per task (fix round di T1, T2, T3, T5×2). E2E dua akun menemukan bug urutan muat `drawingshare.js`. Review akhir menemukan `base_rev` dimajukan saat share (edit anggota lain bisa hilang) → diperbaiki bersama scope rekaman lama, gerbang push share note, timeout cek gambar. ADR-013.
+- **Verifikasi:** pytest 358, JS 1633/1634, E2E 28/28.
+- **Status:** Needs Review (draft PR; restart `taskflow-web` setelah deploy).
+

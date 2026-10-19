@@ -294,7 +294,7 @@ test("R7b: pullDrawingsAndReconcile — fetchOne mengembalikan {status:404} hany
   await record("r7b", 717, snapX({ a: 0 }));
   await record("r7c", 718, snapX({ b: 0 }));
   const raw = (url) => {
-    if (url === "/api/drawings") return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    if (url === "/api/drawings?shared=1") return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) });
     if (url === "/api/drawings/717") return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ detail: "Drawing tidak ditemukan" }) });
     return Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({ detail: "OFFLINE" }) });
   };
