@@ -55,9 +55,14 @@
   <link rel="stylesheet" href="/static/app.css?v=333">
 
 <style>
-/* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa border-left). */
+/* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
 @keyframes nm-heading-flash-kf { 0%, 60% { background-color: rgba(250, 204, 21, 0.45); } 100% { background-color: transparent; } }
 .nm-heading-flash { animation: nm-heading-flash-kf 1500ms ease-out; border-radius: 4px; }
+/* Petakan: ringkasan node di outline (sama dengan kanvas iframe). */
+.nm-sum{font-size:11px;line-height:1.35;margin-top:4px;max-width:260px;opacity:.75}
+.nm-sum-ex{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.nm-sum-it{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nm-sum-ct{font-size:10px}
 /* Mode kertas hanya di layar lebar (>= 769px). Di HP (<= 768px) catatan
    tampil biasa: lebar penuh, tanpa lembar/bayangan, warna ikut tema app. */
 @media (min-width: 769px) {
@@ -274,6 +279,8 @@
   <script src="/static/offline/drawingroutes.js"></script>
   <script src="/static/offline/drawingtabs.js"></script>
   <script src="/static/offline/mindmapoutline.js"></script>
+  <script src="/static/offline/notemap.js"></script>
+  <script src="/static/offline/notemapsession.js"></script>
   <script src="/static/offline/mindmaptabs.js"></script>
   <script src="/static/offline/mindmapjustify.js"></script>
   <script src="/static/offline/mindmaprepo.js"></script>
@@ -10195,7 +10202,7 @@ function MindmapTabInstance({
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
-    src: "/static/vendor/mind-elixir/index.html?v=140",
+    src: "/static/vendor/mind-elixir/index.html?v=141",
     style: { flex: 1, border: "none", width: "100%" },
     title: "Mindmap editor"
   })), /*#__PURE__*/React.createElement("div", {
@@ -19773,7 +19780,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v415-multi-tab-session"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v416-petakan"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -33129,7 +33136,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v415-multi-tab-session";
+    window.__SW_VERSION = "taskflow-v416-petakan";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

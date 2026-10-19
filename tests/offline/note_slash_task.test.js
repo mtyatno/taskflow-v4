@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v415-multi-tab-session in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v415-multi-tab-session";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v415-multi-tab-session"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v415-multi-tab-session";/);
+  await t.test("Service Worker cache is taskflow-v416-petakan in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v416-petakan";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v416-petakan"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v416-petakan";/);
   });
 });
