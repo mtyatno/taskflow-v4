@@ -294,15 +294,70 @@
     }));
   }
 
-  function deleteMindmap(cid) {
+  // Hapus lokal = pindah ke Sampah (spec #5): trashed_at untuk daftar Sampah lokal; dirty_before_delete supaya
+  // restoreLocal mengembalikan status dirty asli (edit yang belum ter-push tetap diantre).
+  function deleteMindmap(cid, opts) {
+    const now = (opts && opts.now) || new Date().toISOString();
     return TFdb.mutate("mindmaps", cid, (cur) => {
       if (!cur || cur.deleted) return undefined;
-      return Object.assign({}, cur, { deleted: true, dirty: 1, rev: (cur.rev || 0) + 1 });
+      return Object.assign({}, cur, {
+        deleted: true, dirty: 1, rev: (cur.rev || 0) + 1,
+        trashed_at: now, dirty_before_delete: cur.dirty || 0,
+      });
     }).then((next) => {
       if (!next) return Promise.reject(new Error("Mindmap not found"));
       return TFoutbox.outboxAdd({ op: "delete", entity_type: "mindmap", cid: cid, payload: { cid: cid } })
         .then(() => ({ ok: true }));
     });
+  }
+
+  // Pulihkan hapus lokal yang op delete-nya belum terkirim — SATU transaksi (mindmaps + _outbox):
+  // deleted:false, trashed_at dibuang, dirty = dirty_before_delete, rev+1; op delete untuk cid dibuang;
+  // dirty & sudah di server → pastikan tepat satu op update; belum di server & tanpa op create → op create.
+  function restoreLocal(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      let out = null;
+      let failed = null;
+      let tx;
+      try { tx = db.transaction(["mindmaps", "_outbox"], "readwrite"); } catch (err) { reject(err); return; }
+      const ms = tx.objectStore("mindmaps");
+      const ob = tx.objectStore("_outbox");
+      const r = ms.get(cid);
+      r.onsuccess = () => {
+        const cur = r.result;
+        if (!cur) return;
+        if (!cur.deleted) { out = cur; return; } // sudah pulih (idempoten)
+        const next = Object.assign({}, cur, {
+          deleted: false,
+          dirty: cur.dirty_before_delete != null ? cur.dirty_before_delete : 0,
+          rev: (cur.rev || 0) + 1,
+        });
+        delete next.trashed_at;
+        delete next.dirty_before_delete;
+        if (next.server_id == null) next.dirty = 1; // belum pernah di server → harus di-create
+        ms.put(next);
+        const all = ob.getAll();
+        all.onsuccess = () => {
+          const mine = (all.result || []).filter((o) => o.entity_type === "mindmap" && o.cid === cid);
+          for (const op of mine) if (op.op === "delete") ob.delete(op.qid);
+          if (next.server_id != null) {
+            if (next.dirty) {
+              const updates = mine.filter((o) => o.op === "update");
+              for (let i = 1; i < updates.length; i++) ob.delete(updates[i].qid);
+              if (!updates.length) ob.add({ ts: Date.now(), retries: 0, op: "update", entity_type: "mindmap", cid: cid, payload: { cid: cid } });
+            }
+          } else if (!mine.some((o) => o.op === "create")) {
+            ob.add({ ts: Date.now(), retries: 0, op: "create", entity_type: "mindmap", cid: cid, payload: { cid: cid } });
+          }
+          out = next;
+        };
+        all.onerror = () => { failed = all.error; };
+      };
+      r.onerror = () => { failed = r.error; };
+      tx.oncomplete = () => (out ? resolve(out) : reject(new Error("Mindmap not found")));
+      tx.onerror = () => reject(failed || tx.error);
+      tx.onabort = () => reject(failed || tx.error || new Error("mindmaps restore aborted"));
+    }));
   }
 
   function togglePin(cid) {
@@ -317,7 +372,7 @@
   }
 
   const exported = {
-    createMindmap, updateMindmap, deleteMindmap, togglePin, getRaw, putRaw, setCurrentUser, getCurrentUser,
+    createMindmap, updateMindmap, deleteMindmap, restoreLocal, togglePin, getRaw, putRaw, setCurrentUser, getCurrentUser,
     recordFromServer, adoptServerWithConflictCopy, isLinked, CONFLICT_PREFIX, DEFAULT_DATA,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.mindmaprepo = exported; }
