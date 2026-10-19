@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v417-project-scope in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v417-project-scope";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v417-project-scope"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v417-project-scope";/);
+  await t.test("Service Worker cache is taskflow-v418-project-scope in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v418-project-scope";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v418-project-scope"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v418-project-scope";/);
   });
 });

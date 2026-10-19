@@ -47,11 +47,13 @@
     return row;
   }
 
-  // Resolve a path id (string) to a local cid: direct cid match, else by server_id.
+  // Resolve a path id (string) to a local cid: direct cid match, else by server_id, else by client_id.
   function resolveCid(idOrCid) {
     return getAllTasks().then((all) => {
       for (const r of all) if (r.cid === idOrCid) return r.cid;
       for (const r of all) if (r.server_id != null && String(r.server_id) === String(idOrCid)) return r.cid;
+      // id dari perangkat lain (link node mindmap = cid pembuat = client_id server; cid lokal bisa berbeda)
+      for (const r of all) if (r.client_id != null && String(r.client_id) === String(idOrCid)) return r.cid;
       return null;
     });
   }

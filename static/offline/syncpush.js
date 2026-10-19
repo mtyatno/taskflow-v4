@@ -13,6 +13,7 @@
   const TFdb = req("./db.js", root.TF && root.TF.db);
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
   const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
+  const TFids = req("./ids.js", root.TF && root.TF.ids);
   const TFtag = req("./tagrepo.js", root.TF && root.TF.tagrepo);
   const TFblob = req("./blobstore.js", root.TF && root.TF.blobstore);
   const TFrepo = req("./drawingrepo.js", root.TF && root.TF.drawingrepo);
@@ -47,6 +48,20 @@
   }
   function projectItems() {
     return TFprojects && TFprojects.allItems ? TFprojects.allItems().catch(() => []) : Promise.resolve([]);
+  }
+
+  // Buat ulang setelah PUT 404 (baris server sid sudah dihapus): JANGAN memakai client_id asli — perangkat lain yang
+  // membuat ulang baris yang sama memakai client_id itu juga, sehingga server (idempoten per client_id) akan
+  // mengembalikan baris perangkat lain dan edit lokal teradopsi ke sana lalu hilang. client_id segar dicatat sekali
+  // per sid (recreate_of_sid) supaya retry setelah respons hilang tetap idempoten. dirty/rev tidak diubah.
+  // Resolve record terkini (dengan client_id segar) atau null bila record hilang.
+  function freshRecreateClientId(storeName, cid, sid) {
+    let kept = null;
+    return TFdb.mutate(storeName, cid, (cur) => {
+      if (!cur) return undefined;
+      if (cur.recreate_of_sid != null && String(cur.recreate_of_sid) === String(sid) && cur.client_id) { kept = cur; return undefined; }
+      return Object.assign({}, cur, { client_id: TFids.newCid(), recreate_of_sid: sid });
+    }).then((saved) => saved || kept);
   }
 
   function taskToCreatePayload(record, tagNames, parentServerId, projects) {
@@ -329,6 +344,9 @@
       // request sukses = error permanen sebelumnya (mis. 422) sudah teratasi oleh edit terbaru → hapus tanda
       // sync_error supaya pull tidak lagi melewati record ini dan conflict bar tidak basi
       delete next.sync_error;
+      // push ke baris server sukses = record tidak lagi sedang dibuat ulang (mis. PUT berhasil setelah baris asli
+      // dipulihkan dari Sampah, sementara POST buat ulang yang responsnya hilang sempat membuat baris yatim)
+      delete next.recreate_of_sid;
       if (unchanged && typeof adopt === "function") adopt(next);
       return next;
     });
@@ -750,7 +768,9 @@
               return TFdb.mutate("scratchpad_notes", op.cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "remote_deleted" }) : undefined))
                 .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
             }
-            return send(transport, "POST", "/api/scratchpad", noteToCreatePayload(rec, tags, taskSids)).then((res2) => {
+            return freshRecreateClientId("scratchpad_notes", op.cid, sid).then((rec2) => {
+             if (!rec2) return TFoutbox.outboxRemove(op.qid);
+             return send(transport, "POST", "/api/scratchpad", noteToCreatePayload(rec2, tags, taskSids)).then((res2) => {
               if (ok(res2)) {
                 const nid = res2.data.id;
                 return TFidmap.mapDelete("note", sid)
@@ -758,6 +778,7 @@
                   .then(() => TFdb.mutate("scratchpad_notes", op.cid, (cur) => {
                     if (!cur) return undefined;
                     const next = Object.assign({}, cur, { server_id: nid });
+                    delete next.recreate_of_sid;
                     const ua = updatedAtOf(res2);
                     if (ua != null) next.base_rev = ua; // baris server baru → base_rev-nya
                     next.dirty = ((cur.rev || 0) === sentRev && !cur.deleted) ? 0 : 1;
@@ -770,6 +791,7 @@
               }
               if (classify(res2) === "forbidden") { return accessLost("scratchpad_notes", op.cid, op, result); }
               return failPermanent("scratchpad_notes", op.cid, res2, op, result);
+             });
             });
           }
           if (kind === "forbidden") { return accessLost("scratchpad_notes", op.cid, op, result); }
@@ -1212,6 +1234,7 @@
       .then(() => TFdb.mutate("mindmaps", op.cid, (cur) => {
         if (!cur) return undefined;
         const next = Object.assign({}, cur, { server_id: nid });
+        delete next.recreate_of_sid;
         const ua = updatedAtOf(res2);
         if (ua != null) next.base_rev = ua; // baris server baru → base_rev-nya
         next.dirty = ((cur.rev || 0) === sentRev && !cur.deleted) ? 0 : 1;
@@ -1279,12 +1302,15 @@
             return TFdb.mutate("mindmaps", op.cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "remote_deleted" }) : undefined))
               .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
           }
-          return send(transport, "POST", "/api/mindmaps", mindmapToCreatePayload(rec)).then((res2) => {
-            if (ok(res2)) {
-              return TFidmap.mapDelete("mindmap", sid).then(() => adoptRecreated(op, res2, sentRev, result));
-            }
-            if (classify(res2) === "forbidden") { return accessLost("mindmaps", op.cid, op, result); }
-            return failPermanent("mindmaps", op.cid, res2, op, result);
+          return freshRecreateClientId("mindmaps", op.cid, sid).then((rec2) => {
+            if (!rec2) return TFoutbox.outboxRemove(op.qid);
+            return send(transport, "POST", "/api/mindmaps", mindmapToCreatePayload(rec2)).then((res2) => {
+              if (ok(res2)) {
+                return TFidmap.mapDelete("mindmap", sid).then(() => adoptRecreated(op, res2, sentRev, result));
+              }
+              if (classify(res2) === "forbidden") { return accessLost("mindmaps", op.cid, op, result); }
+              return failPermanent("mindmaps", op.cid, res2, op, result);
+            });
           });
         }
         if (kind === "forbidden") { return accessLost("mindmaps", op.cid, op, result); }
