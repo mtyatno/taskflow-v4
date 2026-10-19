@@ -3432,3 +3432,11 @@
 - **Changes:** helper bersama `prepMarkdownBlocks` (seluruh pra-proses sebelum `marked.parse`, keluaran `renderMarkdown` identik — dibandingkan dengan versi lama); `extractHeadings` memakai `marked.lexer` + penelusuran token urutan render (fallback regex melewati fence); `taskItemHasBlock` dipakai bersama; NoteModal tidak me-lex per ketikan saat TOC editor aktif. SW v419.
 - **Files Touch:** `static/index.html`, `tests/offline/note_toc_headings.test.js`, `tests/offline/note_toc.test.js`, versi SW, `.agents/*`
 - **Status:** PR draft. JS 1506/1507 (pra-ada `draw_local_reactive`), pytest 299/299.
+
+## [2026-10-19 17:30] - Claude (PR 2: drawing milik workspace, backend)
+- **Task:** Bapak "lanjut PR 2-3"; rencana `docs/superpowers/plans/2026-10-19-drawing-workspace-backend.md` disetujui.
+- **Changes:** SDD 5 task (skema+backfill, akses, share/copy/list/leave-impact, sinkron note→drawing, publik+DOCX). Review akhir menemukan bypass: varian `::DRAW[k]` sisipan anggota dinormalisasi klien lalu autosave pemilik memindah drawing pribadi → aturan diubah: pindah hanya saat `list_id` note berubah. ADR-012; spec §4.3/§4.4/§4.5 diperbarui.
+- **Verifikasi:** pytest 358, JS 1568/1569.
+- **Files Touch:** `drawing_scope.py`, `webapp.py`, `repository.py`, `tests/**`, `docs/**`, `.agents/*`
+- **Status:** Needs Review (draft PR; restart `taskflow-web` + `taskflow` setelah deploy).
+

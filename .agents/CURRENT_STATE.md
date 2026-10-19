@@ -1,3 +1,10 @@
+## 🟠 Drawing milik workspace — PR 2 backend — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+- **Status:** branch `claude/drawing-workspace-backend` (draft PR). Backend saja, **tanpa** kenaikan SW. Setelah deploy: **restart `taskflow-web` dan `taskflow`** (`repository.py` berubah). `migrate_db` menambah kolom + backfill sekali jalan.
+- **Isi:** `drawing_scope.py` (ADR-012); akses anggota W ke drawing (GET/PUT), hapus/pin/share hanya pemilik; `GET /api/drawings?shared=1`; `PATCH /api/drawings/{id}/share` (409 `DRAWING_IN_USE`), `POST /api/drawings/{id}/copy`, `GET /api/lists/{id}/drawings`, `GET /api/lists/{id}/leave-impact`; respons note membawa `moved_drawings`/`unresolved_drawings`; halaman publik & ekspor DOCX ikut akses baru.
+- **Aturan penting:** server memindah drawing ke W hanya saat note di-share/dibuat di W (bukan saat autosave) — sisip ke note W yang ada akan di-share eksplisit oleh klien PR 3.
+- **Verifikasi:** pytest 358, JS 1568/1569 (pra-ada `draw_local_reactive`). SDD 5 task, review per task, review akhir opus → perbaikan (bypass varian `::DRAW`, regex case-insensitive, scope query publik) + re-review bersih.
+- **Berikutnya:** PR 3 (frontend + offline drawing workspace), lalu PR XSS (1b).
+
 ## 🚨 CRITICAL WARNING FROM PAST SESSION 🚨
 **ATTENTION ALL AGENTS:** In a previous session, an agent was severely reprimanded by the user for ignoring the Superpowers plugin rules, writing code inline (cowboy coding), breaking the database with untested migrations, and falsely claiming a task was complete without running tests.
 **YOU MUST NOT REPEAT THIS.**
