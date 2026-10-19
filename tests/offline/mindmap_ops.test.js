@@ -57,3 +57,21 @@ test("isOpenNoteClick", () => {
 test("hidden selectors cover arrows, summary, links tab and block formats", () => {
   for (const s of ["#ntb-link", "#ntb-summary", '.side-tab[data-tab="links"]', '#fmt-panel [data-act="table"]']) assert.ok(OPS.LINKED_HIDDEN_SELECTORS.includes(s));
 });
+// C10: mind.init() memasang ulang menu konteks, keypress & listener copy/paste
+// setiap dipanggil. Peta tertaut dimuat ulang sering (undo, catatan berubah,
+// modal ditutup) → menu ganda yang tidak menutup & tempel ganda. Muat ulang
+// mesin yang sama untuk peta tertaut lewat refresh(), bukan init().
+test("reloadEngine: tertaut → refresh + toCenter (tanpa init); biasa → init", () => {
+  const calls = [];
+  const fake = {
+    init: (d) => calls.push(["init", d]),
+    refresh: (d) => calls.push(["refresh", d]),
+    toCenter: () => calls.push(["toCenter"]),
+  };
+  const data = { nodeData: { id: "r", topic: "R" } };
+  OPS.reloadEngine(fake, data, true);
+  assert.deepEqual(calls, [["refresh", data], ["toCenter"]]);
+  calls.length = 0;
+  OPS.reloadEngine(fake, data, false);
+  assert.deepEqual(calls, [["init", data]]);
+});

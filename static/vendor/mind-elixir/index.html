@@ -516,7 +516,7 @@
   <script src="/static/vendor/marked.min.js?v=124"></script>
   <script src="/static/offline/mindmapoutline.js?v=126"></script>
   <script src="/static/offline/notemap.js?v=1"></script>
-  <script src="/static/offline/mindmapops.js?v=4"></script>
+  <script src="/static/offline/mindmapops.js?v=5"></script>
   <script src="/static/offline/mindmapjustify.js?v=1"></script>
   <script>
     let mind = null;
@@ -1080,12 +1080,12 @@
     }
 
     // Mesin dibuat sekali per mode: load berikutnya dengan mode yang sama cukup
-    // mind.init(data); mode berbeda (biasa ↔ tertaut) membuat mesin baru karena
+    // memuat data (reloadEngine: refresh untuk tertaut, init untuk biasa); mode berbeda (biasa ↔ tertaut) membuat mesin baru karena
     // opsinya (undo, menu konteks, markdown) hanya dibaca saat konstruksi.
     function initMind(data, linked) {
       linked = !!linked;
       if (mind && engineLinked === linked) {
-        mind.init(data);
+        window.TF.mindmapops.reloadEngine(mind, data, linked);
         return;
       }
       if (mind) {

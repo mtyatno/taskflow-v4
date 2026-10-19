@@ -79,6 +79,19 @@
     return !!evt && evt.button === 0 && !!(evt.ctrlKey || evt.metaKey);
   }
 
+  // Muat data baru ke mesin yang sudah ada. init() memasang ulang menu konteks,
+  // keypress dan listener copy/paste setiap dipanggil (menu ganda, tempel ganda);
+  // peta tertaut dimuat ulang sering, jadi cukup refresh(). Peta biasa tetap
+  // lewat init() (perilaku lama, termasuk riwayat undo mesin per muatan).
+  function reloadEngine(mind, data, linked) {
+    if (linked) {
+      mind.refresh(data);
+      mind.toCenter();
+    } else {
+      mind.init(data);
+    }
+  }
+
   // Kontrol yang tidak bisa dipetakan ke catatan (panah, ringkasan engine,
   // tautan node, format blok) disembunyikan di peta tertaut.
   const LINKED_HIDDEN_SELECTORS = [
@@ -98,6 +111,7 @@
     safeExportName: safeExportName,
     engineOptions: engineOptions,
     isOpenNoteClick: isOpenNoteClick,
+    reloadEngine: reloadEngine,
     LINKED_HIDDEN_SELECTORS: LINKED_HIDDEN_SELECTORS,
   };
 });
