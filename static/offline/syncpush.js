@@ -1457,13 +1457,64 @@
   }
 
   // Op `restore` (cid `trash:<sid>`, payload.server_id) dari Sampah (mindmaptrash.restore, item cermin server).
-  // 401/429/5xx/jaringan → send melempar → op tetap antre. Sukses → baris server jadi record lokal bersih di
-  // cid = client_id (link node tetap hidup), idmap, item keluar dari cermin. Restore peta tertaut bisa
-  // mengembalikan baris dengan id lain — record tetap dibangun dari baris server. Penanda delete
-  // `then_restore_sid` BUKAN op ini (ditangani opMindmapDelete).
+  // 401/429/5xx/jaringan → send melempar → op tetap antre. Penanda delete `then_restore_sid` BUKAN op ini
+  // (ditangani opMindmapDelete). Prinsip offline (ADR-006, tanpa kehilangan diam-diam): restore peta tertaut bisa
+  // mengembalikan peta LAIN yang sudah ada (catatan sudah punya peta) dan sering sudah ada di lokal → cid dicari
+  // seperti pull (idmap → record dengan server_id / client_id sama → client_id bila bebas → cid baru). Record yang
+  // ada dan dirty/deleted TIDAK ditimpa (pull yang merekonsiliasi); record bersih diperbarui dengan pin lokal,
+  // client_id lokal dan source_note_cid dipertahankan.
   function markTrashResult(sid, outcome) {
     const T = mindmapTrash();
     return T && T.markRestoreResult ? T.markRestoreResult(sid, outcome) : Promise.resolve();
+  }
+  function getAllMindmapsRaw() {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("mindmaps", "readonly").objectStore("mindmaps").getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  // → {cid, mapped} ; mapped = idmap sudah menunjuk row.id → cid.
+  function resolveRestoreCid(row) {
+    const rowSid = String(row.id);
+    const clientId = row.client_id != null && row.client_id !== "" ? String(row.client_id) : null;
+    return TFidmap.cidOf("mindmap", row.id).then((mapped) => {
+      if (mapped) return { cid: mapped, mapped: true };
+      return getAllMindmapsRaw().then((all) => {
+        const sameRow = (r) => r.server_id == null || String(r.server_id) === rowSid;
+        const existing = all.find((r) => r.server_id != null && String(r.server_id) === rowSid)
+          || (clientId ? all.find((r) => sameRow(r) && (r.cid === clientId || (r.client_id != null && String(r.client_id) === clientId))) : null);
+        if (existing) return { cid: existing.cid, mapped: false };
+        if (!clientId || all.some((r) => r.cid === clientId)) return { cid: TFids.newCid(), mapped: false };
+        return Promise.resolve(TFidmap.serverIdOf(clientId)).catch(() => null)
+          .then((other) => ({ cid: (other != null && String(other) !== rowSid) ? TFids.newCid() : clientId, mapped: false }));
+      });
+    });
+  }
+  function applyRestoredRow(row) {
+    return resolveRestoreCid(row).then(({ cid, mapped }) => {
+      const noteCidP = row.source_note_id != null ? TFidmap.cidOf("note", row.source_note_id) : Promise.resolve(null);
+      return noteCidP.then((noteCid) => {
+        let written = false;
+        let bound = mapped; // record ini milik row.id (boleh dipetakan)
+        return TFdb.mutate("mindmaps", cid, (cur) => {
+          if (cur && cur.server_id != null && String(cur.server_id) !== String(row.id)) return undefined; // bentrok: jangan sentuh
+          if (cur && cur.server_id != null) bound = true;
+          if (cur && (cur.dirty || cur.deleted)) return undefined; // edit / hapus lokal tertunda → pull merekonsiliasi
+          const rec = Object.assign(TFmm.recordFromServer(row, cid), { rev: cur ? (cur.rev || 0) + 1 : 1 });
+          if (noteCid != null) rec.source_note_cid = noteCid;
+          if (cur) {
+            rec.pinned = !!cur.pinned;
+            if (cur.source_note_cid != null) rec.source_note_cid = cur.source_note_cid;
+            if (cur.client_id != null && cur.client_id !== "") rec.client_id = cur.client_id;
+          }
+          written = true;
+          bound = true;
+          return rec;
+        }).then(() => ((bound && !mapped) ? TFidmap.mapPut("mindmap", row.id, cid) : null))
+          .then(() => (written ? { cid } : null));
+      });
+    });
   }
   function opMindmapRestore(op, transport, result) {
     const sid = op.payload && op.payload.server_id;
@@ -1471,20 +1522,20 @@
     return send(transport, "POST", "/api/mindmaps/trash/" + sid + "/restore", {}).then((res) => {
       if (ok(res) && res.data && res.data.id != null) {
         const row = res.data;
-        const cid = (row.client_id != null && row.client_id !== "") ? String(row.client_id) : TFids.newCid();
-        return TFdb.mutate("mindmaps", cid, (cur) =>
-          Object.assign(TFmm.recordFromServer(row, cid), { rev: (cur && cur.rev ? cur.rev : 0) + 1 }))
-          .then(() => TFidmap.mapPut("mindmap", row.id, cid))
-          .then(() => markTrashResult(sid, "ok"))
-          .then(() => TFoutbox.outboxRemove(op.qid))
-          .then(() => { notifyMindmapSynced([cid], [row.id]); result.pushed++; });
+        return applyRestoredRow(row)
+          .then((written) => markTrashResult(sid, "ok")
+            .then(() => TFoutbox.outboxRemove(op.qid))
+            .then(() => { if (written) notifyMindmapSynced([written.cid], [row.id]); result.pushed++; }));
+      }
+      const detail = res && res.data && res.data.detail;
+      const code = detail && typeof detail === "object" ? detail.code : null;
+      // 409 tanpa kode = "id ini sudah ada": retry setelah respons POST hilang → sudah dipulihkan; pull membawa barisnya
+      if (res.status === 409 && !code) {
+        return markTrashResult(sid, "ok").then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
       }
       let outcome = "failed";
       if (res.status === 404) outcome = "gone";
-      else {
-        const detail = res && res.data && res.data.detail;
-        if (res.status === 409 && detail && typeof detail === "object" && detail.code === "SOURCE_NOTE_MISSING") outcome = "source_note_missing";
-      }
+      else if (res.status === 409 && code === "SOURCE_NOTE_MISSING") outcome = "source_note_missing";
       return markTrashResult(sid, outcome)
         .then(() => TFoutbox.outboxRemove(op.qid))
         .then(() => { result.failed++; });
