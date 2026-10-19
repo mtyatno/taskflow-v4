@@ -343,7 +343,55 @@
     return updateNode(root, id, (n) => ({ ...n, links: links.filter((_, i) => i !== index) }));
   }
 
+  // ── Pencarian target link (LinkPickerModal) ──
+  // /api/search hanya ada di server. Saat gagal/offline, cari lokal (judul/isi) dari data yang
+  // dilayani router lokal. Bentuk hasil sama dengan respons /api/search (webapp.py global_search).
+  const LINK_SEARCH_LIMIT = 8;
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const has = (v, q) => v != null && String(v).toLowerCase().includes(q);
+  function snippet(text, length) {
+    if (!text) return "";
+    const t = String(text).trim();
+    return t.slice(0, length) + (t.length > length ? "…" : "");
+  }
+
+  function localLinkSearch(query, data) {
+    const q = String(query == null ? "" : query).trim().toLowerCase();
+    const out = { tags: [], tasks: [], notes: [], mindmaps: [], drawings: [] };
+    if (!q) return out;
+    const d = data || {};
+    out.tasks = arr(d.tasks)
+      .filter(t => t && t.gtd_status !== "done" && t.gtd_status !== "archived" && (has(t.title, q) || has(t.description, q)))
+      .slice(0, LINK_SEARCH_LIMIT)
+      .map(t => ({ id: t.id, title: t.title, priority: t.priority, gtd_status: t.gtd_status, deadline: t.deadline, quadrant: t.quadrant }));
+    out.notes = arr(d.notes)
+      .filter(n => n && (has(n.title, q) || has(n.content, q)))
+      .slice(0, LINK_SEARCH_LIMIT)
+      .map(n => ({ id: n.id, title: n.title, content: snippet(n.content, 80), updated_at: n.updated_at }));
+    out.mindmaps = arr(d.mindmaps)
+      .filter(m => m && has(m.title, q))
+      .slice(0, LINK_SEARCH_LIMIT)
+      .map(m => ({ id: m.id, title: m.title, updated_at: m.updated_at }));
+    return out;
+  }
+
+  // get: fungsi GET yang mengembalikan Promise (api.get induk — lokal-first via router).
+  // Offline → langsung lokal: SW meng-cache tiap GET /api/* yang sukses, jadi /api/search?q=… yang pernah
+  // dicari akan "berhasil" dengan hasil basi (item baru offline hilang, item terhapus masih muncul).
+  function searchLinkTargets(query, get) {
+    const q = String(query == null ? "" : query).trim();
+    const safe = (url) => Promise.resolve().then(() => get(url)).catch(() => []);
+    // catatan difilter router lokal (notequery menerima q) → hanya yang cocok yang dibentuk
+    const local = () => Promise.all([safe("/api/tasks"), safe("/api/scratchpad?q=" + encodeURIComponent(q)), safe("/api/mindmaps")])
+      .then(([tasks, notes, mindmaps]) => localLinkSearch(q, { tasks, notes, mindmaps }));
+    if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) return local();
+    return Promise.resolve()
+      .then(() => get("/api/search?q=" + encodeURIComponent(q)))
+      .catch(local);
+  }
+
   return {
+    localLinkSearch, searchLinkTargets,
     findNode, addChild, addSibling, renameNode, deleteNode, duplicateNode,
     moveNode, moveSibling, moveInto, indentNode, outdentNode, toggleExpand,
     expandAll, collapseAll, cloneSubtree, insertSubtree, searchNodes, ancestorsOf,

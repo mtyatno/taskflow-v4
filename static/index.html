@@ -8796,15 +8796,25 @@ function LinkPickerModal({
       return;
     }
     setLoading(true);
+    let stale = false;
     debounceRef.current = setTimeout(() => {
-      api.get(`/api/search?q=${encodeURIComponent(query.trim())}`).then(data => {
+      // /api/search hanya di server — offline/gagal → fallback pencarian lokal (router IndexedDB).
+      const MO = window.TF && window.TF.mindmapoutline;
+      const search = MO && MO.searchLinkTargets
+        ? MO.searchLinkTargets(query.trim(), api.get)
+        : api.get(`/api/search?q=${encodeURIComponent(query.trim())}`);
+      search.then(data => {
+        if (stale) return;
         setResults(data);
         setLoading(false);
       }).catch(() => {
+        if (stale) return;
         setResults(null);
         setLoading(false);
       });
     }, 300);
+    // hasil query lama (fallback lokal bisa lebih lambat) tidak boleh menimpa query baru
+    return () => { stale = true; };
   }, [query]);
   const existingSet = new Set(existingLinks.map(l => `${l.type}-${l.id}`));
   const notes = (results?.notes || []).filter(n => !existingSet.has(`note-${n.id}`));
@@ -10415,6 +10425,14 @@ function MindmapTabInstance({
         linkedUndoRedo(e.data.type === "redoRequest" ? "redo" : "undo");
       }
       if (e.data && e.data.type === "requestLinkPicker" && !isLinked) {
+        // Kanvas: link node terpilih dikirim bersama pesan (data peta terkini) → penanda "sudah ditautkan" tepat,
+        // termasuk setelah link dihapus di panel iframe (currentNodeLinks dari nodeSelected bisa basi).
+        let nodeLinks = Array.isArray(e.data.links) ? e.data.links : null;
+        if (!nodeLinks && outlineTreeRef.current && window.TF && window.TF.mindmapoutline) {
+          const f = window.TF.mindmapoutline.findNode(outlineTreeRef.current.nodeData, e.data.nodeId);
+          nodeLinks = (f && f.node && f.node.links) || [];
+        }
+        setCurrentNodeLinks(nodeLinks || []);
         setPickerNodeId(e.data.nodeId);
         setShowLinkPicker(true);
       }
@@ -10616,7 +10634,7 @@ function MindmapTabInstance({
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
-    src: "/static/vendor/mind-elixir/index.html?v=142",
+    src: "/static/vendor/mind-elixir/index.html?v=143",
     style: { flex: 1, border: "none", width: "100%" },
     title: "Mindmap editor"
   })), /*#__PURE__*/React.createElement("div", {
@@ -20271,7 +20289,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v418-project-scope"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v419-project-scope"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -33662,7 +33680,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v418-project-scope";
+    window.__SW_VERSION = "taskflow-v419-project-scope";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
