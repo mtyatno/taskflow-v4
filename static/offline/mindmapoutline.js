@@ -376,13 +376,18 @@
   }
 
   // get: fungsi GET yang mengembalikan Promise (api.get induk — lokal-first via router).
+  // Offline → langsung lokal: SW meng-cache tiap GET /api/* yang sukses, jadi /api/search?q=… yang pernah
+  // dicari akan "berhasil" dengan hasil basi (item baru offline hilang, item terhapus masih muncul).
   function searchLinkTargets(query, get) {
     const q = String(query == null ? "" : query).trim();
     const safe = (url) => Promise.resolve().then(() => get(url)).catch(() => []);
+    // catatan difilter router lokal (notequery menerima q) → hanya yang cocok yang dibentuk
+    const local = () => Promise.all([safe("/api/tasks"), safe("/api/scratchpad?q=" + encodeURIComponent(q)), safe("/api/mindmaps")])
+      .then(([tasks, notes, mindmaps]) => localLinkSearch(q, { tasks, notes, mindmaps }));
+    if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) return local();
     return Promise.resolve()
       .then(() => get("/api/search?q=" + encodeURIComponent(q)))
-      .catch(() => Promise.all([safe("/api/tasks"), safe("/api/scratchpad"), safe("/api/mindmaps")])
-        .then(([tasks, notes, mindmaps]) => localLinkSearch(q, { tasks, notes, mindmaps })));
+      .catch(local);
   }
 
   return {

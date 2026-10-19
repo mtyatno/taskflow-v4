@@ -126,12 +126,12 @@ test("searchLinkTargets: /api/search gagal → fallback lokal via router (tasks/
     calls.push(url);
     if (url.startsWith("/api/search")) return Promise.reject(new TypeError("Failed to fetch"));
     if (url === "/api/tasks") return Promise.resolve(DATA.tasks);
-    if (url === "/api/scratchpad") return Promise.resolve(DATA.notes);
+    if (url === "/api/scratchpad?q=kopi") return Promise.resolve(DATA.notes);
     if (url === "/api/mindmaps") return Promise.resolve(DATA.mindmaps);
     return Promise.reject(new Error("404"));
   };
   const r = await MO.searchLinkTargets("kopi", get);
-  assert.deepEqual(calls.slice(1).sort(), ["/api/mindmaps", "/api/scratchpad", "/api/tasks"]);
+  assert.deepEqual(calls.slice(1).sort(), ["/api/mindmaps", "/api/scratchpad?q=kopi", "/api/tasks"]);
   assert.deepEqual(r.tasks.map(t => t.id), [1, 2]);
   assert.deepEqual(r.notes.map(n => n.id), [10, 11]);
   assert.deepEqual(r.mindmaps.map(m => m.id), [20]);
@@ -147,3 +147,40 @@ test("searchLinkTargets: sumber lokal yang gagal diabaikan, sisanya tetap", asyn
   assert.deepEqual(r.notes, []);
   assert.deepEqual(r.mindmaps, []);
 });
+
+function withNavigator(value, fn) {
+  const desc = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { value, configurable: true, writable: true });
+  return Promise.resolve().then(fn).finally(() => {
+    if (desc) Object.defineProperty(globalThis, "navigator", desc);
+    else delete globalThis.navigator;
+  });
+}
+
+test("searchLinkTargets: navigator.onLine=false → /api/search tidak dipanggil (hindari cache SW basi), hasil lokal", () =>
+  withNavigator({ onLine: false }, async () => {
+    const calls = [];
+    const get = url => {
+      calls.push(url);
+      if (url.startsWith("/api/search")) return Promise.resolve({ tags: [], tasks: [{ id: 999, title: "basi kopi" }], notes: [], mindmaps: [], drawings: [] });
+      if (url === "/api/tasks") return Promise.resolve(DATA.tasks);
+      if (url === "/api/scratchpad?q=Kopi%20x") return Promise.resolve([{ id: 30, title: "Kopi x baru", content: "" }]);
+      if (url === "/api/mindmaps") return Promise.resolve(DATA.mindmaps);
+      return Promise.reject(new Error("404 " + url));
+    };
+    const r = await MO.searchLinkTargets("Kopi x", get);
+    assert.ok(!calls.some(u => u.startsWith("/api/search")), "tidak memanggil /api/search: " + calls);
+    assert.deepEqual(calls.sort(), ["/api/mindmaps", "/api/scratchpad?q=Kopi%20x", "/api/tasks"]);
+    assert.deepEqual(r.notes, [{ id: 30, title: "Kopi x baru", content: "", updated_at: undefined }]);
+    assert.deepEqual(r.tasks, []);
+    assert.deepEqual(Object.keys(r).sort(), ["drawings", "mindmaps", "notes", "tags", "tasks"]);
+  }));
+
+test("searchLinkTargets: navigator.onLine=true → tetap /api/search dulu", () =>
+  withNavigator({ onLine: true }, async () => {
+    const server = { tags: [], tasks: [], notes: [], mindmaps: [], drawings: [] };
+    const calls = [];
+    const r = await MO.searchLinkTargets("a", url => { calls.push(url); return Promise.resolve(server); });
+    assert.equal(r, server);
+    assert.deepEqual(calls, ["/api/search?q=a"]);
+  }));
