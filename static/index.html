@@ -8293,6 +8293,60 @@ function TodayFocusView({
   //   - MindmapPage
   // BLOCK LENGTH: ~1000 lines (8754-9755) — 3 components
 
+// Petakan C9: id peta tertaut untuk sebuah catatan (null bila belum dipetakan). Dimuat sekali per noteId,
+// dimuat ulang hanya saat peta berubah (event mindmapSaved/mindmapSynced), bukan tiap render.
+function useLinkedMapId(noteId) {
+  const [mapId, setMapId] = useState(null);
+  useEffect(() => {
+    if (noteId == null) { setMapId(null); return undefined; }
+    let alive = true;
+    const key = String(noteId);
+    const load = () => api.get("/api/mindmaps").then(list => {
+      if (!alive) return;
+      const hit = (list || []).find(m => (m.source_note_id != null && String(m.source_note_id) === key) || (m.source_note_cid != null && String(m.source_note_cid) === key));
+      setMapId(hit ? hit.id : null);
+    }).catch(() => {});
+    load();
+    window.addEventListener("mindmapSaved", load);
+    window.addEventListener("mindmapSynced", load);
+    return () => { alive = false; window.removeEventListener("mindmapSaved", load); window.removeEventListener("mindmapSynced", load); };
+  }, [noteId]);
+  return mapId;
+}
+
+// Tombol "🧠 Petakan" / "🧠 Buka peta" — keduanya memicu tf:petakan (rute POST idempoten per catatan).
+function PetakanButton({ noteId, variant = "panel" }) {
+  const linkedId = useLinkedMapId(noteId);
+  const pill = variant === "pill";
+  return /*#__PURE__*/React.createElement("button", {
+    onClick: () => window.dispatchEvent(new CustomEvent("tf:petakan", { detail: { noteId } })),
+    title: linkedId != null ? "Buka peta tertaut catatan ini" : "Ubah heading catatan jadi peta pikiran",
+    style: pill ? {
+      background: "none",
+      border: "1.5px solid var(--accent)",
+      borderRadius: 20,
+      cursor: "pointer",
+      fontSize: 12,
+      color: "var(--accent)",
+      fontWeight: 700,
+      padding: "2px 10px",
+      lineHeight: 1.5
+    } : {
+      background: linkedId != null ? "rgba(168,197,0,0.10)" : "none",
+      border: linkedId != null ? "1.5px solid var(--accent)" : "1px solid var(--border)",
+      borderRadius: 7,
+      fontSize: 11,
+      fontWeight: 700,
+      color: linkedId != null ? "var(--accent)" : "var(--text-light)",
+      cursor: "pointer",
+      padding: "4px 10px",
+      display: "flex",
+      alignItems: "center",
+      gap: 3
+    }
+  }, linkedId != null ? "🧠 Buka peta" : "🧠 Petakan");
+}
+
 function MindmapListItem({
   m,
   isSelected,
@@ -8324,7 +8378,10 @@ function MindmapListItem({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, m.title), (hovered || !!m.is_pinned) && /*#__PURE__*/React.createElement("span", {
+  }, m.title), (m.source_note_id != null || m.source_note_cid != null) && /*#__PURE__*/React.createElement("span", {
+    title: "Tertaut ke catatan",
+    style: { fontSize: 11, flexShrink: 0 }
+  }, "📄"), (hovered || !!m.is_pinned) && /*#__PURE__*/React.createElement("span", {
     onClick: e => {
       e.stopPropagation();
       onPin(m);
@@ -10244,6 +10301,10 @@ function MindmapPage({
   const [filterListId, setFilterListId] = useState(null);
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  // Petakan C9: pemilih catatan untuk "+ Dari Catatan"
+  const [picking, setPicking] = useState(false);
+  const [pickQ, setPickQ] = useState("");
+  const [pickNotes, setPickNotes] = useState([]);
 
   const selected = openTabs.find(t => t.id === activeTabId) || null;
 
@@ -10362,6 +10423,25 @@ function MindmapPage({
       window.dispatchEvent(new CustomEvent("mindmapSaved"));
     } catch (e) {
       showToast("Gagal membuat mindmap", "error");
+    }
+  };
+
+  const openPicker = () => {
+    setPicking(true);
+    setPickQ("");
+    api.get("/api/scratchpad/titles").then(data => setPickNotes(data || [])).catch(() => setPickNotes([]));
+  };
+
+  const handlePickNote = async n => {
+    try {
+      const created = await api.post("/api/mindmaps", { title: "", source_note_ref: n.id });
+      setMindmaps(prev => prev.find(m => String(m.id) === String(created.id)) ? prev : [created, ...prev]);
+      setPicking(false);
+      setPickQ("");
+      selectMindmap(created);
+      window.dispatchEvent(new CustomEvent("mindmapSaved"));
+    } catch (e) {
+      showToast("Gagal membuat peta", "error");
     }
   };
 
@@ -10500,7 +10580,7 @@ function MindmapPage({
               style: { fontSize: 11, padding: "3px 12px", borderRadius: 6, fontWeight: 600 }
             }, "Buat")
           )
-        ) : /*#__PURE__*/React.createElement("button", {
+        ) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
           onClick: () => setCreating(true),
           "data-tour": "mindmap-new",
           style: {
@@ -10519,7 +10599,76 @@ function MindmapPage({
             gap: 6,
             transition: "all 0.15s ease"
           }
-        }, "+ Mindmap Baru")
+        }, "+ Mindmap Baru"), picking ? /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            padding: "8px",
+            marginTop: 6,
+            background: "var(--bg-primary)",
+            border: "1.5px solid var(--accent)",
+            borderRadius: 10
+          }
+        },
+          /*#__PURE__*/React.createElement("input", {
+            placeholder: "Cari catatan...",
+            value: pickQ,
+            onChange: e => setPickQ(e.target.value),
+            onKeyDown: e => { if (e.key === "Escape") setPicking(false); },
+            autoFocus: true,
+            style: {
+              width: "100%",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              padding: "6px 10px",
+              fontSize: 12,
+              background: "var(--bg-card)",
+              color: "var(--text-primary)",
+              outline: "none"
+            }
+          }),
+          /*#__PURE__*/React.createElement("div", { className: "hide-scrollbar", style: { maxHeight: 220, overflowY: "auto" } },
+            (() => {
+              const pq = pickQ.trim().toLowerCase();
+              const hits = pickNotes.filter(n => !pq || (n.title || "").toLowerCase().includes(pq)).slice(0, 20);
+              return hits.length === 0
+                ? /*#__PURE__*/React.createElement("div", { style: { padding: "6px 4px", color: "var(--text-light)", fontSize: 11 } }, "Tidak ditemukan")
+                : hits.map(n => /*#__PURE__*/React.createElement("div", {
+                  key: n.id,
+                  onClick: () => handlePickNote(n),
+                  style: { padding: "6px 8px", fontSize: 12, cursor: "pointer", borderRadius: 6, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+                  onMouseEnter: e => e.currentTarget.style.background = "var(--bg-card)",
+                  onMouseLeave: e => e.currentTarget.style.background = "transparent"
+                }, n.title || "Tanpa judul"));
+            })()
+          ),
+          /*#__PURE__*/React.createElement("div", { style: { display: "flex", justifyContent: "flex-end" } },
+            /*#__PURE__*/React.createElement("button", {
+              className: "btn btn-secondary btn-sm",
+              onClick: () => setPicking(false),
+              style: { fontSize: 11, padding: "3px 10px", borderRadius: 6 }
+            }, "Batal")
+          )
+        ) : /*#__PURE__*/React.createElement("button", {
+          onClick: openPicker,
+          style: {
+            width: "100%",
+            marginTop: 6,
+            padding: "7px 12px",
+            borderRadius: 8,
+            border: "1.5px dashed var(--border)",
+            background: "var(--bg-primary)",
+            color: "var(--accent)",
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6
+          }
+        }, "+ Dari Catatan"))
       ),
       /*#__PURE__*/React.createElement("div", {
         className: "hide-scrollbar", "data-tour": "mindmap-list",
@@ -25069,7 +25218,10 @@ function NoteModal({
     className: "note-hdr-icon"
   }, "\u2922 "), "Expand") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
     className: "note-hdr-icon"
-  }, "\u25CF "), "Focus")), !focusMode && note?.id && note.user_id === currentUserId && sharedLists.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\u25CF "), "Focus")), !focusMode && note?.id && /*#__PURE__*/React.createElement(PetakanButton, {
+    noteId: note.id,
+    variant: "pill"
+  }), !focusMode && note?.id && note.user_id === currentUserId && sharedLists.length > 0 && /*#__PURE__*/React.createElement("div", {
     ref: shareRef,
     style: {
       position: "relative",
@@ -26330,7 +26482,9 @@ function NotePanel({
       display: "flex",
       alignItems: "center"
     }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 15 })), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 15 })), note.id != null && /*#__PURE__*/React.createElement(PetakanButton, {
+    noteId: note.id
+  }), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       const meta = publishedMeta;
       setPublishSlug(meta?.slug || '');
@@ -31702,6 +31856,23 @@ function App() {
       }
     }
   };
+  // Petakan C9: catatan → peta tertaut (idempoten per catatan), lalu buka di halaman Mindmap.
+  useEffect(() => {
+    const handler = async e => {
+      const noteId = e.detail && e.detail.noteId;
+      if (noteId == null) return;
+      try {
+        const created = await api.post("/api/mindmaps", { title: "", source_note_ref: noteId });
+        setPendingMindmapId(created.id);
+        setPage("mindmap");
+        window.dispatchEvent(new CustomEvent("mindmapSaved"));
+      } catch (err) {
+        showToast("Gagal membuat peta", "error");
+      }
+    };
+    window.addEventListener("tf:petakan", handler);
+    return () => window.removeEventListener("tf:petakan", handler);
+  }, []);
   const handleSearchMindmapClick = mm => {
     setShowSearch(false);
     setPendingMindmapId(mm.id);

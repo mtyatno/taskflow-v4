@@ -440,3 +440,25 @@ test("C8: NotePanel applies the heading only to the target note id", () => {
   assert.match(indexHtml, /initialHeadingNoteId: panelHeading \? panelHeading\.noteId : null/);
   assert.match(indexHtml, /setPanelHeading\(prev => prev && String\(prev\.noteId\) === String\(id\) \? null : prev\)/);
 });
+
+// Petakan C9: titik masuk (tombol Petakan, + Dari Catatan, badge tertaut).
+test("C9 entry points: Petakan buttons, + Dari Catatan, linked badge, tf:petakan event", () => {
+  assert.match(indexHtml, /🧠 Petakan/);
+  assert.match(indexHtml, /🧠 Buka peta/);
+  assert.match(indexHtml, /\+ Dari Catatan/);
+  assert.match(indexHtml, /new CustomEvent\("tf:petakan"/);
+  assert.match(indexHtml, /addEventListener\("tf:petakan"/);
+  assert.match(indexHtml, /title: "Tertaut ke catatan"/);
+  assert.match(indexHtml, /source_note_ref/);
+  assert.match(indexHtml, /Gagal membuat peta/);
+  assert.match(indexHtml, /function useLinkedMapId\(/);
+});
+
+test("C9 tf:petakan handler posts source_note_ref and opens the map", () => {
+  const i = indexHtml.indexOf('addEventListener("tf:petakan"');
+  assert.ok(i !== -1);
+  const src = indexHtml.slice(Math.max(0, i - 900), i + 200);
+  assert.match(src, /api\.post\("\/api\/mindmaps", \{\s*title: "",\s*source_note_ref: /);
+  assert.match(src, /setPendingMindmapId\(created\.id\)/);
+  assert.match(src, /setPage\("mindmap"\)/);
+});
