@@ -274,6 +274,24 @@
     return img;
   }
 
+  // ── Pratinjau lampiran di app native (AttachmentViewer) ──────────────────────
+  // Pratinjau diputuskan dari MIME blob saja (nama file diabaikan: "evil.pdf" bertipe text/html tidak boleh
+  // tampil di <iframe src=blob:> — blob URL se-origin dengan aplikasi). PDF hanya bila tepat application/pdf,
+  // gambar hanya png/jpeg/webp/gif; pemanggil membungkus ulang blob dengan `type` ini. SVG dan tipe lain: unduh
+  // saja (kind "other", type null).
+  const PREVIEW_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+
+  function attachmentPreview(blobType) {
+    const t = typeof blobType === 'string' ? blobType : '';
+    if (t === 'application/pdf') return { kind: 'pdf', type: 'application/pdf' };
+    if (PREVIEW_IMAGE_TYPES.indexOf(t) !== -1) return { kind: 'image', type: t };
+    return { kind: 'other', type: null };
+  }
+
+  function attachmentPreviewKind(blobType) {
+    return attachmentPreview(blobType).kind;
+  }
+
   // ── Data mindmap (mind-elixir) ───────────────────────────────────────────────
   // Mesin mind-elixir memakai node.dangerouslySetInnerHTML sebagai innerHTML dan node.hyperLink sebagai href
   // tanpa cek skema. Salinan dalam: kunci /^dangerously/i dibuang di semua tingkat (nodeData, children,
@@ -388,6 +406,8 @@
     svgToImg: svgToImg,
     mountSvgImg: mountSvgImg,
     sanitizeMindTree: sanitizeMindTree,
+    attachmentPreview: attachmentPreview,
+    attachmentPreviewKind: attachmentPreviewKind,
     SVG_IMG_STYLE: SVG_IMG_STYLE,
     OBFUSCATED_CASES: OBFUSCATED_CASES,
   };

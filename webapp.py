@@ -2741,7 +2741,8 @@ async def upload_attachment(task_id: int, background_tasks: BackgroundTasks, fil
     with open(stored_path, "wb") as f:
         f.write(content)
 
-    mime_type = file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+    mime_type = _safe_upload_mime(
+        file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream")
 
     repo = TaskRepository(DB_PATH)
     result = repo.add_attachment(task_id, stored_name, original_name, len(content), mime_type)
@@ -2799,7 +2800,9 @@ async def download_attachment(attachment_id: int, user=Depends(get_current_user_
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="File not found on disk")
 
-    return FileResponse(filepath, filename=att["original_name"], media_type=att["mime_type"])
+    # Baris lama bisa menyimpan tipe yang bisa dirender (sebelum _safe_upload_mime) → disaring juga saat disajikan.
+    return FileResponse(filepath, filename=att["original_name"], media_type=_safe_upload_mime(att["mime_type"]),
+                        headers={"X-Content-Type-Options": "nosniff"})
 
 
 # ── Collaborators (mention autocomplete) ──────────────────────────────────────
@@ -3444,7 +3447,8 @@ async def upload_workspace_file(
     with open(stored_path, "wb") as f:
         f.write(content)
 
-    mime_type = file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+    mime_type = _safe_upload_mime(
+        file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream")
     now = datetime.now().isoformat()
 
     with get_db() as conn:
@@ -3498,7 +3502,9 @@ async def download_workspace_file(
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="File not found on disk")
 
-    return FileResponse(filepath, filename=row["original_name"], media_type=row["mime_type"])
+    # Baris lama bisa menyimpan tipe yang bisa dirender (sebelum _safe_upload_mime) → disaring juga saat disajikan.
+    return FileResponse(filepath, filename=row["original_name"], media_type=_safe_upload_mime(row["mime_type"]),
+                        headers={"X-Content-Type-Options": "nosniff"})
 
 
 @app.delete("/api/lists/{list_id}/files/{file_id}")
@@ -5632,6 +5638,32 @@ _ALLOWED_ATTACH_MIME = {
     "application/dwg",
     "application/dxf",
 }
+
+# Lampiran task & file workspace (tipe bebas, lintas anggota): mime_type klien hanya disimpan bila ada di daftar ini;
+# selain itu application/octet-stream (XSS: text/html, image/svg+xml, XML, JS tidak pernah tersimpan sebagai tipe
+# yang bisa dirender). Unduhan tetap Content-Disposition: attachment.
+_SAFE_UPLOAD_MIME = frozenset(_ALLOWED_ATTACH_MIME | {
+    "image/gif",
+    "text/plain", "text/csv", "text/markdown",
+    "application/rtf",
+    "application/vnd.oasis.opendocument.text",
+    "application/vnd.oasis.opendocument.spreadsheet",
+    "application/vnd.oasis.opendocument.presentation",
+    "application/zip", "application/x-zip-compressed", "application/x-7z-compressed",
+    "application/vnd.rar", "application/x-rar-compressed", "application/gzip", "application/x-tar",
+})
+_UNSAFE_UPLOAD_MIME = frozenset({
+    "text/html", "image/svg+xml", "application/xhtml+xml", "text/xml", "application/xml",
+    "application/javascript", "text/javascript",
+})
+assert not (_SAFE_UPLOAD_MIME & _UNSAFE_UPLOAD_MIME)
+
+
+def _safe_upload_mime(mime_type) -> str:
+    """Tipe dasar (tanpa parameter, huruf kecil) bila ada di _SAFE_UPLOAD_MIME, selain itu octet-stream."""
+    base = (mime_type or "").split(";", 1)[0].strip().lower()
+    return base if base in _SAFE_UPLOAD_MIME else "application/octet-stream"
+
 
 @app.post("/api/scratchpad/{note_id}/attachments")
 async def upload_note_attachment(note_id: int, file: UploadFile = FastAPIFile(...), user=Depends(get_current_user)):

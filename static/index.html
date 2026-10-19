@@ -32985,12 +32985,15 @@ function AttachmentViewer() {
         if (!res.ok) throw new Error("HTTP " + res.status);
         const blob = await res.blob();
         if (cancelled) return;
-        const ct = (blob.type || "").toLowerCase();
-        const name = (item.filename || "").toLowerCase();
-        let k = "other";
-        if (ct.indexOf("image/") === 0 || /\.(png|jpe?g|gif|webp|bmp|svg|avif|heic)$/.test(name)) k = "image";
-        else if (ct === "application/pdf" || /\.pdf$/.test(name)) k = "pdf";
-        const u = URL.createObjectURL(blob);
+        // XSS: blob URL se-origin dengan aplikasi → pratinjau hanya dari MIME blob (bukan nama file), lewat
+        // TF.safehtml.attachmentPreview: PDF tepat application/pdf, gambar png/jpeg/webp/gif, dibungkus ulang
+        // dengan tipe itu. SVG/HTML/lainnya: unduh saja. Modul tidak termuat → unduh saja (gagal tertutup).
+        const SH = window.TF && window.TF.safehtml;
+        const pv = (SH && typeof SH.attachmentPreview === "function")
+          ? SH.attachmentPreview(blob.type) : { kind: "other", type: null };
+        const k = pv.kind;
+        // Bukan pratinjau: blob untuk "Simpan" dibungkus octet-stream (tidak pernah bisa dirender sebagai HTML/SVG).
+        const u = URL.createObjectURL(new Blob([blob], { type: pv.type || "application/octet-stream" }));
         blobRef.current = u;
         setBlobUrl(u); setKind(k); setLoading(false);
       } catch (e) {
