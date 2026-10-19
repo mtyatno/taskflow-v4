@@ -21988,10 +21988,13 @@ window.hydrateDrawingPreviews = function(root, force) {
   containers.forEach(async el => {
     const did = el.getAttribute('data-drawing-preview');
     if (!did) return;
-    if (el.getAttribute('data-hydrated') === 'true' && !force && el.querySelector('svg')) return;
+    if (el.getAttribute('data-hydrated') === 'true' && !force && el.querySelector('img[data-drawing-img]')) return;
     try {
       const found = await drawingPreviewLookup(did);
+      // SVG tidak pernah masuk DOM sebagai markup: selalu <img src=blob:> lewat TF.safehtml (spec XSS §3).
+      const SH = tfSafeHtml();
       if (found.unavailable) {
+        if (SH) SH.releaseSvgUrl(el);
         el.innerHTML = '<span class="drawing-preview-placeholder drawing-unavailable" style="color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;">' + DRAWING_UNAVAILABLE_TEXT + '</span>';
         el.setAttribute('data-hydrated', 'unavailable');
         applyDrawingScopeUi(el, null);
@@ -22000,17 +22003,23 @@ window.hydrateDrawingPreviews = function(root, force) {
       if (!found.drawing) return;
       applyDrawingScopeUi(el, found.drawing);
       const svg = found.svg;
-      if (svg && (svg.includes('<svg') || svg.trim().startsWith('<svg'))) {
-        el.innerHTML = svg;
-        const svgEl = el.querySelector('svg');
-        if (svgEl) {
-          svgEl.style.width = '100%';
-          svgEl.style.height = 'auto';
-          svgEl.style.maxHeight = '100%';
-          svgEl.style.display = 'block';
-        }
+      if (!svg || !SH) return;
+      const img = SH.mountSvgImg(el, svg, found.drawing.title || 'Gambar');
+      if (img) {
+        img.setAttribute('data-drawing-img', '');
         el.setAttribute('data-hydrated', 'true');
+        return;
       }
+      // isi bukan SVG (tidak diawali <svg) → kartu "Gambar tidak tersedia", sebagai teks
+      SH.releaseSvgUrl(el);
+      const doc = el.ownerDocument || document;
+      const card = doc.createElement('span');
+      card.className = 'drawing-preview-placeholder drawing-invalid';
+      card.style.cssText = 'color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;';
+      card.textContent = 'Gambar tidak tersedia';
+      el.textContent = '';
+      el.appendChild(card);
+      el.setAttribute('data-hydrated', 'invalid');
     } catch (err) { console.warn('[drawing] hydrate pratinjau gagal', err); }
   });
 };
@@ -27753,34 +27762,39 @@ function NotePanel({
     el.innerHTML = `<table class="print-container"><thead><tr><td><div class="page-header-space"></div></td></tr></thead><tfoot><tr><td><div class="page-footer-space"></div></td></tr></tfoot><tbody><tr><td class="note-content"><div class="npa-title">${escapeHtml(note.title || "(tanpa judul)")}</div><div class="npa-meta">${escapeHtml(fmtDate(note.updated_at))}</div><div class="note-rendered">${html}</div></td></tr></tbody></table><div class="npa-footer"><span>${escapeHtml(note.title || "")}</span><span>Alurik</span></div>`;
     document.body.appendChild(el);
 
-    // Hydrate all drawing SVG previews before printing
-    const drawContainers = el.querySelectorAll('[data-drawing-preview]');
+    // Hydrate all drawing SVG previews before printing — lewat <img src=blob:>, bukan markup (spec XSS §3)
+    const SH = tfSafeHtml();
+    const drawContainers = SH ? Array.from(el.querySelectorAll('[data-drawing-preview]')) : [];
+    const imgLoads = [];
     if (drawContainers.length > 0) {
-      await Promise.all(Array.from(drawContainers).map(async c => {
+      await Promise.all(drawContainers.map(async c => {
         const did = c.getAttribute('data-drawing-preview');
         if (!did) return;
         try {
           const d = await api.get(`/api/drawings/${did}`);
-          if (d && d.svg_preview && (d.svg_preview.includes('<svg') || d.svg_preview.trim().startsWith('<svg'))) {
-            c.innerHTML = d.svg_preview;
+          if (d && typeof d.svg_preview === 'string' && d.svg_preview.trim().startsWith('<svg')) {
+            const img = SH.mountSvgImg(c, d.svg_preview, d.title || 'Gambar');
+            if (!img) return;
             const cardEl = c.closest('.note-draw-card');
             const cardSize = cardEl ? (cardEl.getAttribute('data-size') || 'L') : 'L';
-            const svgEl = c.querySelector('svg');
-            if (svgEl) {
-              svgEl.style.width = '100%';
-              svgEl.style.height = 'auto';
-              svgEl.style.maxHeight = cardSize === 'S' ? '180px' : cardSize === 'M' ? '280px' : '380px';
-              svgEl.style.display = 'block';
-            }
+            img.style.maxHeight = cardSize === 'S' ? '180px' : cardSize === 'M' ? '280px' : '380px';
+            // blob dimuat asinkron: tunggu (maks 5 dtk) supaya gambar ikut tercetak
+            imgLoads.push(new Promise(resolve => {
+              if (img.complete) return resolve();
+              const t = setTimeout(resolve, 5000);
+              img.onload = img.onerror = () => { clearTimeout(t); resolve(); };
+            }));
           }
         } catch (_) {}
       }));
     }
+    await Promise.all(imgLoads);
 
     let done = false;
     const cleanup = () => {
       if (done) return;
       done = true;
+      drawContainers.forEach(c => SH.releaseSvgUrl(c));
       if (el.parentNode) el.parentNode.removeChild(el);
       window.removeEventListener("afterprint", cleanup);
     };
@@ -27824,7 +27838,7 @@ function NotePanel({
     const svgToPngDataUrl = (svgString) => {
       return new Promise((resolve) => {
         try {
-          if (!svgString || (!svgString.includes('<svg') && !svgString.trim().startsWith('<svg'))) {
+          if (typeof svgString !== 'string' || !svgString.trim().startsWith('<svg')) {
             return resolve(null);
           }
           let safeSvg = svgString;
@@ -27912,7 +27926,7 @@ function NotePanel({
           const dtitle = titleM ? (titleM[1] || titleM[2]) : "";
           try {
             const d = await api.get(`/api/drawings/${did}`);
-            if (d && d.svg_preview && (d.svg_preview.includes('<svg') || d.svg_preview.trim().startsWith('<svg'))) {
+            if (d && typeof d.svg_preview === 'string' && d.svg_preview.trim().startsWith('<svg')) {
               const pngData = await svgToPngDataUrl(d.svg_preview);
               drawingsMap[did] = {
                 title: d.title || dtitle,
@@ -35119,8 +35133,9 @@ function App() {
       fontSize: 13,
       lineHeight: 1.5
     },
+    // Pesan bisa berisi HTML mentah (baris lama): escape semua, allowlist <b> <i> <br> (spec XSS §4)
     dangerouslySetInnerHTML: {
-      __html: n.message
+      __html: tfSafeHtml() ? tfSafeHtml().renderNotificationHtml(n.message) : escapeHtml(n.message)
     }
   }), /*#__PURE__*/React.createElement("div", {
     style: {

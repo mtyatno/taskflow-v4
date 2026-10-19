@@ -127,3 +127,31 @@ test("browser: attaches window.TF.safehtml without clobbering TF", () => {
   assert.equal(typeof sandbox.TF.safehtml.safeUrl, "function");
   assert.equal(sandbox.TF.safehtml.safeUrl("javascript:x"), null);
 });
+
+// ── Notifikasi (spec §4) ───────────────────────────────────────────────────────
+test("renderNotificationHtml legacy and new messages", () => {
+  const { renderNotificationHtml: r } = SH;
+  assert.equal(typeof r, "function");
+  // pesan lama tersimpan mentah
+  assert.equal(r("<b>A</b> <img src=x onerror=1>"), "<b>A</b> &lt;img src=x onerror=1&gt;");
+  // pesan baru (ter-escape server): tidak dobel
+  assert.equal(r("<b>A &amp; B</b>"), "<b>A &amp; B</b>");
+  assert.equal(r("<b>&lt;img src=x onerror=1&gt;</b>"), "<b>&lt;img src=x onerror=1&gt;</b>");
+  // tag dengan atribut → teks
+  assert.equal(r("<b onclick=x>A</b>"), "&lt;b onclick=x&gt;A</b>");
+  assert.equal(r('<i style="x">A</i>'), '&lt;i style="x"&gt;A</i>');
+  assert.equal(r("<br/><br /><br onclick=1>"), "&lt;br/&gt;&lt;br /&gt;&lt;br onclick=1&gt;");
+  // allowlist persis, tidak peka huruf
+  assert.equal(r("<B>x</B><I>y</i><BR>z"), "<b>x</b><i>y</i><br>z");
+  assert.equal(r("<script>alert(1)</script><a href=javascript:x>l</a><u>u</u>"),
+    "&lt;script&gt;alert(1)&lt;/script&gt;&lt;a href=javascript:x&gt;l&lt;/a&gt;&lt;u&gt;u&lt;/u&gt;");
+  // decode satu lintasan: &amp;lt; → teks "&lt;", bukan "<"
+  assert.equal(r("&amp;lt;b&amp;gt;x"), "&amp;lt;b&amp;gt;x");
+  assert.equal(r("&amp;lt;img src=x onerror=1&amp;gt;"), "&amp;lt;img src=x onerror=1&amp;gt;");
+  // entity dasar saja yang didecode; entity ter-escape tidak bisa membentuk tag di luar allowlist
+  assert.equal(r("&quot;a&quot; &#x27;b&#39; &lt;img&gt;"), "\"a\" 'b' &lt;img&gt;");
+  assert.equal(r("&#60;img src=x onerror=1&#62; &nbsp; &copy;"), "&amp;#60;img src=x onerror=1&amp;#62; &amp;nbsp; &amp;copy;");
+  assert.equal(r(null), "");
+  assert.equal(r(undefined), "");
+  assert.equal(r(5), "5");
+});

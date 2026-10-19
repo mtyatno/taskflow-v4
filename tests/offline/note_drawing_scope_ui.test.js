@@ -126,7 +126,7 @@ function fakeEl(did) {
 function loadHydrate(env) {
   const hy = (html.match(/window\.hydrateDrawingPreviews = function\(root, force\) \{[\s\S]*?\n\};/) || [""])[0];
   assert.ok(hy, "hydrateDrawingPreviews harus ada");
-  const deps = ["drawingPreviewLookup", "drawingLookupGone", "applyDrawingScopeUi", "noteListIdFromEl", "drawingEmbedScopeUi", "drawingScopeListName"].map(src).join("\n");
+  const deps = ["tfSafeHtml", "drawingPreviewLookup", "drawingLookupGone", "applyDrawingScopeUi", "noteListIdFromEl", "drawingEmbedScopeUi", "drawingScopeListName"].map(src).join("\n");
   const constSrc = (html.match(/const DRAWING_UNAVAILABLE_TEXT = "[^"]*";/) || [""])[0];
   assert.ok(constSrc, "DRAWING_UNAVAILABLE_TEXT harus ada");
   const f = new Function("window", "document", "api", "navigator", "escapeHtml", constSrc + "\n" + deps + "\n" + hy + "\nreturn window.hydrateDrawingPreviews;");
@@ -136,7 +136,11 @@ function loadHydrate(env) {
 test("hydrateDrawingPreviews renders exact placeholder text when drawing unavailable", async () => {
   const run = async ({ local = null, remote, online = true }) => {
     const el = fakeEl("42");
-    const window = { TF: { drawingrepo: { getDrawing: async () => local, getRaw: async () => null, currentUid: () => 1 } } };
+    const safehtml = {
+      releaseSvgUrl: () => {},
+      mountSvgImg: (box, svg) => { (box.mounted = box.mounted || []).push(svg); return { setAttribute: () => {} }; },
+    };
+    const window = { TF: { safehtml, drawingrepo: { getDrawing: async () => local, getRaw: async () => null, currentUid: () => 1 } } };
     const document = { querySelectorAll: () => [el] };
     const api = { get: async () => { if (remote instanceof Error) throw remote; return remote; } };
     const hydrate = loadHydrate({ window, document, api, navigator: { onLine: online } });
@@ -159,9 +163,10 @@ test("hydrateDrawingPreviews renders exact placeholder text when drawing unavail
   // error server sementara (online) → JANGAN klaim tidak tersedia
   el = await run({ remote: Object.assign(new Error("boom"), { status: 500 }), online: true });
   assert.ok(!el.innerHTML.includes(PLACEHOLDER));
-  // ditemukan → svg
+  // ditemukan → <img> lewat TF.safehtml.mountSvgImg (bukan markup svg; detail di svg_preview_img.test.js)
   el = await run({ remote: { id: 42, svg_preview: "<svg></svg>", list_id: null } });
-  assert.equal(el.innerHTML, "<svg></svg>");
+  assert.deepEqual(el.mounted, ["<svg></svg>"]);
+  assert.equal(el.innerHTML, "<span>🎨 Memuat gambar...</span>");
   assert.equal(el.attrs["data-hydrated"], "true");
   // ditemukan lokal tanpa svg → tidak dianggap hilang
   el = await run({ local: { id: 42, svg_preview: "" }, remote: notFound });

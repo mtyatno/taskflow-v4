@@ -904,6 +904,12 @@
       document.getElementById('ntb-delete').disabled = d.remove;
     }
 
+    // Fallback opsi markdown bila renderer topik belum dimuat: hasilnya dipakai sebagai HTML oleh mesin,
+    // jadi topik di-escape (tampil sebagai teks), bukan dipakai mentah (spec XSS §7).
+    function escapeTopicHtml(s) {
+      if (s === null || s === undefined) return '';
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
     // Mesin dibuat sekali per mode: load berikutnya dengan mode yang sama cukup
     // memuat data (reloadEngine: refresh untuk tertaut, init untuk biasa); mode berbeda (biasa ↔ tertaut) membuat mesin baru karena
     // opsinya (undo, menu konteks, markdown) hanya dibaca saat konstruksi.
@@ -930,7 +936,7 @@
         keypress: true,
         markdown: (topic) => (window.TF && window.TF.mindmapoutline && window.TF.mindmapoutline.renderTopicMd)
           ? window.TF.mindmapoutline.renderTopicMd(topic)
-          : topic,
+          : escapeTopicHtml(topic),
       }, window.TF.mindmapops.engineOptions(linked, {
         openModal: (evt) => openNoteFromContextMenu(evt, 'modal'),
         openPage: (evt) => openNoteFromContextMenu(evt, 'page'),
