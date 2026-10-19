@@ -977,7 +977,10 @@
   // confirmOne(serverId) opsional: body | {status:404|403} | null — konfirmasi per item sebelum hapus lokal
   // (tanpa confirmOne → perilaku lama: hilang dari daftar = hapus).
   // result.changed = [{cid, server_id}] record yang dibuat/diganti → sync() mengirim event mindmapSynced (T3).
-  function pullMindmaps(serverList, fetchOne, confirmOne) {
+  // opts.partial (pullMindmapOne / SSE): serverList BUKAN daftar lengkap → lewati pass "hilang dari daftar" dan
+  // duplikat hantu untuk record di luar serverList (tidak ada hapus/konfirmasi).
+  function pullMindmaps(serverList, fetchOne, confirmOne, opts) {
+    const partial = !!(opts && opts.partial);
     const list = (serverList || []);
     const cache = {};
     return getAllMindmaps()
@@ -994,7 +997,7 @@
         const restoreMarkerCids = new Set(outboxOps.filter((o) => o.entity_type === "mindmap" && o.op === "delete"
           && o.payload && o.payload.then_restore_sid != null).map((o) => o.cid));
         const byCid = {}; for (const r of localAll) byCid[r.cid] = r;
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflictCopies: 0, pinned: 0, requeued: 0, clientIds: 0, changed: [] };
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflictCopies: 0, merged: 0, pinned: 0, requeued: 0, clientIds: 0, changed: [] };
         const changed = (cid, sid) => { result.changed.push({ cid: cid, server_id: sid != null ? sid : null }); };
         let chain = requeueDirtyWithoutOps("mindmap", localAll, pendingMindmapOps, result);
         for (const s of list) {
@@ -1012,15 +1015,18 @@
                 // Peta tertaut: data_json hanya view-state → last write wins, TANPA salinan konflik. Lewati;
                 // push berikutnya mengirim view-state lokal (push peta tertaut tidak memakai REV_MISMATCH).
                 if (TFmm.isLinked(local)) { result.skipped++; return; }
-                // Konflik edit-vs-edit (T3 / prinsip 7): BUKAN LWW — versi lokal disimpan sebagai salinan konflik
-                // "(konflik) <judul>", record asli mengadopsi baris server (op asli dibuang, salinan punya op create).
+                // Penanda then_restore_sid (Sampah, PR A): push yang memulihkan baris server dulu; jangan sentuh.
+                if (restoreMarkerCids.has(cid)) { result.skipped++; return; }
+                // Edit-vs-edit (T3 / prinsip 7, #4): BUKAN LWW — merge tiga arah per node (basis sah) → record =
+                // hasil merge + op update; bentrok node yang sama / tanpa basis sah → salinan konflik versi lokal
+                // "(konflik) <judul>" (op create), record asli memegang nilai server.
                 return Promise.resolve(fetchOne(s.id)).then((fullRow) => {
                   if (!(fullRow && fullRow.id != null)) { result.skipped++; return; }
-                  return TFmm.adoptServerWithConflictCopy(cid, fullRow, { expectRev: local.rev || 0 }).then((out) => {
+                  return TFmm.mergeServerIntoLocal(cid, fullRow, { expectRev: local.rev || 0 }).then((out) => {
                     if (!out) { result.skipped++; return; } // berubah selama fetch → pull berikutnya
-                    result.conflictCopies++;
+                    if (out.merged) result.merged++;
+                    if (out.copy) { result.conflictCopies++; changed(out.copy.cid, null); }
                     changed(cid, s.id);
-                    if (out.copy) changed(out.copy.cid, null);
                   });
                 });
               }
@@ -1035,7 +1041,7 @@
           });
         }
         const serverIds = new Set(list.map((s) => String(s.id)));
-        for (const r of localAll) {
+        for (const r of (partial ? [] : localAll)) {
           if (r.server_id == null) continue;
           const expectedCid = cache[r.server_id];
           if (expectedCid && r.cid !== expectedCid) { // duplikat hantu (lihat pullTasks)
@@ -1122,6 +1128,51 @@
       .then(listJsonOrThrow)
       .then((listRows) => pullMindmaps(listRows || [], fetchOne, confirmOne))
       .then((res) => pullMindmapTrash(rawFetch).catch(() => null).then(() => res));
+  }
+
+  // Tarik SATU peta (sinyal SSE / live update, #4): GET /api/mindmaps/{sid}.
+  //   404/403 → record lokal bersih dihapus (+ idmap) kecuali ditahan penanda then_restore_sid; dirty/konflik dibiarkan
+  //   (push yang memutuskan). Gagal lain (offline/5xx/throw) → tidak ada perubahan.
+  //   body → pullMindmaps([body], …, {partial:true}): merge/adopsi seperti pull penuh, tanpa menghapus peta lain.
+  // Resolve {changed:[{cid, server_id}], merged, deleted, dirty} — dirty = record lokal masih punya edit tertunda.
+  function pullMindmapOne(rawFetch, sid) {
+    const empty = () => ({ changed: [], merged: 0, deleted: 0, dirty: false });
+    return Promise.resolve()
+      .then(() => rawFetch("/api/mindmaps/" + sid))
+      .then(goneOrJson)
+      .catch(() => null)
+      .then((body) => {
+        if (!body || typeof body !== "object") return empty();
+        if (body.id == null && (body.status === 404 || body.status === 403)) {
+          return TFidmap.cidOf("mindmap", sid).then((cid) => {
+            if (cid == null) return empty();
+            return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+              const r = db.transaction("mindmaps", "readonly").objectStore("mindmaps").get(cid);
+              r.onsuccess = () => resolve(r.result);
+              r.onerror = () => reject(r.error);
+            })).then((rec) => {
+              if (!rec) return TFidmap.mapDelete("mindmap", sid).then(empty);
+              if (rec.dirty || rec.conflict || rec.sync_error) return Object.assign(empty(), { dirty: !!rec.dirty });
+              // bersyarat (rev sama, tanpa penanda then_restore_sid) — sama seperti pass "hilang dari daftar"
+              return deleteMindmapRecIfUnchanged(cid, rec.rev || 0).then((removed) => {
+                if (!removed) return empty();
+                return TFidmap.mapDelete("mindmap", sid)
+                  .then(() => ({ changed: [{ cid: cid, server_id: sid }], merged: 0, deleted: 1, dirty: false }));
+              });
+            });
+          });
+        }
+        if (body.id == null) return empty();
+        const meta = Object.assign({}, body);
+        return pullMindmaps([meta], () => Promise.resolve(body), null, { partial: true }).then((res) =>
+          TFidmap.cidOf("mindmap", body.id).then((cid) => (cid == null ? null : TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+            const r = db.transaction("mindmaps", "readonly").objectStore("mindmaps").get(cid);
+            r.onsuccess = () => resolve(r.result);
+            r.onerror = () => reject(r.error);
+          })))).then((rec) => ({
+            changed: res.changed, merged: res.merged || 0, deleted: 0, dirty: !!(rec && rec.dirty),
+          })));
+      });
   }
 
   // Sampah mindmap (A4/A5): GET /api/mindmaps/trash → cermin di _meta (TF.mindmaptrash). Gagal (offline/401/5xx/
@@ -1744,7 +1795,7 @@
     reconcileRecurringExceptions, pullRecurringExceptions,
     pullHabits, pullHabitLogs, pullHabitsAndLogs,
     pullNotes, pullNotesAndReconcile,
-    pullMindmaps, pullMindmapsAndReconcile, pullMindmapTrash,
+    pullMindmaps, pullMindmapsAndReconcile, pullMindmapOne, pullMindmapTrash,
     pullDrawings, pullDrawingsAndReconcile,
     mergeDrawingSnapshots,
     tsEpoch, ensureNoteCid, listJsonOrThrow, goneOrJson,

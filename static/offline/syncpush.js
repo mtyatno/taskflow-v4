@@ -1099,16 +1099,26 @@
     const d = res && res.status === 409 && res.data && res.data.detail;
     return (d && typeof d === "object" && d.code === "REV_MISMATCH" && d.current && d.current.id != null) ? d.current : null;
   }
-  // T3 / prinsip 7: PUT ditolak karena peta sudah diubah di perangkat lain → versi LOKAL disimpan sebagai
-  // salinan konflik "(konflik) <judul>" (pribadi, client_id baru, op create), record asli mengadopsi baris
-  // server `current` (bersih, base_rev baru, notice conflict_copy). Satu transaksi; op asli dibuang.
+  // T3 / prinsip 7 + #4: PUT ditolak karena peta sudah diubah di perangkat lain → merge tiga arah per node
+  // (TFmm.mergeServerIntoLocal, satu transaksi): basis sah → record = hasil merge (base maju ke `current`; masih
+  // beda dari server → dirty + op update BARU sudah diantre repo → result.requeued, drain ini tidak melihatnya);
+  // bentrok node yang sama / tanpa basis sah → salinan konflik versi lokal (pribadi, op create).
   // Record berubah selama request (rev ≠ sentRev) → biarkan op: push berikutnya mengirim versi terkini.
   function mindmapRevMismatch(op, current, sentRev, result) {
-    return TFmm.adoptServerWithConflictCopy(op.cid, current, { expectRev: sentRev }).then((out) => {
+    return TFmm.mergeServerIntoLocal(op.cid, current, { expectRev: sentRev }).then((out) => {
       if (!out) return;
-      result.conflicts = (result.conflicts || 0) + 1;
-      return TFoutbox.outboxRemove(op.qid).then(() => notifyMindmapSynced([op.cid], [current.id]));
+      if (out.merged) result.merged = (result.merged || 0) + 1;
+      if (out.copy) result.conflicts = (result.conflicts || 0) + 1;
+      if (out.original && out.original.dirty) result.requeued = (result.requeued || 0) + 1;
+      return TFoutbox.outboxRemove(op.qid)
+        .then(() => notifyMindmapSynced([op.cid].concat(out.copy ? [out.copy.cid] : []), [current.id]));
     });
+  }
+  // Basis merge (#4) maju bersama base_rev setelah PUT/POST sukses (peta biasa; respons = baris lengkap dengan
+  // data_json). Tanpa ini merge berikutnya memakai basis basi (base_data_rev ≠ base_rev → salinan konflik).
+  function advanceMindmapBase(cid, row, rec) {
+    if (rec && TFmm.isLinked(rec)) return Promise.resolve();
+    return TFmm.setBaseFromServer(cid, row);
   }
 
   // ── Peta tertaut (Petakan) ──────────────────────────────────────────────────────────────────────────────
@@ -1217,6 +1227,7 @@
           // K5: CAS — bersih hanya bila tidak ada edit selama in-flight; JANGAN menulis `rec` pra-request
           return TFidmap.mapPut("mindmap", sid, op.cid)
             .then(() => markPushed("mindmaps", op.cid, sentRev, updatedAtOf(res), sid, null))
+            .then(() => advanceMindmapBase(op.cid, res.data, rec))
             .then(() => (linked && noteSid != null
               ? TFdb.mutate("mindmaps", op.cid, (cur) => (cur && cur.source_note_id == null ? Object.assign({}, cur, { source_note_id: noteSid }) : undefined))
               : null))
@@ -1244,6 +1255,7 @@
         next.dirty = ((cur.rev || 0) === sentRev && !cur.deleted) ? 0 : 1;
         return next;
       }))
+      .then((cur) => advanceMindmapBase(op.cid, res2.data, cur))
       .then(() => TFoutbox.outboxRemove(op.qid))
       .then(() => requeueIfDirty("mindmaps", "mindmap", op.cid))
       .then(() => { result.pushed++; });
@@ -1278,6 +1290,7 @@
         if (ok(res)) {
           // K5: CAS — edit selama in-flight (rev naik) → tetap dirty, versi terbaru dikirim ulang
           return markPushed("mindmaps", op.cid, sentRev, updatedAtOf(res), null, null)
+            .then(() => advanceMindmapBase(op.cid, res.data, rec))
             .then(() => TFoutbox.outboxRemove(op.qid))
             .then(() => requeueIfDirty("mindmaps", "mindmap", op.cid))
             .then(() => { result.pushed++; });
@@ -1772,7 +1785,7 @@
     opts = opts || {};
     const tagsFor = opts.tagsFor || ((cid) => TFtag.getEntityTags("task", cid).then((ts) => ts.map((t) => t.name)));
     const habitTagsFor = opts.habitTagsFor || ((cid) => TFtag.getEntityTags("habit", cid).then((ts) => ts.map((t) => t.name)));
-    const result = { pushed: 0, failed: 0, remaining: 0 };
+    const result = { pushed: 0, failed: 0, remaining: 0, requeued: 0 };
     let stopped = false;
     let timeouts = 0;
     let pending = null; // T10: Set cid dengan op create/send saat drain dimulai

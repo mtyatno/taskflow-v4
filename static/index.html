@@ -788,7 +788,7 @@ function schedulePush() {
   clearTimeout(__pushTimer);
   __pushTimer = setTimeout(() => {
     runSyncExclusive(() => window.TF.syncpush.pushOutbox(__syncTransport))
-      .then((r) => { if (r && r.busy) schedulePush(); renderConflicts(); }) // push lain masih berjalan → jadwalkan ulang agar edit terakhir tetap terkirim; sync_error/salinan konflik dari push terjadwal langsung tampil
+      .then((r) => { if (r && (r.busy || r.requeued)) schedulePush(); renderConflicts(); }) // push lain masih berjalan → jadwalkan ulang agar edit terakhir tetap terkirim; sync_error/salinan konflik dari push terjadwal langsung tampil
       .catch(() => {});
   }, 1500);
 }
@@ -1042,7 +1042,7 @@ function sync() {
       });
     }))
     .then(() => window.TF.syncpush.pushOutbox(__syncTransport)) // 401 di sini → drain berhenti, op tetap; transport melapor ke handleAuthExpired
-    .then((r) => { if (r && r.busy) schedulePush(); renderConflicts(); return r; })
+    .then((r) => { if (r && (r.busy || r.requeued)) schedulePush(); renderConflicts(); return r; })
     .catch(() => { renderConflicts(); return null; }); });
   __syncPending = pending;
   return pending;

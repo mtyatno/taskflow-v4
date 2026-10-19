@@ -456,7 +456,7 @@ test("index.html conflict bar: conflict_copy notice text (both render paths) + o
   const rc = indexHtml.match(/function renderConflicts\(\) \{[\s\S]*?\n\}/);
   assert.equal((rc[0].match(/label\.textContent = noticeText\(n\);/g) || []).length, 2, "kedua jalur render notice memakai noticeText");
   assert.match(rc[0], /b\.textContent = "Tutup";/);
-  assert.match(indexHtml, /if \(r && r\.busy\) schedulePush\(\); renderConflicts\(\); \}\)/, "push terjadwal → conflict bar diperbarui");
+  assert.match(indexHtml, /if \(r && \(r\.busy \|\| r\.requeued\)\) schedulePush\(\); renderConflicts\(\); \}\)/, "push terjadwal → conflict bar diperbarui");
 });
 
 test("index.html: api.delete (nonexistent) replaced by api.del", () => {
