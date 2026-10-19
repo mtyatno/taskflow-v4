@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=333">
+  <link rel="stylesheet" href="/static/app.css?v=334">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -3463,6 +3463,65 @@ function TaskDatePromptModal({ taskTitle, tasks = [], saving, onSkip, onConfirm,
     onClick: () => picked && onConfirm(picked)
   }, saving ? "Menyimpan..." : "Tambahkan"))));
 }
+// ── Scope project (Pribadi / workspace) ─────────────────────
+// Scope task: list_id terisi → workspace itu; kosong → pribadi. Nama project
+// dibandingkan NOCASE hanya untuk huruf ASCII (sama dengan SQLite).
+function projectAfterScopeChange(currentName, newScopeNames) {
+  const cur = currentName == null ? "" : String(currentName);
+  if (!cur) return "";
+  const fold = s => String(s == null ? "" : s).replace(/[A-Z]/g, c => c.toLowerCase());
+  const key = fold(cur);
+  return (newScopeNames || []).some(n => fold(n) === key) ? cur : "";
+}
+function projectScopeLabel(listId, sharedLists) {
+  if (listId == null || listId === "") return "Project · Pribadi";
+  const hit = (sharedLists || []).find(l => l && String(l.id) === String(listId));
+  return "Project · " + (hit && hit.name ? hit.name : "Workspace");
+}
+function projectScopeOptionLabel(list) {
+  return list ? "👥 " + list.name : "Pribadi";
+}
+function fetchScopeProjects(listId) {
+  return api.get(listId ? "/api/projects?list_id=" + encodeURIComponent(listId) : "/api/projects").then(r => Array.isArray(r) ? r : []);
+}
+window.projectAfterScopeChange = projectAfterScopeChange;
+window.projectScopeLabel = projectScopeLabel;
+// Daftar nama project untuk satu scope; muat ulang saat scope berubah atau saat
+// project dikelola (event "tf:projects-changed"). Gagal (offline) → daftar tetap.
+function useScopeProjects(listId) {
+  const [names, setNames] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    setNames([]);
+    const load = () => fetchScopeProjects(listId).then(r => {
+      if (alive) setNames(r);
+    }).catch(() => {});
+    load();
+    window.addEventListener("tf:projects-changed", load);
+    return () => {
+      alive = false;
+      window.removeEventListener("tf:projects-changed", load);
+    };
+  }, [listId]);
+  return names;
+}
+// Daftar workspace untuk label scope; pakai prop bila ada, selain itu /api/lists
+// (hanya bila task milik workspace).
+function useScopeLists(listId, sharedLists) {
+  const [lists, setLists] = useState(sharedLists || []);
+  const needFetch = !sharedLists && listId != null && listId !== "";
+  useEffect(() => {
+    if (!needFetch) return undefined;
+    let alive = true;
+    api.get("/api/lists").then(r => {
+      if (alive && Array.isArray(r)) setLists(r);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [needFetch, listId]);
+  return sharedLists || lists;
+}
 function TaskFormModal({
   task,
   onSave,
@@ -3661,13 +3720,12 @@ function TaskFormModal({
     let count = 0;
     if (form.gtd_status && form.gtd_status !== 'inbox') count++;
     if (form.context && form.context.trim()) count++;
-    if (form.list_id) count++;
     if (recurringOn) count++;
     if (form.description && form.description.trim()) count++;
     if (pendingSubtasks.length > 0) count += pendingSubtasks.length;
     if (form.waiting_for && form.waiting_for.trim()) count++;
     return count;
-  }, [form.gtd_status, form.context, form.list_id, recurringOn, form.description, pendingSubtasks, form.waiting_for]);
+  }, [form.gtd_status, form.context, recurringOn, form.description, pendingSubtasks, form.waiting_for]);
   const [noteForm, setNoteForm] = useState({
     title: "",
     content: "",
@@ -3682,6 +3740,21 @@ function TaskFormModal({
     ...f,
     [k]: v
   }));
+  // Scope task (Pribadi / workspace) menentukan daftar project.
+  const scopeProjects = useScopeProjects(form.list_id);
+  const hasScopeChoice = !!(sharedLists && sharedLists.length > 0);
+  const changeScope = raw => {
+    const listId = raw ? parseInt(raw) : null;
+    setForm(f => ({
+      ...f,
+      list_id: listId,
+      assigned_to: null
+    }));
+    fetchScopeProjects(listId).then(names => setForm(f => f.list_id === listId ? {
+      ...f,
+      project: projectAfterScopeChange(f.project, names)
+    } : f)).catch(() => {});
+  };
   const [listMembers, setListMembers] = useState([]);
   const [mode, setMode] = useState("task");
   const [habitForm, setHabitForm] = useState({
@@ -4945,7 +5018,7 @@ function TaskFormModal({
       marginLeft: 6
     }
   }, t.count, "\xD7"))))), /*#__PURE__*/React.createElement("div", {
-    className: "task-quick-attributes"
+    className: "task-quick-attributes" + (!isEdit && hasScopeChoice ? " has-scope" : "")
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
   }, "Deadline"), /*#__PURE__*/React.createElement("input", {
@@ -4967,12 +5040,24 @@ function TaskFormModal({
     value: "P3"
   }, "\uD83D\uDFE1 P3 Medium"), /*#__PURE__*/React.createElement("option", {
     value: "P4"
-  }, "\uD83D\uDFE2 P4 Low"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+  }, "\uD83D\uDFE2 P4 Low"))), !isEdit && hasScopeChoice && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
-  }, "Project"), /*#__PURE__*/React.createElement(ComboSelect, {
+  }, "Scope"), /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    "aria-label": "Scope task",
+    value: form.list_id || "",
+    onChange: e => changeScope(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, projectScopeOptionLabel(null)), sharedLists.map(l => /*#__PURE__*/React.createElement("option", {
+    key: l.id,
+    value: l.id
+  }, projectScopeOptionLabel(l))))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "input-label"
+  }, projectScopeLabel(form.list_id, sharedLists)), /*#__PURE__*/React.createElement(ComboSelect, {
     value: form.project,
     onChange: v => set("project", v),
-    options: projects,
+    options: scopeProjects,
     placeholder: "\u2014 Pilih Project \u2014",
     icon: "\uD83D\uDCC1"
   }))), !isEdit && /*#__PURE__*/React.createElement("button", {
@@ -5040,21 +5125,7 @@ function TaskFormModal({
     style: {
       marginBottom: 14
     }
-  })), !isEdit && sharedLists && sharedLists.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "Shared List (opsional)"), /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: form.list_id || "",
-    onChange: e => set("list_id", e.target.value ? parseInt(e.target.value) : null),
-    style: {
-      marginBottom: 14
-    }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "\u2014 Personal (tidak di-share) \u2014"), sharedLists.map(l => /*#__PURE__*/React.createElement("option", {
-    key: l.id,
-    value: l.id
-  }, l.role === "owner" ? "📋" : "👥", " ", l.name)))), form.list_id && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("label", {
+  })), form.list_id && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
   }, "Assign ke"), /*#__PURE__*/React.createElement("select", {
     className: "input",
@@ -5779,7 +5850,8 @@ function TaskDetailModal({
   onOpenTask,
   projects = [],
   contexts = [],
-  collaborators = []
+  collaborators = [],
+  sharedLists
 }) {
   if (!task) return null;
   const [isEditing, setIsEditing] = useState(false);
@@ -5797,6 +5869,9 @@ function TaskDetailModal({
     progress: task.progress || 0
   });
   const [saving, setSaving] = useState(false);
+  // Scope task tetap (dari task.list_id); opsi project mengikuti scope itu.
+  const scopeProjects = useScopeProjects(task.list_id);
+  const scopeLists = useScopeLists(task.list_id, sharedLists);
   const setF = (k, v) => setForm(f => ({
     ...f,
     [k]: v
@@ -6062,10 +6137,10 @@ function TaskDetailModal({
     }
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
-  }, "Project"), /*#__PURE__*/React.createElement(ComboSelect, {
+  }, projectScopeLabel(task.list_id, scopeLists)), /*#__PURE__*/React.createElement(ComboSelect, {
     value: form.project,
     onChange: v => setF("project", v),
-    options: projects,
+    options: scopeProjects,
     placeholder: "\u2014 Project \u2014",
     icon: "\uD83D\uDCC1"
   })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
@@ -11859,6 +11934,7 @@ function KanbanView({
 function GtdWizardEditFields({
   task,
   projects = [],
+  sharedLists,
   onUpdateTask
 }) {
   const [newProject, setNewProject] = useState(null);
@@ -11880,7 +11956,11 @@ function GtdWizardEditFields({
       year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric"
     });
   };
-  const projectOptions = task.project && !projects.includes(task.project) ? [task.project, ...projects] : projects;
+  // Opsi project dari scope task (Pribadi / workspace task.list_id).
+  const scopeProjects = useScopeProjects(task.list_id);
+  const scopeLists = useScopeLists(task.list_id, sharedLists);
+  const scopeLabel = projectScopeLabel(task.list_id, scopeLists);
+  const projectOptions = task.project && !scopeProjects.includes(task.project) ? [task.project, ...scopeProjects] : scopeProjects;
   const commitNewProject = () => {
     const v = (newProject || "").trim();
     setNewProject(null);
@@ -11921,8 +12001,8 @@ function GtdWizardEditFields({
   }) : /*#__PURE__*/React.createElement("select", {
     className: "input gtd-wizard-input",
     value: task.project || "",
-    "aria-label": "Project",
-    title: "Project",
+    "aria-label": scopeLabel,
+    title: scopeLabel,
     onChange: e => {
       const v = e.target.value;
       if (v === "__new__") setNewProject("");else if (v !== (task.project || "")) save({
@@ -33043,7 +33123,8 @@ function App() {
     contexts: contexts,
     onRefresh: fetchAll,
     onOfflineEdit: handleOfflineEdit,
-    collaborators: collaborators
+    collaborators: collaborators,
+    sharedLists: sharedLists
   }), selectedNote && /*#__PURE__*/React.createElement(NoteModal, {
     key: selectedNote.id,
     note: selectedNote,
