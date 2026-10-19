@@ -108,7 +108,7 @@ Isi yang dibuat satu pengguna tidak boleh menjalankan script atau menyuntik atri
 - **Semua respons:** `X-Content-Type-Options: nosniff` (middleware).
 - **Halaman `/pub/…` (HTML):**
   ```
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob:; frame-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'
   ```
   `'unsafe-inline'` tetap ada untuk script inline yang sudah ada. Perlindungan utama tetap escape di §2–5.
 - **File yang disajikan `inline`:**

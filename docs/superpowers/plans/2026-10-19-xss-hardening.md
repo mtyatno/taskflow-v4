@@ -39,7 +39,7 @@ SVG selalu tampil lewat `<img>`. Header pengaman (`nosniff`, CSP `/pub`, `sandbo
   - Tidak pernah masuk DOM sebagai markup.
   - Server memakai `<img src="data:image/svg+xml;base64,…" alt="{judul ter-escape}">`; klien memakai `img.src = URL.createObjectURL(new Blob([svg],{type:"image/svg+xml"}))`.
   - Syarat isi: `svg.trim().startsWith("<svg")`.
-- **CSP `/pub/…` (persis):** `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'`
+- **CSP `/pub/…` (persis):** `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob:; frame-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'`
 - **File inline** (`/pub/attachments/{id}` cabang Nextcloud, `/api/scratchpad/attachments/{id}/view`):
   - header `Content-Security-Policy: sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'` + `X-Content-Type-Options: nosniff`;
   - `inline` hanya untuk `image/png|jpeg|webp|gif` dan `application/pdf`, selain itu `attachment`.
