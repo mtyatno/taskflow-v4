@@ -4,6 +4,7 @@ Multi-user: all task queries filter by user_id.
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 import secrets
 import hashlib
@@ -20,6 +21,212 @@ def _today_jkt() -> date:
 
 from models import Task, GTDStatus, Priority, Quadrant
 from config import DB_PATH
+
+_log = logging.getLogger(__name__)
+
+
+def ensure_projects_schema(conn) -> None:
+    """Tabel `projects` + kolom `tasks.project_id` (idempoten)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS projects (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            user_id     INTEGER DEFAULT NULL REFERENCES users(id) ON DELETE CASCADE,
+            list_id     INTEGER DEFAULT NULL REFERENCES shared_lists(id) ON DELETE CASCADE,
+            color       TEXT DEFAULT NULL,
+            archived    INTEGER NOT NULL DEFAULT 0,
+            created_by  INTEGER DEFAULT NULL REFERENCES users(id) ON DELETE SET NULL,
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL,
+            CHECK ((user_id IS NULL) <> (list_id IS NULL))
+        )
+    """)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_user "
+        "ON projects(user_id, name COLLATE NOCASE) WHERE list_id IS NULL"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_list "
+        "ON projects(list_id, name COLLATE NOCASE) WHERE list_id IS NOT NULL"
+    )
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+    if "project_id" not in cols:
+        conn.execute(
+            "ALTER TABLE tasks ADD COLUMN project_id INTEGER DEFAULT NULL "
+            "REFERENCES projects(id) ON DELETE SET NULL"
+        )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id)")
+
+
+class ProjectScopeError(ValueError):
+    """project_id tidak ada atau berada di luar scope task."""
+
+
+def resolve_task_project(conn, *, owner_id: int, list_id: Optional[int],
+                         name: Optional[str], project_id: Optional[int],
+                         actor_id: int) -> tuple[Optional[int], str]:
+    """Tentukan (project_id, nama kanonis) untuk sebuah task pada scope-nya.
+
+    Scope: list_id menunjuk shared_lists yang ada -> workspace itu; selain itu
+    pribadi milik owner_id (pemilik task, bukan aktor). project_id harus ada di
+    scope (kalau tidak: ProjectScopeError). Hanya nama -> cari NOCASE di scope,
+    buat baru bila belum ada (created_by=actor_id). Project arsip yang dipakai
+    diaktifkan lagi. Nama kosong & project_id None -> (None, ""). Pemanggil yang commit.
+    """
+    ws = None
+    if list_id is not None:
+        ws = conn.execute("SELECT id FROM shared_lists WHERE id=?", (list_id,)).fetchone()
+    if ws is not None:
+        member = conn.execute(
+            "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ? "
+            "UNION SELECT 1 FROM list_members WHERE list_id = ? AND user_id = ?",
+            (ws[0], actor_id, ws[0], actor_id)).fetchone()
+        if member is None:  # pesan sama dgn "id di luar scope": tak jadi oracle
+            raise ProjectScopeError("Project tidak berada di scope task")
+        scope_sql, scope_args, col, owner = "list_id = ?", (ws[0],), "list_id", ws[0]
+    else:
+        scope_sql, scope_args, col, owner = "user_id = ? AND list_id IS NULL", (owner_id,), "user_id", owner_id
+
+    clean = (name or "").strip()
+    row = None
+    if project_id is not None:
+        row = conn.execute(
+            f"SELECT id, name, archived FROM projects WHERE id = ? AND {scope_sql}",
+            (project_id,) + scope_args).fetchone()
+        if row is None:
+            raise ProjectScopeError("Project tidak berada di scope task")
+    elif clean:
+        row = conn.execute(
+            f"SELECT id, name, archived FROM projects WHERE {scope_sql} AND name = ? COLLATE NOCASE",
+            scope_args + (clean,)).fetchone()
+        if row is None:
+            now = datetime.now().isoformat()
+            try:
+                cur = conn.execute(
+                    f"INSERT INTO projects(name, {col}, archived, created_by, created_at, updated_at) "
+                    "VALUES (?,?,0,?,?,?)", (clean, owner, actor_id, now, now))
+                return cur.lastrowid, clean
+            except sqlite3.IntegrityError:  # balapan: request lain membuatnya lebih dulu
+                row = conn.execute(
+                    f"SELECT id, name, archived FROM projects WHERE {scope_sql} AND name = ? COLLATE NOCASE",
+                    scope_args + (clean,)).fetchone()
+                if row is None:
+                    raise
+    else:
+        return None, ""
+
+    if row[2]:
+        conn.execute("UPDATE projects SET archived = 0, updated_at = ? WHERE id = ?",
+                     (datetime.now().isoformat(), row[0]))
+    return row[0], row[1]
+
+
+def _nocase(s: Optional[str]) -> str:
+    """Kunci pembanding setara COLLATE NOCASE SQLite (hanya A-Z yang dilipat)."""
+    return "".join(chr(ord(c) + 32) if "A" <= c <= "Z" else c for c in (s or ""))
+
+
+def project_text_changed(new: Optional[str], current: Optional[str]) -> bool:
+    """True bila nama project (ter-strip) beda dari teks task sekarang menurut NOCASE."""
+    return _nocase((new or "").strip()) != _nocase((current or "").strip())
+
+
+def backfill_projects(conn) -> dict:
+    """Buat/hubungkan project dari teks `tasks.project` + perbaiki link basi.
+
+    Diproses: task dengan project_id NULL dan teks berisi, serta task yang
+    project_id-nya basi (nama project != teks secara NOCASE, atau scope project
+    != scope task; teks kosong -> project_id di-NULL-kan). Scope: list_id
+    menunjuk shared_lists yang ada -> workspace, selain itu pribadi milik
+    tasks.user_id (hanya bila user itu ada). Grup = (scope, nama NOCASE), tiap
+    grup dalam SAVEPOINT: IntegrityError (data FK rusak) -> grup dilewati +
+    warning, tak pernah menggagalkan migrate_db. Idempoten. Tidak mengubah
+    updated_at task (bukan edit pengguna). Pemanggil yang commit.
+    """
+    rows = conn.execute("""
+        SELECT t.id, t.project, t.user_id, t.gtd_status, t.created_at, t.updated_at,
+               sl.id AS ws_id, u.id AS owner_ok, t.project_id,
+               p.name AS p_name, p.user_id AS p_user, p.list_id AS p_list
+        FROM tasks t
+        LEFT JOIN shared_lists sl ON sl.id = t.list_id
+        LEFT JOIN users u ON u.id = t.user_id
+        LEFT JOIN projects p ON p.id = t.project_id
+        WHERE (t.project_id IS NULL AND COALESCE(t.project, '') <> '')
+           OR t.project_id IS NOT NULL
+    """).fetchall()
+
+    groups: dict = {}
+    clear_ids = []
+    for r in rows:
+        name = (r[1] or "").strip()
+        scope = ("w", r[6]) if r[6] is not None else ("u", r[2] if r[7] is not None else None)
+        if r[8] is not None:  # sudah terhubung: hanya proses bila basi
+            if not name:
+                clear_ids.append(r[0])
+                continue
+            p_scope = ("w", r[11]) if r[11] is not None else ("u", r[10])
+            if r[9] is not None and p_scope == scope and _nocase(r[9]) == _nocase(name):
+                continue
+        if not name or scope[1] is None:  # nama kosong / yatim / pemilik sudah dihapus
+            continue
+        groups.setdefault((scope, _nocase(name)), []).append((r, name))
+
+    now = datetime.now().isoformat()
+    created = linked = cleared = skipped = 0
+    for tid in clear_ids:
+        try:
+            conn.execute("SAVEPOINT bf_clear")
+            conn.execute("UPDATE tasks SET project_id=NULL WHERE id=?", (tid,))
+            conn.execute("RELEASE bf_clear")
+            cleared += 1
+        except sqlite3.IntegrityError as e:
+            conn.execute("ROLLBACK TO bf_clear")
+            conn.execute("RELEASE bf_clear")
+            skipped += 1
+            _log.warning("backfill_projects: task %s dilewati (%s)", tid, e)
+
+    for (scope, _key), members in groups.items():
+        kind, owner = scope
+        conn.execute("SAVEPOINT bf_group")
+        try:
+            if kind == "w":
+                existing = conn.execute(
+                    "SELECT id, name FROM projects WHERE list_id=? AND name=? COLLATE NOCASE",
+                    (owner, members[0][1])).fetchone()
+            else:
+                existing = conn.execute(
+                    "SELECT id, name FROM projects WHERE user_id=? AND list_id IS NULL "
+                    "AND name=? COLLATE NOCASE", (owner, members[0][1])).fetchone()
+            g_created = 0
+            if existing:
+                pid, canon = existing[0], existing[1]
+            else:
+                newest = max(members, key=lambda m: (m[0][5] or "", m[0][0]))
+                oldest = min(members, key=lambda m: (m[0][4] or "", m[0][0]))
+                canon = newest[1]
+                if kind == "w":
+                    created_by = oldest[0][2] if oldest[0][7] is not None else None
+                else:
+                    created_by = owner
+                has_active = any(m[0][3] not in ("done", "archived") for m in members)
+                col = "list_id" if kind == "w" else "user_id"
+                cur = conn.execute(
+                    f"INSERT INTO projects(name, {col}, archived, created_by, created_at, updated_at) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (canon, owner, 0 if has_active else 1, created_by, now, now))
+                pid = cur.lastrowid
+                g_created = 1
+            for r, _n in members:
+                conn.execute("UPDATE tasks SET project_id=?, project=? WHERE id=?", (pid, canon, r[0]))
+            conn.execute("RELEASE bf_group")
+            created += g_created
+            linked += len(members)
+        except sqlite3.IntegrityError as e:
+            conn.execute("ROLLBACK TO bf_group")
+            conn.execute("RELEASE bf_group")
+            skipped += 1
+            _log.warning("backfill_projects: grup %s/%r dilewati (%s)", scope, members[0][1], e)
+    return {"created": created, "linked": linked, "cleared": cleared, "skipped": skipped}
 
 
 class TaskRepository:
@@ -539,6 +746,8 @@ class TaskRepository:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_published_slug ON published_notes(slug)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_published_user ON published_notes(user_id)")
 
+            ensure_projects_schema(conn)
+
     # ── Row to Task mapping ────────────────────────────────────────────────
 
     @staticmethod
@@ -623,13 +832,16 @@ class TaskRepository:
             if old_user:
                 conn.execute("UPDATE tasks SET user_id = ? WHERE user_id = ?", (user["id"], old_user["id"]))
 
+            backfill_projects(conn)  # task pindah pemilik -> project pribadi pemilik baru
             return user["id"]
 
     def assign_orphan_tasks(self, user_id: int) -> int:
         """Assign all tasks without user_id to the given user."""
         with self._connect() as conn:
             cur = conn.execute("UPDATE tasks SET user_id = ? WHERE user_id IS NULL", (user_id,))
-            return cur.rowcount
+            n = cur.rowcount
+            backfill_projects(conn)  # task kini punya pemilik -> hubungkan project-nya
+            return n
 
     # ── User clause helper ─────────────────────────────────────────────────
 
@@ -643,14 +855,24 @@ class TaskRepository:
     def add(self, task: Task, user_id: Optional[int] = None, list_id: Optional[int] = None) -> Task:
         now = datetime.now().isoformat()
         with self._connect() as conn:
+            if user_id is None:  # tanpa pemilik: tak ada scope project
+                pid, pname = None, (task.project or "").strip()
+            else:
+                try:
+                    pid, pname = resolve_task_project(
+                        conn, owner_id=user_id, list_id=list_id, name=task.project,
+                        project_id=None, actor_id=user_id)
+                except ProjectScopeError:  # bukan anggota: perilaku lama (teks saja)
+                    pid, pname = None, (task.project or "").strip()
+            task.project = pname
             cur = conn.execute(
                 """INSERT INTO tasks
                    (title, description, gtd_status, priority, quadrant,
-                    project, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    project, project_id, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     task.title, task.description, task.gtd_status.value, task.priority.value,
-                    task.quadrant.value, task.project, task.context,
+                    task.quadrant.value, pname, pid, task.context,
                     task.deadline.isoformat() if task.deadline else None,
                     task.waiting_for, user_id, list_id, now, now,
                 ),
@@ -672,15 +894,30 @@ class TaskRepository:
         now = datetime.now().isoformat()
         task.updated_at = datetime.fromisoformat(now)
         with self._connect() as conn:
+            ex = conn.execute("SELECT user_id, list_id, project, project_id FROM tasks WHERE id=?",
+                              (task.id,)).fetchone()
+            if ex is not None and not project_text_changed(task.project, ex["project"]):
+                # nama tak berubah: jangan resolusi ulang (arsip tetap, link tetap)
+                pid, pname = ex["project_id"], ex["project"] or ""
+            elif ex is not None and ex["user_id"] is not None:
+                try:
+                    pid, pname = resolve_task_project(
+                        conn, owner_id=ex["user_id"], list_id=ex["list_id"], name=task.project,
+                        project_id=None, actor_id=ex["user_id"])
+                except ProjectScopeError:  # bukan anggota lagi: teks saja, project_id NULL
+                    pid, pname = None, (task.project or "").strip()
+            else:  # task yatim / tak ada: tanpa scope, simpan teks apa adanya
+                pid, pname = None, (task.project or "").strip()
+            task.project = pname
             conn.execute(
                 """UPDATE tasks SET
                    title=?, description=?, gtd_status=?, priority=?, quadrant=?,
-                   project=?, context=?, deadline=?, waiting_for=?,
+                   project=?, project_id=?, context=?, deadline=?, waiting_for=?,
                    updated_at=?, completed_at=?
                    WHERE id=?""",
                 (
                     task.title, task.description, task.gtd_status.value, task.priority.value,
-                    task.quadrant.value, task.project, task.context,
+                    task.quadrant.value, pname, pid, task.context,
                     task.deadline.isoformat() if task.deadline else None,
                     task.waiting_for, now,
                     task.completed_at.isoformat() if task.completed_at else None,
@@ -787,14 +1024,17 @@ class TaskRepository:
             return [self._row_to_task(r) for r in rows]
 
     def list_projects(self, user_id: Optional[int] = None) -> list[str]:
-        uc, up = self._uc(user_id)
+        """Nama project pribadi (tidak diarsip) dari tabel projects."""
         with self._connect() as conn:
-            rows = conn.execute(
-                f"""SELECT DISTINCT project FROM tasks
-                   WHERE project != '' AND gtd_status NOT IN ('done','archived') AND {uc}
-                   ORDER BY project""", up,
-            ).fetchall()
-            return [r["project"] for r in rows]
+            if user_id is None:
+                rows = conn.execute(
+                    "SELECT name FROM projects WHERE list_id IS NULL AND archived = 0 "
+                    "ORDER BY name COLLATE NOCASE").fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT name FROM projects WHERE user_id = ? AND list_id IS NULL AND archived = 0 "
+                    "ORDER BY name COLLATE NOCASE", (user_id,)).fetchall()
+            return [r["name"] for r in rows]
 
     def list_contexts(self, user_id: Optional[int] = None) -> list[str]:
         uc, up = self._uc(user_id)
@@ -1181,14 +1421,21 @@ class TaskRepository:
         """Add a task directly to a shared list."""
         now = datetime.now().isoformat()
         with self._connect() as conn:
+            try:
+                pid, pname = resolve_task_project(
+                    conn, owner_id=user_id, list_id=list_id, name=task.project,
+                    project_id=None, actor_id=user_id)
+            except ProjectScopeError:  # bukan anggota: perilaku lama (teks saja)
+                pid, pname = None, (task.project or "").strip()
+            task.project = pname
             cur = conn.execute(
                 """INSERT INTO tasks
                    (title, description, gtd_status, priority, quadrant,
-                    project, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    project, project_id, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     task.title, task.description, task.gtd_status.value, task.priority.value,
-                    task.quadrant.value, task.project, task.context,
+                    task.quadrant.value, pname, pid, task.context,
                     task.deadline.isoformat() if task.deadline else None,
                     task.waiting_for, user_id, list_id, now, now,
                 ),
