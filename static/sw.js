@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v420-toc-headings";
+const CACHE = "taskflow-v421-drawing-workspace";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
