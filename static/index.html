@@ -55,6 +55,9 @@
   <link rel="stylesheet" href="/static/app.css?v=333">
 
 <style>
+/* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa border-left). */
+@keyframes nm-heading-flash-kf { 0%, 60% { background-color: rgba(250, 204, 21, 0.45); } 100% { background-color: transparent; } }
+.nm-heading-flash { animation: nm-heading-flash-kf 1500ms ease-out; border-radius: 4px; }
 /* Mode kertas hanya di layar lebar (>= 769px). Di HP (<= 768px) catatan
    tampil biasa: lebar penuh, tanpa lembar/bayangan, warna ikut tema app. */
 @media (min-width: 769px) {
@@ -22452,6 +22455,14 @@ function extractDocHeadings(doc) {
   });
   return headings;
 }
+// Petakan: beri kelas sorot sementara pada elemen heading (1500 ms).
+function flashHeadingEl(el) {
+  if (!el || !el.classList) return;
+  el.classList.remove("nm-heading-flash");
+  void el.offsetWidth;
+  el.classList.add("nm-heading-flash");
+  setTimeout(() => el.classList && el.classList.remove("nm-heading-flash"), 1500);
+}
 // Jeda scroll-spy setelah klik item ToC: smooth scroll Chromium ±700ms (terukur E2E) — heading yang
 // dilewati selama gulir tidak boleh menimpa pilihan klik. Dipakai NotePanel (baca) & NoteModal (edit).
 const TOC_SPY_PAUSE_MS = 800;
@@ -23512,7 +23523,15 @@ function NoteModal({
       if (!MB?.editorViewCtx) return;
       const doc = view.state.doc;
       let targetPos = null;
+      let flashPos = null;
 
+      // Case H (Petakan): buka tepat di heading dari peta tertaut. Tanpa TF.notemap → perilaku lama.
+      if (initialBlockTarget && initialBlockTarget.kind === "heading" && window.TF && window.TF.notemap) {
+        const hs = extractDocHeadings(doc);
+        const i = window.TF.notemap.matchHeading(hs, initialBlockTarget);
+        targetPos = i >= 0 ? hs[i].pos + 1 : 1;
+        if (i >= 0) flashPos = hs[i].pos;
+      } else
       // Case A: initialBlockTarget is present (double-clicked from viewer)
       if (initialBlockTarget) {
         const cleanText = str => (str || '').toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]/gi, ' ').replace(/\s+/g, ' ').trim();
@@ -23581,6 +23600,9 @@ function NoteModal({
             }
           }
         } catch (_) {}
+        if (flashPos !== null) {
+          try { flashHeadingEl(view.nodeDOM(flashPos)); } catch (_) {}
+        }
       }
     };
     locateAndFocus();
@@ -25226,7 +25248,9 @@ function NotePanel({
   publishedMeta,
   onPublish,
   onUnpublish,
-  showToast
+  showToast,
+  initialHeading = null,
+  onInitialHeadingConsumed
 }) {
   const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
   const [panelAttachments, setPanelAttachments] = React.useState([]);
@@ -25612,6 +25636,30 @@ function NotePanel({
     headings.forEach(h => observer.observe(h));
     return () => observer.disconnect();
   }, [tocItems, note.id]);
+  // Petakan: buka catatan tepat di heading (dari peta tertaut) — gulir + sorot sesaat.
+  React.useEffect(() => {
+    if (!initialHeading) return;
+    let timer = null;
+    let tries = 0;
+    const run = () => {
+      const container = tocSpyRef.current;
+      const els = container ? Array.from(container.querySelectorAll('[id^="note-h-"]')) : [];
+      if (!els.length && ++tries < 20) {
+        timer = setTimeout(run, 80);
+        return;
+      }
+      if (els.length && window.TF && window.TF.notemap) {
+        const i = window.TF.notemap.matchHeading(els.map(el => ({ text: el.textContent })), initialHeading);
+        if (i >= 0) {
+          els[i].scrollIntoView({ behavior: "smooth", block: "start" });
+          flashHeadingEl(els[i]);
+        }
+      }
+      onInitialHeadingConsumed && onInitialHeadingConsumed();
+    };
+    run();
+    return () => clearTimeout(timer);
+  }, [initialHeading, note.id]);
   const handlePrint = async () => {
     // Remove any stale print area (e.g. from a previous print whose afterprint
     // never fired on a mobile webview).
@@ -26890,6 +26938,7 @@ function NotesPage({
   user,
   sharedLists = [],
   initialNoteId = null,
+  initialHeading = null,
   onInitialNoteConsumed
 }) {
   const [notes, setNotes] = useState([]);
@@ -26900,6 +26949,8 @@ function NotesPage({
   const [tagList, setTagList] = useState([]);
   const [selected, setSelected] = useState(null);
   const [initialBlockTarget, setInitialBlockTarget] = useState(null);
+  // Salinan lokal heading tujuan (App mengosongkannya segera setelah catatan dibuka).
+  const [panelHeading, setPanelHeading] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [openTabs, setOpenTabs] = useState([]);   // max 5
   const [activeTabId, setActiveTabId] = useState(null);
@@ -27164,6 +27215,7 @@ function NotesPage({
   // so plain navigation to Notes later doesn't reopen a stale note.
   useEffect(() => {
     if (initialNoteId == null) return;
+    setPanelHeading(initialHeading);
     openNoteById(initialNoteId);
     onInitialNoteConsumed && onInitialNoteConsumed();
   }, [initialNoteId]);
@@ -27997,6 +28049,8 @@ function NotesPage({
       outlinks: panelOutlinks,
       navTrail: navTrail,
       onTaskClick: onTaskClick,
+      initialHeading: panelHeading,
+      onInitialHeadingConsumed: () => setPanelHeading(null),
       tasks: tasks,
       onEdit: blockTarget => openEdit(activeNote, blockTarget),
       onClose: () => closeTab(activeNote.id),
@@ -30986,6 +31040,7 @@ function App() {
   const [selectedTask, setSelectedTask] = useState(null);
   const [selectedNote, setSelectedNote] = useState(null);
   const [pendingNoteId, setPendingNoteId] = useState(null);
+  const [pendingNoteHeading, setPendingNoteHeading] = useState(null);
   const [pendingMindmapId, setPendingMindmapId] = useState(null);
   const [pendingDrawingId, setPendingDrawingId] = useState(null);
   const [activeQuickDraw, setActiveQuickDraw] = useState(null);
@@ -31663,6 +31718,18 @@ function App() {
     setPendingNoteId(note.id);
     setPage("notes");
   };
+  // Petakan: peta tertaut meminta catatan dibuka di halaman Notes tepat di sebuah heading.
+  useEffect(() => {
+    const handler = e => {
+      const d = e.detail || {};
+      if (d.noteId == null) return;
+      setPendingNoteId(d.noteId);
+      setPendingNoteHeading(d.heading || null);
+      setPage("notes");
+    };
+    window.addEventListener("tf:open-note-at", handler);
+    return () => window.removeEventListener("tf:open-note-at", handler);
+  }, []);
   const openTaskById = async taskId => {
     setShowNotifPanel(false);
     try {
@@ -32172,7 +32239,11 @@ function App() {
         user: user,
         sharedLists: sharedLists,
         initialNoteId: pendingNoteId,
-        onInitialNoteConsumed: () => setPendingNoteId(null)
+        initialHeading: pendingNoteHeading,
+        onInitialNoteConsumed: () => {
+          setPendingNoteId(null);
+          setPendingNoteHeading(null);
+        }
       });
     }
     if (page === "mindmap") {

@@ -423,3 +423,14 @@ test("C7 MindmapTabInstance wires the new MindmapOutline props", () => {
   assert.match(src, /onUndo: isLinked \? \(\) => linkedUndoRedo\("undo"\) : null/);
   assert.match(src, /onRedo: isLinked \? \(\) => linkedUndoRedo\("redo"\) : null/);
 });
+
+// Petakan C8: buka catatan tepat di heading (NoteModal, NotePanel/NotesPage, App).
+test("C8: NoteModal, NotePanel and App open a note at a heading", () => {
+  assert.match(indexHtml, /initialBlockTarget\.kind === ["']heading["']/);
+  assert.match(indexHtml, /matchHeading\(/);
+  assert.match(indexHtml, /nm-heading-flash/);
+  assert.match(indexHtml, /addEventListener\("tf:open-note-at"/);
+  assert.match(indexHtml, /initialHeading: pendingNoteHeading/);
+  assert.match(indexHtml, /window\.TF && window\.TF\.notemap/);
+  assert.doesNotMatch(indexHtml.match(/\.nm-heading-flash \{[^}]*\}/)[0], /border-left/);
+});
