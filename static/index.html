@@ -11182,6 +11182,7 @@ function MindmapPage({
 }
 
 // ── Standalone Drawing Page Components ──────────────────────
+// User saat ini tak diketahui → dianggap pemilik (fail open); 403 lokal/server tetap melindungi.
 function drawingIsOwner(d, fallbackUid) {
   const uid = window.TF && window.TF.drawingrepo && window.TF.drawingrepo.currentUid ? window.TF.drawingrepo.currentUid() : null;
   const me = uid != null ? uid : fallbackUid;
@@ -11226,7 +11227,7 @@ function DrawingListItem({ d, isSelected, onSelect, onPin, sharedLists = [], cur
     style: { fontSize: 10, padding: "1px 6px", borderRadius: 6, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)", flexShrink: 0, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
   }, wsBadge), !isOwner && d.last_editor_username && /*#__PURE__*/React.createElement("span", {
     style: { fontSize: 10, color: "var(--text-light)", flexShrink: 0, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
-  }, `oleh ${d.last_editor_username}`), isOwner && (hovered || !!d.is_pinned) && /*#__PURE__*/React.createElement("span", {
+  }, `✏️ ${d.last_editor_display_name || d.last_editor_username}`), isOwner && (hovered || !!d.is_pinned) && /*#__PURE__*/React.createElement("span", {
     onClick: e => {
       e.stopPropagation();
       onPin && onPin(d);
@@ -11366,7 +11367,7 @@ function DrawingTabInstance({
     setShareOpen(false);
     const res = await window.TF.drawingshare.shareDrawing(api, tab, listId);
     if (res.ok) {
-      onDrawingChanged && onDrawingChanged(tab.id, res.drawing);
+      onDrawingChanged && onDrawingChanged(tab.id, res.drawing, listId);
     } else if (res.code === "DRAWING_IN_USE") {
       setInUse(res);
     } else {
@@ -11384,6 +11385,8 @@ function DrawingTabInstance({
       } else {
         showToast(res.message || "Gagal membuat salinan", "error");
       }
+    } catch (err) {
+      showToast((err && err.message) || "Gagal membuat salinan", "error");
     } finally {
       setInUseBusy(false);
     }
@@ -11665,6 +11668,11 @@ function DrawPage({
     localStorage.setItem("tf_draw_sidebar", sidebarOpen ? "open" : "collapsed");
   }, [sidebarOpen]);
 
+  useEffect(() => {
+    if (scopeFilter === "all" || scopeFilter === "personal") return;
+    if (!sharedLists.some(l => String(l.id) === String(scopeFilter))) setScopeFilter("all");
+  }, [sharedLists, scopeFilter]);
+
   const handleCreate = async () => {
     const title = newTitle.trim() || "Untitled Drawing";
     try {
@@ -11693,8 +11701,9 @@ function DrawPage({
   };
 
   // Hasil share (shareDrawing ok): perbarui scope di daftar dan tab terbuka.
-  const handleDrawingChanged = (id, next) => {
-    const patch = { list_id: next && next.list_id !== undefined ? next.list_id : null };
+  // listId = scope yang diminta (sumber kebenaran saat share berhasil); respons server tidak menentukan.
+  const handleDrawingChanged = (id, next, listId) => {
+    const patch = { list_id: listId != null ? listId : null };
     if (next && next.updated_at) patch.updated_at = next.updated_at;
     if (next && next.rev != null) patch.rev = next.rev;
     setDrawings(prev => prev.map(d => matchesDrawingId(d, id) ? { ...d, ...patch } : d));

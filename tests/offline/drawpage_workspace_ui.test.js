@@ -59,7 +59,8 @@ test("DrawPage passes sharedLists and filters by scope (Semua/Pribadi/W)", () =>
 test("DrawingListItem shows 👥 badge and hides pin for non-owner", () => {
   const b = listItem();
   assert.match(b, /projectWorkspaceBadge\(d\.list_id, sharedLists\)/);
-  assert.match(b, /oleh \$\{d\.last_editor_username\}|"oleh "/);
+  assert.match(b, /✏️ \$\{d\.last_editor_display_name \|\| d\.last_editor_username\}/);
+  assert.doesNotMatch(b, /oleh \$\{/);
   assert.match(b, /drawingIsOwner\(d, currentUserId\)/);
   assert.match(b, /isOwner && \(hovered \|\| !!d\.is_pinned\)|\(hovered \|\| !!d\.is_pinned\) && isOwner/);
 });
@@ -77,14 +78,17 @@ test("DrawingTabInstance share uses TF.drawingshare.shareDrawing and renders DRA
   assert.match(b, /isOwner && sharedLists\.length > 0/);
   assert.match(b, /last_editor_username/);
   assert.match(b, /Dipakai di: /);
-  assert.match(b, /Butuh koneksi untuk membagikan gambar\.|res\.message/);
+  assert.match(b, /showToast\(res\.message \|\| "Gagal membagikan gambar", "error"\)/);
+  assert.match(b, /onDrawingChanged\(tab\.id, res\.drawing, listId\)/);
   assert.doesNotMatch(b, /window\.alert|\balert\(/);
 });
 
 test("non-owner has no delete/rename-delete/pin/share actions in the tab toolbar", () => {
   const b = tabInst();
-  assert.match(b, /isOwner \? /);
-  assert.match(b, /onPin && isOwner|isOwner && \/\*#__PURE__\*\/React\.createElement\("button", \{\s*className: "btn btn-secondary btn-sm",\s*onClick: \(\) => onPin/);
+  assert.match(b, /const isOwner = drawingIsOwner\(tab, currentUserId\)/);
+  assert.match(b, /isOwner && sharedLists\.length > 0 \? [\s\S]*?"👥 Share"/);
+  assert.match(b, /isOwner && \/\*#__PURE__\*\/React\.createElement\("button", \{\s*className: "btn btn-secondary btn-sm",\s*onClick: \(\) => onPin && onPin\(tab\)/);
+  assert.match(b, /isOwner \? deleteConfirm \? [\s\S]*?"Hapus"\) : null/);
 });
 
 test("App passes sharedLists and currentUserId to DrawPage", () => {
@@ -92,4 +96,15 @@ test("App passes sharedLists and currentUserId to DrawPage", () => {
   assert.ok(m, "pemanggilan DrawPage");
   assert.match(m[0], /sharedLists: sharedLists/);
   assert.match(m[0], /currentUserId: user\?\.id/);
+});
+
+test("share scope comes from the requested listId, not the response; scope filter resets; copy has catch", () => {
+  const b = drawPage();
+  assert.match(b, /handleDrawingChanged = \(id, next, listId\)/);
+  assert.match(b, /list_id: listId != null \? listId : null/);
+  assert.doesNotMatch(b, /next\.list_id !== undefined/);
+  assert.match(b, /setScopeFilter\("all"\)/);
+  assert.match(b, /sharedLists\.some\(l => String\(l\.id\) === String\(scopeFilter\)\)/);
+  assert.match(tabInst(), /catch \(err\) \{\s*showToast\(\(err && err\.message\) \|\| "Gagal membuat salinan"/);
+  assert.match(html, /fail open/);
 });
