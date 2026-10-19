@@ -9341,6 +9341,283 @@ function MindmapTabInstance({
   const outlineTreeRef = useRef(null);
   outlineTreeRef.current = outlineTree;
 
+  // ── Petakan: peta tertaut = jendela ke catatan. Isi selalu dari catatan (heading → node), tiap edit peta
+  // ditulis balik lewat noterepo.applyMapEdit (CAS atas baseContent); baris mindmap hanya menyimpan view-state.
+  const isLinked = tab?.source_note_cid != null || tab?.source_note_id != null;
+  const isNoteOwner = tab?.user_id != null && currentUserId != null && String(tab.user_id) === String(currentUserId);
+  const sessionRef = useRef(null); // TF.notemapsession Session
+  const viewStateRef = useRef(null); // view-state terakhir (lipatan/arah/justify/ringkasan)
+  const linkedPendingRef = useRef(null); // data kanvas/outline terakhir yang belum ditulis ke catatan
+  const linkedTimerRef = useRef(null);
+  const linkedBusyRef = useRef(false); // tulis/undo sedang berjalan
+  const undoBusyRef = useRef(false);
+  const recheckRef = useRef(false); // noteSaved datang saat sibuk → cek ulang setelahnya
+  const viewTimerRef = useRef(null);
+  const [linkedStatus, setLinkedStatus] = useState(null); // loading | ready | trash | unavailable | offline
+  const [linkedTitle, setLinkedTitle] = useState("");
+  const [linkedEmpty, setLinkedEmpty] = useState(false);
+  const [showSummary, setShowSummary] = useState(true);
+  const showSummaryRef = useRef(true);
+  showSummaryRef.current = showSummary;
+  const [modalBlockTarget, setModalBlockTarget] = useState(null);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const linkedBlocked = isLinked && (linkedStatus === "trash" || linkedStatus === "unavailable" || linkedStatus === "offline");
+  const STALE_MSG = "Catatan baru saja berubah — peta dimuat ulang, ulangi perubahanmu";
+
+  const parseViewState = raw => {
+    const def = (window.TF && window.TF.notemap && window.TF.notemap.LINKED_VIEW_STATE_DEFAULT) || { linked: 1, direction: 2, justify: false, collapsed: [], summary: true };
+    let v = null;
+    try { v = typeof raw === "string" ? JSON.parse(raw) : raw; } catch (_) {}
+    return Object.assign({}, def, v && typeof v === "object" ? v : {}, { linked: 1 });
+  };
+
+  const postLinkedLoad = data => {
+    try {
+      iframeRef.current?.contentWindow?.postMessage({
+        type: "load", data, title: sessionRef.current ? sessionRef.current.title : "", linked: true, showSummary: showSummaryRef.current
+      }, window.location.origin);
+    } catch (_) {}
+  };
+
+  // Bangun ulang peta dari isi catatan terbaru (edit peta yang belum ditulis dibuang).
+  const loadLinked = () => {
+    const NS = window.TF && window.TF.notemapsession;
+    const NM = window.TF && window.TF.notemap;
+    if (!NS || !NM || !tab) return Promise.resolve();
+    clearTimeout(linkedTimerRef.current);
+    linkedPendingRef.current = null;
+    return api.get('/api/scratchpad/' + (tab.source_note_cid || tab.source_note_id)).then(note => {
+      if (!note) throw new Error("Note not found");
+      const prev = sessionRef.current;
+      const src = { baseContent: note.content || "", title: note.title || "" };
+      const s = prev && prev.noteCid === note.cid ? NS.rebase(prev, src) : NS.createSession(Object.assign({ noteCid: note.cid }, src));
+      sessionRef.current = s;
+      if (!viewStateRef.current) viewStateRef.current = parseViewState(tab.data_json);
+      const vs = viewStateRef.current;
+      const data = { nodeData: NM.buildMindData(s.parsed, { title: s.title, viewState: vs }).nodeData, direction: vs.direction, justify: Boolean(vs.justify) };
+      setLinkedTitle(s.title);
+      setLinkedEmpty(s.parsed.sections.length === 0);
+      setOutlineTree(data);
+      setDirection(typeof vs.direction === "number" ? vs.direction : 2);
+      setJustify(Boolean(vs.justify));
+      setShowSummary(vs.summary !== false);
+      showSummaryRef.current = vs.summary !== false;
+      setLinkedStatus("ready");
+      setSyncStatus("saved");
+      postLinkedLoad(data);
+    }).catch(() => {
+      sessionRef.current = null;
+      setOutlineTree(null);
+      if (!navigator.onLine) { setLinkedStatus("offline"); return; }
+      return api.get("/api/scratchpad/trash").then(items => {
+        const inTrash = tab.source_note_id != null && (items || []).some(it => String(it.id) === String(tab.source_note_id));
+        setLinkedStatus(inTrash ? "trash" : "unavailable");
+      }).catch(() => setLinkedStatus("unavailable"));
+    });
+  };
+
+  // noteSaved / modal ditutup: muat ulang hanya bila isi catatan bukan lagi baseContent sesi.
+  const checkNoteChanged = () => {
+    const s = sessionRef.current;
+    if (!s) { loadLinked(); return; }
+    api.get('/api/scratchpad/' + s.noteCid).then(note => {
+      if (!note) return loadLinked();
+      if (linkedBusyRef.current || linkedPendingRef.current) { recheckRef.current = true; return; }
+      const cur = sessionRef.current;
+      if (cur && note.content === cur.baseContent && (note.title || "") === cur.title) return;
+      loadLinked();
+    }).catch(() => loadLinked());
+  };
+
+  const saveViewState = vs => {
+    viewStateRef.current = vs;
+    clearTimeout(viewTimerRef.current);
+    viewTimerRef.current = setTimeout(() => {
+      viewTimerRef.current = null;
+      api.put('/api/mindmaps/' + tab.id, { data_json: JSON.stringify(viewStateRef.current) }).catch(() => {});
+    }, 800);
+  };
+
+  // Ganti nm.sid node sesuai pasangan [nodeId, sid] (pohon baru, tanpa mutasi).
+  const withSids = (node, map) => node && Object.assign({}, node, {
+    nm: map.has(node.id) ? Object.assign({}, node.nm, { sid: map.get(node.id) }) : node.nm,
+    children: (node.children || []).map(c => withSids(c, map))
+  });
+
+  const scheduleLinked = data => {
+    if (!data || !data.nodeData) return;
+    linkedPendingRef.current = data;
+    setSyncStatus("saving");
+    clearTimeout(linkedTimerRef.current);
+    linkedTimerRef.current = setTimeout(flushLinked, 800);
+  };
+
+  const flushLinked = async () => {
+    const NS = window.TF && window.TF.notemapsession;
+    const s = sessionRef.current;
+    const data = linkedPendingRef.current;
+    if (!NS || !s || !data) return;
+    if (linkedBusyRef.current) { clearTimeout(linkedTimerRef.current); linkedTimerRef.current = setTimeout(flushLinked, 800); return; }
+    linkedPendingRef.current = null;
+    linkedBusyRef.current = true;
+    let tree = data.nodeData;
+    try {
+      const plan = NS.planWrite(s, tree);
+      if (plan.kind === "overflow") { showToast("Maksimal 6 tingkat heading", "error"); await loadLinked(); return; }
+      if (plan.kind === "unsafe") {
+        showToast(plan.reason === "unclosed"
+          ? "Perubahan ini akan merusak struktur catatan (ada blok kode/toggle yang tidak ditutup) — ubah lewat catatan"
+          : "Urutan ini tidak bisa ditulis ke catatan karena tingkat heading-nya tidak seragam — ubah lewat catatan", "error");
+        await loadLinked();
+        return;
+      }
+      if (plan.kind === "reload") { showToast(STALE_MSG, "error"); await loadLinked(); return; }
+      if (plan.kind === "write") {
+        if (plan.removed && plan.removed.hasContent && !window.confirm("Hapus bagian «" + plan.removed.firstTitle + "» beserta isinya dari catatan?")) {
+          await loadLinked();
+          return;
+        }
+        const res = await window.TF.noterepo.applyMapEdit(s.noteCid, s.baseContent, plan.next);
+        if (!res || !res.ok) { showToast(STALE_MSG, "error"); await loadLinked(); return; }
+        sessionRef.current = NS.commitWrite(sessionRef.current, plan.next);
+        const pairs = NS.remapSids(tree);
+        const map = new Map(pairs);
+        tree = withSids(tree, map);
+        iframeRef.current?.contentWindow?.postMessage({ type: "remapSids", pairs }, window.location.origin);
+        setOutlineTree(prev => (prev && prev.nodeData ? Object.assign({}, prev, { nodeData: withSids(prev.nodeData, map) }) : prev));
+        if (linkedPendingRef.current) linkedPendingRef.current = Object.assign({}, linkedPendingRef.current, { nodeData: withSids(linkedPendingRef.current.nodeData, map) });
+        setLinkedEmpty(sessionRef.current.parsed.sections.length === 0);
+        if (plan.next.title !== s.title) {
+          setLinkedTitle(plan.next.title);
+          onUpdateTitle && plan.next.title && onUpdateTitle(tab.id, plan.next.title);
+        }
+      }
+      const v = NS.viewStateFrom(Object.assign({}, data, { nodeData: tree }), sessionRef.current.parsed, viewStateRef.current);
+      if (v.changed) saveViewState(v.viewState);
+    } catch (_) {
+      showToast("Gagal menyimpan", "error");
+      await loadLinked();
+    } finally {
+      linkedBusyRef.current = false;
+      if (!linkedPendingRef.current) setSyncStatus("saved");
+      if (recheckRef.current && !linkedPendingRef.current) { recheckRef.current = false; checkNoteChanged(); }
+    }
+  };
+
+  // Undo/redo tulisan peta (riwayat sesi). Permintaan berulang saat masih berjalan diabaikan.
+  const linkedUndoRedo = async dir => {
+    const NS = window.TF && window.TF.notemapsession;
+    if (!NS || !sessionRef.current || undoBusyRef.current) return;
+    undoBusyRef.current = true;
+    try {
+      if (linkedPendingRef.current) { clearTimeout(linkedTimerRef.current); await flushLinked(); }
+      if (linkedBusyRef.current) return;
+      const s = sessionRef.current;
+      if (!s) return;
+      const step = dir === "redo" ? NS.redoStep(s, s.baseContent) : NS.undoStep(s, s.baseContent);
+      if (step.empty) return;
+      if (step.blocked) { showToast("Tidak bisa diurungkan: catatan sudah berubah", "error"); return; }
+      linkedBusyRef.current = true;
+      setSyncStatus("saving");
+      try {
+        const res = await window.TF.noterepo.applyMapEdit(s.noteCid, s.baseContent, step.next);
+        if (res && res.ok) {
+          sessionRef.current = step.session;
+          if (step.next.title !== s.title && step.next.title) onUpdateTitle && onUpdateTitle(tab.id, step.next.title);
+        } else {
+          showToast("Tidak bisa diurungkan: catatan sudah berubah", "error");
+        }
+      } catch (_) {
+        showToast("Gagal menyimpan", "error");
+      } finally {
+        linkedBusyRef.current = false;
+      }
+      recheckRef.current = false;
+      await loadLinked();
+    } finally {
+      undoBusyRef.current = false;
+    }
+  };
+
+  // Buka catatan sumber di heading node (sid null → dari atas). modal = NoteModal di atas peta; page = halaman Notes.
+  const openLinkedNoteAt = (sid, target) => {
+    const s = sessionRef.current;
+    if (!s) return;
+    const NM = window.TF && window.TF.notemap;
+    const heading = sid != null && NM ? NM.locateHeading(s.parsed, sid) : null;
+    api.get('/api/scratchpad/' + s.noteCid).then(note => {
+      if (!note) return;
+      if (target === "page") {
+        window.dispatchEvent(new CustomEvent("tf:open-note-at", { detail: { noteId: note.id, heading } }));
+        return;
+      }
+      setModalBlockTarget(heading ? Object.assign({ kind: "heading" }, heading) : null);
+      setModalNote(note);
+    }).catch(() => showToast("Gagal memuat note", "error"));
+  };
+
+  const handleLinkedRename = async () => {
+    const NS = window.TF && window.TF.notemapsession;
+    const s = sessionRef.current;
+    const title = renameVal.trim();
+    if (!NS || !s || !title) return;
+    if (linkedPendingRef.current) { clearTimeout(linkedTimerRef.current); await flushLinked(); }
+    const cur = sessionRef.current;
+    if (!cur || linkedBusyRef.current) return;
+    const next = { markdown: cur.baseContent, title };
+    linkedBusyRef.current = true;
+    try {
+      const res = await window.TF.noterepo.applyMapEdit(cur.noteCid, cur.baseContent, next);
+      if (res && res.ok) {
+        sessionRef.current = NS.commitWrite(cur, next);
+        onUpdateTitle && onUpdateTitle(tab.id, title);
+        setRenaming(false);
+      } else {
+        showToast(STALE_MSG, "error");
+      }
+    } catch (_) {
+      showToast("Gagal merename mindmap", "error");
+    } finally {
+      linkedBusyRef.current = false;
+    }
+    await loadLinked();
+  };
+
+  const toggleSummary = () => {
+    const next = !showSummary;
+    setShowSummary(next);
+    showSummaryRef.current = next;
+    iframeRef.current?.contentWindow?.postMessage({ type: "setSummary", show: next }, window.location.origin);
+    saveViewState(Object.assign({}, viewStateRef.current || parseViewState(tab.data_json), { summary: next }));
+  };
+
+  // Catatan berubah (editor, sync, tulisan peta sendiri) → muat ulang bila isinya bukan baseContent sesi.
+  useEffect(() => {
+    if (!isLinked) return;
+    const handler = e => {
+      const d = (e && e.detail) || {};
+      const cid = sessionRef.current ? sessionRef.current.noteCid : tab.source_note_cid;
+      if (Array.isArray(d.cids) && d.cids.length && cid && d.cids.indexOf(cid) === -1) return;
+      if (linkedBusyRef.current || linkedPendingRef.current) { recheckRef.current = true; return; }
+      checkNoteChanged();
+    };
+    window.addEventListener("noteSaved", handler);
+    return () => window.removeEventListener("noteSaved", handler);
+  }, [tab?.id]);
+
+  useEffect(() => {
+    if (!isLinked) return;
+    // tab ditutup: tulis edit tertunda dan view-state sekarang, jangan dibuang
+    return () => {
+      clearTimeout(linkedTimerRef.current);
+      if (linkedPendingRef.current) flushLinked();
+      if (viewTimerRef.current) {
+        clearTimeout(viewTimerRef.current);
+        api.put('/api/mindmaps/' + tab.id, { data_json: JSON.stringify(viewStateRef.current) }).catch(() => {});
+      }
+    };
+  }, []);
+
   // T3 (workstream D): tab memegang salinan dokumen. lastKnownAtRef = updated_at record lokal saat tab memuat /
   // menyimpan terakhir; dikirim sebagai if_updated_at pada autosave → bila record sudah diganti pull (peta diubah
   // di perangkat lain), router lokal menyimpan edit tab sebagai "(konflik) <judul>" dan membalas versi server
@@ -9423,7 +9700,7 @@ function MindmapTabInstance({
   // Pull mengganti record peta ini (perangkat lain mengedit) → tab tanpa edit tertunda memuat ulang dari record
   // lokal; tab dengan edit tertunda mempertahankan isinya (autosave berikutnya lewat if_updated_at → salinan konflik).
   useEffect(() => {
-    if (!tab) return;
+    if (!tab || isLinked) return; // peta tertaut mengikuti catatan (noteSaved), bukan record mindmap
     const handler = (e) => {
       const d = (e && e.detail) || {};
       const id = String(tab.id);
@@ -9445,7 +9722,10 @@ function MindmapTabInstance({
   const handleToggleJustify = () => {
     const next = !justify;
     setJustify(next);
-    if (outlineTree) {
+    if (isLinked) {
+      if (outlineTree) setOutlineTree({ ...outlineTree, justify: next });
+      saveViewState(Object.assign({}, viewStateRef.current || parseViewState(tab.data_json), { justify: next }));
+    } else if (outlineTree) {
       const updatedTree = { ...outlineTree, justify: next };
       setOutlineTree(updatedTree);
       scheduleSave(tab.id, JSON.stringify(updatedTree));
@@ -9461,7 +9741,8 @@ function MindmapTabInstance({
     if (nextNodeData) nextNodeData.root = true;
     const next = { ...outlineTree, nodeData: nextNodeData };
     setOutlineTree(next);
-    scheduleSave(tab.id, JSON.stringify(next));
+    if (isLinked) scheduleLinked(next);
+    else scheduleSave(tab.id, JSON.stringify(next));
     iframeRef.current?.contentWindow?.postMessage({
       type: "refresh",
       data: next
@@ -9476,6 +9757,13 @@ function MindmapTabInstance({
     setRenaming(false);
     lastKnownAtRef.current = tab.updated_at != null ? tab.updated_at : null;
     pendingEditRef.current = false;
+    if (isLinked) {
+      sessionRef.current = null;
+      viewStateRef.current = parseViewState(tab.data_json);
+      setLinkedStatus("loading");
+      loadLinked();
+      return;
+    }
     let data = null;
     try { data = JSON.parse(tab.data_json); } catch (_) {}
     if (data && data.nodeData) data.nodeData.root = true;
@@ -9586,7 +9874,13 @@ function MindmapTabInstance({
     const handler = e => {
       if (e.origin !== window.location.origin) return;
       if (e.source !== iframeRef.current?.contentWindow) return;
-      if (e.data && e.data.type === "ready" && tab) {
+      if (e.data && e.data.type === "ready" && tab && isLinked) {
+        if (outlineTreeRef.current) postLinkedLoad(outlineTreeRef.current);
+        iframeRef.current?.contentWindow?.postMessage({
+          type: "setTheme",
+          theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"
+        }, window.location.origin);
+      } else if (e.data && e.data.type === "ready" && tab) {
         try {
           const tree = outlineTree || JSON.parse(tab.data_json);
           if (!tree) return;
@@ -9616,7 +9910,13 @@ function MindmapTabInstance({
       if (e.data && e.data.type === "openMindmap") {
         window.dispatchEvent(new CustomEvent("openMindmap", { detail: e.data.id }));
       }
-      if (e.data && e.data.type === "requestLinkPicker") {
+      if (e.data && e.data.type === "openNoteAt" && isLinked) {
+        openLinkedNoteAt(e.data.sid != null ? e.data.sid : null, e.data.target === "page" ? "page" : "modal");
+      }
+      if (e.data && (e.data.type === "undoRequest" || e.data.type === "redoRequest") && isLinked) {
+        linkedUndoRedo(e.data.type === "redoRequest" ? "redo" : "undo");
+      }
+      if (e.data && e.data.type === "requestLinkPicker" && !isLinked) {
         setPickerNodeId(e.data.nodeId);
         setShowLinkPicker(true);
       }
@@ -9626,7 +9926,8 @@ function MindmapTabInstance({
         setOutlineTree(data);
         if (data && typeof data.direction === "number") setDirection(data.direction);
         if (data && typeof data.justify === "boolean") setJustify(data.justify);
-        scheduleSave(tab.id, JSON.stringify(data));
+        if (isLinked) scheduleLinked(data);
+        else scheduleSave(tab.id, JSON.stringify(data));
       }
     };
     window.addEventListener("message", handler);
@@ -9635,6 +9936,7 @@ function MindmapTabInstance({
 
   const handleRename = async () => {
     if (!renameVal.trim() || !tab) return;
+    if (isLinked) return handleLinkedRename();
     try {
       await flushSave(); // edit tertunda dulu (rename mem-bump updated_at record)
       // hanya judul: tab.data_json bisa basi (record sudah diganti pull) — jangan pernah mengirim ulang isi lama
@@ -9678,11 +9980,15 @@ function MindmapTabInstance({
     }
   }), /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleRename, style: { fontSize: 11 } }, "Simpan"),
       /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setRenaming(false), style: { fontSize: 11 } }, "Batal")
-  ) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+  ) : /*#__PURE__*/React.createElement(React.Fragment, null, isLinked ? /*#__PURE__*/React.createElement("span", {
+    onClick: () => openLinkedNoteAt(null, "modal"),
+    title: "Buka catatan",
+    style: { fontSize: 13, fontWeight: 600, color: "var(--text-primary)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }
+  }, "📄 Tertaut ke: ", linkedTitle || tab.title || "Tanpa judul", " ↗") : /*#__PURE__*/React.createElement("span", {
     style: { fontSize: 13, fontWeight: 600, color: "var(--text-primary)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
   }, "🧠 ", tab.title), /*#__PURE__*/React.createElement("span", {
     style: { fontSize: 11, color: syncStatus === "offline" ? "#ef4444" : "var(--text-light)", flexShrink: 0 }
-  }, syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : "Tersimpan"),
+  }, syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : isLinked ? "Tersimpan ke catatan" : "Tersimpan"),
       /*#__PURE__*/React.createElement("div", {
         style: { display: "flex", alignItems: "center", gap: 2, background: "var(--bg-primary)", borderRadius: 8, padding: 2, flexShrink: 0 }
       }, /*#__PURE__*/React.createElement("button", {
@@ -9740,8 +10046,21 @@ function MindmapTabInstance({
           flexShrink: 0
         }
       }, "⇤⇥ Justify"),
-      /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => { setRenaming(true); setRenameVal(tab.title); }, style: { fontSize: 11 } }, "Rename"),
-      isOwner && sharedLists.length > 0 ? /*#__PURE__*/React.createElement("div", { ref: shareRef, style: { position: "relative", flexShrink: 0 } },
+      isLinked && /*#__PURE__*/React.createElement("button", {
+        onClick: toggleSummary,
+        title: showSummary ? "Sembunyikan ringkasan bagian" : "Tampilkan ringkasan bagian",
+        style: {
+          border: showSummary ? "1px solid var(--accent)" : "1px solid var(--border)",
+          background: showSummary ? "var(--accent)" : "var(--bg-card)",
+          color: showSummary ? "#000" : "var(--text-secondary)",
+          borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", flexShrink: 0
+        }
+      }, "Ringkasan"),
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => { setRenaming(true); setRenameVal(isLinked ? (linkedTitle || tab.title) : tab.title); }, style: { fontSize: 11 } }, "Rename"),
+      isLinked ? (tab.list_id ? /*#__PURE__*/React.createElement("span", {
+        className: "badge",
+        style: { fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)", flexShrink: 0 }
+      }, `👥 ${sharedLists.find(l => l.id === tab.list_id)?.name || "Shared"}`) : null) : isOwner && sharedLists.length > 0 ? /*#__PURE__*/React.createElement("div", { ref: shareRef, style: { position: "relative", flexShrink: 0 } },
         /*#__PURE__*/React.createElement("button", {
           className: "btn btn-secondary btn-sm",
           onClick: () => setShareOpen(o => !o),
@@ -9769,7 +10088,7 @@ function MindmapTabInstance({
         style: { fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)", flexShrink: 0 }
       }, `👥 ${sharedLists.find(l => l.id === tab.list_id)?.name || "Shared"}`) : null,
 
-      deleteConfirm ? /*#__PURE__*/React.createElement(React.Fragment, null,
+      isLinked && !isNoteOwner ? null : deleteConfirm ? /*#__PURE__*/React.createElement(React.Fragment, null,
         /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "#ef4444", flexShrink: 0 } }, "Hapus?"),
         /*#__PURE__*/React.createElement("button", { onClick: handleDelete, style: { padding: "3px 8px", borderRadius: 6, border: "none", cursor: "pointer", background: "#ef4444", color: "#fff", fontSize: 11 } }, "Ya"),
         /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setDeleteConfirm(false), style: { fontSize: 11 } }, "Batal")
@@ -9777,8 +10096,21 @@ function MindmapTabInstance({
         onClick: () => setDeleteConfirm(true),
         style: { padding: "3px 8px", borderRadius: 6, cursor: "pointer", fontSize: 11, background: "none", border: "1px solid #ef4444", color: "#ef4444" }
       }, "Hapus")
-  )), /*#__PURE__*/React.createElement("div", {
-    style: { flex: 1, display: viewMode === "canvas" ? "flex" : "none", flexDirection: "column", overflow: "hidden", minWidth: 0 }
+  )), linkedBlocked && /*#__PURE__*/React.createElement("div", {
+    style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: 24, textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }
+  }, /*#__PURE__*/React.createElement("div", null,
+    linkedStatus === "trash" ? "Catatan sumber ada di Sampah"
+      : linkedStatus === "offline" ? "Catatan belum tersedia di perangkat ini — sambungkan internet"
+      : "Catatan sumber tidak tersedia untukmu"),
+    linkedStatus === "trash" && /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setTrashOpen(true), style: { fontSize: 12 } }, "Buka Sampah"),
+    linkedStatus === "unavailable" && isNoteOwner && /*#__PURE__*/React.createElement("button", {
+      onClick: handleDelete,
+      style: { padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, background: "none", border: "1px solid #ef4444", color: "#ef4444" }
+    }, "Hapus peta")
+  ), isLinked && linkedStatus === "ready" && linkedEmpty && /*#__PURE__*/React.createElement("div", {
+    style: { padding: "6px 14px", fontSize: 12, color: "var(--text-light)", background: "var(--bg-card)", borderBottom: "1px solid var(--border)", flexShrink: 0 }
+  }, "Tambah node di sini atau heading di catatan"), /*#__PURE__*/React.createElement("div", {
+    style: { flex: 1, display: viewMode === "canvas" && !linkedBlocked ? "flex" : "none", flexDirection: "column", overflow: "hidden", minWidth: 0 }
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
@@ -9786,7 +10118,17 @@ function MindmapTabInstance({
     style: { flex: 1, border: "none", width: "100%" },
     title: "Mindmap editor"
   })), /*#__PURE__*/React.createElement("div", {
-    style: { flex: 1, display: viewMode === "outline" ? "flex" : "none", flexDirection: "column", overflow: "hidden", minWidth: 0, background: "var(--bg-card)" }
+    style: { flex: 1, display: viewMode === "outline" && !linkedBlocked ? "flex" : "none", flexDirection: "column", overflow: "hidden", minWidth: 0, background: "var(--bg-card)" },
+    // Peta tertaut: Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y memakai riwayat tulisan ke catatan, bukan undo outline bawaan.
+    onKeyDownCapture: isLinked ? e => {
+      const k = (e.key || "").toLowerCase();
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || (k !== "z" && k !== "y")) return;
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      linkedUndoRedo(k === "y" || e.shiftKey ? "redo" : "undo");
+    } : undefined
   }, outlineTree && tab ? /*#__PURE__*/React.createElement(MindmapOutline, {
     key: tab.id,
     tree: outlineTree.nodeData,
@@ -9801,6 +10143,7 @@ function MindmapTabInstance({
   showLinkPicker && /*#__PURE__*/React.createElement(LinkPickerModal, {
     existingLinks: currentNodeLinks,
     onSelect: link => {
+      if (isLinked) { setShowLinkPicker(false); setPickerNodeId(null); return; }
       if (viewMode === "outline" && outlineTree) {
         const nextRoot = (window.TF && window.TF.mindmapoutline) ? window.TF.mindmapoutline.addNodeLink(outlineTree.nodeData, pickerNodeId, link) : outlineTree.nodeData;
         if (nextRoot !== outlineTree.nodeData) handleOutlineEdit(nextRoot);
@@ -9814,7 +10157,8 @@ function MindmapTabInstance({
   }),
   modalNote && /*#__PURE__*/React.createElement(NoteModal, {
     note: modalNote, tasks: tasks,
-    onClose: () => setModalNote(null),
+    initialBlockTarget: modalBlockTarget,
+    onClose: () => { setModalNote(null); setModalBlockTarget(null); if (isLinked) checkNoteChanged(); },
     onSave: async updates => {
       try {
         const saved = await api.put(`/api/scratchpad/${modalNote.id}`, updates);
@@ -9828,6 +10172,19 @@ function MindmapTabInstance({
       } catch (e) { if (isOfflineErr(e)) showToast('Tidak dapat menghapus — offline', 'error'); }
     },
     onTaskClick: onTaskClick, showToast: showToast
+  }),
+  trashOpen && /*#__PURE__*/React.createElement(NoteTrashModal, {
+    onClose: () => setTrashOpen(false),
+    onRestored: async note => {
+      try {
+        if (note && note.id != null && window.TF?.noterepo?.discardPendingDelete) await window.TF.noterepo.discardPendingDelete(note.id);
+      } catch (_) {}
+      try { if (window.__syncNow) await window.__syncNow(); } catch (_) {}
+      setTrashOpen(false);
+      setLinkedStatus("loading");
+      loadLinked();
+    },
+    showToast: showToast
   })
   );
 }
