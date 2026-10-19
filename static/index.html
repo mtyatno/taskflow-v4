@@ -277,6 +277,7 @@
   <script src="/static/offline/noteroutes.js"></script>
   <script src="/static/offline/notetrash.js"></script>
   <script src="/static/offline/drawingrepo.js"></script>
+  <script src="/static/offline/drawingshare.js"></script>
   <script src="/static/offline/drawingroutes.js"></script>
   <script src="/static/offline/drawingtabs.js"></script>
   <script src="/static/offline/mindmapoutline.js"></script>
@@ -680,6 +681,7 @@ const api = {
         if (typeof data.detail === "string") msg = data.detail;else if (Array.isArray(data.detail)) msg = data.detail.map(e => e.msg || JSON.stringify(e)).join(", ");else msg = `Request failed (${res.status})`;
         const eHttp = new Error(msg);
         eHttp.status = res.status;
+        eHttp.body = data; // detail terstruktur (mis. 409 DRAWING_IN_USE) dibaca pemanggil
         throw eHttp;
       }
       return data;
