@@ -61,7 +61,9 @@ test("hidden selectors cover arrows, summary, links tab and block formats", () =
 // setiap dipanggil. Peta tertaut dimuat ulang sering (undo, catatan berubah,
 // modal ditutup) → menu ganda yang tidak menutup & tempel ganda. Muat ulang
 // mesin yang sama untuk peta tertaut lewat refresh(), bukan init().
-test("reloadEngine: tertaut → refresh + toCenter (tanpa init); biasa → init", () => {
+// Final review C (item 5): muat ulang tertaut mempertahankan geseran pengguna (tanpa toCenter);
+// muat awal tetap di tengah (mesin baru → init() memusatkan sendiri).
+test("reloadEngine: tertaut → refresh saja (tanpa init/toCenter); biasa → init", () => {
   const calls = [];
   const fake = {
     init: (d) => calls.push(["init", d]),
@@ -70,8 +72,75 @@ test("reloadEngine: tertaut → refresh + toCenter (tanpa init); biasa → init"
   };
   const data = { nodeData: { id: "r", topic: "R" } };
   OPS.reloadEngine(fake, data, true);
-  assert.deepEqual(calls, [["refresh", data], ["toCenter"]]);
+  assert.deepEqual(calls, [["refresh", data]]);
   calls.length = 0;
   OPS.reloadEngine(fake, data, false);
   assert.deepEqual(calls, [["init", data]]);
+});
+
+// Final review C (item 1): refresh()/init() mind-elixir tidak keluar dari Focus Mode, dan getData()
+// mengembalikan nodeDataBackup selama isFocusMode → setelah muat ulang tiap change mengirim pohon LAMA.
+function focusedFake(calls) {
+  const backup = { id: "root", topic: "R", children: [{ id: "s0", topic: "A" }] };
+  const fake = {
+    isFocusMode: true,
+    nodeDataBackup: backup,
+    nodeData: backup.children[0],
+    tempDirection: 2,
+    direction: 1,
+    init: (d) => calls.push(["init", d, fake.isFocusMode]),
+    refresh: (d) => calls.push(["refresh", d, fake.isFocusMode]),
+    toCenter: () => calls.push(["toCenter"]),
+    cancelFocus() {
+      calls.push(["cancelFocus"]);
+      this.isFocusMode = false;
+      if (this.tempDirection !== null) {
+        this.nodeData = this.nodeDataBackup;
+        this.direction = this.tempDirection;
+        this.tempDirection = null;
+      }
+    },
+  };
+  return fake;
+}
+
+test("exitFocusMode: uses the engine's cancelFocus and clears the backup; no-op outside Focus Mode", () => {
+  const calls = [];
+  const f = focusedFake(calls);
+  assert.equal(OPS.exitFocusMode(f), true);
+  assert.equal(f.isFocusMode, false);
+  assert.equal(f.nodeDataBackup, null);
+  assert.equal(f.tempDirection, null);
+  assert.equal(f.direction, 2);
+  assert.deepEqual(calls, [["cancelFocus"]]);
+  calls.length = 0;
+  assert.equal(OPS.exitFocusMode(f), false);
+  assert.deepEqual(calls, []);
+  assert.equal(OPS.exitFocusMode(null), false);
+});
+
+test("exitFocusMode: falls back to resetting the fields when cancelFocus is missing or throws", () => {
+  const f = focusedFake([]);
+  f.cancelFocus = () => { throw new Error("boom"); };
+  assert.equal(OPS.exitFocusMode(f), true);
+  assert.equal(f.isFocusMode, false);
+  assert.equal(f.nodeDataBackup, null);
+  assert.equal(f.tempDirection, null);
+  const g = focusedFake([]);
+  delete g.cancelFocus;
+  OPS.exitFocusMode(g);
+  assert.equal(g.isFocusMode, false);
+  assert.equal(g.direction, 2);
+});
+
+test("reloadEngine exits Focus Mode before loading new data (linked and normal)", () => {
+  for (const linked of [true, false]) {
+    const calls = [];
+    const f = focusedFake(calls);
+    const data = { nodeData: { id: "root", topic: "Baru" } };
+    OPS.reloadEngine(f, data, linked);
+    assert.equal(f.isFocusMode, false);
+    assert.deepEqual(calls[0], ["cancelFocus"]);
+    assert.deepEqual(calls[1], [linked ? "refresh" : "init", data, false], "dimuat setelah keluar Focus Mode");
+  }
 });

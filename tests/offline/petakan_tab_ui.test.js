@@ -115,6 +115,7 @@ function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = ()
   const iframeWin = { postMessage: (m) => posted.push(m) };
   const api = {
     get: (url) => {
+      if (store.failGet) return Promise.reject(new Error("offline"));
       if (url === "/api/scratchpad/trash") return Promise.resolve(trash);
       const m = url.match(/^\/api\/scratchpad\/(.+)$/);
       if (m && store.note && (m[1] === store.note.cid || m[1] === String(store.note.id))) return Promise.resolve(Object.assign({}, store.note));
@@ -174,10 +175,14 @@ function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = ()
     }
   };
   const flushTimers = async () => { while (timers.length) { timers.shift()(); await settle(); } };
-  const message = async (data) => { (events.message || []).forEach((h) => h({ origin: "o", source: iframeWin, data })); await settle(); };
+  const post = (data) => { (events.message || []).forEach((h) => h({ origin: "o", source: iframeWin, data })); };
+  const message = async (data) => { post(data); await settle(); };
   render();
-  return { store, posted, toasts, puts, titles, settle, flushTimers, message, get tree() { return tree; }, get out() { return out; }, win, slots };
+  return { store, posted, toasts, puts, titles, settle, flushTimers, message, post, get tree() { return tree; }, get out() { return out; }, win, slots };
 }
+
+// gen sesi yang terakhir dikirim ke iframe (load / remapSids) — iframe menyertakannya di tiap change.
+const curGen = (h) => { const m = h.posted.filter((x) => x.type === "load" || x.type === "remapSids").pop(); return m && m.gen; };
 
 const findText = (node, s) => {
   if (node == null || node === false) return false;
@@ -195,7 +200,7 @@ test("behavior: loads the linked map from the note and writes a rename back with
   assert.ok(findText(h.out, "📄 Tertaut ke: "));
   const data = JSON.parse(JSON.stringify(load.data));
   data.nodeData.children.reverse(); // B, A
-  await h.message({ type: "change", data });
+  await h.message({ type: "change", data, gen: curGen(h) });
   await h.flushTimers();
   assert.equal(h.store.note.content, "# B\n# A\nisi\n");
   const remap = h.posted.find((m) => m.type === "remapSids");
@@ -215,7 +220,7 @@ test("behavior: stale note → toast + reload; blocked undo after external edit"
   const load = h.posted.filter((m) => m.type === "load").pop();
   const data = JSON.parse(JSON.stringify(load.data));
   data.nodeData.children[0].topic = "A2";
-  await h.message({ type: "change", data });
+  await h.message({ type: "change", data, gen: curGen(h) });
   h.store.note = Object.assign({}, h.store.note, { content: "# diketik\n" }); // diubah editor sebelum tulis
   await h.flushTimers();
   assert.ok(h.toasts.includes("Catatan baru saja berubah — peta dimuat ulang, ulangi perubahanmu"));
@@ -227,7 +232,7 @@ test("behavior: stale note → toast + reload; blocked undo after external edit"
   await h2.settle();
   const d2 = JSON.parse(JSON.stringify(h2.posted.find((m) => m.type === "load").data));
   d2.nodeData.children[0].topic = "A2";
-  await h2.message({ type: "change", data: d2 });
+  await h2.message({ type: "change", data: d2, gen: curGen(h2) });
   await h2.flushTimers();
   assert.equal(h2.store.note.content, "# A2\n");
   h2.store.note = Object.assign({}, h2.store.note, { content: "# luar\n" });
@@ -243,7 +248,7 @@ test("behavior: collapse saves only view-state; overflow and unsafe reload", asy
   await h.settle();
   const data = JSON.parse(JSON.stringify(h.posted.find((m) => m.type === "load").data));
   data.nodeData.children[0].expanded = false;
-  await h.message({ type: "change", data });
+  await h.message({ type: "change", data, gen: curGen(h) });
   await h.flushTimers();
   assert.equal(h.store.note.content, "# A\n## B\n");
   assert.equal(h.puts.length, 1);
@@ -254,7 +259,7 @@ test("behavior: collapse saves only view-state; overflow and unsafe reload", asy
   await u.settle();
   const ud = JSON.parse(JSON.stringify(u.posted.find((m) => m.type === "load").data));
   ud.nodeData.children.reverse();
-  await u.message({ type: "change", data: ud });
+  await u.message({ type: "change", data: ud, gen: curGen(u) });
   await u.flushTimers();
   assert.ok(u.toasts.includes("Perubahan ini akan merusak struktur catatan (ada blok kode/toggle yang tidak ditutup) — ubah lewat catatan"));
   assert.equal(u.store.note.content, "# A\nisi\n# B\n```\nbuka\n");
@@ -266,7 +271,7 @@ test("behavior: deleting a section with content asks first; cancel reloads", asy
   await h.settle();
   const data = JSON.parse(JSON.stringify(h.posted.find((m) => m.type === "load").data));
   data.nodeData.children.shift();
-  await h.message({ type: "change", data });
+  await h.message({ type: "change", data, gen: curGen(h) });
   await h.flushTimers();
   assert.equal(asked, "Hapus bagian «A» beserta isinya dari catatan?");
   assert.equal(h.store.note.content, "# A\nisi\n# B\n");
@@ -335,7 +340,7 @@ test("behavior R18: fresh big linked map collapses depth>=2; a fold change saves
   const data = JSON.parse(JSON.stringify(load.data));
   data.nodeData.children[1].expanded = false;
   data.nodeData.children[0].children[0].expanded = true;
-  await h.message({ type: "change", data });
+  await h.message({ type: "change", data, gen: curGen(h) });
   await h.flushTimers();
   assert.equal(h.store.note.content, BIG);
   const saved = JSON.parse(h.puts[h.puts.length - 1].body.data_json);
@@ -461,4 +466,138 @@ test("C9 tf:petakan handler posts source_note_ref and opens the map", () => {
   assert.match(src, /api\.post\("\/api\/mindmaps", \{\s*title: "",\s*source_note_ref: /);
   assert.match(src, /setPendingMindmapId\(created\.id\)/);
   assert.match(src, /setPage\("mindmap"\)/);
+});
+
+// ── Final review C (item 2): generasi sesi — sid dari versi catatan lain tidak pernah ditulis. ──
+const STALE = "Catatan baru saja berubah — peta dimuat ulang, ulangi perubahanmu";
+const loads = (h) => h.posted.filter((m) => m.type === "load");
+
+test("gen: load and remapSids carry the session gen; the tree is stamped with it", async () => {
+  const h = mountTab({ note: { content: "# A\nisi\n# B\n" } });
+  await h.settle();
+  const load = lastLoad(h);
+  assert.equal(typeof load.gen, "string");
+  assert.ok(load.data.nodeData.children.every((c) => c.nm.ns === load.gen));
+  assert.equal(load.data.gen, load.gen, "outlineTree / data membawa gen yang sama");
+  const data = JSON.parse(JSON.stringify(load.data));
+  data.nodeData.children.reverse();
+  await h.message({ type: "change", data, gen: load.gen });
+  await h.flushTimers();
+  const remap = h.posted.find((m) => m.type === "remapSids");
+  assert.ok(remap.gen && remap.gen !== load.gen, "tulisan menghasilkan gen baru");
+  assert.ok(h.tree.children.every((c) => c.nm.ns === remap.gen), "outline ikut diremap (sid + ns)");
+  // change berikutnya dengan gen baru tetap ditulis
+  const d2 = JSON.parse(JSON.stringify(data));
+  d2.nodeData.children[0].topic = "B2";
+  for (const c of d2.nodeData.children) c.nm = Object.assign({}, c.nm, { ns: remap.gen });
+  d2.nodeData.children[0].nm.sid = "s0"; d2.nodeData.children[1].nm.sid = "s1";
+  await h.message({ type: "change", data: d2, gen: remap.gen });
+  await h.flushTimers();
+  assert.equal(h.store.note.content, "# B2\n# A\nisi\n");
+});
+
+test("gen: a change from an older gen is dropped and the map reloads (no write)", async () => {
+  const h = mountTab({ note: { content: "# A\nisi\n# B\nb\n# C\n" } });
+  await h.settle();
+  const n0 = loads(h).length;
+  const old = lastLoad(h);
+  const data = JSON.parse(JSON.stringify(old.data));
+  data.nodeData.children[2].children.push({ id: "x", topic: "Anak", children: [] });
+  await h.message({ type: "change", data, gen: "gen-lama" });
+  await h.flushTimers();
+  assert.equal(h.store.note.content, "# A\nisi\n# B\nb\n# C\n");
+  assert.equal(loads(h).length, n0 + 1, "peta dimuat ulang");
+  assert.notEqual(lastLoad(h).gen, old.gen);
+  assert.ok(h.toasts.includes(STALE));
+  // change tanpa gen sama sekali juga dibuang
+  await h.message({ type: "change", data });
+  await h.flushTimers();
+  assert.equal(h.store.note.content, "# A\nisi\n# B\nb\n# C\n");
+});
+
+test("gen: Focus-Mode-style stale tree after a reload never scrambles the note", async () => {
+  // Repro final review: muat [A,B,C], catatan berubah jadi [X,A,B,C], iframe mengirim pohon lama.
+  const h = mountTab({ note: { content: "# A\na\n# B\nb\n# C\nc\n" } });
+  await h.settle();
+  const old = lastLoad(h);
+  h.store.note = Object.assign({}, h.store.note, { content: "# X\nx\n# A\na\n# B\nb\n# C\nc\n" });
+  h.win.dispatchEvent({ type: "noteSaved", detail: { source: "editor", cids: ["nc1"] } });
+  await h.settle();
+  assert.notEqual(lastLoad(h).gen, old.gen);
+  const stale = JSON.parse(JSON.stringify(old.data));
+  stale.nodeData.children[1].children.push({ id: "n", topic: "Node baru", children: [] });
+  await h.message({ type: "change", data: stale, gen: old.gen });
+  await h.flushTimers();
+  assert.equal(h.store.note.content, "# X\nx\n# A\na\n# B\nb\n# C\nc\n");
+});
+
+test("gen: an edit pending from an older gen is discarded when loadLinked completes (toast once)", async () => {
+  const h = mountTab({ note: { content: "# A\nisi\n# B\n" } });
+  await h.settle();
+  const g1 = lastLoad(h).gen;
+  const data = JSON.parse(JSON.stringify(lastLoad(h).data));
+  data.nodeData.children.reverse();
+  h.post({ type: "change", data: {}, gen: "lain" }); // memicu loadLinked (belum selesai)
+  h.post({ type: "change", data, gen: g1 }); // masih gen sesi saat ini → tertunda
+  await h.settle();
+  await h.flushTimers();
+  assert.equal(h.store.note.content, "# A\nisi\n# B\n");
+  assert.equal(h.toasts.filter((t) => t === STALE).length >= 1, true);
+});
+
+test("gen: outline edits carry the outline tree gen; a stale one is dropped", async () => {
+  const h = mountTab({ note: { content: "# A\nisi\n# B\n" } });
+  await h.settle();
+  const outline = findEl(h.out, (n) => n.type === "MindmapOutline");
+  const staleOnChange = outline.props.onChange;
+  const staleTree = JSON.parse(JSON.stringify(outline.props.tree));
+  // catatan berubah dari luar → muat ulang, gen baru
+  h.store.note = Object.assign({}, h.store.note, { content: "# Z\n# A\nisi\n# B\n" });
+  h.win.dispatchEvent({ type: "noteSaved", detail: { source: "editor", cids: ["nc1"] } });
+  await h.settle();
+  const n0 = loads(h).length;
+  staleTree.children.reverse();
+  staleOnChange(staleTree);
+  await h.settle();
+  await h.flushTimers();
+  assert.equal(h.store.note.content, "# Z\n# A\nisi\n# B\n");
+  assert.equal(loads(h).length, n0 + 1);
+  assert.ok(!h.posted.some((m) => m.type === "refresh" && m.data && m.data.nodeData === staleTree), "pohon basi tidak dikirim ke kanvas");
+  // outline segar tetap menulis
+  const fresh = findEl(h.out, (n) => n.type === "MindmapOutline");
+  const t = JSON.parse(JSON.stringify(fresh.props.tree));
+  t.children[0].topic = "Z2";
+  fresh.props.onChange(t);
+  await h.settle();
+  await h.flushTimers();
+  assert.equal(h.store.note.content, "# Z2\n# A\nisi\n# B\n");
+});
+
+test("checkNoteChanged: a failed note fetch does not reload over a pending edit", async () => {
+  const h = mountTab({ note: { content: "# A\nisi\n# B\n" } });
+  await h.settle();
+  await h.message({ type: "openNoteAt", sid: "s0", target: "modal" });
+  const modal = findEl(h.out, (n) => n.type === "NoteModal");
+  assert.ok(modal, "NoteModal terbuka");
+  const load = lastLoad(h);
+  const data = JSON.parse(JSON.stringify(load.data));
+  data.nodeData.children[0].topic = "A2";
+  h.post({ type: "change", data, gen: load.gen });
+  h.store.failGet = true;
+  const n0 = loads(h).length;
+  modal.props.onClose();
+  await h.settle();
+  assert.equal(loads(h).length, n0, "tidak memuat ulang di atas edit tertunda");
+  h.store.failGet = false;
+  await h.flushTimers();
+  assert.equal(h.store.note.content, "# A2\nisi\n# B\n");
+});
+
+// Final review C (item 4, R19): modul Ops iframe ikut precache SW.
+test("R19: sw.js precaches mindmapops.js next to the mindmap modules", () => {
+  const sw = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
+  const list = sw.slice(sw.indexOf("const STATIC = ["), sw.indexOf("];", sw.indexOf("const STATIC = [")));
+  for (const f of ["mindmapops.js", "mindmapoutline.js", "notemap.js", "notemapsession.js"]) {
+    assert.ok(list.includes('"/static/offline/' + f + '"'), f);
+  }
 });

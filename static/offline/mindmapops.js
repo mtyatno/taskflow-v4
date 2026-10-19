@@ -79,14 +79,33 @@
     return !!evt && evt.button === 0 && !!(evt.ctrlKey || evt.metaKey);
   }
 
-  // Muat data baru ke mesin yang sudah ada. init() memasang ulang menu konteks,
-  // keypress dan listener copy/paste setiap dipanggil (menu ganda, tempel ganda);
-  // peta tertaut dimuat ulang sering, jadi cukup refresh(). Peta biasa tetap
-  // lewat init() (perilaku lama, termasuk riwayat undo mesin per muatan).
+  // Keluar dari Focus Mode sebelum mesin dimuat ulang. refresh()/init() mind-elixir tidak
+  // menyentuh isFocusMode, dan selama flag itu aktif getData() mengembalikan nodeDataBackup —
+  // pohon LAMA — sehingga tiap change setelah muat ulang mengirim pohon sebelum muat ulang.
+  // Pakai cancelFocus milik mesin; bila tidak ada / gagal, setel ulang field seperti mesin.
+  function exitFocusMode(mind) {
+    if (!mind || !mind.isFocusMode) return false;
+    try {
+      if (typeof mind.cancelFocus === "function") mind.cancelFocus();
+    } catch (_) {}
+    if (mind.isFocusMode) {
+      mind.isFocusMode = false;
+      if (mind.tempDirection != null) mind.direction = mind.tempDirection;
+    }
+    mind.tempDirection = null;
+    mind.nodeDataBackup = null;
+    return true;
+  }
+
+  // Muat data baru ke mesin yang sudah ada (selalu keluar dari Focus Mode dulu). init()
+  // memasang ulang menu konteks, keypress dan listener copy/paste setiap dipanggil (menu
+  // ganda, tempel ganda); peta tertaut dimuat ulang sering, jadi cukup refresh() — tanpa
+  // toCenter agar geseran pengguna tetap (muat awal tetap terpusat lewat init() mesin baru).
+  // Peta biasa tetap lewat init() (perilaku lama, termasuk riwayat undo mesin per muatan).
   function reloadEngine(mind, data, linked) {
+    exitFocusMode(mind);
     if (linked) {
       mind.refresh(data);
-      mind.toCenter();
     } else {
       mind.init(data);
     }
@@ -111,6 +130,7 @@
     safeExportName: safeExportName,
     engineOptions: engineOptions,
     isOpenNoteClick: isOpenNoteClick,
+    exitFocusMode: exitFocusMode,
     reloadEngine: reloadEngine,
     LINKED_HIDDEN_SELECTORS: LINKED_HIDDEN_SELECTORS,
   };

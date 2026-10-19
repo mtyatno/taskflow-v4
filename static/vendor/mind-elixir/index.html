@@ -516,7 +516,7 @@
   <script src="/static/vendor/marked.min.js?v=124"></script>
   <script src="/static/offline/mindmapoutline.js?v=126"></script>
   <script src="/static/offline/notemap.js?v=1"></script>
-  <script src="/static/offline/mindmapops.js?v=5"></script>
+  <script src="/static/offline/mindmapops.js?v=6"></script>
   <script src="/static/offline/mindmapjustify.js?v=1"></script>
   <script>
     let mind = null;
@@ -527,6 +527,15 @@
     let linkedMode = false;
     let showSummary = true;
     let engineLinked = null;
+    // Generasi sesi induk (peta tertaut): sid node posisional terhadap versi catatan gen ini.
+    // Dikirim balik di tiap change agar induk membuang pohon dari generasi lain.
+    let linkedGen = null;
+
+    function postChange() {
+      const msg = { type: 'change', data: mind.getData() };
+      if (linkedMode) msg.gen = linkedGen;
+      window.parent.postMessage(msg, window.location.origin);
+    }
 
     // Kirim openNoteAt untuk node ini (sid null untuk root / node baru).
     function sendOpenNoteAt(nodeObj, target) {
@@ -718,7 +727,7 @@
       currentNodeData.links = (currentNodeData.links || []).filter((_, i) => i !== idx);
       renderPanel(currentNodeData.topic, currentNodeData.links);
       updateBadges();
-      window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+      postChange();
     }
 
     function showLinkPicker() {
@@ -804,7 +813,7 @@
               currentNodeData.links.push(link);
               renderPanel(currentNodeData.topic, currentNodeData.links);
               updateBadges();
-              window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+              postChange();
             }
             overlay.remove();
           };
@@ -881,7 +890,7 @@
           currentNodeData.links.push(link);
           renderPanel(currentNodeData.topic, currentNodeData.links);
           updateBadges();
-          window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+          postChange();
           overlay.remove();
         } catch (_) {
           creating = false;
@@ -1082,11 +1091,12 @@
     // Mesin dibuat sekali per mode: load berikutnya dengan mode yang sama cukup
     // memuat data (reloadEngine: refresh untuk tertaut, init untuk biasa); mode berbeda (biasa ↔ tertaut) membuat mesin baru karena
     // opsinya (undo, menu konteks, markdown) hanya dibaca saat konstruksi.
+    // Hasil: true bila mesin yang ada dipakai ulang (muat ulang), false bila mesin baru.
     function initMind(data, linked) {
       linked = !!linked;
       if (mind && engineLinked === linked) {
         window.TF.mindmapops.reloadEngine(mind, data, linked);
-        return;
+        return true;
       }
       if (mind) {
         try { mind.destroy(); } catch (_) {}
@@ -1348,7 +1358,7 @@
             if (!currentNodeData) return;
             currentNodeData.align = btn.dataset.align;
             updateBadges(); // re-applies textAlign via the post-layout pass
-            window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+            postChange();
             return;
           }
           const fn = FMT_ACTIONS[btn.dataset.act];
@@ -1374,7 +1384,7 @@
         if (isJustifyActive) {
           setTimeout(applyJustifyLayout, 0);
         }
-        window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+        postChange();
       });
 
       mind.bus.addListener('changeDirection', () => {
@@ -1383,6 +1393,7 @@
           setTimeout(applyJustifyLayout, 0);
         }
       });
+      return false;
     }
 
     // ── Listener dokumen: dipasang sekali (initMind bisa membuat mesin ulang) ──
@@ -1444,6 +1455,7 @@
         else if (k === 'y') type = 'redoRequest';
         if (!type) return;
         e.preventDefault();
+        if (e.repeat) return; // tombol ditahan: satu permintaan per tekan, bukan beruntun
         window.parent.postMessage({ type: type }, window.location.origin);
       });
     }
@@ -1479,14 +1491,18 @@
         cancelLinkFlow();
         isJustifyActive = Boolean(e.data.data && e.data.data.justify);
         linkedMode = Boolean(e.data.linked);
+        linkedGen = linkedMode && e.data.gen != null ? e.data.gen : null;
         showSummary = e.data.showSummary !== false;
         applyLinkedUi(linkedMode);
-        initMind(e.data.data, linkedMode);
+        const reused = initMind(e.data.data, linkedMode);
         currentMindmapTitle = (typeof e.data.title === "string" && e.data.title.trim()) ? e.data.title.trim() : "mindmap";
         setTimeout(updateBadges, 300);
         const d = (e.data.data && typeof e.data.data.direction === 'number') ? e.data.data.direction : 2;
         try {
-          if (d === 0) mind.initLeft();
+          // Muat ulang tertaut dengan arah yang sama: refresh() sudah menata ulang; initX()
+          // akan memanggil toCenter() dan membuang geseran pengguna.
+          if (reused && linkedMode && mind.direction === d) { /* geseran tetap */ }
+          else if (d === 0) mind.initLeft();
           else if (d === 1) mind.initRight();
           else if (d === 3) mind.initDown();
           else mind.initSide();
@@ -1507,20 +1523,24 @@
         // Hanya data: tanpa render ulang. Cari di pohon data (bukan findEle):
         // node yang terlipat tidak ada di DOM dan findEle melempar error;
         // saat Focus Mode pohon penuh ada di nodeDataBackup.
+        // gen = generasi sesi setelah tulisan: node yang dipasangkan dicap ulang (sid + ns); node lain
+        // (mis. tempelan sesudahnya) tetap bercap lama → asing bagi induk.
         if (!mind || !Array.isArray(e.data.pairs)) return;
+        const gen = e.data.gen != null ? e.data.gen : null;
         const tree = mind.isFocusMode ? mind.nodeDataBackup : mind.nodeData;
         e.data.pairs.forEach(pair => {
           if (!Array.isArray(pair)) return;
           const nodeObj = tree ? findNode(tree, pair[0]) : null;
-          if (nodeObj) nodeObj.nm = Object.assign(nodeObj.nm || {}, { sid: pair[1] });
+          if (nodeObj) nodeObj.nm = Object.assign(nodeObj.nm || {}, { sid: pair[1], ns: gen });
         });
+        if (linkedMode) linkedGen = gen;
         return;
       }
       if (e.data && e.data.type === 'setJustify') {
         if (!mind) return;
         isJustifyActive = Boolean(e.data.justify);
         applyJustifyLayout();
-        window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+        postChange();
       }
       if (e.data && e.data.type === 'refresh') {
         if (!mind) return;
@@ -1534,6 +1554,8 @@
         cancelLinkFlow();
         hidePanel();
         switchTab(null);
+        // Data baru menggantikan pohon: keluar dari Focus Mode dulu (getData() memakai nodeDataBackup).
+        try { window.TF.mindmapops.exitFocusMode(mind); } catch (_) {}
         try { mind.refresh(e.data.data); } catch (_) {}
         setTimeout(updateBadges, 300);
         return;
@@ -1548,7 +1570,7 @@
           else if (e.data.direction === 3) mind.initDown();
           else return;
           if (changed) {
-            window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+            postChange();
           }
         } catch (_) {}
       }
@@ -1572,7 +1594,7 @@
         renderPanel(currentNodeData.topic, currentNodeData.links);
         switchTab('links');
         updateBadges();
-        window.parent.postMessage({ type: 'change', data: mind.getData() }, window.location.origin);
+        postChange();
       }
     });
 

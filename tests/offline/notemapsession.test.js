@@ -5,16 +5,17 @@ const assert = require("node:assert/strict");
 const NM = require("../../static/offline/notemap.js");
 const NS = require("../../static/offline/notemapsession.js");
 
-const treeOf = (s, title = "T") => JSON.parse(JSON.stringify(NM.buildMindData(s.parsed, { title }).nodeData));
+// Pohon peta dari sesi: dicap gen sesi (nm.ns) seperti yang dibangun tab — tanpa cap, sid dianggap asing.
+const treeOf = (s, title = "T") => NS.stampTree(NM.buildMindData(s.parsed, { title }).nodeData, s.gen);
 
 test("planWrite: noop, write, overflow, unsafe", () => {
   const s = NS.createSession({ noteCid: "n1", baseContent: "# A\nisi\n# B\n", title: "T" });
-  const tree = () => JSON.parse(JSON.stringify(NM.buildMindData(s.parsed, { title: "T" }).nodeData));
+  const tree = () => treeOf(s);
   assert.deepEqual(NS.planWrite(s, tree()), { kind: "noop" });
   const t = tree(); t.children[1].topic = "B2";
   const w = NS.planWrite(s, t); assert.equal(w.kind, "write"); assert.equal(w.next.markdown, "# A\nisi\n# B2\n");
   const u = NS.createSession({ noteCid: "n1", baseContent: "# A\nisi\n# B\n```\nbuka\n", title: "T" });
-  const ut = JSON.parse(JSON.stringify(NM.buildMindData(u.parsed, { title: "T" }).nodeData)); ut.children.reverse();
+  const ut = treeOf(u); ut.children.reverse();
   assert.equal(NS.planWrite(u, ut).kind, "unsafe");
 });
 
@@ -46,7 +47,7 @@ test("planWrite: reload on stale parse / bad tree / throw (R17)", () => {
 
 test("planWrite: placeholder root keeps session title; root rename changes title; does not mutate input", () => {
   const s = NS.createSession({ noteCid: "n1", baseContent: "# A\n", title: "" });
-  const t = JSON.parse(JSON.stringify(NM.buildMindData(s.parsed, { title: "" }).nodeData));
+  const t = treeOf(s, "");
   assert.deepEqual(NS.planWrite(s, t), { kind: "noop" });
   const s2 = NS.createSession({ noteCid: "n1", baseContent: "# A\n", title: "Judul" });
   const t2 = treeOf(s2, "Judul"); t2.topic = "Baru";
@@ -173,4 +174,64 @@ test("viewStateFrom: touched (R18) only on a fold change, then kept", () => {
   const kept = NS.viewStateFrom({ nodeData: treeOf(s), direction: 0 }, s.parsed, Object.assign({}, prev, { touched: 1 }));
   assert.equal(kept.viewState.touched, 1);
   assert.deepEqual(kept.viewState.collapsed, []);
+});
+
+// Final review C (item 2): generasi sesi — tiap muat ulang / rebase / tulisan menghasilkan gen baru.
+test("gen: createSession, rebase, commitWrite, undoStep and redoStep each produce a new unique gen", () => {
+  const s0 = NS.createSession({ noteCid: "n1", baseContent: "# A\n", title: "T" });
+  const s0b = NS.createSession({ noteCid: "n1", baseContent: "# A\n", title: "T" });
+  assert.equal(typeof s0.gen, "string");
+  assert.ok(s0.gen.length >= 8);
+  assert.notEqual(s0.gen, s0b.gen, "dua sesi untuk catatan yang sama tetap berbeda gen");
+  const r = NS.rebase(s0, { baseContent: "# A\n", title: "T" });
+  const c = NS.commitWrite(r, { markdown: "# B\n", title: "T" });
+  const u = NS.undoStep(c, "# B\n").session;
+  const d = NS.redoStep(u, "# A\n").session;
+  const gens = [s0.gen, s0b.gen, r.gen, c.gen, u.gen, d.gen];
+  assert.equal(new Set(gens).size, gens.length);
+});
+
+// Final review C (item 3): sid asing dari tempel (peta/sesi lain) = node baru tanpa isi.
+const stamped = (s, title = "T") => NS.stampTree(NM.buildMindData(s.parsed, { title }).nodeData, s.gen);
+
+test("stampTree stamps nm.ns with the gen on every node with nm and does not mutate its input", () => {
+  const s = NS.createSession({ noteCid: "n1", baseContent: "# A\n## B\n", title: "T" });
+  const raw = NM.buildMindData(s.parsed, { title: "T" }).nodeData;
+  const before = JSON.stringify(raw);
+  const t = NS.stampTree(raw, s.gen);
+  assert.equal(JSON.stringify(raw), before);
+  assert.equal(t.nm.ns, s.gen);
+  assert.equal(t.children[0].nm.ns, s.gen);
+  assert.equal(t.children[0].children[0].nm.ns, s.gen);
+  assert.equal(t.children[0].children[0].nm.sid, "s1");
+});
+
+test("planWrite: a pasted node with a foreign sid becomes a new empty heading (spec §9)", () => {
+  const s = NS.createSession({ noteCid: "n1", baseContent: "# P\np body\n# Q\nq body\n", title: "T" });
+  const t = stamped(s);
+  t.children[0].children.push({ id: "pasted", topic: "Dari peta lain", nm: { sid: "s1" }, children: [] });
+  const w = NS.planWrite(s, t);
+  assert.equal(w.kind, "write");
+  assert.equal(w.next.markdown, "# P\np body\n\n## Dari peta lain\n# Q\nq body\n");
+  assert.equal(w.removed.count, 0);
+  // ns dari sesi lain (mis. tab/peta lain) juga asing
+  const t2 = stamped(s);
+  t2.children[0].children.push({ id: "p2", topic: "Lain", nm: { sid: "s1", ns: "gen-lain" }, children: [] });
+  assert.equal(NS.planWrite(s, t2).next.markdown, "# P\np body\n\n## Lain\n# Q\nq body\n");
+  // ns dari generasi lama sesi yang sama (sebelum tulisan) juga asing
+  const old = stamped(s);
+  const s2 = NS.commitWrite(s, { markdown: "# Q\nq body\n# P\np body\n", title: "T" });
+  const t3 = stamped(s2);
+  t3.children[1].children.push(Object.assign(old.children[0], { id: "p3", children: [] }));
+  assert.equal(NS.planWrite(s2, t3).next.markdown, "# Q\nq body\n# P\np body\n\n## P\n");
+});
+
+test("planWrite: a copy made in the current session still duplicates the body; unstamped nodes are foreign", () => {
+  const s = NS.createSession({ noteCid: "n1", baseContent: "# P\np body\n# Q\nq body\n", title: "T" });
+  const t = stamped(s);
+  t.children[0].children.push(Object.assign(JSON.parse(JSON.stringify(t.children[1])), { id: "copy" }));
+  assert.equal(NS.planWrite(s, t).next.markdown, "# P\np body\n## Q\nq body\n# Q\nq body\n");
+  const raw = JSON.parse(JSON.stringify(NM.buildMindData(s.parsed, { title: "T" }).nodeData));
+  raw.children.reverse();
+  assert.equal(NS.planWrite(s, raw).next.markdown, "# Q\n\n# P\n", "tanpa ns: tidak memetakan isi");
 });

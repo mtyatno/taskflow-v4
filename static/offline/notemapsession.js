@@ -22,6 +22,17 @@
 
   const kids = (n) => (n && Array.isArray(n.children) ? n.children : []);
 
+  // Generasi sesi: sid node (nm.sid = "s"+indeks) POSISIONAL terhadap `parsed` sesi saat
+  // pohon dibangun. Tiap muat ulang / rebase / tulisan menghasilkan gen baru; pohon dan
+  // pesan iframe membawa gen-nya, jadi sid dari versi catatan lain bisa dikenali dan
+  // tidak pernah dipetakan ke bagian yang salah. Acak (bukan penghitung): papan klip
+  // bisa membawa node dari tab/jendela lain yang penghitungnya mulai dari nol juga.
+  function newGen() {
+    const c = root && root.crypto;
+    if (c && typeof c.randomUUID === "function") return c.randomUUID();
+    return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  }
+
   function createSession(o) {
     const baseContent = String(o.baseContent == null ? "" : o.baseContent);
     return {
@@ -29,9 +40,33 @@
       baseContent,
       title: o.title == null ? "" : String(o.title),
       parsed: NM().parseNote(baseContent),
+      gen: newGen(),
       undo: [],
       redo: [],
     };
+  }
+
+  // Salinan pohon dengan nm.ns = gen pada tiap node yang punya nm (asal sid-nya).
+  function stampTree(nodeData, gen) {
+    const walk = (n) => {
+      if (!n || typeof n !== "object") return n;
+      const out = Object.assign({}, n);
+      if (n.nm && typeof n.nm === "object") out.nm = Object.assign({}, n.nm, { ns: gen });
+      if (Array.isArray(n.children)) out.children = n.children.map(walk);
+      return out;
+    };
+    return walk(JSON.parse(JSON.stringify(nodeData)));
+  }
+
+  // Sid yang bukan milik generasi sesi ini (tempel dari peta/sesi lain, salinan dari
+  // generasi lama, node tanpa ns) dibuang → applyMindData menulisnya sebagai heading baru.
+  function dropForeignSids(tree, gen) {
+    const walk = (n) => {
+      if (n && n.nm && typeof n.nm === "object" && n.nm.sid != null && n.nm.ns !== gen) delete n.nm.sid;
+      kids(n).forEach(walk);
+    };
+    kids(tree).forEach(walk);
+    return tree;
   }
 
   // Isi catatan berubah dari luar peta: bangun ulang dari isi terbaru, riwayat
@@ -57,7 +92,7 @@
     let tree;
     let r;
     try {
-      tree = JSON.parse(JSON.stringify(edited));
+      tree = dropForeignSids(JSON.parse(JSON.stringify(edited)), session.gen);
       r = nm.applyMindData(session.baseContent, session.parsed, tree);
     } catch (_) {
       return { kind: "reload" };
@@ -77,6 +112,7 @@
       baseContent: next.markdown,
       title: next.title,
       parsed: NM().parseNote(next.markdown),
+      gen: newGen(),
       undo,
       redo,
     });
@@ -156,5 +192,5 @@
     return { viewState, changed };
   }
 
-  return { createSession, rebase, planWrite, commitWrite, undoStep, redoStep, remapSids, viewStateFrom };
+  return { createSession, rebase, stampTree, planWrite, commitWrite, undoStep, redoStep, remapSids, viewStateFrom };
 });
