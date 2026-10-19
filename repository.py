@@ -1275,6 +1275,17 @@ class TaskRepository:
                     )
             except sqlite3.OperationalError:
                 pass  # tabel/kolom mindmaps belum dimigrasi
+            # Drawing milik workspace: kembali pribadi (FK SET NULL tidak mem-bump updated_at, pull klien butuh bump).
+            try:
+                if conn.execute(
+                    "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
+                ).fetchone():
+                    conn.execute(
+                        "UPDATE drawings SET list_id = NULL, updated_at = ? WHERE list_id = ?",
+                        (datetime.now(_TZ_JKT).isoformat(), list_id),
+                    )
+            except sqlite3.OperationalError:
+                pass  # kolom drawings.list_id belum dimigrasi
             cur = conn.execute(
                 "DELETE FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
             )
