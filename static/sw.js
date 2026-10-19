@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v421-mindmap-trash";
+const CACHE = "taskflow-v422-mindmap-live";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -47,6 +47,7 @@ const STATIC = [
   "/static/offline/notemapsession.js",
   "/static/offline/mindmaptabs.js",
   "/static/offline/mindmapjustify.js",
+  "/static/offline/mindmapmerge.js",
   "/static/offline/mindmaprepo.js",
   "/static/offline/mindmaproutes.js",
   "/static/offline/chatrepo.js",

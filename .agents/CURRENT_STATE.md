@@ -3,12 +3,18 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+## 🟠 Temuan mindmap #4 — PR B `claude/mindmap-findings-b` — 2026-10-19 (Claude) — SIAP DRAFT PR, TUNGGU REVIEW AKHIR + "MERGE DAN DEPLOY"
+- **Status:** B1–B6 selesai di branch (dibangun di atas PR A, ruling R3). **PR #44 (PR A) harus di-merge lebih dulu**; setelah itu branch ini merge `origin/main` lalu cek ulang versi SW. SW **v422** `taskflow-v422-mindmap-live`; iframe mind-elixir `?v=145` (`mindmapops.js?v=7` di iframe); `app.css` tidak berubah (`?v=334`). **Deploy wajib `sudo systemctl restart taskflow-web`** (endpoint `GET /api/mindmaps/{mid}/stream` + broadcast di `webapp.py`). ADR-014. Push + draft PR dibuka controller setelah review akhir.
+- **Isi:** merge tiga arah per node di klien `static/offline/mindmapmerge.js` (push 409, pull, router lokal `base_data_json`; konflik field sama di node sama → versi server + salinan "(konflik)" + notice `merge_conflict`); SSE sinyal saja (`mindmap_changed`/`mindmap_deleted`/`mindmap_access_lost`) + `pullMindmapOne`; `static/offline/mindmaplive.js` + `remoteUpdate` iframe (dilewati saat mengetik), "🟢 Langsung"; stream hanya untuk tab mindmap aktif; undo dikosongkan setelah pembaruan jarak jauh; salinan konflik dipakai ulang per `session_id` tab; peta tertaut tidak di-merge/tidak berlangganan.
+- **Verifikasi:** pytest 388, JS 1705/1706 (pra-ada `draw_local_reactive`), inline OK, E2E `temporary_files/e2e_mindmap_live.py` 37/38 (gagal: 2f toast konflik — lihat sisa).
+- **Sisa diketahui:** (1) Bentrok node yang sama lewat jalur push 409/pull hanya memberi notice + salinan, **tanpa toast** (toast hanya di jalur router lokal), dan notice menyebut "Pengguna lain" (push 409 tidak membawa nama editor). (2) Kanvas menerima `load` lagi ±1 s setelah tab peta bersama dibuka (muat awal/kejar ketinggalan) — klik/edit node pada detik pertama bisa tersapu. (3) Tab latar belakang tidak live sampai diaktifkan (mengejar saat aktif); setelah 8 kegagalan sambung stream berhenti sampai online/aktivasi tab.
+
 ## 🟠 Temuan mindmap #3 #5–#8 — PR A `claude/mindmap-findings-a` — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
 - **Status:** A1–A9 selesai di branch (sudah merge `origin/main` termasuk PR #43). SW **v421** `taskflow-v421-mindmap-trash`; iframe mind-elixir `?v=144`; `app.css` tidak berubah (`?v=334`). **Deploy wajib `sudo systemctl restart taskflow-web`** (migrasi `trashed_mindmaps`, `mindmap_pins`, kolom `mindmaps.search_text` + backfill). ADR-013.
 - **Isi:** #5 Sampah mindmap (snapshot, pulihkan id sama, purge 30 hari, tab "Mindmap" di modal Sampah + tombol "🗑 Sampah" di sidebar, offline: cermin `_meta` + op `restore`, `static/offline/mindmaptrash.js`, SW network-only `/api/mindmaps/trash…`); #6 ekspor `mindmaps/*.json|.md`; #7 `search_text` + snippet + `client_id` di `/api/search`; #8 pin pribadi `mindmap_pins`, badge 👥, filter "Semua peta / Pribadi / 👥 W"; #3 kartu link hidup `static/offline/mindmaplinks.js` (kanvas + Outline).
 - **Verifikasi:** pytest 376, JS 1617/1618 (pra-ada `draw_local_reactive`), inline OK, E2E `temporary_files/e2e_mindmap_findings_a.py` 29/29.
 - **Sisa diketahui:** Outline: klik pertama badge 🔗 pada baris yang belum aktif hanya mengaktifkan baris (tombol aksi muncul, badge bergeser) — perilaku lama, bukan dari PR A. Kartu hidup ikut berubah pada event lokal dan setiap sinkron task (`tf:projects-changed`, review akhir).
-- **Berikutnya:** PR B `claude/mindmap-findings-b` (#4 kolaborasi langsung SSE + merge per node) setelah PR A di-merge.
+- **Berikutnya:** PR B `claude/mindmap-findings-b` (#4) sudah siap — lihat seksi PR B di atas; PR A harus di-merge dulu.
 
 ## 🟠 Drawing milik workspace — PR 2 backend — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
 - **Status:** branch `claude/drawing-workspace-backend` (draft PR). Backend saja, **tanpa** kenaikan SW. Setelah deploy: **restart `taskflow-web` dan `taskflow`** (`repository.py` berubah). `migrate_db` menambah kolom + backfill sekali jalan.
@@ -54,7 +60,7 @@
   1. **[DIPERBAIKI — PR #38, di-merge]** Link quick-create di Outline (`LinkPickerModal` → `api.post` lokal) menyimpan cid; pull task/mindmap membuat cid baru (`syncpull.js` `ensureCid` / `ensureMindmapCid`) → link mati di perangkat lain. Note aman (pull memakai `client_id` sebagai cid). Dibuktikan probe node.
   2. **[DIPERBAIKI — PR #39, di-merge]** Picker link di iframe kanvas memakai `fetch` mentah (`/api/search`, POST scratchpad/tasks/mindmaps) → tidak jalan offline, item baru belum ada di IndexedDB sampai sync berikutnya, APK tanpa `API_BASE`.
   3. **[DIKERJAKAN — PR A draft `claude/mindmap-findings-a`]** Kartu link node = snapshot (judul/prioritas/deadline/status saat ditautkan), tidak ikut berubah.
-  4. **[PENDING — PR B `claude/mindmap-findings-b`]** Kolaborasi mindmap bersama tidak real-time (sync 30 detik; edit bersamaan → salinan konflik seluruh peta).
+  4. **[DIKERJAKAN — PR B `claude/mindmap-findings-b`, setelah PR #44]** Kolaborasi mindmap bersama tidak real-time (sync 30 detik; edit bersamaan → salinan konflik seluruh peta).
   5. **[DIKERJAKAN — PR A draft `claude/mindmap-findings-a`]** Hapus mindmap = hard delete (tanpa Sampah/riwayat).
   6. **[DIKERJAKAN — PR A draft `claude/mindmap-findings-a`]** Mindmap tidak ikut `/api/export/download`.
   7. **[DIKERJAKAN — PR A draft `claude/mindmap-findings-a`]** Global search `data_json LIKE` cocok ke kunci JSON ("topic", "children"); hasil hanya judul.

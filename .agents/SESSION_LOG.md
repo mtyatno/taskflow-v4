@@ -3452,3 +3452,10 @@
 - **Verifikasi:** pytest 376, JS 1617/1618 (pra-ada `draw_local_reactive`), inline OK, E2E 29/29 (hapus→Sampah→pulihkan id sama + link node, pin anggota, 👥 + filter, cari snippet / "children", kartu hidup kanvas+Outline, ekspor `mindmaps/`, hapus+pulihkan offline lalu sinkron).
 - **Files Touch:** `static/{index.html,sw.js}`, `webapp.py` (`sw_cache`), `tests/**` (versi SW), `temporary_files/e2e_mindmap_findings_a.py`, `.agents/*`
 - **Status:** Needs Review (draft PR oleh controller; deploy butuh `sudo systemctl restart taskflow-web`).
+
+## [2026-10-19 18:32] - Claude (PR B temuan mindmap #4 — rilis B6)
+- **Task:** Task B6 rencana `docs/superpowers/plans/2026-10-19-mindmap-findings-3-8.md`: wiring rilis PR B.
+- **Changes:** tag `<script>` `mindmapmerge.js` sebelum `mindmaprepo.js` + precache SW (tanpa ini jalur merge di browser mati); SW `taskflow-v422-mindmap-live` di semua tempat (sw.js, `__SW_VERSION` + fallback About, `webapp.py` `sw_cache`, `tests/test_version.py`, 14 tes JS); iframe `?v=145`; `app.css` tidak berubah; tes urutan tag/precache di `tests/offline/mindmap_live_ui.test.js`; ADR-014; E2E Playwright dua context `temporary_files/e2e_mindmap_live.py` (7 skenario, screenshot `temporary_files/e2e_mindmap_live/`).
+- **Verifikasi:** pytest 388, JS 1705/1706 (pra-ada `draw_local_reactive`), inline OK, border-left hanya di teks docs rencana/spec (sama seperti PR A), E2E 37/38 — gagal 2f: bentrok node sama lewat push 409 hanya notice + salinan, tanpa toast.
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py` (`sw_cache`), `tests/**` (versi SW + tes tag), `temporary_files/e2e_mindmap_live.py`, `.agents/*`
+- **Status:** Needs Review (review akhir + draft PR oleh controller; PR #44 harus merge dulu; deploy butuh `sudo systemctl restart taskflow-web`).

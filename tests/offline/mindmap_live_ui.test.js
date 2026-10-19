@@ -94,6 +94,17 @@ test("index.html loads mindmaplive.js and the SW precaches it", () => {
   assert.match(sw, /"\/static\/offline\/mindmaplive\.js"/);
 });
 
+test("index.html loads mindmapmerge.js before mindmaprepo.js and the SW precaches it", () => {
+  const tag = '<script src="/static/offline/mindmapmerge.js"></script>';
+  const repoTag = '<script src="/static/offline/mindmaprepo.js"></script>';
+  const i = html.indexOf(tag);
+  assert.ok(i !== -1, "tag script mindmapmerge.js harus ada");
+  assert.ok(html.indexOf(repoTag) !== -1, "tag script mindmaprepo.js harus ada");
+  assert.ok(i < html.indexOf(repoTag), "mindmapmerge.js harus dimuat sebelum mindmaprepo.js");
+  assert.match(sw, /"\/static\/offline\/mindmapmerge\.js"/);
+  assert.ok(sw.indexOf('"/static/offline/mindmapmerge.js"') < sw.indexOf('"/static/offline/mindmaprepo.js"'));
+});
+
 // ── Helper TF.mindmaplive ──────────────────────────────────────────
 
 const ref = (v) => ({ current: v });

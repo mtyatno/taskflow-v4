@@ -287,6 +287,7 @@
   <script src="/static/offline/notemapsession.js"></script>
   <script src="/static/offline/mindmaptabs.js"></script>
   <script src="/static/offline/mindmapjustify.js"></script>
+  <script src="/static/offline/mindmapmerge.js"></script>
   <script src="/static/offline/mindmaprepo.js"></script>
   <script src="/static/offline/mindmaproutes.js"></script>
   <script src="/static/offline/chatrepo.js"></script>
@@ -10940,7 +10941,7 @@ function MindmapTabInstance({
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
-    src: "/static/vendor/mind-elixir/index.html?v=144",
+    src: "/static/vendor/mind-elixir/index.html?v=145",
     style: { flex: 1, border: "none", width: "100%" },
     title: "Mindmap editor"
   })), /*#__PURE__*/React.createElement("div", {
@@ -20658,7 +20659,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v421-mindmap-trash"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v422-mindmap-live"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -34320,7 +34321,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v421-mindmap-trash";
+    window.__SW_VERSION = "taskflow-v422-mindmap-live";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
