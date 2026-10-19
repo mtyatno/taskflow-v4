@@ -46,7 +46,20 @@
     return tabs.map(t => (t.id === mindmapId ? { ...t, title: newTitle } : t));
   }
 
+  function filterSidebar(list, opts) {
+    const q = String((opts && opts.q) || '').trim().toLowerCase();
+    const filter = opts ? opts.filter : null;
+    return (Array.isArray(list) ? list : []).filter(m => {
+      if (!m) return false;
+      if (q && !String(m.title == null ? '' : m.title).toLowerCase().includes(q)) return false;
+      if (filter == null) return true;
+      if (filter === 'personal') return m.list_id == null;
+      return String(m.list_id) === String(filter);
+    });
+  }
+
   return {
+    filterSidebar,
     openTab,
     closeTab,
     updateTabTitle

@@ -188,7 +188,7 @@ test("export surface is complete", () => {
     "moveNode", "moveSibling", "moveInto", "indentNode", "outdentNode", "toggleExpand",
     "expandAll", "collapseAll", "cloneSubtree", "insertSubtree", "searchNodes", "ancestorsOf",
     "renderTopicMd", "sanitizeHrefs", "wrapSelection", "prefixLines", "insertBlock", "setNodeAlign",
-    "addNodeLink", "removeNodeLink", "localLinkSearch", "searchLinkTargets",
+    "addNodeLink", "removeNodeLink", "localLinkSearch", "searchLinkTargets", "filterExistingTargets",
   ].sort();
   assert.deepEqual(Object.keys(MO).sort(), expected);
 });
