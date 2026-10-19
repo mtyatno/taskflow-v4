@@ -352,13 +352,13 @@ test("6. static/index.html includes clearLocalUserData, OfflineDB.clearAll, and 
   assert.match(html, /const handleLogin = async data =>\s*\{[\s\S]*?sameUser[\s\S]*?window\.__syncNow\?\.\(\)/);
 });
 
-test("7. Service Worker cache version is taskflow-v418-canvas-linkpicker", () => {
+test("7. Service Worker cache version is taskflow-v419-project-scope", () => {
   const sw = fs.readFileSync(swPath, "utf8");
   const html = fs.readFileSync(htmlPath, "utf8");
   const webapp = fs.readFileSync(webappPath, "utf8");
 
-  assert.match(sw, /^const CACHE = "taskflow-v418-canvas-linkpicker";/m, "sw.js CACHE must be v401");
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v418-canvas-linkpicker";/, "index.html fallback SW version must be v401");
-  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v418-canvas-linkpicker"/, "index.html About modal SW version fallback must be v401");
-  assert.match(webapp, /sw_cache = "taskflow-v418-canvas-linkpicker"/, "webapp.py sw_cache must be v401");
+  assert.match(sw, /^const CACHE = "taskflow-v419-project-scope";/m, "sw.js CACHE must be v401");
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v419-project-scope";/, "index.html fallback SW version must be v401");
+  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v419-project-scope"/, "index.html About modal SW version fallback must be v401");
+  assert.match(webapp, /sw_cache = "taskflow-v419-project-scope"/, "webapp.py sw_cache must be v401");
 });

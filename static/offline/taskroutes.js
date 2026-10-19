@@ -22,6 +22,7 @@
   const TFdrawingroutes = req("./drawingroutes.js", root.TF && root.TF.drawingroutes);
   const TFmindmaproutes = req("./mindmaproutes.js", root.TF && root.TF.mindmaproutes);
   const TFchatroutes = req("./chatroutes.js", root.TF && root.TF.chatroutes);
+  const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
 
   function todayISO() {
     const n = new Date();
@@ -180,7 +181,17 @@
       }));
 
     router.register("GET", "/api/summary", () => TFquery.getSummary(opts()));
-    router.register("GET", "/api/projects", () => TFquery.getProjects());
+    // PR 5: tanpa query → string[] pribadi (pemanggil lama); ?list_id=W → nama di W; ?format=full → item cache
+    // (tanpa list_id = pribadi). POST/PATCH/DELETE /api/projects sengaja tidak lokal (butuh jaringan).
+    router.register("GET", "/api/projects", ({ query }) => {
+      const q = query || {};
+      const listId = (q.list_id != null && q.list_id !== "") ? q.list_id : null;
+      if (q.format === "full") {
+        const ia = q.include_archived;
+        return TFprojects.list(listId, { includeArchived: ia === "1" || ia === "true" });
+      }
+      return TFprojects.names(listId);
+    });
     router.register("GET", "/api/contexts", () => TFquery.getContexts());
 
     router.register("GET", "/api/tasks/:id/tags", ({ params }) =>

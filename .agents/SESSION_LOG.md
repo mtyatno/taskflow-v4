@@ -3418,3 +3418,10 @@
 - **Changes:** tombol "+ Tambah link" di iframe kanvas kini mengirim `requestLinkPicker {nodeId, links}` ke induk → `LinkPickerModal` (quick-create lokal-first, langsung ada di IndexedDB, idempoten, jalan offline/APK); picker lama iframe (fetch mentah, `tf_token`, innerHTML) dihapus; `LinkPickerModal` mencari lewat `searchLinkTargets` (online `/api/search`, offline/gagal → pencarian lokal task/catatan/mindmap); iframe `?v=143`; SW v418.
 - **Files Touch:** `static/vendor/mind-elixir/index.html`, `static/index.html`, `static/offline/mindmapoutline.js`, `tests/offline/mindmap_canvas_linkpicker.test.js`, versi SW, `.agents/*`
 - **Status:** PR draft. JS 1471/1472 (pra-ada `draw_local_reactive`), pytest 299/299, Playwright 16/16. Bentrok versi SW dengan PR #38 (v417) — PR yang di-merge kedua perlu merge main + naik versi.
+## [2026-10-19 16:30] - Claude (PR 5: project per scope di aplikasi)
+- **Task:** Bapak menyetujui rencana PR 5 (`docs/superpowers/plans/2026-10-19-project-entities-ui.md`).
+- **Changes:** SDD 6 task (backend scope=all; cache offline; form; tampilan; kelola; SW v419 + E2E). Review akhir → perbaikan `project_ref_name` (perangkat basi), "Assign ke" di baris cepat, `{network:true}` lewati cache SW, kanban lewat `onUpdateTask`, E2E tunggu nyata. ADR-011; spec §5.3/§5.7 diperbarui.
+- **Verifikasi:** pytest 307, JS 1520/1521, E2E 20/20.
+- **Files Touch:** `webapp.py`, `static/{index.html,sw.js,app.css}`, `static/offline/{projectcache,taskroutes,taskrepo,hydrate,syncpush,syncpull,taskquery}.js`, `tests/**`, `temporary_files/e2e_project_scope*`, `docs/**`, `.agents/*`
+- **Status:** Needs Review (draft PR, tunggu "merge dan deploy"; restart `taskflow-web`).
+

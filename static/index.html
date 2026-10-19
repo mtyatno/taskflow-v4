@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=333">
+  <link rel="stylesheet" href="/static/app.css?v=334">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -263,6 +263,7 @@
   <script src="/static/offline/tagrepo.js"></script>
   <script src="/static/offline/taskrepo.js"></script>
   <script src="/static/offline/taskquery.js"></script>
+  <script src="/static/offline/projectcache.js"></script>
   <script src="/static/offline/recurrence.js"></script>
   <script src="/static/offline/habitlogic.js"></script>
   <script src="/static/offline/habitrepo.js"></script>
@@ -605,8 +606,9 @@ async function downloadBackup() {
 const api = {
   async fetch(url, opts = {}) {
     // ── Offline local-first intercept (TF.taskroutes) ──
+    // opts.network: true → langsung ke server (lewati router lokal), mis. modal Kelola project
     const _R = window.TF && window.TF.taskroutes;
-    if (_R) {
+    if (_R && !opts.network) {
       let _router = null;
       try { _router = api._localRouter || (api._localRouter = _R.buildTaskRouter()); } catch (_) { _router = null; }
       if (_router) {
@@ -635,11 +637,14 @@ const api = {
       "Content-Type": "application/json",
       ...(opts.headers || {})
     };
+    // network:true juga melewati cache SW (network-first + fallback cache untuk GET /api/*): X-TF-Sync →
+    // SW network-only, respons tidak masuk Cache Storage dan tidak pernah dibaca dari sana (data kelola segar).
+    if (opts.network) headers["X-TF-Sync"] = "1";
     if (__tabReloading) throw new TypeError("Failed to fetch (tab reloading)");
     // token yang benar-benar dikirim request ini (401 dilaporkan dengan token ini, bukan token terkini)
     const reqToken = __token;
     if (reqToken) headers["Authorization"] = "Bearer " + reqToken;
-    const { __authRetried, ...fetchOpts } = opts;
+    const { __authRetried, network: _network, ...fetchOpts } = opts;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
@@ -655,7 +660,7 @@ const api = {
         // langsung return bila token kosong → sesi "zombie".)
         // Tab lain sudah login / token diperpanjang → token baru diadopsi, ulangi SEKALI (tanpa form login).
         const adopted = typeof window.__handleAuthExpired === "function" ? window.__handleAuthExpired(reqToken) : false;
-        if (adopted === true && !__authRetried) return api.fetch(url, { ...fetchOpts, __authRetried: true });
+        if (adopted === true && !__authRetried) return api.fetch(url, { ...fetchOpts, network: _network, __authRetried: true });
         const e401 = new Error("Unauthorized");
         e401.status = 401;
         throw e401;
@@ -683,7 +688,7 @@ const api = {
       throw err;
     }
   },
-  get: url => api.fetch(url),
+  get: (url, opts) => api.fetch(url, opts),
   post: (url, body) => api.fetch(url, {
     method: "POST",
     body: JSON.stringify(body)
@@ -969,7 +974,11 @@ function sync() {
   // __syncTransport) dengan token yang dipakai; laporan kedua tanpa token akan menghapus token yang baru diadopsi.
   const stepFailed = () => null;
   const step = (fn) => Promise.resolve().then(fn).catch(stepFailed);
-  const pending = runSyncExclusive(() => { __syncPending = null; return window.TF.syncpull.pullAndReconcile(__syncRawFetch).catch(stepFailed)
+  const pending = runSyncExclusive(() => { __syncPending = null; return window.TF.syncpull.pullAndReconcile(__syncRawFetch).then((res) => {
+      // PR 5: pull task sukses → cache project sudah disegarkan (syncpull) → dropdown & sidebar memuat ulang
+      window.dispatchEvent(new CustomEvent("tf:projects-changed", { detail: { source: "sync" } }));
+      return res;
+    }).catch(stepFailed)
     // T8: penanda occurrence task berulang (jendela ±60 hari) — setelah tasks supaya idmap task sudah terisi
     .then(() => step(() => (window.TF.syncpull.pullRecurringExceptions ? window.TF.syncpull.pullRecurringExceptions(__syncRawFetch) : null)))
     .then(() => step(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null)))
@@ -2453,7 +2462,8 @@ function Sidebar({
   tasks,
   collapsed,
   onToggleCollapse,
-  sharedLists
+  sharedLists,
+  onManageProjects
 }) {
   const [hiddenSections, setHiddenSections] = useState({});
   const toggleSection = name => setHiddenSections(s => ({
@@ -2461,11 +2471,8 @@ function Sidebar({
     [name]: !s[name]
   }));
 
-  // Count tasks per project
-  const projCounts = {};
-  (projects || []).forEach(p => {
-    projCounts[p] = (tasks || []).filter(t => t.project === p && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
-  });
+  // Count tasks per project — hanya task pribadi (list_id kosong); project workspace tidak di sini
+  const projCounts = React.useMemo(() => sidebarProjectCounts(projects, tasks), [projects, tasks]);
 
   // Count today's focus tasks
   const todayCount = (tasks || []).filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused) && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
@@ -2539,12 +2546,13 @@ function Sidebar({
     if (_i !== -1) links.splice(_i + 1, 0, { id: "__review", icon: "list", label: "Review Mingguan" });
   }
 
-  // Dynamic project links
-  if (projects && projects.length > 0) {
+  // Dynamic project links — header tetap tampil bila bisa mengelola (project terarsip bisa diaktifkan lagi)
+  if (projects && projects.length > 0 || onManageProjects) {
     links.push({
-      section: "PROJECTS"
+      section: "PROJECTS",
+      onManage: onManageProjects
     });
-    projects.forEach(p => {
+    (projects || []).forEach(p => {
       links.push({
         id: `proj_${p}`,
         icon: "folder",
@@ -2633,11 +2641,37 @@ function Sidebar({
         }
       }, /*#__PURE__*/React.createElement("span", null, sName), /*#__PURE__*/React.createElement("span", {
         style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6
+        }
+      }, l.onManage && /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: "sidebar-section-action",
+        title: "Kelola project",
+        onClick: e => {
+          e.stopPropagation();
+          l.onManage();
+          onClose?.();
+        },
+        style: {
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          fontSize: 11,
+          color: "inherit",
+          opacity: 0.75,
+          padding: "2px 4px",
+          textTransform: "none",
+          letterSpacing: 0
+        }
+      }, "Kelola project"), /*#__PURE__*/React.createElement("span", {
+        style: {
           fontSize: 10,
           opacity: 0.6,
           marginRight: 4
         }
-      }, isHidden ? "▶" : "▼")));
+      }, isHidden ? "▶" : "▼"))));
     } else if (!hiddenSections[currentSection]) {
       items.push(/*#__PURE__*/React.createElement("div", {
         key: l.id,
@@ -3462,6 +3496,322 @@ function TaskDatePromptModal({ taskTitle, tasks = [], saving, onSkip, onConfirm,
     onClick: () => picked && onConfirm(picked)
   }, saving ? "Menyimpan..." : "Tambahkan"))));
 }
+// ── Scope project (Pribadi / workspace) ─────────────────────
+// Scope task: list_id terisi → workspace itu; kosong → pribadi. Nama project
+// dibandingkan NOCASE hanya untuk huruf ASCII (sama dengan SQLite).
+function projectAfterScopeChange(currentName, newScopeNames) {
+  const cur = currentName == null ? "" : String(currentName);
+  if (!cur) return "";
+  const fold = s => String(s == null ? "" : s).replace(/[A-Z]/g, c => c.toLowerCase());
+  const key = fold(cur);
+  return (newScopeNames || []).some(n => fold(n) === key) ? cur : "";
+}
+function projectScopeLabel(listId, sharedLists) {
+  if (listId == null || listId === "") return "Project · Pribadi";
+  const hit = (sharedLists || []).find(l => l && String(l.id) === String(listId));
+  return "Project · " + (hit && hit.name ? hit.name : "Workspace");
+}
+function projectScopeOptionLabel(list) {
+  return list ? "👥 " + list.name : "Pribadi";
+}
+// ── Tampilan project per scope (sidebar, filter proj_, grup, badge) ──
+// Kunci grup = (list_id ?? "p") + ":" + nama NOCASE → project pribadi "taskflow" dan
+// "taskflow" di workspace W tidak pernah tercampur.
+function projectNameFold(s) {
+  return String(s == null ? "" : s).replace(/[A-Z]/g, c => c.toLowerCase());
+}
+function projectCompare(a, b) {
+  const fa = projectNameFold(a), fb = projectNameFold(b);
+  return fa < fb ? -1 : fa > fb ? 1 : 0;
+}
+function projectScopeOf(task) {
+  return !task || task.list_id == null || task.list_id === "" ? null : task.list_id;
+}
+function projectGroupKey(task) {
+  if (!task || !task.project) return null;
+  const scope = projectScopeOf(task);
+  return (scope == null ? "p" : String(scope)) + ":" + projectNameFold(task.project);
+}
+function projectWorkspaceBadge(listId, sharedLists) {
+  if (listId == null || listId === "") return null;
+  const hit = (sharedLists || []).find(l => l && String(l.id) === String(listId));
+  return "👥 " + (hit && hit.name ? hit.name : "Workspace");
+}
+function isPersonalProjectTask(task, name) {
+  return !!task && !!task.project && projectScopeOf(task) == null && projectNameFold(task.project) === projectNameFold(name);
+}
+// Satu lintasan: tiap task pribadi aktif dilipat sekali ke Map, lalu tiap project dicari.
+function sidebarProjectCounts(projects, tasks) {
+  const byName = new Map();
+  for (const t of tasks || []) {
+    if (!t || !t.project || projectScopeOf(t) != null || t.gtd_status === "done" || t.gtd_status === "archived") continue;
+    const k = projectNameFold(t.project);
+    byName.set(k, (byName.get(k) || 0) + 1);
+  }
+  const counts = {};
+  (projects || []).forEach(p => {
+    counts[p] = byName.get(projectNameFold(p)) || 0;
+  });
+  return counts;
+}
+// Drop kanban ke grup project: nama baru, atau null bila no-op (beda scope, atau nama sama NOCASE
+// sehingga kapitalisasi task tidak ditulis ulang).
+function projectDropTarget(task, meta) {
+  if (!task || !meta) return null;
+  if (String(meta.listId ?? "") !== String(projectScopeOf(task) ?? "")) return null;
+  if (task.project && projectNameFold(task.project) === projectNameFold(meta.value)) return null;
+  return meta.value;
+}
+function sameStringList(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+// Grup task per (scope, nama): [{ key, name, listId, badge, tasks }], urut nama NOCASE,
+// pribadi lebih dulu bila nama sama. Task tanpa project tidak masuk grup mana pun.
+function groupTasksByProject(tasks, sharedLists) {
+  const map = new Map();
+  for (const t of tasks || []) {
+    const key = projectGroupKey(t);
+    if (!key) continue;
+    let g = map.get(key);
+    if (!g) {
+      const listId = projectScopeOf(t);
+      g = { key, name: t.project, listId, badge: projectWorkspaceBadge(listId, sharedLists), tasks: [] };
+      map.set(key, g);
+    }
+    g.tasks.push(t);
+  }
+  return [...map.values()].sort((a, b) => projectCompare(a.name, b.name) || (a.listId == null ? 0 : 1) - (b.listId == null ? 0 : 1) || projectCompare(a.badge || "", b.badge || ""));
+}
+// Gabungan daftar nama project tanpa duplikat NOCASE, urut NOCASE.
+function mergeProjectNames(a, b) {
+  const seen = new Set();
+  const out = [];
+  for (const n of [...(a || []), ...(b || [])]) {
+    if (!n) continue;
+    const k = projectNameFold(n);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(n);
+  }
+  return out.sort(projectCompare);
+}
+function fetchScopeProjects(listId) {
+  return api.get(listId ? "/api/projects?list_id=" + encodeURIComponent(listId) : "/api/projects").then(r => Array.isArray(r) ? r : []);
+}
+window.projectAfterScopeChange = projectAfterScopeChange;
+window.projectScopeLabel = projectScopeLabel;
+// Daftar nama project untuk satu scope; muat ulang saat scope berubah atau saat
+// project dikelola (event "tf:projects-changed"). Gagal (offline) → daftar tetap.
+function useScopeProjects(listId) {
+  const [names, setNames] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    setNames([]);
+    const load = () => fetchScopeProjects(listId).then(r => {
+      if (alive) setNames(r);
+    }).catch(() => {});
+    load();
+    window.addEventListener("tf:projects-changed", load);
+    return () => {
+      alive = false;
+      window.removeEventListener("tf:projects-changed", load);
+    };
+  }, [listId]);
+  return names;
+}
+// Daftar workspace untuk label scope; pakai prop bila ada, selain itu /api/lists
+// (hanya bila task milik workspace).
+function useScopeLists(listId, sharedLists) {
+  const [lists, setLists] = useState(sharedLists || []);
+  const needFetch = !sharedLists && listId != null && listId !== "";
+  useEffect(() => {
+    if (!needFetch) return undefined;
+    let alive = true;
+    api.get("/api/lists").then(r => {
+      if (alive && Array.isArray(r)) setLists(r);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [needFetch, listId]);
+  return sharedLists || lists;
+}
+// ═══ Kelola project (online) ═══
+// Helper murni (dites di tests/offline/project_manager.test.js).
+const PROJECT_MANAGER_OFFLINE_TEXT = "Kelola project butuh koneksi internet";
+function projectManagerUrl(listId) {
+  const base = "/api/projects?format=full&include_archived=1";
+  return listId == null || listId === "" ? base : base + "&list_id=" + encodeURIComponent(listId);
+}
+// Baris untuk scope itu saja: aktif dulu lalu arsip, masing-masing urut nama NOCASE.
+function projectManagerRows(items, listId) {
+  const key = v => v == null || v === "" ? null : String(v);
+  const want = key(listId);
+  return (Array.isArray(items) ? items : []).filter(p => p && key(p.list_id) === want).sort((a, b) => (a.archived ? 1 : 0) - (b.archived ? 1 : 0) || projectCompare(a.name, b.name));
+}
+// Aksi per baris — hanya untuk yang boleh mengelola (server tetap menolak bila dipaksa).
+function projectManagerActions(p) {
+  if (!p || !p.can_manage) return [];
+  return ["rename", p.archived ? "unarchive" : "archive", "delete"];
+}
+// n = task_count (semua status — DELETE mengosongkan semuanya); server lama tanpa task_count → task aktif.
+function projectDeleteConfirmText(p) {
+  const n = p && p.task_count != null ? p.task_count : p && p.active_task_count || 0;
+  return "Hapus project «" + (p && p.name || "") + "»? " + n + " task akan kehilangan project-nya.";
+}
+function projectColorValid(c) {
+  return typeof c === "string" && /^#[0-9a-fA-F]{6}$/.test(c);
+}
+// Setelah aksi sukses: segarkan cache project, beri tahu dropdown/sidebar; rename/hapus mengubah
+// teks project task di server → tarik ulang task lewat jalur sync biasa.
+function projectManagerAfterChange(tasksChanged) {
+  const pc = window.TF && window.TF.projectcache;
+  const refreshed = pc && typeof pc.refresh === "function" && typeof window.__syncRawFetch === "function" ? Promise.resolve().then(() => pc.refresh(window.__syncRawFetch)).catch(() => {}) : Promise.resolve();
+  return refreshed.then(() => {
+    window.dispatchEvent(new CustomEvent("tf:projects-changed", { detail: { source: "manage" } }));
+    if (!tasksChanged) return null;
+    const synced = typeof window.__syncNow === "function" ? Promise.resolve().then(() => window.__syncNow()).catch(() => {}) : Promise.resolve();
+    return synced.then(() => {
+      // muat ulang task gagal ≠ aksi gagal (aksi sudah sukses di server)
+      try {
+        const r = typeof window.__refreshTasks === "function" ? window.__refreshTasks() : null;
+        if (r && typeof r.catch === "function") return r.catch(() => {});
+      } catch (_) {}
+      return null;
+    });
+  });
+}
+function ProjectManagerModal({
+  listId,
+  listName,
+  onClose,
+  showToast
+}) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState(null);
+  const [edit, setEdit] = useState(null); // { id, name, color }
+  const [rowError, setRowError] = useState(null); // { id, msg } — error aksi tampil di baris itu
+  const load = React.useCallback(() => {
+    if (!navigator.onLine) {
+      setError(PROJECT_MANAGER_OFFLINE_TEXT);
+      return Promise.resolve();
+    }
+    setError("");
+    return api.get(projectManagerUrl(listId), { network: true }).then(r => setRows(projectManagerRows(r, listId))).catch(err => {
+      setError(isOfflineErr(err) ? PROJECT_MANAGER_OFFLINE_TEXT : err && err.message || "Gagal memuat project");
+    });
+  }, [listId]);
+  useEffect(() => {
+    load();
+    const onOffline = () => setError(PROJECT_MANAGER_OFFLINE_TEXT);
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("online", load);
+    return () => {
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("online", load);
+    };
+  }, [load]);
+  // Escape: batal edit bila sedang edit, selain itu tutup modal
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key !== "Escape") return;
+      if (edit) {
+        setEdit(null);
+        setRowError(null);
+      } else onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [edit, onClose]);
+  const rowFail = (p, msg) => setRowError({ id: p.id, msg });
+  const run = (p, fn, okMsg, tasksChanged) => {
+    if (!navigator.onLine) {
+      rowFail(p, PROJECT_MANAGER_OFFLINE_TEXT);
+      return;
+    }
+    setBusyId(p.id);
+    setRowError(null);
+    Promise.resolve().then(fn).then(() => {
+      setEdit(null);
+      if (okMsg && showToast) showToast(okMsg);
+      projectManagerAfterChange(tasksChanged);
+      return load();
+    }).catch(err => {
+      rowFail(p, isOfflineErr(err) ? PROJECT_MANAGER_OFFLINE_TEXT : err && err.message || "Gagal menyimpan");
+    }).then(() => setBusyId(null));
+  };
+  const saveEdit = p => {
+    const name = (edit.name || "").trim();
+    const body = {};
+    if (!name) {
+      rowFail(p, "Nama project tidak boleh kosong");
+      return;
+    }
+    if (name !== p.name) body.name = name;
+    if (edit.color !== (p.color || "") ) {
+      if (!projectColorValid(edit.color)) {
+        rowFail(p, "Warna harus format #rrggbb");
+        return;
+      }
+      body.color = edit.color;
+    }
+    if (!Object.keys(body).length) {
+      setEdit(null);
+      return;
+    }
+    run(p, () => api.patch("/api/projects/" + encodeURIComponent(p.id), body), "Project disimpan", "name" in body);
+  };
+  const toggleArchive = p => run(p, () => api.patch("/api/projects/" + encodeURIComponent(p.id), { archived: !p.archived }), p.archived ? "Project diaktifkan" : "Project diarsipkan", false);
+  const remove = p => {
+    if (!confirm(projectDeleteConfirmText(p))) return;
+    run(p, () => api.del("/api/projects/" + encodeURIComponent(p.id)), "Project dihapus", true);
+  };
+  const h = React.createElement;
+  const swatch = c => h("span", {
+    "aria-hidden": "true",
+    style: { width: 14, height: 14, borderRadius: 4, flexShrink: 0, background: projectColorValid(c) ? c : "var(--border)" }
+  });
+  const renderRow = p => {
+    const actions = projectManagerActions(p);
+    const busy = busyId === p.id;
+    const errLine = rowError && rowError.id === p.id && h("div", { role: "alert", style: { flexBasis: "100%", fontSize: 12, color: "var(--danger, #dc2626)" } }, rowError.msg);
+    if (edit && edit.id === p.id) {
+      return h("div", { key: p.id, style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "10px 0", borderBottom: "1px solid var(--border)" } },
+        h("input", { type: "color", value: projectColorValid(edit.color) ? edit.color : "#888888", onChange: e => setEdit({ ...edit, color: e.target.value }), "aria-label": "Warna project", style: { width: 36, height: 32, padding: 0, border: "none", background: "none", cursor: "pointer" } }),
+        h("input", { className: "input", value: edit.color, onChange: e => setEdit({ ...edit, color: e.target.value }), placeholder: "#rrggbb", "aria-label": "Kode warna", maxLength: 7, style: { width: 96 } }),
+        h("input", { className: "input", value: edit.name, onChange: e => setEdit({ ...edit, name: e.target.value }), onKeyDown: e => { if (e.key === "Enter") saveEdit(p); }, "aria-label": "Nama project", autoFocus: true, style: { flex: "1 1 140px", minWidth: 0 } }),
+        h("button", { type: "button", className: "btn btn-sm btn-primary", disabled: busy, onClick: () => saveEdit(p) }, busy ? "Menyimpan..." : "Simpan"),
+        h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => { setEdit(null); setRowError(null); } }, "Batal"),
+        errLine);
+    }
+    return h("div", { key: p.id, style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "10px 0", borderBottom: "1px solid var(--border)", opacity: p.archived ? 0.65 : 1 } },
+      swatch(p.color),
+      h("div", { style: { flex: "1 1 140px", minWidth: 0 } },
+        h("div", { style: { fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, p.name),
+        h("div", { style: { fontSize: 12, color: "var(--text-light)" } }, (p.active_task_count || 0) + " task aktif", p.archived ? " · Diarsipkan" : "", projectColorValid(p.color) ? " · " + p.color : "")),
+      actions.includes("rename") && h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => { setRowError(null); setEdit({ id: p.id, name: p.name || "", color: p.color || "" }); } }, "Ubah"),
+      actions.includes("archive") && h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => toggleArchive(p) }, "Arsipkan"),
+      actions.includes("unarchive") && h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => toggleArchive(p) }, "Aktifkan"),
+      actions.includes("delete") && h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => remove(p), style: { color: "var(--danger, #dc2626)" } }, "Hapus"),
+      errLine);
+  };
+  const offline = error === PROJECT_MANAGER_OFFLINE_TEXT;
+  // Klik overlay saat edit terbuka diabaikan (jangan buang perubahan diam-diam)
+  return h("div", { className: "modal-overlay", onClick: () => {
+      if (!edit) onClose();
+    } },
+    h("div", { className: "modal-content scale-in", role: "dialog", "aria-modal": "true", "aria-label": "Kelola project", style: { maxWidth: 560, width: "calc(100% - 32px)", maxHeight: "85vh", overflowY: "auto" }, onClick: e => e.stopPropagation() },
+      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
+        h("div", null,
+          h("h2", { style: { fontSize: 18, fontWeight: 700 } }, "Kelola project"),
+          h("div", { style: { fontSize: 12, color: "var(--text-light)", marginTop: 2 } }, listId == null || listId === "" ? "Pribadi" : "👥 " + (listName || "Workspace"))),
+        h("button", { type: "button", onClick: onClose, "aria-label": "Tutup", style: { background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "var(--text-light)" } }, "✕")),
+      error && h("div", { role: offline ? "status" : "alert", style: { fontSize: 13, padding: "8px 12px", borderRadius: 8, marginBottom: 8, background: offline ? "var(--bg-primary)" : "rgba(220,38,38,0.08)", color: offline ? "var(--text-secondary, inherit)" : "var(--danger, #dc2626)" } }, error),
+      rows == null ? !offline && h("div", { style: { fontSize: 13, color: "var(--text-light)", padding: "12px 0" } }, "Memuat...") : rows.length === 0 ? h("div", { style: { fontSize: 13, color: "var(--text-light)", padding: "12px 0" } }, "Belum ada project") : h("div", null, rows.map(renderRow))));
+}
 function TaskFormModal({
   task,
   onSave,
@@ -3660,13 +4010,12 @@ function TaskFormModal({
     let count = 0;
     if (form.gtd_status && form.gtd_status !== 'inbox') count++;
     if (form.context && form.context.trim()) count++;
-    if (form.list_id) count++;
     if (recurringOn) count++;
     if (form.description && form.description.trim()) count++;
     if (pendingSubtasks.length > 0) count += pendingSubtasks.length;
     if (form.waiting_for && form.waiting_for.trim()) count++;
     return count;
-  }, [form.gtd_status, form.context, form.list_id, recurringOn, form.description, pendingSubtasks, form.waiting_for]);
+  }, [form.gtd_status, form.context, recurringOn, form.description, pendingSubtasks, form.waiting_for]);
   const [noteForm, setNoteForm] = useState({
     title: "",
     content: "",
@@ -3681,6 +4030,21 @@ function TaskFormModal({
     ...f,
     [k]: v
   }));
+  // Scope task (Pribadi / workspace) menentukan daftar project.
+  const scopeProjects = useScopeProjects(form.list_id);
+  const hasScopeChoice = !!(sharedLists && sharedLists.length > 0);
+  const changeScope = raw => {
+    const listId = raw ? parseInt(raw) : null;
+    setForm(f => ({
+      ...f,
+      list_id: listId,
+      assigned_to: null
+    }));
+    fetchScopeProjects(listId).then(names => setForm(f => f.list_id === listId ? {
+      ...f,
+      project: projectAfterScopeChange(f.project, names)
+    } : f)).catch(() => {});
+  };
   const [listMembers, setListMembers] = useState([]);
   const [mode, setMode] = useState("task");
   const [habitForm, setHabitForm] = useState({
@@ -4944,7 +5308,7 @@ function TaskFormModal({
       marginLeft: 6
     }
   }, t.count, "\xD7"))))), /*#__PURE__*/React.createElement("div", {
-    className: "task-quick-attributes"
+    className: "task-quick-attributes" + (!isEdit && hasScopeChoice ? " has-scope" : "")
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
   }, "Deadline"), /*#__PURE__*/React.createElement("input", {
@@ -4966,15 +5330,44 @@ function TaskFormModal({
     value: "P3"
   }, "\uD83D\uDFE1 P3 Medium"), /*#__PURE__*/React.createElement("option", {
     value: "P4"
-  }, "\uD83D\uDFE2 P4 Low"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+  }, "\uD83D\uDFE2 P4 Low"))), !isEdit && hasScopeChoice && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
-  }, "Project"), /*#__PURE__*/React.createElement(ComboSelect, {
+  }, "Scope"), /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    "aria-label": "Scope task",
+    value: form.list_id || "",
+    onChange: e => changeScope(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, projectScopeOptionLabel(null)), sharedLists.map(l => /*#__PURE__*/React.createElement("option", {
+    key: l.id,
+    value: l.id
+  }, projectScopeOptionLabel(l))))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "input-label"
+  }, projectScopeLabel(form.list_id, sharedLists)), /*#__PURE__*/React.createElement(ComboSelect, {
     value: form.project,
     onChange: v => set("project", v),
-    options: projects,
+    options: scopeProjects,
     placeholder: "\u2014 Pilih Project \u2014",
     icon: "\uD83D\uDCC1"
-  }))), !isEdit && /*#__PURE__*/React.createElement("button", {
+  })), form.list_id && /*#__PURE__*/React.createElement("div", {
+    className: "task-assign-field",
+    style: {
+      gridColumn: "1 / -1"
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "input-label"
+  }, "Assign ke"), /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    "aria-label": "Assign ke",
+    value: form.assigned_to || "",
+    onChange: e => set("assigned_to", e.target.value ? parseInt(e.target.value) : null)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014 Tidak ada \u2014"), listMembers.map(u => /*#__PURE__*/React.createElement("option", {
+    key: u.id,
+    value: u.id
+  }, u.display_name || u.username, " ", u.is_self ? "(Saya)" : `(@${u.username})`))))), !isEdit && /*#__PURE__*/React.createElement("button", {
     type: "button",
     onClick: () => setShowAdvanced(prev => !prev),
     className: "task-advanced-toggle"
@@ -5039,35 +5432,7 @@ function TaskFormModal({
     style: {
       marginBottom: 14
     }
-  })), !isEdit && sharedLists && sharedLists.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "Shared List (opsional)"), /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: form.list_id || "",
-    onChange: e => set("list_id", e.target.value ? parseInt(e.target.value) : null),
-    style: {
-      marginBottom: 14
-    }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "\u2014 Personal (tidak di-share) \u2014"), sharedLists.map(l => /*#__PURE__*/React.createElement("option", {
-    key: l.id,
-    value: l.id
-  }, l.role === "owner" ? "📋" : "👥", " ", l.name)))), form.list_id && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "Assign ke"), /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: form.assigned_to || "",
-    onChange: e => set("assigned_to", e.target.value ? parseInt(e.target.value) : null),
-    style: {
-      marginBottom: 14
-    }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "\u2014 Tidak ada \u2014"), listMembers.map(u => /*#__PURE__*/React.createElement("option", {
-    key: u.id,
-    value: u.id
-  }, u.display_name || u.username, " ", u.is_self ? "(Saya)" : `(@${u.username})`)))), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 0,
       marginBottom: 14,
@@ -5778,7 +6143,8 @@ function TaskDetailModal({
   onOpenTask,
   projects = [],
   contexts = [],
-  collaborators = []
+  collaborators = [],
+  sharedLists
 }) {
   if (!task) return null;
   const [isEditing, setIsEditing] = useState(false);
@@ -5796,6 +6162,9 @@ function TaskDetailModal({
     progress: task.progress || 0
   });
   const [saving, setSaving] = useState(false);
+  // Scope task tetap (dari task.list_id); opsi project mengikuti scope itu.
+  const scopeProjects = useScopeProjects(task.list_id);
+  const scopeLists = useScopeLists(task.list_id, sharedLists);
   const setF = (k, v) => setForm(f => ({
     ...f,
     [k]: v
@@ -6061,10 +6430,10 @@ function TaskDetailModal({
     }
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
-  }, "Project"), /*#__PURE__*/React.createElement(ComboSelect, {
+  }, projectScopeLabel(task.list_id, scopeLists)), /*#__PURE__*/React.createElement(ComboSelect, {
     value: form.project,
     onChange: v => setF("project", v),
-    options: projects,
+    options: scopeProjects,
     placeholder: "\u2014 Project \u2014",
     icon: "\uD83D\uDCC1"
   })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
@@ -11532,8 +11901,23 @@ function CompactRow({
 }
 
 // ── Collapsible group header ──────────────────────────────────
+// Badge scope workspace "👥 {nama workspace}" di judul grup / kartu project
+const PROJECT_BADGE_STYLE = {
+  marginLeft: 8,
+  padding: "1px 7px",
+  borderRadius: 10,
+  fontSize: 10,
+  fontWeight: 600,
+  background: "var(--bg-card)",
+  color: "var(--text-secondary)",
+  border: "1px solid var(--border)",
+  whiteSpace: "nowrap",
+  verticalAlign: "middle"
+};
 function GroupHeader({
   groupKey,
+  label,
+  badge,
   count,
   isCollapsed,
   onToggle
@@ -11568,7 +11952,10 @@ function GroupHeader({
       color: "var(--accent)",
       flex: 1
     }
-  }, groupKey), /*#__PURE__*/React.createElement("span", {
+  }, label || groupKey, badge && /*#__PURE__*/React.createElement("span", {
+    className: "proj-scope-badge",
+    style: PROJECT_BADGE_STYLE
+  }, badge)), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11,
       color: "var(--text-light)"
@@ -11714,6 +12101,8 @@ function KanbanCard({
 }
 function KanbanColumn({
   groupKey,
+  label,
+  badge,
   tasks,
   groupBy,
   dragSourceRef,
@@ -11788,7 +12177,10 @@ function KanbanColumn({
       fontSize: 12,
       color: isTanpa ? "var(--text-secondary)" : accentColor
     }
-  }, groupKey), /*#__PURE__*/React.createElement("span", {
+  }, label || groupKey, badge && /*#__PURE__*/React.createElement("span", {
+    className: "proj-scope-badge",
+    style: PROJECT_BADGE_STYLE
+  }, badge)), /*#__PURE__*/React.createElement("span", {
     style: {
       background: isTanpa ? "var(--bg-card)" : accentColor + "22",
       color: isTanpa ? "var(--text-light)" : accentColor,
@@ -11856,10 +12248,14 @@ function KanbanView({
     }
   }, groups.map(({
     key,
+    label,
+    badge,
     tasks
   }) => /*#__PURE__*/React.createElement(KanbanColumn, {
     key: key,
     groupKey: key,
+    label: label,
+    badge: badge,
     tasks: tasks,
     groupBy: groupBy,
     dragSourceRef: dragSourceRef,
@@ -11876,6 +12272,7 @@ function KanbanView({
 function GtdWizardEditFields({
   task,
   projects = [],
+  sharedLists,
   onUpdateTask
 }) {
   const [newProject, setNewProject] = useState(null);
@@ -11897,7 +12294,11 @@ function GtdWizardEditFields({
       year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric"
     });
   };
-  const projectOptions = task.project && !projects.includes(task.project) ? [task.project, ...projects] : projects;
+  // Opsi project dari scope task (Pribadi / workspace task.list_id).
+  const scopeProjects = useScopeProjects(task.list_id);
+  const scopeLists = useScopeLists(task.list_id, sharedLists);
+  const scopeLabel = projectScopeLabel(task.list_id, scopeLists);
+  const projectOptions = task.project && !scopeProjects.includes(task.project) ? [task.project, ...scopeProjects] : scopeProjects;
   const commitNewProject = () => {
     const v = (newProject || "").trim();
     setNewProject(null);
@@ -11938,8 +12339,8 @@ function GtdWizardEditFields({
   }) : /*#__PURE__*/React.createElement("select", {
     className: "input gtd-wizard-input",
     value: task.project || "",
-    "aria-label": "Project",
-    title: "Project",
+    "aria-label": scopeLabel,
+    title: scopeLabel,
     onChange: e => {
       const v = e.target.value;
       if (v === "__new__") setNewProject("");else if (v !== (task.project || "")) save({
@@ -12272,7 +12673,8 @@ function TaskListView({
   showToast,
   page,
   onUpdateGtdStatus,
-  onUpdateTask
+  onUpdateTask,
+  sharedLists = []
 }) {
   const isInbox = page === "inbox" || title === "Inbox";
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -12288,6 +12690,8 @@ function TaskListView({
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [dragVersion, setDragVersion] = useState(0);
   const dragSourceRef = React.useRef(null);
+  // groupBy "project": kunci grup → { value: nama, listId } (kunci memuat scope, bukan teks project)
+  const projGroupMetaRef = React.useRef({});
   const toggle = (setter, current, val) => setter(current === val ? "" : val);
   const handleGroupBy = val => {
     setGroupBy(val);
@@ -12323,7 +12727,7 @@ function TaskListView({
   let filtered = [...tasks].sort((a, b) => (PRI_ORDER[a.priority] ?? 9) - (PRI_ORDER[b.priority] ?? 9));
   if (fPriority) filtered = filtered.filter(t => t.priority === fPriority);
   if (fQuadrant) filtered = filtered.filter(t => t.quadrant === fQuadrant);
-  if (fProject) filtered = filtered.filter(t => t.project === fProject);
+  if (fProject) filtered = filtered.filter(t => !!t.project && projectNameFold(t.project) === projectNameFold(fProject));
   if (fContext) filtered = filtered.filter(t => t.context === fContext);
   if (fAssignee) filtered = filtered.filter(t => t.assigned_to === parseInt(fAssignee));
   if (fSearch) {
@@ -12361,12 +12765,25 @@ function TaskListView({
   const onMoveTask = async (taskId, targetGroupKey) => {
     const field = KANBAN_FIELD[groupBy];
     if (!field) return;
-    const newValue = parseGroupKeyValue(targetGroupKey);
+    let newValue = parseGroupKeyValue(targetGroupKey);
     if (newValue === null) return;
     const task = filtered.find(t => t.id === taskId);
     if (!task) return;
+    if (groupBy === "project" && newValue !== "") {
+      // Pindah antar scope (pribadi ↔ workspace) tidak lewat drag; nama sama NOCASE → no-op
+      newValue = projectDropTarget(task, projGroupMetaRef.current[targetGroupKey]);
+      if (newValue === null) return;
+    }
     const originalValue = task[field];
     if (originalValue === newValue || originalValue == null && newValue === "") return;
+    if (onUpdateTask) {
+      // Lewat jalur update App (setTasks → array baru + fetchAll): hitungan sidebar/memo ikut segar,
+      // rollback dan toast gagal ditangani handleUpdateTaskFields.
+      await onUpdateTask(taskId, {
+        [field]: newValue
+      });
+      return;
+    }
     task[field] = newValue;
     setDragVersion(v => v + 1);
     try {
@@ -12398,10 +12815,30 @@ function TaskListView({
     };
     const PRI_ORDER_MAP = ["🔴 P1 Critical", "🟠 P2 High", "🟡 P3 Medium", "🟢 P4 Low"];
     const QUAD_ORDER_MAP = ["🔥 Q1 Lakukan", "📅 Q2 Rencanakan", "👋 Q3 Delegasikan", "🗑️ Q4 Singkirkan"];
+    if (groupBy === "project") {
+      const groups = groupTasksByProject(tasks, sharedLists);
+      const meta = {};
+      groups.forEach(g => {
+        meta[g.key] = { value: g.name, listId: g.listId };
+      });
+      projGroupMetaRef.current = meta;
+      const out = groups.map(g => ({
+        key: g.key,
+        label: g.name,
+        badge: g.badge,
+        tasks: g.tasks
+      }));
+      const tanpa = tasks.filter(t => !t.project);
+      if (tanpa.length) out.push({
+        key: "(Tanpa Project)",
+        tasks: tanpa
+      });
+      return out;
+    }
     const map = {};
     for (const t of tasks) {
       let key;
-      if (groupBy === "priority") key = PRI_LABELS[t.priority] || "(Tanpa Priority)";else if (groupBy === "quadrant") key = QUAD_LABELS[t.quadrant] || "(Tanpa Quadrant)";else if (groupBy === "project") key = t.project || "(Tanpa Project)";else if (groupBy === "context") key = t.context || "(Tanpa Context)";else if (groupBy === "tag") key = t.tags && t.tags[0] ? t.tags[0] : "(Tanpa Tag)"; // first tag only — no task duplication across groups
+      if (groupBy === "priority") key = PRI_LABELS[t.priority] || "(Tanpa Priority)";else if (groupBy === "quadrant") key = QUAD_LABELS[t.quadrant] || "(Tanpa Quadrant)";else if (groupBy === "context") key = t.context || "(Tanpa Context)";else if (groupBy === "tag") key = t.tags && t.tags[0] ? t.tags[0] : "(Tanpa Tag)"; // first tag only — no task duplication across groups
       if (!map[key]) map[key] = [];
       map[key].push(t);
     }
@@ -12416,7 +12853,8 @@ function TaskListView({
   };
 
   // Derive projects/contexts from allTasks if not provided
-  const projList = projects && projects.length > 0 ? projects : [...new Set(allTasks?.filter(t => t.project).map(t => t.project) || [])];
+  // Dropdown filter: project pribadi + nama project dari task yang tampil (termasuk workspace), tanpa duplikat NOCASE
+  const projList = mergeProjectNames(projects, (allTasks || []).filter(t => t.project).map(t => t.project));
   const ctxList = contexts && contexts.length > 0 ? contexts : [...new Set(allTasks?.filter(t => t.context).map(t => t.context) || [])];
   return /*#__PURE__*/React.createElement("div", {
     className: "fade-in"
@@ -12759,6 +13197,8 @@ function TaskListView({
     }
   }, buildGroups(filtered).map(({
     key,
+    label,
+    badge,
     tasks: groupTasks
   }, idx) => {
     const isTanpa = key.startsWith("(Tanpa");
@@ -12772,6 +13212,8 @@ function TaskListView({
       }
     }), /*#__PURE__*/React.createElement(GroupHeader, {
       groupKey: key,
+      label: label,
+      badge: badge,
       count: groupTasks.length,
       isCollapsed: isCollapsed,
       onToggle: toggleGroup
@@ -15204,7 +15646,8 @@ function Dashboard({
   onStartFocus,
   onUpdateGtdStatus,
   onUpdateTask,
-  projects = []
+  projects = [],
+  sharedLists = []
 }) {
   const [dismissedOnboarding, setDismissedOnboarding] = useState(() => {
     try {
@@ -15854,7 +16297,8 @@ function Dashboard({
       size: 12
     })));
   };
-  const projNames = [...new Set(tasks.filter(t => t.project && t.gtd_status !== "done" && t.gtd_status !== "archived").map(t => t.project))];
+  // Kartu project per (scope, nama NOCASE): pribadi "x" dan "x" di workspace jadi dua kartu
+  const projGroups = groupTasksByProject(tasks.filter(t => t.gtd_status !== "archived"), sharedLists).filter(g => g.tasks.some(t => t.gtd_status !== "done"));
   return /*#__PURE__*/React.createElement("div", {
     className: "fade-in dash"
   }, /*#__PURE__*/React.createElement(BackupReminder, {
@@ -16199,25 +16643,27 @@ function Dashboard({
   })))),
 
   /* ── Proyek aktif ── */
-  projNames.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DashSection, {
+  projGroups.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DashSection, {
     icon: "folder",
     title: "Proyek Aktif",
-    sub: `${projNames.length} proyek`
+    sub: `${projGroups.length} proyek`
   }), /*#__PURE__*/React.createElement("div", {
     className: "dash-projects"
-  }, projNames.map(proj => {
-    const projTasks = tasks.filter(t => t.project === proj && t.gtd_status !== "done" && t.gtd_status !== "archived");
-    const projAll = tasks.filter(t => t.project === proj && t.gtd_status !== "archived");
+  }, projGroups.map(g => {
+    const proj = g.name;
+    const projAll = g.tasks;
+    const projTasks = projAll.filter(t => t.gtd_status !== "done");
     const projDone = projAll.filter(t => t.gtd_status === "done").length;
     const projPct = projAll.length > 0 ? Math.round(projDone / projAll.length * 100) : 0;
     return /*#__PURE__*/React.createElement("div", {
-      key: proj,
+      key: g.key,
       className: "dash-card dash-project"
     }, /*#__PURE__*/React.createElement(DashCardHead, {
       icon: "folder",
       color: "#10b981",
       title: proj,
-      onTitleClick: () => onNav(`proj_${proj}`),
+      sub: g.badge,
+      onTitleClick: () => onNav(g.listId == null ? `proj_${proj}` : `slist_${g.listId}`),
       count: projTasks.length,
       link: projTasks.length > 5 ? "Lihat semua →" : null,
       linkPopup: "dialog",
@@ -19843,7 +20289,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v418-canvas-linkpicker"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v419-project-scope"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -31254,6 +31700,7 @@ function App() {
   const [authPage, setAuthPage] = useState("login");
   const [page, setPage] = useState("dashboard");
   const [workspaceTab, setWorkspaceTab] = useState("tasks");
+  const [projectManager, setProjectManager] = useState(null); // { listId, listName } — modal Kelola project
   const [activeChatListId, setActiveChatListId] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [summary, setSummary] = useState({
@@ -31733,6 +32180,20 @@ function App() {
     window.__refreshTasks = fetchAll;
     fetchAll();
   }, [fetchAll]);
+
+  // Daftar project pribadi (sidebar) dimuat ulang setelah sync pull sukses / project dikelola
+  useEffect(() => {
+    if (!user) return;
+    const reloadProjects = () => {
+      api.get("/api/projects").then(r => {
+        if (!Array.isArray(r)) return;
+        setProjects(prev => sameStringList(prev, r) ? prev : r);
+        OfflineDB.cacheSet("projects", r);
+      }).catch(() => {});
+    };
+    window.addEventListener("tf:projects-changed", reloadProjects);
+    return () => window.removeEventListener("tf:projects-changed", reloadProjects);
+  }, [user]);
 
   // Auto-refresh every 30 seconds (skip saat sedang sync queue)
   useEffect(() => {
@@ -32390,7 +32851,7 @@ function App() {
   const getFilteredTasks = () => {
     if (page.startsWith("proj_")) {
       const projName = page.slice(5);
-      return tasks.filter(t => t.project === projName && t.gtd_status !== "done" && t.gtd_status !== "archived");
+      return tasks.filter(t => isPersonalProjectTask(t, projName) && t.gtd_status !== "done" && t.gtd_status !== "archived");
     }
     if (page.startsWith("slist_")) {
       const listId = parseInt(page.slice(6));
@@ -32542,7 +33003,8 @@ function App() {
         onStartFocus: handleStartFocus,
         onUpdateGtdStatus: handleUpdateTaskGtd,
         onUpdateTask: handleUpdateTaskFields,
-        projects: projects
+        projects: projects,
+        sharedLists: sharedLists
       });
     }
     if (page === "today") {
@@ -32624,7 +33086,17 @@ function App() {
           gap: 6,
           fontWeight: workspaceTab === "files" ? 600 : 400
         }
-      }, "📁 Files")), workspaceTab === "files" ? /*#__PURE__*/React.createElement(WorkspaceFilesView, {
+      }, "📁 Files"), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: "btn btn-sm btn-secondary",
+        onClick: () => setProjectManager({ listId: listId, listName: currentList.name }),
+        style: {
+          marginLeft: "auto",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6
+        }
+      }, /*#__PURE__*/React.createElement(Icon, { name: "folder", size: 14 }), "Kelola project")), workspaceTab === "files" ? /*#__PURE__*/React.createElement(WorkspaceFilesView, {
         list: currentList,
         user: user,
         showToast: showToast,
@@ -32648,7 +33120,8 @@ function App() {
         showToast: showToast,
         page: page,
         onUpdateGtdStatus: handleUpdateTaskGtd,
-        onUpdateTask: handleUpdateTaskFields
+        onUpdateTask: handleUpdateTaskFields,
+        sharedLists: sharedLists
       }));
     }
     return /*#__PURE__*/React.createElement(TaskListView, {
@@ -32667,7 +33140,8 @@ function App() {
       showToast: showToast,
       page: page,
       onUpdateGtdStatus: handleUpdateTaskGtd,
-      onUpdateTask: handleUpdateTaskFields
+      onUpdateTask: handleUpdateTaskFields,
+      sharedLists: sharedLists
     });
   };
   return /*#__PURE__*/React.createElement("div", null, extAuthState && user && /*#__PURE__*/React.createElement(ExtAuthOverlay, {
@@ -32675,6 +33149,11 @@ function App() {
     user: user,
     showToast: showToast,
     onDone: () => setExtAuthState("")
+  }), projectManager && /*#__PURE__*/React.createElement(ProjectManagerModal, {
+    listId: projectManager.listId,
+    listName: projectManager.listName,
+    showToast: showToast,
+    onClose: () => setProjectManager(null)
   }), /*#__PURE__*/React.createElement(Sidebar, {
     page: page,
     setPage: setPage,
@@ -32691,7 +33170,8 @@ function App() {
     tasks: tasks,
     collapsed: sidebarCollapsed,
     onToggleCollapse: () => setSidebarCollapsed(!sidebarCollapsed),
-    sharedLists: sharedLists
+    sharedLists: sharedLists,
+    onManageProjects: () => setProjectManager({ listId: null, listName: null })
   }), /*#__PURE__*/React.createElement("div", {
     className: `main-content ${sidebarCollapsed ? "sidebar-rail-visible" : "sidebar-visible"}`
   }, !isOnline && /*#__PURE__*/React.createElement("div", {
@@ -33060,7 +33540,8 @@ function App() {
     contexts: contexts,
     onRefresh: fetchAll,
     onOfflineEdit: handleOfflineEdit,
-    collaborators: collaborators
+    collaborators: collaborators,
+    sharedLists: sharedLists
   }), selectedNote && /*#__PURE__*/React.createElement(NoteModal, {
     key: selectedNote.id,
     note: selectedNote,
@@ -33199,7 +33680,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v418-canvas-linkpicker";
+    window.__SW_VERSION = "taskflow-v419-project-scope";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

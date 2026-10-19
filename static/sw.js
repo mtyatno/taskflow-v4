@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v418-canvas-linkpicker";
+const CACHE = "taskflow-v419-project-scope";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -13,6 +13,7 @@ const STATIC = [
   "/static/offline/tagrepo.js",
   "/static/offline/taskrepo.js",
   "/static/offline/taskquery.js",
+  "/static/offline/projectcache.js",
   "/static/offline/recurrence.js",
   "/static/offline/taskroutes.js",
   "/static/offline/hydrate.js",

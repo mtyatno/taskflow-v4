@@ -14,6 +14,23 @@
   const TFoutbox = isNode ? require("./outbox.js") : root.TF.outbox;
   const TFlogic = isNode ? require("./tasklogic.js") : root.TF.tasklogic;
   const TFtagrepo = isNode ? require("./tagrepo.js") : root.TF.tagrepo;
+  // dimuat malas (siklus: projectcache → taskquery → taskrepo)
+  const TFprojects = () => (isNode ? require("./projectcache.js") : (root.TF && root.TF.projectcache));
+
+  // ASCII-only lowercase (SQLite NOCASE), sama dengan projectcache.nocaseKey (tanpa require: siklus).
+  function nocaseKey(s) {
+    return String(s == null ? "" : s).replace(/[A-Z]/g, (c) => c.toLowerCase());
+  }
+
+  // PR 5: project_id eksplisit menang; selain itu id project bernama sama (NOCASE) di scope task dari cache,
+  // atau null. Cache yang tidak tersedia/gagal dibaca → null (server mencocokkan lewat teks).
+  function resolveProjectId(listId, project, explicit) {
+    if (explicit !== undefined) return Promise.resolve(explicit != null ? explicit : null);
+    if (project == null || project === "") return Promise.resolve(null);
+    const pc = TFprojects();
+    if (!pc || !pc.idFor) return Promise.resolve(null);
+    return pc.idFor(listId, project).catch(() => null);
+  }
 
   // today (YYYY-MM-DD) + 90 days, UTC-stable.
   function plus90(todayISO) {
@@ -94,46 +111,57 @@
     const priority = String(input.priority || "P2").toUpperCase();
     const deadline = input.deadline || null;
     const rc = normRecurrence(input.recurrence_type, input.recurrence_days);
-    const rec = {
-      cid: TFids.newCid(),
-      server_id: null,
-      title: cleanTitle,
-      description: input.description != null ? input.description : "",
-      gtd_status: input.gtd_status != null ? input.gtd_status : "inbox",
-      priority: priority,
-      quadrant: TFlogic.calculateQuadrant({ priority: priority, deadline: deadline }, opts && opts.today),
-      project: input.project != null ? input.project : "",
-      context: input.context != null ? input.context : "",
-      deadline: deadline,
-      waiting_for: input.waiting_for != null ? input.waiting_for : "",
-      list_cid: input.list_cid != null ? input.list_cid : null,
-      list_id: input.list_id != null ? input.list_id : null,
-      assigned_to: input.assigned_to != null ? input.assigned_to : null,
-      parent_cid: input.parent_cid != null ? input.parent_cid : null,
-      progress: 0,
-      is_focused: 0,
-      completed_at: null,
-      recurrence_type: rc.type,
-      recurrence_days: rc.daysJson,
-      recurrence_end_date: rc.type ? plus90(opts && opts.today) : null,
-      recurrence_notif_level: null,
-      created_at: now,
-      updated_at: now,
-      deleted: false,
-      dirty: 1,
-      base_rev: null,
-      // rev = penghitung versi lokal (naik di setiap tulis lokal); push memakainya sebagai CAS (prinsip 4)
-      rev: 1,
-    };
-    return putRaw(rec)
-      .then(() => TFoutbox.outboxAdd({ op: "create", entity_type: "task", cid: rec.cid, payload: rec }))
-      .then(() => TFtagrepo.setEntityTags("task", rec.cid, ex.tags))
-      .then(() => assemble(rec, opts && opts.today));
+    const listId = input.list_id != null ? input.list_id : null;
+    return resolveProjectId(listId, input.project, input.project_id).then((projectId) => {
+      const rec = {
+        cid: TFids.newCid(),
+        server_id: null,
+        title: cleanTitle,
+        description: input.description != null ? input.description : "",
+        gtd_status: input.gtd_status != null ? input.gtd_status : "inbox",
+        priority: priority,
+        quadrant: TFlogic.calculateQuadrant({ priority: priority, deadline: deadline }, opts && opts.today),
+        project: input.project != null ? input.project : "",
+        project_id: projectId,
+        project_ref_name: projectId != null ? (input.project != null ? input.project : "") : null,
+        context: input.context != null ? input.context : "",
+        deadline: deadline,
+        waiting_for: input.waiting_for != null ? input.waiting_for : "",
+        list_cid: input.list_cid != null ? input.list_cid : null,
+        list_id: input.list_id != null ? input.list_id : null,
+        assigned_to: input.assigned_to != null ? input.assigned_to : null,
+        parent_cid: input.parent_cid != null ? input.parent_cid : null,
+        progress: 0,
+        is_focused: 0,
+        completed_at: null,
+        recurrence_type: rc.type,
+        recurrence_days: rc.daysJson,
+        recurrence_end_date: rc.type ? plus90(opts && opts.today) : null,
+        recurrence_notif_level: null,
+        created_at: now,
+        updated_at: now,
+        deleted: false,
+        dirty: 1,
+        base_rev: null,
+        // rev = penghitung versi lokal (naik di setiap tulis lokal); push memakainya sebagai CAS (prinsip 4)
+        rev: 1,
+      };
+      return putRaw(rec)
+        .then(() => TFoutbox.outboxAdd({ op: "create", entity_type: "task", cid: rec.cid, payload: rec }))
+        .then(() => TFtagrepo.setEntityTags("task", rec.cid, ex.tags))
+        .then(() => assemble(rec, opts && opts.today));
+    });
   }
 
   function updateTask(cid, patch, opts) {
     const now = (opts && opts.now) || new Date().toISOString();
-    return getRaw(cid).then((rec) => {
+    // PR 5: patch `project` tanpa `project_id` → id dari cache (scope task) bila cocok, selain itu null.
+    // F1: teks yang sama (NOCASE) dengan `project` record → id + nama ikatan dipertahankan (form yang menyimpan
+    // teks tak berubah setelah rename di cache tidak boleh memutus id).
+    const needLookup = patch.project != null && !("project_id" in patch);
+    const pc = needLookup ? TFprojects() : null;
+    const itemsP = (pc && pc.allItems) ? pc.allItems().catch(() => []) : Promise.resolve([]);
+    return Promise.all([getRaw(cid), itemsP]).then(([rec, projectItems]) => {
       if (!rec || rec.deleted) {
         return Promise.reject(new Error("Task not found"));
       }
@@ -148,7 +176,16 @@
       }
       if (patch.description != null) next.description = patch.description;
       if (patch.priority != null) next.priority = String(patch.priority).toUpperCase();
+      const sameProjectText = patch.project != null && rec.project_id != null
+        && nocaseKey(patch.project) === nocaseKey(rec.project);
       if (patch.project != null) next.project = patch.project;
+      if ("project_id" in patch) {
+        next.project_id = patch.project_id != null ? patch.project_id : null;
+        next.project_ref_name = next.project_id != null ? (next.project != null ? next.project : "") : null;
+      } else if (needLookup && !sameProjectText) {
+        next.project_id = pc ? pc.findId(projectItems, next.list_id, patch.project) : null;
+        next.project_ref_name = next.project_id != null ? next.project : null;
+      }
       if (patch.context != null) next.context = patch.context;
       if (patch.waiting_for != null) next.waiting_for = patch.waiting_for;
       if (patch.gtd_status != null) {
