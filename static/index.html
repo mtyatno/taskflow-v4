@@ -20091,25 +20091,39 @@ function repairQuoteMarkdown(md) {
   return out.join('\n');
 }
 
-function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
-  if (!text) return "";
-  _markedHIdx = 0;
+// Pra-proses markdown yang memengaruhi struktur blok (dipakai renderMarkdown DAN extractHeadings
+// supaya daftar isi mode baca sejalan dengan id "note-h-N"): perbaikan kutipan + placeholder math.
+// Mengembalikan teks ber-placeholder dan peta key -> {latex, block}.
+function prepMarkdownBlocks(text) {
   text = repairQuoteMarkdown(text);
-
-  // Step 0: Extract math BEFORE all other processing so markdown doesn't mangle LaTeX.
+  // Extract math BEFORE all other processing so markdown doesn't mangle LaTeX.
   // Block math first ($$...$$), then inline ($...$) to avoid double-match.
-  const mathMap = {};
+  const mathSrc = {};
   let mi = 0;
   const preMath0 = text.replace(/\$\$([\s\S]*?)\$\$/g, (_, latex) => {
     const key = `MATH${mi++}MATHEND`;
-    mathMap[key] = `<div class="math-block">${renderMath(latex.trim(), true)}</div>`;
+    mathSrc[key] = { latex, block: true };
     return key;
   });
   const preMath1 = preMath0.replace(/\$(?!\s)([^$\n\r]+?)(?<!\s)\$/g, (_, latex) => {
     const key = `MATH${mi++}MATHEND`;
-    mathMap[key] = `<span class="math-inline">${renderMath(latex, false)}</span>`;
+    mathSrc[key] = { latex, block: false };
     return key;
   });
+  return { text: preMath1, mathSrc };
+}
+
+function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
+  if (!text) return "";
+  _markedHIdx = 0;
+  const prepped = prepMarkdownBlocks(text);
+  const mathMap = {};
+  for (const [key, m] of Object.entries(prepped.mathSrc)) {
+    mathMap[key] = m.block
+      ? `<div class="math-block">${renderMath(m.latex.trim(), true)}</div>`
+      : `<span class="math-inline">${renderMath(m.latex, false)}</span>`;
+  }
+  const preMath1 = prepped.text;
 
   const titleSet = new Set((noteTitles || []).map(t => normalizeWikiText(t)));
   const notesById = new Map((allNotes || []).map(n => [String(n.id), n]));
@@ -22644,17 +22658,53 @@ function createTrailingEmptyBlockPlugin(MB) {
   }));
 }
 function extractHeadings(content) {
+  content = content || "";
   const headings = [];
   let idx = 0;
-  for (const line of content.split("\n")) {
-    const m = line.match(/^(#{1,6}) (.*)/);
-    if (m) {
-      if (m[2].trim()) headings.push({
-        level: m[1].length,
-        text: m[2].trim(),
-        idx: idx++
-      });else idx++; // empty heading: count it to stay in sync with renderMarkdown hIdx
+  const push = (level, raw) => {
+    const t = String(raw || "").trim();
+    if (t) headings.push({ level, text: t, idx: idx++ });
+    else idx++; // heading kosong tetap dihitung agar sejalan dengan renderMarkdown
+  };
+  if (typeof marked !== "undefined" && marked && typeof marked.lexer === "function") {
+    try {
+      const prepped = prepMarkdownBlocks(content);
+      const restore = (t) => String(t || "").replace(/MATH\d+MATHEND/g, (k) => {
+        const m = prepped.mathSrc[k];
+        return m ? (m.block ? "$$" + m.latex + "$$" : "$" + m.latex + "$") : "";
+      });
+      const walk = (tokens) => {
+        for (const tk of tokens || []) {
+          if (!tk) continue;
+          if (tk.type === "heading") { push(tk.depth, restore(tk.text)); continue; }
+          if (tk.type === "blockquote") walk(tk.tokens);
+          else if (tk.type === "list") {
+            for (const it of tk.items || []) {
+              // renderer listitem: task tanpa blok memakai item.text mentah (tanpa heading)
+              if (it.task && !(it.tokens || []).some(t => t.type === "blockquote" || t.type === "list" || t.type === "paragraph" || t.type === "space")) continue;
+              walk(it.tokens);
+            }
+          }
+        }
+      };
+      walk(marked.lexer(prepped.text));
+      return headings;
+    } catch (e) {
+      headings.length = 0; idx = 0;
     }
+  }
+  // Fallback tanpa marked: regex per baris, lewati isi fence ``` / ~~~
+  let fence = null;
+  for (const line of content.split("\n")) {
+    const f = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+    if (f) {
+      if (!fence) fence = { ch: f[1][0], len: f[1].length };
+      else if (f[1][0] === fence.ch && f[1].length >= fence.len && /^\s{0,3}(`+|~+)\s*$/.test(line)) fence = null;
+      continue;
+    }
+    if (fence) continue;
+    const m = line.match(/^(#{1,6})(?: (.*))?$/);
+    if (m) push(m[1].length, m[2]);
   }
   return headings;
 }
