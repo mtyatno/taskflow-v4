@@ -1265,7 +1265,8 @@
   }
 
   function opMindmapUpdate(op, transport, result) {
-    return Promise.all([getMindmapRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
+    return Promise.all([getMindmapRaw(op.cid), TFidmap.serverIdOf(op.cid), heldByMindmapRestore(op.cid)]).then(([rec, sid, held]) => {
+      if (held) return; // tahan: baris server sedang dipulihkan dari Sampah (penanda then_restore_sid)
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
       if (rec.conflict) return TFoutbox.outboxRemove(op.qid); // held until user resolves
       const sentRev = rec.rev || 0;
@@ -1319,30 +1320,141 @@
     });
   }
 
+  // Op delete mindmap (Sampah, spec #5). Pengguna bisa memulihkan peta (mindmaptrash → restoreLocal) SEBELUM atau
+  // SELAMA DELETE terkirim: record lokal hanya dihapus bila masih `deleted` (cek di dalam transaksi). Bila sudah
+  // dipulihkan saat DELETE in-flight dan server sudah memindahkannya ke Sampah, op ini diubah di tempat (qid sama →
+  // tetap mendahului op update susulan) menjadi penanda `then_restore_sid`: POST /api/mindmaps/trash/{sid}/restore
+  // mengembalikan baris dengan id & client_id yang SAMA (desain A4), lalu edit lokal ter-push lewat op update biasa.
+  // Pulihkan gagal permanen (404 / SOURCE_NOTE_MISSING / 4xx lain) → record jadi lokal baru (op create, client_id sama).
   function opMindmapDelete(op, transport, result) {
-    return TFidmap.serverIdOf(op.cid).then((sid) => {
+    if (op.payload && op.payload.then_restore_sid != null) {
+      return mindmapRestoreAfterDelete(op, Number(op.payload.then_restore_sid), transport, result);
+    }
+    return Promise.all([getMindmapRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
+      if (rec && !rec.deleted) return TFoutbox.outboxRemove(op.qid); // dipulihkan sebelum terkirim → op basi
       if (sid == null) {
-        return deleteMindmapRaw(op.cid).then(() => TFoutbox.outboxRemove(op.qid));
+        return removeMindmapIfDeleted(op, null).then(() => {});
       }
       return send(transport, "DELETE", "/api/mindmaps/" + sid, undefined).then((res) => {
         if (ok(res) || res.status === 404) {
-          return TFidmap.mapDelete("mindmap", sid)
-            .then(() => deleteMindmapRaw(op.cid))
-            .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+          return removeMindmapIfDeleted(op, ok(res) ? sid : null).then((outcome) => {
+            if (outcome === "removed") {
+              return TFidmap.mapDelete("mindmap", sid).then(() => { result.pushed++; });
+            }
+            if (outcome === "marked") return mindmapRestoreAfterDelete(Object.assign({}, op, { payload: Object.assign({}, op.payload, { then_restore_sid: sid }) }), sid, transport, result);
+            // dipulihkan selama in-flight tetapi server tidak punya salinannya (404) → buat ulang
+            return recreateMindmapLocal(op.cid, sid).then(() => { result.pushed++; });
+          });
         }
         if (classify(res) === "forbidden") {
-          return TFdb.mutate("mindmaps", op.cid, (cur) => (cur
-              ? Object.assign({}, cur, { deleted: false, dirty: 0, rev: (cur.rev || 0) + 1, notice: { kind: "delete_refused", title: cur.title } })
-              : undefined))
-            .then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
+          return TFdb.mutate("mindmaps", op.cid, (cur) => {
+            if (!cur) return undefined;
+            const next = Object.assign({}, cur, { deleted: false, rev: (cur.rev || 0) + 1, notice: { kind: "delete_refused", title: cur.title } });
+            if (cur.deleted) next.dirty = cur.dirty_before_delete != null ? cur.dirty_before_delete : 0;
+            delete next.trashed_at;
+            delete next.dirty_before_delete;
+            return next;
+          })
+            .then(() => TFoutbox.outboxRemove(op.qid))
+            .then(() => requeueIfDirty("mindmaps", "mindmap", op.cid))
+            .then(() => { result.failed++; });
         }
         return failPermanent(null, null, res, op, result);
       });
     });
   }
+  // Satu transaksi (mindmaps + _outbox) setelah DELETE sukses/404:
+  //   record hilang / masih deleted → hapus record + op → "removed";
+  //   dipulihkan & server memindahkan ke Sampah (markSid) → op ditulis ulang jadi penanda then_restore_sid → "marked";
+  //   dipulihkan & server tidak punya salinan → op dibuang → "restored".
+  function removeMindmapIfDeleted(op, markSid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      let outcome = "removed";
+      const tx = db.transaction(["mindmaps", "_outbox"], "readwrite");
+      const ms = tx.objectStore("mindmaps");
+      const ob = tx.objectStore("_outbox");
+      const r = ms.get(op.cid);
+      r.onsuccess = () => {
+        const cur = r.result;
+        if (!cur || cur.deleted) {
+          if (cur) ms.delete(op.cid);
+          ob.delete(op.qid);
+          return;
+        }
+        if (markSid != null) {
+          outcome = "marked";
+          ob.put(Object.assign({}, op, { payload: Object.assign({}, op.payload, { then_restore_sid: markSid }) }));
+        } else {
+          outcome = "restored";
+          ob.delete(op.qid);
+        }
+      };
+      tx.oncomplete = () => resolve(outcome);
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  // Penanda then_restore_sid: kembalikan baris server dari Sampah untuk record lokal yang dipulihkan.
+  function mindmapRestoreAfterDelete(op, sid, transport, result) {
+    return getMindmapRaw(op.cid).then((rec) => {
+      // dihapus lagi (op delete baru di belakang penanda yang menanganinya) / record hilang → penanda selesai
+      if (!rec || rec.deleted) return TFoutbox.outboxRemove(op.qid);
+      return send(transport, "POST", "/api/mindmaps/trash/" + sid + "/restore", {}).then((res) => {
+        const detail = res && res.data && res.data.detail;
+        const code = detail && typeof detail === "object" ? detail.code : null;
+        if (ok(res) || (res.status === 409 && code !== "SOURCE_NOTE_MISSING")) {
+          // ok → baris kembali dengan id sama; 409 lain = "id ini sudah ada" (sudah dipulihkan di tempat lain)
+          const newSid = ok(res) && res.data && res.data.id != null ? res.data.id : sid;
+          const remap = newSid !== sid
+            ? TFidmap.mapDelete("mindmap", sid).then(() => TFidmap.mapPut("mindmap", newSid, op.cid))
+              .then(() => TFdb.mutate("mindmaps", op.cid, (cur) => (cur ? Object.assign({}, cur, { server_id: newSid }) : undefined)))
+            : TFidmap.mapPut("mindmap", sid, op.cid);
+          return remap
+            .then(() => TFoutbox.outboxRemove(op.qid))
+            .then(() => requeueIfDirty("mindmaps", "mindmap", op.cid))
+            .then(() => { result.pushed++; });
+        }
+        // 404 (purge) / SOURCE_NOTE_MISSING / 4xx lain → tidak bisa dipulihkan dengan id sama → buat ulang lokal
+        return recreateMindmapLocal(op.cid, sid)
+          .then(() => TFoutbox.outboxRemove(op.qid))
+          .then(() => { result.failed++; });
+      });
+    });
+  }
+  // Record lokal tanpa baris server: server_id/base_rev dibuang, dirty, op update/pin dibuang, op create diantre
+  // (client_id tetap = client_id/cid record → link node mindmap tetap hidup). Peta tertaut: create menunggu
+  // catatan / dibuang bila catatan hilang (opMindmapCreate).
+  function recreateMindmapLocal(cid, sid) {
+    return (sid != null ? TFidmap.mapDelete("mindmap", sid) : Promise.resolve()).then(() => TFdb.openDB()).then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(["mindmaps", "_outbox"], "readwrite");
+      const ms = tx.objectStore("mindmaps");
+      const ob = tx.objectStore("_outbox");
+      const r = ms.get(cid);
+      r.onsuccess = () => {
+        const cur = r.result;
+        if (!cur || cur.deleted) return;
+        const next = Object.assign({}, cur, { server_id: null, base_rev: null, dirty: 1, rev: (cur.rev || 0) + 1 });
+        if (next.client_id == null || next.client_id === "") next.client_id = cur.cid;
+        ms.put(next);
+        const all = ob.getAll();
+        all.onsuccess = () => {
+          const mine = (all.result || []).filter((o) => o.entity_type === "mindmap" && o.cid === cid);
+          for (const o of mine) if (o.op === "update" || o.op === "pin") ob.delete(o.qid);
+          if (!mine.some((o) => o.op === "create")) ob.add({ ts: Date.now(), retries: 0, op: "create", entity_type: "mindmap", cid: cid, payload: { cid: cid } });
+        };
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  // Op update/pin ditahan selama penanda then_restore_sid untuk cid ini masih antre (baris server masih di Sampah).
+  function heldByMindmapRestore(cid) {
+    return TFoutbox.outboxByEntity("mindmap", cid).then((ops) =>
+      ops.some((o) => o.op === "delete" && o.payload && o.payload.then_restore_sid != null));
+  }
 
   function opMindmapPin(op, transport, result) {
-    return Promise.all([getMindmapRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
+    return Promise.all([getMindmapRaw(op.cid), TFidmap.serverIdOf(op.cid), heldByMindmapRestore(op.cid)]).then(([rec, sid, held]) => {
+      if (held) return; // tahan: lihat opMindmapUpdate
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
       return send(transport, "GET", "/api/mindmaps/" + sid, undefined).then((res) => {
         if (!ok(res)) { return failPermanent(null, null, res, op, result); }

@@ -108,13 +108,19 @@
       r.onerror = () => reject(r.error);
     }));
   }
-  // Hapus lokal yang belum terkirim: belum pernah di server, atau op delete masih di outbox.
-  function pendingLocal() {
+  // Hapus lokal yang belum terkirim: belum pernah di server, atau op delete (bukan penanda then_restore_sid)
+  // masih di outbox. `alive` = sid record lokal yang tidak terhapus (dipulihkan lokal) → item cermin-nya disembunyikan.
+  function localState() {
     return Promise.all([allMindmapsRaw(), TFoutbox().outboxAll()]).then(([all, ops]) => {
-      const delCids = new Set(ops.filter((o) => o.entity_type === "mindmap" && o.op === "delete").map((o) => o.cid));
-      return all.filter((m) => m.deleted && m.trashed_at && (m.server_id == null || delCids.has(m.cid)));
+      const delCids = new Set(ops.filter((o) => o.entity_type === "mindmap" && o.op === "delete"
+        && !(o.payload && o.payload.then_restore_sid != null)).map((o) => o.cid));
+      return {
+        pending: all.filter((m) => m.deleted && m.trashed_at && (m.server_id == null || delCids.has(m.cid))),
+        alive: new Set(all.filter((m) => !m.deleted && m.server_id != null).map((m) => String(m.server_id))),
+      };
     });
   }
+  function pendingLocal() { return localState().then((s) => s.pending); }
   function timeOf(s) { const t = Date.parse(s); return isNaN(t) ? 0 : t; }
 
   function localItem(rec) {
@@ -142,9 +148,11 @@
 
   // Daftar gabungan, terbaru dulu (Date.parse — format campur Z/+07:00); record lokal menang atas cermin.
   function listTrash() {
-    return Promise.all([readMirror(), pendingLocal()]).then(([m, locals]) => {
+    return Promise.all([readMirror(), localState()]).then(([m, st]) => {
+      const locals = st.pending;
       const out = locals.map(localItem);
       const localSids = new Set(locals.filter((r) => r.server_id != null).map((r) => String(r.server_id)));
+      for (const k of st.alive) localSids.add(k);
       const restoring = new Set(m.restoring.map(String));
       for (const it of m.items) {
         const k = String(it.id);
@@ -156,10 +164,38 @@
     });
   }
 
-  function notInTrash() {
-    const e = new Error("Mindmap tidak ada di Sampah");
-    e.status = 404;
-    return Promise.reject(e);
+  function notInTrash() { return Promise.reject(TFmm().notInTrashError()); }
+
+  // Antre restore untuk item cermin — SATU transaksi (_meta + _outbox): op dan tanda `restoring` ditulis bersama
+  // (outboxAdd gagal tidak bisa menyembunyikan item selamanya); op restore yang sudah ada untuk sid → idempoten
+  // (klik ganda tidak mengantre dua op). Resolve sid atau null (tidak ada di cermin).
+  function queueMirrorRestore(key) {
+    return TFdb().openDB().then((db) => new Promise((resolve, reject) => {
+      let out = null;
+      const tx = db.transaction(["_meta", "_outbox"], "readwrite");
+      const mt = tx.objectStore("_meta");
+      const ob = tx.objectStore("_outbox");
+      const rm = mt.get(META_KEY);
+      rm.onsuccess = () => {
+        const m = normMirror(rm.result);
+        const it = m.items.find((i) => String(i.id) === key);
+        if (!it) return;
+        const sid = Number(it.id);
+        const ra = ob.getAll();
+        ra.onsuccess = () => {
+          const exists = (ra.result || []).some((o) => o.entity_type === "mindmap" && o.op === "restore"
+            && o.payload && String(o.payload.server_id) === String(sid));
+          if (!exists) ob.add({ ts: Date.now(), retries: 0, op: "restore", entity_type: "mindmap", cid: "trash:" + sid, payload: { server_id: sid } });
+          if (!m.restoring.some((s) => String(s) === String(sid))) m.restoring.push(sid);
+          delete m.errors[String(it.id)];
+          mt.put({ items: m.items, restoring: m.restoring, errors: m.errors }, META_KEY);
+          out = sid;
+        };
+      };
+      tx.oncomplete = () => resolve(out);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error("mindmap trash restore aborted"));
+    }));
   }
 
   // Pulihkan: hapus lokal tertunda → mindmaprepo.restoreLocal; item cermin → antre op restore (sid → restoring).
@@ -168,16 +204,7 @@
     return pendingLocal().then((locals) => {
       const rec = locals.find((r) => r.cid === key) || locals.find((r) => r.server_id != null && String(r.server_id) === key);
       if (rec) return TFmm().restoreLocal(rec.cid).then(() => ({ restored: "local", cid: rec.cid }));
-      return readMirror().then((m) => {
-        const it = m.items.find((i) => String(i.id) === key);
-        if (!it || m.restoring.some((s) => String(s) === key)) return notInTrash();
-        const sid = Number(it.id);
-        m.restoring.push(sid);
-        delete m.errors[String(it.id)];
-        return saveMirror(m)
-          .then(() => TFoutbox().outboxAdd({ op: "restore", entity_type: "mindmap", cid: "trash:" + sid, payload: { server_id: sid } }))
-          .then(() => ({ restored: "queued", id: sid }));
-      });
+      return queueMirrorRestore(key).then((sid) => (sid == null ? notInTrash() : { restored: "queued", id: sid }));
     });
   }
 

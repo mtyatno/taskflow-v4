@@ -311,6 +311,13 @@
     });
   }
 
+  // Error 404 Sampah mindmap (dipakai juga TF.mindmaptrash).
+  function notInTrashError() {
+    const e = new Error("Mindmap tidak ada di Sampah");
+    e.status = 404;
+    return e;
+  }
+
   // Pulihkan hapus lokal yang op delete-nya belum terkirim — SATU transaksi (mindmaps + _outbox):
   // deleted:false, trashed_at dibuang, dirty = dirty_before_delete, rev+1; op delete untuk cid dibuang;
   // dirty & sudah di server → pastikan tepat satu op update; belum di server & tanpa op create → op create.
@@ -339,7 +346,8 @@
         const all = ob.getAll();
         all.onsuccess = () => {
           const mine = (all.result || []).filter((o) => o.entity_type === "mindmap" && o.cid === cid);
-          for (const op of mine) if (op.op === "delete") ob.delete(op.qid);
+          // penanda then_restore_sid (syncpush: DELETE sudah sampai server, baris perlu dipulihkan) TIDAK dibuang
+          for (const op of mine) if (op.op === "delete" && !(op.payload && op.payload.then_restore_sid != null)) ob.delete(op.qid);
           if (next.server_id != null) {
             if (next.dirty) {
               const updates = mine.filter((o) => o.op === "update");
@@ -354,7 +362,7 @@
         all.onerror = () => { failed = all.error; };
       };
       r.onerror = () => { failed = r.error; };
-      tx.oncomplete = () => (out ? resolve(out) : reject(new Error("Mindmap not found")));
+      tx.oncomplete = () => (out ? resolve(out) : reject(notInTrashError()));
       tx.onerror = () => reject(failed || tx.error);
       tx.onabort = () => reject(failed || tx.error || new Error("mindmaps restore aborted"));
     }));
@@ -372,7 +380,7 @@
   }
 
   const exported = {
-    createMindmap, updateMindmap, deleteMindmap, restoreLocal, togglePin, getRaw, putRaw, setCurrentUser, getCurrentUser,
+    createMindmap, updateMindmap, deleteMindmap, restoreLocal, notInTrashError, togglePin, getRaw, putRaw, setCurrentUser, getCurrentUser,
     recordFromServer, adoptServerWithConflictCopy, isLinked, CONFLICT_PREFIX, DEFAULT_DATA,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.mindmaprepo = exported; }
