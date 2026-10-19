@@ -246,8 +246,8 @@ test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan"
 });
 
 // ── Cache bust ───────────────────────────────────────────────────────────────
-test("sw.js CACHE = taskflow-v416-petakan (tldraw di-cache cache-first)", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v416-petakan";/m);
+test("sw.js CACHE = taskflow-v417-project-scope (tldraw di-cache cache-first)", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v417-project-scope";/m);
 });
 
 // ══ Putaran pengerasan (review independen) ══════════════════════════════════════
