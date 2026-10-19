@@ -8148,6 +8148,16 @@ async def mindmap_stream(mid: int, request: Request, user=Depends(get_current_us
             while True:
                 if await request.is_disconnected():
                     break
+                if entry not in mindmap_subscribers.get(mid, ()):
+                    # Dilepas broadcast (antrean penuh / akses dicabut): kirim sinyal penutup yang masih antre, lalu
+                    # tutup stream → EventSource klien menyambung ulang dan menarik keadaan terbaru (tanpa ini
+                    # pelanggan yang dilepas tetap menerima ping dan terlihat hidup selamanya).
+                    while not q.empty():
+                        msg = q.get_nowait()
+                        if msg.get("type") in ("mindmap_access_lost", "mindmap_deleted"):
+                            yield {"data": json.dumps(msg)}
+                            break
+                    break
                 try:
                     msg = await asyncio.wait_for(q.get(), timeout=20.0)
                     yield {"data": json.dumps(msg)}

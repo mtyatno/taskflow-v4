@@ -295,6 +295,17 @@ test("push 409 same node → mindmapConflictCopy event with copy title and the s
   assert.equal(evs[0].editor, "Bob");
   assert.equal(evs[0].title, "M");
   assert.equal(evs[0].source, "push");
+  assert.equal(evs[0].kind, "merge_conflict");
+});
+
+test("push 409 without valid base → whole-map copy event (kind conflict_copy)", async () => {
+  await put("mindmaps", [rec({ cid: "m", server_id: 10, title: "M", data_json: L, base_data_json: B, base_title: "M", base_rev: "t1", dirty: 1, rev: 1 })]);
+  await mapPut("mindmap", 10, "m");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "mindmap", cid: "m", payload: {} }]);
+  const tr = transport(() => rev409(srvRow({ id: 10, title: "M", data_json: S, updated_at: "t2" })));
+  const evs = await captureEvents("mindmapConflictCopy", () => pushOutbox(tr));
+  assert.equal(evs.length, 1);
+  assert.equal(evs[0].kind, "conflict_copy");
 });
 
 test("push 409 merged without conflict → no mindmapConflictCopy event", async () => {
@@ -318,6 +329,7 @@ test("pull copy → mindmapConflictCopy event; editor null when the row names no
   assert.equal(evs[0].copyTitle, "(konflik) M");
   assert.equal(evs[0].editor, null);
   assert.equal(evs[0].source, "pull");
+  assert.equal(evs[0].kind, "conflict_copy"); // tanpa basis sah → salinan seluruh peta
 });
 
 test("index.html toasts mindmapConflictCopy with the local-save conflict wording; tab no longer toasts every push sync", () => {
@@ -327,6 +339,23 @@ test("index.html toasts mindmapConflictCopy with the local-save conflict wording
   assert.ok(i !== -1, "listener global mindmapConflictCopy");
   const block = html.slice(i, html.indexOf("});", i));
   assert.match(block, /mindmaplive\.conflictToast\(/);
+  assert.match(block, /d\.kind === "conflict_copy"/);
+  assert.match(block, /mindmaplive\.wholeMapCopyToast\(/);
   assert.match(block, /__showToast/);
   assert.doesNotMatch(html, /Peta diubah di perangkat lain — versimu disimpan sebagai salinan '\(konflik\)'/);
+});
+
+test("pull merge whose result equals the server keeps the server data_json verbatim (no spurious canvas refresh)", async () => {
+  await put("mindmaps", [rec(Object.assign({ cid: "m", server_id: 10, title: "M", data_json: S, dirty: 1, rev: 1 }, based))]);
+  await mapPut("mindmap", 10, "m");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "mindmap", cid: "m", payload: {} }]);
+  // isi sama dengan S, tetapi diserialisasi lain (spasi + urutan key) oleh server
+  const pretty = JSON.stringify({ nodeData: JSON.parse(S).nodeData }, null, 1).replace('"id": "root",\n  "topic": "Akar"', '"topic": "Akar",\n  "id": "root"');
+  assert.notEqual(pretty, S);
+  const row = srvRow({ id: 10, title: "M", data_json: pretty, updated_at: "t2" });
+  const res = await pullMindmaps([row], () => Promise.resolve(row), null);
+  assert.equal(res.merged, 1);
+  const r = await get("mindmaps", "m");
+  assert.equal(r.data_json, pretty);
+  assert.equal(r.dirty, 0);
 });

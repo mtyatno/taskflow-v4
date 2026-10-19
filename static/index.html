@@ -825,13 +825,19 @@ window.__mindmapLive = (sid) => {
     if (res.dirty || res.merged) return window.__pushNow();
   }).then((r) => { if (r && (r.busy || r.requeued)) schedulePush(); renderConflicts(); }).catch(() => {});
 };
-// #4: push 409 / pull membuat salinan "(konflik)" peta (syncpush/syncpull → event mindmapConflictCopy) → toast dengan
-// kata-kata yang sama seperti konflik simpan tab; nama editor dari baris server bila ada, selain itu "anggota lain".
+// #4: push 409 / pull membuat salinan "(konflik)" peta (syncpush/syncpull → event mindmapConflictCopy) → toast. Bentrok
+// node (merge_conflict): kata-kata konflik simpan tab; salinan seluruh peta (conflict_copy): kata-kata notice-nya.
+// Nama editor dari baris server bila ada, selain itu "anggota lain".
 window.addEventListener("mindmapConflictCopy", (e) => {
   const d = (e && e.detail) || {};
   if (!d.copyTitle) return;
-  const msg = (window.TF && window.TF.mindmaplive) ? window.TF.mindmaplive.conflictToast(d.editor, d.copyTitle)
-    : "✂ Sebagian perubahanmu bentrok dengan " + (d.editor || "anggota lain") + " — versimu disimpan sebagai '" + d.copyTitle + "'";
+  const ML = window.TF && window.TF.mindmaplive;
+  // salinan seluruh peta (tanpa merge per node) → kata-kata notice conflict_copy; bentrok node → toast merge
+  const msg = d.kind === "conflict_copy"
+    ? (ML ? window.TF.mindmaplive.wholeMapCopyToast(d.title, d.copyTitle, d.editor)
+      : "✂ Edit offline-mu pada '" + (d.title || "(tanpa judul)") + "' disimpan sebagai '" + d.copyTitle + "' karena peta diubah di perangkat lain.")
+    : (ML ? window.TF.mindmaplive.conflictToast(d.editor, d.copyTitle)
+      : "✂ Sebagian perubahanmu bentrok dengan " + (d.editor || "anggota lain") + " — versimu disimpan sebagai '" + d.copyTitle + "'");
   window.__showToast?.(msg, "error");
 });
 if (window.TF && window.TF.drawingrepo && window.TF.idmap) {
@@ -9187,7 +9193,7 @@ function LinkPickerModal({
   //   - MindmapOutline
 function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap, onRequestLinkPicker, linked = false, showSummary = true, onOpenNoteAt = null, onUndo = null, onRedo = null, ...outlineRest }) {
   // linkInfo lewat rest agar tanda tangan tetap bebas "}" (tes C7 mencocokkan isi kurung kurawal).
-  const { linkInfo = {} } = outlineRest;
+  const { linkInfo = {}, historyEpoch = 0 } = outlineRest;
   const MO = window.TF && window.TF.mindmapoutline;
   const NM = linked && window.TF && window.TF.notemap ? window.TF.notemap : null; // peta tertaut: render aturan catatan
   const [activeId, setActiveId] = useState(null);
@@ -9211,6 +9217,10 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
   const redoRef = useRef([]);
   const treeRef = useRef(tree);
   treeRef.current = tree;
+  // #4: pohon diganti dari luar (pembaruan jarak jauh / kanvas dikembalikan) → historyEpoch naik → riwayat undo/redo
+  // Outline lama tidak berlaku (undo akan memulihkan pohon sebelum perubahan anggota lain dan autosave menimpanya).
+  const epochRef = useRef(historyEpoch);
+  if (epochRef.current !== historyEpoch) { epochRef.current = historyEpoch; undoRef.current = []; redoRef.current = []; }
   const containerRef = useRef(null);
   const editingIdRef = useRef(null); // mirrors editingId for re-entrancy-safe commit/cancel (focus->blur race)
 
@@ -10271,6 +10281,7 @@ function MindmapTabInstance({
     liveRef.current = window.TF.mindmaplive.createTabLive({ baseDocRef, lastKnownAtRef, remoteStaleRef, remoteSeqRef, pendingRemoteRef });
   }
   const [liveOn, setLiveOn] = useState(false);
+  const [outlineEpoch, setOutlineEpoch] = useState(0); // naik saat pohon diganti dari luar → riwayat undo Outline dikosongkan
   // iframe sudah mengirim "ready" (dan menerima load dari handler ready) — efek muat hanya mengirim load sendiri bila
   // iframe SUDAH siap; kalau belum, load kedua yang tertunda menginisialisasi ulang mesin setelah load dari "ready"
   // dan menyapu seleksi / kotak edit node yang baru dibuka pengguna.
@@ -10706,10 +10717,12 @@ function MindmapTabInstance({
           if (local) {
             if (local.nodeData) local.nodeData.root = true;
             iframeRef.current?.contentWindow?.postMessage({ type: "refresh", data: local }, window.location.origin);
+            setOutlineEpoch((n) => n + 1); // kanvas juga mengosongkan undo-nya pada refresh
           }
           scheduleRemoteRetry();
         } else if (entry) {
           setOutlineTree(entry.data);
+          setOutlineEpoch((n) => n + 1);
           setDirection(typeof entry.data.direction === "number" ? entry.data.direction : 2);
           setJustify(Boolean(entry.data.justify));
           if (entry.title != null && entry.title !== tab.title && onUpdateTitle) onUpdateTitle(tab.id, entry.title);
@@ -10985,7 +10998,8 @@ function MindmapTabInstance({
     onOpenNoteAt: isLinked ? openLinkedNoteAt : null,
     onUndo: isLinked ? () => linkedUndoRedo("undo") : null,
     onRedo: isLinked ? () => linkedUndoRedo("redo") : null,
-    linkInfo: linkInfo
+    linkInfo: linkInfo,
+    historyEpoch: outlineEpoch
   }) : null),
   showLinkPicker && /*#__PURE__*/React.createElement(LinkPickerModal, {
     existingLinks: currentNodeLinks,

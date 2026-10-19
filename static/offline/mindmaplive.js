@@ -52,6 +52,11 @@
     return "✂ Sebagian perubahanmu bentrok dengan " + (editor || "anggota lain") + " — versimu disimpan sebagai '" + copyTitle + "'";
   }
 
+  // Salinan seluruh peta (bukan merge per node): kata-kata sama dengan notice conflict_copy (noticeText di index.html).
+  function wholeMapCopyToast(title, copyTitle, editor) {
+    return "✂ Edit offline-mu pada '" + (title || "(tanpa judul)") + "' disimpan sebagai '" + copyTitle + "' karena peta diubah di perangkat lain" + (editor ? " (" + editor + ")" : "") + ".";
+  }
+
   function parseData(dataJson) {
     let data = null;
     try { data = typeof dataJson === "string" ? JSON.parse(dataJson) : dataJson; } catch (_) { return null; }
@@ -145,7 +150,7 @@
 
   const exported = {
     RECONNECT_MIN_MS, RECONNECT_MAX_MS, RECONNECT_MAX_ATTEMPTS, LIVE_LABEL, LIVE_TITLE, DELETED_MSG, ACCESS_LOST_MSG,
-    backoffMs, shouldReconnect, newSessionId, conflictToast, createTabLive, isEcho,
+    backoffMs, shouldReconnect, newSessionId, conflictToast, wholeMapCopyToast, createTabLive, isEcho,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.mindmaplive = exported; }
   return exported;

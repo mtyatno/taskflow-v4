@@ -297,7 +297,9 @@
       const sTitle = serverRow.title != null ? serverRow.title : "Untitled";
       const t = M.merge3Scalar(cur.base_title, cur.title, sTitle);
       const next = Object.assign(recordFromServer(serverRow, cid), {
-        data_json: JSON.stringify(res.doc), title: t.value,
+        // hasil = server (changed false) → teks server apa adanya: serialisasi ulang mengubah string (urutan key /
+        // spasi / root:true) sehingga tab mengira isinya berubah dan memuat ulang kanvas tanpa perlu.
+        data_json: res.changed ? JSON.stringify(res.doc) : serverRow.data_json, title: t.value,
         rev: (cur.rev || 0) + 1, pinned: !!cur.pinned,
       });
       if (cur.client_id != null) next.client_id = cur.client_id;
@@ -571,7 +573,11 @@
     if (!out || !out.copy) return null;
     const s = serverRow || {};
     const o = out.original || {};
+    // merge per node dengan bentrok node yang sama → "merge_conflict"; salinan seluruh peta (tanpa basis sah, JSON
+    // rusak, fallback merge3, pengaman loop sameBase) → "conflict_copy" (kata-kata toast mengikuti notice-nya).
+    const kind = (out.merged && out.conflicts > 0) ? "merge_conflict" : "conflict_copy";
     return {
+      kind: kind,
       cid: o.cid != null ? o.cid : null, copyCid: out.copy.cid, title: o.title != null ? o.title : (s.title || null),
       copyTitle: out.copy.title, editor: s.last_editor_display_name || s.last_editor_username || null, source: source || null,
     };

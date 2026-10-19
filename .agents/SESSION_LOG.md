@@ -3466,3 +3466,10 @@
 - **Verifikasi:** pytest 388, JS 1712/1713 (pra-ada `draw_local_reactive`), inline OK, E2E 41/41.
 - **Files Touch:** `static/index.html`, `static/offline/{mindmaplive,mindmaprepo,syncpull,syncpush}.js`, `tests/offline/{mindmap_live_ui,mindmapmerge_sync,petakan_tab_ui}.test.js`, `temporary_files/e2e_mindmap_live.py`, `.gitignore`, `.agents/*`
 - **Status:** Needs Review.
+
+## [2026-10-19 19:45] - Claude (PR B temuan mindmap #4 — perbaikan review akhir)
+- **Task:** temuan review akhir seluruh branch PR B (1 Important + 3 minor).
+- **Changes:** `MindmapOutline` menerima `historyEpoch` (tab menaikkannya pada `remoteApplied` dan revert kanvas yang berpapasan) → riwayat undo/redo Outline dikosongkan, Ctrl+Z di Outline tidak lagi menghapus perubahan anggota lain; generator `GET /api/mindmaps/{mid}/stream` berhenti bila entrinya dilepas broadcast (antrean penuh) setelah meneruskan sinyal penutup yang masih antre; `mergeServerIntoLocal` memakai `serverRow.data_json` apa adanya bila hasil merge = server; `conflictCopyDetail.kind` (`merge_conflict` / `conflict_copy`) + `TF.mindmaplive.wholeMapCopyToast` (kata-kata notice salinan seluruh peta). Iframe tidak berubah (tetap `?v=145`), SW tetap v422.
+- **Verifikasi:** pytest 389, JS 1717/1718 (pra-ada `draw_local_reactive`), inline OK, E2E 41/41.
+- **Files Touch:** `static/index.html`, `static/offline/{mindmaplive,mindmaprepo}.js`, `webapp.py`, `tests/offline/{mindmap_live_ui,mindmapmerge_sync}.test.js`, `tests/test_mindmap_live.py`, `.agents/*`
+- **Status:** Needs Review.

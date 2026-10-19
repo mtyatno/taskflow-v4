@@ -207,6 +207,14 @@ test("saved: base = saved data_json; if_updated_at advances only for a plain sav
   assert.equal(r.lastKnownAtRef.current, "t2");
 });
 
+test("wholeMapCopyToast matches the whole-map conflict_copy notice wording", () => {
+  assert.equal(live.wholeMapCopyToast("M", "(konflik) M", "Bob"), "✂ Edit offline-mu pada 'M' disimpan sebagai '(konflik) M' karena peta diubah di perangkat lain (Bob).");
+  assert.equal(live.wholeMapCopyToast("M", "(konflik) M", null), "✂ Edit offline-mu pada 'M' disimpan sebagai '(konflik) M' karena peta diubah di perangkat lain.");
+  const nt = slice(html, "function noticeText(", "\nfunction renderConflicts");
+  assert.match(nt, /"✂ Edit offline-mu pada '" \+ title \+ "' disimpan sebagai '"/);
+  assert.match(nt, /karena " \+ __entityNoun\(n\.entity\) \+ " diubah di perangkat lain"/);
+});
+
 test("conflictToast uses the spec text", () => {
   assert.equal(live.conflictToast("Bob", "(konflik) M"), "✂ Sebagian perubahanmu bentrok dengan Bob — versimu disimpan sebagai '(konflik) M'");
   assert.equal(live.conflictToast(null, "(konflik) M"), "✂ Sebagian perubahanmu bentrok dengan anggota lain — versimu disimpan sebagai '(konflik) M'");
@@ -373,4 +381,51 @@ test("shouldReconnect caps consecutive failed attempts", () => {
   assert.equal(live.shouldReconnect(live.RECONNECT_MAX_ATTEMPTS - 1), true);
   assert.equal(live.shouldReconnect(live.RECONNECT_MAX_ATTEMPTS), false);
   assert.ok(live.RECONNECT_MAX_ATTEMPTS >= 3 && live.RECONNECT_MAX_ATTEMPTS <= 20);
+});
+
+// ── Review akhir: undo Outline tidak boleh menghapus perubahan anggota lain ─────────────────────────
+function mountOutline(props) {
+  const src = slice(html, "function MindmapOutline(", "\nfunction MindmapTabInstance(");
+  const slots = []; let slot = 0;
+  const useState = (init) => { const i = slot++; if (!(i in slots)) slots[i] = typeof init === "function" ? init() : init; return [slots[i], (v) => { slots[i] = typeof v === "function" ? v(slots[i]) : v; }]; };
+  const useRef = (init) => { const i = slot++; if (!(i in slots)) slots[i] = { current: init }; return slots[i]; };
+  const React = { createElement: (type, p, ...children) => ({ type, props: p || {}, children }), Fragment: "Fragment" };
+  const win = { TF: { mindmapoutline: require("../../static/offline/mindmapoutline.js") } };
+  const Comp = new Function("React", "useState", "useRef", "window", "document", src + "\nreturn MindmapOutline;")(
+    React, useState, useRef, win, { addEventListener() {}, removeEventListener() {} });
+  slots[0] = "n1"; // activeId (useState pertama)
+  let cur = Object.assign({}, props);
+  let out = null;
+  const render = (p) => { if (p) cur = Object.assign({}, cur, p); slot = 0; out = Comp(cur); return out; };
+  const key = (k, extra) => out.props.onKeyDown(Object.assign({ key: k, ctrlKey: true, target: { tagName: "DIV" }, preventDefault() {}, stopPropagation() {} }, extra || {}));
+  return { render, key };
+}
+
+test("Outline undo after a remote update cannot restore the pre-remote tree (history cleared per historyEpoch)", () => {
+  const T0 = { id: "root", topic: "Akar", root: true, children: [{ id: "n1", topic: "Satu", children: [] }] };
+  const changes = [];
+  const h = mountOutline({ tree: T0, onChange: (t) => changes.push(t), historyEpoch: 0 });
+  h.render();
+  h.key("d"); // duplikat n1 → satu entri undo (pohon T0)
+  assert.equal(changes.length, 1);
+  const remote = { id: "root", topic: "Akar", root: true, children: [{ id: "n1", topic: "Satu diubah Ana", children: [] }] };
+  // kontrol: tanpa epoch baru, Ctrl+Z mengembalikan T0 → perubahan Ana hilang
+  h.render({ tree: remote });
+  h.key("z");
+  assert.equal(changes.length, 2);
+  assert.equal(changes[1], T0);
+  // dengan epoch baru (remoteApplied): riwayat dikosongkan → undo/redo tidak melakukan apa pun
+  const h2 = mountOutline({ tree: T0, onChange: (t) => changes.push(t), historyEpoch: 0 });
+  h2.render(); h2.key("d");
+  const n = changes.length;
+  h2.render({ tree: remote, historyEpoch: 1 });
+  h2.key("z"); h2.key("z", { shiftKey: true }); h2.key("y");
+  assert.equal(changes.length, n, "undo/redo kosong setelah pembaruan jarak jauh");
+});
+
+test("tab bumps the Outline historyEpoch on remoteApplied and on the raced revert", () => {
+  const t = slice(html, "function MindmapTabInstance(", "\nconst MINDMAP_DIRECTIONS");
+  assert.match(t, /historyEpoch: outlineEpoch/);
+  const ra = slice(t, 'e.data.type === "remoteApplied"', 'e.data.type === "remoteSkipped"');
+  assert.equal((ra.match(/setOutlineEpoch\(/g) || []).length, 2);
 });

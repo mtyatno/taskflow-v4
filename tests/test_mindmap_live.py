@@ -203,3 +203,40 @@ def test_full_queue_drops_subscriber(client):
         finally:
             webapp.mindmap_subscribers.pop(m["id"], None)
     assert asyncio.run(run()) == set()
+
+
+def test_stream_generator_stops_after_full_queue_drop(client):
+    """Pelanggan yang dilepas karena antrean penuh harus ditutup (klien menyambung ulang), bukan tetap
+    menerima ping selamanya sambil terlihat hidup."""
+    a = U(client, "mmlv11")
+    m = a.mk_map("Lambat")
+
+    class Req:
+        async def is_disconnected(self):
+            return False
+
+    async def run():
+        resp = await webapp.mindmap_stream(m["id"], Req(), user={"sub": a.id})
+        it = resp.body_iterator
+        first = asyncio.ensure_future(it.__anext__())
+        for _ in range(50):
+            if webapp.mindmap_subscribers.get(m["id"]):
+                break
+            await asyncio.sleep(0.01)
+        assert webapp.mindmap_subscribers.get(m["id"])
+        # klien macet: 101 sinyal tanpa dikonsumsi → antrean (100) penuh → pelanggan dilepas
+        for _ in range(101):
+            await webapp._mindmap_broadcast(m["id"], {"type": "mindmap_changed", "id": m["id"], "updated_at": "t"})
+        assert not webapp.mindmap_subscribers.get(m["id"])
+        events = [await asyncio.wait_for(first, 5)]
+        try:
+            for _ in range(200):
+                events.append(await asyncio.wait_for(it.__anext__(), 1))
+        except StopAsyncIteration:
+            return events, True
+        except asyncio.TimeoutError:
+            return events, False
+        return events, False
+    events, ended = asyncio.run(run())
+    assert ended, "stream harus berakhir setelah pelanggan dilepas"
+    assert not any('"ping"' in e["data"] for e in events)
