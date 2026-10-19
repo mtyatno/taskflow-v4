@@ -190,3 +190,143 @@ def test_schema_constraints(conn):
     conn.commit()
     assert conn.execute("SELECT COUNT(*) c FROM projects WHERE list_id=?", (w,)).fetchone()["c"] == 0
     assert _row(conn, tid)["project_id"] is None
+
+
+# ── Final-review F1: backfill tak boleh menggagalkan migrate_db ─────────────
+
+def _raw_fk_off():
+    c = db()
+    c.execute("PRAGMA foreign_keys=OFF")
+    return c
+
+
+def _cleanup(conn, tids):
+    conn.rollback()  # lepaskan kunci tulis koneksi fixture bila backfill gagal
+    c = _raw_fk_off()
+    c.executemany("DELETE FROM tasks WHERE id=?", [(t,) for t in tids])
+    c.commit()
+    c.close()
+
+
+def _raw_task(c, user_id, project, list_id=None, parent_id=None, created="2026-01-01T00:00:00"):
+    cur = c.execute(
+        "INSERT INTO tasks(title, gtd_status, project, user_id, list_id, parent_id, created_at, updated_at) "
+        "VALUES ('t','inbox',?,?,?,?,?,?)", (project, user_id, list_id, parent_id, created, created))
+    c.commit()
+    return cur.lastrowid
+
+
+def test_backfill_skips_personal_task_of_deleted_user(conn):
+    u = _user(conn)
+    good_name, bad_name = _uniq("Good"), _uniq("Dang")
+    good = _task(conn, u, good_name)
+    raw = _raw_fk_off()
+    bad = _raw_task(raw, 987650001, bad_name)
+    raw.close()
+    try:
+        repository.backfill_projects(conn)
+        conn.commit()
+        assert _row(conn, good)["project_id"] is not None
+        assert _row(conn, bad)["project_id"] is None
+        assert conn.execute("SELECT COUNT(*) c FROM projects WHERE name=?", (bad_name,)).fetchone()["c"] == 0
+    finally:
+        _cleanup(conn, [bad])
+
+
+def test_backfill_workspace_dangling_created_by_is_null(conn):
+    u = _user(conn)
+    w = _workspace(conn, u)
+    name = _uniq("WsDang")
+    raw = _raw_fk_off()
+    old = _raw_task(raw, 987650002, name, list_id=w, created="2025-01-01T00:00:00")
+    raw.close()
+    newer = _task(conn, u, name, list_id=w, created="2026-01-01T00:00:00")
+    try:
+        repository.backfill_projects(conn)
+        conn.commit()
+        pid = _row(conn, newer)["project_id"]
+        assert pid is not None and _row(conn, old)["project_id"] == pid
+        p = conn.execute("SELECT * FROM projects WHERE id=?", (pid,)).fetchone()
+        assert p["list_id"] == w and p["created_by"] is None
+    finally:
+        _cleanup(conn, [old])
+
+
+def test_backfill_dangling_parent_skips_group_only(conn):
+    u = _user(conn)
+    good_name, bad_name = _uniq("GoodP"), _uniq("BadP")
+    raw = _raw_fk_off()
+    bad = _raw_task(raw, u, bad_name, parent_id=987650003)
+    raw.close()
+    good = _task(conn, u, good_name)
+    try:
+        repository.backfill_projects(conn)  # tak boleh raise
+        conn.commit()
+        assert _row(conn, good)["project_id"] is not None
+        assert _row(conn, bad)["project_id"] is None
+        assert conn.execute("SELECT COUNT(*) c FROM projects WHERE name=?", (bad_name,)).fetchone()["c"] == 0
+    finally:
+        _cleanup(conn, [bad])
+
+
+def test_backfill_whitespace_only_name_creates_nothing(conn):
+    u = _user(conn)
+    t = _task(conn, u, "\t\n  ")
+    repository.backfill_projects(conn)
+    conn.commit()
+    assert _row(conn, t)["project_id"] is None
+    assert conn.execute("SELECT COUNT(*) c FROM projects WHERE TRIM(name, ' \t\n' || char(160)) = ''"
+                        ).fetchone()["c"] == 0
+
+
+# ── Final-review F3: backfill memperbaiki link basi ─────────────────────────
+
+def test_backfill_relinks_when_text_changed(conn):
+    u = _user(conn)
+    a, b = _uniq("RelA"), _uniq("RelB")
+    t = _task(conn, u, a)
+    tb = _task(conn, u, b)
+    repository.backfill_projects(conn)
+    conn.commit()
+    pa, pb = _row(conn, t)["project_id"], _row(conn, tb)["project_id"]
+    conn.execute("UPDATE tasks SET project=? WHERE id=?", (b.upper(), t))
+    conn.commit()
+    repository.backfill_projects(conn)
+    conn.commit()
+    r = _row(conn, t)
+    assert r["project_id"] == pb != pa and r["project"] == b
+    assert r["updated_at"] == "2026-01-01T00:00:00"
+    # idempoten: run berikut tak mengubah apa pun
+    repository.backfill_projects(conn)
+    assert _row(conn, t)["project_id"] == pb
+
+
+def test_backfill_relinks_when_scope_changed(conn):
+    u = _user(conn)
+    w = _workspace(conn, u)
+    name = _uniq("Scope")
+    t = _task(conn, u, name, list_id=w)
+    repository.backfill_projects(conn)
+    conn.commit()
+    wp = _row(conn, t)["project_id"]
+    conn.execute("UPDATE tasks SET list_id=NULL WHERE id=?", (t,))
+    conn.commit()
+    repository.backfill_projects(conn)
+    conn.commit()
+    pid = _row(conn, t)["project_id"]
+    assert pid != wp
+    p = conn.execute("SELECT * FROM projects WHERE id=?", (pid,)).fetchone()
+    assert p["user_id"] == u and p["list_id"] is None
+
+
+def test_backfill_clears_id_when_text_empty(conn):
+    u = _user(conn)
+    t = _task(conn, u, _uniq("Clr"))
+    repository.backfill_projects(conn)
+    conn.commit()
+    assert _row(conn, t)["project_id"] is not None
+    conn.execute("UPDATE tasks SET project='  ' WHERE id=?", (t,))
+    conn.commit()
+    repository.backfill_projects(conn)
+    conn.commit()
+    assert _row(conn, t)["project_id"] is None

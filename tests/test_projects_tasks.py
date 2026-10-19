@@ -297,3 +297,113 @@ def test_resolve_twice_same_new_name(client):
     conn.commit()
     conn.close()
     assert a == b
+
+
+# ── Final-review F2: resolusi hanya saat project benar-benar berubah ────────
+
+def _former_member_task_with_project(client):
+    a, b = U(client), U(client)
+    ws = _workspace(a)
+    _add_member(ws, b.id)
+    name = _n("FM")
+    t = _mk(b, list_id=ws, project=name)
+    assert t["project_id"]
+    _remove_member(ws, b.id)
+    return a, b, ws, t, name
+
+
+def test_former_member_edit_title_unchanged_project_ok(client):
+    a, b, ws, t, name = _former_member_task_with_project(client)
+    r = b.put(f"/api/tasks/{t['id']}", json={"title": "baru", "project": name.lower()})
+    assert r.status_code == 200, r.text
+    row = _row("SELECT title, project, project_id FROM tasks WHERE id=?", t["id"])
+    assert row["title"] == "baru" and row["project"] == name and row["project_id"] == t["project_id"]
+    # mengganti nama tetap diresolusi -> 400 untuk mantan anggota
+    r = b.put(f"/api/tasks/{t['id']}", json={"project": _n("Lain")})
+    assert r.status_code == 400 and r.json()["detail"] == "Project tidak berada di scope task"
+
+
+def test_former_member_empty_project_on_task_without_project_ok(client):
+    a, b, ws, t, wp = _former_member_task(client)
+    r = b.put(f"/api/tasks/{t['id']}", json={"title": "x", "project": ""})
+    assert r.status_code == 200, r.text
+    # project_id yang sama dengan yang sekarang (None) juga no-op
+    r = b.put(f"/api/tasks/{t['id']}", json={"title": "y", "project": "", "project_id": None})
+    assert r.status_code == 200, r.text
+
+
+def test_archived_project_stays_archived_on_unrelated_edit(client):
+    u = U(client)
+    name = _n()
+    t = _mk(u, project=name)
+    pid = t["project_id"]
+    assert u.client.patch(f"/api/projects/{pid}", headers=u.h, json={"archived": True}).status_code == 200
+    r = u.put(f"/api/tasks/{t['id']}", json={"title": "ubah", "project": name})
+    assert r.status_code == 200, r.text
+    r = u.put(f"/api/tasks/{t['id']}", json={"gtd_status": "done", "project": name, "project_id": pid})
+    assert r.status_code == 200, r.text
+    assert _row("SELECT archived FROM projects WHERE id=?", pid)["archived"] == 1
+    assert _row("SELECT project_id FROM tasks WHERE id=?", t["id"])["project_id"] == pid
+
+
+def test_put_changed_name_still_resolves(client):
+    u = U(client)
+    t = _mk(u, project=_n())
+    new = _n("New")
+    r = u.put(f"/api/tasks/{t['id']}", json={"title": "z", "project": new})
+    assert r.status_code == 200, r.text
+    assert r.json()["project"] == new and r.json()["project_id"] != t["project_id"]
+
+
+def test_repository_update_former_member_unchanged_name_keeps_project_id(client):
+    a, b, ws, t, name = _former_member_task_with_project(client)
+    repo = repository.TaskRepository(os.environ["DB_PATH"])
+    task = repo.get(t["id"])
+    task.title = "bot edit"
+    repo.update(task)
+    row = _row("SELECT title, project, project_id FROM tasks WHERE id=?", t["id"])
+    assert row["title"] == "bot edit" and row["project"] == name
+    assert row["project_id"] == t["project_id"]
+
+
+def test_repository_update_unchanged_name_keeps_archived(client):
+    u = U(client)
+    repo = repository.TaskRepository(os.environ["DB_PATH"])
+    name = _n()
+    task = repo.add(models.Task(title="bot", project=name), u.id)
+    pid = _row("SELECT project_id FROM tasks WHERE id=?", task.id)["project_id"]
+    conn = db()
+    conn.execute("UPDATE projects SET archived=1 WHERE id=?", (pid,))
+    conn.commit()
+    conn.close()
+    task.title = "bot2"
+    repo.update(task)
+    assert _row("SELECT archived FROM projects WHERE id=?", pid)["archived"] == 1
+
+
+# ── Final-review F3: pindah pemilik -> link project diperbaiki ──────────────
+
+def test_link_telegram_moves_tasks_to_new_owner_personal_project(client):
+    web = U(client)
+    repo = repository.TaskRepository(os.environ["DB_PATH"])
+    tg = int(uuid.uuid4().int % 10**12) + 10**12
+    old = repo.auto_register_telegram_user(tg, "tg")
+    name = _n("TG")
+    task = repo.add(models.Task(title="dari tg", project=name), old)
+    old_pid = _row("SELECT project_id FROM tasks WHERE id=?", task.id)["project_id"]
+    username = _row("SELECT username FROM users WHERE id=?", web.id)["username"]
+    assert repo.link_telegram_to_web_user(tg, username, "pass1234") == web.id
+    row = _row("SELECT t.user_id, t.project_id, p.user_id AS puid, p.name FROM tasks t "
+               "JOIN projects p ON p.id=t.project_id WHERE t.id=?", task.id)
+    assert row["user_id"] == web.id and row["project_id"] != old_pid
+    assert row["puid"] == web.id and row["name"] == name
+
+
+def test_assign_orphan_tasks_links_projects(client):
+    u = U(client)
+    repo = repository.TaskRepository(os.environ["DB_PATH"])
+    name = _n("Orph")
+    task = repo.add(models.Task(title="yatim", project=name), None)
+    repo.assign_orphan_tasks(u.id)
+    row = _row("SELECT p.user_id FROM tasks t JOIN projects p ON p.id=t.project_id WHERE t.id=?", task.id)
+    assert row is not None and row["user_id"] == u.id

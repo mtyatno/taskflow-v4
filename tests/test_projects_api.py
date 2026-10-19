@@ -251,3 +251,14 @@ def test_repo_list_projects_reads_table(client):
     names = repository.TaskRepository(__import__("os").environ["DB_PATH"]).list_projects(u.id)
     assert keep in names and arch not in names and wsn not in names
     assert names == sorted(names, key=str.lower)
+
+
+def test_patch_color_validation(client):
+    u = U(client)
+    p = _proj(u)
+    url = f"/api/projects/{p['id']}"
+    for bad in ("red", "#fff", "#12345g", "#1234567", ""):
+        r = u.patch(url, json={"color": bad})
+        assert r.status_code == 400 and r.json()["detail"] == "Warna harus format #rrggbb", bad
+    assert u.patch(url, json={"color": "#A1b2C3"}).json()["color"] == "#A1b2C3"
+    assert u.patch(url, json={"color": None}).json()["color"] is None

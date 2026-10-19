@@ -4,6 +4,7 @@ Multi-user: all task queries filter by user_id.
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 import secrets
 import hashlib
@@ -20,6 +21,8 @@ def _today_jkt() -> date:
 
 from models import Task, GTDStatus, Priority, Quadrant
 from config import DB_PATH
+
+_log = logging.getLogger(__name__)
 
 
 def ensure_projects_schema(conn) -> None:
@@ -118,59 +121,112 @@ def resolve_task_project(conn, *, owner_id: int, list_id: Optional[int],
     return row[0], row[1]
 
 
-def backfill_projects(conn) -> dict:
-    """Buat/hubungkan project dari teks `tasks.project` yang belum punya project_id.
+def _nocase(s: Optional[str]) -> str:
+    """Kunci pembanding setara COLLATE NOCASE SQLite (hanya A-Z yang dilipat)."""
+    return "".join(chr(ord(c) + 32) if "A" <= c <= "Z" else c for c in (s or ""))
 
-    Scope: list_id menunjuk shared_lists yang ada -> workspace, selain itu pribadi
-    milik tasks.user_id. Grup = (scope, nama NOCASE). Idempoten. Tidak mengubah
+
+def project_text_changed(new: Optional[str], current: Optional[str]) -> bool:
+    """True bila nama project (ter-strip) beda dari teks task sekarang menurut NOCASE."""
+    return _nocase((new or "").strip()) != _nocase((current or "").strip())
+
+
+def backfill_projects(conn) -> dict:
+    """Buat/hubungkan project dari teks `tasks.project` + perbaiki link basi.
+
+    Diproses: task dengan project_id NULL dan teks berisi, serta task yang
+    project_id-nya basi (nama project != teks secara NOCASE, atau scope project
+    != scope task; teks kosong -> project_id di-NULL-kan). Scope: list_id
+    menunjuk shared_lists yang ada -> workspace, selain itu pribadi milik
+    tasks.user_id (hanya bila user itu ada). Grup = (scope, nama NOCASE), tiap
+    grup dalam SAVEPOINT: IntegrityError (data FK rusak) -> grup dilewati +
+    warning, tak pernah menggagalkan migrate_db. Idempoten. Tidak mengubah
     updated_at task (bukan edit pengguna). Pemanggil yang commit.
     """
     rows = conn.execute("""
         SELECT t.id, t.project, t.user_id, t.gtd_status, t.created_at, t.updated_at,
-               sl.id AS ws_id
-        FROM tasks t LEFT JOIN shared_lists sl ON sl.id = t.list_id
-        WHERE t.project_id IS NULL AND TRIM(COALESCE(t.project, '')) <> ''
+               sl.id AS ws_id, u.id AS owner_ok, t.project_id,
+               p.name AS p_name, p.user_id AS p_user, p.list_id AS p_list
+        FROM tasks t
+        LEFT JOIN shared_lists sl ON sl.id = t.list_id
+        LEFT JOIN users u ON u.id = t.user_id
+        LEFT JOIN projects p ON p.id = t.project_id
+        WHERE (t.project_id IS NULL AND COALESCE(t.project, '') <> '')
+           OR t.project_id IS NOT NULL
     """).fetchall()
 
     groups: dict = {}
+    clear_ids = []
     for r in rows:
-        name = r[1].strip()
-        scope = ("w", r[6]) if r[6] is not None else ("u", r[2])
-        if scope[1] is None:  # yatim: tanpa workspace dan tanpa pemilik
+        name = (r[1] or "").strip()
+        scope = ("w", r[6]) if r[6] is not None else ("u", r[2] if r[7] is not None else None)
+        if r[8] is not None:  # sudah terhubung: hanya proses bila basi
+            if not name:
+                clear_ids.append(r[0])
+                continue
+            p_scope = ("w", r[11]) if r[11] is not None else ("u", r[10])
+            if r[9] is not None and p_scope == scope and _nocase(r[9]) == _nocase(name):
+                continue
+        if not name or scope[1] is None:  # nama kosong / yatim / pemilik sudah dihapus
             continue
-        groups.setdefault((scope, name.lower()), []).append((r, name))
+        groups.setdefault((scope, _nocase(name)), []).append((r, name))
 
     now = datetime.now().isoformat()
-    created = linked = 0
+    created = linked = cleared = skipped = 0
+    for tid in clear_ids:
+        try:
+            conn.execute("SAVEPOINT bf_clear")
+            conn.execute("UPDATE tasks SET project_id=NULL WHERE id=?", (tid,))
+            conn.execute("RELEASE bf_clear")
+            cleared += 1
+        except sqlite3.IntegrityError as e:
+            conn.execute("ROLLBACK TO bf_clear")
+            conn.execute("RELEASE bf_clear")
+            skipped += 1
+            _log.warning("backfill_projects: task %s dilewati (%s)", tid, e)
+
     for (scope, _key), members in groups.items():
         kind, owner = scope
-        if kind == "w":
-            existing = conn.execute(
-                "SELECT id, name FROM projects WHERE list_id=? AND name=? COLLATE NOCASE",
-                (owner, members[0][1])).fetchone()
-        else:
-            existing = conn.execute(
-                "SELECT id, name FROM projects WHERE user_id=? AND list_id IS NULL "
-                "AND name=? COLLATE NOCASE", (owner, members[0][1])).fetchone()
-        if existing:
-            pid, canon = existing[0], existing[1]
-        else:
-            newest = max(members, key=lambda m: (m[0][5] or "", m[0][0]))
-            oldest = min(members, key=lambda m: (m[0][4] or "", m[0][0]))
-            canon = newest[1]
-            created_by = oldest[0][2] if kind == "w" else owner
-            has_active = any(m[0][3] not in ("done", "archived") for m in members)
-            col = "list_id" if kind == "w" else "user_id"
-            cur = conn.execute(
-                f"INSERT INTO projects(name, {col}, archived, created_by, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?)",
-                (canon, owner, 0 if has_active else 1, created_by, now, now))
-            pid = cur.lastrowid
-            created += 1
-        for r, _n in members:
-            conn.execute("UPDATE tasks SET project_id=?, project=? WHERE id=?", (pid, canon, r[0]))
-            linked += 1
-    return {"created": created, "linked": linked}
+        conn.execute("SAVEPOINT bf_group")
+        try:
+            if kind == "w":
+                existing = conn.execute(
+                    "SELECT id, name FROM projects WHERE list_id=? AND name=? COLLATE NOCASE",
+                    (owner, members[0][1])).fetchone()
+            else:
+                existing = conn.execute(
+                    "SELECT id, name FROM projects WHERE user_id=? AND list_id IS NULL "
+                    "AND name=? COLLATE NOCASE", (owner, members[0][1])).fetchone()
+            g_created = 0
+            if existing:
+                pid, canon = existing[0], existing[1]
+            else:
+                newest = max(members, key=lambda m: (m[0][5] or "", m[0][0]))
+                oldest = min(members, key=lambda m: (m[0][4] or "", m[0][0]))
+                canon = newest[1]
+                if kind == "w":
+                    created_by = oldest[0][2] if oldest[0][7] is not None else None
+                else:
+                    created_by = owner
+                has_active = any(m[0][3] not in ("done", "archived") for m in members)
+                col = "list_id" if kind == "w" else "user_id"
+                cur = conn.execute(
+                    f"INSERT INTO projects(name, {col}, archived, created_by, created_at, updated_at) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (canon, owner, 0 if has_active else 1, created_by, now, now))
+                pid = cur.lastrowid
+                g_created = 1
+            for r, _n in members:
+                conn.execute("UPDATE tasks SET project_id=?, project=? WHERE id=?", (pid, canon, r[0]))
+            conn.execute("RELEASE bf_group")
+            created += g_created
+            linked += len(members)
+        except sqlite3.IntegrityError as e:
+            conn.execute("ROLLBACK TO bf_group")
+            conn.execute("RELEASE bf_group")
+            skipped += 1
+            _log.warning("backfill_projects: grup %s/%r dilewati (%s)", scope, members[0][1], e)
+    return {"created": created, "linked": linked, "cleared": cleared, "skipped": skipped}
 
 
 class TaskRepository:
@@ -776,13 +832,16 @@ class TaskRepository:
             if old_user:
                 conn.execute("UPDATE tasks SET user_id = ? WHERE user_id = ?", (user["id"], old_user["id"]))
 
+            backfill_projects(conn)  # task pindah pemilik -> project pribadi pemilik baru
             return user["id"]
 
     def assign_orphan_tasks(self, user_id: int) -> int:
         """Assign all tasks without user_id to the given user."""
         with self._connect() as conn:
             cur = conn.execute("UPDATE tasks SET user_id = ? WHERE user_id IS NULL", (user_id,))
-            return cur.rowcount
+            n = cur.rowcount
+            backfill_projects(conn)  # task kini punya pemilik -> hubungkan project-nya
+            return n
 
     # ── User clause helper ─────────────────────────────────────────────────
 
@@ -835,8 +894,12 @@ class TaskRepository:
         now = datetime.now().isoformat()
         task.updated_at = datetime.fromisoformat(now)
         with self._connect() as conn:
-            ex = conn.execute("SELECT user_id, list_id FROM tasks WHERE id=?", (task.id,)).fetchone()
-            if ex is not None and ex["user_id"] is not None:
+            ex = conn.execute("SELECT user_id, list_id, project, project_id FROM tasks WHERE id=?",
+                              (task.id,)).fetchone()
+            if ex is not None and not project_text_changed(task.project, ex["project"]):
+                # nama tak berubah: jangan resolusi ulang (arsip tetap, link tetap)
+                pid, pname = ex["project_id"], ex["project"] or ""
+            elif ex is not None and ex["user_id"] is not None:
                 try:
                     pid, pname = resolve_task_project(
                         conn, owner_id=ex["user_id"], list_id=ex["list_id"], name=task.project,

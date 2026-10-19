@@ -1963,7 +1963,14 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
             updates["description"] = req.description
         if req.priority is not None:
             updates["priority"] = req.priority.upper()
-        if req.project is not None or req.project_id is not None:  # null = tidak diubah (perilaku lama)
+        # Resolusi hanya bila project benar-benar berubah (null = tidak diubah, perilaku lama).
+        # project_id non-null menang atas nama; selain itu bandingkan nama NOCASE dgn teks sekarang.
+        if req.project_id is not None:
+            project_changed = req.project_id != existing["project_id"]
+        else:
+            project_changed = req.project is not None and repository.project_text_changed(
+                req.project, existing["project"])
+        if project_changed:
             try:
                 proj_id, proj_name = repository.resolve_task_project(
                     conn, owner_id=existing["user_id"], list_id=existing["list_id"],
@@ -2298,6 +2305,9 @@ class ProjectCreate(BaseModel):
     list_id: Optional[int] = None
 
 
+_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}\Z")
+
+
 class ProjectPatch(BaseModel):
     name: Optional[str] = None
     color: Optional[str] = None
@@ -2416,6 +2426,8 @@ async def update_project(project_id: int, body: ProjectPatch, user=Depends(get_c
             conn.execute("UPDATE tasks SET project = ?, updated_at = ? WHERE project_id = ?",
                          (new, now, project_id))
         if "color" in fields:
+            if body.color is not None and not _COLOR_RE.match(body.color):
+                raise HTTPException(400, "Warna harus format #rrggbb")
             sets.append("color = ?"); args.append(body.color)
         if "archived" in fields and body.archived is not None:
             sets.append("archived = ?"); args.append(1 if body.archived else 0)
