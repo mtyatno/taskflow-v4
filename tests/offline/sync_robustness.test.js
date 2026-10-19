@@ -491,7 +491,7 @@ test("pullMindmapsAndReconcile confirms deletion per item (404 â†’ delete, 503 â
   await put("mindmaps", [mm("gone", 5), mm("keep", 6)]);
   await mapPut("mindmap", 5, "gone"); await mapPut("mindmap", 6, "keep");
   const rawFetch = (u) => {
-    if (u === "/api/mindmaps") return Promise.resolve(httpRes(200, []));
+    if (u === "/api/mindmaps?linked=1") return Promise.resolve(httpRes(200, []));
     if (u === "/api/mindmaps/5") return Promise.resolve(httpRes(404, { detail: "nf" }));
     return Promise.resolve(httpRes(503, { detail: "OFFLINE" }));
   };
@@ -503,7 +503,7 @@ test("pullMindmapsAndReconcile confirms deletion per item (404 â†’ delete, 503 â
 
 test("pullMindmapsAndReconcile never writes an error body as a mindmap", async () => {
   const rows = [{ id: 5, title: "Srv", is_pinned: 0, list_id: null, created_at: "x", updated_at: "u" }];
-  const rawFetch = (u) => (u === "/api/mindmaps" ? Promise.resolve(httpRes(200, rows)) : Promise.resolve(httpRes(404, { detail: "nf" })));
+  const rawFetch = (u) => (u === "/api/mindmaps?linked=1" ? Promise.resolve(httpRes(200, rows)) : Promise.resolve(httpRes(404, { detail: "nf" })));
   const res = await pullMindmapsAndReconcile(rawFetch);
   assert.equal(res.created, 0); // tidak ada record yang ditulis tanpa body valid (D: dihitung skipped, bukan created)
   assert.equal(res.skipped, 1);

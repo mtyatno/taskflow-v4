@@ -847,16 +847,19 @@
   function writeMindmapFull(serverId, cid, fetchOne, extra, localRec) {
     return Promise.resolve(fetchOne(serverId)).then((fullRow) => {
       if (!(fullRow && fullRow.id != null)) return false;
-      return TFdb.mutate("mindmaps", cid, (cur) => {
+      // peta tertaut: cid catatan lokal dari idmap (null bila catatan belum ter-pull → diisi pull berikutnya)
+      const noteCidP = fullRow.source_note_id != null ? TFidmap.cidOf("note", fullRow.source_note_id) : Promise.resolve(null);
+      return noteCidP.then((noteCid) => TFdb.mutate("mindmaps", cid, (cur) => {
         if (!sameMindmapState(cur, localRec)) return undefined;
         const rec = Object.assign(TFmm.recordFromServer(fullRow, cid), { rev: cur ? (cur.rev || 0) + 1 : 0 }, extra || {});
+        if (noteCid != null) rec.source_note_cid = noteCid;
         if (cur) {
           rec.pinned = !!cur.pinned; // pin lokal dipertahankan (op pin bisa tertunda); adopsi pin server di pass pin
           if (cur.client_id != null) rec.client_id = cur.client_id;
           if (cur.source_note_cid != null) rec.source_note_cid = cur.source_note_cid; // peta tertaut: jangan putus dari catatan
         }
         return rec;
-      }).then((saved) => !!saved);
+      })).then((saved) => !!saved);
     });
   }
 
@@ -888,6 +891,9 @@
               // base_rev null = baris server hasil POST kita sendiri (respons hilang, dikenali lewat client_id) →
               // bukan edit-vs-edit; lokal menang, op create (upsert idempoten) yang mengirim isi lokal.
               if (local.base_rev != null && s.updated_at !== local.base_rev) {
+                // Peta tertaut: data_json hanya view-state → last write wins, TANPA salinan konflik. Lewati;
+                // push berikutnya mengirim view-state lokal (push peta tertaut tidak memakai REV_MISMATCH).
+                if (TFmm.isLinked(local)) { result.skipped++; return; }
                 // Konflik edit-vs-edit (T3 / prinsip 7): BUKAN LWW — versi lokal disimpan sebagai salinan konflik
                 // "(konflik) <judul>", record asli mengadopsi baris server (op asli dibuang, salinan punya op create).
                 return Promise.resolve(fetchOne(s.id)).then((fullRow) => {
@@ -937,6 +943,24 @@
             });
           });
         }
+        // peta tertaut yang ditarik sebelum catatannya: isi source_note_cid begitu idmap catatan mengenalnya.
+        chain = chain.then(() => getAllMindmaps()).then((fresh) => {
+          const freshByCid = {}; for (const r of fresh) freshByCid[r.cid] = r;
+          let c3 = Promise.resolve();
+          for (const s of list) {
+            if (s.source_note_id == null) continue;
+            const cid = cache[s.id];
+            const rec = freshByCid[cid];
+            if (!rec || rec.deleted || rec.source_note_cid != null) continue;
+            c3 = c3.then(() => TFidmap.cidOf("note", s.source_note_id)).then((noteCid) => {
+              if (noteCid == null) return null;
+              return TFdb.mutate("mindmaps", cid, (cur) => ((cur && cur.source_note_cid == null && !cur.deleted)
+                ? Object.assign({}, cur, { source_note_cid: noteCid, rev: (cur.rev || 0) + 1 })
+                : undefined)).then((saved) => { if (saved) changed(cid, s.id); });
+            });
+          }
+          return c3;
+        });
         // pin-adopt: list metadata carries is_pinned; respect a pending pin op.
         chain = chain.then(() => {
           const pendingPin = new Set(outboxOps.filter((o) => o.entity_type === "mindmap" && o.op === "pin").map((o) => o.cid));
@@ -970,7 +994,7 @@
       .catch(() => null);
     // Konfirmasi hapus: 404/403 eksplisit → {status}; gagal lain → null (dipertahankan)
     const confirmOne = (sid) => Promise.resolve(rawFetch("/api/mindmaps/" + sid)).then(goneOrJson).catch(() => null);
-    return Promise.resolve(rawFetch("/api/mindmaps"))
+    return Promise.resolve(rawFetch("/api/mindmaps?linked=1"))
       .then(listJsonOrThrow)
       .then((listRows) => pullMindmaps(listRows || [], fetchOne, confirmOne));
   }

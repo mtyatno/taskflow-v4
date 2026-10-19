@@ -20,14 +20,14 @@ test("GET /api/mindmaps includes shared mindmaps and exposes collaborator fields
   assert.ok("last_edited_by" in shared);
 });
 
-test("GET /api/lists/:id/mindmaps returns that list's local mindmaps shaped {id,title,updated_at}", async () => {
+test("GET /api/lists/:id/mindmaps returns that list's local mindmaps shaped {id,title,updated_at,source_note_id}", async () => {
   const R = buildTaskRouter();
   await createMindmap({ title: "InList", list_id: 9 }, {});
   await createMindmap({ title: "Other", list_id: 4 }, {});
   const list = await R.dispatch("GET", "/api/lists/9/mindmaps", undefined);
   assert.equal(list.length, 1);
   assert.equal(list[0].title, "InList");
-  assert.deepEqual(Object.keys(list[0]).sort(), ["id", "title", "updated_at"]);
+  assert.deepEqual(Object.keys(list[0]).sort(), ["id", "source_note_id", "title", "updated_at"]);
 });
 
 test("PATCH /api/mindmaps/:id/share is NOT intercepted", () => {
