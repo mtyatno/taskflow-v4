@@ -3432,3 +3432,9 @@
 - **Changes:** helper bersama `prepMarkdownBlocks` (seluruh pra-proses sebelum `marked.parse`, keluaran `renderMarkdown` identik — dibandingkan dengan versi lama); `extractHeadings` memakai `marked.lexer` + penelusuran token urutan render (fallback regex melewati fence); `taskItemHasBlock` dipakai bersama; NoteModal tidak me-lex per ketikan saat TOC editor aktif. SW v419.
 - **Files Touch:** `static/index.html`, `tests/offline/note_toc_headings.test.js`, `tests/offline/note_toc.test.js`, versi SW, `.agents/*`
 - **Status:** PR draft. JS 1506/1507 (pra-ada `draw_local_reactive`), pytest 299/299.
+
+## [2026-10-19 17:30] - Claude (perencana temuan mindmap #3–#8)
+- **Task:** Spec + rencana implementasi temuan mindmap #3–#8 sesuai keputusan Bapak (kartu link hidup, kolaborasi langsung + merge per node, Sampah mindmap, ekspor, pencarian teks node, pin pribadi/penanda/filter).
+- **Changes:** Spec `docs/superpowers/specs/2026-10-19-mindmap-findings-3-8-design.md` (termasuk algoritma `merge3` lengkap) dan rencana `docs/superpowers/plans/2026-10-19-mindmap-findings-3-8.md` (PR A: A1–A9, PR B: B1–B6, tes gagal nyata per task). Tidak ada kode.
+- **Files Touch:** `docs/superpowers/specs/2026-10-19-mindmap-findings-3-8-design.md`, `docs/superpowers/plans/2026-10-19-mindmap-findings-3-8.md`, `.agents/*`
+- **Status:** Needs Review (rencana menunggu persetujuan Bapak sebelum SDD).
