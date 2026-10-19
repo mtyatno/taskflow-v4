@@ -528,6 +528,29 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Sampah mindmap: snapshot peta yang dihapus (dipulihkan lewat /api/mindmaps/trash/{id}/restore)
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trashed_mindmaps (
+                mindmap_id     INTEGER PRIMARY KEY,
+                user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                title          TEXT NOT NULL DEFAULT '',
+                list_id        INTEGER,
+                source_note_id INTEGER,
+                client_id      TEXT,
+                snapshot_json  TEXT NOT NULL,
+                deleted_at     TEXT NOT NULL,
+                deleted_by     INTEGER
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_trashed_mm_user ON trashed_mindmaps(user_id, deleted_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_trashed_mm_note ON trashed_mindmaps(source_note_id) "
+                     "WHERE source_note_id IS NOT NULL")
+        conn.commit()
+    finally:
+        conn.close()
+
     # Pesan Pribadi / DM 1-on-1 (docs/superpowers/specs/2026-10-03-direct-messages-design.md).
     # Terpisah total dari shared list: tidak ada FK ke shared_lists, jadi hapus grup tidak menghapus DM.
     conn = sqlite3.connect(DB_PATH)
@@ -4799,8 +4822,8 @@ def _sync_linked_mindmap(conn, note_id: int) -> None:
 
 
 def _delete_linked_mindmaps(conn, note_ids: list) -> None:
-    """Petakan: hapus peta tertaut milik catatan yang dihapus permanen (purge Sampah).
-    Sama dengan DELETE /api/mindmaps/{id}: pin pribadi ada di mindmap_pins."""
+    """Petakan: hapus permanen peta tertaut milik catatan yang dihapus permanen (purge Sampah),
+    beserta pin pribadinya (mindmap_pins) dan peta tertaut yang sedang di Sampah mindmap."""
     ids = [int(i) for i in dict.fromkeys(note_ids) if i is not None]
     for i in range(0, len(ids), 500):
         chunk = ids[i:i + 500]
@@ -4810,6 +4833,8 @@ def _delete_linked_mindmaps(conn, note_ids: list) -> None:
             f"(SELECT id FROM mindmaps WHERE source_note_id IN ({marks}))", chunk
         )
         conn.execute(f"DELETE FROM mindmaps WHERE source_note_id IN ({marks})", chunk)
+        _ensure_trashed_mindmaps_table(conn)
+        conn.execute(f"DELETE FROM trashed_mindmaps WHERE source_note_id IN ({marks})", chunk)
 
 
 def _sanitize_fts5_token(token: str) -> str:
@@ -5027,15 +5052,101 @@ def _trash_preview(content: str, limit: int = 120) -> str:
     s = re.sub(r"[#*_`~>|\[\]\\]", "", s)
     return re.sub(r"\s+", " ", s).strip()[:limit]
 
-def _trash_days_left(deleted_at: str) -> int:
+def _trash_days_left(deleted_at: str, days: int = NOTE_TRASH_RETENTION_DAYS) -> int:
     try:
         dt = datetime.fromisoformat(deleted_at)
         if dt.tzinfo is None:
             dt = _TZ_JKT.localize(dt)
     except Exception:
         return 0
-    remaining = dt + timedelta(days=NOTE_TRASH_RETENTION_DAYS) - datetime.now(_TZ_JKT)
+    remaining = dt + timedelta(days=days) - datetime.now(_TZ_JKT)
     return max(0, math.ceil(remaining.total_seconds() / 86400))
+
+# ── Sampah mindmap (snapshot ke trashed_mindmaps; spec 2026-10-19 mindmap findings §5) ──
+
+MINDMAP_TRASH_RETENTION_DAYS = 30
+
+
+def _ensure_trashed_mindmaps_table(conn) -> None:
+    """Lazy-create trashed_mindmaps (self-healing setelah deploy tanpa restart)."""
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trashed_mindmaps (
+                mindmap_id     INTEGER PRIMARY KEY,
+                user_id        INTEGER NOT NULL,
+                title          TEXT NOT NULL DEFAULT '',
+                list_id        INTEGER,
+                source_note_id INTEGER,
+                client_id      TEXT,
+                snapshot_json  TEXT NOT NULL,
+                deleted_at     TEXT NOT NULL,
+                deleted_by     INTEGER
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_trashed_mm_user ON trashed_mindmaps(user_id, deleted_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_trashed_mm_note ON trashed_mindmaps(source_note_id) "
+                     "WHERE source_note_id IS NOT NULL")
+    except Exception:
+        pass
+
+
+def _mindmap_plain(topic) -> str:
+    """Teks polos topic node mindmap (tanpa HTML/markdown inline)."""
+    s = str(topic or "")[:2000]
+    s = re.sub(r"<[^>]+>", "", s)
+    s = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", s)
+    s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)
+    s = re.sub(r"\*\*|__|~~|==|`", "", s)
+    s = re.sub(r"^#{1,6}\s*", "", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _mindmap_topics(data_json) -> list:
+    """Topic polos semua node, pre-order (root dulu), yang kosong dilewati. JSON rusak/tanpa nodeData → []."""
+    try:
+        data = json.loads(data_json or "")
+    except Exception:
+        return []
+    root = data.get("nodeData") if isinstance(data, dict) else None
+    if not isinstance(root, dict):
+        return []
+    out = []
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        t = _mindmap_plain(node.get("topic"))
+        if t:
+            out.append(t)
+        kids = node.get("children")
+        if isinstance(kids, list):
+            stack.extend(reversed(kids))
+    return out
+
+
+def _snapshot_mindmap_to_trash(conn, row, uid) -> None:
+    """Tulis snapshot peta (SELECT * + pin) ke trashed_mindmaps. Dipanggil di transaksi hapus; JANGAN commit."""
+    _ensure_trashed_mindmaps_table(conn)
+    mm = dict(row)
+    pins = [r["user_id"] for r in conn.execute(
+        "SELECT user_id FROM mindmap_pins WHERE mindmap_id = ?", (mm["id"],)).fetchall()]
+    snap = {"mindmap": mm, "pins": pins}
+    conn.execute(
+        "INSERT OR REPLACE INTO trashed_mindmaps (mindmap_id, user_id, title, list_id, source_note_id, client_id, "
+        "snapshot_json, deleted_at, deleted_by) VALUES (?,?,?,?,?,?,?,?,?)",
+        (mm["id"], mm["user_id"], mm.get("title") or "", mm.get("list_id"), mm.get("source_note_id"),
+         mm.get("client_id"), json.dumps(snap, ensure_ascii=False), datetime.now(_TZ_JKT).isoformat(), uid))
+
+
+def _purge_expired_trashed_mindmaps(conn) -> None:
+    """Lazy purge: hapus permanen item Sampah mindmap yang lewat masa retensi."""
+    _ensure_trashed_mindmaps_table(conn)
+    cutoff = (datetime.now(_TZ_JKT) - timedelta(days=MINDMAP_TRASH_RETENTION_DAYS)).isoformat()
+    try:
+        conn.execute("DELETE FROM trashed_mindmaps WHERE deleted_at < ?", (cutoff,))
+    except Exception:
+        pass
 
 # Rute statis /trash HARUS di atas /api/scratchpad/{note_id} (int) agar tidak 422.
 @app.get("/api/scratchpad/trash")
@@ -7443,6 +7554,121 @@ async def list_mindmaps(linked: int = 0, user=Depends(get_current_user)):
         return [_mindmap_enrich(dict(r), conn) for r in rows]
 
 
+# Rute statis /api/mindmaps/trash… HARUS di atas /api/mindmaps/{mid} (int) agar tidak 422.
+@app.get("/api/mindmaps/trash")
+async def list_trashed_mindmaps(user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _purge_expired_trashed_mindmaps(conn)
+        rows = conn.execute(
+            "SELECT mindmap_id, title, list_id, source_note_id, client_id, snapshot_json, deleted_at "
+            "FROM trashed_mindmaps WHERE user_id = ? ORDER BY deleted_at DESC", (uid,)).fetchall()
+    out = []
+    for r in rows:
+        linked = r["source_note_id"] is not None
+        preview = ""
+        if not linked:
+            try:
+                mm = (json.loads(r["snapshot_json"]) or {}).get("mindmap") or {}
+            except Exception:
+                mm = {}
+            preview = " · ".join(_mindmap_topics(mm.get("data_json"))[1:4])
+        out.append({
+            "id": r["mindmap_id"],
+            "title": r["title"],
+            "preview": preview,
+            "list_id": r["list_id"],
+            "source_note_id": r["source_note_id"],
+            "linked": linked,
+            "client_id": r["client_id"],
+            "deleted_at": r["deleted_at"],
+            "days_left": _trash_days_left(r["deleted_at"], MINDMAP_TRASH_RETENTION_DAYS),
+        })
+    return out
+
+
+@app.post("/api/mindmaps/trash/{mid}/restore")
+async def restore_trashed_mindmap(mid: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _purge_expired_trashed_mindmaps(conn)
+        trow = conn.execute(
+            "SELECT snapshot_json FROM trashed_mindmaps WHERE mindmap_id = ? AND user_id = ?", (mid, uid)
+        ).fetchone()
+        if not trow:
+            raise HTTPException(status_code=404, detail="Mindmap tidak ada di Sampah")
+        if conn.execute("SELECT 1 FROM mindmaps WHERE id = ?", (mid,)).fetchone():
+            raise HTTPException(status_code=409, detail="Mindmap dengan id ini sudah ada")
+        snap = json.loads(trow["snapshot_json"])
+        mm = dict(snap.get("mindmap") or {})
+        mm["id"] = mid
+        mm["user_id"] = uid
+
+        def _user_exists(user_id) -> bool:
+            return user_id is not None and conn.execute(
+                "SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is not None
+
+        sn = mm.get("source_note_id")
+        if sn is not None:
+            if not conn.execute("SELECT id FROM scratchpad_notes WHERE id = ?", (sn,)).fetchone():
+                raise HTTPException(status_code=409, detail={"code": "SOURCE_NOTE_MISSING"})
+            existing = conn.execute("SELECT * FROM mindmaps WHERE source_note_id = ?", (sn,)).fetchone()
+            if existing:
+                # Isi peta tertaut hanya view-state: item Sampah dibuang, peta yang ada dikembalikan.
+                conn.execute("DELETE FROM trashed_mindmaps WHERE mindmap_id = ?", (mid,))
+                conn.commit()
+                return _mindmap_enrich(dict(existing), conn, uid)
+        else:
+            lid = mm.get("list_id")
+            if lid is not None and not conn.execute(
+                    "SELECT 1 FROM shared_lists WHERE id = ? AND (owner_id = ? OR id IN "
+                    "(SELECT list_id FROM list_members WHERE user_id = ?))", (lid, uid, uid)).fetchone():
+                mm["list_id"] = None
+        if mm.get("client_id") and conn.execute(
+                "SELECT 1 FROM mindmaps WHERE user_id = ? AND client_id = ?", (uid, mm["client_id"])).fetchone():
+            mm["client_id"] = None
+        if mm.get("last_edited_by") is not None and not _user_exists(mm["last_edited_by"]):
+            mm["last_edited_by"] = None
+
+        live_cols = set(_table_columns(conn, "mindmaps"))
+        if "search_text" in live_cols:
+            mm["search_text"] = "" if sn is not None else "\n".join(_mindmap_topics(mm.get("data_json")))
+        cols = [c for c in mm if c in live_cols]
+        conn.execute(
+            f"INSERT INTO mindmaps ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
+            [mm[c] for c in cols])
+        for pid in dict.fromkeys(snap.get("pins") or []):
+            if _user_exists(pid):
+                conn.execute(
+                    "INSERT OR IGNORE INTO mindmap_pins (user_id, mindmap_id, created_at) VALUES (?, ?, ?)",
+                    (pid, mid, datetime.now(_TZ_JKT).isoformat()))
+        conn.execute("DELETE FROM trashed_mindmaps WHERE mindmap_id = ?", (mid,))
+        if sn is not None:
+            _sync_linked_mindmap(conn, sn)
+        conn.commit()
+        restored = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (mid,)).fetchone()
+        return _mindmap_enrich(dict(restored), conn, uid)
+
+
+@app.delete("/api/mindmaps/trash/{mid}")
+async def purge_trashed_mindmap(mid: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _ensure_trashed_mindmaps_table(conn)
+        conn.execute("DELETE FROM trashed_mindmaps WHERE mindmap_id = ? AND user_id = ?", (mid, uid))
+    return {"ok": True}
+
+
+@app.delete("/api/mindmaps/trash")
+async def empty_trashed_mindmaps(user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _ensure_trashed_mindmaps_table(conn)
+        gone = conn.execute(
+            "DELETE FROM trashed_mindmaps WHERE user_id = ? RETURNING mindmap_id", (uid,)).fetchall()
+    return {"ok": True, "deleted": len(gone)}
+
+
 class MindmapShareReq(BaseModel):
     list_id: Optional[int] = None
 
@@ -7796,13 +8022,21 @@ async def toggle_pin_mindmap(mid: int, req: Optional[MindmapPinReq] = None, user
 async def delete_mindmap(mid: int, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        if not conn.execute(
-            "SELECT id FROM mindmaps WHERE id = ? AND user_id = ?", (mid, uid)
-        ).fetchone():
+        row = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (mid,)).fetchone()
+        if not row:
+            _ensure_trashed_mindmaps_table(conn)
+            # Idempoten untuk perangkat kedua: peta sudah di Sampah milik user.
+            if conn.execute(
+                "SELECT 1 FROM trashed_mindmaps WHERE mindmap_id = ? AND user_id = ?", (mid, uid)
+            ).fetchone():
+                return {"ok": True, "trashed": True}
+            raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
+        if row["user_id"] != uid:
             raise HTTPException(status_code=403, detail="Hanya pemilik yang bisa menghapus mindmap ini")
+        _snapshot_mindmap_to_trash(conn, row, uid)
         conn.execute("DELETE FROM mindmap_pins WHERE mindmap_id = ?", (mid,))
         conn.execute("DELETE FROM mindmaps WHERE id = ?", (mid,))
-    return {"ok": True}
+    return {"ok": True, "trashed": True}
 
 
 # ── Standalone Drawings endpoints ────────────────────────────────────────────
