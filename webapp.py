@@ -1013,6 +1013,7 @@ class TaskCreate(BaseModel):
     description: str = ""
     priority: str = "P2"
     project: str = ""
+    project_id: Optional[int] = None
     context: str = ""
     deadline: Optional[str] = None
     gtd_status: str = "inbox"
@@ -1038,6 +1039,7 @@ class TaskUpdate(BaseModel):
     description: Optional[str] = None
     priority: Optional[str] = None
     project: Optional[str] = None
+    project_id: Optional[int] = None
     context: Optional[str] = None
     deadline: Optional[str] = None
     gtd_status: Optional[str] = None
@@ -1798,7 +1800,10 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
         # Inherit from parent if not explicitly provided
         if not req.list_id and parent_row["list_id"]:
             req.list_id = parent_row["list_id"]
-        if not req.project and parent_row["project"]:
+        if (not req.project and req.project_id is None
+                and "project_id" in parent_row.keys() and parent_row["project_id"]):
+            req.project_id = parent_row["project_id"]
+        elif not req.project and req.project_id is None and parent_row["project"]:
             req.project = parent_row["project"]
         if not req.context and parent_row["context"]:
             req.context = parent_row["context"]
@@ -1845,15 +1850,21 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
             if dup:
                 return task_row_to_dict(dup, conn)
         try:
+            proj_id, proj_name = repository.resolve_task_project(
+                conn, owner_id=uid, list_id=req.list_id, name=req.project,
+                project_id=req.project_id, actor_id=uid)
+        except repository.ProjectScopeError:
+            raise HTTPException(status_code=400, detail="Project tidak berada di scope task")
+        try:
             cur = conn.execute(
                 """INSERT INTO tasks
                    (title, description, gtd_status, priority, quadrant,
-                    project, context, deadline, waiting_for, user_id, list_id, assigned_to, parent_id,
+                    project, project_id, context, deadline, waiting_for, user_id, list_id, assigned_to, parent_id,
                     recurrence_type, recurrence_days, recurrence_end_date,
                     created_at, updated_at, client_id)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (req.title, req.description, req.gtd_status, req.priority.upper(), quadrant,
-                 req.project, req.context, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, parent_id,
+                 proj_name, proj_id, req.context, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, parent_id,
                  recurrence_type, recurrence_days_json, recurrence_end_date,
                  now, now, req.client_id),
             )
@@ -1944,8 +1955,16 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
             updates["description"] = req.description
         if req.priority is not None:
             updates["priority"] = req.priority.upper()
-        if req.project is not None:
-            updates["project"] = req.project
+        if req.project is not None or req.project_id is not None:  # null = tidak diubah (perilaku lama)
+            try:
+                proj_id, proj_name = repository.resolve_task_project(
+                    conn, owner_id=existing["user_id"], list_id=existing["list_id"],
+                    name=req.project if "project_id" not in req.model_fields_set or req.project_id is None else None,
+                    project_id=req.project_id, actor_id=uid)
+            except repository.ProjectScopeError:
+                raise HTTPException(status_code=400, detail="Project tidak berada di scope task")
+            updates["project"] = proj_name
+            updates["project_id"] = proj_id
         if req.context is not None:
             updates["context"] = req.context
         if req.waiting_for is not None:

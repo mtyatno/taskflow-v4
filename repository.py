@@ -55,6 +55,56 @@ def ensure_projects_schema(conn) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id)")
 
 
+class ProjectScopeError(ValueError):
+    """project_id tidak ada atau berada di luar scope task."""
+
+
+def resolve_task_project(conn, *, owner_id: int, list_id: Optional[int],
+                         name: Optional[str], project_id: Optional[int],
+                         actor_id: int) -> tuple[Optional[int], str]:
+    """Tentukan (project_id, nama kanonis) untuk sebuah task pada scope-nya.
+
+    Scope: list_id menunjuk shared_lists yang ada -> workspace itu; selain itu
+    pribadi milik owner_id (pemilik task, bukan aktor). project_id harus ada di
+    scope (kalau tidak: ProjectScopeError). Hanya nama -> cari NOCASE di scope,
+    buat baru bila belum ada (created_by=actor_id). Project arsip yang dipakai
+    diaktifkan lagi. Nama kosong & project_id None -> (None, ""). Pemanggil yang commit.
+    """
+    ws = None
+    if list_id is not None:
+        ws = conn.execute("SELECT id FROM shared_lists WHERE id=?", (list_id,)).fetchone()
+    if ws is not None:
+        scope_sql, scope_args, col, owner = "list_id = ?", (ws[0],), "list_id", ws[0]
+    else:
+        scope_sql, scope_args, col, owner = "user_id = ? AND list_id IS NULL", (owner_id,), "user_id", owner_id
+
+    clean = (name or "").strip()
+    row = None
+    if project_id is not None:
+        row = conn.execute(
+            f"SELECT id, name, archived FROM projects WHERE id = ? AND {scope_sql}",
+            (project_id,) + scope_args).fetchone()
+        if row is None:
+            raise ProjectScopeError("Project tidak berada di scope task")
+    elif clean:
+        row = conn.execute(
+            f"SELECT id, name, archived FROM projects WHERE {scope_sql} AND name = ? COLLATE NOCASE",
+            scope_args + (clean,)).fetchone()
+        if row is None:
+            now = datetime.now().isoformat()
+            cur = conn.execute(
+                f"INSERT INTO projects(name, {col}, archived, created_by, created_at, updated_at) "
+                "VALUES (?,?,0,?,?,?)", (clean, owner, actor_id, now, now))
+            return cur.lastrowid, clean
+    else:
+        return None, ""
+
+    if row[2]:
+        conn.execute("UPDATE projects SET archived = 0, updated_at = ? WHERE id = ?",
+                     (datetime.now().isoformat(), row[0]))
+    return row[0], row[1]
+
+
 def backfill_projects(conn) -> dict:
     """Buat/hubungkan project dari teks `tasks.project` yang belum punya project_id.
 
@@ -733,14 +783,21 @@ class TaskRepository:
     def add(self, task: Task, user_id: Optional[int] = None, list_id: Optional[int] = None) -> Task:
         now = datetime.now().isoformat()
         with self._connect() as conn:
+            if user_id is None:  # tanpa pemilik: tak ada scope project
+                pid, pname = None, (task.project or "").strip()
+            else:
+                pid, pname = resolve_task_project(
+                    conn, owner_id=user_id, list_id=list_id, name=task.project,
+                    project_id=None, actor_id=user_id)
+            task.project = pname
             cur = conn.execute(
                 """INSERT INTO tasks
                    (title, description, gtd_status, priority, quadrant,
-                    project, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    project, project_id, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     task.title, task.description, task.gtd_status.value, task.priority.value,
-                    task.quadrant.value, task.project, task.context,
+                    task.quadrant.value, pname, pid, task.context,
                     task.deadline.isoformat() if task.deadline else None,
                     task.waiting_for, user_id, list_id, now, now,
                 ),
@@ -762,15 +819,23 @@ class TaskRepository:
         now = datetime.now().isoformat()
         task.updated_at = datetime.fromisoformat(now)
         with self._connect() as conn:
+            ex = conn.execute("SELECT user_id, list_id FROM tasks WHERE id=?", (task.id,)).fetchone()
+            if ex is not None and ex["user_id"] is not None:
+                pid, pname = resolve_task_project(
+                    conn, owner_id=ex["user_id"], list_id=ex["list_id"], name=task.project,
+                    project_id=None, actor_id=ex["user_id"])
+            else:  # task yatim / tak ada: tanpa scope, simpan teks apa adanya
+                pid, pname = None, (task.project or "").strip()
+            task.project = pname
             conn.execute(
                 """UPDATE tasks SET
                    title=?, description=?, gtd_status=?, priority=?, quadrant=?,
-                   project=?, context=?, deadline=?, waiting_for=?,
+                   project=?, project_id=?, context=?, deadline=?, waiting_for=?,
                    updated_at=?, completed_at=?
                    WHERE id=?""",
                 (
                     task.title, task.description, task.gtd_status.value, task.priority.value,
-                    task.quadrant.value, task.project, task.context,
+                    task.quadrant.value, pname, pid, task.context,
                     task.deadline.isoformat() if task.deadline else None,
                     task.waiting_for, now,
                     task.completed_at.isoformat() if task.completed_at else None,
@@ -1271,14 +1336,18 @@ class TaskRepository:
         """Add a task directly to a shared list."""
         now = datetime.now().isoformat()
         with self._connect() as conn:
+            pid, pname = resolve_task_project(
+                conn, owner_id=user_id, list_id=list_id, name=task.project,
+                project_id=None, actor_id=user_id)
+            task.project = pname
             cur = conn.execute(
                 """INSERT INTO tasks
                    (title, description, gtd_status, priority, quadrant,
-                    project, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    project, project_id, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     task.title, task.description, task.gtd_status.value, task.priority.value,
-                    task.quadrant.value, task.project, task.context,
+                    task.quadrant.value, pname, pid, task.context,
                     task.deadline.isoformat() if task.deadline else None,
                     task.waiting_for, user_id, list_id, now, now,
                 ),
