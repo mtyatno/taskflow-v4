@@ -92,8 +92,9 @@ def test_project_id_other_scope_400(client):
     r = u.post("/api/tasks", json={"title": "x", "project_id": pid})
     assert r.status_code == 400
     assert r.json()["detail"] == "Project tidak berada di scope task"
+    # PR 5: project_id tak dikenal (sudah dihapus) diabaikan, bukan 400
     r = u.post("/api/tasks", json={"title": "x", "project_id": 99999999})
-    assert r.status_code == 400
+    assert r.status_code == 200 and not r.json()["project_id"]
 
 
 def test_create_with_project_id_sets_text(client):
@@ -407,3 +408,40 @@ def test_assign_orphan_tasks_links_projects(client):
     repo.assign_orphan_tasks(u.id)
     row = _row("SELECT p.user_id FROM tasks t JOIN projects p ON p.id=t.project_id WHERE t.id=?", task.id)
     assert row is not None and row["user_id"] == u.id
+
+
+# ── PR 5 Task 1: project_id basi (sudah dihapus) diabaikan ──
+
+def test_put_deleted_project_id_with_new_title_ok(client):
+    u = U(client)
+    name = _n()
+    t = _mk(u, project=name)
+    pid = t["project_id"]
+    conn = db()
+    conn.execute("DELETE FROM projects WHERE id = ?", (pid,))
+    conn.commit()
+    conn.close()
+    r = u.put(f"/api/tasks/{t['id']}", json={"title": "judul baru", "project_id": pid, "project": name})
+    assert r.status_code == 200, r.text
+    row = _row("SELECT title, project, project_id FROM tasks WHERE id=?", t["id"])
+    assert row["title"] == "judul baru"
+    assert row["project"] == name and row["project_id"] == pid  # tidak diubah
+    assert _row("SELECT COUNT(*) c FROM projects WHERE name = ? COLLATE NOCASE", name)["c"] == 0
+
+
+def test_put_deleted_via_api_project_id_keeps_edit(client):
+    u = U(client)
+    t = _mk(u, project=_n())
+    pid = t["project_id"]
+    assert u.client.delete(f"/api/projects/{pid}", headers=u.h).status_code == 200
+    r = u.put(f"/api/tasks/{t['id']}", json={"title": "edit lain", "project_id": pid})
+    assert r.status_code == 200, r.text
+    assert _row("SELECT title FROM tasks WHERE id=?", t["id"])["title"] == "edit lain"
+
+
+def test_post_unknown_project_id_falls_back_to_text(client):
+    u = U(client)
+    name = _n()
+    t = _mk(u, project=name, project_id=99999999)
+    assert t["project"] == name and t["project_id"]
+    assert _row("SELECT name FROM projects WHERE id=?", t["project_id"])["name"] == name

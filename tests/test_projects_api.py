@@ -262,3 +262,57 @@ def test_patch_color_validation(client):
         assert r.status_code == 400 and r.json()["detail"] == "Warna harus format #rrggbb", bad
     assert u.patch(url, json={"color": "#A1b2C3"}).json()["color"] == "#A1b2C3"
     assert u.patch(url, json={"color": None}).json()["color"] is None
+
+
+# ── PR 5 Task 1: scope=all ──
+
+def test_scope_all_personal_and_member_workspaces(client):
+    owner, member, outsider = U(client), U(client), U(client)
+    ws = _workspace(owner)
+    _add_member(ws, member.id)
+    other_ws = _workspace(outsider)
+    pn, wn, on = _n("pers"), _n("wsp"), _n("oth")
+    pp = _proj(member, pn)
+    wp = _proj(owner, wn, list_id=ws)
+    _proj(outsider, on, list_id=other_ws)
+    r = member.get("/api/projects", params={"format": "full", "scope": "all"})
+    assert r.status_code == 200, r.text
+    by_id = {p["id"]: p for p in r.json()}
+    assert pp["id"] in by_id and wp["id"] in by_id
+    assert set(by_id[wp["id"]]) == FULL_KEYS
+    assert by_id[wp["id"]]["can_manage"] is False  # anggota bukan pembuat
+    assert by_id[pp["id"]]["list_id"] is None
+    assert on not in {p["name"] for p in by_id.values()}
+    # owner juga melihat project workspace miliknya
+    ro = owner.get("/api/projects", params={"format": "full", "scope": "all"}).json()
+    assert wp["id"] in {p["id"] for p in ro}
+
+
+def test_scope_all_include_archived(client):
+    u = U(client)
+    ws = _workspace(u)
+    a = _proj(u, _n("arc"), list_id=ws)
+    b = _proj(u, _n("arc"))
+    for p in (a, b):
+        assert u.patch(f"/api/projects/{p['id']}", json={"archived": True}).status_code == 200
+    q = {"format": "full", "scope": "all"}
+    ids = {p["id"] for p in u.get("/api/projects", params=q).json()}
+    assert a["id"] not in ids and b["id"] not in ids
+    ids = {p["id"] for p in u.get("/api/projects", params={**q, "include_archived": 1}).json()}
+    assert a["id"] in ids and b["id"] in ids
+
+
+def test_scope_all_requires_format_full(client):
+    u = U(client)
+    r = u.get("/api/projects", params={"scope": "all"})
+    assert r.status_code == 400
+    assert r.json()["detail"] == "scope=all hanya untuk format=full"
+
+
+def test_no_query_still_returns_string_list(client):
+    u = U(client)
+    name = _n()
+    _proj(u, name)
+    r = u.get("/api/projects")
+    assert r.status_code == 200 and name in r.json()
+    assert all(isinstance(x, str) for x in r.json())
