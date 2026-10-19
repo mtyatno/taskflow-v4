@@ -140,6 +140,31 @@ test("does not mutate its inputs and is deterministic", () => {
   assert.deepEqual(r1, r2);
 });
 
+test("non-array children on any side → fallback (never a mass delete)", () => {
+  const bad = { nodeData: { id: "root", children: "zz" } };
+  assert.deepEqual(M.merge3(B, bad, B), { fallback: true });
+  assert.deepEqual(M.merge3(B, B, bad), { fallback: true });
+  assert.deepEqual(M.merge3(bad, B, B), { fallback: true });
+  const deep = clone(B); find(deep.nodeData, "b").children = { 0: n("b1", "B1") };
+  assert.deepEqual(M.merge3(B, deep, B), { fallback: true });
+  assert.deepEqual(M.merge3(B, B, deep), { fallback: true });
+  const nul = clone(B); find(nul.nodeData, "a").children = null;   // null = tanpa anak, tetap sah
+  assert.ok(!M.merge3(B, nul, B).fallback);
+});
+
+test("result is a deep copy: mutating it never touches base/local/server", () => {
+  const Bx = doc([n("a", "A", [], { links: [{ type: "task", id: 1 }], style: { color: "red" } })], { theme: { name: "t", palette: ["#000"] }, arrows: [{ id: "ar", from: "a", to: "a" }] });
+  const L = clone(Bx); find(L.nodeData, "a").topic = "A L";
+  const S = clone(Bx); S.nodeData.children.push(n("y", "Y"));
+  const snap = [clone(Bx), clone(L), clone(S)];
+  for (const r of [M.merge3(Bx, L, S), M.merge3(Bx, L, L), M.merge3(Bx, Bx, S)]) {
+    const a = find(r.doc.nodeData, "a");
+    a.links.push({ type: "note", id: 9 }); a.links[0].id = 99; a.style.color = "blue"; a.topic = "X";
+    r.doc.theme.palette.push("#fff"); r.doc.theme.name = "z"; r.doc.arrows[0].from = "q"; r.doc.nodeData.children.length = 0;
+  }
+  assert.deepEqual([Bx, L, S], snap);
+});
+
 // Randomized property test (seeded PRNG): random base, random independent edits on two sides.
 function mulberry32(seed) {
   return function () {

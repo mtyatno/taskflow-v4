@@ -12,8 +12,6 @@
   // Modul murni tanpa dependensi: tidak mengubah input, deterministik.
   // Prinsip: edit menang atas hapus — isi yang diubah di salah satu sisi tidak pernah hilang.
 
-  const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
-
   // JSON stabil: urutan key objek diabaikan; key bernilai undefined = key tidak ada.
   function stableStr(v) {
     if (v === undefined) return "\u0000u";
@@ -58,6 +56,7 @@
       if (map.has(id)) return null;
       const fields = {};
       for (const k of Object.keys(node)) if (k !== "children") fields[k] = node[k];
+      if (node.children !== undefined && node.children !== null && !Array.isArray(node.children)) return null;
       const ch = Array.isArray(node.children) ? node.children : [];
       const childIds = [];
       for (const c of ch) {
@@ -336,7 +335,6 @@
       for (let i = ch.length - 1; i >= 0; i--) stack.push(ch[i]);
     }
     const nodeOf = (id) => {
-      // Iteratif agar pohon dalam tidak menghabiskan stack.
       const objs = new Map();
       const order = [];
       const st = [id];
@@ -389,7 +387,9 @@
 
     // changed dibandingkan dengan S yang dinormalkan (setiap node punya children).
     const sNorm = normalize(sD, IS);
-    return { doc, conflicts, changed: !stableEq(doc, sNorm) };
+    // Salinan dalam: pemanggil boleh mengubah hasil tanpa menyentuh base/local/server.
+    const out = JSON.parse(JSON.stringify(doc));
+    return { doc: out, conflicts, changed: !stableEq(out, sNorm) };
   }
 
   function normalize(d, I) {
