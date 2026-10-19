@@ -3446,3 +3446,9 @@
 - **Files Touch:** `drawing_scope.py`, `webapp.py`, `repository.py`, `tests/**`, `docs/**`, `.agents/*`
 - **Status:** Needs Review (draft PR; restart `taskflow-web` + `taskflow` setelah deploy).
 
+## [2026-10-19 19:30] - Claude (PR A temuan mindmap #3 #5–#8 — rilis A9)
+- **Task:** Task A9 rencana `docs/superpowers/plans/2026-10-19-mindmap-findings-3-8.md`: wiring rilis PR A.
+- **Changes:** merge `origin/main` (PR #43 drawing workspace; konflik hanya `SESSION_LOG`, kedua sisi dipertahankan); tag `<script>` `mindmaplinks.js` + `mindmaptrash.js` setelah `mindmapoutline.js`; precache SW + aturan network-only `/api/mindmaps/trash…`; SW `taskflow-v421-mindmap-trash` di semua tempat; tes SW/index di `tests/offline/mindmaptrash.test.js`; ADR-013; E2E Playwright `temporary_files/e2e_mindmap_findings_a.py`.
+- **Verifikasi:** pytest 376, JS 1617/1618 (pra-ada `draw_local_reactive`), inline OK, E2E 29/29 (hapus→Sampah→pulihkan id sama + link node, pin anggota, 👥 + filter, cari snippet / "children", kartu hidup kanvas+Outline, ekspor `mindmaps/`, hapus+pulihkan offline lalu sinkron).
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py` (`sw_cache`), `tests/**` (versi SW), `temporary_files/e2e_mindmap_findings_a.py`, `.agents/*`
+- **Status:** Needs Review (draft PR oleh controller; deploy butuh `sudo systemctl restart taskflow-web`).

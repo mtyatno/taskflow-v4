@@ -3,6 +3,13 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+## 🟠 Temuan mindmap #3 #5–#8 — PR A `claude/mindmap-findings-a` — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+- **Status:** A1–A9 selesai di branch (sudah merge `origin/main` termasuk PR #43). SW **v421** `taskflow-v421-mindmap-trash`; iframe mind-elixir `?v=144`; `app.css` tidak berubah (`?v=334`). **Deploy wajib `sudo systemctl restart taskflow-web`** (migrasi `trashed_mindmaps`, `mindmap_pins`, kolom `mindmaps.search_text` + backfill). ADR-013.
+- **Isi:** #5 Sampah mindmap (snapshot, pulihkan id sama, purge 30 hari, tab "Mindmap" di modal Sampah + tombol "🗑 Sampah" di sidebar, offline: cermin `_meta` + op `restore`, `static/offline/mindmaptrash.js`, SW network-only `/api/mindmaps/trash…`); #6 ekspor `mindmaps/*.json|.md`; #7 `search_text` + snippet + `client_id` di `/api/search`; #8 pin pribadi `mindmap_pins`, badge 👥, filter "Semua peta / Pribadi / 👥 W"; #3 kartu link hidup `static/offline/mindmaplinks.js` (kanvas + Outline).
+- **Verifikasi:** pytest 376, JS 1617/1618 (pra-ada `draw_local_reactive`), inline OK, E2E `temporary_files/e2e_mindmap_findings_a.py` 29/29.
+- **Sisa diketahui:** Outline: klik pertama badge 🔗 pada baris yang belum aktif hanya mengaktifkan baris (tombol aksi muncul, badge bergeser) — perilaku lama, bukan dari PR A. Kartu hidup ikut berubah pada event lokal; perubahan task dari perangkat lain tampil setelah event berikutnya/peta dibuka ulang.
+- **Berikutnya:** PR B `claude/mindmap-findings-b` (#4 kolaborasi langsung SSE + merge per node) setelah PR A di-merge.
+
 ## 🟠 Drawing milik workspace — PR 2 backend — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
 - **Status:** branch `claude/drawing-workspace-backend` (draft PR). Backend saja, **tanpa** kenaikan SW. Setelah deploy: **restart `taskflow-web` dan `taskflow`** (`repository.py` berubah). `migrate_db` menambah kolom + backfill sekali jalan.
 - **Isi:** `drawing_scope.py` (ADR-012); akses anggota W ke drawing (GET/PUT), hapus/pin/share hanya pemilik; `GET /api/drawings?shared=1`; `PATCH /api/drawings/{id}/share` (409 `DRAWING_IN_USE`), `POST /api/drawings/{id}/copy`, `GET /api/lists/{id}/drawings`, `GET /api/lists/{id}/leave-impact`; respons note membawa `moved_drawings`/`unresolved_drawings`; halaman publik & ekspor DOCX ikut akses baru.
@@ -46,15 +53,15 @@
 - **Temuan review fitur mindmap (2026-10-18) — belum dikerjakan, Bapak minta diselesaikan satu per satu nanti:**
   1. **[DIPERBAIKI — PR #38, di-merge]** Link quick-create di Outline (`LinkPickerModal` → `api.post` lokal) menyimpan cid; pull task/mindmap membuat cid baru (`syncpull.js` `ensureCid` / `ensureMindmapCid`) → link mati di perangkat lain. Note aman (pull memakai `client_id` sebagai cid). Dibuktikan probe node.
   2. **[DIPERBAIKI — PR #39, di-merge]** Picker link di iframe kanvas memakai `fetch` mentah (`/api/search`, POST scratchpad/tasks/mindmaps) → tidak jalan offline, item baru belum ada di IndexedDB sampai sync berikutnya, APK tanpa `API_BASE`.
-  3. Kartu link node = snapshot (judul/prioritas/deadline/status saat ditautkan), tidak ikut berubah.
-  4. Kolaborasi mindmap bersama tidak real-time (sync 30 detik; edit bersamaan → salinan konflik seluruh peta).
-  5. Hapus mindmap = hard delete (tanpa Sampah/riwayat).
-  6. Mindmap tidak ikut `/api/export/download`.
-  7. Global search `data_json LIKE` cocok ke kunci JSON ("topic", "children"); hasil hanya judul.
-  8. Kecil: pin oleh anggota gagal diam-diam (pin hanya pemilik); sidebar tanpa penanda peta bersama; state `filterListId` tanpa UI.
+  3. **[DIKERJAKAN — PR A draft `claude/mindmap-findings-a`]** Kartu link node = snapshot (judul/prioritas/deadline/status saat ditautkan), tidak ikut berubah.
+  4. **[PENDING — PR B `claude/mindmap-findings-b`]** Kolaborasi mindmap bersama tidak real-time (sync 30 detik; edit bersamaan → salinan konflik seluruh peta).
+  5. **[DIKERJAKAN — PR A draft `claude/mindmap-findings-a`]** Hapus mindmap = hard delete (tanpa Sampah/riwayat).
+  6. **[DIKERJAKAN — PR A draft `claude/mindmap-findings-a`]** Mindmap tidak ikut `/api/export/download`.
+  7. **[DIKERJAKAN — PR A draft `claude/mindmap-findings-a`]** Global search `data_json LIKE` cocok ke kunci JSON ("topic", "children"); hasil hanya judul.
+  8. **[DIKERJAKAN — PR A draft `claude/mindmap-findings-a`]** Kecil: pin oleh anggota gagal diam-diam (pin hanya pemilik); sidebar tanpa penanda peta bersama; state `filterListId` tanpa UI.
   9. **[DIPERBAIKI — PR fix #9, branch `claude/mindmap-fix-9-toc`]** Daftar isi mode baca (`extractHeadings`) ikut menghitung baris `#` di dalam blok kode → item palsu dan indeks `note-h-*` bisa bergeser.
   Detail dan lokasi kode: doc project claude.ai `claude/fitur-mindmap-2026-10-18.md`.
-  - **#3–#8: spec + rencana ditulis 2026-10-19 (branch `claude/mindmap-findings-plan`, belum ada kode):** spec `docs/superpowers/specs/2026-10-19-mindmap-findings-3-8-design.md`, rencana `docs/superpowers/plans/2026-10-19-mindmap-findings-3-8.md` (15 task). PR A `claude/mindmap-findings-a` (#5 Sampah snapshot `trashed_mindmaps` + cermin offline `_meta` + op `restore`; #6 ekspor `mindmaps/*.json|.md`; #7 kolom `search_text` + snippet + `client_id` di `/api/search`; #8 `mindmap_pins` per user, badge 👥, filter workspace; #3 `mindmaplinks.js` kartu hidup dari router lokal). PR B `claude/mindmap-findings-b` setelah PR A: #4 SSE `/api/mindmaps/{id}/stream` + `mindmapmerge.js` (merge tiga arah per node di klien saat 409/pull, basis `base_data_json`; field sama di node sama → server menang + salinan "(konflik)"). Kedua PR butuh restart `taskflow-web`.
+  - **#3–#8: spec + rencana 2026-10-19; #3 #5 #6 #7 #8 selesai di PR A (draft, lihat bagian atas; deploy butuh `sudo systemctl restart taskflow-web`), #4 menunggu PR B:** spec `docs/superpowers/specs/2026-10-19-mindmap-findings-3-8-design.md`, rencana `docs/superpowers/plans/2026-10-19-mindmap-findings-3-8.md` (15 task). PR A `claude/mindmap-findings-a` (#5 Sampah snapshot `trashed_mindmaps` + cermin offline `_meta` + op `restore`; #6 ekspor `mindmaps/*.json|.md`; #7 kolom `search_text` + snippet + `client_id` di `/api/search`; #8 `mindmap_pins` per user, badge 👥, filter workspace; #3 `mindmaplinks.js` kartu hidup dari router lokal). PR B `claude/mindmap-findings-b` setelah PR A: #4 SSE `/api/mindmaps/{id}/stream` + `mindmapmerge.js` (merge tiga arah per node di klien saat 409/pull, basis `base_data_json`; field sama di node sama → server menang + salinan "(konflik)"). Kedua PR butuh restart `taskflow-web`.
 
 ## 🔵 Workflow tim + jadwal 62 sesi migrasi mobile + papan pemantauan — 2026-10-18 (Claude) — NEEDS REVIEW
 - **Status:** PR #32 dari `claude/mobile-plan`, base `main` (PR #29 sudah di-merge 19 Okt, `f5d6417`). Hanya `scripts/mobile_schedule.py`, `docs/mobile/{plan.json,README.md}`, `.agents/*`; tidak ada kode app/SW, tidak perlu restart. Tunggu "merge dan deploy" (sesi S01).
