@@ -964,6 +964,26 @@ window.addEventListener("pageshow", () => onSharedTokenChanged());
 window.addEventListener("online", () => maybeRenewToken());
 setInterval(maybeRenewToken, TOKEN_RENEW_CHECK_MS);
 
+// Pull mindmap (+ cermin Sampah di akhirnya) + event mindmapSynced/mindmapSaved untuk Sampah mindmap.
+// Sama dengan langkah mindmap di sync() (sync() tetap mandiri: tes mengevaluasi badannya terpisah).
+function __pullMindmapsStep() {
+  if (!window.TF.syncpull.pullMindmapsAndReconcile) return null;
+  return window.TF.syncpull.pullMindmapsAndReconcile(__syncRawFetch).then((mmRes) => {
+    if (!mmRes) return mmRes;
+    // T3: record mindmap dibuat/diganti/dihapus oleh pull → tab yang tidak punya edit tertunda memuat ulang
+    // data_json dari record lokal (mindmapSynced {cids, ids}); daftar sidebar/pinned dimuat ulang (mindmapSaved)
+    const changed = Array.isArray(mmRes.changed) ? mmRes.changed : [];
+    if (changed.length) {
+      window.dispatchEvent(new CustomEvent("mindmapSynced", {
+        detail: { source: "sync", cids: changed.map((c) => c.cid), ids: changed.filter((c) => c.server_id != null).map((c) => c.server_id) },
+      }));
+    }
+    if (changed.length || mmRes.pinned > 0 || mmRes.conflictCopies > 0) window.dispatchEvent(new CustomEvent("mindmapSaved", { detail: { source: "sync" } }));
+    return mmRes;
+  });
+}
+// Sampah mindmap: pull peta + cermin Sampah secara eksklusif (tidak tumpang tindih dengan sync/push).
+window.__pullMindmapsNow = () => (window.TF && window.TF.syncpull) ? runSyncExclusive(__pullMindmapsStep) : Promise.resolve(null);
 let __syncPending = null; // sync() yang sudah antre tapi belum mulai (pemanggilan berikutnya digabung)
 function sync() {
   if (!(window.TF && window.TF.syncpull && window.TF.syncpush)) { renderConflicts(); return Promise.resolve(null); }
@@ -11243,7 +11263,15 @@ function MindmapPage({
       sharedLists: sharedLists,
       onClose: () => setTrashOpen(false),
       showToast: showToast,
-      onRestored: () => {},
+      // Tab Catatan: catatan dipulihkan di server → tarik ke lokal lalu noteSaved, agar tab peta tertaut yang
+      // terblokir "Catatan sumber ada di Sampah" memuat ulang (handler noteSaved → checkNoteChanged/loadLinked).
+      onRestored: async note => {
+        try {
+          if (note && note.id != null && window.TF?.noterepo?.discardPendingDelete) await window.TF.noterepo.discardPendingDelete(note.id);
+        } catch (_) {}
+        try { if (window.__syncNow) await window.__syncNow(); } catch (_) {}
+        window.dispatchEvent(new CustomEvent("noteSaved", { detail: { source: "trash-restore" } }));
+      },
       onMindmapRestored: () => api.get("/api/mindmaps").then(d => setMindmaps(Array.isArray(d) ? d : [])).catch(() => {})
     }),
     !sidebarOpen && /*#__PURE__*/React.createElement("div", {
@@ -27617,7 +27645,9 @@ function MindmapTrashList({
     try {
       if (navigator.onLine !== false) {
         if (window.__pushNow) await Promise.race([window.__pushNow().catch(() => {}), sleep(5000)]);
-        if (window.TF?.syncpull?.pullMindmapTrash && window.__syncRawFetch) await Promise.race([window.TF.syncpull.pullMindmapTrash(window.__syncRawFetch).catch(() => {}), sleep(5000)]);
+        // Pull peta penuh (diakhiri pullMindmapTrash) → peta yang dihapus di perangkat lain ikut muncul di Sampah.
+        if (window.__pullMindmapsNow) await Promise.race([window.__pullMindmapsNow().catch(() => {}), sleep(5000)]);
+        else if (window.TF?.syncpull?.pullMindmapTrash && window.__syncRawFetch) await Promise.race([window.TF.syncpull.pullMindmapTrash(window.__syncRawFetch).catch(() => {}), sleep(5000)]);
       }
       const data = await api.get("/api/mindmaps/trash");
       list = Array.isArray(data) ? data : [];
@@ -27642,23 +27672,24 @@ function MindmapTrashList({
       // Hapus lokal yang belum terkirim dipulihkan lewat cid; item cermin lewat id server.
       const key = it.pending ? (it.cid || it.id) : it.id;
       const res = await api.post(`/api/mindmaps/trash/${encodeURIComponent(key)}/restore`, {});
-      let failed = false;
-      if (isOnline()) {
-        if (res && res.restored === "queued" && window.__pushNow) {
+      // "restored" | "queued" | "source_note_missing" | "failed" | "gone"
+      let outcome = "restored";
+      if (res && res.restored === "queued") {
+        outcome = "queued";
+        if (isOnline() && window.__pushNow) {
           try { await window.__pushNow(); } catch (_) {}
+          try { outcome = MT.restoreOutcome ? MT.restoreOutcome(await MT.readMirror(), res.id) : "queued"; } catch (_) { outcome = "queued"; }
         }
-        const fresh = await load();
-        const still = (fresh || []).find(x => sameItem(x, it));
-        if (still && still.error === "source_note_missing") {
-          failed = true;
-          showToast(MT.SOURCE_MISSING_MSG, "error");
-        } else showToast(MT.TOAST_RESTORED);
-      } else {
-        setItems(prev => prev.filter(x => !sameItem(x, it)));
-        showToast(res && res.restored === "local" ? MT.TOAST_RESTORED : MT.TOAST_RESTORE_QUEUED);
       }
+      if (isOnline()) await load();
+      else setItems(prev => prev.filter(x => !sameItem(x, it)));
+      if (outcome === "source_note_missing") showToast(MT.SOURCE_MISSING_MSG, "error");
+      else if (outcome === "failed") showToast(MT.RESTORE_FAILED_MSG || "Gagal memulihkan — coba lagi", "error");
+      else if (outcome === "gone") showToast(MT.RESTORE_GONE_MSG || "Peta sudah tidak ada di Sampah", "error");
+      else if (outcome === "queued") showToast(MT.TOAST_RESTORE_QUEUED);
+      else showToast(MT.TOAST_RESTORED);
       window.dispatchEvent(new CustomEvent("mindmapSaved"));
-      if (!failed && onRestored) onRestored();
+      if (outcome === "restored" && onRestored) onRestored();
     } catch (e) {
       // 409 untuk peta tertaut = catatan sumber hilang (detail berupa objek {code}, jadi pesannya generik).
       if (e && e.status === 409 && it.linked) showToast(MT.SOURCE_MISSING_MSG, "error");
@@ -27681,15 +27712,16 @@ function MindmapTrashList({
         const fresh = await load();
         target = (fresh || []).find(x => !x.pending && typeof x.id === "number" && sameItem(x, it)) || null;
       }
-      if (!target) showToast("Peta belum tersinkron — coba lagi sebentar lagi", "error");
+      if (!target) showToast("Peta belum tersinkron — coba lagi sebentar lagi", "error"); // daftar baru saja dimuat
       else {
         await api.del(`/api/mindmaps/trash/${target.id}`);
         showToast("Peta dihapus permanen");
+        await load();
       }
     } catch (e) {
       showToast(isOfflineErr(e) ? MT.PURGE_OFFLINE_MSG : (e && e.message || "Gagal"), "error");
+      await load();
     }
-    await load();
     setBusy(null);
   };
   const handleEmpty = async () => {
@@ -27735,10 +27767,10 @@ function MindmapTrashList({
     style: { fontStyle: "italic" }
   }, MT.PENDING_LABEL)), it.preview && /*#__PURE__*/React.createElement("div", {
     className: "note-trash-item-preview"
-  }, it.preview), it.error === "source_note_missing" && /*#__PURE__*/React.createElement("div", {
+  }, it.preview), (it.error === "source_note_missing" || it.error === "failed") && /*#__PURE__*/React.createElement("div", {
     className: "note-trash-item-preview",
     style: { color: "#ef4444" }
-  }, MT.SOURCE_MISSING_MSG), /*#__PURE__*/React.createElement("div", {
+  }, it.error === "source_note_missing" ? MT.SOURCE_MISSING_MSG : (MT.RESTORE_FAILED_MSG || "Gagal memulihkan — coba lagi")), /*#__PURE__*/React.createElement("div", {
     className: "note-trash-item-actions"
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",

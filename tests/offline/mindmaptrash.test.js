@@ -253,3 +253,32 @@ test("deleting again while the restore marker is pending cancels both without a 
   await pushOutbox(tr);
   assert.equal(tr.calls.length, before);
 });
+
+test("restoreOutcome (pure): queued / source_note_missing / failed / gone / restored", () => {
+  const items = [item(), item({ id: 6 })];
+  assert.equal(T.restoreOutcome({ items, restoring: [5], errors: {} }, 5), "queued");
+  assert.equal(T.restoreOutcome({ items, restoring: [], errors: { 5: "source_note_missing" } }, 5), "source_note_missing");
+  assert.equal(T.restoreOutcome({ items, restoring: [], errors: { 5: "failed" } }, "5"), "failed");
+  assert.equal(T.restoreOutcome({ items: [], restoring: [], errors: {}, done: { 5: "gone" } }, 5), "gone");
+  assert.equal(T.restoreOutcome({ items: [], restoring: [], errors: {}, done: { 5: "ok" } }, 5), "restored");
+  assert.equal(T.restoreOutcome({ items, restoring: [], errors: {} }, 5), "failed");
+  assert.equal(T.restoreOutcome({ items: [], restoring: [], errors: {} }, 5), "restored");
+  assert.equal(T.restoreOutcome(null, 5), "restored");
+});
+
+test("markRestoreResult records ok/gone in done (survives writeMirror); re-queue clears it", async () => {
+  await T.writeMirror([item(), item({ id: 6, client_id: "c6" })]);
+  await T.restore("5"); await T.restore("6");
+  assert.equal(T.restoreOutcome(await T.readMirror(), 5), "queued");
+  await T.markRestoreResult(5, "gone");
+  await T.markRestoreResult(6, "ok");
+  await T.writeMirror([]);
+  const m = await T.readMirror();
+  assert.equal(T.restoreOutcome(m, 5), "gone");
+  assert.equal(T.restoreOutcome(m, 6), "restored");
+  await T.writeMirror([item()]);
+  await T.restore("5");
+  assert.equal(T.restoreOutcome(await T.readMirror(), 5), "queued");
+  await T.markRestoreResult(5, "failed");
+  assert.equal(T.restoreOutcome(await T.readMirror(), 5), "failed");
+});

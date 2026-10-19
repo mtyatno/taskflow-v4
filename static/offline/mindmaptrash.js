@@ -27,6 +27,9 @@
   const SOURCE_MISSING_MSG = "Catatan sumbernya sudah tidak ada — pulihkan catatannya dulu";
   const PURGE_OFFLINE_MSG = "Perlu koneksi internet untuk menghapus permanen";
   const PENDING_LABEL = "menunggu sinkron";
+  const RESTORE_FAILED_MSG = "Gagal memulihkan — coba lagi";
+  const RESTORE_GONE_MSG = "Peta sudah tidak ada di Sampah";
+  const DONE_KEEP = 50; // hasil restore terakhir (ok/gone) yang diingat untuk restoreOutcome
   const META_KEY = "mindmapTrash:v1";
   const RETENTION_DAYS = 30;
 
@@ -68,13 +71,22 @@
       items: Array.isArray(v.items) ? v.items : [],
       restoring: Array.isArray(v.restoring) ? v.restoring.map(Number) : [],
       errors: v.errors && typeof v.errors === "object" ? Object.assign({}, v.errors) : {},
+      // done[sid] = "ok" | "gone": hasil push restore yang sudah keluar dari items (tidak dipangkas writeMirror).
+      done: v.done && typeof v.done === "object" ? Object.assign({}, v.done) : {},
     };
+  }
+  function trimDone(done) {
+    const keys = Object.keys(done);
+    if (keys.length <= DONE_KEEP) return done;
+    const out = {};
+    for (const k of keys.slice(keys.length - DONE_KEEP)) out[k] = done[k];
+    return out;
   }
   function readMirror() {
     return TFmeta().metaGet(META_KEY).then(normMirror);
   }
   function saveMirror(m) {
-    return TFmeta().metaSet(META_KEY, { items: m.items, restoring: m.restoring, errors: m.errors });
+    return TFmeta().metaSet(META_KEY, { items: m.items, restoring: m.restoring, errors: m.errors, done: trimDone(m.done || {}) });
   }
   // Ganti items (hasil GET /trash); restoring/errors hanya dipertahankan untuk sid yang masih ada di items.
   function writeMirror(items) {
@@ -83,7 +95,7 @@
       const sids = new Set(items.map((i) => String(i.id)));
       const errors = {};
       for (const k of Object.keys(m.errors)) if (sids.has(String(k))) errors[k] = m.errors[k];
-      return saveMirror({ items, restoring: m.restoring.filter((s) => sids.has(String(s))), errors });
+      return saveMirror({ items, restoring: m.restoring.filter((s) => sids.has(String(s))), errors, done: m.done });
     });
   }
   // Hasil push op restore: ok/gone → item keluar dari cermin; lainnya → errors[sid] = outcome.
@@ -94,6 +106,8 @@
       if (outcome === "ok" || outcome === "gone") {
         m.items = m.items.filter((i) => String(i.id) !== key);
         delete m.errors[key];
+        delete m.done[key];
+        m.done[key] = outcome;
       } else {
         m.errors[key] = outcome;
       }
@@ -188,7 +202,8 @@
           if (!exists) ob.add({ ts: Date.now(), retries: 0, op: "restore", entity_type: "mindmap", cid: "trash:" + sid, payload: { server_id: sid } });
           if (!m.restoring.some((s) => String(s) === String(sid))) m.restoring.push(sid);
           delete m.errors[String(it.id)];
-          mt.put({ items: m.items, restoring: m.restoring, errors: m.errors }, META_KEY);
+          delete m.done[String(it.id)];
+          mt.put({ items: m.items, restoring: m.restoring, errors: m.errors, done: trimDone(m.done) }, META_KEY);
           out = sid;
         };
       };
@@ -208,10 +223,25 @@
     });
   }
 
+  // Hasil restore item cermin `sid` setelah push (murni, dari cermin hasil readMirror):
+  // "queued" (op masih antre: jaringan/5xx/401) | "source_note_missing" | "failed" | "gone" (404) | "restored".
+  function restoreOutcome(mirror, sid) {
+    const m = normMirror(mirror);
+    const key = String(sid);
+    if (m.restoring.some((s) => String(s) === key)) return "queued";
+    const err = m.errors[key];
+    if (err) return err === "source_note_missing" ? "source_note_missing" : (err === "gone" ? "gone" : "failed");
+    if (m.done[key] === "gone") return "gone";
+    if (m.done[key] === "ok") return "restored";
+    // Masih di Sampah tanpa antre/galat → restore tidak terjadi.
+    if (m.items.some((i) => String(i.id) === key)) return "failed";
+    return "restored";
+  }
+
   const exported = {
     CONFIRM_MOVE, TOAST_MOVED, TOAST_RESTORED, TOAST_RESTORE_QUEUED, CONFIRM_PURGE, CONFIRM_EMPTY,
-    SOURCE_MISSING_MSG, PURGE_OFFLINE_MSG, PENDING_LABEL, META_KEY, RETENTION_DAYS,
-    previewOf, readMirror, writeMirror, markRestoreResult, listTrash, restore,
+    SOURCE_MISSING_MSG, PURGE_OFFLINE_MSG, PENDING_LABEL, RESTORE_FAILED_MSG, RESTORE_GONE_MSG, META_KEY, RETENTION_DAYS,
+    previewOf, readMirror, writeMirror, markRestoreResult, listTrash, restore, restoreOutcome,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.mindmaptrash = exported; }
   return exported;
