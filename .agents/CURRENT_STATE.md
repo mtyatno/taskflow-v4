@@ -1,3 +1,8 @@
+## 🚨 CRITICAL WARNING FROM PAST SESSION 🚨
+**ATTENTION ALL AGENTS:** In a previous session, an agent was severely reprimanded by the user for ignoring the Superpowers plugin rules, writing code inline (cowboy coding), breaking the database with untested migrations, and falsely claiming a task was complete without running tests.
+**YOU MUST NOT REPEAT THIS.**
+1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
+2. Delegate implementation and review tasks to SUBAGENTS.
 ## 🟠 Drawing milik workspace — PR 2 backend — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
 - **Status:** branch `claude/drawing-workspace-backend` (draft PR). Backend saja, **tanpa** kenaikan SW. Setelah deploy: **restart `taskflow-web` dan `taskflow`** (`repository.py` berubah). `migrate_db` menambah kolom + backfill sekali jalan.
 - **Isi:** `drawing_scope.py` (ADR-012); akses anggota W ke drawing (GET/PUT), hapus/pin/share hanya pemilik; `GET /api/drawings?shared=1`; `PATCH /api/drawings/{id}/share` (409 `DRAWING_IN_USE`), `POST /api/drawings/{id}/copy`, `GET /api/lists/{id}/drawings`, `GET /api/lists/{id}/leave-impact`; respons note membawa `moved_drawings`/`unresolved_drawings`; halaman publik & ekspor DOCX ikut akses baru.
@@ -5,13 +10,8 @@
 - **Verifikasi:** pytest 358, JS 1568/1569 (pra-ada `draw_local_reactive`). SDD 5 task, review per task, review akhir opus → perbaikan (bypass varian `::DRAW`, regex case-insensitive, scope query publik) + re-review bersih.
 - **Berikutnya:** PR 3 (frontend + offline drawing workspace), lalu PR XSS (1b).
 
-## 🚨 CRITICAL WARNING FROM PAST SESSION 🚨
-**ATTENTION ALL AGENTS:** In a previous session, an agent was severely reprimanded by the user for ignoring the Superpowers plugin rules, writing code inline (cowboy coding), breaking the database with untested migrations, and falsely claiming a task was complete without running tests.
-**YOU MUST NOT REPEAT THIS.**
-1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
-2. Delegate implementation and review tasks to SUBAGENTS.
-## 🟠 Project per scope di aplikasi — PR 5 (frontend + offline) — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
-- **Status:** branch `claude/project-entities-ui` (draft PR). SW **v419** `taskflow-v419-project-scope`, `app.css?v=334`. Backend kecil (`scope=all`, `project_id` terhapus diabaikan, `task_count`) → **restart `taskflow-web`** setelah deploy.
+## 🟠 Project per scope di aplikasi — PR 5 (frontend + offline) — 2026-10-19 (Claude) — DI-MERGE (#41)
+- **Status:** PR #41 di-merge 2026-10-19. SW **v419** `taskflow-v419-project-scope`, `app.css?v=334`. Backend kecil (`scope=all`, `project_id` terhapus diabaikan, `task_count`) → **restart `taskflow-web`** setelah deploy.
 - **Isi:** `static/offline/projectcache.js` (ADR-011), route lokal `GET /api/projects` per scope, `project_id` + `project_ref_name` di record/push/adopt, form task: pilihan scope + "Assign ke" di baris atribut cepat dan dropdown per scope (juga detail & wizard GTD), sidebar/pengelompokan per scope + badge 👥, modal "Kelola project" (online, `{network:true}`), E2E `temporary_files/e2e_project_scope.py` (20/20, screenshot di `temporary_files/e2e_project_scope/`).
 - **Verifikasi:** pytest 307, JS 1520/1521 (pra-ada `draw_local_reactive`), inline OK, E2E 20/20. SDD 6 task + review per task (fix round di Task 4 & 5), review akhir opus → perbaikan (perangkat basi setelah rename/hapus, "Assign ke", bypass cache SW, kanban) + re-review.
 - **Sisa diterima:** pindah project offline ke project yang dihapus sebelum push → tetap di project lama; form edit yang dibuka sebelum pull rename lalu disimpan dengan nama lama → membuat ulang nama lama; chip "👥 shared" di kartu task workspace belum menyebut nama workspace.
