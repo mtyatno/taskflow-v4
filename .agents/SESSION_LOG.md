@@ -3376,3 +3376,9 @@
 - **Changes:** Dicek: head `8ef11dd` CI hijau dan mergeable; merge commit `67861fb`; Deploy Taskflow V4 run #905 sukses. Workflow deploy tidak me-restart `taskflow-web`, jadi perbaikan belum aktif sampai restart. Pengecekan berkala PR dihentikan.
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar perbaikan aktif.
+
+## [2026-10-19 11:18] - Claude (PR #35 aktif di produksi)
+- **Task:** Bapak me-restart `taskflow-web`; cek `/pub/attachments/<24 digit>` → 404 (kode baru aktif).
+- **Changes:** Status PR #35 di CURRENT_STATE diperbarui (aktif). Berikutnya: PR 1b (XSS isi note publish) menunggu keputusan HTML yang diizinkan.
+- **Files Touch:** `.agents/*`
+- **Status:** Done.
