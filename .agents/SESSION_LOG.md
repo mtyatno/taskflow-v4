@@ -3494,3 +3494,7 @@
 - **Files Touch:** `static/{index.html,sw.js}`, `webapp.py`, `tests/**` (versi SW), `.agents/*`
 - **Status:** Needs Review.
 
+
+## 2026-10-19 21:30 WIB — Claude — merge temuan mindmap #3–#8
+- Bapak: "merge dan deploy". Main sudah maju (#45 drawing UI, SW v421, ADR-013) → PR A di-merge main (SW v422, ADR-014), PR B di-merge A (SW v423, ADR-015); CI hijau keduanya.
+- #44 di-merge (770dacd), #46 di-retarget ke `main` lalu di-merge (5cc231e). Deploy: `git pull` + `sudo systemctl restart taskflow-web` di server (dilakukan Bapak; sesi cloud tidak terhubung ke server).
