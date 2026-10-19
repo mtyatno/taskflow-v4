@@ -206,6 +206,8 @@ Kolom teks `tasks.project` tetap dipertahankan dan selalu diisi nama project. Bo
 - `PATCH /api/projects/{id} {name?, color?, archived?}`: mengikuti hak kelola. Rename ke nama yang sudah dipakai di scope yang sama → 409. Rename juga memperbarui `tasks.project` dan `updated_at` semua task terkait dalam satu transaksi. Task yang sedang diedit offline akan melewati alur REV_MISMATCH yang sudah ada.
 - `DELETE /api/projects/{id}`: mengikuti hak kelola. Task terkait di-set `project_id = NULL`, `project = ''`, dan `updated_at` di-bump. Klien menampilkan jumlah task sebelum konfirmasi; arsip adalah aksi yang disarankan.
 - Rename, arsip, dan hapus hanya bisa online di v1.
+- **Batasan v1 (PR 4):** PUT task dari klien sekarang last-write-wins tanpa `base_rev`. Perangkat yang masih punya edit tertunda dari sebelum rename/hapus mengirim nama lama, dan server membuat lagi project bernama lama. PR 5 mengirim `project_id` (yang selalu menang atas nama) dan `base_rev` untuk task.
+- Resolusi hanya berjalan bila project task benar-benar berubah (`project_id` beda, atau nama beda tanpa memperhatikan kapital). Edit lain tidak menyentuh project: arsip tetap bertahan, dan pemilik task yang sudah keluar dari W tetap bisa menyimpan edit lain.
 
 ### 5.4 Resolusi project saat task disimpan
 
@@ -222,7 +224,8 @@ Satu helper di `repository.py`, dipakai oleh webapp dan bot:
 - **Pribadi:** task dengan `list_id IS NULL`, atau yang list-nya sudah terhapus, dikelompokkan per (`user_id`, nama NOCASE) menjadi satu project. Ejaan nama diambil dari yang paling baru dipakai.
 - **Workspace:** task dengan `list_id` yang valid dikelompokkan per (`list_id`, nama NOCASE) menjadi satu project. `created_by` diambil dari pembuat task tertua.
 - `archived = 1` untuk project yang tidak punya task aktif (`gtd_status NOT IN ('done','archived')`), supaya isi dropdown sama dengan sekarang.
-- Isi `tasks.project_id`. Migrasi idempoten.
+- Isi `tasks.project_id`. Migrasi idempoten dan dijalankan di setiap `migrate_db()` (deploy dan start server); juga memperbaiki link basi (nama/scope tidak cocok) dan dipanggil setelah akun Telegram ditautkan ke akun web.
+- Data rusak (pemilik atau `parent_id` yang sudah tidak ada) tidak pernah menggagalkan migrasi: grup itu dilewati per SAVEPOINT dan dicatat di log.
 - Efek yang perlu diketahui: nama project yang selama ini hanya dipakai di task workspace akan pindah dari dropdown pribadi ke dropdown workspace tersebut.
 
 ### 5.6 UI

@@ -3382,3 +3382,10 @@
 - **Changes:** Status PR #35 di CURRENT_STATE diperbarui (aktif). Berikutnya: PR 1b (XSS isi note publish) menunggu keputusan HTML yang diizinkan.
 - **Files Touch:** `.agents/*`
 - **Status:** Done.
+
+## [2026-10-19 13:00] - Claude (PR 4: project sebagai entitas, backend)
+- **Task:** Bapak: kerjakan PR 4–5 (project bersama) dulu, lalu PR 2–3, lalu XSS; audio/video di sesi lain.
+- **Changes:** Rencana `docs/superpowers/plans/2026-10-19-project-entities-backend.md` (disetujui). SDD: Task 1 skema+backfill, Task 2 resolusi project_id di semua jalur tulis (fix: syarat anggota workspace, subtask lintas scope, race), Task 3 API + bot. Review akhir → perbaikan: backfill tahan FK rusak & perbaiki link basi, resolusi hanya saat project berubah, validasi warna. ADR-010; spec §5.3/§5.5 diperbarui.
+- **Verifikasi:** pytest 299/299, JS 1366/1367, simulasi upgrade DB lama.
+- **Files Touch:** `webapp.py`, `repository.py`, `tests/test_projects_{schema,tasks,api}.py`, `docs/superpowers/{plans,specs}/…`, `.agents/*`
+- **Status:** Needs Review (draft PR, tunggu "merge dan deploy"; restart `taskflow-web` + `taskflow`).
