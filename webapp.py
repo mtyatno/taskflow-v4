@@ -196,6 +196,9 @@ chat_subscribers: dict[int, set[asyncio.Queue]] = defaultdict(set)
 # DM: conversation_id → {(user_id, queue)} — user_id disimpan agar bisa tahu
 # apakah penerima sedang membuka percakapan (untuk menahan notifikasi).
 dm_subscribers: dict[int, set[tuple[int, asyncio.Queue]]] = defaultdict(set)
+# Mindmap bersama: mindmap_id → {(user_id, queue)}. Hanya sinyal (tanpa isi peta);
+# akses tiap pelanggan dicek ulang saat broadcast (lihat _mindmap_broadcast).
+mindmap_subscribers: dict[int, set[tuple[int, asyncio.Queue]]] = defaultdict(set)
 
 # ── Database helpers ───────────────────────────────────────────────────────────
 
@@ -7764,7 +7767,16 @@ async def restore_trashed_mindmap(mid: int, user=Depends(get_current_user)):
             _sync_linked_mindmap(conn, sn)
         conn.commit()
         restored = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (mid,)).fetchone()
-        return _mindmap_enrich(dict(restored), conn, uid)
+        linked = restored["source_note_id"] is not None
+        editor_name = _mindmap_editor_name(conn, uid)
+        result = _mindmap_enrich(dict(restored), conn, uid)
+    if not linked:
+        # Pelanggan lama sudah terputus oleh mindmap_deleted; sinyal ini menjangkau stream baru (mis. sambung ulang).
+        await _mindmap_broadcast(mid, {
+            "type": "mindmap_changed", "id": mid, "updated_at": restored["updated_at"],
+            "editor_id": uid, "editor_name": editor_name,
+        })
+    return result
 
 
 @app.delete("/api/mindmaps/trash/{mid}")
@@ -7970,7 +7982,13 @@ async def share_mindmap(mid: str, req: MindmapShareReq, user=Depends(get_current
         now = datetime.now(_TZ_JKT).isoformat()
         conn.execute("UPDATE mindmaps SET list_id = ?, updated_at = ? WHERE id = ?", (list_id, now, real_mid))
         updated = conn.execute("SELECT id, title, is_pinned, list_id, user_id, last_edited_by, created_at, updated_at, client_id FROM mindmaps WHERE id = ?", (real_mid,)).fetchone()
-        return _mindmap_enrich(dict(updated), conn, uid)
+        editor_name = _mindmap_editor_name(conn, uid)
+        result = _mindmap_enrich(dict(updated), conn, uid)
+    await _mindmap_broadcast(real_mid, {
+        "type": "mindmap_changed", "id": real_mid, "updated_at": updated["updated_at"],
+        "editor_id": uid, "editor_name": editor_name,
+    })
+    return result
 
 
 
@@ -8063,6 +8081,70 @@ async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
         row = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (cur.lastrowid,)).fetchone()
         return _mindmap_enrich(dict(row), conn, uid)
 
+async def _mindmap_broadcast(mid: int, event: dict) -> None:
+    """Kirim sinyal ke pelanggan stream peta `mid`. Event bukan 'mindmap_deleted' hanya
+    sampai ke pelanggan yang MASIH punya akses; sisanya menerima 'mindmap_access_lost'
+    dan dilepas dari daftar pelanggan. Tidak pernah membawa isi peta."""
+    subs = list(mindmap_subscribers.get(mid, set()))
+    if not subs:
+        return
+    if event.get("type") == "mindmap_deleted":
+        for _uid, q in subs:
+            await q.put(event)
+        return
+    verdicts = []
+    with get_db() as conn:
+        for uid, q in subs:
+            ac, ap = _mindmap_access_clause(uid)
+            ok = conn.execute(
+                f"SELECT 1 FROM mindmaps WHERE id = ? AND {ac}", [mid] + ap
+            ).fetchone() is not None
+            verdicts.append((uid, q, ok))
+    for uid, q, ok in verdicts:
+        if ok:
+            await q.put(event)
+        else:
+            await q.put({"type": "mindmap_access_lost", "id": mid})
+            mindmap_subscribers[mid].discard((uid, q))
+
+
+def _mindmap_editor_name(conn, uid: int) -> str:
+    r = conn.execute("SELECT username, display_name FROM users WHERE id = ?", (uid,)).fetchone()
+    return ((r["display_name"] or r["username"]) if r else "") or ""
+
+
+@app.get("/api/mindmaps/{mid}/stream")
+async def mindmap_stream(mid: int, request: Request, user=Depends(get_current_user_sse)):
+    # EventSource tidak bisa mengirim header Authorization → get_current_user_sse (token query/cookie).
+    uid = user["sub"]
+    with get_db() as conn:
+        ac, ap = _mindmap_access_clause(uid)
+        if not conn.execute(f"SELECT 1 FROM mindmaps WHERE id = ? AND {ac}", [mid] + ap).fetchone():
+            raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
+
+    async def event_generator():
+        q: asyncio.Queue = asyncio.Queue()
+        entry = (uid, q)
+        mindmap_subscribers[mid].add(entry)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=20.0)
+                    yield {"data": json.dumps(msg)}
+                    if msg.get("type") in ("mindmap_access_lost", "mindmap_deleted"):
+                        break
+                except asyncio.TimeoutError:
+                    yield {"data": json.dumps({"type": "ping"})}
+        finally:
+            mindmap_subscribers[mid].discard(entry)
+            if not mindmap_subscribers.get(mid):
+                mindmap_subscribers.pop(mid, None)
+
+    return EventSourceResponse(event_generator())
+
+
 @app.get("/api/mindmaps/{mid}")
 async def get_mindmap(mid: int, user=Depends(get_current_user)):
     uid = user["sub"]
@@ -8113,7 +8195,15 @@ async def update_mindmap(mid: int, req: MindmapUpdate, user=Depends(get_current_
                 (new_title, new_data, uid, now, mid)
             )
         updated = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (mid,)).fetchone()
-        return _mindmap_enrich(dict(updated), conn, uid)
+        linked = row["source_note_id"] is not None
+        editor_name = _mindmap_editor_name(conn, uid)
+        result = _mindmap_enrich(dict(updated), conn, uid)
+    if not linked:
+        await _mindmap_broadcast(mid, {
+            "type": "mindmap_changed", "id": mid, "updated_at": updated["updated_at"],
+            "editor_id": uid, "editor_name": editor_name,
+        })
+    return result
 
 class MindmapPinReq(BaseModel):
     pinned: Optional[bool] = None
@@ -8162,6 +8252,7 @@ async def delete_mindmap(mid: int, user=Depends(get_current_user)):
         _snapshot_mindmap_to_trash(conn, row, uid)
         conn.execute("DELETE FROM mindmap_pins WHERE mindmap_id = ?", (mid,))
         conn.execute("DELETE FROM mindmaps WHERE id = ?", (mid,))
+    await _mindmap_broadcast(mid, {"type": "mindmap_deleted", "id": mid})
     return {"ok": True, "trashed": True}
 
 
