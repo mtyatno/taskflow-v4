@@ -78,7 +78,7 @@ test("linked maps never send addLink and guard against a missing module", () => 
 const NM = require("../../static/offline/notemap.js");
 const NS = require("../../static/offline/notemapsession.js");
 
-function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = () => true }) {
+function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = () => true, tfExtra = {}, getImpl = null, putImpl = null }) {
   const slots = [];
   let slot = 0;
   let effects = [];
@@ -97,6 +97,7 @@ function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = ()
     TF: {
       notemap: NM,
       notemapsession: NS,
+      ...tfExtra,
       noterepo: {
         applyMapEdit: (cid, base, next) => {
           if (!store.note || store.note.cid !== cid) return Promise.resolve({ missing: true });
@@ -115,13 +116,14 @@ function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = ()
   const iframeWin = { postMessage: (m) => posted.push(m) };
   const api = {
     get: (url) => {
+      if (getImpl) { const r = getImpl(url); if (r) return r; }
       if (store.failGet) return Promise.reject(new Error("offline"));
       if (url === "/api/scratchpad/trash") return Promise.resolve(trash);
       const m = url.match(/^\/api\/scratchpad\/(.+)$/);
       if (m && store.note && (m[1] === store.note.cid || m[1] === String(store.note.id))) return Promise.resolve(Object.assign({}, store.note));
       return Promise.reject(new Error("Note not found"));
     },
-    put: (url, body) => { puts.push({ url, body }); return Promise.resolve({}); },
+    put: (url, body) => { puts.push({ url, body }); return Promise.resolve(putImpl ? putImpl(url, body) : {}); },
     patch: () => Promise.resolve({}),
     del: () => Promise.resolve({}),
   };
@@ -318,6 +320,51 @@ test("behavior: non-linked map keeps the old data_json autosave path", async () 
   assert.equal(h.puts[0].body.if_updated_at, "t0");
   assert.equal(JSON.parse(h.puts[0].body.data_json).nodeData.children[0].topic, "Anak");
   assert.ok(findText(h.out, "Tersimpan") && !findText(h.out, "Tersimpan ke catatan"));
+});
+
+// #4 (B5): pembaruan jarak jauh lewat remoteUpdate; basis + if_updated_at maju hanya setelah remoteApplied.
+test("behavior B5: remote update skipped while typing → save sends the old base; merged result applied via remoteUpdate", async () => {
+  const live = require("../../static/offline/mindmaplive.js");
+  const doc = (topics) => JSON.stringify({ nodeData: { id: "root", topic: "M", root: true, children: topics.map((t, i) => ({ id: "n" + i, topic: t, children: [] })) }, direction: 2 });
+  const B = doc(["A", "B"]), S = doc(["A", "B server"]), Ltab = doc(["A lokal", "B"]), M = doc(["A lokal", "B server"]);
+  const rec = { id: 3, title: "Judul", data_json: S, updated_at: "t1", last_editor_display_name: "Bob", last_edited_by: 2 };
+  const h = mountTab({
+    note: null, tfExtra: { mindmaplive: live },
+    tabExtra: { source_note_cid: null, source_note_id: null, data_json: B, updated_at: "t0" },
+    getImpl: (url) => (url === "/api/mindmaps/3" ? Promise.resolve(Object.assign({}, rec)) : null),
+    putImpl: (url, body) => {
+      Object.assign(rec, { data_json: M, updated_at: "t2", last_editor_display_name: null, last_edited_by: 1 });
+      return Object.assign({}, rec, { merged: true, merge_conflicts: 0 });
+    },
+  });
+  await h.settle();
+  await h.message({ type: "ready" });
+  // pull (__mindmapLive) mengganti record → mindmapSynced → tab menawarkan isi jarak jauh ke iframe
+  h.win.dispatchEvent({ type: "mindmapSynced", detail: { source: "live", ids: [3] } });
+  await h.settle();
+  const up = h.posted.filter((m) => m.type === "remoteUpdate");
+  assert.equal(up.length, 1);
+  assert.equal(h.posted.filter((m) => m.type === "load").length, 1, "tidak ada load paksa");
+  // pengguna sedang mengetik → iframe melewati
+  await h.message({ type: "remoteSkipped", seq: up[0].seq });
+  await h.message({ type: "change", data: JSON.parse(Ltab) });
+  await h.flushTimers();
+  assert.equal(h.puts.length, 1);
+  const body = h.puts[0].body;
+  assert.equal(body.if_updated_at, "t0");
+  assert.equal(body.base_data_json, B);
+  assert.equal(typeof body.session_id, "string"); assert.ok(body.session_id.length > 0);
+  // hasil merge diterapkan lewat remoteUpdate; setelah remoteApplied basis + if_updated_at = hasil merge
+  const up2 = h.posted.filter((m) => m.type === "remoteUpdate");
+  const last = up2[up2.length - 1];
+  assert.deepEqual(last.data.nodeData.children.map((c) => c.topic), ["A lokal", "B server"]);
+  for (const m of up2.slice(1)) await h.message({ type: "remoteApplied", seq: m.seq });
+  await h.message({ type: "change", data: JSON.parse(doc(["A lokal", "B server", "C"])) });
+  await h.flushTimers();
+  assert.equal(h.puts.length, 2);
+  assert.equal(h.puts[1].body.if_updated_at, "t2");
+  assert.equal(h.puts[1].body.base_data_json, M);
+  assert.equal(h.puts[1].body.session_id, body.session_id, "session_id tetap per instans tab");
 });
 
 // R18: 3 bagian tingkat atas × 10 anak = 33 node.

@@ -41,6 +41,7 @@ const STATIC = [
   "/static/offline/mindmapoutline.js",
   "/static/offline/mindmaplinks.js",
   "/static/offline/mindmaptrash.js",
+  "/static/offline/mindmaplive.js",
   "/static/offline/mindmapops.js",
   "/static/offline/notemap.js",
   "/static/offline/notemapsession.js",
@@ -243,6 +244,18 @@ self.addEventListener("fetch", e => {
           return cached || networkFetch;
         })
       ).catch(() => fetch(request))
+    );
+    return;
+  }
+
+  // Stream langsung mindmap (/api/mindmaps/<id>/stream, SSE #4): NETWORK-ONLY, tidak pernah di-cache.
+  // Offline → 503 OFFLINE (EventSource menyambung ulang sendiri setelah online).
+  if (/^\/api\/mindmaps\/[^/]+\/stream$/.test(url.pathname)) {
+    e.respondWith(
+      fetch(request).catch(() => new Response(
+        JSON.stringify({ detail: "OFFLINE" }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      ))
     );
     return;
   }

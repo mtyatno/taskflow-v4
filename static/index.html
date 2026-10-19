@@ -282,6 +282,7 @@
   <script src="/static/offline/mindmapoutline.js"></script>
   <script src="/static/offline/mindmaplinks.js"></script>
   <script src="/static/offline/mindmaptrash.js"></script>
+  <script src="/static/offline/mindmaplive.js"></script>
   <script src="/static/offline/notemap.js"></script>
   <script src="/static/offline/notemapsession.js"></script>
   <script src="/static/offline/mindmaptabs.js"></script>
@@ -807,6 +808,22 @@ const __syncRawFetch = (u, timeoutMs) => {
 };
 // Dipakai editor (poll note bersama, T5): baca server langsung, network-only, tanpa router lokal / cache SW
 window.__syncRawFetch = __syncRawFetch;
+// #4 kolaborasi langsung: sinyal stream peta sid → pull SATU peta (merge per node bila ada edit lokal) secara
+// eksklusif (tidak berpapasan dengan push markPushed→setBaseFromServer), beri tahu tab, lalu push bila record dirty.
+window.__mindmapLive = (sid) => {
+  if (!(window.TF && window.TF.syncpull && window.TF.syncpull.pullMindmapOne)) return Promise.resolve();
+  return runSyncExclusive(() => window.TF.syncpull.pullMindmapOne(__syncRawFetch, sid)).then((res) => {
+    if (!res) return;
+    const changed = Array.isArray(res.changed) ? res.changed : [];
+    if (changed.length) {
+      window.dispatchEvent(new CustomEvent("mindmapSynced", {
+        detail: { source: "live", cids: changed.map((c) => c.cid), ids: changed.filter((c) => c.server_id != null).map((c) => c.server_id) },
+      }));
+    }
+    if (changed.length || res.deleted) window.dispatchEvent(new CustomEvent("mindmapSaved", { detail: { source: "live" } }));
+    if (res.dirty || res.merged) return window.__pushNow();
+  }).then((r) => { if (r && (r.busy || r.requeued)) schedulePush(); renderConflicts(); }).catch(() => {});
+};
 if (window.TF && window.TF.drawingrepo && window.TF.idmap) {
   window.TF.drawingrepo.configureFetcher((idOrCid) => {
     if (/^\d+$/.test(String(idOrCid))) {
@@ -1052,6 +1069,9 @@ function sync() {
 const __entityNoun = (entity) => (entity === "mindmap" ? "peta" : entity === "note" ? "catatan" : entity === "drawing" ? "gambar" : "item");
 function noticeText(n) {
   const title = n.title || "(tanpa judul)";
+  if (n.kind === "merge_conflict") {
+    return "✂ «" + title + "»: " + (n.count || 1) + " node diubah bersamaan oleh " + (n.editor || "pengguna lain") + (Array.isArray(n.nodes) && n.nodes.length ? " (" + n.nodes.join(", ") + ")" : "") + " — versimu disimpan sebagai '" + (n.copyTitle || "(konflik) " + title) + "'";
+  }
   if (n.kind === "delete_refused") return "🔔 '" + title + "' tidak bisa dihapus — hanya pemilik yang bisa menghapus.";
   if (n.kind === "conflict_copy") {
     return "✂ Edit offline-mu pada '" + title + "' disimpan sebagai '" + (n.copyTitle || "(konflik) " + title) + "' karena " + __entityNoun(n.entity) + " diubah di perangkat lain" + (n.editor ? " (" + n.editor + ")" : "") + ".";
@@ -10224,23 +10244,48 @@ function MindmapTabInstance({
   const lastKnownAtRef = useRef(null);
   const pendingEditRef = useRef(false);
   const saveSeqRef = useRef(0);
+  // #4 kolaborasi langsung (TF.mindmaplive): baseDocRef = data_json yang menjadi dasar kanvas/outline; maju BERSAMA
+  // lastKnownAtRef dari snapshot yang sama, hanya setelah iframe benar-benar menerapkan isi jarak jauh (remoteApplied).
+  // remoteSkipped (pengguna mengetik di #input-box) → remoteStaleRef; autosave berikutnya me-merge lalu membaca record.
+  const baseDocRef = useRef(null);
+  const remoteStaleRef = useRef(false);
+  const remoteSeqRef = useRef(0);
+  const pendingRemoteRef = useRef(new Map());
+  const remoteRetryRef = useRef(null);
+  const localDocRef = useRef(null); // data_json edit lokal terakhir (kanvas/outline)
+  const lastRemoteEditorRef = useRef(null);
+  const sessionIdRef = useRef(null); // satu per instans tab: salinan konflik router dipakai ulang hanya oleh tab ini
+  if (!sessionIdRef.current) sessionIdRef.current = (window.TF && window.TF.mindmaplive) ? window.TF.mindmaplive.newSessionId() : Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const liveRef = useRef(null);
+  if (!liveRef.current && window.TF && window.TF.mindmaplive) {
+    liveRef.current = window.TF.mindmaplive.createTabLive({ baseDocRef, lastKnownAtRef, remoteStaleRef, remoteSeqRef, pendingRemoteRef });
+  }
+  const [liveOn, setLiveOn] = useState(false);
 
-  // Terapkan isi record (versi server dari pull/409/conflict_copy) ke tab: outline, kanvas iframe, judul.
+  // Terapkan isi record (versi server dari pull/409/merge/conflict_copy) ke tab lewat iframe ({type:"remoteUpdate"}).
+  // Outline, judul, basis dan if_updated_at diperbarui saat iframe membalas remoteApplied (bukan sebelumnya).
   const applyRecordToTab = (doc) => {
-    if (!doc) return;
-    let data = null;
-    try { data = typeof doc.data_json === "string" ? JSON.parse(doc.data_json) : doc.data_json; } catch (_) {}
-    lastKnownAtRef.current = doc.updated_at != null ? doc.updated_at : lastKnownAtRef.current;
-    if (!data) return;
-    if (data.nodeData) data.nodeData.root = true;
-    setOutlineTree(data);
-    setDirection(typeof data.direction === "number" ? data.direction : 2);
-    setJustify(Boolean(data.justify));
+    if (!doc || !liveRef.current) return;
+    const ed = doc.last_editor_display_name || doc.last_editor_username;
+    if (ed && (currentUserId == null || String(doc.last_edited_by) !== String(currentUserId))) lastRemoteEditorRef.current = ed;
+    const msg = liveRef.current.offerRemote(doc);
+    if (!msg) return;
     try {
-      iframeRef.current?.contentWindow?.postMessage({ type: "load", data, title: doc.title || tab?.title || "" }, window.location.origin);
+      iframeRef.current?.contentWindow?.postMessage({ type: "remoteUpdate", data: msg.data, title: msg.title, seq: msg.seq }, window.location.origin);
     } catch (_) {}
-    if (doc.title != null && tab && doc.title !== tab.title && onUpdateTitle) onUpdateTitle(tab.id, doc.title);
   };
+  // Pembaruan jarak jauh tertunda (dilewati / iframe belum siap) → coba lagi setelah jeda bila tab tidak punya edit
+  // tertunda (edit tertunda: autosave yang me-merge, lalu doSave membaca record). Satu timer, tidak pernah loop panas.
+  const scheduleRemoteRetry = () => {
+    clearTimeout(remoteRetryRef.current);
+    remoteRetryRef.current = setTimeout(() => {
+      remoteRetryRef.current = null;
+      if (!remoteStaleRef.current || pendingEditRef.current || pendingSaveRef.current || !tab) return;
+      remoteStaleRef.current = false;
+      api.get(`/api/mindmaps/${tab.id}`).then(applyRecordToTab).catch(() => {});
+    }, 2000);
+  };
+  useEffect(() => () => clearTimeout(remoteRetryRef.current), []);
 
   const pendingSaveRef = useRef(null); // {mid, dataStr} edit terakhir yang belum dikirim ke router lokal
   const doSave = () => {
@@ -10250,10 +10295,26 @@ function MindmapTabInstance({
     const seq = ++saveSeqRef.current;
     return api.put(`/api/mindmaps/${p.mid}`, {
       data_json: p.dataStr,
-      if_updated_at: lastKnownAtRef.current
+      if_updated_at: lastKnownAtRef.current,
+      base_data_json: baseDocRef.current,
+      session_id: sessionIdRef.current
     }).then((res) => {
       if (seq === saveSeqRef.current && !pendingSaveRef.current) pendingEditRef.current = false;
-      if (res && res.conflict_copy) {
+      // basis = data_json yang disimpan; if_updated_at maju hanya untuk tulis biasa (lihat TF.mindmaplive.saved)
+      if (liveRef.current) liveRef.current.saved(p.dataStr, res);
+      else if (res && res.updated_at != null) lastKnownAtRef.current = res.updated_at;
+      if (res && res.merged) {
+        // #4: record sudah berubah (anggota lain) → router me-merge per node; hasil diterapkan bila tidak ada edit
+        // baru (edit baru: autosave berikutnya me-merge lagi terhadap record ini)
+        if (!pendingSaveRef.current) applyRecordToTab(res);
+        if (res.merge_conflicts > 0 || res.conflict_copy) {
+          const copyTitle = res.conflict_copy && res.conflict_copy.title ? res.conflict_copy.title : "(konflik) " + (res.title || tab?.title || "");
+          showToast && showToast(window.TF && window.TF.mindmaplive ? window.TF.mindmaplive.conflictToast(lastRemoteEditorRef.current, copyTitle)
+            : `✂ Sebagian perubahanmu bentrok dengan ${lastRemoteEditorRef.current || "anggota lain"} — versimu disimpan sebagai '${copyTitle}'`, "error");
+          window.dispatchEvent(new CustomEvent("mindmapSaved", { detail: { source: "conflict_copy" } }));
+          if (typeof renderConflicts === "function") renderConflicts();
+        }
+      } else if (res && res.conflict_copy) {
         // record sudah diganti versi server selama tab diedit → edit tab tersimpan sebagai salinan konflik
         pendingSaveRef.current = null;
         pendingEditRef.current = false;
@@ -10261,8 +10322,11 @@ function MindmapTabInstance({
         showToast && showToast(`✂ Peta diubah di perangkat lain — edit-mu disimpan sebagai '${res.conflict_copy.title}'`, "error");
         window.dispatchEvent(new CustomEvent("mindmapSaved", { detail: { source: "conflict_copy" } }));
         if (typeof renderConflicts === "function") renderConflicts();
-      } else if (res && res.updated_at != null) {
-        lastKnownAtRef.current = res.updated_at;
+      }
+      // Pembaruan jarak jauh yang dilewati saat mengetik → sekarang tab membaca record (sudah termasuk merge).
+      if (remoteStaleRef.current && !pendingSaveRef.current) {
+        remoteStaleRef.current = false;
+        api.get(`/api/mindmaps/${tab.id}`).then(applyRecordToTab).catch(() => {});
       }
       setSyncStatus("saved");
       return res;
@@ -10281,6 +10345,8 @@ function MindmapTabInstance({
   const scheduleSave = (mid, dataStr) => {
     setSyncStatus("saving");
     pendingEditRef.current = true;
+    localDocRef.current = dataStr;
+    if (liveRef.current) liveRef.current.noteLocalEdit(); // remoteUpdate yang masih di jalan berpapasan dengan edit ini
     pendingSaveRef.current = { mid, dataStr };
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(doSave, 1000);
@@ -10355,6 +10421,10 @@ function MindmapTabInstance({
     setRenaming(false);
     lastKnownAtRef.current = tab.updated_at != null ? tab.updated_at : null;
     pendingEditRef.current = false;
+    clearTimeout(remoteRetryRef.current);
+    localDocRef.current = null;
+    if (!isLinked && liveRef.current) liveRef.current.load({ data_json: tab.data_json, updated_at: tab.updated_at }); // basis + if_updated_at: satu snapshot
+    else baseDocRef.current = isLinked ? null : tab.data_json;
     if (isLinked) {
       sessionRef.current = null;
       viewStateRef.current = parseViewState(tab.data_json);
@@ -10384,6 +10454,95 @@ function MindmapTabInstance({
       setTimeout(sendLoad, 200);
     }
   }, [tab?.id]);
+
+  // #4 kolaborasi langsung: satu EventSource per tab peta bersama (bukan tertaut, sudah punya id server). Sinyal
+  // mindmap_changed → __mindmapLive (pull satu peta eksklusif + merge) kecuali gema revisi yang sudah dikenal record.
+  // Ditutup saat tab ditutup/unmount dan saat offline; sambung ulang dengan jeda bertingkat (TF.mindmaplive.backoffMs).
+  useEffect(() => {
+    if (!tab || isLinked || tab.list_id == null || !/^\d+$/.test(String(tab.id))) return;
+    if (typeof EventSource === "undefined") return;
+    const ML = window.TF && window.TF.mindmaplive;
+    const sid = Number(tab.id);
+    let es = null;
+    let timer = null;
+    let attempt = 0;
+    let opened = false;
+    let disposed = false;
+    let gone = false; // peta dihapus / akses dicabut → tidak menyambung ulang
+    const live = () => (window.__mindmapLive ? window.__mindmapLive(sid) : Promise.resolve());
+    const close = () => {
+      clearTimeout(timer);
+      timer = null;
+      if (es) {
+        es.onopen = null; es.onmessage = null; es.onerror = null;
+        es.close();
+        es = null;
+      }
+      setLiveOn(false);
+    };
+    const schedule = () => {
+      if (disposed || gone || timer || !navigator.onLine) return;
+      const wait = ML ? window.TF.mindmaplive.backoffMs(attempt) : 30000;
+      attempt++;
+      timer = setTimeout(() => { timer = null; connect(); }, wait);
+    };
+    const onEvent = (e) => {
+      let ev = null;
+      try { ev = JSON.parse(e.data); } catch (_) { return; }
+      if (!ev || ev.type === "ping") return;
+      if (ev.type === "mindmap_changed") {
+        (ML ? ML.isEcho(sid, ev.updated_at) : Promise.resolve(false))
+          .then((echo) => { if (!echo) return live(); }, () => live());
+        return;
+      }
+      if (ev.type === "mindmap_deleted" || ev.type === "mindmap_access_lost") {
+        gone = true;
+        close();
+        live().then(() => api.get(`/api/mindmaps/${tab.id}`)).then((loc) => {
+          if (!loc) throw new Error("gone");
+        }).catch(() => {
+          if (disposed) return;
+          showToast(ev.type === "mindmap_deleted" ? "Peta ini dihapus oleh pemiliknya" : "Akses ke peta ini dicabut", "error");
+          onDeleteMindmap && onDeleteMindmap(tab.id);
+        });
+      }
+    };
+    const connect = () => {
+      if (disposed || gone || es || !navigator.onLine) return;
+      const url = apiUrl(`/api/mindmaps/${tab.id}/stream`) + (API_BASE && __token ? `?token=${encodeURIComponent(__token)}` : "");
+      let src = null;
+      try { src = new EventSource(url); } catch (_) { schedule(); return; }
+      es = src;
+      src.onopen = () => {
+        attempt = 0;
+        setLiveOn(true);
+        if (opened) live(); // sambung ulang: sinyal selama putus tidak disiarkan ulang
+        opened = true;
+      };
+      // Sambung ulang bawaan EventSource dimatikan (tutup sendiri) → jeda bertingkat, tidak pernah loop panas.
+      src.onerror = () => {
+        setLiveOn(false);
+        if (es === src) {
+          src.onopen = null; src.onmessage = null; src.onerror = null;
+          src.close();
+          es = null;
+        }
+        schedule();
+      };
+      src.onmessage = onEvent;
+    };
+    const onOffline = () => close();
+    const onOnline = () => { attempt = 0; clearTimeout(timer); timer = null; connect(); };
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("online", onOnline);
+    connect();
+    return () => {
+      disposed = true;
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("online", onOnline);
+      close();
+    };
+  }, [tab?.id, tab?.list_id, isLinked]);
 
   useEffect(() => {
     if (!shareOpen) return;
@@ -10435,7 +10594,7 @@ function MindmapTabInstance({
                 tx.onerror = () => rej(tx.error);
               });
             }
-            if (updated.updated_at) lastKnownAtRef.current = updated.updated_at;
+            if (updated.updated_at && (isLinked || match.data_json === baseDocRef.current)) lastKnownAtRef.current = updated.updated_at;
           }
         } catch (dbErr) {
           console.warn("Failed to persist mindmap share to IndexedDB:", dbErr);
@@ -10479,6 +10638,12 @@ function MindmapTabInstance({
           theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"
         }, window.location.origin);
       } else if (e.data && e.data.type === "ready" && tab) {
+        // remoteUpdate yang terkirim sebelum iframe siap hilang → dianggap dilewati (basis tidak maju), coba lagi
+        if (pendingRemoteRef.current.size) {
+          pendingRemoteRef.current.clear();
+          remoteStaleRef.current = true;
+          scheduleRemoteRetry();
+        }
         try {
           const tree = outlineTree || JSON.parse(tab.data_json);
           if (!tree) return;
@@ -10493,6 +10658,32 @@ function MindmapTabInstance({
           }, window.location.origin);
           iframeRef.current?.contentWindow?.postMessage({ type: "linkInfo", info: linkInfoRef.current }, window.location.origin);
         } catch (_) {}
+      }
+      if (e.data && e.data.type === "remoteApplied" && !isLinked && liveRef.current) {
+        const entry = liveRef.current.applied(e.data.seq);
+        if (entry && entry.raced) {
+          // Edit lokal berpapasan dengan remoteUpdate (iframe menerapkan isi jarak jauh di atas pohon lama): basis tidak
+          // maju. Bila tidak ada remoteUpdate yang lebih baru di jalan (yang akan menggantikannya), kembalikan kanvas ke
+          // versi lokal terakhir — autosave me-merge, lalu tab membaca record.
+          let local = null;
+          if (entry.revert && localDocRef.current) {
+            try { local = JSON.parse(localDocRef.current); } catch (_) {}
+          }
+          if (local) {
+            if (local.nodeData) local.nodeData.root = true;
+            iframeRef.current?.contentWindow?.postMessage({ type: "refresh", data: local }, window.location.origin);
+          }
+          scheduleRemoteRetry();
+        } else if (entry) {
+          setOutlineTree(entry.data);
+          setDirection(typeof entry.data.direction === "number" ? entry.data.direction : 2);
+          setJustify(Boolean(entry.data.justify));
+          if (entry.title != null && entry.title !== tab.title && onUpdateTitle) onUpdateTitle(tab.id, entry.title);
+        }
+      }
+      if (e.data && e.data.type === "remoteSkipped" && !isLinked && liveRef.current) {
+        liveRef.current.skipped(e.data.seq);
+        scheduleRemoteRetry();
       }
       if (e.data && e.data.type === "nodeSelected") {
         setCurrentNodeLinks(e.data.links || []);
@@ -10554,7 +10745,8 @@ function MindmapTabInstance({
       const updated = await api.put(`/api/mindmaps/${tab.id}`, {
         title: renameVal.trim()
       });
-      if (updated && updated.updated_at != null) lastKnownAtRef.current = updated.updated_at;
+      // if_updated_at maju hanya bila isi record = basis tab (basis dan if_updated_at dari snapshot yang sama)
+      if (updated && updated.updated_at != null && (isLinked || updated.data_json === baseDocRef.current)) lastKnownAtRef.current = updated.updated_at;
       onUpdateTitle && onUpdateTitle(tab.id, updated.title);
       setRenaming(false);
     } catch {
@@ -10600,7 +10792,10 @@ function MindmapTabInstance({
     style: { fontSize: 13, fontWeight: 600, color: "var(--text-primary)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
   }, "🧠 ", tab.title), /*#__PURE__*/React.createElement("span", {
     style: { fontSize: 11, color: syncStatus === "offline" ? "#ef4444" : "var(--text-light)", flexShrink: 0 }
-  }, syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : isLinked ? "Tersimpan ke catatan" : "Tersimpan"),
+  }, syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : isLinked ? "Tersimpan ke catatan" : "Tersimpan"), liveOn && !isLinked && /*#__PURE__*/React.createElement("span", {
+    title: "Perubahan anggota lain tampil otomatis",
+    style: { fontSize: 11, color: "var(--text-light)", flexShrink: 0 }
+  }, "🟢 Langsung"),
       /*#__PURE__*/React.createElement("div", {
         style: { display: "flex", alignItems: "center", gap: 2, background: "var(--bg-primary)", borderRadius: 8, padding: 2, flexShrink: 0 }
       }, /*#__PURE__*/React.createElement("button", {
