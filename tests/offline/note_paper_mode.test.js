@@ -184,11 +184,11 @@ test("NotePanel Note Viewer Paper Mode (Viewer Mode Kertas)", async (t) => {
   const webappPath = path.resolve(__dirname, "../../webapp.py");
   const webappPy = fs.readFileSync(webappPath, "utf8");
 
-  await t.test("Service Worker and cache version is taskflow-v417-crossdevice-links", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v417-crossdevice-links";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v417-crossdevice-links";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v417-crossdevice-links"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v417-crossdevice-links"/);
+  await t.test("Service Worker and cache version is taskflow-v418-canvas-linkpicker", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v418-canvas-linkpicker";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v418-canvas-linkpicker";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v418-canvas-linkpicker"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v418-canvas-linkpicker"/);
   });
 
   const notePanelMatch = indexHtml.match(/function NotePanel\([\s\S]*?^function /m);

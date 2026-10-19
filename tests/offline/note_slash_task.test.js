@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v417-crossdevice-links in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v417-crossdevice-links";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v417-crossdevice-links"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v417-crossdevice-links";/);
+  await t.test("Service Worker cache is taskflow-v418-canvas-linkpicker in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v418-canvas-linkpicker";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v418-canvas-linkpicker"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v418-canvas-linkpicker";/);
   });
 });
