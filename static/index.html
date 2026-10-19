@@ -277,6 +277,7 @@
   <script src="/static/offline/noteroutes.js"></script>
   <script src="/static/offline/notetrash.js"></script>
   <script src="/static/offline/drawingrepo.js"></script>
+  <script src="/static/offline/drawingshare.js"></script>
   <script src="/static/offline/drawingroutes.js"></script>
   <script src="/static/offline/drawingtabs.js"></script>
   <script src="/static/offline/mindmapoutline.js"></script>
@@ -503,6 +504,7 @@ async function clearLocalUserData() {
   try { if (window.TF?.chatrepo?.setCurrentUser) window.TF.chatrepo.setCurrentUser(null); } catch (_) {}
   try { if (window.TF?.noterepo?.setCurrentUser) window.TF.noterepo.setCurrentUser(null); } catch (_) {}
   try { if (window.TF?.mindmaprepo?.setCurrentUser) window.TF.mindmaprepo.setCurrentUser(null); } catch (_) {}
+  try { if (window.TF?.drawingrepo?.setCurrentUser) window.TF.drawingrepo.setCurrentUser(null); } catch (_) {}
 }
 window.clearLocalUserData = clearLocalUserData;
 
@@ -681,6 +683,7 @@ const api = {
         if (typeof data.detail === "string") msg = data.detail;else if (Array.isArray(data.detail)) msg = data.detail.map(e => e.msg || JSON.stringify(e)).join(", ");else msg = `Request failed (${res.status})`;
         const eHttp = new Error(msg);
         eHttp.status = res.status;
+        eHttp.body = data; // detail terstruktur (mis. 409 DRAWING_IN_USE) dibaca pemanggil
         throw eHttp;
       }
       return data;
@@ -2090,15 +2093,19 @@ function SharedListsManager({
       showToast(err.message, "error");
     }
   };
+  const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
+  // PR 3 Task 5: leave-impact → dialog salin drawing ke pribadi; gagal/offline → konfirmasi biasa.
   const handleLeave = async (listId, listName) => {
-    if (!confirm(`Keluar dari list "${listName}"?`)) return;
-    try {
-      await api.del(`/api/lists/${listId}/leave`);
-      showToast("Berhasil keluar dari list");
-      onRefresh();
-    } catch (err) {
-      showToast(err.message, "error");
-    }
+    const left = await leaveWorkspaceWithDrawings({
+      listId,
+      listName,
+      api,
+      TF: window.TF,
+      ask: askDrawingScope,
+      showToast,
+      confirmFn: msg => confirm(msg)
+    });
+    if (left) onRefresh();
   };
   const handleDelete = async (listId, listName) => {
     if (!confirm(`Hapus shared list "${listName}"? Semua task di list ini akan ikut terhapus.`)) return;
@@ -2116,7 +2123,7 @@ function SharedListsManager({
       margin: "0 auto",
       padding: "0 0 40px"
     }
-  }, /*#__PURE__*/React.createElement("h2", {
+  }, drawingScopeDialogEl, /*#__PURE__*/React.createElement("h2", {
     style: {
       fontSize: 20,
       fontWeight: 700,
@@ -5010,12 +5017,16 @@ function TaskFormModal({
       onClick: handleSubmit
     }, loading ? "Menyimpan..." : "Simpan Note")))), noteDrawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
       noteTitle: noteForm.title,
+      noteListId: null,
+      sharedLists: sharedLists || [],
       onSelectDrawing: handleNoteDrawingSelected,
       onClose: () => setNoteDrawingInsertOpen(false),
       showToast: showToast
     }), noteQuickDrawState && /*#__PURE__*/React.createElement(QuickDrawModal, {
       drawingId: noteQuickDrawState.id,
       drawingTitle: noteQuickDrawState.title,
+      noteListId: null,
+      sharedLists: sharedLists || [],
       onClose: () => setNoteQuickDrawState(null),
       showToast: showToast
     }));
@@ -5796,12 +5807,16 @@ function TaskFormModal({
     onClose: () => setDatePromptOpen(false)
   }), noteDrawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
     noteTitle: noteForm.title,
+    noteListId: null,
+    sharedLists: sharedLists || [],
     onSelectDrawing: handleNoteDrawingSelected,
     onClose: () => setNoteDrawingInsertOpen(false),
     showToast: showToast
   }), noteQuickDrawState && /*#__PURE__*/React.createElement(QuickDrawModal, {
     drawingId: noteQuickDrawState.id,
     drawingTitle: noteQuickDrawState.title,
+    noteListId: null,
+    sharedLists: sharedLists || [],
     onClose: () => setNoteQuickDrawState(null),
     showToast: showToast
   }));
@@ -11334,8 +11349,21 @@ function MindmapPage({
 }
 
 // ── Standalone Drawing Page Components ──────────────────────
-function DrawingListItem({ d, isSelected, onSelect, onPin }) {
+// User saat ini tak diketahui → dianggap pemilik (fail open); 403 lokal/server tetap melindungi.
+function drawingIsOwner(d, fallbackUid) {
+  const uid = window.TF && window.TF.drawingrepo && window.TF.drawingrepo.currentUid ? window.TF.drawingrepo.currentUid() : null;
+  const me = uid != null ? uid : fallbackUid;
+  return !d || d.user_id == null || me == null || String(d.user_id) === String(me);
+}
+function drawingScopeMatches(d, scope) {
+  if (scope == null || scope === "all") return true;
+  if (scope === "personal") return d.list_id == null;
+  return d.list_id != null && String(d.list_id) === String(scope);
+}
+function DrawingListItem({ d, isSelected, onSelect, onPin, sharedLists = [], currentUserId = null }) {
   const [hovered, setHovered] = useState(false);
+  const isOwner = drawingIsOwner(d, currentUserId);
+  const wsBadge = projectWorkspaceBadge(d.list_id, sharedLists);
   return /*#__PURE__*/React.createElement("div", {
     onClick: onSelect,
     onMouseEnter: () => setHovered(true),
@@ -11360,7 +11388,13 @@ function DrawingListItem({ d, isSelected, onSelect, onPin }) {
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, d.title || "(tanpa judul)"), (hovered || !!d.is_pinned) && /*#__PURE__*/React.createElement("span", {
+  }, d.title || "(tanpa judul)"), wsBadge && /*#__PURE__*/React.createElement("span", {
+    className: "badge",
+    title: wsBadge,
+    style: { fontSize: 10, padding: "1px 6px", borderRadius: 6, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)", flexShrink: 0, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+  }, wsBadge), !isOwner && d.last_editor_username && /*#__PURE__*/React.createElement("span", {
+    style: { fontSize: 10, color: "var(--text-light)", flexShrink: 0, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+  }, `✏️ ${d.last_editor_display_name || d.last_editor_username}`), isOwner && (hovered || !!d.is_pinned) && /*#__PURE__*/React.createElement("span", {
     onClick: e => {
       e.stopPropagation();
       onPin && onPin(d);
@@ -11381,8 +11415,17 @@ function DrawingTabInstance({
   showToast,
   onUpdateTitle,
   onDeleteDrawing,
-  onPin
+  onPin,
+  sharedLists = [],
+  currentUserId = null,
+  onDrawingChanged,
+  onOpenDrawing
 }) {
+  const isOwner = drawingIsOwner(tab, currentUserId);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [inUse, setInUse] = useState(null);
+  const [inUseBusy, setInUseBusy] = useState(false);
+  const shareRef = useRef(null);
   const iframeRef = useRef(null);
   const lastLoadedJsonRef = useRef(null);
   const loadErrorShownRef = useRef(false);
@@ -11482,10 +11525,53 @@ function DrawingTabInstance({
     try {
       await api.del(`/api/drawings/${tab.id}`);
       onDeleteDrawing && onDeleteDrawing(tab.id);
-    } catch {
-      showToast("Gagal menghapus gambar", "error");
+    } catch (err) {
+      showToast(err && err.status === 403 ? "Hanya pemilik yang bisa menghapus gambar ini" : "Gagal menghapus gambar", "error");
     }
   };
+
+  // Cache SW campuran (index.html baru, drawingshare.js belum dimuat) → toast, bukan rejection tak tertangani.
+  const DRAWINGSHARE_MISSING_TEXT = "Muat ulang aplikasi untuk membagikan gambar.";
+  const handleShare = async listId => {
+    setShareOpen(false);
+    if (!(window.TF && window.TF.drawingshare)) { showToast(DRAWINGSHARE_MISSING_TEXT, "error"); return; }
+    const res = await window.TF.drawingshare.shareDrawing(api, tab, listId);
+    if (res.ok) {
+      onDrawingChanged && onDrawingChanged(tab.id, res.drawing, listId);
+    } else if (res.code === "DRAWING_IN_USE") {
+      setInUse(res);
+    } else {
+      showToast(res.message || "Gagal membagikan gambar", "error");
+    }
+  };
+
+  const handleMakePersonalCopy = async () => {
+    if (!(window.TF && window.TF.drawingshare)) { showToast(DRAWINGSHARE_MISSING_TEXT, "error"); return; }
+    setInUseBusy(true);
+    try {
+      const res = await window.TF.drawingshare.copyDrawing(api, tab, null);
+      if (res.ok) {
+        setInUse(null);
+        onOpenDrawing && onOpenDrawing(res.drawing);
+      } else {
+        showToast(res.message || "Gagal membuat salinan", "error");
+      }
+    } catch (err) {
+      showToast((err && err.message) || "Gagal membuat salinan", "error");
+    } finally {
+      setInUseBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!shareOpen) return;
+    const close = e => { if (shareRef.current && !shareRef.current.contains(e.target)) setShareOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [shareOpen]);
+
+  const wsName = tab && tab.list_id != null ? (sharedLists.find(l => String(l.id) === String(tab.list_id))?.name || "Workspace") : null;
+  const linkedTitles = (tab && tab.linked_notes || []).map(n => n && n.title).filter(Boolean);
 
   const handleExport = (format) => {
     if (iframeRef.current?.contentWindow) {
@@ -11533,7 +11619,32 @@ function DrawingTabInstance({
       onClick: () => { setRenaming(true); setRenameVal(tab.title); },
       style: { fontSize: 11 }
     }, "Rename"),
-    /*#__PURE__*/React.createElement("button", {
+    isOwner && sharedLists.length > 0 ? /*#__PURE__*/React.createElement("div", { ref: shareRef, style: { position: "relative", flexShrink: 0 } },
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-secondary btn-sm",
+        onClick: () => setShareOpen(o => !o),
+        style: { fontSize: 11, color: tab.list_id != null ? "var(--accent)" : undefined, borderColor: tab.list_id != null ? "var(--accent)" : undefined }
+      }, tab.list_id != null ? `👥 ${wsName}` : "👥 Share"),
+      shareOpen && /*#__PURE__*/React.createElement("div", {
+        style: { position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 300, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", minWidth: 180, maxWidth: "calc(100vw - 32px)", padding: "4px 0" }
+      }, [{ id: null, name: "Pribadi" }].concat(sharedLists).map(l => {
+        const current = l.id == null ? tab.list_id == null : String(tab.list_id) === String(l.id);
+        return /*#__PURE__*/React.createElement("div", {
+          key: l.id == null ? "personal" : l.id,
+          onMouseDown: e => { e.preventDefault(); if (!current) handleShare(l.id); },
+          style: { padding: "7px 14px", fontSize: 13, cursor: current ? "default" : "pointer", color: current ? "var(--accent)" : "var(--text-primary)", fontWeight: current ? 700 : 400 },
+          onMouseEnter: e => e.currentTarget.style.background = "var(--bg-primary)",
+          onMouseLeave: e => e.currentTarget.style.background = "transparent"
+        }, current ? "✓ " : "", l.name);
+      }))
+    ) : (!isOwner && tab.list_id != null) ? /*#__PURE__*/React.createElement("span", {
+      className: "badge",
+      style: { fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)", flexShrink: 0 }
+    }, `👥 ${wsName}`) : null,
+    tab.last_editor_username && /*#__PURE__*/React.createElement("span", {
+      style: { fontSize: 11, color: "var(--text-light)", flexShrink: 0 }
+    }, `terakhir diedit oleh ${tab.last_editor_display_name || tab.last_editor_username}`),
+    isOwner && /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary btn-sm",
       onClick: () => onPin && onPin(tab),
       title: tab.is_pinned ? "Lepas pin" : "Sematkan gambar",
@@ -11550,14 +11661,31 @@ function DrawingTabInstance({
       title: "Layar Penuh",
       style: { fontSize: 11 }
     }, isFullscreen ? "⊡ Normal" : "⤢ Layar Penuh"),
-    deleteConfirm ? /*#__PURE__*/React.createElement(React.Fragment, null,
-      /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "#ef4444", flexShrink: 0 } }, "Hapus?"),
+    isOwner ? deleteConfirm ? /*#__PURE__*/React.createElement(React.Fragment, null,
+      /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "#ef4444", flexShrink: 0 } }, linkedTitles.length > 0 ? `Hapus? Dipakai di: ${linkedTitles.join(", ")}` : "Hapus?"),
       /*#__PURE__*/React.createElement("button", { onClick: handleDelete, style: { padding: "3px 8px", borderRadius: 6, border: "none", cursor: "pointer", background: "#ef4444", color: "#fff", fontSize: 11 } }, "Ya"),
       /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setDeleteConfirm(false), style: { fontSize: 11 } }, "Batal")
     ) : /*#__PURE__*/React.createElement("button", {
       onClick: () => setDeleteConfirm(true),
       style: { padding: "3px 8px", borderRadius: 6, cursor: "pointer", fontSize: 11, background: "none", border: "1px solid #ef4444", color: "#ef4444" }
-    }, "Hapus")
+    }, "Hapus") : null
+  )),
+  inUse && /*#__PURE__*/React.createElement("div", {
+    className: "modal-overlay",
+    onClick: () => { if (!inUseBusy) setInUse(null); }
+  }, /*#__PURE__*/React.createElement("div", {
+    onClick: e => e.stopPropagation(),
+    style: { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20, maxWidth: 420, width: "calc(100vw - 32px)", display: "flex", flexDirection: "column", gap: 10, color: "var(--text-primary)" }
+  }, /*#__PURE__*/React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, "Drawing masih dipakai"),
+    /*#__PURE__*/React.createElement("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 13 } },
+      (inUse.notes || []).map((n, i) => /*#__PURE__*/React.createElement("li", { key: n.id != null ? n.id : i }, n.title || "(tanpa judul)")),
+      inUse.hidden_count > 0 && /*#__PURE__*/React.createElement("li", { key: "hidden" }, `dan ${inUse.hidden_count} note lain`)
+    ),
+    /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, color: "var(--text-secondary)" } }, "Buat salinan pribadi sebagai gantinya."),
+    /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end" } },
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", disabled: inUseBusy, onClick: () => setInUse(null) }, "Tutup"),
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", disabled: inUseBusy, onClick: handleMakePersonalCopy }, "Jadikan salinan pribadi")
+    )
   )),
   /*#__PURE__*/React.createElement("div", {
     style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, height: "100%" }
@@ -11573,7 +11701,9 @@ function DrawingTabInstance({
 function DrawPage({
   showToast,
   initialDrawingId = null,
-  onInitialDrawingConsumed = null
+  onInitialDrawingConsumed = null,
+  sharedLists = [],
+  currentUserId = null
 }) {
   const [drawings, setDrawings] = useState([]);
   const [openTabs, setOpenTabs] = useState([]);
@@ -11584,6 +11714,7 @@ function DrawPage({
   const [selectedTag, setSelectedTag] = useState(null);
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [scopeFilter, setScopeFilter] = useState("all"); // "all" | "personal" | id workspace
 
   const matchesDrawingId = (d, targetId) => {
     if (!d || !targetId) return false;
@@ -11708,10 +11839,16 @@ function DrawPage({
     localStorage.setItem("tf_draw_sidebar", sidebarOpen ? "open" : "collapsed");
   }, [sidebarOpen]);
 
+  useEffect(() => {
+    if (scopeFilter === "all" || scopeFilter === "personal") return;
+    if (!sharedLists.some(l => String(l.id) === String(scopeFilter))) setScopeFilter("all");
+  }, [sharedLists, scopeFilter]);
+
   const handleCreate = async () => {
     const title = newTitle.trim() || "Untitled Drawing";
     try {
-      const created = await api.post("/api/drawings", { title, data_json: "{}" });
+      const newListId = scopeFilter !== "all" && scopeFilter !== "personal" ? scopeFilter : null;
+      const created = await api.post("/api/drawings", { title, data_json: "{}", list_id: newListId });
       setDrawings(prev => [created, ...prev]);
       setCreating(false);
       setNewTitle("");
@@ -11723,14 +11860,35 @@ function DrawPage({
   };
 
   const handlePin = async d => {
+    if (!drawingIsOwner(d, currentUserId)) return;
     try {
       const updated = await api.patch(`/api/drawings/${d.id}/pin`, {});
       setDrawings(prev => prev.map(item => item.id === d.id ? { ...item, is_pinned: updated.is_pinned } : item));
       setOpenTabs(prev => prev.map(t => t.id === d.id ? { ...t, is_pinned: updated.is_pinned } : t));
       window.dispatchEvent(new CustomEvent("drawingSaved"));
     } catch (e) {
-      showToast("Gagal mem-pin gambar", "error");
+      showToast(e && e.status === 403 ? "Hanya pemilik yang bisa mem-pin gambar ini" : "Gagal mem-pin gambar", "error");
     }
+  };
+
+  // Hasil share (shareDrawing ok): perbarui scope di daftar dan tab terbuka.
+  // listId = scope yang diminta (sumber kebenaran saat share berhasil); respons server tidak menentukan.
+  const handleDrawingChanged = (id, next, listId) => {
+    const patch = { list_id: listId != null ? listId : null };
+    if (next && next.updated_at) patch.updated_at = next.updated_at;
+    if (next && next.rev != null) patch.rev = next.rev;
+    setDrawings(prev => prev.map(d => matchesDrawingId(d, id) ? { ...d, ...patch } : d));
+    setOpenTabs(prev => prev.map(t => matchesDrawingId(t, id) ? { ...t, ...patch } : t));
+    window.dispatchEvent(new CustomEvent("drawingSaved"));
+  };
+
+  // Salinan pribadi dari dialog "Drawing masih dipakai": masukkan ke daftar lalu buka di tab.
+  const handleOpenCopy = copy => {
+    if (!copy) return;
+    const cid = copy.id != null ? copy.id : copy.cid;
+    setDrawings(prev => prev.some(d => matchesDrawingId(d, cid)) ? prev : [copy, ...prev]);
+    selectDrawing(copy);
+    window.dispatchEvent(new CustomEvent("drawingSaved"));
   };
 
   const handleUpdateTitle = (id, newTitle) => {
@@ -11753,7 +11911,8 @@ function DrawPage({
   const q = searchQ.trim().toLowerCase();
   const filtered = drawings
     .filter(d => !q || (d.title || "").toLowerCase().includes(q))
-    .filter(d => !selectedTag || (d.tags || []).includes(selectedTag));
+    .filter(d => !selectedTag || (d.tags || []).includes(selectedTag))
+    .filter(d => drawingScopeMatches(d, scopeFilter));
   const pinned = filtered.filter(d => d.is_pinned);
   const unpinned = filtered.filter(d => !d.is_pinned);
   const hasPinnedSection = pinned.length > 0;
@@ -11814,6 +11973,21 @@ function DrawPage({
           }, "✕")
         )
       ),
+      sharedLists.length > 0 && /*#__PURE__*/React.createElement("div", {
+        className: "hide-scrollbar",
+        style: { display: "flex", gap: 4, padding: "2px 8px 6px", overflowX: "auto" }
+      }, [{ key: "all", label: "Semua" }, { key: "personal", label: "Pribadi" }].concat(sharedLists.map(l => ({ key: l.id, label: `👥 ${l.name}` }))).map(opt => {
+        const on = String(scopeFilter) === String(opt.key);
+        return /*#__PURE__*/React.createElement("span", {
+          key: opt.key,
+          onClick: () => setScopeFilter(opt.key),
+          style: {
+            padding: "2px 8px", borderRadius: 12, fontSize: 11, cursor: "pointer", whiteSpace: "nowrap",
+            background: on ? "var(--accent)" : "var(--bg-secondary)",
+            color: on ? "#fff" : "var(--text-secondary)"
+          }
+        }, opt.label);
+      })),
       allTags.length > 0 && /*#__PURE__*/React.createElement("div", {
         className: "hide-scrollbar",
         style: { display: "flex", gap: 4, padding: "2px 8px 6px", overflowX: "auto" }
@@ -11905,11 +12079,11 @@ function DrawPage({
         /*#__PURE__*/React.createElement(React.Fragment, null,
           hasPinnedSection && /*#__PURE__*/React.createElement(React.Fragment, null,
             /*#__PURE__*/React.createElement("div", { style: { padding: "4px 10px 2px", fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.6px" } }, "★ Pinned"),
-            pinned.map(d => /*#__PURE__*/React.createElement(DrawingListItem, { key: d.id, d: d, isSelected: selected?.id === d.id, onSelect: () => selectDrawing(d), onPin: handlePin })),
+            pinned.map(d => /*#__PURE__*/React.createElement(DrawingListItem, { key: d.id, d: d, isSelected: selected?.id === d.id, onSelect: () => selectDrawing(d), onPin: handlePin, sharedLists: sharedLists, currentUserId: currentUserId })),
             /*#__PURE__*/React.createElement("div", { style: { height: 1, background: "var(--border)", margin: "4px 0" } }),
             /*#__PURE__*/React.createElement("div", { style: { padding: "4px 10px 2px", fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.6px" } }, "Semua")
           ),
-          unpinned.map(d => /*#__PURE__*/React.createElement(DrawingListItem, { key: d.id, d: d, isSelected: selected?.id === d.id, onSelect: () => selectDrawing(d), onPin: handlePin }))
+          unpinned.map(d => /*#__PURE__*/React.createElement(DrawingListItem, { key: d.id, d: d, isSelected: selected?.id === d.id, onSelect: () => selectDrawing(d), onPin: handlePin, sharedLists: sharedLists, currentUserId: currentUserId }))
         )
       )
     ),
@@ -11955,7 +12129,11 @@ function DrawPage({
           showToast: showToast,
           onUpdateTitle: handleUpdateTitle,
           onDeleteDrawing: handleDeleteDrawing,
-          onPin: handlePin
+          onPin: handlePin,
+          sharedLists: sharedLists,
+          currentUserId: currentUserId,
+          onDrawingChanged: handleDrawingChanged,
+          onOpenDrawing: handleOpenCopy
         }))
       )
     )
@@ -20444,7 +20622,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v421-mindmap-trash"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v422-mindmap-trash"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -20821,11 +20999,11 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
             <button type="button" class="note-draw-size-btn ${size === 'M' ? 'active' : ''}" onclick="window.dispatchEvent(new CustomEvent('changeDrawingSize', { detail: { id: '${safeId}', size: 'M', width: '75%' } }))" title="Sedang (75%)">M</button>
             <button type="button" class="note-draw-size-btn ${size === 'L' || size === 'FULL' ? 'active' : ''}" onclick="window.dispatchEvent(new CustomEvent('changeDrawingSize', { detail: { id: '${safeId}', size: 'L', width: '100%' } }))" title="Penuh (100%)">L</button>
           </div>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw)}' } }))" style="font-size:11px;padding:2px 8px;cursor:pointer;">✏️ Edit</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw)}', noteListId: window.noteListIdFromEl ? window.noteListIdFromEl(this) : undefined } }))" style="font-size:11px;padding:2px 8px;cursor:pointer;">✏️ Edit</button>
           <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('openDrawing', { detail: '${safeId}' }))" style="font-size:11px;padding:2px 8px;cursor:pointer;" title="Buka di halaman Draw">↗️ Buka</button>
         </div>
       </div>
-      <div class="note-draw-preview-container" data-drawing-preview="${safeId}" style="max-height:${heightVal};resize:vertical;overflow:auto;" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw)}' } }))" title="Klik untuk mengedit gambar (bisa ditarik ke bawah untuk memperbesar)">
+      <div class="note-draw-preview-container" data-drawing-preview="${safeId}" style="max-height:${heightVal};resize:vertical;overflow:auto;" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw)}', noteListId: window.noteListIdFromEl ? window.noteListIdFromEl(this) : undefined } }))" title="Klik untuk mengedit gambar (bisa ditarik ke bawah untuk memperbesar)">
         <div class="drawing-preview-placeholder" style="color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;">🎨 Klik untuk membuka / mengedit gambar</div>
       </div>
     </div>`;
@@ -20932,6 +21110,541 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   return html;
 }
 
+// ── Drawing milik workspace di note (PR 3 Task 4) ──────────────────
+const DRAWING_UNAVAILABLE_TEXT = "Gambar tidak tersedia untukmu: sudah dihapus atau tidak dibagikan ke workspace ini.";
+function drawingScopeListName(listId, sharedLists) {
+  const hit = (sharedLists || []).find(l => l && listId != null && String(l.id) === String(listId));
+  return hit && hit.name ? hit.name : "Workspace";
+}
+// Galeri sisip: Pribadi dulu, lalu per workspace (urutan sharedLists; list tak dikenal di akhir).
+function groupDrawingsByScope(list, sharedLists) {
+  const order = (sharedLists || []).map(l => String(l.id));
+  const personal = { key: "personal", label: "Pribadi", listId: null, items: [] };
+  const byList = new Map();
+  for (const d of list || []) {
+    if (!d) continue;
+    if (d.list_id == null || d.list_id === "") { personal.items.push(d); continue; }
+    const k = String(d.list_id);
+    if (!byList.has(k)) byList.set(k, { key: "w" + k, label: drawingScopeListName(d.list_id, sharedLists), listId: d.list_id, items: [] });
+    byList.get(k).items.push(d);
+  }
+  const rank = k => { const i = order.indexOf(k); return i < 0 ? order.length : i; };
+  const ws = Array.from(byList.entries()).sort((a, b) => rank(a[0]) - rank(b[0])).map(e => e[1]);
+  return (personal.items.length ? [personal] : []).concat(ws);
+}
+// Token direktif ::draw[...] untuk drawing hasil salin: client_id dulu, lalu id server.
+function drawingInsertToken(d) {
+  if (!d) return null;
+  if (d.client_id != null && d.client_id !== "") return d.client_id;
+  if (d.cid != null && d.cid !== "") return d.cid;
+  if (d.server_id != null) return d.server_id;
+  return d.id;
+}
+function drawingShareLaterText(name) {
+  return "Gambar belum dibagikan ke " + (name || "Workspace") + "; bagikan dari halaman Draw saat online.";
+}
+// Pilihan galeri yang butuh konfirmasi: own_to_ws → share dulu (gagal tetap sisip + toast);
+// other_ws_copy → salin ke W note lalu sisip salinannya.
+async function applyDrawingInsertChoice(TFshare, api, drawing, notice, listName) {
+  const d = drawing;
+  if (notice && notice.kind === "own_to_ws") {
+    const res = await Promise.resolve().then(() => TFshare.shareDrawing(api, d, notice.listId))
+      .catch(err => { console.warn('[drawing] share saat sisip gagal', err); return null; });
+    return { ok: true, id: drawing.id, title: drawing.title, toast: res && res.ok ? null : drawingShareLaterText(listName) };
+  }
+  if (notice && notice.kind === "other_ws_copy") {
+    const res = await TFshare.copyDrawing(api, d, notice.listId);
+    if (!res || !res.ok) return { ok: false, message: (res && res.message) || "Gagal membuat salinan gambar" };
+    return { ok: true, id: drawingInsertToken(res.drawing), title: res.drawing.title || drawing.title, toast: null };
+  }
+  return { ok: true, id: drawing.id, title: drawing.title, toast: null };
+}
+// Badge + aksi di kartu embed. null = tidak ada tambahan.
+function drawingEmbedScopeUi(drawing, noteListId, sharedLists, myUid) {
+  if (!drawing) return null;
+  const nl = noteListId == null || noteListId === "" ? null : noteListId;
+  const dl = drawing.list_id == null || drawing.list_id === "" ? null : drawing.list_id;
+  const target = nl == null ? { action: "Jadikan salinan pribadi", targetListId: null } : { action: "Salin ke " + drawingScopeListName(nl, sharedLists), targetListId: nl };
+  if (dl != null) {
+    if (nl != null && String(dl) === String(nl)) return null;
+    return Object.assign({ badge: "👥 " + drawingScopeListName(dl, sharedLists) }, target);
+  }
+  // drawing pribadi orang lain di note W (terlihat lewat data lokal) → hanya aksi salin
+  const mine = drawing.user_id == null || myUid == null || String(drawing.user_id) === String(myUid);
+  if (nl != null && !mine) return Object.assign({ badge: null }, target);
+  return null;
+}
+function drawingEditBanner(drawing, noteListId, sharedLists) {
+  if (!drawing || drawing.list_id == null || drawing.list_id === "") return null;
+  if (noteListId != null && noteListId !== "" && String(noteListId) === String(drawing.list_id)) return null;
+  return "Kamu mengedit drawing milik workspace " + drawingScopeListName(drawing.list_id, sharedLists) + ". Perubahan terlihat oleh semua anggota.";
+}
+// Scope note dari wrapper editor/tampilan: undefined = tak diketahui, null = pribadi.
+function noteListIdFromEl(el) {
+  const holder = el && el.closest ? el.closest('[data-note-list-id]') : null;
+  if (!holder) return undefined;
+  const raw = holder.getAttribute('data-note-list-id');
+  if (raw == null || raw === "") return null;
+  return /^\d+$/.test(raw) ? Number(raw) : raw;
+}
+function drawingLookupGone(err, navigator) {
+  if (!err) return true;
+  if (err.status === 403 || err.status === 404) return true;
+  if (err.__local && /not found/i.test(String(err.message || ""))) return true;
+  return !!(navigator && navigator.onLine === false);
+}
+// Lokal dulu (tanpa jaringan), lalu server bila svg belum ada. Hasil: {drawing} | {unavailable} | {error}.
+async function drawingPreviewLookup(did) {
+  const repo = window.TF && window.TF.drawingrepo;
+  let local = null;
+  if (repo && typeof repo.getDrawing === 'function') {
+    local = await repo.getDrawing(did, { online: false }).catch(err => { console.warn('[drawing] baca lokal gagal', err); return null; });
+  }
+  if (!local && repo && typeof repo.getRaw === 'function') {
+    local = await repo.getRaw(did).catch(err => { console.warn('[drawing] baca lokal gagal', err); return null; });
+  }
+  if (local && local.deleted) local = null;
+  if (local && local.svg_preview) return { drawing: local, svg: local.svg_preview };
+  let remote = null, failure = null;
+  if (typeof api !== 'undefined' && api && api.get) {
+    try { remote = await api.get(`/api/drawings/${did}`); } catch (err) { failure = err; }
+  }
+  if (remote) return { drawing: remote, svg: remote.svg_preview || null };
+  if (local) return { drawing: local, svg: null };
+  if (drawingLookupGone(failure, typeof navigator !== 'undefined' ? navigator : null)) return { unavailable: true };
+  console.warn('[drawing] pratinjau belum bisa dimuat', failure);
+  return { error: failure };
+}
+// Badge 👥 W + tombol salin di header kartu (tombol hanya di editor: aksinya mengganti node).
+function applyDrawingScopeUi(el, drawing) {
+  const card = el && el.closest ? el.closest('.note-draw-card') : null;
+  if (!card) return;
+  const header = card.querySelector('.note-draw-header');
+  if (!header) return;
+  header.querySelectorAll('.note-draw-scope').forEach(n => n.remove());
+  const noteListId = noteListIdFromEl(card);
+  if (noteListId === undefined || !drawing) return;
+  const uid = window.TF && window.TF.drawingrepo && window.TF.drawingrepo.currentUid ? window.TF.drawingrepo.currentUid() : null;
+  const ui = drawingEmbedScopeUi(drawing, noteListId, window.__tfSharedLists || [], uid);
+  if (!ui) return;
+  const doc = card.ownerDocument || document;
+  const box = doc.createElement('span');
+  box.className = 'note-draw-scope';
+  box.setAttribute('contenteditable', 'false');
+  box.style.cssText = 'display:inline-flex;gap:6px;align-items:center;margin-left:8px;';
+  if (ui.badge) {
+    const badge = doc.createElement('span');
+    badge.className = 'badge note-draw-scope-badge';
+    badge.style.cssText = 'font-size:10px;padding:1px 6px;border-radius:6px;background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);white-space:nowrap;';
+    badge.textContent = ui.badge;
+    box.appendChild(badge);
+  }
+  if (ui.action && card.classList.contains('editor-draw-card')) {
+    const btn = doc.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-secondary btn-sm';
+    btn.setAttribute('data-action', 'copy-scope');
+    btn.setAttribute('data-copy-list-id', ui.targetListId == null ? '' : String(ui.targetListId));
+    btn.style.cssText = 'font-size:11px;padding:2px 8px;cursor:pointer;';
+    btn.textContent = ui.action;
+    box.appendChild(btn);
+  }
+  if (!box.childNodes.length) return;
+  const title = header.firstElementChild;
+  if (title && title.insertAdjacentElement) title.insertAdjacentElement('afterend', box);
+  else header.appendChild(box);
+}
+// Aksi "Salin ke W" / "Jadikan salinan pribadi" di kartu editor: salin lalu ganti id node ke token salinan.
+async function copyDrawingIntoEditor(editor, did, targetListId) {
+  const TF = window.TF || {};
+  if (!TF.drawingshare) return { ok: false, message: "Gagal membuat salinan gambar" };
+  const warnRead = err => { console.warn('[drawing] baca sumber salinan gagal', err); return null; };
+  let src = TF.drawingrepo ? await TF.drawingrepo.getDrawing(did, { online: false }).catch(warnRead) : null;
+  if (!src) src = await api.get(`/api/drawings/${did}`).catch(warnRead);
+  if (!src) return { ok: false, message: DRAWING_UNAVAILABLE_TEXT };
+  const res = await TF.drawingshare.copyDrawing(api, src, targetListId);
+  if (!res || !res.ok) return { ok: false, message: (res && res.message) || "Gagal membuat salinan gambar" };
+  const newId = String(drawingInsertToken(res.drawing));
+  const MB = window.MilkdownBundle;
+  if (editor && MB) {
+    editor.action(ctx => {
+      const view = ctx.get(MB.editorViewCtx);
+      let foundPos = null, found = null;
+      view.state.doc.descendants((node, nodePos) => {
+        if (foundPos !== null) return false;
+        if (node.type && node.type.name === 'drawing' && String(node.attrs.id) === String(did)) {
+          foundPos = nodePos;
+          found = node;
+          return false;
+        }
+      });
+      if (foundPos !== null) {
+        const a = found.attrs;
+        view.dispatch(view.state.tr.setNodeMarkup(foundPos, null, { id: newId, title: a.title, size: a.size, width: a.width, height: a.height }));
+      }
+    });
+  }
+  return { ok: true, drawing: res.drawing, id: newId };
+}
+
+// ── Share/unshare note + drawing, keluar workspace (PR 3 Task 5) ──────────
+// Satu implementasi untuk NoteModal & NotePanel: prepareNoteShare (rencana) → dialog (ask) →
+// executeNoteShare (salin → ganti token → simpan → PATCH share → moved_drawings) → tawarkan tarik kembali.
+// Indeks drawing lokal untuk planNoteShare: kunci id server, client_id, cid (pencarian case-insensitive di sana).
+function noteShareDrawingIndex(list) {
+  const map = {};
+  for (const raw of list || []) {
+    if (!raw || raw.deleted) continue;
+    const d = raw;
+    for (const k of [d.server_id, d.client_id, d.cid, d.id]) {
+      if (k == null || k === "") continue;
+      if (map[String(k)] === undefined) map[String(k)] = d;
+    }
+  }
+  return map;
+}
+// Kandidat "Tarik kembali ke pribadi?": milik saya, list_id = W lama, dirujuk note (urutan muncul, tanpa duplikat).
+function noteDrawingPullbackCandidates(TF, content, oldListId, byId, uid) {
+  if (oldListId == null || oldListId === "" || uid == null || !TF || !TF.drawdirective) return [];
+  const map = {};
+  for (const k of Object.keys(byId || {})) map[k.toLowerCase()] = byId[k];
+  const re = new RegExp(TF.drawdirective.DRAW_REGEX.source, "gi");
+  const text = String(content == null ? "" : content);
+  const out = [];
+  const seen = new Set();
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const d = map[String(m[1]).toLowerCase()];
+    if (!d || seen.has(d)) continue;
+    seen.add(d);
+    const mine = d.user_id == null || String(d.user_id) === String(uid);
+    if (mine && d.list_id != null && String(d.list_id) === String(oldListId)) out.push(d);
+  }
+  return out;
+}
+const NOTE_SHARE_LIST_TIMEOUT_MS = 6000;
+async function prepareNoteShare(TF, content, targetListId, oldListId, timeoutMs) {
+  const repo = TF && TF.drawingrepo;
+  let list = [];
+  if (repo && typeof repo.listDrawings === "function") {
+    // listDrawings ikut mengambil daftar server; jaringan macet tidak boleh menggantung dialog share → batas waktu.
+    let timer = null;
+    try {
+      list = await Promise.race([
+        Promise.resolve().then(() => repo.listDrawings()),
+        new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("listDrawings timeout")), timeoutMs != null ? timeoutMs : NOTE_SHARE_LIST_TIMEOUT_MS); })
+      ]);
+    } catch (err) {
+      // Jangan diam-diam melewati dialog: pemanggil membatalkan share + toast.
+      console.warn('[note-share] daftar drawing lokal gagal dibaca', err);
+      return { error: true };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  const uid = repo && typeof repo.currentUid === "function" ? repo.currentUid() : null;
+  const byId = noteShareDrawingIndex(list);
+  const target = targetListId == null || targetListId === "" ? null : targetListId;
+  const plan = TF.drawingshare.planNoteShare(content, target, byId, uid);
+  const pullback = target == null ? noteDrawingPullbackCandidates(TF, content, oldListId, byId, uid) : [];
+  return { plan, pullback };
+}
+// Share ke workspace (target != null): SELALU flush + gerbang dorong sebelum PATCH, walau plan kosong/null —
+// server menghitung moved_drawings dari isi note di server, jadi isi itu harus isi yang dilihat pengguna.
+// Unshare (target null, plan null) → PATCH langsung. Error simpan/PATCH dilempar ke pemanggil.
+// saveContent(transform): pemanggil menerapkan transform ke isi TERKINI saat simpan (ketikan selama dialog
+// tidak hilang; replaceDrawingToken idempoten) dan sekaligus mem-flush autosave yang tertunda.
+// pushNow() → true hanya bila dorong outbox sukses dan op note ini sudah habis; selain itu PATCH dibatalkan.
+async function executeNoteShare({ api, TF, noteId, targetListId, plan, saveContent, pushNow }) {
+  const share = TF && TF.drawingshare;
+  const pairs = [];
+  for (const d of (plan && plan.copy) || []) {
+    const res = await share.copyDrawing(api, d, targetListId);
+    if (!res || !res.ok) {
+      const message = pairs.length
+        ? `Gagal menyalin gambar (${pairs.length} salinan sudah dibuat).`
+        : (res && res.message) || "Gagal membuat salinan gambar";
+      return { ok: false, message };
+    }
+    pairs.push({ src: d, token: String(drawingInsertToken(res.drawing)) });
+  }
+  if (plan || targetListId != null) {
+    const rewrite = cur => pairs.reduce((c, p) => share.replaceDrawingToken(c, p.src, p.token), String(cur == null ? "" : cur));
+    if (typeof saveContent === "function") await saveContent(rewrite);
+    // Server menghitung moved_drawings dari isi note di server → isi lokal harus sudah terdorong.
+    const synced = typeof pushNow === "function" ? await pushNow(noteId) : false;
+    if (synced !== true) return { ok: false, message: "Catatan belum tersinkron; coba bagikan lagi sebentar lagi." };
+  }
+  const updated = await api.patch(`/api/scratchpad/${noteId}/share`, { list_id: targetListId });
+  if (share) {
+    await Promise.resolve().then(() => share.applyMovedDrawings(updated && updated.moved_drawings))
+      .catch(err => console.warn('[note-share] adopsi moved_drawings gagal', err));
+  }
+  const unresolved = updated && Array.isArray(updated.unresolved_drawings) ? updated.unresolved_drawings.length : 0;
+  const unexpectedMoved = targetListId != null ? noteShareUnexpectedMoved(share, updated && updated.moved_drawings, plan && plan.move) : 0;
+  return { ok: true, updated: updated || {}, warning: unresolved ? `${unresolved} gambar tidak ikut dibagikan.` : null, unexpectedMoved };
+}
+// Jumlah moved_drawings server yang tidak ada di plan.move (dicocokkan lewat id server / client_id / cid).
+function noteShareUnexpectedMoved(share, moved, planned) {
+  const keys = new Set();
+  for (const d of planned || []) {
+    if (!d) continue;
+    const sid = share && share.serverIdOf ? share.serverIdOf(d) : d.server_id;
+    if (sid != null) keys.add("s" + String(sid));
+    for (const c of [d.client_id, d.cid]) if (c != null && c !== "") keys.add("c" + String(c).toLowerCase());
+  }
+  let n = 0;
+  for (const m of Array.isArray(moved) ? moved : []) {
+    if (!m || typeof m !== "object") continue;
+    const hit = (m.id != null && keys.has("s" + String(m.id))) || (m.client_id != null && keys.has("c" + String(m.client_id).toLowerCase()));
+    if (!hit) n++;
+  }
+  return n;
+}
+function noteShareDialogSpec(plan, listName) {
+  const w = listName || "Workspace";
+  const titleOf = d => (d && d.title) || "Untitled Drawing";
+  const sections = [];
+  if (plan.move.length) sections.push({ label: `Ikut dibagikan ke ${w}:`, items: plan.move.map(titleOf) });
+  if (plan.copy.length) sections.push({ label: `Akan disalin ke ${w}:`, items: plan.copy.map(titleOf) });
+  const n = (plan.unavailable || []).length;
+  return {
+    title: `Bagikan note ke ${w}?`,
+    sections,
+    note: n ? `${n} gambar tidak bisa diperiksa` : null,
+    actions: [{ value: "cancel", label: "Batal" }, { value: "share", label: "Bagikan", primary: true }]
+  };
+}
+function notePullbackDialogSpec(items, listName) {
+  const w = listName || "Workspace";
+  return {
+    title: "Tarik kembali ke pribadi?",
+    sections: [{ label: `Gambar milikmu di ${w} yang dirujuk note ini:`, items: (items || []).map(d => (d && d.title) || "Untitled Drawing") }],
+    note: null,
+    actions: [{ value: "no", label: "Tidak" }, { value: "yes", label: "Ya", primary: true }]
+  };
+}
+// shareDrawing(null) per drawing; hasil = pesan error (unik) untuk di-toast.
+async function pullNoteDrawingsBack(share, api, items, listName) {
+  const w = listName || "Workspace";
+  const errors = [];
+  for (const d of items || []) {
+    const res = await Promise.resolve().then(() => share.shareDrawing(api, d, null))
+      .catch(err => ({ ok: false, code: "ERROR", message: (err && err.message) || "Terjadi kesalahan." }));
+    if (res && res.ok) continue;
+    const msg = res && res.code === "DRAWING_IN_USE"
+      ? `"${(d && d.title) || "Untitled Drawing"}" masih dipakai note lain di ${w}.`
+      : (res && res.message) || "Terjadi kesalahan.";
+    if (!errors.includes(msg)) errors.push(msg);
+  }
+  return errors;
+}
+// Dorong outbox sebelum PATCH share (maks 5 detik). true hanya bila push selesai tanpa gagal/salinan konflik
+// (syncpush juga MEMBUANG op saat gagal permanen / REV_MISMATCH / 403), record lokal note terbaca dan bersih
+// (tidak dirty/sync_error/conflict), dan outbox tidak lagi memegang op untuk note ini.
+async function noteSharePushNow(noteId) {
+  if (typeof window === "undefined" || typeof window.__pushNow !== "function") return false;
+  const TIMEOUT = { timeout: true };
+  let timer = null;
+  const r = await Promise.race([
+    Promise.resolve().then(() => window.__pushNow()),
+    new Promise(res => { timer = setTimeout(() => res(TIMEOUT), 5000); })
+  ]).catch(err => { console.warn('[note-share] dorong outbox gagal', err); return TIMEOUT; });
+  clearTimeout(timer);
+  if (!r || r === TIMEOUT || r.busy || r.failed > 0 || r.conflictCopies > 0) return false;
+  try {
+    const fresh = await api.get(`/api/scratchpad/${noteId}`).catch(() => null);
+    if (!fresh) return false;
+    // Bentuk API tidak membawa penanda sinkron → baca record mentah bila noterepo tersedia.
+    const repo = window.TF && window.TF.noterepo;
+    const raw = fresh.cid != null && repo && typeof repo.getNoteRaw === "function" ? await repo.getNoteRaw(fresh.cid) : fresh;
+    if (!raw || raw.dirty || raw.sync_error || raw.conflict) return false;
+    const ob = window.TF && window.TF.outbox;
+    if (!ob || typeof ob.outboxAll !== "function") return true;
+    const keys = [noteId, fresh.cid, fresh.id].filter(k => k != null).map(String);
+    const ops = await ob.outboxAll();
+    return !ops.some(o => o && o.entity_type === "note" && o.cid != null && keys.includes(String(o.cid)));
+  } catch (err) {
+    console.warn('[note-share] cek outbox gagal', err);
+    return false;
+  }
+}
+// true = note berhasil dibagikan/batal dibagikan. ask(spec) → Promise<nilai aksi | null>.
+async function confirmNoteShareWithDrawings({ note, content, targetListId, listName, oldListId, oldListName, api, TF, ask, showToast, saveContent, pushNow, onShared }) {
+  const toast = m => { if (typeof showToast === "function") showToast(m, "error"); };
+  if (!note || note.id == null) return false;
+  const tf = TF || {};
+  const target = targetListId == null || targetListId === "" ? null : targetListId;
+  const body = content != null ? content : note.content || "";
+  const prevList = oldListId !== undefined ? oldListId : note.list_id;
+  try {
+    let plan = null;
+    let pullback = [];
+    if (tf.drawingshare) {
+      if (typeof showToast === "function" && /::draw/i.test(String(body))) showToast("Memeriksa gambar…", "info");
+      const prep = await prepareNoteShare(tf, body, target, prevList);
+      // Share ke W: dialog tidak boleh dilewati diam-diam → batal. Unshare: tetap jalan, tawaran tarik kembali dilewati.
+      if (prep.error && target != null) { toast("Tidak bisa memeriksa gambar; coba lagi."); return false; }
+      pullback = prep.error ? [] : prep.pullback;
+      if (target != null && !prep.error && (prep.plan.move.length || prep.plan.copy.length)) {
+        if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
+          toast("Butuh koneksi untuk membagikan gambar.");
+          return false;
+        }
+        const choice = await ask(noteShareDialogSpec(prep.plan, listName));
+        if (choice !== "share") return false;
+        plan = prep.plan;
+      }
+    }
+    const res = await executeNoteShare({ api, TF: tf, noteId: note.id, targetListId: target, plan, saveContent, pushNow });
+    if (!res.ok) { toast(res.message); return false; }
+    if (res.warning) toast(res.warning);
+    if (res.unexpectedMoved > 0 && typeof showToast === "function") showToast(`${res.unexpectedMoved} gambar ikut dibagikan ke ${listName || "Workspace"}.`, "info");
+    if (typeof onShared === "function") {
+      await Promise.resolve().then(() => onShared(res.updated))
+        .catch(err => console.warn('[note-share] adopsi hasil share gagal', err));
+    }
+    if (target == null && pullback.length) {
+      const yes = await ask(notePullbackDialogSpec(pullback, oldListName));
+      if (yes === "yes") {
+        for (const msg of await pullNoteDrawingsBack(tf.drawingshare, api, pullback, oldListName)) toast(msg);
+      }
+    }
+    return true;
+  } catch (err) {
+    console.warn('[note-share] gagal', err);
+    toast((err && err.message) || "Gagal membagikan note");
+    return false;
+  }
+}
+function leaveImpactDialogSpec(items, listName) {
+  const w = listName || "Workspace";
+  const uniq = (keyOf, labelOf) => {
+    const seen = new Set();
+    const out = [];
+    for (const it of items || []) {
+      const k = it ? keyOf(it) : null;
+      if (k == null || seen.has(String(k))) continue;
+      seen.add(String(k));
+      out.push(labelOf(it));
+    }
+    return out;
+  };
+  return {
+    title: `Keluar dari ${w}?`,
+    sections: [
+      { label: "Note terdampak:", items: uniq(it => it.note_id, it => it.note_title || "(tanpa judul)") },
+      { label: "Drawing terdampak:", items: uniq(it => it.drawing_id != null ? it.drawing_id : it.drawing_client_id, it => it.drawing_title || "Untitled Drawing") }
+    ],
+    note: `Note pribadimu menautkan gambar milik ${w}. Setelah keluar, gambar itu tidak bisa kamu buka lagi.`,
+    actions: [
+      { value: "cancel", label: "Batal" },
+      { value: "leave", label: "Keluar saja", danger: true },
+      { value: "copy", label: "Salin ke pribadi lalu keluar", primary: true }
+    ]
+  };
+}
+// true = sudah keluar. leave-impact gagal (offline/error) → konfirmasi biasa seperti dulu.
+async function leaveWorkspaceWithDrawings({ listId, listName, api, TF, ask, showToast, confirmFn }) {
+  const toast = (m, t) => { if (typeof showToast === "function") showToast(m, t); };
+  let items = null;
+  try {
+    const impact = await api.get(`/api/lists/${listId}/leave-impact`);
+    items = impact && Array.isArray(impact.items) ? impact.items : [];
+  } catch (err) {
+    console.warn('[leave] leave-impact gagal; pakai konfirmasi biasa', err);
+  }
+  let choice = null;
+  if (items && items.length) choice = await ask(leaveImpactDialogSpec(items, listName));
+  else if (typeof confirmFn !== "function" || confirmFn(`Keluar dari list "${listName}"?`)) choice = "leave";
+  if (choice !== "leave" && choice !== "copy") return false;
+  try {
+    if (choice === "copy") {
+      const share = TF && TF.drawingshare;
+      if (!share) throw new Error("Gagal membuat salinan gambar");
+      const copies = new Map();
+      const noteIds = [];
+      for (const it of items) {
+        if (!it) continue;
+        const key = it.drawing_id != null ? "s" + it.drawing_id : "c" + it.drawing_client_id;
+        if (!copies.has(key)) {
+          copies.set(key, { src: { id: it.drawing_id, server_id: it.drawing_id, client_id: it.drawing_client_id || null, title: it.drawing_title }, token: null });
+        }
+        if (it.note_id != null && !noteIds.some(n => String(n) === String(it.note_id))) noteIds.push(it.note_id);
+      }
+      let made = 0;
+      for (const entry of copies.values()) {
+        const res = await share.copyDrawing(api, entry.src, null);
+        if (!res || !res.ok) {
+          toast(made ? `Gagal menyalin gambar (${made} salinan sudah dibuat).` : (res && res.message) || "Gagal membuat salinan gambar", "error");
+          return false;
+        }
+        made++;
+        entry.token = String(drawingInsertToken(res.drawing));
+      }
+      for (const nid of noteIds) {
+        const note = await api.get(`/api/scratchpad/${nid}`);
+        if (!note) { console.warn('[leave] note terdampak tidak ditemukan lokal', nid); continue; }
+        let next = String(note.content || "");
+        for (const entry of copies.values()) next = share.replaceDrawingToken(next, entry.src, entry.token);
+        if (next !== String(note.content || "")) await api.put(`/api/scratchpad/${nid}`, Object.assign({}, note, { content: next }));
+      }
+      if (typeof window !== "undefined" && window.dispatchEvent) window.dispatchEvent(new CustomEvent("noteSaved"));
+    }
+    await api.del(`/api/lists/${listId}/leave`);
+    toast("Berhasil keluar dari list");
+    return true;
+  } catch (err) {
+    console.warn('[leave] gagal', err);
+    toast((err && err.message) || "Gagal keluar dari list", "error");
+    return false;
+  }
+}
+// Dialog konfirmasi bersama (share/unshare note, keluar workspace). spec: {title, sections, note, actions}.
+function DrawingScopeDialog({ spec, onAction }) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "modal-overlay",
+    style: { zIndex: 2000 },
+    onMouseDown: e => e.stopPropagation(),
+    onClick: () => onAction(null)
+  }, /*#__PURE__*/React.createElement("div", {
+    onClick: e => e.stopPropagation(),
+    style: { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20, maxWidth: 420, width: "calc(100vw - 32px)", maxHeight: "80vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, color: "var(--text-primary)" }
+  }, /*#__PURE__*/React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, spec.title),
+    (spec.sections || []).filter(s => s.items && s.items.length).map((s, i) => /*#__PURE__*/React.createElement("div", { key: i, style: { fontSize: 13 } },
+      /*#__PURE__*/React.createElement("div", { style: { fontWeight: 600, marginBottom: 4 } }, s.label),
+      /*#__PURE__*/React.createElement("ul", { style: { margin: 0, paddingLeft: 18 } },
+        s.items.map((t, j) => /*#__PURE__*/React.createElement("li", { key: j }, t))))),
+    spec.note && /*#__PURE__*/React.createElement("div", { style: { fontSize: 12, color: "var(--text-secondary)" } }, spec.note),
+    /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" } },
+      (spec.actions || []).map(a => /*#__PURE__*/React.createElement("button", {
+        key: a.value,
+        className: a.primary ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm",
+        style: a.danger ? { color: "#dc2626" } : undefined,
+        onClick: () => onAction(a.value)
+      }, a.label)))
+  ));
+}
+// [elemen dialog, ask(spec) → Promise<nilai aksi | null>]. Dialog lama yang belum dijawab → null.
+function useDrawingScopeDialog() {
+  const [spec, setSpec] = React.useState(null);
+  const resolverRef = React.useRef(null);
+  const ask = React.useCallback(next => new Promise(resolve => {
+    if (resolverRef.current) resolverRef.current(null);
+    resolverRef.current = resolve;
+    setSpec(next);
+  }), []);
+  const onAction = React.useCallback(value => {
+    const r = resolverRef.current;
+    resolverRef.current = null;
+    setSpec(null);
+    if (r) r(value);
+  }, []);
+  React.useEffect(() => () => { if (resolverRef.current) resolverRef.current(null); resolverRef.current = null; }, []);
+  const el = spec ? /*#__PURE__*/React.createElement(DrawingScopeDialog, { spec, onAction }) : null;
+  return [el, ask];
+}
+
 window.hydrateDrawingPreviews = function(root, force) {
   if (typeof document === 'undefined') return;
   const containers = (root || document).querySelectorAll('[data-drawing-preview]');
@@ -20940,21 +21653,16 @@ window.hydrateDrawingPreviews = function(root, force) {
     if (!did) return;
     if (el.getAttribute('data-hydrated') === 'true' && !force && el.querySelector('svg')) return;
     try {
-      let svg = null;
-      if (window.TF && window.TF.drawingrepo) {
-        let local = null;
-        if (typeof window.TF.drawingrepo.getDrawing === 'function') {
-          local = await window.TF.drawingrepo.getDrawing(did, { online: false }).catch(() => null);
-        }
-        if (!local && typeof window.TF.drawingrepo.getRaw === 'function') {
-          local = await window.TF.drawingrepo.getRaw(did).catch(() => null);
-        }
-        if (local && local.svg_preview) svg = local.svg_preview;
+      const found = await drawingPreviewLookup(did);
+      if (found.unavailable) {
+        el.innerHTML = '<span class="drawing-preview-placeholder drawing-unavailable" style="color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;">' + DRAWING_UNAVAILABLE_TEXT + '</span>';
+        el.setAttribute('data-hydrated', 'unavailable');
+        applyDrawingScopeUi(el, null);
+        return;
       }
-      if (!svg && typeof api !== 'undefined' && api.get) {
-        const d = await api.get(`/api/drawings/${did}`).catch(() => null);
-        if (d && d.svg_preview) svg = d.svg_preview;
-      }
+      if (!found.drawing) return;
+      applyDrawingScopeUi(el, found.drawing);
+      const svg = found.svg;
       if (svg && (svg.includes('<svg') || svg.trim().startsWith('<svg'))) {
         el.innerHTML = svg;
         const svgEl = el.querySelector('svg');
@@ -20966,12 +21674,13 @@ window.hydrateDrawingPreviews = function(root, force) {
         }
         el.setAttribute('data-hydrated', 'true');
       }
-    } catch (_) {}
+    } catch (err) { console.warn('[drawing] hydrate pratinjau gagal', err); }
   });
 };
 
 if (typeof window !== 'undefined') {
   window.parseDirectiveAttrs = parseDirectiveAttrs;
+  window.noteListIdFromEl = noteListIdFromEl;
   window.addEventListener('changeDrawingSize', e => {
     const { id, size, width } = e.detail || {};
     if (!id) return;
@@ -21603,7 +22312,8 @@ function MilkdownEditor({
   onTasklinkClick,
   onImagePaste,
   onInsertDrawing,
-  onInsertTask
+  onInsertTask,
+  noteListId = null
 }) {
   const containerRef = React.useRef(null);
   const instanceRef = React.useRef(null);
@@ -22454,12 +23164,35 @@ function MilkdownEditor({
         return;
       }
 
+      // 👥 drawing beda scope: "Salin ke W" / "Jadikan salinan pribadi" → salin lalu ganti id node
+      const copyBtn = e.target.closest('[data-action="copy-scope"]');
+      if (copyBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (copyBtn.disabled) return;
+        const raw = copyBtn.getAttribute('data-copy-list-id');
+        const targetListId = !raw ? null : (/^\d+$/.test(raw) ? Number(raw) : raw);
+        copyBtn.disabled = true;
+        copyDrawingIntoEditor(instanceRef.current, did, targetListId).then(res => {
+          if (!res.ok) {
+            copyBtn.disabled = false;
+            window.__showToast?.(res.message || "Gagal membuat salinan gambar", "error");
+          } else {
+            window.__showToast?.("Salinan gambar dibuat");
+          }
+        }, err => {
+          copyBtn.disabled = false;
+          window.__showToast?.((err && err.message) || "Gagal membuat salinan gambar", "error");
+        });
+        return;
+      }
+
       const editBtn = e.target.closest('[data-action="edit"]');
       const previewArea = e.target.closest('[data-drawing-preview]');
       if (editBtn || previewArea) {
         e.preventDefault();
         e.stopPropagation();
-        window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: did, title: dtitle } }));
+        window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: did, title: dtitle, noteListId: noteListIdFromEl(drawCard) } }));
         return;
       }
     }
@@ -22677,6 +23410,7 @@ function MilkdownEditor({
   }
   return /*#__PURE__*/React.createElement("div", {
     ref: containerRef,
+    "data-note-list-id": noteListId != null ? String(noteListId) : "",
     className: "milkdown-editor note-modal-content-input" + (blockHandleEnabled ? " has-block-handle" : ""),
     style: {
       minHeight: minHeight || 120,
@@ -23483,6 +24217,8 @@ function waitDrawingSaved(did, timeoutMs) {
 function QuickDrawModal({
   drawingId,
   drawingTitle = "",
+  noteListId,
+  sharedLists = [],
   onClose,
   showToast
 }) {
@@ -23495,6 +24231,9 @@ function QuickDrawModal({
   const [titleInput, setTitleInput] = useState(drawingTitle || "Gambar");
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  // drawing milik workspace lain dari note ini → banner (list_id dibaca dari record)
+  const [drawingListId, setDrawingListId] = useState(null);
+  const wsBanner = drawingEditBanner({ list_id: drawingListId }, noteListId, sharedLists);
 
   useEffect(() => {
     if (drawingId) {
@@ -23503,6 +24242,7 @@ function QuickDrawModal({
           setTitle(d.title);
           setTitleInput(d.title);
         }
+        setDrawingListId(d && d.list_id != null ? d.list_id : null);
       }).catch(() => {});
     }
   }, [drawingId]);
@@ -23640,6 +24380,11 @@ function QuickDrawModal({
     /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: handleOpenStandalone, disabled: saving, style: { fontSize: 12 } }, "↗️ Buka di Halaman Draw"),
     /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleClose, disabled: saving, style: { fontSize: 12 } }, saving ? "Menyimpan…" : "✓ Selesai")
   )),
+  wsBanner && /*#__PURE__*/React.createElement("div", {
+    className: "quickdraw-ws-banner",
+    role: "status",
+    style: { padding: "6px 16px", fontSize: 12, background: "rgba(168,197,0,0.12)", color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }
+  }, wsBanner),
   /*#__PURE__*/React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" } },
     /*#__PURE__*/React.createElement("iframe", {
       ref: iframeRef,
@@ -23652,6 +24397,9 @@ function QuickDrawModal({
 
 function DrawingInsertModal({
   noteTitle = "",
+  noteListId = null,
+  sharedLists = [],
+  currentUserId = null,
   onSelectDrawing,
   onClose,
   showToast
@@ -23662,13 +24410,24 @@ function DrawingInsertModal({
   const [searchQ, setSearchQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Pilihan yang butuh konfirmasi scope: { d, notice, text }
+  const [pending, setPending] = useState(null);
+  const [applying, setApplying] = useState(false);
+  const TFshare = window.TF && window.TF.drawingshare;
+  const myUid = () => {
+    const uid = window.TF && window.TF.drawingrepo && window.TF.drawingrepo.currentUid ? window.TF.drawingrepo.currentUid() : null;
+    return uid != null ? uid : currentUserId;
+  };
 
   useEffect(() => {
     if (tab === "gallery") {
       setLoading(true);
       api.get("/api/drawings").then(data => {
         setGallery(Array.isArray(data) ? data : []);
-      }).catch(() => setGallery([])).finally(() => setLoading(false));
+      }).catch(err => {
+        console.warn("[drawing] galeri gagal dimuat", err);
+        setGallery([]);
+      }).finally(() => setLoading(false));
     }
   }, [tab]);
 
@@ -23676,7 +24435,8 @@ function DrawingInsertModal({
     const t = newTitle.trim() || `Gambar - ${noteTitle || "Catatan"}`;
     setCreating(true);
     try {
-      const created = await api.post("/api/drawings", { title: t, data_json: "{}" });
+      // Note milik workspace → drawing baru langsung milik workspace yang sama
+      const created = await api.post("/api/drawings", { title: t, data_json: "{}", list_id: noteListId != null ? noteListId : null });
       onSelectDrawing && onSelectDrawing(created.id, created.title);
       onClose && onClose();
     } catch {
@@ -23686,7 +24446,47 @@ function DrawingInsertModal({
     }
   };
 
+  const insertNow = (id, title) => {
+    onSelectDrawing && onSelectDrawing(id, title);
+    onClose && onClose();
+  };
+  const handlePick = d => {
+    if (!TFshare) { insertNow(d.id, d.title); return; }
+    const notice = window.TF.drawingshare.scopeNotice(d, noteListId, myUid());
+    if (notice.kind === "same" || notice.kind === "ws_in_personal") { insertNow(d.id, d.title); return; }
+    const text = window.TF.drawingshare.noticeText(notice, drawingScopeListName(notice.listId, sharedLists));
+    setPending({ d, notice, text });
+  };
+  const handleConfirm = async () => {
+    if (!pending || applying) return;
+    setApplying(true);
+    try {
+      const res = await applyDrawingInsertChoice(window.TF.drawingshare, api, pending.d, pending.notice, drawingScopeListName(pending.notice.listId, sharedLists));
+      if (!res.ok) {
+        showToast && showToast(res.message, "error");
+        return;
+      }
+      if (res.toast) showToast && showToast(res.toast, "warning");
+      insertNow(res.id, res.title);
+    } catch (err) {
+      showToast && showToast((err && err.message) || "Gagal menyisipkan gambar", "error");
+    } finally {
+      setApplying(false);
+    }
+  };
+
   const filtered = gallery.filter(d => !searchQ.trim() || (d.title || "").toLowerCase().includes(searchQ.trim().toLowerCase()));
+  const groups = groupDrawingsByScope(filtered, sharedLists);
+  const groupHint = g => (noteListId == null && g.listId != null && TFshare)
+    ? window.TF.drawingshare.noticeText({ kind: "ws_in_personal", listId: g.listId }, g.label) : "";
+  const renderItem = d => /*#__PURE__*/React.createElement("div", {
+    key: d.id,
+    onClick: () => handlePick(d),
+    style: { padding: "8px 10px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-primary)" },
+    onMouseEnter: e => e.currentTarget.style.background = "var(--bg-secondary)",
+    onMouseLeave: e => e.currentTarget.style.background = "var(--bg-primary)"
+  }, /*#__PURE__*/React.createElement("span", { style: { fontSize: 13, fontWeight: 500 } }, "🎨 ", d.title || "(tanpa judul)"),
+     /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "var(--text-light)" } }, d.updated_at ? formatDate(d.updated_at.slice(0, 10)) : ""));
 
   return /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
@@ -23700,7 +24500,14 @@ function DrawingInsertModal({
     style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }
   }, /*#__PURE__*/React.createElement("span", { style: { fontWeight: 700, fontSize: 16 } }, "🎨 Sisipkan Gambar"),
      /*#__PURE__*/React.createElement("button", { className: "btn btn-icon btn-sm", onClick: onClose }, "✕")),
-  /*#__PURE__*/React.createElement("div", {
+  pending ? /*#__PURE__*/React.createElement("div", { className: "drawing-insert-confirm", style: { display: "flex", flexDirection: "column", gap: 12 } },
+    /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, fontWeight: 600 } }, "🎨 ", pending.d.title || "(tanpa judul)"),
+    /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 } }, pending.text),
+    /*#__PURE__*/React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 } },
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setPending(null), disabled: applying }, "Batal"),
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleConfirm, disabled: applying }, applying ? "Memproses..." : "Sisipkan")
+    )
+  ) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: { display: "flex", gap: 4, marginBottom: 16, background: "var(--bg-primary)", padding: 3, borderRadius: 8 }
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-sm",
@@ -23722,6 +24529,7 @@ function DrawingInsertModal({
       placeholder: "Contoh: Diagram Alur Flowchart",
       autoFocus: true
     }),
+    noteListId != null && /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, color: "var(--text-light)" } }, "👥 Dibuat di workspace ", drawingScopeListName(noteListId, sharedLists)),
     /*#__PURE__*/React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 } },
       /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: onClose }, "Batal"),
       /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleCreate, disabled: creating }, creating ? "Membuat..." : "Buat & Buka Editor")
@@ -23737,21 +24545,14 @@ function DrawingInsertModal({
     }),
     /*#__PURE__*/React.createElement("div", {
       className: "hide-scrollbar",
-      style: { maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4, border: "1px solid var(--border)", borderRadius: 8, padding: 4 }
+      style: { maxHeight: 260, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4, border: "1px solid var(--border)", borderRadius: 8, padding: 4 }
     }, loading ? /*#__PURE__*/React.createElement("div", { style: { padding: 12, textAlign: "center", fontSize: 12, color: "var(--text-light)" } }, "Memuat galeri...") :
        filtered.length === 0 ? /*#__PURE__*/React.createElement("div", { style: { padding: 12, textAlign: "center", fontSize: 12, color: "var(--text-light)" } }, "Tidak ada gambar ditemukan") :
-       filtered.map(d => /*#__PURE__*/React.createElement("div", {
-         key: d.id,
-         onClick: () => {
-           onSelectDrawing && onSelectDrawing(d.id, d.title);
-           onClose && onClose();
-         },
-         style: { padding: "8px 10px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-primary)" },
-         onMouseEnter: e => e.currentTarget.style.background = "var(--bg-secondary)",
-         onMouseLeave: e => e.currentTarget.style.background = "var(--bg-primary)"
-       }, /*#__PURE__*/React.createElement("span", { style: { fontSize: 13, fontWeight: 500 } }, "🎨 ", d.title || "(tanpa judul)"),
-          /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "var(--text-light)" } }, d.updated_at ? formatDate(d.updated_at.slice(0, 10)) : ""))))
-  )));
+       groups.map(g => /*#__PURE__*/React.createElement(React.Fragment, { key: g.key },
+         /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", padding: "6px 6px 2px", textTransform: "uppercase", letterSpacing: 0.3 } }, g.listId != null ? "👥 " + g.label : g.label),
+         groupHint(g) && /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, color: "var(--text-light)", padding: "0 6px 4px", lineHeight: 1.4 } }, groupHint(g)),
+         g.items.map(renderItem))))
+  ))));
 }
 
 // ── Paper Mode: fit-to-width (penampil desktop) ───────────────────
@@ -24288,29 +25089,52 @@ function NoteModal({
 
 
   const [noteListId, setNoteListId] = useState(note?.list_id ?? null);
+  const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
   const handleModalShare = async listId => {
     setShareOpen(false);
     if (!note?.id) return;
-    try {
-      const updated = await api.patch(`/api/scratchpad/${note.id}/share`, {
-        list_id: listId
-      });
-      setNoteListId(updated.list_id ?? null);
-      // K4 klien: record lokal mengadopsi list_id + updated_at→base_rev dari baris server (share mem-bump
-      // updated_at; PUT berikutnya membawa base_rev baru dan tidak mengirim list_id). Penanda editor ikut
-      // disamakan supaya share sendiri tidak terbaca sebagai "perubahan pengguna lain".
-      const adopt = window.TF?.noterepo?.adoptServerFields;
-      if (typeof adopt === "function") {
-        try {
-          const rec = await adopt(note.id, updated);
-          if (rec) {
-            if (rec.updated_at) lastKnownAtRef.current = rec.updated_at;
-            loadedBaseRevRef.current = rec.base_rev ?? loadedBaseRevRef.current;
-          }
-        } catch (_) {}
+    const target = listId ?? null;
+    // PR 3 Task 5: drawing ikut dibagikan/disalin lewat dialog bersama; error di-toast (tidak ditelan).
+    await confirmNoteShareWithDrawings({
+      note: { ...note, list_id: noteListId },
+      content: editorStateRef.current.content,
+      targetListId: target,
+      listName: drawingScopeListName(target, sharedLists),
+      oldListId: noteListId,
+      oldListName: drawingScopeListName(noteListId, sharedLists),
+      api,
+      TF: window.TF,
+      ask: askDrawingScope,
+      showToast,
+      pushNow: noteSharePushNow,
+      // Jalur simpan biasa: transform diterapkan ke isi editor TERKINI (ketikan selama dialog/salin tetap ada),
+      // state editor (MilkdownEditor mengikuti `value`) + persistEditor = flush autosave tertunda ke router lokal.
+      saveContent: async transform => {
+        clearTimeout(autosaveTimerRef.current);
+        const cur = editorStateRef.current.content;
+        const next = transform(cur);
+        if (next !== cur) setContent(next);
+        await persistEditor({ content: next });
+        window.dispatchEvent(new CustomEvent("noteSaved"));
+      },
+      onShared: async updated => {
+        setNoteListId(updated.list_id ?? null);
+        // K4 klien: record lokal mengadopsi list_id + updated_at→base_rev dari baris server (share mem-bump
+        // updated_at; PUT berikutnya membawa base_rev baru dan tidak mengirim list_id). Penanda editor ikut
+        // disamakan supaya share sendiri tidak terbaca sebagai "perubahan pengguna lain".
+        const adopt = window.TF?.noterepo?.adoptServerFields;
+        if (typeof adopt === "function") {
+          try {
+            const rec = await adopt(note.id, updated);
+            if (rec) {
+              if (rec.updated_at) lastKnownAtRef.current = rec.updated_at;
+              loadedBaseRevRef.current = rec.base_rev ?? loadedBaseRevRef.current;
+            }
+          } catch (err) { console.warn("[note-share] adopsi field server gagal", err); }
+        }
+        window.dispatchEvent(new CustomEvent("noteSaved"));
       }
-      window.dispatchEvent(new CustomEvent("noteSaved"));
-    } catch (e) {/* silent */}
+    });
   };
 
   // Wikilink autocomplete
@@ -25476,6 +26300,7 @@ function NoteModal({
     } : { position: "relative" }
   }, /*#__PURE__*/React.createElement(MilkdownEditor, {
     value: content,
+    noteListId: noteListId,
     onChange: handleEditorChange,
     minHeight: focusMode ? 'calc(100vh - 100px)' : 'calc(100vh - 320px)',
     editorRef: milkdownEditorRef,
@@ -26069,15 +26894,20 @@ function NoteModal({
     className: "floating-toc-anchor--modal"
   }), drawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
     noteTitle: title,
+    noteListId: noteListId,
+    sharedLists: sharedLists,
+    currentUserId: currentUserId,
     onSelectDrawing: handleDrawingSelected,
     onClose: () => setDrawingInsertOpen(false),
     showToast: showToast
   }), quickDrawState && /*#__PURE__*/React.createElement(QuickDrawModal, {
     drawingId: quickDrawState.id,
     drawingTitle: quickDrawState.title,
+    noteListId: noteListId,
+    sharedLists: sharedLists,
     onClose: () => setQuickDrawState(null),
     showToast: showToast
-  }));
+  }), drawingScopeDialogEl);
 }
 
   // ═══ DEPENDENCIES: NotePanel ═══
@@ -26227,6 +27057,7 @@ function NotePanel({
   };
 
   const [shareOpen, setShareOpen] = React.useState(false);
+  const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
   const shareRef = React.useRef(null);
   React.useEffect(() => {
     if (!shareOpen) return;
@@ -26287,15 +27118,43 @@ function NotePanel({
 
   const handleShare = async listId => {
     setShareOpen(false);
-    try {
-      const updated = await api.patch(`/api/scratchpad/${note.id}/share`, {
-        list_id: listId
-      });
-      // K4 klien: record lokal mengadopsi list_id + updated_at→base_rev dari baris server (lihat NoteModal.handleModalShare)
-      const adopt = window.TF?.noterepo?.adoptServerFields;
-      if (typeof adopt === "function") { try { await adopt(note.id, updated); } catch (_) {} }
-      window.dispatchEvent(new CustomEvent("noteSaved"));
-    } catch (e) {/* silent — note still works */}
+    if (!note?.id) return;
+    const target = listId ?? null;
+    const prevList = note.list_id ?? null;
+    // PR 3 Task 5: helper bersama dengan NoteModal.handleModalShare (dialog drawing, error di-toast).
+    await confirmNoteShareWithDrawings({
+      note,
+      content: note.content || "",
+      targetListId: target,
+      listName: drawingScopeListName(target, sharedLists),
+      oldListId: prevList,
+      oldListName: drawingScopeListName(prevList, sharedLists),
+      api,
+      TF: window.TF,
+      ask: askDrawingScope,
+      showToast,
+      pushNow: noteSharePushNow,
+      // Jalur simpan biasa panel (sama dengan changeDrawingSize): baca ulang record lokal (isi terkini, bukan
+      // prop yang mungkin basi), terapkan transform, PUT router lokal bila berubah + noteSaved.
+      saveContent: async transform => {
+        const fresh = await api.get(`/api/scratchpad/${note.id}`);
+        const base = fresh || note;
+        const cur = base.content || "";
+        const next = transform(cur);
+        if (next === cur) return;
+        await api.put(`/api/scratchpad/${note.id}`, { ...base, content: next });
+        note.content = next;
+        window.dispatchEvent(new CustomEvent("noteSaved"));
+      },
+      onShared: async updated => {
+        // K4 klien: record lokal mengadopsi list_id + updated_at→base_rev dari baris server (lihat NoteModal.handleModalShare)
+        const adopt = window.TF?.noterepo?.adoptServerFields;
+        if (typeof adopt === "function") {
+          try { await adopt(note.id, updated); } catch (err) { console.warn("[note-share] adopsi field server gagal", err); }
+        }
+        window.dispatchEvent(new CustomEvent("noteSaved"));
+      }
+    });
   };
   const notesById = useMemo(() => {
     const map = new Map();
@@ -26891,6 +27750,7 @@ function NotePanel({
   const renderedNoteEl = /*#__PURE__*/React.createElement("div", {
     className: "note-rendered",
     ref: tocSpyRef,
+    "data-note-list-id": note.list_id != null ? String(note.list_id) : "",
     style: {
       lineHeight: 1.75
     },
@@ -26917,7 +27777,7 @@ function NotePanel({
     }
   });
 
-  return /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 0
@@ -27619,7 +28479,7 @@ function NotePanel({
         style: { padding: '6px 18px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
       }, publishWorking ? "Menyimpan..." : "💾 Simpan")
     )
-  )));
+  ))), drawingScopeDialogEl);
 }
 // ── Sampah mindmap (tab "Mindmap" di modal Sampah). Spec #5: docs/superpowers/specs/2026-10-19-mindmap-findings-3-8-design.md ──
 // Daftar & pulihkan lewat router lokal (TF.mindmaptrash: cermin + hapus lokal tertunda) → bekerja offline.
@@ -32139,6 +32999,11 @@ function App() {
   const [projects, setProjects] = useState([]);
   const [contexts, setContexts] = useState([]);
   const [sharedLists, setSharedLists] = useState([]);
+  // Nama workspace untuk badge 👥 di kartu drawing (hydrateDrawingPreviews bukan komponen React)
+  useEffect(() => {
+    window.__tfSharedLists = sharedLists;
+    if (sharedLists.length && typeof window.hydrateDrawingPreviews === 'function') window.hydrateDrawingPreviews(null, true);
+  }, [sharedLists]);
   const [collaborators, setCollaborators] = useState([]);
   const [selectedTask, setSelectedTask] = useState(null);
   const [selectedNote, setSelectedNote] = useState(null);
@@ -32316,6 +33181,7 @@ function App() {
           if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
           if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
           if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
+          if (window.TF && TF.drawingrepo && TF.drawingrepo.setCurrentUser) TF.drawingrepo.setCurrentUser({ user_id: u.id, username: u.username, display_name: u.display_name });
           setAuthChecked(true);
         }).catch(async err => {
           // Only log out when the server EXPLICITLY rejects the token (HTTP 401).
@@ -32354,6 +33220,7 @@ function App() {
             if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
             if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
             if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
+            if (window.TF && TF.drawingrepo && TF.drawingrepo.setCurrentUser) TF.drawingrepo.setCurrentUser({ user_id: payload.sub, username: payload.username || payload.sub, display_name: payload.display_name || payload.username || payload.sub });
           } catch (_) {}
           setAuthChecked(true);
         });
@@ -32728,7 +33595,7 @@ function App() {
     const handleEditDrawingModal = e => {
       const detail = e.detail;
       if (typeof detail === 'object' && detail !== null) {
-        setActiveQuickDraw({ id: detail.id, title: detail.title || '' });
+        setActiveQuickDraw({ id: detail.id, title: detail.title || '', noteListId: detail.noteListId });
       } else {
         setActiveQuickDraw({ id: detail, title: '' });
       }
@@ -32916,6 +33783,7 @@ function App() {
     if (window.TF && window.TF.chatrepo) window.TF.chatrepo.setCurrentUser({ user_id: data.user_id, username: data.username, display_name: data.display_name || data.username });
     if (window.TF && window.TF.noterepo) window.TF.noterepo.setCurrentUser({ user_id: data.user_id, username: data.username, display_name: data.display_name || data.username });
     if (window.TF && window.TF.mindmaprepo) window.TF.mindmaprepo.setCurrentUser({ user_id: data.user_id, username: data.username, display_name: data.display_name || data.username });
+    if (window.TF && TF.drawingrepo && TF.drawingrepo.setCurrentUser) TF.drawingrepo.setCurrentUser({ user_id: data.user_id, username: data.username, display_name: data.display_name || data.username });
     setAuthChecked(true);
     // Akun sama: data lokal dipertahankan → kirim op outbox yang tertunda selama sesi berakhir (pull → push)
     if (sameUser && navigator.onLine) { try { window.__syncNow?.(); } catch (_) {} }
@@ -33395,6 +34263,8 @@ function App() {
     if (page === "draw") {
       return /*#__PURE__*/React.createElement(DrawPage, {
         showToast: showToast,
+        sharedLists: sharedLists,
+        currentUserId: user?.id,
         initialDrawingId: pendingDrawingId,
         onInitialDrawingConsumed: () => setPendingDrawingId(null)
       });
@@ -34071,6 +34941,8 @@ function App() {
   }), activeQuickDraw && /*#__PURE__*/React.createElement(QuickDrawModal, {
     drawingId: activeQuickDraw.id,
     drawingTitle: activeQuickDraw.title,
+    noteListId: activeQuickDraw.noteListId,
+    sharedLists: sharedLists,
     onClose: () => {
       setActiveQuickDraw(null);
       if (typeof window.hydrateDrawingPreviews === 'function') {
@@ -34106,7 +34978,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v421-mindmap-trash";
+    window.__SW_VERSION = "taskflow-v422-mindmap-trash";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

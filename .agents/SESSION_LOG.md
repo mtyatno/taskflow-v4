@@ -3452,3 +3452,17 @@
 - **Verifikasi:** pytest 376, JS 1617/1618 (pra-ada `draw_local_reactive`), inline OK, E2E 29/29 (hapus→Sampah→pulihkan id sama + link node, pin anggota, 👥 + filter, cari snippet / "children", kartu hidup kanvas+Outline, ekspor `mindmaps/`, hapus+pulihkan offline lalu sinkron).
 - **Files Touch:** `static/{index.html,sw.js}`, `webapp.py` (`sw_cache`), `tests/**` (versi SW), `temporary_files/e2e_mindmap_findings_a.py`, `.agents/*`
 - **Status:** Needs Review (draft PR oleh controller; deploy butuh `sudo systemctl restart taskflow-web`).
+
+## [2026-10-19 20:30] - Claude (PR 3: drawing milik workspace, frontend + offline)
+- **Task:** Bapak "lanjut" rencana `docs/superpowers/plans/2026-10-19-drawing-workspace-ui.md`.
+- **Changes:** SDD 6 task + review per task (fix round di T1, T2, T3, T5×2). E2E dua akun menemukan bug urutan muat `drawingshare.js`. Review akhir menemukan `base_rev` dimajukan saat share (edit anggota lain bisa hilang) → diperbaiki bersama scope rekaman lama, gerbang push share note, timeout cek gambar. ADR-013.
+- **Verifikasi:** pytest 358, JS 1633/1634, E2E 28/28.
+- **Status:** Needs Review (draft PR; restart `taskflow-web` setelah deploy).
+
+## [2026-10-19 21:30] - Claude (merge main ke PR A setelah #45)
+- **Task:** Perbarui PR A `claude/mindmap-findings-a` (#44) setelah `origin/main` ee5b8d3 (PR #45 drawing workspace UI, SW v421 + ADR-013).
+- **Changes:** `git merge origin/main` (tanpa rebase). Konflik 21 file: semua hunk kode/tes hanya string versi SW; `index.html`/`sw.js`/`webapp.py` mempertahankan tambahan drawing (main) + mindmap (A). SW PR A → `taskflow-v422-mindmap-trash` di semua tempat; ADR mindmap A → **ADR-014** (ADR-013 tetap milik drawing). Iframe mind-elixir tetap `?v=144` (main 143), `app.css?v=334`.
+- **Verifikasi:** pytest 378, JS 1683/1684 (pra-ada `draw_local_reactive`), inline OK (index 5, mind-elixir 1).
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py`, `tests/**` (versi SW), `.agents/*`
+- **Status:** Needs Review.
+

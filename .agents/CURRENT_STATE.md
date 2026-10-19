@@ -4,13 +4,20 @@
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
 ## 🟠 Temuan mindmap #3 #5–#8 — PR A `claude/mindmap-findings-a` — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
-- **Status:** A1–A9 selesai di branch (sudah merge `origin/main` termasuk PR #43). SW **v421** `taskflow-v421-mindmap-trash`; iframe mind-elixir `?v=144`; `app.css` tidak berubah (`?v=334`). **Deploy wajib `sudo systemctl restart taskflow-web`** (migrasi `trashed_mindmaps`, `mindmap_pins`, kolom `mindmaps.search_text` + backfill). ADR-013.
+- **Status:** A1–A9 selesai di branch (sudah merge `origin/main` termasuk PR #43 dan #45; versi SW naik ke v422 dan ADR jadi 014 karena #45 memakai v421/ADR-013). SW **v422** `taskflow-v422-mindmap-trash`; iframe mind-elixir `?v=144`; `app.css` tidak berubah (`?v=334`). **Deploy wajib `sudo systemctl restart taskflow-web`** (migrasi `trashed_mindmaps`, `mindmap_pins`, kolom `mindmaps.search_text` + backfill). ADR-014.
 - **Isi:** #5 Sampah mindmap (snapshot, pulihkan id sama, purge 30 hari, tab "Mindmap" di modal Sampah + tombol "🗑 Sampah" di sidebar, offline: cermin `_meta` + op `restore`, `static/offline/mindmaptrash.js`, SW network-only `/api/mindmaps/trash…`); #6 ekspor `mindmaps/*.json|.md`; #7 `search_text` + snippet + `client_id` di `/api/search`; #8 pin pribadi `mindmap_pins`, badge 👥, filter "Semua peta / Pribadi / 👥 W"; #3 kartu link hidup `static/offline/mindmaplinks.js` (kanvas + Outline).
-- **Verifikasi:** pytest 376, JS 1617/1618 (pra-ada `draw_local_reactive`), inline OK, E2E `temporary_files/e2e_mindmap_findings_a.py` 29/29.
+- **Verifikasi:** pytest 378, JS 1683/1684 (pra-ada `draw_local_reactive`) setelah merge #45, inline OK; E2E `temporary_files/e2e_mindmap_findings_a.py` 29/29 (sebelum merge #45).
 - **Sisa diketahui:** Outline: klik pertama badge 🔗 pada baris yang belum aktif hanya mengaktifkan baris (tombol aksi muncul, badge bergeser) — perilaku lama, bukan dari PR A. Kartu hidup ikut berubah pada event lokal dan setiap sinkron task (`tf:projects-changed`, review akhir).
 - **Berikutnya:** PR B `claude/mindmap-findings-b` (#4 kolaborasi langsung SSE + merge per node) setelah PR A di-merge.
 
-## 🟠 Drawing milik workspace — PR 2 backend — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+## 🟠 Drawing milik workspace — PR 3 frontend + offline — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+- **Status:** branch `claude/drawing-workspace-ui` (draft PR). SW **v421** `taskflow-v421-drawing-workspace`, `app.css?v=334`. Tidak ada perubahan backend selain string versi → setelah deploy cukup **restart `taskflow-web`**.
+- **Isi:** `static/offline/drawingshare.js` (baru, ADR-013); scope di `drawingrepo`/`drawingroutes`/`syncpull`/`syncpush`/`syncconflict`; halaman Draw (👥 Share, badge, filter Semua/Pribadi/W, aksi khusus pemilik, dialog "Drawing masih dipakai"); note (sisip per scope, buat baru di W, banner editor, badge + salin di embed, placeholder); dialog share/unshare note dan keluar workspace.
+- **Verifikasi:** pytest 358, JS 1633/1634 (pra-ada `draw_local_reactive`), E2E dua akun `temporary_files/e2e_drawing_workspace.py` 28/28 (screenshot `temporary_files/e2e_drawing_workspace/`). E2E menemukan bug urutan muat skrip (diperbaiki). Review akhir opus → perbaikan `base_rev` saat share (edit anggota bisa hilang), scope rekaman lama, gerbang push share note.
+- **Sisa:** canvas tldraw tidak ikut E2E (vendor tidak ada di checkout); daftar drawing di halaman workspace belum ada (pakai filter di Draw).
+- **Berikutnya:** PR XSS (1b).
+
+## 🟠 Drawing milik workspace — PR 2 backend — 2026-10-19 (Claude) — DI-MERGE (#43), backfill jalan 16:16 WIB (1 drawing)
 - **Status:** branch `claude/drawing-workspace-backend` (draft PR). Backend saja, **tanpa** kenaikan SW. Setelah deploy: **restart `taskflow-web` dan `taskflow`** (`repository.py` berubah). `migrate_db` menambah kolom + backfill sekali jalan.
 - **Isi:** `drawing_scope.py` (ADR-012); akses anggota W ke drawing (GET/PUT), hapus/pin/share hanya pemilik; `GET /api/drawings?shared=1`; `PATCH /api/drawings/{id}/share` (409 `DRAWING_IN_USE`), `POST /api/drawings/{id}/copy`, `GET /api/lists/{id}/drawings`, `GET /api/lists/{id}/leave-impact`; respons note membawa `moved_drawings`/`unresolved_drawings`; halaman publik & ekspor DOCX ikut akses baru.
 - **Aturan penting:** server memindah drawing ke W hanya saat note di-share/dibuat di W (bukan saat autosave) — sisip ke note W yang ada akan di-share eksplisit oleh klien PR 3.

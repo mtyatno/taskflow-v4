@@ -148,7 +148,7 @@ Sekarang drawing belum bisa di-share, jadi note bersama yang memuat drawing suda
 ### 4.7 UI
 
 - **DrawPage:** tombol "👥 Share" untuk pemilik (seperti di tab mindmap), badge workspace di item daftar, dan filter per workspace.
-- **Halaman workspace:** daftar Drawing, seperti daftar Notes dan Mindmap.
+- **Halaman workspace:** daftar Drawing, seperti daftar Notes dan Mindmap. *(PR 3: belum dibuat — halaman workspace baru punya tab Tasks dan Files; penggantinya filter Semua/Pribadi/W di halaman Draw. Route lokal `GET /api/lists/{id}/drawings` sudah ada.)*
 - **`DrawingInsertModal`:** kelompokkan jadi "Pribadi" dan per workspace. Tampilkan pemberitahuan sesuai §4.5: drawing W ke note pribadi, drawing pribadi ke note W, dan drawing W2 ke note W ("akan disalin").
 - **Embed di note:** badge "👥 W" kalau scope drawing berbeda dari scope note, dan menu "Jadikan salinan pribadi".
 - **Editor (QuickDrawModal) dibuka dari note pribadi untuk drawing W:** tampilkan banner *"Kamu mengedit drawing milik workspace W. Perubahan terlihat oleh semua anggota."*
