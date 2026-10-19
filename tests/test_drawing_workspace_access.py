@@ -142,3 +142,20 @@ def test_search_includes_workspace_drawings(client):
     assert d["id"] in [x["id"] for x in r.json()["drawings"]]
     r = client.get(f"/api/search?q=Gbr{s}", headers=h["c"])
     assert r.json()["drawings"] == []
+
+
+def test_linked_notes_by_client_id_in_list_and_detail(client):
+    s, names, h, w, d = _setup(client)
+    cid = f"cid-{s}"
+    conn = db()
+    conn.execute("UPDATE drawings SET client_id = ? WHERE id = ?", (cid, d["id"]))
+    conn.commit()
+    conn.close()
+    make_note(client, h["a"], f"Rahasia A {s}", f"::draw\\[{cid}\\]")
+    make_note(client, h["a"], f"Catatan W {s}", f"::draw\\[{cid}\\]", list_id=w)
+    detail = client.get(f"/api/drawings/{d['id']}", headers=h["b"]).json()
+    assert [n["title"] for n in detail["linked_notes"]] == [f"Catatan W {s}"]
+    listed = {x["id"]: x for x in client.get("/api/drawings?shared=1", headers=h["b"]).json()}
+    assert [n["title"] for n in listed[d["id"]]["linked_notes"]] == [f"Catatan W {s}"]
+    listed_a = {x["id"]: x for x in client.get("/api/drawings?shared=1", headers=h["a"]).json()}
+    assert {n["title"] for n in listed_a[d["id"]]["linked_notes"]} == {f"Rahasia A {s}", f"Catatan W {s}"}

@@ -7763,7 +7763,19 @@ async def delete_mindmap(mid: int, user=Depends(get_current_user)):
 
 # ── Standalone Drawings endpoints ────────────────────────────────────────────
 
-def _drawing_enrich(row_dict: dict, conn, viewer_uid: int) -> dict:
+def _drawing_note_index(conn, viewer_uid: int) -> list:
+    """Note yang bisa diakses viewer dan memuat ::draw, urut updated_at DESC, sebagai [(id, title, tokens)].
+    Satu query untuk seluruh daftar drawing (jalur pull sinkron), bukan satu per drawing."""
+    note_ac, note_ap = _note_access_clause(viewer_uid)
+    rows = conn.execute(
+        f"SELECT id, title, content FROM scratchpad_notes WHERE {note_ac} AND content LIKE '%::draw%' "
+        "ORDER BY updated_at DESC",
+        note_ap
+    ).fetchall()
+    return [(r["id"], r["title"], drawing_scope.draw_tokens(r["content"])) for r in rows]
+
+
+def _drawing_enrich(row_dict: dict, conn, viewer_uid: int, note_index: Optional[list] = None) -> dict:
     did = row_dict["id"]
     # Penanda baris server: client mengecek d.server_id == null untuk mengenali baris
     # LOKAL yang belum tersinkron (junk-row guard di selectDrawing). Semua baris yang
@@ -7787,15 +7799,10 @@ def _drawing_enrich(row_dict: dict, conn, viewer_uid: int) -> dict:
     # Note yang merujuk drawing ini DAN bisa diakses viewer. Prefilter LIKE, lalu cocokkan token persis
     # (bentuk ter-escape ::draw\[x\] ikut dihitung).
     refs = drawing_scope.refs_of(row_dict)
-    note_ac, note_ap = _note_access_clause(viewer_uid)
-    note_rows = conn.execute(
-        f"SELECT id, title, content FROM scratchpad_notes WHERE {note_ac} AND content LIKE '%::draw%' "
-        "ORDER BY updated_at DESC",
-        note_ap
-    ).fetchall()
+    if note_index is None:
+        note_index = _drawing_note_index(conn, viewer_uid)
     row_dict["linked_notes"] = [
-        {"id": nr["id"], "title": nr["title"]}
-        for nr in note_rows if drawing_scope.draw_tokens(nr["content"]) & refs
+        {"id": nid, "title": title} for nid, title, tokens in note_index if tokens & refs
     ][:5]
     return row_dict
 
@@ -7815,7 +7822,8 @@ async def list_drawings(shared: int = 0, user=Depends(get_current_user)):
             f"FROM drawings WHERE {ac} ORDER BY is_pinned DESC, updated_at DESC",
             ap
         ).fetchall()
-        return [_drawing_enrich(dict(r), conn, uid) for r in rows]
+        note_index = _drawing_note_index(conn, uid)
+        return [_drawing_enrich(dict(r), conn, uid, note_index) for r in rows]
 
 
 @app.post("/api/drawings")
