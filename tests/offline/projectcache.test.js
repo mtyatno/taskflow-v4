@@ -206,11 +206,12 @@ test("payload carries project_id only when the record's project text matches the
   const match = task({ cid: "a", project: "alpha", project_id: 1 });
   assert.equal(taskToCreatePayload(match, [], null, items).project_id, 1);
   assert.equal(taskToUpdatePayload(match, [], items).project_id, 1);
-  const renamedLocally = task({ cid: "b", project: "Other", project_id: 1 });
+  const renamedLocally = task({ cid: "b", project: "Other", project_id: 1, project_ref_name: "Alpha" });
   assert.equal("project_id" in taskToCreatePayload(renamedLocally, [], null, items), false);
   assert.equal("project_id" in taskToUpdatePayload(renamedLocally, [], items), false);
+  // F1: id bound to this text but no longer in the cache (deleted) → still sent (server ignores stale ids)
   const unknownId = task({ cid: "c", project: "Alpha", project_id: 99 });
-  assert.equal("project_id" in taskToUpdatePayload(unknownId, [], items), false);
+  assert.equal(taskToUpdatePayload(unknownId, [], items).project_id, 99);
   const noId = task({ cid: "d", project: "Alpha", project_id: null });
   assert.equal("project_id" in taskToUpdatePayload(noId, [], items), false);
   const wrongScope = task({ cid: "e", project: "Ws", project_id: 3, list_id: null });
@@ -218,6 +219,99 @@ test("payload carries project_id only when the record's project text matches the
   // no cache passed (old callers) → text only
   assert.equal("project_id" in taskToUpdatePayload(match, []), false);
   assert.equal(taskToUpdatePayload(match, []).project, "alpha");
+});
+
+// ── F1: stale device after rename/delete must not recreate the old project ─────────────────
+test("F1 payload: bound id is sent even after the cache shows the project renamed or deleted", () => {
+  const rec = task({ cid: "a", server_id: 9, project: "Foo", project_id: 5, project_ref_name: "Foo", dirty: 1 });
+  const renamed = [proj({ id: 5, name: "Bar" })];
+  assert.equal(taskToUpdatePayload(rec, [], renamed).project_id, 5);
+  assert.equal(taskToCreatePayload(rec, [], null, renamed).project_id, 5);
+  const deleted = [proj({ id: 6, name: "Other" })];
+  assert.equal(taskToUpdatePayload(rec, [], deleted).project_id, 5);
+  // NOCASE vs ref name
+  const rc = task({ cid: "b", project: "foo", project_id: 5, project_ref_name: "Foo" });
+  assert.equal(taskToUpdatePayload(rc, [], renamed).project_id, 5);
+  // legacy record without project_ref_name: current text is the ref name
+  const legacy = task({ cid: "c", project: "Foo", project_id: 5 });
+  assert.equal(taskToUpdatePayload(legacy, [], renamed).project_id, 5);
+  assert.equal(PC.payloadProjectId(legacy, []), 5);
+});
+
+test("F1 payload: text changed away from the ref name → id only if the cache resolves the new text in scope", () => {
+  const items = [proj({ id: 5, name: "Bar" }), proj({ id: 7, name: "Baz" }), proj({ id: 8, name: "Qux", list_id: 3 })];
+  const unknown = task({ cid: "a", project: "Brand new", project_id: 5, project_ref_name: "Foo" });
+  assert.equal("project_id" in taskToUpdatePayload(unknown, [], items), false);
+  assert.equal(taskToUpdatePayload(unknown, [], items).project, "Brand new");
+  const known = task({ cid: "b", project: "baz", project_id: 5, project_ref_name: "Foo" });
+  assert.equal(taskToUpdatePayload(known, [], items).project_id, 7);
+  const otherScope = task({ cid: "c", project: "Qux", project_id: 5, project_ref_name: "Foo" });
+  assert.equal("project_id" in taskToUpdatePayload(otherScope, [], items), false);
+});
+
+test("F1 pushOutbox after pull refreshed the cache (rename 5→Bar / delete 5) sends project_id 5", async () => {
+  const { outboxAdd } = require("../../static/offline/outbox.js");
+  for (const cache of [[proj({ id: 5, name: "Bar" })], []]) {
+    _reset(); await deleteDB(DB_NAME);
+    await seedCache(cache);
+    await put("tasks", [task({ cid: "a", server_id: 60, project: "Foo", project_id: 5, project_ref_name: "Foo",
+      dirty: 1, rev: 1, base_rev: "x" })]);
+    await mapPut("task", 60, "a");
+    await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+    const tr = fakeTransport(() => ({ ok: true, status: 200, data: { id: 60, updated_at: "u2", project: "Bar", project_id: 5 } }));
+    await pushOutbox(tr);
+    assert.equal(tr.calls[0].body.project_id, 5);
+    const rec = await getRaw("a");
+    assert.equal(rec.project, "Bar");
+    assert.equal(rec.project_ref_name, "Bar");
+  }
+});
+
+test("F1 updateTask: unchanged project text (NOCASE) keeps project_id + ref name even if the cache renamed it", async () => {
+  await seedCache([proj({ id: 5, name: "Bar" }), proj({ id: 7, name: "Baz" })]);
+  await put("tasks", [task({ cid: "t", project: "Foo", project_id: 5, project_ref_name: "Foo", rev: 1 })]);
+  await updateTask("t", { project: "Foo", title: "x" }, { today: "2026-10-19" });
+  let r = await getRaw("t");
+  assert.equal(r.project_id, 5);
+  assert.equal(r.project_ref_name, "Foo");
+  await updateTask("t", { project: "foo" }, { today: "2026-10-19" });
+  r = await getRaw("t");
+  assert.equal(r.project_id, 5);
+  assert.equal(r.project_ref_name, "Foo");
+  // changed to a known name in scope → that id, ref name follows
+  await updateTask("t", { project: "Baz" }, { today: "2026-10-19" });
+  r = await getRaw("t");
+  assert.equal(r.project_id, 7);
+  assert.equal(r.project_ref_name, "Baz");
+  // changed to an unknown name → no id, no ref name; payload is text only
+  await updateTask("t", { project: "Nope" }, { today: "2026-10-19" });
+  r = await getRaw("t");
+  assert.equal(r.project_id, null);
+  assert.equal(r.project_ref_name, null);
+  assert.equal("project_id" in taskToUpdatePayload(r, [], [proj({ id: 5, name: "Bar" })]), false);
+  // explicit project_id binds the ref name to the patched text
+  await updateTask("t", { project: "Bar", project_id: 5 }, { today: "2026-10-19" });
+  r = await getRaw("t");
+  assert.equal(r.project_ref_name, "Bar");
+});
+
+test("F1 createTask / hydrate / pull adoption store project_ref_name with the id", async () => {
+  await seedCache([proj({ id: 1, name: "Alpha" })]);
+  const a = await createTask({ title: "a", project: "alpha" }, { today: "2026-10-19" });
+  assert.equal((await getRaw(a.cid)).project_ref_name, "alpha");
+  const b = await createTask({ title: "b", project: "Nope" }, { today: "2026-10-19" });
+  assert.equal((await getRaw(b.cid)).project_ref_name, null);
+  assert.equal(taskFromServer({ id: 1, title: "t", project: "A", project_id: 9 }, () => "c1").project_ref_name, "A");
+  assert.equal(taskFromServer({ id: 2, title: "t", project: "" }, () => "c2").project_ref_name, null);
+  const { pullTasks } = require("../../static/offline/syncpull.js");
+  await put("tasks", [task({ cid: "p", server_id: 71, project: "Foo", project_id: 5, project_ref_name: "Foo", dirty: 0,
+    base_rev: "u0", updated_at: "u0", rev: 1 })]);
+  await mapPut("task", 71, "p");
+  await pullTasks([{ id: 71, title: "p", gtd_status: "next", priority: "P3", quadrant: "Q4", project: "Bar", project_id: 5,
+    context: "", deadline: null, waiting_for: "", completed_at: null, progress: 0, is_focused: 0, updated_at: "u0" }]);
+  const p = await getRaw("p");
+  assert.equal(p.project, "Bar");
+  assert.equal(p.project_ref_name, "Bar");
 });
 
 test("pushOutbox sends project_id from the cache and adopts project + project_id from the response", async () => {

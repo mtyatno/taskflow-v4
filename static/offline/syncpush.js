@@ -37,9 +37,9 @@
     return record.client_id || record.cid || null;
   }
 
-  // PR 5: `projects` = item cache project (opsional). project_id dikirim hanya bila record punya project_id
-  // non-null DAN teks `project`-nya sama (NOCASE) dengan nama project itu di cache (scope sama); selain itu
-  // teks saja (server mencocokkan/membuat lewat nama).
+  // PR 5: `projects` = item cache project (opsional; tanpa cache → teks saja). Aturan project_id ada di
+  // projectcache.payloadProjectId (F1: id yang masih terikat ke teks record dikirim walau cache sudah
+  // menunjukkan rename/hapus, supaya server tidak membuat ulang project bernama lama).
   function withProjectId(payload, record, projects) {
     const pid = TFprojects && projects ? TFprojects.payloadProjectId(record, projects) : null;
     if (pid != null) payload.project_id = pid;
@@ -376,6 +376,9 @@
       // PR 5: server mengkanonkan nama project dan menautkan/mengabaikan project_id
       if ("project" in d) next.project = d.project != null ? d.project : "";
       if ("project_id" in d) next.project_id = d.project_id != null ? d.project_id : null;
+      if ("project" in d || "project_id" in d) {
+        next.project_ref_name = next.project_id != null ? (next.project != null ? next.project : "") : null;
+      }
     };
   }
   function updatedAtOf(res) {

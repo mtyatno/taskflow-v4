@@ -17,6 +17,11 @@
   // dimuat malas (siklus: projectcache → taskquery → taskrepo)
   const TFprojects = () => (isNode ? require("./projectcache.js") : (root.TF && root.TF.projectcache));
 
+  // ASCII-only lowercase (SQLite NOCASE), sama dengan projectcache.nocaseKey (tanpa require: siklus).
+  function nocaseKey(s) {
+    return String(s == null ? "" : s).replace(/[A-Z]/g, (c) => c.toLowerCase());
+  }
+
   // PR 5: project_id eksplisit menang; selain itu id project bernama sama (NOCASE) di scope task dari cache,
   // atau null. Cache yang tidak tersedia/gagal dibaca → null (server mencocokkan lewat teks).
   function resolveProjectId(listId, project, explicit) {
@@ -118,6 +123,7 @@
         quadrant: TFlogic.calculateQuadrant({ priority: priority, deadline: deadline }, opts && opts.today),
         project: input.project != null ? input.project : "",
         project_id: projectId,
+        project_ref_name: projectId != null ? (input.project != null ? input.project : "") : null,
         context: input.context != null ? input.context : "",
         deadline: deadline,
         waiting_for: input.waiting_for != null ? input.waiting_for : "",
@@ -150,6 +156,8 @@
   function updateTask(cid, patch, opts) {
     const now = (opts && opts.now) || new Date().toISOString();
     // PR 5: patch `project` tanpa `project_id` → id dari cache (scope task) bila cocok, selain itu null.
+    // F1: teks yang sama (NOCASE) dengan `project` record → id + nama ikatan dipertahankan (form yang menyimpan
+    // teks tak berubah setelah rename di cache tidak boleh memutus id).
     const needLookup = patch.project != null && !("project_id" in patch);
     const pc = needLookup ? TFprojects() : null;
     const itemsP = (pc && pc.allItems) ? pc.allItems().catch(() => []) : Promise.resolve([]);
@@ -168,9 +176,16 @@
       }
       if (patch.description != null) next.description = patch.description;
       if (patch.priority != null) next.priority = String(patch.priority).toUpperCase();
+      const sameProjectText = patch.project != null && rec.project_id != null
+        && nocaseKey(patch.project) === nocaseKey(rec.project);
       if (patch.project != null) next.project = patch.project;
-      if ("project_id" in patch) next.project_id = patch.project_id != null ? patch.project_id : null;
-      else if (needLookup) next.project_id = pc ? pc.findId(projectItems, next.list_id, patch.project) : null;
+      if ("project_id" in patch) {
+        next.project_id = patch.project_id != null ? patch.project_id : null;
+        next.project_ref_name = next.project_id != null ? (next.project != null ? next.project : "") : null;
+      } else if (needLookup && !sameProjectText) {
+        next.project_id = pc ? pc.findId(projectItems, next.list_id, patch.project) : null;
+        next.project_ref_name = next.project_id != null ? next.project : null;
+      }
       if (patch.context != null) next.context = patch.context;
       if (patch.waiting_for != null) next.waiting_for = patch.waiting_for;
       if (patch.gtd_status != null) {

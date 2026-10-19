@@ -101,22 +101,39 @@
     return allItems().then((items) => findId(items, listId, name));
   }
 
-  // Pure: project_id yang boleh dikirim ke server untuk record task — hanya bila id ada di cache, scope sama,
-  // dan teks `project` record sama (NOCASE) dengan nama project itu. Selain itu null (kirim teks saja).
+  // Pure: nama yang mengikat `project_id` di record task (disimpan sebagai `project_ref_name` setiap kali id
+  // ditulis). Id null → null.
+  function refNameFor(project, projectId) {
+    return projectId == null ? null : (project != null ? project : "");
+  }
+  // Record lama tanpa `project_ref_name`: teks `project` saat ini dianggap nama ikatannya.
+  function refNameOf(record) {
+    if (!record || record.project_id == null) return null;
+    return record.project_ref_name != null ? record.project_ref_name : (record.project != null ? record.project : "");
+  }
+
+  // Pure: project_id yang boleh dikirim ke server untuk record task (F1 final review).
+  // - Teks `project` record masih sama (NOCASE) dengan nama ikatannya → kirim `project_id` record apa adanya,
+  //   walau cache (yang disegarkan pull sebelum push) sudah menunjukkan project itu di-rename atau dihapus:
+  //   server mempertahankan id yang di-rename dan mengabaikan id yang dihapus, sehingga nama lama tidak dibuat
+  //   ulang. Satu-satunya pengecualian: id ada di cache tapi di scope lain → tidak dikirim (cegah 400).
+  // - Teks sudah berbeda (user memilih project lain offline) → id hanya bila cache memetakan teks baru itu di
+  //   scope task; selain itu null (kirim teks saja).
   function payloadProjectId(record, items) {
     if (!record || record.project_id == null || !Array.isArray(items)) return null;
-    for (const p of items) {
-      if (String(p.id) !== String(record.project_id)) continue;
-      if (!inScope(p, record.list_id)) return null;
-      return nocaseEq(p.name, record.project) ? p.id : null;
+    if (nocaseEq(record.project, refNameOf(record))) {
+      for (const p of items) {
+        if (String(p.id) === String(record.project_id) && !inScope(p, record.list_id)) return null;
+      }
+      return record.project_id;
     }
-    return null;
+    return findId(items, record.list_id, record.project);
   }
 
   const exported = {
     KEY, FULL_PATH,
     refresh, list, names, idFor, allItems,
-    filterScope, mergeNames, findId, payloadProjectId, nocaseKey, nocaseCompare, nocaseEq,
+    filterScope, mergeNames, findId, payloadProjectId, refNameFor, refNameOf, nocaseKey, nocaseCompare, nocaseEq,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.projectcache = exported; }
   return exported;

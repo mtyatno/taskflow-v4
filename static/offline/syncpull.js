@@ -94,6 +94,9 @@
       if (!sameRecState(cur, local)) return undefined;
       const next = Object.assign({}, cur);
       for (const k of keys) next[k] = s[k] != null ? s[k] : null;
+      if (keys.indexOf("project_id") >= 0 || keys.indexOf("project") >= 0) {
+        next.project_ref_name = next.project_id != null ? (next.project != null ? next.project : "") : null;
+      }
       return next;
     }).then((saved) => !!saved);
   }

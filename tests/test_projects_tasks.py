@@ -445,3 +445,19 @@ def test_post_unknown_project_id_falls_back_to_text(client):
     t = _mk(u, project=name, project_id=99999999)
     assert t["project"] == name and t["project_id"]
     assert _row("SELECT name FROM projects WHERE id=?", t["project_id"])["name"] == name
+
+
+def test_put_stale_text_with_renamed_project_id_keeps_renamed_project(client):
+    # F1 (final review PR 5): perangkat basi mengirim teks lama + id yang sudah di-rename → tetap di project
+    # yang di-rename; nama lama tidak dibuat ulang.
+    u = U(client)
+    old, new = _n("Foo"), _n("Bar")
+    t = _mk(u, project=old)
+    pid = t["project_id"]
+    assert u.client.patch(f"/api/projects/{pid}", headers=u.h, json={"name": new}).status_code == 200
+    r = u.put(f"/api/tasks/{t['id']}", json={"title": "edit basi", "project": old, "project_id": pid})
+    assert r.status_code == 200, r.text
+    assert r.json()["project_id"] == pid and r.json()["project"] == new
+    row = _row("SELECT project, project_id FROM tasks WHERE id=?", t["id"])
+    assert row["project_id"] == pid and row["project"] == new
+    assert _row("SELECT COUNT(*) AS n FROM projects WHERE user_id=? AND name=? COLLATE NOCASE", u.id, old)["n"] == 0

@@ -29,6 +29,8 @@
     rec.parent_cid = dict.parent_id != null ? getCid(dict.parent_id) : null;
     rec.list_cid = null;
     rec.list_id = dict.list_id != null ? dict.list_id : null;
+    // F1: nama yang mengikat project_id (lihat projectcache.payloadProjectId)
+    rec.project_ref_name = rec.project_id != null ? (rec.project != null ? rec.project : "") : null;
     rec.deleted = false;
     rec.dirty = 0;
     rec.base_rev = dict.updated_at != null ? dict.updated_at : null;
