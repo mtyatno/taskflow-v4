@@ -11375,8 +11375,11 @@ function DrawingTabInstance({
     }
   };
 
+  // Cache SW campuran (index.html baru, drawingshare.js belum dimuat) → toast, bukan rejection tak tertangani.
+  const DRAWINGSHARE_MISSING_TEXT = "Muat ulang aplikasi untuk membagikan gambar.";
   const handleShare = async listId => {
     setShareOpen(false);
+    if (!(window.TF && window.TF.drawingshare)) { showToast(DRAWINGSHARE_MISSING_TEXT, "error"); return; }
     const res = await window.TF.drawingshare.shareDrawing(api, tab, listId);
     if (res.ok) {
       onDrawingChanged && onDrawingChanged(tab.id, res.drawing, listId);
@@ -11388,6 +11391,7 @@ function DrawingTabInstance({
   };
 
   const handleMakePersonalCopy = async () => {
+    if (!(window.TF && window.TF.drawingshare)) { showToast(DRAWINGSHARE_MISSING_TEXT, "error"); return; }
     setInUseBusy(true);
     try {
       const res = await window.TF.drawingshare.copyDrawing(api, tab, null);
@@ -20973,11 +20977,6 @@ function groupDrawingsByScope(list, sharedLists) {
   const ws = Array.from(byList.entries()).sort((a, b) => rank(a[0]) - rank(b[0])).map(e => e[1]);
   return (personal.items.length ? [personal] : []).concat(ws);
 }
-// Baris server (GET /api/drawings?shared=1) tidak membawa server_id → id = id server.
-function drawingWithServerId(d) {
-  if (!d || d.server_id != null || d.cid != null) return d;
-  return Object.assign({}, d, { server_id: d.id });
-}
 // Token direktif ::draw[...] untuk drawing hasil salin: client_id dulu, lalu id server.
 function drawingInsertToken(d) {
   if (!d) return null;
@@ -20992,7 +20991,7 @@ function drawingShareLaterText(name) {
 // Pilihan galeri yang butuh konfirmasi: own_to_ws → share dulu (gagal tetap sisip + toast);
 // other_ws_copy → salin ke W note lalu sisip salinannya.
 async function applyDrawingInsertChoice(TFshare, api, drawing, notice, listName) {
-  const d = drawingWithServerId(drawing);
+  const d = drawing;
   if (notice && notice.kind === "own_to_ws") {
     const res = await Promise.resolve().then(() => TFshare.shareDrawing(api, d, notice.listId))
       .catch(err => { console.warn('[drawing] share saat sisip gagal', err); return null; });
@@ -21108,7 +21107,7 @@ async function copyDrawingIntoEditor(editor, did, targetListId) {
   let src = TF.drawingrepo ? await TF.drawingrepo.getDrawing(did, { online: false }).catch(warnRead) : null;
   if (!src) src = await api.get(`/api/drawings/${did}`).catch(warnRead);
   if (!src) return { ok: false, message: DRAWING_UNAVAILABLE_TEXT };
-  const res = await TF.drawingshare.copyDrawing(api, drawingWithServerId(src), targetListId);
+  const res = await TF.drawingshare.copyDrawing(api, src, targetListId);
   if (!res || !res.ok) return { ok: false, message: (res && res.message) || "Gagal membuat salinan gambar" };
   const newId = String(drawingInsertToken(res.drawing));
   const MB = window.MilkdownBundle;
@@ -21141,7 +21140,7 @@ function noteShareDrawingIndex(list) {
   const map = {};
   for (const raw of list || []) {
     if (!raw || raw.deleted) continue;
-    const d = drawingWithServerId(raw);
+    const d = raw;
     for (const k of [d.server_id, d.client_id, d.cid, d.id]) {
       if (k == null || k === "") continue;
       if (map[String(k)] === undefined) map[String(k)] = d;
@@ -21168,16 +21167,24 @@ function noteDrawingPullbackCandidates(TF, content, oldListId, byId, uid) {
   }
   return out;
 }
-async function prepareNoteShare(TF, content, targetListId, oldListId) {
+const NOTE_SHARE_LIST_TIMEOUT_MS = 6000;
+async function prepareNoteShare(TF, content, targetListId, oldListId, timeoutMs) {
   const repo = TF && TF.drawingrepo;
   let list = [];
   if (repo && typeof repo.listDrawings === "function") {
+    // listDrawings ikut mengambil daftar server; jaringan macet tidak boleh menggantung dialog share → batas waktu.
+    let timer = null;
     try {
-      list = await repo.listDrawings();
+      list = await Promise.race([
+        Promise.resolve().then(() => repo.listDrawings()),
+        new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("listDrawings timeout")), timeoutMs != null ? timeoutMs : NOTE_SHARE_LIST_TIMEOUT_MS); })
+      ]);
     } catch (err) {
       // Jangan diam-diam melewati dialog: pemanggil membatalkan share + toast.
       console.warn('[note-share] daftar drawing lokal gagal dibaca', err);
       return { error: true };
+    } finally {
+      clearTimeout(timer);
     }
   }
   const uid = repo && typeof repo.currentUid === "function" ? repo.currentUid() : null;
@@ -21187,7 +21194,9 @@ async function prepareNoteShare(TF, content, targetListId, oldListId) {
   const pullback = target == null ? noteDrawingPullbackCandidates(TF, content, oldListId, byId, uid) : [];
   return { plan, pullback };
 }
-// plan = null → share langsung (tanpa salin/flush/dorong). Error simpan/PATCH dilempar ke pemanggil.
+// Share ke workspace (target != null): SELALU flush + gerbang dorong sebelum PATCH, walau plan kosong/null —
+// server menghitung moved_drawings dari isi note di server, jadi isi itu harus isi yang dilihat pengguna.
+// Unshare (target null, plan null) → PATCH langsung. Error simpan/PATCH dilempar ke pemanggil.
 // saveContent(transform): pemanggil menerapkan transform ke isi TERKINI saat simpan (ketikan selama dialog
 // tidak hilang; replaceDrawingToken idempoten) dan sekaligus mem-flush autosave yang tertunda.
 // pushNow() → true hanya bila dorong outbox sukses dan op note ini sudah habis; selain itu PATCH dibatalkan.
@@ -21195,7 +21204,7 @@ async function executeNoteShare({ api, TF, noteId, targetListId, plan, saveConte
   const share = TF && TF.drawingshare;
   const pairs = [];
   for (const d of (plan && plan.copy) || []) {
-    const res = await share.copyDrawing(api, drawingWithServerId(d), targetListId);
+    const res = await share.copyDrawing(api, d, targetListId);
     if (!res || !res.ok) {
       const message = pairs.length
         ? `Gagal menyalin gambar (${pairs.length} salinan sudah dibuat).`
@@ -21204,9 +21213,9 @@ async function executeNoteShare({ api, TF, noteId, targetListId, plan, saveConte
     }
     pairs.push({ src: d, token: String(drawingInsertToken(res.drawing)) });
   }
-  if (plan) {
+  if (plan || targetListId != null) {
     const rewrite = cur => pairs.reduce((c, p) => share.replaceDrawingToken(c, p.src, p.token), String(cur == null ? "" : cur));
-    await saveContent(rewrite);
+    if (typeof saveContent === "function") await saveContent(rewrite);
     // Server menghitung moved_drawings dari isi note di server → isi lokal harus sudah terdorong.
     const synced = typeof pushNow === "function" ? await pushNow(noteId) : false;
     if (synced !== true) return { ok: false, message: "Catatan belum tersinkron; coba bagikan lagi sebentar lagi." };
@@ -21217,7 +21226,25 @@ async function executeNoteShare({ api, TF, noteId, targetListId, plan, saveConte
       .catch(err => console.warn('[note-share] adopsi moved_drawings gagal', err));
   }
   const unresolved = updated && Array.isArray(updated.unresolved_drawings) ? updated.unresolved_drawings.length : 0;
-  return { ok: true, updated: updated || {}, warning: unresolved ? `${unresolved} gambar tidak ikut dibagikan.` : null };
+  const unexpectedMoved = targetListId != null ? noteShareUnexpectedMoved(share, updated && updated.moved_drawings, plan && plan.move) : 0;
+  return { ok: true, updated: updated || {}, warning: unresolved ? `${unresolved} gambar tidak ikut dibagikan.` : null, unexpectedMoved };
+}
+// Jumlah moved_drawings server yang tidak ada di plan.move (dicocokkan lewat id server / client_id / cid).
+function noteShareUnexpectedMoved(share, moved, planned) {
+  const keys = new Set();
+  for (const d of planned || []) {
+    if (!d) continue;
+    const sid = share && share.serverIdOf ? share.serverIdOf(d) : d.server_id;
+    if (sid != null) keys.add("s" + String(sid));
+    for (const c of [d.client_id, d.cid]) if (c != null && c !== "") keys.add("c" + String(c).toLowerCase());
+  }
+  let n = 0;
+  for (const m of Array.isArray(moved) ? moved : []) {
+    if (!m || typeof m !== "object") continue;
+    const hit = (m.id != null && keys.has("s" + String(m.id))) || (m.client_id != null && keys.has("c" + String(m.client_id).toLowerCase()));
+    if (!hit) n++;
+  }
+  return n;
 }
 function noteShareDialogSpec(plan, listName) {
   const w = listName || "Workspace";
@@ -21247,7 +21274,7 @@ async function pullNoteDrawingsBack(share, api, items, listName) {
   const w = listName || "Workspace";
   const errors = [];
   for (const d of items || []) {
-    const res = await Promise.resolve().then(() => share.shareDrawing(api, drawingWithServerId(d), null))
+    const res = await Promise.resolve().then(() => share.shareDrawing(api, d, null))
       .catch(err => ({ ok: false, code: "ERROR", message: (err && err.message) || "Terjadi kesalahan." }));
     if (res && res.ok) continue;
     const msg = res && res.code === "DRAWING_IN_USE"
@@ -21317,6 +21344,7 @@ async function confirmNoteShareWithDrawings({ note, content, targetListId, listN
     const res = await executeNoteShare({ api, TF: tf, noteId: note.id, targetListId: target, plan, saveContent, pushNow });
     if (!res.ok) { toast(res.message); return false; }
     if (res.warning) toast(res.warning);
+    if (res.unexpectedMoved > 0 && typeof showToast === "function") showToast(`${res.unexpectedMoved} gambar ikut dibagikan ke ${listName || "Workspace"}.`, "info");
     if (typeof onShared === "function") {
       await Promise.resolve().then(() => onShared(res.updated))
         .catch(err => console.warn('[note-share] adopsi hasil share gagal', err));

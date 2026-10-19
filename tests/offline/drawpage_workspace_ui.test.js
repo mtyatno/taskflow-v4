@@ -108,3 +108,21 @@ test("share scope comes from the requested listId, not the response; scope filte
   assert.match(tabInst(), /catch \(err\) \{\s*showToast\(\(err && err\.message\) \|\| "Gagal membuat salinan"/);
   assert.match(html, /fail open/);
 });
+
+test("DrawingTabInstance share/copy toast instead of rejecting when TF.drawingshare is missing (mixed SW cache)", async () => {
+  const b = tabInst();
+  const m = b.match(/  const DRAWINGSHARE_MISSING_TEXT = [\s\S]*?\n  const handleMakePersonalCopy = async \(\) => \{[\s\S]*?\n  \};/);
+  assert.ok(m, "handler share/copy harus ada");
+  const toasts = [];
+  const mk = new Function("window", "api", "tab", "showToast", "setShareOpen", "setInUse", "setInUseBusy", "onDrawingChanged", "onOpenDrawing",
+    m[0] + "\nreturn { handleShare, handleMakePersonalCopy };");
+  const busy = [];
+  const h = mk({ TF: {} }, {}, { id: 1 }, (msg, t) => toasts.push([msg, t]), () => {}, () => {}, (v) => busy.push(v), null, null);
+  await h.handleShare(5);
+  await h.handleMakePersonalCopy();
+  assert.deepEqual(toasts, [["Muat ulang aplikasi untuk membagikan gambar.", "error"], ["Muat ulang aplikasi untuk membagikan gambar.", "error"]]);
+  assert.deepEqual(busy, []);
+  const h2 = mk({}, {}, { id: 1 }, (msg, t) => toasts.push([msg, t]), () => {}, () => {}, () => {}, null, null);
+  await h2.handleShare(5);
+  assert.equal(toasts.length, 3);
+});

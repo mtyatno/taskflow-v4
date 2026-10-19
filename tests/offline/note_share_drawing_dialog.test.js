@@ -16,15 +16,16 @@ function src(name) {
   return m[0];
 }
 const HELPERS = [
-  "drawingWithServerId", "drawingInsertToken",
-  "noteShareDrawingIndex", "noteDrawingPullbackCandidates", "prepareNoteShare", "executeNoteShare",
+  "drawingInsertToken",
+  "noteShareDrawingIndex", "noteDrawingPullbackCandidates", "prepareNoteShare", "executeNoteShare", "noteShareUnexpectedMoved",
   "noteShareDialogSpec", "notePullbackDialogSpec", "pullNoteDrawingsBack", "confirmNoteShareWithDrawings",
   "leaveImpactDialogSpec", "leaveWorkspaceWithDrawings",
 ];
 const BUSY = "Memeriksa gambar…";
 // Toast error/peringatan saja (toast busy "info" dicek terpisah).
 const errToasts = arr => (m, t) => { if (t !== "info") arr.push([m, t]); };
-const H = new Function(HELPERS.map(src).join("\n") + "\nreturn {" + HELPERS.join(",") + "};")();
+const PRELUDE = (html.match(/^const NOTE_SHARE_LIST_TIMEOUT_MS = \d+;$/m) || [""])[0];
+const H = new Function(PRELUDE + "\n" + HELPERS.map(src).join("\n") + "\nreturn {" + HELPERS.join(",") + "};")();
 
 const UID = 7;
 // Pribadi milik saya, milik workspace lain (9), dan sudah di W (5).
@@ -84,9 +85,9 @@ test("note share shows move/copy lists and cancels without writes", async () => 
   assert.deepEqual(saves, []);
   assert.deepEqual(toasts, [[BUSY, "info"]]); // status sibuk selama prepareNoteShare
 
-  // Tanpa move/copy → langsung share tanpa dialog (perilaku lama)
+  // Tanpa move/copy → tanpa dialog, tetapi share ke W tetap flush + gerbang dorong sebelum PATCH
   const plain = mkTF();
-  const api2 = mkApi(plain.calls);
+  const api2 = mkApi(plain.calls, { patch: async (u, body) => ({ id: 1, list_id: body.list_id, moved_drawings: [] }) });
   const asked2 = [];
   const ok2 = await H.confirmNoteShareWithDrawings({
     note: { id: 1 }, content: "x ::draw[33] ::draw[ghost]", targetListId: 5, listName: "Tim A",
@@ -95,7 +96,7 @@ test("note share shows move/copy lists and cancels without writes", async () => 
   });
   assert.equal(ok2, true);
   assert.equal(asked2.length, 0);
-  assert.deepEqual(plain.calls.map(c => c[0]), ["patch", "applyMoved"]);
+  assert.deepEqual(plain.calls.map(c => c[0]), ["flush", "push", "patch", "applyMoved"]);
 
   // listDrawings gagal → dialog tidak dilewati diam-diam: toast + share dibatalkan
   const broken = mkTF({ listFail: true });
@@ -125,8 +126,9 @@ test("note share copies other-workspace drawings, rewrites tokens, then shares a
   });
   assert.equal(ok, true);
   assert.deepEqual(calls.map(c => c[0]), ["copy", "save", "push", "patch", "applyMoved"]);
-  // salin baris server tanpa server_id → server_id dinormalisasi; ke W
-  assert.equal(calls[0][1].server_id, 22);
+  // salin baris server tanpa server_id → diteruskan apa adanya; drawingshare.serverIdOf memakai id; ke W
+  assert.equal(calls[0][1], OTHER);
+  assert.equal(realShare.serverIdOf(calls[0][1]), 22);
   assert.equal(calls[0][2], 5);
   // token diganti dengan client_id salinan, atribut tetap
   assert.equal(saves[0], "a ::draw[11] b ::draw[c-copy]{size=\"m\"} c ::draw[33] d ::draw[ghost]");
@@ -154,7 +156,7 @@ test("note share copies other-workspace drawings, rewrites tokens, then shares a
   const ok3 = await H.confirmNoteShareWithDrawings({
     note: { id: 1 }, content: "x", targetListId: 5, listName: "Tim A",
     api: mkApi(g.calls, { patch: async () => { throw new Error("Server error"); } }), TF: g.TF,
-    showToast: errToasts(toasts3), ask: async () => "share", saveContent: async () => {},
+    showToast: errToasts(toasts3), ask: async () => "share", saveContent: async () => {}, pushNow: async () => true,
   });
   assert.equal(ok3, false);
   assert.deepEqual(toasts3, [["Server error", "error"]]);
@@ -218,7 +220,7 @@ test("share aborts before PATCH when the outbox push fails; move-only flushes fi
   const okC = await H.confirmNoteShareWithDrawings({
     note: { id: 1 }, content: "x", targetListId: 5, listName: "Tim A",
     api: mkApi(c.calls, { patch: async (u, body) => ({ id: 1, list_id: 5, moved_drawings: [], unresolved_drawings: ["a", "b"] }) }), TF: c.TF,
-    showToast: errToasts(toastsC), ask: async () => "share", saveContent: async () => {},
+    showToast: errToasts(toastsC), ask: async () => "share", saveContent: async () => {}, pushNow: async () => true,
   });
   assert.equal(okC, true);
   assert.deepEqual(toastsC, [["2 gambar tidak ikut dibagikan.", "error"]]);
@@ -290,7 +292,8 @@ test("unshare proceeds when drawings cannot be checked (no pull-back offer); bus
   const toasts2 = [];
   assert.equal(await H.confirmNoteShareWithDrawings({
     note: { id: 1 }, content: "teks biasa", targetListId: 5, listName: "Tim A",
-    api: mkApi(plain.calls), TF: plain.TF, showToast: (m, t) => toasts2.push([m, t]), ask: async () => "share", saveContent: async () => {},
+    api: mkApi(plain.calls, { patch: async () => ({ id: 1, list_id: 5, moved_drawings: [] }) }), TF: plain.TF,
+    showToast: (m, t) => toasts2.push([m, t]), ask: async () => "share", saveContent: async () => {}, pushNow: async () => true,
   }), true);
   assert.deepEqual(toasts2, []);
 });
@@ -463,4 +466,93 @@ test("NoteModal, NotePanel and SharedListsManager use the shared helpers and dia
   assert.equal((html.match(/^function useDrawingScopeDialog\(/gm) || []).length, 1);
   assert.equal((html.match(/^async function confirmNoteShareWithDrawings\(/gm) || []).length, 1);
   assert.ok((html.match(/useDrawingScopeDialog\(\)/g) || []).length >= 3);
+});
+
+test("share to W with no local plan still flushes and gates on push; push failure aborts before PATCH", async () => {
+  // plan kosong (tanpa ::draw sama sekali)
+  const a = mkTF();
+  const flushed = [];
+  const okA = await H.confirmNoteShareWithDrawings({
+    note: { id: 1 }, content: "teks biasa", targetListId: 5, listName: "Tim A",
+    api: mkApi(a.calls, { patch: async () => ({ id: 1, list_id: 5, moved_drawings: [] }) }), TF: a.TF, showToast: () => {}, ask: async () => "share",
+    saveContent: async t => { a.calls.push(["flush"]); flushed.push(t("isi terkini")); }, pushNow: async id => { a.calls.push(["push", id]); return true; },
+  });
+  assert.equal(okA, true);
+  assert.deepEqual(a.calls.map(c => c[0]), ["flush", "push", "patch", "applyMoved"]);
+  assert.deepEqual(flushed, ["isi terkini"]); // transform identitas
+  // TF.drawingshare tidak ada (plan null) → tetap flush + push
+  const b = mkTF();
+  delete b.TF.drawingshare;
+  const okB = await H.confirmNoteShareWithDrawings({
+    note: { id: 1 }, content: "::draw[11]", targetListId: 5, listName: "Tim A",
+    api: mkApi(b.calls), TF: b.TF, showToast: () => {}, ask: async () => "share",
+    saveContent: async () => b.calls.push(["flush"]), pushNow: async () => { b.calls.push(["push"]); return true; },
+  });
+  assert.equal(okB, true);
+  assert.deepEqual(b.calls.map(c => c[0]), ["flush", "push", "patch"]);
+  // gerbang gagal → tidak ada PATCH, toast yang sama
+  const c = mkTF();
+  const toasts = [];
+  const okC = await H.confirmNoteShareWithDrawings({
+    note: { id: 1 }, content: "teks biasa", targetListId: 5, listName: "Tim A",
+    api: mkApi(c.calls), TF: c.TF, showToast: errToasts(toasts), ask: async () => "share",
+    saveContent: async () => c.calls.push(["flush"]), pushNow: async () => { c.calls.push(["push"]); return false; },
+  });
+  assert.equal(okC, false);
+  assert.deepEqual(c.calls.map(c2 => c2[0]), ["flush", "push"]);
+  assert.deepEqual(toasts, [["Catatan belum tersinkron; coba bagikan lagi sebentar lagi.", "error"]]);
+  // unshare tetap PATCH langsung (tanpa flush/push)
+  const d = mkTF();
+  const okD = await H.confirmNoteShareWithDrawings({
+    note: { id: 1, list_id: 5 }, content: "teks", targetListId: null, oldListId: 5, oldListName: "Tim A",
+    api: mkApi(d.calls), TF: d.TF, showToast: () => {}, ask: async () => "no",
+    saveContent: async () => d.calls.push(["flush"]), pushNow: async () => { d.calls.push(["push"]); return true; },
+  });
+  assert.equal(okD, true);
+  assert.deepEqual(d.calls.map(c2 => c2[0]), ["patch", "applyMoved"]);
+});
+
+test("moved_drawings beyond plan.move are toasted with their count", async () => {
+  // plan kosong, server memindahkan 2 gambar dari isinya sendiri
+  const a = mkTF();
+  const toasts = [];
+  const okA = await H.confirmNoteShareWithDrawings({
+    note: { id: 1 }, content: "teks", targetListId: 5, listName: "Tim A",
+    api: mkApi(a.calls, { patch: async () => ({ id: 1, list_id: 5, moved_drawings: [{ id: 61, list_id: 5 }, { id: 62, client_id: "k62", list_id: 5 }] }) }),
+    TF: a.TF, showToast: (m, t) => toasts.push([m, t]), ask: async () => "share", saveContent: async () => {}, pushNow: async () => true,
+  });
+  assert.equal(okA, true);
+  assert.deepEqual(toasts, [["2 gambar ikut dibagikan ke Tim A.", "info"]]);
+
+  // plan.move = [MINE (11)] dan server memindahkan 11 (via client_id) + 1 tambahan → n = 1
+  const b = mkTF({ list: [Object.assign({}, MINE, { client_id: "cl-mine" })] });
+  const toastsB = [];
+  const okB = await H.confirmNoteShareWithDrawings({
+    note: { id: 1 }, content: "::draw[11]", targetListId: 5, listName: "Tim A",
+    api: mkApi(b.calls, { patch: async () => ({ id: 1, list_id: 5, moved_drawings: [{ id: 999, client_id: "CL-MINE", list_id: 5 }, { id: 70, list_id: 5 }] }) }),
+    TF: b.TF, showToast: (m, t) => toastsB.push([m, t]), ask: async () => "share", saveContent: async () => {}, pushNow: async () => true,
+  });
+  assert.equal(okB, true);
+  assert.deepEqual(toastsB.filter(t => t[1] !== "info" || /ikut dibagikan/.test(t[0])), [["1 gambar ikut dibagikan ke Tim A.", "info"]]);
+
+  // baris server di plan.move tanpa server_id (id saja) dicocokkan lewat serverIdOf
+  assert.equal(H.noteShareUnexpectedMoved(realShare, [{ id: 22 }], [{ id: 22, client_id: null, list_id: null }]), 0);
+  assert.equal(H.noteShareUnexpectedMoved(realShare, undefined, []), 0);
+});
+
+test("prepareNoteShare: stalled listDrawings times out into the {error:true} path", async () => {
+  const TF = {
+    drawingshare: realShare, drawdirective,
+    drawingrepo: { listDrawings: () => new Promise(() => {}), currentUid: () => UID },
+  };
+  const warns = []; const ow = console.warn; console.warn = (...a) => warns.push(a);
+  try {
+    const t0 = Date.now();
+    const r = await H.prepareNoteShare(TF, "::draw[11]", 5, null, 30);
+    assert.deepEqual(r, { error: true });
+    assert.ok(Date.now() - t0 < 2000);
+    assert.equal(warns.length, 1);
+  } finally { console.warn = ow; }
+  // default 6 detik
+  assert.match(html, /^const NOTE_SHARE_LIST_TIMEOUT_MS = 6000;$/m);
 });

@@ -52,7 +52,7 @@ test("DrawingInsertModal groups gallery by scope and uses scopeNotice/noticeText
 });
 
 test("insert own personal drawing into W note calls shareDrawing; other workspace drawing is copied", async () => {
-  const apply = helper("applyDrawingInsertChoice", ["drawingWithServerId", "drawingInsertToken", "drawingShareLaterText"]);
+  const apply = helper("applyDrawingInsertChoice", ["drawingInsertToken", "drawingShareLaterText"]);
   const calls = [];
   const api = { tag: "api" };
   const mkShare = (shareRes, copyRes) => ({
@@ -60,12 +60,13 @@ test("insert own personal drawing into W note calls shareDrawing; other workspac
     copyDrawing: async (a, d, l) => { calls.push(["copy", a, d, l]); return copyRes; },
   });
 
-  // own_to_ws sukses → sisip id asli; record server tanpa server_id mendapat server_id = id
+  // own_to_ws sukses → sisip id asli; baris server tanpa server_id diteruskan apa adanya (serverIdOf → id)
   let r = await apply(mkShare({ ok: true, drawing: {} }), api, { id: 12, client_id: "c12", title: "Mine", list_id: null }, { kind: "own_to_ws", listId: 5 }, "Tim A");
   assert.deepEqual(r, { ok: true, id: 12, title: "Mine", toast: null });
   assert.equal(calls[0][0], "share");
   assert.equal(calls[0][1], api);
-  assert.equal(calls[0][2].server_id, 12);
+  assert.equal(calls[0][2].id, 12);
+  assert.equal(share.serverIdOf(calls[0][2]), 12);
   assert.equal(calls[0][3], 5);
 
   // own_to_ws gagal (offline) → tetap disisipkan + toast persis
@@ -186,7 +187,7 @@ test("embed shows 👥 badge and copy action when scopes differ; action swaps no
   assert.equal(ui({ list_id: 77 }, null, LISTS, 1).badge, "👥 Workspace");
 
   // aksi salin: copyDrawing lalu setNodeMarkup mengganti id node, atribut lain tetap
-  const copyInto = helper("copyDrawingIntoEditor", ["drawingWithServerId", "drawingInsertToken"]);
+  const copyInto = helper("copyDrawingIntoEditor", ["drawingInsertToken"]);
   const dispatched = [];
   const nodes = [
     { pos: 3, node: { type: { name: "paragraph" }, attrs: {} } },
