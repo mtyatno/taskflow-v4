@@ -2293,16 +2293,152 @@ async def get_summary(user=Depends(get_current_user)):
     }
 
 
+class ProjectCreate(BaseModel):
+    name: str
+    list_id: Optional[int] = None
+
+
+class ProjectPatch(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    archived: Optional[bool] = None
+
+
+def _project_visible(conn, row, uid) -> bool:
+    if row["list_id"] is None:
+        return row["user_id"] == uid
+    return conn.execute(
+        "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ? "
+        "UNION SELECT 1 FROM list_members WHERE list_id = ? AND user_id = ?",
+        (row["list_id"], uid, row["list_id"], uid)).fetchone() is not None
+
+
+def _project_can_manage(conn, row, uid) -> bool:
+    if row["list_id"] is None:
+        return row["user_id"] == uid
+    if row["created_by"] == uid:
+        return True
+    return conn.execute("SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ?",
+                        (row["list_id"], uid)).fetchone() is not None
+
+
+def _project_full(conn, row, uid) -> dict:
+    cnt = conn.execute(
+        "SELECT COUNT(*) FROM tasks WHERE project_id = ? AND gtd_status NOT IN ('done','archived')",
+        (row["id"],)).fetchone()[0]
+    return {
+        "id": row["id"], "name": row["name"], "list_id": row["list_id"],
+        "user_id": row["user_id"], "color": row["color"], "archived": bool(row["archived"]),
+        "created_by": row["created_by"], "active_task_count": cnt,
+        "can_manage": _project_can_manage(conn, row, uid),
+    }
+
+
+def _require_ws_member(conn, list_id, uid):
+    ok = conn.execute(
+        "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ? "
+        "UNION SELECT 1 FROM list_members WHERE list_id = ? AND user_id = ?",
+        (list_id, uid, list_id, uid)).fetchone()
+    if ok is None:
+        raise HTTPException(403, "Kamu bukan anggota list ini")
+
+
+def _project_for_manage(conn, project_id, uid):
+    row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if row is None or not _project_visible(conn, row, uid):
+        raise HTTPException(404, "Project tidak ditemukan")
+    if not _project_can_manage(conn, row, uid):
+        raise HTTPException(403, "Hanya pembuat project atau owner workspace")
+    return row
+
+
 @app.get("/api/projects")
-async def get_projects(user=Depends(get_current_user)):
+async def get_projects(list_id: Optional[int] = None, format: Optional[str] = None,
+                       include_archived: int = 0, user=Depends(get_current_user)):
+    uid = user["sub"]
     with get_db() as conn:
+        if list_id is not None:
+            _require_ws_member(conn, list_id, uid)
+            scope_sql, args = "list_id = ?", (list_id,)
+        else:
+            scope_sql, args = "user_id = ? AND list_id IS NULL", (uid,)
+        arch = "" if (format == "full" and include_archived) else " AND archived = 0"
         rows = conn.execute(
-            """SELECT DISTINCT project FROM tasks
-               WHERE project != '' AND user_id = ? AND gtd_status NOT IN ('done','archived')
-               ORDER BY project""",
-            (user["sub"],),
-        ).fetchall()
-    return [r["project"] for r in rows]
+            f"SELECT * FROM projects WHERE {scope_sql}{arch} ORDER BY name COLLATE NOCASE, id",
+            args).fetchall()
+        if format == "full":
+            return [_project_full(conn, r, uid) for r in rows]
+        return [r["name"] for r in rows]
+
+
+@app.post("/api/projects")
+async def create_project(body: ProjectCreate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Nama project tidak boleh kosong")
+    with get_db() as conn:
+        if body.list_id is not None:
+            _require_ws_member(conn, body.list_id, uid)
+        try:
+            pid, _ = repository.resolve_task_project(
+                conn, owner_id=uid, list_id=body.list_id, name=name,
+                project_id=None, actor_id=uid)
+        except repository.ProjectScopeError:
+            raise HTTPException(403, "Kamu bukan anggota list ini")
+        row = conn.execute("SELECT * FROM projects WHERE id = ?", (pid,)).fetchone()
+        return _project_full(conn, row, uid)
+
+
+@app.patch("/api/projects/{project_id}")
+async def update_project(project_id: int, body: ProjectPatch, user=Depends(get_current_user)):
+    uid = user["sub"]
+    fields = body.model_fields_set
+    with get_db() as conn:
+        row = _project_for_manage(conn, project_id, uid)
+        now = datetime.now().isoformat()
+        sets, args = [], []
+        if "name" in fields and body.name is not None:
+            new = body.name.strip()
+            if not new:
+                raise HTTPException(400, "Nama project tidak boleh kosong")
+            if row["list_id"] is None:
+                dup = conn.execute(
+                    "SELECT 1 FROM projects WHERE user_id = ? AND list_id IS NULL "
+                    "AND name = ? COLLATE NOCASE AND id <> ?", (row["user_id"], new, project_id)).fetchone()
+            else:
+                dup = conn.execute(
+                    "SELECT 1 FROM projects WHERE list_id = ? AND name = ? COLLATE NOCASE AND id <> ?",
+                    (row["list_id"], new, project_id)).fetchone()
+            if dup:
+                raise HTTPException(409, "Nama project sudah dipakai")
+            sets.append("name = ?"); args.append(new)
+            conn.execute("UPDATE tasks SET project = ?, updated_at = ? WHERE project_id = ?",
+                         (new, now, project_id))
+        if "color" in fields:
+            sets.append("color = ?"); args.append(body.color)
+        if "archived" in fields and body.archived is not None:
+            sets.append("archived = ?"); args.append(1 if body.archived else 0)
+        if sets:
+            sets.append("updated_at = ?"); args.append(now)
+            try:
+                conn.execute(f"UPDATE projects SET {', '.join(sets)} WHERE id = ?", args + [project_id])
+            except sqlite3.IntegrityError:
+                raise HTTPException(409, "Nama project sudah dipakai")
+        row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        return _project_full(conn, row, uid)
+
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _project_for_manage(conn, project_id, uid)
+        cur = conn.execute(
+            "UPDATE tasks SET project_id = NULL, project = '', updated_at = ? WHERE project_id = ?",
+            (datetime.now().isoformat(), project_id))
+        conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        return {"ok": True, "tasks_cleared": cur.rowcount}
 
 
 @app.get("/api/contexts")

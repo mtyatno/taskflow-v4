@@ -961,14 +961,17 @@ class TaskRepository:
             return [self._row_to_task(r) for r in rows]
 
     def list_projects(self, user_id: Optional[int] = None) -> list[str]:
-        uc, up = self._uc(user_id)
+        """Nama project pribadi (tidak diarsip) dari tabel projects."""
         with self._connect() as conn:
-            rows = conn.execute(
-                f"""SELECT DISTINCT project FROM tasks
-                   WHERE project != '' AND gtd_status NOT IN ('done','archived') AND {uc}
-                   ORDER BY project""", up,
-            ).fetchall()
-            return [r["project"] for r in rows]
+            if user_id is None:
+                rows = conn.execute(
+                    "SELECT name FROM projects WHERE list_id IS NULL AND archived = 0 "
+                    "ORDER BY name COLLATE NOCASE").fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT name FROM projects WHERE user_id = ? AND list_id IS NULL AND archived = 0 "
+                    "ORDER BY name COLLATE NOCASE", (user_id,)).fetchall()
+            return [r["name"] for r in rows]
 
     def list_contexts(self, user_id: Optional[int] = None) -> list[str]:
         uc, up = self._uc(user_id)
