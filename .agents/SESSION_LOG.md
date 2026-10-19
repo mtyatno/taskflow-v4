@@ -3401,3 +3401,9 @@
 - **Changes:** mindmaprepo/mindmaproutes (peta tertaut lokal), noterepo.applyMapEdit, syncpush/syncpull tertaut, iframe mind-elixir mode tertaut, `static/offline/notemapsession.js` baru + wiring MindmapTabInstance/MindmapOutline/NoteModal/NotePanel/NotesPage/App/MindmapPage, SW v416, iframe ?v=142. Review akhir menemukan Focus Mode + sid basi/asing bisa mengacak catatan → diperbaiki dengan gen sesi + `nm.ns` + keluar Focus Mode saat muat ulang (Playwright membuktikan).
 - **Files Touch:** `static/offline/{mindmaprepo,mindmaproutes,noterepo,syncpush,syncpull,mindmapops,notemapsession}.js`, `static/index.html`, `static/vendor/mind-elixir/index.html`, `static/sw.js`, `webapp.py` (sw_cache), tes, `.agents/*`
 - **Status:** PR 3/3 draft. JS 1458/1459, pytest 299/299.
+
+## [2026-10-19 14:30] - Claude (spec audio & video di note)
+- **Task:** Brainstorming fitur audio/video di note bersama Bapak, lalu menulis spec.
+- **Changes:** spec baru `docs/superpowers/specs/2026-10-19-note-media-audio-video-design.md`; belum ada kode.
+- **Files Touch:** `docs/superpowers/specs/2026-10-19-note-media-audio-video-design.md`, `.agents/*`
+- **Status:** Needs Review (spec).
