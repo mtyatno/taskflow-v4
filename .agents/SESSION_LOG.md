@@ -3438,3 +3438,11 @@
 - **Changes:** Spec `docs/superpowers/specs/2026-10-19-mindmap-findings-3-8-design.md` (termasuk algoritma `merge3` lengkap) dan rencana `docs/superpowers/plans/2026-10-19-mindmap-findings-3-8.md` (PR A: A1–A9, PR B: B1–B6, tes gagal nyata per task). Tidak ada kode.
 - **Files Touch:** `docs/superpowers/specs/2026-10-19-mindmap-findings-3-8-design.md`, `docs/superpowers/plans/2026-10-19-mindmap-findings-3-8.md`, `.agents/*`
 - **Status:** Needs Review (rencana menunggu persetujuan Bapak sebelum SDD).
+
+## [2026-10-19 17:30] - Claude (PR 2: drawing milik workspace, backend)
+- **Task:** Bapak "lanjut PR 2-3"; rencana `docs/superpowers/plans/2026-10-19-drawing-workspace-backend.md` disetujui.
+- **Changes:** SDD 5 task (skema+backfill, akses, share/copy/list/leave-impact, sinkron note→drawing, publik+DOCX). Review akhir menemukan bypass: varian `::DRAW[k]` sisipan anggota dinormalisasi klien lalu autosave pemilik memindah drawing pribadi → aturan diubah: pindah hanya saat `list_id` note berubah. ADR-012; spec §4.3/§4.4/§4.5 diperbarui.
+- **Verifikasi:** pytest 358, JS 1568/1569.
+- **Files Touch:** `drawing_scope.py`, `webapp.py`, `repository.py`, `tests/**`, `docs/**`, `.agents/*`
+- **Status:** Needs Review (draft PR; restart `taskflow-web` + `taskflow` setelah deploy).
+

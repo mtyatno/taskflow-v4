@@ -95,10 +95,10 @@ Dengan `ON DELETE SET NULL`, kalau workspace dihapus, drawing kembali menjadi dr
 ### 4.3 Endpoint
 
 - `_drawing_access_clause(uid)`: sama dengan `_mindmap_access_clause`. Boleh digabung jadi satu helper umum.
-- `GET /api/drawings`: kembalikan semua drawing yang bisa diakses, sertakan `list_id`, `user_id`, `last_edited_by`.
+- `GET /api/drawings`: tanpa parameter tetap hanya drawing milik user (kompat klien lama yang menganggap semua baris miliknya); `?shared=1` = semua yang bisa diakses. Sertakan `list_id`, `user_id`, `last_edited_by`.
 - `GET` / `PUT /api/drawings/{did}`: access clause dipakai untuk lookup lewat id **dan** `client_id`. Karena `client_id` hanya unik per user, lookup lintas user memakai `ORDER BY (user_id = :uid) DESC LIMIT 1`. PUT mengisi `last_edited_by`. `_check_base_rev` tetap dipakai.
 - `POST /api/drawings`: tambah `list_id` opsional (dicek dengan `is_list_member_or_owner`). Dipakai untuk gambar baru yang dibuat dari note W atau dari daftar drawing W.
-- `PATCH /api/drawings/{did}/share {list_id}`: hanya pemilik. Bump `updated_at` supaya pull klien ikut mengambil `list_id` baru (sama seperti audit K4 di note). Ikuti aturan di §4.5.
+- `PATCH /api/drawings/{did}/share {list_id}`: hanya pemilik. Ditolak 409 `{"code": "DRAWING_IN_USE", "notes": [{id, title}], "hidden_count": n}` bila masih dipakai note W (`notes` hanya yang bisa dilihat pemilik). Bump `updated_at` supaya pull klien ikut mengambil `list_id` baru (sama seperti audit K4 di note). Ikuti aturan di §4.5.
 - `GET /api/lists/{list_id}/drawings`: daftar drawing milik W.
 - `POST /api/drawings/{did}/copy {list_id: null|int, title?}`: buat drawing baru milik penyalin di scope tujuan (keanggotaan tujuan dicek), lalu salin `data_json` dan `svg_preview`.
 - `GET /api/lists/{list_id}/leave-impact`: daftar note pribadi milik user yang memuat drawing W milik orang lain. Dipakai untuk menawarkan salinan sebelum user keluar.
@@ -107,22 +107,25 @@ Dengan `ON DELETE SET NULL`, kalau workspace dihapus, drawing kembali menjadi dr
 
 ### 4.4 Sinkron note → drawing (di server)
 
-Helper `_pull_note_drawings_into_list(conn, note, actor_uid)` dipanggil setelah penulisan di `POST /api/scratchpad`, `PUT /api/scratchpad/{id}`, `PATCH /api/scratchpad/{id}/share`, dan restore dari trash kalau note punya `list_id`. Outbox offline memutar ulang endpoint yang sama, jadi jalur sync ikut tercakup.
+Helper `drawing_scope.pull_note_drawings_into_list(conn, note, actor_uid, now, move)` dipanggil setelah penulisan di `POST /api/scratchpad`, `PUT /api/scratchpad/{id}`, `PATCH /api/scratchpad/{id}/share`, dan restore dari trash. Outbox offline memutar ulang endpoint yang sama, jadi jalur sync ikut tercakup.
 
 1. Kalau `note.list_id` kosong, selesai. Note pribadi tidak pernah mengubah drawing.
-2. Ambil semua `::draw[x]` dari content, pakai regex yang sama dengan render publik (`_DRAW_DIRECTIVE_RE`, PR 1).
-3. Untuk tiap drawing D:
+2. Ambil semua `::draw[x]` dari content dengan regex yang sama dengan render publik (`drawing_scope.DRAW_DIRECTIVE_RE`, **tidak peka huruf besar/kecil**, sama dengan `static/offline/drawdirective.js`).
+3. **Drawing hanya dipindah bila penulisan itu menetapkan atau mengubah `list_id` note** (`move = true`): POST note baru dengan `list_id`, PATCH share, atau PUT/POST idempoten yang mengubah `list_id` (hanya pemilik note yang bisa). PUT/autosave biasa dan restore **tidak memindah apa pun**. Aktor juga harus owner/anggota W.
+4. Untuk tiap drawing D (dilihat dari sudut aktor):
    - Kalau `D.list_id == note.list_id`, lewati.
-   - Kalau `D.list_id IS NULL` dan `D.user_id = actor_uid`: set `D.list_id = note.list_id`, bump `updated_at`, lalu masukkan D ke `moved_drawings` di respons.
-   - Selain itu (milik workspace lain, atau drawing pribadi orang lain, **termasuk milik pemilik note**): **server tidak mengubahnya**, cukup masukkan ke `unresolved_drawings` di respons. Drawing tidak pernah dipindahkan oleh edit orang lain; kalau tidak, anggota bisa menarik drawing pribadi pemilik note ke W hanya dengan menyisipkan `::draw[k]`.
-4. Server tidak pernah menulis ulang content note, supaya tidak bentrok dengan edit offline. Penggantian referensi ke salinan dilakukan oleh klien.
+   - Kalau `move`, `D.list_id IS NULL`, dan `D.user_id = actor_uid`: set `D.list_id = note.list_id`, bump `updated_at`, lalu masukkan D ke `moved_drawings` di respons.
+   - Selain itu (milik workspace lain, pribadi orang lain **termasuk milik pemilik note**, tidak terlihat oleh aktor, atau penulisan tanpa `move`): **server tidak mengubahnya**, cukup masukkan token mentahnya ke `unresolved_drawings` di respons (tanpa detail apa pun).
+5. Server tidak pernah menulis ulang content note.
+
+Alasan aturan 3 (diputuskan saat review PR 2, 2026-10-19): kalau setiap simpan boleh memindah, anggota bisa menyisipkan `::draw[k]` (k = drawing pribadi pemilik note, termasuk varian `::DRAW[k]` atau ter-escape yang dinormalisasi klien), lalu autosave pemilik memindahkan k ke W, bahkan ke halaman publik. Ini melanggar prinsip 2. **Menyisipkan drawing pribadi ke note W yang sudah ada** dibagikan oleh klien secara eksplisit lewat `PATCH /api/drawings/{id}/share` dari `DrawingInsertModal` (PR 3), setelah pemberitahuan di modal.
 
 ### 4.5 Tabel aturan (final)
 
 | Situasi | Hasil |
 |---|---|
 | Drawing W disisipkan ke note pribadi | Tetap tautan; note tetap pribadi; ada badge "👥 W" dan pemberitahuan; bisa "Jadikan salinan pribadi" |
-| Drawing pribadi milik sendiri disisipkan ke note W | Drawing ikut ke W, diberitahukan di `DrawingInsertModal` sebelum disisipkan |
+| Drawing pribadi milik sendiri disisipkan ke note W | Drawing ikut ke W lewat `PATCH /api/drawings/{id}/share` yang dikirim klien dari `DrawingInsertModal` setelah pemberitahuan (server tidak memindah saat note disimpan, lihat §4.4) |
 | Gambar baru dibuat dari note W (`/draw`) | Langsung dibuat dengan `list_id = W` |
 | Note pribadi di-share ke W | Drawing pribadi milik user ikut ke W; dialog share menampilkan daftarnya |
 | Drawing sudah milik W | Tidak berubah |

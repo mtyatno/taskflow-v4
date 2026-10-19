@@ -140,6 +140,7 @@ from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date
 from repository import TaskRepository
 import repository
+import drawing_scope
 import bookmark
 import ai_review
 import review_history
@@ -855,6 +856,9 @@ def migrate_db():
         conn.execute("PRAGMA foreign_keys=ON")
         repository.ensure_projects_schema(conn)
         repository.backfill_projects(conn)
+        # Drawing milik workspace: kolom list_id/last_edited_by + backfill sekali jalan dari note workspace.
+        drawing_scope.ensure_drawing_scope_schema(conn)
+        drawing_scope.backfill_drawing_lists(conn, datetime.now(_TZ_JKT).isoformat())
         conn.commit()
     finally:
         conn.close()
@@ -1170,6 +1174,7 @@ class DrawingCreate(BaseModel):
     svg_preview: str = Field(default="", max_length=5_000_000)
     tags: Optional[list[str]] = None
     client_id: Optional[str] = None
+    list_id: Optional[int] = None
 
     @field_validator("data_json")
     @classmethod
@@ -1179,6 +1184,16 @@ class DrawingCreate(BaseModel):
         except ValueError:
             raise ValueError("data_json must be valid JSON")
         return v
+
+class DrawingShareReq(BaseModel):
+    list_id: Optional[int] = None
+
+
+class DrawingCopyReq(BaseModel):
+    list_id: Optional[int] = None
+    title: Optional[str] = Field(default=None, min_length=1)
+    client_id: Optional[str] = None
+
 
 class DrawingUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1)
@@ -4226,6 +4241,23 @@ async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_cu
 
 # ── Scratchpad Notes ──────────────────────────────────────────────────────────
 
+def _note_with_drawing_sync(conn, note_id: int, uid: int, now: str, move: bool = False) -> dict:
+    """Jalankan sinkron drawing (spec §4.4) untuk note sebagaimana tersimpan; kembalikan dua daftar respons.
+    move=True hanya bila tulisan ini menetapkan atau mengubah list_id note (POST note baru ber-list_id, PATCH share,
+    PUT/POST idempoten yang mengganti list_id): semua token drawing pribadi aktor dipindah ke workspace note.
+    Tulisan lain (PUT/autosave biasa, POST idempoten tanpa ganti list_id, restore dari trash) tidak memindah apa pun;
+    token yang tak dipindah dilaporkan di unresolved_drawings. Lihat drawing_scope.pull_note_drawings_into_list."""
+    stored = conn.execute("SELECT list_id, content FROM scratchpad_notes WHERE id = ?", (note_id,)).fetchone()
+    return drawing_scope.pull_note_drawings_into_list(conn, stored, uid, now, move)
+
+
+def _scratchpad_row_synced(row, conn, uid, sync: dict) -> dict:
+    out = _scratchpad_row(row, conn, uid)
+    out["moved_drawings"] = sync["moved_drawings"]
+    out["unresolved_drawings"] = sync["unresolved_drawings"]
+    return out
+
+
 def _scratchpad_row(row, conn=None, uid=None) -> dict:
     d = dict(row)
     d["server_id"] = d.get("id")
@@ -4316,47 +4348,22 @@ def _generate_publish_slug(conn, title: str = "") -> str:
     raise HTTPException(status_code=500, detail="Gagal generate slug unik — coba lagi")
 
 # ── Akses publik drawing ───────────────────────────────────────────────────────
-# Drawing tampil di halaman publik hanya bila dirujuk ::draw[token] oleh note publish TEPERCAYA milik pemilik
-# drawing, yaitu isinya hanya ditulis penerbit: note pribadi (list_id kosong), milik penerbit sendiri, dan terakhir
-# disunting pemiliknya (last_edited_by kosong atau = pemilik; semua penulisan isi lewat POST/PUT /api/scratchpad
-# mengisinya dengan penulis). Note publish bersama (list_id terisi) tidak menampilkan drawing apa pun dan tidak
-# dihitung sebagai rujukan: anggota workspace ikut mengedit isinya, jadi rujukan di dalamnya bukan bukti bahwa
-# pemilik drawing mau menampilkannya (anggota bisa menyisipkan ::draw[1..N] ke note bersama yang dipublish).
-# list_id kosong saja tidak cukup: note yang sempat diedit orang lain lalu kembali pribadi (workspace dihapus =
+# Drawing tampil di halaman publik hanya bila dirujuk ::draw[token] oleh note publish yang terbuka bagi request dan:
+# (a) note TEPERCAYA (isinya hanya ditulis penerbit: pribadi/list_id kosong, milik penerbit, dan terakhir disunting
+# pemiliknya, last_edited_by kosong atau = pemilik) dan drawing itu bisa diakses PENERBIT (miliknya, atau di workspace
+# tempat ia owner/anggota); atau (b) note publish BERSAMA di workspace W dan drawings.list_id = W (spec §3 setelah PR 2).
+# Pada (b) rujukan saja tidak membuka drawing di luar W: anggota ikut mengedit isi note bersama, jadi ::draw[1..N] yang
+# disisipkan anggota tidak boleh membuka drawing pribadi pemilik. Drawing W memang milik bersama anggota W.
+# list_id kosong saja tidak cukup untuk (a): note yang sempat diedit orang lain lalu kembali pribadi (workspace dihapus =
 # list_id SET NULL, atau di-unshare) tetap membawa isi suntikan itu, sehingga last_edited_by harus pemiliknya.
 # Token = id angka atau client_id (UUID, format default sejak offline-first). Bentuk ter-escape oleh
 # serializer markdown (::draw\[x\]) ikut dikenali.
-_DRAW_DIRECTIVE_RE = re.compile(r'\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?')
+_DRAW_DIRECTIVE_RE = drawing_scope.DRAW_DIRECTIVE_RE  # definisi di drawing_scope.py (dipakai bersama)
 _DRAW_TOKEN_RE = re.compile(r'[0-9a-zA-Z_-]+')
-_DRAWING_COLS = "id, user_id, client_id, title, svg_preview, data_json"
+_DRAWING_COLS = "id, user_id, client_id, title, svg_preview, data_json, list_id"
 
-def _draw_tokens(content: Optional[str]) -> set[str]:
-    """Semua token direktif ::draw[...] di content (id angka atau client_id)."""
-    return {m.group(1) for m in _DRAW_DIRECTIVE_RE.finditer(content or "")}
-
-def _draw_token_id(token: str) -> Optional[int]:
-    """Token angka ASCII → id baris (drawing, id note di wikilink publik, id lampiran di /pub/attachments). None bila
-    bukan angka ASCII atau di luar INTEGER 64-bit SQLite (digit Unicode membuat int() gagal, angka terlalu besar jadi
-    OverflowError saat di-bind: keduanya 500, padahal barisnya pasti tidak ada)."""
-    if token.isascii() and token.isdigit() and len(token) <= 19:
-        value = int(token)
-        if value <= 2**63 - 1:
-            return value
-    return None
-
-def _resolve_owned_drawing(conn, token: str, owner_id: int) -> Optional[sqlite3.Row]:
-    """Drawing milik owner_id yang dirujuk token direktif: id angka dulu, lalu client_id.
-    Selalu terscope ke pemilik; judul drawing tidak pernah dipakai sebagai kunci."""
-    did = _draw_token_id(token)
-    if did is not None:
-        row = conn.execute(
-            f"SELECT {_DRAWING_COLS} FROM drawings WHERE id = ? AND user_id = ?", (did, owner_id)
-        ).fetchone()
-        if row:
-            return row
-    return conn.execute(
-        f"SELECT {_DRAWING_COLS} FROM drawings WHERE client_id = ? AND user_id = ?", (token, owner_id)
-    ).fetchone()
+_draw_tokens = drawing_scope.draw_tokens
+_draw_token_id = drawing_scope.draw_token_id
 
 def _pub_note_unlocked(request: Request, slug: str, password_hash: Optional[str]) -> bool:
     """True bila note publish tanpa password, atau request membawa cookie unlock yang valid untuk slug-nya."""
@@ -4383,17 +4390,23 @@ def _published_drawing_for_request(conn, token: str, request: Request) -> Option
         row = conn.execute(f"SELECT {_DRAWING_COLS} FROM drawings WHERE id = ?", (did,)).fetchone()
         if row:
             candidates.append(row)
-    candidates.extend(conn.execute(f"SELECT {_DRAWING_COLS} FROM drawings WHERE client_id = ?", (token,)).fetchall())
+    candidates.extend(conn.execute(
+        f"SELECT {_DRAWING_COLS} FROM drawings WHERE client_id = ? ORDER BY id", (token,)).fetchall())
     for d in candidates:
-        refs = {str(d["id"])}
-        if d["client_id"]:
-            refs.add(d["client_id"])
+        refs = drawing_scope.refs_of(d)
+        # Penerbit dibatasi di SQL (endpoint tanpa login): note tepercaya hanya dari pemilik drawing, atau owner/anggota
+        # workspace drawing (mereka yang bisa mengaksesnya); note bersama hanya di workspace drawing.
         published = conn.execute(
-            "SELECT p.slug, p.password_hash, n.content FROM published_notes p "
-            "JOIN scratchpad_notes n ON n.id = p.note_id "
-            "WHERE p.user_id = ? AND n.list_id IS NULL AND n.user_id = p.user_id "
-            "AND (n.last_edited_by IS NULL OR n.last_edited_by = n.user_id)",
-            (d["user_id"],)
+            "SELECT p.slug, p.password_hash, n.content "
+            "FROM published_notes p JOIN scratchpad_notes n ON n.id = p.note_id "
+            # SQLite LIKE tak peka huruf besar/kecil untuk ASCII: ::DRAW ikut lolos prefilter ini
+            "WHERE n.content LIKE '%::draw%' AND ("
+            "  (n.list_id IS NULL AND n.user_id = p.user_id "
+            "   AND (n.last_edited_by IS NULL OR n.last_edited_by = n.user_id) "
+            "   AND (p.user_id = ? OR p.user_id IN ("
+            "     SELECT owner_id FROM shared_lists WHERE id = ? UNION SELECT user_id FROM list_members WHERE list_id = ?))) "
+            "  OR (n.list_id IS NOT NULL AND n.list_id = ?))",
+            (d["user_id"], d["list_id"], d["list_id"], d["list_id"])
         ).fetchall()
         for p in published:
             if (_draw_tokens(p["content"]) & refs) and _pub_note_unlocked(request, p["slug"], p["password_hash"]):
@@ -4407,13 +4420,14 @@ def _pub_href(username: str, slug: str) -> str:
         return html.escape(urllib.parse.quote(value, safe=''), quote=True)
     return f"/pub/{seg(username)}/{seg(slug)}"
 
-def _render_published_content(raw_content: str, conn, note_id: int = None, owner_id: int = None) -> str:
+def _render_published_content(raw_content: str, conn, note_id: int = None, owner_id: int = None,
+                              list_id: int = None) -> str:
     """Process raw markdown for public page: strip internal tokens, resolve wikilinks, render to HTML.
     owner_id = penerbit note publish tepercaya (pribadi, milik penerbit, terakhir disunting pemiliknya); token
-    ::draw[...] hanya di-resolve ke drawing miliknya, dan wikilink ke note berpassword hanya di-resolve bila note
+    ::draw[...] di-resolve ke drawing yang bisa diakses penerbit, dan wikilink ke note berpassword hanya di-resolve bila note
     target milik penerbit yang sama.
-    owner_id=None (note bersama, note yang terakhir disunting orang lain, atau tanpa penerbit) = tidak ada drawing
-    dan tidak ada note berpassword yang di-resolve."""
+    owner_id=None = tidak ada note berpassword yang di-resolve; drawing hanya di-resolve bila list_id terisi (note bersama di W):
+    drawing ber-list_id = W. Note yang terakhir disunting orang lain tanpa list_id = tidak ada drawing."""
     import re as _re
     content = raw_content or ""
 
@@ -4607,9 +4621,9 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         width_val = width or ('50%' if size == 'S' else '75%' if size == 'M' else '100%')
         height_val = height or ('200px' if size == 'S' else '300px' if size == 'M' else '400px')
 
-        # Hanya drawing milik penerbit note tepercaya (id angka, lalu client_id); owner_id None = tidak ada.
-        # Judul dan id note tidak dipakai sebagai kunci.
-        d_row = _resolve_owned_drawing(conn, drawing_id, owner_id) if owner_id is not None else None
+        # Note tepercaya (owner_id): drawing yang bisa diakses penerbit (id angka, lalu client_id). Note bersama
+        # (list_id): hanya drawing ber-list_id = W. Keduanya None = tidak ada. Judul dan id note tidak jadi kunci.
+        d_row = drawing_scope.resolve_for_publish(conn, drawing_id, owner_id, list_id, _DRAWING_COLS)
 
         if d_row and not title:
             title = d_row["title"]
@@ -5060,7 +5074,7 @@ def _trash_preview(content: str, limit: int = 120) -> str:
     # Potong dulu: regex link di bawah bisa kuadratik pada content panjang (mis. 'a[' * 50000 ≈ 18 dtk,
     # memblokir event loop); preview hanya memakai ≤limit char pertama.
     s = (content or "")[:2000]
-    s = re.sub(r"::draw\[[^\]]*\]", " ", s)
+    s = re.sub(r"::draw\[[^\]]*\]", " ", s, flags=re.IGNORECASE)
     s = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", s)               # [teks](url) -> teks
     s = re.sub(r"(?:\\?\[){2}([^\[\]\\|]*)(?:\|[^\[\]\\]*)?(?:\\?\]){2}", r"\1", s)  # [[Judul|alias]] -> Judul
     s = re.sub(r"[#*_`~>|\[\]\\]", "", s)
@@ -5314,9 +5328,10 @@ async def restore_trashed_note(note_id: int, user=Depends(get_current_user)):
 
         conn.execute("DELETE FROM trashed_notes WHERE note_id = ?", (note_id,))
         _sync_linked_mindmap(conn, note_id)
+        sync = _note_with_drawing_sync(conn, note_id, uid, datetime.now(_TZ_JKT).isoformat(), move=False)
         conn.commit()
         restored = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
-        return _scratchpad_row(restored, conn, uid)
+        return _scratchpad_row_synced(restored, conn, uid, sync)
 
 @app.delete("/api/scratchpad/trash/{note_id}")
 async def purge_trashed_note(note_id: int, user=Depends(get_current_user)):
@@ -5805,25 +5820,27 @@ def _make_drawing_resolver(uid: int):
     dengan id note. Aplikasi menulis direktif ::draw[<id atau uuid>]{title="<judul>"}: token berbentuk id/UUID
     yang tidak ter-resolve (drawing orang lain, mis. anggota mengekspor note bersama pemilik) tidak boleh
     ditebak lewat judul, karena akan menyematkan drawing pengekspor sendiri yang kebetulan berjudul sama."""
+    _dclause, _dparams = drawing_scope.access_clause(uid)
+
     def _resolve_drawing(did, title=None):
         token = str(did)
         id_like = _draw_token_id(token) is not None or bool(_UUID_TOKEN_RE.fullmatch(token))
         with get_db() as conn:
             # 1. By numeric ID, then client_id (format default direktif sejak offline-first)
-            row = _resolve_owned_drawing(conn, token, uid)
+            row = drawing_scope.find_accessible(conn, token, uid, "id, title, svg_preview")
 
             # 2. By title parameter (hanya untuk token yang bukan id/UUID)
             if not row and title and not id_like:
                 row = conn.execute(
-                    "SELECT id, title, svg_preview FROM drawings WHERE title = ? AND user_id = ?",
-                    (title.strip(), uid)
+                    f"SELECT id, title, svg_preview FROM drawings WHERE title = ? AND {_dclause} ORDER BY (user_id = ?) DESC, id LIMIT 1",
+                    (title.strip(), *_dparams, uid)
                 ).fetchone()
                 if not row:
                     clean_t = re.sub(r'^(?:gambar|canvas)\s*[-:]*\s*', '', title, flags=re.IGNORECASE).strip()
                     if clean_t:
                         row = conn.execute(
-                            "SELECT id, title, svg_preview FROM drawings WHERE title LIKE ? AND user_id = ?",
-                            (f"%{clean_t}%", uid)
+                            f"SELECT id, title, svg_preview FROM drawings WHERE title LIKE ? AND {_dclause} ORDER BY (user_id = ?) DESC, id LIMIT 1",
+                            (f"%{clean_t}%", *_dparams, uid)
                         ).fetchone()
 
             if row:
@@ -6056,7 +6073,7 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
         linked_ids = _resolve_linked_to(titles, uid, conn)
         if req.client_id:
             existing = conn.execute(
-                "SELECT id FROM scratchpad_notes WHERE user_id = ? AND client_id = ?",
+                "SELECT id, content, list_id FROM scratchpad_notes WHERE user_id = ? AND client_id = ?",
                 (uid, req.client_id)
             ).fetchone()
             if existing:
@@ -6073,9 +6090,10 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
                 conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=? AND user_id=?", (note_id, uid))
                 _upsert_tags_for_note(conn, note_id, uid, tag_names)
                 _sync_linked_mindmap(conn, note_id)
+                sync = _note_with_drawing_sync(conn, note_id, uid, now, move=existing["list_id"] != req.list_id)
                 conn.commit()
                 row = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
-                return _scratchpad_row(row, conn, uid)
+                return _scratchpad_row_synced(row, conn, uid, sync)
 
         conn.execute(
             """INSERT INTO scratchpad_notes
@@ -6088,9 +6106,10 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
         )
         note_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         _upsert_tags_for_note(conn, note_id, uid, tag_names)
+        sync = _note_with_drawing_sync(conn, note_id, uid, now, move=True)
         conn.commit()
         row = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
-        return _scratchpad_row(row, conn, uid)
+        return _scratchpad_row_synced(row, conn, uid, sync)
 
 class BookmarkExtractIn(BaseModel):
     url: str
@@ -6275,9 +6294,10 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
         conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=?", (note_id,))
         _upsert_tags_for_note(conn, note_id, existing["user_id"], tag_names)
         _sync_linked_mindmap(conn, note_id)
+        sync = _note_with_drawing_sync(conn, note_id, uid, now, move=existing["list_id"] != new_list_id)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
-        return _scratchpad_row(updated, conn, uid)
+        return _scratchpad_row_synced(updated, conn, uid, sync)
 
 @app.delete("/api/scratchpad/{note_id}")
 async def delete_scratchpad(note_id: int, user=Depends(get_current_user)):
@@ -6347,9 +6367,10 @@ async def share_scratchpad(note_id: int, req: NoteShareReq, user=Depends(get_cur
             "UPDATE scratchpad_notes SET list_id = ?, updated_at = ? WHERE id = ?", (req.list_id, now, note_id)
         )
         _sync_linked_mindmap(conn, note_id)
+        sync = _note_with_drawing_sync(conn, note_id, uid, now, move=True)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
-        return _scratchpad_row(updated, conn, uid)
+        return _scratchpad_row_synced(updated, conn, uid, sync)
 
 @app.patch("/api/scratchpad/{note_id}/pin")
 async def toggle_pin_scratchpad(note_id: int, user=Depends(get_current_user)):
@@ -7227,7 +7248,7 @@ async def view_published_note(username: str, slug: str, request: Request):
                     return str(d_str)[:10]
 
         raw_content = row["content"] or ""
-        desc_clean = _re.sub(r'\\?::draw\\?\[[^\]]*\](?:\s*\\?\{[^}]*\\?\})?', '', raw_content)
+        desc_clean = _re.sub(r'\\?::draw\\?\[[^\]]*\](?:\s*\\?\{[^}]*\\?\})?', '', raw_content, flags=_re.IGNORECASE)
         desc_clean = _re.sub(r'\\?\[tasklink:[^\]]*\]', '', desc_clean)
         desc_clean = _re.sub(r'==([^=\n]+)==', r'\1', desc_clean)
         desc_clean = _re.sub(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]', r'\1', desc_clean)
@@ -7241,7 +7262,8 @@ async def view_published_note(username: str, slug: str, request: Request):
             and (row["last_edited_by"] is None or row["last_edited_by"] == row["note_user_id"])
         )
         trusted_owner_id = row["user_id"] if trusted else None
-        body_html = _render_published_content(raw_content, conn, note_id=row["note_id"], owner_id=trusted_owner_id)
+        body_html = _render_published_content(raw_content, conn, note_id=row["note_id"], owner_id=trusted_owner_id,
+                                             list_id=None if trusted else row["list_id"])
 
         # Dates
         created_date = _safe_date(row["published_at"])
@@ -7603,13 +7625,14 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
         """, mm_ap + [like, like]).fetchall()
 
         # Drawings
-        drawing_rows = conn.execute("""
+        dr_ac, dr_ap = drawing_scope.access_clause(uid)
+        drawing_rows = conn.execute(f"""
             SELECT id, title, updated_at
             FROM drawings
-            WHERE user_id = ? AND (title LIKE ? OR data_json LIKE ?)
+            WHERE {dr_ac} AND (title LIKE ? OR data_json LIKE ?)
             ORDER BY is_pinned DESC, updated_at DESC
             LIMIT 8
-        """, (uid, like, like)).fetchall()
+        """, dr_ap + [like, like]).fetchall()
 
     def snippet(text, length=80):
         if not text:
@@ -8147,7 +8170,20 @@ async def delete_mindmap(mid: int, user=Depends(get_current_user)):
 
 # ── Standalone Drawings endpoints ────────────────────────────────────────────
 
-def _drawing_enrich(row_dict: dict, conn) -> dict:
+def _drawing_note_index(conn, viewer_uid: int) -> list:
+    """Note yang bisa diakses viewer dan memuat ::draw, urut updated_at DESC, sebagai [(id, title, tokens)].
+    Satu query untuk seluruh daftar drawing (jalur pull sinkron), bukan satu per drawing."""
+    note_ac, note_ap = _note_access_clause(viewer_uid)
+    # SQLite LIKE tak peka huruf besar/kecil untuk ASCII: ::DRAW ikut lolos prefilter ini
+    rows = conn.execute(
+        f"SELECT id, title, content FROM scratchpad_notes WHERE {note_ac} AND content LIKE '%::draw%' "
+        "ORDER BY updated_at DESC",
+        note_ap
+    ).fetchall()
+    return [(r["id"], r["title"], drawing_scope.draw_tokens(r["content"])) for r in rows]
+
+
+def _drawing_enrich(row_dict: dict, conn, viewer_uid: int, note_index: Optional[list] = None) -> dict:
     did = row_dict["id"]
     # Penanda baris server: client mengecek d.server_id == null untuk mengenali baris
     # LOKAL yang belum tersinkron (junk-row guard di selectDrawing). Semua baris yang
@@ -8159,36 +8195,53 @@ def _drawing_enrich(row_dict: dict, conn) -> dict:
         (did,)
     ).fetchall()
     row_dict["tags"] = [r["name"] for r in tag_rows]
-    uid = row_dict.get("user_id")
-    if uid:
-        cid = row_dict.get("client_id")
-        if cid:
-            note_rows = conn.execute(
-                "SELECT id, title FROM scratchpad_notes WHERE (content LIKE ? OR content LIKE ?) AND user_id = ? ORDER BY updated_at DESC LIMIT 5",
-                (f"%::draw[{did}]%", f"%::draw[{cid}]%", uid)
-            ).fetchall()
-        else:
-            note_rows = conn.execute(
-                "SELECT id, title FROM scratchpad_notes WHERE content LIKE ? AND user_id = ? ORDER BY updated_at DESC LIMIT 5",
-                (f"%::draw[{did}]%", uid)
-            ).fetchall()
-        row_dict["linked_notes"] = [dict(nr) for nr in note_rows]
-    else:
-        row_dict["linked_notes"] = []
+    row_dict.setdefault("list_id", None)
+    row_dict.setdefault("last_edited_by", None)
+    if row_dict["last_edited_by"] and row_dict["last_edited_by"] != row_dict.get("user_id"):
+        editor = conn.execute(
+            "SELECT username, display_name FROM users WHERE id = ?", (row_dict["last_edited_by"],)
+        ).fetchone()
+        if editor:
+            row_dict["last_editor_username"] = editor["username"]
+            row_dict["last_editor_display_name"] = editor["display_name"]
+    # Note yang merujuk drawing ini DAN bisa diakses viewer. Prefilter LIKE, lalu cocokkan token persis
+    # (bentuk ter-escape ::draw\[x\] ikut dihitung).
+    refs = drawing_scope.refs_of(row_dict)
+    if note_index is None:
+        # Jalur satu drawing: prefilter SQL per rujukan (id/client_id) alih-alih memuat semua note ber-::draw.
+        # LIKE tak peka huruf besar/kecil untuk ASCII (::DRAW lolos); '%' '_' pada client_id lolos lebih luas
+        # tetapi dibuang oleh pencocokan token persis di bawah.
+        note_ac, note_ap = _note_access_clause(viewer_uid)
+        ref_list = sorted(refs)
+        like = " OR ".join("content LIKE ?" for _ in ref_list)
+        rows = conn.execute(
+            f"SELECT id, title, content FROM scratchpad_notes WHERE {note_ac} AND ({like}) ORDER BY updated_at DESC",
+            [*note_ap, *[f"%::draw%[%{r}%]%" for r in ref_list]]
+        ).fetchall()
+        note_index = [(r["id"], r["title"], drawing_scope.draw_tokens(r["content"])) for r in rows]
+    row_dict["linked_notes"] = [
+        {"id": nid, "title": title} for nid, title, tokens in note_index if tokens & refs
+    ][:5]
     return row_dict
 
 
 @app.get("/api/drawings")
-async def list_drawings(user=Depends(get_current_user)):
+async def list_drawings(shared: int = 0, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        # client_id ikut dikirim: pull di perangkat lain memakai cid yang sama dengan direktif ::draw[...] di note
+        # client_id ikut dikirim: pull di perangkat lain memakai cid yang sama dengan direktif ::draw[...] di note.
+        # Tanpa ?shared=1 hanya milik sendiri (kompat klien lama); shared=1 = semua yang bisa diakses.
+        if shared:
+            ac, ap = drawing_scope.access_clause(uid)
+        else:
+            ac, ap = "user_id = ?", [uid]
         rows = conn.execute(
-            "SELECT id, user_id, client_id, title, svg_preview, is_pinned, created_at, updated_at FROM drawings "
-            "WHERE user_id = ? ORDER BY is_pinned DESC, updated_at DESC",
-            (uid,)
+            "SELECT id, user_id, client_id, title, svg_preview, is_pinned, list_id, last_edited_by, created_at, updated_at "
+            f"FROM drawings WHERE {ac} ORDER BY is_pinned DESC, updated_at DESC",
+            ap
         ).fetchall()
-        return [_drawing_enrich(dict(r), conn) for r in rows]
+        note_index = _drawing_note_index(conn, uid)
+        return [_drawing_enrich(dict(r), conn, uid, note_index) for r in rows]
 
 
 @app.post("/api/drawings")
@@ -8197,7 +8250,7 @@ async def create_drawing(req: DrawingCreate, user=Depends(get_current_user)):
     now = datetime.now(_TZ_JKT).isoformat()
     with get_db() as conn:
         # Idempotensi retry sync: client yang sama (client_id) + user yang sama → baris yang sama,
-        # tidak pernah menduplikasi walau POST diulang (503/putus jaringan → retry).
+        # tidak pernah menduplikasi walau POST diulang (503/putus jaringan → retry). list_id baris lama tidak diubah.
         if req.client_id:
             existing = conn.execute(
                 "SELECT id FROM drawings WHERE user_id = ? AND client_id = ?",
@@ -8212,37 +8265,29 @@ async def create_drawing(req: DrawingCreate, user=Depends(get_current_user)):
                 if req.tags:
                     _upsert_tags_for_entity(conn, did, uid, "drawing", req.tags)
                 row = conn.execute("SELECT * FROM drawings WHERE id = ?", (did,)).fetchone()
-                return _drawing_enrich(dict(row), conn)
+                return _drawing_enrich(dict(row), conn, uid)
+        if req.list_id is not None and not TaskRepository(DB_PATH).is_list_member_or_owner(req.list_id, uid):
+            raise HTTPException(status_code=403, detail="Bukan anggota list ini")
         cur = conn.execute(
-            "INSERT INTO drawings (user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at, client_id) "
-            "VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
-            (uid, req.title, req.data_json, req.svg_preview, now, now, req.client_id)
+            "INSERT INTO drawings (user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at, client_id, list_id) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
+            (uid, req.title, req.data_json, req.svg_preview, now, now, req.client_id, req.list_id)
         )
         did = cur.lastrowid
         if req.tags:
             _upsert_tags_for_entity(conn, did, uid, "drawing", req.tags)
         row = conn.execute("SELECT * FROM drawings WHERE id = ?", (did,)).fetchone()
-        return _drawing_enrich(dict(row), conn)
+        return _drawing_enrich(dict(row), conn, uid)
 
 
 @app.get("/api/drawings/{did}")
 async def get_drawing_detail(did: str, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        row = None
-        if did.isdigit():
-            row = conn.execute(
-                "SELECT * FROM drawings WHERE id = ? AND user_id = ?",
-                (int(did), uid)
-            ).fetchone()
-        if not row:
-            row = conn.execute(
-                "SELECT * FROM drawings WHERE client_id = ? AND user_id = ?",
-                (did, uid)
-            ).fetchone()
+        row = drawing_scope.find_accessible(conn, did, uid)
         if not row:
             raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
-        return _drawing_enrich(dict(row), conn)
+        return _drawing_enrich(dict(row), conn, uid)
 
 
 @app.put("/api/drawings/{did}")
@@ -8250,53 +8295,42 @@ async def update_drawing_detail(did: str, req: DrawingUpdate, user=Depends(get_c
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
     with get_db() as conn:
-        row = None
-        if did.isdigit():
-            row = conn.execute(
-                "SELECT * FROM drawings WHERE id = ? AND user_id = ?",
-                (int(did), uid)
-            ).fetchone()
-        if not row:
-            row = conn.execute(
-                "SELECT * FROM drawings WHERE client_id = ? AND user_id = ?",
-                (did, uid)
-            ).fetchone()
+        row = drawing_scope.find_accessible(conn, did, uid)
         if not row:
             raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
-        _check_base_rev(req, row, lambda: _drawing_enrich(dict(row), conn))
+        _check_base_rev(req, row, lambda: _drawing_enrich(dict(row), conn, uid))
         target_id = row["id"]
         new_title = req.title if req.title is not None else row["title"]
         new_data = req.data_json if req.data_json is not None else row["data_json"]
         new_svg = req.svg_preview if req.svg_preview is not None else row["svg_preview"]
         conn.execute(
-            "UPDATE drawings SET title = ?, data_json = ?, svg_preview = ?, updated_at = ? WHERE id = ?",
-            (new_title, new_data, new_svg, now, target_id)
+            "UPDATE drawings SET title = ?, data_json = ?, svg_preview = ?, last_edited_by = ?, updated_at = ? WHERE id = ?",
+            (new_title, new_data, new_svg, uid, now, target_id)
         )
         if req.tags is not None:
             conn.execute("DELETE FROM entity_tags WHERE entity_type = 'drawing' AND entity_id = ?", (target_id,))
             if req.tags:
-                _upsert_tags_for_entity(conn, target_id, uid, "drawing", req.tags)
+                # Tag drawing selalu di bawah pemilik drawing, bukan anggota yang menyunting.
+                _upsert_tags_for_entity(conn, target_id, row["user_id"], "drawing", req.tags)
         updated = conn.execute("SELECT * FROM drawings WHERE id = ?", (target_id,)).fetchone()
-        return _drawing_enrich(dict(updated), conn)
+        return _drawing_enrich(dict(updated), conn, uid)
+
+
+def _owned_drawing_or_error(conn, did: str, uid: int, cols: str):
+    """Drawing untuk aksi khusus pemilik (pin/hapus): tidak terlihat → 404, terlihat tapi bukan milik → 403."""
+    row = drawing_scope.find_accessible(conn, did, uid, cols=cols)
+    if not row:
+        raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+    if row["user_id"] != uid:
+        raise HTTPException(status_code=403, detail="Hanya pemilik drawing")
+    return row
 
 
 @app.patch("/api/drawings/{did}/pin")
 async def toggle_pin_drawing(did: str, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        row = None
-        if did.isdigit():
-            row = conn.execute(
-                "SELECT id, is_pinned FROM drawings WHERE id = ? AND user_id = ?",
-                (int(did), uid)
-            ).fetchone()
-        if not row:
-            row = conn.execute(
-                "SELECT id, is_pinned FROM drawings WHERE client_id = ? AND user_id = ?",
-                (did, uid)
-            ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        row = _owned_drawing_or_error(conn, did, uid, "id, user_id, is_pinned")
         target_id = row["id"]
         new_pin = 0 if row["is_pinned"] else 1
         conn.execute("UPDATE drawings SET is_pinned = ? WHERE id = ?", (new_pin, target_id))
@@ -8304,23 +8338,79 @@ async def toggle_pin_drawing(did: str, user=Depends(get_current_user)):
         return dict(updated)
 
 
+@app.patch("/api/drawings/{did}/share")
+async def share_drawing(did: str, req: DrawingShareReq, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        row = _owned_drawing_or_error(conn, did, uid, "*")
+        if req.list_id is not None and not TaskRepository(DB_PATH).is_list_member_or_owner(req.list_id, uid):
+            raise HTTPException(status_code=403, detail="Bukan anggota list ini")
+        if req.list_id == row["list_id"]:
+            return _drawing_enrich(dict(row), conn, uid)
+        if row["list_id"] is not None:
+            # Keluar dari workspace asal: note workspace itu yang merujuknya akan kehilangan drawing.
+            notes, hidden = drawing_scope.notes_in_list_using(conn, row, row["list_id"], uid)
+            if notes or hidden:
+                raise HTTPException(status_code=409, detail={
+                    "code": "DRAWING_IN_USE", "notes": notes, "hidden_count": hidden})
+        now = datetime.now(_TZ_JKT).isoformat()
+        conn.execute("UPDATE drawings SET list_id = ?, updated_at = ? WHERE id = ?", (req.list_id, now, row["id"]))
+        updated = conn.execute("SELECT * FROM drawings WHERE id = ?", (row["id"],)).fetchone()
+        return _drawing_enrich(dict(updated), conn, uid)
+
+
+@app.post("/api/drawings/{did}/copy")
+async def copy_drawing(did: str, req: DrawingCopyReq, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        if req.client_id:
+            existing = conn.execute(
+                "SELECT * FROM drawings WHERE user_id = ? AND client_id = ?", (uid, req.client_id)
+            ).fetchone()
+            if existing:
+                return _drawing_enrich(dict(existing), conn, uid)
+        src = drawing_scope.find_accessible(conn, did, uid)
+        if not src:
+            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        if req.list_id is not None and not TaskRepository(DB_PATH).is_list_member_or_owner(req.list_id, uid):
+            raise HTTPException(status_code=403, detail="Bukan anggota list ini")
+        cur = conn.execute(
+            "INSERT INTO drawings (user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at, client_id, list_id) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
+            (uid, req.title or src["title"], src["data_json"], src["svg_preview"], now, now, req.client_id, req.list_id)
+        )
+        row = conn.execute("SELECT * FROM drawings WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return _drawing_enrich(dict(row), conn, uid)
+
+
+@app.get("/api/lists/{list_id}/drawings")
+async def get_list_drawings(list_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    if not TaskRepository(DB_PATH).is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Bukan anggota list ini")
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, user_id, client_id, title, svg_preview, is_pinned, list_id, last_edited_by, updated_at "
+            "FROM drawings WHERE list_id = ? ORDER BY updated_at DESC, id DESC", (list_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/lists/{list_id}/leave-impact")
+async def get_list_leave_impact(list_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    if not TaskRepository(DB_PATH).is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Bukan anggota list ini")
+    with get_db() as conn:
+        return {"items": drawing_scope.leave_impact(conn, list_id, uid)}
+
+
 @app.delete("/api/drawings/{did}")
 async def delete_drawing_detail(did: str, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        row = None
-        if did.isdigit():
-            row = conn.execute(
-                "SELECT id FROM drawings WHERE id = ? AND user_id = ?",
-                (int(did), uid)
-            ).fetchone()
-        if not row:
-            row = conn.execute(
-                "SELECT id FROM drawings WHERE client_id = ? AND user_id = ?",
-                (did, uid)
-            ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        row = _owned_drawing_or_error(conn, did, uid, "id, user_id")
         target_id = row["id"]
         conn.execute("DELETE FROM entity_tags WHERE entity_type = 'drawing' AND entity_id = ?", (target_id,))
         conn.execute("DELETE FROM drawings WHERE id = ?", (target_id,))

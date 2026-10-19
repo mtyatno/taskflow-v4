@@ -4,8 +4,9 @@ Drawing hanya boleh tampil publik bila dirujuk ::draw[id|client_id] oleh note pu
 milik pemiliknya (isinya hanya ditulis penerbit: list_id kosong, milik penerbit, dan terakhir
 disunting pemiliknya sendiri, yaitu last_edited_by kosong atau = pemilik), dan note itu terbuka
 (tanpa password, atau cookie unlock valid). Note publish bersama (list_id terisi, anggota workspace
-ikut mengedit isinya), dan note yang pernah diedit orang lain lalu kembali pribadi (workspace
-dihapus atau di-unshare), tidak menampilkan drawing apa pun dan tidak dihitung sebagai rujukan.
+ikut mengedit isinya) hanya menampilkan drawing ber-list_id = workspace note itu (PR 2; tesnya di
+tests/test_drawing_workspace_public.py); drawing pribadi yang disisipkan anggota tidak tampil. Note yang pernah
+diedit orang lain lalu kembali pribadi (workspace dihapus atau di-unshare) tidak menampilkan drawing apa pun.
 Semua penolakan menjawab 404 yang sama dengan "tidak ada". Lampiran (/pub/attachments) dan bagian
 "Related" (backlink) mengikuti gerbang password note publish yang sama. Wikilink ke note
 berpassword hanya di-resolve di note tepercaya milik penerbit note itu sendiri (tidak pernah di
@@ -269,33 +270,6 @@ def test_pub_other_users_drawing_not_exposed(client):
 
 
 # ── Note publish bersama (workspace) ─────────────────────────────────────────
-
-def test_pub_shared_note_drawings_not_public(client):
-    """Note publish bersama (list_id terisi) tidak menampilkan drawing apa pun di halaman publiknya dan tidak
-    dihitung sebagai rujukan oleh /pub/drawings, walau drawing-nya milik penerbit sendiri. Kontrol: begitu
-    note PRIBADI penerbit merujuk drawing yang sama, endpoint publik terbuka, tetapi halaman note bersama
-    tetap kosong dari drawing (jadi yang menahan tadi memang aturan note bersama)."""
-    tag = _uniq()
-    h = _auth(client, f"pubshare_{tag}")
-    marker = f"MARKER-SH-{tag}"
-    d = _drawing(client, h, f"gambar-sh-{tag}", svg=_svg(marker), cid=f"cid-sh-{tag}")
-    w = _workspace(client, h, f"Workspace {tag}")
-    _, slug, username = _publish(client, h, f"Note bersama {tag}",
-                                 f"::draw[{d['id']}]\n\n::draw[{d['client_id']}]", list_id=w)
-
-    pub = anon()
-    page = pub.get(f"/pub/{username}/{slug}")
-    assert page.status_code == 200
-    assert marker not in page.text
-    assert "Gambar tidak tersedia" in page.text
-    assert f'data-drawing-preview="{d["id"]}"' not in page.text
-    assert pub.get(f"/pub/drawings/{d['id']}").status_code == 404
-    assert pub.get(f"/pub/drawings/{d['client_id']}").status_code == 404
-
-    _publish(client, h, f"Note pribadi {tag}", f"::draw[{d['id']}]")
-    assert pub.get(f"/pub/drawings/{d['id']}").status_code == 200
-    assert marker not in pub.get(f"/pub/{username}/{slug}").text
-
 
 def test_pub_member_injection_blocked(client):
     """Anggota workspace ikut mengedit isi note bersama. Ia tidak boleh bisa membuka drawing pribadi pemilik
