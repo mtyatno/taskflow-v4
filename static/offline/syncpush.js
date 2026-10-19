@@ -132,21 +132,28 @@
   // Peta tertaut (Petakan): judul tidak boleh kosong (R15); create membawa `source_note_id` = id server catatan
   // (`noteSid`, di-resolve saat push; fallback record.source_note_id). Update tertaut TANPA base_rev (server
   // mengabaikannya; data_json hanya view-state, tidak ada konflik).
-  function mindmapToCreatePayload(record, noteSid) {
-    const linked = TFmm.isLinked(record);
-    const p = {
-      title: linked ? (record.title || "Tanpa judul") : (record.title != null ? record.title : "Untitled"),
+  // Create tertaut tanpa id server catatan TIDAK PERNAH dikirim (R15): pemanggil wajib menahan op lebih dulu;
+  // builder melempar sebagai pengaman (op tetap antre, drain lanjut).
+  function mindmapBasePayload(record) {
+    return {
+      title: TFmm.isLinked(record) ? (record.title || "Tanpa judul") : (record.title != null ? record.title : "Untitled"),
       data_json: record.data_json != null ? record.data_json : MM_DEFAULT_DATA,
       list_id: record.list_id != null ? record.list_id : null,
-      client_id: clientIdOf(record),
     };
-    if (linked) p.source_note_id = noteSid != null ? noteSid : (record.source_note_id != null ? record.source_note_id : null);
+  }
+  function mindmapToCreatePayload(record, noteSid) {
+    const p = mindmapBasePayload(record);
+    p.client_id = clientIdOf(record);
+    if (TFmm.isLinked(record)) {
+      const nsid = noteSid != null ? noteSid : record.source_note_id;
+      if (nsid == null) throw new Error("linked mindmap create without source_note_id");
+      p.source_note_id = nsid;
+    }
     return p;
   }
   function mindmapToUpdatePayload(record) {
-    const p = mindmapToCreatePayload(record);
-    delete p.client_id;
-    if (TFmm.isLinked(record)) { delete p.source_note_id; return p; }
+    const p = mindmapBasePayload(record);
+    if (TFmm.isLinked(record)) return p;
     // T3 / prinsip 7: revisi server yang diketahui klien → server menjawab 409 REV_MISMATCH bila sudah berubah
     if (record.base_rev != null) p.base_rev = record.base_rev;
     return p;
@@ -1126,6 +1133,13 @@
   }
   // Server menolak pohon pada peta tertaut (data_json lokal mestinya hanya view-state) → buang op, catat sekali.
   const linkedTreeWarned = new Set();
+  function hasNodeData(dataJson) {
+    try { const d = JSON.parse(dataJson); return !!(d && typeof d === "object" && "nodeData" in d); } catch (_) { return false; }
+  }
+  function linkedDefaultView() {
+    const nm = isNode ? require("./notemap.js") : (root.TF && root.TF.notemap);
+    return JSON.stringify(nm.LINKED_VIEW_STATE_DEFAULT);
+  }
   function linkedTreeRejected(res) {
     const d = res && res.status === 400 && res.data && res.data.detail;
     return !!(d && typeof d === "object" && d.code === "LINKED_TREE_REJECTED");
@@ -1194,6 +1208,7 @@
   function recreateLinked(op, transport, result, rec, sid, sentRev) {
     return linkedNoteSid(rec).then((n) => {
       if (n.gone) return dropLinkedLocal(op, sid);
+      if (n.sid == null) return; // tahan (R15): catatan belum punya id server → jangan POST tanpa source_note_id
       return send(transport, "POST", "/api/mindmaps", mindmapToCreatePayload(rec, n.sid)).then((res2) => {
         if (ok(res2)) {
           return TFidmap.mapDelete("mindmap", sid)
@@ -1227,7 +1242,14 @@
             linkedTreeWarned.add(op.cid);
             try { console.warn("[syncpush] LINKED_TREE_REJECTED: op update peta tertaut dibuang", op.cid); } catch (_) {}
           }
-          return TFoutbox.outboxRemove(op.qid);
+          // Bersihkan dirty (CAS rev) supaya pull tidak mengantre ulang 400 yang sama tiap siklus; pohon di
+          // data_json peta tertaut pasti tidak sah → kembali ke view-state default.
+          return TFdb.mutate("mindmaps", op.cid, (cur) => {
+            if (!cur || (cur.rev || 0) !== sentRev) return undefined;
+            const next = Object.assign({}, cur, { dirty: 0 });
+            if (hasNodeData(cur.data_json)) next.data_json = linkedDefaultView();
+            return next;
+          }).then(() => TFoutbox.outboxRemove(op.qid));
         }
         const current = linked ? null : revMismatchRow(res);
         if (current) return mindmapRevMismatch(op, current, sentRev, result);

@@ -8,6 +8,7 @@ const { outboxAdd, outboxAll } = require("../../static/offline/outbox.js");
 const {
   mindmapToCreatePayload, mindmapToUpdatePayload, pushOutbox,
 } = require("../../static/offline/syncpush.js");
+const { pullMindmaps } = require("../../static/offline/syncpull.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
 
@@ -228,7 +229,8 @@ test("R15: linked create/update payloads carry a non-empty title", () => {
 
 test("linked update 400 LINKED_TREE_REJECTED → op dropped, no conflict copy", async () => {
   await put("scratchpad_notes", [{ cid: "n1", server_id: 7, title: "N", content: "", deleted: false }]);
-  await put("mindmaps", [linked({ cid: "m", server_id: 50, source_note_id: 7, base_rev: "2026-10-18T01:00:00Z" })]);
+  await put("mindmaps", [linked({ cid: "m", server_id: 50, source_note_id: 7, base_rev: "2026-10-18T01:00:00Z",
+    data_json: '{"nodeData":{"id":"root","topic":"x"}}' })]);
   await mapPut("mindmap", 50, "m");
   await outboxAdd({ op: "update", entity_type: "mindmap", cid: "m", payload: {} });
   const t = fakeTransport(() => ({ status: 400, data: { detail: { code: "LINKED_TREE_REJECTED" } } }));
@@ -241,7 +243,31 @@ test("linked update 400 LINKED_TREE_REJECTED → op dropped, no conflict copy", 
   const rec = await getMM("m");
   assert.equal(rec.conflict, undefined);
   assert.equal(rec.sync_error, undefined);
+  assert.equal(rec.dirty, 0);
+  assert.equal(rec.data_json, VIEW); // pohon pada peta tertaut tidak sah → view-state default
   assert.equal(warned, 1);
+  // siklus pull berikutnya (server tidak berubah) tidak mengantre ulang update yang sama
+  const row = { id: 50, title: "N", data_json: VIEW, is_pinned: false, list_id: null, source_note_id: 7, updated_at: "2026-10-18T01:00:00Z" };
+  const pr = await pullMindmaps([row], async () => row);
+  assert.equal(pr.requeued, 0);
+  assert.equal((await outboxAll()).length, 0);
+});
+
+test("LINKED_TREE_REJECTED with an edit in flight (rev changed) keeps the record dirty", async () => {
+  await put("scratchpad_notes", [{ cid: "n1", server_id: 7, title: "N", content: "", deleted: false }]);
+  await put("mindmaps", [linked({ cid: "m", server_id: 50, source_note_id: 7, data_json: '{"nodeData":{}}' })]);
+  await mapPut("mindmap", 50, "m");
+  await outboxAdd({ op: "update", entity_type: "mindmap", cid: "m", payload: {} });
+  const t = fakeTransport(() => {
+    // edit lokal selama request
+    put("mindmaps", [linked({ cid: "m", server_id: 50, source_note_id: 7, data_json: VIEW, rev: 2 })]);
+    return { status: 400, data: { detail: { code: "LINKED_TREE_REJECTED" } } };
+  });
+  const orig = console.warn; console.warn = () => {};
+  try { await pushOutbox(t); } finally { console.warn = orig; }
+  const rec = await getMM("m");
+  assert.equal(rec.dirty, 1);
+  assert.equal(rec.data_json, VIEW);
 });
 
 test("linked update 404 → re-POST carries source_note_id (R15)", async () => {
@@ -262,6 +288,37 @@ test("linked update 404 → re-POST carries source_note_id (R15)", async () => {
   assert.equal(rec.server_id, 61);
   assert.equal(rec.conflict, undefined);
   assert.equal((await outboxAll()).length, 0);
+});
+
+test("linked update 404 while note has no server id → re-POST held (R15), op kept", async () => {
+  await put("scratchpad_notes", [{ cid: "n1", server_id: null, title: "N", content: "", deleted: false, sync_error: { status: 422 } }]);
+  await put("mindmaps", [linked({ cid: "m", server_id: 50, source_note_id: null })]);
+  await mapPut("mindmap", 50, "m");
+  await outboxAdd({ op: "update", entity_type: "mindmap", cid: "m", payload: {} });
+  const t = fakeTransport(() => ({ status: 404, data: { detail: "Not found" } }));
+  await pushOutbox(t);
+  assert.equal(t.calls.length, 1);
+  assert.equal(t.calls[0].method, "PUT");
+  assert.equal((await outboxAll()).filter((o) => o.cid === "m" && o.op === "update").length, 1);
+  assert.ok(await getMM("m"));
+});
+
+test("linked update 404 while note deleted locally → map removed without re-POST", async () => {
+  await put("scratchpad_notes", [{ cid: "n1", server_id: 7, title: "N", content: "", deleted: true }]);
+  await put("mindmaps", [linked({ cid: "m", server_id: 50, source_note_id: 7 })]);
+  await mapPut("mindmap", 50, "m");
+  await outboxAdd({ op: "update", entity_type: "mindmap", cid: "m", payload: {} });
+  const t = fakeTransport(() => ({ status: 404, data: { detail: "Not found" } }));
+  await pushOutbox(t);
+  assert.equal(t.calls.length, 1);
+  assert.equal(await getMM("m"), undefined);
+  assert.equal(await cidOf("mindmap", 50), undefined);
+  assert.equal((await outboxAll()).length, 0);
+});
+
+test("linked create payload never has a null source_note_id", () => {
+  assert.throws(() => mindmapToCreatePayload(mm({ cid: "m", source_note_cid: "n1", source_note_id: null })));
+  assert.equal(mindmapToCreatePayload(mm({ cid: "m", source_note_cid: null, source_note_id: 7 })).source_note_id, 7);
 });
 
 test("linked update 404 and re-POST 404 → local map removed", async () => {
