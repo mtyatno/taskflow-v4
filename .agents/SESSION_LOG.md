@@ -3407,3 +3407,9 @@
 - **Changes:** spec baru `docs/superpowers/specs/2026-10-19-note-media-audio-video-design.md`; belum ada kode.
 - **Files Touch:** `docs/superpowers/specs/2026-10-19-note-media-audio-video-design.md`, `.agents/*`
 - **Status:** Needs Review (spec).
+## [2026-10-19 14:30] - Claude (Temuan mindmap #1 — link node lintas perangkat)
+- **Task:** Bapak minta temuan #1 lalu #2. Petakan selesai (PR #37 di-merge, restart dikonfirmasi).
+- **Root cause:** pull task/mindmap membuat cid acak (bukan `client_id` server) dan resolver lokal hanya mencocokkan cid/server_id → id link uuid (cid perangkat pembuat) tidak ditemukan di perangkat lain/setelah reset.
+- **Changes:** pull memakai `client_id` sebagai cid (task, mindmap; pola drawings), `client_id` disimpan + backfill tiap pull (tanpa ubah dirty/rev), resolver task/mindmap/note fallback `client_id`; re-create setelah PUT 404 (note & peta pribadi) memakai `client_id` baru agar tidak menempel ke baris perangkat lain; `findByClientId` hanya untuk record tanpa server_id/baris sama; penanda `recreate_of_sid` dibersihkan saat push sukses. SW v417. Duplikat di picker (cid vs server id) belum — `/api/search` tidak mengembalikan `client_id`.
+- **Files Touch:** `static/offline/{syncpull,syncpush,hydrate,mindmaprepo,taskroutes,mindmaproutes,noteroutes}.js`, `tests/offline/crossdevice_links.test.js`, versi SW, `.agents/*`
+- **Status:** PR draft. JS 1480/1481 (pra-ada `draw_local_reactive`), pytest 299/299. Link lama terbuka di perangkat lain setelah perangkat itu melakukan satu kali pull dengan kode baru.

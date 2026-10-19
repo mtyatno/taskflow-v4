@@ -25,6 +25,8 @@
     return allNotes().then((all) => {
       for (const n of all) if (n.cid === idOrCid) return n.cid;
       for (const n of all) if (n.server_id != null && String(n.server_id) === String(idOrCid)) return n.cid;
+      // id dari perangkat lain (link node mindmap = cid pembuat = client_id server; cid lokal bisa berbeda)
+      for (const n of all) if (n.client_id != null && String(n.client_id) === String(idOrCid)) return n.cid;
       return null;
     });
   }
