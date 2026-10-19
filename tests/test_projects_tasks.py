@@ -217,3 +217,83 @@ def test_task_in_deleted_workspace_is_personal(client):
     p = _row("SELECT p.user_id, p.list_id FROM tasks t JOIN projects p ON p.id=t.project_id "
              "WHERE t.id=?", t["id"])
     assert p["user_id"] == u.id and p["list_id"] is None
+
+
+def _remove_member(list_id, user_id):
+    conn = db()
+    conn.execute("DELETE FROM list_members WHERE list_id=? AND user_id=?", (list_id, user_id))
+    conn.commit()
+    conn.close()
+
+
+def _former_member_task(client):
+    a, b = U(client), U(client)
+    ws = _workspace(a)
+    _add_member(ws, b.id)
+    t = _mk(b, list_id=ws)
+    wp = _mk(a, list_id=ws, project=_n("WP"))["project_id"]
+    _remove_member(ws, b.id)
+    return a, b, ws, t, wp
+
+
+def test_former_member_cannot_resolve_in_workspace(client):
+    a, b, ws, t, wp = _former_member_task(client)
+    before = _row("SELECT COUNT(*) c FROM projects WHERE list_id=?", ws)["c"]
+    r = b.put(f"/api/tasks/{t['id']}", json={"project": _n("X")})
+    assert r.status_code == 400 and r.json()["detail"] == "Project tidak berada di scope task"
+    r = b.put(f"/api/tasks/{t['id']}", json={"project_id": wp})
+    assert r.status_code == 400 and r.json()["detail"] == "Project tidak berada di scope task"
+    assert _row("SELECT COUNT(*) c FROM projects WHERE list_id=?", ws)["c"] == before
+
+
+def test_repository_former_member_keeps_text_no_raise(client):
+    a, b, ws, t, wp = _former_member_task(client)
+    repo = repository.TaskRepository(os.environ["DB_PATH"])
+    task = repo.get(t["id"])
+    task.project = _n("Txt")
+    repo.update(task)
+    row = _row("SELECT project, project_id FROM tasks WHERE id=?", t["id"])
+    assert row["project"] == task.project and row["project_id"] is None
+    n2 = repo.add_to_list(models.Task(title="x", project=_n("Txt")), b.id, ws)
+    assert _row("SELECT project_id FROM tasks WHERE id=?", n2.id)["project_id"] is None
+
+
+def test_subtask_other_scope_gets_own_project_by_name(client):
+    u = U(client)
+    ws = _workspace(u)
+    name = _n()
+    parent = _mk(u, project=name)  # pribadi
+    sub = _mk(u, parent_id=parent["id"], list_id=ws)
+    assert sub["project"] == name and sub["project_id"] != parent["project_id"]
+    assert _row("SELECT list_id FROM projects WHERE id=?", sub["project_id"])["list_id"] == ws
+
+
+def test_client_id_retry_creates_no_second_project(client):
+    u = U(client)
+    cid = uuid.uuid4().hex
+    name = _n()
+    a = _mk(u, project=name, client_id=cid)
+    b = _mk(u, project=name, client_id=cid)
+    assert a["id"] == b["id"]
+    assert _row("SELECT COUNT(*) c FROM projects WHERE user_id=? AND name=?", u.id, name)["c"] == 1
+
+
+def test_project_id_wins_over_name(client):
+    u = U(client)
+    name = _n()
+    pid = _mk(u, project=name)["project_id"]
+    t = _mk(u, project=_n("Ignored"), project_id=pid)
+    assert t["project_id"] == pid and t["project"] == name
+
+
+def test_resolve_twice_same_new_name(client):
+    u = U(client)
+    name = _n()
+    conn = db()
+    a = repository.resolve_task_project(conn, owner_id=u.id, list_id=None, name=name,
+                                        project_id=None, actor_id=u.id)
+    b = repository.resolve_task_project(conn, owner_id=u.id, list_id=None, name=name.upper(),
+                                        project_id=None, actor_id=u.id)
+    conn.commit()
+    conn.close()
+    assert a == b

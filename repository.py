@@ -74,6 +74,12 @@ def resolve_task_project(conn, *, owner_id: int, list_id: Optional[int],
     if list_id is not None:
         ws = conn.execute("SELECT id FROM shared_lists WHERE id=?", (list_id,)).fetchone()
     if ws is not None:
+        member = conn.execute(
+            "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ? "
+            "UNION SELECT 1 FROM list_members WHERE list_id = ? AND user_id = ?",
+            (ws[0], actor_id, ws[0], actor_id)).fetchone()
+        if member is None:  # pesan sama dgn "id di luar scope": tak jadi oracle
+            raise ProjectScopeError("Project tidak berada di scope task")
         scope_sql, scope_args, col, owner = "list_id = ?", (ws[0],), "list_id", ws[0]
     else:
         scope_sql, scope_args, col, owner = "user_id = ? AND list_id IS NULL", (owner_id,), "user_id", owner_id
@@ -92,10 +98,17 @@ def resolve_task_project(conn, *, owner_id: int, list_id: Optional[int],
             scope_args + (clean,)).fetchone()
         if row is None:
             now = datetime.now().isoformat()
-            cur = conn.execute(
-                f"INSERT INTO projects(name, {col}, archived, created_by, created_at, updated_at) "
-                "VALUES (?,?,0,?,?,?)", (clean, owner, actor_id, now, now))
-            return cur.lastrowid, clean
+            try:
+                cur = conn.execute(
+                    f"INSERT INTO projects(name, {col}, archived, created_by, created_at, updated_at) "
+                    "VALUES (?,?,0,?,?,?)", (clean, owner, actor_id, now, now))
+                return cur.lastrowid, clean
+            except sqlite3.IntegrityError:  # balapan: request lain membuatnya lebih dulu
+                row = conn.execute(
+                    f"SELECT id, name, archived FROM projects WHERE {scope_sql} AND name = ? COLLATE NOCASE",
+                    scope_args + (clean,)).fetchone()
+                if row is None:
+                    raise
     else:
         return None, ""
 
@@ -786,9 +799,12 @@ class TaskRepository:
             if user_id is None:  # tanpa pemilik: tak ada scope project
                 pid, pname = None, (task.project or "").strip()
             else:
-                pid, pname = resolve_task_project(
-                    conn, owner_id=user_id, list_id=list_id, name=task.project,
-                    project_id=None, actor_id=user_id)
+                try:
+                    pid, pname = resolve_task_project(
+                        conn, owner_id=user_id, list_id=list_id, name=task.project,
+                        project_id=None, actor_id=user_id)
+                except ProjectScopeError:  # bukan anggota: perilaku lama (teks saja)
+                    pid, pname = None, (task.project or "").strip()
             task.project = pname
             cur = conn.execute(
                 """INSERT INTO tasks
@@ -821,9 +837,12 @@ class TaskRepository:
         with self._connect() as conn:
             ex = conn.execute("SELECT user_id, list_id FROM tasks WHERE id=?", (task.id,)).fetchone()
             if ex is not None and ex["user_id"] is not None:
-                pid, pname = resolve_task_project(
-                    conn, owner_id=ex["user_id"], list_id=ex["list_id"], name=task.project,
-                    project_id=None, actor_id=ex["user_id"])
+                try:
+                    pid, pname = resolve_task_project(
+                        conn, owner_id=ex["user_id"], list_id=ex["list_id"], name=task.project,
+                        project_id=None, actor_id=ex["user_id"])
+                except ProjectScopeError:  # bukan anggota lagi: teks saja, project_id NULL
+                    pid, pname = None, (task.project or "").strip()
             else:  # task yatim / tak ada: tanpa scope, simpan teks apa adanya
                 pid, pname = None, (task.project or "").strip()
             task.project = pname
@@ -1336,9 +1355,12 @@ class TaskRepository:
         """Add a task directly to a shared list."""
         now = datetime.now().isoformat()
         with self._connect() as conn:
-            pid, pname = resolve_task_project(
-                conn, owner_id=user_id, list_id=list_id, name=task.project,
-                project_id=None, actor_id=user_id)
+            try:
+                pid, pname = resolve_task_project(
+                    conn, owner_id=user_id, list_id=list_id, name=task.project,
+                    project_id=None, actor_id=user_id)
+            except ProjectScopeError:  # bukan anggota: perilaku lama (teks saja)
+                pid, pname = None, (task.project or "").strip()
             task.project = pname
             cur = conn.execute(
                 """INSERT INTO tasks

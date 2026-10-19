@@ -1792,6 +1792,7 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
 
     # Resolve parent task — inherit fields if not provided
     parent_id = req.parent_id
+    inherited_pid = None
     if parent_id:
         with get_db() as conn:
             parent_row = conn.execute("SELECT * FROM tasks WHERE id = ?", (parent_id,)).fetchone()
@@ -1800,11 +1801,9 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
         # Inherit from parent if not explicitly provided
         if not req.list_id and parent_row["list_id"]:
             req.list_id = parent_row["list_id"]
-        if (not req.project and req.project_id is None
-                and "project_id" in parent_row.keys() and parent_row["project_id"]):
-            req.project_id = parent_row["project_id"]
-        elif not req.project and req.project_id is None and parent_row["project"]:
+        if not req.project and req.project_id is None and parent_row["project"]:
             req.project = parent_row["project"]
+            inherited_pid = parent_row["project_id"]  # dipakai hanya bila scope sama
         if not req.context and parent_row["context"]:
             req.context = parent_row["context"]
 
@@ -1850,9 +1849,18 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
             if dup:
                 return task_row_to_dict(dup, conn)
         try:
-            proj_id, proj_name = repository.resolve_task_project(
-                conn, owner_id=uid, list_id=req.list_id, name=req.project,
-                project_id=req.project_id, actor_id=uid)
+            proj_id = None
+            if inherited_pid:  # warisan parent: hanya bila project parent ada di scope task baru
+                try:
+                    proj_id, proj_name = repository.resolve_task_project(
+                        conn, owner_id=uid, list_id=req.list_id, name=None,
+                        project_id=inherited_pid, actor_id=uid)
+                except repository.ProjectScopeError:
+                    proj_id = None
+            if not proj_id:
+                proj_id, proj_name = repository.resolve_task_project(
+                    conn, owner_id=uid, list_id=req.list_id, name=req.project,
+                    project_id=req.project_id, actor_id=uid)
         except repository.ProjectScopeError:
             raise HTTPException(status_code=400, detail="Project tidak berada di scope task")
         try:
