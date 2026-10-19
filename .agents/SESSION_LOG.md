@@ -3341,6 +3341,12 @@
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/auth/refresh dan /api/version v415 aktif.
 
+## [2026-10-18 16:00] - Claude (PR 1 keamanan halaman publik & ekspor DOCX)
+- **Task:** Bapak menyetujui spec drawing & project workspace (opsi C untuk hak kelola project) dan PR 1: perbaikan celah `/pub/drawings`.
+- **Changes:** Spec + rencana di `docs/superpowers/`. Eksekusi superpowers SDD (subagent implementer + reviewer per task): Task 1 `/pub/drawings` + render publik dibatasi ke drawing penerbit di note publish pribadi (seksi kanvas legacy dihapus); Task 2 password note untuk lampiran, "Related" & wikilink tanpa note berpassword orang lain, escape metadata lintas user; Task 3 resolver drawing ekspor DOCX dibatasi ke pengekspor; Task 4 resolver lampiran ekspor mengikuti akses note. Review akhir (opus) menemukan owner workspace bisa membuka drawing pribadi anggota (sisipkan rujukan lalu hapus workspace) → aturan note tepercaya (`last_edited_by`), plus tanpa tebak-judul untuk token id/UUID di ekspor, id aneh → 404, ekspor menerima lampiran note publish terbuka. ADR-009. XSS isi note (PR 1b) dan SSRF ekspor dilaporkan, tidak dikerjakan.
+- **Verifikasi:** pytest 223/223, JS 1311/1312 (pra-ada draw_local_reactive), smoke uvicorn.
+- **Files Touch:** `webapp.py`, `tests/test_pub_access.py`, `tests/test_export_drawing_scope.py`, `tests/test_export_attachment_scope.py`, `tests/test_drawings.py`, `docs/superpowers/specs/2026-10-18-workspace-drawing-project-design.md`, `docs/superpowers/plans/2026-10-18-pub-drawing-access.md`, `.agents/*`
+- **Status:** Needs Review (draft PR #35, tunggu "merge dan deploy"; restart `taskflow-web` wajib).
 ## [2026-10-18 11:20] - Claude (workflow tim + jadwal per sesi + papan pemantauan migrasi mobile)
 - **Task:** Bapak menyetujui roadmap Capacitor; minta workflow pengembangan tim dengan Claude Code, jadwal per sesi (laptop dipakai bergantian), dan update progres yang bisa dipantau.
 - **Changes:** `scripts/mobile_schedule.py` + `docs/mobile/{plan.json,README.md}` (62 sesi, 153 jam, selesai 15 Des 2026). Di proyek Claude: Playbook Pengembangan Alurik Mobile dan Papan Sesi Alurik (artifact + db bersama). Review independen atas playbook/papan → perbaikan: status review dihitung selesai untuk kesiapan dan posisi, jam aktual + `blocked_since`/`review_since`, jendela merge Sen–Kam + branch bertumpuk, CI `npm test` (S03), env cloud bersama oleh Owner, akses papan, kontrak data tulisan Claude, kunci upload baru bila keystore pernah bocor, review produksi Play sebelum lepas Tauri (S61 10 Des, S62 15 Des). Roadmap diperbarui (prinsip 3–5, verifikasi developer Android, nomor ADR-008..013). PR #29 di-merge dengan `main` (konflik `.agents/*` dengan PR #30) dan kembali clean.
@@ -3364,3 +3370,15 @@
 - **Changes:** `origin/main` (PR #29 + PR #33 Petakan 1/3) di-merge ke `claude/mobile-plan`; konflik `.agents/CURRENT_STATE.md` dan `SESSION_LOG.md` diselesaikan dengan mempertahankan semua entri; base PR #32 dipindah ke `main`. ADR mobile tetap berlabel sementara ADR-M1..M6 (ADR-007/008 sudah terpakai).
 - **Files Touch:** `.agents/{CURRENT_STATE,SESSION_LOG}.md`
 - **Status:** Needs Review (PR #32, tunggu "merge dan deploy").
+
+## [2026-10-19 11:10] - Claude (PR #35 merge & deploy)
+- **Task:** Bapak me-merge PR #35 (keamanan halaman publik & ekspor DOCX) setelah me-merge main ke branch.
+- **Changes:** Dicek: head `8ef11dd` CI hijau dan mergeable; merge commit `67861fb`; Deploy Taskflow V4 run #905 sukses. Workflow deploy tidak me-restart `taskflow-web`, jadi perbaikan belum aktif sampai restart. Pengecekan berkala PR dihentikan.
+- **Files Touch:** `.agents/*`
+- **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar perbaikan aktif.
+
+## [2026-10-19 11:18] - Claude (PR #35 aktif di produksi)
+- **Task:** Bapak me-restart `taskflow-web`; cek `/pub/attachments/<24 digit>` → 404 (kode baru aktif).
+- **Changes:** Status PR #35 di CURRENT_STATE diperbarui (aktif). Berikutnya: PR 1b (XSS isi note publish) menunggu keputusan HTML yang diizinkan.
+- **Files Touch:** `.agents/*`
+- **Status:** Done.

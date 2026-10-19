@@ -1,4 +1,7 @@
 import pytest
+from starlette.testclient import TestClient
+
+import webapp
 from conftest import register_user
 
 
@@ -251,8 +254,20 @@ def test_drawing_endpoints_by_client_id(client):
     assert detail["title"] == "Drawing CID Test"
     assert "inline" in detail["tags"]
 
-    # 3. GET public by client_id
-    pub_res = client.get(f"/pub/drawings/{cid}")
+    # 3. GET public by client_id: sebelum di-embed di note publish → 404 (drawing pribadi tidak bocor)
+    anon = TestClient(webapp.app)
+    assert anon.get(f"/pub/drawings/{cid}").status_code == 404
+
+    #    setelah di-embed lewat ::draw[client_id] di note yang dipublish → 200
+    note_res = client.post("/api/scratchpad", json={
+        "title": "Note publik CID",
+        "content": f"::draw[{cid}]"
+    }, headers=headers)
+    assert note_res.status_code == 200, note_res.text
+    publish_res = client.post(f"/api/scratchpad/{note_res.json()['id']}/publish", json={}, headers=headers)
+    assert publish_res.status_code == 200, publish_res.text
+
+    pub_res = anon.get(f"/pub/drawings/{cid}")
     assert pub_res.status_code == 200, pub_res.text
     pub_data = pub_res.json()
     assert pub_data["id"] == numeric_id
