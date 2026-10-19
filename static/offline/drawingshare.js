@@ -79,7 +79,9 @@
   }
 
   function planNoteShare(content, targetListId, drawingsById, myUid) {
-    const map = drawingsById || {};
+    const map = {};
+    for (const k of Object.keys(drawingsById || {})) map[k.toLowerCase()] = drawingsById[k];
+    const noTarget = targetListId == null; // note pribadi: drawing workspace tetap tautan, tidak ada yang dipindah/disalin
     const plan = { move: [], copy: [], unavailable: [] };
     const seen = new Set();
     const seenTok = new Set();
@@ -88,13 +90,13 @@
     let m;
     while ((m = re.exec(src)) !== null) {
       const tok = m[1];
-      const d = map[tok] || map[tok.toLowerCase()] || null;
+      const d = map[tok.toLowerCase()] || null;
       if (!d) {
         if (!seenTok.has(tok)) { seenTok.add(tok); plan.unavailable.push(tok); }
         continue;
       }
       const key = d.cid != null ? "c" + d.cid : d.server_id != null ? "s" + d.server_id : "o" + String(d.client_id);
-      if (seen.has(key)) continue;
+      if (noTarget || seen.has(key)) continue;
       seen.add(key);
       if (sameList(d.list_id, targetListId)) continue;
       if (d.list_id == null && isMine(d, myUid)) plan.move.push(d);
@@ -107,11 +109,14 @@
   function errBody(err) {
     return (err && (err.body || err.data)) || null;
   }
+  // Offline hanya bila error bergaya fetch (tanpa status, pesan jaringan) atau navigator offline;
+  // TypeError biasa = bug kode → ERROR, bukan "butuh koneksi".
   function isNetworkError(err) {
-    if (!err) return false;
-    if (err.status != null) return false;
-    return err instanceof TypeError || err.name === "TypeError" || /failed to fetch|networkerror|load failed/i.test(String(err.message || ""));
+    if (!err || err.status != null) return false;
+    return /failed to fetch|networkerror|load failed/i.test(String(err.message || "")) || isOffline();
   }
+  function warn(msg, err) { try { console.warn("[drawingshare] " + msg, err); } catch (_) {} }
+  // Kegagalan pemanggilan jaringan (bukan langkah lokal).
   function failure(err) {
     if (isNetworkError(err)) return { ok: false, code: "OFFLINE", message: OFFLINE_SHARE_MSG };
     return { ok: false, code: "ERROR", message: (err && err.message) || "Terjadi kesalahan." };
@@ -135,13 +140,17 @@
     return call(api, "PATCH", "/api/drawings/" + sid + "/share", { list_id: nn(listId) }).then((updated) => {
       const patch = { list_id: updated && updated.list_id !== undefined ? updated.list_id : nn(listId) };
       // Server mem-bump updated_at saat share → adopsi sebagai base_rev (pola MindmapTabInstance.handleShare).
+      // Record bisa saja dirty: bump itu berasal dari share kita sendiri, bukan edit orang lain.
       if (updated && updated.updated_at) { patch.updated_at = updated.updated_at; patch.base_rev = updated.updated_at; }
+      const built = Object.assign({}, drawing, patch);
+      // Adopsi lokal dipisah dari panggilan jaringan: server sudah berhasil, jadi gagal lokal tidak membalik hasil.
       return TFrepo.getRaw(sid).then((rec) => {
-        if (!rec) return Object.assign({}, drawing, patch);
+        if (!rec) return built;
         return TFdb.mutate("drawings", rec.cid, (cur) => (cur ? Object.assign({}, cur, patch, { rev: (cur.rev || 0) + 1 }) : undefined))
-          .then((saved) => Object.assign({}, drawing, patch, saved ? { rev: saved.rev } : {}));
-      });
-    }).then((d) => ({ ok: true, drawing: d }), (err) => {
+          .then((saved) => (saved ? Object.assign(built, { rev: saved.rev }) : built));
+      }).catch((err) => { warn("adopsi lokal setelah share gagal", err); return built; })
+        .then((d) => ({ ok: true, drawing: d }));
+    }, (err) => {
       const body = errBody(err);
       const detail = body && body.detail;
       if (err && err.status === 409 && detail && typeof detail === "object" && detail.code === "DRAWING_IN_USE") {
@@ -161,9 +170,10 @@
 
   function copyDrawing(api, drawing, listId, title) {
     const name = title || (drawing && drawing.title) || "Untitled Drawing";
+    const localFail = (err) => ({ ok: false, code: "ERROR", message: (err && err.message) || "Terjadi kesalahan." });
     return localDataOf(drawing).then((data) => {
       if (data != null) {
-        return TFrepo.createDrawing({ title: name, data_json: data, list_id: nn(listId) })
+        return TFrepo.createDrawing({ title: name, data_json: data, list_id: nn(listId), svg_preview: (drawing && drawing.svg_preview) || "" })
           .then((d) => ({ ok: true, drawing: d }));
       }
       if (isOffline()) return { ok: false, code: "OFFLINE", message: OFFLINE_DATA_MSG };
@@ -171,14 +181,17 @@
       if (sid == null) return { ok: false, code: "ERROR", message: OFFLINE_DATA_MSG };
       const body = { list_id: nn(listId) };
       if (title) body.title = title;
-      return call(api, "POST", "/api/drawings/" + sid + "/copy", body)
-        .then((srv) => TFrepo.adoptServerDrawing(srv))
-        .then((rec) => ({ ok: true, drawing: rec }));
-    }).catch((err) => {
-      const f = failure(err);
-      if (f.code === "OFFLINE") f.message = OFFLINE_DATA_MSG;
-      return f;
-    });
+      return call(api, "POST", "/api/drawings/" + sid + "/copy", body).then((srv) => {
+        // Salinan sudah ada di server: gagal adopsi lokal tidak membalik hasil (pull akan membawanya).
+        return Promise.resolve().then(() => TFrepo.adoptServerDrawing(srv))
+          .catch((err) => { warn("adopsi lokal setelah salin gagal", err); return Object.assign({}, srv, { server_id: srv.id, cid: srv.client_id || null }); })
+          .then((rec) => ({ ok: true, drawing: rec }));
+      }, (err) => {
+        const f = failure(err);
+        if (f.code === "OFFLINE") f.message = OFFLINE_DATA_MSG;
+        return f;
+      });
+    }, localFail).catch(localFail);
   }
 
   // ── moved_drawings dari respons simpan/share note ──────────────────────────

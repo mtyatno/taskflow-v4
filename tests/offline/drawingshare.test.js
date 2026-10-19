@@ -173,3 +173,56 @@ test("opNoteCreate applies moved_drawings and a failing apply never fails the pu
   assert.equal((await get("drawings", "a")).list_id, 5);
   assert.equal(r.pushed, 1);
 });
+
+test("shareDrawing reports ERROR (not OFFLINE) for a non-network exception", async () => {
+  const r = await share.shareDrawing({ fetch: async () => { throw new TypeError("x is not a function"); } }, drw(), 5);
+  assert.deepEqual([r.ok, r.code, r.message], [false, "ERROR", "x is not a function"]);
+});
+
+test("shareDrawing returns ok:true when local adoption fails after server success", async () => {
+  await put("drawings", drw());
+  const db = require("../../static/offline/db.js");
+  const orig = db.mutate;
+  db.mutate = () => Promise.reject(new Error("idb boom"));
+  const warns = []; const ow = console.warn; console.warn = (...a) => warns.push(a);
+  try {
+    const r = await share.shareDrawing({ fetch: async () => ({ id: 11, list_id: 5, updated_at: "2026-10-19T09:00:00" }) }, drw(), 5);
+    assert.equal(r.ok, true); assert.equal(r.drawing.list_id, 5); assert.equal(r.drawing.updated_at, "2026-10-19T09:00:00");
+    assert.equal(warns.length, 1);
+  } finally { db.mutate = orig; console.warn = ow; }
+});
+
+test("planNoteShare: personal note (null target) moves/copies nothing; lookup is case-insensitive", () => {
+  const d = drw({ cid: "w", server_id: 12, client_id: "Cl-Mixed", list_id: 9 });
+  const mine = drw({ cid: "m", server_id: 11, client_id: "cl-1" });
+  const map = { "12": d, "Cl-Mixed": d, "11": mine, "cl-1": mine };
+  assert.deepEqual(share.planNoteShare("::draw[12] ::draw[11] ::draw[zz]", null, map, 1), { move: [], copy: [], unavailable: ["zz"] });
+  assert.deepEqual(share.planNoteShare("::draw[CL-MIXED]", 5, map, 1).copy.map((x) => x.cid), ["w"]);
+  assert.deepEqual(share.planNoteShare("::draw[CL-1]", 5, { "CL-1": mine }, 1).move.map((x) => x.cid), ["m"]);
+});
+
+test("copyDrawing local path carries svg_preview", async () => {
+  const created = await repo.createDrawing({ title: "S", data_json: '{"store":{"a":1},"schema":{}}', svg_preview: "<svg/>" });
+  const src = await repo.getDrawing(created.cid, { online: false });
+  const r = await share.copyDrawing({}, src, 5);
+  assert.equal((await get("drawings", r.drawing.cid)).svg_preview, "<svg/>");
+});
+
+test("opNoteUpdate: a rejecting applyMovedDrawings is logged and never fails the push", async () => {
+  await put("scratchpad_notes", {
+    cid: "n", server_id: 7, title: "N", content: "x", linked_task_cids: "[]", linked_to_cids: "[]", pinned: false, list_id: 5,
+    created_at: "x", updated_at: "2026-10-15T09:00:00", deleted: false, dirty: 1, base_rev: "2026-10-15T08:00:00", rev: 1,
+  });
+  await mapPut("note", 7, "n");
+  await put("_outbox", { qid: 1, op: "update", entity_type: "note", cid: "n", payload: {} });
+  const orig = share.applyMovedDrawings; let hit = 0;
+  share.applyMovedDrawings = () => { hit++; return Promise.reject(new Error("apply boom")); };
+  const ow = console.warn; console.warn = () => {};
+  try {
+    const tr = { request: async () => ({ status: 200, data: { id: 7, updated_at: "2026-10-19T11:00:00", moved_drawings: [{ id: 1, list_id: 5 }] } }) };
+    const r = await pushOutbox(tr);
+    assert.equal(hit, 1); assert.equal(r.pushed, 1);
+    assert.equal((await get("scratchpad_notes", "n")).dirty, 0);
+    assert.equal((await outboxAll()).length, 0);
+  } finally { share.applyMovedDrawings = orig; console.warn = ow; }
+});
