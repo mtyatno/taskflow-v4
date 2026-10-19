@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v418-canvas-linkpicker";
+const CACHE = "taskflow-v419-toc-headings";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
