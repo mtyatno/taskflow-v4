@@ -198,10 +198,10 @@ test("linked map: first edit does not capture a base", async () => {
   assert.equal((await get("mindmaps", "ln")).base_data_json, undefined);
 });
 
-test("router merge conflict reuses the recent conflict copy of the same map", async () => {
+test("router merge conflict reuses the recent conflict copy of the same map from the same tab version", async () => {
   const S2 = D(["A server", "B"]);
   await put("mindmaps", [rec({ cid: "m", server_id: 10, title: "M", data_json: S2, updated_at: "t2", dirty: 0, base_rev: "t2" }),
-    rec({ cid: "old", client_id: "old", conflict_of: "m", title: "(konflik) M", data_json: L, dirty: 1, rev: 1 })]);
+    rec({ cid: "old", client_id: "old", conflict_of: "m", conflict_base: "t1", title: "(konflik) M", data_json: L, dirty: 1, rev: 1 })]);
   await put("_outbox", [{ qid: 1, op: "create", entity_type: "mindmap", cid: "old", payload: { cid: "old" } }]);
   const R = buildTaskRouter();
   const L3 = D(["A tab", "B"]);
@@ -211,4 +211,48 @@ test("router merge conflict reuses the recent conflict copy of the same map", as
   const old = await get("mindmaps", "old");
   assert.equal(old.data_json, L3); assert.equal(old.rev, 2);
   assert.deepEqual((await all("_outbox")).filter((o) => o.cid === "old").map((o) => o.op), ["create"]);
+});
+
+// Fix round 2
+test("pull-merge copy is never overwritten by a later router conflict from another version → two copies", async () => {
+  const B0 = P([["a", "A"], ["b", "B"]]);
+  await put("mindmaps", [rec({ cid: "m", server_id: 10, title: "M", data_json: P([["a", "A lokal"], ["b", "B"]]), base_data_json: B0, base_title: "M",
+    base_rev: "t1", base_data_rev: "t1", updated_at: "t1x", dirty: 1, rev: 1, list_id: 5 })]);
+  const out = await mm.mergeServerIntoLocal("m", srvRow({ id: 10, title: "M", data_json: P([["a", "A server"], ["b", "B"]]), updated_at: "t2", list_id: 5 }), { expectRev: 1 });
+  assert.equal(out.copy.conflict_base, "t1x");
+  const r1 = await get("mindmaps", "m");
+  const S3 = P([["a", "A server"], ["b", "B server2"]]);
+  await put("mindmaps", [Object.assign({}, r1, { data_json: S3, updated_at: "t3", base_rev: "t3", base_data_json: S3, base_data_rev: "t3", dirty: 0 })]);
+  const res = await buildTaskRouter().dispatch("PUT", "/api/mindmaps/10",
+    { data_json: P([["a", "A server"], ["b", "B tab"]]), base_data_json: r1.data_json, if_updated_at: r1.updated_at });
+  assert.equal(res.merge_conflicts, 1); assert.notEqual(res.conflict_copy.id, out.copy.cid);
+  assert.deepEqual(ids(await get("mindmaps", out.copy.cid)), ["a:A lokal", "b:B"]);
+  const copies = (await all("mindmaps")).filter((m) => m.conflict_of === "m");
+  assert.equal(copies.length, 2);
+});
+
+test("stale save without base reuses a pull copy only when the tab came from that same local version", async () => {
+  await put("mindmaps", [rec({ cid: "m", server_id: 10, title: "M", data_json: S, updated_at: "t2", dirty: 0, base_rev: "t2" }),
+    rec({ cid: "pc", client_id: "pc", conflict_of: "m", conflict_base: "t1x", title: "(konflik) M", data_json: L, dirty: 1, rev: 1 })]);
+  const R = buildTaskRouter();
+  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: D(["other", "B"]), if_updated_at: "t0" });
+  assert.equal((await get("mindmaps", "pc")).data_json, L); // versi lain → salinan baru
+  assert.equal((await all("mindmaps")).filter((m) => m.conflict_of === "m").length, 2);
+  const T = D(["A lokal lagi", "B"]);
+  await R.dispatch("PUT", "/api/mindmaps/10", { data_json: T, if_updated_at: "t1x" });
+  assert.equal((await get("mindmaps", "pc")).data_json, T); // tab dari versi t1x = lanjutan isi salinan → dipakai ulang
+});
+
+test("if_updated_at current but tab base older than the record → merge keeps the remote change", async () => {
+  const S2 = D(["A", "B server"]);
+  await put("mindmaps", [rec({ cid: "m", server_id: 10, title: "M", data_json: S2, updated_at: "t2", dirty: 0, base_rev: "t2" })]);
+  const res = await buildTaskRouter().dispatch("PUT", "/api/mindmaps/10", { data_json: L, base_data_json: B, if_updated_at: "t2" });
+  assert.equal(res.merged, true);
+  assert.deepEqual(JSON.parse(res.data_json).nodeData.children.map((c) => c.topic), ["A lokal", "B server"]);
+});
+
+test("healthy save (base = record content, if_updated_at current) is a plain update", async () => {
+  await put("mindmaps", [rec({ cid: "m", server_id: 10, title: "M", data_json: B, updated_at: "t2", dirty: 0, base_rev: "t2" })]);
+  const res = await buildTaskRouter().dispatch("PUT", "/api/mindmaps/10", { data_json: L, base_data_json: B, if_updated_at: "t2" });
+  assert.equal(res.merged, undefined); assert.equal(res.data_json, L);
 });
