@@ -700,6 +700,20 @@ def migrate_db():
                 "SELECT user_id, id, updated_at FROM mindmaps WHERE is_pinned = 1"
             )
         conn.commit()
+        # Teks node untuk pencarian (temuan #7). NULL = belum dihitung; peta tertaut = "".
+        if "search_text" not in [r["name"] for r in conn.execute("PRAGMA table_info(mindmaps)").fetchall()]:
+            conn.execute("ALTER TABLE mindmaps ADD COLUMN search_text TEXT")
+            conn.commit()
+        while True:
+            batch = conn.execute(
+                "SELECT id, data_json, source_note_id FROM mindmaps WHERE search_text IS NULL LIMIT 200"
+            ).fetchall()
+            if not batch:
+                break
+            for r in batch:
+                st = "" if r["source_note_id"] is not None else _mindmap_search_text(r["data_json"])
+                conn.execute("UPDATE mindmaps SET search_text = ? WHERE id = ?", (st, r["id"]))
+            conn.commit()
     finally:
         conn.close()
 
@@ -5125,6 +5139,49 @@ def _mindmap_topics(data_json) -> list:
     return out
 
 
+def _mindmap_search_text(data_json) -> str:
+    return "\n".join(_mindmap_topics(data_json))[:1_000_000]
+
+
+def _mindmap_match_snippet(search_text: str, q: str, length: int = 80) -> str:
+    """Baris pertama teks node yang memuat q (tanpa beda huruf), dipotong di sekitar kecocokan."""
+    ql = q.casefold()
+    if not ql:
+        return ""
+    for line in (search_text or "").split("\n"):
+        lc = line.casefold()
+        if ql not in lc:
+            continue
+        if len(line) <= length:
+            return line
+        i = lc.index(ql)
+        start = max(0, min(i - (length - len(q)) // 2, len(line) - length))
+        out = line[start:start + length]
+        if start > 0:
+            out = "…" + out
+        if start + length < len(line):
+            out += "…"
+        return out
+    return ""
+
+
+def _mindmap_outline_md(data: dict) -> str:
+    root = data["nodeData"]
+    lines = ["# " + (_mindmap_plain(root.get("topic")) or "Tanpa judul")]
+    stack = [(c, 1) for c in reversed(root.get("children") or [])]
+    body = []
+    while stack:
+        node, d = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        body.append("  " * (d - 1) + "- " + _mindmap_plain(node.get("topic")))
+        stack.extend((c, d + 1) for c in reversed(node.get("children") or []))
+    if body:
+        lines.append("")
+        lines.extend(body)
+    return "\n".join(lines) + "\n"
+
+
 def _snapshot_mindmap_to_trash(conn, row, uid) -> None:
     """Tulis snapshot peta (SELECT * + pin) ke trashed_mindmaps. Dipanggil di transaksi hapus; JANGAN commit."""
     _ensure_trashed_mindmaps_table(conn)
@@ -5653,6 +5710,42 @@ async def export_user_data(user=Depends(get_current_user)):
                     log["date"], log["status"], log.get("skip_reason", "") or ""
                 ])
         zf.writestr("habits.csv", csv_buf2.getvalue().encode("utf-8"))
+
+        # ── Mindmaps ───────────────────────────────────────────────
+        with get_db() as conn:
+            mm_rows = conn.execute(
+                "SELECT m.*, n.title AS source_note_title FROM mindmaps m "
+                "LEFT JOIN scratchpad_notes n ON n.id = m.source_note_id "
+                "WHERE m.user_id = ? ORDER BY m.id", (uid,)
+            ).fetchall()
+        used_mm: dict[str, int] = {}
+        for m in mm_rows:
+            base = _sanitize(m["title"], m["id"])
+            if base in used_mm:
+                used_mm[base] += 1
+                base = f"{base} ({used_mm[base] - 1})"
+                used_mm[base] = 1
+            else:
+                used_mm[base] = 1
+            try:
+                parsed = json.loads(m["data_json"])
+            except Exception:
+                parsed = None
+            if m["source_note_id"] is not None:
+                doc = {"title": m["title"], "created_at": m["created_at"], "updated_at": m["updated_at"],
+                       "linked": True, "source_note_id": m["source_note_id"],
+                       "source_note_title": m["source_note_title"], "view_state": parsed}
+                zf.writestr(f"mindmaps/{base}.json", json.dumps(doc, ensure_ascii=False, indent=2).encode("utf-8"))
+                continue
+            doc = {"title": m["title"], "created_at": m["created_at"], "updated_at": m["updated_at"],
+                   "workspace_id": m["list_id"]}
+            if parsed is not None:
+                doc["data"] = parsed
+            else:
+                doc["data_json"] = m["data_json"]
+            zf.writestr(f"mindmaps/{base}.json", json.dumps(doc, ensure_ascii=False, indent=2).encode("utf-8"))
+            if isinstance(parsed, dict) and isinstance(parsed.get("nodeData"), dict):
+                zf.writestr(f"mindmaps/{base}.md", _mindmap_outline_md(parsed).encode("utf-8"))
 
     buf.seek(0)
     filename = f"alurik-export-{today}.zip"
@@ -7480,7 +7573,7 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
             ")"
         )
         task_rows = conn.execute(f"""
-            SELECT id, title, priority, gtd_status, deadline, quadrant
+            SELECT id, title, priority, gtd_status, deadline, quadrant, client_id
             FROM tasks
             WHERE ({access_clause})
               AND gtd_status NOT IN ('done','archived')
@@ -7492,7 +7585,7 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
         # Notes (personal + shared)
         note_ac, note_ap = _note_access_clause(uid)
         note_rows = conn.execute(f"""
-            SELECT id, title, content, updated_at
+            SELECT id, title, content, updated_at, client_id
             FROM scratchpad_notes
             WHERE {note_ac} AND (title LIKE ? OR content LIKE ?)
             ORDER BY updated_at DESC
@@ -7502,9 +7595,9 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
         # Mindmaps (personal + shared)
         mm_ac, mm_ap = _mindmap_access_clause(uid)
         mindmap_rows = conn.execute(f"""
-            SELECT id, title, updated_at
+            SELECT id, title, updated_at, client_id, search_text
             FROM mindmaps
-            WHERE {mm_ac} AND (title LIKE ? OR data_json LIKE ?)
+            WHERE {mm_ac} AND (title LIKE ? OR search_text LIKE ?)
             ORDER BY updated_at DESC
             LIMIT 8
         """, mm_ap + [like, like]).fetchall()
@@ -7531,7 +7624,11 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
             {**dict(r), "content": snippet(r["content"])}
             for r in note_rows
         ],
-        "mindmaps": [dict(r) for r in mindmap_rows],
+        "mindmaps": [
+            {"id": r["id"], "title": r["title"], "updated_at": r["updated_at"], "client_id": r["client_id"],
+             "snippet": _mindmap_match_snippet(r["search_text"] or "", q)}
+            for r in mindmap_rows
+        ],
         "drawings": [dict(r) for r in drawing_rows],
     }
 
@@ -7901,8 +7998,8 @@ async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
             try:
                 cur = conn.execute(
                     "INSERT INTO mindmaps (user_id, title, data_json, is_pinned, created_at, updated_at, "
-                    "list_id, client_id, last_edited_by, source_note_id) "
-                    "VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)",
+                    "list_id, client_id, last_edited_by, source_note_id, search_text) "
+                    "VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, '')",
                     (note["user_id"], note["title"] or "Tanpa judul", LINKED_VIEW_STATE_DEFAULT, now, now,
                      note["list_id"], link_cid, uid, note["id"])
                 )
@@ -7931,9 +8028,10 @@ async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
                 return _mindmap_enrich(dict(dup), conn, uid)
         try:
             cur = conn.execute(
-                "INSERT INTO mindmaps (user_id, title, data_json, is_pinned, created_at, updated_at, list_id, client_id) "
-                "VALUES (?, ?, ?, 0, ?, ?, ?, ?)",
-                (uid, req.title, req.data_json, now, now, req.list_id, req.client_id)
+                "INSERT INTO mindmaps (user_id, title, data_json, is_pinned, created_at, updated_at, list_id, client_id, search_text) "
+                "VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)",
+                (uid, req.title, req.data_json, now, now, req.list_id, req.client_id,
+                 _mindmap_search_text(req.data_json))
             )
         except sqlite3.IntegrityError:
             dup = conn.execute(
@@ -7982,10 +8080,18 @@ async def update_mindmap(mid: int, req: MindmapUpdate, user=Depends(get_current_
             _check_base_rev(req, row, lambda: _mindmap_enrich(dict(row), conn, uid))
             new_title = req.title if req.title is not None else row["title"]
         new_data = req.data_json if req.data_json is not None else row["data_json"]
-        conn.execute(
-            "UPDATE mindmaps SET title = ?, data_json = ?, last_edited_by = ?, updated_at = ? WHERE id = ?",
-            (new_title, new_data, uid, now, mid)
-        )
+        if req.data_json is not None:
+            st = "" if row["source_note_id"] is not None else _mindmap_search_text(new_data)
+            conn.execute(
+                "UPDATE mindmaps SET title = ?, data_json = ?, last_edited_by = ?, updated_at = ?, "
+                "search_text = ? WHERE id = ?",
+                (new_title, new_data, uid, now, st, mid)
+            )
+        else:
+            conn.execute(
+                "UPDATE mindmaps SET title = ?, data_json = ?, last_edited_by = ?, updated_at = ? WHERE id = ?",
+                (new_title, new_data, uid, now, mid)
+            )
         updated = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (mid,)).fetchone()
         return _mindmap_enrich(dict(updated), conn, uid)
 

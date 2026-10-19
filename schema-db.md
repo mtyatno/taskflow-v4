@@ -161,7 +161,8 @@ CREATE TABLE mindmaps (
                 is_pinned  INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
-            , list_id INTEGER DEFAULT NULL, last_edited_by INTEGER, client_id TEXT, source_note_id INTEGER DEFAULT NULL);
+            , list_id INTEGER DEFAULT NULL, last_edited_by INTEGER, client_id TEXT, source_note_id INTEGER DEFAULT NULL
+            , search_text TEXT);  -- teks polos semua node (\n); NULL = belum dihitung, "" = peta tertaut
 CREATE UNIQUE INDEX idx_mindmaps_user_client ON mindmaps(user_id, client_id) WHERE client_id IS NOT NULL;
 CREATE UNIQUE INDEX ux_mindmaps_source_note ON mindmaps(source_note_id) WHERE source_note_id IS NOT NULL;
 
