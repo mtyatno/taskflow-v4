@@ -41,3 +41,19 @@ test("safeExportName: sanitasi karakter path-hostile, fallback, ekstensi", () =>
   assert.equal(OPS.safeExportName(null, "png"), "mindmap.png");
   assert.equal(OPS.safeExportName("  Rencana   Akhir\tTahun  ", "png"), "Rencana Akhir-Tahun.png");
 });
+
+test("engineOptions linked vs normal", () => {
+  const o = OPS.engineOptions(true, { openModal: () => "m", openPage: () => "p" });
+  assert.equal(o.allowUndo, false); assert.equal(o.newTopicName, "Node baru");
+  assert.equal(o.contextMenu.link, false);
+  assert.deepEqual(o.contextMenu.extend.map((e) => e.name), ["📄 Buka di catatan", "↗ Buka di halaman Notes"]);
+  assert.deepEqual(OPS.engineOptions(false, {}), { contextMenu: true });
+});
+test("isOpenNoteClick", () => {
+  assert.equal(OPS.isOpenNoteClick({ button: 0, ctrlKey: true }), true);
+  assert.equal(OPS.isOpenNoteClick({ button: 0, metaKey: true }), true);
+  assert.equal(OPS.isOpenNoteClick({ button: 0 }), false);
+});
+test("hidden selectors cover arrows, summary, links tab and block formats", () => {
+  for (const s of ["#ntb-link", "#ntb-summary", '.side-tab[data-tab="links"]', '#fmt-panel [data-act="table"]']) assert.ok(OPS.LINKED_HIDDEN_SELECTORS.includes(s));
+});

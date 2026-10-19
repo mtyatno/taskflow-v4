@@ -54,10 +54,50 @@
     return name + "." + ext;
   }
 
+  // engineOptions(linked, handlers): opsi tambahan mesin mind-elixir. Peta
+  // tertaut: undo ditangani induk (catatan), panah dimatikan dari menu konteks,
+  // dan dua item menu membuka catatan di heading node. Peta biasa: opsi lama.
+  function engineOptions(linked, handlers) {
+    if (!linked) return { contextMenu: true };
+    const h = handlers || {};
+    return {
+      allowUndo: false,
+      newTopicName: "Node baru",
+      contextMenu: {
+        focus: true,
+        link: false,
+        extend: [
+          { name: "📄 Buka di catatan", key: "Ctrl+Click", onclick: h.openModal },
+          { name: "↗ Buka di halaman Notes", onclick: h.openPage },
+        ],
+      },
+    };
+  }
+
+  // Ctrl+Click (Cmd+Click di Mac) dengan tombol kiri membuka catatan di heading.
+  function isOpenNoteClick(evt) {
+    return !!evt && evt.button === 0 && !!(evt.ctrlKey || evt.metaKey);
+  }
+
+  // Kontrol yang tidak bisa dipetakan ke catatan (panah, ringkasan engine,
+  // tautan node, format blok) disembunyikan di peta tertaut.
+  const LINKED_HIDDEN_SELECTORS = [
+    "#ntb-summary",
+    "#ntb-link",
+    "#ntb-linkbi",
+    '.side-tab[data-tab="links"]',
+    ...["underline", "highlight", "heading", "table", "ul", "ol", "hr", "align"].map(
+      (a) => `#fmt-panel [data-act="${a}"]`
+    ),
+  ];
+
   return {
     isNodeTopicTarget: isNodeTopicTarget,
     resolveTopicTarget: resolveTopicTarget,
     opsDisabledStates: opsDisabledStates,
     safeExportName: safeExportName,
+    engineOptions: engineOptions,
+    isOpenNoteClick: isOpenNoteClick,
+    LINKED_HIDDEN_SELECTORS: LINKED_HIDDEN_SELECTORS,
   };
 });

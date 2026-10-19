@@ -433,6 +433,14 @@
     .map-container .text code { background: var(--side-card); border: 1px solid var(--side-border); border-radius: 3px; padding: 0 4px; font-size: 0.9em; }
     .map-container .text a { color: var(--side-accent); }
 
+    /* ── Peta tertaut: ringkasan bagian catatan di bawah teks node ── */
+    .nm-sum{font-size:11px;line-height:1.35;margin-top:4px;max-width:260px;opacity:.75}
+    .nm-sum-ex{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .nm-sum-it{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .nm-sum-ct{font-size:10px}
+    /* Item Summary di menu konteks engine tidak bisa dimatikan lewat opsi. */
+    body.nm-linked #cm-summary { display: none; }
+
 
 
   </style>
@@ -475,6 +483,7 @@
           <button data-act="align" data-align="justify" title="Rata penuh">J</button>
         </div>
         <div id="node-ops-panel">
+          <button id="ntb-opennote" title="Buka catatan di heading node ini (Ctrl+Click)" style="display:none">📄<span class="lbl">Buka di catatan</span></button>
           <button id="ntb-child" title="Tambah Child (Tab)">↳<span class="lbl">Child</span></button>
           <button id="ntb-sibling" title="Tambah Sibling (Enter)">↵<span class="lbl">Sibling</span></button>
           <button id="ntb-promote" title="Naikan level — jadi sibling dari parent">↑<span class="lbl">Promote</span></button>
@@ -506,12 +515,53 @@
   <script src="MindElixir.iife.js?v=121"></script>
   <script src="/static/vendor/marked.min.js?v=124"></script>
   <script src="/static/offline/mindmapoutline.js?v=126"></script>
-  <script src="/static/offline/mindmapops.js?v=3"></script>
+  <script src="/static/offline/notemap.js?v=1"></script>
+  <script src="/static/offline/mindmapops.js?v=4"></script>
   <script src="/static/offline/mindmapjustify.js?v=1"></script>
   <script>
     let mind = null;
     let currentMindmapTitle = "mindmap";
     let isJustifyActive = false;
+    // Peta tertaut ke catatan (Petakan): node = heading catatan, nodeObj.nm.sid
+    // menunjuk bagiannya. engineLinked = mode saat mesin dibuat (null = belum ada).
+    let linkedMode = false;
+    let showSummary = true;
+    let engineLinked = null;
+
+    // Kirim openNoteAt untuk node ini (sid null untuk root / node baru).
+    function sendOpenNoteAt(nodeObj, target) {
+      if (!nodeObj) return;
+      const sid = nodeObj.nm && nodeObj.nm.sid != null ? nodeObj.nm.sid : null;
+      const send = () => window.parent.postMessage({ type: 'openNoteAt', sid: sid, target: target }, window.location.origin);
+      if (document.fullscreenElement) {
+        document.exitFullscreen().finally(send);
+      } else {
+        send();
+      }
+    }
+
+    // Item extend menu konteks engine tidak menutup menunya sendiri.
+    function openNoteFromContextMenu(evt, target) {
+      const menu = evt && evt.target && evt.target.closest ? evt.target.closest('.context-menu') : null;
+      if (menu) menu.hidden = true;
+      sendOpenNoteAt(mind && mind.currentNode ? mind.currentNode.nodeObj : null, target);
+    }
+
+    function linkedMarkdown(topic, nodeObj) {
+      const nm = window.TF.notemap;
+      return nm.renderTopicNoteInline(topic) +
+        (showSummary ? nm.renderSummaryHtml(nodeObj && nodeObj.nm && nodeObj.nm.summary) : '');
+    }
+
+    // Sembunyikan kontrol yang tidak bisa dipetakan ke catatan; peta biasa
+    // memulihkan tampilan bawaan (gaya inline dikosongkan).
+    function applyLinkedUi(linked) {
+      document.body.classList.toggle('nm-linked', linked);
+      window.TF.mindmapops.LINKED_HIDDEN_SELECTORS.forEach(sel => {
+        document.querySelectorAll(sel).forEach(el => { el.style.display = linked ? 'none' : ''; });
+      });
+      document.getElementById('ntb-opennote').style.display = linked ? '' : 'none';
+    }
 
     function applyJustifyLayout() {
       if (!mind || !mind.map) return;
@@ -1029,13 +1079,22 @@
       document.getElementById('ntb-delete').disabled = d.remove;
     }
 
-    function initMind(data) {
-      if (mind) {
+    // Mesin dibuat sekali per mode: load berikutnya dengan mode yang sama cukup
+    // mind.init(data); mode berbeda (biasa ↔ tertaut) membuat mesin baru karena
+    // opsinya (undo, menu konteks, markdown) hanya dibaca saat konstruksi.
+    function initMind(data, linked) {
+      linked = !!linked;
+      if (mind && engineLinked === linked) {
         mind.init(data);
         return;
       }
+      if (mind) {
+        try { mind.destroy(); } catch (_) {}
+        mind = null;
+      }
+      engineLinked = linked;
       const ME = MindElixir.default || MindElixir;
-      mind = new ME({
+      const opts = Object.assign({
         el: '#map',
         direction: MindElixir.SIDE,
         draggable: true,
@@ -1046,7 +1105,12 @@
         markdown: (topic) => (window.TF && window.TF.mindmapoutline && window.TF.mindmapoutline.renderTopicMd)
           ? window.TF.mindmapoutline.renderTopicMd(topic)
           : topic,
-      });
+      }, window.TF.mindmapops.engineOptions(linked, {
+        openModal: (evt) => openNoteFromContextMenu(evt, 'modal'),
+        openPage: (evt) => openNoteFromContextMenu(evt, 'page'),
+      }));
+      if (linked) opts.markdown = linkedMarkdown;
+      mind = new ME(opts);
       // Redirect fullscreen from #map to #app so the sidebar stays visible
       const mapEl = document.getElementById('map');
       mapEl.requestFullscreen = () => document.getElementById('app').requestFullscreen();
@@ -1109,6 +1173,7 @@
       };
 
       // Node toolbar button handlers
+      document.getElementById('ntb-opennote').onclick = () => { sendOpenNoteAt(currentNodeData, 'modal'); };
       document.getElementById('ntb-child').onclick = () => { if (mind.currentNodes) mind.addChild(); };
       document.getElementById('ntb-sibling').onclick = () => { if (mind.currentNodes) mind.insertSibling('after'); };
       document.getElementById('ntb-promote').onclick = () => {
@@ -1318,7 +1383,10 @@
           setTimeout(applyJustifyLayout, 0);
         }
       });
+    }
 
+    // ── Listener dokumen: dipasang sekali (initMind bisa membuat mesin ulang) ──
+    {
       // Dismiss node links popover on click outside or escape key
       document.addEventListener('click', e => {
         if (activePopover && !activePopover.contains(e.target) && !e.target.closest('.node-link-badge')) {
@@ -1348,6 +1416,35 @@
             switchTab(activeTab ? activeTab.dataset.tab : null);
           }, 100);
         }
+      });
+
+      // Tertaut: Ctrl/Cmd+Click pada node membuka catatan di heading-nya. Fase
+      // capture di #map agar jalan sebelum handler engine dan tautan di topik.
+      document.getElementById('map').addEventListener('click', e => {
+        if (!linkedMode || !mind) return;
+        const ops = window.TF.mindmapops;
+        if (!ops.isOpenNoteClick(e)) return;
+        const tpc = ops.resolveTopicTarget(e.target);
+        if (!tpc || !tpc.nodeObj) return;
+        e.preventDefault();
+        e.stopPropagation();
+        sendOpenNoteAt(tpc.nodeObj, 'modal');
+      }, true);
+
+      // Tertaut: undo/redo milik catatan (engine allowUndo:false) — minta ke
+      // induk. Saat mengetik di kotak edit node, biarkan undo teks browser.
+      document.addEventListener('keydown', e => {
+        if (!linkedMode || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+        const t = e.target;
+        if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+            (t.closest && t.closest('#input-box')))) return;
+        const k = (e.key || '').toLowerCase();
+        let type = null;
+        if (k === 'z') type = e.shiftKey ? 'redoRequest' : 'undoRequest';
+        else if (k === 'y') type = 'redoRequest';
+        if (!type) return;
+        e.preventDefault();
+        window.parent.postMessage({ type: type }, window.location.origin);
       });
     }
 
@@ -1381,7 +1478,10 @@
         clearTimeout(unselectTimer);
         cancelLinkFlow();
         isJustifyActive = Boolean(e.data.data && e.data.data.justify);
-        initMind(e.data.data);
+        linkedMode = Boolean(e.data.linked);
+        showSummary = e.data.showSummary !== false;
+        applyLinkedUi(linkedMode);
+        initMind(e.data.data, linkedMode);
         currentMindmapTitle = (typeof e.data.title === "string" && e.data.title.trim()) ? e.data.title.trim() : "mindmap";
         setTimeout(updateBadges, 300);
         const d = (e.data.data && typeof e.data.data.direction === 'number') ? e.data.data.direction : 2;
@@ -1395,6 +1495,26 @@
         if (isJustifyActive) {
           setTimeout(applyJustifyLayout, 50);
         }
+      }
+      if (e.data && e.data.type === 'setSummary') {
+        showSummary = Boolean(e.data.show);
+        // refresh() tanpa data: render ulang pohon hidup lewat markdown. Dengan
+        // getData() saat Focus Mode, pohon penuh akan menggantikan subtree fokus.
+        if (mind) { try { mind.refresh(); } catch (_) {} }
+        return;
+      }
+      if (e.data && e.data.type === 'remapSids') {
+        // Hanya data: tanpa render ulang. Cari di pohon data (bukan findEle):
+        // node yang terlipat tidak ada di DOM dan findEle melempar error;
+        // saat Focus Mode pohon penuh ada di nodeDataBackup.
+        if (!mind || !Array.isArray(e.data.pairs)) return;
+        const tree = mind.isFocusMode ? mind.nodeDataBackup : mind.nodeData;
+        e.data.pairs.forEach(pair => {
+          if (!Array.isArray(pair)) return;
+          const nodeObj = tree ? findNode(tree, pair[0]) : null;
+          if (nodeObj) nodeObj.nm = Object.assign(nodeObj.nm || {}, { sid: pair[1] });
+        });
+        return;
       }
       if (e.data && e.data.type === 'setJustify') {
         if (!mind) return;
