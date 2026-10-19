@@ -3498,3 +3498,10 @@
 ## 2026-10-19 21:30 WIB — Claude — merge temuan mindmap #3–#8
 - Bapak: "merge dan deploy". Main sudah maju (#45 drawing UI, SW v421, ADR-013) → PR A di-merge main (SW v422, ADR-014), PR B di-merge A (SW v423, ADR-015); CI hijau keduanya.
 - #44 di-merge (770dacd), #46 di-retarget ke `main` lalu di-merge (5cc231e). Deploy: `git pull` + `sudo systemctl restart taskflow-web` di server (dilakukan Bapak; sesi cloud tidak terhubung ke server).
+
+
+## 2026-10-19 21:45 WIB — Claude — brainstorming & spec Kanban tahap kustom
+- Bapak minta enhancement + perbaikan alur proses Kanban. Dibaca: `KanbanCard/Column/View`, `TaskListView.buildGroups/onMoveTask`, `GET /api/contexts`, `taskquery.getContexts`.
+- Temuan: kolom hanya muncul bila ada task (juga P1–P4), context = `DISTINCT` teks task milik user (tanpa urutan, tidak dibagi di workspace), HTML5 drag tidak jalan di sentuh, `parseInt` id membuat task cid tak bisa diseret, penanda tanggal memakai UTC.
+- Spec ditulis (`docs/superpowers/specs/2026-10-19-kanban-context-stages-design.md`) di branch `claude/kanban-stages-spec`, draft PR. Belum ada kode.
+- **Status:** Needs Review (spec).
