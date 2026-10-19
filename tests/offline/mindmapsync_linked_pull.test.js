@@ -76,3 +76,26 @@ test("reconcile keeps local linked maps (still listed with linked=1)", async () 
   assert.equal((await getAll("mindmaps")).length, 1);
   assert.equal(await cidOf("mindmap", 50), "a");
 });
+
+test("dirty shared linked map (list_id set) with pending op never becomes a conflict copy", async () => {
+  await mapPut("mindmap", 50, "a");
+  await put("mindmaps", [{ cid: "a", server_id: 50, source_note_cid: "n1", source_note_id: 7, title: "N", data_json: VIEW,
+    dirty: 1, base_rev: "r1", rev: 2, deleted: false, list_id: 9, updated_at: "r1" }]);
+  await outboxAdd({ op: "update", entity_type: "mindmap", cid: "a", payload: { cid: "a" } });
+  const r = row({ updated_at: "r2", list_id: 9 });
+  const res = await pullMindmaps([r], () => Promise.resolve(r));
+  assert.equal(res.conflictCopies, 0);
+  assert.equal((await getAll("mindmaps")).length, 1);
+});
+
+test("shared linked map, dirty with pending update, missing from server list -> no remote_deleted conflict", async () => {
+  await mapPut("mindmap", 50, "a");
+  await put("mindmaps", [{ cid: "a", server_id: 50, source_note_cid: "n1", source_note_id: 7, title: "N", data_json: VIEW,
+    dirty: 1, base_rev: "r1", rev: 2, deleted: false, list_id: 9, updated_at: "r1" }]);
+  await outboxAdd({ op: "update", entity_type: "mindmap", cid: "a", payload: { cid: "a" } });
+  await pullMindmaps([], () => Promise.resolve(null));
+  const recs = await getAll("mindmaps");
+  assert.equal(recs.length, 1);
+  assert.equal(recs[0].conflict, undefined);
+  assert.equal(recs[0].dirty, 1);
+});

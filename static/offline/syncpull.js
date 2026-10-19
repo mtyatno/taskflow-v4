@@ -929,7 +929,7 @@
           chain = chain.then(() => {
             if (r.conflict || r.sync_error) { result.skipped++; return; }
             if (r.dirty && pendingMindmapOps.has(r.cid)) {
-              if (r.list_id != null) {
+              if (r.list_id != null && !TFmm.isLinked(r)) { // peta tertaut (bisa ber-list_id di workspace bersama): push yang memutuskan (recreateLinked / drop)
                 result.skipped++;
                 return TFdb.mutate("mindmaps", r.cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "remote_deleted" }) : undefined));
               }
