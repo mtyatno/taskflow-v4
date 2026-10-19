@@ -57,17 +57,24 @@
   // Hanya record yang belum terpetakan (server_id null) atau terpetakan ke baris yang sama yang boleh cocok —
   // record yang sudah milik baris server LAIN (mis. cid X yang kemudian dibuat ulang jadi baris baru) tidak boleh
   // ikut dipetakan ke baris ini (dua baris server → satu cid). Pengecualian: record yang sedang dibuat ulang setelah
-  // PUT 404 (recreate_of_sid, client_id segar) dikenali lewat client_id-nya walau server_id-nya masih baris lama.
-  function matchesClientId(r, serverObj, clientId) {
+  // PUT 404 (recreate_of_sid, client_id segar) dikenali lewat client_id-nya walau server_id-nya masih baris lama —
+  // HANYA selama record masih menunjuk baris yang terhapus itu (server_id == recreate_of_sid) DAN baris itu tidak
+  // muncul lagi di daftar pull ini (`liveSids`). Baris asli kembali (dipulihkan) → penanda basi: baris hasil POST
+  // yang responsnya hilang adalah baris yatim terpisah, bukan record ini.
+  function matchesClientId(r, serverObj, clientId, liveSids) {
     const sameRow = r.server_id == null || (serverObj && String(r.server_id) === String(serverObj.id));
     if (r.cid === clientId && sameRow) return true;
-    return r.client_id != null && String(r.client_id) === clientId && (sameRow || r.recreate_of_sid != null);
+    if (!(r.client_id != null && String(r.client_id) === clientId)) return false;
+    if (sameRow) return true;
+    return r.recreate_of_sid != null && String(r.server_id) === String(r.recreate_of_sid)
+      && !(liveSids && liveSids.has(String(r.recreate_of_sid)));
   }
-  function findByClientId(rows, serverObj) {
+  function findByClientId(rows, serverObj, liveSids) {
     const clientId = serverObj && serverObj.client_id != null ? String(serverObj.client_id) : null;
     if (!clientId) return undefined;
-    return rows.find((r) => matchesClientId(r, serverObj, clientId));
+    return rows.find((r) => matchesClientId(r, serverObj, clientId, liveSids));
   }
+  function liveSidsOf(list) { return new Set((list || []).map((s) => String(s.id))); }
   // cid untuk baris server yang belum dikenal perangkat ini: client_id server (= cid perangkat pembuat, dipakai
   // sebagai id link node mindmap) supaya id yang sama berlaku di semua perangkat; tanpa client_id → cid baru.
   // Record lokal ber-cid/client_id sama sudah ditangkap findByClientId (diperlakukan sebagai record yang sama).
@@ -109,11 +116,11 @@
       return chain.then(() => n);
     });
   }
-  function ensureCid(serverId, cache, serverObj, localAll, used) {
+  function ensureCid(serverId, cache, serverObj, localAll, used, liveSids) {
     if (cache[serverId]) return Promise.resolve(cache[serverId]);
     return TFidmap.cidOf("task", serverId).then((cid) => {
       if (cid) { cache[serverId] = cid; if (used) used.add(cid); return cid; }
-      const existing = findByClientId(localAll || [], serverObj);
+      const existing = findByClientId(localAll || [], serverObj, liveSids);
       return (existing ? Promise.resolve(existing.cid) : freshCidFor(serverObj, used)).then((fresh) => {
         cache[serverId] = fresh;
         if (used) used.add(fresh);
@@ -199,7 +206,8 @@
     return getAllTasks()
       .then((pre) => {
         const used = new Set(pre.map((r) => r.cid)); // cid yang sudah terpakai (record lokal + baris di pass ini)
-        return list.reduce((p, s) => p.then(() => ensureCid(s.id, cache, s, pre, used)), Promise.resolve());
+        const live = liveSidsOf(list);
+        return list.reduce((p, s) => p.then(() => ensureCid(s.id, cache, s, pre, used, live)), Promise.resolve());
       })
       .then(() => Promise.all([getAllTasks(), TFoutbox.outboxAll()]))
       .then(([localAll, outboxOps]) => {
@@ -670,7 +678,7 @@
   }
   // S17: tanpa idmap & tanpa server_id lokal, cocokkan client_id server dengan cid lokal (note yang dibuat
   // di perangkat ini tapi respons create-nya hilang) — seperti ensureDrawingCid; client_id dipakai sebagai cid baru.
-  function ensureNoteCid(serverId, cache, serverObj) {
+  function ensureNoteCid(serverId, cache, serverObj, liveSids) {
     if (cache[serverId]) return Promise.resolve(cache[serverId]);
     return TFidmap.cidOf("note", serverId).then((cid) => {
       if (cid) { cache[serverId] = cid; return cid; }
@@ -678,7 +686,7 @@
         const clientId = serverObj && serverObj.client_id ? String(serverObj.client_id) : null;
         // salinan "simpan sebagai baru/pribadi" memakai client_id terpisah dari cid → cocokkan keduanya
         const existing = allNotes.find((n) => n.server_id != null && String(n.server_id) === String(serverId))
-          || (clientId ? allNotes.find((n) => matchesClientId(n, serverObj, clientId)) : undefined);
+          || (clientId ? allNotes.find((n) => matchesClientId(n, serverObj, clientId, liveSids)) : undefined);
         if (existing && existing.cid) {
           cache[serverId] = existing.cid;
           return TFidmap.mapPut("note", serverId, existing.cid).then(() => existing.cid);
@@ -762,7 +770,8 @@
   function pullNotes(serverNotes, fetchOne) {
     const list = (serverNotes || []);
     const cache = {};
-    return list.reduce((p, s) => p.then(() => ensureNoteCid(s.id, cache, s)), Promise.resolve())
+    const live = liveSidsOf(list);
+    return list.reduce((p, s) => p.then(() => ensureNoteCid(s.id, cache, s, live)), Promise.resolve())
       .then(() => Promise.all([getAllNotes(), TFoutbox.outboxAll()]))
       .then(([localAll, outboxOps]) => {
         const pendingNoteOps = new Set(outboxOps.filter((o) => o.entity_type === "note").map((o) => o.cid));
@@ -887,12 +896,12 @@
       tx.onerror = () => reject(tx.error);
     }));
   }
-  function ensureMindmapCid(serverId, cache, serverObj, localAll, used) {
+  function ensureMindmapCid(serverId, cache, serverObj, localAll, used, liveSids) {
     if (cache[serverId]) return Promise.resolve(cache[serverId]);
     return TFidmap.cidOf("mindmap", serverId).then((cid) => {
       if (cid) { cache[serverId] = cid; if (used) used.add(cid); return cid; }
       // T11: baris hasil POST kita yang responsnya hilang dikenali lewat client_id → bukan duplikat hantu
-      const existing = findByClientId(localAll || [], serverObj);
+      const existing = findByClientId(localAll || [], serverObj, liveSids);
       return (existing ? Promise.resolve(existing.cid) : freshCidFor(serverObj, used)).then((fresh) => {
         cache[serverId] = fresh;
         if (used) used.add(fresh);
@@ -938,7 +947,8 @@
     return getAllMindmaps()
       .then((pre) => {
         const used = new Set(pre.map((r) => r.cid)); // cid yang sudah terpakai (record lokal + baris di pass ini)
-        return list.reduce((p, s) => p.then(() => ensureMindmapCid(s.id, cache, s, pre, used)), Promise.resolve());
+        const live = liveSidsOf(list);
+        return list.reduce((p, s) => p.then(() => ensureMindmapCid(s.id, cache, s, pre, used, live)), Promise.resolve());
       })
       .then(() => Promise.all([getAllMindmaps(), TFoutbox.outboxAll()]))
       .then(([localAll, outboxOps]) => {

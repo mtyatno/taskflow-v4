@@ -331,6 +331,9 @@
       // request sukses = error permanen sebelumnya (mis. 422) sudah teratasi oleh edit terbaru → hapus tanda
       // sync_error supaya pull tidak lagi melewati record ini dan conflict bar tidak basi
       delete next.sync_error;
+      // push ke baris server sukses = record tidak lagi sedang dibuat ulang (mis. PUT berhasil setelah baris asli
+      // dipulihkan dari Sampah, sementara POST buat ulang yang responsnya hilang sempat membuat baris yatim)
+      delete next.recreate_of_sid;
       if (unchanged && typeof adopt === "function") adopt(next);
       return next;
     });

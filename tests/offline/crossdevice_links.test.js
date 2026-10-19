@@ -363,3 +363,73 @@ test("review#3: unmapped local record (server_id null) keeps its own client_id w
   assert.equal(rows[0].cid, "K");
   assert.equal(rows[0].client_id, "F");
 });
+
+// --- Review round 2: recreate_of_sid basi ------------------------------------------------------------------
+
+// PUT 404 → POST buat ulang membuat baris N (client_id segar F) tetapi responsnya hilang → baris asli dipulihkan
+// (mis. pulihkan dari Sampah) → PUT ulang sukses. Pull berikutnya tidak boleh memetakan N ke record yang sama.
+function restoreScenarioTransport(kind) {
+  const base = kind === "note" ? "/api/scratchpad" : "/api/mindmaps";
+  let puts = 0;
+  const created = [];
+  const tr = fakeTransport((m, p, b) => {
+    if (m === "PUT" && p === base + "/5") {
+      puts++;
+      return puts === 1 ? { status: 404, data: { detail: "not found" } } : { status: 200, data: { id: 5, updated_at: "2026-06-21T00:00:00" } };
+    }
+    if (m === "POST" && p === base) { created.push(Object.assign({}, b, { id: 100 })); return "NETWORK"; }
+    return { status: 200, data: {} };
+  });
+  return { tr: networkAware(tr), created };
+}
+
+test("review#2-followup: mindmap — lost re-create POST, row restored, PUT succeeds → marker cleared, orphan row N not mapped onto the record", async () => {
+  await put("mindmaps", [personalMap({ cid: "b-local", client_id: "X", data_json: "{\"b\":1}" })]);
+  await mapPut("mindmap", 5, "b-local");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "mindmap", cid: "b-local", payload: {} }]);
+  const { tr, created } = restoreScenarioTransport("mindmap");
+  await pushOutbox(tr); // PUT 404 → POST (respons hilang)
+  assert.equal(created.length, 1);
+  const F = created[0].client_id;
+  assert.equal((await get("mindmaps", "b-local")).recreate_of_sid, 5);
+  await pushOutbox(tr); // PUT sukses (baris dipulihkan)
+  const after = await get("mindmaps", "b-local");
+  assert.equal(after.recreate_of_sid, undefined);
+  assert.equal(after.server_id, 5);
+  const rows = [mmRow({ id: 5, title: "Asli", updated_at: "2026-06-21T00:00:00", client_id: "X" }),
+    mmRow({ id: 100, title: "Yatim", updated_at: "2026-06-21T01:00:00", client_id: F })];
+  await pullMindmaps(rows, fullFor(rows));
+  const { cidOf } = require("../../static/offline/idmap.js");
+  assert.equal(await cidOf("mindmap", 5), "b-local");
+  assert.notEqual(await cidOf("mindmap", 100), "b-local");
+  const local = await getAll("mindmaps");
+  assert.equal(local.length, 2);
+  assert.equal((await get("mindmaps", "b-local")).server_id, 5);
+});
+
+test("review#2-followup: stale recreate_of_sid whose original row is back in the list does not match a row by client_id", async () => {
+  await put("mindmaps", [personalMap({ cid: "b-local", client_id: "F", recreate_of_sid: 5, dirty: 0, rev: 3, data_json: "{}" })]);
+  await mapPut("mindmap", 5, "b-local");
+  const rows = [mmRow({ id: 5, title: "Asli", updated_at: "2026-06-11T00:00:00", client_id: "X" }),
+    mmRow({ id: 100, title: "Yatim", updated_at: "2026-06-12T00:00:00", client_id: "F" })];
+  await pullMindmaps(rows, fullFor(rows));
+  const { cidOf } = require("../../static/offline/idmap.js");
+  assert.equal(await cidOf("mindmap", 5), "b-local");
+  assert.notEqual(await cidOf("mindmap", 100), "b-local");
+  assert.equal((await getAll("mindmaps")).length, 2);
+});
+
+test("review#2-followup: note — PUT success after a lost re-create POST clears recreate_of_sid", async () => {
+  await put("scratchpad_notes", [{ cid: "n1", server_id: 5, client_id: "X", title: "N", content: "isi", list_id: null,
+    deleted: false, dirty: 1, rev: 2, base_rev: "2026-06-10T00:00:00" }]);
+  await mapPut("note", 5, "n1");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "note", cid: "n1", payload: {} }]);
+  const { tr, created } = restoreScenarioTransport("note");
+  await pushOutbox(tr);
+  assert.equal(created.length, 1);
+  assert.equal((await get("scratchpad_notes", "n1")).recreate_of_sid, 5);
+  await pushOutbox(tr);
+  const n = await get("scratchpad_notes", "n1");
+  assert.equal(n.recreate_of_sid, undefined);
+  assert.equal(n.server_id, 5);
+});
