@@ -59,14 +59,61 @@
     if (!clientId) return undefined;
     return rows.find((r) => r.cid === clientId || (r.client_id != null && String(r.client_id) === clientId));
   }
+  // cid untuk baris server yang belum dikenal perangkat ini: client_id server (= cid perangkat pembuat, dipakai
+  // sebagai id link node mindmap) supaya id yang sama berlaku di semua perangkat; tanpa client_id → cid baru.
+  // Record lokal ber-cid/client_id sama sudah ditangkap findByClientId (diperlakukan sebagai record yang sama).
+  // Pengaman bentrok: client_id yang sudah dipakai baris server lain di pass ini (cache) atau sudah dipetakan idmap
+  // ke server id lain → cid baru (resolver tetap menemukan record lewat fallback client_id).
+  function freshCidFor(serverObj, cache) {
+    const clientId = serverObj && serverObj.client_id != null && serverObj.client_id !== "" ? String(serverObj.client_id) : null;
+    if (!clientId) return Promise.resolve(TFids.newCid());
+    const usedInPass = Object.keys(cache || {}).some((k) => cache[k] === clientId);
+    if (usedInPass) return Promise.resolve(TFids.newCid());
+    return Promise.resolve(TFidmap.serverIdOf ? TFidmap.serverIdOf(clientId) : null).catch(() => null)
+      .then((sid) => (sid != null && String(sid) !== String(serverObj.id) ? TFids.newCid() : clientId));
+  }
+  // client_id untuk record yang ditulis pull dari baris server `s` (cur = record lokal sebelumnya): baris server
+  // adalah sumber kebenaran untuk record yang memang terpetakan ke baris itu; record yang sedang dibuat ulang
+  // (server_id null/berbeda, mis. "simpan sebagai baru" dengan client_id segar) mempertahankan client_id-nya.
+  function clientIdForWrite(s, cur) {
+    const sClient = s && s.client_id != null && s.client_id !== "" ? String(s.client_id) : null;
+    const mapped = !cur || (cur.server_id != null && String(cur.server_id) === String(s.id));
+    if (mapped && sClient) return sClient;
+    if (cur && cur.client_id != null) return cur.client_id;
+    return sClient;
+  }
+  // Backfill client_id (pola rememberClientId drawings): record lokal lama (cid acak, dibuat pull sebelum client_id
+  // disimpan) yang terpetakan ke baris server ber-client_id → setel client_id, TANPA mengubah dirty/rev (bukan edit;
+  // push in-flight tetap valid). Termasuk record yang dilewati pull karena updated_at tidak berubah.
+  function backfillClientIds(storeName, list, cache, getAll) {
+    return getAll().then((fresh) => {
+      const byCid = {}; for (const r of fresh) byCid[r.cid] = r;
+      let chain = Promise.resolve();
+      let n = 0;
+      for (const s of list) {
+        if (!s || s.client_id == null || s.client_id === "") continue;
+        const want = String(s.client_id);
+        const rec = byCid[cache[s.id]];
+        if (!rec || rec.server_id == null || String(rec.server_id) !== String(s.id)) continue;
+        if (rec.client_id != null && String(rec.client_id) === want) continue;
+        chain = chain.then(() => TFdb.mutate(storeName, rec.cid, (cur) => {
+          if (!cur || cur.server_id == null || String(cur.server_id) !== String(s.id)) return undefined;
+          if (cur.client_id != null && String(cur.client_id) === want) return undefined;
+          return Object.assign({}, cur, { client_id: want });
+        })).then((saved) => { if (saved) n++; }, () => {});
+      }
+      return chain.then(() => n);
+    });
+  }
   function ensureCid(serverId, cache, serverObj, localAll) {
     if (cache[serverId]) return Promise.resolve(cache[serverId]);
     return TFidmap.cidOf("task", serverId).then((cid) => {
       if (cid) { cache[serverId] = cid; return cid; }
       const existing = findByClientId(localAll || [], serverObj);
-      const fresh = existing ? existing.cid : TFids.newCid();
-      cache[serverId] = fresh;
-      return TFidmap.mapPut("task", serverId, fresh).then(() => fresh);
+      return (existing ? Promise.resolve(existing.cid) : freshCidFor(serverObj, cache)).then((fresh) => {
+        cache[serverId] = fresh;
+        return TFidmap.mapPut("task", serverId, fresh).then(() => fresh);
+      });
     });
   }
   // Tulis record dari server lewat CAS (prinsip 4): hanya bila record masih seperti saat pull membacanya
@@ -155,10 +202,15 @@
         // rev (prinsip 4) ikut naik saat pull menimpa record: push in-flight yang membaca rev lama tidak akan
         // menandai hasil pull ini "bersih" dengan sentRev-nya. Penulisan lewat CAS (putIfUnchanged): record yang
         // berubah selama pull (edit pengguna) tidak ditimpa.
-        const fromServer = (s, localRec) => Object.assign(TFhydrate.taskFromServer(s, getCid), { rev: localRec ? (localRec.rev || 0) + 1 : 0 });
+        const fromServer = (s, localRec) => {
+          const rec = Object.assign(TFhydrate.taskFromServer(s, getCid), { rev: localRec ? (localRec.rev || 0) + 1 : 0 });
+          const clientId = clientIdForWrite(s, localRec);
+          if (clientId != null) rec.client_id = clientId; else delete rec.client_id;
+          return rec;
+        };
         const write = (s, localRec, counter) => putIfUnchanged("tasks", fromServer(s, localRec), localRec)
           .then((wrote) => { if (wrote) result[counter]++; else result.skipped++; });
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflicts: 0, requeued: 0, derived: 0 };
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflicts: 0, requeued: 0, derived: 0, clientIds: 0 };
         let chain = requeueDirtyWithoutOps("task", localAll, pendingTaskOps, result);
         for (const s of list) {
           const cid = cache[s.id];
@@ -211,6 +263,7 @@
             });
           });
         }
+        chain = chain.then(() => backfillClientIds("tasks", list, cache, getAllTasks)).then((n) => { result.clientIds += n; });
         return chain.then(() => result);
       });
   }
@@ -831,9 +884,10 @@
       if (cid) { cache[serverId] = cid; return cid; }
       // T11: baris hasil POST kita yang responsnya hilang dikenali lewat client_id → bukan duplikat hantu
       const existing = findByClientId(localAll || [], serverObj);
-      const fresh = existing ? existing.cid : TFids.newCid();
-      cache[serverId] = fresh;
-      return TFidmap.mapPut("mindmap", serverId, fresh).then(() => fresh);
+      return (existing ? Promise.resolve(existing.cid) : freshCidFor(serverObj, cache)).then((fresh) => {
+        cache[serverId] = fresh;
+        return TFidmap.mapPut("mindmap", serverId, fresh).then(() => fresh);
+      });
     });
   }
   // Record masih seperti saat dibaca pull (CAS rev/dirty/deleted; tanpa localRec → harus masih belum ada).
@@ -853,9 +907,10 @@
         if (!sameMindmapState(cur, localRec)) return undefined;
         const rec = Object.assign(TFmm.recordFromServer(fullRow, cid), { rev: cur ? (cur.rev || 0) + 1 : 0 }, extra || {});
         if (noteCid != null) rec.source_note_cid = noteCid;
+        const clientId = clientIdForWrite(fullRow, cur);
+        if (clientId != null) rec.client_id = clientId; else delete rec.client_id;
         if (cur) {
           rec.pinned = !!cur.pinned; // pin lokal dipertahankan (op pin bisa tertunda); adopsi pin server di pass pin
-          if (cur.client_id != null) rec.client_id = cur.client_id;
           if (cur.source_note_cid != null) rec.source_note_cid = cur.source_note_cid; // peta tertaut: jangan putus dari catatan
         }
         return rec;
@@ -876,7 +931,7 @@
       .then(([localAll, outboxOps]) => {
         const pendingMindmapOps = new Set(outboxOps.filter((o) => o.entity_type === "mindmap").map((o) => o.cid));
         const byCid = {}; for (const r of localAll) byCid[r.cid] = r;
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflictCopies: 0, pinned: 0, requeued: 0, changed: [] };
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflictCopies: 0, pinned: 0, requeued: 0, clientIds: 0, changed: [] };
         const changed = (cid, sid) => { result.changed.push({ cid: cid, server_id: sid != null ? sid : null }); };
         let chain = requeueDirtyWithoutOps("mindmap", localAll, pendingMindmapOps, result);
         for (const s of list) {
@@ -980,6 +1035,7 @@
             return c2;
           });
         });
+        chain = chain.then(() => backfillClientIds("mindmaps", list, cache, getAllMindmaps)).then((n) => { result.clientIds += n; });
         return chain.then(() => result);
       });
   }

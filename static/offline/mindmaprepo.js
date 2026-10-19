@@ -51,7 +51,7 @@
 
   // Baris server → bentuk record lokal (bersih, base_rev = updated_at server). Dipakai pull & adopsi 409.
   function recordFromServer(s, cid) {
-    return {
+    const rec = {
       cid: cid, server_id: s.id,
       title: s.title != null ? s.title : "Untitled",
       data_json: s.data_json != null ? s.data_json : DEFAULT_DATA,
@@ -66,6 +66,9 @@
       updated_at: s.updated_at != null ? s.updated_at : null,
       deleted: false, dirty: 0, base_rev: s.updated_at != null ? s.updated_at : null,
     };
+    // client_id server (= cid perangkat pembuat; id link node mindmap) → resolver lokal bisa menemukan record ini
+    if (s.client_id != null && s.client_id !== "") rec.client_id = String(s.client_id);
+    return rec;
   }
   function editorOf(s) {
     return (s && (s.last_editor_display_name || s.last_editor_username)) || "Pengguna lain";
