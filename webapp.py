@@ -4188,6 +4188,19 @@ async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_cu
 
 # ── Scratchpad Notes ──────────────────────────────────────────────────────────
 
+def _note_with_drawing_sync(conn, note_id: int, uid: int, now: str) -> dict:
+    """Jalankan sinkron drawing (spec §4.4) untuk note sebagaimana tersimpan; kembalikan dua daftar respons."""
+    stored = conn.execute("SELECT list_id, content FROM scratchpad_notes WHERE id = ?", (note_id,)).fetchone()
+    return drawing_scope.pull_note_drawings_into_list(conn, stored, uid, now)
+
+
+def _scratchpad_row_synced(row, conn, uid, sync: dict) -> dict:
+    out = _scratchpad_row(row, conn, uid)
+    out["moved_drawings"] = sync["moved_drawings"]
+    out["unresolved_drawings"] = sync["unresolved_drawings"]
+    return out
+
+
 def _scratchpad_row(row, conn=None, uid=None) -> dict:
     d = dict(row)
     d["server_id"] = d.get("id")
@@ -5126,9 +5139,10 @@ async def restore_trashed_note(note_id: int, user=Depends(get_current_user)):
 
         conn.execute("DELETE FROM trashed_notes WHERE note_id = ?", (note_id,))
         _sync_linked_mindmap(conn, note_id)
+        sync = _note_with_drawing_sync(conn, note_id, uid, datetime.now(_TZ_JKT).isoformat())
         conn.commit()
         restored = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
-        return _scratchpad_row(restored, conn, uid)
+        return _scratchpad_row_synced(restored, conn, uid, sync)
 
 @app.delete("/api/scratchpad/trash/{note_id}")
 async def purge_trashed_note(note_id: int, user=Depends(get_current_user)):
@@ -5849,9 +5863,10 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
                 conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=? AND user_id=?", (note_id, uid))
                 _upsert_tags_for_note(conn, note_id, uid, tag_names)
                 _sync_linked_mindmap(conn, note_id)
+                sync = _note_with_drawing_sync(conn, note_id, uid, now)
                 conn.commit()
                 row = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
-                return _scratchpad_row(row, conn, uid)
+                return _scratchpad_row_synced(row, conn, uid, sync)
 
         conn.execute(
             """INSERT INTO scratchpad_notes
@@ -5864,9 +5879,10 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
         )
         note_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         _upsert_tags_for_note(conn, note_id, uid, tag_names)
+        sync = _note_with_drawing_sync(conn, note_id, uid, now)
         conn.commit()
         row = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
-        return _scratchpad_row(row, conn, uid)
+        return _scratchpad_row_synced(row, conn, uid, sync)
 
 class BookmarkExtractIn(BaseModel):
     url: str
@@ -6051,9 +6067,10 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
         conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=?", (note_id,))
         _upsert_tags_for_note(conn, note_id, existing["user_id"], tag_names)
         _sync_linked_mindmap(conn, note_id)
+        sync = _note_with_drawing_sync(conn, note_id, uid, now)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
-        return _scratchpad_row(updated, conn, uid)
+        return _scratchpad_row_synced(updated, conn, uid, sync)
 
 @app.delete("/api/scratchpad/{note_id}")
 async def delete_scratchpad(note_id: int, user=Depends(get_current_user)):
@@ -6123,9 +6140,10 @@ async def share_scratchpad(note_id: int, req: NoteShareReq, user=Depends(get_cur
             "UPDATE scratchpad_notes SET list_id = ?, updated_at = ? WHERE id = ?", (req.list_id, now, note_id)
         )
         _sync_linked_mindmap(conn, note_id)
+        sync = _note_with_drawing_sync(conn, note_id, uid, now)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
-        return _scratchpad_row(updated, conn, uid)
+        return _scratchpad_row_synced(updated, conn, uid, sync)
 
 @app.patch("/api/scratchpad/{note_id}/pin")
 async def toggle_pin_scratchpad(note_id: int, user=Depends(get_current_user)):

@@ -56,7 +56,8 @@ def test_backfill_moves_owner_drawing_into_note_workspace(client):
     make_note(client, ha, "W", f"::draw[{d1['id']}] ::draw[{cid}] ::draw[{d3['id']}]", list_id=w)
     conn = db()
     try:
-        conn.execute("UPDATE drawings SET updated_at = '2020-01-01T00:00:00' WHERE id IN (?, ?, ?)",
+        # data lama: note W dibuat sebelum sinkron server, jadi drawing-nya masih pribadi
+        conn.execute("UPDATE drawings SET list_id = NULL, updated_at = '2020-01-01T00:00:00' WHERE id IN (?, ?, ?)",
                      (d1["id"], d2["id"], d3["id"]))
         _reset_backfill(conn)
     finally:
@@ -83,6 +84,12 @@ def test_backfill_runs_once(client):
     assert _run_backfill() == {"skipped": True}
     d = make_drawing(client, ha, "baru")
     make_note(client, ha, "W", f"::draw[{d['id']}]", list_id=w)
+    conn = db()
+    try:
+        conn.execute("UPDATE drawings SET list_id = NULL WHERE id = ?", (d["id"],))  # bayangkan data lama
+        conn.commit()
+    finally:
+        conn.close()
     assert _run_backfill() == {"skipped": True}
     assert drawing_row(d["id"])["list_id"] is None
 
@@ -98,6 +105,7 @@ def test_backfill_conflict_newest_note_wins(client):
     try:
         _set_note_time(conn, n1["id"], "2030-01-02T00:00:00")
         _set_note_time(conn, n2["id"], "2030-01-01T00:00:00")
+        conn.execute("UPDATE drawings SET list_id = NULL WHERE id = ?", (d1["id"],))  # data lama
         _reset_backfill(conn)
     finally:
         conn.close()

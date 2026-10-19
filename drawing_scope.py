@@ -161,3 +161,30 @@ def leave_impact(conn, list_id: int, uid: int) -> list[dict]:
             items.append({"note_id": n["id"], "note_title": n["title"], "drawing_id": d["id"],
                           "drawing_client_id": d["client_id"], "drawing_title": d["title"]})
     return items
+
+
+def pull_note_drawings_into_list(conn, note_row, actor_uid: int, now: str) -> dict:
+    """Spec §4.4: note di workspace menarik drawing PRIBADI milik AKTOR ke workspace note. Drawing orang lain,
+    drawing di workspace lain, dan token yang tak terlihat aktor tidak pernah dipindah; tokennya dilaporkan
+    mentah-mentah di unresolved_drawings (tanpa judul/id). Note pribadi: tidak melakukan apa-apa.
+    Pemanggil yang commit; content note tidak pernah ditulis ulang."""
+    result: dict = {"moved_drawings": [], "unresolved_drawings": []}
+    list_id = note_row["list_id"]
+    if list_id is None:
+        return result
+    moved: dict[int, dict] = {}
+    unresolved: set[str] = set()
+    for token in sorted(draw_tokens(note_row["content"])):
+        d = find_accessible(conn, token, actor_uid, cols="id, user_id, client_id, list_id")
+        if d is None:
+            unresolved.add(token)
+        elif d["list_id"] == list_id or d["id"] in moved:
+            continue
+        elif d["list_id"] is None and d["user_id"] == actor_uid:
+            conn.execute("UPDATE drawings SET list_id = ?, updated_at = ? WHERE id = ?", (list_id, now, d["id"]))
+            moved[d["id"]] = {"id": d["id"], "client_id": d["client_id"], "list_id": list_id, "updated_at": now}
+        else:
+            unresolved.add(token)
+    result["moved_drawings"] = list(moved.values())
+    result["unresolved_drawings"] = sorted(unresolved)
+    return result
