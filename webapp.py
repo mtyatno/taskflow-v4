@@ -4188,10 +4188,22 @@ async def checkin_habit(habit_id: int, req: HabitCheckinReq, user=Depends(get_cu
 
 # ── Scratchpad Notes ──────────────────────────────────────────────────────────
 
-def _note_with_drawing_sync(conn, note_id: int, uid: int, now: str) -> dict:
-    """Jalankan sinkron drawing (spec §4.4) untuk note sebagaimana tersimpan; kembalikan dua daftar respons."""
+_ALL_TOKENS = object()
+
+
+def _note_with_drawing_sync(conn, note_id: int, uid: int, now: str, previous_content=_ALL_TOKENS) -> dict:
+    """Jalankan sinkron drawing (spec §4.4) untuk note sebagaimana tersimpan; kembalikan dua daftar respons.
+    previous_content: tidak diberikan = semua token boleh dipindah (POST baru, PATCH share); string/None = isi note
+    sebelum tulisan ini, hanya token yang ditambahkan yang boleh dipindah (PUT, POST idempoten; bila list_id note berubah = tindakan berbagi, semua token); False = restore dari trash
+    (tidak ada token yang dipindah)."""
     stored = conn.execute("SELECT list_id, content FROM scratchpad_notes WHERE id = ?", (note_id,)).fetchone()
-    return drawing_scope.pull_note_drawings_into_list(conn, stored, uid, now)
+    if previous_content is _ALL_TOKENS:
+        movable = None
+    elif previous_content is False:
+        movable = set()
+    else:
+        movable = _draw_tokens(stored["content"]) - _draw_tokens(previous_content)
+    return drawing_scope.pull_note_drawings_into_list(conn, stored, uid, now, movable)
 
 
 def _scratchpad_row_synced(row, conn, uid, sync: dict) -> dict:
@@ -4333,28 +4345,25 @@ def _published_drawing_for_request(conn, token: str, request: Request) -> Option
         row = conn.execute(f"SELECT {_DRAWING_COLS} FROM drawings WHERE id = ?", (did,)).fetchone()
         if row:
             candidates.append(row)
-    candidates.extend(conn.execute(f"SELECT {_DRAWING_COLS} FROM drawings WHERE client_id = ?", (token,)).fetchall())
+    candidates.extend(conn.execute(
+        f"SELECT {_DRAWING_COLS} FROM drawings WHERE client_id = ? ORDER BY id", (token,)).fetchall())
     for d in candidates:
         refs = drawing_scope.refs_of(d)
+        # Penerbit dibatasi di SQL (endpoint tanpa login): note tepercaya hanya dari pemilik drawing, atau owner/anggota
+        # workspace drawing (mereka yang bisa mengaksesnya); note bersama hanya di workspace drawing.
         published = conn.execute(
-            "SELECT p.slug, p.password_hash, p.user_id AS publisher_id, n.list_id AS note_list_id, n.content "
+            "SELECT p.slug, p.password_hash, n.content "
             "FROM published_notes p JOIN scratchpad_notes n ON n.id = p.note_id "
             "WHERE n.content LIKE '%::draw%' AND ("
             "  (n.list_id IS NULL AND n.user_id = p.user_id "
-            "   AND (n.last_edited_by IS NULL OR n.last_edited_by = n.user_id)) "
+            "   AND (n.last_edited_by IS NULL OR n.last_edited_by = n.user_id) "
+            "   AND (p.user_id = ? OR p.user_id IN ("
+            "     SELECT owner_id FROM shared_lists WHERE id = ? UNION SELECT user_id FROM list_members WHERE list_id = ?))) "
             "  OR (n.list_id IS NOT NULL AND n.list_id = ?))",
-            (d["list_id"],)
+            (d["user_id"], d["list_id"], d["list_id"], d["list_id"])
         ).fetchall()
         for p in published:
-            if not (_draw_tokens(p["content"]) & refs):
-                continue
-            if p["note_list_id"] is None:
-                # (a) tepercaya: drawing harus bisa diakses penerbit
-                clause, params = drawing_scope.access_clause(p["publisher_id"])
-                if not conn.execute(f"SELECT 1 FROM drawings WHERE id = ? AND {clause}", [d["id"], *params]).fetchone():
-                    continue
-            # (b) note bersama: n.list_id = d.list_id sudah dijamin oleh query
-            if _pub_note_unlocked(request, p["slug"], p["password_hash"]):
+            if (_draw_tokens(p["content"]) & refs) and _pub_note_unlocked(request, p["slug"], p["password_hash"]):
                 return d
     return None
 
@@ -4566,8 +4575,8 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         width_val = width or ('50%' if size == 'S' else '75%' if size == 'M' else '100%')
         height_val = height or ('200px' if size == 'S' else '300px' if size == 'M' else '400px')
 
-        # Hanya drawing milik penerbit note tepercaya (id angka, lalu client_id); owner_id None = tidak ada.
-        # Judul dan id note tidak dipakai sebagai kunci.
+        # Note tepercaya (owner_id): drawing yang bisa diakses penerbit (id angka, lalu client_id). Note bersama
+        # (list_id): hanya drawing ber-list_id = W. Keduanya None = tidak ada. Judul dan id note tidak jadi kunci.
         d_row = drawing_scope.resolve_for_publish(conn, drawing_id, owner_id, list_id, _DRAWING_COLS)
 
         if d_row and not title:
@@ -5134,7 +5143,7 @@ async def restore_trashed_note(note_id: int, user=Depends(get_current_user)):
 
         conn.execute("DELETE FROM trashed_notes WHERE note_id = ?", (note_id,))
         _sync_linked_mindmap(conn, note_id)
-        sync = _note_with_drawing_sync(conn, note_id, uid, datetime.now(_TZ_JKT).isoformat())
+        sync = _note_with_drawing_sync(conn, note_id, uid, datetime.now(_TZ_JKT).isoformat(), previous_content=False)
         conn.commit()
         restored = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row_synced(restored, conn, uid, sync)
@@ -5843,7 +5852,7 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
         linked_ids = _resolve_linked_to(titles, uid, conn)
         if req.client_id:
             existing = conn.execute(
-                "SELECT id FROM scratchpad_notes WHERE user_id = ? AND client_id = ?",
+                "SELECT id, content, list_id FROM scratchpad_notes WHERE user_id = ? AND client_id = ?",
                 (uid, req.client_id)
             ).fetchone()
             if existing:
@@ -5860,7 +5869,9 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
                 conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=? AND user_id=?", (note_id, uid))
                 _upsert_tags_for_note(conn, note_id, uid, tag_names)
                 _sync_linked_mindmap(conn, note_id)
-                sync = _note_with_drawing_sync(conn, note_id, uid, now)
+                sync = _note_with_drawing_sync(
+                    conn, note_id, uid, now,
+                    previous_content=existing["content"] if existing["list_id"] == req.list_id else _ALL_TOKENS)
                 conn.commit()
                 row = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
                 return _scratchpad_row_synced(row, conn, uid, sync)
@@ -6064,7 +6075,7 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
         conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=?", (note_id,))
         _upsert_tags_for_note(conn, note_id, existing["user_id"], tag_names)
         _sync_linked_mindmap(conn, note_id)
-        sync = _note_with_drawing_sync(conn, note_id, uid, now)
+        sync = _note_with_drawing_sync(conn, note_id, uid, now, previous_content=existing["content"] if existing["list_id"] == new_list_id else _ALL_TOKENS)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row_synced(updated, conn, uid, sync)

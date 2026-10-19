@@ -88,6 +88,25 @@ def test_shared_published_note_other_workspace_drawing_hidden(client):
     assert pub.get(f"/pub/drawings/{d['id']}").status_code == 404
 
 
+def test_owner_save_after_member_injection_keeps_drawing_off_public_page(client):
+    tag = _tag()
+    ha = auth(client, f"pwi_{tag}")
+    hb = auth(client, f"pwj_{tag}")
+    w = workspace(client, ha, f"W {tag}")
+    add_member(w, uid_of(f"pwj_{tag}"))
+    marker = f"MARKER-INJ-{tag}"
+    k = make_drawing(client, ha, f"k-{tag}", cid=f"cid-inj-{tag}", svg=_svg(marker))
+    nid, slug, username = _publish(client, ha, f"Note W {tag}", "awal", list_id=w)
+    r = client.put(f"/api/scratchpad/{nid}", json={"title": "t", "content": f"awal ::draw[{k['id']}]"}, headers=hb)
+    assert r.status_code == 200, r.text
+    r = client.put(f"/api/scratchpad/{nid}", json={"title": "t", "content": f"awal edit ::draw[{k['id']}]"}, headers=ha)
+    assert r.status_code == 200, r.text
+    assert drawing_row(k["id"])["list_id"] is None
+    pub = anon()
+    assert marker not in pub.get(f"/pub/{username}/{slug}").text
+    assert pub.get(f"/pub/drawings/{k['id']}").status_code == 404
+
+
 def test_shared_published_note_password_gate(client):
     tag = _tag()
     ha = auth(client, f"pwp_{tag}")

@@ -103,20 +103,57 @@ def test_escaped_directive_moves_drawing(client):
     assert drawing_row(d["id"])["list_id"] == w
 
 
-def test_restore_from_trash_moves_drawing(client):
+def _reset_personal(did):
+    conn = db()
+    try:
+        conn.execute("UPDATE drawings SET list_id = NULL WHERE id = ?", (did,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_restore_does_not_move_drawings(client):
     ha = auth(client, "sync_a8")
     w = workspace(client, ha, "sync_w8")
     d = make_drawing(client, ha, "sync_d8")
     n = make_note(client, ha, "sync_n8", f"::draw[{d['id']}]", list_id=w)
     assert drawing_row(d["id"])["list_id"] == w
     assert client.delete(f"/api/scratchpad/{n['id']}", headers=ha).status_code == 200
-    conn = db()
-    try:
-        conn.execute("UPDATE drawings SET list_id = NULL WHERE id = ?", (d["id"],))
-        conn.commit()
-    finally:
-        conn.close()
+    _reset_personal(d["id"])
     r = client.post(f"/api/scratchpad/trash/{n['id']}/restore", headers=ha)
     assert r.status_code == 200, r.text
-    assert [m["id"] for m in r.json()["moved_drawings"]] == [d["id"]]
-    assert drawing_row(d["id"])["list_id"] == w
+    assert r.json()["moved_drawings"] == []
+    assert r.json()["unresolved_drawings"] == [str(d["id"])]
+    assert drawing_row(d["id"])["list_id"] is None
+
+
+def test_owner_save_does_not_move_member_injected_drawing(client):
+    ha = auth(client, "sync_a9")
+    hb = auth(client, "sync_b9")
+    w = workspace(client, ha, "sync_w9")
+    add_member(w, uid_of("sync_b9"))
+    k = make_drawing(client, ha, "sync_k9")
+    n = make_note(client, ha, "sync_n9", "awal", list_id=w)
+    r = client.put(f"/api/scratchpad/{n['id']}", json={"title": "sync_n9", "content": f"awal ::draw[{k['id']}]"}, headers=hb)
+    assert r.status_code == 200, r.text
+    r = client.put(f"/api/scratchpad/{n['id']}", json={"title": "sync_n9", "content": f"awal ubah ::draw[{k['id']}]"}, headers=ha)
+    assert r.status_code == 200, r.text
+    assert r.json()["moved_drawings"] == []
+    assert r.json()["unresolved_drawings"] == [str(k["id"])]
+    assert drawing_row(k["id"])["list_id"] is None
+
+
+def test_put_moves_only_newly_added_token(client):
+    ha = auth(client, "sync_a10")
+    w = workspace(client, ha, "sync_w10")
+    k1 = make_drawing(client, ha, "sync_k10a")
+    k2 = make_drawing(client, ha, "sync_k10b")
+    n = make_note(client, ha, "sync_n10", f"::draw[{k1['id']}]", list_id=w)
+    _reset_personal(k1["id"])
+    r = client.put(f"/api/scratchpad/{n['id']}",
+                   json={"title": "sync_n10", "content": f"::draw[{k1['id']}] ::draw[{k2['id']}]"}, headers=ha)
+    assert r.status_code == 200, r.text
+    assert [m["id"] for m in r.json()["moved_drawings"]] == [k2["id"]]
+    assert r.json()["unresolved_drawings"] == [str(k1["id"])]
+    assert drawing_row(k2["id"])["list_id"] == w
+    assert drawing_row(k1["id"])["list_id"] is None
