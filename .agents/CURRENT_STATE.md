@@ -25,14 +25,14 @@
 - **Inti keputusan:** dua arah; cermin murni dengan catatan sebagai satu-satunya sumber data; peta tertaut = baris `mindmaps` + `source_note_id`, `data_json` hanya pengaturan tampilan; ringkasan per node berbasis aturan (kalimat pertama + 3 butir daftar + baris hitungan); Ctrl/Cmd+Click, klik kanan, atau tombol Ops → `NoteModal` di atas peta tepat di heading (tetap di halaman Mindmap); pemilik dan `list_id` peta = catatan; edit yang bentrok dibatalkan; tanpa LLM.
 - **Temuan review fitur mindmap (2026-10-18) — belum dikerjakan, Bapak minta diselesaikan satu per satu nanti:**
   1. **[DIPERBAIKI — PR #38, di-merge]** Link quick-create di Outline (`LinkPickerModal` → `api.post` lokal) menyimpan cid; pull task/mindmap membuat cid baru (`syncpull.js` `ensureCid` / `ensureMindmapCid`) → link mati di perangkat lain. Note aman (pull memakai `client_id` sebagai cid). Dibuktikan probe node.
-  2. **[DIPERBAIKI — PR #39]** Picker link di iframe kanvas memakai `fetch` mentah (`/api/search`, POST scratchpad/tasks/mindmaps) → tidak jalan offline, item baru belum ada di IndexedDB sampai sync berikutnya, APK tanpa `API_BASE`.
+  2. **[DIPERBAIKI — PR #39, di-merge]** Picker link di iframe kanvas memakai `fetch` mentah (`/api/search`, POST scratchpad/tasks/mindmaps) → tidak jalan offline, item baru belum ada di IndexedDB sampai sync berikutnya, APK tanpa `API_BASE`.
   3. Kartu link node = snapshot (judul/prioritas/deadline/status saat ditautkan), tidak ikut berubah.
   4. Kolaborasi mindmap bersama tidak real-time (sync 30 detik; edit bersamaan → salinan konflik seluruh peta).
   5. Hapus mindmap = hard delete (tanpa Sampah/riwayat).
   6. Mindmap tidak ikut `/api/export/download`.
   7. Global search `data_json LIKE` cocok ke kunci JSON ("topic", "children"); hasil hanya judul.
   8. Kecil: pin oleh anggota gagal diam-diam (pin hanya pemilik); sidebar tanpa penanda peta bersama; state `filterListId` tanpa UI.
-  9. Daftar isi mode baca (`extractHeadings`) ikut menghitung baris `#` di dalam blok kode → item palsu dan indeks `note-h-*` bisa bergeser.
+  9. **[DIPERBAIKI — PR fix #9, branch `claude/mindmap-fix-9-toc`]** Daftar isi mode baca (`extractHeadings`) ikut menghitung baris `#` di dalam blok kode → item palsu dan indeks `note-h-*` bisa bergeser.
   Detail dan lokasi kode: doc project claude.ai `claude/fitur-mindmap-2026-10-18.md`.
 
 ## 🔵 Workflow tim + jadwal 62 sesi migrasi mobile + papan pemantauan — 2026-10-18 (Claude) — NEEDS REVIEW

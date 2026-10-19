@@ -3413,3 +3413,10 @@
 - **Changes:** tombol "+ Tambah link" di iframe kanvas kini mengirim `requestLinkPicker {nodeId, links}` ke induk → `LinkPickerModal` (quick-create lokal-first, langsung ada di IndexedDB, idempoten, jalan offline/APK); picker lama iframe (fetch mentah, `tf_token`, innerHTML) dihapus; `LinkPickerModal` mencari lewat `searchLinkTargets` (online `/api/search`, offline/gagal → pencarian lokal task/catatan/mindmap); iframe `?v=143`; SW v418.
 - **Files Touch:** `static/vendor/mind-elixir/index.html`, `static/index.html`, `static/offline/mindmapoutline.js`, `tests/offline/mindmap_canvas_linkpicker.test.js`, versi SW, `.agents/*`
 - **Status:** PR draft. JS 1471/1472 (pra-ada `draw_local_reactive`), pytest 299/299, Playwright 16/16. Bentrok versi SW dengan PR #38 (v417) — PR yang di-merge kedua perlu merge main + naik versi.
+
+## [2026-10-19 15:40] - Claude (Temuan mindmap #9 — daftar isi mode baca)
+- **Task:** temuan #9 (PR #38 & #39 sudah di-merge).
+- **Root cause:** `extractHeadings` memakai regex per baris sehingga baris `#` di dalam blok kode/math/wikilink lintas baris ikut dihitung, sementara id `note-h-<n>` diberikan renderer marked hanya untuk token heading sungguhan → item palsu dan lompatan ke heading yang salah.
+- **Changes:** helper bersama `prepMarkdownBlocks` (seluruh pra-proses sebelum `marked.parse`, keluaran `renderMarkdown` identik — dibandingkan dengan versi lama); `extractHeadings` memakai `marked.lexer` + penelusuran token urutan render (fallback regex melewati fence); `taskItemHasBlock` dipakai bersama; NoteModal tidak me-lex per ketikan saat TOC editor aktif. SW v419.
+- **Files Touch:** `static/index.html`, `tests/offline/note_toc_headings.test.js`, `tests/offline/note_toc.test.js`, versi SW, `.agents/*`
+- **Status:** PR draft. JS 1506/1507 (pra-ada `draw_local_reactive`), pytest 299/299.
