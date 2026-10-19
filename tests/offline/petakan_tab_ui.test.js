@@ -434,3 +434,9 @@ test("C8: NoteModal, NotePanel and App open a note at a heading", () => {
   assert.match(indexHtml, /window\.TF && window\.TF\.notemap/);
   assert.doesNotMatch(indexHtml.match(/\.nm-heading-flash \{[^}]*\}/)[0], /border-left/);
 });
+
+test("C8: NotePanel applies the heading only to the target note id", () => {
+  assert.match(indexHtml, /String\(note\.id\) !== String\(initialHeadingNoteId\)/);
+  assert.match(indexHtml, /initialHeadingNoteId: panelHeading \? panelHeading\.noteId : null/);
+  assert.match(indexHtml, /setPanelHeading\(prev => prev && String\(prev\.noteId\) === String\(id\) \? null : prev\)/);
+});

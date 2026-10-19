@@ -25250,6 +25250,7 @@ function NotePanel({
   onUnpublish,
   showToast,
   initialHeading = null,
+  initialHeadingNoteId = null,
   onInitialHeadingConsumed
 }) {
   const [openDropdownIdx, setOpenDropdownIdx] = useState(null);
@@ -25638,7 +25639,8 @@ function NotePanel({
   }, [tocItems, note.id]);
   // Petakan: buka catatan tepat di heading (dari peta tertaut) — gulir + sorot sesaat.
   React.useEffect(() => {
-    if (!initialHeading) return;
+    // Hanya berlaku untuk catatan tujuan (id bisa number/string) — bukan catatan lain yang kebetulan terbuka.
+    if (!initialHeading || initialHeadingNoteId == null || String(note.id) !== String(initialHeadingNoteId)) return;
     let timer = null;
     let tries = 0;
     const run = () => {
@@ -25659,7 +25661,7 @@ function NotePanel({
     };
     run();
     return () => clearTimeout(timer);
-  }, [initialHeading, note.id]);
+  }, [initialHeading, initialHeadingNoteId, note.id]);
   const handlePrint = async () => {
     // Remove any stale print area (e.g. from a previous print whose afterprint
     // never fired on a mobile webview).
@@ -27203,6 +27205,9 @@ function NotesPage({
     }
     if (note) {
       openTab(note);
+    } else {
+      // Catatan tidak ada/di Sampah/tidak terlihat: jangan biarkan heading tujuan menggantung.
+      setPanelHeading(prev => prev && String(prev.noteId) === String(id) ? null : prev);
     }
   }, [allNotes]);
   useEffect(() => {
@@ -27215,7 +27220,7 @@ function NotesPage({
   // so plain navigation to Notes later doesn't reopen a stale note.
   useEffect(() => {
     if (initialNoteId == null) return;
-    setPanelHeading(initialHeading);
+    setPanelHeading(initialHeading ? { noteId: initialNoteId, heading: initialHeading } : null);
     openNoteById(initialNoteId);
     onInitialNoteConsumed && onInitialNoteConsumed();
   }, [initialNoteId]);
@@ -28049,7 +28054,8 @@ function NotesPage({
       outlinks: panelOutlinks,
       navTrail: navTrail,
       onTaskClick: onTaskClick,
-      initialHeading: panelHeading,
+      initialHeading: panelHeading ? panelHeading.heading : null,
+      initialHeadingNoteId: panelHeading ? panelHeading.noteId : null,
       onInitialHeadingConsumed: () => setPanelHeading(null),
       tasks: tasks,
       onEdit: blockTarget => openEdit(activeNote, blockTarget),
