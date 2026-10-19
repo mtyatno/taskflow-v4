@@ -1482,7 +1482,7 @@
             if (!cur || cur.deleted || (cur.rev || 0) !== readRev || cur.base_rev !== local.base_rev) return undefined;
             oldRefs = [cur.base_blob_ref];
             return Object.assign({}, cur, {
-              list_id: s.list_id != null ? s.list_id : null, user_id: s.user_id != null ? s.user_id : cur.user_id,
+              list_id: s.list_id !== undefined ? s.list_id : cur.list_id, user_id: s.user_id !== undefined ? s.user_id : cur.user_id,
               base_rev: s.updated_at, server_id: cur.server_id != null ? cur.server_id : s.id,
               base_blob_ref: newBaseRef || cur.blob_ref, base_title: remoteTitle != null ? remoteTitle : cur.base_title,
             });
@@ -1501,7 +1501,7 @@
           if (!cur || cur.deleted || (cur.rev || 0) !== readRev || cur.base_rev !== local.base_rev) return undefined;
           oldRefs = refsOf(cur);
           return Object.assign({}, cur, {
-            list_id: s.list_id != null ? s.list_id : null, user_id: s.user_id != null ? s.user_id : cur.user_id,
+            list_id: s.list_id !== undefined ? s.list_id : cur.list_id, user_id: s.user_id !== undefined ? s.user_id : cur.user_id,
             server_id: cur.server_id != null ? cur.server_id : s.id,
             blob_ref: newBlobRef,
             title: mergedTitle,

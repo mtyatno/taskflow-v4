@@ -878,6 +878,9 @@
       if (!cur) return undefined;
       const next = Object.assign({}, cur);
       if (sid != null && next.server_id == null) next.server_id = sid;
+      // Respons create membawa pemilik & workspace otoritatif → adopsi (seperti server_id).
+      if (sent.srv && sent.srv.user_id != null) next.user_id = sent.srv.user_id;
+      if (sent.srv && sent.srv.list_id !== undefined) next.list_id = sent.srv.list_id;
       // base_rev hanya boleh MAJU (pull bisa sudah menggabung revisi server yang lebih baru selama request)
       advanced = updatedAt != null && TFrepo.tsNewer(updatedAt, cur.base_rev);
       if (advanced) {
@@ -937,7 +940,7 @@
           if (ok(res) && res.data && res.data.id != null) {
             const sid = res.data.id;
             return TFidmap.mapPut("drawing", sid, rec.cid)
-              .then(() => markDrawingPushed(rec.cid, sentRev, res.data.updated_at, sid, { ref: data != null ? ref : null, data: dataJson, title: sentTitle }))
+              .then(() => markDrawingPushed(rec.cid, sentRev, res.data.updated_at, sid, { ref: data != null ? ref : null, data: dataJson, title: sentTitle, srv: res.data }))
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => requeueDrawingIfDirty(rec.cid))
               .then(() => { result.pushed++; });

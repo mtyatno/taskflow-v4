@@ -10,6 +10,7 @@ const { buildTaskRouter } = require("../../static/offline/taskroutes.js");
 const repo = require("../../static/offline/drawingrepo.js");
 const { pullDrawings, pullDrawingsAndReconcile } = require("../../static/offline/syncpull.js");
 const { pushOutbox } = require("../../static/offline/syncpush.js");
+const { resolveConflict } = require("../../static/offline/syncconflict.js");
 
 beforeEach(async () => {
   _reset(); await deleteDB(DB_NAME);
@@ -225,4 +226,31 @@ test("opDrawingCreate sends list_id", async () => {
   await pushOutbox(tr);
   assert.equal(bodies[0].list_id, 9);
   assert.equal(d.list_id, 9);
+});
+
+test("access_lost -> keep_as_new -> owner can delete/pin offline and record user_id is current user", async () => {
+  await put([local({ cid: "k", server_id: 95, list_id: 9, user_id: 7, last_edited_by: 7, last_editor_username: "bob", last_editor_display_name: "Bob", conflict: "access_lost", dirty: 1 })]);
+  await resolveConflict("drawing", "k", "keep_as_new");
+  const rec = (await all())[0];
+  assert.equal(rec.user_id, 3);
+  assert.equal(rec.last_edited_by, 3);
+  assert.equal(rec.list_id, null);
+  assert.equal("last_editor_username" in rec, false);
+  assert.equal("last_editor_display_name" in rec, false);
+  const R = buildTaskRouter();
+  await R.dispatch("PATCH", "/api/drawings/k/pin", undefined);
+  await R.dispatch("DELETE", "/api/drawings/k", undefined);
+  assert.equal((await all())[0].deleted, true);
+});
+
+test("create push adopts user_id/list_id from the response", async () => {
+  repo.setCurrentUser(null);
+  const d = await repo.createDrawing({ title: "W", data_json: '{"a":1}' });
+  assert.equal((await all())[0].user_id, null);
+  const tr = { request: () => Promise.resolve({ status: 200, data: { id: 701, user_id: 3, list_id: 9, updated_at: "2026-08-25T12:00:00" } }) };
+  await pushOutbox(tr);
+  const rec = (await all()).find((r) => r.cid === d.cid);
+  assert.equal(rec.user_id, 3);
+  assert.equal(rec.list_id, 9);
+  assert.equal(rec.server_id, 701);
 });

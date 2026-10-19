@@ -117,6 +117,11 @@
     return TFdb.mutate(store, cid, (cur) => (cur ? fn(Object.assign({}, cur), cur) : undefined));
   }
 
+  function repoUid() {
+    const r = drawingRepo();
+    return (r && typeof r.currentUid === "function") ? r.currentUid() : null;
+  }
+
   function resolveConflict(entity, cid, choice) {
     const store = STORE[entity];
     if (!store) return Promise.reject(new Error("unknown entity: " + entity));
@@ -166,7 +171,13 @@
               if ("list_id" in next || entity !== "drawing") next.list_id = null;
               if ("list_cid" in next || entity === "task") next.list_cid = null;
             }
-            if (entity === "drawing") { oldBase = cur.base_blob_ref || null; next.base_blob_ref = null; next.base_title = null; }
+            if (entity === "drawing") {
+              oldBase = cur.base_blob_ref || null; next.base_blob_ref = null; next.base_title = null;
+              // Salinan baru milik pengguna saat ini: jangan mewarisi pemilik/editor lama (guard pemilik offline).
+              const me = repoUid();
+              if (me != null) { next.user_id = me; next.last_edited_by = me; }
+              delete next.last_editor_username; delete next.last_editor_display_name;
+            }
             return next;
           }))
           .then((next) => {
