@@ -172,6 +172,36 @@
     });
   }
 
+  // Petakan: tulis isi note dari edit peta secara compare-and-set. `baseContent` = isi yang dipakai peta saat
+  // dibangun; bila isi terkini berbeda (ada ketikan di sela-sela) → { stale, note } TANPA menulis apa pun.
+  // → { ok, note } | { stale, note } | { missing }
+  function applyMapEdit(cid, baseContent, next, opts) {
+    const now = (opts && opts.now) || new Date().toISOString();
+    return resolveLinkedTo(next.markdown).then((toCids) => {
+      let outcome = { missing: true };
+      return TFdb.mutate("scratchpad_notes", cid, (cur) => {
+        if (!cur || cur.deleted) { outcome = { missing: true }; return undefined; }
+        if (cur.content !== baseContent) { outcome = { stale: true, note: cur }; return undefined; }
+        const written = Object.assign({}, cur, {
+          content: next.markdown,
+          title: next.title,
+          linked_to_cids: JSON.stringify(toCids),
+          last_edited_by: curUid(),
+          last_editor_username: null, last_editor_display_name: null,
+          updated_at: now, dirty: 1, rev: (cur.rev || 0) + 1,
+        });
+        outcome = { ok: true, note: written };
+        return written;
+      }).then(() => {
+        if (!outcome.ok) return outcome;
+        return coalesceUpdateOp(cid, {}).then(() => {
+          emitWindowEvent("noteSaved", { source: "notemap", cids: [cid] });
+          return outcome;
+        });
+      });
+    });
+  }
+
   // K4 klien: setelah PATCH /share sukses, record lokal mengadopsi list_id + updated_at → base_rev dari baris
   // server (share mem-bump updated_at). Tanpa ini pull tidak mengadopsi list_id (updated_at sama) dan PUT
   // berikutnya dengan base_rev lama ditolak 409. Hanya field itu yang disentuh (isi lokal/dirty tetap); rev naik.
@@ -394,7 +424,7 @@
   }
 
   const exported = {
-    createNote, updateNote, deleteNote, discardPendingDelete, togglePin, getNoteRaw, findNoteRaw, putNote,
+    createNote, updateNote, applyMapEdit, deleteNote, discardPendingDelete, togglePin, getNoteRaw, findNoteRaw, putNote,
     resolveLinkedTo, resolveLinkedTasks, setCurrentUser, getCurrentUser,
     // audit 2026-10-15 workstream C: K4 klien, prinsip 7 (salinan konflik), S15, T4 (op update digabung)
     adoptServerFields, fieldsFromServer, makeConflictCopy, keepLocalAsConflictCopy, rewriteTaskLinks, coalesceUpdateOp, conflictTitle,

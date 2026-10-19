@@ -314,7 +314,7 @@ test("Mindmap pull: detail non-2xx (503 OFFLINE) tidak menimpa mindmap lokal den
   });
   await mapPut("mindmap", 91, "mm1");
   const raw = (url) => {
-    if (url === "/api/mindmaps") return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([{ id: 91, title: "Peta", updated_at: U2 }]) });
+    if (url === "/api/mindmaps?linked=1") return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([{ id: 91, title: "Peta", updated_at: U2 }]) });
     return Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({ detail: "OFFLINE" }) });
   };
   await pullMindmapsAndReconcile(raw);

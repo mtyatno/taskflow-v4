@@ -54,10 +54,84 @@
     return name + "." + ext;
   }
 
+  // engineOptions(linked, handlers): opsi tambahan mesin mind-elixir. Peta
+  // tertaut: undo ditangani induk (catatan), panah dimatikan dari menu konteks,
+  // dan dua item menu membuka catatan di heading node. Peta biasa: opsi lama.
+  function engineOptions(linked, handlers) {
+    if (!linked) return { contextMenu: true };
+    const h = handlers || {};
+    return {
+      allowUndo: false,
+      newTopicName: "Node baru",
+      contextMenu: {
+        focus: true,
+        link: false,
+        extend: [
+          { name: "📄 Buka di catatan", key: "Ctrl+Click", onclick: h.openModal },
+          { name: "↗ Buka di halaman Notes", onclick: h.openPage },
+        ],
+      },
+    };
+  }
+
+  // Ctrl+Click (Cmd+Click di Mac) dengan tombol kiri membuka catatan di heading.
+  function isOpenNoteClick(evt) {
+    return !!evt && evt.button === 0 && !!(evt.ctrlKey || evt.metaKey);
+  }
+
+  // Keluar dari Focus Mode sebelum mesin dimuat ulang. refresh()/init() mind-elixir tidak
+  // menyentuh isFocusMode, dan selama flag itu aktif getData() mengembalikan nodeDataBackup —
+  // pohon LAMA — sehingga tiap change setelah muat ulang mengirim pohon sebelum muat ulang.
+  // Pakai cancelFocus milik mesin; bila tidak ada / gagal, setel ulang field seperti mesin.
+  function exitFocusMode(mind) {
+    if (!mind || !mind.isFocusMode) return false;
+    try {
+      if (typeof mind.cancelFocus === "function") mind.cancelFocus();
+    } catch (_) {}
+    if (mind.isFocusMode) {
+      mind.isFocusMode = false;
+      if (mind.tempDirection != null) mind.direction = mind.tempDirection;
+    }
+    mind.tempDirection = null;
+    mind.nodeDataBackup = null;
+    return true;
+  }
+
+  // Muat data baru ke mesin yang sudah ada (selalu keluar dari Focus Mode dulu). init()
+  // memasang ulang menu konteks, keypress dan listener copy/paste setiap dipanggil (menu
+  // ganda, tempel ganda); peta tertaut dimuat ulang sering, jadi cukup refresh() — tanpa
+  // toCenter agar geseran pengguna tetap (muat awal tetap terpusat lewat init() mesin baru).
+  // Peta biasa tetap lewat init() (perilaku lama, termasuk riwayat undo mesin per muatan).
+  function reloadEngine(mind, data, linked) {
+    exitFocusMode(mind);
+    if (linked) {
+      mind.refresh(data);
+    } else {
+      mind.init(data);
+    }
+  }
+
+  // Kontrol yang tidak bisa dipetakan ke catatan (panah, ringkasan engine,
+  // tautan node, format blok) disembunyikan di peta tertaut.
+  const LINKED_HIDDEN_SELECTORS = [
+    "#ntb-summary",
+    "#ntb-link",
+    "#ntb-linkbi",
+    '.side-tab[data-tab="links"]',
+    ...["underline", "highlight", "heading", "table", "ul", "ol", "hr", "align"].map(
+      (a) => `#fmt-panel [data-act="${a}"]`
+    ),
+  ];
+
   return {
     isNodeTopicTarget: isNodeTopicTarget,
     resolveTopicTarget: resolveTopicTarget,
     opsDisabledStates: opsDisabledStates,
     safeExportName: safeExportName,
+    engineOptions: engineOptions,
+    isOpenNoteClick: isOpenNoteClick,
+    exitFocusMode: exitFocusMode,
+    reloadEngine: reloadEngine,
+    LINKED_HIDDEN_SELECTORS: LINKED_HIDDEN_SELECTORS,
   };
 });

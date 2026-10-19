@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v415-multi-tab-session', () => {
+  test('Service Worker cache version is bumped to taskflow-v416-petakan', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v415-multi-tab-session";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v416-petakan";/m);
   });
 });
 
