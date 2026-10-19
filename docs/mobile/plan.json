@@ -1,0 +1,991 @@
+{
+ "generated": "2026-10-18",
+ "start": "2026-10-19",
+ "assumption": "Bapak + 2 developer (Dev A tanpa Mac, Dev B dengan Mac); 1 sesi per orang per hari kerja",
+ "capacity": {
+  "Bapak": [
+   0,
+   1,
+   3,
+   5
+  ],
+  "Dev A": [
+   0,
+   1,
+   2,
+   3
+  ],
+  "Dev B": [
+   0,
+   1,
+   2,
+   3
+  ]
+ },
+ "holidays": [
+  "2026-12-24",
+  "2026-12-25",
+  "2026-12-31",
+  "2027-01-01"
+ ],
+ "sessions": [
+  {
+   "id": "S01",
+   "title": "Kickoff: setujui playbook, undang tim, proteksi main",
+   "phase": "W",
+   "wbs": "W1",
+   "owner": "Bapak",
+   "kind": "admin",
+   "hours": 2,
+   "deps": [],
+   "exit": "Tim punya akses GitHub dan Claude; GitHub App terpasang; main diproteksi; environment cloud bersama dibuat; PR #29 di-merge",
+   "planned": "2026-10-19",
+   "milestone": null
+  },
+  {
+   "id": "S02",
+   "title": "Repo siap tim: .claude/ dibagi, /mulai-sesi, /tutup-sesi, NOW.md",
+   "phase": "W",
+   "wbs": "W2",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S01"
+   ],
+   "exit": "Perintah tim jalan di sesi cloud; .agents/NOW.md <= 80 baris; catatan per sesi di .agents/sessions/; setup environment di scripts/cloud-setup.sh",
+   "planned": "2026-10-20",
+   "milestone": null
+  },
+  {
+   "id": "S03",
+   "title": "Versi SW dicap saat deploy, bukan di tiap PR",
+   "phase": "W",
+   "wbs": "W3",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S02"
+   ],
+   "exit": "deploy menulis static/version.json; PR frontend tidak menyentuh 19 file versi; CI menjalankan pytest dan npm test",
+   "planned": "2026-10-21",
+   "milestone": null
+  },
+  {
+   "id": "S04",
+   "title": "Bersihkan repo publik + buat milestone, label, issue per sesi",
+   "phase": "W",
+   "wbs": "W4",
+   "owner": "Dev B",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S01"
+   ],
+   "exit": "venv/ (dan aturan .gitignore-nya), uploads/, zip, gen-keystore.yml keluar dari repo; 62 issue dan 10 milestone terbuat",
+   "planned": "2026-10-20",
+   "milestone": null
+  },
+  {
+   "id": "S05",
+   "title": "Review dan merge paket kesiapan tim",
+   "phase": "W",
+   "wbs": "W5",
+   "owner": "Bapak",
+   "kind": "review",
+   "hours": 1,
+   "deps": [
+    "S02",
+    "S03",
+    "S04"
+   ],
+   "exit": "S02-S04 di-merge dan ter-deploy; papan sesi dipakai tim",
+   "planned": "2026-10-22",
+   "milestone": null
+  },
+  {
+   "id": "S06",
+   "title": "Akun toko, verifikasi developer Android, kunci tanda tangan",
+   "phase": "F0",
+   "wbs": "0.2, 0.3",
+   "owner": "Bapak",
+   "kind": "admin",
+   "hours": 2,
+   "deps": [
+    "S01"
+   ],
+   "exit": "Play Console + Apple Developer diajukan; nama paket terdaftar untuk verifikasi developer Android; asal keystore dipastikan; API key App Store Connect untuk CI",
+   "planned": "2026-10-20",
+   "milestone": null
+  },
+  {
+   "id": "S07",
+   "title": "ADR mobile M1..M6 dan skema versi mobile",
+   "phase": "F0",
+   "wbs": "0.1, 0.7",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 2,
+   "deps": [
+    "S03"
+   ],
+   "exit": "DECISIONS.md memuat 6 ADR mobile dengan nomor kosong berikutnya dan disetujui Bapak",
+   "planned": "2026-10-22",
+   "milestone": null
+  },
+  {
+   "id": "S08",
+   "title": "Halaman privasi dan ketentuan + uji hapus akun",
+   "phase": "F0",
+   "wbs": "0.5",
+   "owner": "Dev B",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S04"
+   ],
+   "exit": "/privacy dan /terms tayang; tautan di Pengaturan; pytest hapus akun hijau",
+   "planned": "2026-10-21",
+   "milestone": null
+  },
+  {
+   "id": "S09",
+   "title": "Rilis terakhir APK Tauri dengan banner sinkronisasi",
+   "phase": "F0",
+   "wbs": "0.6",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S05",
+    "S07",
+    "S06"
+   ],
+   "exit": "Pre-release terbit; banner muncul bila outbox berisi; catatan rilis menjelaskan cara pindah ke app baru",
+   "planned": "2026-10-26",
+   "milestone": null
+  },
+  {
+   "id": "S10",
+   "title": "Fastlane match di Mac: sertifikat dan profil iOS",
+   "phase": "F0",
+   "wbs": "0.4",
+   "owner": "Dev B",
+   "kind": "ide",
+   "hours": 2,
+   "deps": [
+    "S08"
+   ],
+   "exit": "fastlane match development berhasil dari CI",
+   "planned": "2026-11-02",
+   "milestone": null
+  },
+  {
+   "id": "S11",
+   "title": "TF.native: antarmuka + implementasi web",
+   "phase": "F1",
+   "wbs": "1.1",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S05",
+    "S07"
+   ],
+   "exit": "tests/native/native_web.test.js hijau; PWA tidak berubah perilakunya",
+   "planned": "2026-10-27",
+   "milestone": null
+  },
+  {
+   "id": "S12",
+   "title": "Ganti cabang __TAURI__ dan API_BASE di index.html",
+   "phase": "F1",
+   "wbs": "1.2a",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S11"
+   ],
+   "exit": "Tidak ada window.__TAURI__ di static/index.html; tes JS hijau",
+   "planned": "2026-10-28",
+   "milestone": null
+  },
+  {
+   "id": "S13",
+   "title": "Modul offline + adapter desktop Tauri",
+   "phase": "F1",
+   "wbs": "1.2b",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S12"
+   ],
+   "exit": "Tidak ada __TAURI__ di static/offline/ (voicedictate, blobstore); desktop Windows diuji sekali",
+   "planned": "2026-10-29",
+   "milestone": null
+  },
+  {
+   "id": "S14",
+   "title": "resolveApiBase per platform + 3 fetch relatif",
+   "phase": "F1",
+   "wbs": "1.3, 1.4",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S13"
+   ],
+   "exit": "Origin localhost/capacitor menghasilkan base server; tes URL absolut hijau",
+   "planned": "2026-11-02",
+   "milestone": null
+  },
+  {
+   "id": "S15",
+   "title": "GET /api/config + hapus injeksi flag AI",
+   "phase": "F1",
+   "wbs": "1.6",
+   "owner": "Dev B",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S05"
+   ],
+   "exit": "pytest endpoint; UI AI mengikuti server di PWA dan native",
+   "planned": "2026-10-26",
+   "milestone": null
+  },
+  {
+   "id": "S16",
+   "title": "Service worker hanya di web + ekspor lewat TF.native",
+   "phase": "F1",
+   "wbs": "1.5, 1.7",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S14"
+   ],
+   "exit": "Tidak ada registrasi SW di native; semua ekspor lewat file.save",
+   "planned": "2026-11-03",
+   "milestone": null
+  },
+  {
+   "id": "S17",
+   "title": "tf_user_id native + regresi Playwright PWA",
+   "phase": "F1",
+   "wbs": "1.8, 1.9",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 2,
+   "deps": [
+    "S16",
+    "S15"
+   ],
+   "exit": "Skenario storage direset lulus; Playwright login/offline/sync/konflik hijau",
+   "planned": "2026-11-04",
+   "milestone": null
+  },
+  {
+   "id": "S18",
+   "title": "Gerbang F1: review, merge dan deploy, cek PWA",
+   "phase": "F1",
+   "wbs": "gerbang",
+   "owner": "Bapak",
+   "kind": "review",
+   "hours": 1.5,
+   "deps": [
+    "S17"
+   ],
+   "exit": "PR F1 di-merge; PWA di HP dan laptop berjalan seperti sebelumnya",
+   "planned": "2026-11-05",
+   "milestone": null
+  },
+  {
+   "id": "S19",
+   "title": "Refresh token di server + pytest",
+   "phase": "F3",
+   "wbs": "3.1a",
+   "owner": "Dev B",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S15"
+   ],
+   "exit": "pytest: refresh sukses, reuse ditolak, 401 setelah logout",
+   "planned": "2026-10-27",
+   "milestone": null
+  },
+  {
+   "id": "S20",
+   "title": "SSE ticket + /api/config lanjutan (server)",
+   "phase": "F3",
+   "wbs": "3.2, 3.6",
+   "owner": "Dev B",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S19"
+   ],
+   "exit": "Endpoint SSE menerima ?ticket=; min_supported_version tersedia",
+   "planned": "2026-10-28",
+   "milestone": null
+  },
+  {
+   "id": "S21",
+   "title": "assetlinks.json, AASA, tukar magic link (server)",
+   "phase": "F3",
+   "wbs": "3.4a",
+   "owner": "Dev B",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S20",
+    "S06"
+   ],
+   "exit": "curl kedua file .well-known benar; endpoint exchange lulus pytest",
+   "planned": "2026-10-29",
+   "milestone": null
+  },
+  {
+   "id": "S22",
+   "title": "device_tokens + pengirim push FCM",
+   "phase": "F3",
+   "wbs": "3.5",
+   "owner": "Dev B",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S21"
+   ],
+   "exit": "Notifikasi uji terkirim lewat FCM ke token uji (skrip); uji di HP dilakukan di S60",
+   "planned": "2026-11-03",
+   "milestone": null
+  },
+  {
+   "id": "S23",
+   "title": "Klien: refresh otomatis, SSE ticket, lampiran tanpa token, deep link",
+   "phase": "F3",
+   "wbs": "3.1b, 3.3, 3.4b",
+   "owner": "Dev B",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S22",
+    "S18"
+   ],
+   "exit": "Tidak ada ?token= di access log untuk klien baru; deep link membuka task",
+   "planned": "2026-11-09",
+   "milestone": null
+  },
+  {
+   "id": "S24",
+   "title": "Gerbang F3: merge dan deploy, restart, cek .well-known",
+   "phase": "F3",
+   "wbs": "gerbang",
+   "owner": "Bapak",
+   "kind": "review",
+   "hours": 1,
+   "deps": [
+    "S23"
+   ],
+   "exit": "Server baru aktif setelah restart; web lama tetap jalan",
+   "planned": "2026-11-10",
+   "milestone": null
+  },
+  {
+   "id": "S25",
+   "title": "Scaffold mobile/ Capacitor + build-web-dist.js",
+   "phase": "F2",
+   "wbs": "2.1",
+   "owner": "Dev B",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S14"
+   ],
+   "exit": "npx cap sync android bersih; app membuka UI dan login ke produksi",
+   "planned": "2026-11-04",
+   "milestone": null
+  },
+  {
+   "id": "S26",
+   "title": "Signing, versi, CI AAB + APK",
+   "phase": "F2",
+   "wbs": "2.7, 2.8",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S25",
+    "S06"
+   ],
+   "exit": "Run CI < 15 menit; targetSdk 36; APK terpasang di HP uji (menimpa APK Tauri bila kuncinya sama)",
+   "planned": "2026-11-05",
+   "milestone": null
+  },
+  {
+   "id": "S27",
+   "title": "Adapter native-capacitor: token aman, file, tautan, tombol kembali",
+   "phase": "F2",
+   "wbs": "2.2",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S26"
+   ],
+   "exit": "Tes unit adapter hijau; tombol kembali benar di 3 layar",
+   "planned": "2026-11-09",
+   "milestone": null
+  },
+  {
+   "id": "S28",
+   "title": "Terima share + dikte suara di Android",
+   "phase": "F2",
+   "wbs": "2.3, 2.4",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S27"
+   ],
+   "exit": "Share dari Chrome jadi note bookmark (cold start juga); dikte jalan",
+   "planned": "2026-11-10",
+   "milestone": null
+  },
+  {
+   "id": "S29",
+   "title": "Lampiran, ekspor, splash, status bar, ikon",
+   "phase": "F2",
+   "wbs": "2.5, 2.6",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S28"
+   ],
+   "exit": "Semua ekspor bisa dibuka di app lain; tema terang/gelap benar",
+   "planned": "2026-11-11",
+   "milestone": null
+  },
+  {
+   "id": "S30",
+   "title": "Uji paritas Android putaran 1 (3 HP)",
+   "phase": "F2",
+   "wbs": "2.9a",
+   "owner": "Bapak",
+   "kind": "uji",
+   "hours": 2,
+   "deps": [
+    "S29",
+    "S24"
+   ],
+   "exit": "Daftar periksa paritas terisi; bug dicatat sebagai issue",
+   "planned": "2026-11-14",
+   "milestone": null
+  },
+  {
+   "id": "S31",
+   "title": "Perbaikan bug paritas putaran 1",
+   "phase": "F2",
+   "wbs": "2.9b",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S30"
+   ],
+   "exit": "Semua bug putaran 1 tertutup atau dijadwalkan",
+   "planned": "2026-11-16",
+   "milestone": null
+  },
+  {
+   "id": "S32",
+   "title": "Gerbang F2: uji paritas putaran 2",
+   "phase": "F2",
+   "wbs": "gerbang",
+   "owner": "Bapak",
+   "kind": "uji",
+   "hours": 1.5,
+   "deps": [
+    "S31"
+   ],
+   "exit": "Paritas 100% di 3 HP; APK Capacitor menimpa APK Tauri",
+   "planned": "2026-11-21",
+   "milestone": null
+  },
+  {
+   "id": "S33",
+   "title": "widgetsnapshot.js + tes snapshot",
+   "phase": "F4",
+   "wbs": "4.1",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S17"
+   ],
+   "exit": "Snapshot benar untuk task hari ini, terlambat, recurring, habit",
+   "planned": "2026-11-12",
+   "milestone": null
+  },
+  {
+   "id": "S34",
+   "title": "Plugin alurik-native Android: publish dan drain",
+   "phase": "F4",
+   "wbs": "4.2",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S33"
+   ],
+   "exit": "Tes instrumentasi tulis/baca ulang hijau",
+   "planned": "2026-11-17",
+   "milestone": null
+  },
+  {
+   "id": "S35",
+   "title": "Widget Hari Ini (Glance, 3 ukuran)",
+   "phase": "F4",
+   "wbs": "4.3",
+   "owner": "Dev A",
+   "kind": "ide",
+   "hours": 3,
+   "deps": [
+    "S34"
+   ],
+   "exit": "Tampil benar di Pixel, One UI, HyperOS; tangkapan layar 3 ukuran",
+   "planned": "2026-11-18",
+   "milestone": null
+  },
+  {
+   "id": "S36",
+   "title": "Interaksi widget: deep link, centang, antrean aksi",
+   "phase": "F4",
+   "wbs": "4.4",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S35",
+    "S23"
+   ],
+   "exit": "Aksi widget tiba di outbox tepat sekali, juga saat offline",
+   "planned": "2026-11-19",
+   "milestone": null
+  },
+  {
+   "id": "S37",
+   "title": "Tambah cepat + pembaruan tengah malam",
+   "phase": "F4",
+   "wbs": "4.5, 4.6",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S36"
+   ],
+   "exit": "Task dari widget masuk Inbox P2; widget berganti hari tanpa membuka app",
+   "planned": "2026-11-23",
+   "milestone": null
+  },
+  {
+   "id": "S38",
+   "title": "Dokumentasi, tes, perbaikan widget Android",
+   "phase": "F4",
+   "wbs": "4.7",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 2,
+   "deps": [
+    "S37"
+   ],
+   "exit": "docs/mobile/widgets.md; tes unit Kotlin hijau",
+   "planned": "2026-11-24",
+   "milestone": null
+  },
+  {
+   "id": "S39",
+   "title": "Gerbang F4: uji widget di 3 launcher",
+   "phase": "F4",
+   "wbs": "gerbang",
+   "owner": "Bapak",
+   "kind": "uji",
+   "hours": 2,
+   "deps": [
+    "S38"
+   ],
+   "exit": "Widget benar setelah edit offline, sync, ganti hari, reboot",
+   "planned": "2026-11-28",
+   "milestone": null
+  },
+  {
+   "id": "S40",
+   "title": "Aplikasi di Play Console, Play App Signing, listing",
+   "phase": "F5",
+   "wbs": "5.1, 5.2",
+   "owner": "Bapak",
+   "kind": "admin",
+   "hours": 2,
+   "deps": [
+    "S26",
+    "S29"
+   ],
+   "exit": "Play App Signing aktif; semua kolom listing terisi; 12+ penguji direkrut (Google Group)",
+   "planned": "2026-11-12",
+   "milestone": null
+  },
+  {
+   "id": "S41",
+   "title": "Data Safety, internal testing, mulai closed testing",
+   "phase": "F5",
+   "wbs": "5.3, 5.4",
+   "owner": "Bapak",
+   "kind": "admin",
+   "hours": 1.5,
+   "deps": [
+    "S40",
+    "S31",
+    "S08"
+   ],
+   "exit": "12+ penguji opt-in; hitungan 14 hari dimulai",
+   "planned": "2026-11-17",
+   "milestone": null
+  },
+  {
+   "id": "S42",
+   "title": "In-app update + perbaikan dari pre-launch report",
+   "phase": "F5",
+   "wbs": "5.5a",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S41"
+   ],
+   "exit": "Tidak ada temuan kritis di pre-launch report",
+   "planned": "2026-11-25",
+   "milestone": null
+  },
+  {
+   "id": "S43",
+   "title": "Ajukan rilis produksi Google Play (bertahap 20%)",
+   "phase": "F5",
+   "wbs": "5.5b",
+   "owner": "Bapak",
+   "kind": "admin",
+   "hours": 1,
+   "deps": [
+    "S42",
+    "S39"
+   ],
+   "exit": "Rilis produksi diajukan dengan widget Android",
+   "planned": "2026-12-03",
+   "milestone": "Pengajuan Google Play"
+  },
+  {
+   "id": "S44",
+   "title": "Tambah iOS, capabilities, jalan di iPhone",
+   "phase": "F6",
+   "wbs": "6.1",
+   "owner": "Dev B",
+   "kind": "ide",
+   "hours": 3,
+   "deps": [
+    "S25",
+    "S10"
+   ],
+   "exit": "Login, offline, sync lulus di iPhone fisik",
+   "planned": "2026-11-05",
+   "milestone": null
+  },
+  {
+   "id": "S45",
+   "title": "Keychain, safe area, keyboard, swipe",
+   "phase": "F6",
+   "wbs": "6.2, 6.7",
+   "owner": "Dev B",
+   "kind": "ide",
+   "hours": 2.5,
+   "deps": [
+    "S44",
+    "S27"
+   ],
+   "exit": "Token tidak bocor lintas instal; tidak ada konten tertutup notch",
+   "planned": "2026-11-10",
+   "milestone": null
+  },
+  {
+   "id": "S46",
+   "title": "Share Extension iOS",
+   "phase": "F6",
+   "wbs": "6.3",
+   "owner": "Dev B",
+   "kind": "ide",
+   "hours": 3,
+   "deps": [
+    "S45",
+    "S28"
+   ],
+   "exit": "Share dari Safari membuat note bookmark, termasuk saat app tertutup",
+   "planned": "2026-11-11",
+   "milestone": null
+  },
+  {
+   "id": "S47",
+   "title": "Dikte iOS, lampiran dan ekspor ke Files",
+   "phase": "F6",
+   "wbs": "6.4, 6.8",
+   "owner": "Dev B",
+   "kind": "ide",
+   "hours": 2.5,
+   "deps": [
+    "S46",
+    "S29"
+   ],
+   "exit": "Dikte dan semua ekspor setara Android",
+   "planned": "2026-11-12",
+   "milestone": null
+  },
+  {
+   "id": "S48",
+   "title": "Universal Links + APNs",
+   "phase": "F6",
+   "wbs": "6.5, 6.6",
+   "owner": "Dev B",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S47",
+    "S24"
+   ],
+   "exit": "Magic link Telegram membuka app; notifikasi uji tiba di iPhone",
+   "planned": "2026-11-16",
+   "milestone": null
+  },
+  {
+   "id": "S49",
+   "title": "CI iOS: Fastlane ke TestFlight",
+   "phase": "F6",
+   "wbs": "6.9",
+   "owner": "Dev B",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S48"
+   ],
+   "exit": "Tag v* menghasilkan build TestFlight < 30 menit",
+   "planned": "2026-11-17",
+   "milestone": null
+  },
+  {
+   "id": "S50",
+   "title": "App Store Connect: metadata, akun demo, TestFlight eksternal",
+   "phase": "F6",
+   "wbs": "6.10",
+   "owner": "Bapak",
+   "kind": "admin",
+   "hours": 1.5,
+   "deps": [
+    "S49",
+    "S08"
+   ],
+   "exit": "TestFlight eksternal disetujui; App Privacy terisi",
+   "planned": "2026-11-19",
+   "milestone": null
+  },
+  {
+   "id": "S51",
+   "title": "Uji paritas iOS (2 iPhone)",
+   "phase": "F6",
+   "wbs": "6.11",
+   "owner": "Bapak",
+   "kind": "uji",
+   "hours": 2,
+   "deps": [
+    "S50"
+   ],
+   "exit": "Daftar periksa paritas terisi; bug dicatat",
+   "planned": "2026-11-23",
+   "milestone": null
+  },
+  {
+   "id": "S52",
+   "title": "Perbaikan bug paritas iOS",
+   "phase": "F6",
+   "wbs": "6.11b",
+   "owner": "Dev B",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S51"
+   ],
+   "exit": "Paritas iOS 100%",
+   "planned": "2026-11-24",
+   "milestone": null
+  },
+  {
+   "id": "S53",
+   "title": "Plugin Swift + widget Hari Ini (WidgetKit)",
+   "phase": "F7",
+   "wbs": "7.1, 7.2a",
+   "owner": "Dev B",
+   "kind": "ide",
+   "hours": 3,
+   "deps": [
+    "S49",
+    "S34"
+   ],
+   "exit": "Widget small/medium tampil dari snapshot App Group",
+   "planned": "2026-11-18",
+   "milestone": null
+  },
+  {
+   "id": "S54",
+   "title": "Lock screen, timeline tengah malam, Tambah cepat",
+   "phase": "F7",
+   "wbs": "7.2b, 7.4",
+   "owner": "Dev B",
+   "kind": "ide",
+   "hours": 3,
+   "deps": [
+    "S53"
+   ],
+   "exit": "Widget berganti hari tanpa membuka app; quick capture terbuka",
+   "planned": "2026-11-19",
+   "milestone": null
+  },
+  {
+   "id": "S55",
+   "title": "AppIntent: centang selesai dari widget",
+   "phase": "F7",
+   "wbs": "7.3",
+   "owner": "Dev B",
+   "kind": "ide",
+   "hours": 3,
+   "deps": [
+    "S54",
+    "S36"
+   ],
+   "exit": "Aksi tiba di outbox tepat sekali",
+   "planned": "2026-11-23",
+   "milestone": null
+  },
+  {
+   "id": "S56",
+   "title": "Live Activity Pomodoro (opsional) + tes widget iOS",
+   "phase": "F7",
+   "wbs": "7.5, 7.6",
+   "owner": "Dev B",
+   "kind": "ide",
+   "hours": 2.5,
+   "deps": [
+    "S55"
+   ],
+   "exit": "Build TestFlight berisi widget; dokumentasi iOS di widgets.md",
+   "planned": "2026-11-25",
+   "milestone": null
+  },
+  {
+   "id": "S57",
+   "title": "Uji widget iOS + ajukan ke App Store",
+   "phase": "F7",
+   "wbs": "gerbang",
+   "owner": "Bapak",
+   "kind": "admin",
+   "hours": 2,
+   "deps": [
+    "S56",
+    "S52"
+   ],
+   "exit": "Build diajukan untuk review App Store (rilis bertahap)",
+   "planned": "2026-11-26",
+   "milestone": "Pengajuan App Store"
+  },
+  {
+   "id": "S58",
+   "title": "Server OTA + bundle di deploy.yml",
+   "phase": "F8",
+   "wbs": "8.1a",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S38",
+    "S24"
+   ],
+   "exit": "Bundle zip terbit di kanal beta setiap push ke main",
+   "planned": "2026-11-26",
+   "milestone": null
+  },
+  {
+   "id": "S59",
+   "title": "Klien OTA, rollback, aturan rilis",
+   "phase": "F8",
+   "wbs": "8.1b, 8.2",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S58",
+    "S42"
+   ],
+   "exit": "Perubahan UI tiba < 1 jam tanpa rilis toko; rollback teruji",
+   "planned": "2026-11-30",
+   "milestone": null
+  },
+  {
+   "id": "S60",
+   "title": "Push end-to-end: pengingat, grup, DM",
+   "phase": "F8",
+   "wbs": "8.3",
+   "owner": "Dev B",
+   "kind": "build",
+   "hours": 3,
+   "deps": [
+    "S56",
+    "S22"
+   ],
+   "exit": "Push tiba di Android dan iOS; opt-out bekerja",
+   "planned": "2026-11-26",
+   "milestone": null
+  },
+  {
+   "id": "S61",
+   "title": "Lepas Tauri mobile + runbook rilis mobile",
+   "phase": "F8",
+   "wbs": "8.4, 8.5",
+   "owner": "Dev A",
+   "kind": "build",
+   "hours": 2.5,
+   "deps": [
+    "S43",
+    "S59"
+   ],
+   "exit": "Rilis Play sudah disetujui; android.yml dan patch Tauri Android terhapus; docs/mobile-release.md dipakai",
+   "planned": "2026-12-10",
+   "milestone": null
+  },
+  {
+   "id": "S62",
+   "title": "Retrospektif dan penutupan migrasi",
+   "phase": "F8",
+   "wbs": "gerbang",
+   "owner": "Bapak",
+   "kind": "review",
+   "hours": 1.5,
+   "deps": [
+    "S61",
+    "S57",
+    "S60"
+   ],
+   "exit": "Semua gerbang lulus; runbook dipakai untuk rilis berikutnya",
+   "planned": "2026-12-15",
+   "milestone": "Migrasi selesai"
+  }
+ ]
+}

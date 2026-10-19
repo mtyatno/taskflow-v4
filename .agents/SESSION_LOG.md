@@ -3341,8 +3341,21 @@
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/auth/refresh dan /api/version v415 aktif.
 
+## [2026-10-18 11:20] - Claude (workflow tim + jadwal per sesi + papan pemantauan migrasi mobile)
+- **Task:** Bapak menyetujui roadmap Capacitor; minta workflow pengembangan tim dengan Claude Code, jadwal per sesi (laptop dipakai bergantian), dan update progres yang bisa dipantau.
+- **Changes:** `scripts/mobile_schedule.py` + `docs/mobile/{plan.json,README.md}` (62 sesi, 153 jam, selesai 15 Des 2026). Di proyek Claude: Playbook Pengembangan Alurik Mobile dan Papan Sesi Alurik (artifact + db bersama). Review independen atas playbook/papan → perbaikan: status review dihitung selesai untuk kesiapan dan posisi, jam aktual + `blocked_since`/`review_since`, jendela merge Sen–Kam + branch bertumpuk, CI `npm test` (S03), env cloud bersama oleh Owner, akses papan, kontrak data tulisan Claude, kunci upload baru bila keystore pernah bocor, review produksi Play sebelum lepas Tauri (S61 10 Des, S62 15 Des). Roadmap diperbarui (prinsip 3–5, verifikasi developer Android, nomor ADR-008..013). PR #29 di-merge dengan `main` (konflik `.agents/*` dengan PR #30) dan kembali clean.
+- **Verifikasi:** penjadwal dijalankan (Bapak 24,5 / Dev A 68 / Dev B 60,5 jam); papan diuji di Chromium headless (KPI, simpan status + jam aktual, id pengguna lambat/null tanpa loop, fallback WIB, 390 px tanpa scroll horizontal); db papan dibaca ulang di level view; `git diff origin/main` PR #29 hanya workflow + `Cargo.lock` + `.agents/*`.
+- **Files Touch:** `scripts/mobile_schedule.py`, `docs/mobile/{plan.json,README.md}`, `.agents/{CURRENT_STATE,SESSION_LOG}.md`
+- **Status:** Needs Review (draft PR, base = branch PR #29).
+
 ## [2026-10-18 13:40] - Claude (Petakan Bagian A — subagent-driven)
 - **Task:** Eksekusi rencana Petakan Bagian A (Task A1–A6) dengan subagent per task + review per task + review akhir seluruh branch.
 - **Changes:** `static/offline/notemap.js` baru (UMD `TF.notemap`): `parseNote`, `summarizeSection`, `LINKED_VIEW_STATE_DEFAULT`, `pathKey`, `buildMindData`, `sanitizeTopic`, `applyMindData` (identik byte per byte tanpa edit; STALE_PARSE/BAD_TREE/LEVEL_OVERFLOW), `verifyStructure`, `plainHeadingText`, `locateHeading`, `matchHeading`, `renderTopicNoteInline` (tanpa `<img>`), `renderSummaryHtml`. `mindmapoutline.js`: `sanitizeHrefs` diekstrak + renderer gambar per panggilan yang meng-escape atribut (celah alt `onerror` lama tertutup). Spec §5 diperbarui (aturan level saudara sebelumnya + pemeriksaan hasil).
 - **Files Touch:** `static/offline/notemap.js`, `static/offline/mindmapoutline.js`, `tests/offline/notemap_*.test.js`, `tests/offline/mindmapoutline.test.js`, `docs/superpowers/specs/2026-10-18-petakan-note-mindmap-design.md`, `.agents/*`
 - **Status:** PR 1/3 draft, menunggu review Bapak. JS 1366/1367 (gagal pra-ada `draw_local_reactive`), pytest 178/178.
+
+## [2026-10-19 08:10] - Claude (PR #32 disinkronkan dengan main setelah PR #29 di-merge)
+- **Task:** Bapak me-merge PR #29 dan menandai PR #32 siap review; branch PR #29 tidak terhapus sehingga base PR #32 masih menunjuk ke branch itu.
+- **Changes:** `origin/main` (PR #29 + PR #33 Petakan 1/3) di-merge ke `claude/mobile-plan`; konflik `.agents/CURRENT_STATE.md` dan `SESSION_LOG.md` diselesaikan dengan mempertahankan semua entri; base PR #32 dipindah ke `main`. ADR mobile tetap berlabel sementara ADR-M1..M6 (ADR-007/008 sudah terpakai).
+- **Files Touch:** `.agents/{CURRENT_STATE,SESSION_LOG}.md`
+- **Status:** Needs Review (PR #32, tunggu "merge dan deploy").
