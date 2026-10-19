@@ -225,3 +225,141 @@ test("end-to-end: mindmap created on device A via local router opens by its uuid
   assert.equal(got.title, "Peta lintas perangkat");
   assert.equal(got.id, 55);
 });
+
+// --- Review round 1 ------------------------------------------------------------------------------------------
+
+// Server palsu bersama dua perangkat: POST /api/mindmaps & /api/scratchpad idempoten per client_id (seperti T11).
+function fakeServer() {
+  let nextId = 100;
+  const rows = { mindmaps: [], notes: [] };
+  const posts = [];
+  function create(kind, b) {
+    posts.push({ kind, client_id: b.client_id });
+    const hit = rows[kind].find((r) => r.client_id === b.client_id);
+    if (hit) return { status: 200, data: hit };
+    const row = Object.assign({}, b, { id: nextId++, updated_at: "2026-06-20T00:00:0" + rows[kind].length });
+    rows[kind].push(row);
+    return { status: 201, data: row };
+  }
+  return {
+    rows, posts,
+    transport(opts) {
+      opts = opts || {};
+      return fakeTransport((m, p, b) => {
+        if (m === "PUT") return { status: 404, data: { detail: "not found" } };
+        if (m === "POST" && p === "/api/mindmaps") {
+          if (opts.dropPost && opts.dropPost()) { create("mindmaps", b); return "NETWORK"; }
+          return create("mindmaps", b);
+        }
+        if (m === "POST" && p === "/api/scratchpad") return create("notes", b);
+        return { status: 200, data: {} };
+      });
+    },
+  };
+}
+function networkAware(tr) {
+  const orig = tr.request;
+  tr.request = (m, p, b) => orig(m, p, b).then((h) => (h === "NETWORK" ? Promise.reject(new Error("net")) : h));
+  return tr;
+}
+function personalMap(over) {
+  return Object.assign({ server_id: 5, title: "Peta", pinned: false, list_id: null, created_at: "x", updated_at: "2026-06-10T00:00:00",
+    deleted: false, dirty: 1, base_rev: "2026-06-10T00:00:00", rev: 2 }, over);
+}
+
+test("review#1: two devices re-creating the same deleted personal map → two distinct server rows, B's edit not adopted onto A's row", async () => {
+  const server = fakeServer();
+  // perangkat A: pembuat asli (cid = client_id = X)
+  await put("mindmaps", [personalMap({ cid: "X", client_id: "X", data_json: "{\"a\":1}" })]);
+  await mapPut("mindmap", 5, "X");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "mindmap", cid: "X", payload: {} }]);
+  await pushOutbox(networkAware(server.transport()));
+  // perangkat B: record hasil pull (client_id asli X, cid lain)
+  _reset(); await deleteDB(DB_NAME);
+  await put("mindmaps", [personalMap({ cid: "b-local", client_id: "X", data_json: "{\"b\":1}" })]);
+  await mapPut("mindmap", 5, "b-local");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "mindmap", cid: "b-local", payload: {} }]);
+  await pushOutbox(networkAware(server.transport()));
+  assert.equal(server.rows.mindmaps.length, 2);
+  assert.notEqual(server.posts[0].client_id, server.posts[1].client_id);
+  const b = await get("mindmaps", "b-local");
+  const bRow = server.rows.mindmaps.find((r) => r.id === b.server_id);
+  assert.ok(bRow, "B mapped to its own new row");
+  assert.equal(bRow.data_json, "{\"b\":1}");
+  assert.notEqual(b.server_id, server.rows.mindmaps[0].id);
+});
+
+test("review#1: re-create retry after a lost POST response reuses the same fresh client_id (idempotent)", async () => {
+  const server = fakeServer();
+  await put("mindmaps", [personalMap({ cid: "b-local", client_id: "X", data_json: "{\"b\":1}" })]);
+  await mapPut("mindmap", 5, "b-local");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "mindmap", cid: "b-local", payload: {} }]);
+  let drops = 1;
+  const tr = networkAware(server.transport({ dropPost: () => drops-- > 0 }));
+  await pushOutbox(tr);
+  await pushOutbox(tr);
+  assert.equal(server.posts.length, 2);
+  assert.equal(server.posts[0].client_id, server.posts[1].client_id);
+  assert.notEqual(server.posts[0].client_id, "X");
+  assert.equal(server.rows.mindmaps.length, 1);
+  const b = await get("mindmaps", "b-local");
+  assert.equal(b.server_id, server.rows.mindmaps[0].id);
+});
+
+test("review#1: personal note re-create after PUT 404 uses a fresh client_id (not the original one)", async () => {
+  const server = fakeServer();
+  await put("scratchpad_notes", [{ cid: "X", server_id: 3, client_id: "X", title: "N", content: "isi B", list_id: null,
+    deleted: false, dirty: 1, rev: 2, base_rev: "2026-06-10T00:00:00" }]);
+  await mapPut("note", 3, "X");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "note", cid: "X", payload: {} }]);
+  await pushOutbox(networkAware(server.transport()));
+  assert.equal(server.posts.length, 1);
+  assert.notEqual(server.posts[0].client_id, "X");
+  const n = await get("scratchpad_notes", "X");
+  assert.equal(n.server_id, server.rows.notes[0].id);
+});
+
+test("review#2: findByClientId ignores a local record (cid = client_id) already mapped to a different server row", async () => {
+  // record lokal ber-cid X terpetakan ke baris 20 TANPA entri idmap (mis. idmap hilang); baris lain 30 ber-client_id X
+  await put("tasks", [{ cid: "X", server_id: 20, title: "Dua puluh", gtd_status: "next", base_rev: "2026-06-04T00:00:00", deleted: false, dirty: 0 }]);
+  await pullTasks([srvTask({ id: 20, title: "Dua puluh", client_id: "lain" }), srvTask({ id: 30, title: "Tiga puluh", client_id: "X" })]);
+  const rows = await getAll("tasks");
+  const t20 = rows.filter((r) => r.server_id === 20);
+  const t30 = rows.filter((r) => r.server_id === 30);
+  assert.equal(t20.length, 1);
+  assert.equal(t30.length, 1);
+  assert.notEqual(t20[0].cid, t30[0].cid);
+  assert.equal(t20[0].title, "Dua puluh");
+  assert.equal(t30[0].title, "Tiga puluh");
+});
+
+test("review#2: mindmap findByClientId ignores a record mapped to another server row (re-created, client_id kept)", async () => {
+  await put("mindmaps", [personalMap({ cid: "m1", client_id: "X", server_id: 50, dirty: 0, data_json: "{}" })]);
+  await mapPut("mindmap", 50, "m1");
+  const rows = [mmRow({ id: 50, title: "Lima puluh", client_id: "F" }), mmRow({ id: 60, title: "Enam puluh", client_id: "X" })];
+  await pullMindmaps(rows, fullFor(rows));
+  const local = await getAll("mindmaps");
+  assert.equal(local.length, 2);
+  assert.equal(local.find((m) => m.server_id === 50).cid, "m1");
+  assert.notEqual(local.find((m) => m.server_id === 60).cid, "m1");
+});
+
+test("review#3: freshCidFor idmap-collision branch — client_id already mapped to another server id → fresh cid", async () => {
+  await mapPut("task", 20, "X"); // idmap basi tanpa record lokal
+  await pullTasks([srvTask({ id: 30, title: "Tiga puluh", client_id: "X" })]);
+  const rows = await getAll("tasks");
+  assert.equal(rows.length, 1);
+  assert.notEqual(rows[0].cid, "X");
+  assert.equal(rows[0].client_id, "X");
+  const R = buildTaskRouter();
+  assert.equal((await R.dispatch("GET", "/api/tasks/X", undefined)).title, "Tiga puluh");
+});
+
+test("review#3: unmapped local record (server_id null) keeps its own client_id when a pull writes it", async () => {
+  await put("tasks", [{ cid: "K", server_id: null, client_id: "F", title: "Lokal", gtd_status: "next", base_rev: null, deleted: false, dirty: 0 }]);
+  await pullTasks([srvTask({ id: 40, title: "Server", client_id: "K" })]);
+  const rows = await getAll("tasks");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].cid, "K");
+  assert.equal(rows[0].client_id, "F");
+});
