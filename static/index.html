@@ -9394,7 +9394,9 @@ function MindmapTabInstance({
       sessionRef.current = s;
       if (!viewStateRef.current) viewStateRef.current = parseViewState(tab.data_json);
       const vs = viewStateRef.current;
-      const data = { nodeData: NM.buildMindData(s.parsed, { title: s.title, viewState: vs }).nodeData, direction: vs.direction, justify: Boolean(vs.justify) };
+      // R18: tanpa touched, collapsed default [] diabaikan → aturan lipatan awal (> 30 node) berlaku.
+      const buildVs = vs.touched ? vs : Object.assign({}, vs, { collapsed: undefined });
+      const data = { nodeData: NM.buildMindData(s.parsed, { title: s.title, viewState: buildVs }).nodeData, direction: vs.direction, justify: Boolean(vs.justify) };
       setLinkedTitle(s.title);
       setLinkedEmpty(s.parsed.sections.length === 0);
       setOutlineTree(data);
@@ -9588,6 +9590,8 @@ function MindmapTabInstance({
     setShowSummary(next);
     showSummaryRef.current = next;
     iframeRef.current?.contentWindow?.postMessage({ type: "setSummary", show: next }, window.location.origin);
+    // R18: hanya ubah summary — touched/collapsed tetap apa adanya (peta yang belum pernah dilipat tetap
+    // memakai lipatan awal). Lipatan hanya ditandai touched lewat viewStateFrom dari pohon nyata.
     saveViewState(Object.assign({}, viewStateRef.current || parseViewState(tab.data_json), { summary: next }));
   };
 

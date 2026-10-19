@@ -248,7 +248,7 @@ test("behavior: collapse saves only view-state; overflow and unsafe reload", asy
   assert.equal(h.store.note.content, "# A\n## B\n");
   assert.equal(h.puts.length, 1);
   assert.equal(h.puts[0].url, "/api/mindmaps/3");
-  assert.deepEqual(JSON.parse(h.puts[0].body.data_json), { linked: 1, direction: 2, justify: false, collapsed: ["A"], summary: true });
+  assert.deepEqual(JSON.parse(h.puts[0].body.data_json), { linked: 1, direction: 2, justify: false, collapsed: ["A"], summary: true, touched: 1 });
 
   const u = mountTab({ note: { content: "# A\nisi\n# B\n```\nbuka\n" } });
   await u.settle();
@@ -313,4 +313,60 @@ test("behavior: non-linked map keeps the old data_json autosave path", async () 
   assert.equal(h.puts[0].body.if_updated_at, "t0");
   assert.equal(JSON.parse(h.puts[0].body.data_json).nodeData.children[0].topic, "Anak");
   assert.ok(findText(h.out, "Tersimpan") && !findText(h.out, "Tersimpan ke catatan"));
+});
+
+// R18: 3 bagian tingkat atas × 10 anak = 33 node.
+const BIG = [0, 1, 2].map((i) => "# H" + i + "\n" + Array.from({ length: 10 }, (_, k) => "## c" + i + "-" + k + "\n").join("")).join("");
+const findEl = (node, pred) => {
+  if (!node || typeof node !== "object") return null;
+  if (Array.isArray(node)) { for (const c of node) { const f = findEl(c, pred); if (f) return f; } return null; }
+  if (pred(node)) return node;
+  return findEl(node.children, pred);
+};
+const lastLoad = (h) => h.posted.filter((m) => m.type === "load").pop();
+
+test("behavior R18: fresh big linked map collapses depth>=2; a fold change saves touched and is honored", async () => {
+  const h = mountTab({ note: { content: BIG } });
+  await h.settle();
+  const load = lastLoad(h);
+  assert.equal(load.data.nodeData.children[0].expanded, true);
+  assert.ok(load.data.nodeData.children.every((c) => c.children.every((g) => g.expanded === false)), "kedalaman ≥ 2 terlipat");
+
+  const data = JSON.parse(JSON.stringify(load.data));
+  data.nodeData.children[1].expanded = false;
+  data.nodeData.children[0].children[0].expanded = true;
+  await h.message({ type: "change", data });
+  await h.flushTimers();
+  assert.equal(h.store.note.content, BIG);
+  const saved = JSON.parse(h.puts[h.puts.length - 1].body.data_json);
+  assert.equal(saved.touched, 1);
+  assert.ok(saved.collapsed.includes("H1"));
+  assert.ok(!saved.collapsed.includes("H0\u001fc0-0"));
+
+  const again = mountTab({ note: { content: BIG }, tabExtra: { data_json: JSON.stringify(saved) } });
+  await again.settle();
+  const l2 = lastLoad(again);
+  assert.equal(l2.data.nodeData.children[1].expanded, false);
+  assert.equal(l2.data.nodeData.children[0].expanded, true);
+  assert.equal(l2.data.nodeData.children[0].children[0].expanded, true, "lipatan tersimpan dipakai");
+  assert.equal(l2.data.nodeData.children[0].children[1].expanded, false);
+});
+
+test("behavior R18: toggling summary on an untouched big map keeps the initial collapse", async () => {
+  const h = mountTab({ note: { content: BIG } });
+  await h.settle();
+  const btn = findEl(h.out, (n) => n.type === "button" && n.children.includes("Ringkasan"));
+  assert.ok(btn, "tombol Ringkasan");
+  btn.props.onClick();
+  await h.settle();
+  assert.ok(h.posted.some((m) => m.type === "setSummary" && m.show === false));
+  await h.flushTimers();
+  const saved = JSON.parse(h.puts[h.puts.length - 1].body.data_json);
+  assert.equal(saved.summary, false);
+  assert.equal("touched" in saved, false);
+  const again = mountTab({ note: { content: BIG }, tabExtra: { data_json: JSON.stringify(saved) } });
+  await again.settle();
+  const l2 = lastLoad(again);
+  assert.equal(l2.showSummary, false);
+  assert.ok(l2.data.nodeData.children.every((c) => c.children.every((g) => g.expanded === false)), "tetap terlipat, bukan terbuka semua");
 });

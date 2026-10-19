@@ -149,7 +149,7 @@ test("viewStateFrom: direction/justify from data, summary from prev, unchanged â
   data.nodeData.children[0].children[0].expanded = false;
   const v = NS.viewStateFrom(data, s.parsed, prev);
   assert.equal(v.changed, true);
-  assert.deepEqual(v.viewState, { linked: 1, direction: 3, justify: true, collapsed: ["A\u001fB"], summary: false });
+  assert.deepEqual(v.viewState, { linked: 1, direction: 3, justify: true, collapsed: ["A\u001fB"], summary: false, touched: 1 });
   // urutan collapsed tidak dianggap perubahan
   const two = treeOf(s); two.children[0].expanded = false; two.children[1].expanded = false;
   const v2 = NS.viewStateFrom(two, s.parsed, Object.assign({}, prev, { collapsed: ["C", "A"] }));
@@ -159,4 +159,18 @@ test("viewStateFrom: direction/justify from data, summary from prev, unchanged â
   const v3 = NS.viewStateFrom(t3, s.parsed, null);
   assert.deepEqual(v3.viewState, { linked: 1, direction: 2, justify: false, collapsed: [], summary: true });
   assert.equal(v3.changed, false);
+});
+
+test("viewStateFrom: touched (R18) only on a fold change, then kept", () => {
+  const s = NS.createSession({ noteCid: "n1", baseContent: "# A\n## B\n# C\n", title: "T" });
+  const prev = { linked: 1, direction: 2, justify: false, collapsed: [], summary: true };
+  const dirOnly = NS.viewStateFrom({ nodeData: treeOf(s), direction: 1 }, s.parsed, prev);
+  assert.equal(dirOnly.changed, true);
+  assert.equal("touched" in dirOnly.viewState, false, "arah saja tidak menandai lipatan");
+  const t = treeOf(s); t.children[1].expanded = false;
+  const folded = NS.viewStateFrom(t, s.parsed, prev);
+  assert.equal(folded.viewState.touched, 1);
+  const kept = NS.viewStateFrom({ nodeData: treeOf(s), direction: 0 }, s.parsed, Object.assign({}, prev, { touched: 1 }));
+  assert.equal(kept.viewState.touched, 1);
+  assert.deepEqual(kept.viewState.collapsed, []);
 });

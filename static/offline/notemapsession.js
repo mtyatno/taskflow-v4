@@ -147,8 +147,12 @@
       summary: p.summary !== false,
     };
     const prevCollapsed = Array.isArray(p.collapsed) ? p.collapsed : [];
+    const foldChanged = !sameSet(collapsed, prevCollapsed);
+    // R18: lipatan tersimpan baru dipakai buildMindData setelah pengguna menyimpan lipatan
+    // (touched). Sebelum itu peta besar memakai aturan lipatan awal (> 30 node).
+    if (foldChanged || p.touched) viewState.touched = 1;
     const changed = viewState.direction !== p.direction || viewState.justify !== Boolean(p.justify) ||
-      viewState.summary !== (p.summary !== false) || !sameSet(collapsed, prevCollapsed);
+      viewState.summary !== (p.summary !== false) || foldChanged;
     return { viewState, changed };
   }
 
