@@ -1,7 +1,10 @@
-"""Header pengaman: nosniff di semua respons, CSP halaman /pub, sandbox untuk file inline.
+"""Header pengaman: nosniff di semua respons, CSP halaman /pub, sandbox untuk file inline (gambar saja; PDF tanpa
+sandbox karena Chromium memblokir penampil PDF di dokumen sandbox).
 
 Spec: docs/superpowers/specs/2026-10-19-xss-hardening-design.md §6.
 """
+import os
+
 import pytest
 
 import webapp
@@ -83,12 +86,27 @@ def fake_nc(monkeypatch):
     monkeypatch.setattr(requests, "get", lambda *a, **k: _FakeResp())
 
 
+def _assert_file_headers(r, mime, disp):
+    assert r.headers["content-disposition"].startswith(f"{disp};"), r.headers["content-disposition"]
+    assert r.headers["x-content-type-options"] == "nosniff"
+    base = mime.split(";", 1)[0].strip()
+    if base == "application/pdf":
+        # PDF: tanpa CSP sandbox (penampil PDF Chromium diblokir di dokumen sandbox), MIME persis, inline
+        assert "content-security-policy" not in r.headers
+        assert r.headers["content-type"] == "application/pdf"
+    else:
+        assert r.headers["content-security-policy"] == SANDBOX_CSP
+    if disp == "inline":
+        assert r.headers["content-type"] == base, "MIME persis tanpa parameter"
+
+
 CASES = [
     ("a.png", "image/png", "inline"),
     ("a.jpg", "image/jpeg", "inline"),
     ("a.webp", "image/webp", "inline"),
     ("a.gif", "image/gif", "inline"),
     ("a.pdf", "application/pdf", "inline"),
+    ("b.pdf", "application/pdf; name=b.pdf", "inline"),
     ("a.doc", "application/msword", "attachment"),
     ("a.svg", "image/svg+xml", "attachment"),
     ("a.html", "text/html", "attachment"),
@@ -106,9 +124,7 @@ def test_inline_attachment_headers(client, fake_nc, name, mime, disp):
     r = anon().get(f"/pub/attachments/{aid}")
     assert r.status_code == 200, r.text
     assert r.content == b"BYTES"
-    assert r.headers["content-disposition"].startswith(f"{disp};"), r.headers["content-disposition"]
-    assert r.headers["content-security-policy"] == SANDBOX_CSP
-    assert r.headers["x-content-type-options"] == "nosniff"
+    _assert_file_headers(r, mime, disp)
 
 
 @pytest.mark.parametrize("name,mime,disp", CASES)
@@ -120,6 +136,50 @@ def test_view_attachment_headers(client, fake_nc, name, mime, disp):
     aid = _nc_att(r.json()["id"], _uid(uname), name, mime)
     r = client.get(f"/api/scratchpad/attachments/{aid}/view", headers=h)
     assert r.status_code == 200, r.text
-    assert r.headers["content-disposition"].startswith(f"{disp};"), r.headers["content-disposition"]
-    assert r.headers["content-security-policy"] == SANDBOX_CSP
-    assert r.headers["x-content-type-options"] == "nosniff"
+    _assert_file_headers(r, mime, disp)
+
+
+def _local_att(note_id, user_id, name, mime, content=b"LOCAL"):
+    stored = f"local-{_uniq()}-{name}"
+    os.makedirs(webapp.UPLOAD_DIR, exist_ok=True)
+    with open(os.path.join(webapp.UPLOAD_DIR, stored), "wb") as f:
+        f.write(content)
+    conn = db()
+    try:
+        cur = conn.execute(
+            "INSERT INTO note_attachments (note_id, user_id, nextcloud_path, original_name, file_size, mime_type) "
+            "VALUES (?, ?, ?, ?, 5, ?)",
+            (note_id, user_id, f"{webapp.NEXTCLOUD_FOLDER}/{stored}", name, mime),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("name,mime,disp", CASES)
+def test_pub_attachment_local_branch_headers(client, name, mime, disp):
+    """Cabang file lokal /pub/attachments memakai kebijakan header yang sama dengan cabang Nextcloud."""
+    tag = _uniq()
+    uname = f"hdrloc_{tag}"
+    h = _auth(client, uname)
+    note_id, _, _ = _publish(client, h, f"Loc {tag}", "isi")
+    aid = _local_att(note_id, _uid(uname), name, mime)
+    r = anon().get(f"/pub/attachments/{aid}")
+    assert r.status_code == 200, r.text
+    assert r.content == b"LOCAL"
+    _assert_file_headers(r, mime, disp)
+    assert len(r.headers.get_list("content-disposition")) == 1
+
+
+def test_inline_headers_non_ascii_filename(client, fake_nc):
+    tag = _uniq()
+    uname = f"hdrutf_{tag}"
+    h = _auth(client, uname)
+    note_id, _, _ = _publish(client, h, f"Utf {tag}", "isi")
+    aid = _nc_att(note_id, _uid(uname), "Laporan é 😀.png", "image/png")
+    r = anon().get(f"/pub/attachments/{aid}")
+    assert r.status_code == 200, r.text
+    cd = r.headers["content-disposition"]
+    assert cd.startswith('inline; filename="Laporan _ _.png"; filename*=utf-8\'\''), cd
+    assert "Laporan%20%C3%A9%20%F0%9F%98%80.png" in cd

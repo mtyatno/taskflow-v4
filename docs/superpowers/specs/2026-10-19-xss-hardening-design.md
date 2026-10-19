@@ -112,8 +112,8 @@ Isi yang dibuat satu pengguna tidak boleh menjalankan script atau menyuntik atri
   ```
   `'unsafe-inline'` tetap ada untuk script inline yang sudah ada. Perlindungan utama tetap escape di §2–5.
 - **File yang disajikan `inline`:**
-  - endpoint: `/pub/attachments/{id}` (cabang Nextcloud) dan `/api/scratchpad/attachments/{id}/view`;
-  - header tambahan: `Content-Security-Policy: sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'` dan `nosniff`;
+  - endpoint: `/pub/attachments/{id}` (cabang Nextcloud dan cabang file lokal) dan `/api/scratchpad/attachments/{id}/view`;
+  - header tambahan: `Content-Security-Policy: sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'` (gambar saja; PDF tanpa sandbox — Chromium memblokir penampil PDF di dokumen sandbox) dan `nosniff` (semua, termasuk PDF; PDF tetap MIME persis `application/pdf` dan `inline`);
   - hanya mime gambar (`image/png|jpeg|webp|gif`) dan `application/pdf` yang boleh `inline`, selebihnya `attachment`.
 - **Di luar cakupan:** CSP untuk SPA (`/`, `/static/…`). Dikerjakan di PR terpisah.
 

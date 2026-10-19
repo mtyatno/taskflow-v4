@@ -5756,7 +5756,7 @@ async def view_note_attachment(att_id: int, user=Depends(get_current_user_sse)):
     safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')
     return StreamingResponse(
         r.iter_content(chunk_size=8192),
-        media_type=att["mime_type"],
+        media_type=_served_file_mime(att["mime_type"]),
         headers=_inline_file_headers(att["mime_type"], safe_name),
     )
 
@@ -7030,20 +7030,43 @@ _PUB_PAGE_CSP = (
     "font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob:; frame-src 'self'; "
     "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'"
 )
-# File unggahan yang disajikan langsung (lampiran publik dari Nextcloud, view lampiran note)
+# File unggahan yang disajikan langsung (lampiran publik, view lampiran note). CSP sandbox untuk semua KECUALI PDF:
+# Chromium memblokir penampil PDF-nya di dokumen sandbox; PDF bukan konteks HTML/skrip (tetap nosniff, MIME persis,
+# inline).
 _INLINE_FILE_CSP = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'"
 _INLINE_SAFE_MIMES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf"})
+_INLINE_NO_SANDBOX_MIMES = frozenset({"application/pdf"})
+
+
+def _base_mime(mime_type) -> str:
+    return (mime_type or "").split(";", 1)[0].strip().lower()
+
+
+def _served_file_mime(mime_type) -> str:
+    """media_type respons file unggahan: tipe inline persis (tanpa parameter), selain itu nilai tersimpan
+    (kosong → application/octet-stream)."""
+    mime = _base_mime(mime_type)
+    if mime in _INLINE_SAFE_MIMES:
+        return mime
+    return mime_type or "application/octet-stream"
 
 
 def _inline_file_headers(mime_type: str, safe_name: str) -> dict:
-    """Header file unggahan: inline hanya untuk gambar raster dan PDF, selebihnya attachment; plus CSP sandbox."""
-    mime = (mime_type or "").split(";", 1)[0].strip().lower()
+    """Header file unggahan: inline hanya untuk gambar raster dan PDF, selebihnya attachment; nosniff; CSP sandbox
+    kecuali PDF (_INLINE_NO_SANDBOX_MIMES). Nama file non-ASCII lewat filename* (RFC 5987) seperti FileResponse."""
+    mime = _base_mime(mime_type)
     disposition = "inline" if mime in _INLINE_SAFE_MIMES else "attachment"
-    return {
-        "Content-Disposition": f'{disposition}; filename="{safe_name}"',
-        "Content-Security-Policy": _INLINE_FILE_CSP,
+    ascii_name = safe_name.encode("ascii", "replace").decode("ascii").replace("?", "_")
+    cd = f'{disposition}; filename="{ascii_name}"'
+    if ascii_name != safe_name:
+        cd += "; filename*=utf-8''" + urllib.parse.quote(safe_name, safe="")
+    headers = {
+        "Content-Disposition": cd,
         "X-Content-Type-Options": "nosniff",
     }
+    if mime not in _INLINE_NO_SANDBOX_MIMES:
+        headers["Content-Security-Policy"] = _INLINE_FILE_CSP
+    return headers
 
 
 def _pub_html_response(content: str, status_code: int = 200) -> HTMLResponse:
@@ -7389,7 +7412,9 @@ async def view_published_attachment(att_id: str, request: Request):
             try:
                 local_path = os.path.join(UPLOAD_DIR, os.path.basename(nc_path))
                 if os.path.exists(local_path):
-                    return FileResponse(local_path, filename=safe_name, media_type=mime_type)
+                    # kebijakan header sama dengan cabang Nextcloud (disposition, nosniff, CSP sandbox)
+                    return FileResponse(local_path, media_type=_served_file_mime(mime_type),
+                                        headers=_inline_file_headers(mime_type, safe_name))
             except Exception:
                 pass
 
@@ -7400,7 +7425,7 @@ async def view_published_attachment(att_id: str, request: Request):
                 if r.status_code == 200:
                     return Response(
                         content=r.content,
-                        media_type=mime_type,
+                        media_type=_served_file_mime(mime_type),
                         headers=_inline_file_headers(mime_type, safe_name),
                     )
                 r.close()
