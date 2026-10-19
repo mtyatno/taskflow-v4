@@ -3314,6 +3314,20 @@
 - **Files Touch:** `.agents/*`
 - **Status:** Done.
 
+## [2026-10-15 21:00] - Claude (CI APK Android + review APK vs PWA)
+- **Task:** Bapak minta file APK Alurik; lalu: apakah APK dari GitHub sudah standar industri, apakah fitur/offline-first/sync sama dengan PWA, pendapat soal widget, dan apakah Tauri base terbaik.
+- **Changes:** `android.yml`: setup-android v3→v4, hapus step pin brotli, input `release` + step publish GitHub Release (pre-release `apk-<tanggal>-<sha>` + sha256), `permissions: contents: write`; `appimage.yml`/`tauri.yml`: hapus step pin brotli; `src-tauri/Cargo.lock` baru (tauri 2.12.4, brotli 9.0.0). Draft PR #29.
+- **Verifikasi:** run 38742125765 (main, sebelum fix) gagal di Setup Android SDK; run 38742682537 gagal di pin brotli (direproduksi lokal: `brotli = "^9"` required by tauri-utils 2.10.2); run 38744455078 sukses; run 38744839864 sukses + release `apk-20261015-1354-cfce2b2`. APK diperiksa: 4 ABI, META-INF/TASKFLOW.RSA, sha256 cocok; dikirim ke Bapak (zip, batas unggah 30 MiB). Catatan: log job & artifact Actions tidak bisa diunduh dari sesi Claude (blob storage diblokir) — release asset bisa.
+- **Review (ringkas):** pipeline layak sideload, belum rilis publik — versi beku 4.0.0/versionCode 4000000, gen/android regenerate+patch, keystore tanpa cadangan, tanpa AAB, token plaintext & di query string (APK), tanpa update check yang jalan. Paritas: modul offline/sync identik (bundled), tapi UI beku saat build, DB lokal terpisah per origin, SW tak terverifikasi, 3 `fetch` relatif tanpa `API_BASE`, ekspor blob download gagal di WebView, `tf_user_id` tak dicadangkan, AI flag dipaksa on. Widget: perlu kode native + snapshot offline-first; saran MVP "Hari Ini" + "Tambah cepat"; pertimbangkan Capacitor untuk Android bila roadmap widget/notifikasi/Play Store.
+- **Files Touch:** `.github/workflows/{android,appimage,tauri}.yml`, `src-tauri/Cargo.lock`, `.agents/*`
+- **Status:** Needs Review (draft PR #29, tunggu "merge dan deploy").
+
+## [2026-10-16 07:30] - Claude (roadmap & WBS migrasi mobile Tauri → Capacitor)
+- **Task:** Bapak memutuskan target mobile = widget + Play Store + App Store dan minta roadmap + WBS detail untuk pindah dari Tauri ke Capacitor (tanpa koding/rilis).
+- **Changes:** Dokumen Claude Docs "Roadmap & WBS Migrasi Mobile Alurik: Tauri → Capacitor" (ringkasan, as-is dari repo, arsitektur target + diagram, 10 prinsip/ADR kandidat, roadmap bertanggal F0–F8, WBS ±60 paket kerja, daftar periksa paritas, desain widget Android/iOS, kesiapan toko, risiko, urutan PR). Ringkasan ditambahkan ke CURRENT_STATE.
+- **Files Touch:** `.agents/*` saja.
+- **Status:** Needs Review (menunggu keputusan Bapak: akun pribadi/badan usaha, iOS segera atau ditunda, OTA ya/tidak, perangkat uji).
+
 ## [2026-10-17 23:55] - Claude (sesi login koheren antar-tab + perpanjangan token)
 - **Task:** Bapak: "sudah login dan berpindah tab, kadang perlu login kembali".
 - **Changes:** Diagnosis + reproduksi Playwright (S1 tab lain tetap di form login setelah login, S2 401 basi menghapus token baru, S3 logout tidak mengeluarkan tab lain); rencana `docs/superpowers/plans/2026-10-17-multi-tab-session.md`; implementasi via subagent server (refresh token, klaim iat/auth_time/pwv, `_resolve_user` header→cookie dengan fallback akun sama) dan klien (sinkron token antar-tab, `handleAuthExpired(failedToken)`, `sharedTokenAction`, `beginTabReload`, `maybeRenewToken` + guard logout); review independen 2 putaran; ADR-007; SW v415.
@@ -3327,6 +3341,11 @@
 - **Files Touch:** `.agents/*`
 - **Status:** Done (merged & deployed). Restart `taskflow-web` diperlukan agar /api/auth/refresh dan /api/version v415 aktif.
 
+## [2026-10-18 13:40] - Claude (Petakan Bagian A — subagent-driven)
+- **Task:** Eksekusi rencana Petakan Bagian A (Task A1–A6) dengan subagent per task + review per task + review akhir seluruh branch.
+- **Changes:** `static/offline/notemap.js` baru (UMD `TF.notemap`): `parseNote`, `summarizeSection`, `LINKED_VIEW_STATE_DEFAULT`, `pathKey`, `buildMindData`, `sanitizeTopic`, `applyMindData` (identik byte per byte tanpa edit; STALE_PARSE/BAD_TREE/LEVEL_OVERFLOW), `verifyStructure`, `plainHeadingText`, `locateHeading`, `matchHeading`, `renderTopicNoteInline` (tanpa `<img>`), `renderSummaryHtml`. `mindmapoutline.js`: `sanitizeHrefs` diekstrak + renderer gambar per panggilan yang meng-escape atribut (celah alt `onerror` lama tertutup). Spec §5 diperbarui (aturan level saudara sebelumnya + pemeriksaan hasil).
+- **Files Touch:** `static/offline/notemap.js`, `static/offline/mindmapoutline.js`, `tests/offline/notemap_*.test.js`, `tests/offline/mindmapoutline.test.js`, `docs/superpowers/specs/2026-10-18-petakan-note-mindmap-design.md`, `.agents/*`
+- **Status:** PR 1/3 draft, menunggu review Bapak. JS 1366/1367 (gagal pra-ada `draw_local_reactive`), pytest 178/178.
 ## [2026-10-18 14:30] - Claude (Petakan Bagian B — backend, subagent-driven)
 - **Task:** Task B1–B6: backend peta tertaut.
 - **Changes:** migrasi `mindmaps.source_note_id` + `ux_mindmaps_source_note`; POST linked idempoten per catatan; filter `?linked=1` di dua endpoint daftar; PUT/share peta tertaut; `_sync_linked_mindmap` (create/update/share/restore catatan + hapus list di repository.py, bump updated_at); `_delete_linked_mindmaps` di purge kedaluwarsa (peta dihapus lebih dulu), hapus selamanya, kosongkan Sampah (`DELETE … RETURNING`, atomik). Review per task + review akhir (tanpa Critical/Important; minor diperbaiki).

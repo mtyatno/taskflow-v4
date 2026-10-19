@@ -35,11 +35,6 @@ jobs:
       - name: Assemble Tauri frontend (dist-tauri)
         run: node scripts/build-tauri-dist.js
       - uses: dtolnay/rust-toolchain@stable
-      - name: Pin brotli to 8.0.2 (8.0.1/8.0.3 broken on alloc-no-stdlib)
-        run: |
-          cd src-tauri
-          cargo generate-lockfile
-          cargo update -p brotli --precise 8.0.2
       - name: Build Linux Desktop (AppImage & Deb)
         run: npx tauri build --bundles appimage,deb
       - name: Upload AppImage artifact
