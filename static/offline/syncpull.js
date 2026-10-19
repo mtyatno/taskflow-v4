@@ -900,6 +900,13 @@
       r.onerror = () => reject(r.error);
     }));
   }
+  function getMindmapRaw(cid) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("mindmaps", "readonly").objectStore("mindmaps").get(cid);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    }));
+  }
   function deleteMindmapRec(cid) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const tx = db.transaction("mindmaps", "readwrite");
@@ -1146,11 +1153,7 @@
         if (body.id == null && (body.status === 404 || body.status === 403)) {
           return TFidmap.cidOf("mindmap", sid).then((cid) => {
             if (cid == null) return empty();
-            return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-              const r = db.transaction("mindmaps", "readonly").objectStore("mindmaps").get(cid);
-              r.onsuccess = () => resolve(r.result);
-              r.onerror = () => reject(r.error);
-            })).then((rec) => {
+            return getMindmapRaw(cid).then((rec) => {
               if (!rec) return TFidmap.mapDelete("mindmap", sid).then(empty);
               if (rec.dirty || rec.conflict || rec.sync_error) return Object.assign(empty(), { dirty: !!rec.dirty });
               // bersyarat (rev sama, tanpa penanda then_restore_sid) — sama seperti pass "hilang dari daftar"
@@ -1165,11 +1168,7 @@
         if (body.id == null) return empty();
         const meta = Object.assign({}, body);
         return pullMindmaps([meta], () => Promise.resolve(body), null, { partial: true }).then((res) =>
-          TFidmap.cidOf("mindmap", body.id).then((cid) => (cid == null ? null : TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-            const r = db.transaction("mindmaps", "readonly").objectStore("mindmaps").get(cid);
-            r.onsuccess = () => resolve(r.result);
-            r.onerror = () => reject(r.error);
-          })))).then((rec) => ({
+          TFidmap.cidOf("mindmap", body.id).then((cid) => (cid == null ? null : getMindmapRaw(cid))).then((rec) => ({
             changed: res.changed, merged: res.merged || 0, deleted: 0, dirty: !!(rec && rec.dirty),
           })));
       });

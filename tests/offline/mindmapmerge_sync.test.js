@@ -111,11 +111,29 @@ test("push 409 without valid base → old adopt + whole-map conflict copy, nothi
   const r1 = await pushOutbox(tr);
   assert.equal(r1.conflicts, 1);
   assert.equal(r1.requeued, 0);
-  assert.equal(r1.merged, undefined);
+  assert.equal(r1.merged, 0);
   const rows = await all("mindmaps");
   assert.equal(rows.length, 2);
   assert.equal(rows.find((x) => x.cid === "m").data_json, S);
   assert.equal(rows.find((x) => x.cid !== "m").data_json, L);
+});
+
+test("push 409 loop guard: server keeps returning the same current → second round adopts + copies, no requeue", async () => {
+  await put("mindmaps", [rec(Object.assign({ cid: "m", server_id: 10, title: "M", data_json: L, dirty: 1, rev: 1 }, based))]);
+  await mapPut("mindmap", 10, "m");
+  await put("_outbox", [{ qid: 1, op: "update", entity_type: "mindmap", cid: "m", payload: {} }]);
+  const tr = transport(() => rev409(srvRow({ id: 10, title: "M", data_json: S, updated_at: "t2" })));
+  const r1 = await pushOutbox(tr);
+  assert.deepEqual([r1.merged, r1.requeued], [1, 1]);
+  const r2 = await pushOutbox(tr);
+  assert.equal(tr.calls[1].body.base_rev, "t2");
+  assert.deepEqual([r2.merged, r2.requeued, r2.conflicts], [0, 0, 1]);
+  const rows = await all("mindmaps");
+  assert.equal(rows.length, 2);
+  const orig = rows.find((x) => x.cid === "m");
+  assert.deepEqual([orig.data_json, orig.dirty], [S, 0]);
+  assert.deepEqual(topics(rows.find((x) => x.cid !== "m").data_json), ["A lokal", "B server"]);
+  assert.deepEqual((await all("_outbox")).map((o) => o.op), ["create"]);
 });
 
 test("push success advances the base: later remote edit via pull merges with the pushed edit (B3 critical)", async () => {

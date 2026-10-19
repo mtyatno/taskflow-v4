@@ -1104,12 +1104,18 @@
   // beda dari server → dirty + op update BARU sudah diantre repo → result.requeued, drain ini tidak melihatnya);
   // bentrok node yang sama / tanpa basis sah → salinan konflik versi lokal (pribadi, op create).
   // Record berubah selama request (rev ≠ sentRev) → biarkan op: push berikutnya mengirim versi terkini.
-  function mindmapRevMismatch(op, current, sentRev, result) {
-    return TFmm.mergeServerIntoLocal(op.cid, current, { expectRev: sentRev }).then((out) => {
+  // Pengaman loop: server menolak padahal `current.updated_at` = base_rev yang kami kirim → basis tidak bisa
+  // dipercaya (merge akan mengantre ulang PUT yang sama tanpa akhir) → adopsi + salinan konflik, tanpa requeue.
+  function mindmapRevMismatch(op, current, sentRev, sentBaseRev, result) {
+    const sameBase = sentBaseRev != null && current.updated_at != null && String(current.updated_at) === String(sentBaseRev);
+    const run = sameBase
+      ? TFmm.adoptServerWithConflictCopy(op.cid, current, { expectRev: sentRev }).then((o) => (o ? Object.assign(o, { merged: false }) : o))
+      : TFmm.mergeServerIntoLocal(op.cid, current, { expectRev: sentRev });
+    return run.then((out) => {
       if (!out) return;
       if (out.merged) result.merged = (result.merged || 0) + 1;
       if (out.copy) result.conflicts = (result.conflicts || 0) + 1;
-      if (out.original && out.original.dirty) result.requeued = (result.requeued || 0) + 1;
+      if (!sameBase && out.original && out.original.dirty) result.requeued = (result.requeued || 0) + 1;
       return TFoutbox.outboxRemove(op.qid)
         .then(() => notifyMindmapSynced([op.cid].concat(out.copy ? [out.copy.cid] : []), [current.id]));
     });
@@ -1312,7 +1318,7 @@
           }).then(() => TFoutbox.outboxRemove(op.qid));
         }
         const current = linked ? null : revMismatchRow(res);
-        if (current) return mindmapRevMismatch(op, current, sentRev, result);
+        if (current) return mindmapRevMismatch(op, current, sentRev, rec.base_rev, result);
         const kind = classify(res);
         if (kind === "gone" && linked) return recreateLinked(op, transport, result, rec, sid, sentRev);
         if (kind === "gone") {
@@ -1785,7 +1791,7 @@
     opts = opts || {};
     const tagsFor = opts.tagsFor || ((cid) => TFtag.getEntityTags("task", cid).then((ts) => ts.map((t) => t.name)));
     const habitTagsFor = opts.habitTagsFor || ((cid) => TFtag.getEntityTags("habit", cid).then((ts) => ts.map((t) => t.name)));
-    const result = { pushed: 0, failed: 0, remaining: 0, requeued: 0 };
+    const result = { pushed: 0, failed: 0, remaining: 0, requeued: 0, merged: 0 };
     let stopped = false;
     let timeouts = 0;
     let pending = null; // T10: Set cid dengan op create/send saat drain dimulai
