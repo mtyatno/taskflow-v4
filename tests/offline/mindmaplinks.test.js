@@ -29,9 +29,27 @@ test("resolveLinkInfo reads local routes; failures → null", async () => {
 test("linkDisplay: live info wins, snapshot fallback is marked not live", () => {
   const link = { type: "task", id: "u-1", title: "Lama", priority: "P3", deadline: "2026-10-01", status: "next" };
   assert.deepEqual(L.linkDisplay(link, { type: "task", title: "Baru", priority: "P1", deadline: "2026-10-20T00:00:00", status: "done", done: true }),
-    { title: "Baru", meta: "P1 · Due 2026-10-20 · Selesai", live: true, done: true });
-  assert.deepEqual(L.linkDisplay(link, null), { title: "Lama", meta: "P3 · Due 2026-10-01 · Next", live: false, done: false });
-  assert.deepEqual(L.linkDisplay({ type: "mindmap", id: 1, title: "" }, null), { title: "(tanpa judul)", meta: "", live: false, done: false });
+    { title: "Baru", meta: "P1 · Due 2026-10-20 · Selesai", live: true, stale: false, done: true });
+  assert.deepEqual(L.linkDisplay(link, null), { title: "Lama", meta: "P3 · Due 2026-10-01 · Next", live: false, stale: true, done: false });
+  assert.deepEqual(L.linkDisplay({ type: "mindmap", id: 1, title: "" }, null), { title: "(tanpa judul)", meta: "", live: false, stale: true, done: false });
+});
+
+test("linkDisplay: undefined info = pending (snapshot, not stale); null = unavailable (stale)", () => {
+  const link = { type: "task", id: "u-1", title: "Lama", status: "archived" };
+  const pending = L.linkDisplay(link, undefined);
+  assert.equal(pending.live, false);
+  assert.equal(pending.stale, false);
+  assert.equal(pending.title, "Lama");
+  assert.equal(pending.meta, "Arsip");
+  assert.equal(pending.done, true);
+  const gone = L.linkDisplay(link, null);
+  assert.equal(gone.live, false);
+  assert.equal(gone.stale, true);
+});
+
+test("STATUS_LABEL matches spec (archived → Arsip; others as-is)", () => {
+  assert.deepEqual(L.STATUS_LABEL, { inbox: "Inbox", next: "Next", waiting: "Waiting", someday: "Someday", done: "Selesai", archived: "Arsip" });
+  assert.equal(L.linkDisplay({ type: "task", id: 1, title: "T", status: "project" }, undefined).meta, "project");
 });
 
 test("filterExistingTargets matches id or client_id", () => {

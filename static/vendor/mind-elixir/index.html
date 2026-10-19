@@ -229,7 +229,6 @@
     .lp-remove { color: var(--side-danger); font-size: 11px; cursor: pointer; flex-shrink: 0; }
     .lp-remove:hover { color: var(--side-danger); }
     .lp-stale { opacity: .7; }
-    .nlp-item.lp-stale { opacity: .7; }
     .lp-preview { font-size: 10px; color: var(--side-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .lp-add-btn {
       background: transparent;
@@ -620,10 +619,10 @@
 
       links.forEach((link, idx) => {
         const ML = window.TF && window.TF.mindmaplinks;
-        const d = ML ? window.TF.mindmaplinks.linkDisplay(link, liveLinkInfo[ML.linkKey(link)]) : { title: link.title || '', meta: link.preview || '', live: false, done: false };
+        const d = ML ? window.TF.mindmaplinks.linkDisplay(link, liveLinkInfo[ML.linkKey(link)]) : { title: link.title || '', meta: link.preview || '', live: false, stale: false, done: false };
         const card = document.createElement('div');
         card.className = 'lp-card';
-        if (!d.live) {
+        if (d.stale) {
           card.classList.add('lp-stale');
           if (ML) card.title = ML.UNAVAILABLE_TITLE;
         }
@@ -747,11 +746,11 @@
 
       links.forEach(link => {
         const ML = window.TF && window.TF.mindmaplinks;
-        const d = ML ? window.TF.mindmaplinks.linkDisplay(link, liveLinkInfo[ML.linkKey(link)]) : { title: link.title || '', meta: link.preview || '', live: false, done: false };
+        const d = ML ? window.TF.mindmaplinks.linkDisplay(link, liveLinkInfo[ML.linkKey(link)]) : { title: link.title || '', meta: link.preview || '', live: false, stale: false, done: false };
         const item = document.createElement('div');
         item.className = 'nlp-item';
         item.title = 'Buka ' + (d.title || '');
-        if (!d.live) {
+        if (d.stale) {
           item.classList.add('lp-stale');
           if (ML) item.title += '\n' + ML.UNAVAILABLE_TITLE;
         }
@@ -834,8 +833,8 @@
 
               const ML = window.TF && window.TF.mindmaplinks;
               badge.title = links.map(l => {
-                const d = ML ? ML.linkDisplay(l, liveLinkInfo[ML.linkKey(l)]) : { title: l.title || '', live: false };
-                return `${l.type === 'mindmap' ? '🧠' : '🔗'} ${d.title}` + (d.live || !ML ? '' : ' (' + ML.UNAVAILABLE_TITLE + ')');
+                const d = ML ? ML.linkDisplay(l, liveLinkInfo[ML.linkKey(l)]) : { title: l.title || '', stale: false };
+                return `${l.type === 'mindmap' ? '🧠' : '🔗'} ${d.title}` + (d.stale && ML ? ' (' + ML.UNAVAILABLE_TITLE + ')' : '');
               }).join('\n');
               badge.addEventListener('mousedown', (e) => {
                 e.stopPropagation();
@@ -1299,6 +1298,7 @@
         applyMapTheme(e.data.theme === 'dark');
       }
       if (e.data && e.data.type === 'linkInfo') {
+        const prevLinkInfo = liveLinkInfo;
         liveLinkInfo = (e.data.info && typeof e.data.info === 'object') ? e.data.info : {};
         if (!mind) return;
         if (currentNodeData && document.getElementById('link-panel').style.display === 'block') {
@@ -1309,6 +1309,13 @@
           const popBadge = Array.from(document.querySelectorAll('me-tpc'))
             .find(el => el.nodeObj && el.nodeObj.id === popNodeId);
           const popNode = popBadge ? popBadge.nodeObj : null;
+          const ML = window.TF && window.TF.mindmaplinks;
+          // Buka ulang popover hanya bila info salah satu link node itu berubah (hindari kedip/scroll reset).
+          const popChanged = !popNode || !ML || (popNode.links || []).some(l => {
+            const k = ML.linkKey(l);
+            return JSON.stringify(prevLinkInfo[k]) !== JSON.stringify(liveLinkInfo[k]);
+          });
+          if (!popChanged) { updateBadges(); return; }
           hideNodeLinksPopover();
           updateBadges();
           const newBadge = popBadge && popBadge.querySelector('.node-link-badge');

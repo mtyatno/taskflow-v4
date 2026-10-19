@@ -9143,7 +9143,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
   // Kartu link hidup: info dari induk (linkInfo, data lokal); tanpa modul/info → snapshot di link.
   const linkDisp = l => {
     const ML = window.TF && window.TF.mindmaplinks;
-    if (!ML) return { title: l.title || "", meta: l.preview || "", live: false, done: false };
+    if (!ML) return { title: l.title || "", meta: l.preview || "", live: false, stale: false, done: false };
     return window.TF.mindmaplinks.linkDisplay(l, (linkInfo || {})[ML.linkKey(l)]);
   };
   const unavailableTitle = (window.TF && window.TF.mindmaplinks && window.TF.mindmaplinks.UNAVAILABLE_TITLE) || "";
@@ -9714,8 +9714,8 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
       style: { color: "var(--text-light)", fontSize: 12, textAlign: "center", padding: "12px 0" }
     }, "Belum ada link"), links.map((l, i) => { const d = linkDisp(l); return /*#__PURE__*/React.createElement("div", {
       key: l.type + "-" + l.id + "-" + i,
-      title: d.live ? undefined : unavailableTitle || undefined,
-      style: { display: "flex", alignItems: "center", gap: 6, padding: "4px 2px", fontSize: 12, opacity: d.live ? 1 : 0.7 }
+      title: d.stale ? unavailableTitle || undefined : undefined,
+      style: { display: "flex", alignItems: "center", gap: 6, padding: "4px 2px", fontSize: 12, opacity: d.stale ? 0.7 : 1 }
     }, /*#__PURE__*/React.createElement("span", {
       style: {
         background: l.type === "note" ? "var(--accent)" : l.type === "mindmap" ? "#8b5cf6" : "#e0a06c",
@@ -9723,7 +9723,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
         borderRadius: 3, padding: "1px 5px", fontSize: 9, fontWeight: 700, flexShrink: 0
       }
     }, l.type === "note" ? "NOTE" : l.type === "mindmap" ? "MAP" : "TASK"), /*#__PURE__*/React.createElement("span", {
-      title: "Buka " + (d.title || '') + (d.meta ? "\n" + d.meta : "") + (!d.live && unavailableTitle ? "\n" + unavailableTitle : ""),
+      title: "Buka " + (d.title || '') + (d.meta ? "\n" + d.meta : "") + (d.stale && unavailableTitle ? "\n" + unavailableTitle : ""),
       onClick: () => {
         const open = l.type === "note" ? onOpenNote : l.type === "mindmap" ? onOpenMindmap : onOpenTask;
         if (typeof open === "function") open(l.id);
@@ -9843,13 +9843,16 @@ function MindmapTabInstance({
   const [linkInfo, setLinkInfo] = useState({});
   const linkInfoRef = useRef({});
   const linkTimerRef = useRef(null);
+  const linkSeqRef = useRef(0); // resolve lama yang selesai belakangan tidak menimpa info terbaru
   const refreshLinkInfo = () => {
     clearTimeout(linkTimerRef.current);
     linkTimerRef.current = setTimeout(() => {
       const ML = window.TF && window.TF.mindmaplinks;
       const tree = outlineTreeRef.current;
       if (!ML || !tree || !tree.nodeData) return;
+      const seq = ++linkSeqRef.current;
       window.TF.mindmaplinks.resolveLinkInfo(ML.collectLinkRefs(tree.nodeData), api.get).then(info => {
+        if (seq !== linkSeqRef.current) return;
         linkInfoRef.current = info;
         setLinkInfo(info);
         iframeRef.current?.contentWindow?.postMessage({ type: "linkInfo", info }, window.location.origin);
@@ -9871,6 +9874,7 @@ function MindmapTabInstance({
     window.addEventListener("mindmapSynced", refreshLinkInfo);
     return () => {
       clearTimeout(linkTimerRef.current);
+      linkSeqRef.current++; // buang resolve yang masih berjalan untuk tab sebelumnya
       window.removeEventListener("taskSaved", refreshLinkInfo);
       window.removeEventListener("taskUpdated", refreshLinkInfo);
       window.removeEventListener("noteSaved", refreshLinkInfo);

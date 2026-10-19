@@ -13,7 +13,7 @@
   const UNAVAILABLE_TITLE = "Data terbaru tidak tersedia di perangkat ini";
   const STATUS_LABEL = {
     inbox: "Inbox", next: "Next", waiting: "Waiting", someday: "Someday",
-    project: "Project", done: "Selesai", archived: "Diarsipkan",
+    done: "Selesai", archived: "Arsip",
   };
   const ROUTE = { task: "/api/tasks/", note: "/api/scratchpad/", mindmap: "/api/mindmaps/" };
 
@@ -66,8 +66,11 @@
     )).then(() => info);
   }
 
+  // info: objek = data hidup; null = sudah di-resolve tetapi tidak tersedia (stale → redup + UNAVAILABLE_TITLE);
+  // undefined = belum di-resolve (pending) → snapshot tanpa tanda stale.
   function linkDisplay(link, info) {
     const live = !!info;
+    const stale = info === null;
     const src = live ? info : link;
     const title = (src && src.title) || (live && link.title) || link.title || "(tanpa judul)";
     let meta = "";
@@ -83,7 +86,7 @@
     } else if (link.type === "note") {
       meta = (live ? info.preview : link.preview) || "";
     }
-    return { title, meta, live, done };
+    return { title, meta, live, stale, done };
   }
 
   return { linkKey, collectLinkRefs, resolveLinkInfo, linkDisplay, STATUS_LABEL, UNAVAILABLE_TITLE };
