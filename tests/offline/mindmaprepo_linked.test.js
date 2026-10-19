@@ -48,3 +48,16 @@ test("routes expose source_note fields and accept source_note_ref", async () => 
   const row = list.find((m) => m.id === created.id);
   assert.equal(row.source_note_cid, "n1"); assert.equal(row.source_note_id, 7);
 });
+
+test("reuses a pulled record that only has source_note_id (no source_note_cid)", async () => {
+  const { recordFromServer, putRaw } = require("../../static/offline/mindmaprepo.js");
+  const rec = Object.assign(recordFromServer({ id: 40, title: "Rencana", source_note_id: 7, updated_at: "t" }, "m-pulled"), { rev: 1 });
+  await putRaw(rec);
+  const got = await createMindmap({ source_note_ref: "n1" });
+  assert.equal(got.cid, "m-pulled"); assert.equal((await outboxAll()).length, 0);
+});
+
+test("concurrent linked creates yield one record and one op", async () => {
+  const [a, b] = await Promise.all([createMindmap({ source_note_ref: "n1" }), createMindmap({ source_note_ref: 7 })]);
+  assert.equal(a.cid, b.cid); assert.equal((await outboxAll()).length, 1);
+});

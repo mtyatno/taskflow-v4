@@ -81,12 +81,24 @@
     }));
   }
   // Peta tertaut ke catatan (satu per catatan): reuse bila ada yang belum terhapus; catatan hilang/terhapus → ditolak.
+  // Serialisasi per cid catatan: pemanggil kedua menunggu yang pertama lalu mengulang pencarian (tidak ada duplikat).
+  const linkedInFlight = new Map();
   function createLinkedMindmap(input, opts) {
-    const now = (opts && opts.now) || new Date().toISOString();
     return noterepo().findNoteRaw(input.source_note_ref).then((note) => {
       if (!note || note.deleted) return Promise.reject(new Error("Note not found"));
+      const prev = linkedInFlight.get(note.cid) || Promise.resolve();
+      const run = prev.catch(() => {}).then(() => createLinkedFor(note, opts));
+      const tail = run.catch(() => {});
+      linkedInFlight.set(note.cid, tail);
+      return run.finally(() => { if (linkedInFlight.get(note.cid) === tail) linkedInFlight.delete(note.cid); });
+    });
+  }
+  function createLinkedFor(note, opts) {
+    const now = (opts && opts.now) || new Date().toISOString();
+    {
       return allMindmapsRaw().then((all) => {
-        const existing = all.find((m) => !m.deleted && m.source_note_cid === note.cid);
+        const existing = all.find((m) => !m.deleted && (m.source_note_cid === note.cid
+          || (note.server_id != null && m.source_note_id === note.server_id)));
         if (existing) return existing;
         const rec = {
           cid: TFids.newCid(), server_id: null,
@@ -104,7 +116,7 @@
           .then(() => TFoutbox.outboxAdd({ op: "create", entity_type: "mindmap", cid: rec.cid, payload: { cid: rec.cid } }))
           .then(() => rec);
       });
-    });
+    }
   }
 
   function createMindmap(input, opts) {
@@ -178,6 +190,7 @@
           pinned: !!cur.pinned, // pin lokal dipertahankan (op pin bisa tertunda); pull yang mengadopsi pin server
         });
         if (cur.client_id != null) original.client_id = cur.client_id;
+        if (cur.source_note_cid != null) original.source_note_cid = cur.source_note_cid;
         if (copy) {
           original.notice = { kind: "conflict_copy", title: cur.title, copyTitle: copy.title, editor: editorOf(serverRow) };
         } else if (cur.notice) {

@@ -853,6 +853,7 @@
         if (cur) {
           rec.pinned = !!cur.pinned; // pin lokal dipertahankan (op pin bisa tertunda); adopsi pin server di pass pin
           if (cur.client_id != null) rec.client_id = cur.client_id;
+          if (cur.source_note_cid != null) rec.source_note_cid = cur.source_note_cid; // peta tertaut: jangan putus dari catatan
         }
         return rec;
       }).then((saved) => !!saved);
