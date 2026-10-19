@@ -1126,12 +1126,27 @@
       title: s.title != null ? s.title : "Untitled Drawing",
       svg_preview: s.svg_preview != null ? s.svg_preview : "",
       is_pinned: s.is_pinned ? 1 : 0,
+      list_id: s.list_id != null ? s.list_id : null,
+      user_id: s.user_id != null ? s.user_id : null,
+      last_edited_by: s.last_edited_by != null ? s.last_edited_by : null,
+      last_editor_username: s.last_editor_username != null ? s.last_editor_username : null,
+      last_editor_display_name: s.last_editor_display_name != null ? s.last_editor_display_name : null,
       created_at: s.created_at != null ? s.created_at : null,
       updated_at: s.updated_at != null ? s.updated_at : null,
       deleted: false,
       dirty: 0,
       base_rev: s.updated_at != null ? s.updated_at : null,
     };
+  }
+
+  // Baris milik orang lain (user_id non-null & beda dari user saat ini): bila hilang dari daftar server,
+  // aksesnya hilang (di-unshare / keluar workspace) — bukan bukti terhapus lewat 404.
+  function isOthersDrawing(r) {
+    const me = TFrepo && TFrepo.currentUid ? TFrepo.currentUid() : null;
+    return r.user_id != null && me != null && String(r.user_id) !== String(me);
+  }
+  function markDrawingAccessLost(cid) {
+    return TFrepo.mutateDrawing(cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "access_lost" }) : undefined));
   }
 
   // Tulis data server ke record lewat CAS: hanya bila record masih sama seperti saat dibaca
@@ -1467,6 +1482,7 @@
             if (!cur || cur.deleted || (cur.rev || 0) !== readRev || cur.base_rev !== local.base_rev) return undefined;
             oldRefs = [cur.base_blob_ref];
             return Object.assign({}, cur, {
+              list_id: s.list_id != null ? s.list_id : null, user_id: s.user_id != null ? s.user_id : cur.user_id,
               base_rev: s.updated_at, server_id: cur.server_id != null ? cur.server_id : s.id,
               base_blob_ref: newBaseRef || cur.blob_ref, base_title: remoteTitle != null ? remoteTitle : cur.base_title,
             });
@@ -1485,6 +1501,7 @@
           if (!cur || cur.deleted || (cur.rev || 0) !== readRev || cur.base_rev !== local.base_rev) return undefined;
           oldRefs = refsOf(cur);
           return Object.assign({}, cur, {
+            list_id: s.list_id != null ? s.list_id : null, user_id: s.user_id != null ? s.user_id : cur.user_id,
             server_id: cur.server_id != null ? cur.server_id : s.id,
             blob_ref: newBlobRef,
             title: mergedTitle,
@@ -1603,6 +1620,20 @@
           }
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
+            if (isOthersDrawing(r)) {
+              // Drawing workspace milik orang lain hilang dari daftar → akses hilang. Bersih: hapus lokal;
+              // ada edit lokal: pertahankan + conflict access_lost (tidak ada edit yang dibuang diam-diam).
+              if (r.conflict === "access_lost") { result.skipped++; return; }
+              if (r.dirty || r.sync_error || r.conflict) {
+                result.skipped++;
+                return markDrawingAccessLost(r.cid);
+              }
+              return deleteDrawingIfUnchanged(r.cid, r).then((gone) => {
+                if (!gone) { result.skipped++; return; }
+                result.deleted++;
+                return TFidmap.mapDelete("drawing", r.server_id);
+              });
+            }
             if (r.sync_error || r.conflict || (r.dirty && pendingDrawingOps.has(r.cid))) {
               result.skipped++;
               return;
@@ -1683,7 +1714,7 @@
     const fetchOne = (sid) => Promise.resolve(rawFetch("/api/drawings/" + sid))
       .then(jsonIfOk)
       .catch(() => null);
-    return Promise.resolve(rawFetch("/api/drawings"))
+    return Promise.resolve(rawFetch("/api/drawings?shared=1"))
       .then(listJsonOrThrow)
       .then((list) => pullDrawings(list || [], fetchOne));
   }

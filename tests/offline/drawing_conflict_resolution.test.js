@@ -211,7 +211,7 @@ test("Low: DELETE of a pushed drawing purges record + blobs + idmap after the se
 
 test("Low: listDrawings fetches /api/drawings with X-TF-Sync (never the stale SW cache)", () => {
   const src = require("fs").readFileSync(require.resolve("../../static/offline/drawingrepo.js"), "utf8");
-  const m = src.match(/window\.fetch\("\/api\/drawings", \{ headers: \{[^}]*\} \}\)/);
+  const m = src.match(/window\.fetch\("\/api\/drawings\?shared=1", \{ headers: \{[^}]*\} \}\)/);
   assert.ok(m, "fetch daftar harus ada");
   assert.match(m[0], /"X-TF-Sync": "1"/);
 });

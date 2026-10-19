@@ -931,6 +931,7 @@
           svg_preview: rec.svg_preview || "",
           is_pinned: rec.is_pinned ? 1 : 0,
           tags: tagNames || [],
+          list_id: rec.list_id != null ? rec.list_id : (payload.list_id != null ? payload.list_id : null),
           client_id: clientIdOf(rec), // salinan "simpan sebagai baru" punya client_id segar (bukan cid lama)
         }).then((res) => {
           if (ok(res) && res.data && res.data.id != null) {
