@@ -24,6 +24,10 @@
   }
   const TFmm = req("./mindmaprepo.js", root.TF && root.TF.mindmaprepo);
   const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
+  // Sampah mindmap (A4) dibaca malas: modul lama dari cache SW bisa belum memuatnya.
+  function mindmapTrash() {
+    try { return isNode ? require("./mindmaptrash.js") : (root.TF && root.TF.mindmaptrash); } catch (_) { return null; }
+  }
 
   function titleWithTags(record, tagNames) {
     const base = String(record.title == null ? "" : record.title).replace(/\s+$/, "");
@@ -1452,6 +1456,41 @@
       ops.some((o) => o.op === "delete" && o.payload && o.payload.then_restore_sid != null));
   }
 
+  // Op `restore` (cid `trash:<sid>`, payload.server_id) dari Sampah (mindmaptrash.restore, item cermin server).
+  // 401/429/5xx/jaringan → send melempar → op tetap antre. Sukses → baris server jadi record lokal bersih di
+  // cid = client_id (link node tetap hidup), idmap, item keluar dari cermin. Restore peta tertaut bisa
+  // mengembalikan baris dengan id lain — record tetap dibangun dari baris server. Penanda delete
+  // `then_restore_sid` BUKAN op ini (ditangani opMindmapDelete).
+  function markTrashResult(sid, outcome) {
+    const T = mindmapTrash();
+    return T && T.markRestoreResult ? T.markRestoreResult(sid, outcome) : Promise.resolve();
+  }
+  function opMindmapRestore(op, transport, result) {
+    const sid = op.payload && op.payload.server_id;
+    if (sid == null) return TFoutbox.outboxRemove(op.qid);
+    return send(transport, "POST", "/api/mindmaps/trash/" + sid + "/restore", {}).then((res) => {
+      if (ok(res) && res.data && res.data.id != null) {
+        const row = res.data;
+        const cid = (row.client_id != null && row.client_id !== "") ? String(row.client_id) : TFids.newCid();
+        return TFdb.mutate("mindmaps", cid, (cur) =>
+          Object.assign(TFmm.recordFromServer(row, cid), { rev: (cur && cur.rev ? cur.rev : 0) + 1 }))
+          .then(() => TFidmap.mapPut("mindmap", row.id, cid))
+          .then(() => markTrashResult(sid, "ok"))
+          .then(() => TFoutbox.outboxRemove(op.qid))
+          .then(() => { notifyMindmapSynced([cid], [row.id]); result.pushed++; });
+      }
+      let outcome = "failed";
+      if (res.status === 404) outcome = "gone";
+      else {
+        const detail = res && res.data && res.data.detail;
+        if (res.status === 409 && detail && typeof detail === "object" && detail.code === "SOURCE_NOTE_MISSING") outcome = "source_note_missing";
+      }
+      return markTrashResult(sid, outcome)
+        .then(() => TFoutbox.outboxRemove(op.qid))
+        .then(() => { result.failed++; });
+    });
+  }
+
   function opMindmapPin(op, transport, result) {
     return Promise.all([getMindmapRaw(op.cid), TFidmap.serverIdOf(op.cid), heldByMindmapRestore(op.cid)]).then(([rec, sid, held]) => {
       if (held) return; // tahan: lihat opMindmapUpdate
@@ -1462,7 +1501,7 @@
         if (serverPinned === !!rec.pinned) {
           return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); // already in sync
         }
-        return send(transport, "PATCH", "/api/mindmaps/" + sid + "/pin", undefined).then((res2) => {
+        return send(transport, "PATCH", "/api/mindmaps/" + sid + "/pin", { pinned: !!rec.pinned }).then((res2) => {
           if (ok(res2)) { return TFoutbox.outboxRemove(op.qid).then(() => { result.pushed++; }); }
           return failPermanent(null, null, res2, op, result);
         });
@@ -1594,6 +1633,7 @@
     if (op.entity_type === "mindmap" && op.op === "update") return opMindmapUpdate(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "delete") return opMindmapDelete(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "pin") return opMindmapPin(op, transport, result);
+    if (op.entity_type === "mindmap" && op.op === "restore") return opMindmapRestore(op, transport, result);
     if (op.entity_type === "message" && op.op === "send") return opChatSend(op, transport, result, pending);
     return TFoutbox.outboxRemove(op.qid);
   }

@@ -1120,7 +1120,25 @@
     const confirmOne = (sid) => Promise.resolve(rawFetch("/api/mindmaps/" + sid)).then(goneOrJson).catch(() => null);
     return Promise.resolve(rawFetch("/api/mindmaps?linked=1"))
       .then(listJsonOrThrow)
-      .then((listRows) => pullMindmaps(listRows || [], fetchOne, confirmOne));
+      .then((listRows) => pullMindmaps(listRows || [], fetchOne, confirmOne))
+      .then((res) => pullMindmapTrash(rawFetch).catch(() => null).then(() => res));
+  }
+
+  // Sampah mindmap (A4/A5): GET /api/mindmaps/trash → cermin di _meta (TF.mindmaptrash). Gagal (offline/401/5xx/
+  // body bukan daftar valid) → {mirrored:false}, cermin lama dipertahankan.
+  function mindmapTrash() {
+    try { return isNode ? require("./mindmaptrash.js") : (root.TF && root.TF.mindmaptrash); } catch (_) { return null; }
+  }
+  function pullMindmapTrash(rawFetch) {
+    return Promise.resolve()
+      .then(() => rawFetch("/api/mindmaps/trash"))
+      .then(listJsonOrThrow)
+      .then((rows) => {
+        const T = mindmapTrash();
+        if (!T || !T.writeMirror) return { mirrored: false };
+        return T.writeMirror(Array.isArray(rows) ? rows : []).then(() => ({ mirrored: true }));
+      })
+      .catch(() => ({ mirrored: false }));
   }
 
   function getAllDrawings() {
@@ -1726,7 +1744,7 @@
     reconcileRecurringExceptions, pullRecurringExceptions,
     pullHabits, pullHabitLogs, pullHabitsAndLogs,
     pullNotes, pullNotesAndReconcile,
-    pullMindmaps, pullMindmapsAndReconcile,
+    pullMindmaps, pullMindmapsAndReconcile, pullMindmapTrash,
     pullDrawings, pullDrawingsAndReconcile,
     mergeDrawingSnapshots,
     tsEpoch, ensureNoteCid, listJsonOrThrow, goneOrJson,
