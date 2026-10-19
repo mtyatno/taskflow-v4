@@ -22,6 +22,7 @@
   // Dibaca malas (saat dipanggil) agar urutan muat skrip di browser tidak jadi masalah, seperti syncpush.js.
   const noterepo = () => req("./noterepo.js", root.TF && root.TF.noterepo);
   const notemap = () => req("./notemap.js", root.TF && root.TF.notemap);
+  const TFmerge = () => req("./mindmapmerge.js", root.TF && root.TF.mindmapmerge);
   function isLinked(rec) { return !!rec && (rec.source_note_cid != null || rec.source_note_id != null); }
 
   const DEFAULT_DATA = '{"nodeData":{"id":"root","topic":"Untitled","root":true,"children":[]}}';
@@ -68,6 +69,8 @@
     };
     // client_id server (= cid perangkat pembuat; id link node mindmap) → resolver lokal bisa menemukan record ini
     if (s.client_id != null && s.client_id !== "") rec.client_id = String(s.client_id);
+    // Basis merge (#4): isi server pada base_rev. Baris tanpa data_json (meta saja) → tanpa basis.
+    if (s.data_json != null) { rec.base_data_json = s.data_json; rec.base_title = rec.title; }
     return rec;
   }
   function editorOf(s) {
@@ -171,9 +174,45 @@
   //   opts.now        → timestamp salinan.
   // Op create/update milik record asli dibuang (versi lokal kini hidup di salinan); op create salinan diantre.
   // Resolve { original, copy } (copy null bila isi lokal sama dengan server → cukup adopsi) atau null.
-  function adoptServerWithConflictCopy(cid, serverRow, opts) {
-    opts = opts || {};
-    const now = opts.now || new Date().toISOString();
+  // Buang op create/update milik cid lalu (opsional) antre satu op update untuk cid dan op create untuk salinan —
+  // di dalam transaksi pemanggil (store _outbox).
+  function rewriteOpsInTx(ob, cid, addUpdate, copyCid, onErr) {
+    const all = ob.getAll();
+    all.onsuccess = () => {
+      for (const op of (all.result || [])) {
+        if (op.entity_type === "mindmap" && op.cid === cid && (op.op === "create" || op.op === "update")) ob.delete(op.qid);
+      }
+      if (addUpdate) ob.add({ ts: Date.now(), retries: 0, op: "update", entity_type: "mindmap", cid: cid, payload: { cid: cid } });
+      if (copyCid) ob.add({ ts: Date.now(), retries: 0, op: "create", entity_type: "mindmap", cid: copyCid, payload: { cid: copyCid } });
+    };
+    all.onerror = () => onErr(all.error);
+  }
+
+  // Inti adopsi (dalam transaksi pemanggil, store mindmaps + _outbox): record asli = baris server; bila edit lokal
+  // berbeda → salinan konflik seluruh peta. Mengembalikan { original, copy } (sudah ditulis/diantre).
+  function adoptInTx(ms, ob, cur, serverRow, now, onErr) {
+    const cid = cur.cid;
+    const needCopy = !!cur.dirty && !cur.deleted && !sameServerContent(cur, serverRow);
+    const copy = needCopy ? conflictCopyOf(cur, cur.title, cur.data_json, now) : null;
+    const original = Object.assign(recordFromServer(serverRow, cid), {
+      rev: (cur.rev || 0) + 1,
+      pinned: !!cur.pinned, // pin lokal dipertahankan (op pin bisa tertunda); pull yang mengadopsi pin server
+    });
+    if (cur.client_id != null) original.client_id = cur.client_id;
+    if (cur.source_note_cid != null) original.source_note_cid = cur.source_note_cid;
+    if (copy) {
+      original.notice = { kind: "conflict_copy", title: cur.title, copyTitle: copy.title, editor: editorOf(serverRow) };
+    } else if (cur.notice) {
+      original.notice = cur.notice;
+    }
+    ms.put(original);
+    if (copy) ms.put(copy);
+    rewriteOpsInTx(ob, cid, false, copy ? copy.cid : null, onErr);
+    return { original, copy };
+  }
+
+  // Jalankan fn(ms, ob, cur, setFailed) → out dalam SATU transaksi mindmaps + _outbox; cur hilang → null.
+  function inMindmapTx(cid, fn) {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       let out = null;
       let failed = null;
@@ -181,55 +220,140 @@
       try { tx = db.transaction(["mindmaps", "_outbox"], "readwrite"); } catch (err) { reject(err); return; }
       const ms = tx.objectStore("mindmaps");
       const ob = tx.objectStore("_outbox");
+      const setFailed = (e) => { failed = e; };
       const r = ms.get(cid);
       r.onsuccess = () => {
         const cur = r.result;
         if (!cur) return;
-        if (opts.expectRev != null && (cur.rev || 0) !== opts.expectRev) return;
-        const needCopy = !!cur.dirty && !cur.deleted && !sameServerContent(cur, serverRow);
-        const copy = needCopy ? conflictCopyOf(cur, cur.title, cur.data_json, now) : null;
-        const original = Object.assign(recordFromServer(serverRow, cid), {
-          rev: (cur.rev || 0) + 1,
-          pinned: !!cur.pinned, // pin lokal dipertahankan (op pin bisa tertunda); pull yang mengadopsi pin server
-        });
-        if (cur.client_id != null) original.client_id = cur.client_id;
-        if (cur.source_note_cid != null) original.source_note_cid = cur.source_note_cid;
-        if (copy) {
-          original.notice = { kind: "conflict_copy", title: cur.title, copyTitle: copy.title, editor: editorOf(serverRow) };
-        } else if (cur.notice) {
-          original.notice = cur.notice;
-        }
-        ms.put(original);
-        if (copy) ms.put(copy);
-        const all = ob.getAll();
-        all.onsuccess = () => {
-          for (const op of (all.result || [])) {
-            if (op.entity_type === "mindmap" && op.cid === cid && (op.op === "create" || op.op === "update")) ob.delete(op.qid);
-          }
-          if (copy) ob.add({ ts: Date.now(), retries: 0, op: "create", entity_type: "mindmap", cid: copy.cid, payload: { cid: copy.cid } });
-          out = { original, copy };
-        };
-        all.onerror = () => { failed = all.error; };
+        try { out = fn(ms, ob, cur, setFailed); } catch (err) { failed = err; out = null; try { tx.abort(); } catch (_) {} }
       };
       r.onerror = () => { failed = r.error; };
       tx.oncomplete = () => resolve(out);
       tx.onerror = () => reject(failed || tx.error);
-      tx.onabort = () => reject(failed || tx.error || new Error("mindmaps adopt aborted"));
+      tx.onabort = () => reject(failed || tx.error || new Error("mindmaps transaction aborted"));
     }));
+  }
+
+  // Adopsi baris server ke record asli + (bila isi lokal berbeda) buat salinan konflik — SATU transaksi
+  // (mindmaps + _outbox): tidak pernah menulis objek basi, tidak ada jendela di mana edit lokal hilang.
+  //   opts.expectRev  → CAS: batal (resolve null) bila rev record berubah sejak dibaca pemanggil.
+  //   opts.now        → timestamp salinan.
+  // Op create/update milik record asli dibuang (versi lokal kini hidup di salinan); op create salinan diantre.
+  // Resolve { original, copy } (copy null bila isi lokal sama dengan server → cukup adopsi) atau null.
+  function adoptServerWithConflictCopy(cid, serverRow, opts) {
+    opts = opts || {};
+    const now = opts.now || new Date().toISOString();
+    return inMindmapTx(cid, (ms, ob, cur, setFailed) => {
+      if (opts.expectRev != null && (cur.rev || 0) !== opts.expectRev) return null;
+      return adoptInTx(ms, ob, cur, serverRow, now, setFailed);
+    });
+  }
+
+  function parseDoc(str) {
+    if (str == null) return null;
+    try { const d = JSON.parse(str); return (d && typeof d === "object") ? d : null; } catch (_) { return null; }
+  }
+  function uniq(arr) { return arr.filter((v, i) => arr.indexOf(v) === i); }
+  function mergeNotice(cur, copy, serverRow, conflicts) {
+    return {
+      kind: "merge_conflict", title: cur.title, copyTitle: copy.title, editor: editorOf(serverRow),
+      nodes: uniq(conflicts.map((c) => c.topic)).slice(0, 3),
+      count: uniq(conflicts.map((c) => c.nodeId)).length,
+    };
+  }
+
+  // Merge tiga arah (#4) baris server ke record lokal — SATU transaksi mindmaps + _outbox.
+  //   record hilang / opts.expectRev beda → null (CAS batal).
+  //   bersih atau terhapus → adopsi (merged:false).
+  //   tertaut (Petakan), tanpa basis, JSON rusak, baris tanpa data_json, merge3 fallback → adopsi + salinan
+  //   konflik seluruh peta (perilaku lama, merged:false).
+  //   selain itu → record = hasil merge3 (basis maju ke server); bentrok node yang sama → salinan konflik versi
+  //   lokal UTUH + notice merge_conflict. Resolve { original, copy, merged, conflicts }.
+  function mergeServerIntoLocal(cid, serverRow, opts) {
+    opts = opts || {};
+    const now = opts.now || new Date().toISOString();
+    return inMindmapTx(cid, (ms, ob, cur, setFailed) => {
+      if (opts.expectRev != null && (cur.rev || 0) !== opts.expectRev) return null;
+      const adopt = () => Object.assign(adoptInTx(ms, ob, cur, serverRow, now, setFailed), { merged: false, conflicts: 0 });
+      if (!cur.dirty || cur.deleted) return adopt();
+      if (isLinked(cur) || cur.base_data_json == null || serverRow.data_json == null) return adopt();
+      const b = parseDoc(cur.base_data_json), l = parseDoc(cur.data_json), sv = parseDoc(serverRow.data_json);
+      if (!b || !l || !sv) return adopt();
+      const M = TFmerge();
+      const res = M.merge3(b, l, sv);
+      if (!res || res.fallback) return adopt();
+      const sTitle = serverRow.title != null ? serverRow.title : "Untitled";
+      const t = M.merge3Scalar(cur.base_title, cur.title, sTitle);
+      const next = Object.assign(recordFromServer(serverRow, cid), {
+        data_json: JSON.stringify(res.doc), title: t.value,
+        rev: (cur.rev || 0) + 1, pinned: !!cur.pinned,
+      });
+      if (cur.client_id != null) next.client_id = cur.client_id;
+      if (cur.source_note_cid != null) next.source_note_cid = cur.source_note_cid;
+      if (cur.notice) next.notice = cur.notice;
+      const dirty = (res.changed || t.value !== sTitle) ? 1 : 0;
+      next.dirty = dirty;
+      if (dirty) next.updated_at = now;
+      let copy = null;
+      const conflicts = res.conflicts || [];
+      if (conflicts.length) {
+        copy = conflictCopyOf(cur, cur.title, cur.data_json, now); // versi lokal UTUH
+        next.notice = mergeNotice(cur, copy, serverRow, conflicts);
+      }
+      ms.put(next);
+      if (copy) ms.put(copy);
+      rewriteOpsInTx(ob, cid, !!dirty, copy ? copy.cid : null, setFailed);
+      return { original: next, copy, merged: true, conflicts: copy ? next.notice.count : 0 };
+    });
+  }
+
+  // Basis maju setelah push sukses: hanya bila record masih di base_rev = row.updated_at (isi row = yang
+  // dikirim/dimiliki record ini). Tidak mengubah rev/dirty.
+  function setBaseFromServer(cid, row) {
+    if (!row || row.data_json == null || row.updated_at == null) return Promise.resolve(undefined);
+    return TFdb.mutate("mindmaps", cid, (cur) => {
+      if (!cur || String(cur.base_rev) !== String(row.updated_at)) return undefined;
+      return Object.assign({}, cur, { base_data_json: row.data_json, base_title: row.title != null ? row.title : "Untitled" });
+    }).then((next) => next || undefined);
   }
 
   // Simpan edit lokal lewat TFdb.mutate (atomik). patch.if_updated_at (opsional, dari tab editor): updated_at
   // record saat tab memuat/menyimpan terakhir; bila record sudah diganti pull/adopsi (updated_at beda) →
   // JANGAN timpa versi server: edit tab disimpan sebagai salinan konflik, record asli tetap versi server dan
   // diberi notice. Resolve record asli dengan `conflict_copy` = record salinan (tab memuat ulang versi server).
+  // Merge (#4): patch.base_data_json (isi yang menjadi dasar tab) + if_updated_at basi → merge3(basis tab, isi tab,
+  // record sekarang); bentrok node yang sama → salinan konflik versi tab. Resolve record + merged/merge_conflicts.
   function updateMindmap(cid, patch, opts) {
     patch = patch || {};
     const now = (opts && opts.now) || new Date().toISOString();
     let stale = null;
+    let mergeInfo = null;
+    let staleCur = null;
     return TFdb.mutate("mindmaps", cid, (cur) => {
       if (!cur || cur.deleted) return undefined;
-      if (!isLinked(cur) && patch.if_updated_at != null && String(cur.updated_at) !== String(patch.if_updated_at)) { stale = cur; return undefined; }
-      return Object.assign({}, cur, {
+      // Edit pertama pada record bersih tanpa basis: isi record = isi server pada base_rev → jadikan basis.
+      const baseFields = (cur.base_data_json === undefined && !cur.dirty && cur.server_id != null)
+        ? { base_data_json: cur.data_json, base_title: cur.title } : {};
+      if (!isLinked(cur) && patch.if_updated_at != null && String(cur.updated_at) !== String(patch.if_updated_at)) {
+        mergeInfo = null;
+        const b = patch.base_data_json != null ? parseDoc(patch.base_data_json) : null;
+        const l = b ? parseDoc(patch.data_json != null ? patch.data_json : cur.data_json) : null;
+        const sv = l ? parseDoc(cur.data_json) : null;
+        const res = sv ? TFmerge().merge3(b, l, sv) : null;
+        if (!res || res.fallback) { stale = cur; return undefined; }
+        stale = null;
+        mergeInfo = res;
+        staleCur = cur;
+        return Object.assign({}, cur, baseFields, {
+          title: patch.title != null ? patch.title : cur.title,
+          data_json: JSON.stringify(res.doc),
+          last_edited_by: curUid(),
+          last_editor_username: null, last_editor_display_name: null,
+          updated_at: now, dirty: 1, rev: (cur.rev || 0) + 1,
+        });
+      }
+      stale = null; mergeInfo = null;
+      return Object.assign({}, cur, baseFields, {
         title: patch.title != null ? patch.title : cur.title,
         data_json: patch.data_json != null ? patch.data_json : cur.data_json,
         last_edited_by: curUid(),
@@ -240,11 +364,31 @@
       if (next) {
         return dedupeUpdates(cid)
           .then(() => TFoutbox.outboxAdd({ op: "update", entity_type: "mindmap", cid: cid, payload: { cid: cid } }))
-          .then(() => next);
+          .then(() => {
+            if (!mergeInfo) return next;
+            const n = (mergeInfo.conflicts || []).length;
+            const out = Object.assign({}, next, { merged: true, merge_conflicts: n });
+            if (!n) return out;
+            const tabData = patch.data_json != null ? patch.data_json : staleCur.data_json;
+            return saveTabConflictCopy(staleCur, patch.title != null ? patch.title : staleCur.title, tabData, now)
+              .then((copy) => Object.assign(out, { conflict_copy: copy }));
+          });
       }
       if (!stale) return Promise.reject(new Error("Mindmap not found"));
       return saveAsConflictCopy(cid, stale, patch, now);
     });
+  }
+  // Salinan konflik versi tab dari merge router (record asli TIDAK diganti): satu transaksi mindmaps + _outbox.
+  function saveTabConflictCopy(cur, title, data, now) {
+    const copy = conflictCopyOf(cur, title, data, now);
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(["mindmaps", "_outbox"], "readwrite");
+      tx.objectStore("mindmaps").put(copy);
+      tx.objectStore("_outbox").add({ ts: Date.now(), retries: 0, op: "create", entity_type: "mindmap", cid: copy.cid, payload: { cid: copy.cid } });
+      tx.oncomplete = () => resolve(copy);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error("mindmaps conflict copy aborted"));
+    }));
   }
   // Edit tab yang basis-nya sudah diganti → salinan konflik (satu transaksi mindmaps + _outbox).
   // Bila pull/409 untuk konflik yang sama BARU SAJA membuat salinan dari versi lokal yang lebih lama
@@ -391,7 +535,7 @@
 
   const exported = {
     createMindmap, updateMindmap, deleteMindmap, restoreLocal, notInTrashError, togglePin, getRaw, putRaw, setCurrentUser, getCurrentUser,
-    recordFromServer, adoptServerWithConflictCopy, isLinked, CONFLICT_PREFIX, DEFAULT_DATA,
+    recordFromServer, adoptServerWithConflictCopy, mergeServerIntoLocal, setBaseFromServer, isLinked, CONFLICT_PREFIX, DEFAULT_DATA,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.mindmaprepo = exported; }
   return exported;

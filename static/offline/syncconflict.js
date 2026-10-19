@@ -187,6 +187,8 @@
   //   kind "delete_refused"→ hapus ditolak server (hanya pemilik)
   //   kind "conflict_copy" → prinsip 7: edit lokal disimpan sebagai salinan "(konflik) <judul>" (copyTitle),
   //                          record asli mengadopsi versi server dari `editor`
+  //   kind "merge_conflict"→ #4: merge per node; `count` node bentrok (topik ≤3 di `nodes`), versi lokal utuh
+  //                          disimpan sebagai salinan copyTitle
   function listNotices() {
     return Promise.all([getAll("scratchpad_notes"), getAll("mindmaps")]).then(([notes, mindmaps]) => {
       const out = [];
@@ -197,6 +199,8 @@
             entity: entity, cid: r.cid, kind: r.notice.kind, title: r.notice.title,
             editor: r.notice.editor != null ? r.notice.editor : null,
             copyTitle: r.notice.copyTitle != null ? r.notice.copyTitle : null,
+            count: r.notice.count != null ? r.notice.count : null,
+            nodes: Array.isArray(r.notice.nodes) ? r.notice.nodes : null,
           });
         }
       };
