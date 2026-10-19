@@ -18,6 +18,7 @@ import json
 import math
 import re
 import html
+import urllib.parse
 from collections import defaultdict
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
@@ -4052,8 +4053,105 @@ def _generate_publish_slug(conn, title: str = "") -> str:
             return slug
     raise HTTPException(status_code=500, detail="Gagal generate slug unik — coba lagi")
 
-def _render_published_content(raw_content: str, conn, note_id: int = None) -> str:
-    """Process raw markdown for public page: strip internal tokens, resolve wikilinks, render to HTML."""
+# ── Akses publik drawing ───────────────────────────────────────────────────────
+# Drawing tampil di halaman publik hanya bila dirujuk ::draw[token] oleh note publish TEPERCAYA milik pemilik
+# drawing, yaitu isinya hanya ditulis penerbit: note pribadi (list_id kosong), milik penerbit sendiri, dan terakhir
+# disunting pemiliknya (last_edited_by kosong atau = pemilik; semua penulisan isi lewat POST/PUT /api/scratchpad
+# mengisinya dengan penulis). Note publish bersama (list_id terisi) tidak menampilkan drawing apa pun dan tidak
+# dihitung sebagai rujukan: anggota workspace ikut mengedit isinya, jadi rujukan di dalamnya bukan bukti bahwa
+# pemilik drawing mau menampilkannya (anggota bisa menyisipkan ::draw[1..N] ke note bersama yang dipublish).
+# list_id kosong saja tidak cukup: note yang sempat diedit orang lain lalu kembali pribadi (workspace dihapus =
+# list_id SET NULL, atau di-unshare) tetap membawa isi suntikan itu, sehingga last_edited_by harus pemiliknya.
+# Token = id angka atau client_id (UUID, format default sejak offline-first). Bentuk ter-escape oleh
+# serializer markdown (::draw\[x\]) ikut dikenali.
+_DRAW_DIRECTIVE_RE = re.compile(r'\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?')
+_DRAW_TOKEN_RE = re.compile(r'[0-9a-zA-Z_-]+')
+_DRAWING_COLS = "id, user_id, client_id, title, svg_preview, data_json"
+
+def _draw_tokens(content: Optional[str]) -> set[str]:
+    """Semua token direktif ::draw[...] di content (id angka atau client_id)."""
+    return {m.group(1) for m in _DRAW_DIRECTIVE_RE.finditer(content or "")}
+
+def _draw_token_id(token: str) -> Optional[int]:
+    """Token angka ASCII → id baris (drawing, id note di wikilink publik, id lampiran di /pub/attachments). None bila
+    bukan angka ASCII atau di luar INTEGER 64-bit SQLite (digit Unicode membuat int() gagal, angka terlalu besar jadi
+    OverflowError saat di-bind: keduanya 500, padahal barisnya pasti tidak ada)."""
+    if token.isascii() and token.isdigit() and len(token) <= 19:
+        value = int(token)
+        if value <= 2**63 - 1:
+            return value
+    return None
+
+def _resolve_owned_drawing(conn, token: str, owner_id: int) -> Optional[sqlite3.Row]:
+    """Drawing milik owner_id yang dirujuk token direktif: id angka dulu, lalu client_id.
+    Selalu terscope ke pemilik; judul drawing tidak pernah dipakai sebagai kunci."""
+    did = _draw_token_id(token)
+    if did is not None:
+        row = conn.execute(
+            f"SELECT {_DRAWING_COLS} FROM drawings WHERE id = ? AND user_id = ?", (did, owner_id)
+        ).fetchone()
+        if row:
+            return row
+    return conn.execute(
+        f"SELECT {_DRAWING_COLS} FROM drawings WHERE client_id = ? AND user_id = ?", (token, owner_id)
+    ).fetchone()
+
+def _pub_note_unlocked(request: Request, slug: str, password_hash: Optional[str]) -> bool:
+    """True bila note publish tanpa password, atau request membawa cookie unlock yang valid untuk slug-nya."""
+    if not password_hash:
+        return True
+    cookie_val = request.cookies.get(f"pub_unlock_{slug}", "")
+    try:
+        return bool(cookie_val) and _verify_cookie(cookie_val) == slug
+    except TypeError:  # hmac.compare_digest menolak str non-ASCII: cookie rusak = terkunci, bukan 500
+        return False
+
+def _published_drawing_for_request(conn, token: str, request: Request) -> Optional[sqlite3.Row]:
+    """Drawing yang boleh dibaca publik lewat /pub/drawings/{token}, atau None.
+    Kandidat: drawing ber-id token (bila angka) dan drawing ber-client_id token (milik siapa pun).
+    Kandidat D lolos bila note publish TEPERCAYA milik D.user_id merujuknya lewat ::draw[...] (id atau client_id)
+    dan note itu terbuka bagi request ini (tanpa password, atau cookie unlock valid). Tepercaya = pribadi (list_id
+    kosong), milik penerbit, dan terakhir disunting pemiliknya (lihat catatan di atas). Rujukan saja tidak cukup:
+    note bersama, atau note yang terakhir disunting orang lain, tidak dihitung karena isinya bukan tulisan penerbit."""
+    if not _DRAW_TOKEN_RE.fullmatch(token):
+        return None
+    candidates = []
+    did = _draw_token_id(token)
+    if did is not None:
+        row = conn.execute(f"SELECT {_DRAWING_COLS} FROM drawings WHERE id = ?", (did,)).fetchone()
+        if row:
+            candidates.append(row)
+    candidates.extend(conn.execute(f"SELECT {_DRAWING_COLS} FROM drawings WHERE client_id = ?", (token,)).fetchall())
+    for d in candidates:
+        refs = {str(d["id"])}
+        if d["client_id"]:
+            refs.add(d["client_id"])
+        published = conn.execute(
+            "SELECT p.slug, p.password_hash, n.content FROM published_notes p "
+            "JOIN scratchpad_notes n ON n.id = p.note_id "
+            "WHERE p.user_id = ? AND n.list_id IS NULL AND n.user_id = p.user_id "
+            "AND (n.last_edited_by IS NULL OR n.last_edited_by = n.user_id)",
+            (d["user_id"],)
+        ).fetchall()
+        for p in published:
+            if (_draw_tokens(p["content"]) & refs) and _pub_note_unlocked(request, p["slug"], p["password_hash"]):
+                return d
+    return None
+
+def _pub_href(username: str, slug: str) -> str:
+    """Path /pub/{username}/{slug} yang aman ditanam di atribut href. Username dan slug target berasal dari
+    data user lain (username tidak dibatasi karakternya): tiap segmen di-percent-encode lalu di-escape HTML."""
+    def seg(value):
+        return html.escape(urllib.parse.quote(value, safe=''), quote=True)
+    return f"/pub/{seg(username)}/{seg(slug)}"
+
+def _render_published_content(raw_content: str, conn, note_id: int = None, owner_id: int = None) -> str:
+    """Process raw markdown for public page: strip internal tokens, resolve wikilinks, render to HTML.
+    owner_id = penerbit note publish tepercaya (pribadi, milik penerbit, terakhir disunting pemiliknya); token
+    ::draw[...] hanya di-resolve ke drawing miliknya, dan wikilink ke note berpassword hanya di-resolve bila note
+    target milik penerbit yang sama.
+    owner_id=None (note bersama, note yang terakhir disunting orang lain, atau tanpa penerbit) = tidak ada drawing
+    dan tidak ada note berpassword yang di-resolve."""
     import re as _re
     content = raw_content or ""
 
@@ -4063,11 +4161,18 @@ def _render_published_content(raw_content: str, conn, note_id: int = None) -> st
     # 2. Strip ==highlight== → render as <mark>
     content = _re.sub(r'\\?==([^=\n]+)==', r'<mark>\1</mark>', content)
 
-    # 3. Build wikilink map: title → (username, slug) for published notes
+    # 3. Build wikilink map: title → (username, slug) for published notes.
+    # Target berpassword hanya jadi target bila owner_id (penerbit note tepercaya) = penerbit target; selain itu
+    # diperlakukan seperti note yang tidak dipublish (teks biasa), supaya slug dan judulnya tidak bocor lewat note orang lain.
+    def _wikilink_target_ok(password_hash, target_user_id):
+        return not password_hash or (owner_id is not None and target_user_id == owner_id)
+
     published_map = {}
     for row in conn.execute(
-        "SELECT n.title, p.slug, u.username FROM published_notes p JOIN scratchpad_notes n ON n.id = p.note_id JOIN users u ON u.id = p.user_id"
+        "SELECT n.title, p.slug, p.password_hash, p.user_id, u.username FROM published_notes p JOIN scratchpad_notes n ON n.id = p.note_id JOIN users u ON u.id = p.user_id"
     ).fetchall():
+        if not _wikilink_target_ok(row["password_hash"], row["user_id"]):
+            continue
         key = row["title"].strip().lower()
         published_map[key] = (row["username"], row["slug"])
 
@@ -4079,24 +4184,18 @@ def _render_published_content(raw_content: str, conn, note_id: int = None) -> st
         # Check by title
         if norm in published_map:
             uname, uslug = published_map[norm]
-            return f'<a href="/pub/{uname}/{uslug}">[[{title}]]</a>'
-        # Check by id: prefix
-        m_id = _re.match(r'^(?:id|note)\s*:\s*(\d+)$', norm, _re.IGNORECASE)
-        if m_id:
+            return f'<a href="{_pub_href(uname, uslug)}">[[{title}]]</a>'
+        # Check by id: "id:N" / "note:N" / N polos. Id yang tidak bisa jadi id baris (digit Unicode, di luar
+        # INTEGER SQLite) = tidak ditemukan, bukan 500 (note bersama bisa disunting anggota lain).
+        m_id = _re.match(r'^(?:(?:id|note)\s*:\s*)?(\d+)$', norm)
+        nid = _draw_token_id(m_id.group(1)) if m_id else None
+        if nid is not None:
             row2 = conn.execute(
-                "SELECT p.slug, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (int(m_id.group(1)),)
+                "SELECT p.slug, p.password_hash, p.user_id, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (nid,)
             ).fetchone()
-            if row2:
+            if row2 and _wikilink_target_ok(row2["password_hash"], row2["user_id"]):
                 un = row2["username"]; sl = row2["slug"]
-                return f'<a href="/pub/{un}/{sl}">[[{title}]]</a>'
-        # Check by numeric id
-        if norm.isdigit():
-            row2 = conn.execute(
-                "SELECT p.slug, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (int(norm),)
-            ).fetchone()
-            if row2:
-                un = row2["username"]; sl = row2["slug"]
-                return f'<a href="/pub/{un}/{sl}">[[{title}]]</a>'
+                return f'<a href="{_pub_href(un, sl)}">[[{title}]]</a>'
         # Not published → plain text
         return f'[[{title}]]'
 
@@ -4246,31 +4345,36 @@ def _render_published_content(raw_content: str, conn, note_id: int = None) -> st
         width_val = width or ('50%' if size == 'S' else '75%' if size == 'M' else '100%')
         height_val = height or ('200px' if size == 'S' else '300px' if size == 'M' else '400px')
 
-        # Fetch drawing from database by id or title, with note_id fallback
-        d_row = conn.execute(
-            "SELECT id, title, svg_preview, data_json FROM drawings WHERE id = ? OR title = ?",
-            (drawing_id, drawing_id)
-        ).fetchone()
+        # Hanya drawing milik penerbit note tepercaya (id angka, lalu client_id); owner_id None = tidak ada.
+        # Judul dan id note tidak dipakai sebagai kunci.
+        d_row = _resolve_owned_drawing(conn, drawing_id, owner_id) if owner_id is not None else None
 
-        if not d_row and note_id:
-            d_row = conn.execute(
-                "SELECT id, title, svg_preview, data_json FROM drawings WHERE id = ?",
-                (note_id,)
-            ).fetchone()
-
-        actual_id = d_row["id"] if d_row else drawing_id
         if d_row and not title:
             title = d_row["title"]
         if not title:
             title = "Gambar"
 
         safe_title = html.escape(title)
-        if d_row and d_row["svg_preview"] and d_row["svg_preview"].strip().startswith("<svg"):
+        card_style = f"width:{width_val};max-width:{width_val};margin:16px auto;" if width_val != '100%' else "width:100%;margin:16px 0;"
+
+        if not d_row:
+            # Token tak ter-resolve: kartu netral tanpa data-drawing-id/-preview dan tanpa iframe,
+            # supaya halaman tidak memanggil /pub/drawings/<token> dan tidak menanam gambar siapa pun.
+            # size/width/height berasal dari isi note, jadi di-escape sebelum masuk ke atribut HTML.
+            safe_height = html.escape(height_val)
+            draw_map[key] = (
+                f'<div class="note-draw-card" data-size="{html.escape(size)}" style="{html.escape(card_style)}">'
+                f'<div class="note-draw-header"><span>🎨 {safe_title}</span></div>'
+                f'<div class="note-draw-preview-container" style="height:{safe_height};max-height:{safe_height};">Gambar tidak tersedia</div>'
+                f'</div>'
+            )
+            return key
+
+        actual_id = d_row["id"]
+        if d_row["svg_preview"] and d_row["svg_preview"].strip().startswith("<svg"):
             svg_html = d_row["svg_preview"]
         else:
             svg_html = f'<iframe src="/static/vendor/tldraw/index.html?noteId={html.escape(str(actual_id))}" style="width:100%;height:{height_val};border:none;" title="Drawing"></iframe>'
-
-        card_style = f"width:{width_val};max-width:{width_val};margin:16px auto;" if width_val != '100%' else "width:100%;margin:16px 0;"
 
         draw_map[key] = (
             f'<div class="note-draw-card" data-drawing-id="{html.escape(str(actual_id))}" data-size="{size}" style="{card_style}">'
@@ -4280,7 +4384,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None) -> st
         )
         return key
 
-    content = _re.sub(r'\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?', _replace_draw, content)
+    content = _DRAW_DIRECTIVE_RE.sub(_replace_draw, content)
 
     # 7. Render markdown → HTML via mistune (with table & common plugins)
     try:
@@ -5255,33 +5359,28 @@ async def get_scratchpad_note(note_id: int, user=Depends(get_current_user)):
         return _scratchpad_row(row, conn, uid)
 
 
-def _make_drawing_resolver(uid: int, note_id: int = None):
-    def _resolve_drawing(did, title=None):
-        with get_db() as conn:
-            row = None
-            # 1. By numeric ID
-            if str(did).isdigit():
-                row = conn.execute(
-                    "SELECT id, title, svg_preview FROM drawings WHERE id = ? AND (user_id = ? OR is_pinned = 1)",
-                    (int(did), uid)
-                ).fetchone()
-                if not row:
-                    row = conn.execute(
-                        "SELECT id, title, svg_preview FROM drawings WHERE id = ?",
-                        (int(did),)
-                    ).fetchone()
+_UUID_TOKEN_RE = re.compile(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
 
-            # 2. By title parameter
-            if not row and title:
+def _make_drawing_resolver(uid: int):
+    """Resolver drawing untuk ekspor DOCX. Semua pencarian terscope ke pengekspor (user_id = uid): isi note
+    bisa berisi ::draw[...] apa pun (POST /api/scratchpad/export/docx menerima isi bebas dari klien), jadi
+    drawing user lain, walau di-pin, tidak pernah ter-resolve. Tidak ada fallback ke drawing ber-id sama
+    dengan id note. Aplikasi menulis direktif ::draw[<id atau uuid>]{title="<judul>"}: token berbentuk id/UUID
+    yang tidak ter-resolve (drawing orang lain, mis. anggota mengekspor note bersama pemilik) tidak boleh
+    ditebak lewat judul, karena akan menyematkan drawing pengekspor sendiri yang kebetulan berjudul sama."""
+    def _resolve_drawing(did, title=None):
+        token = str(did)
+        id_like = _draw_token_id(token) is not None or bool(_UUID_TOKEN_RE.fullmatch(token))
+        with get_db() as conn:
+            # 1. By numeric ID, then client_id (format default direktif sejak offline-first)
+            row = _resolve_owned_drawing(conn, token, uid)
+
+            # 2. By title parameter (hanya untuk token yang bukan id/UUID)
+            if not row and title and not id_like:
                 row = conn.execute(
                     "SELECT id, title, svg_preview FROM drawings WHERE title = ? AND user_id = ?",
                     (title.strip(), uid)
                 ).fetchone()
-                if not row:
-                    row = conn.execute(
-                        "SELECT id, title, svg_preview FROM drawings WHERE title = ?",
-                        (title.strip(),)
-                    ).fetchone()
                 if not row:
                     clean_t = re.sub(r'^(?:gambar|canvas)\s*[-:]*\s*', '', title, flags=re.IGNORECASE).strip()
                     if clean_t:
@@ -5289,20 +5388,6 @@ def _make_drawing_resolver(uid: int, note_id: int = None):
                             "SELECT id, title, svg_preview FROM drawings WHERE title LIKE ? AND user_id = ?",
                             (f"%{clean_t}%", uid)
                         ).fetchone()
-
-            # 3. By string did (title or cid)
-            if not row:
-                row = conn.execute(
-                    "SELECT id, title, svg_preview FROM drawings WHERE title = ? OR id = ?",
-                    (str(did), str(did))
-                ).fetchone()
-
-            # 4. Fallback by note_id
-            if not row and note_id:
-                row = conn.execute(
-                    "SELECT id, title, svg_preview FROM drawings WHERE id = ?",
-                    (note_id,)
-                ).fetchone()
 
             if row:
                 return {
@@ -5315,8 +5400,16 @@ def _make_drawing_resolver(uid: int, note_id: int = None):
 
 
 def _make_image_resolver(uid: int, note_id: int = None):
+    """Resolver lampiran gambar untuk ekspor DOCX. File diambil server dari Nextcloud dengan kredensial server,
+    sedangkan isi note dan note_id bisa datang bebas dari klien (POST /api/scratchpad/export/docx), jadi
+    lampiran hanya ter-resolve bila note-nya bisa diakses pengekspor (_note_access_clause: miliknya, atau di
+    workspace tempat ia owner/anggota), baik lewat id lampiran maupun lewat nama di note_id. Pengecualian hanya
+    untuk id lampiran: lampiran note publish TANPA password milik siapa pun juga boleh, karena file itu sudah
+    bisa dibuka siapa pun di /pub/attachments/<id> (note_id dari request tetap hanya dicek aksesnya). Nama yang
+    tidak ketemu di note_id (atau tanpa note_id) hanya jatuh ke lampiran milik uid sendiri."""
     _img_cache: dict[str, Optional[bytes]] = {}
     _nc_disabled = False
+    access_clause, access_params = _note_access_clause(uid, "n")
 
     def _resolve_image(src: str, alt: str = None):
         nonlocal _nc_disabled
@@ -5336,11 +5429,21 @@ def _make_image_resolver(uid: int, note_id: int = None):
         with get_db() as conn:
             att = None
             if att_id:
-                att = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
+                att = conn.execute(
+                    "SELECT a.* FROM note_attachments a JOIN scratchpad_notes n ON n.id = a.note_id "
+                    f"WHERE a.id = ? AND ({access_clause} OR EXISTS ("
+                    "SELECT 1 FROM published_notes p WHERE p.note_id = a.note_id "
+                    "AND (p.password_hash IS NULL OR p.password_hash = '')))",
+                    [att_id] + access_params
+                ).fetchone()
             else:
-                # 1. Look in attachments of this note
+                # 1. Look in attachments of this note (only if the exporter can access that note)
                 if note_id:
-                    for row in conn.execute("SELECT * FROM note_attachments WHERE note_id = ?", (note_id,)).fetchall():
+                    for row in conn.execute(
+                        "SELECT a.* FROM note_attachments a JOIN scratchpad_notes n ON n.id = a.note_id "
+                        f"WHERE a.note_id = ? AND {access_clause}",
+                        [note_id] + access_params
+                    ).fetchall():
                         orig = (row["original_name"] or "").strip().lower()
                         no_ext = os.path.splitext(orig)[0]
                         if orig in (clean_fn, clean_alt) or no_ext in (clean_fn, clean_alt) or (clean_fn and (clean_fn.endswith(orig) or orig.endswith(clean_fn))):
@@ -5392,7 +5495,7 @@ async def export_scratchpad_docx(note_id: int, user=Depends(get_current_user)):
         "tags": note_dict.get("tags") or [],
         "updated_at": note_dict.get("updated_at")
     }
-    drawing_res = _make_drawing_resolver(uid, note_id=note_id)
+    drawing_res = _make_drawing_resolver(uid)
     image_res = _make_image_resolver(uid, note_id=note_id)
     try:
         doc_io = markdown_to_docx(title, content, meta, drawing_resolver=drawing_res, image_resolver=image_res)
@@ -5449,7 +5552,7 @@ async def export_scratchpad_docx_live(req: NoteExportLiveRequest, user=Depends(g
     client_drawings = req.drawings or {}
     client_images = req.images or {}
 
-    db_draw_res = _make_drawing_resolver(uid, note_id=req.note_id)
+    db_draw_res = _make_drawing_resolver(uid)
 
     def combined_drawing_res(did, title=None):
         if client_drawings:
@@ -6562,17 +6665,22 @@ _PASSWORD_GATE_HTML = """<!DOCTYPE html>
 </body></html>"""
 
 @app.get("/pub/attachments/{att_id}")
-async def view_published_attachment(att_id: int):
-    """Public attachment view — only if the parent note is published."""
+async def view_published_attachment(att_id: str, request: Request):
+    """Public attachment view — only if the parent note is published and, when it is
+    password-protected, unlocked for this request (valid unlock cookie)."""
     import requests as _req
+    att_row_id = _draw_token_id(att_id)
+    if att_row_id is None:
+        # bukan id angka dalam INTEGER SQLite: pasti tidak ada, 404 yang sama dan bukan OverflowError → 500
+        raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
     with get_db() as conn:
         att = conn.execute(
-            """SELECT a.* FROM note_attachments a
+            """SELECT a.*, p.slug, p.password_hash FROM note_attachments a
                JOIN published_notes p ON p.note_id = a.note_id
                WHERE a.id = ?""",
-            (att_id,)
+            (att_row_id,)
         ).fetchone()
-        if not att:
+        if not att or not _pub_note_unlocked(request, att["slug"], att["password_hash"]):
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
 
         safe_name = (att["original_name"] or "file").replace('"', '_').replace('\r', '').replace('\n', '')
@@ -6606,20 +6714,11 @@ async def view_published_attachment(att_id: int):
         raise HTTPException(status_code=404, detail="File tidak ditemukan")
 
 @app.get("/pub/drawings/{drawing_id}")
-async def get_published_drawing(drawing_id: str):
-    """Public drawing retrieval for published notes."""
+async def get_published_drawing(drawing_id: str, request: Request):
+    """Public drawing retrieval: hanya drawing yang di-embed penerbit di note publish pribadi yang tepercaya (isinya
+    terakhir ditulis pemiliknya, bukan note bersama) dan terbuka bagi request ini."""
     with get_db() as conn:
-        row = None
-        if drawing_id.isdigit():
-            row = conn.execute(
-                "SELECT id, title, data_json, svg_preview FROM drawings WHERE id = ?",
-                (int(drawing_id),)
-            ).fetchone()
-        if not row:
-            row = conn.execute(
-                "SELECT id, title, data_json, svg_preview FROM drawings WHERE client_id = ?",
-                (drawing_id,)
-            ).fetchone()
+        row = _published_drawing_for_request(conn, drawing_id, request)
         if not row:
             raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
         return {
@@ -6646,7 +6745,8 @@ async def view_published_note(username: str, slug: str, request: Request):
     """Public page for a published note. Server-side rendered HTML with OG meta."""
     with get_db() as conn:
         row = conn.execute(
-            """SELECT n.title, n.content, n.updated_at, p.published_at, p.password_hash, p.note_id, u.username
+            """SELECT n.title, n.content, n.updated_at, n.list_id, n.user_id AS note_user_id, n.last_edited_by,
+                      p.published_at, p.password_hash, p.note_id, p.user_id, u.username
                FROM published_notes p
                JOIN scratchpad_notes n ON n.id = p.note_id
                JOIN users u ON u.id = p.user_id
@@ -6660,17 +6760,14 @@ async def view_published_note(username: str, slug: str, request: Request):
             )
 
         # Password gate
-        if row["password_hash"]:
-            cookie_key = f"pub_unlock_{slug}"
-            cookie_val = request.cookies.get(cookie_key, "")
-            if not cookie_val or _verify_cookie(cookie_val) != slug:
-                # Show password form
-                return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
-                    username=username,
-                    slug=slug,
-                    error_html="",
-                    css=_PUBLIC_CSS
-                ))
+        if not _pub_note_unlocked(request, slug, row["password_hash"]):
+            # Show password form
+            return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
+                username=username,
+                slug=slug,
+                error_html="",
+                css=_PUBLIC_CSS
+            ))
 
         import re as _re
 
@@ -6698,7 +6795,16 @@ async def view_published_note(username: str, slug: str, request: Request):
         desc_clean = _re.sub(r'==([^=\n]+)==', r'\1', desc_clean)
         desc_clean = _re.sub(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]', r'\1', desc_clean)
         description = html.escape(desc_clean[:200].replace('\n', ' ').strip())
-        body_html = _render_published_content(raw_content, conn, note_id=row["note_id"])
+        # Note tepercaya = isinya hanya ditulis penerbit: pribadi (list_id kosong), milik penerbit, dan terakhir disunting
+        # pemiliknya (aturan sama dengan _published_drawing_for_request). Selain itu (note bersama, atau note yang pernah
+        # diedit orang lain lalu kembali pribadi) token ::draw di dalamnya bukan bukti pemilik drawing mau menampilkannya.
+        # trusted_owner_id gerbang resolusi drawing DAN wikilink berpassword; None -> semua token jadi kartu "tidak tersedia".
+        trusted = (
+            row["list_id"] is None and row["note_user_id"] == row["user_id"]
+            and (row["last_edited_by"] is None or row["last_edited_by"] == row["note_user_id"])
+        )
+        trusted_owner_id = row["user_id"] if trusted else None
+        body_html = _render_published_content(raw_content, conn, note_id=row["note_id"], owner_id=trusted_owner_id)
 
         # Dates
         created_date = _safe_date(row["published_at"])
@@ -6805,6 +6911,7 @@ async def view_published_note(username: str, slug: str, request: Request):
             toc_html = f'<section class="pub-toc"><h3>&#128211; Contents</h3><ul>{toc_list}</ul></section>'
 
         # Build backlinks: other published notes that link to this note
+        # (password-protected ones are never listed: their title and slug must not leak to other pages)
         note_title = row["title"] or ""
         backlinks_html = ""
         if note_title.strip():
@@ -6813,7 +6920,8 @@ async def view_published_note(username: str, slug: str, request: Request):
                 """SELECT n.title, n.content, p2.slug, u2.username FROM scratchpad_notes n
                    JOIN published_notes p2 ON p2.note_id = n.id
                    JOIN users u2 ON u2.id = p2.user_id
-                   WHERE n.id != ? ORDER BY n.title""",
+                   WHERE n.id != ? AND (p2.password_hash IS NULL OR p2.password_hash = '')
+                   ORDER BY n.title""",
                 (row["note_id"],)
             ).fetchall()
             backlinks = []
@@ -6822,30 +6930,12 @@ async def view_published_note(username: str, slug: str, request: Request):
                 if f"[[{t}]]" in c or f"\\[\\[{t}]]" in c:
                     backlinks.append(b)
             if backlinks:
+                # judul, username, dan slug berasal dari note user lain: di-escape, bukan ditanam mentah
                 items = "".join(
-                    f'<li><a href="/pub/{b["username"]}/{b["slug"]}">{_esc(b["title"] or "Untitled")}</a></li>'
+                    f'<li><a href="{_pub_href(b["username"], b["slug"])}">{html.escape(b["title"] or "Untitled")}</a></li>'
                     for b in backlinks
                 )
                 backlinks_html = f'<section><h3>&#128279; Related</h3><ul>{items}</ul></section>'
-
-        # Drawing canvas (read-only embed for legacy per-note canvas)
-        drawing_html = ''
-        drawing_data_js = 'null'
-        if row["note_id"]:
-            did = str(row["note_id"])
-            # Check if drawing data exists
-            draw_row = conn.execute(
-                "SELECT data_json FROM drawings WHERE id = ?", (did,)
-            ).fetchone()
-            if draw_row and draw_row["data_json"] and draw_row["data_json"].strip() not in ('{}', ''):
-                import json as _json
-                drawing_data_js = _json.dumps(draw_row["data_json"])
-                drawing_html = f'''<section class="pub-drawing">
-<h3>&#127912; Drawing</h3>
-<div class="pub-drawing-container" id="drawing-container">
-  <iframe src="/static/vendor/tldraw/index.html?noteId={did}" id="drawing-iframe" title="Drawing" style="width:100%;height:100%;border:none"></iframe>
-</div>
-</section>'''
 
         try:
             page_html = _PUBLIC_PAGE_HTML.format(
@@ -6867,8 +6957,8 @@ async def view_published_note(username: str, slug: str, request: Request):
                 tags_html=tags_html,
                 cover_html=cover_html,
                 attachments_html=attachments_html,
-                drawing_html=drawing_html,
-                drawing_data_js=drawing_data_js,
+                drawing_html='',  # kanvas legacy per-note sudah dihapus; slot template dibiarkan kosong
+                drawing_data_js='null',
             )
             return HTMLResponse(content=page_html)
         except Exception:
