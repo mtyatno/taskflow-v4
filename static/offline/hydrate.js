@@ -32,6 +32,8 @@
     rec.deleted = false;
     rec.dirty = 0;
     rec.base_rev = dict.updated_at != null ? dict.updated_at : null;
+    // client_id server (= cid perangkat pembuat; id link node mindmap) → resolver lokal bisa menemukan record ini
+    if (dict.client_id != null && dict.client_id !== "") rec.client_id = String(dict.client_id);
     return rec;
   }
 
