@@ -3,8 +3,8 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
-## 🟠 Project sebagai entitas pribadi/workspace — PR 4 backend — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
-- **Status:** branch `claude/project-entities-backend` (draft PR). Backend saja (`webapp.py`, `repository.py`, 3 file tes); tanpa frontend/SW. Migrasi otomatis di `migrate_db()` (tabel `projects`, `tasks.project_id`, backfill). **Deploy wajib restart `taskflow-web` DAN `taskflow` (bot)** karena `repository.py` berubah.
+## 🟠 Project sebagai entitas pribadi/workspace — PR 4 backend — 2026-10-19 (Claude) — DI-MERGE & DEPLOY (BELUM RESTART)
+- **Status:** PR #36 di-merge Bapak (`3d87d22`, 2026-10-19 13:09 WIB), Deploy run #906 sukses (migrasi `projects` + backfill sudah jalan via `migrate_db()`). Branch `claude/project-entities-backend`. Backend saja (`webapp.py`, `repository.py`, 3 file tes); tanpa frontend/SW. Migrasi otomatis di `migrate_db()` (tabel `projects`, `tasks.project_id`, backfill). **Deploy wajib restart `taskflow-web` DAN `taskflow` (bot)** karena `repository.py` berubah.
 - **Urutan kerja yang disepakati Bapak (2026-10-19):** PR 4–5 (project) → PR 2–3 (drawing workspace) → PR XSS (1b). PR audio/video di note dikerjakan Bapak di sesi lain.
 - **Isi:** tabel `projects` (ADR-010), resolver `resolve_task_project` di semua jalur tulis task (web + bot), API `GET/POST/PATCH/DELETE /api/projects` (opsi C), bot `/projects` membaca tabel.
 - **Verifikasi:** pytest 299/299, JS 1366/1367 (pra-ada `draw_local_reactive`), simulasi upgrade DB lama (backfill dua kali, data yatim tidak menggagalkan migrasi). Proses SDD: 3 task + review per task, review akhir (opus) + 1 gelombang perbaikan (backfill tahan FK rusak, resolusi hanya saat project berubah, perbaikan link basi, validasi warna) + re-review.

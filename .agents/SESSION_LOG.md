@@ -3389,3 +3389,9 @@
 - **Verifikasi:** pytest 299/299, JS 1366/1367, simulasi upgrade DB lama.
 - **Files Touch:** `webapp.py`, `repository.py`, `tests/test_projects_{schema,tasks,api}.py`, `docs/superpowers/{plans,specs}/…`, `.agents/*`
 - **Status:** Needs Review (draft PR, tunggu "merge dan deploy"; restart `taskflow-web` + `taskflow`).
+
+## [2026-10-19 13:12] - Claude (PR #36 merge & deploy)
+- **Task:** Bapak me-merge PR #36 (project sebagai entitas, backend).
+- **Changes:** merge `3d87d22`; Deploy run #906 sukses. Restart `taskflow-web` dan `taskflow` (bot) diperlukan agar kode baru aktif.
+- **Files Touch:** `.agents/*`
+- **Status:** Done (merged & deployed, belum restart).
