@@ -3498,3 +3498,10 @@
 ## 2026-10-19 21:30 WIB — Claude — merge temuan mindmap #3–#8
 - Bapak: "merge dan deploy". Main sudah maju (#45 drawing UI, SW v421, ADR-013) → PR A di-merge main (SW v422, ADR-014), PR B di-merge A (SW v423, ADR-015); CI hijau keduanya.
 - #44 di-merge (770dacd), #46 di-retarget ke `main` lalu di-merge (5cc231e). Deploy: `git pull` + `sudo systemctl restart taskflow-web` di server (dilakukan Bapak; sesi cloud tidak terhubung ke server).
+
+## [2026-10-20 00:30] - Claude (PR 1b: pengamanan XSS)
+- **Task:** Bapak "lanjutkan dengan XSS"; spec + rencana `docs/superpowers/plans/2026-10-19-xss-hardening.md` disetujui; CSP aplikasi dipisah.
+- **Changes:** SDD 6 task + review per task. Temuan di tengah: KaTeX publik re-parse innerHTML (diganti per text node), CSP perlu `img-src https:`, blob URL SVG se-origin (diganti data:). Review akhir: XSS mindmap bersama (`dangerouslySetInnerHTML`/`hyperLink` mind-elixir) dan spoof tipe lampiran di penampil aplikasi — diperbaiki; `<details>` server tanpa `<p>`; PDF tanpa sandbox; CI menjalankan paritas JS/Py. ADR-014.
+- **Verifikasi:** pytest 556, JS 1833/1834, E2E 41/41.
+- **Status:** Needs Review (draft PR; restart `taskflow-web` + `taskflow`).
+
