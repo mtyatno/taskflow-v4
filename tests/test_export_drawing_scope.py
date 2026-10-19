@@ -264,6 +264,14 @@ def test_export_member_of_shared_note_does_not_get_own_lookalike_drawing(client)
         f'::draw[{a["client_id"]}]{{title="Untitled Drawing"}}',
     ])
     shared_note = _create_note(client, ha, f"Note bersama A {tag}", content, list_id=w)
+    # Sejak PR 2, membuat note W yang merujuk drawing pribadi pembuatnya memindahkan drawing itu ke W (lalu M bisa
+    # mengaksesnya). Tes ini butuh drawing A tetap pribadi, jadi kembalikan lewat DB.
+    conn = db()
+    try:
+        conn.execute("UPDATE drawings SET list_id = NULL WHERE id = ?", (a["id"],))
+        conn.commit()
+    finally:
+        conn.close()
 
     for kind, (text, pictures) in _exports(client, hm, shared_note, content).items():
         assert pictures == 0, f"{kind}: drawing M sendiri tersemat untuk rujukan ke drawing A"

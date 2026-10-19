@@ -4291,36 +4291,22 @@ def _generate_publish_slug(conn, title: str = "") -> str:
     raise HTTPException(status_code=500, detail="Gagal generate slug unik — coba lagi")
 
 # ── Akses publik drawing ───────────────────────────────────────────────────────
-# Drawing tampil di halaman publik hanya bila dirujuk ::draw[token] oleh note publish TEPERCAYA milik pemilik
-# drawing, yaitu isinya hanya ditulis penerbit: note pribadi (list_id kosong), milik penerbit sendiri, dan terakhir
-# disunting pemiliknya (last_edited_by kosong atau = pemilik; semua penulisan isi lewat POST/PUT /api/scratchpad
-# mengisinya dengan penulis). Note publish bersama (list_id terisi) tidak menampilkan drawing apa pun dan tidak
-# dihitung sebagai rujukan: anggota workspace ikut mengedit isinya, jadi rujukan di dalamnya bukan bukti bahwa
-# pemilik drawing mau menampilkannya (anggota bisa menyisipkan ::draw[1..N] ke note bersama yang dipublish).
-# list_id kosong saja tidak cukup: note yang sempat diedit orang lain lalu kembali pribadi (workspace dihapus =
+# Drawing tampil di halaman publik hanya bila dirujuk ::draw[token] oleh note publish yang terbuka bagi request dan:
+# (a) note TEPERCAYA (isinya hanya ditulis penerbit: pribadi/list_id kosong, milik penerbit, dan terakhir disunting
+# pemiliknya, last_edited_by kosong atau = pemilik) dan drawing itu bisa diakses PENERBIT (miliknya, atau di workspace
+# tempat ia owner/anggota); atau (b) note publish BERSAMA di workspace W dan drawings.list_id = W (spec §3 setelah PR 2).
+# Pada (b) rujukan saja tidak membuka drawing di luar W: anggota ikut mengedit isi note bersama, jadi ::draw[1..N] yang
+# disisipkan anggota tidak boleh membuka drawing pribadi pemilik. Drawing W memang milik bersama anggota W.
+# list_id kosong saja tidak cukup untuk (a): note yang sempat diedit orang lain lalu kembali pribadi (workspace dihapus =
 # list_id SET NULL, atau di-unshare) tetap membawa isi suntikan itu, sehingga last_edited_by harus pemiliknya.
 # Token = id angka atau client_id (UUID, format default sejak offline-first). Bentuk ter-escape oleh
 # serializer markdown (::draw\[x\]) ikut dikenali.
 _DRAW_DIRECTIVE_RE = drawing_scope.DRAW_DIRECTIVE_RE  # definisi di drawing_scope.py (dipakai bersama)
 _DRAW_TOKEN_RE = re.compile(r'[0-9a-zA-Z_-]+')
-_DRAWING_COLS = "id, user_id, client_id, title, svg_preview, data_json"
+_DRAWING_COLS = "id, user_id, client_id, title, svg_preview, data_json, list_id"
 
 _draw_tokens = drawing_scope.draw_tokens
 _draw_token_id = drawing_scope.draw_token_id
-
-def _resolve_owned_drawing(conn, token: str, owner_id: int) -> Optional[sqlite3.Row]:
-    """Drawing milik owner_id yang dirujuk token direktif: id angka dulu, lalu client_id.
-    Selalu terscope ke pemilik; judul drawing tidak pernah dipakai sebagai kunci."""
-    did = _draw_token_id(token)
-    if did is not None:
-        row = conn.execute(
-            f"SELECT {_DRAWING_COLS} FROM drawings WHERE id = ? AND user_id = ?", (did, owner_id)
-        ).fetchone()
-        if row:
-            return row
-    return conn.execute(
-        f"SELECT {_DRAWING_COLS} FROM drawings WHERE client_id = ? AND user_id = ?", (token, owner_id)
-    ).fetchone()
 
 def _pub_note_unlocked(request: Request, slug: str, password_hash: Optional[str]) -> bool:
     """True bila note publish tanpa password, atau request membawa cookie unlock yang valid untuk slug-nya."""
@@ -4349,18 +4335,26 @@ def _published_drawing_for_request(conn, token: str, request: Request) -> Option
             candidates.append(row)
     candidates.extend(conn.execute(f"SELECT {_DRAWING_COLS} FROM drawings WHERE client_id = ?", (token,)).fetchall())
     for d in candidates:
-        refs = {str(d["id"])}
-        if d["client_id"]:
-            refs.add(d["client_id"])
+        refs = drawing_scope.refs_of(d)
         published = conn.execute(
-            "SELECT p.slug, p.password_hash, n.content FROM published_notes p "
-            "JOIN scratchpad_notes n ON n.id = p.note_id "
-            "WHERE p.user_id = ? AND n.list_id IS NULL AND n.user_id = p.user_id "
-            "AND (n.last_edited_by IS NULL OR n.last_edited_by = n.user_id)",
-            (d["user_id"],)
+            "SELECT p.slug, p.password_hash, p.user_id AS publisher_id, n.list_id AS note_list_id, n.content "
+            "FROM published_notes p JOIN scratchpad_notes n ON n.id = p.note_id "
+            "WHERE n.content LIKE '%::draw%' AND ("
+            "  (n.list_id IS NULL AND n.user_id = p.user_id "
+            "   AND (n.last_edited_by IS NULL OR n.last_edited_by = n.user_id)) "
+            "  OR (n.list_id IS NOT NULL AND n.list_id = ?))",
+            (d["list_id"],)
         ).fetchall()
         for p in published:
-            if (_draw_tokens(p["content"]) & refs) and _pub_note_unlocked(request, p["slug"], p["password_hash"]):
+            if not (_draw_tokens(p["content"]) & refs):
+                continue
+            if p["note_list_id"] is None:
+                # (a) tepercaya: drawing harus bisa diakses penerbit
+                clause, params = drawing_scope.access_clause(p["publisher_id"])
+                if not conn.execute(f"SELECT 1 FROM drawings WHERE id = ? AND {clause}", [d["id"], *params]).fetchone():
+                    continue
+            # (b) note bersama: n.list_id = d.list_id sudah dijamin oleh query
+            if _pub_note_unlocked(request, p["slug"], p["password_hash"]):
                 return d
     return None
 
@@ -4371,13 +4365,14 @@ def _pub_href(username: str, slug: str) -> str:
         return html.escape(urllib.parse.quote(value, safe=''), quote=True)
     return f"/pub/{seg(username)}/{seg(slug)}"
 
-def _render_published_content(raw_content: str, conn, note_id: int = None, owner_id: int = None) -> str:
+def _render_published_content(raw_content: str, conn, note_id: int = None, owner_id: int = None,
+                              list_id: int = None) -> str:
     """Process raw markdown for public page: strip internal tokens, resolve wikilinks, render to HTML.
     owner_id = penerbit note publish tepercaya (pribadi, milik penerbit, terakhir disunting pemiliknya); token
-    ::draw[...] hanya di-resolve ke drawing miliknya, dan wikilink ke note berpassword hanya di-resolve bila note
+    ::draw[...] di-resolve ke drawing yang bisa diakses penerbit, dan wikilink ke note berpassword hanya di-resolve bila note
     target milik penerbit yang sama.
-    owner_id=None (note bersama, note yang terakhir disunting orang lain, atau tanpa penerbit) = tidak ada drawing
-    dan tidak ada note berpassword yang di-resolve."""
+    owner_id=None = tidak ada note berpassword yang di-resolve; drawing hanya di-resolve bila list_id terisi (note bersama di W):
+    drawing ber-list_id = W. Note yang terakhir disunting orang lain tanpa list_id = tidak ada drawing."""
     import re as _re
     content = raw_content or ""
 
@@ -4573,7 +4568,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
 
         # Hanya drawing milik penerbit note tepercaya (id angka, lalu client_id); owner_id None = tidak ada.
         # Judul dan id note tidak dipakai sebagai kunci.
-        d_row = _resolve_owned_drawing(conn, drawing_id, owner_id) if owner_id is not None else None
+        d_row = drawing_scope.resolve_for_publish(conn, drawing_id, owner_id, list_id, _DRAWING_COLS)
 
         if d_row and not title:
             title = d_row["title"]
@@ -5595,25 +5590,27 @@ def _make_drawing_resolver(uid: int):
     dengan id note. Aplikasi menulis direktif ::draw[<id atau uuid>]{title="<judul>"}: token berbentuk id/UUID
     yang tidak ter-resolve (drawing orang lain, mis. anggota mengekspor note bersama pemilik) tidak boleh
     ditebak lewat judul, karena akan menyematkan drawing pengekspor sendiri yang kebetulan berjudul sama."""
+    _dclause, _dparams = drawing_scope.access_clause(uid)
+
     def _resolve_drawing(did, title=None):
         token = str(did)
         id_like = _draw_token_id(token) is not None or bool(_UUID_TOKEN_RE.fullmatch(token))
         with get_db() as conn:
             # 1. By numeric ID, then client_id (format default direktif sejak offline-first)
-            row = _resolve_owned_drawing(conn, token, uid)
+            row = drawing_scope.find_accessible(conn, token, uid, "id, title, svg_preview")
 
             # 2. By title parameter (hanya untuk token yang bukan id/UUID)
             if not row and title and not id_like:
                 row = conn.execute(
-                    "SELECT id, title, svg_preview FROM drawings WHERE title = ? AND user_id = ?",
-                    (title.strip(), uid)
+                    f"SELECT id, title, svg_preview FROM drawings WHERE title = ? AND {_dclause} ORDER BY (user_id = ?) DESC, id LIMIT 1",
+                    (title.strip(), *_dparams, uid)
                 ).fetchone()
                 if not row:
                     clean_t = re.sub(r'^(?:gambar|canvas)\s*[-:]*\s*', '', title, flags=re.IGNORECASE).strip()
                     if clean_t:
                         row = conn.execute(
-                            "SELECT id, title, svg_preview FROM drawings WHERE title LIKE ? AND user_id = ?",
-                            (f"%{clean_t}%", uid)
+                            f"SELECT id, title, svg_preview FROM drawings WHERE title LIKE ? AND {_dclause} ORDER BY (user_id = ?) DESC, id LIMIT 1",
+                            (f"%{clean_t}%", *_dparams, uid)
                         ).fetchone()
 
             if row:
@@ -7035,7 +7032,8 @@ async def view_published_note(username: str, slug: str, request: Request):
             and (row["last_edited_by"] is None or row["last_edited_by"] == row["note_user_id"])
         )
         trusted_owner_id = row["user_id"] if trusted else None
-        body_html = _render_published_content(raw_content, conn, note_id=row["note_id"], owner_id=trusted_owner_id)
+        body_html = _render_published_content(raw_content, conn, note_id=row["note_id"], owner_id=trusted_owner_id,
+                                             list_id=None if trusted else row["list_id"])
 
         # Dates
         created_date = _safe_date(row["published_at"])

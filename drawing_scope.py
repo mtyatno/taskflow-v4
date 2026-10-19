@@ -101,6 +101,25 @@ def find_accessible(conn, token: str, uid: int, cols: str = "*") -> Optional[sql
     ).fetchone()
 
 
+def resolve_for_publish(conn, token: str, owner_id: Optional[int], list_id: Optional[int],
+                        cols: str = "*") -> Optional[sqlite3.Row]:
+    """Drawing yang boleh ditampilkan di halaman publik untuk token direktif.
+    owner_id terisi (note tepercaya: pribadi, ditulis penerbit) -> drawing yang bisa diakses penerbit.
+    Selain itu, list_id terisi (note publish bersama di W) -> hanya drawing ber-list_id = W (id angka, lalu client_id).
+    Keduanya None -> None. Judul tidak pernah jadi kunci."""
+    if owner_id is not None:
+        return find_accessible(conn, token, owner_id, cols)
+    if list_id is None:
+        return None
+    did = draw_token_id(token)
+    if did is not None:
+        row = conn.execute(f"SELECT {cols} FROM drawings WHERE id = ? AND list_id = ?", (did, list_id)).fetchone()
+        if row:
+            return row
+    return conn.execute(f"SELECT {cols} FROM drawings WHERE client_id = ? AND list_id = ? ORDER BY id LIMIT 1",
+                        (token, list_id)).fetchone()
+
+
 def refs_of(row) -> set[str]:
     """Token yang bisa merujuk drawing ini: id dan client_id (bila ada)."""
     refs = {str(row["id"])}
