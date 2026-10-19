@@ -25,7 +25,7 @@
 - **Inti keputusan:** dua arah; cermin murni dengan catatan sebagai satu-satunya sumber data; peta tertaut = baris `mindmaps` + `source_note_id`, `data_json` hanya pengaturan tampilan; ringkasan per node berbasis aturan (kalimat pertama + 3 butir daftar + baris hitungan); Ctrl/Cmd+Click, klik kanan, atau tombol Ops → `NoteModal` di atas peta tepat di heading (tetap di halaman Mindmap); pemilik dan `list_id` peta = catatan; edit yang bentrok dibatalkan; tanpa LLM.
 - **Temuan review fitur mindmap (2026-10-18) — belum dikerjakan, Bapak minta diselesaikan satu per satu nanti:**
   1. Link quick-create di Outline (`LinkPickerModal` → `api.post` lokal) menyimpan cid; pull task/mindmap membuat cid baru (`syncpull.js` `ensureCid` / `ensureMindmapCid`) → link mati di perangkat lain. Note aman (pull memakai `client_id` sebagai cid). Dibuktikan probe node.
-  2. Picker link di iframe kanvas memakai `fetch` mentah (`/api/search`, POST scratchpad/tasks/mindmaps) → tidak jalan offline, item baru belum ada di IndexedDB sampai sync berikutnya, APK tanpa `API_BASE`.
+  2. **[DIPERBAIKI — PR fix #2, branch `claude/mindmap-fix-2-canvas-picker`]** Picker link di iframe kanvas memakai `fetch` mentah (`/api/search`, POST scratchpad/tasks/mindmaps) → tidak jalan offline, item baru belum ada di IndexedDB sampai sync berikutnya, APK tanpa `API_BASE`.
   3. Kartu link node = snapshot (judul/prioritas/deadline/status saat ditautkan), tidak ikut berubah.
   4. Kolaborasi mindmap bersama tidak real-time (sync 30 detik; edit bersamaan → salinan konflik seluruh peta).
   5. Hapus mindmap = hard delete (tanpa Sampah/riwayat).

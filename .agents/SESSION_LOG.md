@@ -3401,3 +3401,9 @@
 - **Changes:** mindmaprepo/mindmaproutes (peta tertaut lokal), noterepo.applyMapEdit, syncpush/syncpull tertaut, iframe mind-elixir mode tertaut, `static/offline/notemapsession.js` baru + wiring MindmapTabInstance/MindmapOutline/NoteModal/NotePanel/NotesPage/App/MindmapPage, SW v416, iframe ?v=142. Review akhir menemukan Focus Mode + sid basi/asing bisa mengacak catatan → diperbaiki dengan gen sesi + `nm.ns` + keluar Focus Mode saat muat ulang (Playwright membuktikan).
 - **Files Touch:** `static/offline/{mindmaprepo,mindmaproutes,noterepo,syncpush,syncpull,mindmapops,notemapsession}.js`, `static/index.html`, `static/vendor/mind-elixir/index.html`, `static/sw.js`, `webapp.py` (sw_cache), tes, `.agents/*`
 - **Status:** PR 3/3 draft. JS 1458/1459, pytest 299/299.
+
+## [2026-10-19 15:20] - Claude (Temuan mindmap #2 — picker link kanvas)
+- **Task:** temuan #2 setelah #1 (PR #38).
+- **Changes:** tombol "+ Tambah link" di iframe kanvas kini mengirim `requestLinkPicker {nodeId, links}` ke induk → `LinkPickerModal` (quick-create lokal-first, langsung ada di IndexedDB, idempoten, jalan offline/APK); picker lama iframe (fetch mentah, `tf_token`, innerHTML) dihapus; `LinkPickerModal` mencari lewat `searchLinkTargets` (online `/api/search`, offline/gagal → pencarian lokal task/catatan/mindmap); iframe `?v=143`; SW v418.
+- **Files Touch:** `static/vendor/mind-elixir/index.html`, `static/index.html`, `static/offline/mindmapoutline.js`, `tests/offline/mindmap_canvas_linkpicker.test.js`, versi SW, `.agents/*`
+- **Status:** PR draft. JS 1471/1472 (pra-ada `draw_local_reactive`), pytest 299/299, Playwright 16/16. Bentrok versi SW dengan PR #38 (v417) — PR yang di-merge kedua perlu merge main + naik versi.
