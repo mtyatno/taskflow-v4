@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import base64 as _base64
 import html as _html
+import json as _json
 import re
 
 __all__ = [
     "escape_html", "escape_attr", "restore_allowed_tags", "safe_url", "safe_draw_attrs", "svg_img_tag",
-    "OBFUSCATED_CASES",
+    "sanitize_mind_tree", "sanitize_mind_json", "OBFUSCATED_CASES",
 ]
 
 
@@ -117,6 +118,72 @@ def safe_draw_attrs(attrs) -> dict:
         else:
             out[key] = value
     return out
+
+
+# ── Data mindmap (mind-elixir) ──────────────────────────────────────────────
+# Mesin mind-elixir memakai node.dangerouslySetInnerHTML sebagai innerHTML dan node.hyperLink sebagai href tanpa
+# cek skema; data_json peta bersama ditulis anggota mana pun. Kunci /^dangerously/i (ASCII, tidak peka huruf)
+# dibuang di semua tingkat; hyperLink dipertahankan hanya bila string dan lolos safe_url. Padanan klien:
+# TF.safehtml.sanitizeMindTree (paritas di tests/offline/safehtml_parity.test.js).
+_MIND_DANGEROUS_KEY_RE = re.compile(r"^dangerously", re.IGNORECASE | re.ASCII)
+
+
+def _sanitize_mind_tree(obj):
+    """(salinan bersih, berubah?) — iteratif (tanpa batas rekursi), tidak mengubah obj."""
+    if not isinstance(obj, (dict, list)):
+        return obj, False
+    changed = False
+    out = {} if isinstance(obj, dict) else []
+    stack = [(obj, out)]
+    while stack:
+        src, dst = stack.pop()
+        items = src.items() if isinstance(src, dict) else enumerate(src)
+        for k, v in items:
+            if isinstance(src, dict):
+                if isinstance(k, str) and _MIND_DANGEROUS_KEY_RE.match(k):
+                    changed = True
+                    continue
+                if k == "hyperLink":
+                    safe = safe_url(v) if isinstance(v, str) else None
+                    if safe is None:
+                        changed = True
+                        continue
+                    if safe != v:
+                        changed = True
+                    dst[k] = safe
+                    continue
+            if isinstance(v, (dict, list)):
+                child = {} if isinstance(v, dict) else []
+                stack.append((v, child))
+                v = child
+            if isinstance(dst, dict):
+                dst[k] = v
+            else:
+                dst.append(v)
+    return out, changed
+
+
+def sanitize_mind_tree(obj):
+    """Salinan data mindmap tanpa kunci dangerously* dan tanpa hyperLink yang tidak aman (di semua tingkat:
+    nodeData, children, summaries, arrows, …). Selain dict/list dikembalikan apa adanya."""
+    return _sanitize_mind_tree(obj)[0]
+
+
+def sanitize_mind_json(s):
+    """String data_json → string bersih. JSON tidak valid / bukan dict/list → apa adanya; tanpa perubahan →
+    string asli (format klien dipertahankan)."""
+    if not isinstance(s, str):
+        return s
+    try:
+        parsed = _json.loads(s)
+    except (ValueError, RecursionError):
+        return s
+    if not isinstance(parsed, (dict, list)):
+        return s
+    clean, changed = _sanitize_mind_tree(parsed)
+    if not changed:
+        return s
+    return _json.dumps(clean, ensure_ascii=False)
 
 
 # ── Kasus uji bersama (Review Focus #1 rencana + kriteria §1 spec) ──────────

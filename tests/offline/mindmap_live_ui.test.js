@@ -352,10 +352,10 @@ test("resetUndo after a remote apply: undo can no longer restore the pre-remote 
 
 test("iframe resets undo history after remote apply and after a refresh (raced revert / outline edit)", () => {
   const h = slice(iframe, "e.data.type === 'remoteUpdate'", "\n      }\n");
-  assert.match(h, /mind\.refresh\(e\.data\.data\)[\s\S]*mindmapops\.resetUndo\(mind\)/);
+  assert.match(h, /mind\.refresh\(cleanMindData\(e\.data\.data\)\)[\s\S]*mindmapops\.resetUndo\(mind\)/);
   const r = slice(iframe, "e.data.type === 'refresh'", "\n      }\n");
-  assert.match(r, /mind\.refresh\(e\.data\.data\)[\s\S]*mindmapops\.resetUndo\(mind\)/);
-  assert.match(iframe, /<script src="\/static\/offline\/mindmapops\.js\?v=7"><\/script>/);
+  assert.match(r, /mind\.refresh\(cleanMindData\(e\.data\.data\)\)[\s\S]*mindmapops\.resetUndo\(mind\)/);
+  assert.match(iframe, /<script src="\/static\/offline\/mindmapops\.js\?v=8"><\/script>/);
 });
 
 test("stream: only the active tab subscribes; badge only while connected on the active tab", () => {

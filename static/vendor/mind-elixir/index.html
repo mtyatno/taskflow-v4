@@ -473,11 +473,12 @@
     <button id="side-toggle" title="Tutup panel samping">◂</button>
   </div>
   <script src="MindElixir.iife.js?v=121"></script>
+  <script src="/static/offline/safehtml.js?v=1"></script>
   <script src="/static/vendor/marked.min.js?v=124"></script>
   <script src="/static/offline/mindmapoutline.js?v=126"></script>
   <script src="/static/offline/mindmaplinks.js?v=1"></script>
   <script src="/static/offline/notemap.js?v=1"></script>
-  <script src="/static/offline/mindmapops.js?v=7"></script>
+  <script src="/static/offline/mindmapops.js?v=8"></script>
   <script src="/static/offline/mindmapjustify.js?v=1"></script>
   <script>
     let mind = null;
@@ -910,6 +911,59 @@
       if (s === null || s === undefined) return '';
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
+    // XSS: mesin memakai node.dangerouslySetInnerHTML sebagai innerHTML dan node.hyperLink sebagai href tanpa cek
+    // skema, dan data_json peta bersama ditulis anggota mana pun. Semua data yang masuk ke mesin (load,
+    // remoteUpdate, refresh, init/refresh internal, tempel node) lewat sanitizeMindTree. Bila safehtml.js tidak
+    // termuat: coba milik induk (same-origin), lalu fallback yang tetap membuang kunci dangerously* dan SEMUA
+    // hyperLink (gagal tertutup, tidak pernah mentah).
+    function mindSanitizer() {
+      const own = window.TF && window.TF.safehtml;
+      if (own && typeof own.sanitizeMindTree === 'function') return own.sanitizeMindTree;
+      try {
+        const par = window.parent && window.parent !== window && window.parent.TF && window.parent.TF.safehtml;
+        if (par && typeof par.sanitizeMindTree === 'function') return par.sanitizeMindTree;
+      } catch (_) {}
+      return null;
+    }
+    function stripMindFallback(data) {
+      if (data === null || typeof data !== 'object') return data;
+      try {
+        return JSON.parse(JSON.stringify(data, (k, v) => {
+          if (k === 'parent' && v && typeof v === 'object') return undefined;
+          if (/^dangerously/i.test(k) || k === 'hyperLink') return undefined;
+          return v;
+        }));
+      } catch (_) {
+        return { nodeData: { id: 'root', topic: 'mindmap', root: true, children: [] } };
+      }
+    }
+    function cleanMindData(data) {
+      const fn = mindSanitizer();
+      if (fn) {
+        try { return fn(data); } catch (_) {}
+      }
+      return stripMindFallback(data);
+    }
+    // Pasang di instance mesin: init/refresh (termasuk lewat mindmapops.reloadEngine dan undo) dan copyNodes
+    // (tempel JSON "MIND-ELIXIR-WAIT-COPY" dari clipboard) selalu menerima data bersih.
+    function guardMindEngine(m) {
+      const origInit = m.init.bind(m);
+      m.init = function (data) { return origInit(cleanMindData(data)); };
+      const origRefresh = m.refresh.bind(m);
+      m.refresh = function (data) {
+        return arguments.length && data !== undefined ? origRefresh(cleanMindData(data)) : origRefresh();
+      };
+      if (typeof m.copyNodes === 'function') {
+        const origCopy = m.copyNodes.bind(m);
+        m.copyNodes = function (list, to) {
+          const safe = Array.isArray(list)
+            ? list.map(x => (x && x.nodeObj) ? Object.assign({}, x, { nodeObj: cleanMindData(x.nodeObj) }) : x)
+            : list;
+          return origCopy(safe, to);
+        };
+      }
+      return m;
+    }
     // Mesin dibuat sekali per mode: load berikutnya dengan mode yang sama cukup
     // memuat data (reloadEngine: refresh untuk tertaut, init untuk biasa); mode berbeda (biasa ↔ tertaut) membuat mesin baru karena
     // opsinya (undo, menu konteks, markdown) hanya dibaca saat konstruksi.
@@ -942,12 +996,12 @@
         openPage: (evt) => openNoteFromContextMenu(evt, 'page'),
       }));
       if (linked) opts.markdown = linkedMarkdown;
-      mind = new ME(opts);
+      mind = guardMindEngine(new ME(opts));
       // Redirect fullscreen from #map to #app so the sidebar stays visible
       const mapEl = document.getElementById('map');
       mapEl.requestFullscreen = () => document.getElementById('app').requestFullscreen();
 
-      mind.init(data);
+      mind.init(cleanMindData(data));
       setTimeout(updateBadges, 300);
       // 5.15.1 only fires the 'selectNewNode' bus event for PROGRAMMATIC
       // selections (post-creation etc.) — a plain user click calls
@@ -1344,7 +1398,7 @@
         linkedGen = linkedMode && e.data.gen != null ? e.data.gen : null;
         showSummary = e.data.showSummary !== false;
         applyLinkedUi(linkedMode);
-        const reused = initMind(e.data.data, linkedMode);
+        const reused = initMind(cleanMindData(e.data.data), linkedMode);
         currentMindmapTitle = (typeof e.data.title === "string" && e.data.title.trim()) ? e.data.title.trim() : "mindmap";
         setTimeout(updateBadges, 300);
         const d = (e.data.data && typeof e.data.data.direction === 'number') ? e.data.data.direction : 2;
@@ -1406,7 +1460,7 @@
         try { window.TF.mindmapops.exitFocusMode(mind); } catch (_) {}
         isJustifyActive = Boolean(e.data.data && e.data.data.justify);
         // refresh() menata ulang tanpa memindah viewport (initX() hanya bila arah berubah)
-        try { mind.refresh(e.data.data); } catch (_) {}
+        try { mind.refresh(cleanMindData(e.data.data)); } catch (_) {}
         // Riwayat undo lama menunjuk pohon sebelum pembaruan → kosongkan (undo tidak boleh menghapus perubahan anggota lain).
         try { window.TF.mindmapops.resetUndo(mind); } catch (_) {}
         const d = (e.data.data && typeof e.data.data.direction === 'number') ? e.data.data.direction : mind.direction;
@@ -1454,7 +1508,7 @@
         switchTab(null);
         // Data baru menggantikan pohon: keluar dari Focus Mode dulu (getData() memakai nodeDataBackup).
         try { window.TF.mindmapops.exitFocusMode(mind); } catch (_) {}
-        try { mind.refresh(e.data.data); } catch (_) {}
+        try { mind.refresh(cleanMindData(e.data.data)); } catch (_) {}
         // Pohon diganti induk (edit Outline / kanvas dikembalikan ke versi lokal): snapshot undo lama tidak berlaku lagi.
         try { window.TF.mindmapops.resetUndo(mind); } catch (_) {}
         setTimeout(updateBadges, 300);

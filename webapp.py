@@ -1235,7 +1235,8 @@ class MindmapCreate(BaseModel):
             json.loads(v)
         except ValueError:
             raise ValueError("data_json must be valid JSON")
-        return v
+        # XSS: dangerouslySetInnerHTML / hyperLink tidak aman di node dibuang sebelum disimpan
+        return safehtml.sanitize_mind_json(v)
 
 class MindmapUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
@@ -1251,6 +1252,8 @@ class MindmapUpdate(BaseModel):
                 json.loads(v)
             except ValueError:
                 raise ValueError("data_json must be valid JSON")
+            # XSS: dangerouslySetInnerHTML / hyperLink tidak aman di node dibuang sebelum disimpan
+            v = safehtml.sanitize_mind_json(v)
         return v
 
 class ScratchpadCreate(BaseModel):
@@ -7936,6 +7939,8 @@ async def restore_trashed_mindmap(mid: int, user=Depends(get_current_user)):
         if mm.get("last_edited_by") is not None and not _user_exists(mm["last_edited_by"]):
             mm["last_edited_by"] = None
 
+        if isinstance(mm.get("data_json"), str):
+            mm["data_json"] = safehtml.sanitize_mind_json(mm["data_json"])
         live_cols = set(_table_columns(conn, "mindmaps"))
         if "search_text" in live_cols:
             mm["search_text"] = "" if sn is not None else _mindmap_search_text(mm.get("data_json"))

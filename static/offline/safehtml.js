@@ -274,6 +274,66 @@
     return img;
   }
 
+  // ── Data mindmap (mind-elixir) ───────────────────────────────────────────────
+  // Mesin mind-elixir memakai node.dangerouslySetInnerHTML sebagai innerHTML dan node.hyperLink sebagai href
+  // tanpa cek skema. Salinan dalam: kunci /^dangerously/i dibuang di semua tingkat (nodeData, children,
+  // summaries, arrows, …); hyperLink dipertahankan hanya bila string dan lolos safeUrl. Padanan server:
+  // safehtml.sanitize_mind_tree. Iteratif (tanpa batas rekursi) dan aman terhadap siklus (nodeObj hidup punya
+  // referensi parent): objek yang sama disalin sekali. Selain objek/array dikembalikan apa adanya.
+  const MIND_DANGEROUS_KEY_RE = /^dangerously/i;
+
+  function isMindContainer(v) {
+    return v !== null && typeof v === 'object';
+  }
+
+  function setOwn(obj, key, value) {
+    if (key === '__proto__') {
+      Object.defineProperty(obj, key, { value: value, enumerable: true, writable: true, configurable: true });
+    } else {
+      obj[key] = value;
+    }
+  }
+
+  function sanitizeMindTree(data) {
+    if (!isMindContainer(data)) return data;
+    const seen = new Map();
+    const fresh = function (v) { return Array.isArray(v) ? [] : {}; };
+    const out = fresh(data);
+    seen.set(data, out);
+    const stack = [[data, out]];
+    while (stack.length) {
+      const pair = stack.pop();
+      const src = pair[0];
+      const dst = pair[1];
+      const isArr = Array.isArray(src);
+      const keys = isArr ? null : Object.keys(src);
+      const n = isArr ? src.length : keys.length;
+      for (let i = 0; i < n; i++) {
+        const k = isArr ? i : keys[i];
+        let v = src[k];
+        if (!isArr) {
+          if (MIND_DANGEROUS_KEY_RE.test(k)) continue;
+          if (k === 'hyperLink') {
+            const safe = typeof v === 'string' ? safeUrl(v) : null;
+            if (safe !== null) dst.hyperLink = safe;
+            continue;
+          }
+        }
+        if (isMindContainer(v)) {
+          let copy = seen.get(v);
+          if (!copy) {
+            copy = fresh(v);
+            seen.set(v, copy);
+            stack.push([v, copy]);
+          }
+          v = copy;
+        }
+        if (isArr) dst.push(v); else setOwn(dst, k, v);
+      }
+    }
+    return out;
+  }
+
   // ── Kasus uji bersama ────────────────────────────────────────────────────────
   // Salinan persis safehtml.OBFUSCATED_CASES, ditulis sebagai literal JSON di antara penanda (dibaca
   // tests/test_safehtml_js_parity.py). Jangan ubah di satu sisi saja.
@@ -327,6 +387,7 @@
     isSvgMarkup: isSvgMarkup,
     svgToImg: svgToImg,
     mountSvgImg: mountSvgImg,
+    sanitizeMindTree: sanitizeMindTree,
     SVG_IMG_STYLE: SVG_IMG_STYLE,
     OBFUSCATED_CASES: OBFUSCATED_CASES,
   };
