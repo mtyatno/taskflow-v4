@@ -3353,6 +3353,11 @@
 - **Changes:** `static/offline/notemap.js` baru (UMD `TF.notemap`): `parseNote`, `summarizeSection`, `LINKED_VIEW_STATE_DEFAULT`, `pathKey`, `buildMindData`, `sanitizeTopic`, `applyMindData` (identik byte per byte tanpa edit; STALE_PARSE/BAD_TREE/LEVEL_OVERFLOW), `verifyStructure`, `plainHeadingText`, `locateHeading`, `matchHeading`, `renderTopicNoteInline` (tanpa `<img>`), `renderSummaryHtml`. `mindmapoutline.js`: `sanitizeHrefs` diekstrak + renderer gambar per panggilan yang meng-escape atribut (celah alt `onerror` lama tertutup). Spec §5 diperbarui (aturan level saudara sebelumnya + pemeriksaan hasil).
 - **Files Touch:** `static/offline/notemap.js`, `static/offline/mindmapoutline.js`, `tests/offline/notemap_*.test.js`, `tests/offline/mindmapoutline.test.js`, `docs/superpowers/specs/2026-10-18-petakan-note-mindmap-design.md`, `.agents/*`
 - **Status:** PR 1/3 draft, menunggu review Bapak. JS 1366/1367 (gagal pra-ada `draw_local_reactive`), pytest 178/178.
+## [2026-10-18 14:30] - Claude (Petakan Bagian B — backend, subagent-driven)
+- **Task:** Task B1–B6: backend peta tertaut.
+- **Changes:** migrasi `mindmaps.source_note_id` + `ux_mindmaps_source_note`; POST linked idempoten per catatan; filter `?linked=1` di dua endpoint daftar; PUT/share peta tertaut; `_sync_linked_mindmap` (create/update/share/restore catatan + hapus list di repository.py, bump updated_at); `_delete_linked_mindmaps` di purge kedaluwarsa (peta dihapus lebih dulu), hapus selamanya, kosongkan Sampah (`DELETE … RETURNING`, atomik). Review per task + review akhir (tanpa Critical/Important; minor diperbaiki).
+- **Files Touch:** `webapp.py`, `repository.py`, `schema-db.md`, `tests/test_petakan.py`, `.agents/*`
+- **Status:** PR 2/3 draft. pytest 196/196. Deploy wajib `sudo systemctl restart taskflow-web`.
 
 ## [2026-10-19 08:10] - Claude (PR #32 disinkronkan dengan main setelah PR #29 di-merge)
 - **Task:** Bapak me-merge PR #29 dan menandai PR #32 siap review; branch PR #29 tidak terhapus sehingga base PR #32 masih menunjuk ke branch itu.
