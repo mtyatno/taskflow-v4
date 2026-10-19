@@ -647,6 +647,22 @@ def migrate_db():
     finally:
         conn.close()
 
+    # Migrate mindmaps.source_note_id (Petakan: peta tertaut ke catatan, satu peta per catatan).
+    # Tanpa FK (catatan bisa dihapus/dipulihkan); index unik parsial dibuat walau kolom sudah ada.
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(mindmaps)").fetchall()]
+        if "source_note_id" not in cols:
+            conn.execute("ALTER TABLE mindmaps ADD COLUMN source_note_id INTEGER DEFAULT NULL")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_mindmaps_source_note "
+            "ON mindmaps(source_note_id) WHERE source_note_id IS NOT NULL"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
     # Migrate messages.note_id column
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -1123,6 +1139,7 @@ class MindmapCreate(BaseModel):
     )
     list_id: Optional[int] = None  # audit S7: peta yang dibuat (offline) di list bersama; dicek keanggotaan
     client_id: Optional[str] = Field(default=None, max_length=64)  # idempotensi retry sync (audit T11)
+    source_note_id: Optional[int] = None  # Petakan: buat/ambil peta tertaut milik catatan ini
 
     @field_validator("data_json")
     @classmethod
@@ -4519,6 +4536,10 @@ def _mindmap_access_clause(uid: int, prefix: str = "") -> tuple[str, list]:
     return clause, [uid, uid, uid]
 
 
+# Petakan: data_json peta tertaut hanya pengaturan tampilan; isi pohon selalu dari catatan.
+LINKED_VIEW_STATE_DEFAULT = '{"linked":1,"direction":2,"justify":false,"collapsed":[],"summary":true}'
+
+
 def _mindmap_enrich(d: dict, conn) -> dict:
     """Add last_editor_username/display_name when last_edited_by is set and != owner."""
     if d.get("last_edited_by") and d["last_edited_by"] != d.get("user_id"):
@@ -4529,6 +4550,34 @@ def _mindmap_enrich(d: dict, conn) -> dict:
             d["last_editor_username"] = editor["username"]
             d["last_editor_display_name"] = editor["display_name"]
     return d
+
+def _sync_linked_mindmap(conn, note_id: int) -> None:
+    """Petakan: peta tertaut mengikuti list_id/judul/pemilik catatannya (dipanggil setelah tiap tulis catatan,
+    di koneksi/transaksi yang sama). No-op bila catatan tidak ada; updated_at hanya berubah bila ada yang berubah."""
+    note = conn.execute(
+        "SELECT user_id, list_id, title FROM scratchpad_notes WHERE id = ?", (note_id,)
+    ).fetchone()
+    if not note:
+        return
+    title = note["title"] or "Tanpa judul"
+    conn.execute(
+        "UPDATE mindmaps SET list_id = ?, title = ?, user_id = ?, updated_at = ? "
+        "WHERE source_note_id = ? AND (list_id IS NOT ? OR title IS NOT ? OR user_id IS NOT ?)",
+        (note["list_id"], title, note["user_id"], datetime.now(_TZ_JKT).isoformat(), note_id,
+         note["list_id"], title, note["user_id"]),
+    )
+
+
+def _delete_linked_mindmaps(conn, note_ids: list) -> None:
+    """Petakan: hapus peta tertaut milik catatan yang dihapus permanen (purge Sampah).
+    Sama dengan DELETE /api/mindmaps/{id}: mindmaps tidak punya tabel dependen (pin = kolom is_pinned)."""
+    ids = [int(i) for i in dict.fromkeys(note_ids) if i is not None]
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        conn.execute(
+            f"DELETE FROM mindmaps WHERE source_note_id IN ({','.join('?' * len(chunk))})", chunk
+        )
+
 
 def _sanitize_fts5_token(token: str) -> str:
     cleaned = re.sub(r'[^\w\s-]', '', token).strip(' -')
@@ -4727,6 +4776,10 @@ def _purge_expired_trashed_notes(conn) -> None:
     _ensure_trashed_notes_table(conn)
     cutoff = (datetime.now(_TZ_JKT) - timedelta(days=NOTE_TRASH_RETENTION_DAYS)).isoformat()
     try:
+        expired = [r["note_id"] for r in conn.execute(
+            "SELECT note_id FROM trashed_notes WHERE deleted_at < ?", (cutoff,)).fetchall()]
+        # Peta tertaut dihapus DULU, baru baris sampah: kegagalan tidak boleh meninggalkan peta yatim.
+        _delete_linked_mindmaps(conn, expired)
         conn.execute("DELETE FROM trashed_notes WHERE deleted_at < ?", (cutoff,))
     except Exception:
         pass
@@ -4859,6 +4912,7 @@ async def restore_trashed_note(note_id: int, user=Depends(get_current_user)):
                 [a[c] for c in acols])
 
         conn.execute("DELETE FROM trashed_notes WHERE note_id = ?", (note_id,))
+        _sync_linked_mindmap(conn, note_id)
         conn.commit()
         restored = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row(restored, conn, uid)
@@ -4868,7 +4922,9 @@ async def purge_trashed_note(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
         _ensure_trashed_notes_table(conn)
-        conn.execute("DELETE FROM trashed_notes WHERE note_id = ? AND (user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '')", (note_id, uid, str(uid)))
+        cur = conn.execute("DELETE FROM trashed_notes WHERE note_id = ? AND (user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '')", (note_id, uid, str(uid)))
+        if cur.rowcount:
+            _delete_linked_mindmaps(conn, [note_id])
     return {"ok": True}
 
 @app.delete("/api/scratchpad/trash")
@@ -4876,8 +4932,12 @@ async def empty_trashed_notes(user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
         _ensure_trashed_notes_table(conn)
-        cur = conn.execute("DELETE FROM trashed_notes WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = ''", (uid, str(uid)))
-        deleted = cur.rowcount
+        # Atomik: RETURNING memberi id persis baris yang terhapus (tanpa celah SELECT→DELETE).
+        gone = [r["note_id"] for r in conn.execute(
+            "DELETE FROM trashed_notes WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '' RETURNING note_id",
+            (uid, str(uid))).fetchall()]
+        deleted = len(gone)
+        _delete_linked_mindmaps(conn, gone)
     return {"ok": True, "deleted": deleted}
 
 @app.get("/api/scratchpad/recent")
@@ -5575,6 +5635,7 @@ async def create_scratchpad(req: ScratchpadCreate, user=Depends(get_current_user
                 )
                 conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=? AND user_id=?", (note_id, uid))
                 _upsert_tags_for_note(conn, note_id, uid, tag_names)
+                _sync_linked_mindmap(conn, note_id)
                 conn.commit()
                 row = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
                 return _scratchpad_row(row, conn, uid)
@@ -5776,6 +5837,7 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
         # lalu upsert di bawah user_id PEMILIK note agar tidak ada tag "zombie" per editor.
         conn.execute("DELETE FROM entity_tags WHERE entity_type='note' AND entity_id=?", (note_id,))
         _upsert_tags_for_note(conn, note_id, existing["user_id"], tag_names)
+        _sync_linked_mindmap(conn, note_id)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row(updated, conn, uid)
@@ -5847,6 +5909,7 @@ async def share_scratchpad(note_id: int, req: NoteShareReq, user=Depends(get_cur
         conn.execute(
             "UPDATE scratchpad_notes SET list_id = ?, updated_at = ? WHERE id = ?", (req.list_id, now, note_id)
         )
+        _sync_linked_mindmap(conn, note_id)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row(updated, conn, uid)
@@ -7132,13 +7195,15 @@ async def global_search(q: str = "", user=Depends(get_current_user)):
 # ── Mindmap endpoints ────────────────────────────────────────────────────────
 
 @app.get("/api/mindmaps")
-async def list_mindmaps(user=Depends(get_current_user)):
+async def list_mindmaps(linked: int = 0, user=Depends(get_current_user)):
+    # Petakan: klien lama tidak mengenal peta tertaut → disembunyikan kecuali ?linked=1.
     uid = user["sub"]
     with get_db() as conn:
         access_clause, access_params = _mindmap_access_clause(uid)
+        linked_clause = "" if linked == 1 else " AND source_note_id IS NULL"
         rows = conn.execute(
-            "SELECT id, title, is_pinned, list_id, user_id, last_edited_by, created_at, updated_at, client_id FROM mindmaps "
-            f"WHERE {access_clause} ORDER BY is_pinned DESC, updated_at DESC",
+            "SELECT id, title, is_pinned, list_id, user_id, last_edited_by, created_at, updated_at, client_id, source_note_id FROM mindmaps "
+            f"WHERE {access_clause}{linked_clause} ORDER BY is_pinned DESC, updated_at DESC",
             access_params
         ).fetchall()
         return [_mindmap_enrich(dict(r), conn) for r in rows]
@@ -7307,17 +7372,19 @@ async def share_mindmap(mid: str, req: MindmapShareReq, user=Depends(get_current
     list_id = req.list_id
     with get_db() as conn:
         if mid.isdigit():
-            mm = conn.execute("SELECT id, user_id FROM mindmaps WHERE id = ?", (int(mid),)).fetchone()
+            mm = conn.execute("SELECT id, user_id, source_note_id FROM mindmaps WHERE id = ?", (int(mid),)).fetchone()
         else:
             cols = [r["name"] for r in conn.execute("PRAGMA table_info(mindmaps)").fetchall()]
             if "client_id" in cols:
-                mm = conn.execute("SELECT id, user_id FROM mindmaps WHERE client_id = ?", (mid,)).fetchone()
+                mm = conn.execute("SELECT id, user_id, source_note_id FROM mindmaps WHERE client_id = ?", (mid,)).fetchone()
             else:
                 mm = None
         if not mm:
             raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
         if mm["user_id"] != uid:
             raise HTTPException(status_code=403, detail="Hanya pemilik mindmap yang bisa berbagi")
+        if mm["source_note_id"] is not None:
+            raise HTTPException(status_code=409, detail="Peta tertaut mengikuti catatan")
         real_mid = mm["id"]
         if list_id is not None:
             repo = TaskRepository(DB_PATH)
@@ -7331,14 +7398,16 @@ async def share_mindmap(mid: str, req: MindmapShareReq, user=Depends(get_current
 
 
 @app.get("/api/lists/{list_id}/mindmaps")
-async def get_list_mindmaps(list_id: int, user=Depends(get_current_user)):
+async def get_list_mindmaps(list_id: int, linked: int = 0, user=Depends(get_current_user)):
     uid = user["sub"]
     repo = TaskRepository(DB_PATH)
     if not repo.is_list_member_or_owner(list_id, uid):
         raise HTTPException(status_code=403, detail="Bukan anggota list ini")
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, title, updated_at FROM mindmaps WHERE list_id = ? ORDER BY updated_at DESC",
+            "SELECT id, title, updated_at, source_note_id FROM mindmaps WHERE list_id = ?"
+            + ("" if linked == 1 else " AND source_note_id IS NULL")
+            + " ORDER BY updated_at DESC",
             (list_id,)
         ).fetchall()
     return [dict(r) for r in rows]
@@ -7347,6 +7416,45 @@ async def get_list_mindmaps(list_id: int, user=Depends(get_current_user)):
 async def create_mindmap(req: MindmapCreate, user=Depends(get_current_user)):
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
+    if req.source_note_id is not None:
+        # Petakan: satu peta tertaut per catatan (idempoten per catatan, abaikan title/data_json/list_id klien).
+        note_ac, note_params = _note_access_clause(uid)
+        with get_db() as conn:
+            note = conn.execute(
+                f"SELECT id, user_id, list_id, title FROM scratchpad_notes WHERE id = ? AND {note_ac}",
+                [req.source_note_id] + note_params
+            ).fetchone()
+            if not note:
+                raise HTTPException(status_code=404, detail="Catatan tidak ditemukan")
+            existing = conn.execute(
+                "SELECT * FROM mindmaps WHERE source_note_id = ?", (note["id"],)
+            ).fetchone()
+            if existing:
+                return _mindmap_enrich(dict(existing), conn)
+            # Idempotensi peta tertaut hanya per catatan. Indeks unik (user_id, client_id) memakai pemilik
+            # catatan; bila pemilik sudah punya baris dengan client_id itu, simpan NULL agar INSERT tidak bentrok.
+            link_cid = req.client_id
+            if link_cid and conn.execute(
+                "SELECT 1 FROM mindmaps WHERE user_id = ? AND client_id = ?", (note["user_id"], link_cid)
+            ).fetchone():
+                link_cid = None
+            try:
+                cur = conn.execute(
+                    "INSERT INTO mindmaps (user_id, title, data_json, is_pinned, created_at, updated_at, "
+                    "list_id, client_id, last_edited_by, source_note_id) "
+                    "VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)",
+                    (note["user_id"], note["title"] or "Tanpa judul", LINKED_VIEW_STATE_DEFAULT, now, now,
+                     note["list_id"], link_cid, uid, note["id"])
+                )
+            except sqlite3.IntegrityError:
+                existing = conn.execute(
+                    "SELECT * FROM mindmaps WHERE source_note_id = ?", (note["id"],)
+                ).fetchone()
+                if not existing:
+                    raise
+                return _mindmap_enrich(dict(existing), conn)
+            row = conn.execute("SELECT * FROM mindmaps WHERE id = ?", (cur.lastrowid,)).fetchone()
+            return _mindmap_enrich(dict(row), conn)
     # audit S7: list_id saat create disimpan (dulu diabaikan → peta offline di list bersama jadi pribadi);
     # keanggotaan dicek seperti di /share.
     if req.list_id is not None:
@@ -7400,8 +7508,19 @@ async def update_mindmap(mid: int, req: MindmapUpdate, user=Depends(get_current_
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Mindmap tidak ditemukan")
-        _check_base_rev(req, row, lambda: _mindmap_enrich(dict(row), conn))
-        new_title = req.title if req.title is not None else row["title"]
+        if row["source_note_id"] is not None:
+            # Peta tertaut: data_json hanya view-state; judul/list mengikuti catatan; tanpa base_rev.
+            if req.data_json is not None:
+                try:
+                    parsed = json.loads(req.data_json)
+                except ValueError:
+                    parsed = None
+                if not isinstance(parsed, dict) or "nodeData" in parsed:
+                    raise HTTPException(status_code=400, detail={"code": "LINKED_TREE_REJECTED"})
+            new_title = row["title"]
+        else:
+            _check_base_rev(req, row, lambda: _mindmap_enrich(dict(row), conn))
+            new_title = req.title if req.title is not None else row["title"]
         new_data = req.data_json if req.data_json is not None else row["data_json"]
         conn.execute(
             "UPDATE mindmaps SET title = ?, data_json = ?, last_edited_by = ?, updated_at = ? WHERE id = ?",

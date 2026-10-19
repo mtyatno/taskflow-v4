@@ -161,8 +161,17 @@ CREATE TABLE mindmaps (
                 is_pinned  INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
-            , list_id INTEGER DEFAULT NULL, last_edited_by INTEGER, client_id TEXT);
+            , list_id INTEGER DEFAULT NULL, last_edited_by INTEGER, client_id TEXT, source_note_id INTEGER DEFAULT NULL);
 CREATE UNIQUE INDEX idx_mindmaps_user_client ON mindmaps(user_id, client_id) WHERE client_id IS NOT NULL;
+CREATE UNIQUE INDEX ux_mindmaps_source_note ON mindmaps(source_note_id) WHERE source_note_id IS NOT NULL;
+
+## Petakan: `mindmaps.source_note_id` (peta tertaut ke catatan)
+
+Kolom `source_note_id INTEGER DEFAULT NULL` (tanpa FK, migrasi idempoten di `webapp.migrate_db`) menandai
+peta tertaut: peta yang strukturnya dicerminkan dari heading sebuah catatan (`scratchpad_notes.id`). `NULL`
+= peta biasa. Index `ux_mindmaps_source_note` unik parsial (`WHERE source_note_id IS NOT NULL`) menjamin
+satu peta per catatan; peta biasa tidak dibatasi. Index dibuat `IF NOT EXISTS` sehingga tetap terpasang
+walau kolom sudah ada. Tanpa FK karena catatan bisa masuk Sampah/dipulihkan; konsistensi dijaga di handler.
 
 ## Idempotensi sinkron: `client_id` (user_id, client_id)
 
