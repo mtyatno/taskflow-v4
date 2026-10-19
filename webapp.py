@@ -140,6 +140,7 @@ from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date
 from repository import TaskRepository
 import repository
+import drawing_scope
 import bookmark
 import ai_review
 import review_history
@@ -802,6 +803,9 @@ def migrate_db():
         conn.execute("PRAGMA foreign_keys=ON")
         repository.ensure_projects_schema(conn)
         repository.backfill_projects(conn)
+        # Drawing milik workspace: kolom list_id/last_edited_by + backfill sekali jalan dari note workspace.
+        drawing_scope.ensure_drawing_scope_schema(conn)
+        drawing_scope.backfill_drawing_lists(conn, datetime.now(_TZ_JKT).isoformat())
         conn.commit()
     finally:
         conn.close()
@@ -4273,23 +4277,12 @@ def _generate_publish_slug(conn, title: str = "") -> str:
 # list_id SET NULL, atau di-unshare) tetap membawa isi suntikan itu, sehingga last_edited_by harus pemiliknya.
 # Token = id angka atau client_id (UUID, format default sejak offline-first). Bentuk ter-escape oleh
 # serializer markdown (::draw\[x\]) ikut dikenali.
-_DRAW_DIRECTIVE_RE = re.compile(r'\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?')
+_DRAW_DIRECTIVE_RE = drawing_scope.DRAW_DIRECTIVE_RE  # definisi di drawing_scope.py (dipakai bersama)
 _DRAW_TOKEN_RE = re.compile(r'[0-9a-zA-Z_-]+')
 _DRAWING_COLS = "id, user_id, client_id, title, svg_preview, data_json"
 
-def _draw_tokens(content: Optional[str]) -> set[str]:
-    """Semua token direktif ::draw[...] di content (id angka atau client_id)."""
-    return {m.group(1) for m in _DRAW_DIRECTIVE_RE.finditer(content or "")}
-
-def _draw_token_id(token: str) -> Optional[int]:
-    """Token angka ASCII → id baris (drawing, id note di wikilink publik, id lampiran di /pub/attachments). None bila
-    bukan angka ASCII atau di luar INTEGER 64-bit SQLite (digit Unicode membuat int() gagal, angka terlalu besar jadi
-    OverflowError saat di-bind: keduanya 500, padahal barisnya pasti tidak ada)."""
-    if token.isascii() and token.isdigit() and len(token) <= 19:
-        value = int(token)
-        if value <= 2**63 - 1:
-            return value
-    return None
+_draw_tokens = drawing_scope.draw_tokens
+_draw_token_id = drawing_scope.draw_token_id
 
 def _resolve_owned_drawing(conn, token: str, owner_id: int) -> Optional[sqlite3.Row]:
     """Drawing milik owner_id yang dirujuk token direktif: id angka dulu, lalu client_id.
