@@ -4991,12 +4991,16 @@ function TaskFormModal({
       onClick: handleSubmit
     }, loading ? "Menyimpan..." : "Simpan Note")))), noteDrawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
       noteTitle: noteForm.title,
+      noteListId: null,
+      sharedLists: sharedLists || [],
       onSelectDrawing: handleNoteDrawingSelected,
       onClose: () => setNoteDrawingInsertOpen(false),
       showToast: showToast
     }), noteQuickDrawState && /*#__PURE__*/React.createElement(QuickDrawModal, {
       drawingId: noteQuickDrawState.id,
       drawingTitle: noteQuickDrawState.title,
+      noteListId: null,
+      sharedLists: sharedLists || [],
       onClose: () => setNoteQuickDrawState(null),
       showToast: showToast
     }));
@@ -5777,12 +5781,16 @@ function TaskFormModal({
     onClose: () => setDatePromptOpen(false)
   }), noteDrawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
     noteTitle: noteForm.title,
+    noteListId: null,
+    sharedLists: sharedLists || [],
     onSelectDrawing: handleNoteDrawingSelected,
     onClose: () => setNoteDrawingInsertOpen(false),
     showToast: showToast
   }), noteQuickDrawState && /*#__PURE__*/React.createElement(QuickDrawModal, {
     drawingId: noteQuickDrawState.id,
     drawingTitle: noteQuickDrawState.title,
+    noteListId: null,
+    sharedLists: sharedLists || [],
     onClose: () => setNoteQuickDrawState(null),
     showToast: showToast
   }));
@@ -20828,11 +20836,11 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
             <button type="button" class="note-draw-size-btn ${size === 'M' ? 'active' : ''}" onclick="window.dispatchEvent(new CustomEvent('changeDrawingSize', { detail: { id: '${safeId}', size: 'M', width: '75%' } }))" title="Sedang (75%)">M</button>
             <button type="button" class="note-draw-size-btn ${size === 'L' || size === 'FULL' ? 'active' : ''}" onclick="window.dispatchEvent(new CustomEvent('changeDrawingSize', { detail: { id: '${safeId}', size: 'L', width: '100%' } }))" title="Penuh (100%)">L</button>
           </div>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw)}' } }))" style="font-size:11px;padding:2px 8px;cursor:pointer;">✏️ Edit</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw)}', noteListId: window.noteListIdFromEl ? window.noteListIdFromEl(this) : undefined } }))" style="font-size:11px;padding:2px 8px;cursor:pointer;">✏️ Edit</button>
           <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('openDrawing', { detail: '${safeId}' }))" style="font-size:11px;padding:2px 8px;cursor:pointer;" title="Buka di halaman Draw">↗️ Buka</button>
         </div>
       </div>
-      <div class="note-draw-preview-container" data-drawing-preview="${safeId}" style="max-height:${heightVal};resize:vertical;overflow:auto;" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw)}' } }))" title="Klik untuk mengedit gambar (bisa ditarik ke bawah untuk memperbesar)">
+      <div class="note-draw-preview-container" data-drawing-preview="${safeId}" style="max-height:${heightVal};resize:vertical;overflow:auto;" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw)}', noteListId: window.noteListIdFromEl ? window.noteListIdFromEl(this) : undefined } }))" title="Klik untuk mengedit gambar (bisa ditarik ke bawah untuk memperbesar)">
         <div class="drawing-preview-placeholder" style="color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;">🎨 Klik untuk membuka / mengedit gambar</div>
       </div>
     </div>`;
@@ -20939,6 +20947,188 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   return html;
 }
 
+// ── Drawing milik workspace di note (PR 3 Task 4) ──────────────────
+const DRAWING_UNAVAILABLE_TEXT = "Gambar tidak tersedia untukmu: sudah dihapus atau tidak dibagikan ke workspace ini.";
+function drawingScopeListName(listId, sharedLists) {
+  const hit = (sharedLists || []).find(l => l && listId != null && String(l.id) === String(listId));
+  return hit && hit.name ? hit.name : "Workspace";
+}
+// Galeri sisip: Pribadi dulu, lalu per workspace (urutan sharedLists; list tak dikenal di akhir).
+function groupDrawingsByScope(list, sharedLists) {
+  const order = (sharedLists || []).map(l => String(l.id));
+  const personal = { key: "personal", label: "Pribadi", listId: null, items: [] };
+  const byList = new Map();
+  for (const d of list || []) {
+    if (!d) continue;
+    if (d.list_id == null || d.list_id === "") { personal.items.push(d); continue; }
+    const k = String(d.list_id);
+    if (!byList.has(k)) byList.set(k, { key: "w" + k, label: drawingScopeListName(d.list_id, sharedLists), listId: d.list_id, items: [] });
+    byList.get(k).items.push(d);
+  }
+  const rank = k => { const i = order.indexOf(k); return i < 0 ? order.length : i; };
+  const ws = Array.from(byList.entries()).sort((a, b) => rank(a[0]) - rank(b[0])).map(e => e[1]);
+  return (personal.items.length ? [personal] : []).concat(ws);
+}
+// Baris server (GET /api/drawings?shared=1) tidak membawa server_id → id = id server.
+function drawingWithServerId(d) {
+  if (!d || d.server_id != null || d.cid != null) return d;
+  return Object.assign({}, d, { server_id: d.id });
+}
+// Token direktif ::draw[...] untuk drawing hasil salin: client_id dulu, lalu id server.
+function drawingInsertToken(d) {
+  if (!d) return null;
+  if (d.client_id != null && d.client_id !== "") return d.client_id;
+  if (d.cid != null && d.cid !== "") return d.cid;
+  if (d.server_id != null) return d.server_id;
+  return d.id;
+}
+function drawingShareLaterText(name) {
+  return "Gambar belum dibagikan ke " + (name || "Workspace") + "; bagikan dari halaman Draw saat online.";
+}
+// Pilihan galeri yang butuh konfirmasi: own_to_ws → share dulu (gagal tetap sisip + toast);
+// other_ws_copy → salin ke W note lalu sisip salinannya.
+async function applyDrawingInsertChoice(TFshare, api, drawing, notice, listName) {
+  const d = drawingWithServerId(drawing);
+  if (notice && notice.kind === "own_to_ws") {
+    const res = await Promise.resolve().then(() => TFshare.shareDrawing(api, d, notice.listId))
+      .catch(err => { console.warn('[drawing] share saat sisip gagal', err); return null; });
+    return { ok: true, id: drawing.id, title: drawing.title, toast: res && res.ok ? null : drawingShareLaterText(listName) };
+  }
+  if (notice && notice.kind === "other_ws_copy") {
+    const res = await TFshare.copyDrawing(api, d, notice.listId);
+    if (!res || !res.ok) return { ok: false, message: (res && res.message) || "Gagal membuat salinan gambar" };
+    return { ok: true, id: drawingInsertToken(res.drawing), title: res.drawing.title || drawing.title, toast: null };
+  }
+  return { ok: true, id: drawing.id, title: drawing.title, toast: null };
+}
+// Badge + aksi di kartu embed. null = tidak ada tambahan.
+function drawingEmbedScopeUi(drawing, noteListId, sharedLists, myUid) {
+  if (!drawing) return null;
+  const nl = noteListId == null || noteListId === "" ? null : noteListId;
+  const dl = drawing.list_id == null || drawing.list_id === "" ? null : drawing.list_id;
+  const target = nl == null ? { action: "Jadikan salinan pribadi", targetListId: null } : { action: "Salin ke " + drawingScopeListName(nl, sharedLists), targetListId: nl };
+  if (dl != null) {
+    if (nl != null && String(dl) === String(nl)) return null;
+    return Object.assign({ badge: "👥 " + drawingScopeListName(dl, sharedLists) }, target);
+  }
+  // drawing pribadi orang lain di note W (terlihat lewat data lokal) → hanya aksi salin
+  const mine = drawing.user_id == null || myUid == null || String(drawing.user_id) === String(myUid);
+  if (nl != null && !mine) return Object.assign({ badge: null }, target);
+  return null;
+}
+function drawingEditBanner(drawing, noteListId, sharedLists) {
+  if (!drawing || drawing.list_id == null || drawing.list_id === "") return null;
+  if (noteListId != null && noteListId !== "" && String(noteListId) === String(drawing.list_id)) return null;
+  return "Kamu mengedit drawing milik workspace " + drawingScopeListName(drawing.list_id, sharedLists) + ". Perubahan terlihat oleh semua anggota.";
+}
+// Scope note dari wrapper editor/tampilan: undefined = tak diketahui, null = pribadi.
+function noteListIdFromEl(el) {
+  const holder = el && el.closest ? el.closest('[data-note-list-id]') : null;
+  if (!holder) return undefined;
+  const raw = holder.getAttribute('data-note-list-id');
+  if (raw == null || raw === "") return null;
+  return /^\d+$/.test(raw) ? Number(raw) : raw;
+}
+function drawingLookupGone(err, navigator) {
+  if (!err) return true;
+  if (err.status === 403 || err.status === 404) return true;
+  if (err.__local && /not found/i.test(String(err.message || ""))) return true;
+  return !!(navigator && navigator.onLine === false);
+}
+// Lokal dulu (tanpa jaringan), lalu server bila svg belum ada. Hasil: {drawing} | {unavailable} | {error}.
+async function drawingPreviewLookup(did) {
+  const repo = window.TF && window.TF.drawingrepo;
+  let local = null;
+  if (repo && typeof repo.getDrawing === 'function') {
+    local = await repo.getDrawing(did, { online: false }).catch(err => { console.warn('[drawing] baca lokal gagal', err); return null; });
+  }
+  if (!local && repo && typeof repo.getRaw === 'function') {
+    local = await repo.getRaw(did).catch(err => { console.warn('[drawing] baca lokal gagal', err); return null; });
+  }
+  if (local && local.deleted) local = null;
+  if (local && local.svg_preview) return { drawing: local, svg: local.svg_preview };
+  let remote = null, failure = null;
+  if (typeof api !== 'undefined' && api && api.get) {
+    try { remote = await api.get(`/api/drawings/${did}`); } catch (err) { failure = err; }
+  }
+  if (remote) return { drawing: remote, svg: remote.svg_preview || null };
+  if (local) return { drawing: local, svg: null };
+  if (drawingLookupGone(failure, typeof navigator !== 'undefined' ? navigator : null)) return { unavailable: true };
+  console.warn('[drawing] pratinjau belum bisa dimuat', failure);
+  return { error: failure };
+}
+// Badge 👥 W + tombol salin di header kartu (tombol hanya di editor: aksinya mengganti node).
+function applyDrawingScopeUi(el, drawing) {
+  const card = el && el.closest ? el.closest('.note-draw-card') : null;
+  if (!card) return;
+  const header = card.querySelector('.note-draw-header');
+  if (!header) return;
+  header.querySelectorAll('.note-draw-scope').forEach(n => n.remove());
+  const noteListId = noteListIdFromEl(card);
+  if (noteListId === undefined || !drawing) return;
+  const uid = window.TF && window.TF.drawingrepo && window.TF.drawingrepo.currentUid ? window.TF.drawingrepo.currentUid() : null;
+  const ui = drawingEmbedScopeUi(drawing, noteListId, window.__tfSharedLists || [], uid);
+  if (!ui) return;
+  const doc = card.ownerDocument || document;
+  const box = doc.createElement('span');
+  box.className = 'note-draw-scope';
+  box.setAttribute('contenteditable', 'false');
+  box.style.cssText = 'display:inline-flex;gap:6px;align-items:center;margin-left:8px;';
+  if (ui.badge) {
+    const badge = doc.createElement('span');
+    badge.className = 'badge note-draw-scope-badge';
+    badge.style.cssText = 'font-size:10px;padding:1px 6px;border-radius:6px;background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);white-space:nowrap;';
+    badge.textContent = ui.badge;
+    box.appendChild(badge);
+  }
+  if (ui.action && card.classList.contains('editor-draw-card')) {
+    const btn = doc.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-secondary btn-sm';
+    btn.setAttribute('data-action', 'copy-scope');
+    btn.setAttribute('data-copy-list-id', ui.targetListId == null ? '' : String(ui.targetListId));
+    btn.style.cssText = 'font-size:11px;padding:2px 8px;cursor:pointer;';
+    btn.textContent = ui.action;
+    box.appendChild(btn);
+  }
+  if (!box.childNodes.length) return;
+  const title = header.firstElementChild;
+  if (title && title.insertAdjacentElement) title.insertAdjacentElement('afterend', box);
+  else header.appendChild(box);
+}
+// Aksi "Salin ke W" / "Jadikan salinan pribadi" di kartu editor: salin lalu ganti id node ke token salinan.
+async function copyDrawingIntoEditor(editor, did, targetListId) {
+  const TF = window.TF || {};
+  if (!TF.drawingshare) return { ok: false, message: "Gagal membuat salinan gambar" };
+  const warnRead = err => { console.warn('[drawing] baca sumber salinan gagal', err); return null; };
+  let src = TF.drawingrepo ? await TF.drawingrepo.getDrawing(did, { online: false }).catch(warnRead) : null;
+  if (!src) src = await api.get(`/api/drawings/${did}`).catch(warnRead);
+  if (!src) return { ok: false, message: DRAWING_UNAVAILABLE_TEXT };
+  const res = await TF.drawingshare.copyDrawing(api, drawingWithServerId(src), targetListId);
+  if (!res || !res.ok) return { ok: false, message: (res && res.message) || "Gagal membuat salinan gambar" };
+  const newId = String(drawingInsertToken(res.drawing));
+  const MB = window.MilkdownBundle;
+  if (editor && MB) {
+    editor.action(ctx => {
+      const view = ctx.get(MB.editorViewCtx);
+      let foundPos = null, found = null;
+      view.state.doc.descendants((node, nodePos) => {
+        if (foundPos !== null) return false;
+        if (node.type && node.type.name === 'drawing' && String(node.attrs.id) === String(did)) {
+          foundPos = nodePos;
+          found = node;
+          return false;
+        }
+      });
+      if (foundPos !== null) {
+        const a = found.attrs;
+        view.dispatch(view.state.tr.setNodeMarkup(foundPos, null, { id: newId, title: a.title, size: a.size, width: a.width, height: a.height }));
+      }
+    });
+  }
+  return { ok: true, drawing: res.drawing, id: newId };
+}
+
 window.hydrateDrawingPreviews = function(root, force) {
   if (typeof document === 'undefined') return;
   const containers = (root || document).querySelectorAll('[data-drawing-preview]');
@@ -20947,21 +21137,16 @@ window.hydrateDrawingPreviews = function(root, force) {
     if (!did) return;
     if (el.getAttribute('data-hydrated') === 'true' && !force && el.querySelector('svg')) return;
     try {
-      let svg = null;
-      if (window.TF && window.TF.drawingrepo) {
-        let local = null;
-        if (typeof window.TF.drawingrepo.getDrawing === 'function') {
-          local = await window.TF.drawingrepo.getDrawing(did, { online: false }).catch(() => null);
-        }
-        if (!local && typeof window.TF.drawingrepo.getRaw === 'function') {
-          local = await window.TF.drawingrepo.getRaw(did).catch(() => null);
-        }
-        if (local && local.svg_preview) svg = local.svg_preview;
+      const found = await drawingPreviewLookup(did);
+      if (found.unavailable) {
+        el.innerHTML = '<span class="drawing-preview-placeholder drawing-unavailable" style="color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;">' + DRAWING_UNAVAILABLE_TEXT + '</span>';
+        el.setAttribute('data-hydrated', 'unavailable');
+        applyDrawingScopeUi(el, null);
+        return;
       }
-      if (!svg && typeof api !== 'undefined' && api.get) {
-        const d = await api.get(`/api/drawings/${did}`).catch(() => null);
-        if (d && d.svg_preview) svg = d.svg_preview;
-      }
+      if (!found.drawing) return;
+      applyDrawingScopeUi(el, found.drawing);
+      const svg = found.svg;
       if (svg && (svg.includes('<svg') || svg.trim().startsWith('<svg'))) {
         el.innerHTML = svg;
         const svgEl = el.querySelector('svg');
@@ -20973,12 +21158,13 @@ window.hydrateDrawingPreviews = function(root, force) {
         }
         el.setAttribute('data-hydrated', 'true');
       }
-    } catch (_) {}
+    } catch (err) { console.warn('[drawing] hydrate pratinjau gagal', err); }
   });
 };
 
 if (typeof window !== 'undefined') {
   window.parseDirectiveAttrs = parseDirectiveAttrs;
+  window.noteListIdFromEl = noteListIdFromEl;
   window.addEventListener('changeDrawingSize', e => {
     const { id, size, width } = e.detail || {};
     if (!id) return;
@@ -21610,7 +21796,8 @@ function MilkdownEditor({
   onTasklinkClick,
   onImagePaste,
   onInsertDrawing,
-  onInsertTask
+  onInsertTask,
+  noteListId = null
 }) {
   const containerRef = React.useRef(null);
   const instanceRef = React.useRef(null);
@@ -22461,12 +22648,35 @@ function MilkdownEditor({
         return;
       }
 
+      // 👥 drawing beda scope: "Salin ke W" / "Jadikan salinan pribadi" → salin lalu ganti id node
+      const copyBtn = e.target.closest('[data-action="copy-scope"]');
+      if (copyBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (copyBtn.disabled) return;
+        const raw = copyBtn.getAttribute('data-copy-list-id');
+        const targetListId = !raw ? null : (/^\d+$/.test(raw) ? Number(raw) : raw);
+        copyBtn.disabled = true;
+        copyDrawingIntoEditor(instanceRef.current, did, targetListId).then(res => {
+          if (!res.ok) {
+            copyBtn.disabled = false;
+            window.__showToast?.(res.message || "Gagal membuat salinan gambar", "error");
+          } else {
+            window.__showToast?.("Salinan gambar dibuat");
+          }
+        }, err => {
+          copyBtn.disabled = false;
+          window.__showToast?.((err && err.message) || "Gagal membuat salinan gambar", "error");
+        });
+        return;
+      }
+
       const editBtn = e.target.closest('[data-action="edit"]');
       const previewArea = e.target.closest('[data-drawing-preview]');
       if (editBtn || previewArea) {
         e.preventDefault();
         e.stopPropagation();
-        window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: did, title: dtitle } }));
+        window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: did, title: dtitle, noteListId: noteListIdFromEl(drawCard) } }));
         return;
       }
     }
@@ -22684,6 +22894,7 @@ function MilkdownEditor({
   }
   return /*#__PURE__*/React.createElement("div", {
     ref: containerRef,
+    "data-note-list-id": noteListId != null ? String(noteListId) : "",
     className: "milkdown-editor note-modal-content-input" + (blockHandleEnabled ? " has-block-handle" : ""),
     style: {
       minHeight: minHeight || 120,
@@ -23490,6 +23701,8 @@ function waitDrawingSaved(did, timeoutMs) {
 function QuickDrawModal({
   drawingId,
   drawingTitle = "",
+  noteListId,
+  sharedLists = [],
   onClose,
   showToast
 }) {
@@ -23502,6 +23715,9 @@ function QuickDrawModal({
   const [titleInput, setTitleInput] = useState(drawingTitle || "Gambar");
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  // drawing milik workspace lain dari note ini → banner (list_id dibaca dari record)
+  const [drawingListId, setDrawingListId] = useState(null);
+  const wsBanner = drawingEditBanner({ list_id: drawingListId }, noteListId, sharedLists);
 
   useEffect(() => {
     if (drawingId) {
@@ -23510,6 +23726,7 @@ function QuickDrawModal({
           setTitle(d.title);
           setTitleInput(d.title);
         }
+        setDrawingListId(d && d.list_id != null ? d.list_id : null);
       }).catch(() => {});
     }
   }, [drawingId]);
@@ -23647,6 +23864,11 @@ function QuickDrawModal({
     /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: handleOpenStandalone, disabled: saving, style: { fontSize: 12 } }, "↗️ Buka di Halaman Draw"),
     /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleClose, disabled: saving, style: { fontSize: 12 } }, saving ? "Menyimpan…" : "✓ Selesai")
   )),
+  wsBanner && /*#__PURE__*/React.createElement("div", {
+    className: "quickdraw-ws-banner",
+    role: "status",
+    style: { padding: "6px 16px", fontSize: 12, background: "rgba(168,197,0,0.12)", color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }
+  }, wsBanner),
   /*#__PURE__*/React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" } },
     /*#__PURE__*/React.createElement("iframe", {
       ref: iframeRef,
@@ -23659,6 +23881,9 @@ function QuickDrawModal({
 
 function DrawingInsertModal({
   noteTitle = "",
+  noteListId = null,
+  sharedLists = [],
+  currentUserId = null,
   onSelectDrawing,
   onClose,
   showToast
@@ -23669,13 +23894,24 @@ function DrawingInsertModal({
   const [searchQ, setSearchQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Pilihan yang butuh konfirmasi scope: { d, notice, text }
+  const [pending, setPending] = useState(null);
+  const [applying, setApplying] = useState(false);
+  const TFshare = window.TF && window.TF.drawingshare;
+  const myUid = () => {
+    const uid = window.TF && window.TF.drawingrepo && window.TF.drawingrepo.currentUid ? window.TF.drawingrepo.currentUid() : null;
+    return uid != null ? uid : currentUserId;
+  };
 
   useEffect(() => {
     if (tab === "gallery") {
       setLoading(true);
       api.get("/api/drawings").then(data => {
         setGallery(Array.isArray(data) ? data : []);
-      }).catch(() => setGallery([])).finally(() => setLoading(false));
+      }).catch(err => {
+        console.warn("[drawing] galeri gagal dimuat", err);
+        setGallery([]);
+      }).finally(() => setLoading(false));
     }
   }, [tab]);
 
@@ -23683,7 +23919,8 @@ function DrawingInsertModal({
     const t = newTitle.trim() || `Gambar - ${noteTitle || "Catatan"}`;
     setCreating(true);
     try {
-      const created = await api.post("/api/drawings", { title: t, data_json: "{}" });
+      // Note milik workspace → drawing baru langsung milik workspace yang sama
+      const created = await api.post("/api/drawings", { title: t, data_json: "{}", list_id: noteListId != null ? noteListId : null });
       onSelectDrawing && onSelectDrawing(created.id, created.title);
       onClose && onClose();
     } catch {
@@ -23693,7 +23930,47 @@ function DrawingInsertModal({
     }
   };
 
+  const insertNow = (id, title) => {
+    onSelectDrawing && onSelectDrawing(id, title);
+    onClose && onClose();
+  };
+  const handlePick = d => {
+    if (!TFshare) { insertNow(d.id, d.title); return; }
+    const notice = window.TF.drawingshare.scopeNotice(d, noteListId, myUid());
+    if (notice.kind === "same" || notice.kind === "ws_in_personal") { insertNow(d.id, d.title); return; }
+    const text = window.TF.drawingshare.noticeText(notice, drawingScopeListName(notice.listId, sharedLists));
+    setPending({ d, notice, text });
+  };
+  const handleConfirm = async () => {
+    if (!pending || applying) return;
+    setApplying(true);
+    try {
+      const res = await applyDrawingInsertChoice(window.TF.drawingshare, api, pending.d, pending.notice, drawingScopeListName(pending.notice.listId, sharedLists));
+      if (!res.ok) {
+        showToast && showToast(res.message, "error");
+        return;
+      }
+      if (res.toast) showToast && showToast(res.toast, "warning");
+      insertNow(res.id, res.title);
+    } catch (err) {
+      showToast && showToast((err && err.message) || "Gagal menyisipkan gambar", "error");
+    } finally {
+      setApplying(false);
+    }
+  };
+
   const filtered = gallery.filter(d => !searchQ.trim() || (d.title || "").toLowerCase().includes(searchQ.trim().toLowerCase()));
+  const groups = groupDrawingsByScope(filtered, sharedLists);
+  const groupHint = g => (noteListId == null && g.listId != null && TFshare)
+    ? window.TF.drawingshare.noticeText({ kind: "ws_in_personal", listId: g.listId }, g.label) : "";
+  const renderItem = d => /*#__PURE__*/React.createElement("div", {
+    key: d.id,
+    onClick: () => handlePick(d),
+    style: { padding: "8px 10px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-primary)" },
+    onMouseEnter: e => e.currentTarget.style.background = "var(--bg-secondary)",
+    onMouseLeave: e => e.currentTarget.style.background = "var(--bg-primary)"
+  }, /*#__PURE__*/React.createElement("span", { style: { fontSize: 13, fontWeight: 500 } }, "🎨 ", d.title || "(tanpa judul)"),
+     /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "var(--text-light)" } }, d.updated_at ? formatDate(d.updated_at.slice(0, 10)) : ""));
 
   return /*#__PURE__*/React.createElement("div", {
     className: "modal-overlay",
@@ -23707,7 +23984,14 @@ function DrawingInsertModal({
     style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }
   }, /*#__PURE__*/React.createElement("span", { style: { fontWeight: 700, fontSize: 16 } }, "🎨 Sisipkan Gambar"),
      /*#__PURE__*/React.createElement("button", { className: "btn btn-icon btn-sm", onClick: onClose }, "✕")),
-  /*#__PURE__*/React.createElement("div", {
+  pending ? /*#__PURE__*/React.createElement("div", { className: "drawing-insert-confirm", style: { display: "flex", flexDirection: "column", gap: 12 } },
+    /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, fontWeight: 600 } }, "🎨 ", pending.d.title || "(tanpa judul)"),
+    /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 } }, pending.text),
+    /*#__PURE__*/React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 } },
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setPending(null), disabled: applying }, "Batal"),
+      /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleConfirm, disabled: applying }, applying ? "Memproses..." : "Sisipkan")
+    )
+  ) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: { display: "flex", gap: 4, marginBottom: 16, background: "var(--bg-primary)", padding: 3, borderRadius: 8 }
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-sm",
@@ -23729,6 +24013,7 @@ function DrawingInsertModal({
       placeholder: "Contoh: Diagram Alur Flowchart",
       autoFocus: true
     }),
+    noteListId != null && /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, color: "var(--text-light)" } }, "👥 Dibuat di workspace ", drawingScopeListName(noteListId, sharedLists)),
     /*#__PURE__*/React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 } },
       /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: onClose }, "Batal"),
       /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleCreate, disabled: creating }, creating ? "Membuat..." : "Buat & Buka Editor")
@@ -23744,21 +24029,14 @@ function DrawingInsertModal({
     }),
     /*#__PURE__*/React.createElement("div", {
       className: "hide-scrollbar",
-      style: { maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4, border: "1px solid var(--border)", borderRadius: 8, padding: 4 }
+      style: { maxHeight: 260, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4, border: "1px solid var(--border)", borderRadius: 8, padding: 4 }
     }, loading ? /*#__PURE__*/React.createElement("div", { style: { padding: 12, textAlign: "center", fontSize: 12, color: "var(--text-light)" } }, "Memuat galeri...") :
        filtered.length === 0 ? /*#__PURE__*/React.createElement("div", { style: { padding: 12, textAlign: "center", fontSize: 12, color: "var(--text-light)" } }, "Tidak ada gambar ditemukan") :
-       filtered.map(d => /*#__PURE__*/React.createElement("div", {
-         key: d.id,
-         onClick: () => {
-           onSelectDrawing && onSelectDrawing(d.id, d.title);
-           onClose && onClose();
-         },
-         style: { padding: "8px 10px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-primary)" },
-         onMouseEnter: e => e.currentTarget.style.background = "var(--bg-secondary)",
-         onMouseLeave: e => e.currentTarget.style.background = "var(--bg-primary)"
-       }, /*#__PURE__*/React.createElement("span", { style: { fontSize: 13, fontWeight: 500 } }, "🎨 ", d.title || "(tanpa judul)"),
-          /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "var(--text-light)" } }, d.updated_at ? formatDate(d.updated_at.slice(0, 10)) : ""))))
-  )));
+       groups.map(g => /*#__PURE__*/React.createElement(React.Fragment, { key: g.key },
+         /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", padding: "6px 6px 2px", textTransform: "uppercase", letterSpacing: 0.3 } }, g.listId != null ? "👥 " + g.label : g.label),
+         groupHint(g) && /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, color: "var(--text-light)", padding: "0 6px 4px", lineHeight: 1.4 } }, groupHint(g)),
+         g.items.map(renderItem))))
+  ))));
 }
 
 // ── Paper Mode: fit-to-width (penampil desktop) ───────────────────
@@ -25483,6 +25761,7 @@ function NoteModal({
     } : { position: "relative" }
   }, /*#__PURE__*/React.createElement(MilkdownEditor, {
     value: content,
+    noteListId: noteListId,
     onChange: handleEditorChange,
     minHeight: focusMode ? 'calc(100vh - 100px)' : 'calc(100vh - 320px)',
     editorRef: milkdownEditorRef,
@@ -26076,12 +26355,17 @@ function NoteModal({
     className: "floating-toc-anchor--modal"
   }), drawingInsertOpen && /*#__PURE__*/React.createElement(DrawingInsertModal, {
     noteTitle: title,
+    noteListId: noteListId,
+    sharedLists: sharedLists,
+    currentUserId: currentUserId,
     onSelectDrawing: handleDrawingSelected,
     onClose: () => setDrawingInsertOpen(false),
     showToast: showToast
   }), quickDrawState && /*#__PURE__*/React.createElement(QuickDrawModal, {
     drawingId: quickDrawState.id,
     drawingTitle: quickDrawState.title,
+    noteListId: noteListId,
+    sharedLists: sharedLists,
     onClose: () => setQuickDrawState(null),
     showToast: showToast
   }));
@@ -26898,6 +27182,7 @@ function NotePanel({
   const renderedNoteEl = /*#__PURE__*/React.createElement("div", {
     className: "note-rendered",
     ref: tocSpyRef,
+    "data-note-list-id": note.list_id != null ? String(note.list_id) : "",
     style: {
       lineHeight: 1.75
     },
@@ -31931,6 +32216,11 @@ function App() {
   const [projects, setProjects] = useState([]);
   const [contexts, setContexts] = useState([]);
   const [sharedLists, setSharedLists] = useState([]);
+  // Nama workspace untuk badge 👥 di kartu drawing (hydrateDrawingPreviews bukan komponen React)
+  useEffect(() => {
+    window.__tfSharedLists = sharedLists;
+    if (sharedLists.length && typeof window.hydrateDrawingPreviews === 'function') window.hydrateDrawingPreviews(null, true);
+  }, [sharedLists]);
   const [collaborators, setCollaborators] = useState([]);
   const [selectedTask, setSelectedTask] = useState(null);
   const [selectedNote, setSelectedNote] = useState(null);
@@ -32522,7 +32812,7 @@ function App() {
     const handleEditDrawingModal = e => {
       const detail = e.detail;
       if (typeof detail === 'object' && detail !== null) {
-        setActiveQuickDraw({ id: detail.id, title: detail.title || '' });
+        setActiveQuickDraw({ id: detail.id, title: detail.title || '', noteListId: detail.noteListId });
       } else {
         setActiveQuickDraw({ id: detail, title: '' });
       }
@@ -33868,6 +34158,8 @@ function App() {
   }), activeQuickDraw && /*#__PURE__*/React.createElement(QuickDrawModal, {
     drawingId: activeQuickDraw.id,
     drawingTitle: activeQuickDraw.title,
+    noteListId: activeQuickDraw.noteListId,
+    sharedLists: sharedLists,
     onClose: () => {
       setActiveQuickDraw(null);
       if (typeof window.hydrateDrawingPreviews === 'function') {
