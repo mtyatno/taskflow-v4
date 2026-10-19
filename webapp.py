@@ -1441,6 +1441,32 @@ app.add_middleware(
 )
 
 
+class _NoSniffMiddleware:
+    """X-Content-Type-Options: nosniff di semua respons HTTP (spec XSS §6); nilai yang sudah dipasang tidak ditimpa.
+    Middleware ASGI murni (bukan BaseHTTPMiddleware) supaya respons streaming/SSE tidak ikut di-buffer."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def _send(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers") or [])
+                if not any(k.lower() == b"x-content-type-options" for k, _ in headers):
+                    headers.append((b"x-content-type-options", b"nosniff"))
+                    message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, _send)
+
+
+app.add_middleware(_NoSniffMiddleware)
+
+
 # Bump when the curated template content changes; a higher value than the
 # stored app_meta['habit_templates_version'] triggers a wipe-and-reseed.
 HABIT_TEMPLATES_SEED_VERSION = 2
@@ -4536,6 +4562,10 @@ def _fill_pub_placeholders(rendered: str, cards: dict, fallback: dict, nonce: st
     return re.sub(rf'<p>({key_pat})</p>|(<[^>]*>)|({key_pat})', _sub, rendered)
 
 
+# Ukuran pratinjau SVG drawing di kartu publik (img mengikuti container; script halaman memakai nilai sama)
+_PUB_SVG_IMG_STYLE = "width:100%;height:auto;max-height:100%;display:block;object-fit:contain"
+
+
 def _pub_href(username: str, slug: str) -> str:
     """Path /pub/{username}/{slug} yang aman ditanam di atribut href. Username dan slug target berasal dari
     data user lain (username tidak dibatasi karakternya): tiap segmen di-percent-encode lalu di-escape HTML."""
@@ -4782,9 +4812,9 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
 
         actual_id = d_row["id"]
         a_id = safehtml.escape_attr(str(actual_id))
-        if d_row["svg_preview"] and d_row["svg_preview"].strip().startswith("<svg"):
-            svg_html = d_row["svg_preview"]
-        else:
+        # SVG tidak pernah ditanam sebagai markup (spec XSS §3): <img data:> base64, alt = judul ter-escape
+        svg_html = safehtml.svg_img_tag(d_row["svg_preview"] or "", title, style=_PUB_SVG_IMG_STYLE)
+        if svg_html is None:
             svg_html = f'<iframe src="/static/vendor/tldraw/index.html?noteId={a_id}" style="width:100%;height:{a_height};border:none;" title="Drawing"></iframe>'
 
         cards[key] = (
@@ -5674,7 +5704,7 @@ async def view_note_attachment(att_id: int, user=Depends(get_current_user_sse)):
     return StreamingResponse(
         r.iter_content(chunk_size=8192),
         media_type=att["mime_type"],
-        headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
+        headers=_inline_file_headers(att["mime_type"], safe_name),
     )
 
 @app.get("/api/export/download")
@@ -6940,24 +6970,61 @@ _PUBLIC_CSS = """<style>
   }
 </style>"""
 
+# ── Header pengaman (spec XSS §6) ─────────────────────────────────────────────
+# Halaman HTML /pub/… (halaman note, halaman password, 404). Bukan untuk /pub/drawings (JSON) dan /pub/attachments.
+_PUB_PAGE_CSP = (
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self'; "
+    "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'"
+)
+# File unggahan yang disajikan langsung (lampiran publik dari Nextcloud, view lampiran note)
+_INLINE_FILE_CSP = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'"
+_INLINE_SAFE_MIMES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf"})
+
+
+def _inline_file_headers(mime_type: str, safe_name: str) -> dict:
+    """Header file unggahan: inline hanya untuk gambar raster dan PDF, selebihnya attachment; plus CSP sandbox."""
+    mime = (mime_type or "").split(";", 1)[0].strip().lower()
+    disposition = "inline" if mime in _INLINE_SAFE_MIMES else "attachment"
+    return {
+        "Content-Disposition": f'{disposition}; filename="{safe_name}"',
+        "Content-Security-Policy": _INLINE_FILE_CSP,
+        "X-Content-Type-Options": "nosniff",
+    }
+
+
+def _pub_html_response(content: str, status_code: int = 200) -> HTMLResponse:
+    """Respons HTML halaman /pub/… dengan CSP halaman publik."""
+    return HTMLResponse(content=content, status_code=status_code, headers={"Content-Security-Policy": _PUB_PAGE_CSP})
+
+
+_TEMPLATE_SLOT_RE = re.compile(r"@@([a-z_]+)@@")
+
+
+def _fill_template(template: str, values: dict) -> str:
+    """Isi slot @@nama@@ dalam satu lintasan: nilai yang disisipkan tidak dipindai ulang dan kurung kurawal/$ di
+    dalamnya tidak bermakna (pengganti .format()). Nilai harus sudah aman untuk konteksnya; slot tanpa nilai = KeyError."""
+    return _TEMPLATE_SLOT_RE.sub(lambda m: str(values[m.group(1)]), template)
+
+
 _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} — Alurik Publish</title>
-<meta name="description" content="{description}">
-<meta property="og:title" content="{title}">
-<meta property="og:description" content="{description}">
+<title>@@title@@ — Alurik Publish</title>
+<meta name="description" content="@@description@@">
+<meta property="og:title" content="@@title@@">
+<meta property="og:description" content="@@description@@">
 <meta property="og:type" content="article">
-<meta property="og:url" content="{base_url}/pub/{username}/{slug}">
+<meta property="og:url" content="@@og_url@@">
 <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,opsz,wght@0,6..12,400;0,6..12,500;0,6..12,600;0,6..12,700;1,6..12,400;1,6..12,600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
-{css}
+@@css@@
 </head>
 <body>
 <header class="pub-header">
-  <div class="pub-header-left">&#128279; <a href="{base_url}">Published via Alurik</a></div>
+  <div class="pub-header-left">&#128279; <a href="@@base_url@@">Published via Alurik</a></div>
   <div class="pub-header-right">
     <div class="pub-search-wrap">
       <input type="text" id="doc-search" placeholder="Search in document...">
@@ -6969,33 +7036,33 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 
 <div class="pub-layout">
   <aside class="pub-sidebar-left">
-    {toc_html}
-    {backlinks}
-    {tags_html}
+    @@toc_html@@
+    @@backlinks@@
+    @@tags_html@@
   </aside>
 
   <main class="pub-main">
-    {cover_html}
-    <h1 class="pub-title">{title}</h1>
+    @@cover_html@@
+    <h1 class="pub-title">@@title@@</h1>
     <div class="pub-meta">
-      <span>&#128100; {author}</span>
-      <span>&#128197; {date}</span>
-      <span>&#9201; {reading_time} min read</span>
-      <span>&#128221; {word_count} words</span>
+      <span>&#128100; @@author@@</span>
+      <span>&#128197; @@date@@</span>
+      <span>&#9201; @@reading_time@@ min read</span>
+      <span>&#128221; @@word_count@@ words</span>
     </div>
-    <div class="pub-body">{body}</div>
-    {attachments_html}
-    {drawing_html}
+    <div class="pub-body">@@body@@</div>
+    @@attachments_html@@
+    @@drawing_html@@
   </main>
 
   <aside class="pub-sidebar-right">
     <section>
       <h3>About this page</h3>
-      <div class="pub-about-item">&#128100; {author}</div>
-      <div class="pub-about-item">&#128197; Created: {created_date}</div>
-      <div class="pub-about-item">&#128339; Updated: {updated_date}</div>
-      <div class="pub-about-item">&#9201; {reading_time} min read</div>
-      <div class="pub-about-item">&#128221; {word_count} words</div>
+      <div class="pub-about-item">&#128100; @@author@@</div>
+      <div class="pub-about-item">&#128197; Created: @@created_date@@</div>
+      <div class="pub-about-item">&#128339; Updated: @@updated_date@@</div>
+      <div class="pub-about-item">&#9201; @@reading_time@@ min read</div>
+      <div class="pub-about-item">&#128221; @@word_count@@ words</div>
     </section>
     <section>
       <h3>Actions</h3>
@@ -7008,58 +7075,58 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 </div>
 
 <footer class="pub-footer">
-  Published with &#10084; by <a href="{base_url}">Alurik</a>
+  Published with &#10084; by <a href="@@base_url@@">Alurik</a>
 </footer>
 
 <script src="/static/vendor/katex/katex.min.js"></script>
 <script>
   // Inline KaTeX renderer (no auto-render.min.js needed)
-  try {{
+  try {
     var body = document.querySelector('.pub-body');
-    if (body && window.katex) {{
+    if (body && window.katex) {
       var html = body.innerHTML;
       // Display math: $$ ... $$
-      html = html.replace(/\\$\\$([\\s\\S]*?)\\$\\$/g, function(_, tex) {{
-        try {{ return katex.renderToString(tex.trim(), {{ displayMode: true, throwOnError: false }}); }} catch(e) {{ return _; }}
-      }});
+      html = html.replace(/\\$\\$([\\s\\S]*?)\\$\\$/g, function(_, tex) {
+        try { return katex.renderToString(tex.trim(), { displayMode: true, throwOnError: false }); } catch(e) { return _; }
+      });
       // Inline math: $ ... $
-      html = html.replace(/\\$([^$]+?)\\$/g, function(_, tex) {{
-        try {{ return katex.renderToString(tex.trim(), {{ displayMode: false, throwOnError: false }}); }} catch(e) {{ return _; }}
-      }});
+      html = html.replace(/\\$([^$]+?)\\$/g, function(_, tex) {
+        try { return katex.renderToString(tex.trim(), { displayMode: false, throwOnError: false }); } catch(e) { return _; }
+      });
       body.innerHTML = html;
-    }}
-  }} catch(e) {{}}
+    }
+  } catch(e) {}
 </script>
 <script>
   // Dark mode toggle
-  (function() {{
+  (function() {
     if (localStorage.getItem('pub-dark') === '1' ||
-        (!localStorage.getItem('pub-dark') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {{
+        (!localStorage.getItem('pub-dark') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
       document.documentElement.classList.add('dark');
-    }}
+    }
     var dt = document.getElementById('dark-toggle');
-    if (dt) {{
-      dt.addEventListener('click', function() {{
+    if (dt) {
+      dt.addEventListener('click', function() {
         var isDark = document.documentElement.classList.toggle('dark');
         localStorage.setItem('pub-dark', isDark ? '1' : '0');
         dt.textContent = isDark ? '\\u2600\\uFE0F' : '\\uD83C\\uDF19';
-      }});
-      if (document.documentElement.classList.contains('dark')) {{
+      });
+      if (document.documentElement.classList.contains('dark')) {
         dt.textContent = '\\u2600\\uFE0F';
-      }}
-    }}
-  }})();
+      }
+    }
+  })();
 
   // Copy link buttons
-  function setupCopyBtn(btn) {{
+  function setupCopyBtn(btn) {
     if (!btn) return;
-    btn.addEventListener('click', function() {{
-      navigator.clipboard.writeText(window.location.href).then(function() {{
+    btn.addEventListener('click', function() {
+      navigator.clipboard.writeText(window.location.href).then(function() {
         btn.textContent = '\\u2705 Copied!';
-        setTimeout(function() {{ btn.textContent = '\\uD83D\\uDCCB Copy Link'; }}, 2000);
-      }}).catch(function() {{}});
-    }});
-  }}
+        setTimeout(function() { btn.textContent = '\\uD83D\\uDCCB Copy Link'; }, 2000);
+      }).catch(function() {});
+    });
+  }
   setupCopyBtn(document.getElementById('copy-link-btn'));
   setupCopyBtn(document.getElementById('copy-link-btn-2'));
 
@@ -7067,8 +7134,8 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
   var searchInput = document.getElementById('doc-search');
   var _pubBody = document.querySelector('.pub-body');
   var _bodyOriginal = _pubBody ? _pubBody.innerHTML : '';
-  if (searchInput) {{
-    searchInput.addEventListener('input', function() {{
+  if (searchInput) {
+    searchInput.addEventListener('input', function() {
       var query = searchInput.value.trim();
       if (!_pubBody) return;
       // Reset to original (removes all previous highlights)
@@ -7079,77 +7146,96 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
       var textNodes = [];
       while (walker.nextNode()) textNodes.push(walker.currentNode);
       var lowerQuery = query.toLowerCase();
-      for (var i = textNodes.length - 1; i >= 0; i--) {{
+      for (var i = textNodes.length - 1; i >= 0; i--) {
         var node = textNodes[i];
         var text = node.textContent;
         var lower = text.toLowerCase();
         var idx = 0, lastIdx = 0;
         var frag = document.createDocumentFragment();
-        while ((idx = lower.indexOf(lowerQuery, lastIdx)) !== -1) {{
+        while ((idx = lower.indexOf(lowerQuery, lastIdx)) !== -1) {
           if (idx > lastIdx) frag.appendChild(document.createTextNode(text.substring(lastIdx, idx)));
           var mark = document.createElement('mark');
           mark.className = 'search-highlight';
           mark.textContent = text.substring(idx, idx + query.length);
           frag.appendChild(mark);
           lastIdx = idx + query.length;
-        }}
-        if (lastIdx > 0) {{
+        }
+        if (lastIdx > 0) {
           if (lastIdx < text.length) frag.appendChild(document.createTextNode(text.substring(lastIdx)));
           node.parentNode.replaceChild(frag, node);
-        }}
-      }}
-    }});
-  }}
+        }
+      }
+    });
+  }
 
   // Drawing canvas: load data from server into iframe
-  var _drawData = {drawing_data_js};
+  var _drawData = @@drawing_data_js@@;
   var drawIframe = document.getElementById('drawing-iframe');
-  if (drawIframe && _drawData) {{
-    window.addEventListener('message', function _onDrawMsg(e) {{
+  if (drawIframe && _drawData) {
+    window.addEventListener('message', function _onDrawMsg(e) {
       if (e.origin !== window.location.origin) return;
-      if (e.data && e.data.type === 'ready') {{
-        drawIframe.contentWindow.postMessage({{ type: 'load', data: _drawData }}, '*');
+      if (e.data && e.data.type === 'ready') {
+        drawIframe.contentWindow.postMessage({ type: 'load', data: _drawData }, '*');
         _drawData = null;
-      }}
-    }});
-  }}
+      }
+    });
+  }
+
+  // Pratinjau SVG drawing: tidak pernah masuk DOM sebagai markup (spec XSS §3) — selalu <img> dari Blob
+  var _svgUrls = [];
+  function _showSvg(container, svg) {
+    var prev = _svgUrls.filter(function(p) { return p.el === container; })[0];
+    var url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+    var img = document.createElement('img');
+    img.alt = 'Drawing';
+    img.setAttribute('style', '@@svg_img_style@@');
+    img.src = url;
+    container.textContent = '';
+    container.appendChild(img);
+    if (prev) { URL.revokeObjectURL(prev.url); prev.url = url; }
+    else _svgUrls.push({ el: container, url: url });
+  }
+  function _isSvg(v) { return typeof v === 'string' && v.trim().startsWith('<svg'); }
 
   // Hydrate inline drawing previews if needed
-  try {{
-    document.querySelectorAll('.note-draw-preview-container[data-drawing-preview]').forEach(function(el) {{
+  try {
+    document.querySelectorAll('.note-draw-preview-container[data-drawing-preview]').forEach(function(el) {
       var did = el.getAttribute('data-drawing-preview');
       if (!did) return;
-      if (!el.querySelector('svg') && !el.querySelector('iframe')) {{
-        fetch('/pub/drawings/' + did)
-          .then(function(r) {{ return r.ok ? r.json() : null; }})
-          .then(function(d) {{
-            if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {{
-              el.innerHTML = d.svg_preview;
-            }} else if (d && d.data_json && d.data_json.trim() !== '{{}}') {{
-              el.innerHTML = '<iframe src="/static/vendor/tldraw/index.html?noteId=' + encodeURIComponent(did) + '" style="width:100%;height:300px;border:none;" title="Drawing"></iframe>';
-            }}
-          }}).catch(function() {{}});
-      }}
-    }});
-  }} catch(e) {{}}
+      if (!el.querySelector('img') && !el.querySelector('iframe')) {
+        fetch('/pub/drawings/' + encodeURIComponent(did))
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(d) {
+            if (d && _isSvg(d.svg_preview)) {
+              _showSvg(el, d.svg_preview);
+            } else if (d && d.data_json && d.data_json.trim() !== '{}') {
+              var fr = document.createElement('iframe');
+              fr.src = '/static/vendor/tldraw/index.html?noteId=' + encodeURIComponent(did);
+              fr.setAttribute('style', 'width:100%;height:300px;border:none;');
+              fr.title = 'Drawing';
+              el.textContent = '';
+              el.appendChild(fr);
+            }
+          }).catch(function() {});
+      }
+    });
+  } catch(e) {}
 
-  // Swap iframe with rendered SVG when ready
-  window.addEventListener('message', function(e) {{
+  // Swap iframe with rendered SVG when ready — hanya dari iframe drawing milik halaman ini, ke container-nya sendiri
+  window.addEventListener('message', function(e) {
     if (e.origin !== window.location.origin) return;
-    if (e.data && e.data.type === 'change' && e.data.noteId && e.data.svg && e.data.svg.trim().startsWith('<svg')) {{
-      var container = document.querySelector('.note-draw-preview-container[data-drawing-preview="' + e.data.noteId + '"]');
-      if (container) {{
-        container.innerHTML = e.data.svg;
-        var svgEl = container.querySelector('svg');
-        if (svgEl) {{
-          svgEl.style.width = '100%';
-          svgEl.style.height = 'auto';
-          svgEl.style.maxHeight = '100%';
-          svgEl.style.display = 'block';
-        }}
-      }}
-    }}
-  }});
+    if (!e.data || e.data.type !== 'change' || !e.data.noteId || !_isSvg(e.data.svg)) return;
+    var frames = document.querySelectorAll('.note-draw-preview-container[data-drawing-preview] iframe');
+    var srcFrame = null;
+    for (var i = 0; i < frames.length; i++) {
+      if (frames[i].contentWindow && e.source === frames[i].contentWindow) { srcFrame = frames[i]; break; }
+    }
+    if (!srcFrame) return;
+    var cands = document.querySelectorAll('.note-draw-preview-container[data-drawing-preview="' + CSS.escape(String(e.data.noteId)) + '"]');
+    for (var j = 0; j < cands.length; j++) {
+      if (cands[j].contains(srcFrame)) { _showSvg(cands[j], e.data.svg); return; }
+    }
+  });
 </script>
 </body>
 </html>"""
@@ -7167,17 +7253,26 @@ _NOT_FOUND_HTML = """<!DOCTYPE html>
 
 _PASSWORD_GATE_HTML = """<!DOCTYPE html>
 <html lang="id">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>🔒 Protected — Alurik</title>{css}</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>🔒 Protected — Alurik</title>@@css@@</head>
 <body>
 <div class="pub-password">
   <h1>🔒 Halaman ini dilindungi password</h1>
-  <form method="post" action="/pub/{username}/{slug}/unlock">
+  <form method="post" action="@@action@@">
     <input type="password" name="password" placeholder="Masukkan password" autofocus required>
     <button type="submit">Buka</button>
   </form>
-  {error_html}
+  @@error_html@@
 </div>
 </body></html>"""
+
+def _password_gate_html(username: str, slug: str, error_html: str = "") -> str:
+    """Halaman password note publish. username/slug di action di-percent-encode lalu di-escape (_pub_href)."""
+    return _fill_template(_PASSWORD_GATE_HTML, {
+        "css": _PUBLIC_CSS,
+        "action": _pub_href(username, slug) + "/unlock",
+        "error_html": error_html,
+    })
+
 
 @app.get("/pub/attachments/{att_id}")
 async def view_published_attachment(att_id: str, request: Request):
@@ -7219,7 +7314,7 @@ async def view_published_attachment(att_id: str, request: Request):
                     return Response(
                         content=r.content,
                         media_type=mime_type,
-                        headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
+                        headers=_inline_file_headers(mime_type, safe_name),
                     )
                 r.close()
             except Exception:
@@ -7252,7 +7347,7 @@ async def view_published_note_legacy(slug: str):
             (slug,)
         ).fetchone()
         if not row:
-            return HTMLResponse(content=_NOT_FOUND_HTML, status_code=404)
+            return _pub_html_response(_NOT_FOUND_HTML, status_code=404)
         return RedirectResponse(url=f"/pub/{row['username']}/{slug}", status_code=301)
 
 @app.get("/pub/{username}/{slug}")
@@ -7269,26 +7364,14 @@ async def view_published_note(username: str, slug: str, request: Request):
             (slug, username)
         ).fetchone()
         if not row:
-            return HTMLResponse(
-                content=_NOT_FOUND_HTML,
-                status_code=404
-            )
+            return _pub_html_response(_NOT_FOUND_HTML, status_code=404)
 
         # Password gate
         if not _pub_note_unlocked(request, slug, row["password_hash"]):
-            # Show password form
-            return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
-                username=username,
-                slug=slug,
-                error_html="",
-                css=_PUBLIC_CSS
-            ))
+            return _pub_html_response(_password_gate_html(username, slug))
 
         import re as _re
-
-        # Helper: escape { } for .format() safety
-        def _esc(s):
-            return str(s or "").replace('{', '{{').replace('}', '}}')
+        _e, _ea = safehtml.escape_html, safehtml.escape_attr
 
         def _safe_date(d_str):
             if not d_str:
@@ -7341,7 +7424,7 @@ async def view_published_note(username: str, slug: str, request: Request):
         ).fetchall()
         if tags:
             tag_pills = "".join(
-                f'<span class="pub-tag">{_esc(t["name"])}</span>'
+                f'<span class="pub-tag">{_e(t["name"])}</span>'
                 for t in tags
             )
             tags_html = f'<section><h3>&#127991; Tags</h3><div class="pub-tags">{tag_pills}</div></section>'
@@ -7368,15 +7451,15 @@ async def view_published_note(username: str, slug: str, request: Request):
                         icon = ico
                         break
                 img_preview = (
-                    f'<div style="margin-top:8px"><img src="/pub/attachments/{a["id"]}" alt="{_esc(orig_name)}" style="max-height:180px;max-width:100%;border-radius:6px;object-fit:contain;background:var(--code-bg);border:1px solid var(--border);display:block;" loading="lazy"></div>'
+                    f'<div style="margin-top:8px"><img src="/pub/attachments/{a["id"]}" alt="{_ea(orig_name)}" style="max-height:180px;max-width:100%;border-radius:6px;object-fit:contain;background:var(--code-bg);border:1px solid var(--border);display:block;" loading="lazy"></div>'
                     if is_img else ''
                 )
                 att_items += (
                     f'<div class="pub-attachment-item" style="display:block;margin-bottom:12px;">'
                     f'<a href="/pub/attachments/{a["id"]}" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit;">'
                     f'<span class="pub-attachment-icon">{icon}</span>'
-                    f'<div><div class="pub-attachment-name">{_esc(orig_name)}</div>'
-                    f'<div class="pub-attachment-meta">{_esc(mime)}</div></div>'
+                    f'<div><div class="pub-attachment-name">{_e(orig_name)}</div>'
+                    f'<div class="pub-attachment-meta">{_e(mime)}</div></div>'
                     f'</a>'
                     f'{img_preview}'
                     f'</div>'
@@ -7396,7 +7479,8 @@ async def view_published_note(username: str, slug: str, request: Request):
                     '<img',
                     '<img style="width:100%;max-height:300px;object-fit:cover;border-radius:8px"'
                 )
-                cover_html = _esc(f'<div class="pub-cover">{cover_img}</div>')
+                # elemen <img> diambil dari body_html yang sudah aman (atributnya ter-escape), tidak di-parse ulang
+                cover_html = f'<div class="pub-cover">{cover_img}</div>'
                 body_html = body_html.replace(cover_match.group(0), '', 1)
 
         # TOC — parse h1-h3 from raw content, generate slugs, add ids to body_html
@@ -7423,7 +7507,7 @@ async def view_published_note(username: str, slug: str, request: Request):
             toc_list = ""
             for level, title, slug_heading in toc_items:
                 cls = f"toc-h{level}" if level > 1 else ""
-                toc_list += f'<li class="{cls}"><a href="#{slug_heading}">{_esc(title)}</a></li>'
+                toc_list += f'<li class="{cls}"><a href="#{_ea(slug_heading)}">{_e(title)}</a></li>'
             toc_html = f'<section class="pub-toc"><h3>&#128211; Contents</h3><ul>{toc_list}</ul></section>'
 
         # Build backlinks: other published notes that link to this note
@@ -7454,32 +7538,33 @@ async def view_published_note(username: str, slug: str, request: Request):
                 backlinks_html = f'<section><h3>&#128279; Related</h3><ul>{items}</ul></section>'
 
         try:
-            page_html = _PUBLIC_PAGE_HTML.format(
-                title=_esc(row["title"] or "Untitled"),
-                description=_esc(description),
-                base_url=WEBAPP_URL,
-                username=_esc(username),
-                slug=_esc(slug),
-                date=_esc(date_str),
-                body=_esc(body_html),
-                backlinks=backlinks_html,
-                css=_PUBLIC_CSS,
-                author=_esc(author),
-                created_date=_esc(created_date),
-                updated_date=_esc(updated_date),
-                reading_time=str(reading_time),
-                word_count=str(word_count),
-                toc_html=toc_html,
-                tags_html=tags_html,
-                cover_html=cover_html,
-                attachments_html=attachments_html,
-                drawing_html='',  # kanvas legacy per-note sudah dihapus; slot template dibiarkan kosong
-                drawing_data_js='null',
-            )
-            return HTMLResponse(content=page_html)
+            page_html = _fill_template(_PUBLIC_PAGE_HTML, {
+                "title": _ea(row["title"] or "Untitled"),
+                "description": description,  # sudah html.escape(quote=True)
+                "base_url": _ea(WEBAPP_URL),
+                "og_url": _ea(WEBAPP_URL) + _pub_href(username, slug),
+                "date": _e(date_str),
+                "body": body_html,
+                "backlinks": backlinks_html,
+                "css": _PUBLIC_CSS,
+                "author": _e(author),
+                "created_date": _e(created_date),
+                "updated_date": _e(updated_date),
+                "reading_time": str(reading_time),
+                "word_count": str(word_count),
+                "toc_html": toc_html,
+                "tags_html": tags_html,
+                "cover_html": cover_html,
+                "attachments_html": attachments_html,
+                "drawing_html": '',  # kanvas legacy per-note sudah dihapus; slot template dibiarkan kosong
+                "drawing_data_js": 'null',
+                "svg_img_style": _PUB_SVG_IMG_STYLE,
+            })
+            return _pub_html_response(page_html)
         except Exception:
+            logging.getLogger(__name__).exception("halaman publik gagal disusun (%s/%s)", username, slug)
             # Fallback simple HTML response if formatting fails
-            return HTMLResponse(content=f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>{html.escape(row["title"] or "Untitled")}</title>{_PUBLIC_CSS}</head><body style="padding:24px;max-width:800px;margin:0 auto;"><div class="pub-body">{body_html}</div></body></html>""")
+            return _pub_html_response(f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>{html.escape(row["title"] or "Untitled")}</title>{_PUBLIC_CSS}</head><body style="padding:24px;max-width:800px;margin:0 auto;"><div class="pub-body">{body_html}</div></body></html>""")
 
 @app.post("/pub/{username}/{slug}/unlock")
 async def unlock_published_note(username: str, slug: str, request: Request):
@@ -7501,15 +7586,11 @@ async def unlock_published_note(username: str, slug: str, request: Request):
         form = await request.form()
         password = str(form.get("password", ""))
 
-        if not _verify_password(password, row["password_hash"]):
+        if not verify_password(password, row["password_hash"]):
             _record_failed_attempt(ip, slug)
             remaining = 5 - len(_ip_attempts.get(ip, deque()))
-            return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
-                username=username,
-                slug=slug,
-                error_html=f'<p class="pub-error">Password salah. {max(0, remaining)} percobaan tersisa</p>',
-                css=_PUBLIC_CSS
-            ))
+            return _pub_html_response(_password_gate_html(
+                username, slug, f'<p class="pub-error">Password salah. {max(0, remaining)} percobaan tersisa</p>'))
 
         # Success
         _reset_bruteforce(ip, slug)

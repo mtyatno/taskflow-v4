@@ -193,3 +193,171 @@ def test_fallback_renderer_escapes(client, monkeypatch):
     assert 'Gambar tidak tersedia' in body
     assert '<p><div' not in body
     _assert_no_active_markup(body)
+
+
+# ── Kolom halaman publik, SVG, script halaman (Task 2; spec §3, §5) ──────────
+
+from conftest import db  # noqa: E402
+from test_pub_access import _attachment, _drawing, _uid  # noqa: E402
+
+
+def _set_tag(user_id, note_id, name):
+    conn = db()
+    try:
+        cur = conn.execute("INSERT INTO tags (user_id, name) VALUES (?, ?)", (user_id, name))
+        conn.execute("INSERT INTO entity_tags (tag_id, user_id, entity_type, entity_id) VALUES (?, ?, 'note', ?)",
+                     (cur.lastrowid, user_id, note_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _page_outside_scripts(text):
+    """Halaman tanpa isi <script>…</script> buatan Alurik (script halaman memuat kata seperti innerHTML)."""
+    return re.sub(r"<script\b[^>]*>.*?</script>", "", text, flags=re.S | re.I)
+
+
+def test_public_fields_escaped(client):
+    tag = _uniq()
+    uname = f"pubfld_{tag}"
+    h = _auth(client, uname)
+    title = f'</title><script>window.__x=1</script>"\'{tag}'
+    att_name = f'a"><img src=x onerror=1>{tag}.png'
+    content = f"# <img src=x onerror=1>\n\nisi {tag}\n\n## kedua <b>x</b>"
+    note_id, slug, username = _publish(client, h, title, content)
+    _set_tag(_uid(uname), note_id, '<img src=x onerror=1>')
+    _attachment(note_id, _uid(uname), f"fld-{tag}.png", "x", mime='image/png"><svg onload=1>')
+    conn = db()
+    try:
+        conn.execute("UPDATE note_attachments SET original_name = ? WHERE note_id = ?", (att_name, note_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+    page = anon().get(f"/pub/{username}/{slug}")
+    assert page.status_code == 200, page.text
+    text = page.text
+    assert '<script>window.__x' not in text
+    assert '&lt;/title&gt;&lt;script&gt;window.__x=1&lt;/script&gt;' in text
+    assert f'<title>&lt;/title&gt;&lt;script&gt;window.__x=1&lt;/script&gt;&quot;&#x27;{tag} — Alurik Publish</title>' in text
+    assert f'<meta property="og:title" content="&lt;/title&gt;&lt;script&gt;window.__x=1&lt;/script&gt;&quot;&#x27;{tag}">' in text
+    assert '<span class="pub-tag">&lt;img src=x onerror=1&gt;</span>' in text
+    assert f'alt="a&quot;&gt;&lt;img src=x onerror=1&gt;{tag}.png"' in text
+    assert '<a href="#img-srcx-onerror1">&lt;img src=x onerror=1&gt;</a>' in text  # TOC
+    assert '&lt;b&gt;x&lt;/b&gt;</a>' in text
+    # seluruh <body> (tanpa script halaman): markup tetap template (tombol print, style) dikecualikan
+    rest = _page_outside_scripts(text).split('<body>', 1)[1]
+    rest = rest.replace('<button onclick="window.print()">', '<button>')
+    rest = re.sub(r' style="[a-z0-9:;%(),.\- ]*"', '', rest)  # style tetap template lampiran/kartu (tanpa nilai pengguna)
+    _assert_no_active_markup(rest)
+    head = text.split('<body>', 1)[0]
+    assert head.count('<title>') == 1 and '<script' not in head
+
+
+def test_public_title_with_braces_renders(client):
+    tag = _uniq()
+    h = _auth(client, f"pubbrace_{tag}")
+    title = f"a {{b}} {{{{c}}}} %d $x ${{y}} {tag}"
+    _, slug, username = _publish(client, h, title, "isi {x} {{y}} $z")
+    page = anon().get(f"/pub/{username}/{slug}")
+    assert page.status_code == 200
+    assert f'<h1 class="pub-title">{title}</h1>' in page.text
+    assert 'isi {x} {{y}} $z' in page.text
+    assert '{{' not in page.text.replace('{{y}}', '').replace('{{c}}', '')
+    assert '{title}' not in page.text and '$title' not in page.text and '@@' not in page.text
+
+
+def test_password_page_escapes_username_and_slug(client):
+    tag = _uniq()
+    uname = f"pubpwq_{tag}"
+    h = _auth(client, uname)
+    _, slug, _ = _publish(client, h, f"Kunci {tag}", "rahasia", password="rahasia123")
+    evil = f'x" onfocus="alert(1)" a="{tag}'
+    conn = db()
+    try:
+        conn.execute("UPDATE users SET username = ? WHERE id = ?", (evil, _uid(uname)))
+        conn.commit()
+    finally:
+        conn.close()
+    import urllib.parse as up
+    path = f"/pub/{up.quote(evil, safe='')}/{slug}"
+    try:
+        resps = (anon().get(path), anon().post(path + "/unlock", data={"password": "salah"}))
+    finally:
+        webapp._ip_attempts.clear()  # batas percobaan per IP dipakai bersama seluruh sesi tes
+        webapp._progressive.clear()
+    for resp in resps:
+        assert resp.status_code == 200, resp.text
+        assert '" onfocus' not in resp.text
+        assert f'action="/pub/{up.quote(evil, safe="")}/{slug}/unlock"' in resp.text
+        _assert_no_active_markup(resp.text.split('<body>', 1)[1].replace('<form method="post"', '<f method="post"'))
+
+
+def test_public_svg_rendered_as_img(client):
+    tag = _uniq()
+    h = _auth(client, f"pubsvg_{tag}")
+    svg = f'<svg onload="window.__x=1"><script>window.__x=1</script><text>{tag}</text></svg>'
+    d = _drawing(client, h, f'judul "<b>{tag}', svg=svg, cid=f"cid-svg-{tag}")
+    _, slug, username = _publish(client, h, f"Note svg {tag}", f"::draw[{d['id']}]")
+    page = anon().get(f"/pub/{username}/{slug}")
+    assert page.status_code == 200
+    body = _body(page.text)
+    import base64
+    b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    img = (f'<img src="data:image/svg+xml;base64,{b64}" alt="judul &quot;&lt;b&gt;{tag}" '
+           f'style="{webapp._PUB_SVG_IMG_STYLE}">')
+    assert img in body
+    assert '<svg onload' not in page.text
+    assert '<script>window.__x' not in page.text
+    # _assert_no_active_markup menolak data:image/svg+xml dan style di luar div; selain img itu tidak ada markup aktif
+    _assert_no_active_markup(body.replace(img, ""))
+
+
+def test_public_svg_without_svg_prefix_not_embedded(client):
+    tag = _uniq()
+    h = _auth(client, f"pubsvg2_{tag}")
+    d = _drawing(client, h, f"bukan-svg-{tag}", svg=f'<img src=x onerror=1><svg>{tag}</svg>', cid=f"cid-ns-{tag}")
+    _, slug, username = _publish(client, h, f"Note ns {tag}", f"::draw[{d['id']}]")
+    body = _body(anon().get(f"/pub/{username}/{slug}").text)
+    assert 'data:image/svg+xml' not in body
+    assert '<iframe src="/static/vendor/tldraw/index.html?noteId=' in body
+    # iframe tldraw buatan Alurik (style tetap) dibuang dulu; sisanya tidak boleh punya markup aktif
+    body = re.sub(r'<iframe src="/static/vendor/tldraw/index.html\?noteId=\d+" style="[^"]*" title="Drawing"></iframe>', '', body)
+    _assert_no_active_markup(body)
+
+
+def test_public_page_script_uses_img_for_svg_and_checks_source(client):
+    tag = _uniq()
+    h = _auth(client, f"pubscr_{tag}")
+    _, slug, username = _publish(client, h, f"Note scr {tag}", "isi")
+    text = anon().get(f"/pub/{username}/{slug}").text
+    scripts = "".join(re.findall(r"<script>(.*?)</script>", text, flags=re.S))
+    assert 'innerHTML = d.svg_preview' not in scripts
+    assert 'innerHTML = e.data.svg' not in scripts
+    assert not re.search(r"innerHTML\s*=\s*(d\.svg_preview|e\.data\.svg)", scripts)
+    assert 'createObjectURL' in scripts and 'revokeObjectURL' in scripts
+    assert "image/svg+xml" in scripts
+    assert 'e.source' in scripts and 'contentWindow' in scripts
+    assert 'CSS.escape' in scripts
+    assert '{{' not in scripts and '}}' not in scripts
+
+
+def test_public_katex_does_not_create_tags(client):
+    body = _page_body(client, "rumus $<img src=x onerror=1>$ dan $$<svg onload=1>$$")
+    assert '&lt;img src=x onerror=1&gt;' in body
+    _assert_no_active_markup(body)
+
+
+def test_password_unlock_correct_password_redirects(client):
+    """Jalur password benar sempat 500 (NameError _verify_password); kini memasang cookie dan redirect."""
+    tag = _uniq()
+    h = _auth(client, f"pubunl_{tag}")
+    _, slug, username = _publish(client, h, f"Kunci {tag}", "rahasia", password="rahasia123")
+    try:
+        r = anon().post(f"/pub/{username}/{slug}/unlock", data={"password": "rahasia123"}, follow_redirects=False)
+    finally:
+        webapp._ip_attempts.clear()
+        webapp._progressive.clear()
+    assert r.status_code == 302, r.text
+    assert r.headers["location"] == f"/pub/{username}/{slug}"
+    assert f"pub_unlock_{slug}=" in r.headers.get("set-cookie", "")

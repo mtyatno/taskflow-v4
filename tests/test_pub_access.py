@@ -18,6 +18,8 @@ ditemukan", bukan error server. Spec: docs/superpowers/specs/
 DB tes dipakai bersama satu sesi pytest: username, judul, client_id, dan marker dibuat unik.
 """
 import os
+import base64
+import re
 import uuid
 from html.parser import HTMLParser
 
@@ -130,6 +132,16 @@ def _wikilink_refs(title, note_id):
 
 def _svg(marker):
     return f"<svg><text>{marker}</text></svg>"
+
+
+_SVG_DATA_RE = re.compile(r'data:image/svg\+xml;base64,([A-Za-z0-9+/=]+)')
+
+
+def _shown(page_text):
+    """Teks halaman plus isi SVG yang ditanam sebagai <img src="data:image/svg+xml;base64,…"> (spec XSS §3),
+    supaya pemeriksaan marker drawing tetap melihat gambar yang benar-benar tampil di halaman."""
+    decoded = [base64.b64decode(b).decode("utf-8") for b in _SVG_DATA_RE.findall(page_text)]
+    return "\n".join([page_text, *decoded])
 
 
 # ── GET /pub/drawings/{token} ────────────────────────────────────────────────
@@ -263,7 +275,7 @@ def test_pub_other_users_drawing_not_exposed(client):
 
     page = pub.get(f"/pub/{username}/{slug}")
     assert page.status_code == 200
-    assert marker not in page.text
+    assert marker not in _shown(page.text)
     assert "Gambar tidak tersedia" in page.text
     assert f'data-drawing-preview="{b["id"]}"' not in page.text
     assert f'data-drawing-preview="{b["client_id"]}"' not in page.text
@@ -293,7 +305,7 @@ def test_pub_member_injection_blocked(client):
     page = pub.get(f"/pub/{username}/{slug}")
     assert page.status_code == 200
     assert old_content in page.text
-    assert marker not in page.text
+    assert marker not in _shown(page.text)
     assert "Gambar tidak tersedia" in page.text  # penyisipan memang masuk ke isi yang dipublish
     assert pub.get(f"/pub/drawings/{p['id']}").status_code == 404
     assert pub.get(f"/pub/drawings/{p['client_id']}").status_code == 404
@@ -366,7 +378,7 @@ def test_pub_unshare_after_member_edit_hides_drawings(client):
     page = pub.get(f"/pub/{username}/{slug}")
     assert page.status_code == 200
     assert old_content in page.text
-    assert marker not in page.text
+    assert marker not in _shown(page.text)
     assert "Gambar tidak tersedia" in page.text
     assert pub.get(f"/pub/drawings/{p['id']}").status_code == 404
 
@@ -393,7 +405,7 @@ def test_pub_private_note_trusted_only_when_last_edited_by_owner(client):
         assert page.status_code == 200
         endpoint = pub.get(f"/pub/drawings/{d['id']}").status_code
         assert endpoint in (200, 404)
-        assert (marker in page.text) == (endpoint == 200), "halaman dan /pub/drawings tidak sepakat"
+        assert (marker in _shown(page.text)) == (endpoint == 200), "halaman dan /pub/drawings tidak sepakat"
         return endpoint == 200
 
     def set_last_editor(user_id):
@@ -433,7 +445,7 @@ def test_pub_note_published_under_another_user_is_not_trusted(client):
     pub = anon()
     page = pub.get(f"/pub/{o_name}/{slug}")
     assert page.status_code == 200
-    assert marker not in page.text
+    assert marker not in _shown(page.text)
     assert "Gambar tidak tersedia" in page.text
     assert pub.get(f"/pub/drawings/{d['id']}").status_code == 404
 
@@ -451,7 +463,7 @@ def test_published_page_resolves_own_cid_reference(client):
 
     page = anon().get(f"/pub/{username}/{slug}")
     assert page.status_code == 200
-    assert marker in page.text
+    assert marker in _shown(page.text)
     assert f'data-drawing-preview="{a["id"]}"' in page.text
     assert "Gambar tidak tersedia" not in page.text
 
@@ -483,8 +495,8 @@ def test_published_page_ignores_title_match(client):
 
     page = anon().get(f"/pub/{username}/{slug}")
     assert page.status_code == 200
-    assert marker_b not in page.text
-    assert marker_a not in page.text
+    assert marker_b not in _shown(page.text)
+    assert marker_a not in _shown(page.text)
     assert "Gambar tidak tersedia" in page.text
 
 
@@ -521,8 +533,8 @@ def test_published_page_no_note_id_fallback_and_no_legacy_canvas(client):
 
     page = anon().get(f"/pub/{username}/{slug}")
     assert page.status_code == 200
-    assert marker_svg not in page.text
-    assert marker_data not in page.text
+    assert marker_svg not in _shown(page.text)
+    assert marker_data not in _shown(page.text)
     assert 'id="drawing-iframe"' not in page.text
     assert "Gambar tidak tersedia" in page.text
 

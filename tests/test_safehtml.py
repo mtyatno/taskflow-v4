@@ -110,3 +110,16 @@ def test_obfuscated_cases_cover_review_focus():
                    "<br onclick=x>", "<mark style=", "<img src=x onerror=", "<svg onload=",
                    "](javascript:", '](x"onerror="', "</title><script>"):
         assert needle in joined, needle
+
+
+def test_svg_img_tag():
+    import base64
+    from safehtml import svg_img_tag
+    svg = '<svg onload="alert(1)"><script>alert(2)</script><text>é</text></svg>'
+    out = svg_img_tag("  " + svg, 'a"<b>\'', style='width:100%;"x')
+    b64 = base64.b64encode(("  " + svg).encode("utf-8")).decode("ascii")
+    assert out == (f'<img src="data:image/svg+xml;base64,{b64}" alt="a&quot;&lt;b&gt;&#x27;" '
+                   'style="width:100%;&quot;x">')
+    assert svg_img_tag(svg, "t") == f'<img src="data:image/svg+xml;base64,{base64.b64encode(svg.encode()).decode()}" alt="t">'
+    for bad in ("", "   ", "<img src=x onerror=1><svg>", "x<svg>", None, "<SVG>"):
+        assert svg_img_tag(bad, "t") is None, bad

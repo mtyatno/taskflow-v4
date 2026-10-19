@@ -6,11 +6,13 @@ tidak meng-import webapp.
 """
 from __future__ import annotations
 
+import base64 as _base64
 import html as _html
 import re
 
 __all__ = [
-    "escape_html", "escape_attr", "restore_allowed_tags", "safe_url", "safe_draw_attrs", "OBFUSCATED_CASES",
+    "escape_html", "escape_attr", "restore_allowed_tags", "safe_url", "safe_draw_attrs", "svg_img_tag",
+    "OBFUSCATED_CASES",
 ]
 
 
@@ -120,6 +122,18 @@ def safe_draw_attrs(attrs) -> dict:
 # ── Kasus uji bersama (Review Focus #1 rencana + kriteria §1 spec) ──────────
 # Isi note (markdown) yang tidak boleh menghasilkan tag/atribut aktif di render publik maupun klien.
 # Task berikutnya menyalin daftar ini ke tes JS; jaga tetap berupa string biasa.
+# ── SVG drawing (§3) ─────────────────────────────────────────────────────────
+def svg_img_tag(svg, alt, style: str = ""):
+    """Pratinjau SVG sebagai <img src="data:image/svg+xml;base64,…">, tidak pernah sebagai markup di DOM
+    (script/handler di dalam SVG tidak jalan di konteks <img>). None bila isi bukan SVG
+    (syarat: svg.strip().startswith("<svg")). alt dan style di-escape sebagai atribut."""
+    if not isinstance(svg, str) or not svg.strip().startswith("<svg"):
+        return None
+    b64 = _base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    style_attr = f' style="{escape_attr(style)}"' if style else ""
+    return f'<img src="data:image/svg+xml;base64,{b64}" alt="{escape_attr(alt)}"{style_attr}>'
+
+
 OBFUSCATED_CASES: list[str] = [
     # §1 spec
     "<script>window.__xss=1</script>",
