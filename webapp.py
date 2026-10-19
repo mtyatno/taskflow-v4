@@ -142,6 +142,7 @@ from datehelper import parse_date
 from repository import TaskRepository
 import repository
 import drawing_scope
+import safehtml
 import bookmark
 import ai_review
 import review_history
@@ -4417,6 +4418,124 @@ def _published_drawing_for_request(conn, token: str, request: Request) -> Option
                 return d
     return None
 
+_PUB_MD_PLUGINS = ['table', 'url', 'strikethrough', 'task_lists']
+
+
+def _pub_markdown(plugins):
+    """mistune 3 untuk isi note publik: HTML mentah di-escape (escape=True), href/src lewat safehtml.safe_url.
+    Link ditolak → teksnya saja; gambar ditolak → teks alt saja. ImportError bila mistune tidak ada."""
+    import mistune
+    from mistune.renderers.html import HTMLRenderer
+    from mistune.util import safe_entity, striptags, unescape
+
+    class _PubHTMLRenderer(HTMLRenderer):
+        def text(self, text):
+            # entity tetap didecode lalu di-escape ulang (perilaku lama escape=False), keluaran selalu ter-escape
+            return safe_entity(text)
+
+        def link(self, text, url, title=None):
+            href = safehtml.safe_url(url)
+            if href is None:
+                return text
+            s = '<a href="' + safehtml.escape_attr(href) + '"'
+            if title:
+                s += ' title="' + safehtml.escape_attr(unescape(title)) + '"'
+            return s + '>' + text + '</a>'
+
+        def image(self, text, url, title=None):
+            alt = striptags(text)  # anak-anaknya sudah ter-escape (termasuk ")
+            src = safehtml.safe_url(url, image=True)
+            if src is None:
+                return alt
+            s = '<img src="' + safehtml.escape_attr(src) + '" alt="' + alt + '"'
+            if title:
+                s += ' title="' + safehtml.escape_attr(unescape(title)) + '"'
+            return s + ' />'
+
+    return mistune.create_markdown(escape=True, renderer=_PubHTMLRenderer(escape=True), plugins=plugins)
+
+
+def _render_pub_markdown_fallback(text: str) -> str:
+    """Renderer cadangan (mistune tidak bisa di-import / gagal): semua teks di-escape, hanya heading, paragraf,
+    dan tabel. Link/gambar tidak dibuat (tampil sebagai teks markdown). Allowlist dikembalikan pemanggil."""
+    esc = safehtml.escape_html
+    out = []
+    tbl_rows = []
+
+    def _cells(row):
+        return [c.strip() for c in row.strip('|').split('|')]
+
+    def _flush_tbl():
+        if not tbl_rows:
+            return
+        res = ['<table>']
+        has_header = len(tbl_rows) >= 2 and all(c in '-: |' for c in tbl_rows[1])
+        start_idx = 0
+        if has_header:
+            res.append('<thead><tr>' + ''.join(f'<th>{esc(c)}</th>' for c in _cells(tbl_rows[0])) + '</tr></thead>')
+            start_idx = 2
+        res.append('<tbody>')
+        for r in tbl_rows[start_idx:]:
+            res.append('<tr>' + ''.join(f'<td>{esc(c)}</td>' for c in _cells(r)) + '</tr>')
+        res.append('</tbody></table>')
+        out.append(''.join(res))
+        tbl_rows.clear()
+
+    for line in (text or '').split('\n'):
+        stripped = line.strip()
+        if stripped.startswith('|') and (stripped.endswith('|') or '|' in stripped[1:]):
+            tbl_rows.append(stripped)
+            continue
+        _flush_tbl()
+        if not stripped:
+            continue
+        m = re.match(r'(#{1,3}) (.*)$', stripped)
+        if m:
+            lvl = len(m.group(1))
+            out.append(f'<h{lvl}>{esc(m.group(2))}</h{lvl}>')
+        else:
+            out.append(f'<p>{esc(line)}</p>')
+    _flush_tbl()
+    return '\n'.join(out)
+
+
+def _render_pub_markdown(content: str) -> str:
+    """Markdown isi note publik → HTML ter-escape (sebelum allowlist dan placeholder kartu)."""
+    for plugins in (_PUB_MD_PLUGINS, None):
+        try:
+            return _pub_markdown(plugins)(content)
+        except ImportError:
+            break
+        except Exception:
+            logging.getLogger(__name__).exception("mistune gagal merender note publik (plugins=%s)", plugins)
+    return _render_pub_markdown_fallback(content)
+
+
+def _fill_pub_placeholders(rendered: str, cards: dict, fallback: dict, nonce: str) -> str:
+    """Ganti placeholder kartu dengan HTML buatan Alurik dalam satu lintasan (HTML sisipan tidak dipindai ulang).
+    Kartu drawing yang berdiri sendiri sebagai paragraf dipasang tanpa <p>. Placeholder di dalam tag (mis. alt
+    gambar, title link) diganti teks ter-escape, bukan markup, supaya tidak bisa keluar dari atribut."""
+    if not cards:
+        return rendered
+    # semua kunci berbentuk TFM(WIKI|DRAWBLK)<nonce>X<n>END (nonce hex per render); pola umum + lookup dict
+    # (bukan alternation semua kunci, yang lambat untuk note dengan ribuan wikilink)
+    key_pat = rf'TFM(?:WIKI|DRAWBLK){re.escape(nonce)}X\d+END'
+    key_re = re.compile(key_pat)
+
+    def _card(key):
+        return cards.get(key, '')
+
+    def _sub(m):
+        if m.group(1):
+            key = m.group(1)
+            return _card(key) if key.startswith('TFMDRAWBLK') else f'<p>{_card(key)}</p>'
+        if m.group(2):
+            return key_re.sub(lambda k: fallback.get(k.group(0), ''), m.group(2))
+        return _card(m.group(3))
+
+    return re.sub(rf'<p>({key_pat})</p>|(<[^>]*>)|({key_pat})', _sub, rendered)
+
+
 def _pub_href(username: str, slug: str) -> str:
     """Path /pub/{username}/{slug} yang aman ditanam di atribut href. Username dan slug target berasal dari
     data user lain (username tidak dibatasi karakternya): tiap segmen di-percent-encode lalu di-escape HTML."""
@@ -4434,11 +4553,17 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
     drawing ber-list_id = W. Note yang terakhir disunting orang lain tanpa list_id = tidak ada drawing."""
     import re as _re
     content = raw_content or ""
+    # Kartu buatan Alurik (wikilink ter-resolve, drawing) disisipkan lewat placeholder SETELAH markdown di-escape dan
+    # allowlist dikembalikan (spec XSS §2.3). Nonce per render: teks placeholder yang diketik pengguna tidak cocok.
+    ph_nonce = secrets.token_hex(4)
+    cards = {}          # placeholder -> HTML aman
+    card_fallback = {}  # placeholder -> teks ter-escape bila placeholder berada di dalam atribut (mis. alt gambar)
 
     # 1. Strip tasklink tokens
     content = _re.sub(r'\\?\[tasklink:[0-9a-f-]+\]', '', content)
 
-    # 2. Strip ==highlight== → render as <mark>
+    # 2. ==highlight== → <mark>…</mark>. Tag ini ikut di-escape mistune lalu dikembalikan oleh allowlist
+    # (safehtml.restore_allowed_tags), jadi isi highlight selalu ter-escape.
     content = _re.sub(r'\\?==([^=\n]+)==', r'<mark>\1</mark>', content)
 
     # 3. Build wikilink map: title → (username, slug) for published notes.
@@ -4456,7 +4581,13 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         key = row["title"].strip().lower()
         published_map[key] = (row["username"], row["slug"])
 
-    # 4. Rewrite [[wikilink]]
+    # 4. Rewrite [[wikilink]] → placeholder kartu tautan (judul di-escape); tidak ter-resolve → teks markdown biasa
+    def _wikilink_card(title, href):
+        key = f"TFMWIKI{ph_nonce}X{len(cards)}END"
+        cards[key] = f'<a href="{href}">[[{safehtml.escape_html(title)}]]</a>'
+        card_fallback[key] = safehtml.escape_attr(f'[[{title}]]')
+        return key
+
     def _replace_wikilink(m):
         raw = m.group(1).replace('\\(', '(').replace('\\)', ')')
         title = raw.split("|")[0].strip()
@@ -4464,7 +4595,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         # Check by title
         if norm in published_map:
             uname, uslug = published_map[norm]
-            return f'<a href="{_pub_href(uname, uslug)}">[[{title}]]</a>'
+            return _wikilink_card(title, _pub_href(uname, uslug))
         # Check by id: "id:N" / "note:N" / N polos. Id yang tidak bisa jadi id baris (digit Unicode, di luar
         # INTEGER SQLite) = tidak ditemukan, bukan 500 (note bersama bisa disunting anggota lain).
         m_id = _re.match(r'^(?:(?:id|note)\s*:\s*)?(\d+)$', norm)
@@ -4474,8 +4605,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
                 "SELECT p.slug, p.password_hash, p.user_id, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (nid,)
             ).fetchone()
             if row2 and _wikilink_target_ok(row2["password_hash"], row2["user_id"]):
-                un = row2["username"]; sl = row2["slug"]
-                return f'<a href="{_pub_href(un, sl)}">[[{title}]]</a>'
+                return _wikilink_card(title, _pub_href(row2["username"], row2["slug"]))
         # Not published → plain text
         return f'[[{title}]]'
 
@@ -4590,13 +4720,9 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
     content = _re.sub(r'^(\s*)- \[[xX]\]', r'\1- ☑', content, flags=_re.MULTILINE)
 
     # 6.5. Process ::draw[id]{...} tokens → extract and replace with placeholder
-    draw_map = {}
-    di = 0
-
     def _replace_draw(m):
-        nonlocal di
-        key = f"TFMDRAWBLK{di}END"
-        di += 1
+        key = f"TFMDRAWBLK{ph_nonce}X{len(cards)}END"
+        card_fallback[key] = ""
         drawing_id = m.group(1)
         attr_raw = m.group(2) or ""
 
@@ -4608,6 +4734,9 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
                 k = am.group(1).lower()
                 v = am.group(2) or am.group(3) or am.group(4) or ''
                 attrs[k] = v
+        # size/width/height berasal dari isi note dan masuk ke atribut style/data-*: hanya nilai valid yang dipakai,
+        # selebihnya default (spec XSS §2.3). Semua nilai tetap ditulis lewat escape_attr.
+        attrs = safehtml.safe_draw_attrs(attrs)
 
         title = attrs.get('title')
         size = attrs.get('size', '').upper()
@@ -4634,119 +4763,46 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         if not title:
             title = "Gambar"
 
-        safe_title = html.escape(title)
+        safe_title = safehtml.escape_html(title)
         card_style = f"width:{width_val};max-width:{width_val};margin:16px auto;" if width_val != '100%' else "width:100%;margin:16px 0;"
+        a_size = safehtml.escape_attr(size)
+        a_style = safehtml.escape_attr(card_style)
+        a_height = safehtml.escape_attr(height_val)
 
         if not d_row:
             # Token tak ter-resolve: kartu netral tanpa data-drawing-id/-preview dan tanpa iframe,
             # supaya halaman tidak memanggil /pub/drawings/<token> dan tidak menanam gambar siapa pun.
-            # size/width/height berasal dari isi note, jadi di-escape sebelum masuk ke atribut HTML.
-            safe_height = html.escape(height_val)
-            draw_map[key] = (
-                f'<div class="note-draw-card" data-size="{html.escape(size)}" style="{html.escape(card_style)}">'
+            cards[key] = (
+                f'<div class="note-draw-card" data-size="{a_size}" style="{a_style}">'
                 f'<div class="note-draw-header"><span>🎨 {safe_title}</span></div>'
-                f'<div class="note-draw-preview-container" style="height:{safe_height};max-height:{safe_height};">Gambar tidak tersedia</div>'
+                f'<div class="note-draw-preview-container" style="height:{a_height};max-height:{a_height};">Gambar tidak tersedia</div>'
                 f'</div>'
             )
             return key
 
         actual_id = d_row["id"]
+        a_id = safehtml.escape_attr(str(actual_id))
         if d_row["svg_preview"] and d_row["svg_preview"].strip().startswith("<svg"):
             svg_html = d_row["svg_preview"]
         else:
-            svg_html = f'<iframe src="/static/vendor/tldraw/index.html?noteId={html.escape(str(actual_id))}" style="width:100%;height:{height_val};border:none;" title="Drawing"></iframe>'
+            svg_html = f'<iframe src="/static/vendor/tldraw/index.html?noteId={a_id}" style="width:100%;height:{a_height};border:none;" title="Drawing"></iframe>'
 
-        draw_map[key] = (
-            f'<div class="note-draw-card" data-drawing-id="{html.escape(str(actual_id))}" data-size="{size}" style="{card_style}">'
+        cards[key] = (
+            f'<div class="note-draw-card" data-drawing-id="{a_id}" data-size="{a_size}" style="{a_style}">'
             f'<div class="note-draw-header"><span>🎨 {safe_title}</span></div>'
-            f'<div class="note-draw-preview-container" data-drawing-preview="{html.escape(str(actual_id))}" style="height:{height_val};max-height:{height_val};">{svg_html}</div>'
+            f'<div class="note-draw-preview-container" data-drawing-preview="{a_id}" style="height:{a_height};max-height:{a_height};">{svg_html}</div>'
             f'</div>'
         )
         return key
 
     content = _DRAW_DIRECTIVE_RE.sub(_replace_draw, content)
 
-    # 7. Render markdown → HTML via mistune (with table & common plugins)
-    try:
-        import mistune
-        plugins = ['table', 'url', 'strikethrough', 'task_lists']
-        md_renderer = mistune.create_markdown(escape=False, plugins=plugins)
-        rendered_html = md_renderer(content)
-    except Exception:
-        try:
-            import mistune
-            md_renderer = mistune.create_markdown(escape=False)
-            rendered_html = md_renderer(content)
-        except Exception:
-            # Fallback renderer: convert tables, headings, images, links to HTML
-            def _fallback_render(text):
-                lines = text.split('\n')
-                out = []
-                in_tbl = False
-                tbl_rows = []
-
-                def _flush_tbl():
-                    nonlocal in_tbl, tbl_rows
-                    if not tbl_rows:
-                        return ''
-                    res = ['<table>']
-                    has_header = len(tbl_rows) >= 2 and all(c in '-: |' for c in tbl_rows[1])
-                    start_idx = 0
-                    if has_header:
-                        res.append('<thead><tr>')
-                        for col in [c.strip() for c in tbl_rows[0].strip('|').split('|')]:
-                            res.append(f'<th>{html.escape(col)}</th>')
-                        res.append('</tr></thead>')
-                        start_idx = 2
-                    res.append('<tbody>')
-                    for r in tbl_rows[start_idx:]:
-                        res.append('<tr>')
-                        for col in [c.strip() for c in r.strip('|').split('|')]:
-                            res.append(f'<td>{html.escape(col)}</td>')
-                        res.append('</tr>')
-                    res.append('</tbody></table>')
-                    tbl_rows = []
-                    in_tbl = False
-                    return ''.join(res)
-
-                for line in lines:
-                    stripped = line.strip()
-                    is_t = stripped.startswith('|') and (stripped.endswith('|') or '|' in stripped[1:])
-                    if is_t:
-                        in_tbl = True
-                        tbl_rows.append(stripped)
-                        continue
-                    elif in_tbl:
-                        out.append(_flush_tbl())
-
-                    if not stripped:
-                        continue
-                    elif stripped.startswith('### '):
-                        out.append(f'<h3>{html.escape(stripped[4:])}</h3>')
-                    elif stripped.startswith('## '):
-                        out.append(f'<h2>{html.escape(stripped[3:])}</h2>')
-                    elif stripped.startswith('# '):
-                        out.append(f'<h1>{html.escape(stripped[2:])}</h1>')
-                    else:
-                        l = line
-                        l = _re.sub(r'!\[([^\]]*)\]\(([^)]*)\)', r'<img src="\2" alt="\1">', l)
-                        l = _re.sub(r'\[([^\]]*)\]\(([^)]*)\)', r'<a href="\2">\1</a>', l)
-                        l = _re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', l)
-                        l = _re.sub(r'\*([^*]+)\*', r'<em>\1</em>', l)
-                        out.append(f'<p>{l}</p>')
-
-                if in_tbl:
-                    out.append(_flush_tbl())
-
-                return '\n'.join(out)
-
-            rendered_html = _fallback_render(content)
-
-    # 8. Restore drawing blocks
-    for k, v in draw_map.items():
-        rendered_html = rendered_html.replace(f'<p>{k}</p>', v).replace(k, v)
-
-    return rendered_html
+    # 7. Markdown → HTML: mistune escape=True (HTML mentah jadi teks), link/gambar lewat safehtml.safe_url;
+    # 7.1 allowlist tag (<br>, <details>, <summary>, <mark>) dikembalikan dari bentuk ter-escape (bukan di dalam kode);
+    # 8. baru setelah itu placeholder kartu diganti HTML buatan Alurik. Urutan ini wajib (spec XSS §2.4).
+    rendered_html = _render_pub_markdown(content)
+    rendered_html = safehtml.restore_allowed_tags(rendered_html)
+    return _fill_pub_placeholders(rendered_html, cards, card_fallback, ph_nonce)
 
 def _resolve_linked_to(titles: list[str], user_id: int, conn) -> list[int]:
     """Resolve note titles/IDs to note IDs. Handles plain titles, id:N, and numeric IDs."""
