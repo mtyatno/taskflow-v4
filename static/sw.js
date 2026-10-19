@@ -13,6 +13,7 @@ const STATIC = [
   "/static/offline/tagrepo.js",
   "/static/offline/taskrepo.js",
   "/static/offline/taskquery.js",
+  "/static/offline/projectcache.js",
   "/static/offline/recurrence.js",
   "/static/offline/taskroutes.js",
   "/static/offline/hydrate.js",

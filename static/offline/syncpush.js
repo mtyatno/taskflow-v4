@@ -22,6 +22,7 @@
     try { return isNode ? require("./noterepo.js") : (root.TF && root.TF.noterepo); } catch (_) { return null; }
   }
   const TFmm = req("./mindmaprepo.js", root.TF && root.TF.mindmaprepo);
+  const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
 
   function titleWithTags(record, tagNames) {
     const base = String(record.title == null ? "" : record.title).replace(/\s+$/, "");
@@ -36,8 +37,20 @@
     return record.client_id || record.cid || null;
   }
 
-  function taskToCreatePayload(record, tagNames, parentServerId) {
-    return {
+  // PR 5: `projects` = item cache project (opsional). project_id dikirim hanya bila record punya project_id
+  // non-null DAN teks `project`-nya sama (NOCASE) dengan nama project itu di cache (scope sama); selain itu
+  // teks saja (server mencocokkan/membuat lewat nama).
+  function withProjectId(payload, record, projects) {
+    const pid = TFprojects && projects ? TFprojects.payloadProjectId(record, projects) : null;
+    if (pid != null) payload.project_id = pid;
+    return payload;
+  }
+  function projectItems() {
+    return TFprojects && TFprojects.allItems ? TFprojects.allItems().catch(() => []) : Promise.resolve([]);
+  }
+
+  function taskToCreatePayload(record, tagNames, parentServerId, projects) {
+    return withProjectId({
       title: titleWithTags(record, tagNames),
       description: record.description != null ? record.description : "",
       priority: record.priority || "P3",
@@ -52,10 +65,10 @@
       recurrence_type: record.recurrence_type != null ? record.recurrence_type : null,
       recurrence_days: record.recurrence_days ? JSON.parse(record.recurrence_days) : null,
       client_id: clientIdOf(record),
-    };
+    }, record, projects);
   }
 
-  function taskToUpdatePayload(record, tagNames) {
+  function taskToUpdatePayload(record, tagNames, projects) {
     const p = {
       title: titleWithTags(record, tagNames),
       description: record.description != null ? record.description : "",
@@ -75,7 +88,7 @@
     };
     // T12: "Perpanjang" hanya berlaku di server lewat flag; flag dibersihkan setelah PUT sukses (CAS)
     if (record.recurrence_renew_pending) p.recurrence_renew = true;
-    return p;
+    return withProjectId(p, record, projects);
   }
 
   function markPayload(record) {
@@ -360,6 +373,9 @@
       if ("recurrence_end_date" in d) next.recurrence_end_date = d.recurrence_end_date != null ? d.recurrence_end_date : null;
       if ("completed_at" in d) next.completed_at = d.completed_at != null ? d.completed_at : null;
       if ("recurrence_notif_level" in d) next.recurrence_notif_level = d.recurrence_notif_level != null ? d.recurrence_notif_level : null;
+      // PR 5: server mengkanonkan nama project dan menautkan/mengabaikan project_id
+      if ("project" in d) next.project = d.project != null ? d.project : "";
+      if ("project_id" in d) next.project_id = d.project_id != null ? d.project_id : null;
     };
   }
   function updatedAtOf(res) {
@@ -419,11 +435,11 @@
       // berhenti sendiri (server_id null)
       if (rec.deleted) return TFoutbox.outboxRemove(op.qid);
       const parentP = rec.parent_cid ? TFidmap.serverIdOf(rec.parent_cid) : Promise.resolve(null);
-      return Promise.all([parentP, tagsOf(op.cid, tagsFor)]).then(([parentSid, tags]) => {
+      return Promise.all([parentP, tagsOf(op.cid, tagsFor), projectItems()]).then(([parentSid, tags, projects]) => {
         // T10: induk belum punya server id tapi create-nya masih antre → tahan (jangan kirim parent_id null)
         if (rec.parent_cid && parentSid == null && parentCreatePending(pending, rec.parent_cid)) return;
         const sentRev = rec.rev || 0;
-        return send(transport, "POST", "/api/tasks", taskToCreatePayload(rec, tags, parentSid != null ? parentSid : null)).then((res) => {
+        return send(transport, "POST", "/api/tasks", taskToCreatePayload(rec, tags, parentSid != null ? parentSid : null, projects)).then((res) => {
           if (ok(res)) {
             const sid = res.data.id;
             return TFidmap.mapPut("task", sid, op.cid)
@@ -444,9 +460,9 @@
     return Promise.all([getTaskRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
       if (rec.conflict) return; // held until user resolves the conflict
-      return tagsOf(op.cid, tagsFor).then((tags) => {
+      return Promise.all([tagsOf(op.cid, tagsFor), projectItems()]).then(([tags, projects]) => {
         const sentRev = rec.rev || 0;
-        return send(transport, "PUT", "/api/tasks/" + sid, taskToUpdatePayload(rec, tags)).then((res) => {
+        return send(transport, "PUT", "/api/tasks/" + sid, taskToUpdatePayload(rec, tags, projects)).then((res) => {
           if (ok(res)) {
             return markPushed("tasks", op.cid, sentRev, updatedAtOf(res), null, taskAdopt(res.data))
               .then(() => TFoutbox.outboxRemove(op.qid))

@@ -15,7 +15,7 @@
   const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
 
   const COPY = [
-    "title", "description", "gtd_status", "priority", "quadrant", "project", "context",
+    "title", "description", "gtd_status", "priority", "quadrant", "project", "project_id", "context",
     "deadline", "waiting_for", "completed_at", "progress", "is_focused", "assigned_to",
     "recurrence_type", "recurrence_days", "recurrence_end_date", "recurrence_notif_level",
     "created_at", "updated_at",
