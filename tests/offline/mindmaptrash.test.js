@@ -282,3 +282,33 @@ test("markRestoreResult records ok/gone in done (survives writeMirror); re-queue
   await T.markRestoreResult(5, "failed");
   assert.equal(T.restoreOutcome(await T.readMirror(), 5), "failed");
 });
+
+// Rilis PR A (A9): SW mem-precache modul baru dan /api/mindmaps/trash network-only; index.html memuatnya.
+{
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const sw = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../../static/index.html"), "utf8");
+
+  test("sw.js: precache mindmaplinks.js dan mindmaptrash.js", () => {
+    assert.ok(sw.includes('"/static/offline/mindmaplinks.js"'));
+    assert.ok(sw.includes('"/static/offline/mindmaptrash.js"'));
+  });
+
+  test("sw.js: /api/mindmaps/trash network-only (503 OFFLINE)", () => {
+    const i = sw.indexOf('url.pathname === "/api/mindmaps/trash" || url.pathname.startsWith("/api/mindmaps/trash/")');
+    assert.ok(i > 0, "aturan network-only Sampah mindmap ada");
+    const block = sw.slice(i, i + 400);
+    assert.match(block, /fetch\(request\)\.catch/);
+    assert.match(block, /OFFLINE/);
+    assert.ok(i > sw.indexOf('url.pathname === "/api/scratchpad/trash"'), "tepat setelah blok Sampah note");
+  });
+
+  test("index.html: tag script mindmaplinks.js & mindmaptrash.js setelah mindmapoutline.js, sebelum mindmaprepo.js", () => {
+    const o = html.indexOf('<script src="/static/offline/mindmapoutline.js"></script>');
+    const l = html.indexOf('<script src="/static/offline/mindmaplinks.js"></script>');
+    const t = html.indexOf('<script src="/static/offline/mindmaptrash.js"></script>');
+    const r = html.indexOf('<script src="/static/offline/mindmaprepo.js"></script>');
+    assert.ok(o > 0 && l > o && t > l && r > t);
+  });
+}
