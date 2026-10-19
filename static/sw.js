@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v421-drawing-workspace";
+const CACHE = "taskflow-v422-mindmap-trash";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -40,6 +40,8 @@ const STATIC = [
   "/static/offline/drawingshare.js",
   "/static/offline/drawingroutes.js",
   "/static/offline/mindmapoutline.js",
+  "/static/offline/mindmaplinks.js",
+  "/static/offline/mindmaptrash.js",
   "/static/offline/mindmapops.js",
   "/static/offline/notemap.js",
   "/static/offline/notemapsession.js",
@@ -262,6 +264,18 @@ self.addEventListener("fetch", e => {
   // Sampah note (/api/scratchpad/trash...): NETWORK-ONLY, semua method. Daftar sampah dari cache basi
   // bisa menampilkan item yang sudah dipulihkan/dihapus; offline → 503 OFFLINE (gagal jelas, tidak diantre).
   if (url.pathname === "/api/scratchpad/trash" || url.pathname.startsWith("/api/scratchpad/trash/")) {
+    e.respondWith(
+      fetch(request).catch(() => new Response(
+        JSON.stringify({ detail: "OFFLINE" }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      ))
+    );
+    return;
+  }
+
+  // Sampah mindmap (/api/mindmaps/trash...): NETWORK-ONLY, semua method (sama dengan Sampah note).
+  // Saat offline router lokal (TF.mindmaptrash) yang melayani daftar/pulihkan; SW tidak menyajikan cache basi.
+  if (url.pathname === "/api/mindmaps/trash" || url.pathname.startsWith("/api/mindmaps/trash/")) {
     e.respondWith(
       fetch(request).catch(() => new Response(
         JSON.stringify({ detail: "OFFLINE" }),

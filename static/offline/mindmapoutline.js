@@ -355,6 +355,8 @@
     return t.slice(0, length) + (t.length > length ? "…" : "");
   }
 
+  const cidOf = (r) => (r.client_id != null ? { client_id: r.client_id } : {});
+
   function localLinkSearch(query, data) {
     const q = String(query == null ? "" : query).trim().toLowerCase();
     const out = { tags: [], tasks: [], notes: [], mindmaps: [], drawings: [] };
@@ -363,15 +365,15 @@
     out.tasks = arr(d.tasks)
       .filter(t => t && t.gtd_status !== "done" && t.gtd_status !== "archived" && (has(t.title, q) || has(t.description, q)))
       .slice(0, LINK_SEARCH_LIMIT)
-      .map(t => ({ id: t.id, title: t.title, priority: t.priority, gtd_status: t.gtd_status, deadline: t.deadline, quadrant: t.quadrant }));
+      .map(t => ({ id: t.id, ...cidOf(t), title: t.title, priority: t.priority, gtd_status: t.gtd_status, deadline: t.deadline, quadrant: t.quadrant }));
     out.notes = arr(d.notes)
       .filter(n => n && (has(n.title, q) || has(n.content, q)))
       .slice(0, LINK_SEARCH_LIMIT)
-      .map(n => ({ id: n.id, title: n.title, content: snippet(n.content, 80), updated_at: n.updated_at }));
+      .map(n => ({ id: n.id, ...cidOf(n), title: n.title, content: snippet(n.content, 80), updated_at: n.updated_at }));
     out.mindmaps = arr(d.mindmaps)
       .filter(m => m && has(m.title, q))
       .slice(0, LINK_SEARCH_LIMIT)
-      .map(m => ({ id: m.id, title: m.title, updated_at: m.updated_at }));
+      .map(m => ({ id: m.id, ...cidOf(m), title: m.title, updated_at: m.updated_at }));
     return out;
   }
 
@@ -390,8 +392,18 @@
       .catch(local);
   }
 
+  // Buang hasil yang sudah tertaut di node (cocok lewat id atau client_id).
+  function filterExistingTargets(results, existingLinks) {
+    const have = new Set();
+    arr(existingLinks).forEach(l => { if (l && l.id != null) have.add(l.type + "-" + l.id); });
+    const keep = (type, list) => arr(list).filter(r => r && !have.has(type + "-" + r.id) &&
+      !(r.client_id != null && have.has(type + "-" + r.client_id)));
+    const r = results || {};
+    return { notes: keep("note", r.notes), tasks: keep("task", r.tasks), mindmaps: keep("mindmap", r.mindmaps) };
+  }
+
   return {
-    localLinkSearch, searchLinkTargets,
+    localLinkSearch, searchLinkTargets, filterExistingTargets,
     findNode, addChild, addSibling, renameNode, deleteNode, duplicateNode,
     moveNode, moveSibling, moveInto, indentNode, outdentNode, toggleExpand,
     expandAll, collapseAll, cloneSubtree, insertSubtree, searchNodes, ancestorsOf,

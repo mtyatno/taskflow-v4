@@ -281,6 +281,8 @@
   <script src="/static/offline/drawingroutes.js"></script>
   <script src="/static/offline/drawingtabs.js"></script>
   <script src="/static/offline/mindmapoutline.js"></script>
+  <script src="/static/offline/mindmaplinks.js"></script>
+  <script src="/static/offline/mindmaptrash.js"></script>
   <script src="/static/offline/notemap.js"></script>
   <script src="/static/offline/notemapsession.js"></script>
   <script src="/static/offline/mindmaptabs.js"></script>
@@ -967,6 +969,26 @@ window.addEventListener("pageshow", () => onSharedTokenChanged());
 window.addEventListener("online", () => maybeRenewToken());
 setInterval(maybeRenewToken, TOKEN_RENEW_CHECK_MS);
 
+// Pull mindmap (+ cermin Sampah di akhirnya) + event mindmapSynced/mindmapSaved untuk Sampah mindmap.
+// Sama dengan langkah mindmap di sync() (sync() tetap mandiri: tes mengevaluasi badannya terpisah).
+function __pullMindmapsStep() {
+  if (!window.TF.syncpull.pullMindmapsAndReconcile) return null;
+  return window.TF.syncpull.pullMindmapsAndReconcile(__syncRawFetch).then((mmRes) => {
+    if (!mmRes) return mmRes;
+    // T3: record mindmap dibuat/diganti/dihapus oleh pull → tab yang tidak punya edit tertunda memuat ulang
+    // data_json dari record lokal (mindmapSynced {cids, ids}); daftar sidebar/pinned dimuat ulang (mindmapSaved)
+    const changed = Array.isArray(mmRes.changed) ? mmRes.changed : [];
+    if (changed.length) {
+      window.dispatchEvent(new CustomEvent("mindmapSynced", {
+        detail: { source: "sync", cids: changed.map((c) => c.cid), ids: changed.filter((c) => c.server_id != null).map((c) => c.server_id) },
+      }));
+    }
+    if (changed.length || mmRes.pinned > 0 || mmRes.conflictCopies > 0) window.dispatchEvent(new CustomEvent("mindmapSaved", { detail: { source: "sync" } }));
+    return mmRes;
+  });
+}
+// Sampah mindmap: pull peta + cermin Sampah secara eksklusif (tidak tumpang tindih dengan sync/push).
+window.__pullMindmapsNow = () => (window.TF && window.TF.syncpull) ? runSyncExclusive(__pullMindmapsStep) : Promise.resolve(null);
 let __syncPending = null; // sync() yang sudah antre tapi belum mulai (pemanggilan berikutnya digabung)
 function sync() {
   if (!(window.TF && window.TF.syncpull && window.TF.syncpush)) { renderConflicts(); return Promise.resolve(null); }
@@ -8742,7 +8764,8 @@ function MindmapListItem({
   m,
   isSelected,
   onSelect,
-  onPin
+  onPin,
+  sharedName = null
 }) {
   const [hovered, setHovered] = useState(false);
   return /*#__PURE__*/React.createElement("div", {
@@ -8769,7 +8792,10 @@ function MindmapListItem({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, m.title), (m.source_note_id != null || m.source_note_cid != null) && /*#__PURE__*/React.createElement("span", {
+  }, m.title), sharedName && /*#__PURE__*/React.createElement("span", {
+    title: "Dibagikan ke " + sharedName,
+    style: { fontSize: 11, flexShrink: 0 }
+  }, "👥"), (m.source_note_id != null || m.source_note_cid != null) && /*#__PURE__*/React.createElement("span", {
     title: "Tertaut ke catatan",
     style: { fontSize: 11, flexShrink: 0 }
   }, "📄"), (hovered || !!m.is_pinned) && /*#__PURE__*/React.createElement("span", {
@@ -8831,10 +8857,13 @@ function LinkPickerModal({
     // hasil query lama (fallback lokal bisa lebih lambat) tidak boleh menimpa query baru
     return () => { stale = true; };
   }, [query]);
+  // Duplikat dicocokkan lewat id server ATAU client_id (link yang dibuat offline menyimpan cid).
+  const MOx = window.TF && window.TF.mindmapoutline;
+  const filteredRes = MOx && MOx.filterExistingTargets ? MOx.filterExistingTargets(results || {}, existingLinks) : null;
   const existingSet = new Set(existingLinks.map(l => `${l.type}-${l.id}`));
-  const notes = (results?.notes || []).filter(n => !existingSet.has(`note-${n.id}`));
-  const tasks = (results?.tasks || []).filter(t => !existingSet.has(`task-${t.id}`));
-  const mindmaps = (results?.mindmaps || []).filter(m => !existingSet.has(`mindmap-${m.id}`));
+  const notes = filteredRes ? filteredRes.notes : (results?.notes || []).filter(n => !existingSet.has(`note-${n.id}`));
+  const tasks = filteredRes ? filteredRes.tasks : (results?.tasks || []).filter(t => !existingSet.has(`task-${t.id}`));
+  const mindmaps = filteredRes ? filteredRes.mindmaps : (results?.mindmaps || []).filter(m => !existingSet.has(`mindmap-${m.id}`));
   const allItems = tab === 'notes' ? notes.map(n => ({
     ...n,
     _type: 'note'
@@ -9141,7 +9170,9 @@ function LinkPickerModal({
   //   - window.TF.mindmapoutline
   // emits:
   //   - MindmapOutline
-function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap, onRequestLinkPicker, linked = false, showSummary = true, onOpenNoteAt = null, onUndo = null, onRedo = null }) {
+function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap, onRequestLinkPicker, linked = false, showSummary = true, onOpenNoteAt = null, onUndo = null, onRedo = null, ...outlineRest }) {
+  // linkInfo lewat rest agar tanda tangan tetap bebas "}" (tes C7 mencocokkan isi kurung kurawal).
+  const { linkInfo = {} } = outlineRest;
   const MO = window.TF && window.TF.mindmapoutline;
   const NM = linked && window.TF && window.TF.notemap ? window.TF.notemap : null; // peta tertaut: render aturan catatan
   const [activeId, setActiveId] = useState(null);
@@ -9153,6 +9184,13 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
   const [dragOver, setDragOver] = useState(null);
   const [clipboard, setClipboard] = useState(null);
   const [linksPopId, setLinksPopId] = useState(null); // node id whose links popover is open
+  // Kartu link hidup: info dari induk (linkInfo, data lokal); tanpa modul/info → snapshot di link.
+  const linkDisp = l => {
+    const ML = window.TF && window.TF.mindmaplinks;
+    if (!ML) return { title: l.title || "", meta: l.preview || "", live: false, stale: false, done: false };
+    return window.TF.mindmaplinks.linkDisplay(l, (linkInfo || {})[ML.linkKey(l)]);
+  };
+  const unavailableTitle = (window.TF && window.TF.mindmaplinks && window.TF.mindmaplinks.UNAVAILABLE_TITLE) || "";
   const editAreaRef = useRef(null);
   const undoRef = useRef([]);
   const redoRef = useRef([]);
@@ -9584,7 +9622,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
       style: { whiteSpace: "normal", fontWeight: 400, fontSize: 11, color: "var(--text-light)", marginTop: 2 }
     }) : null), linkCount > 0 && !linked && /*#__PURE__*/React.createElement("button", {
       onClick: e => { e.stopPropagation(); setLinksPopId(linksPopId === n.id ? null : n.id); },
-      title: "Lihat link node",
+      title: "Lihat link node\n" + (n.links || []).map(l => (l.type === "mindmap" ? "🧠 " : "🔗 ") + linkDisp(l).title).join("\n"),
       style: {
         fontSize: 13, fontWeight: 700,
         color: linksPopId === n.id ? "var(--accent)" : "var(--text-secondary)",
@@ -9718,9 +9756,10 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
       style: hovBtn
     }, "✕")), links.length === 0 && /*#__PURE__*/React.createElement("div", {
       style: { color: "var(--text-light)", fontSize: 12, textAlign: "center", padding: "12px 0" }
-    }, "Belum ada link"), links.map((l, i) => /*#__PURE__*/React.createElement("div", {
+    }, "Belum ada link"), links.map((l, i) => { const d = linkDisp(l); return /*#__PURE__*/React.createElement("div", {
       key: l.type + "-" + l.id + "-" + i,
-      style: { display: "flex", alignItems: "center", gap: 6, padding: "4px 2px", fontSize: 12 }
+      title: d.stale ? unavailableTitle || undefined : undefined,
+      style: { display: "flex", alignItems: "center", gap: 6, padding: "4px 2px", fontSize: 12, opacity: d.stale ? 0.7 : 1 }
     }, /*#__PURE__*/React.createElement("span", {
       style: {
         background: l.type === "note" ? "var(--accent)" : l.type === "mindmap" ? "#8b5cf6" : "#e0a06c",
@@ -9728,16 +9767,17 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
         borderRadius: 3, padding: "1px 5px", fontSize: 9, fontWeight: 700, flexShrink: 0
       }
     }, l.type === "note" ? "NOTE" : l.type === "mindmap" ? "MAP" : "TASK"), /*#__PURE__*/React.createElement("span", {
-      title: "Buka " + (l.title || ''),
+      title: "Buka " + (d.title || '') + (d.meta ? "\n" + d.meta : "") + (d.stale && unavailableTitle ? "\n" + unavailableTitle : ""),
       onClick: () => {
         const open = l.type === "note" ? onOpenNote : l.type === "mindmap" ? onOpenMindmap : onOpenTask;
         if (typeof open === "function") open(l.id);
       },
       style: {
         flex: 1, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap",
-        textOverflow: "ellipsis", fontWeight: 600, cursor: "pointer"
+        textOverflow: "ellipsis", fontWeight: 600, cursor: "pointer",
+        textDecoration: d.done ? "line-through" : undefined
       }
-    }, l.title), /*#__PURE__*/React.createElement("button", {
+    }, d.title), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
         const open = l.type === "note" ? onOpenNote : l.type === "mindmap" ? onOpenMindmap : onOpenTask;
         if (typeof open === "function") open(l.id);
@@ -9751,7 +9791,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
       },
       title: "Hapus link",
       style: { ...hovBtn, color: "#ef4444" }
-    }, "✕"))), /*#__PURE__*/React.createElement("button", {
+    }, "✕")); }), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
         setLinksPopId(null);
         if (typeof onRequestLinkPicker === "function") onRequestLinkPicker(lnode.id);
@@ -9841,6 +9881,56 @@ function MindmapTabInstance({
   const [modalBlockTarget, setModalBlockTarget] = useState(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const linkedBlocked = isLinked && (linkedStatus === "trash" || linkedStatus === "unavailable" || linkedStatus === "offline");
+
+  // Kartu link hidup (#3): judul/status/prioritas/tenggat/cuplikan diambil dari data lokal (api.get lokal-first)
+  // lalu dikirim ke iframe ({type:"linkInfo"}) dan Outline. Snapshot di link hanya cadangan. Peta tertaut tanpa link.
+  const [linkInfo, setLinkInfo] = useState({});
+  const linkInfoRef = useRef({});
+  const linkTimerRef = useRef(null);
+  const linkSeqRef = useRef(0); // resolve lama yang selesai belakangan tidak menimpa info terbaru
+  const refreshLinkInfo = () => {
+    clearTimeout(linkTimerRef.current);
+    linkTimerRef.current = setTimeout(() => {
+      const ML = window.TF && window.TF.mindmaplinks;
+      const tree = outlineTreeRef.current;
+      if (!ML || !tree || !tree.nodeData) return;
+      const seq = ++linkSeqRef.current;
+      window.TF.mindmaplinks.resolveLinkInfo(ML.collectLinkRefs(tree.nodeData), api.get).then(info => {
+        if (seq !== linkSeqRef.current) return;
+        // Tak berubah (mis. sync berkala) → jangan bangun ulang panel 🔗 yang sedang terbuka.
+        if (JSON.stringify(info) === JSON.stringify(linkInfoRef.current)) return;
+        linkInfoRef.current = info;
+        setLinkInfo(info);
+        iframeRef.current?.contentWindow?.postMessage({ type: "linkInfo", info }, window.location.origin);
+      }).catch(() => {});
+    }, 300);
+  };
+  const linkRefsML = window.TF && window.TF.mindmaplinks;
+  const refsSignature = linkRefsML && !isLinked ? linkRefsML.collectLinkRefs(outlineTree?.nodeData || null).map(linkRefsML.linkKey).join("|") : "";
+  useEffect(() => {
+    if (!tab || isLinked) return;
+    refreshLinkInfo();
+  }, [tab?.id, refsSignature]);
+  useEffect(() => {
+    if (!tab || isLinked) return;
+    window.addEventListener("taskSaved", refreshLinkInfo);
+    window.addEventListener("taskUpdated", refreshLinkInfo);
+    window.addEventListener("noteSaved", refreshLinkInfo);
+    window.addEventListener("mindmapSaved", refreshLinkInfo);
+    window.addEventListener("mindmapSynced", refreshLinkInfo);
+    window.addEventListener("tf:projects-changed", refreshLinkInfo); // sync menembakkannya untuk task hasil pull
+    return () => {
+      clearTimeout(linkTimerRef.current);
+      linkSeqRef.current++; // buang resolve yang masih berjalan untuk tab sebelumnya
+      window.removeEventListener("taskSaved", refreshLinkInfo);
+      window.removeEventListener("taskUpdated", refreshLinkInfo);
+      window.removeEventListener("noteSaved", refreshLinkInfo);
+      window.removeEventListener("mindmapSaved", refreshLinkInfo);
+      window.removeEventListener("mindmapSynced", refreshLinkInfo);
+      window.removeEventListener("tf:projects-changed", refreshLinkInfo);
+    };
+  }, [tab?.id, isLinked]);
+
   const STALE_MSG = "Catatan baru saja berubah — peta dimuat ulang, ulangi perubahanmu";
 
   const parseViewState = raw => {
@@ -10416,6 +10506,7 @@ function MindmapTabInstance({
             type: "setTheme",
             theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"
           }, window.location.origin);
+          iframeRef.current?.contentWindow?.postMessage({ type: "linkInfo", info: linkInfoRef.current }, window.location.origin);
         } catch (_) {}
       }
       if (e.data && e.data.type === "nodeSelected") {
@@ -10491,6 +10582,7 @@ function MindmapTabInstance({
     try {
       await api.del(`/api/mindmaps/${tab.id}`);
       onDeleteMindmap && onDeleteMindmap(tab.id);
+      showToast((window.TF?.mindmaptrash?.TOAST_MOVED) || "🗑 Dipindahkan ke Sampah");
     } catch {
       showToast("Gagal menghapus mindmap", "error");
     }
@@ -10623,8 +10715,8 @@ function MindmapTabInstance({
         style: { fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)", flexShrink: 0 }
       }, `👥 ${sharedLists.find(l => l.id === tab.list_id)?.name || "Shared"}`) : null,
 
-      isLinked && !isNoteOwner ? null : deleteConfirm ? /*#__PURE__*/React.createElement(React.Fragment, null,
-        /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "#ef4444", flexShrink: 0 } }, "Hapus?"),
+      (isLinked ? !isNoteOwner : !isOwner) ? null : deleteConfirm ? /*#__PURE__*/React.createElement(React.Fragment, null,
+        /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "#ef4444", flexShrink: 0 } }, "Pindahkan ke Sampah?"),
         /*#__PURE__*/React.createElement("button", { onClick: handleDelete, style: { padding: "3px 8px", borderRadius: 6, border: "none", cursor: "pointer", background: "#ef4444", color: "#fff", fontSize: 11 } }, "Ya"),
         /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setDeleteConfirm(false), style: { fontSize: 11 } }, "Batal")
       ) : /*#__PURE__*/React.createElement("button", {
@@ -10649,7 +10741,7 @@ function MindmapTabInstance({
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
-    src: "/static/vendor/mind-elixir/index.html?v=143",
+    src: "/static/vendor/mind-elixir/index.html?v=144",
     style: { flex: 1, border: "none", width: "100%" },
     title: "Mindmap editor"
   })), /*#__PURE__*/React.createElement("div", {
@@ -10678,7 +10770,8 @@ function MindmapTabInstance({
     showSummary: showSummary,
     onOpenNoteAt: isLinked ? openLinkedNoteAt : null,
     onUndo: isLinked ? () => linkedUndoRedo("undo") : null,
-    onRedo: isLinked ? () => linkedUndoRedo("redo") : null
+    onRedo: isLinked ? () => linkedUndoRedo("redo") : null,
+    linkInfo: linkInfo
   }) : null),
   showLinkPicker && /*#__PURE__*/React.createElement(LinkPickerModal, {
     existingLinks: currentNodeLinks,
@@ -10752,7 +10845,14 @@ function MindmapPage({
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(() => (localStorage.getItem("tf_mindmap_sidebar") || "open") === "open");
   const [searchQ, setSearchQ] = useState("");
-  const [filterListId, setFilterListId] = useState(null);
+  // Filter workspace kecil: null (Semua peta) | "personal" | <list_id>, disimpan di localStorage.tf_mindmap_filter.
+  const [filterListId, setFilterListId] = useState(() => {
+    try {
+      const v = localStorage.getItem("tf_mindmap_filter");
+      return v == null || v === "" ? null : (v === "personal" ? "personal" : Number(v));
+    } catch (_) { return null; }
+  });
+  const [trashOpen, setTrashOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   // Petakan C9: pemilih catatan untuk "+ Dari Catatan"
@@ -10918,6 +11018,15 @@ function MindmapPage({
     window.dispatchEvent(new CustomEvent("mindmapSaved"));
   };
 
+  useEffect(() => {
+    try { localStorage.setItem("tf_mindmap_filter", filterListId == null ? "" : String(filterListId)); } catch (_) {}
+  }, [filterListId]);
+  useEffect(() => {
+    // Workspace yang dipilih sudah tidak ada lagi → kembali ke Semua peta (tunggu daftar workspace termuat).
+    if (typeof filterListId === "number" && sharedLists.length > 0 && !sharedLists.some(l => String(l.id) === String(filterListId))) setFilterListId(null);
+  }, [filterListId, sharedLists]);
+  const sharedNameOf = m => m.list_id != null ? ((sharedLists.find(l => String(l.id) === String(m.list_id)) || {}).name || "workspace") : null;
+
   const handleDeleteMindmap = id => {
     setMindmaps(prev => prev.filter(m => m.id !== id));
     closeTab(id);
@@ -10929,10 +11038,16 @@ function MindmapPage({
     setOpenTabs(prev => prev.map(t => t.id === id ? { ...t, list_id: newListId } : t));
   };
 
-  const q = searchQ.trim().toLowerCase();
-  const filtered = mindmaps
-    .filter(m => !q || m.title.toLowerCase().includes(q))
-    .filter(m => !filterListId || m.list_id === filterListId);
+  // Filter tanpa workspace (daftar workspace kosong / workspace yang dipilih sudah tidak ada) = Semua peta.
+  const filterKnown = filterListId == null || filterListId === "personal" || sharedLists.some(l => String(l.id) === String(filterListId));
+  const effectiveFilter = sharedLists.length > 0 && filterKnown ? filterListId : null;
+  const MTabs = window.TF && window.TF.mindmaptabs;
+  const filterOpts = { q: searchQ, filter: effectiveFilter };
+  const filtered = MTabs && MTabs.filterSidebar ? MTabs.filterSidebar(mindmaps, filterOpts) : mindmaps.filter(m => {
+    const qq = searchQ.trim().toLowerCase();
+    return m && (!qq || String(m.title == null ? "" : m.title).toLowerCase().includes(qq)) &&
+      (effectiveFilter == null || (effectiveFilter === "personal" ? m.list_id == null : String(m.list_id) === String(effectiveFilter)));
+  });
   const pinned = filtered.filter(m => m.is_pinned);
   const unpinned = filtered.filter(m => !m.is_pinned);
   const hasPinnedSection = pinned.length > 0;
@@ -10991,6 +11106,22 @@ function MindmapPage({
             onClick: () => setSearchQ(""),
             style: { padding: 0, width: 18, height: 18, fontSize: 11, border: "none", background: "none", color: "var(--text-light)", cursor: "pointer" }
           }, "✕")
+        ),
+        sharedLists.length > 0 && /*#__PURE__*/React.createElement("select", {
+          value: effectiveFilter == null ? "" : String(effectiveFilter),
+          onChange: e => {
+            const v = e.target.value;
+            setFilterListId(v === "" ? null : (v === "personal" ? "personal" : Number(v)));
+          },
+          "aria-label": "Filter workspace",
+          style: {
+            marginTop: 6, width: "100%", fontSize: 12, padding: "5px 8px", borderRadius: 8,
+            border: "1px solid var(--border)", background: "var(--bg-primary)", color: "var(--text-secondary)", cursor: "pointer"
+          }
+        },
+          /*#__PURE__*/React.createElement("option", { value: "" }, "Semua peta"),
+          /*#__PURE__*/React.createElement("option", { value: "personal" }, "Pribadi"),
+          sharedLists.map(l => /*#__PURE__*/React.createElement("option", { key: l.id, value: String(l.id) }, `👥 ${l.name}`))
         )
       ),
       /*#__PURE__*/React.createElement("div", { style: { padding: "4px 8px 6px" } },
@@ -11128,18 +11259,42 @@ function MindmapPage({
         className: "hide-scrollbar", "data-tour": "mindmap-list",
         style: { flex: 1, overflowY: "auto", margin: "4px 8px 8px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-primary)" }
       }, loading ? /*#__PURE__*/React.createElement("div", { style: { padding: "8px 12px", color: "var(--text-light)", fontSize: 11 } }, "Memuat...") :
-        filtered.length === 0 ? /*#__PURE__*/React.createElement("div", { style: { padding: "8px 12px", color: "var(--text-light)", fontSize: 11 } }, searchQ ? "Tidak ditemukan" : "Belum ada mindmap") :
+        filtered.length === 0 ? /*#__PURE__*/React.createElement("div", { style: { padding: "8px 12px", color: "var(--text-light)", fontSize: 11 } }, searchQ || effectiveFilter != null ? "Tidak ditemukan" : "Belum ada mindmap") :
         /*#__PURE__*/React.createElement(React.Fragment, null,
           hasPinnedSection && /*#__PURE__*/React.createElement(React.Fragment, null,
             /*#__PURE__*/React.createElement("div", { style: { padding: "4px 10px 2px", fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.6px" } }, "★ Pinned"),
-            pinned.map(m => /*#__PURE__*/React.createElement(MindmapListItem, { key: m.id, m: m, isSelected: selected?.id === m.id, onSelect: () => selectMindmap(m), onPin: handlePin })),
+            pinned.map(m => /*#__PURE__*/React.createElement(MindmapListItem, { key: m.id, m: m, isSelected: selected?.id === m.id, onSelect: () => selectMindmap(m), onPin: handlePin, sharedName: sharedNameOf(m) })),
             /*#__PURE__*/React.createElement("div", { style: { height: 1, background: "var(--border)", margin: "4px 0" } }),
             /*#__PURE__*/React.createElement("div", { style: { padding: "4px 10px 2px", fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.6px" } }, "Semua")
           ),
-          unpinned.map(m => /*#__PURE__*/React.createElement(MindmapListItem, { key: m.id, m: m, isSelected: selected?.id === m.id, onSelect: () => selectMindmap(m), onPin: handlePin }))
+          unpinned.map(m => /*#__PURE__*/React.createElement(MindmapListItem, { key: m.id, m: m, isSelected: selected?.id === m.id, onSelect: () => selectMindmap(m), onPin: handlePin, sharedName: sharedNameOf(m) }))
         )
+      ),
+      /*#__PURE__*/React.createElement("div", { style: { padding: "0 8px 8px", flexShrink: 0 } },
+        /*#__PURE__*/React.createElement("button", {
+          className: "btn btn-secondary btn-sm",
+          onClick: () => setTrashOpen(true),
+          title: "Mindmap terhapus (30 hari)",
+          style: { width: "100%", justifyContent: "center", fontSize: 12 }
+        }, "🗑 Sampah")
       )
     ),
+    trashOpen && /*#__PURE__*/React.createElement(NoteTrashModal, {
+      initialKind: "mindmap",
+      sharedLists: sharedLists,
+      onClose: () => setTrashOpen(false),
+      showToast: showToast,
+      // Tab Catatan: catatan dipulihkan di server → tarik ke lokal lalu noteSaved, agar tab peta tertaut yang
+      // terblokir "Catatan sumber ada di Sampah" memuat ulang (handler noteSaved → checkNoteChanged/loadLinked).
+      onRestored: async note => {
+        try {
+          if (note && note.id != null && window.TF?.noterepo?.discardPendingDelete) await window.TF.noterepo.discardPendingDelete(note.id);
+        } catch (_) {}
+        try { if (window.__syncNow) await window.__syncNow(); } catch (_) {}
+        window.dispatchEvent(new CustomEvent("noteSaved", { detail: { source: "trash-restore" } }));
+      },
+      onMindmapRestored: () => api.get("/api/mindmaps").then(d => setMindmaps(Array.isArray(d) ? d : [])).catch(() => {})
+    }),
     !sidebarOpen && /*#__PURE__*/React.createElement("div", {
       className: "sidebar-toggle visible", onClick: () => setSidebarOpen(true), title: "Tampilkan sidebar"
     }, /*#__PURE__*/React.createElement("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", strokeLinecap: "round", strokeLinejoin: "round" },
@@ -20467,7 +20622,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v421-drawing-workspace"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v422-mindmap-trash"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -28326,13 +28481,194 @@ function NotePanel({
     )
   ))), drawingScopeDialogEl);
 }
+// ── Sampah mindmap (tab "Mindmap" di modal Sampah). Spec #5: docs/superpowers/specs/2026-10-19-mindmap-findings-3-8-design.md ──
+// Daftar & pulihkan lewat router lokal (TF.mindmaptrash: cermin + hapus lokal tertunda) → bekerja offline.
+// Hapus permanen & kosongkan hanya online (DELETE /api/mindmaps/trash… selalu ke jaringan).
+function MindmapTrashList({
+  showToast,
+  onRestored,
+  sharedLists = []
+}) {
+  const MT = window.TF?.mindmaptrash;
+  const NT = window.TF?.notetrash;
+  // Modul belum termuat (cache SW lama) — kondisi tetap selama halaman hidup, jadi return dini sebelum hook aman.
+  if (!MT || !NT) return /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-body"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-state"
+  }, /*#__PURE__*/React.createElement("div", { style: { color: "#ef4444" } }, "Sampah mindmap belum termuat. Muat ulang halaman untuk memperbarui aplikasi.")));
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(null); // id item yang sedang diproses, atau "all"
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const isOnline = () => navigator.onLine !== false;
+  // Flush outbox + segarkan cermin (maks 5 dtk masing-masing) bila online, lalu baca daftar gabungan lokal.
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    let list = null;
+    try {
+      if (navigator.onLine !== false) {
+        if (window.__pushNow) await Promise.race([window.__pushNow().catch(() => {}), sleep(5000)]);
+        // Pull peta penuh (diakhiri pullMindmapTrash) → peta yang dihapus di perangkat lain ikut muncul di Sampah.
+        if (window.__pullMindmapsNow) await Promise.race([window.__pullMindmapsNow().catch(() => {}), sleep(5000)]);
+        else if (window.TF?.syncpull?.pullMindmapTrash && window.__syncRawFetch) await Promise.race([window.TF.syncpull.pullMindmapTrash(window.__syncRawFetch).catch(() => {}), sleep(5000)]);
+      }
+      const data = await api.get("/api/mindmaps/trash");
+      list = Array.isArray(data) ? data : [];
+      setItems(list);
+    } catch (e) {
+      setError(e && e.message || "Gagal memuat Sampah");
+    }
+    setLoading(false);
+    return list;
+  }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  useEffect(() => {
+    window.addEventListener("online", load);
+    return () => window.removeEventListener("online", load);
+  }, [load]);
+  const sameItem = (a, b) => String(a.id) === String(b.id) || (a.cid != null && b.cid != null && String(a.cid) === String(b.cid));
+  const handleRestore = async it => {
+    setBusy(it.id);
+    try {
+      // Hapus lokal yang belum terkirim dipulihkan lewat cid; item cermin lewat id server.
+      const key = it.pending ? (it.cid || it.id) : it.id;
+      const res = await api.post(`/api/mindmaps/trash/${encodeURIComponent(key)}/restore`, {});
+      // "restored" | "queued" | "source_note_missing" | "failed" | "gone"
+      let outcome = "restored";
+      if (res && res.restored === "queued") {
+        outcome = "queued";
+        if (isOnline() && window.__pushNow) {
+          try { await window.__pushNow(); } catch (_) {}
+          try { outcome = MT.restoreOutcome ? MT.restoreOutcome(await MT.readMirror(), res.id) : "queued"; } catch (_) { outcome = "queued"; }
+        }
+      }
+      if (isOnline()) await load();
+      else setItems(prev => prev.filter(x => !sameItem(x, it)));
+      if (outcome === "source_note_missing") showToast(MT.SOURCE_MISSING_MSG, "error");
+      else if (outcome === "failed") showToast(MT.RESTORE_FAILED_MSG || "Gagal memulihkan — coba lagi", "error");
+      else if (outcome === "gone") showToast(MT.RESTORE_GONE_MSG || "Peta sudah tidak ada di Sampah", "error");
+      else if (outcome === "queued") showToast(MT.TOAST_RESTORE_QUEUED);
+      else showToast(MT.TOAST_RESTORED);
+      window.dispatchEvent(new CustomEvent("mindmapSaved"));
+      if (outcome === "restored" && onRestored) onRestored();
+    } catch (e) {
+      // 409 untuk peta tertaut = catatan sumber hilang (detail berupa objek {code}, jadi pesannya generik).
+      if (e && e.status === 409 && it.linked) showToast(MT.SOURCE_MISSING_MSG, "error");
+      else showToast(e && e.message || "Gagal memulihkan", "error");
+      if (e && e.status === 404) load();
+    }
+    setBusy(null);
+  };
+  const handlePurge = async it => {
+    if (!isOnline()) {
+      showToast(MT.PURGE_OFFLINE_MSG, "error");
+      return;
+    }
+    if (!window.confirm(MT.CONFIRM_PURGE)) return;
+    setBusy(it.id);
+    try {
+      let target = it;
+      if (it.pending || typeof it.id !== "number") {
+        // Hapus yang belum terkirim: push dulu (lewat load) agar peta punya id server di Sampah.
+        const fresh = await load();
+        target = (fresh || []).find(x => !x.pending && typeof x.id === "number" && sameItem(x, it)) || null;
+      }
+      if (!target) showToast("Peta belum tersinkron — coba lagi sebentar lagi", "error"); // daftar baru saja dimuat
+      else {
+        await api.del(`/api/mindmaps/trash/${target.id}`);
+        showToast("Peta dihapus permanen");
+        await load();
+      }
+    } catch (e) {
+      showToast(isOfflineErr(e) ? MT.PURGE_OFFLINE_MSG : (e && e.message || "Gagal"), "error");
+      await load();
+    }
+    setBusy(null);
+  };
+  const handleEmpty = async () => {
+    if (!isOnline()) {
+      showToast(MT.PURGE_OFFLINE_MSG, "error");
+      return;
+    }
+    if (!items.length || !window.confirm(MT.CONFIRM_EMPTY)) return;
+    setBusy("all");
+    try {
+      if (items.some(x => x.pending)) await load();
+      const res = await api.del("/api/mindmaps/trash");
+      showToast(`Sampah dikosongkan (${res && res.deleted != null ? res.deleted : 0} peta)`);
+    } catch (e) {
+      showToast(isOfflineErr(e) ? MT.PURGE_OFFLINE_MSG : (e && e.message || "Gagal"), "error");
+    }
+    await load();
+    setBusy(null);
+  };
+  const now = new Date();
+  const wsName = it => it.list_id != null ? ((sharedLists.find(l => String(l.id) === String(it.list_id)) || {}).name || "workspace") : null;
+  const body = loading && !items.length ? /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-state"
+  }, "Memuat Sampah…") : error && !items.length ? /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-state"
+  }, /*#__PURE__*/React.createElement("div", { style: { color: "#ef4444", marginBottom: 10 } }, error), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    onClick: load
+  }, "Coba lagi")) : !items.length ? /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-state"
+  }, /*#__PURE__*/React.createElement("div", { className: "note-trash-state-icon" }, /*#__PURE__*/React.createElement(Icon, { name: "trash", size: 28 })), "Sampah kosong") : items.map(it => /*#__PURE__*/React.createElement("div", {
+    key: String(it.cid || it.id),
+    className: "note-trash-item"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-item-title" + ((it.title || "").trim() ? "" : " is-untitled")
+  }, it.linked ? "📄 " : "", (it.title || "").trim() || "(tanpa judul)"), /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-item-meta"
+  }, /*#__PURE__*/React.createElement("span", null, NT.deletedAgoLabel(it.deleted_at, now)), /*#__PURE__*/React.createElement("span", {
+    "aria-hidden": "true"
+  }, "\xB7"), /*#__PURE__*/React.createElement("span", {
+    className: NT.isExpiringSoon(it.days_left) ? "note-trash-left is-soon" : "note-trash-left"
+  }, NT.daysLeftLabel(it.days_left)), wsName(it) && /*#__PURE__*/React.createElement("span", null, "👥 " + wsName(it)), it.pending && /*#__PURE__*/React.createElement("span", {
+    style: { fontStyle: "italic" }
+  }, MT.PENDING_LABEL)), it.preview && /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-item-preview"
+  }, it.preview), (it.error === "source_note_missing" || it.error === "failed") && /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-item-preview",
+    style: { color: "#ef4444" }
+  }, it.error === "source_note_missing" ? MT.SOURCE_MISSING_MSG : (MT.RESTORE_FAILED_MSG || "Gagal memulihkan — coba lagi")), /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-item-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-primary btn-sm",
+    disabled: busy != null,
+    onClick: () => handleRestore(it)
+  }, busy === it.id ? "Memproses…" : "Pulihkan"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-danger btn-sm",
+    disabled: busy != null,
+    onClick: () => handlePurge(it)
+  }, "Hapus permanen"))));
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-body"
+  }, body), items.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "note-trash-foot"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "note-trash-count"
+  }, `${items.length} peta`), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-danger btn-sm",
+    disabled: busy != null,
+    onClick: handleEmpty
+  }, busy === "all" ? "Mengosongkan…" : "Kosongkan Sampah")));
+}
 // ── Sampah note (Trash & Restore) — hanya online. Lihat docs/superpowers/specs/2026-10-02-note-trash-design.md ──
 // Semua /api/scratchpad/trash... selalu ke jaringan (taskroutes.shouldRouteLocally; SW network-only) dan
 // TIDAK PERNAH diantre ke outbox: offline → pesan koneksi tanpa memanggil API.
 function NoteTrashModal({
   onClose,
   onRestored,
-  showToast
+  showToast,
+  initialKind = "note",
+  onMindmapRestored,
+  sharedLists = []
 }) {
   const NT = window.TF?.notetrash;
   // index.html baru bisa termuat sementara cache SW lama belum punya notetrash.js. Kondisi ini tetap selama
@@ -28351,12 +28687,16 @@ function NoteTrashModal({
     className: "btn btn-secondary btn-sm",
     onClick: onClose
   }, "Tutup"))));
+  const [kind, setKind] = useState(initialKind === "mindmap" ? "mindmap" : "note");
+  const kindRef = useRef(kind);
+  kindRef.current = kind;
   const [online, setOnline] = useState(() => NT.isOnline(navigator));
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null); // id item yang sedang diproses, atau "all"
   const load = useCallback(async () => {
+    if (kindRef.current !== "note") return; // tab Mindmap memuat sendiri (MindmapTrashList)
     if (!NT.isOnline(navigator)) {
       setOnline(false);
       return;
@@ -28378,7 +28718,7 @@ function NoteTrashModal({
   }, []);
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, kind]);
   useEffect(() => {
     const goOffline = () => setOnline(false);
     window.addEventListener("online", load);
@@ -28449,13 +28789,27 @@ function NoteTrashModal({
     className: "note-trash-title"
   }, /*#__PURE__*/React.createElement(Icon, { name: "trash", size: 18 }), "Sampah"), /*#__PURE__*/React.createElement("div", {
     className: "note-trash-sub"
-  }, "Catatan terhapus disimpan 30 hari, lalu dihapus permanen.")), /*#__PURE__*/React.createElement("button", {
+  }, kind === "mindmap" ? "Peta terhapus disimpan 30 hari, lalu dihapus permanen." : "Catatan terhapus disimpan 30 hari, lalu dihapus permanen."), /*#__PURE__*/React.createElement("div", {
+    role: "tablist",
+    "aria-label": "Jenis Sampah",
+    style: { display: "flex", gap: 6, marginTop: 10 }
+  }, [["note", "Catatan"], ["mindmap", "Mindmap"]].map(([k, label]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    role: "tab",
+    "aria-selected": kind === k,
+    className: "btn btn-sm " + (kind === k ? "btn-primary" : "btn-secondary"),
+    onClick: () => setKind(k)
+  }, label)))), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-icon btn-sm",
     onClick: onClose,
     title: "Tutup",
     "aria-label": "Tutup",
     style: { height: 30, width: 30, flexShrink: 0 }
-  }, "✕")), /*#__PURE__*/React.createElement("div", {
+  }, "✕")), kind === "mindmap" ? /*#__PURE__*/React.createElement(MindmapTrashList, {
+    showToast,
+    onRestored: onMindmapRestored,
+    sharedLists
+  }) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "note-trash-body"
   }, view === "offline" && /*#__PURE__*/React.createElement("div", {
     className: "note-trash-state"
@@ -28504,7 +28858,7 @@ function NoteTrashModal({
     className: "btn btn-danger btn-sm",
     disabled: busy != null,
     onClick: handleEmpty
-  }, busy === "all" ? "Mengosongkan…" : "Kosongkan Sampah"))));
+  }, busy === "all" ? "Mengosongkan…" : "Kosongkan Sampah")))));
 }
   // ═══ DEPENDENCIES: NotesPage ═══
   // uses:
@@ -31342,11 +31696,18 @@ function SearchModal({
       padding: "8px 16px",
       cursor: "pointer",
       display: "flex",
-      alignItems: "center",
-      gap: 8
+      flexDirection: "column",
+      minWidth: 0
     },
     onMouseEnter: e => e.currentTarget.style.background = "var(--bg-primary)",
     onMouseLeave: e => e.currentTarget.style.background = "transparent"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      minWidth: 0
+    }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 14,
@@ -31363,7 +31724,16 @@ function SearchModal({
       color: "var(--text-light)",
       flexShrink: 0
     }
-  }, mm.updated_at ? mm.updated_at.slice(0, 10) : "")))), results && results.drawings && results.drawings.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, mm.updated_at ? mm.updated_at.slice(0, 10) : "")), mm.snippet && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-light)",
+      marginTop: 2,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, mm.snippet)))), results && results.drawings && results.drawings.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       fontWeight: 700,
@@ -34608,7 +34978,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v421-drawing-workspace";
+    window.__SW_VERSION = "taskflow-v422-mindmap-trash";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

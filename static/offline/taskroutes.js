@@ -78,6 +78,15 @@
     return base === "/api/scratchpad/trash" || base.startsWith("/api/scratchpad/trash/");
   }
 
+  // Sampah mindmap: hapus permanen & kosongkan (destruktif) hanya online. Tanpa ini DELETE /api/mindmaps/trash
+  // ditelan rute lokal DELETE /api/mindmaps/:id. GET/POST restore tetap lokal (mindmaptrash.js).
+  function isMindmapTrashDelete(method, path) {
+    if (String(method || "GET").toUpperCase() !== "DELETE") return false;
+    const q = path.indexOf("?");
+    const base = (q === -1 ? path : path.slice(0, q)).replace(/\/+$/, "");
+    return base === "/api/mindmaps/trash" || base.startsWith("/api/mindmaps/trash/");
+  }
+
   // K6: GET /api/tasks/:id/subtasks|notes|attachments — store lokalnya tidak pernah diisi (tidak ada pull),
   // jadi rute lokal hanya dipakai untuk task yang belum tersinkron (id = cid → `[]`); id numerik (task sudah
   // ada di server) diteruskan ke jaringan supaya subtask/catatan/lampiran dari server tampil lagi.
@@ -93,7 +102,7 @@
   function shouldRouteLocally(router, method, path) {
     if (!router) return false;
     const m = String(method || "GET").toUpperCase();
-    if (isNoteTagsCall(m, path) || isNoteTrashCall(m, path)) return false;
+    if (isNoteTagsCall(m, path) || isNoteTrashCall(m, path) || isMindmapTrashDelete(m, path)) return false;
     const child = isTaskChildListCall(m, path);
     if (child && child.numeric) return false; // K6: data ada di server, bukan di store lokal
     return router.hasRoute(m, path);
@@ -229,7 +238,7 @@
     return router;
   }
 
-  const exported = { buildTaskRouter, isNoteTagsCall, isNoteTrashCall, isTaskChildListCall, shouldRouteLocally };
+  const exported = { buildTaskRouter, isNoteTagsCall, isNoteTrashCall, isMindmapTrashDelete, isTaskChildListCall, shouldRouteLocally };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.taskroutes = exported; }
   return exported;
 });

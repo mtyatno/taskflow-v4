@@ -3433,6 +3433,12 @@
 - **Files Touch:** `static/index.html`, `tests/offline/note_toc_headings.test.js`, `tests/offline/note_toc.test.js`, versi SW, `.agents/*`
 - **Status:** PR draft. JS 1506/1507 (pra-ada `draw_local_reactive`), pytest 299/299.
 
+## [2026-10-19 17:30] - Claude (perencana temuan mindmap #3–#8)
+- **Task:** Spec + rencana implementasi temuan mindmap #3–#8 sesuai keputusan Bapak (kartu link hidup, kolaborasi langsung + merge per node, Sampah mindmap, ekspor, pencarian teks node, pin pribadi/penanda/filter).
+- **Changes:** Spec `docs/superpowers/specs/2026-10-19-mindmap-findings-3-8-design.md` (termasuk algoritma `merge3` lengkap) dan rencana `docs/superpowers/plans/2026-10-19-mindmap-findings-3-8.md` (PR A: A1–A9, PR B: B1–B6, tes gagal nyata per task). Tidak ada kode.
+- **Files Touch:** `docs/superpowers/specs/2026-10-19-mindmap-findings-3-8-design.md`, `docs/superpowers/plans/2026-10-19-mindmap-findings-3-8.md`, `.agents/*`
+- **Status:** Needs Review (rencana menunggu persetujuan Bapak sebelum SDD).
+
 ## [2026-10-19 17:30] - Claude (PR 2: drawing milik workspace, backend)
 - **Task:** Bapak "lanjut PR 2-3"; rencana `docs/superpowers/plans/2026-10-19-drawing-workspace-backend.md` disetujui.
 - **Changes:** SDD 5 task (skema+backfill, akses, share/copy/list/leave-impact, sinkron note→drawing, publik+DOCX). Review akhir menemukan bypass: varian `::DRAW[k]` sisipan anggota dinormalisasi klien lalu autosave pemilik memindah drawing pribadi → aturan diubah: pindah hanya saat `list_id` note berubah. ADR-012; spec §4.3/§4.4/§4.5 diperbarui.
@@ -3440,9 +3446,23 @@
 - **Files Touch:** `drawing_scope.py`, `webapp.py`, `repository.py`, `tests/**`, `docs/**`, `.agents/*`
 - **Status:** Needs Review (draft PR; restart `taskflow-web` + `taskflow` setelah deploy).
 
+## [2026-10-19 19:30] - Claude (PR A temuan mindmap #3 #5–#8 — rilis A9)
+- **Task:** Task A9 rencana `docs/superpowers/plans/2026-10-19-mindmap-findings-3-8.md`: wiring rilis PR A.
+- **Changes:** merge `origin/main` (PR #43 drawing workspace; konflik hanya `SESSION_LOG`, kedua sisi dipertahankan); tag `<script>` `mindmaplinks.js` + `mindmaptrash.js` setelah `mindmapoutline.js`; precache SW + aturan network-only `/api/mindmaps/trash…`; SW `taskflow-v421-mindmap-trash` di semua tempat; tes SW/index di `tests/offline/mindmaptrash.test.js`; ADR-013; E2E Playwright `temporary_files/e2e_mindmap_findings_a.py`.
+- **Verifikasi:** pytest 376, JS 1617/1618 (pra-ada `draw_local_reactive`), inline OK, E2E 29/29 (hapus→Sampah→pulihkan id sama + link node, pin anggota, 👥 + filter, cari snippet / "children", kartu hidup kanvas+Outline, ekspor `mindmaps/`, hapus+pulihkan offline lalu sinkron).
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py` (`sw_cache`), `tests/**` (versi SW), `temporary_files/e2e_mindmap_findings_a.py`, `.agents/*`
+- **Status:** Needs Review (draft PR oleh controller; deploy butuh `sudo systemctl restart taskflow-web`).
+
 ## [2026-10-19 20:30] - Claude (PR 3: drawing milik workspace, frontend + offline)
 - **Task:** Bapak "lanjut" rencana `docs/superpowers/plans/2026-10-19-drawing-workspace-ui.md`.
 - **Changes:** SDD 6 task + review per task (fix round di T1, T2, T3, T5×2). E2E dua akun menemukan bug urutan muat `drawingshare.js`. Review akhir menemukan `base_rev` dimajukan saat share (edit anggota lain bisa hilang) → diperbaiki bersama scope rekaman lama, gerbang push share note, timeout cek gambar. ADR-013.
 - **Verifikasi:** pytest 358, JS 1633/1634, E2E 28/28.
 - **Status:** Needs Review (draft PR; restart `taskflow-web` setelah deploy).
+
+## [2026-10-19 21:30] - Claude (merge main ke PR A setelah #45)
+- **Task:** Perbarui PR A `claude/mindmap-findings-a` (#44) setelah `origin/main` ee5b8d3 (PR #45 drawing workspace UI, SW v421 + ADR-013).
+- **Changes:** `git merge origin/main` (tanpa rebase). Konflik 21 file: semua hunk kode/tes hanya string versi SW; `index.html`/`sw.js`/`webapp.py` mempertahankan tambahan drawing (main) + mindmap (A). SW PR A → `taskflow-v422-mindmap-trash` di semua tempat; ADR mindmap A → **ADR-014** (ADR-013 tetap milik drawing). Iframe mind-elixir tetap `?v=144` (main 143), `app.css?v=334`.
+- **Verifikasi:** pytest 378, JS 1683/1684 (pra-ada `draw_local_reactive`), inline OK (index 5, mind-elixir 1).
+- **Files Touch:** `static/{index.html,sw.js}`, `webapp.py`, `tests/**` (versi SW), `.agents/*`
+- **Status:** Needs Review.
 

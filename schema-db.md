@@ -161,9 +161,52 @@ CREATE TABLE mindmaps (
                 is_pinned  INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
-            , list_id INTEGER DEFAULT NULL, last_edited_by INTEGER, client_id TEXT, source_note_id INTEGER DEFAULT NULL);
+            , list_id INTEGER DEFAULT NULL, last_edited_by INTEGER, client_id TEXT, source_note_id INTEGER DEFAULT NULL
+            , search_text TEXT);  -- teks polos semua node (\n); NULL = belum dihitung, "" = peta tertaut
 CREATE UNIQUE INDEX idx_mindmaps_user_client ON mindmaps(user_id, client_id) WHERE client_id IS NOT NULL;
 CREATE UNIQUE INDEX ux_mindmaps_source_note ON mindmaps(source_note_id) WHERE source_note_id IS NOT NULL;
+
+## Pin mindmap pribadi: `mindmap_pins`
+
+```sql
+CREATE TABLE mindmap_pins (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    mindmap_id INTEGER NOT NULL,
+    created_at TEXT,
+    PRIMARY KEY (user_id, mindmap_id)
+);
+CREATE INDEX idx_mindmap_pins_mm ON mindmap_pins(mindmap_id);
+```
+
+Pin per user (anggota list bersama boleh pin tanpa memengaruhi pemilik). `mindmap_id` tanpa FK; baris dibersihkan
+di handler saat peta dihapus. `mindmaps.is_pinned` USANG: tidak lagi dibaca/ditulis, kolom dipertahankan agar rollback
+aman. Migrasi menyalin `is_pinned = 1` ke `mindmap_pins` (atas nama pemilik) sekali, hanya saat tabel baru dibuat.
+
+## Sampah mindmap: `trashed_mindmaps`
+
+```sql
+CREATE TABLE trashed_mindmaps (
+    mindmap_id     INTEGER PRIMARY KEY,
+    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title          TEXT NOT NULL DEFAULT '',
+    list_id        INTEGER,
+    source_note_id INTEGER,
+    client_id      TEXT,
+    snapshot_json  TEXT NOT NULL,      -- {"mindmap": <SELECT * baris mindmaps>, "pins": [user_id…]}
+    deleted_at     TEXT NOT NULL,      -- ISO, Asia/Jakarta
+    deleted_by     INTEGER
+);
+CREATE INDEX idx_trashed_mm_user ON trashed_mindmaps(user_id, deleted_at);
+CREATE INDEX idx_trashed_mm_note ON trashed_mindmaps(source_note_id) WHERE source_note_id IS NOT NULL;
+```
+
+Pola snapshot seperti `trashed_notes` (ADR-004), bukan kolom `deleted_at` di `mindmaps`: `DELETE /api/mindmaps/{id}`
+(hanya pemilik) menyalin baris + pin ke sini lalu menghapus baris `mindmaps` dan `mindmap_pins`-nya, sehingga semua
+query `mindmaps` dan index unik `ux_mindmaps_source_note` tidak perlu filter tambahan. Pulihkan memakai **id yang sama**
+(dan `client_id` bila tidak bentrok); `list_id` dinolkan bila workspace hilang/user bukan anggota; pin dipulihkan untuk
+user yang masih ada. Retensi `MINDMAP_TRASH_RETENTION_DAYS = 30`, purge malas saat daftar/pulihkan. Catatan sumber
+dihapus permanen → baris peta tertautnya di sini ikut dihapus (`_delete_linked_mindmaps`). Tabel juga dibuat malas
+(`_ensure_trashed_mindmaps_table`, tanpa FK).
 
 ## Petakan: `mindmaps.source_note_id` (peta tertaut ke catatan)
 

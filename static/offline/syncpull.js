@@ -908,6 +908,30 @@
       tx.onerror = () => reject(tx.error);
     }));
   }
+  // Hapus record mindmap hanya bila rev-nya masih `expectRev` dan tidak ada penanda then_restore_sid untuk cid-nya
+  // (satu transaksi mindmaps + _outbox). Resolve true bila dihapus.
+  function deleteMindmapRecIfUnchanged(cid, expectRev) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      let removed = false;
+      const tx = db.transaction(["mindmaps", "_outbox"], "readwrite");
+      const ms = tx.objectStore("mindmaps");
+      const r = ms.get(cid);
+      r.onsuccess = () => {
+        const cur = r.result;
+        if (!cur || (cur.rev || 0) !== expectRev) return;
+        const all = tx.objectStore("_outbox").getAll();
+        all.onsuccess = () => {
+          const marker = (all.result || []).some((o) => o.entity_type === "mindmap" && o.cid === cid && o.op === "delete"
+            && o.payload && o.payload.then_restore_sid != null);
+          if (marker) return;
+          ms.delete(cid);
+          removed = true;
+        };
+      };
+      tx.oncomplete = () => resolve(removed);
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
   function ensureMindmapCid(serverId, cache, serverObj, localAll, used, liveSids) {
     if (cache[serverId]) return Promise.resolve(cache[serverId]);
     return TFidmap.cidOf("mindmap", serverId).then((cid) => {
@@ -965,6 +989,10 @@
       .then(() => Promise.all([getAllMindmaps(), TFoutbox.outboxAll()]))
       .then(([localAll, outboxOps]) => {
         const pendingMindmapOps = new Set(outboxOps.filter((o) => o.entity_type === "mindmap").map((o) => o.cid));
+        // Penanda then_restore_sid (syncpush): peta dipulihkan lokal, baris server masih di Sampah sampai POST restore
+        // berhasil → tidak ada di daftar & GET satuan 404. Lokal menang (dirty atau tidak) — jangan konfirmasi/hapus.
+        const restoreMarkerCids = new Set(outboxOps.filter((o) => o.entity_type === "mindmap" && o.op === "delete"
+          && o.payload && o.payload.then_restore_sid != null).map((o) => o.cid));
         const byCid = {}; for (const r of localAll) byCid[r.cid] = r;
         const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflictCopies: 0, pinned: 0, requeued: 0, clientIds: 0, changed: [] };
         const changed = (cid, sid) => { result.changed.push({ cid: cid, server_id: sid != null ? sid : null }); };
@@ -1018,6 +1046,7 @@
           if (serverIds.has(String(r.server_id))) continue;
           chain = chain.then(() => {
             if (r.conflict || r.sync_error) { result.skipped++; return; }
+            if (restoreMarkerCids.has(r.cid)) { result.skipped++; return; }
             if (r.dirty && pendingMindmapOps.has(r.cid)) {
               if (r.list_id != null && !TFmm.isLinked(r)) { // peta tertaut (bisa ber-list_id di workspace bersama): push yang memutuskan (recreateLinked / drop)
                 result.skipped++;
@@ -1027,9 +1056,13 @@
             }
             return confirmGone(confirmOne, r.server_id).then((gone) => {
               if (!gone) { result.skipped++; return; }
-              result.deleted++;
-              changed(r.cid, r.server_id);
-              return deleteMindmapRec(r.cid).then(() => TFidmap.mapDelete("mindmap", r.server_id));
+              // bersyarat: record tidak berubah selama konfirmasi (rev sama) & tidak ada penanda restore baru
+              return deleteMindmapRecIfUnchanged(r.cid, r.rev || 0).then((removed) => {
+                if (!removed) { result.skipped++; return; }
+                result.deleted++;
+                changed(r.cid, r.server_id);
+                return TFidmap.mapDelete("mindmap", r.server_id);
+              });
             });
           });
         }
@@ -1087,7 +1120,25 @@
     const confirmOne = (sid) => Promise.resolve(rawFetch("/api/mindmaps/" + sid)).then(goneOrJson).catch(() => null);
     return Promise.resolve(rawFetch("/api/mindmaps?linked=1"))
       .then(listJsonOrThrow)
-      .then((listRows) => pullMindmaps(listRows || [], fetchOne, confirmOne));
+      .then((listRows) => pullMindmaps(listRows || [], fetchOne, confirmOne))
+      .then((res) => pullMindmapTrash(rawFetch).catch(() => null).then(() => res));
+  }
+
+  // Sampah mindmap (A4/A5): GET /api/mindmaps/trash → cermin di _meta (TF.mindmaptrash). Gagal (offline/401/5xx/
+  // body bukan daftar valid) → {mirrored:false}, cermin lama dipertahankan.
+  function mindmapTrash() {
+    try { return isNode ? require("./mindmaptrash.js") : (root.TF && root.TF.mindmaptrash); } catch (_) { return null; }
+  }
+  function pullMindmapTrash(rawFetch) {
+    return Promise.resolve()
+      .then(() => rawFetch("/api/mindmaps/trash"))
+      .then(listJsonOrThrow)
+      .then((rows) => {
+        const T = mindmapTrash();
+        if (!T || !T.writeMirror) return { mirrored: false };
+        return T.writeMirror(Array.isArray(rows) ? rows : []).then(() => ({ mirrored: true }));
+      })
+      .catch(() => ({ mirrored: false }));
   }
 
   function getAllDrawings() {
@@ -1743,7 +1794,7 @@
     reconcileRecurringExceptions, pullRecurringExceptions,
     pullHabits, pullHabitLogs, pullHabitsAndLogs,
     pullNotes, pullNotesAndReconcile,
-    pullMindmaps, pullMindmapsAndReconcile,
+    pullMindmaps, pullMindmapsAndReconcile, pullMindmapTrash,
     pullDrawings, pullDrawingsAndReconcile,
     mergeDrawingSnapshots,
     tsEpoch, ensureNoteCid, listJsonOrThrow, goneOrJson,

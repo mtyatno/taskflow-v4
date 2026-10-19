@@ -12,6 +12,8 @@
   const req = (m, g) => (isNode ? require(m) : g);
   const TFdb = req("./db.js", root.TF && root.TF.db);
   const TFrepo = req("./mindmaprepo.js", root.TF && root.TF.mindmaprepo);
+  // Dibaca malas: urutan tag <script> di browser tidak masalah.
+  const TFtrash = () => req("./mindmaptrash.js", root.TF && root.TF.mindmaptrash);
 
   function allMindmaps() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -24,6 +26,8 @@
   function meta(rec) {
     return {
       id: displayId(rec), title: rec.title, is_pinned: rec.pinned ? 1 : 0,
+      // client_id = id link node mindmap lintas perangkat (sama dengan clientIdOf di syncpush)
+      client_id: rec.client_id || rec.cid || null,
       list_id: rec.list_id != null ? rec.list_id : null,
       source_note_id: rec.source_note_id != null ? rec.source_note_id : null,
       source_note_cid: rec.source_note_cid != null ? rec.source_note_cid : null,
@@ -83,6 +87,10 @@
       resolveMindmapCid(params.id).then((cid) => (cid ? TFrepo.togglePin(cid).then(() => getFull(cid)) : notFound())));
     router.register("DELETE", "/api/mindmaps/:id", ({ params }) =>
       resolveMindmapCid(params.id).then((cid) => (cid ? TFrepo.deleteMindmap(cid) : notFound())));
+    // Sampah (spec #5): segmen statis "trash" menang atas :id (spesifisitas router). Hapus permanen/kosongkan
+    // hanya online — shouldRouteLocally mengecualikan DELETE /api/mindmaps/trash… (taskroutes.isMindmapTrashDelete).
+    router.register("GET", "/api/mindmaps/trash", () => TFtrash().listTrash());
+    router.register("POST", "/api/mindmaps/trash/:id/restore", ({ params }) => TFtrash().restore(params.id));
     router.register("GET", "/api/lists/:id/mindmaps", ({ params }) =>
       allMindmaps().then((all) => all
         .filter((m) => !m.deleted && m.list_id != null && String(m.list_id) === String(params.id))
