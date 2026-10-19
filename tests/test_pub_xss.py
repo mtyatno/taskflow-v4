@@ -361,3 +361,117 @@ def test_password_unlock_correct_password_redirects(client):
     assert r.status_code == 302, r.text
     assert r.headers["location"] == f"/pub/{username}/{slug}"
     assert f"pub_unlock_{slug}=" in r.headers.get("set-cookie", "")
+
+
+# ── Fix round 1: KaTeX per text node, redirect unlock, cover ────────────────
+
+def _page_scripts(text):
+    return re.findall(r"<script>(.*?)</script>", text, flags=re.S)
+
+
+def test_public_katex_script_walks_text_nodes(client):
+    tag = _uniq()
+    h = _auth(client, f"pubkx_{tag}")
+    _, slug, username = _publish(client, h, f"Kx {tag}", "isi $x$")
+    scripts = _page_scripts(anon().get(f"/pub/{username}/{slug}").text)
+    joined = "".join(scripts)
+    assert 'body.innerHTML =' not in joined and '.innerHTML = html' not in joined
+    assert 'innerHTML' not in joined.replace('re-parse innerHTML', '').replace('ulang innerHTML', '')
+    assert 'createTreeWalker' in scripts[0] and 'katex.render(' in scripts[0]
+    assert 'renderToString' not in joined
+
+
+def test_public_katex_attribute_dollar_untouched_node(client, tmp_path):
+    """Script KaTeX asli dijalankan di DOM tiruan: `$` di nilai atribut tidak pernah ikut dipasangkan."""
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node tidak tersedia")
+    tag = _uniq()
+    h = _auth(client, f"pubkx2_{tag}")
+    _, slug, username = _publish(client, h, f"Kx2 {tag}", "harga $5 ![$<img src=x onerror=alert(1)>](/a.png) $y$")
+    page = anon().get(f"/pub/{username}/{slug}").text
+    # payload gabungan dari ruling: di sisi server tetap teks/atribut ter-escape
+    _assert_no_active_markup(_body(page))
+    script = tmp_path / "katex.js"
+    script.write_text(_page_scripts(page)[0], encoding="utf-8")
+    harness = __import__("os").path.join(__import__("os").path.dirname(__file__), "pub_katex_harness.js")
+    assert subprocess.run([node, "--check", str(script)], capture_output=True).returncode == 0
+    r = subprocess.run([node, harness, str(script)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "katex harness OK" in r.stdout
+
+
+def _raw_asgi(method, path, body=b"", content_type=None):
+    """Panggil app ASGI langsung dengan scope seperti dari uvicorn (path sudah di-decode sekali).
+    TestClient Starlette meng-unquote path yang sudah di-decode httpx (decode dua kali), jadi username
+    berisi %xx tidak bisa diuji lewat TestClient."""
+    import asyncio
+    headers = [(b"host", b"testserver")]
+    if content_type:
+        headers.append((b"content-type", content_type.encode()))
+    headers.append((b"content-length", str(len(body)).encode()))
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method, "scheme": "http",
+             "path": path, "raw_path": __import__("urllib.parse").parse.quote(path).encode(), "query_string": b"",
+             "root_path": "", "headers": headers, "client": ("127.0.0.9", 1), "server": ("testserver", 80)}
+    out = {"status": None, "headers": {}, "body": b""}
+    sent = [False]
+
+    async def receive():
+        if not sent[0]:
+            sent[0] = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return {"type": "http.disconnect"}
+
+    async def send(msg):
+        if msg["type"] == "http.response.start":
+            out["status"] = msg["status"]
+            out["headers"] = {k.decode().lower(): v.decode() for k, v in msg["headers"]}
+        elif msg["type"] == "http.response.body":
+            out["body"] += msg.get("body", b"")
+
+    asyncio.run(webapp.app(scope, receive, send))
+    return out
+
+
+def test_unlock_redirect_percent_encodes_username(client):
+    tag = _uniq()
+    uname = f"pubpct_{tag}"
+    h = _auth(client, uname)
+    _, slug, _ = _publish(client, h, f"Kunci {tag}", "rahasia", password="rahasia123")
+    odd = f"a%41b_{tag}"
+    conn = db()
+    try:
+        conn.execute("UPDATE users SET username = ? WHERE id = ?", (odd, _uid(uname)))
+        conn.commit()
+    finally:
+        conn.close()
+    try:
+        ok = _raw_asgi("POST", f"/pub/{odd}/{slug}/unlock", b"password=rahasia123",
+                       "application/x-www-form-urlencoded")
+        bad = _raw_asgi("POST", f"/pub/{odd}/{slug}/unlock", b"password=salah", "application/x-www-form-urlencoded")
+    finally:
+        webapp._ip_attempts.clear()
+        webapp._progressive.clear()
+    assert ok["status"] == 302, ok
+    assert ok["headers"]["location"] == f"/pub/a%2541b_{tag}/{slug}"
+    assert bad["status"] == 200 and f'action="/pub/a%2541b_{tag}/{slug}/unlock"' in bad["body"].decode()
+    # path yang ditunjuk Location (di-decode sekali oleh server) = halaman note yang sama, bukan user "aAb"
+    page = _raw_asgi("GET", f"/pub/{odd}/{slug}")
+    assert page["status"] == 200 and "dilindungi password" in page["body"].decode()
+
+
+def test_public_cover_never_uses_drawing_svg(client):
+    tag = _uniq()
+    h = _auth(client, f"pubcov_{tag}")
+    d = _drawing(client, h, f"cov-{tag}", svg=f"<svg><text>{tag}</text></svg>", cid=f"cid-cov-{tag}")
+    _, slug, username = _publish(client, h, f"Cov {tag}", f"![tolak](javascript:alert(1))\n\n::draw[{d['id']}]")
+    page = anon().get(f"/pub/{username}/{slug}").text
+    assert '<div class="pub-cover">' not in page
+    assert 'data:image/svg+xml;base64,' in _body(page)
+    # cover biasa tetap jalan
+    _, slug2, _ = _publish(client, h, f"Cov2 {tag}", f"![c](https://ok.example/c.png)\n\n::draw[{d['id']}]")
+    page2 = anon().get(f"/pub/{username}/{slug2}").text
+    assert re.search(r'<div class="pub-cover"><img style="[^"]*" src="https://ok.example/c.png"', page2), page2
+    assert 'data:image/svg+xml;base64,' in _body(page2)

@@ -926,7 +926,7 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, stored: str) -> bool:
     try:
         salt, h = stored.split("$")
-        return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex() == h
+        return hmac.compare_digest(hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex(), h)
     except Exception:
         return False
 
@@ -4566,6 +4566,12 @@ def _fill_pub_placeholders(rendered: str, cards: dict, fallback: dict, nonce: st
 _PUB_SVG_IMG_STYLE = "width:100%;height:auto;max-height:100%;display:block;object-fit:contain"
 
 
+def _pub_path(username: str, slug: str) -> str:
+    """Path /pub/{username}/{slug} untuk header Location: tiap segmen di-percent-encode (tanpa escape HTML),
+    supaya username/slug berisi %xx, /, ?, # tetap kembali ke halaman yang sama."""
+    return f"/pub/{urllib.parse.quote(username, safe='')}/{urllib.parse.quote(slug, safe='')}"
+
+
 def _pub_href(username: str, slug: str) -> str:
     """Path /pub/{username}/{slug} yang aman ditanam di atribut href. Username dan slug target berasal dari
     data user lain (username tidak dibatasi karakternya): tiap segmen di-percent-encode lalu di-escape HTML."""
@@ -6974,7 +6980,7 @@ _PUBLIC_CSS = """<style>
 # Halaman HTML /pub/… (halaman note, halaman password, 404). Bukan untuk /pub/drawings (JSON) dan /pub/attachments.
 _PUB_PAGE_CSP = (
     "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-    "font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self'; "
+    "font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob:; frame-src 'self'; "
     "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'"
 )
 # File unggahan yang disajikan langsung (lampiran publik dari Nextcloud, view lampiran note)
@@ -7080,20 +7086,44 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 
 <script src="/static/vendor/katex/katex.min.js"></script>
 <script>
-  // Inline KaTeX renderer (no auto-render.min.js needed)
+  // Inline KaTeX renderer (no auto-render.min.js needed). Dirender per text node (spec XSS §5, fix round 1):
+  // tidak pernah membaca/menulis ulang innerHTML, jadi `$` di nilai atribut tidak bisa dipasangkan dengan `$` di teks.
   try {
     var body = document.querySelector('.pub-body');
     if (body && window.katex) {
-      var html = body.innerHTML;
-      // Display math: $$ ... $$
-      html = html.replace(/\\$\\$([\\s\\S]*?)\\$\\$/g, function(_, tex) {
-        try { return katex.renderToString(tex.trim(), { displayMode: true, throwOnError: false }); } catch(e) { return _; }
+      var _KX_SKIP = { CODE: 1, PRE: 1, SCRIPT: 1, STYLE: 1, TEXTAREA: 1 };
+      var _kxWalker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+      var _kxNodes = [];
+      while (_kxWalker.nextNode()) {
+        var _n = _kxWalker.currentNode;
+        if (!_n.nodeValue || _n.nodeValue.indexOf('$') === -1) continue;
+        var _skip = false;
+        for (var _p = _n.parentNode; _p && _p !== body; _p = _p.parentNode) {
+          if (_KX_SKIP[_p.nodeName]) { _skip = true; break; }
+        }
+        if (!_skip) _kxNodes.push(_n);
+      }
+      // Display math: $$ ... $$ (dicoba lebih dulu), inline math: $ ... $
+      var _KX_RE = /\\$\\$([\\s\\S]*?)\\$\\$|\\$([^$]+?)\\$/g;
+      _kxNodes.forEach(function(node) {
+        var text = node.nodeValue, last = 0, m, found = false;
+        var frag = document.createDocumentFragment();
+        _KX_RE.lastIndex = 0;
+        while ((m = _KX_RE.exec(text)) !== null) {
+          var display = m[1] !== undefined;
+          var tex = (display ? m[1] : m[2]).trim();
+          if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+          var el = document.createElement(display ? 'div' : 'span');
+          try { katex.render(tex, el, { displayMode: display, throwOnError: false }); }
+          catch (e) { el = document.createTextNode(m[0]); }
+          frag.appendChild(el);
+          last = m.index + m[0].length;
+          found = true;
+        }
+        if (!found) return;
+        if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+        node.parentNode.replaceChild(frag, node);
       });
-      // Inline math: $ ... $
-      html = html.replace(/\\$([^$]+?)\\$/g, function(_, tex) {
-        try { return katex.renderToString(tex.trim(), { displayMode: false, throwOnError: false }); } catch(e) { return _; }
-      });
-      body.innerHTML = html;
     }
   } catch(e) {}
 </script>
@@ -7133,13 +7163,15 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
   // Search in document
   var searchInput = document.getElementById('doc-search');
   var _pubBody = document.querySelector('.pub-body');
-  var _bodyOriginal = _pubBody ? _pubBody.innerHTML : '';
   if (searchInput) {
     searchInput.addEventListener('input', function() {
       var query = searchInput.value.trim();
       if (!_pubBody) return;
-      // Reset to original (removes all previous highlights)
-      _pubBody.innerHTML = _bodyOriginal;
+      // Hapus sorotan sebelumnya tanpa re-parse innerHTML (mark sorotan -> teks biasa)
+      _pubBody.querySelectorAll('mark.search-highlight').forEach(function(mk) {
+        mk.parentNode.replaceChild(document.createTextNode(mk.textContent), mk);
+      });
+      _pubBody.normalize();
       if (!query) return;
       // Walk text nodes and highlight all occurrences
       var walker = document.createTreeWalker(_pubBody, NodeFilter.SHOW_TEXT);
@@ -7348,7 +7380,7 @@ async def view_published_note_legacy(slug: str):
         ).fetchone()
         if not row:
             return _pub_html_response(_NOT_FOUND_HTML, status_code=404)
-        return RedirectResponse(url=f"/pub/{row['username']}/{slug}", status_code=301)
+        return RedirectResponse(url=_pub_path(row["username"], slug), status_code=301)
 
 @app.get("/pub/{username}/{slug}")
 async def view_published_note(username: str, slug: str, request: Request):
@@ -7473,7 +7505,9 @@ async def view_published_note(username: str, slug: str, request: Request):
         cover_html = ""
         first_line = (raw_content or "").strip().split('\n')[0].strip() if raw_content else ""
         if _re.match(r'^!\[.*?\]\(.*?\)$', first_line):
-            cover_match = _re.search(r'<img[^>]+src="([^"]+)"[^>]*>', body_html)
+            # gambar pertama yang bukan pratinjau SVG drawing (kartu drawing tidak pernah jadi cover)
+            cover_match = next((cm for cm in _re.finditer(r'<img[^>]+src="([^"]+)"[^>]*>', body_html)
+                                if not cm.group(1).startswith('data:image/svg+xml')), None)
             if cover_match:
                 cover_img = cover_match.group(0).replace(
                     '<img',
@@ -7580,7 +7614,7 @@ async def unlock_published_note(username: str, slug: str, request: Request):
             (slug, username)
         ).fetchone()
         if not row or not row["password_hash"]:
-            return RedirectResponse(url=f"/pub/{username}/{slug}", status_code=302)
+            return RedirectResponse(url=_pub_path(username, slug), status_code=302)
 
         # Read password from form
         form = await request.form()
@@ -7596,7 +7630,7 @@ async def unlock_published_note(username: str, slug: str, request: Request):
         _reset_bruteforce(ip, slug)
         cookie_key = f"pub_unlock_{slug}"
         cookie_val = _sign_cookie(slug)
-        response = RedirectResponse(url=f"/pub/{username}/{slug}", status_code=302)
+        response = RedirectResponse(url=_pub_path(username, slug), status_code=302)
         response.set_cookie(
             key=cookie_key,
             value=cookie_val,
