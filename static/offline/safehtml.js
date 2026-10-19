@@ -216,15 +216,17 @@
   }
 
   // ── SVG drawing lewat <img> (§3) ─────────────────────────────────────────────
-  // SVG tidak pernah masuk DOM sebagai markup: <img src=blob:…> (skrip/handler di dalam SVG tidak jalan di
-  // konteks gambar). DOM diambil saat dipanggil; tanpa DOM (node) → null.
+  // SVG tidak pernah masuk DOM sebagai markup: <img src="data:image/svg+xml;base64,…"> (skrip/handler di dalam
+  // SVG tidak jalan di konteks gambar). Sengaja BUKAN blob: — blob URL mewarisi origin aplikasi, jadi bila
+  // dibuka top-level ("buka gambar di tab baru") skrip SVG jalan sebagai dokumen same-origin; navigasi top-level
+  // ke data: diblokir browser. DOM diambil saat dipanggil; tanpa DOM (node) → null.
   const SVG_IMG_STYLE = 'width:100%;height:auto;max-height:100%;display:block;object-fit:contain';
-  const svgUrlContainers = new Set();
+  const SVG_DATA_PREFIX = 'data:image/svg+xml;base64,';
 
   function domEnv() {
     const g = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : null);
     if (!g || !g.document || typeof g.document.createElement !== 'function') return null;
-    if (!g.URL || typeof g.URL.createObjectURL !== 'function' || typeof g.Blob !== 'function') return null;
+    if (typeof g.btoa !== 'function') return null;
     return g;
   }
 
@@ -232,42 +234,43 @@
     return typeof svg === 'string' && svg.trim().startsWith('<svg');
   }
 
-  // <img> dengan blob URL SVG, atau null (bukan SVG / tanpa DOM). Pemanggil yang mengganti gambar wajib
-  // melepas URL lama (mountSvgImg/releaseSvgUrl melakukannya).
+  // base64 dari byte UTF-8 (btoa sendiri hanya menerima Latin-1). Potongan 32K menghindari batas argumen
+  // String.fromCharCode.apply pada SVG besar. Surrogate tunggal → null (encodeURIComponent melempar).
+  function utf8Base64(g, s) {
+    let bin = '';
+    if (typeof g.TextEncoder === 'function') {
+      const bytes = new g.TextEncoder().encode(s);
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      }
+    } else {
+      bin = unescape(encodeURIComponent(s));
+    }
+    return g.btoa(bin);
+  }
+
+  // <img> dengan data: URL SVG, atau null (bukan SVG / tanpa DOM / gagal encode).
   function svgToImg(svg, alt) {
     if (!isSvgMarkup(svg)) return null;
     const g = domEnv();
     if (!g) return null;
+    let b64;
+    try { b64 = utf8Base64(g, svg); } catch (_) { return null; }
     const img = g.document.createElement('img');
     img.alt = alt === null || alt === undefined ? '' : String(alt);
     img.draggable = false;
     img.style.cssText = SVG_IMG_STYLE;
-    img.src = g.URL.createObjectURL(new g.Blob([svg], { type: 'image/svg+xml' }));
+    img.src = SVG_DATA_PREFIX + b64;
     return img;
   }
 
-  function releaseSvgUrl(container) {
-    if (!container) return;
-    svgUrlContainers.delete(container);
-    const url = container.__svgUrl;
-    if (!url) return;
-    container.__svgUrl = null;
-    const g = domEnv();
-    try { if (g) g.URL.revokeObjectURL(url); } catch (_) { /* URL sudah dilepas */ }
-  }
-
-  // Ganti isi container dengan <img> SVG; URL lama container dilepas, begitu pula URL container yang sudah
-  // dibuang dari DOM (render ulang note). Isi tidak valid → null, container tidak disentuh.
+  // Ganti isi container dengan <img> SVG. Isi tidak valid → null, container tidak disentuh.
   function mountSvgImg(container, svg, alt) {
     if (!container) return null;
     const img = svgToImg(svg, alt);
     if (!img) return null;
-    svgUrlContainers.forEach(function (c) { if (c !== container && c.isConnected === false) releaseSvgUrl(c); });
-    releaseSvgUrl(container);
     container.textContent = '';
     container.appendChild(img);
-    container.__svgUrl = img.src;
-    svgUrlContainers.add(container);
     return img;
   }
 
@@ -324,7 +327,6 @@
     isSvgMarkup: isSvgMarkup,
     svgToImg: svgToImg,
     mountSvgImg: mountSvgImg,
-    releaseSvgUrl: releaseSvgUrl,
     SVG_IMG_STYLE: SVG_IMG_STYLE,
     OBFUSCATED_CASES: OBFUSCATED_CASES,
   };

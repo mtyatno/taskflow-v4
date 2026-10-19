@@ -1,6 +1,6 @@
 "use strict";
 // XSS hardening Task 5 (spec docs/superpowers/specs/2026-10-19-xss-hardening-design.md §3, §4, §7):
-// pratinjau SVG drawing selalu lewat <img src=blob:>, tidak pernah sebagai markup; daftar notifikasi lewat
+// pratinjau SVG drawing selalu lewat <img src="data:image/svg+xml;base64,…"> (bukan blob: — blob mewarisi origin aplikasi), tidak pernah sebagai markup; daftar notifikasi lewat
 // TF.safehtml.renderNotificationHtml; fallback markdown mind-elixir meng-escape topik.
 
 const { test } = require("node:test");
@@ -20,9 +20,6 @@ const EVIL_SVG = '<svg xmlns="http://www.w3.org/2000/svg" onload="window.__xss=1
 // ── DOM tiruan minimal ───────────────────────────────────────────────────────
 // innerHTML hanya boleh ditulis dengan string tanpa markup svg (placeholder konstanta).
 function makeDom() {
-  const created = [];
-  const revoked = [];
-  let seq = 0;
   class El {
     constructor(tag) {
       this.tagName = String(tag).toUpperCase();
@@ -30,7 +27,6 @@ function makeDom() {
       this.attrs = {};
       this.style = { cssText: "" };
       this.parentNode = null;
-      this.isConnected = true;
       this._html = "";
       this.innerHTMLWrites = [];
     }
@@ -56,41 +52,54 @@ function makeDom() {
     querySelectorAll() { return []; }
     closest() { return null; }
   }
+  const objectUrls = [];
   const document = { createElement: tag => new El(tag) };
-  const URL = {
-    createObjectURL(blob) { const u = "blob:test/" + (++seq); created.push({ url: u, blob }); return u; },
-    revokeObjectURL(u) { revoked.push(u); },
-  };
+  // blob URL tidak boleh dipakai untuk pratinjau SVG (mewarisi origin aplikasi bila dibuka top-level)
+  const URL = { createObjectURL(b) { objectUrls.push(b); return "blob:test/x"; }, revokeObjectURL() {} };
   class Blob { constructor(parts, opts) { this.parts = parts; this.type = opts && opts.type; } }
-  return { El, document, URL, Blob, created, revoked };
+  return { El, document, URL, Blob, objectUrls };
 }
 
 // safehtml.js dimuat ke konteks dengan DOM tiruan (jalur browser: window.TF.safehtml).
-function loadSafeHtml(dom) {
-  const sandbox = { document: dom.document, URL: dom.URL, Blob: dom.Blob };
+function loadSafeHtml(dom, extra = {}) {
+  const sandbox = Object.assign({ document: dom.document, URL: dom.URL, Blob: dom.Blob, btoa, TextEncoder }, extra);
   sandbox.window = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(SH_PATH, "utf8"), sandbox);
   return sandbox;
 }
+const DATA_PREFIX = "data:image/svg+xml;base64,";
+const decodeSrc = src => {
+  assert.ok(src.startsWith(DATA_PREFIX), src.slice(0, 40));
+  return Buffer.from(src.slice(DATA_PREFIX.length), "base64").toString("utf8");
+};
 
-test("svgToImg returns img with blob url; non-svg returns null", () => {
+test("svgToImg returns img with data: url that decodes to the svg; non-svg returns null", () => {
   const dom = makeDom();
   const SH = loadSafeHtml(dom).TF.safehtml;
   const img = SH.svgToImg("  " + EVIL_SVG, 'Judul "<b>"');
   assert.ok(img, "svg valid → img");
   assert.equal(img.tagName, "IMG");
-  assert.match(img.src, /^blob:/);
+  assert.equal(decodeSrc(img.src), "  " + EVIL_SVG);
   assert.equal(img.alt, 'Judul "<b>"', "alt sebagai properti teks, apa adanya");
-  assert.equal(dom.created.length, 1);
-  assert.equal(dom.created[0].blob.type, "image/svg+xml");
-  assert.deepEqual([...dom.created[0].blob.parts], ["  " + EVIL_SVG]);
   assert.equal(img.draggable, false, "img tidak bisa di-drag ke editor");
+  assert.match(img.style.cssText, /width:100%/);
+  assert.match(img.style.cssText, /object-fit:contain/);
   for (const bad of ["", null, undefined, 42, "<div>x</div>", '<?xml version="1.0"?><svg></svg>',
     "x<svg onload=1>", "<img src=x onerror=1>", "<SVG></SVG>"]) {
     assert.equal(SH.svgToImg(bad, "t"), null, String(bad));
   }
-  assert.equal(dom.created.length, 1, "tidak ada blob untuk isi ditolak");
+  assert.equal(dom.objectUrls.length, 0, "tidak ada blob URL");
+});
+
+test("svgToImg base64 is UTF-8 safe (non-ASCII, large) with and without TextEncoder", () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>Rapat — ü 日本 🎨</text>' + "<g/>".repeat(60000) + "</svg>";
+  for (const extra of [{}, { TextEncoder: undefined }]) {
+    const SH = loadSafeHtml(makeDom(), extra).TF.safehtml;
+    const img = SH.svgToImg(svg, "t");
+    assert.ok(img);
+    assert.equal(decodeSrc(img.src), svg);
+  }
 });
 
 test("svgToImg without DOM returns null and require() works in node", () => {
@@ -98,39 +107,22 @@ test("svgToImg without DOM returns null and require() works in node", () => {
   assert.equal(typeof SH.svgToImg, "function");
   assert.equal(SH.svgToImg("<svg></svg>", "t"), null);
   assert.equal(SH.mountSvgImg(null, "<svg></svg>", "t"), null);
+  assert.equal(SH.releaseSvgUrl, undefined, "siklus hidup blob URL dihapus");
 });
 
-test("mountSvgImg replaces content and revokes previous blob url", () => {
+test("mountSvgImg replaces content; invalid content leaves container untouched", () => {
   const dom = makeDom();
   const SH = loadSafeHtml(dom).TF.safehtml;
   const box = dom.document.createElement("div");
   box.appendChild(dom.document.createElement("span"));
   const a = SH.mountSvgImg(box, "<svg>1</svg>", "A");
   assert.deepEqual(box.children, [a]);
-  assert.equal(box.__svgUrl, a.src);
-  assert.match(a.style.cssText, /width:100%/);
-  assert.match(a.style.cssText, /object-fit:contain/);
   const b = SH.mountSvgImg(box, "<svg>2</svg>", "B");
   assert.deepEqual(box.children, [b]);
-  assert.deepEqual(dom.revoked, [a.src], "URL lama dilepas saat diganti");
-  // isi tidak valid → container tidak disentuh
+  assert.equal(decodeSrc(b.src), "<svg>2</svg>");
   assert.equal(SH.mountSvgImg(box, "<p>x</p>", "C"), null);
   assert.deepEqual(box.children, [b]);
-  SH.releaseSvgUrl(box);
-  assert.deepEqual(dom.revoked, [a.src, b.src]);
-  assert.equal(box.__svgUrl, null);
-  SH.releaseSvgUrl(box);
-  assert.equal(dom.revoked.length, 2, "release kedua tidak melepas ulang");
-});
-
-test("mountSvgImg sweeps blob urls of detached containers", () => {
-  const dom = makeDom();
-  const SH = loadSafeHtml(dom).TF.safehtml;
-  const old = dom.document.createElement("div");
-  const oldImg = SH.mountSvgImg(old, "<svg>1</svg>", "A");
-  old.isConnected = false; // note dirender ulang, container lama dibuang
-  SH.mountSvgImg(dom.document.createElement("div"), "<svg>2</svg>", "B");
-  assert.deepEqual(dom.revoked, [oldImg.src]);
+  assert.equal(box.__svgUrl, undefined);
 });
 
 // ── hydrateDrawingPreviews ───────────────────────────────────────────────────
@@ -168,28 +160,26 @@ test("hydrateDrawingPreviews inserts <img>, never svg markup (svg with onload/sc
   assert.equal(el.children.length, 1);
   const img = el.children[0];
   assert.equal(img.tagName, "IMG");
-  assert.match(img.src, /^blob:/);
+  assert.equal(decodeSrc(img.src), EVIL_SVG);
   assert.equal(img.alt, "<img src=x onerror=1>", "judul masuk sebagai alt teks");
   assert.ok("data-drawing-img" in img.attrs);
   assert.equal(el.attrs["data-hydrated"], "true");
   assert.ok(el.innerHTMLWrites.every(w => !/<svg/i.test(w)));
-  assert.equal(dom.created[0].blob.type, "image/svg+xml");
+  assert.equal(dom.objectUrls.length, 0);
 });
 
-test("hydrateDrawingPreviews revokes previous url when re-hydrating", async () => {
-  let prevUrl = null;
-  const { el, dom } = await runHydrate({ id: 42, svg_preview: "<svg>new</svg>" }, {
-    prev: (box, SH) => { prevUrl = SH.mountSvgImg(box, "<svg>old</svg>", "x").src; },
+test("hydrateDrawingPreviews replaces previous preview when re-hydrating", async () => {
+  const { el } = await runHydrate({ id: 42, svg_preview: "<svg>new</svg>" }, {
+    prev: (box, SH) => { SH.mountSvgImg(box, "<svg>old</svg>", "x"); },
   });
-  assert.deepEqual(dom.revoked, [prevUrl]);
   assert.equal(el.children.length, 1);
-  assert.notEqual(el.children[0].src, prevUrl);
+  assert.equal(decodeSrc(el.children[0].src), "<svg>new</svg>");
 });
 
 test("hydrateDrawingPreviews: invalid svg content → 'Gambar tidak tersedia' card, no markup", async () => {
   for (const bad of ['<?xml version="1.0"?><svg onload=1></svg>', "<img src=x onerror=1><svg>", "<div>x</div>"]) {
     const { el, dom } = await runHydrate({ id: 42, svg_preview: bad });
-    assert.equal(dom.created.length, 0, bad);
+    assert.equal(dom.objectUrls.length, 0, bad);
     assert.equal(el.attrs["data-hydrated"], "invalid", bad);
     assert.equal(el.children.length, 1);
     assert.equal(el.children[0].textContent, "Gambar tidak tersedia");
@@ -202,23 +192,51 @@ test("hydrateDrawingPreviews: invalid svg content → 'Gambar tidak tersedia' ca
 });
 
 test("hydrateDrawingPreviews without TF.safehtml leaves placeholder (no markup)", async () => {
-  const { el, dom } = await runHydrate({ id: 42, svg_preview: EVIL_SVG }, { noSafeHtml: true });
-  assert.equal(dom.created.length, 0);
+  const { el } = await runHydrate({ id: 42, svg_preview: EVIL_SVG }, { noSafeHtml: true });
   assert.equal(el.children.length, 0);
   assert.notEqual(el.attrs["data-hydrated"], "true");
 });
 
 // ── Cetak, ekspor, sink lain ────────────────────────────────────────────────
-test("print path uses img for drawing svg", () => {
+test("print path uses img for drawing svg and waits for it", () => {
   const print = (html.match(/const handlePrint = async \(\) => \{[\s\S]*?\n  \};/) || [""])[0];
   assert.ok(print, "handlePrint harus ada");
   assert.doesNotMatch(print, /innerHTML\s*=\s*d\.svg_preview/);
   assert.doesNotMatch(print, /includes\(['"]<svg/);
-  assert.match(print, /\.mountSvgImg\(c, d\.svg_preview, /);
-  assert.match(print, /trim\(\)\.startsWith\('<svg'\)/);
-  // gambar ditunggu termuat sebelum window.print(), URL dilepas saat cleanup
+  assert.match(print, /printDrawingPreview\(c, d, SH\)/);
+  // gambar ditunggu termuat sebelum window.print()
   assert.match(print, /await Promise\.all\(imgLoads\)[\s\S]*window\.print\(\)/);
-  assert.match(print, /releaseSvgUrl\(/);
+});
+
+test("printDrawingPreview: svg → <img data:>, invalid → 'Gambar tidak tersedia' text card", async () => {
+  const fnSrc = src("printDrawingPreview");
+  const run = (d, withSh = true) => {
+    const dom = makeDom();
+    const SH = withSh ? loadSafeHtml(dom).TF.safehtml : null;
+    const c = new dom.El("div");
+    c.appendChild(new dom.El("span"));
+    const f = new Function("document", fnSrc + "\nreturn printDrawingPreview;")(dom.document);
+    return { c, wait: f(c, d, SH) };
+  };
+  let { c, wait } = run({ title: "T", svg_preview: EVIL_SVG });
+  assert.equal(c.children.length, 1);
+  assert.equal(c.children[0].tagName, "IMG");
+  assert.equal(decodeSrc(c.children[0].src), EVIL_SVG);
+  assert.equal(c.children[0].style.maxHeight, "380px");
+  assert.ok(wait && typeof wait.then === "function", "pemanggil menunggu gambar termuat");
+  c.children[0].onload();
+  await wait;
+  for (const d of [{ svg_preview: '<?xml version="1.0"?><svg/>' }, { svg_preview: "<img src=x onerror=1>" }, { svg_preview: null }, {}]) {
+    ({ c, wait } = run(d));
+    assert.equal(wait, null);
+    assert.equal(c.children.length, 1, JSON.stringify(d));
+    assert.equal(c.children[0].textContent, "Gambar tidak tersedia");
+    assert.equal(c.innerHTMLWrites.length, 0);
+    // kartu tercetak: bukan kelas drawing-preview-placeholder (disembunyikan CSS cetak)
+    assert.doesNotMatch(c.children[0].className, /drawing-preview-placeholder/);
+  }
+  ({ c, wait } = run({ svg_preview: EVIL_SVG }, false));
+  assert.equal(c.children[0].textContent, "Gambar tidak tersedia");
 });
 
 test("no svg markup reaches innerHTML/dangerouslySetInnerHTML anywhere in the client", () => {
@@ -232,15 +250,38 @@ test("no svg markup reaches innerHTML/dangerouslySetInnerHTML anywhere in the cl
   }
 });
 
+test("no createObjectURL for SVG previews (safehtml.js, hydrate, print, public page script)", () => {
+  const sh = fs.readFileSync(SH_PATH, "utf8");
+  assert.doesNotMatch(sh, /createObjectURL|revokeObjectURL|__svgUrl/);
+  assert.match(sh, /data:image\/svg\+xml;base64,/);
+  const hy = (html.match(/window\.hydrateDrawingPreviews = function\(root, force\) \{[\s\S]*?\n\};/) || [""])[0];
+  const print = (html.match(/const handlePrint = async \(\) => \{[\s\S]*?\n  \};/) || [""])[0];
+  const pdp = src("printDrawingPreview");
+  for (const block of [hy, print, pdp]) {
+    assert.ok(block);
+    assert.doesNotMatch(block, /createObjectURL|revokeObjectURL|releaseSvgUrl|__svgUrl/);
+  }
+  assert.doesNotMatch(html, /releaseSvgUrl|__svgUrl/);
+  const py = fs.readFileSync(path.join(ROOT, "webapp.py"), "utf8");
+  const pubSvg = (py.match(/function _showSvg\(container, svg\) \{[\s\S]*?\n  \}/) || [""])[0];
+  assert.ok(pubSvg, "_showSvg halaman publik harus ada");
+  assert.doesNotMatch(pubSvg, /createObjectURL|Blob/);
+  assert.match(pubSvg, /data:image\/svg\+xml;base64,/);
+  assert.doesNotMatch(py, /_svgUrls/);
+});
+
 test("notification list renders via TF.safehtml.renderNotificationHtml", () => {
   assert.doesNotMatch(html, /__html:\s*n\.message/);
   const m = html.match(/notifications\.map\(n => [\s\S]*?new Date\(n\.created_at\)/);
   assert.ok(m, "daftar notifikasi harus ada");
-  assert.match(m[0], /renderNotificationHtml\(n\.message\)/);
-  // satu-satunya tempat pesan notifikasi dirender sebagai HTML
-  const lines = html.split("\n").filter(l => /\bn\.message\b/.test(l));
-  assert.equal(lines.length, 1, lines.join("\n"));
-  assert.match(lines[0], /^\s*__html: tfSafeHtml\(\) \? tfSafeHtml\(\)\.renderNotificationHtml\(n\.message\) : escapeHtml\(n\.message\)$/);
+  // __html daftar notifikasi melewati renderNotificationHtml (fallback hanya escape)
+  const inner = m[0].match(/__html:([\s\S]*?)\}/);
+  assert.ok(inner, "daftar notifikasi merender lewat dangerouslySetInnerHTML");
+  assert.match(inner[1], /renderNotificationHtml\(\s*n\.message\s*\)/);
+  assert.doesNotMatch(inner[1].replace(/renderNotificationHtml\(\s*n\.message\s*\)|escapeHtml\(\s*n\.message\s*\)/g, ""), /n\.message/,
+    "n.message tidak dipakai mentah");
+  // tidak ada sink HTML lain yang memakai n.message
+  assert.doesNotMatch(html.replace(m[0], ""), /__html:[^}]*\bn\.message/);
 });
 
 test("mind-elixir fallback escapes topic when TF.renderTopicMd missing", () => {

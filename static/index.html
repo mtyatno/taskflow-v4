@@ -21991,10 +21991,9 @@ window.hydrateDrawingPreviews = function(root, force) {
     if (el.getAttribute('data-hydrated') === 'true' && !force && el.querySelector('img[data-drawing-img]')) return;
     try {
       const found = await drawingPreviewLookup(did);
-      // SVG tidak pernah masuk DOM sebagai markup: selalu <img src=blob:> lewat TF.safehtml (spec XSS §3).
+      // SVG tidak pernah masuk DOM sebagai markup: selalu <img src=data:> lewat TF.safehtml (spec XSS §3).
       const SH = tfSafeHtml();
       if (found.unavailable) {
-        if (SH) SH.releaseSvgUrl(el);
         el.innerHTML = '<span class="drawing-preview-placeholder drawing-unavailable" style="color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;">' + DRAWING_UNAVAILABLE_TEXT + '</span>';
         el.setAttribute('data-hydrated', 'unavailable');
         applyDrawingScopeUi(el, null);
@@ -22011,7 +22010,6 @@ window.hydrateDrawingPreviews = function(root, force) {
         return;
       }
       // isi bukan SVG (tidak diawali <svg) → kartu "Gambar tidak tersedia", sebagai teks
-      SH.releaseSvgUrl(el);
       const doc = el.ownerDocument || document;
       const card = doc.createElement('span');
       card.className = 'drawing-preview-placeholder drawing-invalid';
@@ -22023,6 +22021,32 @@ window.hydrateDrawingPreviews = function(root, force) {
     } catch (err) { console.warn('[drawing] hydrate pratinjau gagal', err); }
   });
 };
+// Cetak note: pratinjau drawing d ke container c lewat <img src=data:> (spec XSS §3). Hasil: Promise yang selesai
+// saat gambar termuat/gagal (maks 5 dtk) — pemanggil menunggunya sebelum window.print() — atau null bila isi
+// bukan SVG; saat itu c berisi kartu teks "Gambar tidak tersedia" (tanpa kelas drawing-preview-placeholder,
+// yang disembunyikan CSS cetak).
+function printDrawingPreview(c, d, SH) {
+  const svg = d && typeof d.svg_preview === 'string' && d.svg_preview.trim().startsWith('<svg') ? d.svg_preview : null;
+  const img = svg && SH ? SH.mountSvgImg(c, svg, (d && d.title) || 'Gambar') : null;
+  if (!img) {
+    const doc = c.ownerDocument || document;
+    const card = doc.createElement('span');
+    card.className = 'drawing-invalid';
+    card.style.cssText = 'color:#64748b;font-size:10pt;';
+    card.textContent = 'Gambar tidak tersedia';
+    c.textContent = '';
+    c.appendChild(card);
+    return null;
+  }
+  const cardEl = c.closest('.note-draw-card');
+  const cardSize = cardEl ? (cardEl.getAttribute('data-size') || 'L') : 'L';
+  img.style.maxHeight = cardSize === 'S' ? '180px' : cardSize === 'M' ? '280px' : '380px';
+  return new Promise(resolve => {
+    if (img.complete) return resolve();
+    const t = setTimeout(resolve, 5000);
+    img.onload = img.onerror = () => { clearTimeout(t); resolve(); };
+  });
+}
 
 if (typeof window !== 'undefined') {
   window.parseDirectiveAttrs = parseDirectiveAttrs;
@@ -27762,9 +27786,9 @@ function NotePanel({
     el.innerHTML = `<table class="print-container"><thead><tr><td><div class="page-header-space"></div></td></tr></thead><tfoot><tr><td><div class="page-footer-space"></div></td></tr></tfoot><tbody><tr><td class="note-content"><div class="npa-title">${escapeHtml(note.title || "(tanpa judul)")}</div><div class="npa-meta">${escapeHtml(fmtDate(note.updated_at))}</div><div class="note-rendered">${html}</div></td></tr></tbody></table><div class="npa-footer"><span>${escapeHtml(note.title || "")}</span><span>Alurik</span></div>`;
     document.body.appendChild(el);
 
-    // Hydrate all drawing SVG previews before printing — lewat <img src=blob:>, bukan markup (spec XSS §3)
+    // Hydrate all drawing SVG previews before printing — lewat <img src=data:>, bukan markup (spec XSS §3)
     const SH = tfSafeHtml();
-    const drawContainers = SH ? Array.from(el.querySelectorAll('[data-drawing-preview]')) : [];
+    const drawContainers = Array.from(el.querySelectorAll('[data-drawing-preview]'));
     const imgLoads = [];
     if (drawContainers.length > 0) {
       await Promise.all(drawContainers.map(async c => {
@@ -27772,19 +27796,9 @@ function NotePanel({
         if (!did) return;
         try {
           const d = await api.get(`/api/drawings/${did}`);
-          if (d && typeof d.svg_preview === 'string' && d.svg_preview.trim().startsWith('<svg')) {
-            const img = SH.mountSvgImg(c, d.svg_preview, d.title || 'Gambar');
-            if (!img) return;
-            const cardEl = c.closest('.note-draw-card');
-            const cardSize = cardEl ? (cardEl.getAttribute('data-size') || 'L') : 'L';
-            img.style.maxHeight = cardSize === 'S' ? '180px' : cardSize === 'M' ? '280px' : '380px';
-            // blob dimuat asinkron: tunggu (maks 5 dtk) supaya gambar ikut tercetak
-            imgLoads.push(new Promise(resolve => {
-              if (img.complete) return resolve();
-              const t = setTimeout(resolve, 5000);
-              img.onload = img.onerror = () => { clearTimeout(t); resolve(); };
-            }));
-          }
+          if (!d) return;
+          const wait = printDrawingPreview(c, d, SH);
+          if (wait) imgLoads.push(wait);
         } catch (_) {}
       }));
     }
@@ -27794,7 +27808,6 @@ function NotePanel({
     const cleanup = () => {
       if (done) return;
       done = true;
-      drawContainers.forEach(c => SH.releaseSvgUrl(c));
       if (el.parentNode) el.parentNode.removeChild(el);
       window.removeEventListener("afterprint", cleanup);
     };

@@ -335,8 +335,9 @@ def test_public_page_script_uses_img_for_svg_and_checks_source(client):
     assert 'innerHTML = d.svg_preview' not in scripts
     assert 'innerHTML = e.data.svg' not in scripts
     assert not re.search(r"innerHTML\s*=\s*(d\.svg_preview|e\.data\.svg)", scripts)
-    assert 'createObjectURL' in scripts and 'revokeObjectURL' in scripts
-    assert "image/svg+xml" in scripts
+    # data: URL, bukan blob: (blob mewarisi origin halaman; dibuka top-level → skrip SVG jalan same-origin)
+    assert 'createObjectURL' not in scripts and 'new Blob' not in scripts
+    assert "'data:image/svg+xml;base64,' + " in scripts
     assert 'e.source' in scripts and 'contentWindow' in scripts
     assert 'CSS.escape' in scripts
     assert '{{' not in scripts and '}}' not in scripts
@@ -475,3 +476,43 @@ def test_public_cover_never_uses_drawing_svg(client):
     page2 = anon().get(f"/pub/{username}/{slug2}").text
     assert re.search(r'<div class="pub-cover"><img style="[^"]*" src="https://ok.example/c.png"', page2), page2
     assert 'data:image/svg+xml;base64,' in _body(page2)
+
+
+def test_public_page_scripts_parse_and_show_svg_as_data_url(client, tmp_path):
+    """Semua script halaman publik lolos node --check; _showSvg memasang <img src=data:…base64> (UTF-8 aman)."""
+    import json
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node tidak tersedia")
+    tag = _uniq()
+    h = _auth(client, f"pubsvgd_{tag}")
+    _, slug, username = _publish(client, h, f"Note svgd {tag}", "isi")
+    page = anon().get(f"/pub/{username}/{slug}").text
+    scripts = _page_scripts(page)
+    assert scripts
+    for i, s in enumerate(scripts):
+        f = tmp_path / f"s{i}.js"
+        f.write_text(s, encoding="utf-8")
+        r = subprocess.run([node, "--check", str(f)], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+    joined = "\n".join(scripts)
+    fns = re.search(r"function _svgBase64\(svg\) \{.*?\n  \}\n  function _showSvg\(container, svg\) \{.*?\n  \}", joined, flags=re.S)
+    assert fns, "_svgBase64/_showSvg harus ada"
+    svg = '<svg xmlns="http://www.w3.org/2000/svg" onload="x()"><text>Rapat — ü 日本 🎨</text>' + "<g/>" * 50000 + "</svg>"
+    harness = tmp_path / "show.js"
+    harness.write_text(
+        "const document = { createElement: t => ({ tagName: t, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } }) };\n"
+        + fns.group(0) + "\n"
+        + "const box = { kids: ['old'], set textContent(v) { this.kids = []; }, appendChild(c) { this.kids.push(c); } };\n"
+        + f"const svg = {json.dumps(svg)};\n"
+        + "_showSvg(box, svg);\n"
+        + "const img = box.kids[0];\n"
+        + "const p = 'data:image/svg+xml;base64,';\n"
+        + "if (box.kids.length !== 1 || !img.src.startsWith(p)) throw new Error('bukan data url: ' + (img && img.src));\n"
+        + "if (Buffer.from(img.src.slice(p.length), 'base64').toString('utf8') !== svg) throw new Error('decode beda');\n"
+        + "console.log('show OK');\n",
+        encoding="utf-8")
+    r = subprocess.run([node, str(harness)], capture_output=True, text=True)
+    assert r.returncode == 0 and "show OK" in r.stdout, r.stdout + r.stderr

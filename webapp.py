@@ -7219,19 +7219,27 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
     });
   }
 
-  // Pratinjau SVG drawing: tidak pernah masuk DOM sebagai markup (spec XSS §3) — selalu <img> dari Blob
-  var _svgUrls = [];
+  // Pratinjau SVG drawing: tidak pernah masuk DOM sebagai markup (spec XSS §3) — selalu <img src=data:>.
+  // Bukan blob: (blob URL mewarisi origin halaman; dibuka top-level, skrip SVG jalan same-origin).
+  function _svgBase64(svg) {
+    var bin = '';
+    if (typeof TextEncoder === 'function') {
+      var bytes = new TextEncoder().encode(svg);
+      for (var i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    } else {
+      bin = unescape(encodeURIComponent(svg));
+    }
+    return btoa(bin);
+  }
   function _showSvg(container, svg) {
-    var prev = _svgUrls.filter(function(p) { return p.el === container; })[0];
-    var url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+    var b64;
+    try { b64 = _svgBase64(svg); } catch (err) { return; }
     var img = document.createElement('img');
     img.alt = 'Drawing';
     img.setAttribute('style', '@@svg_img_style@@');
-    img.src = url;
+    img.src = 'data:image/svg+xml;base64,' + b64;
     container.textContent = '';
     container.appendChild(img);
-    if (prev) { URL.revokeObjectURL(prev.url); prev.url = url; }
-    else _svgUrls.push({ el: container, url: url });
   }
   function _isSvg(v) { return typeof v === 'string' && v.trim().startsWith('<svg'); }
 
