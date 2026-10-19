@@ -407,9 +407,12 @@ test("index.html NoteModal: banner offers 'Muat perubahan' and 'Simpan versi say
   assert.match(simpan[0], /window\.TF\?\.noterepo\?\.makeConflictCopy/);
   assert.match(simpan[0], /await persistEditor\(\);/);
   assert.match(noteModal, /applyFreshToEditor\(conflictBanner\.rec\)/);
-  // K4 klien di kedua call site /share
-  const shares = indexHtml.match(/api\.patch\(`\/api\/scratchpad\/\$\{note\.id\}\/share`/g) || [];
-  assert.equal(shares.length, 2);
+  // K4 klien di kedua call site /share — PR 3 Task 5: satu PATCH di executeNoteShare, kedua pemanggil
+  // (NoteModal & NotePanel) lewat confirmNoteShareWithDrawings dan mengadopsi field server di onShared.
+  const shares = indexHtml.match(/api\.patch\(`\/api\/scratchpad\/\$\{noteId\}\/share`/g) || [];
+  assert.equal(shares.length, 1);
+  assert.equal((indexHtml.match(/await confirmNoteShareWithDrawings\(\{/g) || []).length, 2);
+  assert.equal((indexHtml.match(/onShared: async updated => \{\n[\s\S]{0,600}?window\.TF\?\.noterepo\?\.adoptServerFields/g) || []).length, 2);
   assert.equal((indexHtml.match(/window\.TF\?\.noterepo\?\.adoptServerFields/g) || []).length, 2);
 });
 

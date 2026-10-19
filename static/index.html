@@ -2071,15 +2071,19 @@ function SharedListsManager({
       showToast(err.message, "error");
     }
   };
+  const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
+  // PR 3 Task 5: leave-impact → dialog salin drawing ke pribadi; gagal/offline → konfirmasi biasa.
   const handleLeave = async (listId, listName) => {
-    if (!confirm(`Keluar dari list "${listName}"?`)) return;
-    try {
-      await api.del(`/api/lists/${listId}/leave`);
-      showToast("Berhasil keluar dari list");
-      onRefresh();
-    } catch (err) {
-      showToast(err.message, "error");
-    }
+    const left = await leaveWorkspaceWithDrawings({
+      listId,
+      listName,
+      api,
+      TF: window.TF,
+      ask: askDrawingScope,
+      showToast,
+      confirmFn: msg => confirm(msg)
+    });
+    if (left) onRefresh();
   };
   const handleDelete = async (listId, listName) => {
     if (!confirm(`Hapus shared list "${listName}"? Semua task di list ini akan ikut terhapus.`)) return;
@@ -2097,7 +2101,7 @@ function SharedListsManager({
       margin: "0 auto",
       padding: "0 0 40px"
     }
-  }, /*#__PURE__*/React.createElement("h2", {
+  }, drawingScopeDialogEl, /*#__PURE__*/React.createElement("h2", {
     style: {
       fontSize: 20,
       fontWeight: 700,
@@ -21129,6 +21133,287 @@ async function copyDrawingIntoEditor(editor, did, targetListId) {
   return { ok: true, drawing: res.drawing, id: newId };
 }
 
+// ── Share/unshare note + drawing, keluar workspace (PR 3 Task 5) ──────────
+// Satu implementasi untuk NoteModal & NotePanel: prepareNoteShare (rencana) → dialog (ask) →
+// executeNoteShare (salin → ganti token → simpan → PATCH share → moved_drawings) → tawarkan tarik kembali.
+// Indeks drawing lokal untuk planNoteShare: kunci id server, client_id, cid (pencarian case-insensitive di sana).
+function noteShareDrawingIndex(list) {
+  const map = {};
+  for (const raw of list || []) {
+    if (!raw || raw.deleted) continue;
+    const d = drawingWithServerId(raw);
+    for (const k of [d.server_id, d.client_id, d.cid, d.id]) {
+      if (k == null || k === "") continue;
+      if (map[String(k)] === undefined) map[String(k)] = d;
+    }
+  }
+  return map;
+}
+// Kandidat "Tarik kembali ke pribadi?": milik saya, list_id = W lama, dirujuk note (urutan muncul, tanpa duplikat).
+function noteDrawingPullbackCandidates(TF, content, oldListId, byId, uid) {
+  if (oldListId == null || oldListId === "" || uid == null || !TF || !TF.drawdirective) return [];
+  const map = {};
+  for (const k of Object.keys(byId || {})) map[k.toLowerCase()] = byId[k];
+  const re = new RegExp(TF.drawdirective.DRAW_REGEX.source, "gi");
+  const text = String(content == null ? "" : content);
+  const out = [];
+  const seen = new Set();
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const d = map[String(m[1]).toLowerCase()];
+    if (!d || seen.has(d)) continue;
+    seen.add(d);
+    const mine = d.user_id == null || String(d.user_id) === String(uid);
+    if (mine && d.list_id != null && String(d.list_id) === String(oldListId)) out.push(d);
+  }
+  return out;
+}
+async function prepareNoteShare(TF, content, targetListId, oldListId) {
+  const repo = TF && TF.drawingrepo;
+  let list = [];
+  if (repo && typeof repo.listDrawings === "function") {
+    list = await Promise.resolve().then(() => repo.listDrawings())
+      .catch(err => { console.warn('[note-share] daftar drawing lokal gagal dibaca', err); return []; });
+  }
+  const uid = repo && typeof repo.currentUid === "function" ? repo.currentUid() : null;
+  const byId = noteShareDrawingIndex(list);
+  const target = targetListId == null || targetListId === "" ? null : targetListId;
+  const plan = TF.drawingshare.planNoteShare(content, target, byId, uid);
+  const pullback = target == null ? noteDrawingPullbackCandidates(TF, content, oldListId, byId, uid) : [];
+  return { plan, pullback };
+}
+// plan = null → share langsung (tanpa salin/simpan/dorong). Error simpan/PATCH dilempar ke pemanggil.
+async function executeNoteShare({ api, TF, noteId, content, targetListId, plan, saveContent, pushNow }) {
+  const share = TF && TF.drawingshare;
+  const original = String(content == null ? "" : content);
+  let next = original;
+  for (const d of (plan && plan.copy) || []) {
+    const res = await share.copyDrawing(api, drawingWithServerId(d), targetListId);
+    if (!res || !res.ok) return { ok: false, message: (res && res.message) || "Gagal membuat salinan gambar" };
+    next = share.replaceDrawingToken(next, d, String(drawingInsertToken(res.drawing)));
+  }
+  if (next !== original) await saveContent(next);
+  // Server menghitung moved_drawings dari isi note di server → dorong outbox dulu (isi baru + salinan).
+  if (plan && typeof pushNow === "function") await pushNow();
+  const updated = await api.patch(`/api/scratchpad/${noteId}/share`, { list_id: targetListId });
+  if (share) {
+    await Promise.resolve().then(() => share.applyMovedDrawings(updated && updated.moved_drawings))
+      .catch(err => console.warn('[note-share] adopsi moved_drawings gagal', err));
+  }
+  return { ok: true, updated: updated || {} };
+}
+function noteShareDialogSpec(plan, listName) {
+  const w = listName || "Workspace";
+  const titleOf = d => (d && d.title) || "Untitled Drawing";
+  const sections = [];
+  if (plan.move.length) sections.push({ label: `Ikut dibagikan ke ${w}:`, items: plan.move.map(titleOf) });
+  if (plan.copy.length) sections.push({ label: `Akan disalin ke ${w}:`, items: plan.copy.map(titleOf) });
+  const n = (plan.unavailable || []).length;
+  return {
+    title: `Bagikan note ke ${w}?`,
+    sections,
+    note: n ? `${n} gambar tidak bisa diperiksa` : null,
+    actions: [{ value: "cancel", label: "Batal" }, { value: "share", label: "Bagikan", primary: true }]
+  };
+}
+function notePullbackDialogSpec(items, listName) {
+  const w = listName || "Workspace";
+  return {
+    title: "Tarik kembali ke pribadi?",
+    sections: [{ label: `Gambar milikmu di ${w} yang dirujuk note ini:`, items: (items || []).map(d => (d && d.title) || "Untitled Drawing") }],
+    note: null,
+    actions: [{ value: "no", label: "Tidak" }, { value: "yes", label: "Ya", primary: true }]
+  };
+}
+// shareDrawing(null) per drawing; hasil = pesan error (unik) untuk di-toast.
+async function pullNoteDrawingsBack(share, api, items, listName) {
+  const w = listName || "Workspace";
+  const errors = [];
+  for (const d of items || []) {
+    const res = await Promise.resolve().then(() => share.shareDrawing(api, drawingWithServerId(d), null))
+      .catch(err => ({ ok: false, code: "ERROR", message: (err && err.message) || "Terjadi kesalahan." }));
+    if (res && res.ok) continue;
+    const msg = res && res.code === "DRAWING_IN_USE"
+      ? `"${(d && d.title) || "Untitled Drawing"}" masih dipakai note lain di ${w}.`
+      : (res && res.message) || "Terjadi kesalahan.";
+    if (!errors.includes(msg)) errors.push(msg);
+  }
+  return errors;
+}
+// Batas tunggu dorong outbox sebelum PATCH share (pola tutup aplikasi: maks 5 detik).
+function noteSharePushNow() {
+  if (typeof window === "undefined" || typeof window.__pushNow !== "function") return Promise.resolve();
+  return Promise.race([
+    Promise.resolve().then(() => window.__pushNow()).catch(err => console.warn('[note-share] dorong outbox gagal', err)),
+    new Promise(r => setTimeout(r, 5000))
+  ]);
+}
+// true = note berhasil dibagikan/batal dibagikan. ask(spec) → Promise<nilai aksi | null>.
+async function confirmNoteShareWithDrawings({ note, content, targetListId, listName, oldListId, oldListName, api, TF, ask, showToast, saveContent, pushNow, onShared }) {
+  const toast = m => { if (typeof showToast === "function") showToast(m, "error"); };
+  if (!note || note.id == null) return false;
+  const tf = TF || {};
+  const target = targetListId == null || targetListId === "" ? null : targetListId;
+  const body = content != null ? content : note.content || "";
+  const prevList = oldListId !== undefined ? oldListId : note.list_id;
+  try {
+    let plan = null;
+    let pullback = [];
+    if (tf.drawingshare) {
+      const prep = await prepareNoteShare(tf, body, target, prevList);
+      pullback = prep.pullback;
+      if (target != null && (prep.plan.move.length || prep.plan.copy.length)) {
+        if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
+          toast("Butuh koneksi untuk membagikan gambar.");
+          return false;
+        }
+        const choice = await ask(noteShareDialogSpec(prep.plan, listName));
+        if (choice !== "share") return false;
+        plan = prep.plan;
+      }
+    }
+    const res = await executeNoteShare({ api, TF: tf, noteId: note.id, content: body, targetListId: target, plan, saveContent, pushNow });
+    if (!res.ok) { toast(res.message); return false; }
+    if (typeof onShared === "function") {
+      await Promise.resolve().then(() => onShared(res.updated))
+        .catch(err => console.warn('[note-share] adopsi hasil share gagal', err));
+    }
+    if (target == null && pullback.length) {
+      const yes = await ask(notePullbackDialogSpec(pullback, oldListName));
+      if (yes === "yes") {
+        for (const msg of await pullNoteDrawingsBack(tf.drawingshare, api, pullback, oldListName)) toast(msg);
+      }
+    }
+    return true;
+  } catch (err) {
+    console.warn('[note-share] gagal', err);
+    toast((err && err.message) || "Gagal membagikan note");
+    return false;
+  }
+}
+function leaveImpactDialogSpec(items, listName) {
+  const w = listName || "Workspace";
+  const uniq = (keyOf, labelOf) => {
+    const seen = new Set();
+    const out = [];
+    for (const it of items || []) {
+      const k = it ? keyOf(it) : null;
+      if (k == null || seen.has(String(k))) continue;
+      seen.add(String(k));
+      out.push(labelOf(it));
+    }
+    return out;
+  };
+  return {
+    title: `Keluar dari ${w}?`,
+    sections: [
+      { label: "Note terdampak:", items: uniq(it => it.note_id, it => it.note_title || "(tanpa judul)") },
+      { label: "Drawing terdampak:", items: uniq(it => it.drawing_id != null ? it.drawing_id : it.drawing_client_id, it => it.drawing_title || "Untitled Drawing") }
+    ],
+    note: `Note pribadimu menautkan gambar milik ${w}. Setelah keluar, gambar itu tidak bisa kamu buka lagi.`,
+    actions: [
+      { value: "cancel", label: "Batal" },
+      { value: "leave", label: "Keluar saja", danger: true },
+      { value: "copy", label: "Salin ke pribadi lalu keluar", primary: true }
+    ]
+  };
+}
+// true = sudah keluar. leave-impact gagal (offline/error) → konfirmasi biasa seperti dulu.
+async function leaveWorkspaceWithDrawings({ listId, listName, api, TF, ask, showToast, confirmFn }) {
+  const toast = (m, t) => { if (typeof showToast === "function") showToast(m, t); };
+  let items = null;
+  try {
+    const impact = await api.get(`/api/lists/${listId}/leave-impact`);
+    items = impact && Array.isArray(impact.items) ? impact.items : [];
+  } catch (err) {
+    console.warn('[leave] leave-impact gagal; pakai konfirmasi biasa', err);
+  }
+  let choice = null;
+  if (items && items.length) choice = await ask(leaveImpactDialogSpec(items, listName));
+  else if (typeof confirmFn !== "function" || confirmFn(`Keluar dari list "${listName}"?`)) choice = "leave";
+  if (choice !== "leave" && choice !== "copy") return false;
+  try {
+    if (choice === "copy") {
+      const share = TF && TF.drawingshare;
+      if (!share) throw new Error("Gagal membuat salinan gambar");
+      const copies = new Map();
+      const noteIds = [];
+      for (const it of items) {
+        if (!it) continue;
+        const key = it.drawing_id != null ? "s" + it.drawing_id : "c" + it.drawing_client_id;
+        if (!copies.has(key)) {
+          copies.set(key, { src: { id: it.drawing_id, server_id: it.drawing_id, client_id: it.drawing_client_id || null, title: it.drawing_title }, token: null });
+        }
+        if (it.note_id != null && !noteIds.some(n => String(n) === String(it.note_id))) noteIds.push(it.note_id);
+      }
+      for (const entry of copies.values()) {
+        const res = await share.copyDrawing(api, entry.src, null);
+        if (!res || !res.ok) { toast((res && res.message) || "Gagal membuat salinan gambar", "error"); return false; }
+        entry.token = String(drawingInsertToken(res.drawing));
+      }
+      for (const nid of noteIds) {
+        const note = await api.get(`/api/scratchpad/${nid}`);
+        if (!note) { console.warn('[leave] note terdampak tidak ditemukan lokal', nid); continue; }
+        let next = String(note.content || "");
+        for (const entry of copies.values()) next = share.replaceDrawingToken(next, entry.src, entry.token);
+        if (next !== String(note.content || "")) await api.put(`/api/scratchpad/${nid}`, Object.assign({}, note, { content: next }));
+      }
+      if (typeof window !== "undefined" && window.dispatchEvent) window.dispatchEvent(new CustomEvent("noteSaved"));
+    }
+    await api.del(`/api/lists/${listId}/leave`);
+    toast("Berhasil keluar dari list");
+    return true;
+  } catch (err) {
+    console.warn('[leave] gagal', err);
+    toast((err && err.message) || "Gagal keluar dari list", "error");
+    return false;
+  }
+}
+// Dialog konfirmasi bersama (share/unshare note, keluar workspace). spec: {title, sections, note, actions}.
+function DrawingScopeDialog({ spec, onAction }) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "modal-overlay",
+    style: { zIndex: 2000 },
+    onMouseDown: e => e.stopPropagation(),
+    onClick: () => onAction(null)
+  }, /*#__PURE__*/React.createElement("div", {
+    onClick: e => e.stopPropagation(),
+    style: { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20, maxWidth: 420, width: "calc(100vw - 32px)", maxHeight: "80vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, color: "var(--text-primary)" }
+  }, /*#__PURE__*/React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, spec.title),
+    (spec.sections || []).filter(s => s.items && s.items.length).map((s, i) => /*#__PURE__*/React.createElement("div", { key: i, style: { fontSize: 13 } },
+      /*#__PURE__*/React.createElement("div", { style: { fontWeight: 600, marginBottom: 4 } }, s.label),
+      /*#__PURE__*/React.createElement("ul", { style: { margin: 0, paddingLeft: 18 } },
+        s.items.map((t, j) => /*#__PURE__*/React.createElement("li", { key: j }, t))))),
+    spec.note && /*#__PURE__*/React.createElement("div", { style: { fontSize: 12, color: "var(--text-secondary)" } }, spec.note),
+    /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" } },
+      (spec.actions || []).map(a => /*#__PURE__*/React.createElement("button", {
+        key: a.value,
+        className: a.primary ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm",
+        style: a.danger ? { color: "#dc2626" } : undefined,
+        onClick: () => onAction(a.value)
+      }, a.label)))
+  ));
+}
+// [elemen dialog, ask(spec) → Promise<nilai aksi | null>]. Dialog lama yang belum dijawab → null.
+function useDrawingScopeDialog() {
+  const [spec, setSpec] = React.useState(null);
+  const resolverRef = React.useRef(null);
+  const ask = React.useCallback(next => new Promise(resolve => {
+    if (resolverRef.current) resolverRef.current(null);
+    resolverRef.current = resolve;
+    setSpec(next);
+  }), []);
+  const onAction = React.useCallback(value => {
+    const r = resolverRef.current;
+    resolverRef.current = null;
+    setSpec(null);
+    if (r) r(value);
+  }, []);
+  React.useEffect(() => () => { if (resolverRef.current) resolverRef.current(null); resolverRef.current = null; }, []);
+  const el = spec ? /*#__PURE__*/React.createElement(DrawingScopeDialog, { spec, onAction }) : null;
+  return [el, ask];
+}
+
 window.hydrateDrawingPreviews = function(root, force) {
   if (typeof document === 'undefined') return;
   const containers = (root || document).querySelectorAll('[data-drawing-preview]');
@@ -24573,29 +24858,48 @@ function NoteModal({
 
 
   const [noteListId, setNoteListId] = useState(note?.list_id ?? null);
+  const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
   const handleModalShare = async listId => {
     setShareOpen(false);
     if (!note?.id) return;
-    try {
-      const updated = await api.patch(`/api/scratchpad/${note.id}/share`, {
-        list_id: listId
-      });
-      setNoteListId(updated.list_id ?? null);
-      // K4 klien: record lokal mengadopsi list_id + updated_at→base_rev dari baris server (share mem-bump
-      // updated_at; PUT berikutnya membawa base_rev baru dan tidak mengirim list_id). Penanda editor ikut
-      // disamakan supaya share sendiri tidak terbaca sebagai "perubahan pengguna lain".
-      const adopt = window.TF?.noterepo?.adoptServerFields;
-      if (typeof adopt === "function") {
-        try {
-          const rec = await adopt(note.id, updated);
-          if (rec) {
-            if (rec.updated_at) lastKnownAtRef.current = rec.updated_at;
-            loadedBaseRevRef.current = rec.base_rev ?? loadedBaseRevRef.current;
-          }
-        } catch (_) {}
+    const target = listId ?? null;
+    // PR 3 Task 5: drawing ikut dibagikan/disalin lewat dialog bersama; error di-toast (tidak ditelan).
+    await confirmNoteShareWithDrawings({
+      note: { ...note, list_id: noteListId },
+      content: editorStateRef.current.content,
+      targetListId: target,
+      listName: drawingScopeListName(target, sharedLists),
+      oldListId: noteListId,
+      oldListName: drawingScopeListName(noteListId, sharedLists),
+      api,
+      TF: window.TF,
+      ask: askDrawingScope,
+      showToast,
+      pushNow: noteSharePushNow,
+      // Jalur simpan biasa: state editor (MilkdownEditor mengikuti `value`) + PUT router lokal.
+      saveContent: async next => {
+        setContent(next);
+        await persistEditor({ content: next });
+        window.dispatchEvent(new CustomEvent("noteSaved"));
+      },
+      onShared: async updated => {
+        setNoteListId(updated.list_id ?? null);
+        // K4 klien: record lokal mengadopsi list_id + updated_at→base_rev dari baris server (share mem-bump
+        // updated_at; PUT berikutnya membawa base_rev baru dan tidak mengirim list_id). Penanda editor ikut
+        // disamakan supaya share sendiri tidak terbaca sebagai "perubahan pengguna lain".
+        const adopt = window.TF?.noterepo?.adoptServerFields;
+        if (typeof adopt === "function") {
+          try {
+            const rec = await adopt(note.id, updated);
+            if (rec) {
+              if (rec.updated_at) lastKnownAtRef.current = rec.updated_at;
+              loadedBaseRevRef.current = rec.base_rev ?? loadedBaseRevRef.current;
+            }
+          } catch (err) { console.warn("[note-share] adopsi field server gagal", err); }
+        }
+        window.dispatchEvent(new CustomEvent("noteSaved"));
       }
-      window.dispatchEvent(new CustomEvent("noteSaved"));
-    } catch (e) {/* silent */}
+    });
   };
 
   // Wikilink autocomplete
@@ -26368,7 +26672,7 @@ function NoteModal({
     sharedLists: sharedLists,
     onClose: () => setQuickDrawState(null),
     showToast: showToast
-  }));
+  }), drawingScopeDialogEl);
 }
 
   // ═══ DEPENDENCIES: NotePanel ═══
@@ -26518,6 +26822,7 @@ function NotePanel({
   };
 
   const [shareOpen, setShareOpen] = React.useState(false);
+  const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
   const shareRef = React.useRef(null);
   React.useEffect(() => {
     if (!shareOpen) return;
@@ -26578,15 +26883,37 @@ function NotePanel({
 
   const handleShare = async listId => {
     setShareOpen(false);
-    try {
-      const updated = await api.patch(`/api/scratchpad/${note.id}/share`, {
-        list_id: listId
-      });
-      // K4 klien: record lokal mengadopsi list_id + updated_at→base_rev dari baris server (lihat NoteModal.handleModalShare)
-      const adopt = window.TF?.noterepo?.adoptServerFields;
-      if (typeof adopt === "function") { try { await adopt(note.id, updated); } catch (_) {} }
-      window.dispatchEvent(new CustomEvent("noteSaved"));
-    } catch (e) {/* silent — note still works */}
+    if (!note?.id) return;
+    const target = listId ?? null;
+    const prevList = note.list_id ?? null;
+    // PR 3 Task 5: helper bersama dengan NoteModal.handleModalShare (dialog drawing, error di-toast).
+    await confirmNoteShareWithDrawings({
+      note,
+      content: note.content || "",
+      targetListId: target,
+      listName: drawingScopeListName(target, sharedLists),
+      oldListId: prevList,
+      oldListName: drawingScopeListName(prevList, sharedLists),
+      api,
+      TF: window.TF,
+      ask: askDrawingScope,
+      showToast,
+      pushNow: noteSharePushNow,
+      // Jalur simpan biasa panel (sama dengan changeDrawingSize): PUT router lokal + noteSaved.
+      saveContent: async next => {
+        await api.put(`/api/scratchpad/${note.id}`, { ...note, content: next });
+        note.content = next;
+        window.dispatchEvent(new CustomEvent("noteSaved"));
+      },
+      onShared: async updated => {
+        // K4 klien: record lokal mengadopsi list_id + updated_at→base_rev dari baris server (lihat NoteModal.handleModalShare)
+        const adopt = window.TF?.noterepo?.adoptServerFields;
+        if (typeof adopt === "function") {
+          try { await adopt(note.id, updated); } catch (err) { console.warn("[note-share] adopsi field server gagal", err); }
+        }
+        window.dispatchEvent(new CustomEvent("noteSaved"));
+      }
+    });
   };
   const notesById = useMemo(() => {
     const map = new Map();
@@ -27209,7 +27536,7 @@ function NotePanel({
     }
   });
 
-  return /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 0
@@ -27911,7 +28238,7 @@ function NotePanel({
         style: { padding: '6px 18px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
       }, publishWorking ? "Menyimpan..." : "💾 Simpan")
     )
-  )));
+  ))), drawingScopeDialogEl);
 }
 // ── Sampah note (Trash & Restore) — hanya online. Lihat docs/superpowers/specs/2026-10-02-note-trash-design.md ──
 // Semua /api/scratchpad/trash... selalu ke jaringan (taskroutes.shouldRouteLocally; SW network-only) dan
