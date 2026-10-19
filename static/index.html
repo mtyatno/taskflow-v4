@@ -9126,7 +9126,9 @@ function LinkPickerModal({
   //   - window.TF.mindmapoutline
   // emits:
   //   - MindmapOutline
-function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap, onRequestLinkPicker, linked = false, showSummary = true, onOpenNoteAt = null, onUndo = null, onRedo = null }) {
+function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap, onRequestLinkPicker, linked = false, showSummary = true, onOpenNoteAt = null, onUndo = null, onRedo = null, ...outlineRest }) {
+  // linkInfo lewat rest agar tanda tangan tetap bebas "}" (tes C7 mencocokkan isi kurung kurawal).
+  const { linkInfo = {} } = outlineRest;
   const MO = window.TF && window.TF.mindmapoutline;
   const NM = linked && window.TF && window.TF.notemap ? window.TF.notemap : null; // peta tertaut: render aturan catatan
   const [activeId, setActiveId] = useState(null);
@@ -9138,6 +9140,13 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
   const [dragOver, setDragOver] = useState(null);
   const [clipboard, setClipboard] = useState(null);
   const [linksPopId, setLinksPopId] = useState(null); // node id whose links popover is open
+  // Kartu link hidup: info dari induk (linkInfo, data lokal); tanpa modul/info → snapshot di link.
+  const linkDisp = l => {
+    const ML = window.TF && window.TF.mindmaplinks;
+    if (!ML) return { title: l.title || "", meta: l.preview || "", live: false, done: false };
+    return window.TF.mindmaplinks.linkDisplay(l, (linkInfo || {})[ML.linkKey(l)]);
+  };
+  const unavailableTitle = (window.TF && window.TF.mindmaplinks && window.TF.mindmaplinks.UNAVAILABLE_TITLE) || "";
   const editAreaRef = useRef(null);
   const undoRef = useRef([]);
   const redoRef = useRef([]);
@@ -9569,7 +9578,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
       style: { whiteSpace: "normal", fontWeight: 400, fontSize: 11, color: "var(--text-light)", marginTop: 2 }
     }) : null), linkCount > 0 && !linked && /*#__PURE__*/React.createElement("button", {
       onClick: e => { e.stopPropagation(); setLinksPopId(linksPopId === n.id ? null : n.id); },
-      title: "Lihat link node",
+      title: "Lihat link node\n" + (n.links || []).map(l => (l.type === "mindmap" ? "🧠 " : "🔗 ") + linkDisp(l).title).join("\n"),
       style: {
         fontSize: 13, fontWeight: 700,
         color: linksPopId === n.id ? "var(--accent)" : "var(--text-secondary)",
@@ -9703,9 +9712,10 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
       style: hovBtn
     }, "✕")), links.length === 0 && /*#__PURE__*/React.createElement("div", {
       style: { color: "var(--text-light)", fontSize: 12, textAlign: "center", padding: "12px 0" }
-    }, "Belum ada link"), links.map((l, i) => /*#__PURE__*/React.createElement("div", {
+    }, "Belum ada link"), links.map((l, i) => { const d = linkDisp(l); return /*#__PURE__*/React.createElement("div", {
       key: l.type + "-" + l.id + "-" + i,
-      style: { display: "flex", alignItems: "center", gap: 6, padding: "4px 2px", fontSize: 12 }
+      title: d.live ? undefined : unavailableTitle || undefined,
+      style: { display: "flex", alignItems: "center", gap: 6, padding: "4px 2px", fontSize: 12, opacity: d.live ? 1 : 0.7 }
     }, /*#__PURE__*/React.createElement("span", {
       style: {
         background: l.type === "note" ? "var(--accent)" : l.type === "mindmap" ? "#8b5cf6" : "#e0a06c",
@@ -9713,16 +9723,17 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
         borderRadius: 3, padding: "1px 5px", fontSize: 9, fontWeight: 700, flexShrink: 0
       }
     }, l.type === "note" ? "NOTE" : l.type === "mindmap" ? "MAP" : "TASK"), /*#__PURE__*/React.createElement("span", {
-      title: "Buka " + (l.title || ''),
+      title: "Buka " + (d.title || '') + (d.meta ? "\n" + d.meta : "") + (!d.live && unavailableTitle ? "\n" + unavailableTitle : ""),
       onClick: () => {
         const open = l.type === "note" ? onOpenNote : l.type === "mindmap" ? onOpenMindmap : onOpenTask;
         if (typeof open === "function") open(l.id);
       },
       style: {
         flex: 1, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap",
-        textOverflow: "ellipsis", fontWeight: 600, cursor: "pointer"
+        textOverflow: "ellipsis", fontWeight: 600, cursor: "pointer",
+        textDecoration: d.done ? "line-through" : undefined
       }
-    }, l.title), /*#__PURE__*/React.createElement("button", {
+    }, d.title), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
         const open = l.type === "note" ? onOpenNote : l.type === "mindmap" ? onOpenMindmap : onOpenTask;
         if (typeof open === "function") open(l.id);
@@ -9736,7 +9747,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
       },
       title: "Hapus link",
       style: { ...hovBtn, color: "#ef4444" }
-    }, "✕"))), /*#__PURE__*/React.createElement("button", {
+    }, "✕")); }), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
         setLinksPopId(null);
         if (typeof onRequestLinkPicker === "function") onRequestLinkPicker(lnode.id);
@@ -9826,6 +9837,48 @@ function MindmapTabInstance({
   const [modalBlockTarget, setModalBlockTarget] = useState(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const linkedBlocked = isLinked && (linkedStatus === "trash" || linkedStatus === "unavailable" || linkedStatus === "offline");
+
+  // Kartu link hidup (#3): judul/status/prioritas/tenggat/cuplikan diambil dari data lokal (api.get lokal-first)
+  // lalu dikirim ke iframe ({type:"linkInfo"}) dan Outline. Snapshot di link hanya cadangan. Peta tertaut tanpa link.
+  const [linkInfo, setLinkInfo] = useState({});
+  const linkInfoRef = useRef({});
+  const linkTimerRef = useRef(null);
+  const refreshLinkInfo = () => {
+    clearTimeout(linkTimerRef.current);
+    linkTimerRef.current = setTimeout(() => {
+      const ML = window.TF && window.TF.mindmaplinks;
+      const tree = outlineTreeRef.current;
+      if (!ML || !tree || !tree.nodeData) return;
+      window.TF.mindmaplinks.resolveLinkInfo(ML.collectLinkRefs(tree.nodeData), api.get).then(info => {
+        linkInfoRef.current = info;
+        setLinkInfo(info);
+        iframeRef.current?.contentWindow?.postMessage({ type: "linkInfo", info }, window.location.origin);
+      }).catch(() => {});
+    }, 300);
+  };
+  const linkRefsML = window.TF && window.TF.mindmaplinks;
+  const refsSignature = linkRefsML && !isLinked ? linkRefsML.collectLinkRefs(outlineTree?.nodeData || null).map(linkRefsML.linkKey).join("|") : "";
+  useEffect(() => {
+    if (!tab || isLinked) return;
+    refreshLinkInfo();
+  }, [tab?.id, refsSignature]);
+  useEffect(() => {
+    if (!tab || isLinked) return;
+    window.addEventListener("taskSaved", refreshLinkInfo);
+    window.addEventListener("taskUpdated", refreshLinkInfo);
+    window.addEventListener("noteSaved", refreshLinkInfo);
+    window.addEventListener("mindmapSaved", refreshLinkInfo);
+    window.addEventListener("mindmapSynced", refreshLinkInfo);
+    return () => {
+      clearTimeout(linkTimerRef.current);
+      window.removeEventListener("taskSaved", refreshLinkInfo);
+      window.removeEventListener("taskUpdated", refreshLinkInfo);
+      window.removeEventListener("noteSaved", refreshLinkInfo);
+      window.removeEventListener("mindmapSaved", refreshLinkInfo);
+      window.removeEventListener("mindmapSynced", refreshLinkInfo);
+    };
+  }, [tab?.id, isLinked]);
+
   const STALE_MSG = "Catatan baru saja berubah — peta dimuat ulang, ulangi perubahanmu";
 
   const parseViewState = raw => {
@@ -10401,6 +10454,7 @@ function MindmapTabInstance({
             type: "setTheme",
             theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"
           }, window.location.origin);
+          iframeRef.current?.contentWindow?.postMessage({ type: "linkInfo", info: linkInfoRef.current }, window.location.origin);
         } catch (_) {}
       }
       if (e.data && e.data.type === "nodeSelected") {
@@ -10634,7 +10688,7 @@ function MindmapTabInstance({
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
-    src: "/static/vendor/mind-elixir/index.html?v=143",
+    src: "/static/vendor/mind-elixir/index.html?v=144",
     style: { flex: 1, border: "none", width: "100%" },
     title: "Mindmap editor"
   })), /*#__PURE__*/React.createElement("div", {
@@ -10663,7 +10717,8 @@ function MindmapTabInstance({
     showSummary: showSummary,
     onOpenNoteAt: isLinked ? openLinkedNoteAt : null,
     onUndo: isLinked ? () => linkedUndoRedo("undo") : null,
-    onRedo: isLinked ? () => linkedUndoRedo("redo") : null
+    onRedo: isLinked ? () => linkedUndoRedo("redo") : null,
+    linkInfo: linkInfo
   }) : null),
   showLinkPicker && /*#__PURE__*/React.createElement(LinkPickerModal, {
     existingLinks: currentNodeLinks,

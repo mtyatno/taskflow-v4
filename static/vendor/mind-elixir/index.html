@@ -228,6 +228,8 @@
     .lp-open:hover { color: var(--side-accent); }
     .lp-remove { color: var(--side-danger); font-size: 11px; cursor: pointer; flex-shrink: 0; }
     .lp-remove:hover { color: var(--side-danger); }
+    .lp-stale { opacity: .7; }
+    .nlp-item.lp-stale { opacity: .7; }
     .lp-preview { font-size: 10px; color: var(--side-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .lp-add-btn {
       background: transparent;
@@ -474,6 +476,7 @@
   <script src="MindElixir.iife.js?v=121"></script>
   <script src="/static/vendor/marked.min.js?v=124"></script>
   <script src="/static/offline/mindmapoutline.js?v=126"></script>
+  <script src="/static/offline/mindmaplinks.js?v=1"></script>
   <script src="/static/offline/notemap.js?v=1"></script>
   <script src="/static/offline/mindmapops.js?v=6"></script>
   <script src="/static/offline/mindmapjustify.js?v=1"></script>
@@ -606,14 +609,24 @@
     function showPanel() { document.getElementById('link-panel').style.display = 'block'; }
     function hidePanel() { document.getElementById('link-panel').style.display = 'none'; }
 
+    // Info hidup per link (kunci TF.mindmaplinks.linkKey) dari induk lewat pesan 'linkInfo';
+    // induk me-resolve lewat api.get lokal-first. Kosong → tampilkan snapshot di link.
+    let liveLinkInfo = {};
+
     function renderPanel(topic, links) {
       document.getElementById('link-panel-title').textContent = '🔗 Links — ' + topic;
       const container = document.getElementById('link-panel-items');
       container.innerHTML = '';
 
       links.forEach((link, idx) => {
+        const ML = window.TF && window.TF.mindmaplinks;
+        const d = ML ? window.TF.mindmaplinks.linkDisplay(link, liveLinkInfo[ML.linkKey(link)]) : { title: link.title || '', meta: link.preview || '', live: false, done: false };
         const card = document.createElement('div');
         card.className = 'lp-card';
+        if (!d.live) {
+          card.classList.add('lp-stale');
+          if (ML) card.title = ML.UNAVAILABLE_TITLE;
+        }
 
         const row = document.createElement('div');
         row.className = 'lp-card-row';
@@ -634,9 +647,10 @@
 
         const title = document.createElement('span');
         title.className = 'lp-title';
-        title.textContent = link.title;
+        title.textContent = d.title;
+        if (d.done) title.style.textDecoration = 'line-through';
         title.style.cursor = 'pointer';
-        title.title = 'Buka ' + (link.title || '');
+        title.title = 'Buka ' + (d.title || '');
         title.onclick = handleOpen;
         badge.style.cursor = 'pointer';
         badge.onclick = handleOpen;
@@ -657,15 +671,7 @@
 
         const preview = document.createElement('div');
         preview.className = 'lp-preview';
-        if (link.type === 'task') {
-          const parts = [];
-          if (link.priority) parts.push(link.priority);
-          if (link.deadline) parts.push('Due ' + link.deadline.slice(0, 10));
-          if (link.status) parts.push(link.status);
-          preview.textContent = parts.join(' · ') || '—';
-        } else {
-          preview.textContent = link.preview || '';
-        }
+        preview.textContent = d.meta || (link.type === 'task' ? '—' : '');
 
         card.append(row, preview);
         container.appendChild(card);
@@ -740,9 +746,15 @@
       list.className = 'nlp-list';
 
       links.forEach(link => {
+        const ML = window.TF && window.TF.mindmaplinks;
+        const d = ML ? window.TF.mindmaplinks.linkDisplay(link, liveLinkInfo[ML.linkKey(link)]) : { title: link.title || '', meta: link.preview || '', live: false, done: false };
         const item = document.createElement('div');
         item.className = 'nlp-item';
-        item.title = 'Buka ' + (link.title || '');
+        item.title = 'Buka ' + (d.title || '');
+        if (!d.live) {
+          item.classList.add('lp-stale');
+          if (ML) item.title += '\n' + ML.UNAVAILABLE_TITLE;
+        }
 
         const badge = document.createElement('span');
         badge.className = 'nlp-badge nlp-badge-' + (link.type || 'note');
@@ -750,7 +762,8 @@
 
         const title = document.createElement('span');
         title.className = 'nlp-title';
-        title.textContent = link.title;
+        title.textContent = d.title;
+        if (d.done) title.style.textDecoration = 'line-through';
 
         const openBtn = document.createElement('span');
         openBtn.className = 'nlp-open';
@@ -819,7 +832,11 @@
                 badge.textContent = count === 1 ? '🔗' : count;
               }
 
-              badge.title = links.map(l => `${l.type === 'mindmap' ? '🧠' : '🔗'} ${l.title}`).join('\n');
+              const ML = window.TF && window.TF.mindmaplinks;
+              badge.title = links.map(l => {
+                const d = ML ? ML.linkDisplay(l, liveLinkInfo[ML.linkKey(l)]) : { title: l.title || '', live: false };
+                return `${l.type === 'mindmap' ? '🧠' : '🔗'} ${d.title}` + (d.live || !ML ? '' : ' (' + ML.UNAVAILABLE_TITLE + ')');
+              }).join('\n');
               badge.addEventListener('mousedown', (e) => {
                 e.stopPropagation();
               });
@@ -1280,6 +1297,26 @@
       if (e.data && e.data.type === 'setTheme') {
         document.documentElement.setAttribute('data-theme', e.data.theme === 'dark' ? 'dark' : 'light');
         applyMapTheme(e.data.theme === 'dark');
+      }
+      if (e.data && e.data.type === 'linkInfo') {
+        liveLinkInfo = (e.data.info && typeof e.data.info === 'object') ? e.data.info : {};
+        if (!mind) return;
+        if (currentNodeData && document.getElementById('link-panel').style.display === 'block') {
+          renderPanel(currentNodeData.topic, currentNodeData.links || []);
+        }
+        if (activePopover && activeBadgeNodeId) {
+          const popNodeId = activeBadgeNodeId;
+          const popBadge = Array.from(document.querySelectorAll('me-tpc'))
+            .find(el => el.nodeObj && el.nodeObj.id === popNodeId);
+          const popNode = popBadge ? popBadge.nodeObj : null;
+          hideNodeLinksPopover();
+          updateBadges();
+          const newBadge = popBadge && popBadge.querySelector('.node-link-badge');
+          if (popNode && newBadge) showNodeLinksPopover(popNode, newBadge);
+          return;
+        }
+        updateBadges();
+        return;
       }
       if (e.data && e.data.type === 'load') {
         hideNodeLinksPopover();
