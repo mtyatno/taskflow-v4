@@ -25,6 +25,8 @@
     return {
       id: displayId(rec), title: rec.title, is_pinned: rec.pinned ? 1 : 0,
       list_id: rec.list_id != null ? rec.list_id : null,
+      source_note_id: rec.source_note_id != null ? rec.source_note_id : null,
+      source_note_cid: rec.source_note_cid != null ? rec.source_note_cid : null,
       user_id: rec.user_id != null ? rec.user_id : null,
       last_edited_by: rec.last_edited_by != null ? rec.last_edited_by : null,
       last_editor_username: rec.last_editor_username != null ? rec.last_editor_username : null,
