@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v423-mindmap-live";
+const CACHE = "taskflow-v424-xss-hardening";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -24,6 +24,7 @@ const STATIC = [
   "/static/review/digest.js",
   "/static/offline/voicedictate.js",
   "/static/offline/drawdirective.js",
+  "/static/offline/safehtml.js",
   "/static/offline/habitlogic.js",
   "/static/offline/habitrepo.js",
   "/static/offline/habitquery.js",

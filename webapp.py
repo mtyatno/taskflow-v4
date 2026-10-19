@@ -3941,7 +3941,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v423-mindmap-live"
+    sw_cache = "taskflow-v424-xss-hardening"
     return JSONResponse(
         content={
             "app_version": "4.0.0",
