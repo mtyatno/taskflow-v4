@@ -1132,6 +1132,16 @@ class DrawingCreate(BaseModel):
             raise ValueError("data_json must be valid JSON")
         return v
 
+class DrawingShareReq(BaseModel):
+    list_id: Optional[int] = None
+
+
+class DrawingCopyReq(BaseModel):
+    list_id: Optional[int] = None
+    title: Optional[str] = Field(default=None, min_length=1)
+    client_id: Optional[str] = None
+
+
 class DrawingUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1)
     data_json: Optional[str] = Field(default=None, max_length=5_000_000)
@@ -7918,6 +7928,74 @@ async def toggle_pin_drawing(did: str, user=Depends(get_current_user)):
         conn.execute("UPDATE drawings SET is_pinned = ? WHERE id = ?", (new_pin, target_id))
         updated = conn.execute("SELECT * FROM drawings WHERE id = ?", (target_id,)).fetchone()
         return dict(updated)
+
+
+@app.patch("/api/drawings/{did}/share")
+async def share_drawing(did: str, req: DrawingShareReq, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        row = _owned_drawing_or_error(conn, did, uid, "*")
+        if req.list_id is not None and not TaskRepository(DB_PATH).is_list_member_or_owner(req.list_id, uid):
+            raise HTTPException(status_code=403, detail="Bukan anggota list ini")
+        if req.list_id == row["list_id"]:
+            return _drawing_enrich(dict(row), conn, uid)
+        if row["list_id"] is not None:
+            # Keluar dari workspace asal: note workspace itu yang merujuknya akan kehilangan drawing.
+            notes, hidden = drawing_scope.notes_in_list_using(conn, row, row["list_id"], uid)
+            if notes or hidden:
+                raise HTTPException(status_code=409, detail={
+                    "code": "DRAWING_IN_USE", "notes": notes, "hidden_count": hidden})
+        now = datetime.now(_TZ_JKT).isoformat()
+        conn.execute("UPDATE drawings SET list_id = ?, updated_at = ? WHERE id = ?", (req.list_id, now, row["id"]))
+        updated = conn.execute("SELECT * FROM drawings WHERE id = ?", (row["id"],)).fetchone()
+        return _drawing_enrich(dict(updated), conn, uid)
+
+
+@app.post("/api/drawings/{did}/copy")
+async def copy_drawing(did: str, req: DrawingCopyReq, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        if req.client_id:
+            existing = conn.execute(
+                "SELECT * FROM drawings WHERE user_id = ? AND client_id = ?", (uid, req.client_id)
+            ).fetchone()
+            if existing:
+                return _drawing_enrich(dict(existing), conn, uid)
+        src = drawing_scope.find_accessible(conn, did, uid)
+        if not src:
+            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        if req.list_id is not None and not TaskRepository(DB_PATH).is_list_member_or_owner(req.list_id, uid):
+            raise HTTPException(status_code=403, detail="Bukan anggota list ini")
+        cur = conn.execute(
+            "INSERT INTO drawings (user_id, title, data_json, svg_preview, is_pinned, created_at, updated_at, client_id, list_id) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
+            (uid, req.title or src["title"], src["data_json"], src["svg_preview"], now, now, req.client_id, req.list_id)
+        )
+        row = conn.execute("SELECT * FROM drawings WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return _drawing_enrich(dict(row), conn, uid)
+
+
+@app.get("/api/lists/{list_id}/drawings")
+async def get_list_drawings(list_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    if not TaskRepository(DB_PATH).is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Bukan anggota list ini")
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, user_id, client_id, title, svg_preview, is_pinned, list_id, last_edited_by, updated_at "
+            "FROM drawings WHERE list_id = ? ORDER BY updated_at DESC, id DESC", (list_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/lists/{list_id}/leave-impact")
+async def get_list_leave_impact(list_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    if not TaskRepository(DB_PATH).is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Bukan anggota list ini")
+    with get_db() as conn:
+        return {"items": drawing_scope.leave_impact(conn, list_id, uid)}
 
 
 @app.delete("/api/drawings/{did}")

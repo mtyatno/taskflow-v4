@@ -107,3 +107,57 @@ def refs_of(row) -> set[str]:
     if row["client_id"]:
         refs.add(row["client_id"])
     return refs
+
+
+def notes_in_list_using(conn, drawing_row, list_id: int, viewer_uid: int) -> tuple[list[dict], int]:
+    """Note ber-list_id = list_id yang merujuk drawing ini: ([{"id","title"}] yang bisa diakses viewer,
+    jumlah yang tidak bisa). Prefilter LIKE, lalu cocok persis lewat draw_tokens."""
+    refs = refs_of(drawing_row)
+    rows = conn.execute(
+        "SELECT id, user_id, title, content, "
+        "  (user_id = ? OR list_id IN (SELECT id FROM shared_lists WHERE owner_id = ? "
+        "   UNION SELECT list_id FROM list_members WHERE user_id = ?)) AS visible "
+        "FROM scratchpad_notes WHERE list_id = ? AND content LIKE '%::draw%' ORDER BY updated_at DESC, id DESC",
+        (viewer_uid, viewer_uid, viewer_uid, list_id),
+    ).fetchall()
+    visible, hidden = [], 0
+    for r in rows:
+        if not (draw_tokens(r["content"]) & refs):
+            continue
+        if r["visible"]:
+            visible.append({"id": r["id"], "title": r["title"]})
+        else:
+            hidden += 1
+    return visible, hidden
+
+
+def leave_impact(conn, list_id: int, uid: int) -> list[dict]:
+    """Note pribadi uid (list_id NULL) yang merujuk drawing milik orang lain di workspace list_id: setelah uid
+    keluar, rujukan itu tidak bisa dimuat lagi. Token di-resolve seperti find_accessible (milik sendiri didahulukan)."""
+    drawings = conn.execute(
+        "SELECT id, user_id, client_id, title FROM drawings WHERE list_id = ? AND user_id != ?", (list_id, uid)
+    ).fetchall()
+    if not drawings:
+        return []
+    by_id = {str(d["id"]): d for d in drawings}
+    by_cid = {d["client_id"]: d for d in drawings if d["client_id"]}
+    notes = conn.execute(
+        "SELECT id, title, content FROM scratchpad_notes WHERE user_id = ? AND list_id IS NULL "
+        "AND content LIKE '%::draw%' ORDER BY updated_at DESC, id DESC", (uid,)
+    ).fetchall()
+    items: list[dict] = []
+    for n in notes:
+        seen: set[int] = set()
+        for token in sorted(draw_tokens(n["content"])):
+            d = by_id.get(token) or by_cid.get(token)
+            if d is None or d["id"] in seen:
+                continue
+            # client_id milik uid sendiri menang atas drawing orang lain (find_accessible)
+            if by_id.get(token) is None and conn.execute(
+                "SELECT 1 FROM drawings WHERE user_id = ? AND client_id = ?", (uid, token)
+            ).fetchone():
+                continue
+            seen.add(d["id"])
+            items.append({"note_id": n["id"], "note_title": n["title"], "drawing_id": d["id"],
+                          "drawing_client_id": d["client_id"], "drawing_title": d["title"]})
+    return items
