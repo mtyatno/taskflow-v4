@@ -477,7 +477,7 @@
   <script src="/static/offline/mindmapoutline.js?v=126"></script>
   <script src="/static/offline/mindmaplinks.js?v=1"></script>
   <script src="/static/offline/notemap.js?v=1"></script>
-  <script src="/static/offline/mindmapops.js?v=6"></script>
+  <script src="/static/offline/mindmapops.js?v=7"></script>
   <script src="/static/offline/mindmapjustify.js?v=1"></script>
   <script>
     let mind = null;
@@ -1401,6 +1401,8 @@
         isJustifyActive = Boolean(e.data.data && e.data.data.justify);
         // refresh() menata ulang tanpa memindah viewport (initX() hanya bila arah berubah)
         try { mind.refresh(e.data.data); } catch (_) {}
+        // Riwayat undo lama menunjuk pohon sebelum pembaruan → kosongkan (undo tidak boleh menghapus perubahan anggota lain).
+        try { window.TF.mindmapops.resetUndo(mind); } catch (_) {}
         const d = (e.data.data && typeof e.data.data.direction === 'number') ? e.data.data.direction : mind.direction;
         if (d !== mind.direction) {
           try {
@@ -1447,6 +1449,8 @@
         // Data baru menggantikan pohon: keluar dari Focus Mode dulu (getData() memakai nodeDataBackup).
         try { window.TF.mindmapops.exitFocusMode(mind); } catch (_) {}
         try { mind.refresh(e.data.data); } catch (_) {}
+        // Pohon diganti induk (edit Outline / kanvas dikembalikan ke versi lokal): snapshot undo lama tidak berlaku lagi.
+        try { window.TF.mindmapops.resetUndo(mind); } catch (_) {}
         setTimeout(updateBadges, 300);
         return;
       }

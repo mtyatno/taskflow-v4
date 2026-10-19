@@ -20,6 +20,8 @@
 
   const RECONNECT_MIN_MS = 2000;
   const RECONNECT_MAX_MS = 60000;
+  // Galat berturut-turut (tanpa onopen) sebelum berhenti mencoba; online / tab diaktifkan lagi memulai ulang.
+  const RECONNECT_MAX_ATTEMPTS = 8;
   const LIVE_LABEL = "🟢 Langsung";
   const LIVE_TITLE = "Perubahan anggota lain tampil otomatis";
   const DELETED_MSG = "Peta ini dihapus oleh pemiliknya";
@@ -30,6 +32,10 @@
     const a = Math.max(0, Math.floor(Number(attempt) || 0));
     if (a >= 16) return RECONNECT_MAX_MS;
     return Math.min(RECONNECT_MAX_MS, RECONNECT_MIN_MS * Math.pow(2, a));
+  }
+
+  function shouldReconnect(failures) {
+    return (Number(failures) || 0) < RECONNECT_MAX_ATTEMPTS;
   }
 
   // session_id instans tab (dibuat sekali per tab yang di-mount): salinan konflik router dipakai ulang hanya oleh
@@ -130,8 +136,8 @@
   }
 
   const exported = {
-    RECONNECT_MIN_MS, RECONNECT_MAX_MS, LIVE_LABEL, LIVE_TITLE, DELETED_MSG, ACCESS_LOST_MSG,
-    backoffMs, newSessionId, conflictToast, createTabLive, isEcho,
+    RECONNECT_MIN_MS, RECONNECT_MAX_MS, RECONNECT_MAX_ATTEMPTS, LIVE_LABEL, LIVE_TITLE, DELETED_MSG, ACCESS_LOST_MSG,
+    backoffMs, shouldReconnect, newSessionId, conflictToast, createTabLive, isEcho,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.mindmaplive = exported; }
   return exported;

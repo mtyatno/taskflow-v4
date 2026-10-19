@@ -251,10 +251,9 @@ test("REQUIRED: remote update skipped while typing, then the user saves → remo
 });
 
 test("control: advancing base/if_updated_at on a skipped update would lose the remote change", async () => {
-  const B = D(["A", "B"]), S = D(["A", "B server"]), Ltab = D(["A lokal", "B"]);
+  const S = D(["A", "B server"]), Ltab = D(["A lokal", "B"]);
   await put("mindmaps", [rec({ data_json: S, updated_at: "t2", base_rev: "t2", base_data_json: S, base_title: "M", base_data_rev: "t2", rev: 2 })]);
   await mapPut("mindmap", 10, "m");
-  void B;
   // Salah: basis/if_updated_at dimajukan ke t2 padahal kanvas tidak pernah menerapkannya.
   const res = await buildTaskRouter().dispatch("PUT", "/api/mindmaps/10", { data_json: Ltab, if_updated_at: "t2", base_data_json: S, session_id: "x" });
   assert.deepEqual(topics(res.data_json), ["A lokal", "B"]); // "B server" hilang
@@ -266,4 +265,86 @@ test("isEcho: event whose updated_at is the record's base_rev needs no pull", as
   assert.equal(await live.isEcho(10, "t5"), true);
   assert.equal(await live.isEcho(10, "t6"), false);
   assert.equal(await live.isEcho(99, "t5"), false);
+});
+
+// ── Fix round 1 ────────────────────────────────────────────────────
+
+const ops = require("../../static/offline/mindmapops.js");
+
+// Salinan setia plugin undo mind-elixir (MindElixir.iife.js `kn`): snapshot `o` hanya maju pada "operation".
+function fakeMindWithUndo(initial) {
+  const listeners = {};
+  const mind = {
+    nodeData: JSON.parse(JSON.stringify(initial)),
+    getData() { return { nodeData: JSON.parse(JSON.stringify(this.nodeData)) }; },
+    refresh(d) { if (d) this.nodeData = JSON.parse(JSON.stringify(d.nodeData)); },
+    clearSelection() {}, selectNodes() {}, findEle() { return null; },
+    bus: { addListener(n, f) { (listeners[n] = listeners[n] || []).push(f); }, fire(n, a) { (listeners[n] || []).forEach((f) => f(a)); } },
+  };
+  let t = [], n = -1, o = mind.getData();
+  mind.undo = function () { if (n > -1) { const a = t[n]; o = a.prev; mind.refresh(a.prev); n--; } };
+  mind.clearHistory = function () { t = []; n = -1; o = mind.getData(); mind.clearSelection(); };
+  mind.bus.addListener("operation", (a) => {
+    if (a.name === "beginEdit") return;
+    t = t.slice(0, n + 1); const c = mind.getData(); t.push({ prev: o, next: c }); o = c; n = t.length - 1;
+  });
+  return mind;
+}
+const tree = (topics) => ({ id: "root", topic: "Akar", root: true, children: topics.map((x, i) => ({ id: "n" + i, topic: x, children: [] })) });
+const tops = (mind) => mind.nodeData.children.map((c) => c.topic);
+
+test("undo plugin: without a reset, undo after a remote apply resurrects the pre-remote tree (control)", () => {
+  const m = fakeMindWithUndo(tree(["A"]));
+  m.nodeData.children[0].topic = "A1"; m.bus.fire("operation", { name: "finishEdit" }); // edit lokal
+  m.refresh({ nodeData: tree(["A1", "B remote"]) }); // remoteUpdate
+  m.undo();
+  assert.deepEqual(tops(m), ["A"]); // "B remote" hilang
+});
+
+test("resetUndo after a remote apply: undo can no longer restore the pre-remote tree", () => {
+  const m = fakeMindWithUndo(tree(["A"]));
+  m.nodeData.children[0].topic = "A1"; m.bus.fire("operation", { name: "finishEdit" });
+  m.refresh({ nodeData: tree(["A1", "B remote"]) });
+  assert.equal(ops.resetUndo(m), true);
+  m.undo();
+  assert.deepEqual(tops(m), ["A1", "B remote"]);
+  // edit sesudahnya tetap bisa di-undo — kembali ke pohon jarak jauh, bukan ke pohon lama
+  m.nodeData.children[1].topic = "B2"; m.bus.fire("operation", { name: "finishEdit" });
+  m.undo();
+  assert.deepEqual(tops(m), ["A1", "B remote"]);
+  assert.equal(ops.resetUndo({}), false); // mesin tanpa undo (peta tertaut allowUndo:false)
+  assert.equal(ops.resetUndo(null), false);
+});
+
+test("iframe resets undo history after remote apply and after a refresh (raced revert / outline edit)", () => {
+  const h = slice(iframe, "e.data.type === 'remoteUpdate'", "\n      }\n");
+  assert.match(h, /mind\.refresh\(e\.data\.data\)[\s\S]*mindmapops\.resetUndo\(mind\)/);
+  const r = slice(iframe, "e.data.type === 'refresh'", "\n      }\n");
+  assert.match(r, /mind\.refresh\(e\.data\.data\)[\s\S]*mindmapops\.resetUndo\(mind\)/);
+  assert.match(iframe, /<script src="\/static\/offline\/mindmapops\.js\?v=7"><\/script>/);
+});
+
+test("stream: only the active tab subscribes; badge only while connected on the active tab", () => {
+  const t = slice(html, "function MindmapTabInstance(", "\nconst MINDMAP_DIRECTIONS");
+  const eff = slice(t, "// #4 kolaborasi langsung: satu EventSource", "\n  }, [");
+  assert.match(eff, /!isActive \|\| isLinked \|\| tab\.list_id == null/);
+  assert.match(t, /\}, \[tab\?\.id, tab\?\.list_id, isLinked, isActive\]\);/);
+  assert.match(t, /liveOn && isActive && !isLinked/);
+  // callback dibaca lewat ref (closure basi)
+  assert.match(eff, /const cb = liveCbRef\.current;/);
+  assert.match(eff, /cb\.onDeleteMindmap && cb\.onDeleteMindmap\(tab\.id\)/);
+  assert.match(eff, /cb\.showToast && cb\.showToast\(/);
+  assert.doesNotMatch(eff, /[^.]showToast\(ev\.type/);
+  // editor jarak jauh dari sinyal stream
+  assert.match(eff, /ev\.editor_name/);
+  assert.match(eff, /String\(ev\.editor_id\) !== String\(currentUserId\)/);
+  // batas percobaan + cek akses
+  assert.match(eff, /mindmaplive\.shouldReconnect\(/);
+});
+
+test("shouldReconnect caps consecutive failed attempts", () => {
+  assert.equal(live.shouldReconnect(0), true);
+  assert.equal(live.shouldReconnect(live.RECONNECT_MAX_ATTEMPTS - 1), true);
+  assert.equal(live.shouldReconnect(live.RECONNECT_MAX_ATTEMPTS), false);
+  assert.ok(live.RECONNECT_MAX_ATTEMPTS >= 3 && live.RECONNECT_MAX_ATTEMPTS <= 20);
 });

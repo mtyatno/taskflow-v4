@@ -10455,20 +10455,23 @@ function MindmapTabInstance({
     }
   }, [tab?.id]);
 
-  // #4 kolaborasi langsung: satu EventSource per tab peta bersama (bukan tertaut, sudah punya id server). Sinyal
-  // mindmap_changed → __mindmapLive (pull satu peta eksklusif + merge) kecuali gema revisi yang sudah dikenal record.
-  // Ditutup saat tab ditutup/unmount dan saat offline; sambung ulang dengan jeda bertingkat (TF.mindmaplive.backoffMs).
+  // #4 kolaborasi langsung: satu EventSource — hanya untuk tab peta AKTIF (bukan tertaut, sudah punya id server), agar
+  // tab yang terbuka tidak menghabiskan kolam koneksi HTTP/1.1. Saat tab menjadi aktif: buka stream + catch-up sekali
+  // (__mindmapLive → pullMindmapOne dalam runSyncExclusive); tidak aktif / unmount / offline → ditutup. mindmap_changed →
+  // __mindmapLive kecuali gema revisi yang sudah dikenal record. Galat → cek akses (404/403 → peta hilang), sambung
+  // ulang dengan jeda bertingkat (TF.mindmaplive.backoffMs) dan paling banyak RECONNECT_MAX_ATTEMPTS kali berturut-turut.
+  const liveCbRef = useRef({});
+  liveCbRef.current = { onDeleteMindmap, showToast, currentUserId };
   useEffect(() => {
-    if (!tab || isLinked || tab.list_id == null || !/^\d+$/.test(String(tab.id))) return;
+    if (!tab || !isActive || isLinked || tab.list_id == null || !/^\d+$/.test(String(tab.id))) return;
     if (typeof EventSource === "undefined") return;
     const ML = window.TF && window.TF.mindmaplive;
     const sid = Number(tab.id);
     let es = null;
     let timer = null;
-    let attempt = 0;
-    let opened = false;
+    let failures = 0; // galat berturut-turut tanpa onopen
     let disposed = false;
-    let gone = false; // peta dihapus / akses dicabut → tidak menyambung ulang
+    let gone = false; // peta dipastikan hilang/akses dicabut → tidak menyambung ulang
     const live = () => (window.__mindmapLive ? window.__mindmapLive(sid) : Promise.resolve());
     const close = () => {
       clearTimeout(timer);
@@ -10482,57 +10485,73 @@ function MindmapTabInstance({
     };
     const schedule = () => {
       if (disposed || gone || timer || !navigator.onLine) return;
-      const wait = ML ? window.TF.mindmaplive.backoffMs(attempt) : 30000;
-      attempt++;
+      if (ML && !window.TF.mindmaplive.shouldReconnect(failures)) return; // berhenti sampai online / tab diaktifkan lagi
+      const wait = ML ? window.TF.mindmaplive.backoffMs(Math.max(0, failures - 1)) : 30000;
       timer = setTimeout(() => { timer = null; connect(); }, wait);
+    };
+    // Sinyal hapus/akses dicabut (atau stream 404/403): tarik peta dulu; tab ditutup hanya bila record lokal memang
+    // hilang. Masih ada (mis. edit lokal tertunda) → sambung ulang seperti biasa.
+    const handleGone = (kind) => {
+      gone = true;
+      close();
+      live().then(() => api.get(`/api/mindmaps/${tab.id}`)).then((loc) => {
+        if (!loc) throw new Error("gone");
+        gone = false;
+        schedule();
+      }).catch(() => {
+        if (disposed) return;
+        const cb = liveCbRef.current;
+        cb.showToast && cb.showToast(kind === "mindmap_deleted" ? "Peta ini dihapus oleh pemiliknya" : "Akses ke peta ini dicabut", "error");
+        cb.onDeleteMindmap && cb.onDeleteMindmap(tab.id);
+      });
     };
     const onEvent = (e) => {
       let ev = null;
       try { ev = JSON.parse(e.data); } catch (_) { return; }
       if (!ev || ev.type === "ping") return;
       if (ev.type === "mindmap_changed") {
+        const { currentUserId } = liveCbRef.current;
+        if (ev.editor_name && (currentUserId == null || String(ev.editor_id) !== String(currentUserId))) lastRemoteEditorRef.current = ev.editor_name;
         (ML ? ML.isEcho(sid, ev.updated_at) : Promise.resolve(false))
           .then((echo) => { if (!echo) return live(); }, () => live());
         return;
       }
-      if (ev.type === "mindmap_deleted" || ev.type === "mindmap_access_lost") {
-        gone = true;
-        close();
-        live().then(() => api.get(`/api/mindmaps/${tab.id}`)).then((loc) => {
-          if (!loc) throw new Error("gone");
-        }).catch(() => {
-          if (disposed) return;
-          showToast(ev.type === "mindmap_deleted" ? "Peta ini dihapus oleh pemiliknya" : "Akses ke peta ini dicabut", "error");
-          onDeleteMindmap && onDeleteMindmap(tab.id);
-        });
-      }
+      if (ev.type === "mindmap_deleted" || ev.type === "mindmap_access_lost") handleGone(ev.type);
     };
     const connect = () => {
       if (disposed || gone || es || !navigator.onLine) return;
       const url = apiUrl(`/api/mindmaps/${tab.id}/stream`) + (API_BASE && __token ? `?token=${encodeURIComponent(__token)}` : "");
       let src = null;
-      try { src = new EventSource(url); } catch (_) { schedule(); return; }
+      try { src = new EventSource(url); } catch (_) { failures++; schedule(); return; }
       es = src;
+      let openedThis = false;
       src.onopen = () => {
-        attempt = 0;
+        openedThis = true;
+        failures = 0;
         setLiveOn(true);
-        if (opened) live(); // sambung ulang: sinyal selama putus tidak disiarkan ulang
-        opened = true;
+        live(); // tab baru aktif / sambung ulang: catch-up sekali (sinyal selama putus tidak disiarkan ulang)
       };
       // Sambung ulang bawaan EventSource dimatikan (tutup sendiri) → jeda bertingkat, tidak pernah loop panas.
       src.onerror = () => {
         setLiveOn(false);
-        if (es === src) {
-          src.onopen = null; src.onmessage = null; src.onerror = null;
-          src.close();
-          es = null;
-        }
-        schedule();
+        if (es !== src) return;
+        src.onopen = null; src.onmessage = null; src.onerror = null;
+        src.close();
+        es = null;
+        failures++;
+        const raw = window.__syncRawFetch;
+        if (openedThis || typeof raw !== "function") { schedule(); return; }
+        // Tidak pernah tersambung: cek akses murah sebelum mencoba lagi (stream 404/403 tidak dicoba terus).
+        raw(`/api/mindmaps/${sid}`).then((r) => {
+          if (disposed) return;
+          if (r && (r.status === 404 || r.status === 403)) handleGone(r.status === 404 ? "mindmap_deleted" : "mindmap_access_lost");
+          else schedule();
+        }, () => schedule());
       };
       src.onmessage = onEvent;
     };
     const onOffline = () => close();
-    const onOnline = () => { attempt = 0; clearTimeout(timer); timer = null; connect(); };
+    const onOnline = () => { failures = 0; clearTimeout(timer); timer = null; connect(); };
     window.addEventListener("offline", onOffline);
     window.addEventListener("online", onOnline);
     connect();
@@ -10542,7 +10561,7 @@ function MindmapTabInstance({
       window.removeEventListener("online", onOnline);
       close();
     };
-  }, [tab?.id, tab?.list_id, isLinked]);
+  }, [tab?.id, tab?.list_id, isLinked, isActive]);
 
   useEffect(() => {
     if (!shareOpen) return;
@@ -10792,7 +10811,7 @@ function MindmapTabInstance({
     style: { fontSize: 13, fontWeight: 600, color: "var(--text-primary)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
   }, "🧠 ", tab.title), /*#__PURE__*/React.createElement("span", {
     style: { fontSize: 11, color: syncStatus === "offline" ? "#ef4444" : "var(--text-light)", flexShrink: 0 }
-  }, syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : isLinked ? "Tersimpan ke catatan" : "Tersimpan"), liveOn && !isLinked && /*#__PURE__*/React.createElement("span", {
+  }, syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : isLinked ? "Tersimpan ke catatan" : "Tersimpan"), liveOn && isActive && !isLinked && /*#__PURE__*/React.createElement("span", {
     title: "Perubahan anggota lain tampil otomatis",
     style: { fontSize: 11, color: "var(--text-light)", flexShrink: 0 }
   }, "🟢 Langsung"),

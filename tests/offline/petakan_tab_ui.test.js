@@ -78,7 +78,7 @@ test("linked maps never send addLink and guard against a missing module", () => 
 const NM = require("../../static/offline/notemap.js");
 const NS = require("../../static/offline/notemapsession.js");
 
-function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = () => true, tfExtra = {}, getImpl = null, putImpl = null }) {
+function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = () => true, tfExtra = {}, getImpl = null, putImpl = null, propsExtra = {}, winExtra = {} }) {
   const slots = [];
   let slot = 0;
   let effects = [];
@@ -112,6 +112,7 @@ function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = ()
     removeEventListener: (t, h) => { events[t] = (events[t] || []).filter((x) => x !== h); },
     dispatchEvent: (ev) => { (events[ev.type] || []).slice().forEach((h) => h(ev)); },
     confirm,
+    ...winExtra,
   };
   const iframeWin = { postMessage: (m) => posted.push(m) };
   const api = {
@@ -155,7 +156,7 @@ function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = ()
     (fn, ms) => { timers.push(fn); return timers.length; }, () => {});
   const tab = Object.assign({ id: 3, title: "Judul", user_id: 1, source_note_cid: "nc1", source_note_id: 7,
     data_json: JSON.stringify(NM.LINKED_VIEW_STATE_DEFAULT) }, tabExtra);
-  const props = { tab, isActive: true, showToast: (m, k) => toasts.push(m), currentUserId: 1, onUpdateTitle: (id, t) => titles.push(t) };
+  const props = Object.assign({ tab, isActive: true, showToast: (m, k) => toasts.push(m), currentUserId: 1, onUpdateTitle: (id, t) => titles.push(t) }, propsExtra);
   let dirty = false;
   let out = null;
   const render = () => {
@@ -180,7 +181,9 @@ function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = ()
   const post = (data) => { (events.message || []).forEach((h) => h({ origin: "o", source: iframeWin, data })); };
   const message = async (data) => { post(data); await settle(); };
   render();
-  return { store, posted, toasts, puts, titles, settle, flushTimers, message, post, get tree() { return tree; }, get out() { return out; }, win, slots };
+  const setProps = async (p) => { Object.assign(props, p); render(); await settle(); };
+  const unmount = () => { cleanups.forEach((c) => c && c()); };
+  return { store, posted, toasts, puts, titles, settle, flushTimers, message, post, setProps, unmount, timers, get tree() { return tree; }, get out() { return out; }, win, slots };
 }
 
 // gen sesi yang terakhir dikirim ke iframe (load / remapSids) — iframe menyertakannya di tiap change.
@@ -366,6 +369,88 @@ test("behavior B5: remote update skipped while typing → save sends the old bas
   assert.equal(h.puts[1].body.base_data_json, M);
   assert.equal(h.puts[1].body.session_id, body.session_id, "session_id tetap per instans tab");
 });
+
+// #4 (B5 fix 1): satu stream saja — hanya tab aktif yang berlangganan; catch-up saat aktif; tutup saat tidak aktif.
+function withFakeEventSource(fn) {
+  const made = [];
+  function FakeES(url) { this.url = url; this.closed = false; made.push(this); }
+  FakeES.prototype.close = function () { this.closed = true; };
+  const saved = { EventSource: globalThis.EventSource, apiUrl: globalThis.apiUrl, API_BASE: globalThis.API_BASE, __token: globalThis.__token };
+  Object.assign(globalThis, { EventSource: FakeES, apiUrl: (p) => p, API_BASE: "", __token: null });
+  return Promise.resolve().then(() => fn(made)).finally(() => {
+    for (const k of Object.keys(saved)) { if (saved[k] === undefined) delete globalThis[k]; else globalThis[k] = saved[k]; }
+  });
+}
+const sharedTab = { id: 3, list_id: 5, source_note_cid: null, source_note_id: null,
+  data_json: JSON.stringify({ nodeData: { id: "root", topic: "M", root: true, children: [] } }), updated_at: "t0" };
+
+test("behavior B5: only the active tab holds a stream; activation catches up once; badge only while connected", () => withFakeEventSource(async (made) => {
+  const live = require("../../static/offline/mindmaplive.js");
+  const liveCalls = [];
+  const h = mountTab({ note: null, tfExtra: { mindmaplive: live }, tabExtra: sharedTab, propsExtra: { isActive: false },
+    winExtra: { __mindmapLive: (sid) => { liveCalls.push(sid); return Promise.resolve(); } } });
+  await h.settle();
+  assert.equal(made.length, 0, "tab tidak aktif tidak berlangganan");
+  await h.setProps({ isActive: true });
+  assert.equal(made.length, 1);
+  assert.equal(made[0].url, "/api/mindmaps/3/stream");
+  assert.ok(!findText(h.out, "🟢 Langsung"), "belum tersambung");
+  made[0].onopen(); await h.settle();
+  assert.deepEqual(liveCalls, [3], "catch-up sekali saat aktif");
+  assert.ok(findText(h.out, "🟢 Langsung"));
+  await h.setProps({ isActive: false });
+  assert.equal(made[0].closed, true, "stream ditutup saat tab tidak aktif");
+  assert.ok(!findText(h.out, "🟢 Langsung"));
+  await h.setProps({ isActive: true });
+  assert.equal(made.length, 2);
+  made[1].onopen(); await h.settle();
+  assert.deepEqual(liveCalls, [3, 3]);
+  h.unmount();
+  assert.equal(made[1].closed, true);
+}));
+
+test("behavior B5: deleted signal but map still local → reconnect, not gone; editor_name recorded", () => withFakeEventSource(async (made) => {
+  const live = require("../../static/offline/mindmaplive.js");
+  const h = mountTab({ note: null, tfExtra: { mindmaplive: live }, tabExtra: sharedTab,
+    getImpl: (url) => (url === "/api/mindmaps/3" ? Promise.resolve({ id: 3, data_json: sharedTab.data_json, updated_at: "t0" }) : null),
+    winExtra: { __mindmapLive: () => Promise.resolve() } });
+  await h.settle();
+  made[0].onopen(); await h.settle();
+  made[0].onmessage({ data: JSON.stringify({ type: "mindmap_deleted", id: 3 }) });
+  await h.settle();
+  assert.equal(made[0].closed, true);
+  assert.deepEqual(h.toasts, [], "peta masih ada lokal → tidak ditutup");
+  await h.flushTimers();
+  assert.equal(made.length, 2, "disambung ulang");
+}));
+
+test("behavior B5: stream that never opens and whose map is gone (404) stops retrying and closes the tab", () => withFakeEventSource(async (made) => {
+  const live = require("../../static/offline/mindmaplive.js");
+  const deleted = [];
+  const h = mountTab({ note: null, tfExtra: { mindmaplive: live }, tabExtra: sharedTab,
+    propsExtra: { onDeleteMindmap: (id) => deleted.push(id) },
+    getImpl: (url) => (url === "/api/mindmaps/3" ? Promise.reject(new Error("Mindmap not found")) : null),
+    winExtra: { __mindmapLive: () => Promise.resolve(), __syncRawFetch: () => Promise.resolve({ status: 404, ok: false }) } });
+  await h.settle();
+  made[0].onerror(); await h.settle();
+  await h.flushTimers();
+  assert.equal(made.length, 1, "tidak menyambung ulang ke stream 404");
+  assert.deepEqual(deleted, [3]);
+  assert.equal(h.toasts.length, 1);
+}));
+
+test("behavior B5: failing stream with access intact is capped (no endless retries)", () => withFakeEventSource(async (made) => {
+  const live = require("../../static/offline/mindmaplive.js");
+  const h = mountTab({ note: null, tfExtra: { mindmaplive: live }, tabExtra: sharedTab,
+    winExtra: { __mindmapLive: () => Promise.resolve(), __syncRawFetch: () => Promise.resolve({ status: 200, ok: true }) } });
+  await h.settle();
+  for (let i = 0; i < 40 && made.length; i++) {
+    const es = made[made.length - 1];
+    if (!es.closed) { es.onerror && es.onerror(); await h.settle(); }
+    await h.flushTimers();
+  }
+  assert.equal(made.length, live.RECONNECT_MAX_ATTEMPTS, "berhenti setelah batas percobaan");
+}));
 
 // R18: 3 bagian tingkat atas × 10 anak = 33 node.
 const BIG = [0, 1, 2].map((i) => "# H" + i + "\n" + Array.from({ length: 10 }, (_, k) => "## c" + i + "-" + k + "\n").join("")).join("");
