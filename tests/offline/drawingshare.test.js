@@ -9,6 +9,8 @@ const { outboxAll } = require("../../static/offline/outbox.js");
 const repo = require("../../static/offline/drawingrepo.js");
 const share = require("../../static/offline/drawingshare.js");
 const { pushOutbox } = require("../../static/offline/syncpush.js");
+const { pullDrawings } = require("../../static/offline/syncpull.js");
+const { makeBlobStore } = require("../../static/offline/blobstore.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); setOnline(true); repo.setCurrentUser({ user_id: 1 }); });
 
@@ -77,8 +79,9 @@ test("shareDrawing success mutates local list_id; 409 returns notes + hidden_cou
   assert.equal(calls[0].opts.network, true);
   assert.deepEqual(JSON.parse(calls[0].opts.body), { list_id: 5 });
   const rec = await get("drawings", "c1");
-  assert.equal(rec.list_id, 5); assert.equal(rec.updated_at, "2026-10-19T09:00:00");
-  assert.equal(rec.base_rev, "2026-10-19T09:00:00"); assert.equal(rec.rev, 4);
+  // Hanya list_id diadopsi (+ rev untuk CAS); bump updated_at server TIDAK menjadi base_rev/updated_at.
+  assert.equal(rec.list_id, 5); assert.equal(rec.updated_at, "2026-10-19T08:00:00");
+  assert.equal(rec.base_rev, "2026-10-19T08:00:00"); assert.equal(rec.rev, 4);
   assert.equal(r.drawing.list_id, 5);
 
   const e = Object.assign(new Error("Request failed (409)"), { status: 409, body: { detail: { code: "DRAWING_IN_USE", notes: [{ id: 1, title: "N" }], hidden_count: 2 } } });
@@ -140,8 +143,9 @@ test("applyMovedDrawings updates matching records by server_id or client_id", as
     { id: 12345, client_id: "none", list_id: 5, updated_at: "x" },
   ]);
   const a = await get("drawings", "a"); const b = await get("drawings", "b");
-  assert.deepEqual([a.list_id, a.updated_at, a.base_rev, a.rev], [5, "2026-10-19T10:00:00", "2026-10-19T10:00:00", 4]);
-  assert.deepEqual([b.list_id, b.base_rev, b.rev], [5, "2026-10-19T10:00:01", 4]);
+  // list_id saja; base_rev/updated_at tetap (bump metadata tidak boleh menggeser gerbang serverNewer pull).
+  assert.deepEqual([a.list_id, a.updated_at, a.base_rev, a.rev], [5, "2026-10-19T08:00:00", "2026-10-19T08:00:00", 4]);
+  assert.deepEqual([b.list_id, b.base_rev, b.rev], [5, "2026-10-19T08:00:00", 4]);
   await share.applyMovedDrawings(undefined);
   await share.applyMovedDrawings([]);
 });
@@ -187,7 +191,7 @@ test("shareDrawing returns ok:true when local adoption fails after server succes
   const warns = []; const ow = console.warn; console.warn = (...a) => warns.push(a);
   try {
     const r = await share.shareDrawing({ fetch: async () => ({ id: 11, list_id: 5, updated_at: "2026-10-19T09:00:00" }) }, drw(), 5);
-    assert.equal(r.ok, true); assert.equal(r.drawing.list_id, 5); assert.equal(r.drawing.updated_at, "2026-10-19T09:00:00");
+    assert.equal(r.ok, true); assert.equal(r.drawing.list_id, 5); assert.equal(r.drawing.updated_at, "2026-10-19T08:00:00");
     assert.equal(warns.length, 1);
   } finally { db.mutate = orig; console.warn = ow; }
 });
@@ -245,3 +249,75 @@ test("browser: drawingshare dimuat sebelum drawdirective tetap bisa membaca toke
   assert.equal(plan.move.length, 1);
   assert.equal(s.replaceDrawingToken("::draw[cl-1]", { client_id: "cl-1" }, "cl-2"), "::draw[cl-2]");
 });
+
+test("serverIdOf: server_id, else numeric id of a server row (no cid); local unsynced → null", () => {
+  assert.equal(share.serverIdOf({ server_id: 11, id: 99, cid: "c" }), 11);
+  assert.equal(share.serverIdOf({ id: 22, client_id: "x" }), 22);
+  assert.equal(share.serverIdOf({ id: "23", server_id: null, cid: null }), "23");
+  assert.equal(share.serverIdOf({ id: "c-abc", server_id: null, cid: null }), null);
+  assert.equal(share.serverIdOf({ id: "12a" }), null);
+  assert.equal(share.serverIdOf({ id: "١٢" }), null); // hanya digit ASCII
+  assert.equal(share.serverIdOf({ id: 1.5 }), null);
+  assert.equal(share.serverIdOf({ id: 22, cid: "c22", server_id: null }), null); // record lokal belum tersinkron
+  assert.equal(share.serverIdOf(null), null);
+});
+
+test("shareDrawing on a server row without server_id/cid PATCHes by its numeric id", async () => {
+  const calls = [];
+  const api = { fetch: async (url) => { calls.push(url); return { id: 22, list_id: 5 }; } };
+  const r = await share.shareDrawing(api, { id: 22, client_id: "srv-22", title: "Row", list_id: null }, 5);
+  assert.equal(r.ok, true);
+  assert.deepEqual(calls, ["/api/drawings/22/share"]);
+});
+
+// Kritis (review final): bump metadata share tidak boleh memajukan base_rev; edit anggota lain yang belum ditarik
+// harus tetap diadopsi (record bersih) atau digabung (record dirty) oleh pull berikutnya.
+function tlSnap(ids) {
+  const store = {
+    "document:document": { gridSize: 10, name: "", meta: {}, id: "document:document", typeName: "document" },
+    "page:page": { meta: {}, id: "page:page", name: "Page 1", index: "a1", typeName: "page" },
+  };
+  ids.forEach((id, i) => {
+    store[id] = { x: i * 10, y: 0, rotation: 0, isLocked: false, opacity: 1, meta: {}, id, type: "geo", parentId: "page:page",
+      index: "a" + (i + 2), props: { w: 10, h: 10, geo: "rectangle" }, typeName: "shape" };
+  });
+  return JSON.stringify({ store, schema: { schemaVersion: 2, sequences: { "com.tldraw.store": 4 } } });
+}
+const shapesOf = (json) => Object.keys(JSON.parse(json).store).filter((k) => k.startsWith("shape:")).sort();
+
+for (const dirty of [false, true]) {
+  test("share then pull keeps another member's unpulled edit (" + (dirty ? "dirty: merged" : "clean: adopted") + ")", async () => {
+    const blobs = makeBlobStore();
+    const T0 = "2026-10-19T08:00:00", TSHARE = "2026-10-19T09:30:00";
+    const baseJson = tlSnap(["shape:a"]);
+    const baseRef = await blobs.put(baseJson, { mime: "application/json" });
+    const localRef = dirty ? await blobs.put(tlSnap(["shape:a", "shape:mine"]), { mime: "application/json" }) : baseRef;
+    await put("drawings", drw({ blob_ref: localRef, base_blob_ref: baseRef, base_title: "D", dirty: dirty ? 1 : 0, updated_at: T0, base_rev: T0 }));
+    await mapPut("drawing", 11, "c1");
+    if (dirty) await put("_outbox", { qid: 1, op: "update", entity_type: "drawing", cid: "c1", payload: { title: "D" } });
+    // Server: anggota lain menambah shape:theirs (09:00, belum ditarik), lalu share mem-bump updated_at (09:30).
+    const serverJson = tlSnap(["shape:a", "shape:theirs"]);
+    const api = { fetch: async () => ({ id: 11, list_id: 5, updated_at: TSHARE }) };
+    const r = await share.shareDrawing(api, drw(), 5);
+    assert.equal(r.ok, true);
+    let rec = await get("drawings", "c1");
+    assert.equal(rec.base_rev, T0);
+    assert.equal(rec.updated_at, T0);
+    assert.equal(rec.list_id, 5);
+
+    const row = { id: 11, client_id: "cl-1", title: "D", svg_preview: "", is_pinned: 0, list_id: 5, user_id: 1, updated_at: TSHARE, created_at: "x" };
+    const res = await pullDrawings([row], async () => Object.assign({}, row, { data_json: serverJson }));
+    rec = await get("drawings", "c1");
+    assert.equal(rec.base_rev, TSHARE);
+    const data = (await repo.getDrawing("c1", { online: false })).data_json;
+    if (dirty) {
+      assert.equal(res.merged, 1);
+      assert.equal(rec.dirty, 1);
+      assert.deepEqual(shapesOf(data), ["shape:a", "shape:mine", "shape:theirs"]);
+    } else {
+      assert.equal(res.updated, 1);
+      assert.equal(rec.dirty, 0);
+      assert.deepEqual(shapesOf(data), ["shape:a", "shape:theirs"]);
+    }
+  });
+}

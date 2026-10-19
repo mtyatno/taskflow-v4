@@ -1145,6 +1145,25 @@
     const me = TFrepo && TFrepo.currentUid ? TFrepo.currentUid() : null;
     return r.user_id != null && me != null && String(r.user_id) !== String(me);
   }
+  // Field scope/pemilik dari baris daftar server, diadopsi TANPA syarat serverNewer: record dari sebelum upgrade
+  // (user_id/list_id undefined) baru tersentuh pull saat ada revisi baru, sehingga drawing W milik orang lain bisa
+  // tampak "milikku" (guard pemilik, akses hilang, move vs copy). Hanya field ini yang ditulis — isi, base_rev,
+  // updated_at, dirty dan rev tidak disentuh (gerbang sync & CAS penulis lain tetap utuh).
+  const DRAWING_SCOPE_FIELDS = ["list_id", "user_id", "last_edited_by", "last_editor_username", "last_editor_display_name"];
+  function adoptDrawingScope(cid, s) {
+    const want = {};
+    for (const k of DRAWING_SCOPE_FIELDS) if (s[k] !== undefined) want[k] = s[k] != null ? s[k] : null;
+    if (!Object.keys(want).length) return Promise.resolve(false);
+    return TFrepo.mutateDrawing(cid, (cur) => {
+      // Hanya record yang memang terikat ke baris server ini (keep_as_new / create tertunda: server_id null → lewati).
+      if (!cur || cur.server_id == null || String(cur.server_id) !== String(s.id)) return undefined;
+      const diff = Object.keys(want).filter((k) => cur[k] !== want[k]);
+      if (!diff.length) return undefined;
+      const next = Object.assign({}, cur);
+      for (const k of diff) next[k] = want[k];
+      return next;
+    }).then((saved) => !!saved);
+  }
   function markDrawingAccessLost(cid) {
     return TFrepo.mutateDrawing(cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "access_lost" }) : undefined));
   }
@@ -1598,7 +1617,7 @@
                 });
               }
             });
-          });
+          }).then(() => (local ? adoptDrawingScope(cid, s) : null));
         }
 
         // Pass 3 & 4: Clean phantom duplicate rows and remote deletions

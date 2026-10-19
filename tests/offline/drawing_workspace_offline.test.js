@@ -185,6 +185,38 @@ test("pull copies scope fields from server rows", async () => {
   assert.equal(rec.last_editor_display_name, "Bob");
 });
 
+test("pull adopts scope fields onto pre-upgrade records even when the server row is not newer", async () => {
+  const blob = await repo._BlobStore.put('{"store":{},"schema":{}}', { mime: "application/json" });
+  // Record dari sebelum upgrade: user_id/list_id/last_editor_* undefined; revisi sama dengan server.
+  const pre = local({ cid: "pre", server_id: 90, blob_ref: blob, base_blob_ref: blob, svg_preview: "<svg>x</svg>", rev: 4 });
+  const dirtyPre = local({ cid: "dp", server_id: 91, blob_ref: blob, dirty: 1, rev: 2 });
+  // Terikat ke baris lain (keep_as_new: server_id null) → tidak disentuh.
+  const detached = local({ cid: "kn", server_id: null, user_id: 3, list_id: null, dirty: 1 });
+  await put([pre, dirtyPre, detached]);
+  await mapPut("drawing", 90, "pre"); await mapPut("drawing", 91, "dp"); await mapPut("drawing", 92, "kn");
+  await outboxAdd({ op: "update", entity_type: "drawing", cid: "dp", payload: {} });
+  await outboxAdd({ op: "create", entity_type: "drawing", cid: "kn", payload: {} });
+  const rows = [
+    srvRow({ id: 90, list_id: 5, user_id: 7, last_edited_by: 7, last_editor_username: "bob", last_editor_display_name: "Bob" }),
+    srvRow({ id: 91, list_id: 5, user_id: 7 }),
+    srvRow({ id: 92, list_id: 5, user_id: 7 }),
+  ];
+  let fetched = 0;
+  await pullDrawings(rows, () => { fetched++; return Promise.resolve(null); });
+  const by = Object.fromEntries((await all()).map((r) => [r.cid, r]));
+  const a = by.pre;
+  assert.deepEqual([a.user_id, a.list_id, a.last_edited_by, a.last_editor_username, a.last_editor_display_name], [7, 5, 7, "bob", "Bob"]);
+  // isi, base_rev, updated_at, dirty, rev tidak berubah
+  assert.deepEqual([a.blob_ref, a.base_rev, a.updated_at, a.dirty, a.rev, a.svg_preview, a.title], [blob, pre.base_rev, pre.updated_at, 0, 4, "<svg>x</svg>", "pre"]);
+  const d = by.dp;
+  assert.deepEqual([d.user_id, d.list_id, d.dirty, d.rev, d.base_rev, d.blob_ref], [7, 5, 1, 2, dirtyPre.base_rev, blob]);
+  assert.deepEqual([by.kn.user_id, by.kn.list_id], [3, null]);
+  assert.equal(fetched, 0); // tidak ada revisi baru → tidak ada unduhan isi
+  // Baris tidak berubah lagi → pull kedua tidak menulis (rev tetap)
+  await pullDrawings(rows, () => Promise.resolve(null));
+  assert.equal((await all()).find((r) => r.cid === "pre").rev, 4);
+});
+
 test("pull removes lost workspace drawings; dirty one becomes access_lost", async () => {
   await put([
     local({ cid: "gone", server_id: 81, list_id: 9, user_id: 7 }),

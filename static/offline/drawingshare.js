@@ -97,7 +97,8 @@
         if (!seenTok.has(tok)) { seenTok.add(tok); plan.unavailable.push(tok); }
         continue;
       }
-      const key = d.cid != null ? "c" + d.cid : d.server_id != null ? "s" + d.server_id : "o" + String(d.client_id);
+      const sid = serverIdOf(d);
+      const key = d.cid != null ? "c" + d.cid : sid != null ? "s" + sid : d.client_id != null ? "o" + String(d.client_id) : "t" + tok.toLowerCase();
       if (noTarget || seen.has(key)) continue;
       seen.add(key);
       if (sameList(d.list_id, targetListId)) continue;
@@ -130,8 +131,15 @@
     if (typeof fn !== "function") return Promise.reject(new Error("api tidak tersedia"));
     return fn.call(api, url, body, { network: true });
   }
+  // Id server: server_id; baris server (GET /api/drawings?shared=1) tidak membawa server_id/cid → `id` numerik
+  // (angka atau string digit ASCII) adalah id server. Record lokal (cid ada) tanpa server_id = belum tersinkron.
   function serverIdOf(drawing) {
-    if (drawing && drawing.server_id != null) return drawing.server_id;
+    if (!drawing) return null;
+    if (drawing.server_id != null) return drawing.server_id;
+    if (drawing.cid != null) return null;
+    const id = drawing.id;
+    if (typeof id === "number" && Number.isInteger(id)) return id;
+    if (typeof id === "string" && /^[0-9]+$/.test(id)) return id;
     return null;
   }
 
@@ -140,10 +148,12 @@
     const sid = serverIdOf(drawing);
     if (sid == null) return Promise.resolve({ ok: false, code: "ERROR", message: "Gambar belum tersinkron ke server." });
     return call(api, "PATCH", "/api/drawings/" + sid + "/share", { list_id: nn(listId) }).then((updated) => {
+      // Adopsi list_id SAJA. updated_at hasil bump share TIDAK dijadikan base_rev: PUT drawing tidak mengirim
+      // base_rev, jadi satu-satunya penjaga adalah gerbang serverNewer di pull + merge 3-arah. Memajukan base_rev
+      // ke bump ini membuat pull melewatkan isi server yang lebih baru (mis. edit anggota lain) lalu menimpanya.
+      // Pull berikutnya melihat bump sebagai lebih baru: record bersih di-refresh, record dirty lewat merge.
+      // rev tetap dinaikkan (CAS penulis lain yang membaca sebelum share jadi batal; tidak memengaruhi gerbang sync).
       const patch = { list_id: updated && updated.list_id !== undefined ? updated.list_id : nn(listId) };
-      // Server mem-bump updated_at saat share → adopsi sebagai base_rev (pola MindmapTabInstance.handleShare).
-      // Record bisa saja dirty: bump itu berasal dari share kita sendiri, bukan edit orang lain.
-      if (updated && updated.updated_at) { patch.updated_at = updated.updated_at; patch.base_rev = updated.updated_at; }
       const built = Object.assign({}, drawing, patch);
       // Adopsi lokal dipisah dari panggilan jaringan: server sudah berhasil, jadi gagal lokal tidak membalik hasil.
       return TFrepo.getRaw(sid).then((rec) => {
@@ -207,8 +217,8 @@
         return TFdb.mutate("drawings", rec.cid, (cur) => {
           if (!cur) return undefined;
           const patch = {};
+          // list_id saja; base_rev/updated_at tidak diadopsi dari bump metadata (lihat shareDrawing).
           if (m.list_id !== undefined) patch.list_id = nn(m.list_id);
-          if (m.updated_at) { patch.updated_at = m.updated_at; patch.base_rev = m.updated_at; }
           const changed = Object.keys(patch).some((k) => cur[k] !== patch[k]);
           if (!changed) return undefined;
           return Object.assign({}, cur, patch, { rev: (cur.rev || 0) + 1 });
@@ -217,5 +227,5 @@
     }), Promise.resolve()).then(() => undefined);
   }
 
-  return { scopeNotice, noticeText, shareDrawing, copyDrawing, replaceDrawingToken, planNoteShare, applyMovedDrawings };
+  return { scopeNotice, noticeText, serverIdOf, shareDrawing, copyDrawing, replaceDrawingToken, planNoteShare, applyMovedDrawings };
 });
