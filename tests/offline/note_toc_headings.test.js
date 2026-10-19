@@ -41,6 +41,8 @@ function makeCtx({ withMarked = true } = {}) {
     "this.renderMarkdown = renderMarkdown; this.extractHeadings = extractHeadings;",
   ].join("\n");
   vm.runInContext(code, sandbox);
+  // renderMarkdown mengambil window.TF.safehtml saat dipanggil (static/offline/safehtml.js)
+  vm.runInContext(fs.readFileSync(path.join(rootDir, "static/offline/safehtml.js"), "utf8"), sandbox);
   return sandbox;
 }
 
