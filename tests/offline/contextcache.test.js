@@ -363,3 +363,70 @@ test("PATCH/DELETE/PUT order are not served locally", () => {
   assert.equal(R.hasRoute("GET", "/api/contexts"), true);
   assert.equal(R.hasRoute("POST", "/api/contexts"), true);
 });
+
+// ── fix round 1 ──────────────────────────────────────────────────────────────────────────────
+test("scope=all mirrors the server: archived hidden unless include_archived is 1/true", async () => {
+  await seedCache([
+    ctx({ id: 1, name: "P0", position: 0 }),
+    ctx({ id: 2, name: "POld", position: 1, archived: 1 }),
+    ctx({ id: 3, name: "W7", list_id: 7, position: 0 }),
+    ctx({ id: 4, name: "W7Old", list_id: 7, position: 1, archived: 1 }),
+  ]);
+  const R = buildTaskRouter();
+  assert.deepEqual(ids(await R.dispatch("GET", "/api/contexts?format=full&scope=all", undefined)), [1, 3]);
+  assert.deepEqual(ids(await R.dispatch("GET", "/api/contexts?format=full&scope=all&include_archived=0", undefined)), [1, 3]);
+  assert.deepEqual(ids(await R.dispatch("GET", "/api/contexts?format=full&scope=all&include_archived=1", undefined)), [1, 2, 3, 4]);
+  assert.deepEqual(ids(await R.dispatch("GET", "/api/contexts?format=full&scope=all&include_archived=true", undefined)), [1, 2, 3, 4]);
+});
+
+test("addPending normalises list_id: numeric string → number, ''/undefined/null → null", async () => {
+  const a = await CC.addPending("7", "A");
+  assert.strictEqual(a.item.list_id, 7);
+  const b = await CC.addPending(7, "B");
+  assert.strictEqual(b.item.list_id, 7);
+  for (const [i, v] of [["", "C"], [undefined, "D"], [null, "E"]]) {
+    const r = await CC.addPending(i, v);
+    assert.strictEqual(r.item.list_id, null);
+  }
+  // "7" dan 7 adalah scope yang sama → dipakai ulang
+  const dup = await CC.addPending(7, "a");
+  assert.equal(dup.created, false);
+  assert.strictEqual(dup.item.list_id, 7);
+  // lewat route (body string / angka)
+  const R = buildTaskRouter();
+  assert.strictEqual((await R.dispatch("POST", "/api/contexts", { name: "Rs", list_id: "9" })).list_id, 9);
+  assert.strictEqual((await R.dispatch("POST", "/api/contexts", { name: "Rn", list_id: 9 })).list_id, 9);
+  assert.strictEqual((await R.dispatch("POST", "/api/contexts", { name: "Rp", list_id: "" })).list_id, null);
+});
+
+test("mutations reject on a failed metaGet and leave existing pending entries untouched", async () => {
+  const meta = require("../../static/offline/meta.js");
+  const keep = await CC.addPending(null, "Keep");
+  const other = await CC.addPending(null, "Other");
+  const before = await metaGet("contexts:pending:v1");
+  const real = meta.metaGet;
+  const failOn = (key) => { meta.metaGet = (k) => (k === key ? Promise.reject(new Error("idb read failed")) : real(k)); };
+  try {
+    for (const key of ["contexts:pending:v1", "contexts:v1"]) {
+      failOn(key);
+      await assert.rejects(CC.addPending(null, "New " + key), { message: "idb read failed" });
+      if (key === "contexts:pending:v1") { // dropPending hanya membaca daftar pending
+        await assert.rejects(CC.dropPending(keep.item.cid), { message: "idb read failed" });
+      }
+      await assert.rejects(CC.resolvePending(keep.item.cid, ctx({ id: 5, name: "Keep" })), { message: "idb read failed" });
+    }
+  } finally { meta.metaGet = real; }
+  assert.deepEqual(await metaGet("contexts:pending:v1"), before);
+  assert.equal(await metaGet("contexts:v1"), undefined);
+  // display reads keep swallowing
+  meta.metaGet = () => Promise.reject(new Error("idb read failed"));
+  try {
+    assert.deepEqual(await CC.allItems(), []);
+    assert.deepEqual(await CC.list(null), []);
+  } finally { meta.metaGet = real; }
+  // a failed mutation does not poison later ones
+  const ok = await CC.addPending(null, "After");
+  assert.equal(ok.created, true);
+  assert.deepEqual((await CC.allItems()).map((i) => i.name), ["Keep", "Other", "After"]);
+  assert.equal(other.created, true);
+});

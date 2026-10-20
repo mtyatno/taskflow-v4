@@ -229,9 +229,13 @@
       const q = query || {};
       const listId = (q.list_id != null && q.list_id !== "") ? q.list_id : null;
       if (q.format === "full") {
-        if (q.scope === "all") return TFcontexts.allItems().then(sortAllScopes);
-        const ia = q.include_archived;
-        return TFcontexts.list(listId, { includeArchived: ia === "1" || ia === "true" });
+        const includeArchived = q.include_archived === "1" || q.include_archived === "true";
+        if (q.scope === "all") {
+          // sama dengan server: arsip hanya bila include_archived
+          return TFcontexts.allItems().then((items) =>
+            sortAllScopes(includeArchived ? items : items.filter((c) => !c.archived)));
+        }
+        return TFcontexts.list(listId, { includeArchived });
       }
       return TFcontexts.names(listId);
     });

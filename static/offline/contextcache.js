@@ -55,11 +55,26 @@
     });
   }
 
+  const itemsOf = (v) => (v && Array.isArray(v.items) ? v.items : []);
+  // Baca untuk tampilan: gagal baca dianggap kosong.
   function serverItems() {
-    return TFmeta.metaGet(KEY).then((v) => (v && Array.isArray(v.items) ? v.items : []), () => []);
+    return TFmeta.metaGet(KEY).then(itemsOf, () => []);
   }
   function pendingItems() {
-    return TFmeta.metaGet(PENDING_KEY).then((v) => (v && Array.isArray(v.items) ? v.items : []), () => []);
+    return TFmeta.metaGet(PENDING_KEY).then(itemsOf, () => []);
+  }
+  // Baca untuk mutasi: kegagalan baca HARUS menolak (jangan dianggap kosong lalu ditulis balik, itu menghapus data).
+  function strictServerItems() {
+    return TFmeta.metaGet(KEY).then(itemsOf);
+  }
+  function strictPendingItems() {
+    return TFmeta.metaGet(PENDING_KEY).then(itemsOf);
+  }
+  // list_id seragam dengan item server: string angka → number, ""/undefined/null → null.
+  function normListId(listId) {
+    if (listId == null || listId === "") return null;
+    if (typeof listId === "string" && /^\d+$/.test(listId)) return Number(listId);
+    return listId;
   }
 
   // Item server + item pending (pending di belakang).
@@ -129,7 +144,7 @@
     return serialized(() => {
       const trimmed = String(name == null ? "" : name).trim();
       if (!trimmed) throw new Error(EMPTY_NAME_MSG);
-      return Promise.all([serverItems(), pendingItems()]).then(([server, pending]) => {
+      return Promise.all([strictServerItems(), strictPendingItems()]).then(([server, pending]) => {
         const all = server.concat(pending);
         const existing = all.find((c) => inScope(c, listId) && nocaseEq(c.name, trimmed));
         if (existing) return { item: existing, created: false };
@@ -141,7 +156,7 @@
         }
         const cid = TFids.newCid();
         const item = {
-          id: cid, cid: cid, name: trimmed, list_id: (listId == null || listId === "") ? null : listId,
+          id: cid, cid: cid, name: trimmed, list_id: normListId(listId),
           user_id: null, position: max + 1, color: null, archived: false, can_manage: true, pending: true,
         };
         return setPending(pending.concat([item])).then(() => ({ item, created: true }));
@@ -151,7 +166,7 @@
 
   // Hapus entri pending `cid` dan upsert `serverItem` (berdasarkan id) ke cache server.
   function resolvePending(cid, serverItem) {
-    return serialized(() => Promise.all([TFmeta.metaGet(KEY), pendingItems()]).then(([v, pending]) => {
+    return serialized(() => Promise.all([TFmeta.metaGet(KEY), strictPendingItems()]).then(([v, pending]) => {
       const items = v && Array.isArray(v.items) ? v.items.slice() : [];
       if (serverItem && serverItem.id != null) {
         const i = items.findIndex((c) => String(c.id) === String(serverItem.id));
@@ -164,7 +179,7 @@
   }
 
   function dropPending(cid) {
-    return serialized(() => pendingItems().then((pending) =>
+    return serialized(() => strictPendingItems().then((pending) =>
       setPending(pending.filter((c) => String(c.cid) !== String(cid)))));
   }
 
