@@ -3692,3 +3692,7 @@
 - **Changes:** rilis pindah ke SW **v436** `taskflow-v436-focus-target` / `app.css?v=344` dan ADR Pomodoro jadi **ADR-021** (v435/343 + ADR-020 dipakai draft PR #63); client_id sesi deterministik + guard sesi selesai ganda; `ackPushed` onabort; tes migrasi DB lama; E2E 41/41 (jam tengah hari, screenshot header, dedupe dua tab).
 - **Files Touch:** static/index.html, static/sw.js, static/offline/pomolog.js, webapp.py, repository.py, tests/, temporary_files/e2e_focus_target.py, docs/superpowers/plans/2026-10-20-fokus-b-target-pomodoro.md, docs/superpowers/specs/2026-10-20-fokus-hari-ini-enhancement-design.md, .agents/CURRENT_STATE.md, .agents/DECISIONS.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (belum di-push; deploy = migrasi → restart `taskflow-web`, lalu `taskflow`, satu per satu)
+
+## 2026-10-20 23:27 WIB — Claude — merge Fokus Hari Ini PR B (#64)
+- Bapak: "merge". #64 di-merge (571ff1a); CI Tests hijau. SW v436 / `app.css?v=344`, ADR-021.
+- **Berikutnya (di server, oleh Bapak):** ada migrasi — `sudo systemctl restart taskflow-web`, lalu `sudo systemctl restart taskflow` (satu per satu). Draft #63 (Kelola Workspace, v435/ADR-020) kini akan konflik kecil di versi + `.agents` saat di-merge. Berikutnya: plan PR C (Overtime).
