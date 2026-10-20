@@ -132,6 +132,8 @@ import jwt
 import uvicorn
 
 from config import DB_PATH, EISENHOWER_INTERVAL_MINUTES, UPLOAD_DIR, MAX_FILE_SIZE, TELEGRAM_BOT_USERNAME, NEXTCLOUD_URL, NEXTCLOUD_USER, NEXTCLOUD_APP_PASSWORD, NEXTCLOUD_FOLDER, WEBAPP_URL
+from config import MEDIA_ROOT, MEDIA_MAX_FILE_MB, MEDIA_CHUNK_MB, MEDIA_ACCEL, MEDIA_URL_TTL_SEC, MEDIA_STUCK_HOURS
+from config import MEDIA_URL_SECRET as _MEDIA_URL_SECRET_CFG
 import config as appconfig
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -150,6 +152,14 @@ import mailer
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("WEB_SECRET_KEY", secrets.token_hex(32))
+
+logger = logging.getLogger("alurik.webapp")
+MEDIA_MAX_FILE_BYTES = MEDIA_MAX_FILE_MB * 1024 * 1024
+MEDIA_CHUNK_BYTES = MEDIA_CHUNK_MB * 1024 * 1024
+MEDIA_URL_SECRET_BYTES = (
+    _MEDIA_URL_SECRET_CFG.encode() if _MEDIA_URL_SECRET_CFG
+    else hmac.new(SECRET_KEY.encode(), b"alurik-media-url", "sha256").digest()
+)
 JWT_ALGORITHM = "HS256"
 
 # ── Cookie signing (for published note unlock) ─────────────────────────────────
@@ -338,6 +348,38 @@ def migrate_db():
         if "pinned" not in cols:
             conn.execute("ALTER TABLE scratchpad_notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
             conn.commit()
+    finally:
+        conn.close()
+
+    # Migrate note_attachments: kolom media audio/video (spec §4.1)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        att_cols = {r["name"] for r in conn.execute("PRAGMA table_info(note_attachments)").fetchall()}
+        for name, ddl in [
+            ("kind", "TEXT NOT NULL DEFAULT 'file'"),
+            ("client_id", "TEXT"),
+            ("storage", "TEXT NOT NULL DEFAULT 'nextcloud'"),
+            ("storage_key", "TEXT"),
+            ("status", "TEXT NOT NULL DEFAULT 'ready'"),
+            ("media_type", "TEXT"),
+            ("duration_ms", "INTEGER"),
+            ("video_codec", "TEXT"),
+            ("audio_codec", "TEXT"),
+            ("width", "INTEGER"),
+            ("height", "INTEGER"),
+            ("poster_key", "TEXT"),
+            ("received_bytes", "INTEGER NOT NULL DEFAULT 0"),
+            ("error", "TEXT"),
+            ("updated_at", "TEXT"),
+        ]:
+            if name not in att_cols:
+                conn.execute(f"ALTER TABLE note_attachments ADD COLUMN {name} {ddl}")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_note_attachments_client "
+            "ON note_attachments(user_id, client_id) WHERE client_id IS NOT NULL"
+        )
+        conn.commit()
     finally:
         conn.close()
 
@@ -1522,6 +1564,12 @@ async def startup():
     migrate_db()
     seed_habit_templates()
     os.makedirs(UPLOAD_DIR, exist_ok=True)
+    try:
+        os.makedirs(os.path.join(MEDIA_ROOT, ".tmp"), exist_ok=True)
+    except OSError as e:
+        logger.warning("MEDIA_ROOT tidak bisa dibuat (%s): %s", MEDIA_ROOT, e)
+    if not _MEDIA_URL_SECRET_CFG:
+        logger.warning("MEDIA_URL_SECRET kosong; secret URL media diturunkan dari WEB_SECRET_KEY")
     if TELEGRAM_BOT_TOKEN:
         try:
             from telegram import Bot as TelegramBot
