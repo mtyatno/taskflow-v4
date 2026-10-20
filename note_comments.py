@@ -65,6 +65,7 @@ def _cutoff(now: str, days: int) -> str:
 
 
 def purge_old_tombstones(conn, now: str, days: int = TOMBSTONE_DAYS) -> int:
+    # Perbandingan string di SQL aman karena semua timestamp tersimpan berformat sama (offset +07:00).
     """Hapus permanen baris yang di-soft-delete lebih dari `days` hari lalu. Pemanggil yang commit."""
     cur = conn.execute(
         "DELETE FROM note_comments WHERE deleted_at IS NOT NULL AND deleted_at < ?", (_cutoff(now, days),))
@@ -79,8 +80,10 @@ def parse_cursor(s: Optional[str]) -> Optional[tuple[str, int]]:
     if not ts or not raw_id.isascii() or not raw_id.isdigit():
         return None
     try:
-        datetime.fromisoformat(ts)
+        parsed = datetime.fromisoformat(ts)
     except ValueError:
+        return None
+    if parsed.tzinfo is None:  # kursor tanpa offset akan membuat cursor_expired TypeError
         return None
     return ts, int(raw_id)
 

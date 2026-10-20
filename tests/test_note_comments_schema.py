@@ -42,6 +42,8 @@ def test_cursor_roundtrip():
     assert note_comments.parse_cursor("") is None
     assert note_comments.parse_cursor("x") is None
     assert note_comments.parse_cursor("a|b") is None
+    assert note_comments.parse_cursor("2026-10-21T05:00:00|1") is None  # naif
+    assert note_comments.parse_cursor("2026-10-21|1") is None  # naif
 
 
 def test_cursor_expired():
@@ -61,19 +63,23 @@ def test_mention_usernames():
 def test_purge_old_tombstones():
     now = datetime.now(JKT)
     conn = db()
+    ids = []
     try:
         note_comments.ensure_note_comments_schema(conn)
-        conn.execute("DELETE FROM note_comments")
         ts = now.isoformat()
-        for deleted in ((now - timedelta(days=40)).isoformat(), (now - timedelta(days=5)).isoformat(), None):
-            conn.execute(
+        for n, deleted in ((910001, (now - timedelta(days=40)).isoformat()),
+                           (910002, (now - timedelta(days=5)).isoformat()), (910003, None)):
+            cur = conn.execute(
                 "INSERT INTO note_comments (note_id, list_id, user_id, body, deleted_at, created_at, updated_at) "
-                "VALUES (1, 1, 1, 'x', ?, ?, ?)", (deleted, ts, ts))
-        assert note_comments.purge_old_tombstones(conn, ts) == 1
-        assert conn.execute("SELECT COUNT(*) FROM note_comments").fetchone()[0] == 2
-        conn.execute("DELETE FROM note_comments")
-        conn.commit()
+                "VALUES (?, 1, 1, 'x', ?, ?, ?)", (n, deleted, ts, ts))
+            ids.append(cur.lastrowid)
+        assert note_comments.purge_old_tombstones(conn, ts) >= 1
+        left = {r[0] for r in conn.execute(
+            f"SELECT id FROM note_comments WHERE id IN ({','.join('?' * 3)})", ids)}
+        assert left == set(ids[1:])
     finally:
+        conn.execute(f"DELETE FROM note_comments WHERE id IN ({','.join('?' * 3)})", ids)
+        conn.commit()
         conn.close()
 
 
