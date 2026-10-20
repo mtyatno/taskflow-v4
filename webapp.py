@@ -861,6 +861,8 @@ def migrate_db():
         conn.execute("PRAGMA foreign_keys=ON")
         repository.ensure_projects_schema(conn)
         repository.backfill_projects(conn)
+        repository.ensure_contexts_schema(conn)
+        repository.backfill_contexts(conn)
         # Drawing milik workspace: kolom list_id/last_edited_by + backfill sekali jalan dari note workspace.
         drawing_scope.ensure_drawing_scope_schema(conn)
         drawing_scope.backfill_drawing_lists(conn, datetime.now(_TZ_JKT).isoformat())

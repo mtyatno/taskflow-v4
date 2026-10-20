@@ -229,6 +229,142 @@ def backfill_projects(conn) -> dict:
     return {"created": created, "linked": linked, "cleared": cleared, "skipped": skipped}
 
 
+def ensure_contexts_schema(conn) -> None:
+    """Tabel `contexts` + kolom `tasks.context_id` (idempoten)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contexts (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            user_id     INTEGER DEFAULT NULL REFERENCES users(id) ON DELETE CASCADE,
+            list_id     INTEGER DEFAULT NULL REFERENCES shared_lists(id) ON DELETE CASCADE,
+            position    INTEGER NOT NULL DEFAULT 0,
+            color       TEXT DEFAULT NULL,
+            archived    INTEGER NOT NULL DEFAULT 0,
+            created_by  INTEGER DEFAULT NULL REFERENCES users(id) ON DELETE SET NULL,
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL,
+            CHECK ((user_id IS NULL) <> (list_id IS NULL))
+        )
+    """)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_contexts_user "
+        "ON contexts(user_id, name COLLATE NOCASE) WHERE list_id IS NULL"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_contexts_list "
+        "ON contexts(list_id, name COLLATE NOCASE) WHERE list_id IS NOT NULL"
+    )
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+    if "context_id" not in cols:
+        conn.execute(
+            "ALTER TABLE tasks ADD COLUMN context_id INTEGER DEFAULT NULL "
+            "REFERENCES contexts(id) ON DELETE SET NULL"
+        )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_context_id ON tasks(context_id)")
+
+
+def backfill_contexts(conn) -> dict:
+    """Buat/hubungkan context dari teks `tasks.context` + perbaiki link basi.
+
+    Sama dengan backfill_projects (scope, grup (scope, nama NOCASE), SAVEPOINT
+    per grup, tak pernah menggagalkan migrate_db, tidak mengubah updated_at
+    task, pemanggil yang commit), ditambah `position`: grup baru di sebuah
+    scope diberi posisi berurutan mulai dari MAX(position)+1 scope itu (dibaca
+    sekali per scope), diurut alfabetis NOCASE.
+    """
+    rows = conn.execute("""
+        SELECT t.id, t.context, t.user_id, t.gtd_status, t.created_at, t.updated_at,
+               sl.id AS ws_id, u.id AS owner_ok, t.context_id,
+               c.name AS c_name, c.user_id AS c_user, c.list_id AS c_list
+        FROM tasks t
+        LEFT JOIN shared_lists sl ON sl.id = t.list_id
+        LEFT JOIN users u ON u.id = t.user_id
+        LEFT JOIN contexts c ON c.id = t.context_id
+        WHERE (t.context_id IS NULL AND COALESCE(t.context, '') <> '')
+           OR t.context_id IS NOT NULL
+    """).fetchall()
+
+    groups: dict = {}
+    clear_ids = []
+    for r in rows:
+        name = (r[1] or "").strip()
+        scope = ("w", r[6]) if r[6] is not None else ("u", r[2] if r[7] is not None else None)
+        if r[8] is not None:  # sudah terhubung: hanya proses bila basi
+            if not name:
+                clear_ids.append(r[0])
+                continue
+            c_scope = ("w", r[11]) if r[11] is not None else ("u", r[10])
+            if r[9] is not None and c_scope == scope and _nocase(r[9]) == _nocase(name):
+                continue
+        if not name or scope[1] is None:  # nama kosong / yatim / pemilik sudah dihapus
+            continue
+        groups.setdefault((scope, _nocase(name)), []).append((r, name))
+
+    now = datetime.now().isoformat()
+    created = linked = cleared = skipped = 0
+    for tid in clear_ids:
+        try:
+            conn.execute("SAVEPOINT bf_clear")
+            conn.execute("UPDATE tasks SET context_id=NULL WHERE id=?", (tid,))
+            conn.execute("RELEASE bf_clear")
+            cleared += 1
+        except sqlite3.IntegrityError as e:
+            conn.execute("ROLLBACK TO bf_clear")
+            conn.execute("RELEASE bf_clear")
+            skipped += 1
+            _log.warning("backfill_contexts: task %s dilewati (%s)", tid, e)
+
+    next_pos: dict = {}  # scope -> posisi berikutnya, dibaca sekali per scope
+    for (scope, _key), members in sorted(groups.items(), key=lambda kv: (kv[0][0][0], kv[0][0][1], kv[0][1])):
+        kind, owner = scope
+        conn.execute("SAVEPOINT bf_group")
+        try:
+            if kind == "w":
+                existing = conn.execute(
+                    "SELECT id, name FROM contexts WHERE list_id=? AND name=? COLLATE NOCASE",
+                    (owner, members[0][1])).fetchone()
+            else:
+                existing = conn.execute(
+                    "SELECT id, name FROM contexts WHERE user_id=? AND list_id IS NULL "
+                    "AND name=? COLLATE NOCASE", (owner, members[0][1])).fetchone()
+            g_created = 0
+            if existing:
+                cid, canon = existing[0], existing[1]
+            else:
+                newest = max(members, key=lambda m: (m[0][5] or "", m[0][0]))
+                oldest = min(members, key=lambda m: (m[0][4] or "", m[0][0]))
+                canon = newest[1]
+                if kind == "w":
+                    created_by = oldest[0][2] if oldest[0][7] is not None else None
+                else:
+                    created_by = owner
+                has_active = any(m[0][3] not in ("done", "archived") for m in members)
+                col = "list_id" if kind == "w" else "user_id"
+                if scope not in next_pos:
+                    next_pos[scope] = conn.execute(
+                        f"SELECT COALESCE(MAX(position) + 1, 0) FROM contexts WHERE {col}=?",
+                        (owner,)).fetchone()[0]
+                cur = conn.execute(
+                    f"INSERT INTO contexts(name, {col}, position, archived, created_by, created_at, updated_at) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (canon, owner, next_pos[scope], 0 if has_active else 1, created_by, now, now))
+                cid = cur.lastrowid
+                g_created = 1
+            for r, _n in members:
+                conn.execute("UPDATE tasks SET context_id=?, context=? WHERE id=?", (cid, canon, r[0]))
+            conn.execute("RELEASE bf_group")
+            if g_created:
+                next_pos[scope] += 1
+            created += g_created
+            linked += len(members)
+        except sqlite3.IntegrityError as e:
+            conn.execute("ROLLBACK TO bf_group")
+            conn.execute("RELEASE bf_group")
+            skipped += 1
+            _log.warning("backfill_contexts: grup %s/%r dilewati (%s)", scope, members[0][1], e)
+    return {"created": created, "linked": linked, "cleared": cleared, "skipped": skipped}
+
+
 class TaskRepository:
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
@@ -747,6 +883,7 @@ class TaskRepository:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_published_user ON published_notes(user_id)")
 
             ensure_projects_schema(conn)
+            ensure_contexts_schema(conn)
 
     # ── Row to Task mapping ────────────────────────────────────────────────
 
@@ -833,6 +970,7 @@ class TaskRepository:
                 conn.execute("UPDATE tasks SET user_id = ? WHERE user_id = ?", (user["id"], old_user["id"]))
 
             backfill_projects(conn)  # task pindah pemilik -> project pribadi pemilik baru
+            backfill_contexts(conn)
             return user["id"]
 
     def assign_orphan_tasks(self, user_id: int) -> int:
@@ -841,6 +979,7 @@ class TaskRepository:
             cur = conn.execute("UPDATE tasks SET user_id = ? WHERE user_id IS NULL", (user_id,))
             n = cur.rowcount
             backfill_projects(conn)  # task kini punya pemilik -> hubungkan project-nya
+            backfill_contexts(conn)
             return n
 
     # ── User clause helper ─────────────────────────────────────────────────
