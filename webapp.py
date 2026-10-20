@@ -2615,16 +2615,194 @@ async def delete_project(project_id: int, user=Depends(get_current_user)):
         return {"ok": True, "tasks_cleared": cur.rowcount}
 
 
+class ContextCreate(BaseModel):
+    name: str
+    list_id: Optional[int] = None
+    client_id: Optional[str] = Field(default=None, max_length=64)  # diterima, tidak disimpan (idempoten lewat nama)
+
+
+class ContextPatch(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    archived: Optional[bool] = None
+
+
+class ContextOrder(BaseModel):
+    list_id: Optional[int] = None
+    ids: list[int]
+
+
+_CTX_404 = "Tahap tidak ditemukan"
+_CTX_ORDER = "ORDER BY COALESCE(list_id, 0), position, name COLLATE NOCASE, id"
+
+
+def _require_ws_member_404(conn, list_id, uid) -> None:
+    ok = conn.execute(
+        "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ? "
+        "UNION SELECT 1 FROM list_members WHERE list_id = ? AND user_id = ?",
+        (list_id, uid, list_id, uid)).fetchone()
+    if ok is None:
+        raise HTTPException(404, _CTX_404)
+
+
+def _context_full(conn, row, uid) -> dict:
+    cnt = conn.execute(
+        "SELECT COUNT(*) FROM tasks WHERE context_id = ? AND gtd_status NOT IN ('done','archived')",
+        (row["id"],)).fetchone()[0]
+    total = conn.execute("SELECT COUNT(*) FROM tasks WHERE context_id = ?", (row["id"],)).fetchone()[0]
+    return {
+        "id": row["id"], "name": row["name"], "list_id": row["list_id"],
+        "user_id": row["user_id"], "position": row["position"], "color": row["color"],
+        "archived": bool(row["archived"]), "created_by": row["created_by"],
+        "active_task_count": cnt, "task_count": total,
+        # baris contexts punya list_id/user_id/created_by yang sama dengan projects
+        "can_manage": _project_can_manage(conn, row, uid),
+        "updated_at": row["updated_at"],
+    }
+
+
+def _context_for_manage(conn, context_id, uid):
+    row = conn.execute("SELECT * FROM contexts WHERE id = ?", (context_id,)).fetchone()
+    # semua penolakan = 404 (spec §6), bukan oracle keberadaan
+    if row is None or not _project_visible(conn, row, uid) or not _project_can_manage(conn, row, uid):
+        raise HTTPException(404, _CTX_404)
+    return row
+
+
+def _ctx_taken() -> HTTPException:
+    return HTTPException(409, detail={"code": "CONTEXT_NAME_TAKEN", "message": "Nama tahap sudah dipakai"})
+
+
 @app.get("/api/contexts")
-async def get_contexts(user=Depends(get_current_user)):
+async def get_contexts(list_id: Optional[int] = None, format: Optional[str] = None,
+                       include_archived: int = 0, scope: Optional[str] = None,
+                       user=Depends(get_current_user)):
+    uid = user["sub"]
+    if scope == "all" and format != "full":
+        raise HTTPException(400, "scope=all hanya untuk format=full")
     with get_db() as conn:
+        if scope == "all":
+            arch = "" if include_archived else " AND archived = 0"
+            rows = conn.execute(
+                "SELECT * FROM contexts WHERE ((list_id IS NULL AND user_id = ?) OR list_id IN ("
+                "SELECT id FROM shared_lists WHERE owner_id = ? "
+                "UNION SELECT list_id FROM list_members WHERE user_id = ?))" + arch +
+                " " + _CTX_ORDER, (uid, uid, uid)).fetchall()
+            return [_context_full(conn, r, uid) for r in rows]
+        if list_id is not None:
+            _require_ws_member_404(conn, list_id, uid)
+            scope_sql, args = "list_id = ?", (list_id,)
+        else:
+            scope_sql, args = "user_id = ? AND list_id IS NULL", (uid,)
+        arch = "" if (format == "full" and include_archived) else " AND archived = 0"
         rows = conn.execute(
-            """SELECT DISTINCT context FROM tasks
-               WHERE context != '' AND user_id = ? AND gtd_status NOT IN ('done','archived')
-               ORDER BY context""",
-            (user["sub"],),
-        ).fetchall()
-    return [r["context"] for r in rows]
+            f"SELECT * FROM contexts WHERE {scope_sql}{arch} {_CTX_ORDER}", args).fetchall()
+        if format == "full":
+            return [_context_full(conn, r, uid) for r in rows]
+        return [r["name"] for r in rows]
+
+
+@app.post("/api/contexts")
+async def create_context(body: ContextCreate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Nama tahap tidak boleh kosong")
+    with get_db() as conn:
+        if body.list_id is not None:
+            _require_ws_member_404(conn, body.list_id, uid)
+        try:
+            cid, _ = repository.resolve_task_context(
+                conn, owner_id=uid, list_id=body.list_id, name=name,
+                context_id=None, actor_id=uid)
+        except repository.ContextScopeError:
+            raise HTTPException(404, _CTX_404)
+        row = conn.execute("SELECT * FROM contexts WHERE id = ?", (cid,)).fetchone()
+        return _context_full(conn, row, uid)
+
+
+# IMPORTANT: /api/contexts/order didaftarkan sebelum rute berparameter /api/contexts/{context_id}
+@app.put("/api/contexts/order")
+async def reorder_contexts(body: ContextOrder, user=Depends(get_current_user)):
+    uid = user["sub"]
+    stale = HTTPException(409, detail={"code": "CONTEXT_ORDER_STALE",
+                                       "message": "Urutan tahap sudah berubah, muat ulang"})
+    with get_db() as conn:
+        if body.list_id is not None:
+            _require_ws_member_404(conn, body.list_id, uid)
+            scope_sql, args = "list_id = ?", (body.list_id,)
+        else:
+            scope_sql, args = "user_id = ? AND list_id IS NULL", (uid,)
+        rows = conn.execute(
+            f"SELECT * FROM contexts WHERE {scope_sql} AND archived = 0 {_CTX_ORDER}", args).fetchall()
+        if len(set(body.ids)) != len(body.ids) or sorted(body.ids) != sorted(r["id"] for r in rows):
+            raise stale
+        old_pos = {r["id"]: i for i, r in enumerate(rows)}
+        by_id = {r["id"]: r for r in rows}
+        changed = [cid for i, cid in enumerate(body.ids) if old_pos[cid] != i]
+        for cid in changed:  # hak kelola untuk setiap context yang posisinya berubah
+            if not _project_can_manage(conn, by_id[cid], uid):
+                raise HTTPException(404, _CTX_404)
+        now = datetime.now().isoformat()
+        for i, cid in enumerate(body.ids):
+            if old_pos[cid] != i or by_id[cid]["position"] != i:
+                conn.execute("UPDATE contexts SET position = ?, updated_at = ? WHERE id = ?", (i, now, cid))
+        out = conn.execute(
+            f"SELECT * FROM contexts WHERE {scope_sql} AND archived = 0 {_CTX_ORDER}", args).fetchall()
+        return {"ok": True, "contexts": [_context_full(conn, r, uid) for r in out]}
+
+
+@app.patch("/api/contexts/{context_id}")
+async def update_context(context_id: int, body: ContextPatch, user=Depends(get_current_user)):
+    uid = user["sub"]
+    fields = body.model_fields_set
+    with get_db() as conn:
+        row = _context_for_manage(conn, context_id, uid)
+        now = datetime.now().isoformat()
+        sets, args = [], []
+        if "name" in fields and body.name is not None:
+            new = body.name.strip()
+            if not new:
+                raise HTTPException(400, "Nama tahap tidak boleh kosong")
+            if row["list_id"] is None:
+                dup = conn.execute(
+                    "SELECT 1 FROM contexts WHERE user_id = ? AND list_id IS NULL "
+                    "AND name = ? COLLATE NOCASE AND id <> ?", (row["user_id"], new, context_id)).fetchone()
+            else:
+                dup = conn.execute(
+                    "SELECT 1 FROM contexts WHERE list_id = ? AND name = ? COLLATE NOCASE AND id <> ?",
+                    (row["list_id"], new, context_id)).fetchone()
+            if dup:
+                raise _ctx_taken()
+            sets.append("name = ?"); args.append(new)
+            conn.execute("UPDATE tasks SET context = ?, updated_at = ? WHERE context_id = ?",
+                         (new, now, context_id))
+        if "color" in fields:
+            if body.color is not None and not _COLOR_RE.match(body.color):
+                raise HTTPException(400, "Warna harus format #rrggbb")
+            sets.append("color = ?"); args.append(body.color)
+        if "archived" in fields and body.archived is not None:
+            sets.append("archived = ?"); args.append(1 if body.archived else 0)
+        if sets:
+            sets.append("updated_at = ?"); args.append(now)
+            try:
+                conn.execute(f"UPDATE contexts SET {', '.join(sets)} WHERE id = ?", args + [context_id])
+            except sqlite3.IntegrityError:
+                raise _ctx_taken()
+        row = conn.execute("SELECT * FROM contexts WHERE id = ?", (context_id,)).fetchone()
+        return _context_full(conn, row, uid)
+
+
+@app.delete("/api/contexts/{context_id}")
+async def delete_context(context_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _context_for_manage(conn, context_id, uid)
+        cur = conn.execute(
+            "UPDATE tasks SET context_id = NULL, context = '', updated_at = ? WHERE context_id = ?",
+            (datetime.now().isoformat(), context_id))
+        conn.execute("DELETE FROM contexts WHERE id = ?", (context_id,))
+        return {"ok": True, "tasks_cleared": cur.rowcount}
 
 
 # ── Recalculate Eisenhower (manual trigger) ───────────────────────────────────
