@@ -9318,7 +9318,10 @@ function PomoAmbient({
     "aria-label": "Volume suara latar",
     "aria-valuetext": volume + "%",
     onChange: e => a.onVolume && a.onVolume(Number(e.target.value))
-  }));
+  }), React.createElement("span", {
+    className: "sr-only",
+    "aria-live": "polite"
+  }, tip || ""));
 }
 function PomodoroTimer({
   timer,

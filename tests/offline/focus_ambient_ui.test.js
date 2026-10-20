@@ -49,6 +49,13 @@ test("PomoAmbient: label, tooltip, data-state, SOUNDS", () => {
   assert.ok(src.includes("pomo-ambient-volume"));
 });
 
+test("PomoAmbient: status diumumkan lewat aria-live (bukan hanya warna ikon + title)", () => {
+  const src = fnSource("PomoAmbient");
+  assert.match(src, /className: "sr-only",\s*"aria-live": "polite"/);
+  // Teks yang diumumkan = tooltip yang sama (waiting-tap / error), kosong untuk status lain.
+  assert.match(src, /"aria-live": "polite"\s*\}, tip \|\| ""\)/);
+});
+
 test("PomodoroTimer merender PomoAmbient di focus-pomo-stats; props diteruskan", () => {
   const src = fnSource("PomodoroTimer");
   const stats = src.indexOf("focus-pomo-stats");
