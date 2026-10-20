@@ -349,7 +349,7 @@ test("runSyncExclusive: tugas berjalan berurutan, gagal tidak mengunci antrian, 
 
 test("index.html: sync(), push terjadwal & __pushNow lewat runSyncExclusive; drawingSaved juga saat merged > 0", () => {
   const sync = indexHtml.match(/function sync\(\) \{[\s\S]*?\n\}/)[0];
-  assert.match(sync, /const pending = runSyncExclusive\(\(\) => \{ __syncPending = null; return window\.TF\.syncpull\.pullAndReconcile/);
+  assert.match(sync, /const pending = runSyncExclusive\(\(\) => \{ __syncPending = null; tasksOk = false; notesOk = false; emitState\(true\); return window\.TF\.syncpull\.pullAndReconcile/);
   assert.match(sync, /drawRes\.merged > 0/);
   const sp = indexHtml.match(/function schedulePush\(\) \{[\s\S]*?\n\}/)[0];
   assert.match(sp, /runSyncExclusive\(\(\) => window\.TF\.syncpush\.pushOutbox\(__syncTransport\)\)/);

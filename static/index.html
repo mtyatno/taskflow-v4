@@ -1127,7 +1127,25 @@ function sync() {
   // __syncTransport) dengan token yang dipakai; laporan kedua tanpa token akan menghapus token yang baru diadopsi.
   const stepFailed = () => null;
   const step = (fn) => Promise.resolve().then(fn).catch(stepFailed);
-  const pending = runSyncExclusive(() => { __syncPending = null; return window.TF.syncpull.pullAndReconcile(__syncRawFetch).then((res) => {
+  // Gerbang intro dashboard: status sync (window.__syncState + tf:sync-state) dan penanda sync awal.
+  // tasksOk/notesOk = pull task / pull note resolve di putaran ini; gagal salah satunya → lastFailed.
+  let tasksOk = false, notesOk = false;
+  const emitState = (running) => {
+    const detail = { running: running, lastFailed: !(tasksOk && notesOk) && !running };
+    window.__syncState = detail;
+    window.dispatchEvent(new CustomEvent("tf:sync-state", { detail: detail }));
+  };
+  const finish = (r) => {
+    const ig = window.TF.introgate;
+    let marked = Promise.resolve();
+    if (tasksOk && notesOk && ig) {
+      const uid = ig.currentUserId();
+      if (uid != null) marked = Promise.resolve().then(() => ig.markInitialSync(uid)).then(() => window.dispatchEvent(new CustomEvent("tf:initial-sync", { detail: { user_id: uid } }))).catch(() => {});
+    }
+    return marked.then(() => { emitState(false); return r; });
+  };
+  const pending = runSyncExclusive(() => { __syncPending = null; tasksOk = false; notesOk = false; emitState(true); return window.TF.syncpull.pullAndReconcile(__syncRawFetch).then((res) => {
+      tasksOk = true;
       // PR 5: pull task sukses → cache project sudah disegarkan (syncpull) → dropdown & sidebar memuat ulang
       window.dispatchEvent(new CustomEvent("tf:projects-changed", { detail: { source: "sync" } }));
       // Kanban tahap: cache context juga disegarkan di pullAndReconcile → papan & dropdown memuat ulang
@@ -1141,6 +1159,7 @@ function sync() {
     .then(() => step(() => {
       if (!window.TF.syncpull.pullNotesAndReconcile) return null;
       return window.TF.syncpull.pullNotesAndReconcile(__syncRawFetch).then((notesRes) => {
+        notesOk = true;
         // T5: detail.cids = record note yang ditulis pull ini (+ salinan konflik) → editor yang terbuka memuat ulang / banner
         const cids = (notesRes && Array.isArray(notesRes.changedCids)) ? notesRes.changedCids : [];
         if (notesRes && (cids.length > 0 || notesRes.created > 0 || notesRes.updated > 0 || notesRes.deleted > 0 || notesRes.relinked > 0 || notesRes.conflictCopies > 0 || notesRes.listAdopted > 0)) {
@@ -1176,7 +1195,8 @@ function sync() {
     }))
     .then(() => window.TF.syncpush.pushOutbox(__syncTransport)) // 401 di sini → drain berhenti, op tetap; transport melapor ke handleAuthExpired
     .then((r) => { if (r && (r.busy || r.requeued)) schedulePush(); renderConflicts(); return r; })
-    .catch(() => { renderConflicts(); return null; }); });
+    .catch(() => { renderConflicts(); return null; })
+    .then(finish); });
   __syncPending = pending;
   return pending;
 }
