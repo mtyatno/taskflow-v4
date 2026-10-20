@@ -138,11 +138,14 @@
       if (taskScope(t, sharedLists) !== scope) { hiddenOtherScope++; continue; }
       const hasId = t.context_id != null && t.context_id !== "";
       const name = t.context == null ? "" : String(t.context);
+      // Id lebih dulu (live, lalu diarsip); nama NOCASE hanya bila id tidak cocok dengan item mana pun.
       let stage = hasId ? live.find((i) => sid(i.id) === sid(t.context_id)) : null;
-      if (!stage && name !== "") stage = live.find((i) => nocaseEq(i.name, name));
+      let arch = (!stage && hasId) ? archived.find((i) => sid(i.id) === sid(t.context_id)) : null;
+      if (!stage && !arch && name !== "") {
+        stage = live.find((i) => nocaseEq(i.name, name));
+        if (!stage) arch = archived.find((i) => nocaseEq(i.name, name));
+      }
       if (stage) { byStage.get(sid(stage.id)).push(t); continue; }
-      let arch = hasId ? archived.find((i) => sid(i.id) === sid(t.context_id)) : null;
-      if (!arch && name !== "") arch = archived.find((i) => nocaseEq(i.name, name));
       if (arch) { pushArchived(arch, t); continue; }
       if (name === "") { none.push(t); continue; }
       const k = "orphan:" + nocaseKey(name);
@@ -162,10 +165,9 @@
     }
     const un = Array.from(unsyncedCols.entries()).sort((a, b) => nocaseCompare(a[1].name, b[1].name));
     for (const [k, v] of un) {
-      if (archivedCols.has(k)) continue; // kunci nama sama sudah dipakai kolom diarsip
       columns.push({ key: k, kind: "orphan", label: v.name + " (belum tersinkron)", tasks: sortCards(v.tasks), color: null });
     }
-    columns.push(doneColumn(opts.donePool));
+    columns.push(doneColumn((opts.donePool || []).filter((t) => taskScope(t, sharedLists) === scope)));
     return { columns, hiddenOtherScope };
   }
 
@@ -186,7 +188,8 @@
   }
 
   // ---- aksi drop ----
-  // Kolom project: patch ditentukan pemanggil lewat projectDropTarget(task, meta); di sini hanya columnKey.
+  // Kolom project: patch ditentukan pemanggil lewat projectDropTarget(task, meta); `reopen:true` = pemanggil
+  // juga menambahkan gtd_status:"next".
   function dropAction(a) {
     const { task, from, to } = a;
     if (!from || !to || from.key === to.key) return { type: "none" };
@@ -204,12 +207,8 @@
     else if (to.kind === "project") columnKey = to.key;
     else return { type: "none" };
 
-    if (from.kind === "done") {
-      const out = { type: "reopen", patch: Object.assign({ gtd_status: "next" }, patch || {}) };
-      if (columnKey !== undefined) out.columnKey = columnKey;
-      return out;
-    }
-    if (columnKey !== undefined) return { type: "project", columnKey };
+    if (columnKey !== undefined) return { type: "project", columnKey, reopen: from.kind === "done" };
+    if (from.kind === "done") return { type: "reopen", patch: Object.assign({ gtd_status: "next" }, patch) };
     return { type: "patch", patch };
   }
 

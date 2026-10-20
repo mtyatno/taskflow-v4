@@ -172,14 +172,14 @@ test("dropAction with cid string task id", () => {
   assert.deepEqual(A({ from: done, to: none }), { type: "reopen", patch: { gtd_status: "next", context_id: null, context: "" } });
   assert.deepEqual(A({ from: done, to: p2, groupBy: "priority" }), { type: "reopen", patch: { gtd_status: "next", priority: "P2" } });
   assert.deepEqual(A({ from: done, to: p0, groupBy: "priority" }), { type: "reopen", patch: { gtd_status: "next", priority: "" } });
-  assert.deepEqual(A({ from: done, to: pr, groupBy: "project" }), { type: "reopen", patch: { gtd_status: "next" }, columnKey: "proj:x" });
+  assert.deepEqual(A({ from: done, to: pr, groupBy: "project" }), { type: "project", columnKey: "proj:x", reopen: true });
   assert.deepEqual(A({ from: none, to: st2 }), { type: "patch", patch: { context_id: 5, context: "Beta" } });
   assert.deepEqual(A({ from: st, to: none }), { type: "patch", patch: { context_id: null, context: "" } });
   assert.deepEqual(A({ from: st, to: orphan }), { type: "none" });
   assert.deepEqual(A({ from: done, to: orphan }), { type: "none" });
   assert.deepEqual(A({ from: p0, to: p2, groupBy: "priority" }), { type: "patch", patch: { priority: "P2" } });
   assert.deepEqual(A({ from: p2, to: p0, groupBy: "priority" }), { type: "patch", patch: { priority: "" } });
-  assert.deepEqual(A({ from: pr, to: { key: "proj:y", kind: "project", tasks: [] }, groupBy: "project" }), { type: "project", columnKey: "proj:y" });
+  assert.deepEqual(A({ from: pr, to: { key: "proj:y", kind: "project", tasks: [] }, groupBy: "project" }), { type: "project", columnKey: "proj:y", reopen: false });
 });
 
 test("moveTargets excludes source and orphan", () => {
@@ -203,4 +203,33 @@ test("reorderIds swaps and refuses pending/edges", () => {
   assert.equal(KB.reorderIds(items, "", "cid-1", -1), null);
   assert.equal(KB.reorderIds(items, "", 99, 1), null);
   assert.deepEqual(KB.reorderIds(items, "7", 9, 1), null);
+});
+
+test("buildContextBoard scopes the done pool to the board scope", () => {
+  const shared = [{ id: 7, name: "W" }];
+  const pool = [
+    T({ id: 1, gtd_status: "done", completed_at: "2026-10-19T00:00:00Z" }),
+    T({ id: 2, gtd_status: "done", list_id: 7, completed_at: "2026-10-19T00:00:00Z" }),
+    T({ id: 3, gtd_status: "done", list_id: 99, completed_at: "2026-10-18T00:00:00Z" }),
+  ];
+  const done = (scope) => KB.buildContextBoard({ tasks: [], donePool: pool, items: [], scope, sharedLists: shared })
+    .columns.find((c) => c.key === "done").tasks;
+  assert.deepEqual(ids(done("")), [1, 3]);
+  assert.deepEqual(ids(done("7")), [2]);
+  assert.deepEqual(ids(KB.buildPriorityBoard({ tasks: [], donePool: pool }).columns.at(-1).tasks), ids(KB.sortDone(pool)));
+});
+
+test("buildContextBoard strictly matches id first, even archived over same-name live", () => {
+  const items = [
+    I({ id: 1, name: "Alpha", position: 1 }),
+    I({ id: 2, name: "Alpha", position: 2, archived: true }),
+  ];
+  const { columns } = KB.buildContextBoard({
+    tasks: [T({ id: 1, context_id: 2, context: "Alpha" }), T({ id: 2, context_id: 99, context: "Alpha" })],
+    donePool: [], items, scope: "", sharedLists: [],
+  });
+  const by = (k) => columns.find((c) => c.key === k);
+  assert.deepEqual(ids(by("orphan:alpha").tasks), [1]);
+  assert.equal(by("orphan:alpha").label, "Alpha (diarsip)");
+  assert.deepEqual(ids(by("stage:1").tasks), [2]); // id tak dikenal -> nama
 });
