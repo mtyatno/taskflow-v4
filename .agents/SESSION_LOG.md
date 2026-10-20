@@ -3583,6 +3583,11 @@
 
 ## 2026-10-20 12:13 WIB — Claude — merge main (#55 ikon tampilan Tasks) ke `claude/note-media-ui`
 - Konflik hanya string versi (SW v427 dipakai #55) + `.gitignore` (gabungan) + `.agents/*` (kedua entri dipertahankan). Kode kedua sisi utuh.
-- SW naik ke `taskflow-v428-note-media`, `app.css?v=337` di `static/sw.js`, `static/index.html`, `webapp.py`, `tests/test_version.py`, semua tes node yang menambatkan versi, `temporary_files/e2e_note_media.py`.
+- SW naik ke `taskflow-v429-note-media` (setelah merge #56; sebelumnya v428), `app.css?v=337` di `static/sw.js`, `static/index.html`, `webapp.py`, `tests/test_version.py`, semua tes node yang menambatkan versi, `temporary_files/e2e_note_media.py`.
 - **Verifikasi:** inline OK, JS 2110/2111 (pra-ada `draw_local_reactive`), pytest 816, E2E `e2e_note_media.py` 54/54.
-- **Status:** Needs Review (draft PR; deploy statis, restart `taskflow-web` agar `/api/version` v428).
+- **Status:** Needs Review (draft PR; deploy statis, restart `taskflow-web` agar `/api/version` v429).
+## 2026-10-20 11:55 WIB — Claude — jeda tab workspace di bawah header
+- Bapak: tombol Tasks menempel ke garis top menu. Penyebab: halaman lain dibuka `h1` (margin atas bawaan), halaman workspace dibuka baris tab tanpa margin atas. Fix `marginTop: 16`, SW v428. **Status:** Needs Review (draft PR; restart `taskflow-web`).
+
+## 2026-10-20 12:17 WIB — Claude — merge main (#56) ke claude/note-media-ui
+- Merge `origin/main` (#56 jeda tab workspace, SW v428) ke cabang media UI; konflik hanya string versi + log. SW final `taskflow-v429-note-media`, `app.css?v=337` (main 336). **Status:** Needs Review.
