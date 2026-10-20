@@ -5748,9 +5748,7 @@ async def upload_note_attachment(note_id: int, file: UploadFile = FastAPIFile(..
     import requests as _req
     uid = user["sub"]
     with get_db() as conn:
-        note = conn.execute(
-            "SELECT id FROM scratchpad_notes WHERE id=? AND user_id=?", (note_id, uid)
-        ).fetchone()
+        note = _accessible_note(conn, uid, note_id)
         if not note:
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
 
@@ -5785,9 +5783,7 @@ async def upload_note_attachment(note_id: int, file: UploadFile = FastAPIFile(..
 async def list_note_attachments(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        note = conn.execute(
-            "SELECT id FROM scratchpad_notes WHERE id=? AND user_id=?", (note_id, uid)
-        ).fetchone()
+        note = _accessible_note(conn, uid, note_id)
         if not note:
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
         rows = conn.execute(
@@ -5795,19 +5791,47 @@ async def list_note_attachments(note_id: int, user=Depends(get_current_user)):
         ).fetchall()
         return [dict(r) for r in rows]
 
+def _delete_media_files(row) -> None:
+    """Hapus file media (storage_key, poster_key) dan semua sisa sementara `.tmp/<id>.*` milik baris itu.
+    Menerima sqlite3.Row atau dict. Tidak pernah melempar: kegagalan hanya dicatat di log."""
+    try:
+        att_id = int(row["id"])
+    except (TypeError, ValueError, KeyError, IndexError):
+        return
+    for col in ("storage_key", "poster_key"):
+        try:
+            media_storage.delete(row[col])
+        except (ValueError, OSError):
+            logger.warning("hapus file media gagal: id=%s kolom=%s", att_id, col, exc_info=True)
+    try:
+        tmp_dir = Path(MEDIA_ROOT) / ".tmp"
+        for p in tmp_dir.glob(f"{att_id}.*"):
+            try:
+                p.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                logger.warning("hapus file sementara gagal: %s", p, exc_info=True)
+    except OSError:
+        logger.warning("pindai .tmp gagal: id=%s", att_id, exc_info=True)
+
+
 @app.delete("/api/scratchpad/attachments/{att_id}")
 async def delete_note_attachment(att_id: int, user=Depends(get_current_user)):
     import requests as _req
     uid = user["sub"]
     with get_db() as conn:
-        att = conn.execute("SELECT * FROM note_attachments WHERE id=?", (att_id,)).fetchone()
+        att = _accessible_attachment(conn, uid, att_id)
         if not att:
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
-        if att["user_id"] != uid:
+        if att["user_id"] != uid and att["note_owner_id"] != uid:
             raise HTTPException(status_code=403, detail="Bukan attachment milikmu")
-        r = _req.delete(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=10)
-        if r.status_code not in (200, 204, 404):  # 404 = already deleted, still OK
-            raise HTTPException(status_code=500, detail=f"Nextcloud delete gagal: {r.status_code}")
+        if att["storage"] == "local":
+            _delete_media_files(att)
+        else:
+            r = _req.delete(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=10)
+            if r.status_code not in (200, 204, 404):  # 404 = already deleted, still OK
+                raise HTTPException(status_code=500, detail=f"Nextcloud delete gagal: {r.status_code}")
         conn.execute("DELETE FROM note_attachments WHERE id=?", (att_id,))
         conn.commit()
     return {"ok": True}
@@ -5817,11 +5841,14 @@ async def view_note_attachment(att_id: int, user=Depends(get_current_user_sse)):
     import requests as _req
     uid = user["sub"]
     with get_db() as conn:
-        att = conn.execute("SELECT * FROM note_attachments WHERE id=?", (att_id,)).fetchone()
+        att = _accessible_attachment(conn, uid, att_id)
         if not att:
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
-        if att["user_id"] != uid:
-            raise HTTPException(status_code=403, detail="Bukan attachment milikmu")
+    if att["kind"] == "media":
+        if att["status"] != "ready":
+            raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
+        urls = _media_urls(att["id"], bool(att["poster_key"]), int(_time.time()))
+        return RedirectResponse(urls["play_url"], status_code=302)
     r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=30, stream=True)
     if r.status_code != 200:
         raise HTTPException(status_code=404, detail="File tidak ditemukan di Nextcloud")
