@@ -101,6 +101,7 @@ def test_post_task_context_id_other_scope_400(client):
     cid = _ctx(user_id=other.id)
     r = u.post("/api/tasks", json={"title": "t", "context_id": cid})
     assert r.status_code == 400
+    assert r.json()["detail"] == "Tahap tidak berada di scope task"
 
 
 def test_post_task_workspace_context(client):
@@ -192,7 +193,11 @@ def test_put_deleted_context_id_ignored(client):
 
 def test_put_context_id_other_scope_400(client):
     u, other = U(client), U(client)
-    t = _mk(u)
+    t = _mk(u, title="asli", context=_n())
     cid = _ctx(user_id=other.id)
-    r = u.put(f"/api/tasks/{t['id']}", json={"context_id": cid})
+    r = u.put(f"/api/tasks/{t['id']}", json={"title": "x", "context_id": cid})
     assert r.status_code == 400
+    assert r.json()["detail"] == "Tahap tidak berada di scope task"
+    row = _row("SELECT title, context, context_id FROM tasks WHERE id = ?", t["id"])
+    assert row["title"] == "asli" and row["context"] == t["context"]
+    assert row["context_id"] == t["context_id"]
