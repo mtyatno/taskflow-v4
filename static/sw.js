@@ -25,6 +25,7 @@ const STATIC = [
   "/static/offline/voicedictate.js",
   "/static/offline/drawdirective.js",
   "/static/offline/mediadirective.js",
+  "/static/offline/mediaupload.js",
   "/static/offline/safehtml.js",
   "/static/offline/habitlogic.js",
   "/static/offline/habitrepo.js",
