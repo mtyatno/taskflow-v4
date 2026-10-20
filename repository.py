@@ -331,6 +331,62 @@ def ensure_contexts_schema(conn) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_context_id ON tasks(context_id)")
 
 
+PIN_LIMIT = 5
+_PIN_SEED_COUNT = 3
+
+
+class PinLimitError(Exception):
+    """User sudah punya PIN_LIMIT workspace yang di-pin."""
+
+
+def ensure_workspace_pins_schema(conn) -> None:
+    """Tabel `workspace_pins` + kolom `users.workspace_pins_seeded` (idempoten)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS workspace_pins (
+            user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            list_id     INTEGER NOT NULL REFERENCES shared_lists(id) ON DELETE CASCADE,
+            position    INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL,
+            PRIMARY KEY (user_id, list_id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_workspace_pins_list ON workspace_pins(list_id)")
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+    if "workspace_pins_seeded" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN workspace_pins_seeded INTEGER NOT NULL DEFAULT 0")
+
+
+def seed_workspace_pins(conn, user_id: int) -> int:
+    """Pin awal sekali per user: sampai 3 workspace paling aktif. Mengembalikan jumlah pin
+    yang disisipkan. Tidak commit. Tidak berbuat apa pun bila sudah di-seed atau tanpa workspace."""
+    row = conn.execute("SELECT workspace_pins_seeded FROM users WHERE id = ?", (user_id,)).fetchone()
+    if row is None or row[0]:
+        return 0
+    ids = conn.execute(
+        """SELECT sl.id
+           FROM shared_lists sl
+           LEFT JOIN (SELECT list_id, MAX(updated_at) AS last_act FROM tasks
+                      WHERE list_id IS NOT NULL GROUP BY list_id) ta ON ta.list_id = sl.id
+           WHERE sl.owner_id = ?
+              OR sl.id IN (SELECT list_id FROM list_members WHERE user_id = ?)
+           ORDER BY (ta.last_act IS NULL), ta.last_act DESC, sl.created_at DESC, sl.id DESC
+           LIMIT ?""",
+        (user_id, user_id, _PIN_SEED_COUNT),
+    ).fetchall()
+    if not ids:
+        return 0
+    now = datetime.now().isoformat()
+    inserted = 0
+    for pos, r in enumerate(ids):
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO workspace_pins(user_id, list_id, position, created_at) VALUES (?,?,?,?)",
+            (user_id, r[0], pos, now),
+        )
+        inserted += cur.rowcount
+    conn.execute("UPDATE users SET workspace_pins_seeded = 1 WHERE id = ?", (user_id,))
+    return inserted
+
+
 def backfill_contexts(conn) -> dict:
     """Buat/hubungkan context dari teks `tasks.context` + perbaiki link basi.
 
@@ -953,6 +1009,7 @@ class TaskRepository:
 
             ensure_projects_schema(conn)
             ensure_contexts_schema(conn)
+            ensure_workspace_pins_schema(conn)
 
     # ── Row to Task mapping ────────────────────────────────────────────────
 
@@ -1535,18 +1592,64 @@ class TaskRepository:
                    WHERE lm.user_id = ?""",
                 (user_id,),
             ).fetchall()
+            if owned or membered:
+                flag = conn.execute(
+                    "SELECT workspace_pins_seeded FROM users WHERE id = ?", (user_id,)
+                ).fetchone()
+                if flag is not None and not flag[0]:
+                    conn.execute("BEGIN IMMEDIATE")  # seed + flag atomik, tanpa kunci tulis di jalur umum
+                    seed_workspace_pins(conn, user_id)
+                    conn.commit()
+            pins = {
+                r["list_id"]: r["position"]
+                for r in conn.execute(
+                    "SELECT list_id, position FROM workspace_pins WHERE user_id = ?", (user_id,)
+                ).fetchall()
+            }
             result = []
-            for r in owned:
-                cnt = conn.execute(
-                    "SELECT COUNT(*) as c FROM list_members WHERE list_id = ?", (r["id"],)
-                ).fetchone()["c"]
-                result.append({**dict(r), "role": "owner", "member_count": cnt})
-            for r in membered:
-                cnt = conn.execute(
-                    "SELECT COUNT(*) as c FROM list_members WHERE list_id = ?", (r["id"],)
-                ).fetchone()["c"]
-                result.append({**dict(r), "role": "member", "member_count": cnt})
+            for rows, role in ((owned, "owner"), (membered, "member")):
+                for r in rows:
+                    cnt = conn.execute(
+                        "SELECT COUNT(*) as c FROM list_members WHERE list_id = ?", (r["id"],)
+                    ).fetchone()["c"]
+                    result.append({
+                        **dict(r), "role": role, "member_count": cnt,
+                        "pinned": r["id"] in pins, "pin_position": pins.get(r["id"]),
+                    })
             return result
+
+    def pin_workspace(self, user_id: int, list_id: int) -> int:
+        """Pin workspace; idempoten (mengembalikan posisi lama). PinLimitError bila sudah
+        PIN_LIMIT pin lain. Tidak memeriksa akses."""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("UPDATE users SET workspace_pins_seeded = 1 WHERE id = ?", (user_id,))
+            row = conn.execute(
+                "SELECT position FROM workspace_pins WHERE user_id = ? AND list_id = ?",
+                (user_id, list_id),
+            ).fetchone()
+            if row:
+                return row["position"]
+            cnt, mx = conn.execute(
+                "SELECT COUNT(*), COALESCE(MAX(position), -1) FROM workspace_pins WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+            if cnt >= PIN_LIMIT:
+                raise PinLimitError(f"Maksimal {PIN_LIMIT} workspace di-pin")
+            conn.execute(
+                "INSERT INTO workspace_pins(user_id, list_id, position, created_at) VALUES (?,?,?,?)",
+                (user_id, list_id, mx + 1, datetime.now().isoformat()),
+            )
+            return mx + 1
+
+    def unpin_workspace(self, user_id: int, list_id: int) -> bool:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("UPDATE users SET workspace_pins_seeded = 1 WHERE id = ?", (user_id,))
+            cur = conn.execute(
+                "DELETE FROM workspace_pins WHERE user_id = ? AND list_id = ?", (user_id, list_id)
+            )
+            return cur.rowcount > 0
 
     def add_list_member(self, list_id: int, user_id: int) -> bool:
         now = datetime.now().isoformat()
@@ -1564,6 +1667,9 @@ class TaskRepository:
         with self._connect() as conn:
             cur = conn.execute(
                 "DELETE FROM list_members WHERE list_id = ? AND user_id = ?", (list_id, user_id)
+            )
+            conn.execute(
+                "DELETE FROM workspace_pins WHERE user_id = ? AND list_id = ?", (user_id, list_id)
             )
             return cur.rowcount > 0
 
