@@ -4272,7 +4272,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v428-workspace-tabs-gap"
+    sw_cache = "taskflow-v429-note-media"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

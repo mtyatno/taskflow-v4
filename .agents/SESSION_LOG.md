@@ -3558,6 +3558,13 @@
 - main maju dua kali (media #51 → ADR-017; workspace pins #52/#53 → SW v425 + ADR-018): branch di-merge main, SW jadi v426, ADR jadi ADR-019.
 - **Verifikasi:** npm 1968/1969 (+1 pra-ada), pytest 814, E2E 51/0. **Status:** Needs Review (draft PR; restart `taskflow-web`).
 
+## 2026-10-20 — Claude — PR frontend audio/video di note (Task 7/7)
+- **Task:** Task terakhir SDD `docs/superpowers/plans/2026-10-20-note-media-ui.md` (branch `claude/note-media-ui`, setelah merge `main` a2d407b).
+- **Changes:** SW: `/media/` tidak di-intercept; `/api/media/…` dan `/api/scratchpad/<id>/media…` network-only (offline → 503 `OFFLINE`, tanpa cache); naik SW `taskflow-v427-note-media` + `app.css?v=336` di semua tempat; CSP Tauri `media-src` + `https://todo.yatno.web.id`; tes `tests/offline/sw_media.test.js` (TDD RED 5/6 → GREEN 6/6); E2E `temporary_files/e2e_note_media.py` 45/45 dengan SW aktif; status backend #51 → aktif di produksi.
+- **Files Touch:** `static/sw.js`, `static/index.html`, `webapp.py`, `src-tauri/tauri.conf.json`, `tests/offline/*` (versi), `tests/test_version.py`, `tests/offline/sw_media.test.js`, `temporary_files/e2e_note_media.py`, `.gitignore`, `.agents/*`
+- **Verifikasi:** inline OK, JS 2066/2067 (pra-ada `draw_local_reactive`), pytest 815, E2E 45/45.
+- **Status:** Needs Review (draft PR; deploy statis, restart `taskflow-web` agar `/api/version` v427).
+
 ## 2026-10-20 11:20 WIB — Claude — ikon tampilan halaman Tasks + tab workspace
 - Bapak minta ikon Normal / Compact / Kanban dibuat lebih indah; dari 3 opsi memilih "B · Duotone" + tombol tergabung, lalu minta ikon tab Tasks / Files workspace diganti dengan gaya yang sama.
 - SDD 2 task (implementer sonnet), review akhir opus → siap merge, tanpa temuan Critical/Important. Branch `claude/tasklist-view-icons`, SW v427 (renumber: v426 dipakai Kanban #54), `app.css?v=336`.
@@ -3567,9 +3574,24 @@
 - Bapak: "merge". #55 di-merge (0c4ed23); CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek toggle Normal / Compact / Kanban dan tab Tasks / Files workspace (SW v427).
 
+## 2026-10-20 12:08 WIB — Claude — PR frontend audio/video di note: gelombang perbaikan review akhir
+- **Task:** perbaiki 9 temuan review akhir seluruh branch `claude/note-media-ui` (`.superpowers/sdd/2026-10-20-note-media-ui/final-findings.md`), TDD per item.
+- **Changes:** hak hapus daftar lampiran `uploaded_by ?? user_id`; sisip node media langsung + `remarkMediaPlugin` toleran atribut terpecah; bridge pytest 7 file; `abortAll()` + logout + `tf_media_uploads`; unduhan native lewat `tf-open-attachment`; refresh URL `stalled`/jam lokal/30 dtk; kartu Gagal/`safeHref`/ukuran; manajer: file tak terbaca, reset `attempt`, batas exception; E2E alur 9.
+- **Files Touch:** `static/index.html`, `static/app.css` (tanpa naik versi), `static/offline/{mediadirective,mediaupload,mediacard}.js`, `tests/offline/{mediadirective,mediaupload,mediacard,note_media_editor,note_media_attachments,render_markdown_media}.test.js`, `tests/test_note_media_ui_node.py`, `temporary_files/e2e_note_media.py`, `.agents/*`
+- **Verifikasi:** inline OK, JS 2089/2090 (pra-ada `draw_local_reactive`), pytest 816, E2E 54/54.
+- **Status:** Needs Review (draft PR; SW v427 / app.css v336 tetap — kemudian v428/337 saat merge main #55).
+
+## 2026-10-20 12:13 WIB — Claude — merge main (#55 ikon tampilan Tasks) ke `claude/note-media-ui`
+- Konflik hanya string versi (SW v427 dipakai #55) + `.gitignore` (gabungan) + `.agents/*` (kedua entri dipertahankan). Kode kedua sisi utuh.
+- SW naik ke `taskflow-v429-note-media` (setelah merge #56; sebelumnya v428), `app.css?v=337` di `static/sw.js`, `static/index.html`, `webapp.py`, `tests/test_version.py`, semua tes node yang menambatkan versi, `temporary_files/e2e_note_media.py`.
+- **Verifikasi:** inline OK, JS 2110/2111 (pra-ada `draw_local_reactive`), pytest 816, E2E `e2e_note_media.py` 54/54.
+- **Status:** Needs Review (draft PR; deploy statis, restart `taskflow-web` agar `/api/version` v429).
 ## 2026-10-20 11:55 WIB — Claude — jeda tab workspace di bawah header
 - Bapak: tombol Tasks menempel ke garis top menu. Penyebab: halaman lain dibuka `h1` (margin atas bawaan), halaman workspace dibuka baris tab tanpa margin atas. Fix `marginTop: 16`, SW v428. **Status:** Needs Review (draft PR; restart `taskflow-web`).
 
 ## 2026-10-20 12:15 WIB — Claude — merge jeda tab workspace (#56)
 - Bapak: "merge". #56 di-merge (7de8276); CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek jeda di bawah header halaman workspace (SW v428).
+
+## 2026-10-20 12:17 WIB — Claude — merge main (#56) ke claude/note-media-ui
+- Merge `origin/main` (#56 jeda tab workspace, SW v428) ke cabang media UI; konflik hanya string versi + log. SW final `taskflow-v429-note-media`, `app.css?v=337` (main 336). **Status:** Needs Review.

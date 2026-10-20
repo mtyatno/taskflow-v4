@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v401", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v428-workspace-tabs-gap";/m,
-      "sw.js CACHE must be taskflow-v428-workspace-tabs-gap"
+      /^const CACHE = "taskflow-v429-note-media";/m,
+      "sw.js CACHE must be taskflow-v429-note-media"
     );
   });
 });

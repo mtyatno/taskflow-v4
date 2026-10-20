@@ -1116,6 +1116,9 @@
       #note-print-area .note-draw-card[data-size="M"] .note-draw-preview-container svg { max-height: 280px !important; width: 100% !important; height: auto !important; display: block !important; }
       #note-print-area .note-draw-card[data-size="L"] .note-draw-preview-container svg, #note-print-area .note-draw-card .note-draw-preview-container svg { max-height: 380px !important; width: 100% !important; height: auto !important; display: block !important; }
       #note-print-area .drawing-preview-placeholder { display: none !important; }
+      #note-print-area .note-media-card { border: 1px solid #d1d5db !important; background: #ffffff !important; border-radius: 6px !important; padding: 4pt 8pt !important; margin: 6pt 0 !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+      #note-print-area .note-media-player, #note-print-area .note-media-actions, #note-print-area .note-media-bar, #note-print-area .note-media-status, #note-print-area .note-media-card video, #note-print-area .note-media-card audio { display: none !important; }
+      #note-print-area .note-media-caption { display: flex !important; align-items: center !important; gap: 4pt !important; font-size: 10pt !important; font-weight: 600 !important; }
       #note-print-area .npa-footer { position: fixed; bottom: 0; left: 0; right: 0; padding: 3mm 15mm; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; font-size: 9pt; color: #9ca3af; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
     .note-rendered img { max-width: 100%; border-radius: 6px; margin: 6px 0; display: block; }
@@ -2082,6 +2085,94 @@
   width: 100%;
 }
 
+/* Note Inline Media Card (::media audio/video) — isi dari TF.mediacard.cardHtml, player dibuat lewat DOM */
+.note-media-card {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  margin: 12px 0;
+  padding: 10px 12px;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow: hidden;
+}
+.note-media-caption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 0;
+}
+.note-media-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.note-media-duration,
+.note-media-size {
+  font-weight: 400;
+  color: var(--text-light);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.note-media-status {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-light);
+}
+.note-media-bar {
+  margin-top: 6px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+.note-media-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.note-media-player {
+  margin-top: 8px;
+}
+.note-media-player video,
+.note-media-player audio {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  border-radius: 6px;
+}
+.note-media-player video {
+  max-height: 420px;
+  background: #000;
+}
+.note-media-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.note-media-btn {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.note-media-btn:hover {
+  border-color: var(--accent);
+}
+.note-media-actions a[data-media-download] {
+  color: var(--accent);
+}
 /* Note Inline Draw Card Embed */
 .note-draw-card {
   display: block;

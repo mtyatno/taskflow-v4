@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v428-workspace-tabs-gap/,
-      "sw.js should be bumped to taskflow-v428-workspace-tabs-gap"
+      /taskflow-v429-note-media/,
+      "sw.js should be bumped to taskflow-v429-note-media"
     );
   });
 

@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v428-workspace-tabs-gap', () => {
+  test('Service Worker cache version is bumped to taskflow-v429-note-media', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v428-workspace-tabs-gap";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v429-note-media";/m);
   });
 });
 

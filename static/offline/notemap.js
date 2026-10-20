@@ -193,6 +193,8 @@
     text = text.replace(/<\/?[a-zA-Z][^<>\n]*>/g, "");
     text = text.replace(/!\[[^[\]\n]*\]\([^()[\]\n]*\)/g, () => (images++, ""));
     text = text.replace(/::draw\[[^[\]\n]*\](?:\{[^{}\n]*\})?/g, () => (images++, ""));
+    // Kartu audio/video tidak dihitung sebagai gambar; bentuk ter-escape remark (\::media\[..\]) ikut dibuang.
+    text = text.replace(/\\?::media\\?\[[^[\]\n]*\](?:[ \t]*\\?\{[^{}\n]*\})?/g, "");
     text = text
       .replace(/\[tasklink:[^[\]\n]*\]/g, "")
       .replace(LINK_WIKI_RE, "$1")
