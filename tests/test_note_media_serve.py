@@ -1,11 +1,16 @@
 """Tes penyajian media: metadata, URL bertanda tangan, /media/{token}."""
+import shutil
+import subprocess
 import time
 import uuid
 from pathlib import Path
 
+import pytest
+
 import webapp
 from conftest import db
 from drawing_ws_helpers import add_member, auth, make_note, uid_of, workspace
+from media_probe import needs_faststart
 from media_serve import sign_token
 
 MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2" + b"\x00" * 16  # 36 byte
@@ -244,3 +249,47 @@ def test_media_token_head_python_range(client, monkeypatch):
     # GET tidak berubah
     r = client.get(f"/media/{t}", headers={"Range": "bytes=0-9"})
     assert r.status_code == 206 and r.content == MP4[:10]
+
+
+@pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="ffmpeg tidak terpasang")
+def test_end_to_end_upload_process_and_range(client, monkeypatch, tmp_path):
+    """Temuan akhir #13: init → PATCH bertahap → complete → worker sungguhan → ready → Range 206."""
+    monkeypatch.setattr(webapp, "MEDIA_ACCEL", False)
+    q = webapp.media_worker._queue
+    while not q.empty():  # buang sisa antrean tes lain agar hanya lampiran ini yang diproses
+        q.get_nowait()
+    src = tmp_path / "clip.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc=duration=2:size=320x240:rate=15",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:v", "libx264", "-c:a", "aac",
+         "-pix_fmt", "yuv420p", "-shortest", str(src)], check=True)
+    data = src.read_bytes()
+    assert needs_faststart(src) is True  # worker sungguhan harus me-remux
+    h = auth(client, _uniq("e2e"))
+    nid = make_note(client, h, "n", "c")["id"]
+    r = client.post(f"/api/scratchpad/{nid}/media", headers=h,
+                    json={"client_id": _uniq("c"), "filename": "klip.mp4", "size": len(data), "mime": "video/mp4"})
+    assert r.status_code == 200, r.text
+    att = r.json()["id"]
+    step = len(data) // 3 + 1
+    for off in range(0, len(data), step):
+        p = client.patch(f"/api/media/{att}/upload", headers={**h, "Upload-Offset": str(off)},
+                         content=data[off:off + step])
+        assert p.status_code == 200, p.text
+    c = client.post(f"/api/media/{att}/complete", headers=h)
+    assert c.status_code == 200 and c.json()["status"] == "processing", c.text
+    assert webapp.media_worker.run_pending() == 1
+    meta = client.get(f"/api/media/{att}", headers=h).json()
+    assert meta["status"] == "ready", meta["error"]
+    assert meta["media_type"] == "video" and meta["mime_type"] == "video/mp4"
+    assert 1800 <= meta["duration_ms"] <= 2300 and (meta["width"], meta["height"]) == (320, 240)
+    assert meta["play_url"] and meta["poster_url"]
+    stored = Path(webapp.MEDIA_ROOT) / _row(att)["storage_key"]
+    assert needs_faststart(stored) is False
+    g = client.get(meta["play_url"], headers={"Range": "bytes=0-99"})
+    assert g.status_code == 206
+    assert g.headers["content-range"] == f"bytes 0-99/{stored.stat().st_size}"
+    assert g.headers["content-type"] == "video/mp4" and g.content == stored.read_bytes()[:100]
+    assert len(g.content) == 100
+    pg = client.get(meta["poster_url"])
+    assert pg.status_code == 200 and pg.headers["content-type"] == "image/jpeg" and pg.content[:2] == b"\xff\xd8"
