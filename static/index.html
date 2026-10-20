@@ -1139,8 +1139,15 @@ function sync() {
     const ig = window.TF.introgate;
     let marked = Promise.resolve();
     if (tasksOk && notesOk && ig) {
-      const uid = ig.currentUserId();
-      if (uid != null) marked = Promise.resolve().then(() => ig.markInitialSync(uid)).then(() => window.dispatchEvent(new CustomEvent("tf:initial-sync", { detail: { user_id: uid } }))).catch(() => {});
+      // Tulis penanda + pancarkan tf:initial-sync hanya bila penanda BELUM ada (cegah loop refresh Dashboard).
+      marked = Promise.resolve().then(() => {
+        const uid = ig.currentUserId();
+        if (uid == null) return null;
+        return Promise.resolve(ig.readInitialSync(uid)).then((had) => {
+          if (had) return null;
+          return Promise.resolve(ig.markInitialSync(uid)).then(() => window.dispatchEvent(new CustomEvent("tf:initial-sync", { detail: { user_id: uid } })));
+        });
+      }).catch(() => {});
     }
     return marked.then(() => { emitState(false); return r; });
   };
@@ -17690,18 +17697,21 @@ function useIntroState(tasks) {
         if (alive && my === markerSeq.n) setSyncDone(!!v);
       }).catch(() => {});
     };
-    const readLocal = () => {
+    const readLocal = refresh => {
       const my = ++seq.current;
       gate.hasLocalData().then(v => {
-        if (alive && my === seq.current) setLocalHas(!!v);
+        if (alive && my === seq.current) {
+          setLocalHas(!!v);
+          // Segarkan state App hanya bila store lokal punya data yang belum dimuat (tasks masih kosong).
+          if (refresh && v === true && tasksLenRef.current === 0 && window.__refreshTasks) window.__refreshTasks();
+        }
       }).catch(() => {
         if (alive && my === seq.current) setLocalHas(false);
       });
     };
     const onInitial = () => {
       readMarker();
-      readLocal();
-      if (tasksLenRef.current === 0 && window.__refreshTasks) window.__refreshTasks();
+      readLocal(true);
     };
     const onSyncState = e => {
       const d = (e && e.detail) || window.__syncState || {};
@@ -17713,7 +17723,7 @@ function useIntroState(tasks) {
     const onOnline = () => setOnline(true);
     const onOffline = () => setOnline(false);
     readMarker();
-    readLocal();
+    readLocal(true);
     window.addEventListener("tf:initial-sync", onInitial);
     window.addEventListener("tf:sync-state", onSyncState);
     window.addEventListener("noteSaved", onNote);

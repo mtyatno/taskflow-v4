@@ -65,3 +65,16 @@ test("app.css punya .dash-sync-card tanpa border-left", () => {
   assert.doesNotMatch(block, /border-left/);
   assert.match(css, /prefers-reduced-motion[\s\S]{0,200}dash-sync/);
 });
+
+test("__refreshTasks dalam useIntroState hanya di dalam callback then() hasLocalData", () => {
+  const b = hookBody();
+  assert.match(b, /hasLocalData\(\)\.then\([^]*?v === true[^]*?__refreshTasks/);
+  assert.equal(b.split("__refreshTasks()").length - 1, 1);
+  assert.doesNotMatch(b, /onInitial = \(\) => \{[^}]*__refreshTasks/);
+});
+
+test("sync() finish memanggil readInitialSync sebelum markInitialSync", () => {
+  const m = html.match(/function sync\(\) \{[\s\S]*?\n\}/)[0];
+  const r = m.indexOf("readInitialSync"), k = m.indexOf("markInitialSync");
+  assert.ok(r > 0 && k > r);
+});

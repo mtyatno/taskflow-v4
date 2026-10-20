@@ -9,7 +9,7 @@ const indexHtml = fs.readFileSync(path.join(__dirname, "../../static/index.html"
 const rej = () => Promise.reject(Object.assign(new Error("http 503"), { status: 503 }));
 const ok = () => Promise.resolve({ created: 0, updated: 0, deleted: 0 });
 
-function build(over = {}, { introgate = true } = {}) {
+function build(over = {}, { introgate = true, igOver = {} } = {}) {
   const m = indexHtml.match(/function sync\(\) \{[\s\S]*?\n\}/);
   assert.ok(m, "function sync() harus ada");
   const marked = [];
@@ -27,7 +27,7 @@ function build(over = {}, { introgate = true } = {}) {
     dispatchEvent(e) { events.push({ type: e.type, detail: e.detail }); },
   };
   if (introgate) {
-    win.TF.introgate = { currentUserId: () => "7", markInitialSync: (u) => { marked.push(u); return Promise.resolve(); } };
+    win.TF.introgate = Object.assign({ currentUserId: () => "7", readInitialSync: () => Promise.resolve(false), markInitialSync: (u) => { marked.push(u); return Promise.resolve(); } }, igOver);
   }
   const CE = function (type, init) { this.type = type; this.detail = init && init.detail; };
   const sync = new Function("window", "renderConflicts", "schedulePush", "__syncRawFetch", "__syncTransport", "runSyncExclusive", "CustomEvent",
@@ -85,4 +85,22 @@ test("sync(): tanpa window.TF.introgate → tidak melempar, push tetap berjalan"
   const r = await h.sync();
   assert.equal(r.pushed, 1);
   assert.equal(h.pushCalls.length, 1);
+});
+
+test("sync(): penanda sudah ada → markInitialSync tidak dipanggil lagi dan tanpa tf:initial-sync", async () => {
+  const h = build({}, { igOver: { readInitialSync: () => Promise.resolve(true) } });
+  const r = await h.sync(); await tick();
+  assert.deepEqual(h.marked, []);
+  assert.equal(h.events.filter((e) => e.type === "tf:initial-sync").length, 0);
+  assert.equal(r.pushed, 1);
+  assert.equal(h.win.__syncState.running, false);
+});
+
+test("sync(): currentUserId melempar → sync tetap resolve dan tf:sync-state terakhir running:false", async () => {
+  const h = build({}, { igOver: { currentUserId: () => { throw new Error("boom"); } } });
+  const r = await h.sync(); await tick();
+  assert.equal(r.pushed, 1);
+  const st = h.events.filter((e) => e.type === "tf:sync-state");
+  assert.equal(st[st.length - 1].detail.running, false);
+  assert.deepEqual(h.marked, []);
 });
