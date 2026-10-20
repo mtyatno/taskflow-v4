@@ -197,3 +197,67 @@ def mark_read(conn, uid: int, note_id: int, now: str) -> None:
         "INSERT INTO note_comment_reads (user_id, note_id, last_read_at) VALUES (?, ?, ?) "
         "ON CONFLICT(user_id, note_id) DO UPDATE SET last_read_at = excluded.last_read_at",
         (uid, note_id, now))
+
+
+# ── Notifikasi (spec §5.1–5.2) ─────────────────────────────────────────────────
+
+_PRIORITY = {"mention": 3, "comment": 2, "reply": 2, "resolve": 1}
+_SNIPPET_LEN = 80
+
+
+def _eligible_ids(conn, note) -> set[int]:
+    """Pemilik note + pemilik/anggota workspace note saat ini."""
+    ids = {note["user_id"]}
+    if note["list_id"] is not None:
+        r = conn.execute("SELECT owner_id FROM shared_lists WHERE id = ?", (note["list_id"],)).fetchone()
+        if r:
+            ids.add(r["owner_id"])
+        ids.update(m["user_id"] for m in conn.execute(
+            "SELECT user_id FROM list_members WHERE list_id = ?", (note["list_id"],)).fetchall())
+    return ids
+
+
+def recipients(conn, *, note, comment, actor_uid: int, event: str) -> dict[int, str]:
+    """{user_id: kind} penerima notifikasi; kind: mention | comment | reply | resolve. Aktor tidak pernah termasuk."""
+    found: dict[int, str] = {}
+
+    def add(uid: int, kind: str) -> None:
+        if found.get(uid, "") == "" or _PRIORITY[kind] > _PRIORITY[found[uid]]:
+            found[uid] = kind
+
+    if event == "resolve":
+        add(comment["user_id"], "resolve")
+    elif event == "create":
+        names = mention_usernames(comment["body"])
+        if names:
+            marks = ",".join("?" * len(names))
+            for r in conn.execute(f"SELECT id FROM users WHERE lower(username) IN ({marks})", sorted(names)).fetchall():
+                add(r["id"], "mention")
+        if comment["parent_id"] is None:
+            add(note["user_id"], "comment")
+        else:
+            add(conn.execute("SELECT user_id FROM note_comments WHERE id = ?", (comment["parent_id"],)).fetchone()["user_id"], "reply")
+            for r in conn.execute(
+                    "SELECT DISTINCT user_id FROM note_comments WHERE parent_id = ? AND deleted_at IS NULL",
+                    (comment["parent_id"],)).fetchall():
+                add(r["user_id"], "reply")
+    else:
+        raise ValueError(event)
+    eligible = _eligible_ids(conn, note)
+    return {u: k for u, k in found.items() if u != actor_uid and u in eligible}
+
+
+def message(kind: str, actor_name: str, title: str, body: str, esc) -> str:
+    """Teks notifikasi (HTML aman). `esc` = escape pesan; isi dipotong 80 karakter mentah sebelum di-escape."""
+    nama = esc(actor_name)
+    judul = esc((title or "").strip() or "Tanpa judul")
+    isi = esc(body[:_SNIPPET_LEN] + ("…" if len(body) > _SNIPPET_LEN else ""))
+    if kind == "mention":
+        return f'{nama} menyebutmu di {judul}: "{isi}"'
+    if kind == "comment":
+        return f'{nama} mengomentari catatanmu {judul}: "{isi}"'
+    if kind == "reply":
+        return f'{nama} membalas komentar di {judul}: "{isi}"'
+    if kind == "resolve":
+        return f"{nama} menyelesaikan komentarmu di {judul}"
+    raise ValueError(kind)

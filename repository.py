@@ -1995,16 +1995,18 @@ class TaskRepository:
     # ── Notifications ─────────────────────────────────────────────────────
 
     def add_notification(self, user_id: int, message: str,
-                         list_id: Optional[int] = None, task_id: Optional[int] = None) -> dict:
+                         list_id: Optional[int] = None, task_id: Optional[int] = None,
+                         note_id: Optional[int] = None) -> dict:
         now = datetime.now().isoformat()
         with self._connect() as conn:
             cur = conn.execute(
-                "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, created_at) "
-                "VALUES (?,?,0,?,?,?)",
-                (user_id, message, list_id, task_id, now),
+                "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, note_id, created_at) "
+                "VALUES (?,?,0,?,?,?,?)",
+                (user_id, message, list_id, task_id, note_id, now),
             )
             return {"id": cur.lastrowid, "user_id": user_id, "message": message,
-                    "is_read": False, "list_id": list_id, "task_id": task_id, "created_at": now}
+                    "is_read": False, "list_id": list_id, "task_id": task_id, "note_id": note_id,
+                    "created_at": now}
 
     def notify_list_members(self, list_id: int, actor_user_id: int,
                             message: str, task_id: Optional[int] = None):

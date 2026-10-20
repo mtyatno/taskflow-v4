@@ -1538,6 +1538,20 @@ async def _notify_members_bg(list_id: int, actor_user_id: int, message: str, tas
         pass
 
 
+async def _notify_users_bg(messages: dict, list_id: int, note_id: int):
+    """In-app + Telegram per penerima ({user_id: pesan}); kegagalan satu penerima tidak menghentikan yang lain."""
+    for uid, msg in messages.items():
+        try:
+            TaskRepository(DB_PATH).add_notification(uid, msg, list_id=list_id, note_id=note_id)
+            if _tg_bot:
+                with get_db() as conn:
+                    row = conn.execute("SELECT telegram_id FROM users WHERE id = ?", (uid,)).fetchone()
+                if row and row["telegram_id"]:
+                    await _tg_bot.send_message(chat_id=row["telegram_id"], text=msg, parse_mode="HTML")
+        except Exception:
+            pass
+
+
 async def _send_tg_message(tg_id: int, text: str):
     try:
         await _tg_bot.send_message(chat_id=tg_id, text=text, parse_mode="HTML")
@@ -7733,6 +7747,18 @@ def _comment_out(conn, cid: int) -> dict:
     return note_comments.serialize(row)
 
 
+def _schedule_comment_notify(background_tasks, conn, note, comment, actor_uid: int, event: str) -> None:
+    """Susun pesan per penerima (dalam transaksi yang sama) lalu jadwalkan pengiriman setelah respons."""
+    kinds = note_comments.recipients(conn, note=note, comment=comment, actor_uid=actor_uid, event=event)
+    if not kinds:
+        return
+    a = conn.execute("SELECT username, display_name FROM users WHERE id = ?", (actor_uid,)).fetchone()
+    actor = (a["display_name"] or a["username"]) if a else ""
+    body = comment.get("body") or ""
+    messages = {u: note_comments.message(k, actor, note["title"], body, _esc_msg) for u, k in kinds.items()}
+    background_tasks.add_task(_notify_users_bg, messages, note["list_id"], note["id"])
+
+
 @app.get("/api/scratchpad/{note_id}/comments")
 async def list_note_comments(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
@@ -7775,7 +7801,8 @@ async def pull_note_comments(since: str = "", limit: int = 500, user=Depends(get
 
 
 @app.post("/api/scratchpad/{note_id}/comments")
-async def create_note_comment(note_id: int, req: CommentCreate, user=Depends(get_current_user)):
+async def create_note_comment(note_id: int, req: CommentCreate, background_tasks: BackgroundTasks,
+                              user=Depends(get_current_user)):
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
     with get_db() as conn:
@@ -7800,7 +7827,9 @@ async def create_note_comment(note_id: int, req: CommentCreate, user=Depends(get
             "INSERT INTO note_comments (note_id, list_id, user_id, parent_id, body, quote, client_id, created_at, updated_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (note_id, note["list_id"], uid, parent_id, req.body, quote, req.client_id, now, now))
-        return _comment_out(conn, cur.lastrowid)
+        out = _comment_out(conn, cur.lastrowid)
+        _schedule_comment_notify(background_tasks, conn, note, out, uid, "create")
+        return out
 
 
 @app.post("/api/scratchpad/{note_id}/comments/read")
@@ -7817,7 +7846,8 @@ async def mark_note_comments_read(note_id: int, user=Depends(get_current_user)):
 
 
 @app.patch("/api/note-comments/{cid}")
-async def patch_note_comment(cid: int, req: CommentPatch, user=Depends(get_current_user)):
+async def patch_note_comment(cid: int, req: CommentPatch, background_tasks: BackgroundTasks,
+                             user=Depends(get_current_user)):
     uid = user["sub"]
     now = datetime.now(_TZ_JKT).isoformat()
     with get_db() as conn:
@@ -7837,6 +7867,9 @@ async def patch_note_comment(cid: int, req: CommentPatch, user=Depends(get_curre
             if req.resolved:
                 conn.execute("UPDATE note_comments SET resolved_at = ?, resolved_by = ?, updated_at = ? WHERE id = ?",
                              (now, uid, now, cid))
+                _schedule_comment_notify(
+                    background_tasks, conn, {"user_id": c["note_owner_id"], "list_id": c["list_id"], "title": c["note_title"],
+                                             "id": c["note_id"]}, dict(c), uid, "resolve")
             else:
                 conn.execute("UPDATE note_comments SET resolved_at = NULL, resolved_by = NULL, updated_at = ? WHERE id = ?",
                              (now, cid))
