@@ -3680,3 +3680,7 @@
 ## 2026-10-20 22:08 WIB — Claude — merge Fokus Hari Ini PR A (#62)
 - Bapak: "merge". #62 di-merge (f78790d); CI Tests hijau.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek halaman Fokus Hari Ini (SW v434, `app.css?v=342`). Berikutnya: plan PR B (Target 🍅).
+
+## 2026-10-20 23:30 WIB — Claude — Kelola Workspace Fase 0 (perbaikan aman)
+- Bapak minta enhancement halaman Kelola Workspace (5 kelompok + telaah tambahan). Dipecah Fase 0–5; Fase 0 dikerjakan: spec + rencana disetujui, SDD 5 task (review per task), review akhir + 1 gelombang perbaikan. SW v435, `app.css?v=343`, ADR-020. pytest 831, JS 2209/2210 (pra-ada), E2E 63/63.
+- **Status:** Needs Review (draft PR; setelah merge restart `taskflow-web` + `taskflow`).
