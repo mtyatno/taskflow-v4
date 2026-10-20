@@ -3705,3 +3705,9 @@
 ## 2026-10-20 23:58 WIB — Claude — merge Kelola Workspace Fase 0 (#63)
 - Bapak: "merge". #63 di-merge (b3d100b) setelah merge main (#64) + SW v437; CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** cek task/mindmap yatim (query di PR) → `sudo systemctl restart taskflow-web taskflow` → query lagi harus 0. Lalu brainstorming Fase 1 (halaman Kelola per workspace).
+
+## 2026-10-21 00:50 WIB — Claude — Email Fase 0a (perbaikan akun)
+- **Task:** analisis fungsi email Alurik → Fase 0a: endpoint ganti password/username yang hilang, logout perangkat lain saat password berubah, lengkapi akun Telegram, banner email, magic link Telegram.
+- **Changes:** lihat entri CURRENT_STATE `claude/email-fase0a`; commit b7637448, 853af6a6, 43b53b42, 45053354.
+- **Files Touch:** webapp.py, repository.py, static/index.html, static/app.css, static/sw.js, static/offline/accountbanner.js, tests/test_account_profile.py, tests/test_auth_session.py, tests/test_version.py, tests/offline/*.test.js, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR; deploy = migrasi → restart `taskflow-web`, lalu `taskflow`)
