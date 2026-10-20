@@ -3653,3 +3653,7 @@
 
 ## 2026-10-20 17:50 WIB — Claude — ikon gaya Alurik di Berkas Workspace
 - Bapak minta emoji di tampilan Files workspace (folder, cari, PDF, diagram, gambar, ...) mengikuti gaya ikon Alurik. Implementer subagent + review terpisah (siap merge). SW v432. **Status:** Needs Review (draft PR; restart `taskflow-web`).
+
+## 2026-10-20 19:55 WIB — Claude — merge ikon Berkas Workspace (#60)
+- Bapak: "MERGE". #60 di-merge (ff0822d); CI Tests dan Deploy Taskflow V4 sukses.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek tab Files workspace (SW v432, `app.css?v=340`).
