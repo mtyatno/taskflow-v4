@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v438-focus-overtime";
+const CACHE = "taskflow-v439-account-fase0a";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -26,6 +26,7 @@ const STATIC = [
   "/static/offline/workspacepins.js",
   "/static/offline/wsmanage.js",
   "/static/offline/introgate.js",
+  "/static/offline/accountbanner.js",
   "/static/offline/focuspage.js",
   "/static/offline/pomologic.js",
   "/static/offline/pomolog.js",

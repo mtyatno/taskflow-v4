@@ -3706,6 +3706,11 @@
 - Bapak: "merge". #63 di-merge (b3d100b) setelah merge main (#64) + SW v437; CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** cek task/mindmap yatim (query di PR) → `sudo systemctl restart taskflow-web taskflow` → query lagi harus 0. Lalu brainstorming Fase 1 (halaman Kelola per workspace).
 
+## 2026-10-21 00:50 WIB — Claude — Email Fase 0a (perbaikan akun)
+- **Task:** analisis fungsi email Alurik → Fase 0a: endpoint ganti password/username yang hilang, logout perangkat lain saat password berubah, lengkapi akun Telegram, banner email, magic link Telegram.
+- **Changes:** lihat entri CURRENT_STATE `claude/email-fase0a`; commit b7637448, 853af6a6, 43b53b42, 45053354.
+- **Files Touch:** webapp.py, repository.py, static/index.html, static/app.css, static/sw.js, static/offline/accountbanner.js, tests/test_account_profile.py, tests/test_auth_session.py, tests/test_version.py, tests/offline/*.test.js, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR; deploy = migrasi → restart `taskflow-web`, lalu `taskflow`)
 ## 2026-10-21 00:20 WIB — Claude — Fokus Hari Ini PR C (Overtime): Task 4
 - **Task:** Task 4 PR C: merge `origin/main` (57560c2, #63) ke `claude/focus-overtime`, naik versi SW v438 `taskflow-v438-focus-overtime` / `app.css?v=346`, E2E, handover.
 - **Changes:** merge main (tanpa konflik); versi di `sw.js`, `index.html`, `webapp.py` + tes yang mengunci versi; kicker bar ringkas tanpa " · dijeda" saat awaiting; E2E menemukan judul bar ringkas terjepit di 375 px saat Overtime → `.focus-mini-task` min-width (commit fix + tes); E2E baru `temporary_files/e2e_focus_overtime.py` 79/79; `e2e_focus_target.py` disesuaikan ke awaiting (41/41); `e2e_focus_page.py` 35/35; pytest 850; JS 2295/2296 (pra-ada `draw_local_reactive`); inline OK.

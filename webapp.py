@@ -207,6 +207,7 @@ JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "72"))
 # Batas absolut sesi sejak login password; /api/auth/refresh menolak memperpanjang lewat dari ini
 SESSION_MAX_DAYS = int(os.getenv("SESSION_MAX_DAYS", "30"))
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+USERNAME_RE = re.compile(r"[A-Za-z0-9_]{3,50}")  # dipakai dengan fullmatch
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -1051,14 +1052,38 @@ def decode_token(token: str) -> dict:
 def _validate_token(token: str) -> dict:
     data = decode_token(token)
     data["sub"] = int(data["sub"])
-    if data.get("scope") == "ext":
-        with get_db() as conn:
-            row = conn.execute(
+    with get_db() as conn:
+        if data.get("scope") == "ext":
+            ext = conn.execute(
                 "SELECT id FROM ext_tokens WHERE token = ?", (token,)
             ).fetchone()
-        if not row:
-            raise HTTPException(status_code=401, detail="Token sudah direvoke")
+            if not ext:
+                raise HTTPException(status_code=401, detail="Token sudah direvoke")
+        row = conn.execute(
+            "SELECT username, password_hash FROM users WHERE id = ?", (data["sub"],)
+        ).fetchone()
+    if data.get("scope") != "ext" and data.get("pwv"):
+        # Token sesi dengan klaim pwv: tolak bila password sudah diganti (atau user hilang),
+        # agar ganti/reset password langsung mengeluarkan semua perangkat lain.
+        if not row or _pw_fingerprint(row["password_hash"]) != data["pwv"]:
+            raise HTTPException(status_code=401, detail="Password sudah diganti — masuk lagi")
+    if row:
+        # Klaim username bisa basi setelah ganti username → selalu pakai nilai DB
+        data["username"] = row["username"]
     return data
+
+
+def _session_still_valid(user: dict) -> bool:
+    """Cek ulang sesi untuk stream SSE yang berumur panjang: False bila password sudah
+    diganti (pwv beda) atau user hilang. Token tanpa pwv dianggap tetap sah."""
+    pwv = user.get("pwv")
+    if not pwv or user.get("scope") == "ext":
+        return True
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT password_hash FROM users WHERE id = ?", (user["sub"],)
+        ).fetchone()
+    return bool(row) and _pw_fingerprint(row["password_hash"]) == pwv
 
 
 def _unverified_sub(token: str):
@@ -1135,6 +1160,19 @@ class LoginReq(BaseModel):
 class EmailChangeReq(BaseModel):
     email: str
     current_password: str
+
+class PasswordChangeReq(BaseModel):
+    old_password: str
+    new_password: str = Field(min_length=4, max_length=100)
+
+class UsernameChangeReq(BaseModel):
+    new_username: str
+    current_password: str
+
+class CompleteAccountReq(BaseModel):
+    new_username: Optional[str] = None
+    email: str
+    new_password: str = Field(min_length=4, max_length=100)
 
 class ForgotReq(BaseModel):
     email: str
@@ -1633,6 +1671,9 @@ async def register(req: RegisterReq, response: Response):
     email = req.email.strip().lower()
     if not EMAIL_RE.match(email):
         raise HTTPException(status_code=400, detail="Format email tidak valid")
+    if req.username.lower().startswith("tg_"):
+        # prefix tg_ dicadangkan untuk akun Telegram otomatis
+        raise HTTPException(status_code=400, detail="Username tidak boleh diawali tg_")
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM users WHERE username = ?", (req.username,)).fetchone()
         if existing:
@@ -1669,11 +1710,12 @@ async def login(req: LoginReq, response: Response):
 @app.get("/api/auth/me")
 async def get_me(user=Depends(get_current_user)):
     with get_db() as conn:
-        row = conn.execute("SELECT id, username, display_name, email, created_at, telegram_id, is_admin FROM users WHERE id = ?", (user["sub"],)).fetchone()
+        row = conn.execute("SELECT id, username, display_name, email, created_at, telegram_id, is_admin, password_set FROM users WHERE id = ?", (user["sub"],)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
     result = dict(row)
     result["telegram_linked"] = bool(result.pop("telegram_id"))
+    result["password_set"] = bool(result["password_set"])
     return result
 
 
@@ -1748,6 +1790,118 @@ async def change_email(req: EmailChangeReq, user=Depends(get_current_user)):
     return {"ok": True, "email": email}
 
 
+def _validate_new_username(username: str) -> None:
+    """Aturan username baru (ganti username / lengkapi akun): format + larangan prefix tg_."""
+    if not USERNAME_RE.fullmatch(username):
+        raise HTTPException(status_code=400, detail="Username hanya boleh huruf, angka, dan _ (3–50 karakter)")
+    if username.lower().startswith("tg_"):
+        raise HTTPException(status_code=400, detail="Username tidak boleh diawali tg_")
+
+
+def _reissue_token(request: Request, response: Response, user: dict,
+                   user_id: int, username: str, password_hash: str) -> str:
+    """Token baru setelah profil berubah: auth_time pemanggil dipertahankan, pwv dari hash
+    terbaru. Cookie hanya diperbarui bila request membawa cookie `token` (aturan refresh)."""
+    auth_time = user.get("auth_time")
+    if auth_time is None and user.get("exp") is not None:
+        # token lama tanpa auth_time: perkirakan dari exp (sama seperti refresh)
+        auth_time = int(user["exp"]) - JWT_EXPIRE_HOURS * 3600
+    token = create_token(user_id, username, auth_time=auth_time,
+                         pwv=_pw_fingerprint(password_hash))
+    if request.cookies.get("token"):
+        response.set_cookie("token", token, httponly=True, samesite="lax", max_age=JWT_EXPIRE_HOURS * 3600)
+    return token
+
+
+def _reject_ext_scope(user: dict) -> None:
+    if user.get("scope") == "ext":
+        raise HTTPException(status_code=403, detail="Token ekstensi tidak bisa mengubah akun")
+
+
+@app.patch("/api/auth/profile/password")
+async def change_password(req: PasswordChangeReq, request: Request, response: Response,
+                          user=Depends(get_current_user)):
+    _reject_ext_scope(user)
+    with get_db() as conn:
+        row = conn.execute("SELECT username, password_hash FROM users WHERE id = ?", (user["sub"],)).fetchone()
+        if not row or not verify_password(req.old_password, row["password_hash"]):
+            raise HTTPException(status_code=400, detail="Password lama salah")
+        ph = hash_password(req.new_password)
+        conn.execute("UPDATE users SET password_hash = ?, password_set = 1 WHERE id = ?", (ph, user["sub"]))
+        conn.execute("DELETE FROM ext_tokens WHERE user_id = ?", (user["sub"],))
+    token = _reissue_token(request, response, user, user["sub"], row["username"], ph)
+    return {"ok": True, "token": token}
+
+
+@app.patch("/api/auth/profile/username")
+async def change_username(req: UsernameChangeReq, request: Request, response: Response,
+                          user=Depends(get_current_user)):
+    _reject_ext_scope(user)
+    new_username = req.new_username.strip()
+    _validate_new_username(new_username)
+    with get_db() as conn:
+        row = conn.execute("SELECT username, password_hash FROM users WHERE id = ?", (user["sub"],)).fetchone()
+        if not row or not verify_password(req.current_password, row["password_hash"]):
+            raise HTTPException(status_code=400, detail="Password salah")
+        if new_username != row["username"]:
+            dup = conn.execute(
+                "SELECT id FROM users WHERE username = ? AND id != ?", (new_username, user["sub"])
+            ).fetchone()
+            if dup:
+                raise HTTPException(status_code=400, detail="Username sudah digunakan")
+            try:
+                conn.execute("UPDATE users SET username = ? WHERE id = ?", (new_username, user["sub"]))
+            except sqlite3.IntegrityError:
+                raise HTTPException(status_code=400, detail="Username sudah digunakan")
+    token = _reissue_token(request, response, user, user["sub"], new_username, row["password_hash"])
+    return {"ok": True, "username": new_username, "token": token}
+
+
+@app.post("/api/auth/complete-account")
+async def complete_account(req: CompleteAccountReq, request: Request, response: Response,
+                           user=Depends(get_current_user)):
+    """Lengkapi akun Telegram otomatis (password_set = 0): atur password, email, dan
+    opsional username sekaligus — tanpa password lama karena pengguna tidak pernah tahu."""
+    _reject_ext_scope(user)
+    email = req.email.strip().lower()
+    new_username = (req.new_username or "").strip()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT username, password_set FROM users WHERE id = ?", (user["sub"],)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=401, detail="User not found")
+        if row["password_set"]:
+            raise HTTPException(status_code=400, detail="Akun sudah lengkap")
+        if not EMAIL_RE.match(email):
+            raise HTTPException(status_code=400, detail="Format email tidak valid")
+        if new_username:
+            _validate_new_username(new_username)
+        dup = conn.execute(
+            "SELECT id FROM users WHERE lower(email) = ? AND id != ?", (email, user["sub"])
+        ).fetchone()
+        if dup:
+            raise HTTPException(status_code=400, detail="Email sudah terdaftar")
+        username = new_username or row["username"]
+        if username != row["username"]:
+            dup = conn.execute(
+                "SELECT id FROM users WHERE username = ? AND id != ?", (username, user["sub"])
+            ).fetchone()
+            if dup:
+                raise HTTPException(status_code=400, detail="Username sudah digunakan")
+        ph = hash_password(req.new_password)
+        try:
+            conn.execute(
+                "UPDATE users SET password_hash = ?, email = ?, username = ?, password_set = 1 WHERE id = ?",
+                (ph, email, username, user["sub"]),
+            )
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=400, detail="Username atau email sudah digunakan")
+        conn.execute("DELETE FROM ext_tokens WHERE user_id = ?", (user["sub"],))
+    token = _reissue_token(request, response, user, user["sub"], username, ph)
+    return {"ok": True, "username": username, "email": email, "token": token}
+
+
 _FORGOT_GENERIC = {"message": "Jika email terdaftar, link reset sudah dikirim"}
 
 @app.post("/api/auth/forgot")
@@ -1793,9 +1947,11 @@ async def reset_password(req: ResetReq):
         if not row or row["used_at"] or row["expires_at"] < now:
             raise HTTPException(status_code=400, detail="Link tidak valid atau kedaluwarsa")
         conn.execute(
-            "UPDATE users SET password_hash = ? WHERE id = ?",
+            "UPDATE users SET password_hash = ?, password_set = 1 WHERE id = ?",
             (hash_password(req.new_password), row["user_id"]),
         )
+        # token sesi lama gugur lewat pwv; token ekstensi dicabut eksplisit
+        conn.execute("DELETE FROM ext_tokens WHERE user_id = ?", (row["user_id"],))
         conn.execute(
             "UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL",
             (now, row["user_id"]),
@@ -1918,7 +2074,9 @@ async def magic_login(token: str):
     if not row:
         return _HTML("<html><body>User tidak ditemukan.</body></html>", status_code=400)
     jwt_token = create_token(user_id, row["username"], pwv=_pw_fingerprint(row["password_hash"]))
-    response = RedirectResponse(url="/", status_code=302)
+    # ?magic=1: SPA tanpa token di localStorage menukar cookie httpOnly ini jadi token
+    # lewat POST /api/auth/refresh (cookie terkirim same-origin), lalu menghapus parameter.
+    response = RedirectResponse(url="/?magic=1", status_code=302)
     response.set_cookie("token", jwt_token, httponly=True, max_age=JWT_EXPIRE_HOURS * 3600, samesite="lax")
     return response
 
@@ -3710,6 +3868,8 @@ async def chat_stream(list_id: int, request: Request, user=Depends(get_current_u
                     msg = await asyncio.wait_for(q.get(), timeout=20.0)
                     yield {"data": json.dumps(msg)}
                 except asyncio.TimeoutError:
+                    if not _session_still_valid(user):
+                        break  # password diganti → tutup stream
                     # Keepalive ping agar koneksi tidak timeout
                     yield {"data": json.dumps({"type": "ping"})}
         finally:
@@ -4280,6 +4440,8 @@ async def dm_stream(conv_id: int, request: Request, user=Depends(get_current_use
                     msg = await asyncio.wait_for(q.get(), timeout=20.0)
                     yield {"data": json.dumps(msg)}
                 except asyncio.TimeoutError:
+                    if not _session_still_valid(user):
+                        break  # password diganti → tutup stream
                     yield {"data": json.dumps({"type": "ping"})}
         finally:
             dm_subscribers[conv_id].discard(entry)
@@ -4328,7 +4490,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v438-focus-overtime"
+    sw_cache = "taskflow-v439-account-fase0a"
     return JSONResponse(
         content={
             "app_version": "4.0.0",
@@ -9357,6 +9519,8 @@ async def mindmap_stream(mid: int, request: Request, user=Depends(get_current_us
                     if msg.get("type") in ("mindmap_access_lost", "mindmap_deleted"):
                         break
                 except asyncio.TimeoutError:
+                    if not _session_still_valid(user):
+                        break  # password diganti → tutup stream
                     yield {"data": json.dumps({"type": "ping"})}
         finally:
             mindmap_subscribers[mid].discard(entry)
