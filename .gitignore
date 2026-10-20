@@ -23,5 +23,6 @@ temporary_files/tmp_scripts/
 .claude/
 # Screenshot E2E (lokal saja)
 temporary_files/e2e_mindmap_live/
+temporary_files/e2e_kanban_stages/
 temporary_files/e2e_workspace_pins/
 temporary_files/e2e_tasklist_view_icons/

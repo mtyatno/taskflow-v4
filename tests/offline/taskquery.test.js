@@ -120,6 +120,23 @@ test("getContexts returns distinct non-empty contexts of active tasks, sorted", 
   assert.deepEqual(await getContexts(), ["@home", "@office"]);
 });
 
+test("getContextsInScope returns active task contexts of one scope (personal vs workspace), unsorted/undeduped", async () => {
+  const { getContextsInScope } = require("../../static/offline/taskquery.js");
+  await seed([
+    task({ cid: "a", context: "@home" }),
+    task({ cid: "b", context: "@home" }),
+    task({ cid: "c", context: "@kantor", list_id: 7 }),
+    task({ cid: "d", context: "@x", list_id: 8 }),
+    task({ cid: "e", context: "", list_id: 7 }),
+    task({ cid: "f", context: "@gone", list_id: 7, deleted: true }),
+    task({ cid: "g", context: "@done", list_id: 7, gtd_status: "done" }),
+  ]);
+  assert.deepEqual(await getContextsInScope(null), ["@home", "@home"]);
+  assert.deepEqual(await getContextsInScope(7), ["@kantor"]);
+  assert.deepEqual(await getContextsInScope("7"), ["@kantor"]);
+  assert.deepEqual(await getContextsInScope(9), []);
+});
+
 const { getSummary } = require("../../static/offline/taskquery.js");
 
 test("getSummary aggregates by_status, by_quadrant, totals, overdue, done_last_7_days", async () => {

@@ -24,6 +24,9 @@
   }
   const TFmm = req("./mindmaprepo.js", root.TF && root.TF.mindmaprepo);
   const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
+  // Kanban tahap: cache context (dimuat sebelum syncpush di index.html; dicek per fungsi karena modul lama dari
+  // cache SW bisa belum memilikinya).
+  const TFcontexts = req("./contextcache.js", root.TF && root.TF.contextcache);
   // Sampah mindmap (A4) dibaca malas: modul lama dari cache SW bisa belum memuatnya.
   function mindmapTrash() {
     try { return isNode ? require("./mindmaptrash.js") : (root.TF && root.TF.mindmaptrash); } catch (_) { return null; }
@@ -53,6 +56,24 @@
   function projectItems() {
     return TFprojects && TFprojects.allItems ? TFprojects.allItems().catch(() => []) : Promise.resolve([]);
   }
+  // Kanban tahap: `context_id` SELALU ada di payload (null = server me-resolve dari teks `context`). Aturan
+  // ada di contextcache.payloadContextId (F1; cid pending tidak pernah dikirim). Op yang context_id-nya cid
+  // tahap yang create-nya masih antre DITAHAN oleh pemanggil (contextHeld), bukan dikirim dengan null.
+  function withContextId(payload, record, contexts) {
+    const cid = TFcontexts && TFcontexts.payloadContextId && contexts ? TFcontexts.payloadContextId(record, contexts) : null;
+    payload.context_id = cid != null ? cid : null;
+    return payload;
+  }
+  function contextItems() {
+    return TFcontexts && TFcontexts.allItems ? TFcontexts.allItems().catch(() => []) : Promise.resolve([]);
+  }
+  function isServerIdLike(id) {
+    return id != null && /^\d+$/.test(String(id));
+  }
+  // T10 untuk tahap: context_id = cid lokal yang op create-nya masih di outbox saat drain dimulai → tahan.
+  function contextHeld(rec, pending) {
+    return !!(rec && rec.context_id != null && !isServerIdLike(rec.context_id) && parentCreatePending(pending, String(rec.context_id)));
+  }
 
   // Buat ulang setelah PUT 404 (baris server sid sudah dihapus): JANGAN memakai client_id asli — perangkat lain yang
   // membuat ulang baris yang sama memakai client_id itu juga, sehingga server (idempoten per client_id) akan
@@ -68,8 +89,8 @@
     }).then((saved) => saved || kept);
   }
 
-  function taskToCreatePayload(record, tagNames, parentServerId, projects) {
-    return withProjectId({
+  function taskToCreatePayload(record, tagNames, parentServerId, projects, contexts) {
+    return withContextId(withProjectId({
       title: titleWithTags(record, tagNames),
       description: record.description != null ? record.description : "",
       priority: record.priority || "P3",
@@ -84,10 +105,10 @@
       recurrence_type: record.recurrence_type != null ? record.recurrence_type : null,
       recurrence_days: record.recurrence_days ? JSON.parse(record.recurrence_days) : null,
       client_id: clientIdOf(record),
-    }, record, projects);
+    }, record, projects), record, contexts);
   }
 
-  function taskToUpdatePayload(record, tagNames, projects) {
+  function taskToUpdatePayload(record, tagNames, projects, contexts) {
     const p = {
       title: titleWithTags(record, tagNames),
       description: record.description != null ? record.description : "",
@@ -107,7 +128,7 @@
     };
     // T12: "Perpanjang" hanya berlaku di server lewat flag; flag dibersihkan setelah PUT sukses (CAS)
     if (record.recurrence_renew_pending) p.recurrence_renew = true;
-    return withProjectId(p, record, projects);
+    return withContextId(withProjectId(p, record, projects), record, contexts);
   }
 
   function markPayload(record) {
@@ -401,6 +422,12 @@
       if ("project" in d || "project_id" in d) {
         next.project_ref_name = next.project_id != null ? (next.project != null ? next.project : "") : null;
       }
+      // Kanban tahap: server me-resolve/mengkanonkan context → adopsi teks + id, nama ikatan mengikuti
+      if ("context" in d) next.context = d.context != null ? d.context : "";
+      if ("context_id" in d) next.context_id = d.context_id != null ? d.context_id : null;
+      if ("context" in d || "context_id" in d) {
+        next.context_ref_name = next.context_id != null ? (next.context != null ? next.context : "") : null;
+      }
     };
   }
   function updatedAtOf(res) {
@@ -459,12 +486,15 @@
       // dibuat lalu dihapus offline (belum pernah di-push): tidak perlu POST+DELETE; op delete-nya juga
       // berhenti sendiri (server_id null)
       if (rec.deleted) return TFoutbox.outboxRemove(op.qid);
+      // Kanban tahap: tahap tujuan masih menunggu dibuat di server → tahan (id server-nya belum ada).
+      // Dicek sebelum lookup induk: promise idmap yang dibuat lalu ditinggal bisa jadi unhandled rejection.
+      if (contextHeld(rec, pending)) return;
       const parentP = rec.parent_cid ? TFidmap.serverIdOf(rec.parent_cid) : Promise.resolve(null);
-      return Promise.all([parentP, tagsOf(op.cid, tagsFor), projectItems()]).then(([parentSid, tags, projects]) => {
+      return Promise.all([parentP, tagsOf(op.cid, tagsFor), projectItems(), contextItems()]).then(([parentSid, tags, projects, contexts]) => {
         // T10: induk belum punya server id tapi create-nya masih antre → tahan (jangan kirim parent_id null)
         if (rec.parent_cid && parentSid == null && parentCreatePending(pending, rec.parent_cid)) return;
         const sentRev = rec.rev || 0;
-        return send(transport, "POST", "/api/tasks", taskToCreatePayload(rec, tags, parentSid != null ? parentSid : null, projects)).then((res) => {
+        return send(transport, "POST", "/api/tasks", taskToCreatePayload(rec, tags, parentSid != null ? parentSid : null, projects, contexts)).then((res) => {
           if (ok(res)) {
             const sid = res.data.id;
             return TFidmap.mapPut("task", sid, op.cid)
@@ -481,13 +511,14 @@
     });
   }
 
-  function opUpdate(op, transport, tagsFor, result) {
+  function opUpdate(op, transport, tagsFor, result, pending) {
     return Promise.all([getTaskRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
       if (rec.conflict) return; // held until user resolves the conflict
-      return Promise.all([tagsOf(op.cid, tagsFor), projectItems()]).then(([tags, projects]) => {
+      if (contextHeld(rec, pending)) return; // Kanban tahap: tunggu create tahap terkirim
+      return Promise.all([tagsOf(op.cid, tagsFor), projectItems(), contextItems()]).then(([tags, projects, contexts]) => {
         const sentRev = rec.rev || 0;
-        return send(transport, "PUT", "/api/tasks/" + sid, taskToUpdatePayload(rec, tags, projects)).then((res) => {
+        return send(transport, "PUT", "/api/tasks/" + sid, taskToUpdatePayload(rec, tags, projects, contexts)).then((res) => {
           if (ok(res)) {
             return markPushed("tasks", op.cid, sentRev, updatedAtOf(res), null, taskAdopt(res.data))
               .then(() => TFoutbox.outboxRemove(op.qid))
@@ -501,6 +532,100 @@
           if (kind === "forbidden") { return accessLost("tasks", op.cid, op, result); }
           return failPermanent("tasks", op.cid, res, op, result);
         });
+      });
+    });
+  }
+
+  // ── Kanban tahap: op create tahap (entity_type "context") ──────────────────────────────────────
+  function getAllTasksRaw() {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("tasks", "readonly").objectStore("tasks").getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  // Ubah setiap task lokal yang context_id-nya `cid` lewat CAS per record (`fn(cur)` → objek baru / undefined).
+  // Daftar awal hanya kandidat; predikat dicek ulang di dalam transaksi. Resolve daftar cid yang diubah.
+  function rewriteTasksWithContextCid(cid, fn) {
+    const linked = (r) => r && r.context_id != null && String(r.context_id) === String(cid);
+    return getAllTasksRaw().then((all) => {
+      const done = [];
+      return all.filter(linked).reduce((p, t) => p.then(() =>
+        TFdb.mutate("tasks", t.cid, (cur) => (linked(cur) ? fn(cur) : undefined))
+          .then((next) => { if (next) done.push(t.cid); })
+      ), Promise.resolve()).then(() => done);
+    });
+  }
+  // POST /api/contexts untuk tahap pending. Server idempoten lewat nama (resolve-or-create NOCASE per scope),
+  // client_id diterima tetapi tidak disimpan.
+  //   entri pending tidak ada (baca GAGAL → reject: op tetap, dicoba lagi; bukan "sudah hilang") = retry setelah
+  //     sukses/gagal sebagian: idmap punya ("context", cid) → task ber-cid ditulis ulang ke id server; tidak ada →
+  //     task melepas cid (teks tetap). Lalu op dibuang (tanpa request).
+  //   2xx ber-id → idmap, cache server + buang pending, task lokal ber-cid → id server (dirty + op susulan), event
+  //   2xx tanpa id → dianggap sementara: dihitung gagal, op dan pending tetap (task tetap ditahan)
+  //   403/404/4xx permanen → buang pending, task lokal melepas id (teks tetap) → dikirim nama saja
+  //   401/429/5xx/jaringan → `send` melempar: op dan pending tetap
+  function opContextCreate(op, transport, result) {
+    if (!TFcontexts || typeof TFcontexts.pendingByCidStrict !== "function") return Promise.resolve(); // modul lama: tunggu
+    const cid = op.cid;
+    return TFcontexts.pendingByCidStrict(cid).then((entry) => {
+      if (!entry) return contextOpOrphan(op, cid);
+      const body = { name: entry.name, list_id: entry.list_id != null ? entry.list_id : null, client_id: cid };
+      return send(transport, "POST", "/api/contexts", body).then((res) => {
+        if (ok(res) && res.data && res.data.id != null) {
+          const data = res.data;
+          return TFidmap.mapPut("context", data.id, cid)
+            // cache dulu: createTask/updateTask yang berjalan sesudahnya menemukan id server lewat nama
+            .then(() => TFcontexts.resolvePending(cid, data))
+            .then(() => adoptContextServerId(op, cid, data))
+            .then(() => { result.pushed++; });
+        }
+        if (ok(res)) { result.failed++; return; } // 2xx tanpa id: respons rusak, coba lagi drain berikutnya
+        // 403 / 404 / 4xx permanen: tahap tidak bisa dibuat → lepaskan tautan lokal
+        result.failed++;
+        return TFcontexts.dropPending(cid)
+          .then(() => releaseContextCid(op, cid));
+      });
+    });
+  }
+  // Task lokal ber-context_id `cid` → id server `data.id` (nama kanonik bila sama NOCASE; dirty + rev + op
+  // susulan), op dibuang, event. Dipakai sukses POST dan retry setelah sukses sebagian (entri pending sudah hilang).
+  function adoptContextServerId(op, cid, data) {
+    const changed = [];
+    return rewriteTasksWithContextCid(cid, (cur) => {
+      if (cur.deleted) return undefined; // tombstone: tidak perlu dikirim ulang
+      const next = Object.assign({}, cur, {
+        context_id: data.id,
+        context_ref_name: data.name != null ? data.name : (cur.context != null ? cur.context : ""),
+        dirty: 1, rev: (cur.rev || 0) + 1,
+      });
+      if (data.name != null && TFprojects.nocaseEq(cur.context, data.name)) next.context = data.name;
+      return next;
+    })
+      .then((cids) => cids.reduce((p, tc) => p.then(() => {
+        changed.push(tc);
+        return requeueIfDirty("tasks", "task", tc);
+      }), Promise.resolve()))
+      .then(() => TFoutbox.outboxRemove(op.qid))
+      .then(() => {
+        dispatchWindowEvent("tf:contexts-changed", { source: "syncpush", cid: cid, id: data.id });
+        if (changed.length) dispatchWindowEvent("tf:outbox-queued", { entity: "task", cids: changed.slice() });
+      });
+  }
+  // Task lokal melepas `cid` (teks context tetap → dikirim nama saja), op dibuang, event.
+  function releaseContextCid(op, cid) {
+    return rewriteTasksWithContextCid(cid, (cur) =>
+      Object.assign({}, cur, { context_id: null, context_ref_name: null }))
+      .then(() => TFoutbox.outboxRemove(op.qid))
+      .then(() => { dispatchWindowEvent("tf:contexts-changed", { source: "syncpush", cid: cid, failed: true }); });
+  }
+  // Op tahap tanpa entri pending: selesaikan jalur yang terputus. Nama dari cache server bila ada.
+  function contextOpOrphan(op, cid) {
+    return Promise.resolve(TFidmap.serverIdOf(cid)).then((sid) => {
+      if (sid == null) return releaseContextCid(op, cid);
+      return contextItems().then((items) => {
+        const hit = (items || []).find((c) => String(c.id) === String(sid));
+        return adoptContextServerId(op, cid, { id: sid, name: hit && hit.name != null ? hit.name : null });
       });
     });
   }
@@ -1707,7 +1832,7 @@
 
   function processOp(op, transport, tagsFor, habitTagsFor, result, pending) {
     if (op.entity_type === "task" && op.op === "create") return opCreate(op, transport, tagsFor, result, pending);
-    if (op.entity_type === "task" && op.op === "update") return opUpdate(op, transport, tagsFor, result);
+    if (op.entity_type === "task" && op.op === "update") return opUpdate(op, transport, tagsFor, result, pending);
     if (op.entity_type === "task" && op.op === "delete") return opDelete(op, transport, result);
     if (op.entity_type === "recurring_exception" && op.op === "mark_occurrence") return opMark(op, transport, result, pending);
     if (op.entity_type === "habit" && op.op === "create") return opHabitCreate(op, transport, habitTagsFor, result);
@@ -1730,6 +1855,7 @@
     if (op.entity_type === "mindmap" && op.op === "pin") return opMindmapPin(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "restore") return opMindmapRestore(op, transport, result);
     if (op.entity_type === "message" && op.op === "send") return opChatSend(op, transport, result, pending);
+    if (op.entity_type === "context" && op.op === "create") return opContextCreate(op, transport, result);
     return TFoutbox.outboxRemove(op.qid);
   }
 
@@ -1809,6 +1935,24 @@
     });
   }
 
+  // Kanban tahap: entri pending yang kehilangan op create-nya (mis. outbox dibersihkan) diantre ulang.
+  // Baca pending gagal → tidak ada yang diantre kali ini (bukan error push).
+  function healStrandedContexts() {
+    if (!TFcontexts || typeof TFcontexts.pendingList !== "function") return Promise.resolve(0);
+    const appendOp = TFoutbox.outboxAppend || TFoutbox.outboxAdd;
+    return Promise.all([TFoutbox.outboxAll(), TFcontexts.pendingList().catch(() => [])]).then(([ops, pending]) => {
+      const queued = new Set(ops.filter((o) => o.entity_type === "context" && o.op === "create").map((o) => String(o.cid)));
+      let chain = Promise.resolve(0);
+      for (const c of pending) {
+        if (!c || c.cid == null || queued.has(String(c.cid))) continue;
+        queued.add(String(c.cid));
+        chain = chain.then((count) =>
+          appendOp({ entity_type: "context", op: "create", cid: c.cid, payload: { cid: c.cid } }).then(() => count + 1));
+      }
+      return chain;
+    });
+  }
+
   let _running = false;
   function pushOutbox(transport, opts) {
     if (_running) return Promise.resolve({ pushed: 0, failed: 0, remaining: -1, busy: true });
@@ -1824,6 +1968,7 @@
       .then(() => (TFrepo && TFrepo.upgradeLegacyDrawingOps ? TFrepo.upgradeLegacyDrawingOps().catch(() => 0) : 0))
       .then(() => healStrandedNotes())
       .then(() => healStrandedDrawings())
+      .then(() => healStrandedContexts())
       .then(() => TFoutbox.outboxAll())
       .then((ops) => { pending = pendingCreateCids(ops); return ops.slice().sort((a, b) => a.qid - b.qid); })
       .then((ops) => ops.reduce((chain, op) => chain.then(() => {
@@ -1849,7 +1994,7 @@
   const exported = {
     taskToCreatePayload, taskToUpdatePayload, markPayload, habitToCreatePayload, habitToUpdatePayload, checkinPayload,
     noteToCreatePayload, noteToUpdatePayload, mindmapToCreatePayload, mindmapToUpdatePayload,
-    healStrandedNotes, healStrandedDrawings, pushOutbox, inflightDrawingData, classify, markSyncError,
+    healStrandedNotes, healStrandedDrawings, healStrandedContexts, pushOutbox, inflightDrawingData, classify, markSyncError,
     // CAS/rev helper bersama (prinsip 4) — dipakai juga workstream D (mindmap)
     tsEpoch, tsNewer, markPushed, requeueIfDirty, ensureEntityOp, pendingCreateCids,
   };

@@ -82,7 +82,7 @@ test("Toggle tampilan di toolbar task list", async (t) => {
     assert.match(toolbar, /"aria-pressed":\s*viewMode\s*===\s*"kanban"/);
     assert.match(toolbar, /"aria-label":\s*label/);
     assert.match(toolbar, /"aria-label":\s*"Kanban"/);
-    assert.equal((toolbar.match(/type:\s*"button"/g) || []).length, 2, "dua createElement button (mapped + Kanban) bertipe button");
+    assert.equal((toolbar.slice(toolbar.indexOf('className: "tl-view-seg"')).match(/type:\s*"button"/g) || []).length, 2, "dua createElement button (mapped + Kanban) bertipe button");
     assert.match(toolbar, /React\.createElement\(ViewGlyph,\s*\{\s*name:\s*mode,\s*size:\s*16\s*\}\)/);
     assert.match(toolbar, /React\.createElement\(ViewGlyph,\s*\{\s*name:\s*"kanban",\s*size:\s*16\s*\}\)/);
   });
@@ -142,12 +142,12 @@ test("CSS segmented toggle", async (t) => {
   });
 });
 
-test("cache bust v426 + app.css?v=336", async (t) => {
+test("cache bust v427 + app.css?v=336", async (t) => {
   await t.test("sw.js CACHE, dua fallback index.html, sw_cache webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v426-tasklist-view-icons";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v426-tasklist-view-icons";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v426-tasklist-view-icons"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v426-tasklist-view-icons"/);
+    assert.match(swJs, /^const CACHE = "taskflow-v427-tasklist-view-icons";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v427-tasklist-view-icons";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v427-tasklist-view-icons"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v427-tasklist-view-icons"/);
   });
 
   await t.test("index.html memuat app.css?v=336", () => {
