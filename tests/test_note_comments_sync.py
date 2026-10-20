@@ -32,6 +32,22 @@ def _count_note(nid):
         conn.close()
 
 
+def _reads(nid):
+    conn = db()
+    try:
+        return conn.execute("SELECT COUNT(*) FROM note_comment_reads WHERE note_id = ?", (nid,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _add_read(uid, nid):
+    conn = db()
+    conn.execute("INSERT INTO note_comment_reads (user_id, note_id, last_read_at) VALUES (?, ?, ?)",
+                 (uid, nid, "2030-01-01T00:00:00+07:00"))
+    conn.commit()
+    conn.close()
+
+
 def test_list_per_note_excludes_tombstones(client):
     a = U(client, "ncs1a")
     nid, _ = shared_note(a, [], "ncs1 note")
@@ -111,7 +127,25 @@ def test_delta_malformed_since_and_limit(client):
     nid, _ = shared_note(a, [], "ncs5x note")
     c = _post(a, nid, "x")
     assert c["id"] in [x["id"] for x in _pull(a, "sampah")["items"]]
-    assert _pull(a, "", 0)["more"] in (True, False)  # dibatasi ke >=1, tidak error
+
+    nid2, _ = shared_note(a, [], "ncs5x note2")
+    _post(a, nid2, "y")
+    assert len(_pull(a, "", 0)["items"]) == 1  # limit dibatasi ke >= 1
+    assert _pull(a, "", 5000)["items"]  # limit dibatasi ke <= 1000, tanpa error
+    j = _pull(a, "", 1)
+    assert len(j["items"]) == 1 and j["more"] is True
+
+
+def test_delta_since_with_space_equals_plus(client):
+    a = U(client, "ncs5ya")
+    nid, _ = shared_note(a, [], "ncs5y note")
+    _post(a, nid, "satu")
+    cur = _pull(a)["cursor"]
+    assert "+" in cur
+    c2 = _post(a, nid, "dua")
+    enc = _pull(a, cur)
+    spc = _pull(a, cur.replace("+", " "))
+    assert [x["id"] for x in spc["items"]] == [x["id"] for x in enc["items"]] == [c2["id"]]
 
 
 def test_delta_hides_invisible(client):
@@ -146,6 +180,8 @@ def test_trash_restore_purge(client):
     n2, _ = shared_note(a, [], "ncs8 two")
     _post(a, n1, "x")
     _post(a, n2, "y")
+    _add_read(a.id, n1)
+    _add_read(a.id, n2)
     assert a.delete(f"/api/scratchpad/{n1}").status_code == 200
     assert a.get(f"/api/scratchpad/{n1}/comments").status_code == 404
     assert a.post(f"/api/scratchpad/trash/{n1}/restore").status_code == 200
@@ -153,10 +189,64 @@ def test_trash_restore_purge(client):
     assert a.delete(f"/api/scratchpad/{n1}").status_code == 200
     assert a.delete(f"/api/scratchpad/trash/{n1}").status_code == 200
     assert _count_note(n1) == 0
+    assert _reads(n1) == 0
     assert _count_note(n2) == 1  # note lain tidak tersentuh
     assert a.delete(f"/api/scratchpad/{n2}").status_code == 200
     assert a.delete("/api/scratchpad/trash").status_code == 200
     assert _count_note(n2) == 0
+    assert _reads(n2) == 0
+
+
+def test_lazy_retention_purge_removes_comments(client):
+    a = U(client, "ncs10a")
+    nid, _ = shared_note(a, [], "ncs10 note")
+    _post(a, nid, "x")
+    _add_read(a.id, nid)
+    assert a.delete(f"/api/scratchpad/{nid}").status_code == 200
+    conn = db()
+    conn.execute("UPDATE trashed_notes SET deleted_at = ? WHERE note_id = ?",
+                 ((datetime.now(timezone(timedelta(hours=7))) - timedelta(days=400)).isoformat(), nid))
+    conn.commit()
+    conn.close()
+    assert a.get("/api/scratchpad/trash").status_code == 200  # memicu lazy purge
+    assert _count_note(nid) == 0 and _reads(nid) == 0
+
+
+def test_touch_on_reshare_and_restore_reaches_old_cursor(client):
+    a = U(client, "ncs11a")
+    nid, lid = shared_note(a, [], "ncs11 note")
+    cm = _post(a, nid, "x")
+    cur = _pull(a)["cursor"]
+    assert a.patch(f"/api/scratchpad/{nid}/share", json={"list_id": None}).status_code == 200
+    assert _pull(a, cur)["items"] == []
+    assert a.patch(f"/api/scratchpad/{nid}/share", json={"list_id": lid}).status_code == 200
+    j = _pull(a, cur)
+    assert [x["id"] for x in j["items"]] == [cm["id"]]
+    # PUT dengan list_id berubah -> non-null
+    cur = j["cursor"]
+    put = lambda lst: a.put(f"/api/scratchpad/{nid}", json={"title": "ncs11 note", "content": "isi", "list_id": lst})
+    assert put(None).status_code == 200
+    assert _pull(a, cur)["items"] == []
+    assert put(lid).status_code == 200
+    j = _pull(a, cur)
+    assert [x["id"] for x in j["items"]] == [cm["id"]]
+    # trash -> restore
+    cur = j["cursor"]
+    assert a.delete(f"/api/scratchpad/{nid}").status_code == 200
+    assert _pull(a, cur)["items"] == []
+    assert a.post(f"/api/scratchpad/trash/{nid}/restore").status_code == 200
+    assert [x["id"] for x in _pull(a, cur)["items"]] == [cm["id"]]
+
+
+def test_moved_note_hidden_from_old_workspace_member(client):
+    a, b = U(client, "ncs12a"), U(client, "ncs12b")
+    nid, lid = shared_note(a, [b], "ncs12 note")
+    cm = _post(a, nid, "x")
+    assert cm["id"] in [x["id"] for x in _pull(b)["items"]]
+    w2 = TaskRepository(os.environ["DB_PATH"]).create_shared_list("WS ncs12 dua", a.id)
+    assert a.patch(f"/api/scratchpad/{nid}/share", json={"list_id": w2["id"]}).status_code == 200
+    assert cm["id"] not in [x["id"] for x in _pull(b, "")["items"]]
+    assert b.get(f"/api/scratchpad/{nid}/comments").status_code == 404
 
 
 def test_delete_workspace_removes_comments(client):

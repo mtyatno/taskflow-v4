@@ -5766,6 +5766,7 @@ def _purge_expired_trashed_notes(conn) -> None:
         _delete_linked_mindmaps(conn, expired)
         _purge_trashed_media(conn, expired)
         conn.execute("DELETE FROM trashed_notes WHERE deleted_at < ?", (cutoff,))
+        note_comments.delete_for_notes(conn, expired)
     except Exception:
         pass
     _cleanup_stuck_media_uploads(conn, _media_utcnow())
@@ -6030,6 +6031,7 @@ async def restore_trashed_note(note_id: int, user=Depends(get_current_user)):
         conn.execute("DELETE FROM trashed_notes WHERE note_id = ?", (note_id,))
         _sync_linked_mindmap(conn, note_id)
         sync = _note_with_drawing_sync(conn, note_id, uid, datetime.now(_TZ_JKT).isoformat(), move=False)
+        note_comments.touch_for_note(conn, note_id, note.get("list_id"), datetime.now(_TZ_JKT).isoformat())
         conn.commit()
         # Media yang dibuang saat masih 'processing' diantrekan lagi sekarang, bukan menunggu restart.
         for r in conn.execute("SELECT id FROM note_attachments WHERE note_id = ? AND status = 'processing'",
@@ -7530,6 +7532,8 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
         _upsert_tags_for_note(conn, note_id, existing["user_id"], tag_names)
         _sync_linked_mindmap(conn, note_id)
         sync = _note_with_drawing_sync(conn, note_id, uid, now, move=existing["list_id"] != new_list_id)
+        if new_list_id is not None and existing["list_id"] != new_list_id:
+            note_comments.touch_for_note(conn, note_id, new_list_id, now)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row_synced(updated, conn, uid, sync)
@@ -7603,6 +7607,7 @@ async def share_scratchpad(note_id: int, req: NoteShareReq, user=Depends(get_cur
         )
         _sync_linked_mindmap(conn, note_id)
         sync = _note_with_drawing_sync(conn, note_id, uid, now, move=True)
+        note_comments.touch_for_note(conn, note_id, req.list_id, now)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row_synced(updated, conn, uid, sync)
@@ -7749,7 +7754,7 @@ async def pull_note_comments(since: str = "", limit: int = 500, user=Depends(get
     uid = user["sub"]
     limit = max(1, min(limit, 1000))
     now = datetime.now(_TZ_JKT).isoformat()
-    cur = note_comments.parse_cursor(since)
+    cur = note_comments.parse_cursor(since.replace(" ", "+"))  # "+07:00" tak ter-encode tiba sebagai spasi
     if note_comments.cursor_expired(cur, now):
         return {"reset": True, "items": [], "cursor": "", "more": False}
     where, params = note_comments.visible_clause(uid)
@@ -7764,7 +7769,8 @@ async def pull_note_comments(since: str = "", limit: int = 500, user=Depends(get
             "ORDER BY c.updated_at, c.id LIMIT ?", params + [limit + 1]).fetchall()
     more = len(rows) > limit
     items = [note_comments.serialize(r) for r in rows[:limit]]
-    cursor = note_comments.make_cursor(items[-1]["updated_at"], items[-1]["id"]) if items else since
+    cursor = note_comments.make_cursor(items[-1]["updated_at"], items[-1]["id"]) if items else (
+        note_comments.make_cursor(*cur) if cur else since)
     return {"items": items, "cursor": cursor, "more": more}
 
 

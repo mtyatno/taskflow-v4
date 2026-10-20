@@ -148,3 +148,13 @@ def delete_for_notes(conn, note_ids: list[int]) -> None:
         marks = ",".join("?" * len(chunk))
         conn.execute(f"DELETE FROM note_comments WHERE note_id IN ({marks})", chunk)
         conn.execute(f"DELETE FROM note_comment_reads WHERE note_id IN ({marks})", chunk)
+
+
+def touch_for_note(conn, note_id: int, list_id: Optional[int], now: str) -> int:
+    """Bump updated_at komentar note yang kembali terlihat (restore/share ulang) agar delta pull
+    perangkat dengan kursor lebih baru tetap menerimanya. No-op bila list_id None. Pemanggil yang commit."""
+    if list_id is None:
+        return 0
+    return conn.execute(
+        "UPDATE note_comments SET updated_at = ? WHERE note_id = ? AND list_id = ?",
+        (now, note_id, list_id)).rowcount
