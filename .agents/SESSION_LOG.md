@@ -3551,3 +3551,8 @@
 ## 2026-10-20 10:25 WIB — Claude — merge workspace di-pin (#52, #53)
 - Bapak: "good merge". #52 di-merge (ad543f6), #53 di-retarget ke `main` lalu di-merge (b336ed2); CI Tests dan Deploy Taskflow V4 sukses untuk keduanya.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web taskflow`; cek rail sidebar mode ikon menampilkan avatar workspace (SW v425). Cek juga menu klik kanan rail di Safari/aplikasi macOS (WebKit).
+
+## 2026-10-20 11:20 WIB — Claude — ikon tampilan halaman Tasks + tab workspace
+- Bapak minta ikon Normal / Compact / Kanban dibuat lebih indah; dari 3 opsi memilih "B · Duotone" + tombol tergabung, lalu minta ikon tab Tasks / Files workspace diganti dengan gaya yang sama.
+- SDD 2 task (implementer sonnet), review akhir opus → siap merge, tanpa temuan Critical/Important. Branch `claude/tasklist-view-icons`, SW v426, `app.css?v=336`.
+- **Verifikasi:** pytest 814, JS 1866/1867 (pra-ada `draw_local_reactive`), E2E 52/52. **Status:** Needs Review (draft PR; restart `taskflow-web`).
