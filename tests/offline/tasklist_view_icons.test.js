@@ -29,7 +29,7 @@ test("VIEW_GLYPHS + ViewGlyph (inline, meniru FocusGlyph)", async (t) => {
     const keys = [...mapSrc.matchAll(/^\s{2}(\w+):\s*'/gm)].map(m => m[1]);
     assert.deepEqual(keys, ["normal", "compact", "kanban", "wsTasks", "wsFiles",
       "fFolder", "fPdf", "fSheet", "fImage", "fFile", "fSearch", "fUpload", "fDownload", "fEye", "fChat", "fPin", "fTrash", "fX",
-      "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "pomoTomato", "pomoBreak"]);
+      "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "pomoTomato", "pomoBreak", "headphones"]);
   });
 
   await t.test("VIEW_GLYPHS bisa dievaluasi dan setiap glyph berisi markup SVG", () => {

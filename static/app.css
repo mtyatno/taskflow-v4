@@ -3529,6 +3529,18 @@
 .focus-pomo-hint strong { color: #fff; }
 .focus-pomo-stats { display: flex; gap: 24px; flex-wrap: wrap; }
 .focus-pomo-stat { display: flex; align-items: baseline; gap: 7px; }
+.pomo-ambient { display: flex; align-items: center; gap: 8px; margin-left: auto; color: rgba(255,255,255,.75); }
+.pomo-ambient-icon { display: inline-flex; color: rgba(255,255,255,.6); }
+.pomo-ambient[data-state="playing"] .pomo-ambient-icon { color: #4ade80; }
+.pomo-ambient[data-state="loading"] .pomo-ambient-icon { animation: pomo-ambient-pulse 1.4s ease-in-out infinite; }
+.pomo-ambient[data-state="error"] .pomo-ambient-icon { color: #f87171; }
+.pomo-ambient[data-state="waiting-tap"] .pomo-ambient-icon { color: #facc15; }
+.pomo-ambient-select { background: rgba(255,255,255,.08); color: inherit; border: 1px solid rgba(255,255,255,.16); border-radius: 8px; padding: 4px 8px; font: inherit; font-size: 12px; }
+.pomo-ambient-select option { color: #111; }
+.pomo-ambient-volume { width: 88px; accent-color: #A8C500; }
+.pomo-ambient-volume:disabled { opacity: .4; }
+@keyframes pomo-ambient-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .pomo-ambient[data-state="loading"] .pomo-ambient-icon { animation: none; } }
 .focus-pomo-stat-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .focus-pomo-stat-value.is-red { color: #f87171; }
 .focus-pomo-stat-value.is-green { color: #4ade80; }
@@ -3674,7 +3686,8 @@
   .focus-pomo .pomo-controls { order: 3; justify-content: center; }
   .pomo-park { order: 4; width: 100%; }
   .focus-pomo-task, .focus-pomo-hint { order: 5; width: 100%; box-sizing: border-box; }
-  .focus-pomo-stats { order: 6; justify-content: center; gap: 14px; flex-wrap: nowrap; }
+  .focus-pomo-stats { order: 6; justify-content: center; gap: 14px; flex-wrap: wrap; }
+  .pomo-ambient { flex-basis: 100%; margin-left: 0; justify-content: center; }
   .focus-pomo-stat { gap: 5px; }
   .focus-pomo-stat-value { font-size: 16px; }
   .focus-pomo-stat-label { font-size: 10px; letter-spacing: .3px; }

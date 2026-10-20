@@ -8267,7 +8267,8 @@ const VIEW_GLYPHS = {
   mUsers: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" fill="currentColor" fill-opacity=".22"/><circle cx="9" cy="7" r="4" fill="currentColor" fill-opacity=".22"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   mUser: '<circle cx="12" cy="8" r="5" fill="currentColor" fill-opacity=".22"/><path d="M20 21a8 8 0 0 0-16 0"/>',
   pomoTomato: '<circle cx="12" cy="13.5" r="7.5" fill="currentColor" fill-opacity=".22"/><path d="M12 8V4.5"/><path d="M8.5 6.5 12 8l3.5-1.5"/>',
-  pomoBreak: '<path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5Z" fill="currentColor" fill-opacity=".22"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 2v3"/><path d="M12 2v3"/>'
+  pomoBreak: '<path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5Z" fill="currentColor" fill-opacity=".22"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 2v3"/><path d="M12 2v3"/>',
+  headphones: '<path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M21 16a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3Z" fill="currentColor" fill-opacity=".22"/><path d="M3 16a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3Z" fill="currentColor" fill-opacity=".22"/>'
 };
 function ViewGlyph({
   name,
@@ -9243,12 +9244,52 @@ function PomoParkInput() {
 }
 
 // Kartu Pomodoro penuh (di atas halaman)
+// Kontrol suara latar di kartu Pomodoro: ikon status, pilihan suara, volume.
+function PomoAmbient({
+  ambient
+}) {
+  const a = ambient || {};
+  const st = a.state || "idle";
+  const sound = a.sound || "off";
+  const volume = typeof a.volume === "number" ? a.volume : 50;
+  const tip = st === "error" ? "Suara belum tersedia offline" : st === "waiting-tap" ? "Ketuk di mana saja untuk menyalakan suara" : undefined;
+  return React.createElement("div", {
+    className: "pomo-ambient",
+    "data-state": st
+  }, React.createElement("span", {
+    className: "pomo-ambient-icon",
+    title: tip
+  }, React.createElement(ViewGlyph, {
+    name: "headphones",
+    size: 16
+  })), React.createElement("select", {
+    className: "pomo-ambient-select",
+    "aria-label": "Suara latar",
+    value: sound,
+    onChange: e => a.onSound && a.onSound(e.target.value)
+  }, window.TF.ambient.SOUNDS.map(o => React.createElement("option", {
+    key: o.key,
+    value: o.key
+  }, o.label))), React.createElement("input", {
+    className: "pomo-ambient-volume",
+    type: "range",
+    min: 0,
+    max: 100,
+    step: 1,
+    value: volume,
+    disabled: sound === "off",
+    "aria-label": "Volume suara latar",
+    "aria-valuetext": volume + "%",
+    onChange: e => a.onVolume && a.onVolume(Number(e.target.value))
+  }));
+}
 function PomodoroTimer({
   timer,
   focusTask,
   cardRef,
   zenEnabled,
-  onToggleZen
+  onToggleZen,
+  ambient
 }) {
   const t = timer;
   return React.createElement("section", {
@@ -9339,7 +9380,9 @@ function PomodoroTimer({
     className: "focus-pomo-stat-value is-lime"
   }, Math.floor(t.pomodorosToday / 4)), React.createElement("span", {
     className: "focus-pomo-stat-label"
-  }, "Set lengkap")))));
+  }, "Set lengkap")), React.createElement(PomoAmbient, {
+    ambient: ambient
+  }))));
 }
 
 // Bar Pomodoro ringkas: menempel di bawah top bar saat kartu penuh sudah tergulir keluar.
@@ -9798,7 +9841,8 @@ function TodayFocusView({
   loading,
   timer: propsTimer,
   focusTask: propsFocusTask,
-  setFocusTask: propsSetFocusTask
+  setFocusTask: propsSetFocusTask,
+  ambient
 }) {
   const [localFocusTask, setLocalFocusTask] = useState(null);
   const focusTask = propsFocusTask !== undefined ? propsFocusTask : localFocusTask;
@@ -9992,7 +10036,8 @@ function TodayFocusView({
     focusTask: focusTask,
     cardRef: pomoRef,
     zenEnabled: zenEnabled,
-    onToggleZen: toggleZen
+    onToggleZen: toggleZen,
+    ambient: ambient
   }), recurringToday.length > 0 && React.createElement("section", {
     className: `focus-section${zenClass}`,
     "aria-hidden": zenOn ? true : undefined
@@ -36695,6 +36740,84 @@ function App() {
   const timer = usePomodoro({
     focusTask
   });
+  // Suara latar: satu pemutar untuk seluruh app (tetap berbunyi saat pindah halaman).
+  const ambientPlayerRef = useRef(null);
+  const [ambientState, setAmbientState] = useState(() => {
+    let p = {
+      sound: "off",
+      volume: 50
+    };
+    try {
+      p = window.TF.ambient.readPrefs(window.localStorage);
+    } catch (e) {}
+    return {
+      state: "idle",
+      sound: p.sound,
+      volume: p.volume
+    };
+  });
+  React.useEffect(() => {
+    let prefs = {
+      sound: "off",
+      volume: 50
+    };
+    try {
+      prefs = window.TF.ambient.readPrefs(window.localStorage);
+    } catch (e) {}
+    const player = window.TF.ambient.createPlayer({
+      onState: s => setAmbientState(s)
+    });
+    ambientPlayerRef.current = player;
+    player.setVolume(prefs.volume);
+    // preload:false — file baru diambil saat Work mulai atau saat dipilih di dropdown.
+    player.setSound(prefs.sound, {
+      preload: false
+    });
+    window.__ambientState = () => player.state();
+    return () => {
+      player.dispose();
+      ambientPlayerRef.current = null;
+      delete window.__ambientState;
+    };
+  }, []);
+  React.useEffect(() => {
+    const player = ambientPlayerRef.current;
+    if (player) player.update({
+      mode: timer.mode,
+      phase: timer.phase,
+      isRunning: timer.isRunning,
+      timeLeft: timer.timeLeft
+    });
+  }, [timer.mode, timer.phase, timer.isRunning, timer.timeLeft === 1500]);
+  const onAmbientSound = useCallback(key => {
+    const player = ambientPlayerRef.current;
+    if (player) player.setSound(key);
+    try {
+      window.TF.ambient.writePrefs(window.localStorage, {
+        sound: key
+      });
+    } catch (e) {}
+  }, []);
+  const onAmbientVolume = useCallback(v => {
+    const player = ambientPlayerRef.current;
+    if (player) player.setVolume(v);
+    setAmbientState(s => ({
+      ...s,
+      volume: v
+    }));
+    try {
+      window.TF.ambient.writePrefs(window.localStorage, {
+        volume: v
+      });
+    } catch (e) {}
+  }, []);
+  const ambient = {
+    state: ambientState.state,
+    sound: ambientState.sound,
+    volume: ambientState.volume,
+    onSound: onAmbientSound,
+    onVolume: onAmbientVolume
+  };
   // Menu utama selalu mulai sebagai bilah ikon: saat login pertama, tiap muat halaman (state awal)
   // dan setelah tiap perpindahan halaman. › hanya membuka menu lengkap sementara.
   React.useEffect(() => {
@@ -38047,7 +38170,8 @@ function App() {
         loading: loading,
         timer: timer,
         focusTask: focusTask,
-        setFocusTask: t => setFocusTaskId(t ? t.id : null)
+        setFocusTask: t => setFocusTaskId(t ? t.id : null),
+        ambient: ambient
       });
     }
     if (page === "chat") {
