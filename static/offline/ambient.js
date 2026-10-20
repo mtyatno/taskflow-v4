@@ -110,6 +110,7 @@
     let sounding = false;       // play() berhasil dan sedang/menuju terdengar
     let waitingTap = false;
     let tapListener = null;
+    let gestureResume = null;   // Promise resume() dari gesture terakhir yang belum selesai
 
     let lastEmitted = null;
 
@@ -202,6 +203,7 @@
       sounding = false;
       if (!audio.paused) audio.pause();
       if (target === "stop") resetPosition();
+      dropStalePending();
       if (pending) swapSource();
       apply();
       emit();
@@ -211,7 +213,17 @@
       try { audio.currentTime = 0; } catch (_) { /* belum ada metadata */ }
     }
 
+    // Blob hasil fetch untuk key yang sudah tidak dipilih: buang, jangan dipasang.
+    function dropStalePending() {
+      if (pending && pending.key !== sound) {
+        env.revokeObjectURL(pending.url);
+        pending = null;
+      }
+    }
+
     function swapSource() {
+      dropStalePending();
+      if (!pending) return;
       if (objectUrl) env.revokeObjectURL(objectUrl);
       objectUrl = pending.url;
       currentKey = pending.key;
@@ -224,23 +236,50 @@
       return !!(ctx && ctx.state === "suspended");
     }
 
-    // Tanpa gesture, resume() bisa tidak pernah selesai; dengan gesture (force) selalu dicoba.
+    // Tanpa gesture, resume() bisa tidak pernah selesai; dengan gesture (force) selalu dicoba
+    // dan Promise-nya disimpan agar play() yang selesai lebih dulu bisa menunggunya.
     function resumeCtx(force) {
       if (!ctx || typeof ctx.resume !== "function") return;
       if (!force && !ctxSuspended()) return;
-      try {
-        const r = ctx.resume();
-        if (r && typeof r.catch === "function") r.catch(() => {});
-      } catch (_) { /* abaikan */ }
+      let r;
+      try { r = ctx.resume(); } catch (_) { r = null; }
+      if (!r || typeof r.then !== "function") return;
+      const settled = r.then(() => {}, () => {});
+      if (force) {
+        gestureResume = settled;
+        settled.then(() => { if (gestureResume === settled) gestureResume = null; });
+      }
+    }
+
+    // play() selesai saat ctx masih suspended: tunggu resume() dari gesture, atau minta ketukan.
+    function awaitResumeOrTap() {
+      const g = gestureResume;
+      if (!g) { waitForTap(); return; }
+      g.then(() => {
+        if (disposed) return;
+        if (ctxSuspended()) waitForTap();
+        else apply(true);
+        emit();
+      });
     }
 
     function wantsPlay() {
       return target === "play" && sound !== "off" && volume > 0;
     }
 
-    function removeTap() {
-      if (tapListener && env.document) env.document.removeEventListener("pointerdown", tapListener, true);
+    // pointerdown saja tidak memberi user activation untuk sentuhan; yang pertama terjadi
+    // dari keempatnya melepas semuanya.
+    const GESTURE_EVENTS = ["pointerdown", "pointerup", "click", "keydown"];
+
+    function detachTap() {
+      if (tapListener && env.document) {
+        for (const type of GESTURE_EVENTS) env.document.removeEventListener(type, tapListener, true);
+      }
       tapListener = null;
+    }
+
+    function removeTap() {
+      detachTap();
       waitingTap = false;
     }
 
@@ -248,12 +287,12 @@
       waitingTap = true;
       if (!tapListener && env.document) {
         tapListener = onGesture;
-        env.document.addEventListener("pointerdown", tapListener, { capture: true, once: true });
+        for (const type of GESTURE_EVENTS) env.document.addEventListener(type, tapListener, { capture: true });
       }
     }
 
     function onGesture() {
-      tapListener = null;
+      detachTap();
       if (disposed) return;
       resumeCtx(true);
       waitingTap = false;
@@ -277,7 +316,7 @@
           emit();
           return;
         }
-        if (ctxSuspended()) { waitForTap(); emit(); return; }
+        if (ctxSuspended()) { awaitResumeOrTap(); emit(); return; }
         sounding = true;
         fadeTo(volume / 100, FADE_MS);
         emit();
@@ -285,6 +324,8 @@
         playPending = false;
         if (disposed) return;
         const name = err && err.name;
+        // Sumber baru yang tiba selama play() berjalan dipasang sekarang (audio diam).
+        if (audio.paused) swapSource();
         if (name === "NotAllowedError") {
           if (wantsPlay()) waitForTap();
         } else if (name !== "AbortError") {
@@ -307,6 +348,7 @@
         return;
       }
       if (!audio) return;
+      dropStalePending();
       if (currentKey !== sound || pending) {
         // Sumber yang benar belum terpasang: hening dulu (settle memasang sumber baru).
         removeTap();
@@ -387,6 +429,7 @@
         loadSeq++;          // hasil fetch lama diabaikan
         loadingKey = null;
       }
+      dropStalePending();
       if (needsLoad() && (preload || wantsPlay())) load(sound);
       apply();
       emit();

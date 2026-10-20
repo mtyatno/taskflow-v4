@@ -43,12 +43,25 @@ function makeClock() {
   };
 }
 
-function makeAudio(o) {
+function makeAudio(o, clock) {
   const a = {
     paused: true, currentTime: 0, volume: 1, loop: false, src: "", playCalls: 0, pauseCalls: 0,
     canPlayType: () => (o.ogg === false ? "" : "probably"),
     play() {
       a.playCalls++;
+      if (o.deferPlay) {
+        // play() tertunda: paused langsung false, Promise selesai setelah jam dimajukan.
+        a.paused = false;
+        return new Promise((resolve, reject) => {
+          clock.setTimeout(() => {
+            if (o.rejectPlay) {
+              a.paused = true;
+              const name = o.rejectPlay;
+              reject(Object.assign(new Error(name), { name }));
+            } else resolve();
+          }, o.deferPlay);
+        });
+      }
       if (o.rejectPlay) {
         const name = o.rejectPlay;
         return Promise.reject(Object.assign(new Error(name), { name }));
@@ -101,7 +114,7 @@ function setup(o = {}) {
   const doc = makeDoc();
   let ctx = null;
   const env = {
-    createAudio: () => { const a = makeAudio(o); audios.push(a); return a; },
+    createAudio: () => { const a = makeAudio(o, clock); audios.push(a); return a; },
     createAudioContext: o.noWebAudio ? null : () => { ctx = makeCtx(); if (o.ctxState) ctx.state = o.ctxState; return ctx; },
     fetch: (url) => {
       fetches.push(url);
@@ -409,12 +422,10 @@ test("autoplay ditolak → waiting-tap; pointerdown mencoba lagi sekali → play
   await s.clock.advance(1000);
   assert.equal(s.p.state().state, "waiting-tap");
   assert.equal(s.audio.playCalls, 1);
-  const taps = s.doc.listeners.filter((l) => l.type === "pointerdown");
-  assert.equal(taps.length, 1);
-  assert.equal(taps[0].opts.capture, true);
-  assert.equal(taps[0].opts.once, true);
+  assert.deepEqual(s.doc.listeners.map((l) => l.type).sort(), ["click", "keydown", "pointerdown", "pointerup"]);
+  assert.ok(s.doc.listeners.every((l) => l.opts.capture === true));
   s.p.setVolume(60); // tidak menambah listener / play
-  assert.equal(s.doc.listeners.length, 1);
+  assert.equal(s.doc.listeners.length, 4);
   assert.equal(s.audio.playCalls, 1);
   o.rejectPlay = null;
   s.doc.dispatch("pointerdown");
@@ -462,6 +473,111 @@ test("AudioContext suspended setelah play → waiting-tap, ketukan me-resume lal
   await s.clock.advance(1000);
   assert.equal(s.p.state().state, "playing");
   assert.ok(close(s.gain, 0.5));
+});
+
+for (const type of ["pointerdown", "pointerup", "click", "keydown"]) {
+  test("gesture " + type + " saja → mencoba lagi dan melepas keempat listener", async () => {
+    const o = { rejectPlay: "NotAllowedError" };
+    const s = setup(o);
+    s.p.setSound("hujan");
+    await s.clock.advance(0);
+    s.p.update(WORK_RUN);
+    await s.clock.advance(0);
+    assert.equal(s.p.state().state, "waiting-tap");
+    assert.equal(s.doc.listeners.length, 4);
+    o.rejectPlay = null;
+    s.doc.dispatch(type);
+    await s.clock.advance(1000);
+    assert.equal(s.audio.playCalls, 2);
+    assert.equal(s.p.state().state, "playing");
+    assert.equal(s.doc.listeners.length, 0);
+  });
+}
+
+test("ketukan: resume() selesai setelah play() → satu ketukan berakhir playing", async () => {
+  const s = setup({ rejectPlay: "NotAllowedError" });
+  s.p.setSound("hujan");
+  await s.clock.advance(0);
+  s.ctx.state = "suspended";
+  s.ctx.resume = () => { s.ctx.resumeCalls++; return new Promise(() => {}); }; // tanpa gesture: menggantung
+  s.p.update(WORK_RUN);
+  await s.clock.advance(0);
+  assert.equal(s.p.state().state, "waiting-tap");
+  s.o.rejectPlay = null;
+  s.ctx.resume = () => {
+    s.ctx.resumeCalls++;
+    return new Promise((r) => s.clock.setTimeout(() => { s.ctx.state = "running"; r(); }, 5));
+  };
+  s.doc.dispatch("pointerdown");
+  await s.clock.advance(0); // play() sudah selesai, resume belum
+  assert.equal(s.ctx.state, "suspended");
+  await s.clock.advance(505);
+  assert.equal(s.p.state().state, "playing");
+  assert.ok(s.gain > 0.2 && s.gain < 0.5, String(s.gain));
+  assert.equal(s.doc.listeners.length, 0);
+  await s.clock.advance(1000);
+  assert.ok(close(s.gain, 0.5));
+});
+
+// ---------- sumber tertunda basi ----------
+test("Hujan → Brown Noise (fetch selesai saat fade-out) → Hujan lagi: tanpa fetch ulang, Blob brown di-revoke", async () => {
+  const s = await playing();
+  assert.equal(s.audio.src, "blob:1");
+  s.p.setSound("brown-noise");
+  await s.clock.advance(300); // fetch brown selesai, masih fade-out
+  assert.equal(s.created.length, 2);
+  assert.equal(s.audio.src, "blob:1");
+  s.p.setSound("hujan");
+  assert.deepEqual(s.revoked, ["blob:2"]);
+  await s.clock.advance(2000);
+  assert.deepEqual(s.fetches, ["/static/sounds/hujan-v1.ogg", "/static/sounds/brown-noise-v1.ogg"]);
+  assert.equal(s.audio.src, "blob:1");
+  assert.deepEqual(s.revoked, ["blob:2"]);
+  assert.equal(s.audio.paused, false);
+  assert.ok(close(s.gain, 0.5));
+  assert.equal(s.p.state().state, "playing");
+  assert.equal(s.p.state().sound, "hujan");
+});
+
+test("play() tertunda: ganti sound lalu play() ditolak → waiting-tap, ketukan memutar sound BARU", async () => {
+  const o = { deferPlay: 50, rejectPlay: "NotAllowedError" };
+  const s = setup(o);
+  s.p.setSound("hujan");
+  await s.clock.advance(0);
+  s.p.update(WORK_RUN);
+  assert.equal(s.audio.paused, false); // play() berjalan
+  s.p.setSound("brown-noise");
+  await s.clock.advance(10); // fetch brown selesai, play() hujan masih tertunda
+  assert.equal(s.created.length, 2);
+  await s.clock.advance(100); // play() ditolak
+  assert.equal(s.p.state().state, "waiting-tap");
+  assert.equal(s.p.state().sound, "brown-noise");
+  assert.equal(s.audio.paused, true);
+  assert.equal(s.audio.src, "blob:2");
+  assert.deepEqual(s.revoked, ["blob:1"]);
+  o.rejectPlay = null;
+  s.doc.dispatch("click");
+  await s.clock.advance(1100);
+  assert.equal(s.audios.length, 1);
+  assert.equal(s.audio.src, "blob:2");
+  assert.equal(s.audio.paused, false);
+  assert.equal(s.p.state().state, "playing");
+  assert.ok(close(s.gain, 0.5));
+  assert.equal(s.doc.listeners.length, 0);
+});
+
+test("play() tertunda lalu Jeda sebelum selesai → diam, tanpa fade-in", async () => {
+  const s = setup({ deferPlay: 50 });
+  s.p.setSound("hujan");
+  await s.clock.advance(0);
+  s.p.update(WORK_RUN);
+  await s.clock.advance(20);
+  s.p.update(WORK_PAUSED);
+  await s.clock.advance(2000);
+  assert.equal(s.audio.paused, true);
+  assert.equal(s.gain, 0);
+  assert.equal(s.audio.playCalls, 1);
+  assert.equal(s.p.state().state, "idle");
 });
 
 // ---------- fetch gagal (Review Focus 3) ----------
