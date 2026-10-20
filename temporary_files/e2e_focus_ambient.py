@@ -62,6 +62,10 @@ def open_app(browser, base, user, theme="light", viewport=(1280, 860), sw=False,
     ctx.add_init_script(SPY_AUDIO)
     ctx.sound_reqs = []
     ctx.on("request", lambda r: ctx.sound_reqs.append(r.url) if "/static/sounds/" in r.url else None)
+    # (url, status, from_service_worker) untuk respons suara: membuktikan jalur cache SW di skenario h.
+    ctx.sound_resps = []
+    ctx.on("response", lambda r: ctx.sound_resps.append((r.url, r.status, r.from_service_worker))
+           if "/static/sounds/" in r.url else None)
     p = ctx.new_page()
     p.goto(base + "/manifest.json")
     p.evaluate("""([t, u, tours, theme, extra]) => {
@@ -316,12 +320,12 @@ def run_flow(p, ctx, base):
 
 def js_nav_focus(p):
     """Buka halaman Fokus tanpa user activation. page.evaluate Playwright berjalan dengan userGesture, dan aktivasi
-    transien Chromium berlaku 5 detik; jadi klik sintetis dijadwalkan 6 detik kemudian, tanpa evaluate di antaranya."""
+    transien Chromium berlaku 5 detik; jadi klik sintetis dijadwalkan 8 detik kemudian, tanpa evaluate di antaranya."""
     p.evaluate("""() => { setTimeout(() => { const a = [...document.querySelectorAll('[data-page],a,button,.sidebar-link,.sidebar-rail-btn')]
         .find(x => (x.getAttribute('data-page') || '') === 'today'
               || /Fokus Hari Ini/.test((x.textContent || '') + (x.getAttribute('aria-label') || '') + (x.getAttribute('title') || '')));
-        if (a) a.click(); }, 6000); }""")
-    p.wait_for_timeout(6500)
+        if (a) a.click(); }, 8000); }""")
+    p.wait_for_timeout(8500)
 
 
 def run_autoplay_rejected(browser, base, user):
@@ -379,6 +383,17 @@ def run_sw_offline(browser, base, user, proc):
         names = p.evaluate("() => caches.keys()")
         check("h2 cache SW versi aktif + alurik-ambient-v1", "taskflow-v440-focus-ambient" in names
               and "alurik-ambient-v1" in names, repr(names))
+        # Kosongkan cache HTTP browser (dipakai bersama oleh halaman dan fetch SW) dan matikan untuk halaman ini:
+        # StaticFiles mengirim ETag/Last-Modified tanpa Cache-Control, sehingga cache heuristik Chromium bisa
+        # menyajikan file dan membuat h4 lulus tanpa melewati alurik-ambient-v1. CacheStorage tidak ikut terhapus.
+        cdp = ctx.new_cdp_session(p)
+        cdp.send("Network.enable")
+        cdp.send("Network.clearBrowserCache")
+        cdp.send("Network.setCacheDisabled", {"cacheDisabled": True})
+        still = p.evaluate("""async () => (await (await caches.open('alurik-ambient-v1')).keys())
+            .map(r => new URL(r.url).pathname)""")
+        check("h2b cache HTTP dikosongkan; alurik-ambient-v1 tetap berisi Brown Noise",
+              any("brown-noise-v1" in u for u in still), repr(still))
         # set_offline tidak berlaku untuk fetch milik service worker di Chromium, jadi server juga dimatikan:
         # semua request (halaman dan SW) benar-benar gagal. Skenario ini dijalankan paling akhir.
         tg.goto_focus(p, base)
@@ -393,22 +408,24 @@ def run_sw_offline(browser, base, user, proc):
         check("h3 offline: halaman dimuat, pilihan Brown Noise tersimpan",
               ctl(p).locator("select.pomo-ambient-select").input_value() == "brown-noise")
         select(p, "off")
-        n0 = len(ctx.sound_reqs)
+        n0 = len(ctx.sound_resps)
         select(p, "brown-noise")
         st = wait_amb(p, lambda s: s["state"] in ("idle", "error"))
         p.wait_for_timeout(500)
         st = amb(p)
-        new_reqs = ctx.sound_reqs[n0:]
-        check("h4 offline: Brown Noise lagi -> diambil ulang, bukan error (dari alurik-ambient-v1)",
+        new_resps = ctx.sound_resps[n0:]
+        check("h4 offline: Brown Noise lagi -> bukan error, respons 200 dari service worker (alurik-ambient-v1)",
               st["state"] == "idle" and ctl_state(p) == "idle"
-              and any("brown-noise-v1" in u for u in new_reqs), "%r %r" % (st, new_reqs))
+              and any("brown-noise-v1" in u and code == 200 and sw for u, code, sw in new_resps),
+              "%r %r" % (st, new_resps))
         select(p, "detak-jam")
         st = wait_amb(p, lambda s: s["state"] == "error", timeout=6)
         icon_tip = ctl(p).locator(".pomo-ambient-icon").get_attribute("title")
         check("h5 offline: Detak Jam (belum diunduh) -> error, tooltip persis",
               st["state"] == "error" and ctl_state(p) == "error" and icon_tip == TIP_ERROR, "%r %r" % (st, icon_tip))
         check("h6 aria-live mengumumkan error", live_text(p) == TIP_ERROR, repr(live_text(p)))
-        tg.focus(p, T1) if p.locator(".focus-pomo .focus-pomo-task-count").count() == 0 else None
+        if p.locator(".focus-pomo .focus-pomo-task-count").count() == 0:
+            tg.focus(p, T1)
         tg.start(p)
         p.wait_for_timeout(1500)
         check("h7 error audio tidak memengaruhi timer", tg.pomo_state(p).get("isRunning") is True)
@@ -417,6 +434,31 @@ def run_sw_offline(browser, base, user, proc):
         select(p, "brown-noise")
         st = wait_amb(p, lambda s: s["state"] == "idle" and s["paused"] is True)
         check("h8 pilih suara lain (sudah di cache) -> pulih dari error", st["state"] == "idle", repr(st))
+        # Kontrol negatif: tanpa entri di alurik-ambient-v1, Brown Noise offline harus error. Membuktikan h4
+        # memang dilayani dari cache SW, bukan dari cache HTTP atau jaringan.
+        deleted = p.evaluate("""async () => { const c = await caches.open('alurik-ambient-v1');
+            const ks = (await c.keys()).filter(r => r.url.includes('brown-noise-v1'));
+            for (const k of ks) await c.delete(k);
+            return [ks.length, (await c.keys()).length]; }""")
+        check("h9a entri Brown Noise dihapus dari alurik-ambient-v1", deleted[0] >= 1 and deleted[1] == 0, repr(deleted))
+        p.reload()  # pemutar baru: Brown Noise belum terpasang, jadi pilihan berikut mengambil file lagi
+        p.locator(".sidebar-link, .sidebar-rail-btn").first.wait_for(state="attached", timeout=20000)
+        if p.locator(".focus-pomo .pomo-ambient").count() == 0:
+            h.nav(p, "Fokus Hari Ini")
+        p.locator(".focus-pomo .pomo-ambient").wait_for(state="visible", timeout=20000)
+        cdp = ctx.new_cdp_session(p)
+        cdp.send("Network.enable")
+        cdp.send("Network.setCacheDisabled", {"cacheDisabled": True})
+        n0 = len(ctx.sound_resps)
+        r0 = len(ctx.sound_reqs)
+        select(p, "off")
+        select(p, "brown-noise")
+        st = wait_amb(p, lambda s: s["state"] == "error", timeout=6)
+        check("h9b kontrol negatif: tanpa entri cache, Brown Noise offline -> error",
+              st["state"] == "error" and ctl_state(p) == "error"
+              and any("brown-noise-v1" in u for u in ctx.sound_reqs[r0:])
+              and not any(code == 200 for _, code, _ in ctx.sound_resps[n0:]),
+              "%r %r %r" % (st, ctx.sound_reqs[r0:], ctx.sound_resps[n0:]))
     finally:
         ctx.close()
 
