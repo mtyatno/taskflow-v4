@@ -304,7 +304,7 @@ def _upsert_tags_for_entity(conn, entity_id: int, user_id: int, entity_type: str
 def migrate_db():
     """Ensure all tables exist via repository init."""
     from repository import TaskRepository
-    TaskRepository(DB_PATH)
+    TaskRepository(DB_PATH).heal_orphan_workspace_items()
 
     # Ensure telegram_link_tokens table exists
     conn = sqlite3.connect(DB_PATH)
@@ -4328,7 +4328,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v436-focus-target"
+    sw_cache = "taskflow-v437-kelola-workspace-fase0"
     return JSONResponse(
         content={
             "app_version": "4.0.0",
@@ -9713,6 +9713,16 @@ async def get_list_leave_impact(list_id: int, user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Bukan anggota list ini")
     with get_db() as conn:
         return {"items": drawing_scope.leave_impact(conn, list_id, uid)}
+
+
+@app.get("/api/lists/{list_id}/delete-impact")
+async def get_list_delete_impact(list_id: int, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    if not repo.get_shared_list(list_id):
+        raise HTTPException(status_code=404, detail="Workspace tidak ditemukan")
+    if not repo.is_list_owner(list_id, user["sub"]):
+        raise HTTPException(status_code=403, detail="Hanya owner yang dapat menghapus workspace")
+    return repo.workspace_delete_impact(list_id)
 
 
 @app.delete("/api/drawings/{did}")

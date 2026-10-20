@@ -1795,11 +1795,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("dlist_confirm_"):
         list_id = int(data.replace("dlist_confirm_", ""))
         deleted = repo.delete_shared_list(list_id, uid(context))
-        await query.answer("🗑️ List dihapus" if deleted else "❌ Gagal")
+        await query.answer("🗑️ Workspace dihapus" if deleted else "❌ Gagal menghapus workspace")
         if deleted:
-            await query.edit_message_text("🗑️ Shared list berhasil dihapus.")
+            await query.edit_message_text("🗑️ Workspace berhasil dihapus.")
         else:
-            await query.edit_message_text("❌ Gagal menghapus list.")
+            await query.edit_message_text("❌ Gagal menghapus workspace.")
 
     elif data == "dlist_cancel":
         await query.answer("Cancelled")
@@ -2689,7 +2689,7 @@ async def cmd_leavelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @authorized
 async def cmd_deletelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Hapus shared list (owner only): /deletelist <list_id>"""
+    """Hapus workspace (owner only): /deletelist <list_id>"""
     if not context.args or not context.args[0].isdigit():
         await update.message.reply_text(
             "💡 Usage: <code>/deletelist &lt;list_id&gt;</code>",
@@ -2708,8 +2708,9 @@ async def cmd_deletelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         InlineKeyboardButton("❌ Batal", callback_data="dlist_cancel"),
     ]])
     await update.message.reply_text(
-        f"⚠️ Hapus shared list <b>{h(lst['name'])}</b>?\n"
-        f"Semua task di list ini akan ikut terhapus.",
+        f"⚠️ Hapus workspace <b>{h(lst['name'])}</b>? "
+        f"Task akan kembali menjadi task pribadi pembuatnya; "
+        f"berkas dan chat workspace dihapus permanen.",
         parse_mode=ParseMode.HTML,
         reply_markup=keyboard,
     )

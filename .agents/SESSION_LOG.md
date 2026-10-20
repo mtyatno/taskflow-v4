@@ -3681,6 +3681,9 @@
 - Bapak: "merge". #62 di-merge (f78790d); CI Tests hijau.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek halaman Fokus Hari Ini (SW v434, `app.css?v=342`). Berikutnya: plan PR B (Target 🍅).
 
+## 2026-10-20 23:30 WIB — Claude — Kelola Workspace Fase 0 (perbaikan aman)
+- Bapak minta enhancement halaman Kelola Workspace (5 kelompok + telaah tambahan). Dipecah Fase 0–5; Fase 0 dikerjakan: spec + rencana disetujui, SDD 5 task (review per task), review akhir + 1 gelombang perbaikan. SW v435, `app.css?v=343`, ADR-020. pytest 831, JS 2209/2210 (pra-ada), E2E 63/63.
+- **Status:** Needs Review (draft PR; setelah merge restart `taskflow-web` + `taskflow`).
 ## 2026-10-20 23:00 WIB — Claude — Fokus Hari Ini PR B (Target 🍅)
 - **Task:** Task 7 PR B: naik versi SW v435 / `app.css?v=343`, E2E, handover.
 - **Changes:** versi di `sw.js`, `index.html`, `webapp.py` + test yang mengunci versi; E2E `temporary_files/e2e_focus_target.py` 39/39; E2E menemukan `tasklogic.todayLocalISO` tidak diekspor (aplikasi crash) → diperbaiki 92dc3f18 + tes. pytest 834, JS 2246/2247 (pra-ada `draw_local_reactive`).
@@ -3693,6 +3696,8 @@
 - **Files Touch:** static/index.html, static/sw.js, static/offline/pomolog.js, webapp.py, repository.py, tests/, temporary_files/e2e_focus_target.py, docs/superpowers/plans/2026-10-20-fokus-b-target-pomodoro.md, docs/superpowers/specs/2026-10-20-fokus-hari-ini-enhancement-design.md, .agents/CURRENT_STATE.md, .agents/DECISIONS.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (belum di-push; deploy = migrasi → restart `taskflow-web`, lalu `taskflow`, satu per satu)
 
+## 2026-10-20 23:45 WIB — Claude — merge main (#64) ke kelola-workspace-fase0, SW v437
+- `main` maju (#64 Target 🍅, SW v436 / `app.css?v=344`, ADR-021). Main di-merge ke branch; konflik hanya string versi + `.agents` (kedua sisi dipertahankan). SW naik ke **v437** `taskflow-v437-kelola-workspace-fase0`, `app.css?v=345`. pytest 850; JS 2265/2266 (pra-ada `draw_local_reactive`); inline OK; E2E kelola workspace 63/63, focus target 41/41, focus page 35/35.
 ## 2026-10-20 23:27 WIB — Claude — merge Fokus Hari Ini PR B (#64)
 - Bapak: "merge". #64 di-merge (571ff1a); CI Tests hijau. SW v436 / `app.css?v=344`, ADR-021.
 - **Berikutnya (di server, oleh Bapak):** ada migrasi — `sudo systemctl restart taskflow-web`, lalu `sudo systemctl restart taskflow` (satu per satu). Draft #63 (Kelola Workspace, v435/ADR-020) kini akan konflik kecil di versi + `.agents` saat di-merge. Berikutnya: plan PR C (Overtime).

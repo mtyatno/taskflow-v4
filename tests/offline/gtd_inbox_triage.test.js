@@ -136,13 +136,13 @@ test("6. App provides handleUpdateTaskGtd with optimistic update and offline que
   assert.match(appSrc, /onUpdateGtdStatus:\s*handleUpdateTaskGtd/);
 });
 
-test("7. Service Worker and stylesheet versions are bumped to v411 and app.css?v=344", () => {
+test("7. Service Worker and stylesheet versions are bumped to v411 and app.css?v=345", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(html, /<link rel="stylesheet" href="\/static\/app\.css\?v=344">/);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v436-focus-target";/);
-  assert.match(sw, /^const CACHE = "taskflow-v436-focus-target";/m);
+  assert.match(html, /<link rel="stylesheet" href="\/static\/app\.css\?v=345">/);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v437-kelola-workspace-fase0";/);
+  assert.match(sw, /^const CACHE = "taskflow-v437-kelola-workspace-fase0";/m);
 });
 
 test("8. Dashboard KPI Inbox integrates GtdInboxWizardModal and navigations", () => {

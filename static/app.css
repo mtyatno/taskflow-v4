@@ -238,6 +238,19 @@
     .btn-danger:hover { background: #fee2e2; }
     .btn-success { background: #f0fdf4; color: #16a34a; }
     .btn-success:hover { background: #dcfce7; }
+    /* Kelola Workspace: tombol Hapus/Keluar lembut + varian tema gelap */
+    .btn-danger-soft { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    .btn-danger-soft:hover:not(:disabled) { background: #fee2e2; }
+    .btn-warn-soft { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+    .btn-warn-soft:hover:not(:disabled) { background: #fef3c7; }
+    .btn-danger-soft:disabled, .btn-warn-soft:disabled { opacity: 0.5; cursor: not-allowed; }
+    [data-theme="dark"] .btn-danger-soft { background: rgba(239, 68, 68, 0.12); color: #fca5a5; border-color: rgba(239, 68, 68, 0.35); }
+    [data-theme="dark"] .btn-danger-soft:hover:not(:disabled) { background: rgba(239, 68, 68, 0.2); }
+    [data-theme="dark"] .btn-warn-soft { background: rgba(245, 158, 11, 0.12); color: #fcd34d; border-color: rgba(245, 158, 11, 0.35); }
+    [data-theme="dark"] .btn-warn-soft:hover:not(:disabled) { background: rgba(245, 158, 11, 0.2); }
+    .ws-danger-text { color: #dc2626; }
+    [data-theme="dark"] .ws-danger-text { color: #fca5a5; }
+    .ws-invite-link { flex: 1; min-width: 0; font-size: 11px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-subtle); color: var(--text-secondary); }
     .btn-sm { padding: 5px 12px; font-size: 13px; }
     /* ── Chat ── */
     /* ── Chat ── */
