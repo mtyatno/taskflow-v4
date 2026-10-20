@@ -4328,7 +4328,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v434-focus-park-zen"
+    sw_cache = "taskflow-v435-focus-target"
     return JSONResponse(
         content={
             "app_version": "4.0.0",
