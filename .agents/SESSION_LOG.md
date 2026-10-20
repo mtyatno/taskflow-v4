@@ -3725,3 +3725,7 @@
 ## 2026-10-21 01:57 WIB — Claude — merge Fokus Hari Ini PR C (#65)
 - Bapak: "merge". #65 di-merge (b20b0d8); CI Tests hijau. SW v438 / `app.css?v=346`.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` (tanpa migrasi); cek Overtime di halaman Fokus Hari Ini. Berikutnya: plan PR D (Suara latar).
+
+## 2026-10-21 05:37 WIB — Claude — merge Email Fase 0a (#66)
+- Bapak: "merge". #66 di-merge (50d0e24) setelah merge main (#65) + SW v439 / `app.css?v=347`; CI Tests hijau di head PR, Deploy Taskflow V4 sukses.
+- **Berikutnya (di server, oleh Bapak):** ada migrasi (`users.password_set`) — `sudo systemctl restart taskflow-web`, lalu `sudo systemctl restart taskflow` (satu per satu). Semua sesi web/aplikasi tetap berjalan (token lama tanpa ganti password tetap sah). Lalu Fase 0b (upgrade mailer) → spec + plan.
