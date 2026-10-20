@@ -98,3 +98,23 @@ def test_shared_list_and_invite_handlers_escape(monkeypatch):
     for text in [t for t, _ in msg.sent] + sent:
         assert "<x>" not in text, text
         assert XE in text
+
+
+def test_deletelist_confirmation_says_tasks_return_to_creator(monkeypatch):
+    lst = {"id": 3, "name": X, "owner_id": 1}
+    monkeypatch.setattr(bot, "ALLOWED_USER_IDS", [])
+    monkeypatch.setattr(bot, "_resolve_user_id", lambda tg: 1)
+    monkeypatch.setattr(bot.repo, "get_shared_list", lambda i: lst)
+    msg = _Msg()
+    update = SimpleNamespace(
+        message=msg,
+        effective_user=SimpleNamespace(id=1, full_name="A", username="u"),
+    )
+    context = SimpleNamespace(args=["3"], user_data={})
+    asyncio.run(bot.cmd_deletelist(update, context))
+    assert msg.sent
+    text = msg.sent[0][0]
+    assert "Hapus workspace <b>" + XE + "</b>?" in text
+    assert "Task akan kembali menjadi task pribadi pembuatnya" in text
+    assert "berkas dan chat workspace dihapus permanen" in text
+    assert "ikut terhapus" not in text and "shared list" not in text.lower()
