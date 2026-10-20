@@ -104,10 +104,38 @@
   // Peta biasa tetap lewat init() (perilaku lama, termasuk riwayat undo mesin per muatan).
   function reloadEngine(mind, data, linked) {
     exitFocusMode(mind);
+    data = sanitizeData(data);
     if (linked) {
       mind.refresh(data);
     } else {
       mind.init(data);
+    }
+  }
+
+  // XSS: data untuk mesin lewat TF.safehtml.sanitizeMindTree (buang dangerouslySetInnerHTML, hyperLink tidak
+  // aman). Tanpa safehtml (tidak termuat): gagal tertutup — kunci dangerously* dan SEMUA hyperLink dibuang.
+  function mindSanitizer() {
+    const S = root && root.TF && root.TF.safehtml;
+    if (S && typeof S.sanitizeMindTree === "function") return S.sanitizeMindTree;
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      try { return require("./safehtml.js").sanitizeMindTree; } catch (_) {}
+    }
+    return null;
+  }
+  function sanitizeData(data) {
+    const fn = mindSanitizer();
+    if (fn) {
+      try { return fn(data); } catch (_) {}
+    }
+    if (data === null || typeof data !== "object") return data;
+    try {
+      return JSON.parse(JSON.stringify(data, (k, v) => {
+        if (k === "parent" && v && typeof v === "object") return undefined;
+        if (/^dangerously/i.test(k) || k === "hyperLink") return undefined;
+        return v;
+      }));
+    } catch (_) {
+      return { nodeData: { id: "root", topic: "mindmap", root: true, children: [] } };
     }
   }
 
@@ -142,6 +170,7 @@
     isOpenNoteClick: isOpenNoteClick,
     exitFocusMode: exitFocusMode,
     reloadEngine: reloadEngine,
+    sanitizeData: sanitizeData,
     resetUndo: resetUndo,
     LINKED_HIDDEN_SELECTORS: LINKED_HIDDEN_SELECTORS,
   };

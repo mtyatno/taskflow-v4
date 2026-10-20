@@ -12,7 +12,7 @@ import docx
 import webapp
 from conftest import db
 from drawing_ws_helpers import add_member, auth, drawing_row, make_drawing, uid_of, workspace
-from test_pub_access import _publish, _unlock_cookie, _svg, anon
+from test_pub_access import _publish, _shown, _unlock_cookie, _svg, anon
 
 
 def _tag():
@@ -39,7 +39,7 @@ def test_shared_published_note_shows_workspace_drawing(client):
     pub = anon()
     page = pub.get(f"/pub/{username}/{slug}")
     assert page.status_code == 200
-    assert marker in page.text
+    assert marker in _shown(page.text)
     assert "Gambar tidak tersedia" not in page.text
     assert pub.get(f"/pub/drawings/{d['id']}").status_code == 200
     assert pub.get(f"/pub/drawings/{d['client_id']}").status_code == 200
@@ -60,7 +60,7 @@ def test_shared_published_note_hides_non_workspace_drawing(client):
     pub = anon()
     page = pub.get(f"/pub/{username}/{slug}")
     assert page.status_code == 200
-    assert marker not in page.text
+    assert marker not in _shown(page.text)
     assert "Gambar tidak tersedia" in page.text
     assert pub.get(f"/pub/drawings/{k['id']}").status_code == 404
     assert pub.get(f"/pub/drawings/{k['client_id']}").status_code == 404
@@ -84,7 +84,7 @@ def test_shared_published_note_other_workspace_drawing_hidden(client):
     finally:
         conn.close()
     pub = anon()
-    assert marker not in pub.get(f"/pub/{username}/{slug}").text
+    assert marker not in _shown(pub.get(f"/pub/{username}/{slug}").text)
     assert pub.get(f"/pub/drawings/{d['id']}").status_code == 404
 
 
@@ -103,7 +103,7 @@ def test_owner_save_after_member_injection_keeps_drawing_off_public_page(client)
     assert r.status_code == 200, r.text
     assert drawing_row(k["id"])["list_id"] is None
     pub = anon()
-    assert marker not in pub.get(f"/pub/{username}/{slug}").text
+    assert marker not in _shown(pub.get(f"/pub/{username}/{slug}").text)
     assert pub.get(f"/pub/drawings/{k['id']}").status_code == 404
 
 
@@ -122,7 +122,7 @@ def test_owner_save_after_uppercase_injection_keeps_drawing_off_public_page(clie
     assert r.status_code == 200, r.text
     assert drawing_row(k["id"])["list_id"] is None
     pub = anon()
-    assert marker not in pub.get(f"/pub/{username}/{slug}").text
+    assert marker not in _shown(pub.get(f"/pub/{username}/{slug}").text)
     assert pub.get(f"/pub/drawings/{k['id']}").status_code == 404
 
 
@@ -135,9 +135,9 @@ def test_shared_published_note_password_gate(client):
     _, slug, username = _publish(client, ha, f"Note W {tag}", f"::draw[{d['id']}]", password="rahasia123", list_id=w)
     pub = anon()
     assert pub.get(f"/pub/drawings/{d['id']}").status_code == 404
-    assert marker not in pub.get(f"/pub/{username}/{slug}").text
+    assert marker not in _shown(pub.get(f"/pub/{username}/{slug}").text)
     assert pub.get(f"/pub/drawings/{d['id']}", headers=_unlock_cookie(slug)).status_code == 200
-    assert marker in pub.get(f"/pub/{username}/{slug}", headers=_unlock_cookie(slug)).text
+    assert marker in _shown(pub.get(f"/pub/{username}/{slug}", headers=_unlock_cookie(slug)).text)
 
 
 def test_trusted_note_shows_publisher_accessible_workspace_drawing(client):
@@ -151,7 +151,7 @@ def test_trusted_note_shows_publisher_accessible_workspace_drawing(client):
     d = make_drawing(client, hb, f"tb-{tag}", cid=f"cid-tb-{tag}", list_id=w, svg=_svg(marker))
     _, slug, username = _publish(client, ha, f"Note A {tag}", f"::draw[{d['id']}]")
     pub = anon()
-    assert marker in pub.get(f"/pub/{username}/{slug}").text
+    assert marker in _shown(pub.get(f"/pub/{username}/{slug}").text)
     assert pub.get(f"/pub/drawings/{d['id']}").status_code == 200
 
 
@@ -166,7 +166,7 @@ def test_trusted_note_still_hides_inaccessible_drawing(client):
     _, slug, username = _publish(client, ha, f"Note A {tag}", f"::draw[{c['id']}]\n\n::draw[{cw['id']}]")
     pub = anon()
     page = pub.get(f"/pub/{username}/{slug}")
-    assert marker not in page.text
+    assert marker not in _shown(page.text)
     assert "Gambar tidak tersedia" in page.text
     assert pub.get(f"/pub/drawings/{c['id']}").status_code == 404
     assert pub.get(f"/pub/drawings/{cw['id']}").status_code == 404

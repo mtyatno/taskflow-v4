@@ -9,9 +9,15 @@ Eisenhower : Q1 (urgent+important) Q2 (important) Q3 (urgent) Q4 (neither)
 from __future__ import annotations
 
 import enum
+import html as _html
 from dataclasses import dataclass, field
 from datetime import datetime, date
 from typing import Optional
+
+
+def _esc(s) -> str:
+    """Escape nilai pengguna untuk pesan Telegram ParseMode.HTML."""
+    return _html.escape(str(s or ""), quote=False)
 
 
 # ── Enums ──────────────────────────────────────────────────────────────────────
@@ -118,16 +124,16 @@ class Task:
         pri_icon = {"P1": "🔴", "P2": "🟠", "P3": "🟡", "P4": "🟢"}
         icon = pri_icon.get(self.priority.value, "⚪")
 
-        line1 = f"{icon}  <b>{self.title}</b>"
+        line1 = f"{icon}  <b>{_esc(self.title)}</b>"
         
         tags = []
         tags.append(f"#{self.id}")
         tags.append(self.priority.value)
         tags.append(self.quadrant.value)
         if self.project:
-            tags.append(f"📁 {self.project}")
+            tags.append(f"📁 {_esc(self.project)}")
         if self.context:
-            tags.append(self.context)
+            tags.append(_esc(self.context))
         
         line2 = "      " + "  ·  ".join(tags)
 
@@ -147,16 +153,16 @@ class Task:
         """Full detail card."""
         lines = [
             f"📋 <b>Task #{self.id}</b>",
-            f"<b>{self.title}</b>",
+            f"<b>{_esc(self.title)}</b>",
             "",
             f"🔄 GTD: <code>{self.gtd_status.value}</code>",
             f"🎯 Priority: {self.priority.label}",
             f"📊 Eisenhower: {self.quadrant.label}",
         ]
         if self.project:
-            lines.append(f"📁 Project: {self.project}")
+            lines.append(f"📁 Project: {_esc(self.project)}")
         if self.context:
-            lines.append(f"🏷️ Context: {self.context}")
+            lines.append(f"🏷️ Context: {_esc(self.context)}")
         if self.deadline:
             dl = self.deadline.strftime("%d-%m-%Y")
             days = self.days_until_deadline
@@ -167,9 +173,9 @@ class Task:
             else:
                 lines.append(f"📅 Deadline: {dl}")
         if self.waiting_for:
-            lines.append(f"⏳ Waiting for: {self.waiting_for}")
+            lines.append(f"⏳ Waiting for: {_esc(self.waiting_for)}")
         if self.description:
-            lines.append(f"\n📝 {self.description}")
+            lines.append(f"\n📝 {_esc(self.description)}")
         if self.created_at:
             lines.append(f"\n🕐 Created: {self.created_at.strftime('%d-%m-%Y %H:%M')}")
         if self.completed_at:

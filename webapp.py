@@ -142,6 +142,7 @@ from datehelper import parse_date
 from repository import TaskRepository
 import repository
 import drawing_scope
+import safehtml
 import bookmark
 import ai_review
 import review_history
@@ -925,7 +926,7 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, stored: str) -> bool:
     try:
         salt, h = stored.split("$")
-        return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex() == h
+        return hmac.compare_digest(hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex(), h)
     except Exception:
         return False
 
@@ -1234,7 +1235,8 @@ class MindmapCreate(BaseModel):
             json.loads(v)
         except ValueError:
             raise ValueError("data_json must be valid JSON")
-        return v
+        # XSS: dangerouslySetInnerHTML / hyperLink tidak aman di node dibuang sebelum disimpan
+        return safehtml.sanitize_mind_json(v)
 
 class MindmapUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
@@ -1250,6 +1252,8 @@ class MindmapUpdate(BaseModel):
                 json.loads(v)
             except ValueError:
                 raise ValueError("data_json must be valid JSON")
+            # XSS: dangerouslySetInnerHTML / hyperLink tidak aman di node dibuang sebelum disimpan
+            v = safehtml.sanitize_mind_json(v)
         return v
 
 class ScratchpadCreate(BaseModel):
@@ -1390,6 +1394,11 @@ def _check_base_rev(req, existing, current_fn) -> None:
         )
 
 
+def _esc_msg(v) -> str:
+    """Escape nilai pengguna untuk pesan notifikasi (disimpan sebagai HTML dan dikirim ke Telegram HTML)."""
+    return html.escape(str(v if v is not None else ""), quote=False)
+
+
 async def _notify_members_bg(list_id: int, actor_user_id: int, message: str, task_id: Optional[int] = None):
     """Write in-app notifications + send Telegram to all list members except the actor."""
     if not list_id:
@@ -1438,6 +1447,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class _NoSniffMiddleware:
+    """X-Content-Type-Options: nosniff di semua respons HTTP (spec XSS §6); nilai yang sudah dipasang tidak ditimpa.
+    Middleware ASGI murni (bukan BaseHTTPMiddleware) supaya respons streaming/SSE tidak ikut di-buffer."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def _send(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers") or [])
+                if not any(k.lower() == b"x-content-type-options" for k, _ in headers):
+                    headers.append((b"x-content-type-options", b"nosniff"))
+                    message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, _send)
+
+
+app.add_middleware(_NoSniffMiddleware)
 
 
 # Bump when the curated template content changes; a higher value than the
@@ -1970,7 +2005,7 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, req.list_id, uid,
-            f"➕ <b>{actor}</b> menambahkan task <b>{req.title}</b> ke shared list.",
+            f"➕ <b>{_esc_msg(actor)}</b> menambahkan task <b>{_esc_msg(req.title)}</b> ke shared list.",
             task_id=row["id"]
         )
     return task_row_to_dict(row)
@@ -2134,13 +2169,13 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
             # Notify the newly assigned user directly
             background_tasks.add_task(
                 _notify_members_bg, existing["list_id"], uid,
-                f"📌 <b>{actor}</b> menugaskan task <b>{existing['title']}</b> kepadamu.",
+                f"📌 <b>{_esc_msg(actor)}</b> menugaskan task <b>{_esc_msg(existing['title'])}</b> kepadamu.",
                 task_id=task_id
             )
         else:
             background_tasks.add_task(
                 _notify_members_bg, existing["list_id"], uid,
-                f"✏️ <b>{actor}</b> memperbarui task <b>{existing['title']}</b>.",
+                f"✏️ <b>{_esc_msg(actor)}</b> memperbarui task <b>{_esc_msg(existing['title'])}</b>.",
                 task_id=task_id
             )
     return task_row_to_dict(row)
@@ -2162,7 +2197,7 @@ async def mark_done(task_id: int, background_tasks: BackgroundTasks, user=Depend
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, row["list_id"], uid,
-            f"✅ <b>{actor}</b> menyelesaikan task <b>{row['title']}</b>.",
+            f"✅ <b>{_esc_msg(actor)}</b> menyelesaikan task <b>{_esc_msg(row['title'])}</b>.",
             task_id=task_id
         )
     return task_row_to_dict(updated_row)
@@ -2298,19 +2333,20 @@ async def check_recurring_expiry(background_tasks: BackgroundTasks, user=Depends
         new_level = None
         msg = None
         tg_msg = None
+        title_e = _esc_msg(t["title"])
 
         if days_left < 0 and current_level in (None, "week", "day"):
             new_level = "expired"
-            msg = f'🔄 Recurring task "{t["title"]}" telah berakhir. Buat ulang jika masih diperlukan.'
-            tg_msg = f'🔄 <b>Recurring Task Berakhir</b>\n"{t["title"]}" telah berakhir.\nBuka Alurik untuk membuat ulang.'
+            msg = f'🔄 Recurring task "{title_e}" telah berakhir. Buat ulang jika masih diperlukan.'
+            tg_msg = f'🔄 <b>Recurring Task Berakhir</b>\n"{title_e}" telah berakhir.\nBuka Alurik untuk membuat ulang.'
         elif days_left <= 1 and current_level == "week":
             new_level = "day"
-            msg = f'⚠️ Recurring task "{t["title"]}" berakhir besok. Perpanjang jika masih diperlukan.'
-            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" berakhir besok.\nBuka Alurik untuk memperpanjang.'
+            msg = f'⚠️ Recurring task "{title_e}" berakhir besok. Perpanjang jika masih diperlukan.'
+            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{title_e}" berakhir besok.\nBuka Alurik untuk memperpanjang.'
         elif days_left <= 7 and current_level is None:
             new_level = "week"
-            msg = f'⚠️ Recurring task "{t["title"]}" akan berakhir dalam {days_left} hari. Perpanjang jika masih diperlukan.'
-            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{t["title"]}" akan berakhir dalam {days_left} hari.\nBuka Alurik untuk memperpanjang.'
+            msg = f'⚠️ Recurring task "{title_e}" akan berakhir dalam {days_left} hari. Perpanjang jika masih diperlukan.'
+            tg_msg = f'⚠️ <b>Recurring Task Reminder</b>\n"{title_e}" akan berakhir dalam {days_left} hari.\nBuka Alurik untuk memperpanjang.'
         else:
             continue
 
@@ -2605,7 +2641,7 @@ async def create_subtask(task_id: int, req: SubtaskCreate, background_tasks: Bac
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, row["list_id"], uid,
-            f"📝 <b>{actor}</b> menambah subtask di task <b>{row['title']}</b>.",
+            f"📝 <b>{_esc_msg(actor)}</b> menambah subtask di task <b>{_esc_msg(row['title'])}</b>.",
             task_id=task_id
         )
     return result
@@ -2659,7 +2695,7 @@ async def create_note(task_id: int, req: NoteCreate, background_tasks: Backgroun
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, row["list_id"], uid,
-            f"💬 <b>{actor}</b> menambahkan komentar di task <b>{row['title']}</b>:\n{req.content[:100]}",
+            f"💬 <b>{_esc_msg(actor)}</b> menambahkan komentar di task <b>{_esc_msg(row['title'])}</b>:\n{_esc_msg(req.content[:100])}",
             task_id=task_id
         )
     return note
@@ -2705,7 +2741,8 @@ async def upload_attachment(task_id: int, background_tasks: BackgroundTasks, fil
     with open(stored_path, "wb") as f:
         f.write(content)
 
-    mime_type = file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+    mime_type = _safe_upload_mime(
+        file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream")
 
     repo = TaskRepository(DB_PATH)
     result = repo.add_attachment(task_id, stored_name, original_name, len(content), mime_type)
@@ -2723,7 +2760,7 @@ async def upload_attachment(task_id: int, background_tasks: BackgroundTasks, fil
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, task_row["list_id"], uid,
-            f"📎 <b>{actor}</b> mengunggah file <b>{original_name}</b> di task <b>{task_row['title']}</b>.",
+            f"📎 <b>{_esc_msg(actor)}</b> mengunggah file <b>{_esc_msg(original_name)}</b> di task <b>{_esc_msg(task_row['title'])}</b>.",
             task_id=task_id
         )
     return result
@@ -2763,7 +2800,9 @@ async def download_attachment(attachment_id: int, user=Depends(get_current_user_
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="File not found on disk")
 
-    return FileResponse(filepath, filename=att["original_name"], media_type=att["mime_type"])
+    # Baris lama bisa menyimpan tipe yang bisa dirender (sebelum _safe_upload_mime) → disaring juga saat disajikan.
+    return FileResponse(filepath, filename=att["original_name"], media_type=_safe_upload_mime(att["mime_type"]),
+                        headers={"X-Content-Type-Options": "nosniff"})
 
 
 # ── Collaborators (mention autocomplete) ──────────────────────────────────────
@@ -2863,7 +2902,7 @@ async def join_list_by_code(req: JoinListReq, user=Depends(get_current_user)):
             joiner = user.get("username", f"user#{uid}")
             asyncio.create_task(_tg_bot.send_message(
                 chat_id=owner["telegram_id"],
-                text=f"👥 <b>{joiner}</b> bergabung ke shared list <b>{lst['name']}</b>.",
+                text=f"👥 <b>{_esc_msg(joiner)}</b> bergabung ke shared list <b>{_esc_msg(lst['name'])}</b>.",
                 parse_mode="HTML",
             ))
         except Exception:
@@ -3001,7 +3040,7 @@ async def invite_to_list(list_id: int, req: InviteUserReq, user=Depends(get_curr
             asyncio.create_task(
                 _tg_bot.send_message(
                     chat_id=target["telegram_id"],
-                    text=f"👥 <b>{inviter}</b> mengundangmu ke shared list <b>{lst['name']}</b>!\n"
+                    text=f"👥 <b>{_esc_msg(inviter)}</b> mengundangmu ke shared list <b>{_esc_msg(lst['name'])}</b>!\n"
                          f"Kamu sekarang bisa melihat dan mengedit task di list ini.",
                     parse_mode="HTML"
                 )
@@ -3266,7 +3305,7 @@ async def post_message(list_id: int, req: MessageCreate, user=Depends(get_curren
                         "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, created_at) "
                         "VALUES (?,?,0,?,NULL,?)",
                         (mentioned["id"],
-                         f"💬 {sender_username} menyebut kamu di diskusi '{list_name}'",
+                         f"💬 {_esc_msg(sender_username)} menyebut kamu di diskusi '{_esc_msg(list_name)}'",
                          list_id, now),
                     )
     # Broadcast to all SSE subscribers of this list
@@ -3408,7 +3447,8 @@ async def upload_workspace_file(
     with open(stored_path, "wb") as f:
         f.write(content)
 
-    mime_type = file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+    mime_type = _safe_upload_mime(
+        file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream")
     now = datetime.now().isoformat()
 
     with get_db() as conn:
@@ -3462,7 +3502,9 @@ async def download_workspace_file(
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="File not found on disk")
 
-    return FileResponse(filepath, filename=row["original_name"], media_type=row["mime_type"])
+    # Baris lama bisa menyimpan tipe yang bisa dirender (sebelum _safe_upload_mime) → disaring juga saat disajikan.
+    return FileResponse(filepath, filename=row["original_name"], media_type=_safe_upload_mime(row["mime_type"]),
+                        headers={"X-Content-Type-Options": "nosniff"})
 
 
 @app.delete("/api/lists/{list_id}/files/{file_id}")
@@ -3784,7 +3826,7 @@ async def dm_post_message(conv_id: int, req: DmMessageCreate, user=Depends(get_c
         watching = any(sub_uid == recipient for sub_uid, _q in dm_subscribers.get(conv_id, set()))
         if not watching:
             # Nama dari DB (bukan klaim JWT) agar teks & dedup konsisten setelah user ganti username.
-            notif = f"💬 {msg_dict['username']} mengirim pesan pribadi"
+            notif = f"💬 {_esc_msg(msg_dict['username'])} mengirim pesan pribadi"
             dup = conn.execute(
                 "SELECT 1 FROM notifications WHERE user_id = ? AND message = ? AND is_read = 0 LIMIT 1",
                 (recipient, notif),
@@ -3908,7 +3950,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v423-mindmap-live"
+    sw_cache = "taskflow-v424-xss-hardening"
     return JSONResponse(
         content={
             "app_version": "4.0.0",
@@ -4417,6 +4459,140 @@ def _published_drawing_for_request(conn, token: str, request: Request) -> Option
                 return d
     return None
 
+_PUB_MD_PLUGINS = ['table', 'url', 'strikethrough', 'task_lists']
+
+
+def _pub_markdown(plugins):
+    """mistune 3 untuk isi note publik: HTML mentah di-escape (escape=True), href/src lewat safehtml.safe_url.
+    Link ditolak → teksnya saja; gambar ditolak → teks alt saja. ImportError bila mistune tidak ada."""
+    import mistune
+    from mistune.renderers.html import HTMLRenderer
+    from mistune.util import safe_entity, striptags, unescape
+
+    class _PubHTMLRenderer(HTMLRenderer):
+        def text(self, text):
+            # entity tetap didecode lalu di-escape ulang (perilaku lama escape=False), keluaran selalu ter-escape
+            return safe_entity(text)
+
+        def block_html(self, html):
+            # HTML blok mentah → teks ter-escape TANPA pembungkus <p> (bawaan mistune escape=True membungkus <p>),
+            # sama dengan renderer html() klien; allowlist (<details>/<summary>/…) dikembalikan sesudahnya, jadi
+            # <details> tidak berada di dalam <p>.
+            return safehtml.escape_html(html.strip()) + "\n"
+
+        def link(self, text, url, title=None):
+            href = safehtml.safe_url(url)
+            if href is None:
+                return text
+            s = '<a href="' + safehtml.escape_attr(href) + '"'
+            if title:
+                s += ' title="' + safehtml.escape_attr(unescape(title)) + '"'
+            return s + '>' + text + '</a>'
+
+        def image(self, text, url, title=None):
+            alt = striptags(text)  # anak-anaknya sudah ter-escape (termasuk ")
+            src = safehtml.safe_url(url, image=True)
+            if src is None:
+                return alt
+            s = '<img src="' + safehtml.escape_attr(src) + '" alt="' + alt + '"'
+            if title:
+                s += ' title="' + safehtml.escape_attr(unescape(title)) + '"'
+            return s + ' />'
+
+    return mistune.create_markdown(escape=True, renderer=_PubHTMLRenderer(escape=True), plugins=plugins)
+
+
+def _render_pub_markdown_fallback(text: str) -> str:
+    """Renderer cadangan (mistune tidak bisa di-import / gagal): semua teks di-escape, hanya heading, paragraf,
+    dan tabel. Link/gambar tidak dibuat (tampil sebagai teks markdown). Allowlist dikembalikan pemanggil."""
+    esc = safehtml.escape_html
+    out = []
+    tbl_rows = []
+
+    def _cells(row):
+        return [c.strip() for c in row.strip('|').split('|')]
+
+    def _flush_tbl():
+        if not tbl_rows:
+            return
+        res = ['<table>']
+        has_header = len(tbl_rows) >= 2 and all(c in '-: |' for c in tbl_rows[1])
+        start_idx = 0
+        if has_header:
+            res.append('<thead><tr>' + ''.join(f'<th>{esc(c)}</th>' for c in _cells(tbl_rows[0])) + '</tr></thead>')
+            start_idx = 2
+        res.append('<tbody>')
+        for r in tbl_rows[start_idx:]:
+            res.append('<tr>' + ''.join(f'<td>{esc(c)}</td>' for c in _cells(r)) + '</tr>')
+        res.append('</tbody></table>')
+        out.append(''.join(res))
+        tbl_rows.clear()
+
+    for line in (text or '').split('\n'):
+        stripped = line.strip()
+        if stripped.startswith('|') and (stripped.endswith('|') or '|' in stripped[1:]):
+            tbl_rows.append(stripped)
+            continue
+        _flush_tbl()
+        if not stripped:
+            continue
+        m = re.match(r'(#{1,3}) (.*)$', stripped)
+        if m:
+            lvl = len(m.group(1))
+            out.append(f'<h{lvl}>{esc(m.group(2))}</h{lvl}>')
+        else:
+            out.append(f'<p>{esc(line)}</p>')
+    _flush_tbl()
+    return '\n'.join(out)
+
+
+def _render_pub_markdown(content: str) -> str:
+    """Markdown isi note publik → HTML ter-escape (sebelum allowlist dan placeholder kartu)."""
+    for plugins in (_PUB_MD_PLUGINS, None):
+        try:
+            return _pub_markdown(plugins)(content)
+        except ImportError:
+            break
+        except Exception:
+            logging.getLogger(__name__).exception("mistune gagal merender note publik (plugins=%s)", plugins)
+    return _render_pub_markdown_fallback(content)
+
+
+def _fill_pub_placeholders(rendered: str, cards: dict, fallback: dict, nonce: str) -> str:
+    """Ganti placeholder kartu dengan HTML buatan Alurik dalam satu lintasan (HTML sisipan tidak dipindai ulang).
+    Kartu drawing yang berdiri sendiri sebagai paragraf dipasang tanpa <p>. Placeholder di dalam tag (mis. alt
+    gambar, title link) diganti teks ter-escape, bukan markup, supaya tidak bisa keluar dari atribut."""
+    if not cards:
+        return rendered
+    # semua kunci berbentuk TFM(WIKI|DRAWBLK)<nonce>X<n>END (nonce hex per render); pola umum + lookup dict
+    # (bukan alternation semua kunci, yang lambat untuk note dengan ribuan wikilink)
+    key_pat = rf'TFM(?:WIKI|DRAWBLK){re.escape(nonce)}X\d+END'
+    key_re = re.compile(key_pat)
+
+    def _card(key):
+        return cards.get(key, '')
+
+    def _sub(m):
+        if m.group(1):
+            key = m.group(1)
+            return _card(key) if key.startswith('TFMDRAWBLK') else f'<p>{_card(key)}</p>'
+        if m.group(2):
+            return key_re.sub(lambda k: fallback.get(k.group(0), ''), m.group(2))
+        return _card(m.group(3))
+
+    return re.sub(rf'<p>({key_pat})</p>|(<[^>]*>)|({key_pat})', _sub, rendered)
+
+
+# Ukuran pratinjau SVG drawing di kartu publik (img mengikuti container; script halaman memakai nilai sama)
+_PUB_SVG_IMG_STYLE = "width:100%;height:auto;max-height:100%;display:block;object-fit:contain"
+
+
+def _pub_path(username: str, slug: str) -> str:
+    """Path /pub/{username}/{slug} untuk header Location: tiap segmen di-percent-encode (tanpa escape HTML),
+    supaya username/slug berisi %xx, /, ?, # tetap kembali ke halaman yang sama."""
+    return f"/pub/{urllib.parse.quote(username, safe='')}/{urllib.parse.quote(slug, safe='')}"
+
+
 def _pub_href(username: str, slug: str) -> str:
     """Path /pub/{username}/{slug} yang aman ditanam di atribut href. Username dan slug target berasal dari
     data user lain (username tidak dibatasi karakternya): tiap segmen di-percent-encode lalu di-escape HTML."""
@@ -4434,11 +4610,17 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
     drawing ber-list_id = W. Note yang terakhir disunting orang lain tanpa list_id = tidak ada drawing."""
     import re as _re
     content = raw_content or ""
+    # Kartu buatan Alurik (wikilink ter-resolve, drawing) disisipkan lewat placeholder SETELAH markdown di-escape dan
+    # allowlist dikembalikan (spec XSS §2.3). Nonce per render: teks placeholder yang diketik pengguna tidak cocok.
+    ph_nonce = secrets.token_hex(4)
+    cards = {}          # placeholder -> HTML aman
+    card_fallback = {}  # placeholder -> teks ter-escape bila placeholder berada di dalam atribut (mis. alt gambar)
 
     # 1. Strip tasklink tokens
     content = _re.sub(r'\\?\[tasklink:[0-9a-f-]+\]', '', content)
 
-    # 2. Strip ==highlight== → render as <mark>
+    # 2. ==highlight== → <mark>…</mark>. Tag ini ikut di-escape mistune lalu dikembalikan oleh allowlist
+    # (safehtml.restore_allowed_tags), jadi isi highlight selalu ter-escape.
     content = _re.sub(r'\\?==([^=\n]+)==', r'<mark>\1</mark>', content)
 
     # 3. Build wikilink map: title → (username, slug) for published notes.
@@ -4456,7 +4638,13 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         key = row["title"].strip().lower()
         published_map[key] = (row["username"], row["slug"])
 
-    # 4. Rewrite [[wikilink]]
+    # 4. Rewrite [[wikilink]] → placeholder kartu tautan (judul di-escape); tidak ter-resolve → teks markdown biasa
+    def _wikilink_card(title, href):
+        key = f"TFMWIKI{ph_nonce}X{len(cards)}END"
+        cards[key] = f'<a href="{href}">[[{safehtml.escape_html(title)}]]</a>'
+        card_fallback[key] = safehtml.escape_attr(f'[[{title}]]')
+        return key
+
     def _replace_wikilink(m):
         raw = m.group(1).replace('\\(', '(').replace('\\)', ')')
         title = raw.split("|")[0].strip()
@@ -4464,7 +4652,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         # Check by title
         if norm in published_map:
             uname, uslug = published_map[norm]
-            return f'<a href="{_pub_href(uname, uslug)}">[[{title}]]</a>'
+            return _wikilink_card(title, _pub_href(uname, uslug))
         # Check by id: "id:N" / "note:N" / N polos. Id yang tidak bisa jadi id baris (digit Unicode, di luar
         # INTEGER SQLite) = tidak ditemukan, bukan 500 (note bersama bisa disunting anggota lain).
         m_id = _re.match(r'^(?:(?:id|note)\s*:\s*)?(\d+)$', norm)
@@ -4474,8 +4662,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
                 "SELECT p.slug, p.password_hash, p.user_id, u.username FROM published_notes p JOIN users u ON u.id = p.user_id WHERE p.note_id = ?", (nid,)
             ).fetchone()
             if row2 and _wikilink_target_ok(row2["password_hash"], row2["user_id"]):
-                un = row2["username"]; sl = row2["slug"]
-                return f'<a href="{_pub_href(un, sl)}">[[{title}]]</a>'
+                return _wikilink_card(title, _pub_href(row2["username"], row2["slug"]))
         # Not published → plain text
         return f'[[{title}]]'
 
@@ -4590,13 +4777,9 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
     content = _re.sub(r'^(\s*)- \[[xX]\]', r'\1- ☑', content, flags=_re.MULTILINE)
 
     # 6.5. Process ::draw[id]{...} tokens → extract and replace with placeholder
-    draw_map = {}
-    di = 0
-
     def _replace_draw(m):
-        nonlocal di
-        key = f"TFMDRAWBLK{di}END"
-        di += 1
+        key = f"TFMDRAWBLK{ph_nonce}X{len(cards)}END"
+        card_fallback[key] = ""
         drawing_id = m.group(1)
         attr_raw = m.group(2) or ""
 
@@ -4608,6 +4791,9 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
                 k = am.group(1).lower()
                 v = am.group(2) or am.group(3) or am.group(4) or ''
                 attrs[k] = v
+        # size/width/height berasal dari isi note dan masuk ke atribut style/data-*: hanya nilai valid yang dipakai,
+        # selebihnya default (spec XSS §2.3). Semua nilai tetap ditulis lewat escape_attr.
+        attrs = safehtml.safe_draw_attrs(attrs)
 
         title = attrs.get('title')
         size = attrs.get('size', '').upper()
@@ -4634,119 +4820,46 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         if not title:
             title = "Gambar"
 
-        safe_title = html.escape(title)
+        safe_title = safehtml.escape_html(title)
         card_style = f"width:{width_val};max-width:{width_val};margin:16px auto;" if width_val != '100%' else "width:100%;margin:16px 0;"
+        a_size = safehtml.escape_attr(size)
+        a_style = safehtml.escape_attr(card_style)
+        a_height = safehtml.escape_attr(height_val)
 
         if not d_row:
             # Token tak ter-resolve: kartu netral tanpa data-drawing-id/-preview dan tanpa iframe,
             # supaya halaman tidak memanggil /pub/drawings/<token> dan tidak menanam gambar siapa pun.
-            # size/width/height berasal dari isi note, jadi di-escape sebelum masuk ke atribut HTML.
-            safe_height = html.escape(height_val)
-            draw_map[key] = (
-                f'<div class="note-draw-card" data-size="{html.escape(size)}" style="{html.escape(card_style)}">'
+            cards[key] = (
+                f'<div class="note-draw-card" data-size="{a_size}" style="{a_style}">'
                 f'<div class="note-draw-header"><span>🎨 {safe_title}</span></div>'
-                f'<div class="note-draw-preview-container" style="height:{safe_height};max-height:{safe_height};">Gambar tidak tersedia</div>'
+                f'<div class="note-draw-preview-container" style="height:{a_height};max-height:{a_height};">Gambar tidak tersedia</div>'
                 f'</div>'
             )
             return key
 
         actual_id = d_row["id"]
-        if d_row["svg_preview"] and d_row["svg_preview"].strip().startswith("<svg"):
-            svg_html = d_row["svg_preview"]
-        else:
-            svg_html = f'<iframe src="/static/vendor/tldraw/index.html?noteId={html.escape(str(actual_id))}" style="width:100%;height:{height_val};border:none;" title="Drawing"></iframe>'
+        a_id = safehtml.escape_attr(str(actual_id))
+        # SVG tidak pernah ditanam sebagai markup (spec XSS §3): <img data:> base64, alt = judul ter-escape
+        svg_html = safehtml.svg_img_tag(d_row["svg_preview"] or "", title, style=_PUB_SVG_IMG_STYLE)
+        if svg_html is None:
+            svg_html = f'<iframe src="/static/vendor/tldraw/index.html?noteId={a_id}" style="width:100%;height:{a_height};border:none;" title="Drawing"></iframe>'
 
-        draw_map[key] = (
-            f'<div class="note-draw-card" data-drawing-id="{html.escape(str(actual_id))}" data-size="{size}" style="{card_style}">'
+        cards[key] = (
+            f'<div class="note-draw-card" data-drawing-id="{a_id}" data-size="{a_size}" style="{a_style}">'
             f'<div class="note-draw-header"><span>🎨 {safe_title}</span></div>'
-            f'<div class="note-draw-preview-container" data-drawing-preview="{html.escape(str(actual_id))}" style="height:{height_val};max-height:{height_val};">{svg_html}</div>'
+            f'<div class="note-draw-preview-container" data-drawing-preview="{a_id}" style="height:{a_height};max-height:{a_height};">{svg_html}</div>'
             f'</div>'
         )
         return key
 
     content = _DRAW_DIRECTIVE_RE.sub(_replace_draw, content)
 
-    # 7. Render markdown → HTML via mistune (with table & common plugins)
-    try:
-        import mistune
-        plugins = ['table', 'url', 'strikethrough', 'task_lists']
-        md_renderer = mistune.create_markdown(escape=False, plugins=plugins)
-        rendered_html = md_renderer(content)
-    except Exception:
-        try:
-            import mistune
-            md_renderer = mistune.create_markdown(escape=False)
-            rendered_html = md_renderer(content)
-        except Exception:
-            # Fallback renderer: convert tables, headings, images, links to HTML
-            def _fallback_render(text):
-                lines = text.split('\n')
-                out = []
-                in_tbl = False
-                tbl_rows = []
-
-                def _flush_tbl():
-                    nonlocal in_tbl, tbl_rows
-                    if not tbl_rows:
-                        return ''
-                    res = ['<table>']
-                    has_header = len(tbl_rows) >= 2 and all(c in '-: |' for c in tbl_rows[1])
-                    start_idx = 0
-                    if has_header:
-                        res.append('<thead><tr>')
-                        for col in [c.strip() for c in tbl_rows[0].strip('|').split('|')]:
-                            res.append(f'<th>{html.escape(col)}</th>')
-                        res.append('</tr></thead>')
-                        start_idx = 2
-                    res.append('<tbody>')
-                    for r in tbl_rows[start_idx:]:
-                        res.append('<tr>')
-                        for col in [c.strip() for c in r.strip('|').split('|')]:
-                            res.append(f'<td>{html.escape(col)}</td>')
-                        res.append('</tr>')
-                    res.append('</tbody></table>')
-                    tbl_rows = []
-                    in_tbl = False
-                    return ''.join(res)
-
-                for line in lines:
-                    stripped = line.strip()
-                    is_t = stripped.startswith('|') and (stripped.endswith('|') or '|' in stripped[1:])
-                    if is_t:
-                        in_tbl = True
-                        tbl_rows.append(stripped)
-                        continue
-                    elif in_tbl:
-                        out.append(_flush_tbl())
-
-                    if not stripped:
-                        continue
-                    elif stripped.startswith('### '):
-                        out.append(f'<h3>{html.escape(stripped[4:])}</h3>')
-                    elif stripped.startswith('## '):
-                        out.append(f'<h2>{html.escape(stripped[3:])}</h2>')
-                    elif stripped.startswith('# '):
-                        out.append(f'<h1>{html.escape(stripped[2:])}</h1>')
-                    else:
-                        l = line
-                        l = _re.sub(r'!\[([^\]]*)\]\(([^)]*)\)', r'<img src="\2" alt="\1">', l)
-                        l = _re.sub(r'\[([^\]]*)\]\(([^)]*)\)', r'<a href="\2">\1</a>', l)
-                        l = _re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', l)
-                        l = _re.sub(r'\*([^*]+)\*', r'<em>\1</em>', l)
-                        out.append(f'<p>{l}</p>')
-
-                if in_tbl:
-                    out.append(_flush_tbl())
-
-                return '\n'.join(out)
-
-            rendered_html = _fallback_render(content)
-
-    # 8. Restore drawing blocks
-    for k, v in draw_map.items():
-        rendered_html = rendered_html.replace(f'<p>{k}</p>', v).replace(k, v)
-
-    return rendered_html
+    # 7. Markdown → HTML: mistune escape=True (HTML mentah jadi teks), link/gambar lewat safehtml.safe_url;
+    # 7.1 allowlist tag (<br>, <details>, <summary>, <mark>) dikembalikan dari bentuk ter-escape (bukan di dalam kode);
+    # 8. baru setelah itu placeholder kartu diganti HTML buatan Alurik. Urutan ini wajib (spec XSS §2.4).
+    rendered_html = _render_pub_markdown(content)
+    rendered_html = safehtml.restore_allowed_tags(rendered_html)
+    return _fill_pub_placeholders(rendered_html, cards, card_fallback, ph_nonce)
 
 def _resolve_linked_to(titles: list[str], user_id: int, conn) -> list[int]:
     """Resolve note titles/IDs to note IDs. Handles plain titles, id:N, and numeric IDs."""
@@ -5532,6 +5645,32 @@ _ALLOWED_ATTACH_MIME = {
     "application/dxf",
 }
 
+# Lampiran task & file workspace (tipe bebas, lintas anggota): mime_type klien hanya disimpan bila ada di daftar ini;
+# selain itu application/octet-stream (XSS: text/html, image/svg+xml, XML, JS tidak pernah tersimpan sebagai tipe
+# yang bisa dirender). Unduhan tetap Content-Disposition: attachment.
+_SAFE_UPLOAD_MIME = frozenset(_ALLOWED_ATTACH_MIME | {
+    "image/gif",
+    "text/plain", "text/csv", "text/markdown",
+    "application/rtf",
+    "application/vnd.oasis.opendocument.text",
+    "application/vnd.oasis.opendocument.spreadsheet",
+    "application/vnd.oasis.opendocument.presentation",
+    "application/zip", "application/x-zip-compressed", "application/x-7z-compressed",
+    "application/vnd.rar", "application/x-rar-compressed", "application/gzip", "application/x-tar",
+})
+_UNSAFE_UPLOAD_MIME = frozenset({
+    "text/html", "image/svg+xml", "application/xhtml+xml", "text/xml", "application/xml",
+    "application/javascript", "text/javascript",
+})
+assert not (_SAFE_UPLOAD_MIME & _UNSAFE_UPLOAD_MIME)
+
+
+def _safe_upload_mime(mime_type) -> str:
+    """Tipe dasar (tanpa parameter, huruf kecil) bila ada di _SAFE_UPLOAD_MIME, selain itu octet-stream."""
+    base = (mime_type or "").split(";", 1)[0].strip().lower()
+    return base if base in _SAFE_UPLOAD_MIME else "application/octet-stream"
+
+
 @app.post("/api/scratchpad/{note_id}/attachments")
 async def upload_note_attachment(note_id: int, file: UploadFile = FastAPIFile(...), user=Depends(get_current_user)):
     import requests as _req
@@ -5617,8 +5756,8 @@ async def view_note_attachment(att_id: int, user=Depends(get_current_user_sse)):
     safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')
     return StreamingResponse(
         r.iter_content(chunk_size=8192),
-        media_type=att["mime_type"],
-        headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
+        media_type=_served_file_mime(att["mime_type"]),
+        headers=_inline_file_headers(att["mime_type"], safe_name),
     )
 
 @app.get("/api/export/download")
@@ -6884,24 +7023,84 @@ _PUBLIC_CSS = """<style>
   }
 </style>"""
 
+# ── Header pengaman (spec XSS §6) ─────────────────────────────────────────────
+# Halaman HTML /pub/… (halaman note, halaman password, 404). Bukan untuk /pub/drawings (JSON) dan /pub/attachments.
+_PUB_PAGE_CSP = (
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob:; frame-src 'self'; "
+    "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'"
+)
+# File unggahan yang disajikan langsung (lampiran publik, view lampiran note). CSP sandbox untuk semua KECUALI PDF:
+# Chromium memblokir penampil PDF-nya di dokumen sandbox; PDF bukan konteks HTML/skrip (tetap nosniff, MIME persis,
+# inline).
+_INLINE_FILE_CSP = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'"
+_INLINE_SAFE_MIMES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf"})
+_INLINE_NO_SANDBOX_MIMES = frozenset({"application/pdf"})
+
+
+def _base_mime(mime_type) -> str:
+    return (mime_type or "").split(";", 1)[0].strip().lower()
+
+
+def _served_file_mime(mime_type) -> str:
+    """media_type respons file unggahan: tipe inline persis (tanpa parameter), selain itu nilai tersimpan
+    (kosong → application/octet-stream)."""
+    mime = _base_mime(mime_type)
+    if mime in _INLINE_SAFE_MIMES:
+        return mime
+    return mime_type or "application/octet-stream"
+
+
+def _inline_file_headers(mime_type: str, safe_name: str) -> dict:
+    """Header file unggahan: inline hanya untuk gambar raster dan PDF, selebihnya attachment; nosniff; CSP sandbox
+    kecuali PDF (_INLINE_NO_SANDBOX_MIMES). Nama file non-ASCII lewat filename* (RFC 5987) seperti FileResponse."""
+    mime = _base_mime(mime_type)
+    disposition = "inline" if mime in _INLINE_SAFE_MIMES else "attachment"
+    ascii_name = safe_name.encode("ascii", "replace").decode("ascii").replace("?", "_")
+    cd = f'{disposition}; filename="{ascii_name}"'
+    if ascii_name != safe_name:
+        cd += "; filename*=utf-8''" + urllib.parse.quote(safe_name, safe="")
+    headers = {
+        "Content-Disposition": cd,
+        "X-Content-Type-Options": "nosniff",
+    }
+    if mime not in _INLINE_NO_SANDBOX_MIMES:
+        headers["Content-Security-Policy"] = _INLINE_FILE_CSP
+    return headers
+
+
+def _pub_html_response(content: str, status_code: int = 200) -> HTMLResponse:
+    """Respons HTML halaman /pub/… dengan CSP halaman publik."""
+    return HTMLResponse(content=content, status_code=status_code, headers={"Content-Security-Policy": _PUB_PAGE_CSP})
+
+
+_TEMPLATE_SLOT_RE = re.compile(r"@@([a-z_]+)@@")
+
+
+def _fill_template(template: str, values: dict) -> str:
+    """Isi slot @@nama@@ dalam satu lintasan: nilai yang disisipkan tidak dipindai ulang dan kurung kurawal/$ di
+    dalamnya tidak bermakna (pengganti .format()). Nilai harus sudah aman untuk konteksnya; slot tanpa nilai = KeyError."""
+    return _TEMPLATE_SLOT_RE.sub(lambda m: str(values[m.group(1)]), template)
+
+
 _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} — Alurik Publish</title>
-<meta name="description" content="{description}">
-<meta property="og:title" content="{title}">
-<meta property="og:description" content="{description}">
+<title>@@title@@ — Alurik Publish</title>
+<meta name="description" content="@@description@@">
+<meta property="og:title" content="@@title@@">
+<meta property="og:description" content="@@description@@">
 <meta property="og:type" content="article">
-<meta property="og:url" content="{base_url}/pub/{username}/{slug}">
+<meta property="og:url" content="@@og_url@@">
 <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,opsz,wght@0,6..12,400;0,6..12,500;0,6..12,600;0,6..12,700;1,6..12,400;1,6..12,600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
-{css}
+@@css@@
 </head>
 <body>
 <header class="pub-header">
-  <div class="pub-header-left">&#128279; <a href="{base_url}">Published via Alurik</a></div>
+  <div class="pub-header-left">&#128279; <a href="@@base_url@@">Published via Alurik</a></div>
   <div class="pub-header-right">
     <div class="pub-search-wrap">
       <input type="text" id="doc-search" placeholder="Search in document...">
@@ -6913,33 +7112,33 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 
 <div class="pub-layout">
   <aside class="pub-sidebar-left">
-    {toc_html}
-    {backlinks}
-    {tags_html}
+    @@toc_html@@
+    @@backlinks@@
+    @@tags_html@@
   </aside>
 
   <main class="pub-main">
-    {cover_html}
-    <h1 class="pub-title">{title}</h1>
+    @@cover_html@@
+    <h1 class="pub-title">@@title@@</h1>
     <div class="pub-meta">
-      <span>&#128100; {author}</span>
-      <span>&#128197; {date}</span>
-      <span>&#9201; {reading_time} min read</span>
-      <span>&#128221; {word_count} words</span>
+      <span>&#128100; @@author@@</span>
+      <span>&#128197; @@date@@</span>
+      <span>&#9201; @@reading_time@@ min read</span>
+      <span>&#128221; @@word_count@@ words</span>
     </div>
-    <div class="pub-body">{body}</div>
-    {attachments_html}
-    {drawing_html}
+    <div class="pub-body">@@body@@</div>
+    @@attachments_html@@
+    @@drawing_html@@
   </main>
 
   <aside class="pub-sidebar-right">
     <section>
       <h3>About this page</h3>
-      <div class="pub-about-item">&#128100; {author}</div>
-      <div class="pub-about-item">&#128197; Created: {created_date}</div>
-      <div class="pub-about-item">&#128339; Updated: {updated_date}</div>
-      <div class="pub-about-item">&#9201; {reading_time} min read</div>
-      <div class="pub-about-item">&#128221; {word_count} words</div>
+      <div class="pub-about-item">&#128100; @@author@@</div>
+      <div class="pub-about-item">&#128197; Created: @@created_date@@</div>
+      <div class="pub-about-item">&#128339; Updated: @@updated_date@@</div>
+      <div class="pub-about-item">&#9201; @@reading_time@@ min read</div>
+      <div class="pub-about-item">&#128221; @@word_count@@ words</div>
     </section>
     <section>
       <h3>Actions</h3>
@@ -6952,148 +7151,201 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
 </div>
 
 <footer class="pub-footer">
-  Published with &#10084; by <a href="{base_url}">Alurik</a>
+  Published with &#10084; by <a href="@@base_url@@">Alurik</a>
 </footer>
 
 <script src="/static/vendor/katex/katex.min.js"></script>
 <script>
-  // Inline KaTeX renderer (no auto-render.min.js needed)
-  try {{
+  // Inline KaTeX renderer (no auto-render.min.js needed). Dirender per text node (spec XSS §5, fix round 1):
+  // tidak pernah membaca/menulis ulang innerHTML, jadi `$` di nilai atribut tidak bisa dipasangkan dengan `$` di teks.
+  try {
     var body = document.querySelector('.pub-body');
-    if (body && window.katex) {{
-      var html = body.innerHTML;
-      // Display math: $$ ... $$
-      html = html.replace(/\\$\\$([\\s\\S]*?)\\$\\$/g, function(_, tex) {{
-        try {{ return katex.renderToString(tex.trim(), {{ displayMode: true, throwOnError: false }}); }} catch(e) {{ return _; }}
-      }});
-      // Inline math: $ ... $
-      html = html.replace(/\\$([^$]+?)\\$/g, function(_, tex) {{
-        try {{ return katex.renderToString(tex.trim(), {{ displayMode: false, throwOnError: false }}); }} catch(e) {{ return _; }}
-      }});
-      body.innerHTML = html;
-    }}
-  }} catch(e) {{}}
+    if (body && window.katex) {
+      var _KX_SKIP = { CODE: 1, PRE: 1, SCRIPT: 1, STYLE: 1, TEXTAREA: 1 };
+      var _kxWalker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+      var _kxNodes = [];
+      while (_kxWalker.nextNode()) {
+        var _n = _kxWalker.currentNode;
+        if (!_n.nodeValue || _n.nodeValue.indexOf('$') === -1) continue;
+        var _skip = false;
+        for (var _p = _n.parentNode; _p && _p !== body; _p = _p.parentNode) {
+          if (_KX_SKIP[_p.nodeName]) { _skip = true; break; }
+        }
+        if (!_skip) _kxNodes.push(_n);
+      }
+      // Display math: $$ ... $$ (dicoba lebih dulu), inline math: $ ... $
+      var _KX_RE = /\\$\\$([\\s\\S]*?)\\$\\$|\\$([^$]+?)\\$/g;
+      _kxNodes.forEach(function(node) {
+        var text = node.nodeValue, last = 0, m, found = false;
+        var frag = document.createDocumentFragment();
+        _KX_RE.lastIndex = 0;
+        while ((m = _KX_RE.exec(text)) !== null) {
+          var display = m[1] !== undefined;
+          var tex = (display ? m[1] : m[2]).trim();
+          if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+          var el = document.createElement(display ? 'div' : 'span');
+          try { katex.render(tex, el, { displayMode: display, throwOnError: false }); }
+          catch (e) { el = document.createTextNode(m[0]); }
+          frag.appendChild(el);
+          last = m.index + m[0].length;
+          found = true;
+        }
+        if (!found) return;
+        if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+        node.parentNode.replaceChild(frag, node);
+      });
+    }
+  } catch(e) {}
 </script>
 <script>
   // Dark mode toggle
-  (function() {{
+  (function() {
     if (localStorage.getItem('pub-dark') === '1' ||
-        (!localStorage.getItem('pub-dark') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {{
+        (!localStorage.getItem('pub-dark') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
       document.documentElement.classList.add('dark');
-    }}
+    }
     var dt = document.getElementById('dark-toggle');
-    if (dt) {{
-      dt.addEventListener('click', function() {{
+    if (dt) {
+      dt.addEventListener('click', function() {
         var isDark = document.documentElement.classList.toggle('dark');
         localStorage.setItem('pub-dark', isDark ? '1' : '0');
         dt.textContent = isDark ? '\\u2600\\uFE0F' : '\\uD83C\\uDF19';
-      }});
-      if (document.documentElement.classList.contains('dark')) {{
+      });
+      if (document.documentElement.classList.contains('dark')) {
         dt.textContent = '\\u2600\\uFE0F';
-      }}
-    }}
-  }})();
+      }
+    }
+  })();
 
   // Copy link buttons
-  function setupCopyBtn(btn) {{
+  function setupCopyBtn(btn) {
     if (!btn) return;
-    btn.addEventListener('click', function() {{
-      navigator.clipboard.writeText(window.location.href).then(function() {{
+    btn.addEventListener('click', function() {
+      navigator.clipboard.writeText(window.location.href).then(function() {
         btn.textContent = '\\u2705 Copied!';
-        setTimeout(function() {{ btn.textContent = '\\uD83D\\uDCCB Copy Link'; }}, 2000);
-      }}).catch(function() {{}});
-    }});
-  }}
+        setTimeout(function() { btn.textContent = '\\uD83D\\uDCCB Copy Link'; }, 2000);
+      }).catch(function() {});
+    });
+  }
   setupCopyBtn(document.getElementById('copy-link-btn'));
   setupCopyBtn(document.getElementById('copy-link-btn-2'));
 
   // Search in document
   var searchInput = document.getElementById('doc-search');
   var _pubBody = document.querySelector('.pub-body');
-  var _bodyOriginal = _pubBody ? _pubBody.innerHTML : '';
-  if (searchInput) {{
-    searchInput.addEventListener('input', function() {{
+  if (searchInput) {
+    searchInput.addEventListener('input', function() {
       var query = searchInput.value.trim();
       if (!_pubBody) return;
-      // Reset to original (removes all previous highlights)
-      _pubBody.innerHTML = _bodyOriginal;
+      // Hapus sorotan sebelumnya tanpa re-parse innerHTML (mark sorotan -> teks biasa)
+      _pubBody.querySelectorAll('mark.search-highlight').forEach(function(mk) {
+        mk.parentNode.replaceChild(document.createTextNode(mk.textContent), mk);
+      });
+      _pubBody.normalize();
       if (!query) return;
       // Walk text nodes and highlight all occurrences
       var walker = document.createTreeWalker(_pubBody, NodeFilter.SHOW_TEXT);
       var textNodes = [];
       while (walker.nextNode()) textNodes.push(walker.currentNode);
       var lowerQuery = query.toLowerCase();
-      for (var i = textNodes.length - 1; i >= 0; i--) {{
+      for (var i = textNodes.length - 1; i >= 0; i--) {
         var node = textNodes[i];
         var text = node.textContent;
         var lower = text.toLowerCase();
         var idx = 0, lastIdx = 0;
         var frag = document.createDocumentFragment();
-        while ((idx = lower.indexOf(lowerQuery, lastIdx)) !== -1) {{
+        while ((idx = lower.indexOf(lowerQuery, lastIdx)) !== -1) {
           if (idx > lastIdx) frag.appendChild(document.createTextNode(text.substring(lastIdx, idx)));
           var mark = document.createElement('mark');
           mark.className = 'search-highlight';
           mark.textContent = text.substring(idx, idx + query.length);
           frag.appendChild(mark);
           lastIdx = idx + query.length;
-        }}
-        if (lastIdx > 0) {{
+        }
+        if (lastIdx > 0) {
           if (lastIdx < text.length) frag.appendChild(document.createTextNode(text.substring(lastIdx)));
           node.parentNode.replaceChild(frag, node);
-        }}
-      }}
-    }});
-  }}
+        }
+      }
+    });
+  }
 
   // Drawing canvas: load data from server into iframe
-  var _drawData = {drawing_data_js};
+  var _drawData = @@drawing_data_js@@;
   var drawIframe = document.getElementById('drawing-iframe');
-  if (drawIframe && _drawData) {{
-    window.addEventListener('message', function _onDrawMsg(e) {{
+  if (drawIframe && _drawData) {
+    window.addEventListener('message', function _onDrawMsg(e) {
       if (e.origin !== window.location.origin) return;
-      if (e.data && e.data.type === 'ready') {{
-        drawIframe.contentWindow.postMessage({{ type: 'load', data: _drawData }}, '*');
+      if (e.data && e.data.type === 'ready') {
+        drawIframe.contentWindow.postMessage({ type: 'load', data: _drawData }, '*');
         _drawData = null;
-      }}
-    }});
-  }}
+      }
+    });
+  }
+
+  // Pratinjau SVG drawing: tidak pernah masuk DOM sebagai markup (spec XSS §3) — selalu <img src=data:>.
+  // Bukan blob: (blob URL mewarisi origin halaman; dibuka top-level, skrip SVG jalan same-origin).
+  function _svgBase64(svg) {
+    var bin = '';
+    if (typeof TextEncoder === 'function') {
+      var bytes = new TextEncoder().encode(svg);
+      for (var i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    } else {
+      bin = unescape(encodeURIComponent(svg));
+    }
+    return btoa(bin);
+  }
+  function _showSvg(container, svg) {
+    var b64;
+    try { b64 = _svgBase64(svg); } catch (err) { return; }
+    var img = document.createElement('img');
+    img.alt = 'Drawing';
+    img.setAttribute('style', '@@svg_img_style@@');
+    img.src = 'data:image/svg+xml;base64,' + b64;
+    container.textContent = '';
+    container.appendChild(img);
+  }
+  function _isSvg(v) { return typeof v === 'string' && v.trim().startsWith('<svg'); }
 
   // Hydrate inline drawing previews if needed
-  try {{
-    document.querySelectorAll('.note-draw-preview-container[data-drawing-preview]').forEach(function(el) {{
+  try {
+    document.querySelectorAll('.note-draw-preview-container[data-drawing-preview]').forEach(function(el) {
       var did = el.getAttribute('data-drawing-preview');
       if (!did) return;
-      if (!el.querySelector('svg') && !el.querySelector('iframe')) {{
-        fetch('/pub/drawings/' + did)
-          .then(function(r) {{ return r.ok ? r.json() : null; }})
-          .then(function(d) {{
-            if (d && d.svg_preview && d.svg_preview.trim().startsWith('<svg')) {{
-              el.innerHTML = d.svg_preview;
-            }} else if (d && d.data_json && d.data_json.trim() !== '{{}}') {{
-              el.innerHTML = '<iframe src="/static/vendor/tldraw/index.html?noteId=' + encodeURIComponent(did) + '" style="width:100%;height:300px;border:none;" title="Drawing"></iframe>';
-            }}
-          }}).catch(function() {{}});
-      }}
-    }});
-  }} catch(e) {{}}
+      if (!el.querySelector('img') && !el.querySelector('iframe')) {
+        fetch('/pub/drawings/' + encodeURIComponent(did))
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(d) {
+            if (d && _isSvg(d.svg_preview)) {
+              _showSvg(el, d.svg_preview);
+            } else if (d && d.data_json && d.data_json.trim() !== '{}') {
+              var fr = document.createElement('iframe');
+              fr.src = '/static/vendor/tldraw/index.html?noteId=' + encodeURIComponent(did);
+              fr.setAttribute('style', 'width:100%;height:300px;border:none;');
+              fr.title = 'Drawing';
+              el.textContent = '';
+              el.appendChild(fr);
+            }
+          }).catch(function() {});
+      }
+    });
+  } catch(e) {}
 
-  // Swap iframe with rendered SVG when ready
-  window.addEventListener('message', function(e) {{
+  // Swap iframe with rendered SVG when ready — hanya dari iframe drawing milik halaman ini, ke container-nya sendiri
+  window.addEventListener('message', function(e) {
     if (e.origin !== window.location.origin) return;
-    if (e.data && e.data.type === 'change' && e.data.noteId && e.data.svg && e.data.svg.trim().startsWith('<svg')) {{
-      var container = document.querySelector('.note-draw-preview-container[data-drawing-preview="' + e.data.noteId + '"]');
-      if (container) {{
-        container.innerHTML = e.data.svg;
-        var svgEl = container.querySelector('svg');
-        if (svgEl) {{
-          svgEl.style.width = '100%';
-          svgEl.style.height = 'auto';
-          svgEl.style.maxHeight = '100%';
-          svgEl.style.display = 'block';
-        }}
-      }}
-    }}
-  }});
+    if (!e.data || e.data.type !== 'change' || !e.data.noteId || !_isSvg(e.data.svg)) return;
+    var frames = document.querySelectorAll('.note-draw-preview-container[data-drawing-preview] iframe');
+    var srcFrame = null;
+    for (var i = 0; i < frames.length; i++) {
+      if (frames[i].contentWindow && e.source === frames[i].contentWindow) { srcFrame = frames[i]; break; }
+    }
+    if (!srcFrame) return;
+    var cands = document.querySelectorAll('.note-draw-preview-container[data-drawing-preview="' + CSS.escape(String(e.data.noteId)) + '"]');
+    for (var j = 0; j < cands.length; j++) {
+      if (cands[j].contains(srcFrame)) { _showSvg(cands[j], e.data.svg); return; }
+    }
+  });
 </script>
 </body>
 </html>"""
@@ -7111,17 +7363,26 @@ _NOT_FOUND_HTML = """<!DOCTYPE html>
 
 _PASSWORD_GATE_HTML = """<!DOCTYPE html>
 <html lang="id">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>🔒 Protected — Alurik</title>{css}</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>🔒 Protected — Alurik</title>@@css@@</head>
 <body>
 <div class="pub-password">
   <h1>🔒 Halaman ini dilindungi password</h1>
-  <form method="post" action="/pub/{username}/{slug}/unlock">
+  <form method="post" action="@@action@@">
     <input type="password" name="password" placeholder="Masukkan password" autofocus required>
     <button type="submit">Buka</button>
   </form>
-  {error_html}
+  @@error_html@@
 </div>
 </body></html>"""
+
+def _password_gate_html(username: str, slug: str, error_html: str = "") -> str:
+    """Halaman password note publish. username/slug di action di-percent-encode lalu di-escape (_pub_href)."""
+    return _fill_template(_PASSWORD_GATE_HTML, {
+        "css": _PUBLIC_CSS,
+        "action": _pub_href(username, slug) + "/unlock",
+        "error_html": error_html,
+    })
+
 
 @app.get("/pub/attachments/{att_id}")
 async def view_published_attachment(att_id: str, request: Request):
@@ -7151,7 +7412,9 @@ async def view_published_attachment(att_id: str, request: Request):
             try:
                 local_path = os.path.join(UPLOAD_DIR, os.path.basename(nc_path))
                 if os.path.exists(local_path):
-                    return FileResponse(local_path, filename=safe_name, media_type=mime_type)
+                    # kebijakan header sama dengan cabang Nextcloud (disposition, nosniff, CSP sandbox)
+                    return FileResponse(local_path, media_type=_served_file_mime(mime_type),
+                                        headers=_inline_file_headers(mime_type, safe_name))
             except Exception:
                 pass
 
@@ -7162,8 +7425,8 @@ async def view_published_attachment(att_id: str, request: Request):
                 if r.status_code == 200:
                     return Response(
                         content=r.content,
-                        media_type=mime_type,
-                        headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
+                        media_type=_served_file_mime(mime_type),
+                        headers=_inline_file_headers(mime_type, safe_name),
                     )
                 r.close()
             except Exception:
@@ -7196,8 +7459,8 @@ async def view_published_note_legacy(slug: str):
             (slug,)
         ).fetchone()
         if not row:
-            return HTMLResponse(content=_NOT_FOUND_HTML, status_code=404)
-        return RedirectResponse(url=f"/pub/{row['username']}/{slug}", status_code=301)
+            return _pub_html_response(_NOT_FOUND_HTML, status_code=404)
+        return RedirectResponse(url=_pub_path(row["username"], slug), status_code=301)
 
 @app.get("/pub/{username}/{slug}")
 async def view_published_note(username: str, slug: str, request: Request):
@@ -7213,26 +7476,14 @@ async def view_published_note(username: str, slug: str, request: Request):
             (slug, username)
         ).fetchone()
         if not row:
-            return HTMLResponse(
-                content=_NOT_FOUND_HTML,
-                status_code=404
-            )
+            return _pub_html_response(_NOT_FOUND_HTML, status_code=404)
 
         # Password gate
         if not _pub_note_unlocked(request, slug, row["password_hash"]):
-            # Show password form
-            return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
-                username=username,
-                slug=slug,
-                error_html="",
-                css=_PUBLIC_CSS
-            ))
+            return _pub_html_response(_password_gate_html(username, slug))
 
         import re as _re
-
-        # Helper: escape { } for .format() safety
-        def _esc(s):
-            return str(s or "").replace('{', '{{').replace('}', '}}')
+        _e, _ea = safehtml.escape_html, safehtml.escape_attr
 
         def _safe_date(d_str):
             if not d_str:
@@ -7285,7 +7536,7 @@ async def view_published_note(username: str, slug: str, request: Request):
         ).fetchall()
         if tags:
             tag_pills = "".join(
-                f'<span class="pub-tag">{_esc(t["name"])}</span>'
+                f'<span class="pub-tag">{_e(t["name"])}</span>'
                 for t in tags
             )
             tags_html = f'<section><h3>&#127991; Tags</h3><div class="pub-tags">{tag_pills}</div></section>'
@@ -7312,15 +7563,15 @@ async def view_published_note(username: str, slug: str, request: Request):
                         icon = ico
                         break
                 img_preview = (
-                    f'<div style="margin-top:8px"><img src="/pub/attachments/{a["id"]}" alt="{_esc(orig_name)}" style="max-height:180px;max-width:100%;border-radius:6px;object-fit:contain;background:var(--code-bg);border:1px solid var(--border);display:block;" loading="lazy"></div>'
+                    f'<div style="margin-top:8px"><img src="/pub/attachments/{a["id"]}" alt="{_ea(orig_name)}" style="max-height:180px;max-width:100%;border-radius:6px;object-fit:contain;background:var(--code-bg);border:1px solid var(--border);display:block;" loading="lazy"></div>'
                     if is_img else ''
                 )
                 att_items += (
                     f'<div class="pub-attachment-item" style="display:block;margin-bottom:12px;">'
                     f'<a href="/pub/attachments/{a["id"]}" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit;">'
                     f'<span class="pub-attachment-icon">{icon}</span>'
-                    f'<div><div class="pub-attachment-name">{_esc(orig_name)}</div>'
-                    f'<div class="pub-attachment-meta">{_esc(mime)}</div></div>'
+                    f'<div><div class="pub-attachment-name">{_e(orig_name)}</div>'
+                    f'<div class="pub-attachment-meta">{_e(mime)}</div></div>'
                     f'</a>'
                     f'{img_preview}'
                     f'</div>'
@@ -7334,13 +7585,16 @@ async def view_published_note(username: str, slug: str, request: Request):
         cover_html = ""
         first_line = (raw_content or "").strip().split('\n')[0].strip() if raw_content else ""
         if _re.match(r'^!\[.*?\]\(.*?\)$', first_line):
-            cover_match = _re.search(r'<img[^>]+src="([^"]+)"[^>]*>', body_html)
+            # gambar pertama yang bukan pratinjau SVG drawing (kartu drawing tidak pernah jadi cover)
+            cover_match = next((cm for cm in _re.finditer(r'<img[^>]+src="([^"]+)"[^>]*>', body_html)
+                                if not cm.group(1).startswith('data:image/svg+xml')), None)
             if cover_match:
                 cover_img = cover_match.group(0).replace(
                     '<img',
                     '<img style="width:100%;max-height:300px;object-fit:cover;border-radius:8px"'
                 )
-                cover_html = _esc(f'<div class="pub-cover">{cover_img}</div>')
+                # elemen <img> diambil dari body_html yang sudah aman (atributnya ter-escape), tidak di-parse ulang
+                cover_html = f'<div class="pub-cover">{cover_img}</div>'
                 body_html = body_html.replace(cover_match.group(0), '', 1)
 
         # TOC — parse h1-h3 from raw content, generate slugs, add ids to body_html
@@ -7367,7 +7621,7 @@ async def view_published_note(username: str, slug: str, request: Request):
             toc_list = ""
             for level, title, slug_heading in toc_items:
                 cls = f"toc-h{level}" if level > 1 else ""
-                toc_list += f'<li class="{cls}"><a href="#{slug_heading}">{_esc(title)}</a></li>'
+                toc_list += f'<li class="{cls}"><a href="#{_ea(slug_heading)}">{_e(title)}</a></li>'
             toc_html = f'<section class="pub-toc"><h3>&#128211; Contents</h3><ul>{toc_list}</ul></section>'
 
         # Build backlinks: other published notes that link to this note
@@ -7398,32 +7652,33 @@ async def view_published_note(username: str, slug: str, request: Request):
                 backlinks_html = f'<section><h3>&#128279; Related</h3><ul>{items}</ul></section>'
 
         try:
-            page_html = _PUBLIC_PAGE_HTML.format(
-                title=_esc(row["title"] or "Untitled"),
-                description=_esc(description),
-                base_url=WEBAPP_URL,
-                username=_esc(username),
-                slug=_esc(slug),
-                date=_esc(date_str),
-                body=_esc(body_html),
-                backlinks=backlinks_html,
-                css=_PUBLIC_CSS,
-                author=_esc(author),
-                created_date=_esc(created_date),
-                updated_date=_esc(updated_date),
-                reading_time=str(reading_time),
-                word_count=str(word_count),
-                toc_html=toc_html,
-                tags_html=tags_html,
-                cover_html=cover_html,
-                attachments_html=attachments_html,
-                drawing_html='',  # kanvas legacy per-note sudah dihapus; slot template dibiarkan kosong
-                drawing_data_js='null',
-            )
-            return HTMLResponse(content=page_html)
+            page_html = _fill_template(_PUBLIC_PAGE_HTML, {
+                "title": _ea(row["title"] or "Untitled"),
+                "description": description,  # sudah html.escape(quote=True)
+                "base_url": _ea(WEBAPP_URL),
+                "og_url": _ea(WEBAPP_URL) + _pub_href(username, slug),
+                "date": _e(date_str),
+                "body": body_html,
+                "backlinks": backlinks_html,
+                "css": _PUBLIC_CSS,
+                "author": _e(author),
+                "created_date": _e(created_date),
+                "updated_date": _e(updated_date),
+                "reading_time": str(reading_time),
+                "word_count": str(word_count),
+                "toc_html": toc_html,
+                "tags_html": tags_html,
+                "cover_html": cover_html,
+                "attachments_html": attachments_html,
+                "drawing_html": '',  # kanvas legacy per-note sudah dihapus; slot template dibiarkan kosong
+                "drawing_data_js": 'null',
+                "svg_img_style": _PUB_SVG_IMG_STYLE,
+            })
+            return _pub_html_response(page_html)
         except Exception:
+            logging.getLogger(__name__).exception("halaman publik gagal disusun (%s/%s)", username, slug)
             # Fallback simple HTML response if formatting fails
-            return HTMLResponse(content=f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>{html.escape(row["title"] or "Untitled")}</title>{_PUBLIC_CSS}</head><body style="padding:24px;max-width:800px;margin:0 auto;"><div class="pub-body">{body_html}</div></body></html>""")
+            return _pub_html_response(f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>{html.escape(row["title"] or "Untitled")}</title>{_PUBLIC_CSS}</head><body style="padding:24px;max-width:800px;margin:0 auto;"><div class="pub-body">{body_html}</div></body></html>""")
 
 @app.post("/pub/{username}/{slug}/unlock")
 async def unlock_published_note(username: str, slug: str, request: Request):
@@ -7439,27 +7694,23 @@ async def unlock_published_note(username: str, slug: str, request: Request):
             (slug, username)
         ).fetchone()
         if not row or not row["password_hash"]:
-            return RedirectResponse(url=f"/pub/{username}/{slug}", status_code=302)
+            return RedirectResponse(url=_pub_path(username, slug), status_code=302)
 
         # Read password from form
         form = await request.form()
         password = str(form.get("password", ""))
 
-        if not _verify_password(password, row["password_hash"]):
+        if not verify_password(password, row["password_hash"]):
             _record_failed_attempt(ip, slug)
             remaining = 5 - len(_ip_attempts.get(ip, deque()))
-            return HTMLResponse(content=_PASSWORD_GATE_HTML.format(
-                username=username,
-                slug=slug,
-                error_html=f'<p class="pub-error">Password salah. {max(0, remaining)} percobaan tersisa</p>',
-                css=_PUBLIC_CSS
-            ))
+            return _pub_html_response(_password_gate_html(
+                username, slug, f'<p class="pub-error">Password salah. {max(0, remaining)} percobaan tersisa</p>'))
 
         # Success
         _reset_bruteforce(ip, slug)
         cookie_key = f"pub_unlock_{slug}"
         cookie_val = _sign_cookie(slug)
-        response = RedirectResponse(url=f"/pub/{username}/{slug}", status_code=302)
+        response = RedirectResponse(url=_pub_path(username, slug), status_code=302)
         response.set_cookie(
             key=cookie_key,
             value=cookie_val,
@@ -7751,6 +8002,8 @@ async def restore_trashed_mindmap(mid: int, user=Depends(get_current_user)):
         if mm.get("last_edited_by") is not None and not _user_exists(mm["last_edited_by"]):
             mm["last_edited_by"] = None
 
+        if isinstance(mm.get("data_json"), str):
+            mm["data_json"] = safehtml.sanitize_mind_json(mm["data_json"])
         live_cols = set(_table_columns(conn, "mindmaps"))
         if "search_text" in live_cols:
             mm["search_text"] = "" if sn is not None else _mindmap_search_text(mm.get("data_json"))

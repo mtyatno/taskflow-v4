@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v423-mindmap-live", () => {
-    assert.match(swJs, /taskflow-v423-mindmap-live/);
+  await t.test("sw.js bumped to taskflow-v424-xss-hardening", () => {
+    assert.match(swJs, /taskflow-v424-xss-hardening/);
   });
 });

@@ -302,6 +302,7 @@
   <script src="/static/review/digest.js"></script>
   <script src="/static/offline/voicedictate.js"></script>
   <script src="/static/offline/drawdirective.js"></script>
+  <script src="/static/offline/safehtml.js"></script>
   <script src="/static/ui-components.js"></script>
   <script>
   // ═══ DEPENDENCIES: Foundation ═══
@@ -10983,7 +10984,7 @@ function MindmapTabInstance({
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
-    src: "/static/vendor/mind-elixir/index.html?v=145",
+    src: "/static/vendor/mind-elixir/index.html?v=146",
     style: { flex: 1, border: "none", width: "100%" },
     title: "Mindmap editor"
   })), /*#__PURE__*/React.createElement("div", {
@@ -20865,7 +20866,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v423-mindmap-live"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v424-xss-hardening"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -20909,6 +20910,16 @@ function taskItemHasBlock(item) {
 let _markedHIdx = 0;
 marked.use({
   gfm: true,
+  tokenizer: {
+    // Bawaan marked menandai teks setelah tag inline <code>/<pre>/<script>/<style> sebagai "escaped" (inRawBlock)
+    // dan menulisnya mentah. Karena tag itu kini di-escape, teks sesudahnya juga harus di-escape: tanpa ini
+    // "<code><img src=x onerror=…" (tanpa ">") lolos sebagai markup.
+    inlineText(src) {
+      const cap = this.rules.inline.text.exec(src);
+      if (!cap) return false;
+      return { type: 'text', raw: cap[0], text: cap[0], escaped: false };
+    }
+  },
   renderer: {
     code(token, infostring) {
       const codeText = typeof token === 'object' && token !== null ? (token.text || '') : String(token || '');
@@ -20936,12 +20947,36 @@ marked.use({
       const text = this.parser.parseInline(tokens);
       return `<h${depth} id="note-h-${_markedHIdx++}">${text}</h${depth}>\n`;
     },
+    // HTML mentah (blok dan inline) selalu jadi teks ter-escape; allowlist (<br>, <details>, <summary>, <mark>)
+    // dikembalikan sekali di akhir renderMarkdown (TF.safehtml.restoreAllowedTags), spec XSS §2.1/§2.5.
+    html(token) {
+      return escapeHtml(typeof token === 'object' && token !== null ? (token.text || '') : String(token || ''));
+    },
+    // href lewat TF.safehtml.safeUrl; ditolak → isi link saja (sudah HTML hasil parser, aman).
+    link({
+      href,
+      title,
+      tokens
+    }) {
+      const text = this.parser.parseInline(tokens);
+      const SH = tfSafeHtml();
+      const url = SH ? SH.safeUrl(href) : null;
+      if (url === null) return text;
+      const titleAttr = title ? ` title="${SH.escapeAttr(title)}"` : '';
+      return `<a href="${SH.escapeAttr(url)}"${titleAttr}>${text}</a>`;
+    },
+    // src lewat safeUrl(image) dulu, baru mediaUrl, lalu escapeAttr; ditolak → teks alt ter-escape.
     image({
       href,
+      title,
       text
     }) {
-      const esc = (text || '').replace(/"/g, '&quot;');
-      return `<img src="${mediaUrl(href)}" alt="${esc}" onerror="this.style.display='none';this.nextSibling&&(this.nextSibling.style.display='inline')" /><span class="img-offline-placeholder" style="display:none">📎 ${esc} — tidak tersedia offline</span>`;
+      const alt = text || '';
+      const SH = tfSafeHtml();
+      const url = SH ? SH.safeUrl(href, { image: true }) : null;
+      if (url === null) return escapeHtml(alt);
+      const titleAttr = title ? ` title="${SH.escapeAttr(title)}"` : '';
+      return `<img src="${SH.escapeAttr(mediaUrl(url))}" alt="${SH.escapeAttr(alt)}"${titleAttr} onerror="this.style.display='none';this.nextSibling&&(this.nextSibling.style.display='inline')" /><span class="img-offline-placeholder" style="display:none">📎 ${escapeHtml(alt)} — tidak tersedia offline</span>`;
     },
     listitem(item) {
       if (item.task) {
@@ -20953,7 +20988,11 @@ marked.use({
         if (hasBlock) {
           return `<div class="${cls}">${chk}${this.parser.parse(item.tokens)}</div>\n`;
         }
-        const body = (item.text || "").replace(/^\[[ xX]\] /, "");
+        // keluaran parser, bukan item.text mentah: HTML mentah di dalamnya ikut ter-escape. Heading di item rapat
+        // ("- [ ] # x") tetap teks "# x" tanpa <hN>, supaya penomoran note-h-N sejalan dengan extractHeadings.
+        const body = (item.tokens || []).map(tk => tk && tk.type === 'heading'
+          ? '#'.repeat(tk.depth || 1) + ' ' + this.parser.parseInline(tk.tokens || [])
+          : this.parser.parse([tk], false)).join('');
         return `<div class="${cls}">${chk}<span>${body}</span></div>\n`;
       }
       return false;
@@ -21013,21 +21052,22 @@ function renderWikilinksPreview(text, maxLen) {
   if (!text) return "";
   const wikiMap = {};
   let wi = 0;
+  // Placeholder ber-nonce per render (sama dengan renderMarkdown): teks ketikan pengguna tidak bisa menebak kunci.
+  const nonce = markdownPlaceholderNonce();
   // Strip tasklink and highlight tokens — they don't belong in card previews
   const stripped = text.replace(/\\?\[tasklink:[0-9a-f-]+\\?\]/g, '').replace(/==([^=\n]+)==/g, '$1');
   const processed = stripped.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (_, rawTitle) => {
     const title = rawTitle.replace(/\\(.)/g, '$1');
-    const key = `WKPREV${wi++}WKPREV`;
+    const key = `WKPREV${nonce}X${wi++}WKPREVEND`;
     const parsed = parseWikilinkRaw(title);
     const labelEsc = escapeHtml(parsed.label);
     const titleEsc = escapeAttr(parsed.title);
     wikiMap[key] = `<span class="wikilink" data-wiki-title="${titleEsc}">${labelEsc}</span>`;
     return key;
   });
-  let html = escapeHtml(processed);
-  for (const [k, v] of Object.entries(wikiMap)) {
-    html = html.split(k).join(v);
-  }
+  // Satu lintasan: HTML kartu yang disisipkan tidak dipindai ulang.
+  let html = escapeHtml(processed).replace(new RegExp('WKPREV' + nonce + 'X\\d+WKPREVEND', 'g'),
+    (k) => Object.prototype.hasOwnProperty.call(wikiMap, k) ? wikiMap[k] : '');
   if (html.length <= maxLen) return html;
   let truncated = '';
   let inTag = false;
@@ -21124,19 +21164,22 @@ function repairQuoteMarkdown(md) {
 function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
   text = repairQuoteMarkdown(text);
   const rawMap = {};
+  const SH = tfSafeHtml();
+  // Kunci placeholder memuat nonce per render (seperti server), jadi teks pengguna tidak bisa memalsukannya.
+  const phNonce = markdownPlaceholderNonce();
 
   // Step 0: Extract math BEFORE all other processing so markdown doesn't mangle LaTeX.
   // Block math first ($$...$$), then inline ($...$) to avoid double-match.
   const mathMap = {};
   let mi = 0;
   const preMath0 = text.replace(/\$\$([\s\S]*?)\$\$/g, (rawFull, latex) => {
-    const key = `MATH${mi++}MATHEND`;
+    const key = `MATH${phNonce}X${mi++}MATHEND`;
     rawMap[key] = rawFull;
     mathMap[key] = `<div class="math-block">${renderMath(latex.trim(), true)}</div>`;
     return key;
   });
   const preMath1 = preMath0.replace(/\$(?!\s)([^$\n\r]+?)(?<!\s)\$/g, (rawFull, latex) => {
-    const key = `MATH${mi++}MATHEND`;
+    const key = `MATH${phNonce}X${mi++}MATHEND`;
     rawMap[key] = rawFull;
     mathMap[key] = `<span class="math-inline">${renderMath(latex, false)}</span>`;
     return key;
@@ -21153,7 +21196,7 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
   let wi = 0;
   const processed = preMath1.replace(/(?:\\?\[){2,}([^\[\]]+)(?:\\?\]){2,}/g, (rawFull, rawTitle) => {
     const title = rawTitle.replace(/\\(.)/g, '$1'); // unescape remark-stringify escapes
-    const key = `WKLN${wi++}WKLNEND`;
+    const key = `WKLN${phNonce}X${wi++}WKLNEND`;
     rawMap[key] = rawFull;
     const parsed = parseWikilinkRaw(title);
     const normTitle = normalizeWikiText(parsed.title);
@@ -21189,7 +21232,7 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
   const processed2 = processed.replace(/\\?\[tasklink:([0-9a-f-]+)\\?\]/g, (rawFull, idStr) => {
     const isUuid = idStr.includes('-');
     const taskId = isUuid ? idStr : Number(idStr);
-    const key = `TKLNK${ti++}TKLNKEND`;
+    const key = `TKLNK${phNonce}X${ti++}TKLNKEND`;
     rawMap[key] = rawFull;
     const task = (tasks || []).find(t =>
       t.id === taskId ||
@@ -21203,7 +21246,7 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
       const statusColor = isDone ? '#16a34a' : '#3b82f6';
       const priority = task.priority || 'P4';
       const priColor = _PRI_COLORS[priority] || '#94a3b8';
-      taskMap[key] = `<span class="tasklink-node" data-tasklink data-tasklink-id="${idStr}" title="Task: ${escapeAttr(task.title || '')}"><span class="tasklink-status-label" style="background:${statusColor}">${statusLabel}</span> <span class="tasklink-priority-label" style="background:${priColor}">${priority}</span> ${escapeHtml(task.title || '')}</span>`;
+      taskMap[key] = `<span class="tasklink-node" data-tasklink data-tasklink-id="${idStr}" title="Task: ${escapeAttr(task.title || '')}"><span class="tasklink-status-label" style="background:${statusColor}">${statusLabel}</span> <span class="tasklink-priority-label" style="background:${priColor}">${escapeHtml(priority)}</span> ${escapeHtml(task.title || '')}</span>`;
     }
     return key;
   });
@@ -21212,7 +21255,7 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
   const hlMap = {};
   let hi = 0;
   const processed3 = processed2.replace(/\\?==([^=\n]+)==/g, (rawFull, val) => {
-    const key = `HLMK${hi++}HLMKEND`;
+    const key = `HLMK${phNonce}X${hi++}HLMKEND`;
     rawMap[key] = rawFull;
     hlMap[key] = `<mark class="highlight-mark">${escapeHtml(val)}</mark>`;
     return key;
@@ -21222,10 +21265,12 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
   const drawMap = {};
   let di = 0;
   const processed4 = processed3.replace(/\\?::draw\\?\[([0-9a-zA-Z_-]+)\\?\](?:\s*\\?\{([^}]*)\\?\})?/gi, (rawMatch, idStr, attrRaw) => {
-    const key = `DRWBLK${di++}DRWBLKEND`;
+    const key = `DRWBLK${phNonce}X${di++}DRWBLKEND`;
     rawMap[key] = rawMatch;
     const safeId = escapeAttr(idStr);
-    const attrs = parseDirectiveAttrs(attrRaw);
+    // size/width/height divalidasi TF.safehtml.safeDrawAttrs (nilai lain → default), spec XSS §2.3
+    const parsedAttrs = parseDirectiveAttrs(attrRaw);
+    const attrs = SH ? SH.safeDrawAttrs(parsedAttrs) : { title: parsedAttrs.title };
     const titleRaw = attrs.title || 'Gambar';
     const safeTitle = escapeHtml(titleRaw);
     const size = (attrs.size || (attrs.width === '40%' || attrs.width === '50%' || attrs.width === 'small' ? 'S' : attrs.width === '70%' || attrs.width === '75%' || attrs.width === 'medium' ? 'M' : 'L')).toUpperCase();
@@ -21233,7 +21278,11 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
     const heightVal = attrs.height || (size === 'S' ? '200px' : size === 'M' ? '300px' : '400px');
     const cardWidthStyle = widthVal && widthVal !== '100%' ? `width:${widthVal};max-width:${widthVal};margin:10px auto;` : `width:100%;margin:10px 0;`;
 
-    drawMap[key] = `<div class="note-draw-card" data-drawing-id="${safeId}" data-size="${size}" style="${cardWidthStyle}">
+    // Judul tidak pernah ditulis ke dalam string JavaScript onclick (entity atribut didecode sebelum JS jalan);
+    // handler membacanya dari data-draw-title.
+    const titleAttr = SH ? SH.escapeAttr(titleRaw) : escapeAttr(titleRaw);
+    const titleJs = "this.closest('[data-draw-title]').getAttribute('data-draw-title')";
+    drawMap[key] = `<div class="note-draw-card" data-drawing-id="${safeId}" data-size="${size}" data-draw-title="${titleAttr}" style="${cardWidthStyle}">
       <div class="note-draw-header">
         <span>🎨 ${safeTitle}</span>
         <div style="display:flex;gap:6px;align-items:center;">
@@ -21242,11 +21291,11 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
             <button type="button" class="note-draw-size-btn ${size === 'M' ? 'active' : ''}" onclick="window.dispatchEvent(new CustomEvent('changeDrawingSize', { detail: { id: '${safeId}', size: 'M', width: '75%' } }))" title="Sedang (75%)">M</button>
             <button type="button" class="note-draw-size-btn ${size === 'L' || size === 'FULL' ? 'active' : ''}" onclick="window.dispatchEvent(new CustomEvent('changeDrawingSize', { detail: { id: '${safeId}', size: 'L', width: '100%' } }))" title="Penuh (100%)">L</button>
           </div>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw)}', noteListId: window.noteListIdFromEl ? window.noteListIdFromEl(this) : undefined } }))" style="font-size:11px;padding:2px 8px;cursor:pointer;">✏️ Edit</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: ${titleJs}, noteListId: window.noteListIdFromEl ? window.noteListIdFromEl(this) : undefined } }))" style="font-size:11px;padding:2px 8px;cursor:pointer;">✏️ Edit</button>
           <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('openDrawing', { detail: '${safeId}' }))" style="font-size:11px;padding:2px 8px;cursor:pointer;" title="Buka di halaman Draw">↗️ Buka</button>
         </div>
       </div>
-      <div class="note-draw-preview-container" data-drawing-preview="${safeId}" style="max-height:${heightVal};resize:vertical;overflow:auto;" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: '${escapeAttr(titleRaw)}', noteListId: window.noteListIdFromEl ? window.noteListIdFromEl(this) : undefined } }))" title="Klik untuk mengedit gambar (bisa ditarik ke bawah untuk memperbesar)">
+      <div class="note-draw-preview-container" data-drawing-preview="${safeId}" style="max-height:${heightVal};resize:vertical;overflow:auto;" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: ${titleJs}, noteListId: window.noteListIdFromEl ? window.noteListIdFromEl(this) : undefined } }))" title="Klik untuk mengedit gambar (bisa ditarik ke bawah untuk memperbesar)">
         <div class="drawing-preview-placeholder" style="color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;">🎨 Klik untuk membuka / mengedit gambar</div>
       </div>
     </div>`;
@@ -21296,21 +21345,77 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
   }
   const cleanMd = cleanLines.join('\n');
 
-  return { text: cleanMd, rawMap, mathMap, wikiMap, taskMap, hlMap, drawMap };
+  return { text: cleanMd, rawMap, mathMap, wikiMap, taskMap, hlMap, drawMap, keyRe: markdownPlaceholderKeyRe(phNonce) };
 }
 
+// Fungsi aman-HTML bersama (static/offline/safehtml.js). Diambil SAAT DIPANGGIL, bukan saat skrip dimuat:
+// urutan <script> tidak boleh menentukan aman/tidaknya render (pelajaran PR 3, drawingshare.js).
+function tfSafeHtml() {
+  const g = typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : null);
+  return g && g.TF && g.TF.safehtml ? g.TF.safehtml : null;
+}
+function markdownPlaceholderNonce() {
+  try {
+    const c = typeof crypto !== 'undefined' ? crypto : null;
+    if (c && typeof c.getRandomValues === 'function') {
+      const a = new Uint32Array(2);
+      c.getRandomValues(a);
+      return a[0].toString(16) + a[1].toString(16);
+    }
+  } catch (_) {}
+  return Math.floor(Math.random() * 0x100000000).toString(16) + Math.floor(Math.random() * 0x100000000).toString(16);
+}
+function markdownPlaceholderKeyRe(nonce) {
+  return '(?:MATH|WKLN|TKLNK|HLMK|DRWBLK)' + nonce + 'X\\d+(?:MATH|WKLN|TKLNK|HLMK|DRWBLK)END';
+}
+// Ganti placeholder kartu Alurik. Di teks → HTML kartu (diulang supaya kartu bersarang, mis. math di dalam
+// ==highlight==, ikut terganti). Di dalam tag (alt gambar, title link, atribut kartu) → sumber mentahnya sebagai
+// teks ter-escape, bukan markup, supaya HTML kartu tidak bisa keluar dari atribut (sama dengan server).
+function fillMarkdownPlaceholders(html, maps, rawMap, keyRe, SH) {
+  const cards = Object.assign({}, ...maps);
+  const anyKey = new RegExp(keyRe, 'g');
+  const oneKey = new RegExp(keyRe); // tanpa flag g: test() tidak menyimpan lastIndex
+  const rawOf = (k) => {
+    let r = rawMap[k] || '';
+    for (let i = 0; i < 8 && oneKey.test(r); i++) r = r.replace(anyKey, (kk) => rawMap[kk] || '');
+    return r.replace(anyKey, '');
+  };
+  const re = new RegExp('(<[^>]*>)|(' + keyRe + ')', 'g');
+  for (let pass = 0; pass < 8; pass++) {
+    let changed = false;
+    html = html.replace(re, (m, tag, key) => {
+      if (tag) {
+        if (tag.indexOf('END') === -1 || !oneKey.test(tag)) return tag;
+        changed = true;
+        return tag.replace(anyKey, (k) => SH.escapeAttr(rawOf(k)));
+      }
+      changed = true;
+      return Object.prototype.hasOwnProperty.call(cards, key) ? cards[key] : '';
+    });
+    if (!changed) break;
+  }
+  return html;
+}
 function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   if (!text) return "";
+  const SH = tfSafeHtml();
+  if (!SH) {
+    // gagal tertutup: tanpa modul aman-HTML, isi ditampilkan sebagai teks biasa
+    console.warn('[renderMarkdown] TF.safehtml belum dimuat; isi note ditampilkan sebagai teks');
+    return `<div class="note-plain-fallback" style="white-space:pre-wrap">${escapeHtml(text)}</div>`;
+  }
   _markedHIdx = 0;
-  const { text: cleanMd, mathMap, wikiMap, taskMap, hlMap, drawMap } = prepMarkdownBlocks(text, noteTitles, allNotes, tasks);
+  const { text: cleanMd, rawMap, mathMap, wikiMap, taskMap, hlMap, drawMap, keyRe } = prepMarkdownBlocks(text, noteTitles, allNotes, tasks);
 
   let html = marked.parse(cleanMd);
   const ALERT_TYPES = NOTE_CALLOUT_TYPES;
   html = html.replace(/<blockquote>\s*<p>\[!(NOTE|INFO|TIP|WARNING|IMPORTANT|CAUTION)\]([^\n<]*)(?:<\/p>|(?:\n|<br\/?>)?([\s\S]*?)<\/p>)([\s\S]*?)<\/blockquote>/gi, (match, typeRaw, titleRaw, firstParaRest, remainingContent) => {
     const type = typeRaw.toUpperCase();
     const conf = ALERT_TYPES[type] || { icon: 'ℹ️', title: type, cls: 'note' };
-    const customTitle = (titleRaw || '').trim();
-    const title = customTitle || conf.title;
+    // titleRaw diambil dari keluaran marked (teks sudah ter-escape, tanpa tag); < > " di-escape lagi sebagai
+    // jaga-jaga tanpa meng-escape ganda entity yang sudah ada.
+    const customTitle = (titleRaw || '').trim().replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const title = customTitle || escapeHtml(conf.title);
     let body = '';
     if (firstParaRest && firstParaRest.trim()) {
       body += '<p>' + firstParaRest.trim() + '</p>\n';
@@ -21332,21 +21437,11 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
     const idx = cbIdx++;
     return `<input type="checkbox"${isChecked ? ' checked=""' : ''} class="note-interactive-checkbox" data-task-checkbox-idx="${idx}">`;
   });
-  for (const [k, v] of Object.entries(wikiMap)) {
-    html = html.split(k).join(v);
-  }
-  for (const [k, v] of Object.entries(taskMap)) {
-    html = html.split(k).join(v);
-  }
-  for (const [k, v] of Object.entries(hlMap)) {
-    html = html.split(k).join(v);
-  }
-  for (const [k, v] of Object.entries(mathMap)) {
-    html = html.split(k).join(v);
-  }
-  for (const [k, v] of Object.entries(drawMap)) {
-    html = html.split(k).join(v);
-  }
+  // Urutan wajib (spec XSS §2.4/§2.5, sama dengan server): HTML mentah sudah ter-escape oleh renderer marked →
+  // allowlist dikembalikan sekali di sini (tidak di dalam <code>/<pre> maupun atribut) → baru placeholder kartu
+  // Alurik diganti, supaya HTML kartu tidak ikut disentuh allowlist.
+  html = SH.restoreAllowedTags(html);
+  html = fillMarkdownPlaceholders(html, [wikiMap, taskMap, hlMap, mathMap, drawMap], rawMap, keyRe, SH);
   if (typeof window !== 'undefined' && Object.keys(drawMap).length > 0) {
     setTimeout(() => { if (typeof window.hydrateDrawingPreviews === 'function') window.hydrateDrawingPreviews(); }, 60);
   }
@@ -21894,9 +21989,11 @@ window.hydrateDrawingPreviews = function(root, force) {
   containers.forEach(async el => {
     const did = el.getAttribute('data-drawing-preview');
     if (!did) return;
-    if (el.getAttribute('data-hydrated') === 'true' && !force && el.querySelector('svg')) return;
+    if (el.getAttribute('data-hydrated') === 'true' && !force && el.querySelector('img[data-drawing-img]')) return;
     try {
       const found = await drawingPreviewLookup(did);
+      // SVG tidak pernah masuk DOM sebagai markup: selalu <img src=data:> lewat TF.safehtml (spec XSS §3).
+      const SH = tfSafeHtml();
       if (found.unavailable) {
         el.innerHTML = '<span class="drawing-preview-placeholder drawing-unavailable" style="color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;">' + DRAWING_UNAVAILABLE_TEXT + '</span>';
         el.setAttribute('data-hydrated', 'unavailable');
@@ -21906,20 +22003,51 @@ window.hydrateDrawingPreviews = function(root, force) {
       if (!found.drawing) return;
       applyDrawingScopeUi(el, found.drawing);
       const svg = found.svg;
-      if (svg && (svg.includes('<svg') || svg.trim().startsWith('<svg'))) {
-        el.innerHTML = svg;
-        const svgEl = el.querySelector('svg');
-        if (svgEl) {
-          svgEl.style.width = '100%';
-          svgEl.style.height = 'auto';
-          svgEl.style.maxHeight = '100%';
-          svgEl.style.display = 'block';
-        }
+      if (!svg || !SH) return;
+      const img = SH.mountSvgImg(el, svg, found.drawing.title || 'Gambar');
+      if (img) {
+        img.setAttribute('data-drawing-img', '');
         el.setAttribute('data-hydrated', 'true');
+        return;
       }
+      // isi bukan SVG (tidak diawali <svg) → kartu "Gambar tidak tersedia", sebagai teks
+      const doc = el.ownerDocument || document;
+      const card = doc.createElement('span');
+      card.className = 'drawing-preview-placeholder drawing-invalid';
+      card.style.cssText = 'color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;';
+      card.textContent = 'Gambar tidak tersedia';
+      el.textContent = '';
+      el.appendChild(card);
+      el.setAttribute('data-hydrated', 'invalid');
     } catch (err) { console.warn('[drawing] hydrate pratinjau gagal', err); }
   });
 };
+// Cetak note: pratinjau drawing d ke container c lewat <img src=data:> (spec XSS §3). Hasil: Promise yang selesai
+// saat gambar termuat/gagal (maks 5 dtk) — pemanggil menunggunya sebelum window.print() — atau null bila isi
+// bukan SVG; saat itu c berisi kartu teks "Gambar tidak tersedia" (tanpa kelas drawing-preview-placeholder,
+// yang disembunyikan CSS cetak).
+function printDrawingPreview(c, d, SH) {
+  const svg = d && typeof d.svg_preview === 'string' && d.svg_preview.trim().startsWith('<svg') ? d.svg_preview : null;
+  const img = svg && SH ? SH.mountSvgImg(c, svg, (d && d.title) || 'Gambar') : null;
+  if (!img) {
+    const doc = c.ownerDocument || document;
+    const card = doc.createElement('span');
+    card.className = 'drawing-invalid';
+    card.style.cssText = 'color:#64748b;font-size:10pt;';
+    card.textContent = 'Gambar tidak tersedia';
+    c.textContent = '';
+    c.appendChild(card);
+    return null;
+  }
+  const cardEl = c.closest('.note-draw-card');
+  const cardSize = cardEl ? (cardEl.getAttribute('data-size') || 'L') : 'L';
+  img.style.maxHeight = cardSize === 'S' ? '180px' : cardSize === 'M' ? '280px' : '380px';
+  return new Promise(resolve => {
+    if (img.complete) return resolve();
+    const t = setTimeout(resolve, 5000);
+    img.onload = img.onerror = () => { clearTimeout(t); resolve(); };
+  });
+}
 
 if (typeof window !== 'undefined') {
   window.parseDirectiveAttrs = parseDirectiveAttrs;
@@ -24254,7 +24382,12 @@ function extractHeadings(content) {
   if (typeof marked !== "undefined" && marked && typeof marked.lexer === "function") {
     try {
       const prepped = prepMarkdownBlocks(content);
-      const restore = (t) => String(t || "").replace(/(?:MATH|WKLN|TKLNK|HLMK|DRWBLK)\d+(?:MATH|WKLN|TKLNK|HLMK|DRWBLK)END/g, (k) => prepped.rawMap[k] || "");
+      const keyRe = new RegExp(prepped.keyRe, "g");
+      const restore = (t) => {
+        let r = String(t || "");
+        for (let i = 0; i < 8 && r.search(keyRe) !== -1; i++) r = r.replace(keyRe, (k) => prepped.rawMap[k] || "");
+        return r;
+      };
       const walk = (tokens) => {
         for (const tk of tokens || []) {
           if (!tk) continue;
@@ -27651,32 +27784,26 @@ function NotePanel({
     const html = renderMarkdown(note.content || "", titleStrings, allNotes, tasks);
     const el = document.createElement("div");
     el.id = "note-print-area";
-    el.innerHTML = `<table class="print-container"><thead><tr><td><div class="page-header-space"></div></td></tr></thead><tfoot><tr><td><div class="page-footer-space"></div></td></tr></tfoot><tbody><tr><td class="note-content"><div class="npa-title">${note.title || "(tanpa judul)"}</div><div class="npa-meta">${fmtDate(note.updated_at)}</div><div class="note-rendered">${html}</div></td></tr></tbody></table><div class="npa-footer"><span>${note.title || ""}</span><span>Alurik</span></div>`;
+    el.innerHTML = `<table class="print-container"><thead><tr><td><div class="page-header-space"></div></td></tr></thead><tfoot><tr><td><div class="page-footer-space"></div></td></tr></tfoot><tbody><tr><td class="note-content"><div class="npa-title">${escapeHtml(note.title || "(tanpa judul)")}</div><div class="npa-meta">${escapeHtml(fmtDate(note.updated_at))}</div><div class="note-rendered">${html}</div></td></tr></tbody></table><div class="npa-footer"><span>${escapeHtml(note.title || "")}</span><span>Alurik</span></div>`;
     document.body.appendChild(el);
 
-    // Hydrate all drawing SVG previews before printing
-    const drawContainers = el.querySelectorAll('[data-drawing-preview]');
+    // Hydrate all drawing SVG previews before printing — lewat <img src=data:>, bukan markup (spec XSS §3)
+    const SH = tfSafeHtml();
+    const drawContainers = Array.from(el.querySelectorAll('[data-drawing-preview]'));
+    const imgLoads = [];
     if (drawContainers.length > 0) {
-      await Promise.all(Array.from(drawContainers).map(async c => {
+      await Promise.all(drawContainers.map(async c => {
         const did = c.getAttribute('data-drawing-preview');
         if (!did) return;
         try {
           const d = await api.get(`/api/drawings/${did}`);
-          if (d && d.svg_preview && (d.svg_preview.includes('<svg') || d.svg_preview.trim().startsWith('<svg'))) {
-            c.innerHTML = d.svg_preview;
-            const cardEl = c.closest('.note-draw-card');
-            const cardSize = cardEl ? (cardEl.getAttribute('data-size') || 'L') : 'L';
-            const svgEl = c.querySelector('svg');
-            if (svgEl) {
-              svgEl.style.width = '100%';
-              svgEl.style.height = 'auto';
-              svgEl.style.maxHeight = cardSize === 'S' ? '180px' : cardSize === 'M' ? '280px' : '380px';
-              svgEl.style.display = 'block';
-            }
-          }
+          if (!d) return;
+          const wait = printDrawingPreview(c, d, SH);
+          if (wait) imgLoads.push(wait);
         } catch (_) {}
       }));
     }
+    await Promise.all(imgLoads);
 
     let done = false;
     const cleanup = () => {
@@ -27725,7 +27852,7 @@ function NotePanel({
     const svgToPngDataUrl = (svgString) => {
       return new Promise((resolve) => {
         try {
-          if (!svgString || (!svgString.includes('<svg') && !svgString.trim().startsWith('<svg'))) {
+          if (typeof svgString !== 'string' || !svgString.trim().startsWith('<svg')) {
             return resolve(null);
           }
           let safeSvg = svgString;
@@ -27813,7 +27940,7 @@ function NotePanel({
           const dtitle = titleM ? (titleM[1] || titleM[2]) : "";
           try {
             const d = await api.get(`/api/drawings/${did}`);
-            if (d && d.svg_preview && (d.svg_preview.includes('<svg') || d.svg_preview.trim().startsWith('<svg'))) {
+            if (d && typeof d.svg_preview === 'string' && d.svg_preview.trim().startsWith('<svg')) {
               const pngData = await svgToPngDataUrl(d.svg_preview);
               drawingsMap[did] = {
                 title: d.title || dtitle,
@@ -27940,8 +28067,8 @@ function NotePanel({
     // 4. Offline client fallback: Word HTML MIME blob
     try {
       const htmlContent = renderMarkdown(note.content || "", titleStrings, allNotes, tasks);
-      const wordHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:Segoe UI,sans-serif;line-height:1.6;color:#1e293b;}h1{font-size:22pt;color:#0f172a;}h2{font-size:16pt;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #cbd5e1;padding:8px;}</style>
-</head><body><h1>${title}</h1>${htmlContent}</body></html>`;
+      const wordHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>body{font-family:Segoe UI,sans-serif;line-height:1.6;color:#1e293b;}h1{font-size:22pt;color:#0f172a;}h2{font-size:16pt;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #cbd5e1;padding:8px;}</style>
+</head><body><h1>${escapeHtml(title)}</h1>${htmlContent}</body></html>`;
       const blob = new Blob(['\ufeff', wordHtml], { type: 'application/msword;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -32859,12 +32986,15 @@ function AttachmentViewer() {
         if (!res.ok) throw new Error("HTTP " + res.status);
         const blob = await res.blob();
         if (cancelled) return;
-        const ct = (blob.type || "").toLowerCase();
-        const name = (item.filename || "").toLowerCase();
-        let k = "other";
-        if (ct.indexOf("image/") === 0 || /\.(png|jpe?g|gif|webp|bmp|svg|avif|heic)$/.test(name)) k = "image";
-        else if (ct === "application/pdf" || /\.pdf$/.test(name)) k = "pdf";
-        const u = URL.createObjectURL(blob);
+        // XSS: blob URL se-origin dengan aplikasi → pratinjau hanya dari MIME blob (bukan nama file), lewat
+        // TF.safehtml.attachmentPreview: PDF tepat application/pdf, gambar png/jpeg/webp/gif, dibungkus ulang
+        // dengan tipe itu. SVG/HTML/lainnya: unduh saja. Modul tidak termuat → unduh saja (gagal tertutup).
+        const SH = window.TF && window.TF.safehtml;
+        const pv = (SH && typeof SH.attachmentPreview === "function")
+          ? SH.attachmentPreview(blob.type) : { kind: "other", type: null };
+        const k = pv.kind;
+        // Bukan pratinjau: blob untuk "Simpan" dibungkus octet-stream (tidak pernah bisa dirender sebagai HTML/SVG).
+        const u = URL.createObjectURL(new Blob([blob], { type: pv.type || "application/octet-stream" }));
         blobRef.current = u;
         setBlobUrl(u); setKind(k); setLoading(false);
       } catch (e) {
@@ -35020,8 +35150,9 @@ function App() {
       fontSize: 13,
       lineHeight: 1.5
     },
+    // Pesan bisa berisi HTML mentah (baris lama): escape semua, allowlist <b> <i> <br> (spec XSS §4)
     dangerouslySetInnerHTML: {
-      __html: n.message
+      __html: tfSafeHtml() ? tfSafeHtml().renderNotificationHtml(n.message) : escapeHtml(n.message)
     }
   }), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -35221,7 +35352,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v423-mindmap-live";
+    window.__SW_VERSION = "taskflow-v424-xss-hardening";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
