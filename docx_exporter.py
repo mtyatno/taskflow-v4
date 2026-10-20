@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Callable, Optional
 
 import docx
+from media_probe import MEDIA_DIRECTIVE_RE, format_duration
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
@@ -374,7 +375,8 @@ def markdown_to_docx(
     content: str,
     meta: dict = None,
     drawing_resolver: Optional[Callable[..., Optional[dict]]] = None,
-    image_resolver: Optional[Callable[[str], Optional[bytes]]] = None
+    image_resolver: Optional[Callable[[str], Optional[bytes]]] = None,
+    media_resolver: Optional[Callable[[str], Optional[dict]]] = None
 ) -> io.BytesIO:
     """Convert Markdown content and metadata into a formatted Word (.docx) document with images and drawings."""
     doc = docx.Document()
@@ -694,6 +696,38 @@ def markdown_to_docx(
                 p_suf.paragraph_format.space_after = Pt(3)
                 _add_styled_runs(p_suf, suffix_text, image_resolver=image_resolver)
 
+            i += 1
+            continue
+
+        # 4b. Media Directive: ::media[client_id]{name="..."} -> satu baris teks (audio/video tidak bisa di DOCX)
+        media_match = MEDIA_DIRECTIVE_RE.search(line)
+        if media_match:
+            prefix_text = line[:media_match.start()].strip()
+            if prefix_text:
+                p_pre = doc.add_paragraph()
+                _add_styled_runs(p_pre, prefix_text, image_resolver=image_resolver)
+            m_info = None
+            if media_resolver:
+                try:
+                    m_info = media_resolver(media_match.group(1))
+                except Exception:
+                    m_info = None
+            p_med = doc.add_paragraph()
+            p_med.paragraph_format.space_before = Pt(6)
+            p_med.paragraph_format.space_after = Pt(6)
+            if m_info:
+                icon = "🎬" if m_info.get("media_type") == "video" else "🎵"
+                dur = format_duration(m_info.get("duration_ms"))
+                label = f"{icon} {m_info.get('name') or 'Media'}" + (f" ({dur})" if dur else "")
+            else:
+                label = "Media tidak tersedia"
+            r_m = p_med.add_run(label)
+            r_m.bold = True
+            r_m.font.color.rgb = RGBColor(100, 116, 139)
+            suffix_text = line[media_match.end():].strip()
+            if suffix_text:
+                p_suf = doc.add_paragraph()
+                _add_styled_runs(p_suf, suffix_text, image_resolver=image_resolver)
             i += 1
             continue
 

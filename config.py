@@ -38,6 +38,16 @@ WEEKLY_REVIEW_MINUTE = int(os.getenv("WEEKLY_REVIEW_MINUTE", "0"))
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", str(Path(__file__).parent / "uploads"))
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE_MB", "10")) * 1024 * 1024  # Default 10MB
 
+# Media audio/video pada note
+MEDIA_STORAGE = os.getenv("MEDIA_STORAGE", "local")
+MEDIA_ROOT = os.getenv("MEDIA_ROOT", "/var/lib/alurik/media")
+MEDIA_MAX_FILE_MB = int(os.getenv("MEDIA_MAX_FILE_MB", "2048"))
+MEDIA_CHUNK_MB = int(os.getenv("MEDIA_CHUNK_MB", "5"))
+MEDIA_URL_SECRET = os.getenv("MEDIA_URL_SECRET", "")  # kosong -> diturunkan dari WEB_SECRET_KEY
+MEDIA_ACCEL = os.getenv("MEDIA_ACCEL", "1").strip().lower() in ("1", "true", "yes", "on")
+MEDIA_URL_TTL_SEC = int(os.getenv("MEDIA_URL_TTL_SEC", "21600"))
+MEDIA_STUCK_HOURS = int(os.getenv("MEDIA_STUCK_HOURS", "24"))
+
 # Webapp URL (untuk magic login link)
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://todo.yatno.web.id")
 

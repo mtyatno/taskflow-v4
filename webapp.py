@@ -132,6 +132,8 @@ import jwt
 import uvicorn
 
 from config import DB_PATH, EISENHOWER_INTERVAL_MINUTES, UPLOAD_DIR, MAX_FILE_SIZE, TELEGRAM_BOT_USERNAME, NEXTCLOUD_URL, NEXTCLOUD_USER, NEXTCLOUD_APP_PASSWORD, NEXTCLOUD_FOLDER, WEBAPP_URL
+from config import MEDIA_ROOT, MEDIA_MAX_FILE_MB, MEDIA_CHUNK_MB, MEDIA_ACCEL, MEDIA_URL_TTL_SEC, MEDIA_STUCK_HOURS
+from config import MEDIA_URL_SECRET as _MEDIA_URL_SECRET_CFG
 import config as appconfig
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -150,7 +152,42 @@ import mailer
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("WEB_SECRET_KEY", secrets.token_hex(32))
+
+logger = logging.getLogger("alurik.webapp")
+MEDIA_MAX_FILE_BYTES = MEDIA_MAX_FILE_MB * 1024 * 1024
+MEDIA_CHUNK_BYTES = MEDIA_CHUNK_MB * 1024 * 1024
+MEDIA_URL_SECRET_BYTES = (
+    _MEDIA_URL_SECRET_CFG.encode() if _MEDIA_URL_SECRET_CFG
+    else hmac.new(SECRET_KEY.encode(), b"alurik-media-url", "sha256").digest()
+)
 JWT_ALGORITHM = "HS256"
+
+import shutil
+import errno
+from starlette.concurrency import run_in_threadpool
+from media_probe import sniff_media, final_mime, ALLOWED_INIT_EXTS, MEDIA_DIRECTIVE_RE, format_duration
+from media_storage import get_storage, new_key
+import media_serve
+from media_worker import MediaWorker
+from config import MEDIA_STORAGE
+
+
+def _media_utcnow() -> datetime:
+    """Waktu UTC naif (format lama `datetime.utcnow()`), tanpa API yang deprecated."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _media_db_connect():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+media_storage = get_storage(MEDIA_STORAGE, MEDIA_ROOT)
+media_worker = MediaWorker(connect=_media_db_connect, storage=media_storage,
+                           ffmpeg=shutil.which("ffmpeg"), ffprobe=shutil.which("ffprobe"))
 
 # ── Cookie signing (for published note unlock) ─────────────────────────────────
 def _sign_cookie(slug: str) -> str:
@@ -338,6 +375,38 @@ def migrate_db():
         if "pinned" not in cols:
             conn.execute("ALTER TABLE scratchpad_notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
             conn.commit()
+    finally:
+        conn.close()
+
+    # Migrate note_attachments: kolom media audio/video (spec §4.1)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        att_cols = {r["name"] for r in conn.execute("PRAGMA table_info(note_attachments)").fetchall()}
+        for name, ddl in [
+            ("kind", "TEXT NOT NULL DEFAULT 'file'"),
+            ("client_id", "TEXT"),
+            ("storage", "TEXT NOT NULL DEFAULT 'nextcloud'"),
+            ("storage_key", "TEXT"),
+            ("status", "TEXT NOT NULL DEFAULT 'ready'"),
+            ("media_type", "TEXT"),
+            ("duration_ms", "INTEGER"),
+            ("video_codec", "TEXT"),
+            ("audio_codec", "TEXT"),
+            ("width", "INTEGER"),
+            ("height", "INTEGER"),
+            ("poster_key", "TEXT"),
+            ("received_bytes", "INTEGER NOT NULL DEFAULT 0"),
+            ("error", "TEXT"),
+            ("updated_at", "TEXT"),
+        ]:
+            if name not in att_cols:
+                conn.execute(f"ALTER TABLE note_attachments ADD COLUMN {name} {ddl}")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_note_attachments_client "
+            "ON note_attachments(user_id, client_id) WHERE client_id IS NOT NULL"
+        )
+        conn.commit()
     finally:
         conn.close()
 
@@ -1526,6 +1595,25 @@ async def startup():
     migrate_db()
     seed_habit_templates()
     os.makedirs(UPLOAD_DIR, exist_ok=True)
+    try:
+        os.makedirs(os.path.join(MEDIA_ROOT, ".tmp"), exist_ok=True)
+    except OSError as e:
+        logger.warning("MEDIA_ROOT tidak bisa dibuat (%s): %s", MEDIA_ROOT, e)
+    if not _MEDIA_URL_SECRET_CFG:
+        logger.warning("MEDIA_URL_SECRET kosong; secret URL media diturunkan dari WEB_SECRET_KEY")
+    if not media_worker.ffprobe:
+        logger.warning("ffprobe tidak ditemukan di PATH: media ditandai ready tanpa metadata (durasi/ukuran), "
+                       "tanpa cek format dan tanpa poster; pasang dengan `sudo apt install ffmpeg`")
+    if not media_worker.ffmpeg:
+        logger.warning("ffmpeg tidak ditemukan di PATH: media diproses tanpa faststart dan tanpa poster; "
+                       "pasang dengan `sudo apt install ffmpeg`")
+    try:
+        with get_db() as _c:
+            _cleanup_stuck_media_uploads(_c, _media_utcnow())
+    except Exception:
+        logger.warning("pembersihan unggahan macet saat start gagal", exc_info=True)
+    media_worker.requeue_processing()
+    media_worker.start()
     if TELEGRAM_BOT_TOKEN:
         try:
             from telegram import Bot as TelegramBot
@@ -4780,7 +4868,7 @@ def _fill_pub_placeholders(rendered: str, cards: dict, fallback: dict, nonce: st
         return rendered
     # semua kunci berbentuk TFM(WIKI|DRAWBLK)<nonce>X<n>END (nonce hex per render); pola umum + lookup dict
     # (bukan alternation semua kunci, yang lambat untuk note dengan ribuan wikilink)
-    key_pat = rf'TFM(?:WIKI|DRAWBLK){re.escape(nonce)}X\d+END'
+    key_pat = rf'TFM(?:WIKI|DRAWBLK|MEDIA){re.escape(nonce)}X\d+END'
     key_re = re.compile(key_pat)
 
     def _card(key):
@@ -4789,7 +4877,7 @@ def _fill_pub_placeholders(rendered: str, cards: dict, fallback: dict, nonce: st
     def _sub(m):
         if m.group(1):
             key = m.group(1)
-            return _card(key) if key.startswith('TFMDRAWBLK') else f'<p>{_card(key)}</p>'
+            return _card(key) if key.startswith(('TFMDRAWBLK', 'TFMMEDIA')) else f'<p>{_card(key)}</p>'
         if m.group(2):
             return key_re.sub(lambda k: fallback.get(k.group(0), ''), m.group(2))
         return _card(m.group(3))
@@ -4906,7 +4994,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
     att_map = {}
     if note_id:
         try:
-            for a in conn.execute("SELECT id, original_name FROM note_attachments WHERE note_id = ?", (note_id,)).fetchall():
+            for a in conn.execute("SELECT id, original_name FROM note_attachments WHERE note_id = ? AND kind != 'media'", (note_id,)).fetchall():
                 name = a["original_name"] if isinstance(a, sqlite3.Row) or isinstance(a, dict) else a[1]
                 aid = a["id"] if isinstance(a, sqlite3.Row) or isinstance(a, dict) else a[0]
                 if name:
@@ -4989,6 +5077,42 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
     # 6. Checklist [ ] / [x] → read-only
     content = _re.sub(r'^(\s*)- \[ \]', r'\1- ☐', content, flags=_re.MULTILINE)
     content = _re.sub(r'^(\s*)- \[[xX]\]', r'\1- ☑', content, flags=_re.MULTILINE)
+
+    # 6.4. ::media[client_id]{name="..."} -> kartu pemutar. Hanya lampiran media milik note yang sedang dirender
+    # (note_id + client_id + kind='media') dan berstatus ready; selain itu kartu "tidak tersedia" tanpa nama file.
+    def _replace_media(m):
+        key = f"TFMMEDIA{ph_nonce}X{len(cards)}END"
+        card_fallback[key] = ""
+        cid = m.group(1)
+        attr_name = ""
+        if m.group(2):
+            nm = _re.search(r'\bname\s*=\s*(?:\\?"([^"\\]*)\\?"|\\?\'([^\'\\]*)\\?\')', m.group(2))
+            if nm:
+                attr_name = nm.group(1) or nm.group(2) or ""
+        row = None
+        if note_id is not None:
+            row = conn.execute(
+                "SELECT id, original_name, media_type, duration_ms, poster_key, status FROM note_attachments "
+                "WHERE note_id = ? AND client_id = ? AND kind = 'media'", (note_id, cid)).fetchone()
+        if not row or row["status"] != "ready":
+            cards[key] = '<figure class="pub-media pub-media-missing">Media tidak tersedia</figure>'
+            return key
+        urls = _media_urls(row["id"], bool(row["poster_key"]), int(_time.time()))
+        src = safehtml.escape_attr(urls["play_url"])
+        if row["media_type"] == "video":
+            poster = f' poster="{safehtml.escape_attr(urls["poster_url"])}"' if urls["poster_url"] else ""
+            player = f'<video controls preload="metadata" playsinline src="{src}"{poster}></video>'
+        else:
+            player = f'<audio controls preload="metadata" src="{src}"></audio>'
+        caption = safehtml.escape_html(row["original_name"] or attr_name)
+        dur = format_duration(row["duration_ms"])
+        if dur:
+            caption += f" · {dur}"
+        cards[key] = (f'<figure class="pub-media">{player}<figcaption>{caption}</figcaption>'
+                      f'<a href="{safehtml.escape_attr(urls["download_url"])}">Unduh</a></figure>')
+        return key
+
+    content = MEDIA_DIRECTIVE_RE.sub(_replace_media, content)
 
     # 6.5. Process ::draw[id]{...} tokens → extract and replace with placeholder
     def _replace_draw(m):
@@ -5398,15 +5522,18 @@ def _purge_expired_trashed_notes(conn) -> None:
             "SELECT note_id FROM trashed_notes WHERE deleted_at < ?", (cutoff,)).fetchall()]
         # Peta tertaut dihapus DULU, baru baris sampah: kegagalan tidak boleh meninggalkan peta yatim.
         _delete_linked_mindmaps(conn, expired)
+        _purge_trashed_media(conn, expired)
         conn.execute("DELETE FROM trashed_notes WHERE deleted_at < ?", (cutoff,))
     except Exception:
         pass
+    _cleanup_stuck_media_uploads(conn, _media_utcnow())
 
 def _trash_preview(content: str, limit: int = 120) -> str:
     # Potong dulu: regex link di bawah bisa kuadratik pada content panjang (mis. 'a[' * 50000 ≈ 18 dtk,
     # memblokir event loop); preview hanya memakai ≤limit char pertama.
     s = (content or "")[:2000]
     s = re.sub(r"::draw\[[^\]]*\]", " ", s, flags=re.IGNORECASE)
+    s = MEDIA_DIRECTIVE_RE.sub(" ", s)
     s = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", s)               # [teks](url) -> teks
     s = re.sub(r"(?:\\?\[){2}([^\[\]\\|]*)(?:\|[^\[\]\\]*)?(?:\\?\]){2}", r"\1", s)  # [[Judul|alias]] -> Judul
     s = re.sub(r"[#*_`~>|\[\]\\]", "", s)
@@ -5662,6 +5789,10 @@ async def restore_trashed_note(note_id: int, user=Depends(get_current_user)):
         _sync_linked_mindmap(conn, note_id)
         sync = _note_with_drawing_sync(conn, note_id, uid, datetime.now(_TZ_JKT).isoformat(), move=False)
         conn.commit()
+        # Media yang dibuang saat masih 'processing' diantrekan lagi sekarang, bukan menunggu restart.
+        for r in conn.execute("SELECT id FROM note_attachments WHERE note_id = ? AND status = 'processing'",
+                              (note_id,)).fetchall():
+            media_worker.enqueue(r["id"])
         restored = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row_synced(restored, conn, uid, sync)
 
@@ -5670,7 +5801,10 @@ async def purge_trashed_note(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
         _ensure_trashed_notes_table(conn)
-        cur = conn.execute("DELETE FROM trashed_notes WHERE note_id = ? AND (user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '')", (note_id, uid, str(uid)))
+        allowed = "note_id = ? AND (user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '')"
+        if conn.execute(f"SELECT 1 FROM trashed_notes WHERE {allowed}", (note_id, uid, str(uid))).fetchone():
+            _purge_trashed_media(conn, [note_id])
+        cur = conn.execute(f"DELETE FROM trashed_notes WHERE {allowed}", (note_id, uid, str(uid)))
         if cur.rowcount:
             _delete_linked_mindmaps(conn, [note_id])
     return {"ok": True}
@@ -5680,6 +5814,10 @@ async def empty_trashed_notes(user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
         _ensure_trashed_notes_table(conn)
+        mine = [r["note_id"] for r in conn.execute(
+            "SELECT note_id FROM trashed_notes WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = ''",
+            (uid, str(uid))).fetchall()]
+        _purge_trashed_media(conn, mine)
         # Atomik: RETURNING memberi id persis baris yang terhapus (tanpa celah SELECT→DELETE).
         gone = [r["note_id"] for r in conn.execute(
             "DELETE FROM trashed_notes WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '' RETURNING note_id",
@@ -5890,9 +6028,7 @@ async def upload_note_attachment(note_id: int, file: UploadFile = FastAPIFile(..
     import requests as _req
     uid = user["sub"]
     with get_db() as conn:
-        note = conn.execute(
-            "SELECT id FROM scratchpad_notes WHERE id=? AND user_id=?", (note_id, uid)
-        ).fetchone()
+        note = _accessible_note(conn, uid, note_id)
         if not note:
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
 
@@ -5927,9 +6063,7 @@ async def upload_note_attachment(note_id: int, file: UploadFile = FastAPIFile(..
 async def list_note_attachments(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
-        note = conn.execute(
-            "SELECT id FROM scratchpad_notes WHERE id=? AND user_id=?", (note_id, uid)
-        ).fetchone()
+        note = _accessible_note(conn, uid, note_id)
         if not note:
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
         rows = conn.execute(
@@ -5937,19 +6071,115 @@ async def list_note_attachments(note_id: int, user=Depends(get_current_user)):
         ).fetchall()
         return [dict(r) for r in rows]
 
+def _row_get(row, col):
+    """Baca kolom dari sqlite3.Row atau dict tanpa pernah melempar; kolom hilang -> None."""
+    try:
+        return row[col]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def _delete_media_files(row) -> None:
+    """Hapus file media (storage_key, poster_key) dan semua sisa sementara `.tmp/<id>.*` milik baris itu.
+    Menerima sqlite3.Row atau dict (kolom boleh hilang). Tidak pernah melempar: kegagalan hanya dicatat di log."""
+    try:
+        att_id = int(_row_get(row, "id"))
+    except (TypeError, ValueError):
+        att_id = None
+    for col in ("storage_key", "poster_key"):
+        key = _row_get(row, col)
+        if not key:
+            continue
+        try:
+            media_storage.delete(key)
+        except Exception:
+            logger.warning("hapus file media gagal: id=%s kolom=%s", att_id, col, exc_info=True)
+    if att_id is None:
+        return
+    try:
+        tmp_dir = media_storage.temp_path(att_id).parent
+        for p in tmp_dir.glob(f"{att_id}.*"):
+            try:
+                p.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                logger.warning("hapus file sementara gagal: %s", p, exc_info=True)
+    except Exception:
+        logger.warning("pindai .tmp gagal: id=%s", att_id, exc_info=True)
+
+
+def _purge_trashed_media(conn, note_ids) -> None:
+    """Hapus file media lampiran (storage='local') dari snapshot note di Sampah. Tidak pernah melempar."""
+    try:
+        ids = [int(i) for i in note_ids]
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            rows = conn.execute(
+                f"SELECT note_id, snapshot_json FROM trashed_notes WHERE note_id IN ({','.join('?' * len(chunk))})",
+                chunk).fetchall()
+            for r in rows:
+                try:
+                    snap = json.loads(r["snapshot_json"] or "{}")
+                    atts = snap.get("attachments") or []
+                except (ValueError, TypeError, AttributeError):
+                    logger.warning("snapshot_json rusak untuk note %s; file media dilewati", r["note_id"])
+                    continue
+                for a in atts:
+                    if isinstance(a, dict) and a.get("storage") == "local":
+                        _delete_media_files(a)
+    except Exception:
+        logger.warning("purge media Sampah gagal", exc_info=True)
+
+
+def _cleanup_stuck_media_uploads(conn, now) -> int:
+    """Hapus unggahan media 'uploading' yang macet > MEDIA_STUCK_HOURS (file + baris), lalu berkas
+    `.tmp/<id>.*` yatim yang juga lebih tua dari batas. `now` = naive UTC. Mengembalikan jumlah baris dihapus."""
+    removed = 0
+    try:
+        limit = timedelta(hours=MEDIA_STUCK_HOURS)
+        cutoff = (now - limit).isoformat()
+        rows = conn.execute(
+            "SELECT * FROM note_attachments WHERE kind='media' AND status='uploading' AND updated_at < ?",
+            (cutoff,)).fetchall()
+        for r in rows:
+            _delete_media_files(r)
+            conn.execute("DELETE FROM note_attachments WHERE id=?", (r["id"],))
+            removed += 1
+        tmp_dir = media_storage.temp_path(0).parent
+        live = {r["id"] for r in conn.execute(
+            "SELECT id FROM note_attachments WHERE status IN ('uploading','processing')").fetchall()}
+        mtime_cut = now.replace(tzinfo=timezone.utc).timestamp() - limit.total_seconds()
+        for p in tmp_dir.iterdir():
+            try:
+                head = p.name.split(".", 1)[0]
+                if not head.isdigit() or int(head) in live:
+                    continue
+                if p.is_file() and p.stat().st_mtime < mtime_cut:
+                    p.unlink()
+            except OSError:
+                logger.warning("hapus berkas .tmp yatim gagal: %s", p, exc_info=True)
+    except Exception:
+        logger.warning("pembersihan unggahan macet gagal", exc_info=True)
+    return removed
+
+
 @app.delete("/api/scratchpad/attachments/{att_id}")
 async def delete_note_attachment(att_id: int, user=Depends(get_current_user)):
     import requests as _req
     uid = user["sub"]
     with get_db() as conn:
-        att = conn.execute("SELECT * FROM note_attachments WHERE id=?", (att_id,)).fetchone()
+        att = _accessible_attachment(conn, uid, att_id)
         if not att:
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
-        if att["user_id"] != uid:
+        if att["user_id"] != uid and att["note_owner_id"] != uid:
             raise HTTPException(status_code=403, detail="Bukan attachment milikmu")
-        r = _req.delete(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=10)
-        if r.status_code not in (200, 204, 404):  # 404 = already deleted, still OK
-            raise HTTPException(status_code=500, detail=f"Nextcloud delete gagal: {r.status_code}")
+        if att["storage"] == "local":
+            _delete_media_files(att)
+        else:
+            r = _req.delete(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=10)
+            if r.status_code not in (200, 204, 404):  # 404 = already deleted, still OK
+                raise HTTPException(status_code=500, detail=f"Nextcloud delete gagal: {r.status_code}")
         conn.execute("DELETE FROM note_attachments WHERE id=?", (att_id,))
         conn.commit()
     return {"ok": True}
@@ -5959,11 +6189,14 @@ async def view_note_attachment(att_id: int, user=Depends(get_current_user_sse)):
     import requests as _req
     uid = user["sub"]
     with get_db() as conn:
-        att = conn.execute("SELECT * FROM note_attachments WHERE id=?", (att_id,)).fetchone()
+        att = _accessible_attachment(conn, uid, att_id)
         if not att:
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
-        if att["user_id"] != uid:
-            raise HTTPException(status_code=403, detail="Bukan attachment milikmu")
+    if att["kind"] == "media":
+        if att["status"] != "ready":
+            raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
+        urls = _media_urls(att["id"], bool(att["poster_key"]), int(_time.time()))
+        return RedirectResponse(urls["play_url"], status_code=302)
     r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=30, stream=True)
     if r.status_code != 200:
         raise HTTPException(status_code=404, detail="File tidak ditemukan di Nextcloud")
@@ -5973,6 +6206,391 @@ async def view_note_attachment(att_id: int, user=Depends(get_current_user_sse)):
         media_type=_served_file_mime(att["mime_type"]),
         headers=_inline_file_headers(att["mime_type"], safe_name),
     )
+
+# ── Media note (audio/video): unggah bertahap ─────────────────────────────────
+# Kontrak 409 pada PATCH: JSONResponse {"detail": "...", "received_bytes": N} (bukan HTTPException)
+# supaya klien bisa melanjutkan dari received_bytes tanpa GET tambahan.
+_MEDIA_CLIENT_ID_RE = re.compile(r"^[0-9a-zA-Z_-]{1,64}$")
+# C0/C1 + karakter yang bukan XML (surrogate tunggal, U+FFFE/U+FFFF): python-docx/SQLite menolaknya.
+_MEDIA_CTRL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff\ufffe\uffff]")
+_media_upload_locks: dict[int, asyncio.Lock] = {}
+
+
+def _media_not_found() -> HTTPException:
+    return HTTPException(status_code=404, detail="Media tidak ditemukan")
+
+
+def _accessible_note(conn, uid: int, note_id: int):
+    clause, params = _note_access_clause(uid)
+    return conn.execute(
+        f"SELECT * FROM scratchpad_notes WHERE id = ? AND {clause}", [note_id, *params]
+    ).fetchone()
+
+
+def _accessible_attachment(conn, uid: int, att_id: int):
+    clause, params = _note_access_clause(uid, "n")
+    return conn.execute(
+        "SELECT a.*, n.user_id AS note_owner_id FROM note_attachments a "
+        "JOIN scratchpad_notes n ON n.id = a.note_id "
+        f"WHERE a.id = ? AND {clause}", [att_id, *params]
+    ).fetchone()
+
+
+def _media_quota_check(conn, uid: int, size: int) -> None:
+    """v1 no-op. Titik pasang sesi kuota per-user/workspace."""
+    return None
+
+
+def _media_urls(att_id: int, has_poster: bool, now: int) -> dict:
+    exp = now + MEDIA_URL_TTL_SEC
+
+    def _u(variant: str) -> str:
+        return "/media/" + media_serve.sign_token(att_id, variant, exp, MEDIA_URL_SECRET_BYTES)
+
+    return {"play_url": _u("play"), "poster_url": _u("poster") if has_poster else None,
+            "download_url": _u("download"), "expires_at": exp}
+
+
+def _media_payload(conn, row, now: int) -> dict:
+    u = conn.execute("SELECT display_name, username FROM users WHERE id = ?",
+                     (row["user_id"],)).fetchone()
+    name = (u["display_name"] or u["username"]) if u else None
+    urls = {"play_url": None, "poster_url": None, "download_url": None, "expires_at": None}
+    if row["status"] == "ready":
+        urls = _media_urls(row["id"], bool(row["poster_key"]), now)
+    return {
+        "id": row["id"], "client_id": row["client_id"], "note_id": row["note_id"],
+        "original_name": row["original_name"], "media_type": row["media_type"],
+        "mime_type": row["mime_type"], "file_size": row["file_size"],
+        "duration_ms": row["duration_ms"], "width": row["width"], "height": row["height"],
+        "status": row["status"], "error": row["error"],
+        "received_bytes": row["received_bytes"],
+        "uploaded_by": row["user_id"], "uploaded_by_name": name,
+        **urls,
+    }
+
+
+def _media_now_iso() -> str:
+    return _media_utcnow().isoformat()
+
+
+def _media_write_chunk(path: Path, offset: int, data: bytes) -> None:
+    # offset > 0 hanya ke .part yang ada (FileNotFoundError bila hilang): jangan pernah membuat file sparse.
+    mode = "r+b" if offset > 0 or path.exists() else "w+b"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, mode) as f:
+        f.seek(offset)
+        f.write(data)
+        f.truncate()
+
+
+def _media_read_head(path: Path) -> bytes:
+    with open(path, "rb") as f:
+        return f.read(64)
+
+
+@app.post("/api/scratchpad/{note_id}/media")
+async def init_note_media(note_id: int, body: dict = Body(...), user=Depends(get_current_user)):
+    uid = user["sub"]
+    client_id = body.get("client_id")
+    if not isinstance(client_id, str) or not _MEDIA_CLIENT_ID_RE.fullmatch(client_id):
+        raise HTTPException(status_code=400, detail="client_id tidak valid")
+    filename = body.get("filename") if isinstance(body.get("filename"), str) else ""
+    filename = _MEDIA_CTRL_CHARS_RE.sub("", filename)  # nama kotor → ekspor DOCX 500
+    size = body.get("size")
+    mime = body.get("mime") if isinstance(body.get("mime"), str) else ""
+    with get_db() as conn:
+        if not _accessible_note(conn, uid, note_id):
+            raise _media_not_found()
+        if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+            raise HTTPException(status_code=400, detail="Ukuran file tidak valid")
+        if size > MEDIA_MAX_FILE_BYTES:
+            raise HTTPException(status_code=413, detail="File terlalu besar")
+        ext = filename.rsplit(".", 1)[1].lower() if "." in filename else ""
+        if ext not in ALLOWED_INIT_EXTS:
+            raise HTTPException(status_code=415, detail="Format file tidak didukung")
+        m = mime.strip().lower()
+        if m and m != "application/octet-stream" and not (m.startswith("audio/") or m.startswith("video/")):
+            raise HTTPException(status_code=415, detail="Format file tidak didukung")
+        def _existing_row():
+            return conn.execute("SELECT * FROM note_attachments WHERE user_id = ? AND client_id = ?",
+                                (uid, client_id)).fetchone()
+
+        def _reuse(existing):
+            if existing["note_id"] != note_id:
+                raise HTTPException(status_code=409, detail="client_id sudah dipakai")
+            return _media_payload(conn, existing, int(_time.time()))
+
+        existing = _existing_row()
+        if existing:
+            return _reuse(existing)
+        _media_quota_check(conn, uid, size)
+        now_iso = _media_now_iso()
+        try:
+            cur = conn.execute(
+                "INSERT INTO note_attachments (note_id, user_id, nextcloud_path, original_name, "
+                "file_size, mime_type, created_at, kind, client_id, storage, status, received_bytes, updated_at) "
+                "VALUES (?, ?, '', ?, ?, 'application/octet-stream', ?, 'media', ?, 'local', 'uploading', 0, ?)",
+                (note_id, uid, (filename[:255] or "media"), size, now_iso, client_id, now_iso))
+        except sqlite3.IntegrityError:
+            # init bersamaan dengan client_id sama (dua tab/ulang kirim): pakai baris pemenang
+            conn.rollback()
+            existing = _existing_row()
+            if not existing:
+                raise
+            return _reuse(existing)
+        att_id = cur.lastrowid
+        # .part dibuat SEBELUM commit: MEDIA_ROOT tak bisa ditulis → tidak ada baris yatim.
+        try:
+            media_storage.temp_path(att_id).touch()
+        except OSError as e:
+            conn.rollback()
+            if e.errno == errno.ENOSPC:
+                raise HTTPException(status_code=507, detail="Penyimpanan server penuh")
+            logger.warning("MEDIA_ROOT/.tmp tidak bisa ditulis: %s", e)
+            raise HTTPException(status_code=503, detail="Penyimpanan media tidak tersedia")
+        conn.commit()
+        row = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
+        return _media_payload(conn, row, int(_time.time()))
+
+
+def _media_uploader_row(conn, uid: int, att_id: int):
+    row = _accessible_attachment(conn, uid, att_id)
+    if not row or row["kind"] != "media":
+        raise _media_not_found()
+    return row
+
+
+@app.get("/api/media/{att_id}/upload")
+async def get_media_upload(att_id: int, user=Depends(get_current_user)):
+    with get_db() as conn:
+        row = _accessible_attachment(conn, user["sub"], att_id)
+        if not row or row["kind"] != "media":
+            raise _media_not_found()
+        return _media_payload(conn, row, int(_time.time()))
+
+
+def _media_busy(received: int) -> JSONResponse:
+    return JSONResponse(status_code=409, content={
+        "detail": "Unggahan sedang diproses", "received_bytes": received})
+
+
+def _media_reset_upload(conn, att_id: int) -> int:
+    """`.part` hilang: setel received_bytes ke 0 supaya klien mengulang unggahan dari awal."""
+    conn.execute("UPDATE note_attachments SET received_bytes = 0, updated_at = ? "
+                 "WHERE id = ? AND status = 'uploading'", (_media_now_iso(), att_id))
+    conn.commit()
+    return 0
+
+
+@app.patch("/api/media/{att_id}/upload")
+async def patch_media_upload(att_id: int, request: Request, user=Depends(get_current_user)):
+    uid = user["sub"]
+    raw = request.headers.get("upload-offset")
+    try:
+        offset = int(raw) if raw is not None and raw.strip().isdigit() else -1
+    except ValueError:
+        offset = -1
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="Header Upload-Offset wajib")
+    with get_db() as conn:
+        row = _media_uploader_row(conn, uid, att_id)
+        if row["user_id"] != uid:
+            raise _media_not_found()
+        if row["status"] != "uploading":
+            raise HTTPException(status_code=409, detail="Media tidak sedang diunggah")
+    lock = _media_upload_locks.setdefault(att_id, asyncio.Lock())
+    if lock.locked():
+        return _media_busy(row["received_bytes"])
+    await lock.acquire()
+    try:
+        with get_db() as conn:
+            row = _media_uploader_row(conn, uid, att_id)
+            if row["user_id"] != uid:
+                raise _media_not_found()
+            if row["status"] != "uploading":
+                raise HTTPException(status_code=409, detail="Media tidak sedang diunggah")
+            received = row["received_bytes"]
+            part = media_storage.temp_path(att_id)
+            if received > 0 and not part.exists():
+                received = _media_reset_upload(conn, att_id)  # .part hilang: klien mulai lagi dari 0
+            if offset != received:
+                return _media_busy(received)
+            max_body = MEDIA_CHUNK_BYTES + 1024 * 1024
+            chunks, total = [], 0
+            async for piece in request.stream():
+                total += len(piece)
+                if total > max_body or offset + total > row["file_size"]:
+                    raise HTTPException(status_code=413, detail="Potongan terlalu besar")
+                chunks.append(piece)
+            data = b"".join(chunks)
+            try:
+                await run_in_threadpool(_media_write_chunk, part, offset, data)
+            except FileNotFoundError:
+                return _media_busy(_media_reset_upload(conn, att_id))
+            except OSError as e:
+                if e.errno == errno.ENOSPC:
+                    raise HTTPException(status_code=507, detail="Penyimpanan server penuh")
+                raise
+            cur = conn.execute("UPDATE note_attachments SET received_bytes = ?, updated_at = ? WHERE id = ?",
+                               (offset + len(data), _media_now_iso(), att_id))
+            conn.commit()
+            row = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
+            if cur.rowcount == 0 or row is None:
+                raise _media_not_found()  # note dibuang/dihapus selama menulis; .part disapu pembersihan
+            return _media_payload(conn, row, int(_time.time()))
+    finally:
+        lock.release()
+        if _media_upload_locks.get(att_id) is lock:
+            _media_upload_locks.pop(att_id, None)
+
+
+@app.post("/api/media/{att_id}/complete")
+async def complete_media_upload(att_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    lock = _media_upload_locks.setdefault(att_id, asyncio.Lock())
+    if lock.locked():
+        with get_db() as conn:
+            row = _media_uploader_row(conn, uid, att_id)
+        return _media_busy(row["received_bytes"])
+    await lock.acquire()
+    try:
+        with get_db() as conn:
+            row = _media_uploader_row(conn, uid, att_id)
+            if row["user_id"] != uid:
+                raise _media_not_found()
+            if row["status"] != "uploading":
+                raise HTTPException(status_code=409, detail="Media tidak sedang diunggah")
+            if row["received_bytes"] != row["file_size"]:
+                raise HTTPException(status_code=400, detail="Unggahan belum lengkap")
+            part = media_storage.temp_path(att_id)
+            try:
+                head = await run_in_threadpool(_media_read_head, part)
+            except FileNotFoundError:
+                head = b""
+            sniff = sniff_media(head)
+            if sniff is None:
+                try:
+                    part.unlink()
+                except FileNotFoundError:
+                    pass
+                conn.execute("UPDATE note_attachments SET status='failed', error=?, updated_at=? WHERE id=?",
+                             ("Format file tidak didukung", _media_now_iso(), att_id))
+                conn.commit()  # get_db me-rollback bila exception, jadi commit dulu
+                raise HTTPException(status_code=415, detail="Format file tidak didukung")
+            now = _media_utcnow()
+            key = new_key(sniff.ext, now)
+            media_storage.commit(key, part)
+            cur = conn.execute(
+                "UPDATE note_attachments SET storage_key=?, mime_type=?, media_type=?, "
+                "status='processing', updated_at=? WHERE id=?",
+                (key, final_mime(sniff, sniff.default_media_type), sniff.default_media_type,
+                 now.isoformat(), att_id))
+            conn.commit()
+            if cur.rowcount == 0:
+                media_storage.delete(key)  # baris hilang (note dibuang/dihapus): jangan tinggalkan file yatim
+                raise _media_not_found()
+            media_worker.enqueue(att_id)
+            row = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
+            return _media_payload(conn, row, int(_time.time()))
+    finally:
+        lock.release()
+        if _media_upload_locks.get(att_id) is lock:
+            _media_upload_locks.pop(att_id, None)
+
+
+@app.get("/api/media/{att_id}")
+async def get_media_meta(att_id: int, user=Depends(get_current_user)):
+    with get_db() as conn:
+        row = _accessible_attachment(conn, user["sub"], att_id)
+        if not row or row["kind"] != "media":
+            raise _media_not_found()
+        return _media_payload(conn, row, int(_time.time()))
+
+
+@app.get("/api/scratchpad/{note_id}/media/by-client/{client_id}")
+async def get_media_by_client(note_id: int, client_id: str, user=Depends(get_current_user)):
+    if not _MEDIA_CLIENT_ID_RE.fullmatch(client_id):
+        raise _media_not_found()
+    with get_db() as conn:
+        if not _accessible_note(conn, user["sub"], note_id):
+            raise _media_not_found()
+        row = conn.execute(
+            "SELECT * FROM note_attachments WHERE note_id = ? AND client_id = ? AND kind = 'media'",
+            (note_id, client_id)).fetchone()
+        if not row:
+            raise _media_not_found()
+        return _media_payload(conn, row, int(_time.time()))
+
+
+_MEDIA_BLOCK = 256 * 1024
+
+
+def _media_iter(path: Path, start: int, length: int):
+    with open(path, "rb") as f:
+        f.seek(start)
+        left = length
+        while left > 0:
+            chunk = f.read(min(_MEDIA_BLOCK, left))
+            if not chunk:
+                break
+            left -= len(chunk)
+            yield chunk
+
+
+@app.api_route("/media/{token}", methods=["GET", "HEAD"])
+async def serve_media(token: str, request: Request):
+    now = int(_time.time())
+    parsed = media_serve.verify_token(token, MEDIA_URL_SECRET_BYTES, now)
+    if not parsed:
+        raise _media_not_found()
+    att_id, variant, exp = parsed
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
+    if (not row or row["kind"] != "media" or row["status"] != "ready"
+            or row["storage"] != "local"):
+        raise _media_not_found()
+    key = row["poster_key"] if variant == "poster" else row["storage_key"]
+    if not key:
+        raise _media_not_found()
+    try:
+        path = media_storage.path(key)
+        size = os.stat(path).st_size
+    except (OSError, ValueError):
+        raise _media_not_found()
+    name = row["original_name"] or "media"
+    if variant == "poster":
+        mime = "image/jpeg"
+        name = name.rsplit(".", 1)[0] + ".jpg" if "." in name else name + ".jpg"
+    else:
+        mime = row["mime_type"] or "application/octet-stream"
+    headers = {
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox; default-src 'none'",
+        "Cache-Control": f"private, max-age={max(0, exp - now)}",
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": media_serve.content_disposition(
+            "attachment" if variant == "download" else "inline", name),
+    }
+    if MEDIA_ACCEL:
+        headers["X-Accel-Redirect"] = media_storage.accel_uri(key)
+        return Response(status_code=200, content=b"", headers=headers, media_type=mime)
+    rng = media_serve.parse_range(request.headers.get("range"), size)
+    if rng == "invalid":
+        headers["Content-Range"] = f"bytes */{size}"
+        return Response(status_code=416, content=b"", headers=headers, media_type=mime)
+    if rng is None:
+        start, end, code = 0, size - 1, 200
+    else:
+        (start, end), code = rng, 206
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    length = end - start + 1
+    headers["Content-Length"] = str(length)
+    if request.method == "HEAD":
+        return Response(status_code=code, content=b"", headers=headers, media_type=mime)
+    return StreamingResponse(_media_iter(path, start, length), status_code=code,
+                             headers=headers, media_type=mime)
+
 
 @app.get("/api/export/download")
 async def export_user_data(user=Depends(get_current_user)):
@@ -6282,6 +6900,23 @@ def _make_image_resolver(uid: int, note_id: int = None):
     return _resolve_image
 
 
+def _make_media_resolver(uid: int, note_id):
+    """Resolver media untuk DOCX: hanya lampiran media dari note yang bisa diakses uid (note_id wajib)."""
+    def _resolve(client_id: str):
+        if note_id is None:
+            return None
+        with get_db() as conn:
+            if not _accessible_note(conn, uid, note_id):
+                return None
+            row = conn.execute(
+                "SELECT original_name, media_type, duration_ms, status FROM note_attachments "
+                "WHERE note_id = ? AND client_id = ? AND kind = 'media'", (note_id, client_id)).fetchone()
+        if not row or row["status"] != "ready":
+            return None
+        return {"name": row["original_name"], "media_type": row["media_type"], "duration_ms": row["duration_ms"]}
+    return _resolve
+
+
 @app.get("/api/scratchpad/{note_id}/export/docx")
 async def export_scratchpad_docx(note_id: int, user=Depends(get_current_user)):
     """Export note as Microsoft Word (.docx) document."""
@@ -6306,7 +6941,8 @@ async def export_scratchpad_docx(note_id: int, user=Depends(get_current_user)):
     drawing_res = _make_drawing_resolver(uid)
     image_res = _make_image_resolver(uid, note_id=note_id)
     try:
-        doc_io = markdown_to_docx(title, content, meta, drawing_resolver=drawing_res, image_resolver=image_res)
+        doc_io = markdown_to_docx(title, content, meta, drawing_resolver=drawing_res, image_resolver=image_res,
+                                 media_resolver=_make_media_resolver(uid, note_id))
         safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
         return Response(
             content=doc_io.getvalue(),
@@ -6399,7 +7035,8 @@ async def export_scratchpad_docx_live(req: NoteExportLiveRequest, user=Depends(g
         return db_img_res(src, alt=alt)
 
     try:
-        doc_io = markdown_to_docx(title, content, drawing_resolver=combined_drawing_res, image_resolver=combined_image_res)
+        doc_io = markdown_to_docx(title, content, drawing_resolver=combined_drawing_res, image_resolver=combined_image_res,
+                                 media_resolver=_make_media_resolver(uid, req.note_id))
         safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
         return Response(
             content=doc_io.getvalue(),
@@ -7070,6 +7707,11 @@ _PUBLIC_CSS = """<style>
   html.dark mark.search-highlight { background: #ffeb3b; color: #000; }
 
   /* Attachments */
+  .pub-media { margin: 16px 0; }
+  .pub-media video, .pub-media audio { display: block; width: 100%; max-width: 100%; border-radius: 8px; }
+  .pub-media figcaption { font-size: 13px; color: var(--text-muted, #64748b); margin-top: 6px; }
+  .pub-media a { font-size: 13px; }
+  .pub-media-missing { padding: 12px 14px; border: 1px dashed var(--border); border-radius: 8px; color: var(--text-muted, #64748b); }
   .pub-attachments {
     margin-top: 32px;
     padding: 20px;
@@ -7617,6 +8259,13 @@ async def view_published_attachment(att_id: str, request: Request):
         if not att or not _pub_note_unlocked(request, att["slug"], att["password_hash"]):
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
 
+        if att["kind"] == "media":
+            if att["status"] != "ready":
+                raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
+            return RedirectResponse(
+                _media_urls(att["id"], bool(att["poster_key"]), int(_time.time()))["download_url"],
+                status_code=302)
+
         safe_name = (att["original_name"] or "file").replace('"', '_').replace('\r', '').replace('\n', '')
         mime_type = att["mime_type"] or "application/octet-stream"
         nc_path = att["nextcloud_path"] or ""
@@ -7715,6 +8364,7 @@ async def view_published_note(username: str, slug: str, request: Request):
 
         raw_content = row["content"] or ""
         desc_clean = _re.sub(r'\\?::draw\\?\[[^\]]*\](?:\s*\\?\{[^}]*\\?\})?', '', raw_content, flags=_re.IGNORECASE)
+        desc_clean = MEDIA_DIRECTIVE_RE.sub('', desc_clean)
         desc_clean = _re.sub(r'\\?\[tasklink:[^\]]*\]', '', desc_clean)
         desc_clean = _re.sub(r'==([^=\n]+)==', r'\1', desc_clean)
         desc_clean = _re.sub(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]', r'\1', desc_clean)
@@ -7758,7 +8408,7 @@ async def view_published_note(username: str, slug: str, request: Request):
         # Attachments
         attachments_html = ""
         atts = conn.execute(
-            "SELECT id, original_name, mime_type FROM note_attachments WHERE note_id = ?",
+            "SELECT id, original_name, mime_type FROM note_attachments WHERE note_id = ? AND kind != 'media'",
             (row["note_id"],)
         ).fetchall()
         if atts:

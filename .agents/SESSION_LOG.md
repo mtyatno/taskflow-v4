@@ -3519,3 +3519,11 @@
 - Bapak: "mulai" (rencana) lalu "jalankan dengan cara Subagent". Rencana `docs/superpowers/plans/2026-10-20-kanban-context-stages-backend.md` (salinan Project claude.ai `claude/plan-kanban-backend-2026-10-20.md`).
 - SDD 4 task: skema+backfill, resolver+repo/bot, jalur task web, API `/api/contexts` + ADR-016. Review per task; fix: sinkron ulang beda kapital di backfill, tes scope-400 palsu-lulus, `PUT /order` tidak mem-bump `updated_at` context yang tak berpindah. Review akhir opus (simulasi upgrade DB bersih) → perbaikan: filter context NOCASE (bot `/list @x` sempat kehilangan task), guard rename sama-nama, batas nama 50 + picker bot, ADR-016, isolasi tes backfill.
 - **Verifikasi:** pytest 615 passed. **Status:** Needs Review (draft PR; restart `taskflow-web` + `taskflow`).
+
+## [2026-10-20 12:00] - Claude (media note: halaman publik, DOCX, ADR, handover — Task 8/8)
+- **Task:** Task terakhir PR backend audio/video di note (SDD, branch `claude/note-media-backend`).
+- **Changes:** `MEDIA_DIRECTIVE_RE` + `format_duration` di `media_probe.py`; kartu pemutar `/pub` (placeholder ber-nonce, hanya lampiran note itu, status ready); lampiran media dikeluarkan dari daftar "Attachments" publik dan deskripsi meta; `/pub/attachments/{id}` media → 302 unduhan; DOCX `media_resolver` (`_make_media_resolver`); `_trash_preview` membuang direktif; ADR-017; handover deploy.
+- **Files Touch:** `webapp.py`, `media_probe.py`, `docx_exporter.py`, `tests/test_note_media_public.py`, `tests/test_docx_export.py`, `.agents/*`
+- **Status:** Needs Review (draft PR; deploy: ffmpeg, MEDIA_ROOT, MEDIA_URL_SECRET, nginx, restart `taskflow-web`).
+- **Perbaikan review akhir (2026-10-20, 13 temuan):** restore mengantrekan media `processing`; cek format ffprobe per keluarga sniff; PATCH/complete saat note dibuang → 404 tanpa file yatim; `.part` hilang → 0 + 409; init (nama bersih, `.part` sebelum commit 507/503, client_id bersamaan); worker gagal aman saat exception; batas 10.000 atom; peringatan ffmpeg/ffprobe saat start; `_media_utcnow()`; tes e2e ffmpeg; langkah deploy + ADR-017 satu proses. pytest 735.
+- **Merge `main` (2026-10-20):** PR Kanban #50 memakai ADR-016 → ADR media dinomori ulang ADR-017; konflik `.agents/*` (entri berdiri sendiri) dipertahankan keduanya.
