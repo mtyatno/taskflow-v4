@@ -44,6 +44,17 @@ test("TodayFocusView: state, catatan, dan task aktif dipaksa terbuka", () => {
   assert.ok(src.includes("onToggleZen: toggleZen"));
   assert.ok(src.includes("is-zen-hidden"));
   assert.ok(src.includes("is-zen-shown"));
+  // root class
+  assert.ok(src.includes('focus-page fade-in${zenOn ? " is-zen" : ""}'));
+  // akses localStorage dijaga try/catch
+  assert.ok(/try \{\s*return window\.localStorage;\s*\} catch/.test(src));
+  assert.ok(!src.includes("readZenPref(window.localStorage"));
+  assert.ok(!src.includes("writeZenPref(window.localStorage"));
+  // reveal tetap fade-in saat Zen dimatikan ketika aktif
+  assert.ok(src.includes("zenWasActive"));
+  assert.ok(src.includes("zenShown: zenReveal"));
+  // efek samping tidak di dalam updater setState
+  assert.ok(!/setZenEnabled\(prev =>/.test(src));
 });
 
 test("FocusTaskItem: zenHidden menambah kelas dan aria-hidden", () => {

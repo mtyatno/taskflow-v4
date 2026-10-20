@@ -9308,12 +9308,21 @@ function TodayFocusView({
   const [miniVisible, setMiniVisible] = useState(false);
   const [miniTop, setMiniTop] = useState(0);
   const pomoRef = useRef(null);
-  const [zenEnabled, setZenEnabled] = useState(() => window.TF.focuspage.readZenPref(window.localStorage));
-  const toggleZen = () => setZenEnabled(prev => {
-    const next = !prev;
-    window.TF.focuspage.writeZenPref(window.localStorage, next);
-    return next;
-  });
+  // Mengakses window.localStorage bisa melempar SecurityError saat storage diblokir.
+  const zenStorage = () => {
+    try {
+      return window.localStorage;
+    } catch (_) {
+      return null;
+    }
+  };
+  const [zenEnabled, setZenEnabled] = useState(() => window.TF.focuspage.readZenPref(zenStorage()));
+  const [zenWasActive, setZenWasActive] = useState(false);
+  const toggleZen = () => {
+    const next = !zenEnabled;
+    setZenEnabled(next);
+    window.TF.focuspage.writeZenPref(zenStorage(), next);
+  };
   // Diangkat ke App level: const timer = usePomodoro({ focusTask, setTaskPomodoros });
   const timer = propsTimer || {
     mode: "work",
@@ -9367,8 +9376,12 @@ function TodayFocusView({
     mode: timer.mode,
     isRunning: timer.isRunning
   });
+  useEffect(() => {
+    if (zenOn) setZenWasActive(true);
+  }, [zenOn]);
+  const zenReveal = !zenOn && (zenEnabled || zenWasActive);
   const zenHiddenCount = sortedTasks.filter(t => t.id !== focusTask?.id).length + recurringToday.length;
-  const zenClass = zenOn ? " is-zen-hidden" : zenEnabled ? " is-zen-shown" : "";
+  const zenClass = zenOn ? " is-zen-hidden" : zenReveal ? " is-zen-shown" : "";
   const [counts, reportCount] = useFocusTaskCounts(sortedTasks.map(t => t.id));
 
   // Bar ringkas tampil saat kartu Pomodoro penuh sudah tergulir di bawah top bar.
@@ -9428,7 +9441,7 @@ function TodayFocusView({
   const toggleOpen = id => setOpenId(prev => prev === id ? null : id);
   const totalPomodoros = Object.values(taskPomodoros).reduce((a, b) => a + b, 0);
   return React.createElement("div", {
-    className: "focus-page fade-in"
+    className: `focus-page fade-in${zenOn ? " is-zen" : ""}`
   }, React.createElement(PomodoroMiniBar, {
     timer: timer,
     focusTask: focusTask,
@@ -9542,7 +9555,7 @@ function TodayFocusView({
     task: task,
     open: openId === task.id || zenOn && focusTask?.id === task.id,
     zenHidden: zenOn && task.id !== focusTask?.id,
-    zenShown: zenEnabled && !zenOn,
+    zenShown: zenReveal,
     onToggle: () => toggleOpen(task.id),
     tab: openTab,
     onTab: setOpenTab,
