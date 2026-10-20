@@ -638,3 +638,19 @@ test("pullNotes skips a deleted note when outbox has a pending op for that note"
 
 
 
+
+test("pullTasks adopts server pomodoros_done on a clean record with same updated_at", async () => {
+  await putTasks([local({ cid: "pd", server_id: 70, pomodoros_done: 1, base_rev: "2026-06-04T00:00:00", updated_at: "2026-06-04T00:00:00" })]);
+  await mapPut("task", 70, "pd");
+  const r = await pullTasks([srv({ id: 70, pomodoros_done: 4 })]);
+  assert.equal((await getTask("pd")).pomodoros_done, 4);
+  assert.equal(r.derived, 1);
+});
+
+test("pullTasks leaves pomodoros_done of a dirty record with a pending op", async () => {
+  await putTasks([local({ cid: "pe", server_id: 71, pomodoros_done: 1, dirty: 1, rev: 2, base_rev: "2026-06-04T00:00:00", updated_at: "2026-06-04T00:00:00" })]);
+  await mapPut("task", 71, "pe");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "pe", payload: {} });
+  await pullTasks([srv({ id: 71, pomodoros_done: 4 })]);
+  assert.equal((await getTask("pe")).pomodoros_done, 1);
+});

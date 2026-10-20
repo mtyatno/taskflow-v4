@@ -15,6 +15,8 @@
   const TFlogic = isNode ? require("./tasklogic.js") : root.TF.tasklogic;
   const TFtagrepo = isNode ? require("./tagrepo.js") : root.TF.tagrepo;
   // dimuat malas (siklus: projectcache → taskquery → taskrepo)
+  // pomologic dimuat setelah taskrepo di index.html → akses malas (seperti TFprojects).
+  const TFpomo = () => (isNode ? require("./pomologic.js") : (root.TF && root.TF.pomologic));
   const TFprojects = () => (isNode ? require("./projectcache.js") : (root.TF && root.TF.projectcache));
   // Kanban tahap: contextcache juga dimuat malas (sama seperti projectcache).
   const TFcontexts = () => (isNode ? require("./contextcache.js") : (root.TF && root.TF.contextcache));
@@ -149,6 +151,8 @@
         assigned_to: input.assigned_to != null ? input.assigned_to : null,
         parent_cid: input.parent_cid != null ? input.parent_cid : null,
         progress: 0,
+        estimated_pomodoros: TFpomo().clampEstimate(input.estimated_pomodoros != null ? input.estimated_pomodoros : 1),
+        pomodoros_done: 0,
         is_focused: 0,
         completed_at: null,
         recurrence_type: rc.type,
@@ -229,6 +233,7 @@
       if (patch.assigned_to != null) {
         next.assigned_to = patch.assigned_to === 0 ? null : patch.assigned_to;
       }
+      if (patch.estimated_pomodoros != null) next.estimated_pomodoros = TFpomo().clampEstimate(patch.estimated_pomodoros);
       if (patch.progress != null) {
         next.progress = Math.max(0, Math.min(100, patch.progress));
       }

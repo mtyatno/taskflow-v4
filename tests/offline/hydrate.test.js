@@ -88,3 +88,12 @@ test("hydrateTasks does not touch local-only tasks (server_id null)", async () =
   assert.equal(local.title, "Local");
   assert.equal(local.dirty, 1); // untouched
 });
+
+test("taskFromServer carries estimated_pomodoros/pomodoros_done and defaults 1/0", () => {
+  const a = taskFromServer(serverTask({ id: 1, estimated_pomodoros: 3, pomodoros_done: 5 }), () => "c");
+  assert.equal(a.estimated_pomodoros, 3);
+  assert.equal(a.pomodoros_done, 5);
+  const b = taskFromServer(serverTask({ id: 2 }), () => "c");
+  assert.equal(b.estimated_pomodoros, 1);
+  assert.equal(b.pomodoros_done, 0);
+});

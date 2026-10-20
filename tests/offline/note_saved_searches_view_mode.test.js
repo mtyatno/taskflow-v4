@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v434-focus-park-zen", () => {
-    assert.match(swJs, /taskflow-v434-focus-park-zen/);
+  await t.test("sw.js bumped to taskflow-v436-focus-target", () => {
+    assert.match(swJs, /taskflow-v436-focus-target/);
   });
 });

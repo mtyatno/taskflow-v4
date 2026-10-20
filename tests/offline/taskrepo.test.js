@@ -110,7 +110,7 @@ test("createTask persists the record and enqueues a create op in _outbox", async
   assert.equal(ops[0].cid, t.cid);
 });
 
-const { updateTask } = require("../../static/offline/taskrepo.js");
+const { updateTask, getRaw } = require("../../static/offline/taskrepo.js");
 
 const LATER = "2026-06-04T09:00:00.000Z";
 
@@ -288,4 +288,25 @@ test("updateTask clears recurrence when type is null/invalid", async () => {
   assert.equal(u.recurrence_type, null);
   assert.equal(u.recurrence_days, null);
   assert.equal(u.recurrence_end_date, null);
+});
+
+test("createTask sets estimated_pomodoros (default 1, clamped 20) and pomodoros_done 0", async () => {
+  const a = await createTask({ title: "A" }, { today: TODAY });
+  const ra = await getRaw(a.cid);
+  assert.equal(ra.estimated_pomodoros, 1);
+  assert.equal(ra.pomodoros_done, 0);
+  const b = await createTask({ title: "B", estimated_pomodoros: 30 }, { today: TODAY });
+  assert.equal((await getRaw(b.cid)).estimated_pomodoros, 20);
+});
+
+test("updateTask patches estimated_pomodoros (clamped), dirty + rev up", async () => {
+  const t = await createTask({ title: "A" }, { today: TODAY });
+  const r0 = await getRaw(t.cid);
+  await updateTask(t.cid, { estimated_pomodoros: 4 }, { today: TODAY });
+  const r1 = await getRaw(t.cid);
+  assert.equal(r1.estimated_pomodoros, 4);
+  assert.equal(r1.dirty, 1);
+  assert.ok(r1.rev > r0.rev);
+  await updateTask(t.cid, { estimated_pomodoros: 0 }, { today: TODAY });
+  assert.equal((await getRaw(t.cid)).estimated_pomodoros, 1);
 });

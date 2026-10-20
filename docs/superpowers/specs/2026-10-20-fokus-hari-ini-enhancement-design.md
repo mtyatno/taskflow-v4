@@ -360,7 +360,7 @@ Perhitungan murni dipisah ke modul UMD baru `static/offline/pomologic.js` supaya
 Setiap PR berupa draft. Nomor SW dan `app.css?v=` dinaikkan ke nomor kosong berikutnya, modul JS baru dimasukkan ke daftar precache `STATIC` di `sw.js`, dan handover ditulis di `.agents/`. Merge hanya dilakukan setelah pemilik bilang "merge dan deploy".
 
 1. **PR A — Parkir Distraksi + Mode Zen** (frontend): §7.1 dan §7.3.
-2. **PR B — Target 🍅** (backend + offline + UI): §4, §5, §7.2, D15, dan pencatatan sesi utama di `handleTimerComplete`. `taskPomodoros` dihapus. Sampai PR C, X di header dan statistik Pomodoro memakai `sessionCount` (belum ada `pomodorosToday`). Menulis ADR-020. Deploy: restart `taskflow-web` dan `taskflow` (ada migrasi).
+2. **PR B — Target 🍅** (backend + offline + UI): §4, §5, §7.2, D15, dan pencatatan sesi utama di `handleTimerComplete`. `taskPomodoros` dihapus. Sampai PR C, X di header dan statistik Pomodoro memakai `sessionCount` (belum ada `pomodorosToday`). Menulis ADR-021. Deploy: restart `taskflow-web` dan `taskflow` (ada migrasi).
 3. **PR C — Overtime** (frontend): seluruh §6 dan §7.5. Zen ikut memperlakukan Overtime sebagai Work berjalan.
 4. **PR D — Suara latar** (frontend + aset + SW): §7.4. Status "Work berjalan" mencakup Overtime dari PR C.
 
@@ -374,4 +374,4 @@ Setiap PR berupa draft. Nomor SW dan `app.css?v=` dinaikkan ke nomor kosong beri
 - Sinkronisasi langsung state timer antar tab.
 
 ## 12. ADR
-**ADR-020** (ditulis di PR B): realisasi Pomodoro disimpan sebagai log append-only `pomodoro_log` ditambah kolom turunan `tasks.pomodoros_done` yang tidak menyentuh `updated_at`. Pencatatan idempoten lewat `client_id` yang deterministik per sesi. Di klien, pencatatan memakai op outbox payload-only `pomodoro_log/create`, tanpa store IndexedDB baru.
+**ADR-021** (ditulis di PR B): realisasi Pomodoro disimpan sebagai log append-only `pomodoro_log` ditambah kolom turunan `tasks.pomodoros_done` yang tidak menyentuh `updated_at`. Pencatatan idempoten lewat `client_id` yang deterministik per sesi. Di klien, pencatatan memakai op outbox payload-only `pomodoro_log/create`, tanpa store IndexedDB baru.

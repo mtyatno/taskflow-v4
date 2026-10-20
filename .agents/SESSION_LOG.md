@@ -3680,3 +3680,15 @@
 ## 2026-10-20 22:08 WIB — Claude — merge Fokus Hari Ini PR A (#62)
 - Bapak: "merge". #62 di-merge (f78790d); CI Tests hijau.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek halaman Fokus Hari Ini (SW v434, `app.css?v=342`). Berikutnya: plan PR B (Target 🍅).
+
+## 2026-10-20 23:00 WIB — Claude — Fokus Hari Ini PR B (Target 🍅)
+- **Task:** Task 7 PR B: naik versi SW v435 / `app.css?v=343`, E2E, handover.
+- **Changes:** versi di `sw.js`, `index.html`, `webapp.py` + test yang mengunci versi; E2E `temporary_files/e2e_focus_target.py` 39/39; E2E menemukan `tasklogic.todayLocalISO` tidak diekspor (aplikasi crash) → diperbaiki 92dc3f18 + tes. pytest 834, JS 2246/2247 (pra-ada `draw_local_reactive`).
+- **Files Touch:** static/sw.js, static/index.html, webapp.py, static/offline/tasklogic.js, tests/, .gitignore, temporary_files/e2e_focus_target.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push; deploy = migrasi → restart `taskflow-web` dan `taskflow`)
+
+## 2026-10-20 23:30 WIB — Claude — Fokus Hari Ini PR B: perbaikan review akhir
+- **Task:** gelombang perbaikan review seluruh branch PR B.
+- **Changes:** rilis pindah ke SW **v436** `taskflow-v436-focus-target` / `app.css?v=344` dan ADR Pomodoro jadi **ADR-021** (v435/343 + ADR-020 dipakai draft PR #63); client_id sesi deterministik + guard sesi selesai ganda; `ackPushed` onabort; tes migrasi DB lama; E2E 41/41 (jam tengah hari, screenshot header, dedupe dua tab).
+- **Files Touch:** static/index.html, static/sw.js, static/offline/pomolog.js, webapp.py, repository.py, tests/, temporary_files/e2e_focus_target.py, docs/superpowers/plans/2026-10-20-fokus-b-target-pomodoro.md, docs/superpowers/specs/2026-10-20-fokus-hari-ini-enhancement-design.md, .agents/CURRENT_STATE.md, .agents/DECISIONS.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push; deploy = migrasi → restart `taskflow-web`, lalu `taskflow`, satu per satu)

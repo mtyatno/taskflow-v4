@@ -18,13 +18,13 @@
     "title", "description", "gtd_status", "priority", "quadrant", "project", "project_id", "context", "context_id",
     "deadline", "waiting_for", "completed_at", "progress", "is_focused", "assigned_to",
     "recurrence_type", "recurrence_days", "recurrence_end_date", "recurrence_notif_level",
-    "created_at", "updated_at",
+    "created_at", "updated_at", "estimated_pomodoros", "pomodoros_done",
   ];
 
   // Pure: server task dict → local record. `getCid(serverId)` returns the cid for any server id.
   function taskFromServer(dict, getCid) {
     const rec = { cid: getCid(dict.id), server_id: dict.id };
-    for (const k of COPY) rec[k] = dict[k] != null ? dict[k] : (k === "is_focused" || k === "progress" ? 0 : null);
+    for (const k of COPY) rec[k] = dict[k] != null ? dict[k] : (k === "is_focused" || k === "progress" || k === "pomodoros_done" ? 0 : k === "estimated_pomodoros" ? 1 : null);
     rec.title = dict.title;
     rec.parent_cid = dict.parent_id != null ? getCid(dict.parent_id) : null;
     rec.list_cid = null;

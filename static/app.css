@@ -3570,6 +3570,16 @@
 [data-theme="dark"] .ftask-info.is-overdue { color: #f87171; }
 .ftask-count { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; background: var(--bg-primary); border: 1px solid var(--border); font-size: 11.5px; font-weight: 600; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .ftask-count.is-pomo { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.2); }
+.ftask-count.is-pomo.is-over { color: var(--p2); }
+.focus-pomo-task-count { display: inline-flex; align-items: center; gap: 2px; }
+.focus-pomo-task-done.is-over { color: #fb923c; }
+.ftask-estimate { display: inline-flex; align-items: center; gap: 2px; margin-left: 8px; }
+.ftask-est-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 1px; min-width: 26px; height: 26px; padding: 0 3px; border: none; background: none; border-radius: 8px; cursor: pointer; color: var(--text-secondary); opacity: .35; font: inherit; font-size: 10px; font-weight: 700; }
+.ftask-est-btn.is-filled { color: var(--pomodoro); opacity: 1; }
+.ftask-est-btn:hover { opacity: 1; background: var(--bg-primary); }
+.ftask-est-btn:focus-visible { outline: 2px solid #7E9400; outline-offset: 2px; opacity: 1; }
+[data-theme="dark"] .ftask-est-btn:focus-visible { outline-color: #A8C500; }
+.ftask-est-badge { font-size: 10px; font-weight: 700; color: var(--pomodoro); }
 .ftask-focus-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(239,68,68,0.35); background: rgba(239,68,68,0.06); color: #dc2626; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; flex-shrink: 0; transition: background .15s, color .15s, border-color .15s; }
 .ftask-focus-btn:hover:not(:disabled) { background: #ef4444; border-color: #ef4444; color: #fff; }
 .ftask-focus-btn.is-active { background: #ef4444; border-color: #ef4444; color: #fff; }
@@ -3583,7 +3593,8 @@
 
 /* Panel detail per task */
 .ftask-panel { border-top: 1px solid var(--border); padding: 4px 14px 14px 48px; animation: dashPinIn 0.18s ease-out; }
-.ftask-tabs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 8px 0 10px; }
+.ftask-tabbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 8px 0 10px; }
+.ftask-tabs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .ftask-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 9px; border: 1px solid transparent; background: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--text-secondary); cursor: pointer; transition: background .15s, color .15s; }
 .ftask-tab:hover { background: var(--bg-primary); color: var(--text-primary); }
 .ftask-tab.is-active { background: rgba(168,197,0,0.14); border-color: rgba(168,197,0,0.35); color: #4d5c00; }
@@ -3645,6 +3656,7 @@
   .focus-pomo-stat-label { font-size: 10px; letter-spacing: .3px; }
   .ftask-tab { padding: 6px 9px; }
   .ftask-detail-link span { display: none; }
+  .ftask-estimate { order: 5; flex: 1 1 100%; margin-left: 0; }
   .focus-mini { flex-wrap: wrap; gap: 6px 10px; padding: 8px 8px 8px 10px; top: 6px; }
   .focus-mini-time { font-size: 20px; }
   .focus-mini-task { flex: 1 1 0; }
