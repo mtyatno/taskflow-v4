@@ -225,6 +225,13 @@ def main():
             check("3c avatar W4 paling akhir di rail", wait_until(lambda: rail_names(a)[-1:] == ["W4"], 10),
                   repr(rail_names(a)))
             check("3d server: W4 di-pin di urutan terakhir", server_pins(base, A)[-1:] == ["W4"], repr(server_pins(base, A)))
+            w4 = ids["W4"]
+            idb = wait_until(lambda: a.evaluate("""(id) => window.TF.listsync.getLocalLists().then(ls => {
+                const r = ls.find(l => l.id === id); return !!(r && r.pinned); })""", w4), 10)
+            check("3e IndexedDB list lokal: W4 pinned", idb)
+            cache = wait_until(lambda: a.evaluate("""(id) => window.OfflineDB.cacheGet('lists').then(ls => {
+                const r = (ls || []).find(l => l.id === id); return !!(r && r.pinned); })""", w4), 10)
+            check("3f cache 'lists' (muat awal): W4 pinned", cache)
             a.mouse.move(5, 500)
             shot(a, "03b_W4_dipin_rail.png")
 
@@ -242,6 +249,36 @@ def main():
             check("4d halaman W4 terbuka: tombol kembali 'Pin'",
                   wait_until(lambda: pin_btn(a).inner_text().strip() == "Pin", 5))
             shot(a, "04b_setelah_lepas_pin.png")
+
+            # ── 4k. keyboard: Shift+F10 → Escape → fokus kembali ke avatar; Lepas pin → "Semua workspace" ──
+            pin_btn(a).click()  # W4 di-pin lagi (4 pin)
+            wait_until(lambda: "W4" in rail_names(a), 10)
+            rail_btn(a, "W4").focus()
+            a.keyboard.press("Shift+F10")
+            menu = a.locator(".sidebar-rail-ctx[role=menu]")
+            menu.wait_for(timeout=5000)
+            check("4e menu punya aria-label nama workspace", menu.get_attribute("aria-label") == "W4",
+                  repr(menu.get_attribute("aria-label")))
+            focused = lambda: a.evaluate("() => { const e = document.activeElement; return e ? (e.getAttribute('aria-label') || e.textContent.trim()) : null; }")
+            check("4f Shift+F10: fokus di 'Buka'", focused() == "Buka", repr(focused()))
+            a.keyboard.press("Escape")
+            check("4g Escape menutup menu", wait_until(lambda: menu.count() == 0, 3))
+            check("4h Escape: fokus kembali ke avatar W4", focused() == "W4", repr(focused()))
+            a.keyboard.press("Shift+F10")
+            menu.wait_for(timeout=5000)
+            a.keyboard.press("Tab")
+            check("4i Tab di dalam menu: fokus 'Lepas pin', menu tetap terbuka",
+                  focused() == "Lepas pin" and menu.count() == 1, repr(focused()))
+            a.keyboard.press("Tab")
+            check("4j Tab keluar dari menu menutup menu", wait_until(lambda: menu.count() == 0, 3))
+            rail_btn(a, "W4").focus()
+            a.keyboard.press("Shift+F10")
+            menu.wait_for(timeout=5000)
+            a.keyboard.press("Tab")
+            a.keyboard.press("Enter")
+            check("4k Lepas pin (keyboard): avatar W4 hilang", wait_until(lambda: "W4" not in rail_names(a), 10))
+            check("4l fokus pindah ke 'Semua workspace'", wait_until(lambda: focused() == "Semua workspace", 5), repr(focused()))
+            shot(a, "04c_keyboard_fokus_semua_workspace.png")
 
             # ── 5. pin ke-6: tombol nonaktif dengan tooltip ──────────────────────────
             pin_btn(a).click()  # W4 → 4 pin
@@ -278,7 +315,13 @@ def main():
             shot(a, "06_toast_pin_limit.png")
             a.wait_for_timeout(500)
             check("6d tombol tetap 'Pin' (state tidak berubah)", pin_btn(a).inner_text().strip() == "Pin")
-            check("6e rail tidak berubah", rail_names(a) == before_rail, repr((before_rail, rail_names(a))))
+            check("6e rail tidak memuat W6", "W6" not in rail_names(a), repr(rail_names(a)))
+            want = server_pins(base, A)
+            check("6g setelah 409: rail disegarkan mengikuti server (pin perangkat lain tampil)",
+                  wait_until(lambda: rail_names(a) == want, 15), repr((before_rail, rail_names(a), want)))
+            check("6h setelah 409: tombol W6 nonaktif dengan tooltip penuh",
+                  wait_until(lambda: pin_btn(a).is_disabled() and pin_btn(a).get_attribute("title") == FULL_TEXT, 10))
+            shot(a, "06b_setelah_409_disegarkan.png")
             check("6f server tetap 5 pin tanpa W6", "W6" not in server_pins(base, A) and len(server_pins(base, A)) == 5)
             ctx.close()
 

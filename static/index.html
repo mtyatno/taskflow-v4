@@ -2535,21 +2535,34 @@ function Sidebar({
 }) {
   const [hiddenSections, setHiddenSections] = useState({});
   const [railCtx, setRailCtx] = useState(null); // { id, name, x, y } | null
+  const railTriggerRef = React.useRef(null); // avatar yang membuka menu (fokus dikembalikan ke sini)
+  const railAllWsRef = React.useRef(null); // tombol "Semua workspace" (fokus cadangan bila avatar hilang)
+  // Kembalikan fokus ke avatar pemicu; bila avatar sudah tidak ada (dilepas pin) → "Semua workspace".
+  const restoreRailFocus = () => {
+    const t = railTriggerRef.current;
+    const target = t && t.isConnected ? t : railAllWsRef.current;
+    if (target && target.isConnected) target.focus();
+  };
   useEffect(() => {
     if (!railCtx) return undefined;
     const close = () => setRailCtx(null);
     const onKey = e => {
-      if (e.key === "Escape") close();
+      if (e.key !== "Escape") return;
+      // Escape dipakai menu ini saja — modal / pintasan halaman tidak ikut bereaksi
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+      restoreRailFocus();
     };
     const onDown = e => {
       if (!e.target.closest || !e.target.closest(".sidebar-rail-ctx")) close();
     };
-    document.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true); // fase capture: lebih dulu dari listener Escape lain
     document.addEventListener("mousedown", onDown);
     window.addEventListener("blur", close);
     window.addEventListener("resize", close);
     return () => {
-      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
       document.removeEventListener("mousedown", onDown);
       window.removeEventListener("blur", close);
       window.removeEventListener("resize", close);
@@ -2848,6 +2861,7 @@ function Sidebar({
     const active = page === wsPage;
     const openCtx = (e, x, y) => {
       e.preventDefault();
+      railTriggerRef.current = e.currentTarget;
       setRailCtx({
         id: w.id,
         name: w.name,
@@ -2881,6 +2895,7 @@ function Sidebar({
   }), /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: `sidebar-rail-btn ${page === "manage_lists" ? "active" : ""}`,
+    ref: railAllWsRef,
     title: "Semua workspace",
     "aria-label": "Semua workspace",
     "aria-current": page === "manage_lists" ? "page" : undefined,
@@ -2890,6 +2905,13 @@ function Sidebar({
   })), railCtx && /*#__PURE__*/React.createElement("div", {
     className: "sidebar-rail-ctx",
     role: "menu",
+    "aria-label": railCtx.name || "Workspace",
+    // Tab keluar dari menu → tutup (fokus sudah pindah ke elemen tujuan, tidak dikembalikan)
+    onBlur: e => {
+      const next = e.relatedTarget;
+      if (next && e.currentTarget.contains(next)) return;
+      setRailCtx(null);
+    },
     style: {
       left: Math.min(railCtx.x, window.innerWidth - 168),
       top: Math.min(railCtx.y, window.innerHeight - 90)
@@ -2902,6 +2924,7 @@ function Sidebar({
       setPage("slist_" + railCtx.id);
       setRailCtx(null);
       onClose?.();
+      restoreRailFocus();
     }
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "chevron-right",
@@ -2914,7 +2937,17 @@ function Sidebar({
     onClick: () => {
       const id = railCtx.id;
       setRailCtx(null);
-      onUnpinWorkspace?.(id);
+      restoreRailFocus(); // sementara ke avatar; setelah avatar hilang → "Semua workspace"
+      Promise.resolve(onUnpinWorkspace?.(id)).catch(() => {}).then(() => {
+        // tunggu render yang menghapus avatar ter-commit
+        setTimeout(() => {
+          const t = railTriggerRef.current;
+          if (!t || !t.isConnected) {
+            const all = railAllWsRef.current;
+            if (all && all.isConnected && (!document.activeElement || document.activeElement === document.body || document.activeElement === t)) all.focus();
+          }
+        }, 0);
+      });
     }
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "pin-off",
@@ -33568,6 +33601,14 @@ function App() {
     action
   }), []);
   // Pin/unpin workspace — hanya online, tanpa outbox. State berubah hanya setelah respons OK.
+  // Pull daftar list di antrean sync (runSyncExclusive) — sama seperti sync(); pull di luar antrean bisa
+  // bersilang dengan sync berkala (respons server lama ditulis terakhir) dan ensureCid ganda.
+  const queueListPull = useCallback(() => {
+    const LS = window.TF && window.TF.listsync;
+    if (!LS || typeof window.__syncRawFetch !== "function") return Promise.resolve(null);
+    return runSyncExclusive(() => LS.pullAndReconcileLists(window.__syncRawFetch)).catch(() => null);
+  }, []);
+  // Pin/unpin workspace — hanya online, tanpa outbox. State berubah hanya setelah respons OK.
   const handleWorkspacePin = useCallback(async (listId, pin) => {
     if (!navigator.onLine) return;
     const url = `/api/lists/${listId}/pin`;
@@ -33576,17 +33617,28 @@ function App() {
       r = await api.fetch(url, pin ? { method: "PUT", body: "{}", network: true } : { method: "DELETE", network: true });
     } catch (err) {
       const code = err && err.body && err.body.detail && err.body.detail.code;
-      if (err && err.status === 409 && code === "PIN_LIMIT") showToast("Maksimal 5 workspace di-pin. Lepas salah satu dulu.", "error");
-      else showToast("Gagal menyimpan pin", "error");
+      if (err && err.status === 409 && code === "PIN_LIMIT") {
+        showToast("Maksimal 5 workspace di-pin. Lepas salah satu dulu.", "error");
+        // perangkat lain menambah pin → segarkan daftar supaya tombol & rail mengikuti server
+        queueListPull().then(() => { try { window.__refreshTasks?.(); } catch (_) {} });
+      } else showToast("Gagal menyimpan pin", "error");
       return;
     }
+    if (!r) return;
+    const pinned = !!r.pinned;
+    const pinPos = pinned ? (r.pin_position ?? null) : null;
     const WP = window.TF && window.TF.workspacepins;
-    if (WP && r) setSharedLists(ls => WP.applyPinChange(ls, listId, !!r.pinned, r.pin_position ?? null));
-    try {
-      const p = window.TF?.listsync?.pullAndReconcileLists?.(window.__syncRawFetch);
-      if (p && p.catch) p.catch(() => {});
-    } catch (_) {}
-  }, [showToast]);
+    if (WP) setSharedLists(ls => {
+      const next = WP.applyPinChange(ls, listId, pinned, pinPos);
+      // cache daftar yang dipakai fetchAll saat muat awal → reload tidak menampilkan status pin lama
+      try { OfflineDB.cacheSet("lists", next)?.catch?.(() => {}); } catch (_) {}
+      return next;
+    });
+    // record list lokal (IndexedDB) langsung diperbarui; pull di antrean menyusul dan selalu selesai terakhir
+    const LS = window.TF && window.TF.listsync;
+    try { if (LS && LS.setLocalPin) await LS.setLocalPin(listId, pinned, pinPos); } catch (_) {}
+    queueListPull();
+  }, [showToast, queueListPull]);
   const handleStartFocus = useCallback(task => {
     if (focusTask?.id === task?.id) {
       setFocusTaskId(null);
@@ -34908,6 +34960,7 @@ function App() {
           fontWeight: workspaceTab === "files" ? 600 : 400
         }
       }, "📁 Files"), /*#__PURE__*/React.createElement(WorkspacePinButton, {
+        key: listId,
         pinned: !!currentList.pinned,
         canPin: !!(window.TF && window.TF.workspacepins && window.TF.workspacepins.canPinMore(sharedLists)),
         online: isOnline,

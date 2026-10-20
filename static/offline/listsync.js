@@ -108,7 +108,21 @@
       });
   }
 
-  const exported = { pullLists, getLocalLists, pullAndReconcileLists, listFromServer };
+  // Pin/unpin online sukses → tulis status pin ke record list lokal (sebelum pull penuh), supaya
+  // GET /api/lists dari router lokal langsung mencerminkan pin baru. Record tak ditemukan → no-op.
+  function setLocalPin(serverId, pinned, pinPosition) {
+    return getAllLists().then((rows) => {
+      const rec = rows.find((r) => r.server_id != null && String(r.server_id) === String(serverId));
+      if (!rec) return false;
+      const next = Object.assign({}, rec, {
+        pinned: pinned === true,
+        pin_position: pinned === true && pinPosition != null ? pinPosition : null,
+      });
+      return putList(next).then(() => true);
+    });
+  }
+
+  const exported = { pullLists, getLocalLists, pullAndReconcileLists, listFromServer, setLocalPin };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.listsync = exported; }
   return exported;
 });
