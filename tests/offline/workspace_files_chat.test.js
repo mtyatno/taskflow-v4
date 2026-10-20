@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v433-manage-workspace-icons', () => {
+  test('Service Worker cache version is bumped to taskflow-v434-focus-park-zen', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v433-manage-workspace-icons";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v434-focus-park-zen";/m);
   });
 });
 
