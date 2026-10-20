@@ -3882,6 +3882,206 @@ function ProjectManagerModal({
       error && h("div", { role: offline ? "status" : "alert", style: { fontSize: 13, padding: "8px 12px", borderRadius: 8, marginBottom: 8, background: offline ? "var(--bg-primary)" : "rgba(220,38,38,0.08)", color: offline ? "var(--text-secondary, inherit)" : "var(--danger, #dc2626)" } }, error),
       rows == null ? !offline && h("div", { style: { fontSize: 13, color: "var(--text-light)", padding: "12px 0" } }, "Memuat...") : rows.length === 0 ? h("div", { style: { fontSize: 13, color: "var(--text-light)", padding: "12px 0" } }, "Belum ada project") : h("div", null, rows.map(renderRow))));
 }
+// ═══ Kelola tahap (papan Kanban + modal) ═══
+// Helper murni (dites di tests/offline/stage_manager.test.js). PATCH/DELETE /api/contexts/{id} dan
+// PUT /api/contexts/order tidak punya route lokal → selalu ke jaringan; POST /api/contexts lokal (offline OK).
+const STAGE_OFFLINE_TEXT = "Butuh koneksi internet";
+function stageManagerUrl(listId) {
+  const base = "/api/contexts?format=full&include_archived=1";
+  return listId == null || listId === "" ? base : base + "&list_id=" + encodeURIComponent(listId);
+}
+// Aksi menu per tahap: pending (belum punya id server) atau bukan can_manage → tidak ada aksi.
+function stageMenuActions(item, online) {
+  if (!item || item.pending || !item.can_manage) return [];
+  return ["rename", "color", "left", "right", "archive", "delete"];
+}
+// Semua aksi kelola butuh jaringan; pemanggil menandai tombol nonaktif (title "Butuh koneksi internet").
+function stageActionDisabled(action, online) {
+  return !online;
+}
+function stageDeleteConfirmText(item) {
+  const n = item && item.task_count != null ? item.task_count : 0;
+  return n + " task akan pindah ke Belum ada tahap";
+}
+function stageErrorText(err) {
+  const d = err && err.body && err.body.detail;
+  const code = d && typeof d === "object" ? d.code : null;
+  if (code === "CONTEXT_NAME_TAKEN") return "Nama tahap sudah dipakai";
+  if (code === "CONTEXT_ORDER_STALE") return "Urutan tahap sudah berubah, muat ulang";
+  if (err && err.status === 404) return "Tahap sudah tidak ada";
+  if (isOfflineErr(err)) return STAGE_OFFLINE_TEXT;
+  return d && typeof d === "object" && d.message || err && err.message || "Gagal menyimpan";
+}
+// Setelah aksi sukses: segarkan cache tahap, beri tahu papan (tf:contexts-changed); hapus tahap mengubah
+// context task di server → tarik ulang task (pola projectManagerAfterChange).
+function stageAfterChange(tasksChanged) {
+  const cc = window.TF && window.TF.contextcache;
+  const refreshed = cc && typeof cc.refresh === "function" && typeof window.__syncRawFetch === "function" ? Promise.resolve().then(() => cc.refresh(window.__syncRawFetch)).catch(() => {}) : Promise.resolve();
+  return refreshed.then(() => {
+    window.dispatchEvent(new CustomEvent("tf:contexts-changed", { detail: { source: "manage" } }));
+    if (!tasksChanged) return null;
+    const synced = typeof window.__syncNow === "function" ? Promise.resolve().then(() => window.__syncNow()).catch(() => {}) : Promise.resolve();
+    return synced.then(() => {
+      try {
+        const r = typeof window.__refreshTasks === "function" ? window.__refreshTasks() : null;
+        if (r && typeof r.catch === "function") return r.catch(() => {});
+      } catch (_) {}
+      return null;
+    });
+  });
+}
+// Jalankan satu aksi kelola (jaringan): → { ok:true } | { ok:false, message }. 409 CONTEXT_ORDER_STALE juga
+// memuat ulang daftar tahap. Tidak melempar.
+function stageRun(fn, tasksChanged) {
+  if (!navigator.onLine) return Promise.resolve({ ok: false, message: STAGE_OFFLINE_TEXT });
+  return Promise.resolve().then(fn).then(() => stageAfterChange(!!tasksChanged)).then(() => ({ ok: true }), err => {
+    const d = err && err.body && err.body.detail;
+    const out = { ok: false, message: stageErrorText(err) };
+    if (d && typeof d === "object" && d.code === "CONTEXT_ORDER_STALE") return stageAfterChange(false).then(() => out);
+    return out;
+  });
+}
+function StageManagerModal({
+  listId,
+  listName,
+  onClose,
+  showToast
+}) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState(null);
+  const [edit, setEdit] = useState(null); // { id, name, color }
+  const [rowError, setRowError] = useState(null); // { id, msg }
+  const scope = listId == null || listId === "" ? "" : String(listId);
+  const load = React.useCallback(() => {
+    if (!navigator.onLine) {
+      setError(STAGE_OFFLINE_TEXT);
+      return Promise.resolve();
+    }
+    setError("");
+    return api.get(stageManagerUrl(listId), { network: true }).then(r => {
+      const mine = (Array.isArray(r) ? r : []).filter(c => c && (c.list_id == null || c.list_id === "" ? "" : String(c.list_id)) === scope);
+      const sorted = window.TF.contextcache.sortItems(mine);
+      setRows(sorted.filter(c => !c.archived).concat(sorted.filter(c => c.archived)));
+    }).catch(err => setError(stageErrorText(err)));
+  }, [listId]);
+  useEffect(() => {
+    load();
+    const onOffline = () => setError(STAGE_OFFLINE_TEXT);
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("online", load);
+    return () => {
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("online", load);
+    };
+  }, [load]);
+  // Escape: batal edit bila sedang edit, selain itu tutup modal
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key !== "Escape") return;
+      if (edit) {
+        setEdit(null);
+        setRowError(null);
+      } else onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [edit, onClose]);
+  const offline = error === STAGE_OFFLINE_TEXT;
+  const run = (c, fn, okMsg, tasksChanged) => {
+    setBusyId(c.id);
+    setRowError(null);
+    return stageRun(fn, tasksChanged).then(res => {
+      if (res.ok) {
+        setEdit(null);
+        if (okMsg && showToast) showToast(okMsg);
+        return load();
+      }
+      setRowError({ id: c.id, msg: res.message });
+    }).then(() => setBusyId(null));
+  };
+  const url = c => "/api/contexts/" + encodeURIComponent(c.id);
+  const saveEdit = c => {
+    const name = (edit.name || "").trim();
+    const body = {};
+    if (!name) {
+      setRowError({ id: c.id, msg: "Nama tahap tidak boleh kosong" });
+      return;
+    }
+    if (name !== c.name) body.name = name;
+    if (edit.color !== (c.color || "")) {
+      if (!projectColorValid(edit.color)) {
+        setRowError({ id: c.id, msg: "Warna harus format #rrggbb" });
+        return;
+      }
+      body.color = edit.color;
+    }
+    if (!Object.keys(body).length) {
+      setEdit(null);
+      return;
+    }
+    run(c, () => api.patch(url(c), body), "Tahap disimpan", false);
+  };
+  const toggleArchive = c => run(c, () => api.patch(url(c), { archived: !c.archived }), c.archived ? "Tahap diaktifkan" : "Tahap diarsipkan", false);
+  const remove = c => {
+    if (!confirm(stageDeleteConfirmText(c))) return;
+    run(c, () => api.del(url(c)), "Tahap dihapus", true);
+  };
+  // R3: urutan lewat tombol ↑/↓ — satu PUT /order per klik, ids = tahap aktif scope ini.
+  const move = (c, dir) => {
+    const ids = window.TF.kanbanboard.reorderIds(rows || [], scope, c.id, dir);
+    if (!ids) return;
+    run(c, () => api.put("/api/contexts/order", { list_id: scope === "" ? null : listId, ids: ids }), null, false);
+  };
+  const h = React.createElement;
+  const swatch = col => h("span", {
+    "aria-hidden": "true",
+    style: { width: 14, height: 14, borderRadius: 4, flexShrink: 0, background: projectColorValid(col) ? col : "var(--border)" }
+  });
+  const liveIds = (rows || []).filter(c => !c.archived).map(c => String(c.id));
+  const renderRow = c => {
+    const actions = stageMenuActions(c, !offline);
+    const busy = busyId === c.id;
+    const dis = a => busy || stageActionDisabled(a, !offline);
+    const offTitle = offline ? STAGE_OFFLINE_TEXT : undefined;
+    const errLine = rowError && rowError.id === c.id && h("div", { role: "alert", style: { flexBasis: "100%", fontSize: 12, color: "var(--danger, #dc2626)" } }, rowError.msg);
+    if (edit && edit.id === c.id) {
+      return h("div", { key: c.id, style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "10px 0", borderBottom: "1px solid var(--border)" } },
+        h("input", { type: "color", value: projectColorValid(edit.color) ? edit.color : "#888888", onChange: e => setEdit({ ...edit, color: e.target.value }), "aria-label": "Warna tahap", style: { width: 36, height: 32, padding: 0, border: "none", background: "none", cursor: "pointer" } }),
+        h("input", { className: "input", value: edit.color, onChange: e => setEdit({ ...edit, color: e.target.value }), placeholder: "#rrggbb", "aria-label": "Kode warna", maxLength: 7, style: { width: 96 } }),
+        h("input", { className: "input", value: edit.name, onChange: e => setEdit({ ...edit, name: e.target.value }), onKeyDown: e => { if (e.key === "Enter") saveEdit(c); }, "aria-label": "Nama tahap", autoFocus: true, style: { flex: "1 1 140px", minWidth: 0 } }),
+        h("button", { type: "button", className: "btn btn-sm btn-primary", disabled: busy, onClick: () => saveEdit(c) }, busy ? "Menyimpan..." : "Simpan"),
+        h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => { setEdit(null); setRowError(null); } }, "Batal"),
+        errLine);
+    }
+    const liveIdx = liveIds.indexOf(String(c.id));
+    const canUp = !c.archived && !c.pending && liveIdx > 0;
+    const canDown = !c.archived && !c.pending && liveIdx >= 0 && liveIdx < liveIds.length - 1;
+    return h("div", { key: c.id, style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "10px 0", borderBottom: "1px solid var(--border)", opacity: c.archived ? 0.65 : 1 } },
+      swatch(c.color),
+      h("div", { style: { flex: "1 1 140px", minWidth: 0 } },
+        h("div", { style: { fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name, c.archived ? " (diarsip)" : ""),
+        h("div", { style: { fontSize: 12, color: "var(--text-light)" } }, (c.active_task_count != null ? c.active_task_count : c.task_count || 0) + " task aktif", c.archived ? " · Diarsipkan" : "", projectColorValid(c.color) ? " · " + c.color : "")),
+      actions.includes("left") && h("button", { type: "button", className: "btn btn-sm btn-secondary", "aria-label": "Naikkan urutan " + c.name, title: offTitle, disabled: dis("left") || !canUp, onClick: () => move(c, -1) }, "↑"),
+      actions.includes("right") && h("button", { type: "button", className: "btn btn-sm btn-secondary", "aria-label": "Turunkan urutan " + c.name, title: offTitle, disabled: dis("right") || !canDown, onClick: () => move(c, 1) }, "↓"),
+      (actions.includes("rename") || actions.includes("color")) && h("button", { type: "button", className: "btn btn-sm btn-secondary", title: offTitle, disabled: dis("rename"), onClick: () => { setRowError(null); setEdit({ id: c.id, name: c.name || "", color: c.color || "" }); } }, "Ubah"),
+      actions.includes("archive") && h("button", { type: "button", className: "btn btn-sm btn-secondary", title: offTitle, disabled: dis("archive"), onClick: () => toggleArchive(c) }, c.archived ? "Aktifkan" : "Arsipkan"),
+      actions.includes("delete") && h("button", { type: "button", className: "btn btn-sm btn-secondary", title: offTitle, disabled: dis("delete"), onClick: () => remove(c), style: { color: "var(--danger, #dc2626)" } }, "Hapus"),
+      errLine);
+  };
+  // Klik overlay saat edit terbuka diabaikan (jangan buang perubahan diam-diam)
+  return h("div", { className: "modal-overlay", onClick: () => {
+      if (!edit) onClose();
+    } },
+    h("div", { className: "modal-content scale-in", role: "dialog", "aria-modal": "true", "aria-label": "Kelola tahap", style: { maxWidth: 560, width: "calc(100% - 32px)", maxHeight: "85vh", overflowY: "auto" }, onClick: e => e.stopPropagation() },
+      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
+        h("div", null,
+          h("h2", { style: { fontSize: 18, fontWeight: 700 } }, "Kelola tahap"),
+          h("div", { style: { fontSize: 12, color: "var(--text-light)", marginTop: 2 } }, scope === "" ? "Pribadi" : "👥 " + (listName || "Workspace"))),
+        h("button", { type: "button", onClick: onClose, "aria-label": "Tutup", style: { background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "var(--text-light)" } }, "✕")),
+      error && h("div", { role: offline ? "status" : "alert", style: { fontSize: 13, padding: "8px 12px", borderRadius: 8, marginBottom: 8, background: offline ? "var(--bg-primary)" : "rgba(220,38,38,0.08)", color: offline ? "var(--text-secondary, inherit)" : "var(--danger, #dc2626)" } }, error),
+      rows == null ? !offline && !error && h("div", { style: { fontSize: 13, color: "var(--text-light)", padding: "12px 0" } }, "Memuat...") : rows.length === 0 ? h("div", { style: { fontSize: 13, color: "var(--text-light)", padding: "12px 0" } }, "Belum ada tahap") : h("div", null, rows.map(renderRow))));
+}
 function TaskFormModal({
   task,
   onSave,
@@ -13180,7 +13380,8 @@ function KanbanColumn({
   collaborators,
   onTaskClick,
   onCheck,
-  onMoveTask
+  onMoveTask,
+  stageOps
 }) {
   const {
     key: groupKey,
@@ -13189,6 +13390,32 @@ function KanbanColumn({
     badge,
     tasks
   } = column;
+  // Menu "⋯" kolom tahap: panel inline di bawah header (kolom overflow:hidden menyembunyikan popover).
+  const [stagePanel, setStagePanel] = React.useState(null); // null | "menu" | "rename" | "color"
+  const [stageDraft, setStageDraft] = React.useState("");
+  const stageItem = kind === "stage" && column.item ? column.item : null;
+  const stageOnline = navigator.onLine !== false;
+  const stageActs = stageOps && stageItem ? stageMenuActions(stageItem, stageOnline) : [];
+  const closeStagePanel = () => {
+    setStagePanel(null);
+    setStageDraft("");
+  };
+  const stageDone = p => p.then(ok => {
+    if (ok) closeStagePanel();
+  });
+  const stageOffTitle = stageOnline ? undefined : STAGE_OFFLINE_TEXT;
+  const stageBtn = (act, text, onClick, extra) => /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    key: act,
+    className: "btn btn-sm btn-secondary",
+    title: stageOffTitle,
+    disabled: stageActionDisabled(act, stageOnline) || !!(extra && extra.disabled),
+    onClick: onClick,
+    style: {
+      justifyContent: "flex-start",
+      color: extra && extra.danger ? "var(--danger, #dc2626)" : undefined
+    }
+  }, text);
   const canDrop = groupBy !== "quadrant" && kind !== "orphan";
   const isDragOver = canDrop && !!isOver;
   const COL_COLORS = {
@@ -13238,7 +13465,8 @@ function KanbanColumn({
       fontSize: 12,
       color: labelColor,
       fontStyle: kind === "orphan" ? "italic" : "normal",
-      wordBreak: "break-word"
+      wordBreak: "break-word",
+      flex: 1
     }
   }, label || groupKey, badge && /*#__PURE__*/React.createElement("span", {
     className: "proj-scope-badge",
@@ -13253,7 +13481,119 @@ function KanbanColumn({
       fontWeight: 700,
       flexShrink: 0
     }
-  }, tasks.length)), /*#__PURE__*/React.createElement("div", {
+  }, tasks.length), stageActs.length > 0 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    "aria-label": "Menu tahap " + label,
+    "aria-haspopup": "true",
+    "aria-expanded": stagePanel != null,
+    onClick: () => stagePanel ? closeStagePanel() : setStagePanel("menu"),
+    style: {
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      fontSize: 16,
+      lineHeight: 1,
+      padding: "0 4px",
+      color: "var(--text-light)"
+    }
+  }, "⋯")), stagePanel && stageActs.length > 0 && /*#__PURE__*/React.createElement("div", {
+    role: "group",
+    "aria-label": "Aksi tahap",
+    style: {
+      padding: 8,
+      display: "flex",
+      flexDirection: "column",
+      gap: 6,
+      borderBottom: "1px solid var(--border)",
+      background: "var(--bg-card)"
+    }
+  }, stagePanel === "menu" && [stageBtn("rename", "Ganti nama", () => {
+    setStageDraft(stageItem.name || "");
+    setStagePanel("rename");
+  }), stageBtn("color", "Warna", () => {
+    setStageDraft(stageItem.color || "");
+    setStagePanel("color");
+  }), stageBtn("left", "Geser ke kiri", () => stageDone(stageOps.move(stageItem, -1)), {
+    disabled: !stageOps.canMove(stageItem, -1)
+  }), stageBtn("right", "Geser ke kanan", () => stageDone(stageOps.move(stageItem, 1)), {
+    disabled: !stageOps.canMove(stageItem, 1)
+  }), stageBtn("archive", "Arsipkan", () => stageDone(stageOps.archive(stageItem))), stageBtn("delete", "Hapus", () => {
+    if (!confirm(stageDeleteConfirmText(stageItem))) return;
+    stageDone(stageOps.remove(stageItem));
+  }, {
+    danger: true
+  })], stagePanel === "rename" && /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    autoFocus: true,
+    value: stageDraft,
+    "aria-label": "Nama tahap",
+    onChange: e => setStageDraft(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        stageDone(stageOps.rename(stageItem, stageDraft));
+      } else if (e.key === "Escape") {
+        e.stopPropagation();
+        closeStagePanel();
+      }
+    }
+  }), stagePanel === "color" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "color",
+    "aria-label": "Warna tahap",
+    value: projectColorValid(stageDraft) ? stageDraft : "#888888",
+    onChange: e => setStageDraft(e.target.value),
+    style: {
+      width: 36,
+      height: 32,
+      padding: 0,
+      border: "none",
+      background: "none",
+      cursor: "pointer"
+    }
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    value: stageDraft,
+    placeholder: "#rrggbb",
+    "aria-label": "Kode warna",
+    maxLength: 7,
+    onChange: e => setStageDraft(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        closeStagePanel();
+      }
+    },
+    style: {
+      width: 90
+    }
+  })), (stagePanel === "rename" || stagePanel === "color") && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-sm btn-primary",
+    title: stageOffTitle,
+    disabled: stageActionDisabled(stagePanel, stageOnline),
+    onClick: () => stageDone(stagePanel === "rename" ? stageOps.rename(stageItem, stageDraft) : stageOps.color(stageItem, stageDraft))
+  }, "Simpan"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-sm btn-secondary",
+    onClick: closeStagePanel
+  }, "Batal")), !stageOnline && /*#__PURE__*/React.createElement("div", {
+    role: "status",
+    style: {
+      fontSize: 11,
+      color: "var(--text-light)"
+    }
+  }, STAGE_OFFLINE_TEXT)), /*#__PURE__*/React.createElement("div", {
     style: {
       padding: 8,
       display: "flex",
@@ -13300,9 +13640,119 @@ function KanbanView({
   collaborators,
   onTaskClick,
   onCheck,
-  onMoveTask
+  onMoveTask,
+  stageOps,
+  onCreateStage
 }) {
   const [overKey, setOverKey] = React.useState(null);
+  // Kolom tipis "+ Tahap" (hanya Group by Context) sebelum "Selesai"; bukan target drop (tanpa data-kanban-col).
+  const canAddStage = groupBy === "context" && typeof onCreateStage === "function";
+  const [adding, setAdding] = React.useState(false);
+  const [stageName, setStageName] = React.useState("");
+  const [addBusy, setAddBusy] = React.useState(false);
+  const cancelAdd = () => {
+    setAdding(false);
+    setStageName("");
+  };
+  const submitAdd = () => {
+    const n = stageName.trim();
+    if (!n) {
+      cancelAdd();
+      return;
+    }
+    setAddBusy(true);
+    Promise.resolve(onCreateStage(n)).then(ok => {
+      if (ok) cancelAdd();
+    }).then(() => setAddBusy(false));
+  };
+  const addColumn = canAddStage && /*#__PURE__*/React.createElement("div", {
+    key: "__add_stage__",
+    "data-kanban-addstage": "1",
+    style: {
+      width: adding ? 200 : 44,
+      flexShrink: 0,
+      background: "var(--bg-primary)",
+      borderRadius: 10,
+      border: "1.5px dashed var(--border)",
+      padding: adding ? 8 : 0,
+      display: "flex",
+      flexDirection: "column",
+      gap: 6,
+      alignSelf: "stretch",
+      minHeight: 120
+    }
+  }, adding ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    autoFocus: true,
+    value: stageName,
+    disabled: addBusy,
+    placeholder: "Nama tahap",
+    "aria-label": "Nama tahap baru",
+    onChange: e => setStageName(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submitAdd();
+      } else if (e.key === "Escape") {
+        e.stopPropagation();
+        cancelAdd();
+      }
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-sm btn-primary",
+    disabled: addBusy,
+    onClick: submitAdd
+  }, "Simpan"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-sm btn-secondary",
+    onClick: cancelAdd
+  }, "Batal"))) : /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setAdding(true),
+    "aria-label": "+ Tahap",
+    title: "Tambah tahap",
+    style: {
+      flex: 1,
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+      color: "var(--text-secondary)",
+      fontSize: 12,
+      fontWeight: 600,
+      writingMode: "vertical-rl",
+      padding: "12px 0"
+    }
+  }, "+ Tahap"));
+  const cols = [];
+  let addPlaced = false;
+  columns.forEach(col => {
+    if (col.kind === "done" && addColumn && !addPlaced) {
+      cols.push(addColumn);
+      addPlaced = true;
+    }
+    cols.push( /*#__PURE__*/React.createElement(KanbanColumn, {
+      key: col.key,
+      column: col,
+      groupBy: groupBy,
+      isOver: overKey != null && String(overKey) === String(col.key),
+      onHoverColumn: setOverKey,
+      targets: window.TF.kanbanboard.moveTargets(columns, col.key),
+      todayIso: todayIso,
+      currentUser: currentUser,
+      collaborators: collaborators,
+      onTaskClick: onTaskClick,
+      onCheck: onCheck,
+      onMoveTask: onMoveTask,
+      stageOps: stageOps
+    }));
+  });
+  if (addColumn && !addPlaced) cols.push(addColumn);
   return /*#__PURE__*/React.createElement("div", {
     "data-kanban-board": "1",
     style: {
@@ -13312,20 +13762,7 @@ function KanbanView({
       paddingBottom: 12,
       alignItems: "flex-start"
     }
-  }, columns.map(col => /*#__PURE__*/React.createElement(KanbanColumn, {
-    key: col.key,
-    column: col,
-    groupBy: groupBy,
-    isOver: overKey != null && String(overKey) === String(col.key),
-    onHoverColumn: setOverKey,
-    targets: window.TF.kanbanboard.moveTargets(columns, col.key),
-    todayIso: todayIso,
-    currentUser: currentUser,
-    collaborators: collaborators,
-    onTaskClick: onTaskClick,
-    onCheck: onCheck,
-    onMoveTask: onMoveTask
-  })));
+  }, cols);
 }
 
 // ── GTD Inbox Wizard: editable priority / project / date ────
@@ -13702,6 +14139,26 @@ function GtdInboxWizardModal({
   }, "Tutup"))))));
 }
 
+// Urutan kunci context mode daftar: nama tahap (pribadi per posisi, lalu workspace per posisi; aktif sebelum
+// arsip) mengikuti urutan itu; nama yang tidak punya tahap (ad-hoc) menyusul alfabet NOCASE.
+function contextKeyOrder(keys, items) {
+  const cc = window.TF.contextcache, pc = window.TF.projectcache;
+  const sc = i => i.list_id == null || i.list_id === "" ? "" : String(i.list_id);
+  const all = Array.isArray(items) ? items.filter(Boolean) : [];
+  const scopes = Array.from(new Set(all.map(sc))).sort((a, b) => a === b ? 0 : a === "" ? -1 : b === "" ? 1 : a < b ? -1 : 1);
+  const ordered = [];
+  for (const archived of [false, true]) for (const s of scopes) ordered.push(...cc.sortItems(all.filter(i => sc(i) === s && !!i.archived === archived)));
+  const rank = new Map();
+  ordered.forEach(i => {
+    const k = pc.nocaseKey(i.name);
+    if (!rank.has(k)) rank.set(k, rank.size);
+  });
+  const ranked = [], rest = [];
+  for (const k of keys) (rank.has(pc.nocaseKey(k)) ? ranked : rest).push(k);
+  ranked.sort((a, b) => rank.get(pc.nocaseKey(a)) - rank.get(pc.nocaseKey(b)));
+  rest.sort((a, b) => pc.nocaseCompare(a, b) || (a < b ? -1 : a > b ? 1 : 0));
+  return ranked.concat(rest);
+}
 // ── Task List view with filters ─────────────────────────────
   // ═══ DEPENDENCIES: TaskListView ═══
   // uses:
@@ -13739,7 +14196,8 @@ function TaskListView({
   onUpdateTask,
   sharedLists = [],
   currentUser = null,
-  contextItems = []
+  contextItems = [],
+  onManageStages = null
 }) {
   const isInbox = page === "inbox" || title === "Inbox";
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -13933,7 +14391,7 @@ function TaskListView({
     const allKeys = Object.keys(map);
     const tanpaKeys = allKeys.filter(k => k.startsWith("(Tanpa"));
     const normalKeys = allKeys.filter(k => !k.startsWith("(Tanpa"));
-    if (groupBy === "priority") normalKeys.sort((a, b) => PRI_ORDER_MAP.indexOf(a) - PRI_ORDER_MAP.indexOf(b));else if (groupBy === "quadrant") normalKeys.sort((a, b) => QUAD_ORDER_MAP.indexOf(a) - QUAD_ORDER_MAP.indexOf(b));else normalKeys.sort();
+    if (groupBy === "priority") normalKeys.sort((a, b) => PRI_ORDER_MAP.indexOf(a) - PRI_ORDER_MAP.indexOf(b));else if (groupBy === "quadrant") normalKeys.sort((a, b) => QUAD_ORDER_MAP.indexOf(a) - QUAD_ORDER_MAP.indexOf(b));else if (groupBy === "context") normalKeys.splice(0, normalKeys.length, ...contextKeyOrder(normalKeys, contextItems));else normalKeys.sort();
     return [...normalKeys, ...tanpaKeys].map(key => ({
       key,
       tasks: map[key]
@@ -13972,6 +14430,54 @@ function TaskListView({
     }))
   }) : null;
   const kanbanHidden = kanbanBoard && kanbanBoard.hiddenOtherScope || 0;
+  // Kelola tahap dari papan (hanya Group by Context): buat tahap lokal (offline OK); ganti nama / warna / geser /
+  // arsip / hapus butuh jaringan (stageRun) dan memberi toast bila gagal.
+  const stageScopeId = kanbanScope === "" ? null : kanbanScope;
+  const stageToast = (msg, type) => {
+    if (showToast && msg) showToast(msg, type);
+  };
+  const runStageOp = (fn, okMsg, tasksChanged) => stageRun(fn, tasksChanged).then(res => {
+    if (res.ok) stageToast(okMsg);else stageToast(res.message, "error");
+    return res.ok;
+  });
+  const stageUrl = item => "/api/contexts/" + encodeURIComponent(item.id);
+  const createStage = name => {
+    const n = (name || "").trim();
+    if (!n) return Promise.resolve(false);
+    return api.post("/api/contexts", { name: n, list_id: kanbanScope || null }).then(() => {
+      window.dispatchEvent(new CustomEvent("tf:contexts-changed", { detail: { source: "manage" } }));
+      return true;
+    }).catch(err => {
+      stageToast(stageErrorText(err), "error");
+      return false;
+    });
+  };
+  const stageOps = kanbanOn && groupBy === "context" ? {
+    canMove: (item, dir) => !!window.TF.kanbanboard.reorderIds(contextItems || [], kanbanScope, item.id, dir),
+    rename: (item, name) => {
+      const n = (name || "").trim();
+      if (!n) {
+        stageToast("Nama tahap tidak boleh kosong", "error");
+        return Promise.resolve(false);
+      }
+      if (n === item.name) return Promise.resolve(true);
+      return runStageOp(() => api.patch(stageUrl(item), { name: n }), "Tahap disimpan", false);
+    },
+    color: (item, color) => {
+      if (!projectColorValid(color)) {
+        stageToast("Warna harus format #rrggbb", "error");
+        return Promise.resolve(false);
+      }
+      return runStageOp(() => api.patch(stageUrl(item), { color: color }), "Tahap disimpan", false);
+    },
+    move: (item, dir) => {
+      const ids = window.TF.kanbanboard.reorderIds(contextItems || [], kanbanScope, item.id, dir);
+      if (!ids) return Promise.resolve(false);
+      return runStageOp(() => api.put("/api/contexts/order", { list_id: stageScopeId, ids: ids }), null, false);
+    },
+    archive: item => runStageOp(() => api.patch(stageUrl(item), { archived: true }), "Tahap diarsipkan", false),
+    remove: item => runStageOp(() => api.del(stageUrl(item)), "Tahap dihapus", true)
+  } : null;
   return /*#__PURE__*/React.createElement("div", {
     className: "fade-in"
   }, /*#__PURE__*/React.createElement("div", {
@@ -14081,7 +14587,12 @@ function TaskListView({
   }, kanbanScopeOpts.map(o => /*#__PURE__*/React.createElement("option", {
     key: o.value,
     value: o.value
-  }, o.label)))), /*#__PURE__*/React.createElement("div", {
+  }, o.label)))), kanbanOn && groupBy === "context" && !isWorkspacePage && onManageStages && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-sm btn-secondary",
+    onClick: () => onManageStages(kanbanScope),
+    title: "Kelola tahap papan ini"
+  }, "Kelola tahap"), /*#__PURE__*/React.createElement("div", {
     style: {
       marginLeft: "auto",
       display: "flex",
@@ -14309,7 +14820,9 @@ function TaskListView({
     collaborators: collaborators,
     onTaskClick: onTaskClick,
     onCheck: onKanbanCheck,
-    onMoveTask: onMoveTask
+    onMoveTask: onMoveTask,
+    stageOps: stageOps,
+    onCreateStage: groupBy === "context" ? createStage : null
   })) : filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
@@ -33937,6 +34450,7 @@ function App() {
   const [page, setPage] = useState("dashboard");
   const [workspaceTab, setWorkspaceTab] = useState("tasks");
   const [projectManager, setProjectManager] = useState(null); // { listId, listName } — modal Kelola project
+  const [stageManager, setStageManager] = useState(null); // { listId, listName } — modal Kelola tahap
   const [activeChatListId, setActiveChatListId] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [summary, setSummary] = useState({
@@ -35199,6 +35713,15 @@ function App() {
   };
 
   // Render content based on page
+  // Papan non-workspace: buka "Kelola tahap" untuk scope papan aktif ("" = pribadi, atau id workspace).
+  const openStageManager = scope => {
+    if (scope === "" || scope == null) {
+      setStageManager({ listId: null, listName: null });
+      return;
+    }
+    const l = (sharedLists || []).find(x => x && String(x.id) === String(scope));
+    setStageManager({ listId: l ? l.id : scope, listName: l ? l.name : null });
+  };
   const renderContent = () => {
     if (page === "habit") {
       return /*#__PURE__*/React.createElement(HabitPage, {
@@ -35365,7 +35888,16 @@ function App() {
           alignItems: "center",
           gap: 6
         }
-      }, /*#__PURE__*/React.createElement(Icon, { name: "folder", size: 14 }), "Kelola project")), workspaceTab === "files" ? /*#__PURE__*/React.createElement(WorkspaceFilesView, {
+      }, /*#__PURE__*/React.createElement(Icon, { name: "folder", size: 14 }), "Kelola project"), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: "btn btn-sm btn-secondary",
+        onClick: () => setStageManager({ listId: listId, listName: currentList.name }),
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6
+        }
+      }, "Kelola tahap")), workspaceTab === "files" ? /*#__PURE__*/React.createElement(WorkspaceFilesView, {
         list: currentList,
         user: user,
         showToast: showToast,
@@ -35414,7 +35946,8 @@ function App() {
       onUpdateTask: handleUpdateTaskFields,
       sharedLists: sharedLists,
       currentUser: user,
-      contextItems: contextItems
+      contextItems: contextItems,
+      onManageStages: openStageManager
     });
   };
   return /*#__PURE__*/React.createElement("div", null, extAuthState && user && /*#__PURE__*/React.createElement(ExtAuthOverlay, {
@@ -35427,6 +35960,11 @@ function App() {
     listName: projectManager.listName,
     showToast: showToast,
     onClose: () => setProjectManager(null)
+  }), stageManager && /*#__PURE__*/React.createElement(StageManagerModal, {
+    listId: stageManager.listId,
+    listName: stageManager.listName,
+    showToast: showToast,
+    onClose: () => setStageManager(null)
   }), /*#__PURE__*/React.createElement(Sidebar, {
     page: page,
     setPage: setPage,
