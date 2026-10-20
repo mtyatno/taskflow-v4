@@ -3,17 +3,21 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+
 ## 🟠 Audio & video di note — PR backend — 2026-10-20 (Claude) — DRAFT, TUNGGU "MERGE DAN DEPLOY"
 - **Status:** branch `claude/note-media-backend` (draft PR). Backend saja, **tanpa** kenaikan SW. ADR-016. Rencana: `claude/plan-note-media-backend-2026-10-20.md` di Project claude.ai.
 - **Isi:** kolom media di `note_attachments` (`migrate_db`); unggah bertahap `POST /api/scratchpad/{id}/media` + `PATCH /api/media/{id}/upload` + `POST …/complete`; `media_storage.py`, `media_probe.py`, `media_worker.py` (ffprobe/faststart/poster), `media_serve.py` (token HMAC + `/media/{token}` dengan `X-Accel-Redirect`/Range); akses lampiran bersama workspace; hapus media + bersihkan unggahan macet; halaman publik `/pub` memutar `::media[...]` (lampiran note itu saja), `/pub/attachments/{id}` media → 302 ke unduhan; DOCX satu baris teks; pratinjau Sampah membuang direktif; blok nginx di `nginx-taskflow.conf`.
-- **Verifikasi:** pytest 696 (baseline 679), JS tidak disentuh (tak ada file JS berubah); smoke uvicorn lokal `MEDIA_ACCEL=0` (init → PATCH → complete mp4 ffmpeg → worker ready → `Range` → 206).
+- **Verifikasi:** pytest **735** (sebelum perbaikan review akhir 696, baseline main 679), JS tidak disentuh (tak ada file JS berubah); smoke uvicorn lokal `MEDIA_ACCEL=0` (init → PATCH → complete mp4 ffmpeg → worker ready → `Range` → 206), kini juga tes ujung-ke-ujung `test_end_to_end_upload_process_and_range` (ffmpeg sungguhan).
+- **Perbaikan review akhir (2026-10-20):** restore dari Sampah langsung mengantrekan media `processing`; worker menolak format ffprobe di luar keluarga sniff (mis. ID3 + AVI) dan menandai `failed` bila exception; trash/hapus saat PATCH/complete → 404 tanpa file yatim; `.part` hilang → `received_bytes` 0 + 409; init: nama dibersihkan dari karakter kontrol/non-XML, `.part` dibuat sebelum commit (507/503), client_id bersamaan idempoten; scan atom faststart maks 10.000; peringatan start bila `ffmpeg`/`ffprobe` tidak ada; tanpa `datetime.utcnow()` baru. Laporan: `.superpowers/sdd/2026-10-20-note-media-backend/final-fix-report.md` (lokal, di-.gitignore).
 - **DEPLOY (setelah merge, urut):**
-  1. `sudo apt install ffmpeg`
-  2. `sudo mkdir -p /var/lib/alurik/media && sudo chown <user service taskflow-web> /var/lib/alurik/media` (folder harus bisa dibaca user nginx)
-  3. Set `MEDIA_URL_SECRET` (`openssl rand -hex 32`) di environment service `taskflow-web`
-  4. Tambahkan blok nginx dari `nginx-taskflow.conf` (`/_alurik_media/` internal + lokasi `PATCH …/upload`), lalu `sudo nginx -t && sudo systemctl reload nginx`
-  5. `sudo systemctl restart taskflow-web`
-  6. Verifikasi: `curl -sI -H 'Range: bytes=0-99' https://<host>/media/<token>` → **206** dengan `Content-Type` sesuai media.
+  1. `sudo apt install ffmpeg` (tanpa `ffmpeg`/`ffprobe` start mencatat peringatan; media tetap `ready` tanpa metadata, faststart, poster, dan cek format).
+  2. `sudo mkdir -p /var/lib/alurik/media && sudo chown <user service>:<grup service> /var/lib/alurik/media`. File dibuat proses `taskflow-web`, jadi **umask service** menentukan apakah nginx bisa membacanya: (a) `UMask=0022` di `[Service]`, atau (b) `UMask=0027` + `chmod 750` folder + `sudo usermod -aG <grup service> www-data` (lalu restart nginx).
+  3. Unit systemd: `sudo systemctl cat taskflow-web` → bila ada `ProtectSystem=strict|full`/`ReadOnlyPaths`, tambahkan `ReadWritePaths=/var/lib/alurik/media` (template `taskflow-web.service` di repo tidak memakai `ProtectSystem`; `PrivateTmp=true` aman karena `.tmp` ada di dalam `MEDIA_ROOT`). Tambah `UMask` dari langkah 2, lalu `sudo systemctl daemon-reload`.
+  4. Di `.env` (EnvironmentFile service): `MEDIA_URL_SECRET=` hasil `openssl rand -hex 32`; `MEDIA_ROOT=` hanya bila bukan `/var/lib/alurik/media`.
+  5. Tambahkan blok nginx dari `nginx-taskflow.conf` (`/_alurik_media/` internal + lokasi `PATCH …/upload`). **`alias` di `/_alurik_media/` harus sama persis dengan `MEDIA_ROOT` (diakhiri `/`)**. Lalu `sudo nginx -t && sudo systemctl reload nginx`.
+  6. `sudo systemctl restart taskflow-web`; cek log tidak ada peringatan `ffprobe/ffmpeg tidak ditemukan` atau `MEDIA_URL_SECRET kosong`.
+  7. Verifikasi: token login dari `POST /api/auth/login` (`{"username","password"}` → `token`); unggah satu media lewat API/aplikasi; `curl -s -H "Authorization: Bearer <token>" https://<host>/api/media/<id>` → status `ready` → ambil `play_url`; `curl -sI -H 'Range: bytes=0-99' "https://<host><play_url>"` → **206** dengan `Content-Type` sesuai media (404 = token/akses; 200 tanpa isi = blok nginx belum aktif).
+  - **Dev lokal tanpa nginx:** set `MEDIA_ACCEL=0` (Range dilayani Alurik); dengan nilai bawaan `1` `/media/<token>` hanya mengembalikan header `X-Accel-Redirect` tanpa isi.
 - **Berikutnya:** PR frontend (pemutar + unggah di editor, naik SW), setelah PR XSS (1b) di-merge.
 
 ## 🟠 Temuan mindmap #4 — PR B `claude/mindmap-findings-b` — 2026-10-19 (Claude) — DI-MERGE (#46, 5cc231e) 2026-10-19; TUNGGU RESTART `taskflow-web` DI SERVER
