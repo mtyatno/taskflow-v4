@@ -26,6 +26,13 @@ from config import DB_PATH, UPLOAD_DIR
 _log = logging.getLogger(__name__)
 
 
+# Berkas workspace yang benar-benar dihapus saat workspace dihapus (lampiran task dipertahankan).
+# Dipakai bersama oleh delete_shared_list dan workspace_delete_impact agar tidak berbeda.
+_WS_FILES_TO_DELETE_WHERE = (
+    "list_id = ? AND is_deleted = 0 AND filename NOT IN (SELECT filename FROM task_attachments)"
+)
+
+
 def _return_tasks_to_creator(conn, where_sql: str, args: tuple = ()) -> int:
     """Kembalikan task workspace ke pembuatnya (pribadi): lepas list/assignee/project/context.
     Mengembalikan jumlah baris. Idempoten bila where_sql hanya mencocokkan task yang masih terikat."""
@@ -1575,8 +1582,8 @@ class TaskRepository:
             ).fetchone():
                 try:
                     files_to_unlink = [r[0] for r in conn.execute(
-                        "SELECT DISTINCT filename FROM workspace_files WHERE list_id = ? AND is_deleted = 0 "
-                        "AND filename NOT IN (SELECT filename FROM task_attachments)", (list_id,)
+                        "SELECT DISTINCT filename FROM workspace_files WHERE " + _WS_FILES_TO_DELETE_WHERE,
+                        (list_id,)
                     ).fetchall()]
                 except sqlite3.OperationalError:
                     pass  # tabel workspace_files belum ada
@@ -1657,7 +1664,7 @@ class TaskRepository:
             result = []
             for rows, role in ((owned, "owner"), (membered, "member")):
                 for r in rows:
-                    cnt = conn.execute(
+                    cnt = 1 + conn.execute(  # +1 = owner (tidak tercatat di list_members)
                         "SELECT COUNT(*) as c FROM list_members WHERE list_id = ?", (r["id"],)
                     ).fetchone()["c"]
                     result.append({
@@ -1719,7 +1726,37 @@ class TaskRepository:
             conn.execute(
                 "DELETE FROM workspace_pins WHERE user_id = ? AND list_id = ?", (user_id, list_id)
             )
+            if cur.rowcount > 0:
+                # Task aktif tidak boleh tertinggal berpenanggung jawab non-anggota.
+                conn.execute(
+                    "UPDATE tasks SET assigned_to = NULL, updated_at = ? "
+                    "WHERE list_id = ? AND assigned_to = ? AND gtd_status NOT IN ('done','archived')",
+                    (datetime.now().isoformat(), list_id, user_id),
+                )
             return cur.rowcount > 0
+
+    def workspace_delete_impact(self, list_id: int) -> dict:
+        """Ringkasan dampak menghapus workspace (semua int). Tabel belum dimigrasi dihitung 0."""
+        def count(conn, sql):
+            try:
+                return conn.execute(sql, (list_id,)).fetchone()[0] or 0
+            except sqlite3.OperationalError:
+                return 0
+        with self._connect() as conn:
+            return {
+                "tasks_total": count(conn, "SELECT COUNT(*) FROM tasks WHERE list_id = ?"),
+                "tasks_active": count(
+                    conn, "SELECT COUNT(*) FROM tasks WHERE list_id = ? "
+                          "AND gtd_status NOT IN ('done','archived')"),
+                "files": count(
+                    conn, "SELECT COUNT(DISTINCT filename) FROM workspace_files WHERE "
+                          + _WS_FILES_TO_DELETE_WHERE),
+                "messages": count(conn, "SELECT COUNT(*) FROM messages WHERE list_id = ?"),
+                "projects": count(conn, "SELECT COUNT(*) FROM projects WHERE list_id = ?"),
+                "stages": count(conn, "SELECT COUNT(*) FROM contexts WHERE list_id = ?"),
+                "notes_to_personal": count(conn, "SELECT COUNT(*) FROM scratchpad_notes WHERE list_id = ?"),
+                "drawings_to_personal": count(conn, "SELECT COUNT(*) FROM drawings WHERE list_id = ?"),
+            }
 
     def get_list_members(self, list_id: int) -> list[dict]:
         with self._connect() as conn:
