@@ -23,7 +23,7 @@ function loadHelpers(windowStub) {
   const code = sliceFn("function kanbanScopeKey(", "function KanbanCard(");
   const win = windowStub || { TF: { kanbanboard: KB } };
   return new Function("window", "localStorage",
-    `${proj}\n${code}; return { kanbanScopeKey, readKanbanScope, kanbanDonePool, taskInitials, runKanbanAction };`)(
+    `${proj}\n${code}; return { kanbanScopeKey, readKanbanScope, kanbanDonePool, taskInitials, runKanbanAction, kanbanScopeFor, kanbanBoardFor, kanbanMoveAction, kanbanCheckAction };`)(
     win, { getItem: () => { throw new Error("blocked"); } });
 }
 
@@ -136,10 +136,15 @@ test("runKanbanAction project: projectTargetFor → {project}; reopen menambah g
 
 test("sumber: TaskListView memakai buildContextBoard + dropAction + runKanbanAction; scope picker; R4", () => {
   const view = sliceFn("function TaskListView(", "\nfunction ");
-  assert.match(view, /TF\.kanbanboard\.buildContextBoard\(/);
-  assert.match(view, /TF\.kanbanboard\.buildPriorityBoard\(/);
-  assert.match(view, /TF\.kanbanboard\.withDoneColumn\(/);
-  assert.match(view, /TF\.kanbanboard\.dropAction\(/);
+  const helpers = sliceFn("function kanbanScopeFor(", "function kanbanTint(");
+  assert.match(helpers, /TF\.kanbanboard\.buildContextBoard\(/);
+  assert.match(helpers, /TF\.kanbanboard\.buildPriorityBoard\(/);
+  assert.match(helpers, /TF\.kanbanboard\.withDoneColumn\(/);
+  assert.match(helpers, /TF\.kanbanboard\.dropAction\(/);
+  assert.match(view, /kanbanBoardFor\(/);
+  assert.match(view, /kanbanMoveAction\(/);
+  assert.match(view, /kanbanCheckAction\(/);
+  assert.match(view, /kanbanScopeFor\(page, /);
   assert.match(view, /runKanbanAction\(/);
   assert.match(view, /kanbanDonePool\(/);
   assert.match(view, /kanbanScopeKey\(page\)/);
@@ -190,4 +195,82 @@ test("sumber: App memuat contextItems lokal dan memuat ulang pada tf:contexts-ch
   assert.match(reload, /setContextItems\(/);
   assert.match(app, /window\.addEventListener\("tf:contexts-changed", reloadContextItems\)/);
   assert.match(app, /window\.removeEventListener\("tf:contexts-changed", reloadContextItems\)/);
+});
+
+// ---- Fix round 1: task done hanya di "Selesai", kolom asal dari kartu, checkbox, scope ----
+const ITEMS = [
+  { id: 5, name: "Doing", list_id: null, position: 0, color: null, archived: false },
+  { id: 6, name: "Review", list_id: null, position: 1, color: null, archived: false },
+];
+const PAGE_TASKS = [ // halaman "done": tasks halaman memuat task done
+  { id: 1, title: "aktif", gtd_status: "next", context: "Doing", context_id: 5, list_id: null, priority: "P1", project: "Alpha" },
+  { id: "c-2", title: "selesai", gtd_status: "done", context: "Doing", context_id: 5, list_id: null, priority: "P2", project: "Alpha",
+    completed_at: "2026-10-19T03:00:00Z" },
+  { id: 3, title: "selesai ws", gtd_status: "done", context: "", list_id: 9, completed_at: "2026-10-19T03:00:00Z" },
+];
+const where = (board, id) => board.columns.filter((c) => c.tasks.some((t) => String(t.id) === String(id))).map((c) => c.key);
+
+test("kanbanBoardFor: task done di tasks halaman hanya muncul di Selesai (context/priority/project), tidak dihitung scope lain", () => {
+  const H = loadHelpers();
+  const donePool = H.kanbanDonePool(PAGE_TASKS, "done", TODAY);
+  const lists = [{ id: 9, name: "W" }];
+  const ctx = H.kanbanBoardFor({ groupBy: "context", tasks: PAGE_TASKS, donePool, items: ITEMS, scope: "", sharedLists: lists });
+  assert.deepEqual(where(ctx, "c-2"), ["done"]);
+  assert.deepEqual(where(ctx, 1), ["stage:5"]);
+  assert.equal(ctx.hiddenOtherScope, 0, "task done scope lain tidak dihitung");
+  const pri = H.kanbanBoardFor({ groupBy: "priority", tasks: PAGE_TASKS, donePool });
+  assert.deepEqual(where(pri, "c-2"), ["done"]);
+  let seen = null;
+  const proj = H.kanbanBoardFor({ groupBy: "project", tasks: PAGE_TASKS, donePool, projectColumns: (active) => {
+    seen = active.map((t) => t.id);
+    return [{ key: "p:alpha", kind: "project", label: "Alpha", tasks: active.filter((t) => t.project === "Alpha") }];
+  } });
+  assert.deepEqual(seen, [1]);
+  assert.deepEqual(where(proj, "c-2"), ["done"]);
+  assert.equal(H.kanbanBoardFor({ groupBy: "quadrant", tasks: PAGE_TASKS, donePool }), null);
+});
+
+test("kanbanMoveAction: dari Selesai ke tahap = reopen gtd_status next; Selesai→Selesai none; kolom asal dari kartu", async () => {
+  const H = loadHelpers();
+  const donePool = H.kanbanDonePool(PAGE_TASKS, "done", TODAY);
+  const board = H.kanbanBoardFor({ groupBy: "context", tasks: PAGE_TASKS, donePool, items: ITEMS, scope: "", sharedLists: [] });
+  const doneTask = PAGE_TASKS[1];
+  const base = { task: doneTask, columns: board.columns, groupBy: "context", online: true, todayIso: TODAY };
+  const a = H.kanbanMoveAction(Object.assign({}, base, { fromKey: "done", toKey: "stage:6" }));
+  assert.deepEqual(a, { type: "reopen", patch: { gtd_status: "next", context_id: 6, context: "Review" } });
+  const r = deps(); await H.runKanbanAction(a, doneTask, r.d);
+  assert.deepEqual(r.calls, [["update", "c-2", { gtd_status: "next", context_id: 6, context: "Review" }]]);
+  assert.deepEqual(H.kanbanMoveAction(Object.assign({}, base, { fromKey: "done", toKey: "done" })), { type: "none" });
+  assert.deepEqual(H.kanbanMoveAction(Object.assign({}, base, { fromKey: "nope", toKey: "stage:6" })), { type: "none" });
+  const pri = H.kanbanBoardFor({ groupBy: "priority", tasks: PAGE_TASKS, donePool });
+  assert.deepEqual(H.kanbanMoveAction({ task: doneTask, columns: pri.columns, fromKey: "done", toKey: "pri:P1", groupBy: "priority", online: true, todayIso: TODAY }),
+    { type: "reopen", patch: { gtd_status: "next", priority: "P1" } });
+});
+
+test("kanbanCheckAction (onKanbanCheck): uncheck done → next; recurring online → occurrence; offline → blocked; normal → done", async () => {
+  const H = loadHelpers();
+  const recur = { id: 7, title: "r", gtd_status: "next", context: "", list_id: null, recurrence_type: "daily" };
+  const plain = { id: "c-8", title: "p", gtd_status: "next", context: "", list_id: null, recurrence_type: "" };
+  const doneT = { id: 9, title: "d", gtd_status: "done", context: "Doing", context_id: 5, list_id: null, completed_at: "2026-10-19T03:00:00Z" };
+  const board = H.kanbanBoardFor({ groupBy: "context", tasks: [recur, plain], donePool: [doneT], items: ITEMS, scope: "", sharedLists: [] });
+  const run = async (task, fromKey, online) => {
+    const r = deps();
+    const a = H.kanbanCheckAction({ task, columns: board.columns, fromKey, groupBy: "context", online, todayIso: TODAY });
+    await H.runKanbanAction(a, task, r.d);
+    return r.calls;
+  };
+  assert.deepEqual(await run(doneT, "done", true), [["update", 9, { gtd_status: "next" }]]);
+  assert.deepEqual(await run(recur, "none", true), [["post", "/api/tasks/7/occurrences/2026-10-20/mark", { status: "done" }], ["after"]]);
+  assert.deepEqual(await run(recur, "none", false), [["toast", "Tidak bisa dilakukan saat offline", "error"]]);
+  assert.deepEqual(await run(plain, "none", true), [["done", "c-8"]]);
+});
+
+test("kanbanScopeFor: workspace tersimpan yang tidak ada lagi → \"\"; slist_W memaksa W", () => {
+  const H = loadHelpers();
+  const opts = [{ value: "", label: "Pribadi" }, { value: "9", label: "👥 W" }];
+  assert.equal(H.kanbanScopeFor("next", opts, "9"), "9");
+  assert.equal(H.kanbanScopeFor("next", opts, "12"), "");
+  assert.equal(H.kanbanScopeFor("next", opts, null), "");
+  assert.equal(H.kanbanScopeFor("slist_12", [], ""), "12");
+  assert.equal(H.kanbanScopeFor("slist_c-ws", opts, "9"), "c-ws");
 });

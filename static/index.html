@@ -12651,12 +12651,71 @@ async function runKanbanAction(action, task, deps) {
     return;
   }
 }
+// Scope papan: halaman slist_<W> → W tetap; selain itu pilihan tersimpan bila masih ada di opsi, lainnya "".
+function kanbanScopeFor(page, options, stored) {
+  const p = String(page || "");
+  if (p.startsWith("slist_")) return p.slice(6);
+  const v = stored == null ? "" : String(stored);
+  return (options || []).some(o => o && o.value === v) ? v : "";
+}
+// Kolom papan: kolom non-Selesai hanya dari task aktif (gtd_status !== "done"); "Selesai" dari donePool.
+// opts = {groupBy, tasks, donePool, items, scope, sharedLists, projectColumns(activeTasks) → kolom project}.
+function kanbanBoardFor(opts) {
+  const active = (opts.tasks || []).filter(t => t && t.gtd_status !== "done");
+  const donePool = opts.donePool || [];
+  if (opts.groupBy === "context") return window.TF.kanbanboard.buildContextBoard({
+    tasks: active,
+    donePool: donePool,
+    items: opts.items || [],
+    scope: opts.scope,
+    sharedLists: opts.sharedLists || []
+  });
+  if (opts.groupBy === "priority") return window.TF.kanbanboard.buildPriorityBoard({
+    tasks: active,
+    donePool: donePool
+  });
+  if (opts.groupBy === "project" && opts.projectColumns) return {
+    columns: window.TF.kanbanboard.withDoneColumn(opts.projectColumns(active), donePool)
+  };
+  return null;
+}
+// Aksi pindah kartu dari kolom asal (diketahui kartu) ke kolom tujuan; kolom tak dikenal → none.
+function kanbanMoveAction(m) {
+  const cols = m.columns || [];
+  const from = cols.find(c => c.key === m.fromKey);
+  const to = cols.find(c => c.key === m.toKey);
+  if (!m.task || !from || !to) return {
+    type: "none"
+  };
+  return window.TF.kanbanboard.dropAction({
+    task: m.task,
+    from: from,
+    to: to,
+    groupBy: m.groupBy,
+    online: m.online,
+    todayIso: m.todayIso
+  });
+}
+// Checkbox kartu: hapus centang task done → buka lagi di tahapnya sendiri (K2, gtd_status next saja);
+// centang → sama dengan drop ke "Selesai" (K1: occurrence hari ini / diblokir offline untuk task berulang).
+function kanbanCheckAction(m) {
+  if (m.task && m.task.gtd_status === "done") return {
+    type: "reopen",
+    patch: {
+      gtd_status: "next"
+    }
+  };
+  return kanbanMoveAction(Object.assign({}, m, {
+    toKey: "done"
+  }));
+}
 // Warna hex #rrggbb + alpha; selain hex → null (pemanggil memakai warna netral).
 function kanbanTint(color, alpha) {
   return typeof color === "string" && /^#[0-9a-fA-F]{6}$/.test(color) ? color + alpha : null;
 }
 function KanbanCard({
   task,
+  columnKey,
   groupBy,
   todayIso,
   currentUser,
@@ -12753,7 +12812,7 @@ function KanbanCard({
     onClick: e => e.stopPropagation(),
     onChange: e => {
       e.stopPropagation();
-      if (onCheck) onCheck(task);
+      if (onCheck) onCheck(task, columnKey);
     },
     style: {
       marginTop: 2,
@@ -12836,7 +12895,7 @@ function KanbanCard({
     onClick: e => {
       e.stopPropagation();
       closeMenu();
-      if (onMove) onMove(task.id, t.key);
+      if (onMove) onMove(task.id, t.key, columnKey);
     },
     style: {
       display: "block",
@@ -12951,8 +13010,9 @@ function KanbanColumn({
     // Id dibawa apa adanya (angka server atau cid) — tanpa konversi angka.
     const taskId = e.dataTransfer.getData("text/plain");
     if (!taskId) return;
-    if (dragSourceRef.current === groupKey) return;
-    onMoveTask(taskId, groupKey);
+    const fromKey = dragSourceRef.current;
+    if (fromKey == null || fromKey === groupKey) return;
+    onMoveTask(taskId, groupKey, fromKey);
   };
   return /*#__PURE__*/React.createElement("div", {
     onDragOver: handleDragOver,
@@ -13019,6 +13079,7 @@ function KanbanColumn({
   }, tasks.map(t => /*#__PURE__*/React.createElement(KanbanCard, {
     key: String(t.id),
     task: t,
+    columnKey: groupKey,
     groupBy: groupBy,
     todayIso: todayIso,
     currentUser: currentUser,
@@ -13603,33 +13664,39 @@ function TaskListView({
     },
     projectTargetFor: projectTargetFor
   };
-  // Drop / "Pindah ke…" / checkbox kartu: aksi diputuskan model papan (dropAction), dijalankan runKanbanAction.
+  // Drop / "Pindah ke…" / checkbox kartu: kolom asal dikirim kartu (bukan dicari), aksi diputuskan model
+  // papan (dropAction lewat kanbanMoveAction / kanbanCheckAction) dan dijalankan runKanbanAction.
   // Id dibandingkan sebagai string (angka server atau cid).
-  const onMoveTask = async (taskId, targetGroupKey) => {
-    if (!kanbanBoard) return;
+  const kanbanFindTask = (taskId, fromKey) => {
+    if (!kanbanBoard) return null;
     const id = String(taskId);
-    const task = filtered.find(t => String(t.id) === id) || kanbanDone.find(t => String(t.id) === id);
+    const col = kanbanBoard.columns.find(c => c.key === fromKey);
+    return col && col.tasks.find(t => String(t.id) === id) || null;
+  };
+  const onMoveTask = async (taskId, targetGroupKey, fromKey) => {
+    const task = kanbanFindTask(taskId, fromKey);
     if (!task) return;
-    const columns = kanbanBoard.columns;
-    const from = columns.find(c => c.tasks.some(t => String(t.id) === id));
-    const to = columns.find(c => c.key === targetGroupKey);
-    const action = window.TF.kanbanboard.dropAction({
+    const action = kanbanMoveAction({
       task,
-      from,
-      to,
+      columns: kanbanBoard.columns,
+      fromKey,
+      toKey: targetGroupKey,
       groupBy,
       online: navigator.onLine !== false,
       todayIso: kanbanToday
     });
     await runKanbanAction(action, task, kanbanDeps);
   };
-  // Checkbox kartu: centang = aksi drop ke "Selesai" (termasuk occurrence hari ini untuk task berulang);
-  // hapus centang pada task done = buka lagi di tahapnya sendiri (K2).
-  const onKanbanCheck = task => {
-    if (task.gtd_status === "done") return kanbanDeps.onUpdateTask(task.id, {
-      gtd_status: "next"
+  const onKanbanCheck = async (task, fromKey) => {
+    const action = kanbanCheckAction({
+      task,
+      columns: kanbanBoard ? kanbanBoard.columns : [],
+      fromKey,
+      groupBy,
+      online: navigator.onLine !== false,
+      todayIso: kanbanToday
     });
-    return onMoveTask(task.id, "done");
+    await runKanbanAction(action, task, kanbanDeps);
   };
   const buildGroups = tasks => {
     if (groupBy === "none") return [{
@@ -13700,34 +13767,24 @@ function TaskListView({
   const kanbanDone = kanbanOn ? applyPanelFilters(kanbanDonePool(allTasks, page, kanbanToday)) : [];
   const kanbanScopeOpts = kanbanOn && groupBy === "context" && !isWorkspacePage ? window.TF.kanbanboard.scopeOptions((tasks || []).concat(kanbanDone), sharedLists) : [];
   // Halaman workspace: scope tetap W; selain itu pilihan tersimpan, nilai yang tidak ada di opsi → pribadi.
-  const kanbanScope = isWorkspacePage ? page.slice(6) : kanbanScopeOpts.some(o => o.value === kanbanScopePick) ? kanbanScopePick : "";
-  let kanbanBoard = null;
-  if (kanbanOn && groupBy === "context") {
-    kanbanBoard = window.TF.kanbanboard.buildContextBoard({
-      tasks: filtered,
-      donePool: kanbanDone,
-      items: contextItems || [],
-      scope: kanbanScope,
-      sharedLists: sharedLists
-    });
-  } else if (kanbanOn && groupBy === "priority") {
-    kanbanBoard = window.TF.kanbanboard.buildPriorityBoard({
-      tasks: filtered,
-      donePool: kanbanDone
-    });
-  } else if (kanbanOn && groupBy === "project") {
-    // Logika grup project lama (buildGroups mengisi projGroupMetaRef) + kolom "Selesai".
-    const projColumns = buildGroups(filtered).map(g => ({
+  const kanbanScope = kanbanScopeFor(page, kanbanScopeOpts, kanbanScopePick);
+  // Kolom non-Selesai hanya dari task aktif; task done hanya di "Selesai" (kanbanBoardFor).
+  // Group by Project: logika grup project lama (buildGroups mengisi projGroupMetaRef).
+  const kanbanBoard = kanbanOn ? kanbanBoardFor({
+    groupBy,
+    tasks: filtered,
+    donePool: kanbanDone,
+    items: contextItems || [],
+    scope: kanbanScope,
+    sharedLists: sharedLists,
+    projectColumns: active => buildGroups(active).map(g => ({
       key: g.key,
       kind: "project",
       label: g.label || g.key,
       badge: g.badge,
       tasks: window.TF.kanbanboard.sortCards(g.tasks)
-    }));
-    kanbanBoard = {
-      columns: window.TF.kanbanboard.withDoneColumn(projColumns, kanbanDone)
-    };
-  }
+    }))
+  }) : null;
   const kanbanHidden = kanbanBoard && kanbanBoard.hiddenOtherScope || 0;
   return /*#__PURE__*/React.createElement("div", {
     className: "fade-in"
