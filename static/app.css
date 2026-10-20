@@ -137,6 +137,19 @@
     [data-theme="dark"] .sidebar-rail-btn:hover { background: rgba(255,255,255,0.07); color: #e5e5e5; }
     [data-theme="dark"] .sidebar-rail-btn.active { background: rgba(168,197,0,0.18); color: #A8C500; }
     [data-theme="dark"] .sidebar-rail-divider { background: rgba(255,255,255,0.08); }
+    .sidebar-rail-ws-avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; line-height: 1; color: #fff; user-select: none; transition: box-shadow 0.15s; }
+    .sidebar-rail-btn.active .sidebar-rail-ws-avatar { box-shadow: 0 0 0 2px var(--accent); }
+    .ws-c0 { background: #2563eb; } .ws-c1 { background: #7c3aed; } .ws-c2 { background: #be185d; } .ws-c3 { background: #c2410c; }
+    .ws-c4 { background: #15803d; } .ws-c5 { background: #0f766e; } .ws-c6 { background: #a16207; } .ws-c7 { background: #475569; }
+    [data-theme="dark"] .ws-c0 { background: #3b6fd9; } [data-theme="dark"] .ws-c1 { background: #8b5cf6; } [data-theme="dark"] .ws-c2 { background: #c4306f; } [data-theme="dark"] .ws-c3 { background: #d4581c; }
+    [data-theme="dark"] .ws-c4 { background: #22a04f; } [data-theme="dark"] .ws-c5 { background: #14917f; } [data-theme="dark"] .ws-c6 { background: #b87a0c; } [data-theme="dark"] .ws-c7 { background: #64748b; }
+    .sidebar-rail-ctx { position: fixed; z-index: 1000; min-width: 150px; padding: 4px; background: var(--bg-primary, #fff); border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.16); display: flex; flex-direction: column; }
+    .sidebar-rail-ctx button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: none; background: none; border-radius: 7px; color: #0f172a; font-family: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+    .sidebar-rail-ctx button:hover:not(:disabled), .sidebar-rail-ctx button:focus-visible { background: rgba(0,0,0,0.06); outline: none; }
+    .sidebar-rail-ctx button:disabled { opacity: 0.45; cursor: not-allowed; }
+    [data-theme="dark"] .sidebar-rail-ctx { background: #262626; border-color: rgba(255,255,255,0.1); box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+    [data-theme="dark"] .sidebar-rail-ctx button { color: #e5e5e5; }
+    [data-theme="dark"] .sidebar-rail-ctx button:hover:not(:disabled), [data-theme="dark"] .sidebar-rail-ctx button:focus-visible { background: rgba(255,255,255,0.08); }
     /* Page-level sidebar toggles (Notes/Draw/Mindmap) sit right of the rail, not under it */
     .main-content.sidebar-rail-visible .sidebar-toggle { left: var(--sidebar-rail-w); }
 

@@ -2530,9 +2530,31 @@ function Sidebar({
   collapsed,
   onToggleCollapse,
   sharedLists,
-  onManageProjects
+  onManageProjects,
+  onUnpinWorkspace
 }) {
   const [hiddenSections, setHiddenSections] = useState({});
+  const [railCtx, setRailCtx] = useState(null); // { id, name, x, y } | null
+  useEffect(() => {
+    if (!railCtx) return undefined;
+    const close = () => setRailCtx(null);
+    const onKey = e => {
+      if (e.key === "Escape") close();
+    };
+    const onDown = e => {
+      if (!e.target.closest || !e.target.closest(".sidebar-rail-ctx")) close();
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("blur", close);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [railCtx]);
   const toggleSection = name => setHiddenSections(s => ({
     ...s,
     [name]: !s[name]
@@ -2777,6 +2799,8 @@ function Sidebar({
   // Icon rail (desktop, collapsed): logo + expand button + the main (pre-GTD) links only
   const firstSectionIdx = links.findIndex(l => l.section);
   const railLinks = links.slice(0, firstSectionIdx === -1 ? links.length : firstSectionIdx);
+  const WP = window.TF && window.TF.workspacepins;
+  const railPins = WP ? WP.pinnedForRail(sharedLists) : [];
   const rail = /*#__PURE__*/React.createElement("div", {
     className: "sidebar-rail",
     "data-tour": "sidebar-rail"
@@ -2817,7 +2841,85 @@ function Sidebar({
     name: l.icon
   }), l.count > 0 && /*#__PURE__*/React.createElement("span", {
     className: "sidebar-rail-badge"
-  }, l.count > 9 ? "9+" : l.count))));
+  }, l.count > 9 ? "9+" : l.count))), railPins.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "sidebar-rail-divider"
+  }), railPins.map(w => {
+    const wsPage = "slist_" + w.id;
+    const active = page === wsPage;
+    const openCtx = (e, x, y) => {
+      e.preventDefault();
+      setRailCtx({
+        id: w.id,
+        name: w.name,
+        x,
+        y
+      });
+    };
+    return /*#__PURE__*/React.createElement("button", {
+      key: w.id,
+      type: "button",
+      className: `sidebar-rail-btn sidebar-rail-ws ${active ? "active" : ""}`,
+      title: w.name,
+      "aria-label": w.name,
+      "aria-current": active ? "page" : undefined,
+      "aria-haspopup": "menu",
+      onClick: () => {
+        setPage(wsPage);
+        onClose?.();
+      },
+      onContextMenu: e => openCtx(e, e.clientX, e.clientY),
+      onKeyDown: e => {
+        if (e.key === "ContextMenu" || e.shiftKey && e.key === "F10") {
+          const r = e.currentTarget.getBoundingClientRect();
+          openCtx(e, r.right + 4, r.top);
+        }
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      className: `sidebar-rail-ws-avatar ws-c${WP ? WP.avatarColorIndex(w.id) : 0}`,
+      "aria-hidden": "true"
+    }, WP ? WP.avatarInitial(w.name) : "?"));
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: `sidebar-rail-btn ${page === "manage_lists" ? "active" : ""}`,
+    title: "Semua workspace",
+    "aria-label": "Semua workspace",
+    "aria-current": page === "manage_lists" ? "page" : undefined,
+    onClick: () => setPage("manage_lists")
+  }, /*#__PURE__*/React.createElement(NavIcon, {
+    name: "more-horizontal"
+  })), railCtx && /*#__PURE__*/React.createElement("div", {
+    className: "sidebar-rail-ctx",
+    role: "menu",
+    style: {
+      left: Math.min(railCtx.x, window.innerWidth - 168),
+      top: Math.min(railCtx.y, window.innerHeight - 90)
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    role: "menuitem",
+    autoFocus: true,
+    onClick: () => {
+      setPage("slist_" + railCtx.id);
+      setRailCtx(null);
+      onClose?.();
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "chevron-right",
+    size: 14
+  }), "Buka"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    role: "menuitem",
+    disabled: !navigator.onLine,
+    title: !navigator.onLine ? "Butuh koneksi internet" : undefined,
+    onClick: () => {
+      const id = railCtx.id;
+      setRailCtx(null);
+      onUnpinWorkspace?.(id);
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "pin-off",
+    size: 14
+  }), "Lepas pin")));
   return /*#__PURE__*/React.createElement("div", {
     className: `sidebar ${isOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`
   }, rail, /*#__PURE__*/React.createElement("div", {
