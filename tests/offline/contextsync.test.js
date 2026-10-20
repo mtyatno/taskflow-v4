@@ -1,6 +1,6 @@
 "use strict";
 // Kanban tahap kustom — Task 2: context_id / context_ref_name di record task (hydrate, taskrepo, pull).
-// (Task 3 menambahkan tes push ke file ini.)
+// Task 3: push — op create tahap, context_id di payload task, penahanan op, heal entri pending.
 const { test, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -296,4 +296,264 @@ test("sync() dispatches tf:contexts-changed right after tf:projects-changed (old
   assert.ok(syncFn.slice(p, c).indexOf(".catch(") < 0);
   // regex lama project_views.test.js
   assert.match(syncFn, /pullAndReconcile\(__syncRawFetch\)\.then\(\(?\w*\)? => \{[^}]*tf:projects-changed/);
+});
+
+// ══ Task 3: push — op create tahap + context_id di payload task ═══════════════════════════════
+const SP = require("../../static/offline/syncpush.js");
+const OB = require("../../static/offline/outbox.js");
+const { cidOf } = require("../../static/offline/idmap.js");
+const META = require("../../static/offline/meta.js");
+
+function fakeTransport(handler) {
+  const calls = [];
+  return {
+    calls,
+    request(method, p, body) {
+      calls.push({ method, path: p, body });
+      return Promise.resolve().then(() => handler(method, p, body));
+    },
+  };
+}
+const ctxOp = (cid) => ({ op: "create", entity_type: "context", cid, payload: { cid } });
+async function pendingNow() { const v = await metaGet(CC.PENDING_KEY); return (v && v.items) || []; }
+
+test("task payloads carry numeric context_id via F1", () => {
+  const items = [ctx({ id: 7, name: "Review" }), ctx({ id: 9, name: "Lain" })];
+  const bound = task({ cid: "a", context: "review", context_id: 7, context_ref_name: "Review" });
+  assert.equal(SP.taskToCreatePayload(bound, [], null, [], items).context_id, 7);
+  assert.equal(SP.taskToUpdatePayload(bound, [], [], items).context_id, 7);
+  // teks diganti ke nama lain yang dikenal → id nama itu
+  const moved = task({ cid: "b", context: "Lain", context_id: 7, context_ref_name: "Review" });
+  assert.equal(SP.taskToCreatePayload(moved, [], null, [], items).context_id, 9);
+  assert.equal(SP.taskToUpdatePayload(moved, [], [], items).context_id, 9);
+  // cid pending tidak pernah dikirim; tanpa id → null; teks tetap
+  const pend = task({ cid: "c", context: "Baru", context_id: "cid-x", context_ref_name: "Baru" });
+  const pc = SP.taskToCreatePayload(pend, [], null, [], items);
+  assert.equal(pc.context_id, null);
+  assert.equal(pc.context, "Baru");
+  assert.equal(SP.taskToUpdatePayload(pend, [], [], items).context_id, null);
+  assert.equal(SP.taskToUpdatePayload(task({ cid: "d" }), [], [], items).context_id, null);
+});
+
+test("push holds task until context create, then sends server id", async () => {
+  const { item } = await CC.addPending(null, "Baru");
+  await OB.outboxAdd(ctxOp(item.cid));
+  const t = await createTask({ title: "t", context: "Baru" }, TODAY);
+  assert.equal((await getRaw(t.cid)).context_id, item.cid);
+  const tr = fakeTransport((m, p) => {
+    if (m === "POST" && p === "/api/contexts") return { ok: true, status: 201, data: ctx({ id: 31, name: "Baru" }) };
+    if (m === "POST" && p === "/api/tasks") return { ok: true, status: 201, data: { id: 50, updated_at: "u1", context: "Baru", context_id: 31 } };
+    return { ok: false, status: 500, data: {} };
+  });
+  await SP.pushOutbox(tr);
+  assert.deepEqual(tr.calls.map((c) => c.method + " " + c.path), ["POST /api/contexts", "POST /api/tasks"]);
+  assert.deepEqual(tr.calls[0].body, { name: "Baru", list_id: null, client_id: item.cid });
+  assert.equal(tr.calls[1].body.context_id, 31);
+  assert.equal(tr.calls[1].body.context, "Baru");
+  assert.deepEqual(await pendingNow(), []);
+  assert.ok((await metaGet(CC.KEY)).items.some((c) => c.id === 31));
+  assert.equal(await cidOf("context", 31), item.cid);
+  const r = await getRaw(t.cid);
+  assert.equal(r.context_id, 31);
+  assert.equal(r.context_ref_name, "Baru");
+  assert.equal(r.server_id, 50);
+  assert.deepEqual(await OB.outboxAll(), []);
+});
+
+test("task create queued before its context op is held, then sent next drain", async () => {
+  const { item } = await CC.addPending(null, "Baru");
+  const t = await createTask({ title: "t", context: "Baru" }, TODAY); // op task lebih dulu di FIFO
+  await OB.outboxAdd(ctxOp(item.cid));
+  const tr = fakeTransport((m, p) => {
+    if (p === "/api/contexts") return { ok: true, status: 201, data: ctx({ id: 31, name: "Baru" }) };
+    return { ok: true, status: 201, data: { id: 50, updated_at: "u1", context: "Baru", context_id: 31 } };
+  });
+  await SP.pushOutbox(tr);
+  assert.deepEqual(tr.calls.map((c) => c.path), ["/api/contexts"]);
+  assert.equal((await getRaw(t.cid)).context_id, 31);
+  await SP.pushOutbox(tr);
+  assert.deepEqual(tr.calls.map((c) => c.path), ["/api/contexts", "/api/tasks"]);
+  assert.equal(tr.calls[1].body.context_id, 31);
+});
+
+test("task update with pending context cid is held", async () => {
+  const { item } = await CC.addPending(null, "Baru");
+  await OB.outboxAdd(ctxOp(item.cid));
+  await put("tasks", [task({ cid: "a", server_id: 60, context: "Baru", context_id: item.cid, context_ref_name: "Baru",
+    dirty: 1, rev: 2, base_rev: "u0" })]);
+  await mapPut("task", 60, "a");
+  await OB.outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  let ctxStatus = 503;
+  const tr = fakeTransport((m, p) => {
+    if (p === "/api/contexts") return ctxStatus === 201
+      ? { ok: true, status: 201, data: ctx({ id: 31, name: "Baru" }) }
+      : { ok: false, status: ctxStatus, data: {} };
+    return { ok: true, status: 200, data: { id: 60, updated_at: "u2", context: "Baru", context_id: 31 } };
+  });
+  await SP.pushOutbox(tr);
+  assert.deepEqual(tr.calls.map((c) => c.method + " " + c.path), ["POST /api/contexts"]); // PUT ditahan
+  assert.equal((await OB.outboxAll()).length, 2);
+  assert.equal((await pendingNow()).length, 1);
+  ctxStatus = 201;
+  await SP.pushOutbox(tr);
+  assert.deepEqual(tr.calls.map((c) => c.method + " " + c.path),
+    ["POST /api/contexts", "POST /api/contexts", "PUT /api/tasks/60"]);
+  assert.equal(tr.calls[2].body.context_id, 31);
+  assert.deepEqual(await OB.outboxAll(), []);
+  const r = await getRaw("a");
+  assert.equal(r.context_id, 31);
+  assert.equal(r.dirty, 0);
+});
+
+test("context create permanent failure clears cid on tasks and sends name only", async () => {
+  for (const status of [403, 404, 422]) {
+    _reset(); await deleteDB(DB_NAME);
+    const { item } = await CC.addPending(5, "Baru");
+    await OB.outboxAdd(ctxOp(item.cid));
+    const t = await createTask({ title: "t", context: "Baru", list_id: 5 }, TODAY);
+    assert.equal((await getRaw(t.cid)).context_id, item.cid);
+    const tr = fakeTransport((m, p) => (p === "/api/contexts"
+      ? { ok: false, status, data: { detail: "x" } }
+      : { ok: true, status: 201, data: { id: 50, updated_at: "u1", context: "Baru", context_id: null } }));
+    await SP.pushOutbox(tr);
+    assert.deepEqual(tr.calls.map((c) => c.path), ["/api/contexts", "/api/tasks"], "status " + status);
+    assert.equal(tr.calls[0].body.list_id, 5);
+    assert.equal(tr.calls[1].body.context_id, null);
+    assert.equal(tr.calls[1].body.context, "Baru");
+    assert.deepEqual(await pendingNow(), []);
+    const r = await getRaw(t.cid);
+    assert.equal(r.context, "Baru");
+    assert.equal(r.context_id, null);
+    assert.equal(r.context_ref_name, null);
+    assert.deepEqual(await OB.outboxAll(), []);
+  }
+});
+
+test("context create network error keeps op and pending", async () => {
+  for (const mode of ["network", 500, 429, 401]) {
+    _reset(); await deleteDB(DB_NAME);
+    const { item } = await CC.addPending(null, "Baru");
+    await OB.outboxAdd(ctxOp(item.cid));
+    const t = await createTask({ title: "t", context: "Baru" }, TODAY);
+    const tr = fakeTransport((m, p) => {
+      if (p !== "/api/contexts") return { ok: true, status: 201, data: { id: 50, updated_at: "u1" } };
+      if (mode === "network") throw new Error("offline");
+      return { ok: false, status: mode, data: {} };
+    });
+    await SP.pushOutbox(tr);
+    assert.deepEqual(tr.calls.map((c) => c.path), ["/api/contexts"], "mode " + mode);
+    assert.equal((await pendingNow()).length, 1);
+    const ops = await OB.outboxAll();
+    assert.equal(ops.filter((o) => o.entity_type === "context").length, 1);
+    assert.equal(ops.filter((o) => o.entity_type === "task").length, 1);
+    assert.equal((await getRaw(t.cid)).context_id, item.cid);
+  }
+});
+
+test("context op without pending entry is dropped without a request", async () => {
+  await OB.outboxAdd(ctxOp("gone-cid"));
+  const tr = fakeTransport(() => ({ ok: true, status: 201, data: ctx({ id: 1 }) }));
+  await SP.pushOutbox(tr);
+  assert.equal(tr.calls.length, 0);
+  assert.deepEqual(await OB.outboxAll(), []);
+});
+
+test("pending read error keeps the context op (retry later, not 'gone')", async () => {
+  const { item } = await CC.addPending(null, "Baru");
+  await OB.outboxAdd(ctxOp(item.cid));
+  const orig = META.metaGet;
+  META.metaGet = (k) => (k === CC.PENDING_KEY ? Promise.reject(new Error("idb read")) : orig(k));
+  try {
+    const tr = fakeTransport(() => ({ ok: true, status: 201, data: ctx({ id: 31, name: "Baru" }) }));
+    await SP.pushOutbox(tr);
+    assert.equal(tr.calls.length, 0);
+  } finally { META.metaGet = orig; }
+  assert.equal((await OB.outboxAll()).length, 1);
+  assert.equal((await pendingNow()).length, 1);
+});
+
+test("context create success rewrites clean synced tasks: canonical name, dirty, update op", async () => {
+  const { item } = await CC.addPending(null, "baru");
+  await OB.outboxAdd(ctxOp(item.cid));
+  await put("tasks", [
+    task({ cid: "a", server_id: 60, context: "baru", context_id: item.cid, context_ref_name: "baru", dirty: 0, rev: 1, base_rev: "u0" }),
+    task({ cid: "b", server_id: 61, context: "Lain", context_id: null, dirty: 0, rev: 1 }),
+  ]);
+  await mapPut("task", 60, "a");
+  const seen = [];
+  const w = { dispatchEvent: (e) => { seen.push(e.type); } };
+  const had = Object.prototype.hasOwnProperty.call(globalThis, "window");
+  const prev = globalThis.window;
+  globalThis.window = w;
+  try {
+    const tr = fakeTransport(() => ({ ok: true, status: 201, data: ctx({ id: 31, name: "Baru" }) }));
+    await SP.pushOutbox(tr);
+  } finally { if (had) globalThis.window = prev; else delete globalThis.window; }
+  assert.ok(seen.includes("tf:contexts-changed"));
+  const r = await getRaw("a");
+  assert.equal(r.context_id, 31);
+  assert.equal(r.context, "Baru");
+  assert.equal(r.context_ref_name, "Baru");
+  assert.equal(r.dirty, 1);
+  assert.equal(r.rev, 2);
+  const rb = await getRaw("b");
+  assert.equal(rb.rev, 1);
+  const ops = await OB.outboxAll();
+  assert.deepEqual(ops.map((o) => o.entity_type + ":" + o.op + ":" + o.cid), ["task:update:a"]);
+});
+
+test("stale device does not resend deleted context", async () => {
+  await seedCache([ctx({ id: 9, name: "Lain" })]); // id 5 sudah dihapus di server
+  await put("tasks", [task({ cid: "a", server_id: 60, context: "Lama", context_id: 5, context_ref_name: "Lama", dirty: 1, rev: 1, base_rev: "u0" })]);
+  await mapPut("task", 60, "a");
+  await OB.outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  const tr = fakeTransport(() => ({ ok: true, status: 200, data: { id: 60, updated_at: "u1" } }));
+  await SP.pushOutbox(tr);
+  assert.equal(tr.calls[0].body.context_id, 5); // server yang mengabaikan id basi
+  assert.equal(tr.calls[0].body.context, "Lama");
+  // teks diganti offline ke nama yang tidak ada di cache → nama saja
+  await updateTask("a", { context: "Baru" }, TODAY);
+  await SP.pushOutbox(tr);
+  assert.equal(tr.calls[1].body.context_id, null);
+  assert.equal(tr.calls[1].body.context, "Baru");
+});
+
+test("taskAdopt adopts context fields", async () => {
+  await put("tasks", [task({ cid: "a", context: "review", dirty: 1, rev: 1 })]);
+  await OB.outboxAdd({ op: "create", entity_type: "task", cid: "a", payload: {} });
+  const tr = fakeTransport(() => ({ ok: true, status: 201, data: { id: 50, updated_at: "u1", context: "Review", context_id: 7 } }));
+  await SP.pushOutbox(tr);
+  let r = await getRaw("a");
+  assert.equal(r.context, "Review");
+  assert.equal(r.context_id, 7);
+  assert.equal(r.context_ref_name, "Review");
+  // server melepas tautan (teks kosong / null)
+  await mapPut("task", 50, "a");
+  await updateTask("a", { title: "x" }, TODAY);
+  const tr2 = fakeTransport(() => ({ ok: true, status: 200, data: { id: 50, updated_at: "u2", context: null, context_id: null } }));
+  await SP.pushOutbox(tr2);
+  r = await getRaw("a");
+  assert.equal(r.context, "");
+  assert.equal(r.context_id, null);
+  assert.equal(r.context_ref_name, null);
+});
+
+test("pushOutbox heals stranded pending stages (one op per entry, no duplicates)", async () => {
+  const a = (await CC.addPending(null, "A")).item;
+  const b = (await CC.addPending(null, "B")).item;
+  await OB.outboxAdd(ctxOp(b.cid)); // B masih punya op; A kehilangan op-nya
+  assert.equal(await SP.healStrandedContexts(), 1);
+  let ops = await OB.outboxAll();
+  assert.deepEqual(ops.filter((o) => o.entity_type === "context").map((o) => o.cid).sort(), [a.cid, b.cid].sort());
+  assert.deepEqual(ops.find((o) => o.cid === a.cid).payload, { cid: a.cid });
+  assert.equal(await SP.healStrandedContexts(), 0);
+  // pushOutbox memanggil heal: entri tanpa op terkirim pada drain yang sama
+  _reset(); await deleteDB(DB_NAME);
+  const c = (await CC.addPending(null, "C")).item;
+  const tr = fakeTransport(() => ({ ok: true, status: 201, data: ctx({ id: 40, name: "C" }) }));
+  await SP.pushOutbox(tr);
+  assert.deepEqual(tr.calls.map((x) => x.path), ["/api/contexts"]);
+  assert.equal(tr.calls[0].body.client_id, c.cid);
+  assert.deepEqual(await pendingNow(), []);
+  assert.deepEqual(await OB.outboxAll(), []);
 });

@@ -186,6 +186,14 @@
   function pendingByCid(cid) {
     return pendingItems().then((pending) => pending.find((c) => String(c.cid) === String(cid)) || null);
   }
+  // Untuk push: kegagalan baca MENOLAK (jangan dianggap "entri sudah tidak ada" → op dibuang).
+  function pendingByCidStrict(cid) {
+    return strictPendingItems().then((pending) => pending.find((c) => String(c.cid) === String(cid)) || null);
+  }
+  // Semua entri pending (baca strict: gagal → reject).
+  function pendingList() {
+    return strictPendingItems().then((pending) => pending.slice());
+  }
 
   // Record lama tanpa `context_ref_name`: teks `context` saat ini dianggap nama ikatannya.
   function refNameOf(record) {
@@ -211,7 +219,7 @@
   const exported = {
     KEY, PENDING_KEY, FULL_PATH,
     refresh, allItems, sortItems, list, names, findId,
-    addPending, resolvePending, dropPending, pendingByCid,
+    addPending, resolvePending, dropPending, pendingByCid, pendingByCidStrict, pendingList,
     refNameOf, payloadContextId,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.contextcache = exported; }
