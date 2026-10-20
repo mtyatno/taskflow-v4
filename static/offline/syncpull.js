@@ -158,15 +158,32 @@
   const TASK_DERIVED = ["quadrant", "recurrence_end_date", "recurrence_notif_level", "completed_at", "project", "project_id",
     "context", "context_id"];
   const ONLY_IF_SENT = ["project", "project_id", "context", "context_id"];
+  // context: null dan "" setara (record lama/lokal memakai "", server bisa null) → tanpa tulis ulang massal.
+  function derivedVal(k, v) { return v != null ? v : (k === "context" ? "" : null); }
+  function derivedDiffers(k, s, local) {
+    if (k === "context") return nocaseKey(derivedVal(k, s[k])) !== nocaseKey(derivedVal(k, local[k])) || derivedVal(k, s[k]) !== derivedVal(k, local[k]);
+    return (s[k] != null ? s[k] : null) !== (local[k] != null ? local[k] : null);
+  }
+  function nocaseKey(x) { return String(x == null ? "" : x).replace(/[A-Z]/g, (c) => c.toLowerCase()); }
   function adoptTaskDerived(s, local) {
     // project/context(+id) hanya bila server mengirimnya (dict lama/parsial tidak mengosongkan nilai lokal)
-    const keys = TASK_DERIVED.filter((k) => ONLY_IF_SENT.indexOf(k) < 0 || k in s);
-    const diff = keys.some((k) => (s[k] != null ? s[k] : null) !== (local[k] != null ? local[k] : null));
+    let keys = TASK_DERIVED.filter((k) => ONLY_IF_SENT.indexOf(k) < 0 || k in s);
+    // Tahap pending (context_id lokal = cid non-angka, belum di-push/dipetakan): server belum mengenalnya, jadi
+    // context_id null dengan teks sama (NOCASE) bukan bukti tautan dilepas → pertahankan tautan lokal.
+    if (local.context_id != null && !/^\d+$/.test(String(local.context_id)) && keys.indexOf("context_id") >= 0
+        && s.context_id == null
+        && nocaseKey(derivedVal("context", s.context)) === nocaseKey(derivedVal("context", local.context))) {
+      keys = keys.filter((k) => k !== "context_id" && k !== "context");
+    }
+    const diff = keys.some((k) => derivedDiffers(k, s, local));
     if (!diff) return Promise.resolve(false);
     return TFdb.mutate("tasks", local.cid, (cur) => {
       if (!sameRecState(cur, local)) return undefined;
       const next = Object.assign({}, cur);
-      for (const k of keys) next[k] = s[k] != null ? s[k] : null;
+      for (const k of keys) {
+        if (k === "context" && !derivedDiffers(k, s, local)) continue; // ""/null setara → biarkan nilai lokal
+        next[k] = s[k] != null ? s[k] : null;
+      }
       if (keys.indexOf("project_id") >= 0 || keys.indexOf("project") >= 0) {
         next.project_ref_name = next.project_id != null ? (next.project != null ? next.project : "") : null;
       }

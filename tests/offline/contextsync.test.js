@@ -205,6 +205,41 @@ test("pull does not clear local context_id when the server dict omits context fi
   assert.equal(r.context_ref_name, "Review");
 });
 
+test("pull keeps a pending-cid context link when the server row has context_id null and same text", async () => {
+  const { item } = await CC.addPending(null, "Review");
+  await put("tasks", [task({ cid: "a", server_id: 70, context: "Review", context_id: item.cid, context_ref_name: "Review",
+    dirty: 0, base_rev: "u0", updated_at: "u0", rev: 1 })]);
+  await mapPut("task", 70, "a");
+  await pullTasks([srvTask({ context: "review", context_id: null })]);
+  let r = await getRaw("a");
+  assert.equal(r.context_id, item.cid);
+  assert.equal(r.context_ref_name, "Review");
+  // server mengirim id angka → diadopsi
+  await pullTasks([srvTask({ context: "Review", context_id: 12 })]);
+  r = await getRaw("a");
+  assert.equal(r.context_id, 12);
+  assert.equal(r.context_ref_name, "Review");
+});
+
+test("pull: pending cid link is released when the server text differs (context changed elsewhere)", async () => {
+  const { item } = await CC.addPending(null, "Review");
+  await put("tasks", [task({ cid: "a", server_id: 70, context: "Review", context_id: item.cid, context_ref_name: "Review",
+    dirty: 0, base_rev: "u0", updated_at: "u0", rev: 1 })]);
+  await mapPut("task", 70, "a");
+  await pullTasks([srvTask({ context: "Lain", context_id: null })]);
+  const r = await getRaw("a");
+  assert.equal(r.context_id, null);
+  assert.equal(r.context, "Lain");
+});
+
+test("pull: context null vs \"\" is not a difference (no rewrite of clean tasks)", async () => {
+  await put("tasks", [task({ cid: "a", server_id: 70, context: "", dirty: 0, base_rev: "u0", updated_at: "u0", rev: 1 })]);
+  await mapPut("task", 70, "a");
+  const res = await pullTasks([srvTask({ context: null, context_id: null })]);
+  assert.equal(res.derived, 0);
+  assert.equal((await getRaw("a")).rev, 1);
+});
+
 test("pull refreshes context cache and failure does not fail pull", async () => {
   const items = [ctx({ id: 1, name: "Review" })];
   const seen = [];
