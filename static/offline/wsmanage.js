@@ -83,13 +83,61 @@
     for (const m of d.members || []) {
       if (!m || seen.has(m.id)) continue;
       seen.add(m.id);
-      rows.push({ id: m.id, username: m.username, display_name: m.display_name, role: "member" });
+      const row = { id: m.id, username: m.username, display_name: m.display_name, role: "member" };
+      if (m.joined_at) row.joined_at = m.joined_at;
+      rows.push(row);
     }
 
     return rows;
   }
 
-  const exported = { nameMatches, impactLines, memberRows };
+  function trimStr(v) {
+    return typeof v === "string" ? v.trim() : (v == null ? "" : String(v).trim());
+  }
+  function colorOf(v) {
+    return Number.isInteger(v) ? v : null;
+  }
+  function avatarOf(v) {
+    const s = trimStr(v);
+    return s ? s : null;
+  }
+
+  // Perubahan identitas workspace untuk body PATCH: hanya field yang berbeda dari aslinya.
+  // Nama/deskripsi di-trim; deskripsi null ≡ ""; avatar ""/null ≡ null; color_idx non-integer ≡ null.
+  function identityDiff(original, draft) {
+    const o = original || {};
+    const d = draft || {};
+    const out = {};
+    if (Object.prototype.hasOwnProperty.call(d, "name")) {
+      const n = trimStr(d.name);
+      if (n !== trimStr(o.name)) out.name = n;
+    }
+    if (Object.prototype.hasOwnProperty.call(d, "description")) {
+      const desc = trimStr(d.description);
+      if (desc !== trimStr(o.description)) out.description = desc;
+    }
+    if (Object.prototype.hasOwnProperty.call(d, "color_idx")) {
+      const c = colorOf(d.color_idx);
+      if (c !== colorOf(o.color_idx)) out.color_idx = c;
+    }
+    if (Object.prototype.hasOwnProperty.call(d, "avatar")) {
+      const a = avatarOf(d.avatar);
+      if (a !== avatarOf(o.avatar)) out.avatar = a;
+    }
+    return out;
+  }
+
+  // joined_at dari server ("YYYY-MM-DD HH:MM:SS" UTC SQLite, atau ISO) → Date; tidak valid → null.
+  function joinedDate(v) {
+    if (v == null || v === "") return null;
+    let s = String(v).trim();
+    if (/^\d{4}-\d{2}-\d{2} \d/.test(s)) s = s.replace(" ", "T");
+    if (/^\d{4}-\d{2}-\d{2}T[\d:.]+$/.test(s)) s += "Z";
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  const exported = { nameMatches, impactLines, memberRows, identityDiff, joinedDate };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.wsmanage = exported; }
   return exported;
 });

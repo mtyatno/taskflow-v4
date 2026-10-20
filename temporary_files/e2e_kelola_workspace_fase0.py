@@ -182,7 +182,8 @@ def panel(p, lid):
 
 
 def member_rows(p, lid):
-    return panel(p, lid).locator(":scope > div").filter(has=p.locator("span", has_text="@"))
+    # Fase 1: daftar anggota di dalam WorkspaceMembersSection (panel > heading, section > baris)
+    return panel(p, lid).locator(":scope > div > div").filter(has=p.locator("span", has_text="@"))
 
 
 def expand(p, lid):

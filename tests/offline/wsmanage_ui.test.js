@@ -18,7 +18,8 @@ function sliceBetween(startMarker, endMarker) {
   return html.slice(start, end);
 }
 
-// SharedListsManager + WorkspaceDeleteDialog (didefinisikan tepat sesudahnya) s/d Sidebar.
+// SharedListsManager + WorkspaceMembersSection (Fase 1: panel anggota diekstrak, dipakai juga halaman
+// WorkspaceManagePage) + WorkspaceDeleteDialog s/d Sidebar.
 const block = sliceBetween("\nfunction SharedListsManager(", "\nfunction Sidebar(");
 const dialog = sliceBetween("\nfunction WorkspaceDeleteDialog(", "\nfunction Sidebar(");
 
@@ -74,8 +75,10 @@ test("aksesibilitas: aria-expanded, aria-controls, aria-label keluarkan, dialog 
 
 test("memakai helper wsmanage, delete-impact lewat jaringan, dan kelas tema", () => {
   // helper dijaga: window.TF.wsmanage tidak ada → baris anggota [] (tanpa crash), dihitung sekali per render
+  // (Fase 1: satu workspace per WorkspaceMembersSection → detail tunggal, bukan peta details[l.id])
   assert.ok(block.includes("const WSM = window.TF && window.TF.wsmanage;"));
-  assert.ok(block.includes("WSM ? WSM.memberRows(details[l.id]) : []"));
+  assert.ok(block.includes("WSM ? WSM.memberRows(detail) : []"));
+  assert.ok(block.includes("React.createElement(WorkspaceMembersSection"));
   assert.equal((block.match(/memberRows\(/g) || []).length, 1);
   assert.ok(!block.includes("window.TF.wsmanage.memberRows"));
   assert.ok(dialog.includes("const WS = window.TF && window.TF.wsmanage;"));
@@ -95,10 +98,11 @@ test("memakai helper wsmanage, delete-impact lewat jaringan, dan kelas tema", ()
   assert.doesNotMatch(block, /api\.get\(`\/api\/lists\/\$\{listId\}`, \{ network: true \}\)/);
   // gagal memuat anggota tanpa data → pesan + Coba lagi (bukan "Memuat…" selamanya)
   assert.ok(block.includes("\"Gagal memuat anggota.\""));
-  assert.match(block, /memberErrors\[l\.id\][\s\S]{0,800}"Coba lagi"/);
-  assert.match(block, /catch \(e\) \{\n\s*console\.warn\([^)]*\);\n\s*setMemberErrors/);
+  assert.match(block, /!detail && memberError\)[\s\S]{0,800}"Coba lagi"/);
+  assert.match(block, /catch \(e\) \{\n\s*console\.warn\([^)]*\);\n\s*setMemberError\(true\)/);
   // detail selalu diambil ulang (guard cache lama dihapus)
   assert.ok(!/if \(members\[listId\]\) return;/.test(block));
+  assert.ok(!/if \(detail\) return;/.test(block));
   // keluar memakai dialog Alurik sebagai confirmFn
   assert.match(block, /confirmFn: [^\n]*askDrawingScope/);
   assert.match(block, /confirmFn:[\s\S]{0,200}note: "Task belum selesai yang ditugaskan kepadamu di workspace ini akan dilepas penanggung jawabnya\."/);

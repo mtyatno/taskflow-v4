@@ -13,14 +13,15 @@ function sliceFn(name) {
   assert.ok(e > s, name + " slice");
   return indexHtml.slice(s, e);
 }
-const manager = sliceFn("SharedListsManager");
+// Fase 1: daftar anggota + undangan diekstrak ke WorkspaceMembersSection (dipakai SharedListsManager).
+const manager = sliceFn("SharedListsManager") + sliceFn("WorkspaceMembersSection");
 const chip = sliceFn("TopBarPomodoroChip");
 // Teks toast bukan ikon UI.
 const ui = src => src.split("\n").filter(l => !/showToast\(/.test(l)).join("\n");
 
 const NEW_KEYS = ["mSettings", "mLink", "mXCircle", "mUsers", "mUser", "pomoTomato", "pomoBreak"];
 
-for (const [label, src] of [["SharedListsManager", manager], ["TopBarPomodoroChip", chip]]) {
+for (const [label, src] of [["SharedListsManager", manager], ["WorkspaceManagePage", sliceFn("WorkspaceManagePage") + sliceFn("WorkspaceIdentityView") + sliceFn("WorkspaceIdentityForm")], ["TopBarPomodoroChip", chip]]) {
   test(label + " bebas emoji ikon (literal maupun escape \\u)", () => {
     const lines = ui(src);
     const m = lines.match(/[\u{1F300}-\u{1FAFF}☀-➿⬀-⯿️]/u);

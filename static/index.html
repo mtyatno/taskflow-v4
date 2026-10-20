@@ -2179,70 +2179,22 @@ function SharedListsManager({
   onRefresh,
   showToast
 }) {
-  const WSM = window.TF && window.TF.wsmanage;
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
-  const [inviteUsername, setInviteUsername] = useState("");
-  const [invitingListId, setInvitingListId] = useState(null);
   const [expandedList, setExpandedList] = useState(null);
-  const [details, setDetails] = useState({});
-  const [memberErrors, setMemberErrors] = useState({});
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [generatedLinks, setGeneratedLinks] = useState({});
-  const [generatingFor, setGeneratingFor] = useState(null);
   const [showJoinForm, setShowJoinForm] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [joinPreview, setJoinPreview] = useState(null);
   const [joinError, setJoinError] = useState("");
   const [joining, setJoining] = useState(false);
   const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
-  // Detail (owner + anggota) diambil ulang saat panel dibuka dan setelah undang/keluarkan. Tanpa network:true:
-  // SW network-first + fallback cache → offline tetap menampilkan anggota terakhir yang diketahui.
-  const loadMembers = async listId => {
-    setMemberErrors(m => ({
-      ...m,
-      [listId]: false
-    }));
-    try {
-      const data = await api.get(`/api/lists/${listId}`);
-      setDetails(d => ({
-        ...d,
-        [listId]: {
-          owner: data.owner || null,
-          members: data.members || []
-        }
-      }));
-    } catch (e) {
-      console.warn("[ws-manage] gagal memuat anggota", listId, e);
-      setMemberErrors(m => ({
-        ...m,
-        [listId]: true
-      }));
-    }
-  };
   const toggleExpand = listId => {
     if (expandedList === listId) {
       setExpandedList(null);
       return;
     }
     setExpandedList(listId);
-    loadMembers(listId);
-  };
-  const handleGenerateLink = async listId => {
-    setGeneratingFor(listId);
-    try {
-      const data = await api.post(`/api/lists/${listId}/generate-link`, {});
-      setGeneratedLinks(prev => ({
-        ...prev,
-        [listId]: data.join_url
-      }));
-    } catch (err) {
-      showToast(err.message, "error");
-    }
-    setGeneratingFor(null);
-  };
-  const copyLink = url => {
-    navigator.clipboard.writeText(url).then(() => showToast("Link disalin ✅")).catch(() => showToast("Gagal menyalin", "error"));
   };
   const handleCheckCode = async () => {
     setJoinError("");
@@ -2287,38 +2239,6 @@ function SharedListsManager({
       showToast(err.message, "error");
     }
     setCreating(false);
-  };
-  const handleInvite = async listId => {
-    const username = inviteUsername.replace("@", "").trim();
-    if (!username) return;
-    try {
-      await api.post(`/api/lists/${listId}/invite`, {
-        username
-      });
-      showToast(`${username} ditambahkan ke workspace ✅`);
-      setInviteUsername("");
-      setInvitingListId(null);
-      loadMembers(listId);
-      onRefresh();
-    } catch (err) {
-      showToast(err.message, "error");
-    }
-  };
-  const handleRemoveMember = async (listId, memberId, memberName) => {
-    const choice = await askDrawingScope({
-      title: `Keluarkan ${memberName} dari workspace ini?`,
-      note: `Task belum selesai yang ditugaskan ke ${memberName} akan dilepas penanggung jawabnya.`,
-      actions: [{ value: "cancel", label: "Batal" }, { value: "ok", label: "Keluarkan", primary: true, danger: true }]
-    });
-    if (choice !== "ok") return;
-    try {
-      await api.del(`/api/lists/${listId}/members/${memberId}`);
-      showToast("Anggota dikeluarkan");
-      loadMembers(listId);
-      onRefresh();
-    } catch (err) {
-      showToast(err.message, "error");
-    }
   };
   // PR 3 Task 5: leave-impact → dialog salin drawing ke pribadi; gagal/offline → konfirmasi (dialog Alurik).
   const handleLeave = async (listId, listName) => {
@@ -2625,81 +2545,195 @@ function SharedListsManager({
       fontWeight: 600,
       marginBottom: 8
     }
-  }, "Anggota:"), !details[l.id] && memberErrors[l.id] ? /*#__PURE__*/React.createElement("div", {
-    role: "alert",
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      flexWrap: "wrap",
-      fontSize: 13,
-      marginBottom: 8
+  }, "Anggota:"), /*#__PURE__*/React.createElement(WorkspaceMembersSection, {
+    list: l,
+    showToast: showToast,
+    onRefresh: onRefresh
+  })))));
+}
+// Kelola Workspace: daftar anggota (owner pertama, "bergabung {tanggal}") + undangan (owner saja).
+// Dipakai panel SharedListsManager dan seksi Anggota WorkspaceManagePage. Detail diambil saat mount dan setelah
+// undang/keluarkan. Tanpa network:true: SW network-first + fallback cache → offline tetap menampilkan anggota terakhir.
+// online=false → aksi tulis (Undang, Generate, Keluarkan) nonaktif dengan "Butuh koneksi internet".
+function WorkspaceMembersSection({
+  list,
+  showToast,
+  onRefresh,
+  online = true
+}) {
+  const WSM = window.TF && window.TF.wsmanage;
+  const listId = list.id;
+  const isOwner = list.role === "owner";
+  const [detail, setDetail] = useState(null);
+  const [memberError, setMemberError] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [inviteUsername, setInviteUsername] = useState("");
+  const [generatedLink, setGeneratedLink] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
+  const offlineTitle = online ? undefined : "Butuh koneksi internet";
+  const loadMembers = React.useCallback(async () => {
+    setMemberError(false);
+    try {
+      const data = await api.get(`/api/lists/${listId}`);
+      setDetail({
+        owner: data.owner || null,
+        members: data.members || []
+      });
+    } catch (e) {
+      console.warn("[ws-manage] gagal memuat anggota", listId, e);
+      setMemberError(true);
     }
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "ws-danger-text"
-  }, "Gagal memuat anggota."), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "btn btn-secondary btn-sm",
-    onClick: () => loadMembers(l.id)
-  }, "Coba lagi")) : !details[l.id] ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: "var(--text-light)",
-      marginBottom: 8
+  }, [listId]);
+  useEffect(() => {
+    loadMembers();
+  }, [loadMembers]);
+  const handleGenerateLink = async () => {
+    if (!online) return;
+    setGenerating(true);
+    try {
+      const data = await api.post(`/api/lists/${listId}/generate-link`, {});
+      setGeneratedLink(data.join_url || "");
+    } catch (err) {
+      showToast(err.message, "error");
     }
-  }, "Memuat\u2026") : (memberRows => /*#__PURE__*/React.createElement(React.Fragment, null, memberRows.map(m => /*#__PURE__*/React.createElement("div", {
-    key: m.role + ":" + m.id,
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      padding: "4px 0"
+    setGenerating(false);
+  };
+  const copyLink = url => {
+    navigator.clipboard.writeText(url).then(() => showToast("Link disalin ✅")).catch(() => showToast("Gagal menyalin", "error"));
+  };
+  const handleInvite = async () => {
+    const username = inviteUsername.replace("@", "").trim();
+    if (!username || !online) return;
+    try {
+      await api.post(`/api/lists/${listId}/invite`, {
+        username
+      });
+      showToast(`${username} ditambahkan ke workspace ✅`);
+      setInviteUsername("");
+      setInviting(false);
+      loadMembers();
+      onRefresh();
+    } catch (err) {
+      showToast(err.message, "error");
     }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      display: "inline-flex",
-      color: "var(--text-secondary)"
+  };
+  const handleRemoveMember = async (memberId, memberName) => {
+    if (!online) return;
+    const choice = await askDrawingScope({
+      title: `Keluarkan ${memberName} dari workspace ini?`,
+      note: `Task belum selesai yang ditugaskan ke ${memberName} akan dilepas penanggung jawabnya.`,
+      actions: [{ value: "cancel", label: "Batal" }, { value: "ok", label: "Keluarkan", primary: true, danger: true }]
+    });
+    if (choice !== "ok") return;
+    try {
+      await api.del(`/api/lists/${listId}/members/${memberId}`);
+      showToast("Anggota dikeluarkan");
+      loadMembers();
+      onRefresh();
+    } catch (err) {
+      showToast(err.message, "error");
     }
-  }, /*#__PURE__*/React.createElement(ViewGlyph, {
-    name: "mUser",
-    size: 16
-  })), /*#__PURE__*/React.createElement("span", {
-    style: {
-      flex: 1,
-      fontSize: 13
-    }
-  }, m.display_name || m.username, " ", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "@", m.username)), m.role === "owner" ? /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11,
-      fontWeight: 600,
-      color: "var(--text-secondary)",
-      background: "var(--bg-subtle)",
-      border: "1px solid var(--border)",
-      borderRadius: 6,
-      padding: "1px 6px"
-    }
-  }, "Owner") : l.role === "owner" && /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "ws-danger-text",
-    "aria-label": `Keluarkan ${m.display_name || m.username}`,
-    onClick: () => handleRemoveMember(l.id, m.id, m.display_name || m.username),
-    style: {
-      background: "none",
-      border: "none",
-      cursor: "pointer",
-      fontSize: 12
-    }
-  }, "Keluarkan"))), memberRows.every(m => m.role === "owner") && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: "var(--text-light)",
-      marginBottom: 8
-    }
-  }, "Belum ada anggota lain.")))(WSM ? WSM.memberRows(details[l.id]) : []), l.role === "owner" && /*#__PURE__*/React.createElement("div", {
+  };
+  const rows = WSM ? WSM.memberRows(detail) : [];
+  const muted = {
+    fontSize: 13,
+    color: "var(--text-light)",
+    marginBottom: 8
+  };
+  let listEl;
+  if (!detail && memberError) {
+    listEl = /*#__PURE__*/React.createElement("div", {
+      role: "alert",
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        flexWrap: "wrap",
+        fontSize: 13,
+        marginBottom: 8
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "ws-danger-text"
+    }, "Gagal memuat anggota."), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "btn btn-secondary btn-sm",
+      onClick: () => loadMembers()
+    }, "Coba lagi"));
+  } else if (!detail) {
+    listEl = /*#__PURE__*/React.createElement("div", {
+      style: muted
+    }, "Memuat…");
+  } else {
+    listEl = /*#__PURE__*/React.createElement(React.Fragment, null, rows.map(m => {
+      const name = m.display_name || m.username;
+      const joined = m.joined_at && WSM && WSM.joinedDate ? WSM.joinedDate(m.joined_at) : null;
+      return /*#__PURE__*/React.createElement("div", {
+        key: m.role + ":" + m.id,
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "4px 0"
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          display: "inline-flex",
+          color: "var(--text-secondary)",
+          flexShrink: 0
+        }
+      }, /*#__PURE__*/React.createElement(ViewGlyph, {
+        name: "mUser",
+        size: 16
+      })), /*#__PURE__*/React.createElement("span", {
+        style: {
+          flex: 1,
+          minWidth: 0,
+          fontSize: 13,
+          overflowWrap: "anywhere"
+        }
+      }, name, " ", /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: "var(--text-light)"
+        }
+      }, "@", m.username), joined && /*#__PURE__*/React.createElement("span", {
+        style: {
+          display: "block",
+          fontSize: 11,
+          color: "var(--text-light)"
+        }
+      }, "bergabung ", joined.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }))), m.role === "owner" ? /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 11,
+          fontWeight: 600,
+          color: "var(--text-secondary)",
+          background: "var(--bg-subtle)",
+          border: "1px solid var(--border)",
+          borderRadius: 6,
+          padding: "1px 6px",
+          flexShrink: 0
+        }
+      }, "Owner") : isOwner && /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: "ws-danger-text",
+        "aria-label": `Keluarkan ${name}`,
+        disabled: !online,
+        title: offlineTitle,
+        onClick: () => handleRemoveMember(m.id, name),
+        style: {
+          background: "none",
+          border: "none",
+          cursor: online ? "pointer" : "not-allowed",
+          opacity: online ? 1 : 0.5,
+          fontSize: 12,
+          flexShrink: 0
+        }
+      }, "Keluarkan"));
+    }), rows.every(m => m.role === "owner") && /*#__PURE__*/React.createElement("div", {
+      style: muted
+    }, "Belum ada anggota lain."));
+  }
+  return /*#__PURE__*/React.createElement("div", null, drawingScopeDialogEl, listEl, isOwner && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 12
     }
@@ -2709,32 +2743,37 @@ function SharedListsManager({
       fontWeight: 600,
       marginBottom: 6
     }
-  }, "Undang anggota baru:"), invitingListId === l.id ? /*#__PURE__*/React.createElement("div", {
+  }, "Undang anggota baru:"), inviting ? /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      gap: 8
+      gap: 8,
+      flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("input", {
     className: "input",
     value: inviteUsername,
     onChange: e => setInviteUsername(e.target.value),
     placeholder: "@username",
+    "aria-label": "Username anggota baru",
     style: {
-      flex: 1,
+      flex: "1 1 160px",
+      minWidth: 0,
       padding: "6px 10px",
       fontSize: 13
     },
     onKeyDown: e => {
-      if (e.key === "Enter") handleInvite(l.id);
-      if (e.key === "Escape") setInvitingListId(null);
+      if (e.key === "Enter") handleInvite();
+      if (e.key === "Escape") setInviting(false);
     },
     autoFocus: true
   }), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: () => handleInvite(l.id)
+    disabled: !online,
+    title: offlineTitle,
+    onClick: () => handleInvite()
   }, "Undang"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
-    onClick: () => setInvitingListId(null)
+    onClick: () => setInviting(false)
   }, "Batal")) : /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -2743,15 +2782,18 @@ function SharedListsManager({
     }
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
+    disabled: !online,
+    title: offlineTitle,
     onClick: () => {
-      setInvitingListId(l.id);
+      setInviting(true);
       setInviteUsername("");
     }
-  }, "\uFF0B Undang via Username"), /*#__PURE__*/React.createElement("button", {
+  }, "＋ Undang via Username"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
-    onClick: () => handleGenerateLink(l.id),
-    disabled: generatingFor === l.id
-  }, generatingFor === l.id ? "..." : /*#__PURE__*/React.createElement("span", {
+    onClick: handleGenerateLink,
+    disabled: generating || !online,
+    title: offlineTitle
+  }, generating ? "..." : /*#__PURE__*/React.createElement("span", {
     style: {
       display: "inline-flex",
       alignItems: "center",
@@ -2760,7 +2802,7 @@ function SharedListsManager({
   }, /*#__PURE__*/React.createElement(ViewGlyph, {
     name: "mLink",
     size: 14
-  }), "Generate Invite Link"))), generatedLinks[l.id] && /*#__PURE__*/React.createElement("div", {
+  }), "Generate Invite Link"))), generatedLink && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10,
       background: "var(--bg-card)",
@@ -2782,14 +2824,14 @@ function SharedListsManager({
     }
   }, /*#__PURE__*/React.createElement("input", {
     readOnly: true,
-    value: generatedLinks[l.id],
+    value: generatedLink,
     className: "ws-invite-link",
     "aria-label": "Link undangan",
     onClick: e => e.target.select()
   }), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: () => copyLink(generatedLinks[l.id])
-  }, "Salin"))))))));
+    onClick: () => copyLink(generatedLink)
+  }, "Salin")))));
 }
 // Kelola Workspace Fase 0: dialog hapus workspace — ringkasan dampak (GET delete-impact, lewat jaringan) + ketik nama.
 // Esc / klik luar menutup; fokus ke input saat terbuka, kembali ke tombol asal saat ditutup.
@@ -2916,6 +2958,511 @@ function WorkspaceDeleteDialog({
       /*#__PURE__*/React.createElement("button", { type: "button", className: "btn btn-secondary btn-sm", onClick: close, disabled: busy }, "Batal"),
       /*#__PURE__*/React.createElement("button", { type: "submit", className: "btn btn-sm btn-danger-soft", disabled: !canDelete }, busy ? "…" : "Hapus permanen"))));
 }
+// Kelola Workspace Fase 1: halaman per workspace (ws_manage_<id>) — Umum (identitas), Anggota, Danger Zone.
+// Data dari sharedLists (lokal) → tetap bisa dibuka offline; semua aksi tulis butuh koneksi.
+// Semua teks dari pengguna dirender sebagai child React (tanpa innerHTML).
+function WorkspaceManagePage({
+  listId,
+  sharedLists,
+  onBack,
+  onUpdated,
+  onRefresh,
+  showToast
+}) {
+  const list = (sharedLists || []).find(l => l.id === listId) || null;
+  const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine !== false);
+  useEffect(() => {
+    const upd = () => setOnline(navigator.onLine !== false);
+    window.addEventListener("online", upd);
+    window.addEventListener("offline", upd);
+    return () => {
+      window.removeEventListener("online", upd);
+      window.removeEventListener("offline", upd);
+    };
+  }, []);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
+  const wrap = {
+    maxWidth: 640,
+    margin: "0 auto",
+    padding: "0 0 40px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 16
+  };
+  if (!list) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "ws-manage-page",
+      style: wrap
+    }, /*#__PURE__*/React.createElement("div", {
+      role: "status",
+      style: {
+        textAlign: "center",
+        color: "var(--text-light)",
+        padding: "40px 0 8px",
+        fontSize: 15
+      }
+    }, "Workspace tidak ditemukan"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center"
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "btn btn-secondary btn-sm",
+      onClick: onBack
+    }, "← Semua workspace")));
+  }
+  const isOwner = list.role === "owner";
+  const offlineTitle = online ? undefined : "Butuh koneksi internet";
+  // Alur keluar Fase 0 (leave-impact → salin drawing / konfirmasi dialog Alurik); sukses → kembali ke daftar.
+  const handleLeaveWorkspace = async () => {
+    if (!online || leaving) return;
+    setLeaving(true);
+    const left = await leaveWorkspaceWithDrawings({
+      listId: list.id,
+      listName: list.name,
+      api,
+      TF: window.TF,
+      ask: askDrawingScope,
+      showToast,
+      confirmFn: msg => askDrawingScope({
+        title: msg,
+        note: "Task belum selesai yang ditugaskan kepadamu di workspace ini akan dilepas penanggung jawabnya.",
+        actions: [{ value: "cancel", label: "Batal" }, { value: "ok", label: "Keluar", primary: true }]
+      }).then(v => v === "ok")
+    });
+    if (left) {
+      onBack();
+      onRefresh();
+      return;
+    }
+    setLeaving(false);
+  };
+  const section = (id, title, body, className) => /*#__PURE__*/React.createElement("section", {
+    className: "ws-manage-section" + (className ? " " + className : ""),
+    "aria-labelledby": id
+  }, /*#__PURE__*/React.createElement("h3", {
+    id: id,
+    className: "ws-manage-section-title"
+  }, title), body);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "ws-manage-page",
+    style: wrap
+  }, drawingScopeDialogEl, deleteOpen && /*#__PURE__*/React.createElement(WorkspaceDeleteDialog, {
+    list: list,
+    showToast,
+    onClose: () => setDeleteOpen(false),
+    onDeleted: () => {
+      setDeleteOpen(false);
+      onBack();
+      onRefresh();
+    }
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary btn-sm",
+    onClick: onBack
+  }, "← Semua workspace")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 14,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement(WorkspaceAvatar, {
+    list: list,
+    size: 56
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontSize: 20,
+      fontWeight: 700,
+      margin: 0,
+      overflowWrap: "anywhere"
+    }
+  }, list.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-light)"
+    }
+  }, isOwner ? "Owner" : "Member"))), section("ws-sec-umum-" + list.id, "Umum", isOwner ? /*#__PURE__*/React.createElement(WorkspaceIdentityForm, {
+    key: list.id,
+    list: list,
+    online: online,
+    onUpdated: onUpdated,
+    showToast: showToast
+  }) : /*#__PURE__*/React.createElement(WorkspaceIdentityView, {
+    list: list
+  })), section("ws-sec-anggota-" + list.id, "Anggota", /*#__PURE__*/React.createElement(WorkspaceMembersSection, {
+    list: list,
+    showToast: showToast,
+    onRefresh: onRefresh,
+    online: online
+  })), section("ws-sec-danger-" + list.id, "Danger Zone", /*#__PURE__*/React.createElement("div", {
+    className: "ws-danger-zone-row"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: "1 1 220px",
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 600
+    }
+  }, isOwner ? "Hapus workspace" : "Keluar dari workspace"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-secondary)"
+    }
+  }, isOwner ? "Task kembali menjadi task pribadi pembuatnya; berkas, chat, project, dan tahap dihapus permanen." : "Kamu tidak lagi melihat task dan berkas workspace ini."), !online && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-light)",
+      marginTop: 4
+    }
+  }, "Butuh koneksi internet")), isOwner ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-sm btn-danger-soft",
+    disabled: !online,
+    title: offlineTitle,
+    onClick: () => setDeleteOpen(true)
+  }, "Hapus workspace") : /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-sm btn-warn-soft",
+    disabled: !online || leaving,
+    title: offlineTitle,
+    onClick: handleLeaveWorkspace
+  }, leaving ? "…" : "Keluar dari workspace")), "ws-danger-zone"));
+}
+// Seksi Umum untuk anggota: teks saja (tanpa input/textarea).
+function WorkspaceIdentityView({ list }) {
+  const desc = typeof list.description === "string" ? list.description.trim() : "";
+  const label = {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text-secondary)",
+    marginBottom: 2
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      alignItems: "flex-start"
+    }
+  }, /*#__PURE__*/React.createElement(WorkspaceAvatar, {
+    list: list,
+    size: 40
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8,
+      minWidth: 0,
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: label
+  }, "Nama"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      overflowWrap: "anywhere"
+    }
+  }, list.name)), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: label
+  }, "Deskripsi"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      whiteSpace: "pre-wrap",
+      overflowWrap: "anywhere",
+      color: desc ? "var(--text-primary)" : "var(--text-light)"
+    }
+  }, desc || "Belum ada deskripsi."))));
+}
+const WS_AVATAR_ALNUM = /^[\p{L}\p{N}]+$/u;
+function wsIdentityDraft(l) {
+  const a = typeof l.avatar === "string" ? l.avatar : "";
+  const mode = !a ? "auto" : WS_AVATAR_ALNUM.test(a) ? "initials" : "emoji";
+  return {
+    name: l.name || "",
+    description: typeof l.description === "string" ? l.description : "",
+    color_idx: Number.isInteger(l.color_idx) ? l.color_idx : null,
+    avatarMode: mode,
+    initials: mode === "initials" ? a : "",
+    emoji: mode === "emoji" ? a : ""
+  };
+}
+// Seksi Umum untuk owner: Nama, Deskripsi (n/300), Warna (radiogroup), Avatar (Otomatis/Inisial/Emoji) + pratinjau.
+function WorkspaceIdentityForm({
+  list,
+  online,
+  onUpdated,
+  showToast
+}) {
+  const WSM = window.TF && window.TF.wsmanage;
+  const WP = window.TF && window.TF.workspacepins;
+  const [draft, setDraft] = useState(() => wsIdentityDraft(list));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const swatchRefs = React.useRef([]);
+  const original = {
+    name: list.name || "",
+    description: typeof list.description === "string" ? list.description : "",
+    color_idx: Number.isInteger(list.color_idx) ? list.color_idx : null,
+    avatar: list.avatar || null
+  };
+  // Identitas berubah dari luar (sync / perangkat lain) dan draft belum disentuh → ikuti nilai baru.
+  const originalKey = JSON.stringify(original);
+  const prevKeyRef = React.useRef(originalKey);
+  const draftRef = React.useRef(draft);
+  draftRef.current = draft;
+  useEffect(() => {
+    if (prevKeyRef.current === originalKey) return;
+    const prev = JSON.parse(prevKeyRef.current);
+    prevKeyRef.current = originalKey;
+    if (JSON.stringify(wsIdentityDraft(prev)) === JSON.stringify(draftRef.current)) setDraft(wsIdentityDraft(list));
+  }, [originalKey]);
+  const set = patch => {
+    setDraft(d => ({
+      ...d,
+      ...patch
+    }));
+    setError("");
+  };
+  const avatarInput = draft.avatarMode === "initials" ? draft.initials : draft.avatarMode === "emoji" ? draft.emoji : null;
+  const av = WP ? WP.validateAvatar(avatarInput) : {
+    ok: true,
+    value: avatarInput ? String(avatarInput).trim() || null : null
+  };
+  const nameLen = Array.from(draft.name.trim()).length;
+  const descLen = Array.from(draft.description.trim()).length;
+  const clientError = nameLen < 1 || nameLen > 100 ? "Nama harus 1–100 karakter" : descLen > 300 ? "Deskripsi maksimal 300 karakter" : !av.ok ? av.error : "";
+  const diff = WSM ? WSM.identityDiff(original, {
+    name: draft.name,
+    description: draft.description,
+    color_idx: draft.color_idx,
+    avatar: av.ok ? av.value : original.avatar
+  }) : {};
+  const dirty = JSON.stringify(draft) !== JSON.stringify(wsIdentityDraft(list));
+  const canSave = online && !saving && !clientError && Object.keys(diff).length > 0;
+  const preview = {
+    id: list.id,
+    name: draft.name.trim() || list.name,
+    color_idx: draft.color_idx,
+    avatar: av.ok ? av.value : null
+  };
+  const save = async e => {
+    if (e) e.preventDefault();
+    if (!canSave) return;
+    setSaving(true);
+    setError("");
+    try {
+      const resp = await api.fetch(`/api/lists/${list.id}`, { method: "PATCH", body: JSON.stringify(diff), network: true });
+      setSaving(false);
+      if (resp && resp.id != null) {
+        setDraft(wsIdentityDraft(resp));
+        if (typeof onUpdated === "function") onUpdated(resp);
+      }
+      showToast("Workspace disimpan");
+    } catch (err) {
+      setSaving(false);
+      console.warn("[ws-manage] simpan identitas gagal", err);
+      const detail = err && err.body && err.body.detail;
+      const offline = (typeof navigator !== "undefined" && navigator.onLine === false) || isOfflineErr(err);
+      setError(offline ? "Butuh koneksi internet" : err && err.status === 404 ? "Workspace tidak ditemukan" : typeof detail === "string" ? detail : "Gagal menyimpan workspace");
+    }
+  };
+  const reset = () => {
+    setDraft(wsIdentityDraft(list));
+    setError("");
+  };
+  const ids = {
+    name: "ws-name-" + list.id,
+    desc: "ws-desc-" + list.id,
+    color: "ws-color-" + list.id,
+    avatar: "ws-avatar-" + list.id,
+    err: "ws-identity-err-" + list.id
+  };
+  const label = {
+    fontSize: 13,
+    fontWeight: 600
+  };
+  const field = {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6
+  };
+  const colorOptions = [null].concat([0, 1, 2, 3, 4, 5, 6, 7]);
+  const colorKey = (e, idx) => {
+    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    const n = (idx + step + colorOptions.length) % colorOptions.length;
+    set({ color_idx: colorOptions[n] });
+    const el = swatchRefs.current[n];
+    if (el) el.focus();
+  };
+  const avatarModes = [["auto", "Otomatis"], ["initials", "Inisial"], ["emoji", "Emoji"]];
+  const shownError = error || (dirty ? clientError : "");
+  return /*#__PURE__*/React.createElement("form", {
+    onSubmit: save,
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: field
+  }, /*#__PURE__*/React.createElement("label", {
+    htmlFor: ids.name,
+    style: label
+  }, "Nama"), /*#__PURE__*/React.createElement("input", {
+    id: ids.name,
+    className: "input",
+    value: draft.name,
+    maxLength: 100,
+    autoComplete: "off",
+    onChange: e => set({ name: e.target.value })
+  })), /*#__PURE__*/React.createElement("div", {
+    style: field
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    htmlFor: ids.desc,
+    style: label
+  }, "Deskripsi"), /*#__PURE__*/React.createElement("span", {
+    "aria-live": "polite",
+    className: descLen > 300 ? "ws-danger-text" : undefined,
+    style: {
+      fontSize: 12,
+      color: descLen > 300 ? undefined : "var(--text-light)"
+    }
+  }, `${descLen}/300`)), /*#__PURE__*/React.createElement("textarea", {
+    id: ids.desc,
+    className: "input",
+    rows: 3,
+    value: draft.description,
+    onChange: e => set({ description: e.target.value }),
+    style: {
+      resize: "vertical",
+      fontFamily: "inherit"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: field
+  }, /*#__PURE__*/React.createElement("span", {
+    id: ids.color,
+    style: label
+  }, "Warna"), /*#__PURE__*/React.createElement("div", {
+    role: "radiogroup",
+    "aria-labelledby": ids.color,
+    className: "ws-color-group"
+  }, colorOptions.map((c, i) => {
+    const checked = draft.color_idx === c;
+    return /*#__PURE__*/React.createElement("button", {
+      key: c == null ? "auto" : c,
+      type: "button",
+      role: "radio",
+      "aria-checked": checked ? "true" : "false",
+      "aria-label": c == null ? "Otomatis" : `Warna ${c + 1}`,
+      title: c == null ? "Otomatis" : `Warna ${c + 1}`,
+      tabIndex: checked ? 0 : -1,
+      ref: el => {
+        swatchRefs.current[i] = el;
+      },
+      className: c == null ? "ws-color-swatch ws-color-auto" : `ws-color-swatch ws-c${c}`,
+      onClick: () => set({ color_idx: c }),
+      onKeyDown: e => colorKey(e, i)
+    }, c == null ? "Otomatis" : null);
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: field
+  }, /*#__PURE__*/React.createElement("span", {
+    id: ids.avatar,
+    style: label
+  }, "Avatar"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement(WorkspaceAvatar, {
+    list: preview,
+    size: 40
+  }), /*#__PURE__*/React.createElement("div", {
+    role: "group",
+    "aria-labelledby": ids.avatar,
+    style: {
+      display: "flex",
+      gap: 6,
+      flexWrap: "wrap"
+    }
+  }, avatarModes.map(([mode, text]) => /*#__PURE__*/React.createElement("button", {
+    key: mode,
+    type: "button",
+    className: draft.avatarMode === mode ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm",
+    "aria-pressed": draft.avatarMode === mode ? "true" : "false",
+    onClick: () => set({ avatarMode: mode })
+  }, text))), draft.avatarMode === "initials" && /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    "aria-label": "Inisial",
+    value: draft.initials,
+    maxLength: 2,
+    autoComplete: "off",
+    placeholder: "AB",
+    onChange: e => set({ initials: e.target.value }),
+    style: {
+      width: 72
+    }
+  }), draft.avatarMode === "emoji" && /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    "aria-label": "Emoji",
+    value: draft.emoji,
+    autoComplete: "off",
+    onChange: e => set({ emoji: e.target.value }),
+    style: {
+      width: 96
+    }
+  }))), shownError && /*#__PURE__*/React.createElement("div", {
+    id: ids.err,
+    role: "alert",
+    className: "ws-danger-text",
+    style: {
+      fontSize: 13
+    }
+  }, shownError), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      justifyContent: "flex-end",
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, !online && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-light)",
+      marginRight: "auto"
+    }
+  }, "Butuh koneksi internet"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary btn-sm",
+    disabled: saving || !dirty && !error,
+    onClick: reset
+  }, "Batal"), /*#__PURE__*/React.createElement("button", {
+    type: "submit",
+    className: "btn btn-primary btn-sm",
+    disabled: !canSave,
+    title: online ? undefined : "Butuh koneksi internet"
+  }, saving ? "…" : "Simpan")));
+}
 // Sidebar nav icons — cohesive monochrome line set (Lucide). Stroke = currentColor
 // so each icon inherits the link color: muted by default, lime when active. This
 // replaces the multicolor, platform-dependent emoji that didn't read as a set.
@@ -2948,6 +3495,8 @@ function Sidebar({
   onUnpinWorkspace
 }) {
   const [hiddenSections, setHiddenSections] = useState({});
+  // Halaman detail ws_manage_<id> termasuk menu "Kelola Workspace" (sorotan sidebar + tombol rail "Semua workspace").
+  const navPage = page && page.startsWith("ws_manage_") ? "manage_lists" : page;
   const [railCtx, setRailCtx] = useState(null); // { id, name, x, y } | null
   const railTriggerRef = React.useRef(null); // avatar yang membuka menu (fokus dikembalikan ke sini)
   const railAllWsRef = React.useRef(null); // tombol "Semua workspace" (fokus cadangan bila avatar hilang)
@@ -3191,7 +3740,7 @@ function Sidebar({
     } else if (!hiddenSections[currentSection]) {
       items.push(/*#__PURE__*/React.createElement("div", {
         key: l.id,
-        className: `sidebar-link ${page === l.id ? "active" : ""}`,
+        className: `sidebar-link ${navPage === l.id ? "active" : ""}`,
         "data-tour": l.tourId || undefined,
         onClick: () => {
           if (l.id === "__review") { window.dispatchEvent(new CustomEvent("tf-open-review")); onClose && onClose(); return; }
@@ -3259,10 +3808,10 @@ function Sidebar({
   }), railLinks.map(l => /*#__PURE__*/React.createElement("button", {
     key: l.id,
     type: "button",
-    className: `sidebar-rail-btn ${page === l.id ? "active" : ""}`,
+    className: `sidebar-rail-btn ${navPage === l.id ? "active" : ""}`,
     title: l.label,
     "aria-label": l.label,
-    "aria-current": page === l.id ? "page" : undefined,
+    "aria-current": navPage === l.id ? "page" : undefined,
     onClick: () => {
       setPage(l.id);
       onClose?.();
@@ -3312,11 +3861,11 @@ function Sidebar({
     }));
   }), /*#__PURE__*/React.createElement("button", {
     type: "button",
-    className: `sidebar-rail-btn ${page === "manage_lists" ? "active" : ""}`,
+    className: `sidebar-rail-btn ${navPage === "manage_lists" ? "active" : ""}`,
     ref: railAllWsRef,
     title: "Semua workspace",
     "aria-label": "Semua workspace",
-    "aria-current": page === "manage_lists" ? "page" : undefined,
+    "aria-current": navPage === "manage_lists" ? "page" : undefined,
     onClick: () => setPage("manage_lists")
   }, /*#__PURE__*/React.createElement(NavIcon, {
     name: "more-horizontal"
@@ -36954,6 +37503,21 @@ function App() {
     try { if (LS && LS.setLocalPin) await LS.setLocalPin(listId, pinned, pinPos); } catch (_) {}
     queueListPull();
   }, [showToast, queueListPull]);
+  // Identitas workspace disimpan (PATCH /api/lists/{id}, halaman ws_manage_<id>) — pola handleWorkspacePin:
+  // ganti item di sharedLists + cache "lists", record list lokal (IndexedDB), lalu pull di antrean sync.
+  const handleWorkspaceUpdated = useCallback(async list => {
+    if (!list || list.id == null) return;
+    setSharedLists(ls => {
+      const next = (ls || []).map(l => l.id === list.id ? { ...l, ...list } : l);
+      try { OfflineDB.cacheSet("lists", next)?.catch?.(() => {}); } catch (_) {}
+      return next;
+    });
+    const LS = window.TF && window.TF.listsync;
+    try {
+      if (LS && LS.setLocalIdentity) await LS.setLocalIdentity(list.id, { name: list.name, description: list.description, color_idx: list.color_idx, avatar: list.avatar, updated_at: list.updated_at });
+    } catch (_) {}
+    queueListPull();
+  }, [queueListPull]);
   const handleStartFocus = useCallback(task => {
     if (focusTask?.id === task?.id) {
       setFocusTaskId(null);
@@ -38122,6 +38686,7 @@ function App() {
   };
   const getPageTitle = () => {
     if (page.startsWith("proj_")) return page.slice(5);
+    if (page.startsWith("ws_manage_")) return "Kelola Workspace";
     if (page.startsWith("slist_")) {
       const listId = parseInt(page.slice(6));
       const lst = sharedLists.find(l => l.id === listId);
@@ -38280,6 +38845,17 @@ function App() {
         onNoteOpen: id => api.get(`/api/scratchpad/${id}`).then(setSelectedNote).catch(err => {
           showToast(isOfflineErr(err) ? 'Catatan tidak tersedia — offline' : 'Gagal membuka catatan', 'error');
         }),
+        showToast: showToast
+      });
+    }
+    if (page.startsWith("ws_manage_")) {
+      return /*#__PURE__*/React.createElement(WorkspaceManagePage, {
+        key: page,
+        listId: parseInt(page.slice(10), 10),
+        sharedLists: sharedLists,
+        onBack: () => setPage("manage_lists"),
+        onUpdated: handleWorkspaceUpdated,
+        onRefresh: fetchAll,
         showToast: showToast
       });
     }
