@@ -1,0 +1,172 @@
+"""Komentar note: baca, delta pull, siklus hidup (Task 3)."""
+from datetime import datetime, timedelta, timezone
+
+import os
+
+from conftest import db
+from note_comment_helpers import U, private_note, shared_note
+from note_comments import make_cursor
+from repository import TaskRepository
+
+
+def _post(u, nid, body="halo", **kw):
+    r = u.post(f"/api/scratchpad/{nid}/comments", json={"body": body, **kw})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _pull(u, since="", limit=None):
+    params = {"since": since}
+    if limit is not None:
+        params["limit"] = limit
+    r = u.get("/api/note-comments", params=params)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _count_note(nid):
+    conn = db()
+    try:
+        return conn.execute("SELECT COUNT(*) FROM note_comments WHERE note_id = ?", (nid,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_list_per_note_excludes_tombstones(client):
+    a = U(client, "ncs1a")
+    nid, _ = shared_note(a, [], "ncs1 note")
+    c1, c2 = _post(a, nid, "satu"), _post(a, nid, "dua")
+    assert a.delete(f"/api/note-comments/{c1['id']}").status_code == 200
+    r = a.get(f"/api/scratchpad/{nid}/comments")
+    assert r.status_code == 200
+    assert [x["id"] for x in r.json()] == [c2["id"]]
+
+
+def test_list_per_note_access(client):
+    a, c = U(client, "ncs1xa"), U(client, "ncs1xc")
+    nid, _ = shared_note(a, [], "ncs1x note")
+    assert c.get(f"/api/scratchpad/{nid}/comments").status_code == 404
+    pid = private_note(a, "ncs1x priv")
+    r = a.get(f"/api/scratchpad/{pid}/comments")
+    assert r.status_code == 200 and r.json() == []
+
+
+def test_delta_pull_pages(client):
+    a = U(client, "ncs2a")
+    nid, _ = shared_note(a, [], "ncs2 note")
+    ids = {_post(a, nid, f"k{i}")["id"] for i in range(5)}
+    seen, since, pages = [], "", 0
+    while True:
+        j = _pull(a, since, 2)
+        pages += 1
+        assert set(j) == {"items", "cursor", "more"}
+        seen += [x["id"] for x in j["items"]]
+        since = j["cursor"]
+        if not j["more"]:
+            break
+        assert pages < 10
+    assert pages == 3 and len(seen) == 5 and set(seen) == ids
+
+
+def test_delta_same_timestamp_boundary(client):
+    a = U(client, "ncs3a")
+    nid, _ = shared_note(a, [], "ncs3 note")
+    c1, c2 = _post(a, nid, "x"), _post(a, nid, "y")
+    ts = "2030-01-01T00:00:00+07:00"
+    conn = db()
+    conn.execute("UPDATE note_comments SET updated_at = ? WHERE id IN (?, ?)", (ts, c1["id"], c2["id"]))
+    conn.commit()
+    conn.close()
+    seen, since = [], make_cursor("2029-12-31T00:00:00+07:00", 0)
+    for _ in range(5):
+        j = _pull(a, since, 1)
+        seen += [x["id"] for x in j["items"]]
+        since = j["cursor"]
+        if not j["more"]:
+            break
+    assert sorted(seen) == sorted([c1["id"], c2["id"]])
+
+
+def test_delta_includes_tombstone(client):
+    a = U(client, "ncs4a")
+    nid, _ = shared_note(a, [], "ncs4 note")
+    c = _post(a, nid, "akan dihapus")
+    cur = _pull(a)["cursor"]
+    assert a.delete(f"/api/note-comments/{c['id']}").status_code == 200
+    j = _pull(a, cur)
+    assert len(j["items"]) == 1
+    it = j["items"][0]
+    assert it["id"] == c["id"] and it["deleted_at"] and it["body"] == ""
+
+
+def test_delta_reset_old_cursor(client):
+    a = U(client, "ncs5a")
+    old = (datetime.now(timezone(timedelta(hours=7))) - timedelta(days=40)).isoformat()
+    j = _pull(a, make_cursor(old, 1))
+    assert j == {"reset": True, "items": [], "cursor": "", "more": False}
+
+
+def test_delta_malformed_since_and_limit(client):
+    a = U(client, "ncs5xa")
+    nid, _ = shared_note(a, [], "ncs5x note")
+    c = _post(a, nid, "x")
+    assert c["id"] in [x["id"] for x in _pull(a, "sampah")["items"]]
+    assert _pull(a, "", 0)["more"] in (True, False)  # dibatasi ke >=1, tidak error
+
+
+def test_delta_hides_invisible(client):
+    a, b, c = U(client, "ncs6a"), U(client, "ncs6b"), U(client, "ncs6c")
+    nid, _ = shared_note(a, [b], "ncs6 note")
+    cm = _post(a, nid, "rahasia")
+    assert cm["id"] in [x["id"] for x in _pull(b)["items"]]
+    assert cm["id"] not in [x["id"] for x in _pull(c)["items"]]
+
+
+def test_unshare_reshare_other_workspace(client):
+    a = U(client, "ncs7a")
+    nid, lid = shared_note(a, [], "ncs7 note")
+    cm = _post(a, nid, "x")
+    put = lambda lst: a.put(f"/api/scratchpad/{nid}", json={"title": "ncs7 note", "content": "isi", "list_id": lst})
+    assert put(None).status_code == 200
+    assert a.get(f"/api/scratchpad/{nid}/comments").json() == []
+    assert cm["id"] not in [x["id"] for x in _pull(a)["items"]]
+    assert put(lid).status_code == 200
+    assert [x["id"] for x in a.get(f"/api/scratchpad/{nid}/comments").json()] == [cm["id"]]
+    assert cm["id"] in [x["id"] for x in _pull(a)["items"]]
+    repo = TaskRepository(os.environ["DB_PATH"])
+    w2 = repo.create_shared_list("WS ncs7 dua", a.id)
+    assert put(w2["id"]).status_code == 200
+    assert a.get(f"/api/scratchpad/{nid}/comments").json() == []
+    assert cm["id"] not in [x["id"] for x in _pull(a)["items"]]
+
+
+def test_trash_restore_purge(client):
+    a = U(client, "ncs8a")
+    n1, _ = shared_note(a, [], "ncs8 one")
+    n2, _ = shared_note(a, [], "ncs8 two")
+    _post(a, n1, "x")
+    _post(a, n2, "y")
+    assert a.delete(f"/api/scratchpad/{n1}").status_code == 200
+    assert a.get(f"/api/scratchpad/{n1}/comments").status_code == 404
+    assert a.post(f"/api/scratchpad/trash/{n1}/restore").status_code == 200
+    assert len(a.get(f"/api/scratchpad/{n1}/comments").json()) == 1
+    assert a.delete(f"/api/scratchpad/{n1}").status_code == 200
+    assert a.delete(f"/api/scratchpad/trash/{n1}").status_code == 200
+    assert _count_note(n1) == 0
+    assert _count_note(n2) == 1  # note lain tidak tersentuh
+    assert a.delete(f"/api/scratchpad/{n2}").status_code == 200
+    assert a.delete("/api/scratchpad/trash").status_code == 200
+    assert _count_note(n2) == 0
+
+
+def test_delete_workspace_removes_comments(client):
+    a = U(client, "ncs9a")
+    nid, lid = shared_note(a, [], "ncs9 note")
+    _post(a, nid, "x")
+    conn = db()
+    assert conn.execute("SELECT COUNT(*) FROM note_comments WHERE list_id = ?", (lid,)).fetchone()[0] == 1
+    conn.close()
+    assert TaskRepository(os.environ["DB_PATH"]).delete_shared_list(lid, a.id)
+    conn = db()
+    assert conn.execute("SELECT COUNT(*) FROM note_comments WHERE list_id = ?", (lid,)).fetchone()[0] == 0
+    conn.close()

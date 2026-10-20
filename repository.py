@@ -1659,6 +1659,13 @@ class TaskRepository:
                     )
             except sqlite3.OperationalError:
                 pass  # kolom drawings.list_id belum dimigrasi
+            try:
+                if conn.execute(
+                    "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
+                ).fetchone():
+                    conn.execute("DELETE FROM note_comments WHERE list_id = ?", (list_id,))
+            except sqlite3.OperationalError:
+                pass  # tabel note_comments belum dimigrasi
             cur = conn.execute(
                 "DELETE FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
             )

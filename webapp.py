@@ -6049,6 +6049,7 @@ async def purge_trashed_note(note_id: int, user=Depends(get_current_user)):
         cur = conn.execute(f"DELETE FROM trashed_notes WHERE {allowed}", (note_id, uid, str(uid)))
         if cur.rowcount:
             _delete_linked_mindmaps(conn, [note_id])
+            note_comments.delete_for_notes(conn, [note_id])
     return {"ok": True}
 
 @app.delete("/api/scratchpad/trash")
@@ -6066,6 +6067,7 @@ async def empty_trashed_notes(user=Depends(get_current_user)):
             (uid, str(uid))).fetchall()]
         deleted = len(gone)
         _delete_linked_mindmaps(conn, gone)
+        note_comments.delete_for_notes(conn, gone)
     return {"ok": True, "deleted": deleted}
 
 @app.get("/api/scratchpad/recent")
@@ -7724,6 +7726,46 @@ def _comment_out(conn, cid: int) -> dict:
     row = conn.execute(
         f"SELECT {note_comments.SELECT_COLS} {note_comments.FROM_JOINS} WHERE c.id = ?", (cid,)).fetchone()
     return note_comments.serialize(row)
+
+
+@app.get("/api/scratchpad/{note_id}/comments")
+async def list_note_comments(note_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        note = note_comments.visible_note(conn, uid, note_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        if note["list_id"] is None:
+            return []
+        rows = conn.execute(
+            f"SELECT {note_comments.SELECT_COLS} {note_comments.FROM_JOINS} "
+            "WHERE c.note_id = ? AND c.list_id = ? AND c.deleted_at IS NULL ORDER BY c.created_at, c.id",
+            (note_id, note["list_id"])).fetchall()
+        return [note_comments.serialize(r) for r in rows]
+
+
+@app.get("/api/note-comments")
+async def pull_note_comments(since: str = "", limit: int = 500, user=Depends(get_current_user)):
+    uid = user["sub"]
+    limit = max(1, min(limit, 1000))
+    now = datetime.now(_TZ_JKT).isoformat()
+    cur = note_comments.parse_cursor(since)
+    if note_comments.cursor_expired(cur, now):
+        return {"reset": True, "items": [], "cursor": "", "more": False}
+    where, params = note_comments.visible_clause(uid)
+    cond = ""
+    if cur is not None:
+        cond = "(c.updated_at > ? OR (c.updated_at = ? AND c.id > ?)) AND "
+        params = [cur[0], cur[0], cur[1]] + params
+    with get_db() as conn:
+        rows = conn.execute(
+            f"SELECT {note_comments.SELECT_COLS} {note_comments.FROM_JOINS} "
+            f"JOIN scratchpad_notes n ON n.id = c.note_id WHERE {cond}{where} "
+            "ORDER BY c.updated_at, c.id LIMIT ?", params + [limit + 1]).fetchall()
+    more = len(rows) > limit
+    items = [note_comments.serialize(r) for r in rows[:limit]]
+    cursor = note_comments.make_cursor(items[-1]["updated_at"], items[-1]["id"]) if items else since
+    return {"items": items, "cursor": cursor, "more": more}
 
 
 @app.post("/api/scratchpad/{note_id}/comments")

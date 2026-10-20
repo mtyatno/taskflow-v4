@@ -138,3 +138,13 @@ def get_visible(conn, uid: int, comment_id: int):
         f"SELECT {SELECT_COLS}, n.user_id AS note_owner_id, n.title AS note_title {FROM_JOINS} "
         f"JOIN scratchpad_notes n ON n.id = c.note_id WHERE c.id = ? AND {where}",
         [comment_id] + params).fetchone()
+
+
+def delete_for_notes(conn, note_ids: list[int]) -> None:
+    """Hapus komentar + penanda baca untuk note yang dihapus permanen. Pemanggil yang commit."""
+    ids = list(note_ids)
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        marks = ",".join("?" * len(chunk))
+        conn.execute(f"DELETE FROM note_comments WHERE note_id IN ({marks})", chunk)
+        conn.execute(f"DELETE FROM note_comment_reads WHERE note_id IN ({marks})", chunk)
