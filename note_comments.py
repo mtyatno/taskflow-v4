@@ -113,3 +113,28 @@ def serialize(row) -> dict:
         "resolved_by_name": r.get("resolver_name"), "edited_at": r["edited_at"], "deleted_at": r["deleted_at"],
         "client_id": r["client_id"], "created_at": r["created_at"], "updated_at": r["updated_at"],
     }
+
+
+def visible_note(conn, uid: int, note_id: int):
+    """Note di scratchpad_notes yang boleh diakses uid (pemilik, atau pemilik/anggota workspace note). Sampah -> None."""
+    return conn.execute(
+        "SELECT id, user_id, list_id, title FROM scratchpad_notes WHERE id = ? AND (user_id = ? OR list_id IN ("
+        "SELECT id FROM shared_lists WHERE owner_id = ? UNION SELECT list_id FROM list_members WHERE user_id = ?))",
+        (note_id, uid, uid, uid)).fetchone()
+
+
+def visible_clause(uid: int) -> tuple[str, list]:
+    """Fragmen WHERE untuk alias c + `JOIN scratchpad_notes n ON n.id = c.note_id`."""
+    return (
+        "n.list_id IS NOT NULL AND n.list_id = c.list_id AND (n.user_id = ? OR n.list_id IN ("
+        "SELECT id FROM shared_lists WHERE owner_id = ? UNION SELECT list_id FROM list_members WHERE user_id = ?))",
+        [uid, uid, uid])
+
+
+def get_visible(conn, uid: int, comment_id: int):
+    """Komentar (termasuk tombstone) beserta n_user_id/n_title note-nya bila uid boleh melihatnya."""
+    where, params = visible_clause(uid)
+    return conn.execute(
+        f"SELECT {SELECT_COLS}, n.user_id AS note_owner_id, n.title AS note_title {FROM_JOINS} "
+        f"JOIN scratchpad_notes n ON n.id = c.note_id WHERE c.id = ? AND {where}",
+        [comment_id] + params).fetchone()

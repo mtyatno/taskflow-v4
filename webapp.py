@@ -7670,6 +7670,135 @@ async def unpublish_scratchpad(note_id: int, user=Depends(get_current_user)):
         conn.commit()
         return {"ok": True}
 
+class CommentCreate(BaseModel):
+    body: str
+    quote: Optional[str] = None
+    parent_id: Optional[int] = None
+    client_id: Optional[str] = None
+
+    @field_validator("body")
+    @classmethod
+    def _body_ok(cls, v):
+        v = (v or "").strip()
+        if not 1 <= len(v) <= 4000:
+            raise ValueError("Isi komentar 1-4000 karakter")
+        return v
+
+    @field_validator("quote")
+    @classmethod
+    def _quote_ok(cls, v):
+        if v is not None and len(v) > 500:
+            raise ValueError("Kutipan maksimal 500 karakter")
+        return v
+
+    @field_validator("client_id")
+    @classmethod
+    def _client_ok(cls, v):
+        if v is not None and len(v) > 64:
+            raise ValueError("client_id maksimal 64 karakter")
+        return v
+
+
+class CommentPatch(BaseModel):
+    body: Optional[str] = None
+    resolved: Optional[bool] = None
+
+    @field_validator("body")
+    @classmethod
+    def _body_ok(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not 1 <= len(v) <= 4000:
+            raise ValueError("Isi komentar 1-4000 karakter")
+        return v
+
+    @model_validator(mode="after")
+    def _exactly_one(self):
+        if (self.body is None) == (self.resolved is None):
+            raise ValueError("Isi tepat satu dari body atau resolved")
+        return self
+
+
+def _comment_out(conn, cid: int) -> dict:
+    row = conn.execute(
+        f"SELECT {note_comments.SELECT_COLS} {note_comments.FROM_JOINS} WHERE c.id = ?", (cid,)).fetchone()
+    return note_comments.serialize(row)
+
+
+@app.post("/api/scratchpad/{note_id}/comments")
+async def create_note_comment(note_id: int, req: CommentCreate, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        note = note_comments.visible_note(conn, uid, note_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        if note["list_id"] is None:
+            raise HTTPException(status_code=409, detail={"code": "NOTE_NOT_SHARED"})
+        if req.client_id:
+            dup = conn.execute(
+                "SELECT id FROM note_comments WHERE user_id = ? AND client_id = ?", (uid, req.client_id)).fetchone()
+            if dup:
+                return _comment_out(conn, dup["id"])
+        parent_id = None
+        if req.parent_id is not None:
+            parent = note_comments.get_visible(conn, uid, req.parent_id)
+            if not parent or parent["deleted_at"] or parent["note_id"] != note_id:
+                raise HTTPException(status_code=404, detail="Komentar tidak ditemukan")
+            parent_id = parent["parent_id"] or parent["id"]
+        quote = req.quote if parent_id is None else None
+        cur = conn.execute(
+            "INSERT INTO note_comments (note_id, list_id, user_id, parent_id, body, quote, client_id, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (note_id, note["list_id"], uid, parent_id, req.body, quote, req.client_id, now, now))
+        return _comment_out(conn, cur.lastrowid)
+
+
+@app.patch("/api/note-comments/{cid}")
+async def patch_note_comment(cid: int, req: CommentPatch, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        c = note_comments.get_visible(conn, uid, cid)
+        if not c or c["deleted_at"]:
+            raise HTTPException(status_code=404, detail="Komentar tidak ditemukan")
+        if req.body is not None:
+            if c["user_id"] != uid:
+                raise HTTPException(status_code=403, detail="Hanya penulis yang bisa mengedit komentar")
+            conn.execute("UPDATE note_comments SET body = ?, edited_at = ?, updated_at = ? WHERE id = ?",
+                         (req.body, now, now, cid))
+        else:
+            if c["parent_id"] is not None:
+                raise HTTPException(status_code=422, detail="Hanya thread yang bisa diselesaikan")
+            if uid not in (c["user_id"], c["note_owner_id"]):
+                raise HTTPException(status_code=403, detail="Tidak berhak menyelesaikan thread ini")
+            if req.resolved:
+                conn.execute("UPDATE note_comments SET resolved_at = ?, resolved_by = ?, updated_at = ? WHERE id = ?",
+                             (now, uid, now, cid))
+            else:
+                conn.execute("UPDATE note_comments SET resolved_at = NULL, resolved_by = NULL, updated_at = ? WHERE id = ?",
+                             (now, cid))
+        return _comment_out(conn, cid)
+
+
+@app.delete("/api/note-comments/{cid}")
+async def delete_note_comment(cid: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        c = note_comments.get_visible(conn, uid, cid)
+        if not c:
+            raise HTTPException(status_code=404, detail="Komentar tidak ditemukan")
+        if uid not in (c["user_id"], c["note_owner_id"]):
+            raise HTTPException(status_code=403, detail="Tidak berhak menghapus komentar ini")
+        # Hapus thread -> semua balasannya ikut; tombstone yang sudah ada tidak disentuh lagi.
+        conn.execute(
+            "UPDATE note_comments SET deleted_at = ?, body = '', updated_at = ? "
+            "WHERE (id = ? OR parent_id = ?) AND deleted_at IS NULL", (now, now, cid, cid))
+        return {"ok": True}
+
+
 # ── Public publish pages (/pub/*) ──────────────────────────────────────────────
 
 _PUBLIC_CSS = """<style>
