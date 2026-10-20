@@ -3525,3 +3525,7 @@
 - Temuan: sidebar expanded sudah memuat semua workspace + halaman "Kelola Workspace" → rail cukup avatar pin + tombol ke `manage_lists`, tanpa flyout. Belum ada penyimpanan preferensi UI per user (pola terdekat `mindmap_pins`); ikon `pin-off`/`more-horizontal` belum ada di registri.
 - Spec ditulis di branch `claude/sidebar-workspace-pins-spec`. Belum ada kode.
 - **Status:** Needs Review (spec).
+
+## 2026-10-20 09:20 WIB — Claude — rencana workspace di-pin di sidebar
+- Bapak menyetujui spec ("lanjut"). Rencana `docs/superpowers/plans/2026-10-20-sidebar-workspace-pins.md`: 2 task backend, 3 task frontend. Catatan: `compile.js` menimpa `static/index.html`, jadi cek sintaks pada salinan.
+- **Status:** Needs Review (rencana).
