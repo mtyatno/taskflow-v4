@@ -171,3 +171,37 @@ def test_delete_task_keeps_log_with_null_task(u):
     row = conn.execute("SELECT task_id FROM pomodoro_log WHERE client_id = ?", (b["client_id"],)).fetchone()
     conn.close()
     assert row is not None and row["task_id"] is None
+
+
+def test_migration_on_old_schema_db_with_existing_task_row(tmp_path):
+    """DB lama: tabel tasks tanpa kolom estimasi/realisasi + satu baris → migrasi (dua kali) memberi 1/0, updated_at tetap."""
+    import sqlite3
+    import repository
+
+    path = str(tmp_path / "old.db")
+    conn = sqlite3.connect(path)
+    conn.execute("""
+        CREATE TABLE tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, description TEXT DEFAULT '',
+            gtd_status TEXT NOT NULL DEFAULT 'inbox', priority TEXT NOT NULL DEFAULT 'P3',
+            quadrant TEXT NOT NULL DEFAULT 'Q4', project TEXT DEFAULT '', context TEXT DEFAULT '',
+            deadline TEXT DEFAULT NULL, waiting_for TEXT DEFAULT '', user_id INTEGER DEFAULT NULL,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT DEFAULT NULL
+        )""")
+    stamp = "2026-01-02T03:04:05"
+    conn.execute("INSERT INTO tasks (title, created_at, updated_at) VALUES ('lama', ?, ?)", (stamp, stamp))
+    conn.commit()
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)")]
+    assert "estimated_pomodoros" not in cols and "pomodoros_done" not in cols
+    conn.close()
+
+    repository.TaskRepository(path)
+    repository.TaskRepository(path)  # idempoten
+
+    conn = sqlite3.connect(path)
+    try:
+        row = conn.execute("SELECT estimated_pomodoros, pomodoros_done, updated_at FROM tasks WHERE title = 'lama'").fetchone()
+        assert row == (1, 0, stamp)
+        assert conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pomodoro_log'").fetchone()
+    finally:
+        conn.close()
