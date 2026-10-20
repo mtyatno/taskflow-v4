@@ -560,6 +560,75 @@ function mediaUrl(path) {
   }
   return apiUrl(path);
 }
+// ── Baris media di daftar lampiran note ──
+// Baris lampiran dengan kind === 'media' tidak lewat /view: klik → gulir ke kartu di note, atau buka download_url.
+function mediaAttachmentLabel(att) {
+  const mt = att && att.media_type;
+  const icon = mt === 'video' ? '\uD83C\uDFAC' : mt === 'audio' ? '\uD83C\uDFB5' : '\uD83C\uDF9E';
+  let duration = '';
+  try {
+    const tf = typeof window !== 'undefined' ? window.TF : null;
+    if (att && att.duration_ms && tf && tf.mediacard && tf.mediacard.formatDuration) duration = tf.mediacard.formatDuration(att.duration_ms) || '';
+  } catch (_) {}
+  const st = att && att.status;
+  const status = st === 'uploading' ? 'Mengunggah\u2026' : st === 'processing' ? 'Memproses\u2026' : st === 'failed' ? ((att && att.error) || 'Gagal') : '';
+  return { icon, name: (att && att.original_name) || '', duration, status };
+}
+function mediaAttachmentCanDelete(att, uid, noteOwnerId) {
+  const u = Number(uid);
+  if (!isFinite(u) || u <= 0) return false;
+  return Number(att && att.uploaded_by) === u || (noteOwnerId != null && Number(noteOwnerId) === u);
+}
+async function openMediaAttachment(att) {
+  try {
+    const cid = att && att.client_id;
+    if (cid && /^[0-9a-zA-Z_-]{1,64}$/.test(cid) && typeof document !== 'undefined') {
+      const card = document.querySelector('[data-media-cid="' + cid + '"]');
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const prevOutline = card.style.outline;
+        card.style.outline = '2px solid var(--accent)';
+        setTimeout(() => { try { card.style.outline = prevOutline; } catch (_) {} }, 1500);
+        return;
+      }
+    }
+    if (!att || att.status !== 'ready') return;
+    const headers = {};
+    if (typeof __token !== 'undefined' && __token) headers.Authorization = 'Bearer ' + __token;
+    const res = await fetch(apiUrl('/api/media/' + att.id), { headers });
+    if (!res.ok) return;
+    const meta = await res.json();
+    if (meta && meta.download_url) window.open(apiUrl(meta.download_url), '_blank');
+  } catch (_) {}
+}
+// Setelah baris media dihapus: buang meta tersimpan dan lepas ikatan kartu agar hidrasi berikutnya (efek editor /
+// MutationObserver) memuat ulang dan menampilkan "tidak tersedia".
+function invalidateMediaCards(att) {
+  try {
+    const cid = att && att.client_id;
+    if (!cid || typeof window === 'undefined') return;
+    if (window.__mediaMetaCache instanceof Map) {
+      Array.from(window.__mediaMetaCache.keys()).forEach(k => { if (String(k).endsWith(':' + cid)) window.__mediaMetaCache.delete(k); });
+    }
+    if (/^[0-9a-zA-Z_-]{1,64}$/.test(cid)) document.querySelectorAll('[data-media-cid="' + cid + '"]').forEach(c => c.removeAttribute('data-media-bound'));
+  } catch (_) {}
+}
+function mediaAttachmentRow(att, canDelete, onDelete) {
+  const L = mediaAttachmentLabel(att);
+  return React.createElement("div", { key: att.id, className: "note-attach-row", "data-media-attachment": att.id },
+    React.createElement("span", { style: { fontSize: 16 } }, L.icon),
+    React.createElement("a", {
+      href: "#",
+      onClick: e => { e.preventDefault(); openMediaAttachment(att); },
+      style: { cursor: "pointer", flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--accent)', textDecoration: 'none' }
+    }, L.name),
+    React.createElement("span", { style: { fontSize: 11, color: 'var(--text-light)', flexShrink: 0 } }, [L.duration, L.status].filter(Boolean).join(' \u00B7 ')),
+    canDelete && React.createElement("button", {
+      onClick: onDelete,
+      style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-light)', fontSize: 15, flexShrink: 0 }
+    }, "\uD83D\uDDD1"));
+}
+// ── Akhir baris media ──
 // Rewrite attachment <img> elements that still carry a relative/un-tokenized src
 // (e.g. images drawn by the Milkdown editor) so they load in the native app.
 function fixAttachmentImg(img) {
@@ -27707,7 +27776,16 @@ function NoteModal({
       color: 'var(--text-secondary)',
       marginBottom: 6
     }
-  }, "Lampiran (", attachments.length, ")"), attachments.map(att => /*#__PURE__*/React.createElement("div", {
+  }, "Lampiran (", attachments.length, ")"), attachments.map(att => att.kind === 'media' ? mediaAttachmentRow(att, mediaAttachmentCanDelete(att, localStorage.getItem('tf_user_id'), mediaNoteOwnerId), async () => {
+    if (!window.confirm('Hapus lampiran ini?')) return;
+    try {
+      await api.del(`/api/scratchpad/attachments/${att.id}`);
+      setAttachments(prev => prev.filter(a => a.id !== att.id));
+      invalidateMediaCards(att);
+    } catch (e) {
+      alert(e.message);
+    }
+  }) : /*#__PURE__*/React.createElement("div", {
     key: att.id,
     className: "note-attach-row"
   }, /*#__PURE__*/React.createElement("span", {
@@ -28719,6 +28797,7 @@ function NotePanel({
         const allAtts = (panelAttachments && panelAttachments.length > 0) ? panelAttachments : (note.id ? await api.get(`/api/scratchpad/${note.id}/attachments`).catch(() => []) : []);
         if (Array.isArray(allAtts) && allAtts.length > 0) {
           await Promise.all(allAtts.map(async (att) => {
+            if (att.kind === 'media') return;
             const attUrl = `/api/scratchpad/attachments/${att.id}/view`;
             const b64 = await urlToBase64(attUrl);
             if (b64) {
@@ -29512,7 +29591,7 @@ function NotePanel({
       color: 'var(--text-secondary)',
       marginBottom: 6
     }
-  }, "Lampiran (", panelAttachments.length, ")"), panelAttachments.map(att => /*#__PURE__*/React.createElement("div", {
+  }, "Lampiran (", panelAttachments.length, ")"), panelAttachments.map(att => att.kind === 'media' ? mediaAttachmentRow(att, false, null) : /*#__PURE__*/React.createElement("div", {
     key: att.id,
     className: "note-attach-row"
   }, /*#__PURE__*/React.createElement("span", {
