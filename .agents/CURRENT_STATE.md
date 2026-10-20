@@ -1,3 +1,9 @@
+## 🔵 Dashboard: welcome card hanya untuk akun kosong — spec — 2026-10-20 (Claude) — SPEC DRAF, TUNGGU PERSETUJUAN BAPAK, BELUM ADA KODE
+- **Status:** spec `docs/superpowers/specs/2026-10-20-dashboard-welcome-sync-gate-design.md` (salinan di Project claude.ai "alurik" `claude/spec-dashboard-welcome-sync-gate-2026-10-20.md`), branch `claude/dashboard-intro-gate`. Berikutnya: persetujuan → rencana di `docs/superpowers/plans/` → SDD.
+- **Akar masalah:** `Dashboard` dirender dengan `tasks=[]` selama `await sync()` pertama di `fetchAll` (perangkat baru/setelah logout) → `DashOnboardingCard` tampil untuk akun lama; pull gagal → tetap tampil; syarat hanya task (akun dengan note saja juga dapat welcome).
+- **Keputusan Bapak:** local-first; data = task atau note (pribadi + workspace), Sampah tidak dihitung; welcome muncul lagi bila semua dihapus.
+- **Desain:** penanda `_meta initial_sync:v1 {user_id, at}` ditulis `sync()` bila pull task & note sukses; modul murni `static/offline/introgate.js` → dashboard/welcome/syncing/offline_empty/sync_error; tanpa endpoint/perubahan backend; frontend saja (naik SW).
+
 ## 🚨 CRITICAL WARNING FROM PAST SESSION 🚨
 **ATTENTION ALL AGENTS:** In a previous session, an agent was severely reprimanded by the user for ignoring the Superpowers plugin rules, writing code inline (cowboy coding), breaking the database with untested migrations, and falsely claiming a task was complete without running tests.
 **YOU MUST NOT REPEAT THIS.**

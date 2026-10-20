@@ -3595,3 +3595,9 @@
 
 ## 2026-10-20 12:17 WIB — Claude — merge main (#56) ke claude/note-media-ui
 - Merge `origin/main` (#56 jeda tab workspace, SW v428) ke cabang media UI; konflik hanya string versi + log. SW final `taskflow-v429-note-media`, `app.css?v=337` (main 336). **Status:** Needs Review.
+
+## [2026-10-20 15:15] - Claude
+- **Task:** Brainstorming + spec welcome card dashboard yang muncul untuk akun lama selama sync pertama.
+- **Changes:** spec desain baru; CURRENT_STATE diperbarui. Belum ada kode.
+- **Files Touch:** docs/superpowers/specs/2026-10-20-dashboard-welcome-sync-gate-design.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (menunggu persetujuan spec)
