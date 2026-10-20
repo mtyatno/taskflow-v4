@@ -73,9 +73,17 @@ test("aksesibilitas: aria-expanded, aria-controls, aria-label keluarkan, dialog 
 });
 
 test("memakai helper wsmanage, delete-impact lewat jaringan, dan kelas tema", () => {
-  assert.ok(block.includes("TF.wsmanage.memberRows"));
-  assert.ok(dialog.includes("TF.wsmanage.nameMatches"));
-  assert.ok(dialog.includes("TF.wsmanage.impactLines"));
+  // helper dijaga: window.TF.wsmanage tidak ada → baris anggota [] (tanpa crash), dihitung sekali per render
+  assert.ok(block.includes("const WSM = window.TF && window.TF.wsmanage;"));
+  assert.ok(block.includes("WSM ? WSM.memberRows(details[l.id]) : []"));
+  assert.equal((block.match(/memberRows\(/g) || []).length, 1);
+  assert.ok(!block.includes("window.TF.wsmanage.memberRows"));
+  assert.ok(dialog.includes("const WS = window.TF && window.TF.wsmanage;"));
+  assert.ok(dialog.includes("WS.nameMatches"));
+  assert.ok(dialog.includes("WS ? WS.impactLines(data) : []"));
+  // galat hapus dipetakan (bukan err.message mentah)
+  assert.ok(dialog.includes("\"Hapus workspace butuh koneksi internet\" : \"Gagal menghapus workspace \\u2014 coba lagi\""));
+  assert.ok(!/setError\(\(err && err\.message\)/.test(dialog));
   assert.ok(dialog.includes("/delete-impact"));
   assert.match(dialog, /\/delete-impact`, \{ network: true \}/);
   assert.ok(dialog.includes("navigator.onLine === false"));
@@ -93,6 +101,7 @@ test("memakai helper wsmanage, delete-impact lewat jaringan, dan kelas tema", ()
   assert.ok(!/if \(members\[listId\]\) return;/.test(block));
   // keluar memakai dialog Alurik sebagai confirmFn
   assert.match(block, /confirmFn: [^\n]*askDrawingScope/);
+  assert.match(block, /confirmFn:[\s\S]{0,200}note: "Task belum selesai yang ditugaskan kepadamu di workspace ini akan dilepas penanggung jawabnya\."/);
 });
 
 test("app.css punya .btn-danger-soft, .btn-warn-soft, .ws-invite-link + varian gelap", () => {
@@ -100,4 +109,10 @@ test("app.css punya .btn-danger-soft, .btn-warn-soft, .ws-invite-link + varian g
   assert.ok(css.includes("[data-theme=\"dark\"] .btn-danger-soft"));
   assert.ok(css.includes("[data-theme=\"dark\"] .btn-warn-soft"));
   assert.match(css, /\.ws-invite-link\s*\{[^}]*var\(--bg-subtle\)/);
+});
+
+test("DrawingScopeDialog: aksi danger memakai btn-danger-soft, tanpa hex inline", () => {
+  const dlg = sliceBetween("function DrawingScopeDialog(", "function useDrawingScopeDialog(");
+  assert.ok(dlg.includes('a.danger ? "btn btn-sm btn-danger-soft"'));
+  assert.ok(!/#[0-9a-fA-F]{3,6}\b/.test(dlg));
 });

@@ -2140,6 +2140,7 @@ function SharedListsManager({
   onRefresh,
   showToast
 }) {
+  const WSM = window.TF && window.TF.wsmanage;
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [inviteUsername, setInviteUsername] = useState("");
@@ -2289,7 +2290,11 @@ function SharedListsManager({
       TF: window.TF,
       ask: askDrawingScope,
       showToast,
-      confirmFn: msg => askDrawingScope({ title: msg, actions: [{ value: "cancel", label: "Batal" }, { value: "ok", label: "Keluar", primary: true }] }).then(v => v === "ok")
+      confirmFn: msg => askDrawingScope({
+        title: msg,
+        note: "Task belum selesai yang ditugaskan kepadamu di workspace ini akan dilepas penanggung jawabnya.",
+        actions: [{ value: "cancel", label: "Batal" }, { value: "ok", label: "Keluar", primary: true }]
+      }).then(v => v === "ok")
     });
     if (left) onRefresh();
   };
@@ -2603,7 +2608,7 @@ function SharedListsManager({
       color: "var(--text-light)",
       marginBottom: 8
     }
-  }, "Memuat\u2026") : /*#__PURE__*/React.createElement(React.Fragment, null, window.TF.wsmanage.memberRows(details[l.id]).map(m => /*#__PURE__*/React.createElement("div", {
+  }, "Memuat\u2026") : (memberRows => /*#__PURE__*/React.createElement(React.Fragment, null, memberRows.map(m => /*#__PURE__*/React.createElement("div", {
     key: m.role + ":" + m.id,
     style: {
       display: "flex",
@@ -2649,13 +2654,13 @@ function SharedListsManager({
       cursor: "pointer",
       fontSize: 12
     }
-  }, "Keluarkan"))), window.TF.wsmanage.memberRows(details[l.id]).every(m => m.role === "owner") && /*#__PURE__*/React.createElement("div", {
+  }, "Keluarkan"))), memberRows.every(m => m.role === "owner") && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: "var(--text-light)",
       marginBottom: 8
     }
-  }, "Belum ada anggota lain.")), l.role === "owner" && /*#__PURE__*/React.createElement("div", {
+  }, "Belum ada anggota lain.")))(WSM ? WSM.memberRows(details[l.id]) : []), l.role === "owner" && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 12
     }
@@ -2772,7 +2777,7 @@ function WorkspaceDeleteDialog({
     }
     setImpact({ status: "loading", lines: [] });
     api.get(`/api/lists/${list.id}/delete-impact`, { network: true }).then(data => {
-      if (aliveRef.current) setImpact({ status: "ready", lines: window.TF.wsmanage.impactLines(data) });
+      if (aliveRef.current) setImpact({ status: "ready", lines: WS ? WS.impactLines(data) : [] });
     }).catch(err => {
       console.warn("[ws-delete] delete-impact gagal", err);
       if (aliveRef.current) setImpact({ status: navigator.onLine === false ? "offline" : "error", lines: [] });
@@ -2806,7 +2811,7 @@ function WorkspaceDeleteDialog({
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, [close]);
-  const matches = !!WS && window.TF.wsmanage.nameMatches(typed, list.name);
+  const matches = !!WS && WS.nameMatches(typed, list.name);
   const canDelete = impact.status === "ready" && matches && !busy;
   const submit = async e => {
     if (e) e.preventDefault();
@@ -2823,7 +2828,9 @@ function WorkspaceDeleteDialog({
       busyRef.current = false;
       if (!aliveRef.current) return;
       setBusy(false);
-      setError((err && err.message) || "Gagal menghapus workspace");
+      console.warn("[ws-delete] hapus gagal", err);
+      const offline = (typeof navigator !== "undefined" && navigator.onLine === false) || isOfflineErr(err);
+      setError(offline ? "Hapus workspace butuh koneksi internet" : "Gagal menghapus workspace \u2014 coba lagi");
     }
   };
   const muted = { fontSize: 13, color: "var(--text-secondary)" };
@@ -24110,8 +24117,7 @@ function DrawingScopeDialog({ spec, onAction }) {
     /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" } },
       (spec.actions || []).map(a => /*#__PURE__*/React.createElement("button", {
         key: a.value,
-        className: a.primary ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm",
-        style: a.danger ? { color: "#dc2626" } : undefined,
+        className: a.danger ? "btn btn-sm btn-danger-soft" : a.primary ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm",
         onClick: () => onAction(a.value)
       }, a.label)))
   ));
