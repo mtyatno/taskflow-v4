@@ -3547,3 +3547,7 @@
 - Keputusan: `static/index.html` sudah JS biasa → verifikasi sintaks dengan parse skrip inline, bukan `compile.js`; SW v425; setelah 409 klien menyegarkan daftar ke kondisi server.
 - Review akhir opus → perbaikan: pull list lewat `runSyncExclusive` + `setLocalPin` (pin bisa terbalik oleh sync bersamaan), fokus keyboard menu rail, cache `lists`, Escape, aria-label, `key`.
 - **Verifikasi:** pytest 814, JS 1845 (pra-ada drawing reactivity), E2E 42/42. **Status:** Needs Review (draft PR; merge setelah #52; restart `taskflow-web`).
+
+## 2026-10-20 10:25 WIB — Claude — merge workspace di-pin (#52, #53)
+- Bapak: "good merge". #52 di-merge (ad543f6), #53 di-retarget ke `main` lalu di-merge (b336ed2); CI Tests dan Deploy Taskflow V4 sukses untuk keduanya.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web taskflow`; cek rail sidebar mode ikon menampilkan avatar workspace (SW v425). Cek juga menu klik kanan rail di Safari/aplikasi macOS (WebKit).
