@@ -1871,7 +1871,7 @@ async def list_tasks(
         clauses.append("project = ?")
         params.append(project)
     if context:
-        clauses.append("context = ?")
+        clauses.append("context = ? COLLATE NOCASE")
         params.append(context)
     if tag:
         tag_norm = tag.strip().lower()
@@ -2616,13 +2616,13 @@ async def delete_project(project_id: int, user=Depends(get_current_user)):
 
 
 class ContextCreate(BaseModel):
-    name: str
+    name: str = Field(max_length=50)
     list_id: Optional[int] = None
     client_id: Optional[str] = Field(default=None, max_length=64)  # diterima, tidak disimpan (idempoten lewat nama)
 
 
 class ContextPatch(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=50)
     color: Optional[str] = None
     archived: Optional[bool] = None
 
@@ -2767,19 +2767,20 @@ async def update_context(context_id: int, body: ContextPatch, user=Depends(get_c
             new = body.name.strip()
             if not new:
                 raise HTTPException(400, "Nama tahap tidak boleh kosong")
-            if row["list_id"] is None:
-                dup = conn.execute(
-                    "SELECT 1 FROM contexts WHERE user_id = ? AND list_id IS NULL "
-                    "AND name = ? COLLATE NOCASE AND id <> ?", (row["user_id"], new, context_id)).fetchone()
-            else:
-                dup = conn.execute(
-                    "SELECT 1 FROM contexts WHERE list_id = ? AND name = ? COLLATE NOCASE AND id <> ?",
-                    (row["list_id"], new, context_id)).fetchone()
-            if dup:
-                raise _ctx_taken()
-            sets.append("name = ?"); args.append(new)
-            conn.execute("UPDATE tasks SET context = ?, updated_at = ? WHERE context_id = ?",
-                         (new, now, context_id))
+            if new != row["name"]:  # nama persis sama: bukan rename, jangan sentuh task terkait
+                if row["list_id"] is None:
+                    dup = conn.execute(
+                        "SELECT 1 FROM contexts WHERE user_id = ? AND list_id IS NULL "
+                        "AND name = ? COLLATE NOCASE AND id <> ?", (row["user_id"], new, context_id)).fetchone()
+                else:
+                    dup = conn.execute(
+                        "SELECT 1 FROM contexts WHERE list_id = ? AND name = ? COLLATE NOCASE AND id <> ?",
+                        (row["list_id"], new, context_id)).fetchone()
+                if dup:
+                    raise _ctx_taken()
+                sets.append("name = ?"); args.append(new)
+                conn.execute("UPDATE tasks SET context = ?, updated_at = ? WHERE context_id = ?",
+                             (new, now, context_id))
         if "color" in fields:
             if body.color is not None and not _COLOR_RE.match(body.color):
                 raise HTTPException(400, "Warna harus format #rrggbb")

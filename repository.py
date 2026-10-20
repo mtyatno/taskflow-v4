@@ -1233,7 +1233,7 @@ class TaskRepository:
             clauses.append("project = ?")
             params.append(project)
         if context:
-            clauses.append("context = ?")
+            clauses.append("context = ? COLLATE NOCASE")
             params.append(context)
 
         where = " AND ".join(clauses)

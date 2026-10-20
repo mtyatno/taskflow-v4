@@ -5,12 +5,15 @@ import uuid
 import pytest
 
 import repository
-from conftest import db
 
 
 @pytest.fixture
-def conn():
-    c = db()
+def conn(tmp_path):
+    """DB SQLite terisolasi per tes (bukan DB test bersama): hitungan global backfill deterministik."""
+    path = str(tmp_path / "contexts_schema.db")
+    repository.TaskRepository(path)  # membuat seluruh skema (termasuk contexts)
+    c = sqlite3.connect(path)
+    c.row_factory = sqlite3.Row
     c.execute("PRAGMA foreign_keys=ON")
     repository.ensure_contexts_schema(c)
     yield c

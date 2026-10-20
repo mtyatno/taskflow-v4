@@ -201,3 +201,15 @@ def test_put_context_id_other_scope_400(client):
     row = _row("SELECT title, context, context_id FROM tasks WHERE id = ?", t["id"])
     assert row["title"] == "asli" and row["context"] == t["context"]
     assert row["context_id"] == t["context_id"]
+
+
+def test_get_tasks_context_filter_nocase(client):
+    u = U(client)
+    name = _n("Phone")
+    _mk(u, context=name)  # membuat context kanonis
+    t = _mk(u, context=name.lower())
+    assert t["context"] == name
+    r = u.get("/api/tasks", params={"context": name.lower()})
+    assert r.status_code == 200, r.text
+    ids = {x["id"] for x in r.json()}
+    assert t["id"] in ids and len(ids) == 2

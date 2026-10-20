@@ -190,3 +190,24 @@ def test_list_contexts_from_table_ordered(conn, repo):
     _ctx(conn, user_id=u, name="@arsip", position=2, archived=1)
     _ctx(conn, list_id=w, name="@ws", position=0)
     assert repo.list_contexts(u) == ["@z", "@a"]
+
+
+def test_list_filtered_context_nocase_canonical(conn, repo):
+    """Task disimpan dgn ejaan kanonis (@Phone); /list @phone harus tetap menemukannya."""
+    u = _user(conn)
+    repo.add(Task(title="seed", context="@Phone"), u)
+    t = repo.add(Task(title="call mom", context="@phone"), u)
+    assert _task_row(conn, t.id)["context"] == "@Phone"
+    got = repo.list_filtered(context="@phone", user_id=u)
+    assert t.id in {x.id for x in got}
+
+
+def test_ctx_callback_ok_limits_64_bytes():
+    import bot
+    assert bot._ctx_callback_ok("@Phone")
+    assert bot._ctx_callback_ok("a" * (64 - len("addctx_")))
+    assert not bot._ctx_callback_ok("a" * (64 - len("addctx_") + 1))
+    # multi-byte: 20 huruf 3-byte = 60 byte + 7 prefix > 64
+    assert not bot._ctx_callback_ok("日" * 20)
+    assert bot._ctx_callback_ok("日" * 19)
+    assert bot._pickable_contexts(["@ok", "x" * 80, "日" * 20, "@b"]) == ["@ok", "@b"]

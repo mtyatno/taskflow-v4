@@ -167,6 +167,30 @@ def test_patch_rename_case_only_ok(client):
     assert r.status_code == 200 and r.json()["name"] == name.capitalize()
 
 
+def test_patch_same_name_does_not_touch_tasks(client):
+    u = U(client)
+    name = _n()
+    c = _ctx(u, name)
+    t = _task(u, name)
+    conn = db()
+    conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", ("2026-01-02T00:00:00", t["id"]))
+    conn.commit()
+    conn.close()
+    r = u.patch(f"/api/contexts/{c['id']}", json={"name": f"  {name} ", "color": "#112233"})
+    assert r.status_code == 200 and r.json()["color"] == "#112233" and r.json()["name"] == name
+    row = _row("SELECT context, updated_at FROM tasks WHERE id=?", t["id"])
+    assert row["context"] == name and row["updated_at"] == "2026-01-02T00:00:00"
+
+
+def test_context_name_max_length_50(client):
+    u = U(client)
+    assert u.post("/api/contexts", json={"name": "a" * 51}).status_code == 422
+    assert u.post("/api/contexts", json={"name": "a" * 50}).status_code == 200
+    c = _ctx(u)
+    assert u.patch(f"/api/contexts/{c['id']}", json={"name": "b" * 51}).status_code == 422
+    assert u.patch(f"/api/contexts/{c['id']}", json={"name": "b" * 50}).status_code == 200
+
+
 def test_patch_rename_taken_409(client):
     u = U(client)
     a, b = _ctx(u), _ctx(u)
