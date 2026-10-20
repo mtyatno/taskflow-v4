@@ -5,6 +5,7 @@ Multi-user: all task queries filter by user_id.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import secrets
 import hashlib
@@ -20,9 +21,27 @@ def _today_jkt() -> date:
     return datetime.now(_TZ_JKT).date()
 
 from models import Task, GTDStatus, Priority, Quadrant
-from config import DB_PATH
+from config import DB_PATH, UPLOAD_DIR
 
 _log = logging.getLogger(__name__)
+
+
+# Berkas workspace yang benar-benar dihapus saat workspace dihapus (lampiran task dipertahankan).
+# Dipakai bersama oleh delete_shared_list dan workspace_delete_impact agar tidak berbeda.
+_WS_FILES_TO_DELETE_WHERE = (
+    "list_id = ? AND is_deleted = 0 AND filename NOT IN (SELECT filename FROM task_attachments)"
+)
+
+
+def _return_tasks_to_creator(conn, where_sql: str, args: tuple = ()) -> int:
+    """Kembalikan task workspace ke pembuatnya (pribadi): lepas list/assignee/project/context.
+    Mengembalikan jumlah baris. Idempoten bila where_sql hanya mencocokkan task yang masih terikat."""
+    cur = conn.execute(
+        "UPDATE tasks SET list_id = NULL, assigned_to = NULL, project_id = NULL, project = '', "
+        "context_id = NULL, context = '', updated_at = ? WHERE " + where_sql,
+        (datetime.now().isoformat(), *args),
+    )
+    return cur.rowcount
 
 
 def ensure_projects_schema(conn) -> None:
@@ -1038,6 +1057,22 @@ class TaskRepository:
             ensure_workspace_pins_schema(conn)
             ensure_pomodoro_schema(conn)
 
+    def heal_orphan_workspace_items(self) -> int:
+        """Task dan mindmap yang list_id-nya menunjuk workspace yang sudah dihapus kembali pribadi
+        (idempoten: hanya baris yang masih yatim yang disentuh). Mengembalikan jumlah baris.
+        Dipanggil sekali saat startup lewat webapp.migrate_db, bukan di _init_db (per request)."""
+        orphan = "list_id IS NOT NULL AND list_id NOT IN (SELECT id FROM shared_lists)"
+        with self._connect() as conn:
+            n = _return_tasks_to_creator(conn, orphan)
+            try:
+                n += conn.execute(
+                    "UPDATE mindmaps SET list_id = NULL, updated_at = ? WHERE " + orphan,
+                    (datetime.now(_TZ_JKT).isoformat(),),
+                ).rowcount
+            except sqlite3.OperationalError:
+                pass  # tabel/kolom mindmaps belum dimigrasi
+            return n
+
     # ── Row to Task mapping ────────────────────────────────────────────────
 
     @staticmethod
@@ -1576,15 +1611,28 @@ class TaskRepository:
             return cur.rowcount > 0
 
     def delete_shared_list(self, list_id: int, owner_id: int) -> bool:
+        files_to_unlink: list[str] = []
         with self._connect() as conn:
-            # Petakan: catatan kehilangan list_id lewat FK SET NULL; peta tertaut (tanpa FK) harus ikut NULL.
+            if conn.execute(
+                "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
+            ).fetchone():
+                try:
+                    files_to_unlink = [r[0] for r in conn.execute(
+                        "SELECT DISTINCT filename FROM workspace_files WHERE " + _WS_FILES_TO_DELETE_WHERE,
+                        (list_id,)
+                    ).fetchall()]
+                except sqlite3.OperationalError:
+                    pass  # tabel workspace_files belum ada
+                # list_id tanpa FK: tanpa ini task tertinggal menunjuk workspace yang hilang.
+                _return_tasks_to_creator(conn, "list_id = ?", (list_id,))
+            # Mindmap (tertaut catatan maupun mandiri) kembali pribadi pemiliknya: mindmaps.list_id
+            # tanpa FK, jadi tanpa ini list_id tertinggal menunjuk workspace yang hilang.
             try:
                 if conn.execute(
                     "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
                 ).fetchone():
                     conn.execute(
-                        "UPDATE mindmaps SET list_id = NULL, updated_at = ? "
-                        "WHERE list_id = ? AND source_note_id IS NOT NULL",
+                        "UPDATE mindmaps SET list_id = NULL, updated_at = ? WHERE list_id = ?",
                         (datetime.now(_TZ_JKT).isoformat(), list_id),
                     )
             except sqlite3.OperationalError:
@@ -1603,7 +1651,14 @@ class TaskRepository:
             cur = conn.execute(
                 "DELETE FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
             )
-            return cur.rowcount > 0
+            deleted = cur.rowcount > 0
+        if deleted:
+            for fn in files_to_unlink:
+                try:
+                    os.unlink(os.path.join(UPLOAD_DIR, fn))
+                except OSError as e:
+                    logging.warning("Gagal menghapus berkas workspace %s: %s", fn, e)
+        return deleted
 
     def get_lists_for_user(self, user_id: int) -> list[dict]:
         """All lists where user is owner OR member, with role and member_count."""
@@ -1645,7 +1700,7 @@ class TaskRepository:
             result = []
             for rows, role in ((owned, "owner"), (membered, "member")):
                 for r in rows:
-                    cnt = conn.execute(
+                    cnt = 1 + conn.execute(  # +1 = owner (tidak tercatat di list_members)
                         "SELECT COUNT(*) as c FROM list_members WHERE list_id = ?", (r["id"],)
                     ).fetchone()["c"]
                     result.append({
@@ -1707,7 +1762,38 @@ class TaskRepository:
             conn.execute(
                 "DELETE FROM workspace_pins WHERE user_id = ? AND list_id = ?", (user_id, list_id)
             )
+            if cur.rowcount > 0:
+                # Task aktif tidak boleh tertinggal berpenanggung jawab non-anggota.
+                conn.execute(
+                    "UPDATE tasks SET assigned_to = NULL, updated_at = ? "
+                    "WHERE list_id = ? AND assigned_to = ? AND gtd_status NOT IN ('done','archived')",
+                    (datetime.now().isoformat(), list_id, user_id),
+                )
             return cur.rowcount > 0
+
+    def workspace_delete_impact(self, list_id: int) -> dict:
+        """Ringkasan dampak menghapus workspace (semua int). Tabel belum dimigrasi dihitung 0."""
+        def count(conn, sql):
+            try:
+                return conn.execute(sql, (list_id,)).fetchone()[0] or 0
+            except sqlite3.OperationalError:
+                return 0
+        with self._connect() as conn:
+            return {
+                "tasks_total": count(conn, "SELECT COUNT(*) FROM tasks WHERE list_id = ?"),
+                "tasks_active": count(
+                    conn, "SELECT COUNT(*) FROM tasks WHERE list_id = ? "
+                          "AND gtd_status NOT IN ('done','archived')"),
+                "files": count(
+                    conn, "SELECT COUNT(DISTINCT filename) FROM workspace_files WHERE "
+                          + _WS_FILES_TO_DELETE_WHERE),
+                "messages": count(conn, "SELECT COUNT(*) FROM messages WHERE list_id = ?"),
+                "projects": count(conn, "SELECT COUNT(*) FROM projects WHERE list_id = ?"),
+                "stages": count(conn, "SELECT COUNT(*) FROM contexts WHERE list_id = ?"),
+                "notes_to_personal": count(conn, "SELECT COUNT(*) FROM scratchpad_notes WHERE list_id = ?"),
+                "drawings_to_personal": count(conn, "SELECT COUNT(*) FROM drawings WHERE list_id = ?"),
+                "mindmaps_to_personal": count(conn, "SELECT COUNT(*) FROM mindmaps WHERE list_id = ?"),
+            }
 
     def get_list_members(self, list_id: int) -> list[dict]:
         with self._connect() as conn:
