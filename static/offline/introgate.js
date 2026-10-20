@@ -46,6 +46,11 @@
     });
   }
 
+  // Punya task lokal hidup? Hanya ini yang layak memicu __refreshTasks (note tidak masuk state App).
+  function hasLocalTasks() {
+    return TFdb.openDB().then((db) => storeHasLive(db, "tasks"));
+  }
+
   function readInitialSync(userId) {
     if (userId == null) return Promise.resolve(false);
     return TFmeta.metaGet(MARKER_KEY)
@@ -68,7 +73,7 @@
     } catch (e) { return null; }
   }
 
-  const exported = { MARKER_KEY, decideIntro, hasLocalData, readInitialSync, markInitialSync, currentUserId };
+  const exported = { MARKER_KEY, decideIntro, hasLocalData, hasLocalTasks, readInitialSync, markInitialSync, currentUserId };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.introgate = exported; }
   return exported;
 });

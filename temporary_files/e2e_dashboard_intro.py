@@ -4,7 +4,7 @@ Skenario (spec 2026-10-20-dashboard-welcome-sync-gate §5, brief Task 4):
   a  akun lama (3 task + 2 note), perangkat baru (context baru, IndexedDB kosong), login lewat form; pull task
      (GET /api/tasks?include_done=true ber-header X-TF-Sync) ditahan 3 dtk → kartu "Menyinkronkan data kamu dari
      server…"; "Selamat datang di Alurik" TIDAK PERNAH muncul (polling DOM tiap 100 ms + MutationObserver);
-     dilepas → kartu Prioritas + KPI. Screenshot terang + gelap.
+     dilepas → kartu Prioritas + KPI; tepat satu pull task sync selama login pertama. Screenshot terang + gelap.
   a2 akun lama hanya task (tanpa note) — probe urutan baca penanda vs data lokal saat tf:initial-sync.
   b  akun baru (kosong) → welcome card "Mulai Langkah Pertama" + kalimat "Selamat datang di Alurik!" setelah sync.
   c  akun lama, perangkat baru, token sudah ada; app shell dimuat online dengan pull task ditahan, context dibuat
@@ -13,7 +13,7 @@ Skenario (spec 2026-10-20-dashboard-welcome-sync-gate §5, brief Task 4):
   d  pull task + pull note 500 → "Gagal mengambil data dari server" + "Coba lagi"; route dilepas → klik
      "Coba lagi" → dashboard penuh. Screenshot terang + gelap.
   d2 hanya /api/scratchpad 500 (akun lama): task sudah ter-pull → dashboard (bukan welcome), penanda TIDAK ditulis.
-  e  akun hanya punya note → bukan welcome, bukan kartu status.
+  e  akun hanya punya note → bukan welcome, bukan kartu status; tidak ada pull task tambahan dari dashboard.
   f  akun 1 task + 1 note: hapus keduanya → welcome muncul tanpa reload; reload offline (app shell dari SW) → welcome.
   g  B anggota workspace milik A (workspace berisi 1 task), B tanpa item pribadi → bukan welcome.
   h  logout akun lama → login akun baru di tab yang sama → welcome (bukan kartu status macet).
@@ -363,6 +363,11 @@ def scen_a(browser, base, old):
         check("a8 MutationObserver: welcome tidak pernah dirender sepanjang skenario", rec["welcome"] == 0, repr(rec))
         check("a9 judul kartu status yang sempat tampil hanya 'Menyinkronkan…'", rec["sync"] == [T_SYNCING], repr(rec["sync"]))
         shot(p, "a_dashboard_penuh.png")
+        # Login pertama perangkat baru: tepat SATU pull task sync (dulu tf:initial-sync → __refreshTasks → fetchAll
+        # kedua → sync penuh kedua).
+        p.wait_for_timeout(2000)
+        check("a10 login pertama: tepat 1 pull task sync (X-TF-Sync), tanpa sync penuh kedua",
+              gate.hits["tasks"] == 1, repr(gate.hits))
     finally:
         ctx.close()
 
@@ -490,17 +495,23 @@ def scen_e(browser, base):
     add_note(base, u, "Catatan saja 1")
     add_note(base, u, "Catatan saja 2")
     ctx, p = new_ctx(browser, base)
+    gate = Gate()
+    gate.install(ctx)
     try:
         ui_login(p, base, u)
         wait_dash(p)
         r = wait_marker(p)
         check("e1 sync awal selesai (penanda ada)", r and r["marker"], repr(r))
+        hits_after_first = dict(gate.hits)
         p.wait_for_timeout(1500)
         s = probe(p)
         check("e2 akun hanya note: bukan welcome", not s["onboarding"] and not s["welcomeText"], repr(s))
         check("e3 akun hanya note: bukan kartu status", not s["sync"], repr(s["sync"]))
         check("e4 kartu Prioritas biasa tampil", s["prio"], repr(s))
         check("e5 welcome tidak pernah dirender", s["rec"]["welcome"] == 0, repr(s["rec"]))
+        p.wait_for_timeout(500)
+        check("e6 akun hanya note: dashboard tidak memicu pull task tambahan setelah sync pertama",
+              gate.hits["tasks"] == 1 and hits_after_first["tasks"] == 1, "awal=%r akhir=%r" % (hits_after_first, gate.hits))
     finally:
         ctx.close()
 

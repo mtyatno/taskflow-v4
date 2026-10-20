@@ -470,6 +470,13 @@ const OfflineDB = (() => {
 window.OfflineDB = OfflineDB;
 
 async function clearLocalUserData() {
+  // Epoch sesi naik PALING AWAL: sync() yang sedang berjalan tidak boleh menulis penanda sync awal ke _meta yang dibersihkan.
+  window.__userEpoch = (window.__userEpoch || 0) + 1;
+  // Status sync akun lama (mis. sync_error) tidak boleh terbawa ke akun berikutnya.
+  try {
+    window.__syncState = { running: false, lastFailed: false };
+    window.dispatchEvent(new CustomEvent("tf:sync-state", { detail: window.__syncState }));
+  } catch (_) {}
   // Unggahan media berjalan milik akun ini: hentikan tanpa DELETE/toast sebelum data & token dibuang.
   try { window.__mediaUploads?.abortAll?.(); } catch (_) {}
   try {
@@ -1130,7 +1137,15 @@ function sync() {
   // Gerbang intro dashboard: status sync (window.__syncState + tf:sync-state) dan penanda sync awal.
   // tasksOk/notesOk = pull task / pull note resolve di putaran ini; gagal salah satunya → lastFailed.
   let tasksOk = false, notesOk = false;
+  // Penanda hanya untuk sesi yang memulai run ini: uid + epoch (clearLocalUserData menaikkan __userEpoch)
+  // ditangkap di awal run; berbeda saat finish (logout/ganti akun di tengah run) → tidak ditandai.
+  let runUid = null, runEpoch = 0;
   const emitState = (running) => {
+    if (running) {
+      // Awal run eksklusif: tangkap sesi pemilik run.
+      runEpoch = window.__userEpoch || 0;
+      try { runUid = window.TF.introgate ? window.TF.introgate.currentUserId() : null; } catch (_) { runUid = null; }
+    }
     const detail = { running: running, lastFailed: !(tasksOk && notesOk) && !running };
     window.__syncState = detail;
     window.dispatchEvent(new CustomEvent("tf:sync-state", { detail: detail }));
@@ -1141,10 +1156,11 @@ function sync() {
     if (tasksOk && notesOk && ig) {
       // Tulis penanda + pancarkan tf:initial-sync hanya bila penanda BELUM ada (cegah loop refresh Dashboard).
       marked = Promise.resolve().then(() => {
-        const uid = ig.currentUserId();
-        if (uid == null) return null;
+        const uid = runUid;
+        const sameSession = () => uid != null && ig.currentUserId() === uid && (window.__userEpoch || 0) === runEpoch;
+        if (!sameSession()) return null;
         return Promise.resolve(ig.readInitialSync(uid)).then((had) => {
-          if (had) return null;
+          if (had || !sameSession()) return null;
           return Promise.resolve(ig.markInitialSync(uid)).then(() => window.dispatchEvent(new CustomEvent("tf:initial-sync", { detail: { user_id: uid } })));
         });
       }).catch(() => {});
@@ -1164,6 +1180,7 @@ function sync() {
     .then(() => step(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null)))
     .then(() => step(() => (window.TF.syncpull.pullHabitsAndLogs ? window.TF.syncpull.pullHabitsAndLogs(__syncRawFetch) : null)))
     .then(() => step(() => {
+      // Tanpa pullNotesAndReconcile notesOk tetap false (→ lastFailed, tanpa penanda); build produksi selalu memuatnya.
       if (!window.TF.syncpull.pullNotesAndReconcile) return null;
       return window.TF.syncpull.pullNotesAndReconcile(__syncRawFetch).then((notesRes) => {
         notesOk = true;
@@ -17724,8 +17741,12 @@ function useIntroState(tasks) {
     ]).then(([has, done]) => {
       if (!aliveRef.current || my !== seq.current) return;
       setRead({ localHas: has === true, syncDone: !!done });
-      // Segarkan state App hanya bila store lokal punya data yang belum dimuat (tasks masih kosong).
-      if (refresh && has === true && tasksLenRef.current === 0 && window.__refreshTasks) window.__refreshTasks();
+      // Segarkan state App hanya bila store `tasks` punya task hidup yang belum dimuat (tasks masih kosong);
+      // note tidak masuk state App. Selama fetchAll berjalan dilewati — fetchAll sendiri memuat task setelah sync().
+      if (!refresh || has !== true || tasksLenRef.current !== 0 || window.__fetchAllInFlight) return;
+      Promise.resolve(gate.hasLocalTasks()).then(hasTasks => {
+        if (hasTasks === true && aliveRef.current && tasksLenRef.current === 0 && !window.__fetchAllInFlight && window.__refreshTasks) window.__refreshTasks();
+      }).catch(() => {});
     }).catch(() => {
       if (aliveRef.current && my === seq.current) setRead({ localHas: false, syncDone: false });
     });
@@ -17760,7 +17781,13 @@ function useIntroState(tasks) {
       window.removeEventListener("offline", onOffline);
     };
   }, []);
+  // Run pertama dilewati: pembacaan mount (refresh=true) di efek [] tidak boleh tergantikan (seq) oleh baca tanpa refresh.
+  const tasksLenFirstRef = useRef(true);
   useEffect(() => {
+    if (tasksLenFirstRef.current) {
+      tasksLenFirstRef.current = false;
+      return;
+    }
     if (!gate || tasksLen !== 0) return;
     readAllRef.current(false);
   }, [tasksLen]);
@@ -36283,6 +36310,9 @@ function App() {
   const isSyncing = useRef(false);
   const fetchAll = useCallback(async () => {
     if (!user) return;
+    // useIntroState melewati __refreshTasks selama fetchAll berjalan (cegah sync penuh kedua saat login pertama).
+    window.__fetchAllInFlight = true;
+    try {
     const cacheEntries = [[setTasks, "tasks"], [setSummary, "summary"], [setProjects, "projects"], [setContexts, "contexts"], [setSharedLists, "lists"]];
     if (initialLoad.current) {
       // Tampilkan cache dulu agar tidak blank saat reload
@@ -36334,6 +36364,9 @@ function App() {
     if (initialLoad.current) {
       setLoading(false);
       initialLoad.current = false;
+    }
+    } finally {
+      window.__fetchAllInFlight = false;
     }
   }, [user]);
   useEffect(() => {

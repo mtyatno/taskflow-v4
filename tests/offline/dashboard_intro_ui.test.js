@@ -87,3 +87,41 @@ test("useIntroState membaca hasLocalData dan readInitialSync bersamaan (Promise.
   assert.doesNotMatch(b, /setSyncDone/);
   assert.match(b, /setRead\(\{\s*localHas:[^}]*syncDone:/);
 });
+
+function fnBody(sig, len = 4000) {
+  const i = html.indexOf(sig);
+  assert.ok(i >= 0, sig + " missing");
+  return html.slice(i, i + len);
+}
+
+test("useIntroState: __fetchAllInFlight dicek sebelum __refreshTasks dan keputusan refresh memakai hasLocalTasks", () => {
+  const b = hookBody();
+  assert.match(b, /__fetchAllInFlight[^]*?__refreshTasks\(\)/);
+  assert.match(b, /hasLocalTasks\(\)[^]*?__refreshTasks\(\)/);
+  assert.equal(b.split("hasLocalData()").length - 1, 1, "hasLocalData tetap input keputusan intro");
+});
+
+test("useIntroState: efek [tasksLen] melewati run pertama (pembacaan mount refresh=true tidak tergantikan)", () => {
+  const b = hookBody();
+  const end = b.indexOf("}, [tasksLen])");
+  assert.ok(end > 0, "efek [tasksLen] ada");
+  const eff = b.slice(b.lastIndexOf("useEffect(", end), end);
+  assert.match(eff, /if \(\w*[Ff]irst\w*\.current\)\s*\{\s*\w*[Ff]irst\w*\.current = false;\s*return/);
+  assert.ok(eff.indexOf("readAllRef.current(false)") > eff.indexOf("return"), "pembacaan hanya setelah lewat run pertama");
+});
+
+test("clearLocalUserData menaikkan __userEpoch di awal dan me-reset __syncState + tf:sync-state", () => {
+  const b0 = fnBody("async function clearLocalUserData()", 6000);
+  const b = b0.slice(0, b0.indexOf("\nwindow.clearLocalUserData"));
+  assert.ok(b.length > 100);
+  const firstLine = b.split("\n").slice(1, 4).join("\n");
+  assert.match(firstLine, /__userEpoch/);
+  assert.match(b, /window\.__syncState = \{ running: false, lastFailed: false \}/);
+  assert.match(b, /new CustomEvent\("tf:sync-state"/);
+});
+
+test("fetchAll menyetel dan membersihkan __fetchAllInFlight dalam try/finally", () => {
+  const b = fnBody("const fetchAll = useCallback(async () => {", 4000);
+  assert.match(b, /window\.__fetchAllInFlight = true;\s*try \{/);
+  assert.match(b, /\} finally \{\s*window\.__fetchAllInFlight = false;/);
+});

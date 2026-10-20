@@ -104,3 +104,29 @@ test("sync(): currentUserId melempar → sync tetap resolve dan tf:sync-state te
   assert.equal(st[st.length - 1].detail.running, false);
   assert.deepEqual(h.marked, []);
 });
+
+test("sync(): user berganti antara awal run dan finish → tanpa markInitialSync dan tanpa tf:initial-sync", async () => {
+  let n = 0;
+  const h = build({}, { igOver: { currentUserId: () => (n++ === 0 ? "7" : "8") } });
+  await h.sync(); await tick();
+  assert.deepEqual(h.marked, []);
+  assert.equal(h.events.filter((e) => e.type === "tf:initial-sync").length, 0);
+  assert.equal(h.win.__syncState.running, false);
+});
+
+test("sync(): __userEpoch naik selama run (logout/clearLocalUserData) → tanpa markInitialSync", async () => {
+  let h;
+  h = build({ pullNotesAndReconcile: () => { h.win.__userEpoch = (h.win.__userEpoch || 0) + 1; return ok(); } });
+  await h.sync(); await tick();
+  assert.deepEqual(h.marked, []);
+  assert.equal(h.events.filter((e) => e.type === "tf:initial-sync").length, 0);
+});
+
+test("sync(): jalur normal menandai dengan uid saat run dimulai (epoch tetap)", async () => {
+  const h = build();
+  h.win.__userEpoch = 3;
+  await h.sync(); await tick();
+  assert.deepEqual(h.marked, ["7"]);
+  const ev = h.events.filter((e) => e.type === "tf:initial-sync");
+  assert.deepEqual(ev.map((e) => e.detail), [{ user_id: "7" }]);
+});

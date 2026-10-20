@@ -3631,3 +3631,10 @@
 - **Files Touch:** temporary_files/e2e_dashboard_intro.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md (+ file rilis dari entri sebelumnya)
 - **Verifikasi:** E2E 62/62 (2 run), JS 2153/2154 (pra-ada `draw_local_reactive`), pytest 816. Context `service_workers="block"` kecuali skenario f.
 - **Status:** Needs Review (draft PR; restart `taskflow-web` setelah deploy)
+
+## [2026-10-20 16:32] - Claude (implementer perbaikan review akhir dashboard intro gate)
+- **Task:** Bereskan temuan review akhir `claude/dashboard-intro-gate` (Important 1–2, Minor 3–5, teks CURRENT_STATE) sesuai Ruling 5–6.
+- **Changes:** `sync()` menangkap uid + `window.__userEpoch` di awal run (di `emitState(true)`), penanda/`tf:initial-sync` hanya bila sesi sama saat finish; komentar `notesOk` bila `pullNotesAndReconcile` absen. `clearLocalUserData` menaikkan `__userEpoch` paling awal + reset `__syncState` (+ `tf:sync-state`). `fetchAll` menyetel `window.__fetchAllInFlight` (try/finally). `introgate.hasLocalTasks()`; `useIntroState` me-refresh hanya bila task lokal hidup, tidak saat fetchAll berjalan; efek `[tasksLen]` melewati run pertama. E2E: a10 (tepat 1 pull task sync saat login pertama), e6 (akun hanya note tanpa pull task tambahan).
+- **Files Touch:** static/index.html, static/offline/introgate.js, tests/offline/introgate.test.js, tests/offline/introgate_sync.test.js, tests/offline/dashboard_intro_ui.test.js, temporary_files/e2e_dashboard_intro.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Verifikasi:** RED 10 tes node + E2E a10/e6 gagal pada kode lama ({'tasks': 2}); GREEN: 4 file node 84/84, JS 2164/2165 (pra-ada `draw_local_reactive`), pytest 816, E2E 64/64 (2 run). SW tetap v431.
+- **Status:** Needs Review (draft PR; restart `taskflow-web` setelah deploy)

@@ -6,7 +6,7 @@ const { deleteDB } = require("./setup.js");
 const { DB_NAME, _reset, openDB } = require("../../static/offline/db.js");
 const { metaGet } = require("../../static/offline/meta.js");
 const {
-  MARKER_KEY, decideIntro, hasLocalData, readInitialSync, markInitialSync, currentUserId,
+  MARKER_KEY, decideIntro, hasLocalData, hasLocalTasks, readInitialSync, markInitialSync, currentUserId,
 } = require("../../static/offline/introgate.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
@@ -56,6 +56,22 @@ test("hasLocalData: note saja (deleted:false) → true", async () => {
 test("hasLocalData: task saja → true", async () => {
   await put("tasks", [{ cid: "t0", deleted: true }, { cid: "t1", deleted: false }]);
   assert.equal(await hasLocalData(), true);
+});
+
+test("hasLocalTasks: kosong → false", async () => {
+  assert.equal(await hasLocalTasks(), false);
+});
+test("hasLocalTasks: hanya task deleted:true → false", async () => {
+  await put("tasks", [{ cid: "t1", deleted: true }]);
+  assert.equal(await hasLocalTasks(), false);
+});
+test("hasLocalTasks: note saja → false (note tidak masuk state App)", async () => {
+  await put("scratchpad_notes", [{ cid: "n1", deleted: false }]);
+  assert.equal(await hasLocalTasks(), false);
+});
+test("hasLocalTasks: ada task hidup → true", async () => {
+  await put("tasks", [{ cid: "t0", deleted: true }, { cid: "t1", deleted: false }]);
+  assert.equal(await hasLocalTasks(), true);
 });
 
 test("readInitialSync: belum ada → false", async () => {
