@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=345">
+  <link rel="stylesheet" href="/static/app.css?v=346">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -299,6 +299,7 @@
   <script src="/static/offline/workspacepins.js"></script>
   <script src="/static/offline/wsmanage.js"></script>
   <script src="/static/offline/introgate.js"></script>
+  <script src="/static/offline/accountbanner.js"></script>
   <script src="/static/offline/focuspage.js"></script>
   <script src="/static/offline/pomologic.js"></script>
   <script src="/static/offline/pomolog.js"></script>
@@ -1092,6 +1093,16 @@ function endLogoutGuard() {
   __logoutInProgress = false;
 }
 window.__maybeRenewToken = maybeRenewToken;
+// Token baru dari server setelah profil berubah (ganti password/username, lengkapi akun): token lama tab ini
+// gugur (pwv), jadi wajib dipakai. localStorage ikut diperbarui → tab lain akun sama mengadopsinya lewat
+// event storage (onSharedTokenChanged → sharedTokenAction "none") atau saat 401 (handleAuthExpired, akun sama).
+function adoptSessionToken(token) {
+  if (!token) return;
+  tokenStore.set(token);
+  if (typeof API_BASE !== "undefined" && API_BASE && window.__TAURI__?.core?.invoke) {
+    window.__TAURI__.core.invoke("save_token", { token }).catch(() => {});
+  }
+}
 // Listener level atas (terpasang sebelum React mount → jalan sebelum visibilitychange → fetchAll milik App)
 window.addEventListener("storage", e => {
   if (e.key !== "tf_token" && e.key !== null) return;
@@ -22593,7 +22604,17 @@ function SettingsPage({
   const [loading, setLoading] = useState({
     username: false,
     password: false,
-    email: false
+    email: false,
+    setup: false
+  });
+  // Akun dibuat otomatis dari Telegram (password_set false): satu kartu "Lengkapi akun" menggantikan 3 form akun.
+  // undefined (mis. respons login tanpa field ini) dianggap sudah diatur.
+  const needsSetup = user?.password_set === false;
+  const [setupForm, setSetupForm] = useState({
+    username: "",
+    email: "",
+    password: "",
+    confirm: ""
   });
   const [tgLinked, setTgLinked] = useState(user?.telegram_linked ?? false);
   const [tgToken, setTgToken] = useState(null);
@@ -22620,11 +22641,15 @@ function SettingsPage({
     e.preventDefault();
     setL("username", true);
     try {
-      const data = await api.patch("/api/auth/profile/username", unForm);
+      const data = await api.patch("/api/auth/profile/username", {
+        new_username: unForm.new_username.trim(),
+        current_password: unForm.current_password
+      });
+      adoptSessionToken(data && data.token);
+      // display_name tidak ikut diganti (nama tampilan terpisah dari username)
       onUsernameChange({
         ...user,
-        username: data.username,
-        display_name: data.username
+        username: data.username
       });
       showToast("Username berhasil diubah ✅");
       setUnForm({
@@ -22644,10 +22669,12 @@ function SettingsPage({
     }
     setL("password", true);
     try {
-      await api.patch("/api/auth/profile/password", {
+      const data = await api.patch("/api/auth/profile/password", {
         old_password: pwForm.old_password,
         new_password: pwForm.new_password
       });
+      // token lama gugur (pwv) → pakai token baru; perangkat lain harus masuk lagi
+      adoptSessionToken(data && data.token);
       showToast("Password berhasil diubah ✅");
       setPwForm({
         old_password: "",
@@ -22674,6 +22701,37 @@ function SettingsPage({
       showToast(err.message, "error");
     }
     setL("email", false);
+  };
+  const handleCompleteAccount = async e => {
+    e.preventDefault();
+    const err = window.TF && TF.accountbanner ? TF.accountbanner.validateCompleteAccount(setupForm) : null;
+    if (err) {
+      showToast(err, "error");
+      return;
+    }
+    const body = {
+      email: setupForm.email.trim(),
+      new_password: setupForm.password
+    };
+    const un = setupForm.username.trim();
+    if (un) body.new_username = un;
+    setL("setup", true);
+    try {
+      const data = await api.post("/api/auth/complete-account", body);
+      adoptSessionToken(data && data.token);
+      onUsernameChange({
+        ...user,
+        username: data.username,
+        email: data.email,
+        password_set: true
+      });
+      setEmForm({ email: data.email || "", current_password: "" });
+      setSetupForm({ username: "", email: "", password: "", confirm: "" });
+      showToast("Akun berhasil dilengkapi ✅");
+    } catch (err2) {
+      showToast(err2.message, "error");
+    }
+    setL("setup", false);
   };
   const handleGenerateTgToken = async () => {
     setTgLoading(true);
@@ -22712,7 +22770,9 @@ function SettingsPage({
     type = "text",
     value,
     onChange,
-    placeholder
+    placeholder,
+    hint,
+    autoComplete
   }) => /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16
@@ -22724,8 +22784,11 @@ function SettingsPage({
     type: type,
     value: value,
     onChange: e => onChange(e.target.value),
-    placeholder: placeholder || ""
-  }));
+    placeholder: placeholder || "",
+    autoComplete: autoComplete
+  }), hint && /*#__PURE__*/React.createElement("div", {
+    className: "settings-field-hint"
+  }, hint));
   return /*#__PURE__*/React.createElement("div", {
     className: "fade-in",
     style: {
@@ -22740,7 +22803,65 @@ function SettingsPage({
       fontSize: 13,
       color: "var(--text-secondary)"
     }
-  }, "Login sebagai ", /*#__PURE__*/React.createElement("strong", null, user?.username), user?.email ? ` · ${user.email}` : "")), /*#__PURE__*/React.createElement("div", {
+  }, "Login sebagai ", /*#__PURE__*/React.createElement("strong", null, user?.username), user?.email ? ` · ${user.email}` : "")), needsSetup ? /*#__PURE__*/React.createElement("div", {
+    className: "card account-setup-card",
+    style: {
+      marginBottom: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      fontSize: 16,
+      marginBottom: 6
+    }
+  }, "Lengkapi akun"), /*#__PURE__*/React.createElement("p", {
+    className: "account-setup-desc"
+  }, "Akun ini dibuat dari Telegram. Atur email dan password supaya kamu bisa masuk tanpa Telegram dan memulihkan akun bila lupa password."), /*#__PURE__*/React.createElement("form", {
+    onSubmit: handleCompleteAccount
+  }, Field({
+    label: "Username (opsional)",
+    value: setupForm.username,
+    onChange: v => setSetupForm(f => ({
+      ...f,
+      username: v
+    })),
+    placeholder: user?.username || "",
+    autoComplete: "username",
+    hint: "Kosongkan untuk tetap memakai username sekarang. Huruf, angka, dan _ saja (3–50 karakter), tidak diawali tg_."
+  }), Field({
+    label: "Email",
+    type: "email",
+    value: setupForm.email,
+    onChange: v => setSetupForm(f => ({
+      ...f,
+      email: v
+    })),
+    placeholder: "contoh@email.com",
+    autoComplete: "email"
+  }), Field({
+    label: "Password Baru",
+    type: "password",
+    value: setupForm.password,
+    onChange: v => setSetupForm(f => ({
+      ...f,
+      password: v
+    })),
+    placeholder: "min. 4 karakter",
+    autoComplete: "new-password"
+  }), Field({
+    label: "Konfirmasi Password Baru",
+    type: "password",
+    value: setupForm.confirm,
+    onChange: v => setSetupForm(f => ({
+      ...f,
+      confirm: v
+    })),
+    autoComplete: "new-password"
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-primary",
+    type: "submit",
+    disabled: loading.setup
+  }, loading.setup ? "Menyimpan..." : "Simpan & Lengkapi Akun"))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       marginBottom: 20
@@ -22753,15 +22874,17 @@ function SettingsPage({
     }
   }, "Ganti Username"), /*#__PURE__*/React.createElement("form", {
     onSubmit: handleUsername
-  }, /*#__PURE__*/React.createElement(Field, {
+  }, Field({
     label: "Username Baru",
     value: unForm.new_username,
     onChange: v => setUnForm(f => ({
       ...f,
       new_username: v
     })),
-    placeholder: "min. 3 karakter"
-  }), /*#__PURE__*/React.createElement(Field, {
+    placeholder: "min. 3 karakter",
+    autoComplete: "username",
+    hint: "Huruf, angka, dan _ saja (3–50 karakter), tidak diawali tg_."
+  }), Field({
     label: "Password Saat Ini",
     type: "password",
     value: unForm.current_password,
@@ -22787,7 +22910,7 @@ function SettingsPage({
     }
   }, "Ganti Password"), /*#__PURE__*/React.createElement("form", {
     onSubmit: handlePassword
-  }, /*#__PURE__*/React.createElement(Field, {
+  }, Field({
     label: "Password Lama",
     type: "password",
     value: pwForm.old_password,
@@ -22795,7 +22918,7 @@ function SettingsPage({
       ...f,
       old_password: v
     }))
-  }), /*#__PURE__*/React.createElement(Field, {
+  }), Field({
     label: "Password Baru",
     type: "password",
     value: pwForm.new_password,
@@ -22804,7 +22927,7 @@ function SettingsPage({
       new_password: v
     })),
     placeholder: "min. 4 karakter"
-  }), /*#__PURE__*/React.createElement(Field, {
+  }), Field({
     label: "Konfirmasi Password Baru",
     type: "password",
     value: pwForm.confirm,
@@ -22829,7 +22952,7 @@ function SettingsPage({
     }
   }, "Email"), /*#__PURE__*/React.createElement("form", {
     onSubmit: handleEmail
-  }, /*#__PURE__*/React.createElement(Field, {
+  }, Field({
     label: "Alamat Email",
     type: "email",
     value: emForm.email,
@@ -22838,7 +22961,7 @@ function SettingsPage({
       email: v
     })),
     placeholder: "contoh@email.com"
-  }), /*#__PURE__*/React.createElement(Field, {
+  }), Field({
     label: "Password Saat Ini",
     type: "password",
     value: emForm.current_password,
@@ -22851,7 +22974,7 @@ function SettingsPage({
     className: "btn btn-primary",
     type: "submit",
     disabled: loading.email
-  }, loading.email ? "Menyimpan..." : "Simpan Email"))), /*#__PURE__*/React.createElement("div", {
+  }, loading.email ? "Menyimpan..." : "Simpan Email")))), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -23008,7 +23131,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v437-kelola-workspace-fase0"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v438-account-fase0a"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -36174,6 +36297,42 @@ function BackupReminder({ showToast }) {
     }, React.createElement(Icon, { name: "x", size: 16 }))
   );
 }
+
+// Pengingat akun (fase 0a) di atas konten halaman: akun Telegram yang belum diatur ("incomplete") atau akun
+// tanpa email ("no_email"). Keputusan di TF.accountbanner.decide; tutup = sembunyi 7 hari (per perangkat).
+function AccountBanner({ user, onOpenSettings }) {
+  const AB = window.TF && window.TF.accountbanner;
+  const [dismissedUntil, setDismissedUntil] = React.useState(() => {
+    if (!AB) return null;
+    try { return localStorage.getItem(AB.DISMISS_KEY); } catch (_) { return null; }
+  });
+  if (!AB) return null;
+  const kind = window.TF.accountbanner.decide({ user, now: Date.now(), dismissedUntil });
+  if (!kind) return null;
+  const onDismiss = () => {
+    const until = String(AB.dismissUntil(Date.now()));
+    try { localStorage.setItem(AB.DISMISS_KEY, until); } catch (_) {}
+    setDismissedUntil(until);
+  };
+  return React.createElement("div", { className: "app-banner account-banner", role: "status" },
+    React.createElement("span", { className: "app-banner-icon" }, React.createElement(Icon, { name: "lock", size: 18 })),
+    React.createElement("span", { className: "app-banner-text" },
+      kind === "incomplete"
+        ? "Lengkapi akunmu: atur email dan password agar bisa masuk tanpa Telegram."
+        : "Tambahkan email agar kamu bisa memulihkan akun bila lupa password."),
+    React.createElement("button", {
+      className: "btn btn-primary btn-sm",
+      onClick: onOpenSettings,
+      style: { flexShrink: 0 }
+    }, "Buka Pengaturan"),
+    React.createElement("button", {
+      className: "app-banner-close",
+      onClick: onDismiss,
+      title: "Ingatkan lagi 7 hari lagi",
+      "aria-label": "Tutup pengingat akun selama 7 hari"
+    }, React.createElement(Icon, { name: "x", size: 16 }))
+  );
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
   // ═══ DEPENDENCIES: App Root ═══
@@ -38301,7 +38460,10 @@ function App() {
       setEditTask(null);
       setShowForm(true);
     }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "plus", size: 14, style: { marginRight: 5 } }), "Buat Baru"))), renderContent()), selectedTask && /*#__PURE__*/React.createElement(TaskDetailModal, {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "plus", size: 14, style: { marginRight: 5 } }), "Buat Baru"))), page !== "settings" && /*#__PURE__*/React.createElement(AccountBanner, {
+    user: user,
+    onOpenSettings: () => setPage("settings")
+  }), renderContent()), selectedTask && /*#__PURE__*/React.createElement(TaskDetailModal, {
     task: selectedTask,
     onClose: () => setSelectedTask(null),
     onEdit: () => handleEdit(selectedTask),
@@ -38458,7 +38620,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v437-kelola-workspace-fase0";
+    window.__SW_VERSION = "taskflow-v438-account-fase0a";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
