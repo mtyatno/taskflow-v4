@@ -3313,6 +3313,25 @@ async def remove_member(list_id: int, member_id: int, user=Depends(get_current_u
     return {"ok": True}
 
 
+@app.put("/api/lists/{list_id}/pin")
+async def pin_workspace(list_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_member_or_owner(list_id, uid):
+        raise HTTPException(status_code=404, detail="List not found")
+    try:
+        position = repo.pin_workspace(uid, list_id)
+    except repository.PinLimitError:
+        raise HTTPException(status_code=409, detail={"code": "PIN_LIMIT", "message": "Maksimal 5 workspace di-pin"})
+    return {"ok": True, "pinned": True, "pin_position": position}
+
+
+@app.delete("/api/lists/{list_id}/pin")
+async def unpin_workspace(list_id: int, user=Depends(get_current_user)):
+    TaskRepository(DB_PATH).unpin_workspace(user["sub"], list_id)
+    return {"ok": True, "pinned": False}
+
+
 @app.post("/api/lists/{list_id}/invite")
 async def invite_to_list(list_id: int, req: InviteUserReq, user=Depends(get_current_user)):
     uid = user["sub"]
