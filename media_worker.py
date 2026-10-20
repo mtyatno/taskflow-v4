@@ -1,8 +1,9 @@
 """Worker pemrosesan media (ffprobe, faststart, poster). Modul murni: tidak mengimpor webapp.
 
 Satu thread daemon memproses satu file per waktu. `process` sinkron dan tidak pernah melempar
-(exception dicatat), supaya thread tidak mati. Timestamp `updated_at`: ISO UTC naif
-(`datetime.utcnow().isoformat()`), sama dengan gaya di webapp.
+(exception dicatat, baris yang masih 'processing' ditandai failed), supaya thread tidak mati.
+Timestamp `updated_at`: ISO UTC naif (`datetime.now(timezone.utc)` tanpa tzinfo, sama dengan
+`_media_utcnow()` di webapp).
 """
 import logging
 import os
@@ -13,8 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
-from media_probe import (final_mime, make_poster, needs_faststart, parse_probe, remux_faststart,
-                         run_ffprobe, sniff_media)
+from media_probe import (final_mime, format_matches_family, make_poster, needs_faststart, parse_probe,
+                         remux_faststart, run_ffprobe, sniff_media)
 from media_storage import LocalStorage, poster_key_for
 
 log = logging.getLogger("alurik.media_worker")
@@ -41,6 +42,14 @@ class MediaWorker:
         self._ffprobe = ffprobe
         self._queue: "queue.Queue[int]" = queue.Queue()
         self._thread: Optional[threading.Thread] = None
+
+    @property
+    def ffmpeg(self) -> Optional[str]:
+        return self._ffmpeg
+
+    @property
+    def ffprobe(self) -> Optional[str]:
+        return self._ffprobe
 
     # ── antrean ──────────────────────────────────────────────────────────────
     def enqueue(self, att_id: int) -> None:
@@ -84,6 +93,25 @@ class MediaWorker:
             self._process(att_id)
         except Exception:
             log.exception("pemrosesan media %s gagal", att_id)
+            self._fail_after_error(att_id)
+
+    def _fail_after_error(self, att_id: int) -> None:
+        """Best-effort: baris yang masih 'processing' ditandai failed, file media (+ poster) dihapus."""
+        try:
+            conn = self._connect()
+            try:
+                row = conn.execute("SELECT storage_key FROM note_attachments WHERE id=? AND status='processing'",
+                                   (att_id,)).fetchone()
+                if row is None:
+                    return
+                key = row["storage_key"]
+                if self._update(conn, att_id, {"status": "failed", "error": FAIL_TEXT, "poster_key": None}) and key:
+                    self._storage.delete(key)
+                    self._storage.delete(poster_key_for(key))
+            finally:
+                conn.close()
+        except Exception:
+            log.exception("menandai media %s gagal juga gagal", att_id)
 
     def _update(self, conn, att_id: int, sets: dict) -> bool:
         cols = ", ".join(f"{k}=?" for k in sets)
@@ -128,7 +156,7 @@ class MediaWorker:
             if self._ffprobe:
                 data = run_ffprobe(path, bin=self._ffprobe)
                 info = parse_probe(data) if data else None
-                if info is None:
+                if info is None or not format_matches_family(sniff.family, info.format_name):
                     self._fail(conn, att_id, key)
                     return
                 sets.update(

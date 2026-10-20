@@ -70,6 +70,21 @@ def test_needs_faststart_64bit_and_to_eof(tmp_path):
     assert needs_faststart(q) is False
 
 
+def test_needs_faststart_caps_atom_scan_at_10000(tmp_path):
+    """Temuan akhir #10: scan atom dibatasi 10_000; batas tercapai → False (file dibiarkan apa adanya)."""
+    def build(n_free):
+        return _ftyp() + _atom(b"mdat", b"x") + _atom(b"free") * n_free + _atom(b"moov")
+    p = tmp_path / "many.mp4"
+    p.write_bytes(build(20_000))
+    assert needs_faststart(p) is False
+    p.write_bytes(build(100))
+    assert needs_faststart(p) is True
+    p.write_bytes(build(9_997))   # moov = atom ke-10_000 → masih terbaca
+    assert needs_faststart(p) is True
+    p.write_bytes(build(9_998))   # moov = atom ke-10_001 → batas tercapai
+    assert needs_faststart(p) is False
+
+
 # ── process ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture
@@ -230,6 +245,24 @@ def test_process_poster_for_video_only(env, monkeypatch):
     assert r3["media_type"] == "audio" and r3["mime_type"] == "audio/mp4"
 
 
+def test_process_format_outside_sniff_family_fails_and_deletes(env, monkeypatch):
+    """Temuan akhir #2: header ID3 + isi AVI → ffprobe 'avi' → failed, file dihapus."""
+    _patch(monkeypatch, info=ProbeInfo("video", 2000, "mpeg4", "mp3", 320, 240, "avi"))
+    k = "2026/10/88888888-8888-8888-8888-888888888888.mp3"
+    i = env.mk(key=k, head=b"ID3\x04\x00\x00\x00\x00\x00\x00RIFF\x00\x00\x00\x00AVI LIST" + b"\0" * 40)
+    _worker(env).process(i)
+    r = env.row(i)
+    assert r["status"] == "failed" and r["error"] == FAIL_TEXT
+    assert not env.storage.path(k).exists()
+    assert r["duration_ms"] is None and r["poster_key"] is None
+    # format sekeluarga tetap ready
+    _patch(monkeypatch, info=ProbeInfo("audio", 3000, None, "mp3", None, None, "mp3"))
+    k2 = "2026/10/99999999-9999-9999-9999-999999999999.mp3"
+    i2 = env.mk(key=k2, head=b"ID3\x04\x00" + b"\0" * 40)
+    _worker(env).process(i2)
+    assert env.row(i2)["status"] == "ready" and env.row(i2)["mime_type"] == "audio/mpeg"
+
+
 def test_process_without_ffmpeg_marks_ready(env):
     i = env.mk()
     _worker(env, ffmpeg=None, ffprobe=None).process(i)
@@ -272,6 +305,55 @@ def test_process_swallows_exceptions(env, monkeypatch):
     monkeypatch.setattr(media_worker, "run_ffprobe", boom)
     i = env.mk()
     _worker(env).process(i)  # tidak melempar
+
+
+def test_process_unexpected_exception_marks_failed_and_deletes_file(env, monkeypatch, caplog):
+    """Temuan akhir #9: exception tak terduga → failed + file dihapus (bukan 'processing' sampai restart)."""
+    def boom(*a, **k):
+        raise RuntimeError("x")
+    monkeypatch.setattr(media_worker, "run_ffprobe", boom)
+    i = env.mk()
+    with caplog.at_level("ERROR", logger="alurik.media_worker"):
+        _worker(env).process(i)
+    r = env.row(i)
+    assert r["status"] == "failed" and r["error"] == FAIL_TEXT
+    assert not env.storage.path(KEY).exists()
+    assert any("gagal" in rec.getMessage() for rec in caplog.records)
+
+
+def test_process_db_error_on_final_update_cleans_media_and_poster(env, monkeypatch):
+    """Temuan akhir #9: UPDATE akhir melempar (mis. database is locked) setelah poster dibuat."""
+    import sqlite3
+    _patch(monkeypatch)
+    i = env.mk()
+    w = _worker(env)
+    real = w._update
+    state = {"n": 0}
+
+    def flaky(conn, att_id, sets):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return real(conn, att_id, sets)
+    monkeypatch.setattr(w, "_update", flaky)
+    w.process(i)
+    r = env.row(i)
+    assert r["status"] == "failed" and r["error"] == FAIL_TEXT and r["poster_key"] is None
+    assert not env.storage.path(KEY).exists()
+    assert not env.storage.path(poster_key_for(KEY)).exists()
+
+
+def test_process_exception_does_not_touch_row_no_longer_processing(env, monkeypatch):
+    def boom(*a, **k):
+        conn = db()
+        conn.execute("UPDATE note_attachments SET status='ready' WHERE user_id=990")
+        conn.commit()
+        conn.close()
+        raise RuntimeError("x")
+    monkeypatch.setattr(media_worker, "run_ffprobe", boom)
+    i = env.mk()
+    _worker(env).process(i)
+    assert env.row(i)["status"] == "ready" and env.storage.path(KEY).exists()
 
 
 def test_requeue_processing_enqueues_rows(env):

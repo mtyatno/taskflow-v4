@@ -3,7 +3,7 @@ from datetime import datetime
 
 import pytest
 
-from media_probe import ALLOWED_INIT_EXTS, Sniff, final_mime, sniff_media
+from media_probe import ALLOWED_INIT_EXTS, Sniff, final_mime, format_matches_family, sniff_media
 from media_serve import content_disposition, parse_range, sign_token, verify_token
 from media_storage import LocalStorage, get_storage, is_valid_key, new_key, poster_key_for
 
@@ -148,3 +148,19 @@ def test_content_disposition_sanitizes():
     assert "%C3%A9" in v
     assert content_disposition("inline", "plain.mp3") == 'inline; filename="plain.mp3"'
     assert content_disposition("inline", "") == 'inline; filename="media"'
+
+
+@pytest.mark.parametrize("family,fmt,ok", [
+    ("mpeg_audio", "mp3", True), ("mpeg_audio", "aac", True), ("mpeg_audio", "avi", False),
+    ("mpeg_audio", "mov,mp4,m4a,3gp,3g2,mj2", False),
+    ("isobmff", "mov,mp4,m4a,3gp,3g2,mj2", True), ("isobmff", "mj2", True), ("isobmff", "avi", False),
+    ("ogg", "ogg", True), ("ogg", "matroska,webm", False),
+    ("wav", "wav", True), ("wav", "avi", False),
+    ("matroska", "matroska,webm", True), ("matroska", "webm", True), ("matroska", "mp3", False),
+    ("flac", "flac", True), ("flac", "ogg", False),
+    ("amr", "amr", True), ("amr", "mp3", False),
+    ("isobmff", "", False), ("isobmff", None, False), ("unknown", "mp3", False), ("", "mp3", False),
+])
+def test_format_matches_family(family, fmt, ok):
+    """Temuan akhir #2: format ffprobe harus sekeluarga dengan hasil sniff (ID3 + AVI ditolak)."""
+    assert format_matches_family(family, fmt) is ok

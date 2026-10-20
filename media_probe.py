@@ -107,6 +107,27 @@ def final_mime(s: Sniff, media_type: str, format_name: str = "") -> str:
     raise ValueError(f"keluarga tidak dikenal: {f}")
 
 
+# Nama format ffprobe (`format.format_name`, dipisah koma) yang sah untuk tiap keluarga sniff.
+# Mencegah file dengan awalan yang lolos sniff (mis. ID3) tetapi isinya kontainer lain (mis. AVI).
+_FAMILY_FORMATS = {
+    "mpeg_audio": frozenset({"mp3", "aac"}),
+    "isobmff": frozenset({"mov", "mp4", "m4a", "3gp", "3g2", "mj2"}),
+    "ogg": frozenset({"ogg"}),
+    "wav": frozenset({"wav"}),
+    "matroska": frozenset({"matroska", "webm"}),
+    "flac": frozenset({"flac"}),
+    "amr": frozenset({"amr"}),
+}
+
+
+def format_matches_family(family: str, format_name) -> bool:
+    """True bila salah satu nama di `format_name` ffprobe termasuk keluarga sniff `family`."""
+    allowed = _FAMILY_FORMATS.get(family)
+    if not allowed or not isinstance(format_name, str):
+        return False
+    return any(n.strip() in allowed for n in format_name.split(","))
+
+
 # ── ffprobe / ffmpeg (Task 3) ────────────────────────────────────────────────
 
 @dataclass
@@ -157,14 +178,20 @@ def parse_probe(data: dict):
     )
 
 
+_FASTSTART_MAX_ATOMS = 10_000
+
+
 def needs_faststart(path) -> bool:
-    """True bila atom `mdat` muncul sebelum `moov` (scan atom top-level ISO-BMFF)."""
+    """True bila atom `mdat` muncul sebelum `moov` (scan atom top-level ISO-BMFF).
+    Scan dibatasi `_FASTSTART_MAX_ATOMS` atom; batas tercapai → False (file dibiarkan apa adanya)."""
     seen_mdat = False
     try:
         with open(path, "rb") as f:
             size_total = os.fstat(f.fileno()).st_size
             pos = 0
-            while pos + 8 <= size_total:
+            for _ in range(_FASTSTART_MAX_ATOMS):
+                if pos + 8 > size_total:
+                    break
                 f.seek(pos)
                 hdr = f.read(8)
                 if len(hdr) < 8:
