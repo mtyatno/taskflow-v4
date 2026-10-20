@@ -557,3 +557,114 @@ test("pushOutbox heals stranded pending stages (one op per entry, no duplicates)
   assert.deepEqual(await pendingNow(), []);
   assert.deepEqual(await OB.outboxAll(), []);
 });
+
+// ══ Final review fixes (syncpush) ═══════════════════════════════════════════════════════════
+const IDMAP = require("../../static/offline/idmap.js");
+
+test("context create 2xx without id is retryable: op, pending entry and task cid are kept", async () => {
+  for (const data of [null, {}, { name: "Baru" }]) {
+    _reset(); await deleteDB(DB_NAME);
+    const { item } = await CC.addPending(null, "Baru");
+    await OB.outboxAdd(ctxOp(item.cid));
+    const t = await createTask({ title: "t", context: "Baru" }, TODAY);
+    const tr = fakeTransport((m, p) => (p === "/api/contexts"
+      ? { ok: true, status: 201, data }
+      : { ok: true, status: 201, data: { id: 50, updated_at: "u1" } }));
+    const res = await SP.pushOutbox(tr);
+    assert.deepEqual(tr.calls.map((c) => c.path), ["/api/contexts"], "data " + JSON.stringify(data)); // task tetap ditahan
+    assert.equal(res.failed, 1);
+    assert.equal(res.pushed, 0);
+    assert.equal((await pendingNow()).length, 1);
+    const ops = await OB.outboxAll();
+    assert.equal(ops.filter((o) => o.entity_type === "context").length, 1);
+    assert.equal(ops.filter((o) => o.entity_type === "task").length, 1);
+    assert.equal((await getRaw(t.cid)).context_id, item.cid);
+  }
+});
+
+test("held task create does not look up the parent server id (no stray idmap promise)", async () => {
+  const { item } = await CC.addPending(null, "Baru");
+  await OB.outboxAdd(ctxOp(item.cid));
+  await put("tasks", [task({ cid: "kid", parent_cid: "par", context: "Baru", context_id: item.cid, context_ref_name: "Baru", dirty: 1, rev: 1 })]);
+  await OB.outboxAdd({ op: "create", entity_type: "task", cid: "kid", payload: {} });
+  const orig = IDMAP.serverIdOf;
+  const asked = [];
+  IDMAP.serverIdOf = (cid) => { asked.push(cid); return orig(cid); };
+  try {
+    const tr = fakeTransport(() => ({ ok: false, status: 503, data: {} })); // tahap gagal sementara → task ditahan
+    await SP.pushOutbox(tr);
+    assert.deepEqual(tr.calls.map((c) => c.path), ["/api/contexts"]);
+  } finally { IDMAP.serverIdOf = orig; }
+  assert.ok(!asked.includes("par"), "serverIdOf(parent) dipanggil untuk op yang ditahan: " + JSON.stringify(asked));
+});
+
+test("retry after partial success: pending gone + idmap has the stage → tasks rewritten to server id, op removed", async () => {
+  // resolvePending sudah jalan (entri pending hilang, cache server punya tahap 31), crash sebelum task ditulis ulang
+  const { item } = await CC.addPending(null, "baru");
+  await OB.outboxAdd(ctxOp(item.cid));
+  await mapPut("context", 31, item.cid);
+  await CC.resolvePending(item.cid, ctx({ id: 31, name: "Baru" }));
+  const t = await createTask({ title: "t", context: "baru", context_id: item.cid }, TODAY);
+  await put("tasks", [task({ cid: "s", server_id: 61, context: "baru", context_id: item.cid, context_ref_name: "baru", dirty: 0, rev: 1, base_rev: "u0" })]);
+  await mapPut("task", 61, "s");
+  const seen = [];
+  const had = Object.prototype.hasOwnProperty.call(globalThis, "window");
+  const prev = globalThis.window;
+  globalThis.window = { dispatchEvent: (e) => { seen.push(e.type); } };
+  let tr;
+  try {
+    tr = fakeTransport((m, p) => {
+      if (p === "/api/contexts") return { ok: true, status: 201, data: ctx({ id: 99, name: "x" }) };
+      if (m === "POST") return { ok: true, status: 201, data: { id: 50, updated_at: "u1", context: "Baru", context_id: 31 } };
+      return { ok: true, status: 200, data: { id: 61, updated_at: "u2", context: "Baru", context_id: 31 } };
+    });
+    await SP.pushOutbox(tr);
+  } finally { if (had) globalThis.window = prev; else delete globalThis.window; }
+  // tidak ada POST tahap ulang; task baru terkirim dengan id server, task tersinkron ikut di-PUT ulang
+  assert.ok(!tr.calls.some((c) => c.path === "/api/contexts"), JSON.stringify(tr.calls.map((c) => c.path)));
+  const create = tr.calls.find((c) => c.method === "POST" && c.path === "/api/tasks");
+  assert.ok(create);
+  assert.equal(create.body.context_id, 31);
+  assert.equal(create.body.context, "Baru");
+  assert.equal((await getRaw(t.cid)).context_id, 31);
+  const rs = await getRaw("s");
+  assert.equal(rs.context_id, 31);
+  assert.equal(rs.context, "Baru");
+  assert.equal(rs.context_ref_name, "Baru");
+  assert.equal(rs.dirty, 1);
+  assert.equal(rs.rev, 2);
+  assert.ok(seen.includes("tf:contexts-changed"));
+  assert.ok(seen.includes("tf:outbox-queued"));
+  // op tahap dibuang; task tersinkron mendapat op update susulan (dikirim drain berikutnya)
+  assert.deepEqual((await OB.outboxAll()).map((o) => o.entity_type + ":" + o.op + ":" + o.cid), ["task:update:s"]);
+  await SP.pushOutbox(tr);
+  const upd = tr.calls.find((c) => c.method === "PUT" && c.path === "/api/tasks/61");
+  assert.ok(upd, "task tersinkron dikirim ulang dengan id server");
+  assert.equal(upd.body.context_id, 31);
+  assert.deepEqual(await OB.outboxAll(), []);
+});
+
+test("retry with pending gone and no idmap entry: task holding the cid is pushed with context_id null and its text", async () => {
+  // dropPending sudah jalan (gagal permanen sebelumnya), crash sebelum task melepas cid
+  const { item } = await CC.addPending(5, "Baru");
+  await OB.outboxAdd(ctxOp(item.cid));
+  const t = await createTask({ title: "t", context: "Baru", list_id: 5 }, TODAY);
+  assert.equal((await getRaw(t.cid)).context_id, item.cid);
+  // task tersinkron tanpa op yang masih memegang cid (pull mempertahankan tautan cid) → dilepas lokal
+  await put("tasks", [task({ cid: "s", server_id: 61, list_id: 5, context: "Baru", context_id: item.cid, context_ref_name: "Baru", dirty: 0, rev: 1 })]);
+  await CC.dropPending(item.cid);
+  const tr = fakeTransport((m, p) => (p === "/api/contexts"
+    ? { ok: true, status: 201, data: ctx({ id: 99, name: "x" }) }
+    : { ok: true, status: 201, data: { id: 50, updated_at: "u1", context: "Baru", context_id: 77 } }));
+  await SP.pushOutbox(tr);
+  await SP.pushOutbox(tr); // boleh butuh satu drain lagi; tidak boleh ditahan selamanya
+  assert.deepEqual(tr.calls.map((c) => c.method + " " + c.path), ["POST /api/tasks"]);
+  assert.equal(tr.calls[0].body.context_id, null);
+  assert.equal(tr.calls[0].body.context, "Baru");
+  assert.equal(tr.calls[0].body.list_id, 5);
+  assert.deepEqual(await OB.outboxAll(), []);
+  const rs = await getRaw("s");
+  assert.equal(rs.context_id, null);
+  assert.equal(rs.context_ref_name, null);
+  assert.equal(rs.context, "Baru");
+});

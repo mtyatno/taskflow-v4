@@ -486,9 +486,10 @@
       // dibuat lalu dihapus offline (belum pernah di-push): tidak perlu POST+DELETE; op delete-nya juga
       // berhenti sendiri (server_id null)
       if (rec.deleted) return TFoutbox.outboxRemove(op.qid);
-      const parentP = rec.parent_cid ? TFidmap.serverIdOf(rec.parent_cid) : Promise.resolve(null);
-      // Kanban tahap: tahap tujuan masih menunggu dibuat di server → tahan (id server-nya belum ada)
+      // Kanban tahap: tahap tujuan masih menunggu dibuat di server → tahan (id server-nya belum ada).
+      // Dicek sebelum lookup induk: promise idmap yang dibuat lalu ditinggal bisa jadi unhandled rejection.
       if (contextHeld(rec, pending)) return;
+      const parentP = rec.parent_cid ? TFidmap.serverIdOf(rec.parent_cid) : Promise.resolve(null);
       return Promise.all([parentP, tagsOf(op.cid, tagsFor), projectItems(), contextItems()]).then(([parentSid, tags, projects, contexts]) => {
         // T10: induk belum punya server id tapi create-nya masih antre → tahan (jangan kirim parent_id null)
         if (rec.parent_cid && parentSid == null && parentCreatePending(pending, rec.parent_cid)) return;
@@ -557,51 +558,74 @@
   }
   // POST /api/contexts untuk tahap pending. Server idempoten lewat nama (resolve-or-create NOCASE per scope),
   // client_id diterima tetapi tidak disimpan.
-  //   entri pending tidak ada → op dibuang (baca GAGAL → reject: op tetap, dicoba lagi; bukan "sudah hilang")
-  //   2xx → idmap, cache server + buang pending, task lokal ber-cid → id server (dirty + op susulan), event
+  //   entri pending tidak ada (baca GAGAL → reject: op tetap, dicoba lagi; bukan "sudah hilang") = retry setelah
+  //     sukses/gagal sebagian: idmap punya ("context", cid) → task ber-cid ditulis ulang ke id server; tidak ada →
+  //     task melepas cid (teks tetap). Lalu op dibuang (tanpa request).
+  //   2xx ber-id → idmap, cache server + buang pending, task lokal ber-cid → id server (dirty + op susulan), event
+  //   2xx tanpa id → dianggap sementara: dihitung gagal, op dan pending tetap (task tetap ditahan)
   //   403/404/4xx permanen → buang pending, task lokal melepas id (teks tetap) → dikirim nama saja
   //   401/429/5xx/jaringan → `send` melempar: op dan pending tetap
   function opContextCreate(op, transport, result) {
     if (!TFcontexts || typeof TFcontexts.pendingByCidStrict !== "function") return Promise.resolve(); // modul lama: tunggu
     const cid = op.cid;
     return TFcontexts.pendingByCidStrict(cid).then((entry) => {
-      if (!entry) return TFoutbox.outboxRemove(op.qid);
+      if (!entry) return contextOpOrphan(op, cid);
       const body = { name: entry.name, list_id: entry.list_id != null ? entry.list_id : null, client_id: cid };
       return send(transport, "POST", "/api/contexts", body).then((res) => {
         if (ok(res) && res.data && res.data.id != null) {
           const data = res.data;
-          const changed = [];
           return TFidmap.mapPut("context", data.id, cid)
             // cache dulu: createTask/updateTask yang berjalan sesudahnya menemukan id server lewat nama
             .then(() => TFcontexts.resolvePending(cid, data))
-            .then(() => rewriteTasksWithContextCid(cid, (cur) => {
-              if (cur.deleted) return undefined; // tombstone: tidak perlu dikirim ulang
-              const next = Object.assign({}, cur, {
-                context_id: data.id,
-                context_ref_name: data.name != null ? data.name : (cur.context != null ? cur.context : ""),
-                dirty: 1, rev: (cur.rev || 0) + 1,
-              });
-              if (data.name != null && TFprojects.nocaseEq(cur.context, data.name)) next.context = data.name;
-              return next;
-            }))
-            .then((cids) => cids.reduce((p, tc) => p.then(() => {
-              changed.push(tc);
-              return requeueIfDirty("tasks", "task", tc);
-            }), Promise.resolve()))
-            .then(() => TFoutbox.outboxRemove(op.qid))
-            .then(() => {
-              result.pushed++;
-              dispatchWindowEvent("tf:contexts-changed", { source: "syncpush", cid: cid, id: data.id });
-              if (changed.length) dispatchWindowEvent("tf:outbox-queued", { entity: "task", cids: changed.slice() });
-            });
+            .then(() => adoptContextServerId(op, cid, data))
+            .then(() => { result.pushed++; });
         }
-        // 2xx tanpa id / 403 / 404 / 4xx permanen: tahap tidak bisa dibuat → lepaskan tautan lokal
+        if (ok(res)) { result.failed++; return; } // 2xx tanpa id: respons rusak, coba lagi drain berikutnya
+        // 403 / 404 / 4xx permanen: tahap tidak bisa dibuat → lepaskan tautan lokal
         result.failed++;
         return TFcontexts.dropPending(cid)
-          .then(() => rewriteTasksWithContextCid(cid, (cur) =>
-            Object.assign({}, cur, { context_id: null, context_ref_name: null })))
-          .then(() => TFoutbox.outboxRemove(op.qid))
-          .then(() => { dispatchWindowEvent("tf:contexts-changed", { source: "syncpush", cid: cid, failed: true }); });
+          .then(() => releaseContextCid(op, cid));
+      });
+    });
+  }
+  // Task lokal ber-context_id `cid` → id server `data.id` (nama kanonik bila sama NOCASE; dirty + rev + op
+  // susulan), op dibuang, event. Dipakai sukses POST dan retry setelah sukses sebagian (entri pending sudah hilang).
+  function adoptContextServerId(op, cid, data) {
+    const changed = [];
+    return rewriteTasksWithContextCid(cid, (cur) => {
+      if (cur.deleted) return undefined; // tombstone: tidak perlu dikirim ulang
+      const next = Object.assign({}, cur, {
+        context_id: data.id,
+        context_ref_name: data.name != null ? data.name : (cur.context != null ? cur.context : ""),
+        dirty: 1, rev: (cur.rev || 0) + 1,
+      });
+      if (data.name != null && TFprojects.nocaseEq(cur.context, data.name)) next.context = data.name;
+      return next;
+    })
+      .then((cids) => cids.reduce((p, tc) => p.then(() => {
+        changed.push(tc);
+        return requeueIfDirty("tasks", "task", tc);
+      }), Promise.resolve()))
+      .then(() => TFoutbox.outboxRemove(op.qid))
+      .then(() => {
+        dispatchWindowEvent("tf:contexts-changed", { source: "syncpush", cid: cid, id: data.id });
+        if (changed.length) dispatchWindowEvent("tf:outbox-queued", { entity: "task", cids: changed.slice() });
+      });
+  }
+  // Task lokal melepas `cid` (teks context tetap → dikirim nama saja), op dibuang, event.
+  function releaseContextCid(op, cid) {
+    return rewriteTasksWithContextCid(cid, (cur) =>
+      Object.assign({}, cur, { context_id: null, context_ref_name: null }))
+      .then(() => TFoutbox.outboxRemove(op.qid))
+      .then(() => { dispatchWindowEvent("tf:contexts-changed", { source: "syncpush", cid: cid, failed: true }); });
+  }
+  // Op tahap tanpa entri pending: selesaikan jalur yang terputus. Nama dari cache server bila ada.
+  function contextOpOrphan(op, cid) {
+    return Promise.resolve(TFidmap.serverIdOf(cid)).then((sid) => {
+      if (sid == null) return releaseContextCid(op, cid);
+      return contextItems().then((items) => {
+        const hit = (items || []).find((c) => String(c.id) === String(sid));
+        return adoptContextServerId(op, cid, { id: sid, name: hit && hit.name != null ? hit.name : null });
       });
     });
   }
