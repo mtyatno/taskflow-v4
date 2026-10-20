@@ -3536,3 +3536,8 @@
 ## 2026-10-20 09:20 WIB — Claude — rencana workspace di-pin di sidebar
 - Bapak menyetujui spec ("lanjut"). Rencana `docs/superpowers/plans/2026-10-20-sidebar-workspace-pins.md`: 2 task backend, 3 task frontend. Catatan: `compile.js` menimpa `static/index.html`, jadi cek sintaks pada salinan.
 - **Status:** Needs Review (rencana).
+
+## 2026-10-20 10:00 WIB — Claude — Bagian A backend workspace di-pin
+- Bapak: "gunakan subagent driven". Branch `claude/workspace-pins-backend` (di-rebase ke `main` b1f08c1; ADR jadi 018 karena #51 memakai 017).
+- SDD Task 1 (skema, seed, helper repo) dan Task 2 (endpoint pin + ADR-018), review per task bersih. Review akhir opus → perbaikan seed saat DB terkunci (sebelumnya `GET /api/lists` bisa 500 di hari deploy), wording ADR; re-review bersih.
+- **Verifikasi:** pytest 814 passed. **Status:** Needs Review (draft PR; restart `taskflow-web` + `taskflow`).

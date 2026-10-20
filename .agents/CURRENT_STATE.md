@@ -20,10 +20,12 @@
   - **Dev lokal tanpa nginx:** set `MEDIA_ACCEL=0` (Range dilayani Alurik); dengan nilai bawaan `1` `/media/<token>` hanya mengembalikan header `X-Accel-Redirect` tanpa isi.
 - **Berikutnya:** PR frontend (pemutar + unggah di editor, naik SW); PR XSS (1b, #49) sudah di-merge, jadi tidak ada yang menahan.
 
-## 🔵 Workspace di-pin di sidebar mode ikon — spec — 2026-10-20 (Claude) — SPEC DISETUJUI, RENCANA DITULIS, BELUM ADA KODE
-- **Status:** spec `docs/superpowers/specs/2026-10-20-sidebar-workspace-pins-design.md` (salinan Project claude.ai "alurik" `claude/spec-sidebar-workspace-pins-2026-10-20.md`) di branch `claude/sidebar-workspace-pins-spec`. Spec disetujui Bapak ("lanjut", 2026-10-20 09:02 WIB). Rencana `docs/superpowers/plans/2026-10-20-sidebar-workspace-pins.md` (salinan Project `claude/plan-sidebar-workspace-pins-2026-10-20.md`): Bagian A backend (Task 1–2, ADR-017), Bagian B frontend (Task 3–5, setelah A di-merge). Berikutnya: review rencana + pilih cara eksekusi.
-- **Keputusan Bapak (brainstorming 2026-10-20):** workspace di rail hanya navigasi; avatar workspace yang di-pin + tombol "Semua workspace" (ke `manage_lists`); pin manual maks 5, disimpan per user di server (tabel `workspace_pins`); seed sekali 3 workspace teraktif. Sidebar expanded tidak berubah (sudah menampilkan semua workspace).
-- **Urutan:** PR backend (restart `taskflow-web` + `taskflow`) → PR frontend + offline (naik SW).
+## 🟠 Workspace di-pin di sidebar mode ikon — Bagian A backend `claude/workspace-pins-backend` — 2026-10-20 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+- **Status:** backend saja (tanpa frontend/SW). Setelah deploy: **restart `taskflow-web` DAN `taskflow` (bot)** — `repository.py` berubah. `migrate_db()` membuat tabel `workspace_pins` + kolom `users.workspace_pins_seeded` (idempoten).
+- **Isi:** `workspace_pins (user_id, list_id, position)` maks 5 per user (ADR-018); seed sekali 3 workspace dengan aktivitas task terbaru di `get_lists_for_user` (dilewati tanpa error bila DB terkunci, dicoba lagi pada panggilan berikutnya); `GET /api/lists` menambah `pinned`/`pin_position`; `PUT`/`DELETE /api/lists/{id}/pin` (409 `PIN_LIMIT`, non-anggota 404, DELETE tanpa cek akses); pin dihapus saat keluar/dikeluarkan dari workspace, CASCADE saat workspace dihapus.
+- **Verifikasi:** pytest 814 (baseline 794). SDD 2 task + review per task, review akhir opus (simulasi upgrade DB 300 workspace/60k task, 8 thread seed bersamaan) → 1 perbaikan (seed saat DB terkunci) + re-review bersih.
+- **Dokumen:** spec `docs/superpowers/specs/2026-10-20-sidebar-workspace-pins-design.md`, rencana `docs/superpowers/plans/2026-10-20-sidebar-workspace-pins.md` (ikut di PR ini; salinan di Project claude.ai "alurik").
+- **Berikutnya:** Bagian B (frontend + offline, naik SW) di branch `claude/workspace-pins-ui` yang ditumpuk di atas branch ini; rebase ke `main` setelah PR ini di-merge.
 
 ## 🟠 Kanban tahap kustom — PR backend `claude/kanban-stages-backend` — 2026-10-20 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
 - **Status:** backend saja (tanpa frontend/SW). Setelah deploy: **restart `taskflow-web` DAN `taskflow` (bot)** — `repository.py` dan `bot.py` berubah; bot lama yang masih jalan menulis teks context tanpa `context_id`. `migrate_db()` membuat tabel `contexts` + `tasks.context_id` dan backfill (idempoten).
