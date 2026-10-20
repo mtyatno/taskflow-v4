@@ -123,7 +123,7 @@ test("TopBarPomodoroChip: didefinisikan dan dirender di top bar saat page !== 't
 
 test("TopBarPomodoroChip: navigasi ke today saat diklik dan memiliki tombol play/pause", () => {
   const chipSrc = fnSource("TopBarPomodoroChip");
-  assert.match(chipSrc, /timer\.isRunning \? timer\.pause : timer\.start/, "chip harus memiliki tombol play/pause");
+  assert.match(chipSrc, /if \(timer\.isRunning\) timer\.pause\(\);else timer\.start\(\);/, "chip harus memiliki tombol play/pause");
   assert.match(chipSrc, /onNavigateToday/, "chip harus memanggil onNavigateToday");
 });
 
@@ -164,7 +164,7 @@ test("Dashboard: tombol fokus (.dash-focus-btn) didefinisikan di CSS dan dirende
 test("usePomodoro: start(explicitTask) menerima explicit task dan memulai timer meski focusTask di closure awalnya null", () => {
   const hookSrc = fnSource("usePomodoro");
   assert.match(hookSrc, /start\s*=\s*\(\s*explicitTask\s*=\s*null\s*\)\s*=>/);
-  assert.match(hookSrc, /const activeTask = explicitTask \|\| focusTask;/);
+  assert.match(hookSrc, /const activeTask = \(explicitTask && explicitTask\.id != null \? explicitTask : null\) \|\| focusTask;/);
 
   const states = [
     "work",

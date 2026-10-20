@@ -534,3 +534,110 @@ test("Waktu fokus countdown: tick yang meloncat 60 dtk menambah 60; istirahat ti
   env.advance(30 * 1000);
   assert.equal(env.t.totalFocusTime, 75);
 });
+
+// ── Review akhir PR C ─────────────────────────────────────────────────────────
+
+test("start(event klik) → event diabaikan: sessionTaskId = task fokus; tanpa task fokus tetap ditolak", () => {
+  const env = makeEnv();
+  assert.equal(env.act((t) => t.start({ type: "click", target: {} })), true);
+  assert.equal(env.saved().sessionTaskId, 5);
+  const env2 = makeEnv({ focusTask: null });
+  assert.equal(env2.act((t) => t.start({ type: "click", target: {} })), false);
+  assert.equal(env2.t.isRunning, false);
+  assert.equal(env2.toasts.length, 1);
+});
+
+test("Mulai lewat event klik, fokus dilepas di tengah Overtime, Stop → baris Overtime ke task sesi", () => {
+  const env = makeEnv();
+  env.act((t) => t.start({ type: "click", target: {} }));
+  env.advance(1500 * 1000);
+  assert.equal(env.t.phase, "awaiting");
+  env.act((t) => t.continueOvertime());
+  env.advance(10 * MIN);
+  env.setProps({ focusTask: null });
+  env.act((t) => t.stop());
+  const ot = env.posts.filter((p) => p.body.kind === "overtime");
+  assert.equal(ot.length, 1);
+  assert.equal(ot[0].url, "/api/tasks/5/pomodoros");
+  assert.equal(ot[0].body.focus_seconds, 600);
+});
+
+test("Jeda Overtime di luar batch (+65:00) → akumulasi 3900, tanpa batas, tanpa log", () => {
+  const env = toAwaiting();
+  env.act((t) => t.continueOvertime());
+  env.advance(65 * MIN);
+  const notifsBefore = env.notifs.length;
+  env.t.pause(); // tanpa act: setiap setState langsung merender (pemanggil setelah await)
+  const s = env.saved();
+  assert.equal(s.phase, "overtime");
+  assert.equal(s.otAccumSec, 3900);
+  assert.equal(s.otRunStartedAt, null);
+  assert.equal(s.isRunning, false);
+  assert.equal(env.posts.filter((p) => p.body.kind === "overtime").length, 0);
+  assert.equal(env.notifs.length, notifsBefore);
+  assert.equal(env.t.timeDisplay, "+1:05:00");
+});
+
+test("Transisi Overtime di luar batch: Stop / Ambil Istirahat tidak memicu penyelesaian sesi ganda", () => {
+  for (const action of ["stop", "takeBreak"]) {
+    const env = toAwaiting();
+    env.t.continueOvertime(); // tanpa act
+    assert.equal(env.t.phase, "overtime");
+    assert.equal(env.t.isRunning, true);
+    env.advance(30 * MIN);
+    env.t[action]();
+    const sessions = env.posts.filter((p) => p.body.kind === "session");
+    const ot = env.posts.filter((p) => p.body.kind === "overtime");
+    assert.equal(sessions.length, 1, action);
+    assert.equal(ot.length, 1, action);
+    assert.equal(ot[0].body.focus_seconds, 1800, action);
+    assert.equal(env.t.sessionCount, 2, action);
+    assert.equal(env.t.phase, "countdown", action);
+    assert.deepEqual(env.sounds, ["work"], action);
+  }
+  const env = toAwaiting();
+  env.t.takeBreak(); // awaiting → istirahat, tanpa act
+  assert.equal(env.t.mode, "shortBreak");
+  assert.equal(env.t.isRunning, true);
+  assert.equal(env.posts.length, 1);
+  assert.equal(env.t.sessionCount, 1);
+});
+
+test("Pulih ke Overtime berjalan lalu Stop di luar batch → tanpa log session kedua / sessionCount ganda", () => {
+  const ws = T0 - 40 * MIN;
+  const env = makeEnv({ saved: todayState({ timeLeft: 0, phase: "overtime", isRunning: true, otAccumSec: 0,
+    otRunStartedAt: T0 - 10 * MIN, workStartedAt: ws, sessionTaskId: 5, sessionCount: 1, countBeforeSession: 0 }) });
+  env.t.stop();
+  assert.equal(env.posts.filter((p) => p.body.kind === "session").length, 0);
+  assert.equal(env.posts.filter((p) => p.body.kind === "overtime").length, 1);
+  assert.equal(env.t.sessionCount, 1);
+  assert.equal(env.t.phase, "countdown");
+  assert.equal(env.t.mode, "work");
+  assert.equal(env.t.timeLeft, 1500);
+  assert.equal(env.sounds.length, 0);
+});
+
+test("Pulih ke awaiting → completedSessionRef diisi workStartedAt tersimpan", () => {
+  const src = fnSource("usePomodoro");
+  assert.match(src, /const completedSessionRef = useRef\(savedPhase !== "countdown" \? savedState\.workStartedAt \?\? null : null\)/);
+});
+
+test("Kontrol memanggil timer.start() tanpa event", () => {
+  const ctrl = fnSource("PomoControls");
+  assert.ok(!ctrl.includes("onClick: timer.start,"), "PomoControls tidak boleh meneruskan event ke start");
+  assert.ok(ctrl.includes("onClick: () => timer.start()"));
+  const chip = fnSource("TopBarPomodoroChip");
+  assert.ok(!chip.includes("timer.pause : timer.start)()"));
+  assert.ok(chip.includes("timer.start()"));
+});
+
+test("App.handleStartFocus: toast mengikuti fase (awaiting / Overtime / mulai)", () => {
+  const i = indexHtml.indexOf("const handleStartFocus = useCallback(task => {");
+  assert.ok(i >= 0);
+  const src = indexHtml.slice(i, indexHtml.indexOf("}, [focusTask, timer, showToast]);", i));
+  assert.ok(src.includes('timer.phase === "awaiting"'));
+  assert.ok(src.includes("Pomodoro selesai — pilih istirahat atau lanjut"));
+  assert.ok(src.includes("Overtime dilanjutkan"));
+  assert.match(src, /const started = timer\.start\(task\)/);
+  assert.match(src, /if \(!started\) return;/);
+});

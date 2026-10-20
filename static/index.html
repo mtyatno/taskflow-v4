@@ -8620,7 +8620,8 @@ function usePomodoro({
   const intervalRef = useRef(null);
   // Kunci sesi Work yang sudah diselesaikan: handleTimerComplete bisa terpicu dua kali di 0 (ReactDOM.render
   // legacy, closure basi) → sesi yang sama tidak boleh dicatat/dihitung/dibunyikan dua kali.
-  const completedSessionRef = useRef(null);
+  // Saat pulih ke awaiting/overtime, sesi utama itu sudah diselesaikan sebelum reload.
+  const completedSessionRef = useRef(savedPhase !== "countdown" ? savedState.workStartedAt ?? null : null);
   // Kunci Overtime yang sudah diselesaikan (per workStartedAt) → tidak dicatat/ditambah dua kali.
   const finishedOvertimeRef = useRef(null);
   // Sisa detik pada tick countdown terakhir: Waktu fokus bertambah sebesar penurunannya (tab latar belakang).
@@ -8825,22 +8826,24 @@ function usePomodoro({
       console.warn("Gagal mencatat Overtime:", err);
     }
     const newCount = sessionCount + pl.overtimePomodoros(sec);
-    setSessionCount(newCount);
-    setTotalFocusTime(t => t + sec);
     const breakMode = pl.breakAfter(countBeforeSession ?? Math.max(0, sessionCount - 1), newCount);
-    setPhase("countdown");
-    setOtAccumSec(0);
+    // Urutan aman untuk pemanggil tanpa batch (setiap setState merender): berhenti dulu, lalu nolkan Overtime,
+    // pindah ke mode istirahat (sisa > 0) sebelum fase countdown, baru kreditkan 🍅 + Waktu fokus.
+    // Bila fase countdown lebih dulu dengan Work 00:00 masih berjalan, efek countdown memicu penyelesaian sesi lagi.
+    setIsRunning(false);
+    setTargetEndTime(null);
     setOtRunStartedAt(null);
-    setWorkStartedAt(null);
+    setOtAccumSec(0);
     setMode(breakMode);
     setTimeLeft(POMO_DURATIONS[breakMode]);
+    setWorkStartedAt(null);
+    setPhase("countdown");
+    setSessionCount(newCount);
+    setTotalFocusTime(t => t + sec);
     if (startBreak) {
       lastRemainingRef.current = POMO_DURATIONS[breakMode];
       setTargetEndTime(Date.now() + POMO_DURATIONS[breakMode] * 1000);
       setIsRunning(true);
-    } else {
-      setTargetEndTime(null);
-      setIsRunning(false);
     }
     if (auto) {
       playNotificationSound("work");
@@ -8856,18 +8859,18 @@ function usePomodoro({
         auto: false
       });
     }
-    setPhase("countdown");
-    setWorkStartedAt(null);
     setIsRunning(false);
     setTargetEndTime(null);
+    setWorkStartedAt(null);
+    setPhase("countdown");
   };
   const awaitingBreakMode = () => window.TF.pomologic.breakAfter(countBeforeSession ?? Math.max(0, sessionCount - 1), sessionCount);
   const continueOvertime = () => {
     if (phase !== "awaiting") return;
-    setPhase("overtime");
     setOtAccumSec(0);
     setOtRunStartedAt(Date.now());
     setTargetEndTime(null);
+    setPhase("overtime");
     setIsRunning(true);
   };
   const takeBreak = () => {
@@ -8880,10 +8883,10 @@ function usePomodoro({
     }
     if (phase !== "awaiting") return;
     const breakMode = awaitingBreakMode();
-    setPhase("countdown");
-    setWorkStartedAt(null);
     setMode(breakMode);
     setTimeLeft(POMO_DURATIONS[breakMode]);
+    setWorkStartedAt(null);
+    setPhase("countdown");
     lastRemainingRef.current = POMO_DURATIONS[breakMode];
     setTargetEndTime(Date.now() + POMO_DURATIONS[breakMode] * 1000);
     setIsRunning(true);
@@ -8898,7 +8901,8 @@ function usePomodoro({
       return true;
     }
     if (phase === "awaiting") return false;
-    const activeTask = explicitTask || focusTask;
+    // Hanya task sungguhan (punya id); event klik yang diteruskan onClick diabaikan.
+    const activeTask = (explicitTask && explicitTask.id != null ? explicitTask : null) || focusTask;
     if (!activeTask) {
       window.__showToast?.("Pilih satu task terlebih dahulu untuk memulai Pomodoro!", "warning");
       return false;
@@ -8917,12 +8921,14 @@ function usePomodoro({
   const pause = () => {
     if (phase === "overtime") {
       if (isRunning) {
-        setOtAccumSec(window.TF.pomologic.overtimeSeconds({
+        const sec = window.TF.pomologic.overtimeSeconds({
           accumSec: otAccumSec,
           runStartedAt: otRunStartedAt,
           now: Date.now()
-        }));
+        });
+        // Putaran dihentikan dulu, baru akumulasi: render antara (tanpa batch) tidak boleh menghitung dua kali.
         setOtRunStartedAt(null);
+        setOtAccumSec(sec);
       }
       setIsRunning(false);
       return;
@@ -9123,7 +9129,7 @@ function PomoControls({
       key: "toggle",
       type: "button",
       className: "pomo-btn pomo-btn-main",
-      onClick: timer.start,
+      onClick: () => timer.start(),
       "aria-label": "Lanjutkan",
       title: "Lanjutkan"
     }, React.createElement(FocusGlyph, {
@@ -9145,7 +9151,7 @@ function PomoControls({
   }), !compact && React.createElement("span", null, "Jeda")) : React.createElement("button", {
     type: "button",
     className: "pomo-btn pomo-btn-main",
-    onClick: timer.start,
+    onClick: () => timer.start(),
     "aria-label": "Mulai",
     title: "Mulai"
   }, React.createElement(FocusGlyph, {
@@ -9406,7 +9412,7 @@ function TopBarPomodoroChip({
     className: "topbar-pomo-btn",
     onClick: e => {
       e.stopPropagation();
-      (timer.isRunning ? timer.pause : timer.start)();
+      if (timer.isRunning) timer.pause();else timer.start();
     },
     title: timer.isRunning ? "Jeda Pomodoro" : "Lanjutkan Pomodoro",
     "aria-label": timer.isRunning ? "Jeda Pomodoro" : "Lanjutkan Pomodoro"
@@ -36749,10 +36755,19 @@ function App() {
       return;
     }
     setFocusTaskId(task.id);
-    if (!timer.isRunning) {
-      timer.start(task);
+    if (timer.phase === "awaiting") {
+      // Work 00:00 menunggu pilihan: timer tidak dimulai otomatis.
+      showToast(`🎯 Fokus aktif: ${task.title} — Pomodoro selesai — pilih istirahat atau lanjut`, "info");
+      return;
     }
-    showToast(`🎯 Fokus aktif: ${task.title} — Pomodoro dimulai`, "success");
+    if (timer.isRunning) {
+      showToast(`🎯 Fokus aktif: ${task.title}`, "success");
+      return;
+    }
+    const resumingOvertime = timer.phase === "overtime";
+    const started = timer.start(task);
+    if (!started) return;
+    showToast(`🎯 Fokus aktif: ${task.title} — ${resumingOvertime ? "Overtime dilanjutkan" : "Pomodoro dimulai"}`, "success");
   }, [focusTask, timer, showToast]);
   const logout = useCallback(async () => {
     if (!tokenStore.get()) return;

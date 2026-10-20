@@ -198,6 +198,8 @@ def run_flow(ctx, p, base, user, ids, db):
     check("a5 state: phase awaiting, totalFocusTime 1500", st.get("phase") == "awaiting"
           and st.get("totalFocusTime") == 1500, repr(st))
     ws_b = st.get("workStartedAt")
+    check("a6 Mulai lewat tombol: sessionTaskId = task fokus (event klik tidak dianggap task)",
+          st.get("sessionTaskId") == ids[T1], repr(st.get("sessionTaskId")))
 
     # b. Overtime 25 + 12 menit, Stop
     click_card(p, ".pomo-btn-overtime")
@@ -377,7 +379,10 @@ def run_shots(browser, base, user):
             p2.locator(".focus-page-summary").wait_for(state="visible", timeout=20000)
             if p2.locator(".focus-pomo .focus-pomo-task-count").count() == 0:
                 tg.focus(p2, T1)
-            run_session(p2)
+            tg.start(p2)
+            shots_for(p2, theme, tag, "countdown", (w, hgt))
+            advance(p2, "25:00")
+            wait_awaiting(p2)
             shots_for(p2, theme, tag, "awaiting", (w, hgt))
             p2.evaluate("() => { const c = document.querySelector('.focus-pomo'); if (c) c.scrollIntoView({block: 'start'}); }")
             p2.wait_for_timeout(300)
