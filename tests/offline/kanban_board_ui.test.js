@@ -95,7 +95,8 @@ test("runKanbanAction dispatches each action type", async () => {
   assert.deepEqual(r.calls, [["done", "c-9"]]);
 
   r = deps(); await H.runKanbanAction({ type: "occurrence", date: TODAY }, { id: 12 }, r.d);
-  assert.deepEqual(r.calls, [["post", "/api/tasks/12/occurrences/2026-10-20/mark", { status: "done" }], ["after"]]);
+  assert.deepEqual(r.calls, [["post", "/api/tasks/12/occurrences/2026-10-20/mark", { status: "done" }],
+    ["toast", "Hari ini ditandai selesai", "success"], ["after"]]);
 
   r = deps({ api: { post: () => Promise.reject(Object.assign(new Error("HTTP 500"), {})) } });
   await H.runKanbanAction({ type: "occurrence", date: TODAY }, { id: 12 }, r.d);
@@ -260,7 +261,8 @@ test("kanbanCheckAction (onKanbanCheck): uncheck done → next; recurring online
     return r.calls;
   };
   assert.deepEqual(await run(doneT, "done", true), [["update", 9, { gtd_status: "next" }]]);
-  assert.deepEqual(await run(recur, "none", true), [["post", "/api/tasks/7/occurrences/2026-10-20/mark", { status: "done" }], ["after"]]);
+  assert.deepEqual(await run(recur, "none", true), [["post", "/api/tasks/7/occurrences/2026-10-20/mark", { status: "done" }],
+    ["toast", "Hari ini ditandai selesai", "success"], ["after"]]);
   assert.deepEqual(await run(recur, "none", false), [["toast", "Tidak bisa dilakukan saat offline", "error"]]);
   assert.deepEqual(await run(plain, "none", true), [["done", "c-8"]]);
 });
@@ -273,4 +275,23 @@ test("kanbanScopeFor: workspace tersimpan yang tidak ada lagi → \"\"; slist_W 
   assert.equal(H.kanbanScopeFor("next", opts, null), "");
   assert.equal(H.kanbanScopeFor("slist_12", [], ""), "12");
   assert.equal(H.kanbanScopeFor("slist_c-ws", opts, "9"), "c-ws");
+});
+
+// ---- Final review: inisial assignee di semua halaman, filter Assignee tetap hanya di workspace ----
+test("sumber: collaborators diteruskan ke TaskListView di semua halaman; filter Assignee tetap khusus workspace", () => {
+  const uses = indexHtml.split("React.createElement(TaskListView, {").slice(1).map((s) => s.slice(0, s.indexOf("})")));
+  assert.equal(uses.length, 2);
+  for (const u of uses) {
+    assert.match(u, /collaborators: collaborators,/);
+    assert.doesNotMatch(u, /collaborators: page\.startsWith\("slist_"\) \? collaborators : \[\]/);
+  }
+  // call site umum: visibilitas filter Assignee = aturan lama (hanya slist_*); call site workspace memakai default
+  assert.match(uses[1], /showAssigneeFilter: page\.startsWith\("slist_"\)/);
+  assert.doesNotMatch(uses[0], /showAssigneeFilter/);
+  const view = sliceFn("function TaskListView(", "\nfunction ");
+  assert.match(view, /showAssigneeFilter = true/);
+  assert.match(view, /showAssigneeFilter && collaborators\.length > 0 && /);
+  assert.doesNotMatch(view, /\}, c\)\)\)\), collaborators\.length > 0 && /);
+  // papan tetap menerima collaborators untuk inisial
+  assert.match(view, /collaborators: collaborators/);
 });

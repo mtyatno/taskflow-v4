@@ -3584,7 +3584,7 @@ function projectScopeLabel(listId, sharedLists) {
 function contextScopeLabel(listId, sharedLists) {
   if (listId == null || listId === "") return "Tahap/Context · Pribadi";
   const hit = (sharedLists || []).find(l => l && String(l.id) === String(listId));
-  return "Tahap/Context · " + (hit && hit.name ? hit.name : "Pribadi");
+  return "Tahap/Context · " + (hit && hit.name ? hit.name : "Workspace");
 }
 function projectScopeOptionLabel(list) {
   return list ? "👥 " + list.name : "Pribadi";
@@ -3960,6 +3960,40 @@ function stageAfterChange(tasksChanged) {
       } catch (_) {}
       return null;
     });
+  });
+}
+// "+ Tahap" di papan: POST /api/contexts (lokal, offline OK). Nama yang sudah ada di scope (respons lokal
+// `created:false`): diarsip + online → aktifkan lagi (PATCH archived:false, jaringan) lalu stageAfterChange;
+// diarsip + offline → toast; aktif / pending → toast. Respons server langsung (tanpa `created`) yang tidak
+// diarsip dianggap dibuat. → Promise<boolean> (true = input "+ Tahap" ditutup). Tidak melempar.
+const STAGE_EXISTS_TEXT = "Tahap sudah ada";
+const STAGE_ARCHIVED_OFFLINE_TEXT = "Tahap ada di arsip — aktifkan lewat Kelola tahap (butuh koneksi)";
+function stageCreate(name, listId, toast) {
+  const say = (msg, type) => {
+    if (toast && msg) toast(msg, type);
+  };
+  const n = (name || "").trim();
+  if (!n) return Promise.resolve(false);
+  return api.post("/api/contexts", { name: n, list_id: listId || null }).then(res => {
+    if (res && res.archived) {
+      if (!navigator.onLine) {
+        say(STAGE_ARCHIVED_OFFLINE_TEXT, "error");
+        return false;
+      }
+      return stageRun(() => api.patch("/api/contexts/" + encodeURIComponent(res.id), { archived: false }), false).then(r => {
+        if (r.ok) say("Tahap diaktifkan");else say(r.message, "error");
+        return r.ok;
+      });
+    }
+    if (res && res.created === false) {
+      say(STAGE_EXISTS_TEXT, "info");
+      return false;
+    }
+    window.dispatchEvent(new CustomEvent("tf:contexts-changed", { detail: { source: "manage" } }));
+    return true;
+  }, err => {
+    say(stageErrorText(err), "error");
+    return false;
   });
 }
 // Jalankan satu aksi kelola (jaringan): → { ok:true } | { ok:false, message }. 409 CONTEXT_ORDER_STALE juga
@@ -12870,6 +12904,7 @@ async function runKanbanAction(action, task, deps) {
       toast("Gagal: " + msg, "error");
       return;
     }
+    toast("Hari ini ditandai selesai", "success");
     if (d.onAfterOccurrence) d.onAfterOccurrence();
     return;
   }
@@ -13233,7 +13268,9 @@ function KanbanCard({
       cursor: canDrag ? "grab" : "pointer",
       transition: "border-color 0.15s, box-shadow 0.15s",
       userSelect: "none",
-      touchAction: "pan-y",
+      // "manipulation" (bukan "pan-y"): geser papan horizontal yang dimulai di kartu tetap bisa. Setelah
+      // tekan-tahan, listener touchmove non-pasif (dipasang saat mount) memblokir scroll selama drag.
+      touchAction: "manipulation",
       opacity: isDone ? 0.6 : 1,
       filter: dragging ? "opacity(0.4)" : "none"
     },
@@ -14240,6 +14277,8 @@ function TaskListView({
   showFilters,
   showQuadrant = true,
   collaborators = [],
+  // Filter Assignee hanya di halaman workspace; collaborators tetap dipakai papan untuk inisial di semua halaman.
+  showAssigneeFilter = true,
   showToast,
   page,
   onUpdateGtdStatus,
@@ -14491,17 +14530,7 @@ function TaskListView({
     return res.ok;
   });
   const stageUrl = item => "/api/contexts/" + encodeURIComponent(item.id);
-  const createStage = name => {
-    const n = (name || "").trim();
-    if (!n) return Promise.resolve(false);
-    return api.post("/api/contexts", { name: n, list_id: kanbanScope || null }).then(() => {
-      window.dispatchEvent(new CustomEvent("tf:contexts-changed", { detail: { source: "manage" } }));
-      return true;
-    }).catch(err => {
-      stageToast(stageErrorText(err), "error");
-      return false;
-    });
-  };
+  const createStage = name => stageCreate(name, kanbanScope || null, stageToast);
   const stageOps = kanbanOn && groupBy === "context" ? {
     canMove: (item, dir) => !!window.TF.kanbanboard.reorderIds(contextItems || [], kanbanScope, item.id, dir),
     rename: (item, name) => {
@@ -14823,7 +14852,7 @@ function TaskListView({
   }, "Semua Context"), ctxList.map(c => /*#__PURE__*/React.createElement("option", {
     key: c,
     value: c
-  }, c)))), collaborators.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, c)))), showAssigneeFilter && collaborators.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "input-label"
   }, "Assignee"), /*#__PURE__*/React.createElement("select", {
     className: "input",
@@ -35995,7 +36024,8 @@ function App() {
       projects: projects,
       contexts: contexts,
       showFilters: page !== "dashboard" && page !== "today",
-      collaborators: page.startsWith("slist_") ? collaborators : [],
+      collaborators: collaborators,
+      showAssigneeFilter: page.startsWith("slist_"),
       showToast: showToast,
       page: page,
       onUpdateGtdStatus: handleUpdateTaskGtd,

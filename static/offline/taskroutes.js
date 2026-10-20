@@ -239,12 +239,14 @@
       }
       return TFcontexts.names(listId);
     });
+    // Respons = item + `created` (false = nama sudah ada di scope: aktif, pending, atau diarsip — `archived`
+    // ikut di item) supaya "+ Tahap" bisa memberi tahu / mengaktifkan lagi, bukan diam.
     router.register("POST", "/api/contexts", ({ body }) => {
       const b = body || {};
       return TFcontexts.addPending(b.list_id, b.name).then(({ item, created }) =>
         (created
           ? TFoutbox.outboxAdd({ op: "create", entity_type: "context", cid: item.cid, payload: { cid: item.cid } })
-          : Promise.resolve()).then(() => item));
+          : Promise.resolve()).then(() => Object.assign({}, item, { archived: !!item.archived, created: !!created })));
     });
 
     router.register("GET", "/api/tasks/:id/tags", ({ params }) =>

@@ -92,7 +92,10 @@ test("sumber: blok Kanban tanpa HTML5 drag; memakai pointer events", () => {
   assert.doesNotMatch(block, /dragSourceRef/);
   assert.match(block, /data-kanban-col"/);
   assert.match(block, /setPointerCapture/);
-  assert.match(block, /touchAction: "pan-y"/);
+  // "manipulation": geser papan horizontal yang dimulai di kartu tetap bisa; setelah tekan-tahan, listener
+  // touchmove non-pasif (sejak mount) memblokir scroll selama drag.
+  assert.match(block, /touchAction: "manipulation"/);
+  assert.doesNotMatch(block, /touchAction: "pan-y"/);
   assert.match(block, /"Escape"/);
   assert.match(block, /pointercancel/);
   assert.match(block, /requestAnimationFrame/);

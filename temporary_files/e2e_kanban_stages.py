@@ -3,12 +3,17 @@
 Dua akun: A pemilik workspace W, B anggota W. Papan = halaman workspace W, Group by Context, mode Kanban.
   1  A: "+ Tahap" "Desain" dan "Review" di W tanpa task → dua kolom kosong di antara "Belum ada tahap" dan "Selesai"
   2  task W (server) diseret dengan mouse ke "Desain" → server: context "Desain" + context_id = id tahap
-  3  konteks has_touch: tekan-tahan kartu ≥ 300 ms lalu geser ke "Review" → pindah
+  3  konteks has_touch: tekan-tahan kartu ≥ 300 ms lalu geser ke "Review" → pindah tanpa pointercancel;
+     geser cepat (tanpa tahan) yang dimulai di kartu → papan ter-scroll horizontal (touch-action: manipulation)
   4  seret ke "Selesai" → done; seret keluar ke "Desain" → gtd_status "next"
-  5  task berulang ke "Selesai" → occurrence hari ini (Asia/Jakarta) tercatat, kartu tetap di tahapnya
+  5  task berulang ke "Selesai" → occurrence hari ini (Asia/Jakarta) tercatat, toast "Hari ini ditandai selesai",
+     kartu tetap di tahapnya
   6  menu "Pindah ke…" memindahkan kartu tanpa drag
-  7  "Next Actions" dengan task pribadi + W → pemilih "Papan:" + keterangan task dari scope lain
-  8  A: ganti nama, geser kiri, arsip, hapus tahap → B (anggota W) melihat hasilnya setelah sync
+  7  "Next Actions" dengan task pribadi + W → pemilih "Papan:" + keterangan task dari scope lain; inisial assignee
+     (anggota W) tampil di halaman non-workspace (bukan "?")
+  8  A: ganti nama, geser kiri, arsip, hapus tahap → B (anggota W) melihat hasilnya setelah sync;
+     "+ Tahap" nama yang sudah ada → toast "Tahap sudah ada"; nama diarsip (online) → tahap aktif lagi;
+     nama diarsip saat offline → toast arsip (butuh koneksi)
   9  offline: "+ Tahap" "QA", task baru (cid) diseret ke "QA" sebelum sync; online + sync → server punya
      tahap "QA" dan task ter-link ke id servernya
   10 (bagian dari 9) task offline ber-id cid bisa diseret sebelum sync
@@ -267,12 +272,73 @@ def touch_drag_synthetic(page, title, target_label, hold_ms=350):
         cancelable: true, pointerId: 77, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, buttons: 0}))""", [tx, ty])
 
 
+def board_scroll(page):
+    return page.evaluate("() => { const b = document.querySelector('[data-kanban-board]'); return b ? b.scrollLeft : null; }")
+
+
+def swipe_from_card(page, title, dx=-220):
+    """Geser cepat tanpa tahan, mulai di kartu `title` (papan di-scroll dulu agar kartu di tepi kiri).
+    → dict {before, after, method, on_card, room}. CDP touch dulu; bila papan tidak bergerak →
+    Input.synthesizeScrollGesture (sentuh sintetis Chromium lewat jalur gesture asli)."""
+    info = page.evaluate("""(t) => {
+        const b = document.querySelector('[data-kanban-board]');
+        const el = Array.from(b.querySelectorAll('[data-kanban-task]')).find(x => x.textContent.includes(t));
+        if (!el) return null;
+        b.scrollLeft = 0;
+        const br0 = b.getBoundingClientRect();
+        b.scrollLeft = Math.max(0, el.getBoundingClientRect().left - br0.left - 16);
+        const r = el.getBoundingClientRect(), br = b.getBoundingClientRect();
+        const right = Math.min(r.right, br.right, window.innerWidth) - 24;
+        const y = r.top + Math.min(r.height / 2, 20);
+        const hit = document.elementFromPoint(right, y);
+        return {x: right, y: y, left: Math.max(br.left, 0) + 8, sl: b.scrollLeft,
+                room: b.scrollWidth - b.clientWidth - b.scrollLeft, on_card: !!(hit && el.contains(hit))};
+    }""", title)
+    if not info:
+        return None
+    sx, sy = info["x"], info["y"]
+    tx = max(info["left"], sx + dx)
+    before = board_scroll(page)
+    cdp = page.context.new_cdp_session(page)
+    pt = lambda x, y: [{"x": x, "y": y, "id": 2, "radiusX": 4, "radiusY": 4, "force": 1}]
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": pt(sx, sy)})
+    n = 12
+    for i in range(1, n + 1):
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": pt(sx + (tx - sx) * i / n, sy)})
+        page.wait_for_timeout(12)
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    page.wait_for_timeout(500)
+    after = board_scroll(page)
+    method = "CDP touch"
+    if after == before:
+        cdp.send("Input.synthesizeScrollGesture", {"x": sx, "y": sy, "xDistance": tx - sx, "yDistance": 0,
+                                                   "gestureSourceType": "touch", "speed": 1200})
+        page.wait_for_timeout(500)
+        after = board_scroll(page)
+        method = "synthesizeScrollGesture touch"
+    cdp.detach()
+    return {"before": before, "after": after, "method": method, "on_card": info["on_card"], "room": info["room"]}
+
+
 def add_stage_ui(page, name):
     page.locator("[data-kanban-addstage] button[aria-label='+ Tahap']").click()
     inp = page.locator("input[aria-label='Nama tahap baru']")
     inp.fill(name)
     inp.press("Enter")
     return wait_until(lambda: name in labels(page), 15)
+
+
+def add_stage_try(page, name):
+    """'+ Tahap' + Enter tanpa menunggu kolom (nama yang sudah ada: input tetap terbuka → Escape)."""
+    page.locator("[data-kanban-addstage] button[aria-label='+ Tahap']").click()
+    inp = page.locator("input[aria-label='Nama tahap baru']")
+    inp.fill(name)
+    inp.press("Enter")
+    return inp
+
+
+def toast_seen(page, text, timeout=8):
+    return wait_until(lambda: page.get_by_text(text, exact=True).count() > 0, timeout, 0.2)
 
 
 def stage_menu(page, label):
@@ -355,8 +421,12 @@ def main():
             goto_workspace(tp, base)
             wait_until(lambda: column_of(tp, T_MAIN) == "Desain", 20)
             method = "CDP touch"
+            tp.evaluate("() => { window.__pcN = 0; document.addEventListener('pointercancel', () => { window.__pcN++; }, true); }")
             touch_drag_cdp(tp, T_MAIN, "Review")
             moved = wait_until(lambda: column_of(tp, T_MAIN) == "Review", 5)
+            pc_cdp = tp.evaluate("() => window.__pcN")
+            check("3a0 sentuh CDP tahan 350 ms: kartu pindah tanpa pointercancel (touch-action: manipulation)",
+                  moved and pc_cdp == 0, "pointercancel=%r kolom=%r" % (pc_cdp, column_of(tp, T_MAIN)))
             if not moved:
                 print("  CDP touch tidak memindahkan kartu (kolom: %r) → PointerEvent sintetis" % column_of(tp, T_MAIN))
                 method = "PointerEvent sintetis"
@@ -374,6 +444,19 @@ def main():
                 touch_drag_synthetic(tp, T_MAIN, "Desain", hold_ms=0)
             tp.wait_for_timeout(800)
             check("3c sentuh tanpa tahan: kartu tetap di 'Review'", column_of(tp, T_MAIN) == "Review", repr(column_of(tp, T_MAIN)))
+            # geser cepat horizontal yang dimulai di kartu → papan ter-scroll (viewport sempit agar papan overflow)
+            tp.set_viewport_size({"width": 560, "height": 900})
+            tp.wait_for_timeout(600)
+            sw = swipe_from_card(tp, T_MAIN)
+            check("3d sentuh geser cepat dari kartu (tanpa tahan): papan ter-scroll horizontal, kartu tetap di 'Review'",
+                  sw and sw["on_card"] and sw["room"] > 0 and sw["after"] > sw["before"] and column_of(tp, T_MAIN) == "Review",
+                  repr((sw, column_of(tp, T_MAIN))))
+            shot(tp, "03d_touch_geser_papan_dari_kartu.png")
+            # kontrol negatif: dengan touch-action pan-y (nilai lama) gestur yang sama tidak menggeser papan
+            tp.evaluate("() => document.querySelectorAll('[data-kanban-task]').forEach(el => { el.style.touchAction = 'pan-y'; })")
+            ctl = swipe_from_card(tp, T_MAIN)
+            check("3e kontrol: dengan pan-y gestur yang sama TIDAK menggeser papan (cek 3d bermakna)",
+                  ctl and ctl["on_card"] and ctl["room"] > 0 and ctl["after"] == ctl["before"], repr(ctl))
             ctxT.close()
 
             # ── 4. ke Selesai lalu keluar ke Desain ────────────────────────────────
@@ -398,6 +481,7 @@ def main():
             check("5pre task berulang di 'Desain'", wait_until(lambda: a_sees(T_REC, "Desain"), 30), repr(column_of(a, T_REC)))
             rec_id = server_task(base, A, T_REC)["id"]
             mouse_drag(a, T_REC, "Selesai")
+            check("5d UI: toast 'Hari ini ditandai selesai'", toast_seen(a, "Hari ini ditandai selesai"))
 
             def occ_done():
                 sync_now(a)
@@ -413,7 +497,8 @@ def main():
             shot(a, "05_A_berulang_tetap_di_Desain.png")
 
             # ── 6. menu Pindah ke… ─────────────────────────────────────────────────
-            api(base, A, "POST", "/api/tasks", json={"title": T_MENU, "list_id": ws_id, "gtd_status": "next"})
+            api(base, A, "POST", "/api/tasks", json={"title": T_MENU, "list_id": ws_id, "gtd_status": "next",
+                                                     "assigned_to": B["id"]})
             check("6pre kartu di 'Belum ada tahap'", wait_until(lambda: a_sees(T_MENU), 30))
             c = card(a, T_MENU)
             c.get_by_role("button", name="Pindah ke…").click()
@@ -449,6 +534,12 @@ def main():
                   wait_until(lambda: "Desain" in labels(a) and column_of(a, T_PERS) is None and note_ok(1), 10),
                   repr((labels(a), note.all_text_contents())))
             shot(a, "07b_A_NextActions_Papan_W.png")
+            def initials_of(title):
+                return a.evaluate("""(t) => { const el = Array.from(document.querySelectorAll('[data-kanban-task]'))
+                    .find(x => x.textContent.includes(t)); const s = el && el.querySelector('span[title="Assignee"]');
+                    return s ? s.textContent : null; }""", title)
+            check("7e Next Actions (bukan halaman workspace): inisial assignee '%s' = 'B' (bukan '?')" % T_MENU,
+                  wait_until(lambda: initials_of(T_MENU) == "B", 10), repr(initials_of(T_MENU)))
 
             # ── 8. kelola tahap di A → B melihat hasilnya ──────────────────────────
             for nm in ("Lama", "Buang"):
@@ -487,12 +578,39 @@ def main():
                   wait_until(lambda: column_of(b, T_MENU) == "Tinjau" and column_of(b, T_MAIN) == "Desain", 15),
                   repr(board(b)))
             shot(b, "08b_B_melihat_hasil_kelola.png")
+            # "+ Tahap" dengan nama yang sudah ada (aktif) → toast, tidak ada kolom baru
+            before = labels(a)
+            inp = add_stage_try(a, "desain")
+            check("8h A: '+ Tahap' 'desain' (sudah ada) → toast 'Tahap sudah ada', kolom tetap",
+                  toast_seen(a, "Tahap sudah ada") and labels(a) == before, repr(labels(a)))
+            if inp.count():
+                inp.press("Escape")
+            # nama tahap yang diarsip, online → diaktifkan lagi (PATCH jaringan) dan kolom kembali
+            inp = add_stage_try(a, "lama")
+            def lama_back():
+                srv = server_ctx(base, A, ws_id)
+                return "Lama" in labels(a) and any(x["name"] == "Lama" and not x["archived"] for x in srv)
+            check("8i A: '+ Tahap' 'lama' (diarsip, online) → 'Tahap diaktifkan', kolom 'Lama' kembali, server aktif",
+                  toast_seen(a, "Tahap diaktifkan") and wait_until(lama_back, 15), repr(labels(a)))
+            shot(a, "08c_A_tambah_tahap_arsip_diaktifkan.png")
+            # arsipkan lagi (API) supaya langkah offline di bawah punya tahap arsip di cache
+            lama_id = next(x["id"] for x in server_ctx(base, A, ws_id) if x["name"] == "Lama")
+            api(base, A, "PATCH", "/api/contexts/%d" % lama_id, json={"archived": True})
+            check("8j A: 'Lama' diarsip lagi lewat API → kolom hilang setelah sync",
+                  wait_until(lambda: (sync_now(a), "Lama" not in labels(a))[1], 30), repr(labels(a)))
 
             # ── 9 + 10. offline: tahap QA + task cid diseret sebelum sync ───────────
             goto_workspace(a, base)
             ctxA.set_offline(True)
             a.wait_for_timeout(500)
             check("9pre navigator.onLine false", a.evaluate("() => navigator.onLine") is False)
+            before = labels(a)
+            inp = add_stage_try(a, "Lama")
+            check("9pre2 offline: '+ Tahap' nama diarsip → toast arsip (butuh koneksi), tidak ada kolom baru",
+                  toast_seen(a, "Tahap ada di arsip — aktifkan lewat Kelola tahap (butuh koneksi)") and labels(a) == before,
+                  repr(labels(a)))
+            if inp.count():
+                inp.press("Escape")
             check("9a offline: '+ Tahap' 'QA' tampil", add_stage_ui(a, "QA"), repr(labels(a)))
             qa_key = col_key(a, "QA")
             check("9b kolom QA ber-id lokal (cid, bukan angka)", qa_key and not re.match(r"^stage:\d+$", qa_key), repr(qa_key))

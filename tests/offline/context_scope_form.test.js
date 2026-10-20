@@ -29,8 +29,12 @@ test("contextScopeLabel: pribadi, workspace, workspace tak dikenal", () => {
   assert.equal(contextScopeLabel("", lists), "Tahap/Context · Pribadi");
   assert.equal(contextScopeLabel(7, lists), "Tahap/Context · Tim Inti");
   assert.equal(contextScopeLabel("9", lists), "Tahap/Context · Rumah");
-  assert.equal(contextScopeLabel(55, lists), "Tahap/Context · Pribadi");
-  assert.equal(contextScopeLabel(55, null), "Tahap/Context · Pribadi");
+  // workspace yang belum dimuat / tidak dikenal → "Workspace" (bukan "Pribadi"), sama dengan projectScopeLabel
+  assert.equal(contextScopeLabel(55, lists), "Tahap/Context · Workspace");
+  assert.equal(contextScopeLabel(55, null), "Tahap/Context · Workspace");
+  assert.equal(contextScopeLabel("55", []), "Tahap/Context · Workspace");
+  assert.equal(contextScopeLabel(undefined, lists), "Tahap/Context · Pribadi");
+  assert.equal(contextScopeLabel(7, [{ id: 7, name: "" }]), "Tahap/Context · Workspace");
 });
 
 test("fetchScopeContexts + useScopeContexts: route per scope, muat ulang saat tf:contexts-changed", () => {

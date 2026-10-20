@@ -190,8 +190,10 @@ test("sumber: '+ Tahap' hanya Group by Context dan tanpa data-kanban-col (bukan 
   assert.doesNotMatch(view, /data-kanban-col"/);
   assert.match(view, /api\.post\("\/api\/contexts"|onCreateStage/);
   const tlv = sliceFn("function TaskListView(", "\nfunction ");
-  assert.match(tlv, /api\.post\("\/api\/contexts", \{ name: [^}]*list_id: [^}]*\|\| null \}\)/);
-  assert.match(tlv, /tf:contexts-changed/);
+  // POST + reaksi nama yang sudah ada ada di helper stageCreate (dites perilakunya di bawah)
+  assert.match(tlv, /stageCreate\(name, kanbanScope \|\| null, stageToast\)/);
+  assert.match(HELPERS_SRC(), /api\.post\("\/api\/contexts", \{ name: [^}]*list_id: [^}]*\|\| null \}\)/);
+  assert.match(HELPERS_SRC(), /tf:contexts-changed/);
   assert.match(tlv, /"Kelola tahap"/);
   assert.match(tlv, /onManageStages/);
 });
@@ -288,4 +290,86 @@ test("contextKeyOrder: scope halaman — slist_W pakai posisi W; selain itu prib
   assert.deepEqual(fn(keys, items), ["Todo", "Review", "Qa", "Deploy", "Zed"]);
   // slist_10: hanya posisi workspace 10; Qa tidak punya tahap di W → alfabet di belakang
   assert.deepEqual(fn(keys, items, "slist_10"), ["Todo", "Deploy", "Review", "Qa", "Zed"]);
+});
+
+// ── final review: "+ Tahap" dengan nama yang sudah ada (aktif / pending / diarsip) ─────────────
+function loadCreate(env) {
+  const e = env || {};
+  const nav = e.navigator || { onLine: true };
+  const CE = function CE(type, init) { this.type = type; this.detail = init && init.detail; };
+  return new Function("window", "navigator", "isOfflineErr", "api", "CustomEvent",
+    `${PROJECT_COLOR_SRC()}\n${HELPERS_SRC()}; return { stageCreate };`)(
+    e.window, nav, (err) => !!err && err.message === "OFFLINE", e.api, CE);
+}
+function createEnv(postResult, opts) {
+  const o = opts || {};
+  const calls = [];
+  const win = {
+    TF: { contextcache: { refresh: () => { calls.push(["refresh"]); return Promise.resolve(); } } },
+    __syncRawFetch: () => {},
+    dispatchEvent: (ev) => { calls.push(["event", ev.type, ev.detail && ev.detail.source]); },
+  };
+  const api = {
+    post: (url, body) => { calls.push(["post", url, body]); return postResult instanceof Error ? Promise.reject(postResult) : Promise.resolve(postResult); },
+    patch: (url, body) => { calls.push(["patch", url, body]); return o.patchError ? Promise.reject(o.patchError) : Promise.resolve({}); },
+  };
+  const toast = (msg, type) => { calls.push(["toast", msg, type]); };
+  const H = loadCreate({ window: win, api, navigator: { onLine: o.online !== false } });
+  return { calls, toast, stageCreate: H.stageCreate };
+}
+
+test("stageCreate: nama baru → POST lokal + tf:contexts-changed, true; kosong → tanpa request", async () => {
+  let env = createEnv({ id: "cid-1", name: "Desain", pending: true, archived: false, created: true });
+  assert.equal(await env.stageCreate("  Desain ", null, env.toast), true);
+  assert.deepEqual(env.calls, [["post", "/api/contexts", { name: "Desain", list_id: null }], ["event", "tf:contexts-changed", "manage"]]);
+  env = createEnv({ id: "cid-2", name: "QA", archived: false, created: true });
+  assert.equal(await env.stageCreate("QA", "7", env.toast), true);
+  assert.deepEqual(env.calls[0], ["post", "/api/contexts", { name: "QA", list_id: "7" }]);
+  // respons server langsung (tanpa router lokal, tanpa flag created) → dianggap dibuat
+  env = createEnv({ id: 9, name: "QA", archived: false });
+  assert.equal(await env.stageCreate("QA", null, env.toast), true);
+  assert.deepEqual(env.calls.map((c) => c[0]), ["post", "event"]);
+  env = createEnv({});
+  assert.equal(await env.stageCreate("   ", null, env.toast), false);
+  assert.deepEqual(env.calls, []);
+});
+
+test("stageCreate: nama aktif / pending yang sudah ada → toast \"Tahap sudah ada\", tanpa PATCH", async () => {
+  for (const res of [{ id: 5, name: "Aktif", archived: false, created: false }, { id: "cid", name: "P", pending: true, archived: false, created: false }]) {
+    const env = createEnv(res);
+    assert.equal(await env.stageCreate(res.name, null, env.toast), false);
+    assert.deepEqual(env.calls.slice(1), [["toast", "Tahap sudah ada", "info"]]);
+  }
+});
+
+test("stageCreate: nama diarsip + offline → toast arsip, tanpa PATCH", async () => {
+  const env = createEnv({ id: 4, name: "Lama", archived: true, created: false }, { online: false });
+  assert.equal(await env.stageCreate("lama", null, env.toast), false);
+  assert.deepEqual(env.calls.slice(1), [["toast", "Tahap ada di arsip — aktifkan lewat Kelola tahap (butuh koneksi)", "error"]]);
+});
+
+test("stageCreate: nama diarsip + online → PATCH archived:false (jaringan) lalu refresh tahap + toast", async () => {
+  let env = createEnv({ id: 4, name: "Lama", archived: true, created: false });
+  assert.equal(await env.stageCreate("lama", "7", env.toast), true);
+  assert.deepEqual(env.calls, [
+    ["post", "/api/contexts", { name: "lama", list_id: "7" }],
+    ["patch", "/api/contexts/4", { archived: false }],
+    ["refresh"],
+    ["event", "tf:contexts-changed", "manage"],
+    ["toast", "Tahap diaktifkan", undefined],
+  ]);
+  // respons server langsung (tanpa flag created) yang diarsip juga diaktifkan
+  env = createEnv({ id: 4, name: "Lama", archived: true });
+  assert.equal(await env.stageCreate("Lama", null, env.toast), true);
+  assert.deepEqual(env.calls.map((c) => c[0]), ["post", "patch", "refresh", "event", "toast"]);
+  // PATCH gagal → pesan galat, false
+  env = createEnv({ id: 4, name: "Lama", archived: true, created: false }, { patchError: Object.assign(new Error("Not found"), { status: 404 }) });
+  assert.equal(await env.stageCreate("Lama", null, env.toast), false);
+  assert.deepEqual(env.calls.slice(-1), [["toast", "Tahap sudah tidak ada", "error"]]);
+});
+
+test("stageCreate: POST gagal → toast stageErrorText, false", async () => {
+  const env = createEnv(new Error("Nama tahap tidak boleh kosong"));
+  assert.equal(await env.stageCreate("x", null, env.toast), false);
+  assert.deepEqual(env.calls.slice(1), [["toast", "Nama tahap tidak boleh kosong", "error"]]);
 });

@@ -430,3 +430,28 @@ test("mutations reject on a failed metaGet and leave existing pending entries un
   assert.deepEqual((await CC.allItems()).map((i) => i.name), ["Keep", "Other", "After"]);
   assert.equal(other.created, true);
 });
+
+// ── final review: "+ Tahap" dengan nama yang sudah ada ─────────────────────────────────────────
+test("POST /api/contexts reports created and archived so the board can react to an existing name", async () => {
+  await seedCache([ctx({ id: 4, name: "Lama", archived: true }), ctx({ id: 5, name: "Aktif" })]);
+  const R = buildTaskRouter();
+  const fresh = await R.dispatch("POST", "/api/contexts", { name: "Baru", list_id: null });
+  assert.equal(fresh.created, true);
+  assert.equal(fresh.archived, false);
+  const again = await R.dispatch("POST", "/api/contexts", { name: "baru", list_id: null }); // pending
+  assert.equal(again.created, false);
+  assert.equal(again.pending, true);
+  assert.equal(again.archived, false);
+  const live = await R.dispatch("POST", "/api/contexts", { name: "AKTIF", list_id: null });
+  assert.equal(live.created, false);
+  assert.equal(live.id, 5);
+  assert.equal(live.archived, false);
+  const arch = await R.dispatch("POST", "/api/contexts", { name: "lama", list_id: null });
+  assert.equal(arch.created, false);
+  assert.equal(arch.archived, true);
+  assert.equal(arch.id, 4);
+  assert.equal((await outboxAll()).length, 1); // hanya "Baru"
+  // flag respons tidak ikut tersimpan di cache/pending
+  const stored = await CC.allItems();
+  assert.ok(stored.every((c) => !("created" in c)));
+});
