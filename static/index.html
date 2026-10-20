@@ -2144,7 +2144,8 @@ function SharedListsManager({
   const [inviteUsername, setInviteUsername] = useState("");
   const [invitingListId, setInvitingListId] = useState(null);
   const [expandedList, setExpandedList] = useState(null);
-  const [members, setMembers] = useState({});
+  const [details, setDetails] = useState({});
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [generatedLinks, setGeneratedLinks] = useState({});
   const [generatingFor, setGeneratingFor] = useState(null);
   const [showJoinForm, setShowJoinForm] = useState(false);
@@ -2152,13 +2153,17 @@ function SharedListsManager({
   const [joinPreview, setJoinPreview] = useState(null);
   const [joinError, setJoinError] = useState("");
   const [joining, setJoining] = useState(false);
+  const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
+  // Detail (owner + anggota) selalu diambil ulang dari server: saat panel dibuka dan setelah undang/keluarkan.
   const loadMembers = async listId => {
-    if (members[listId]) return;
     try {
-      const data = await api.get(`/api/lists/${listId}`);
-      setMembers(m => ({
-        ...m,
-        [listId]: data.members || []
+      const data = await api.get(`/api/lists/${listId}`, { network: true });
+      setDetails(d => ({
+        ...d,
+        [listId]: {
+          owner: data.owner || null,
+          members: data.members || []
+        }
       }));
     } catch (e) {}
   };
@@ -2223,7 +2228,7 @@ function SharedListsManager({
         name: newName.trim()
       });
       setNewName("");
-      showToast("Shared list dibuat ✅");
+      showToast("Workspace dibuat ✅");
       onRefresh();
     } catch (err) {
       showToast(err.message, "error");
@@ -2237,16 +2242,9 @@ function SharedListsManager({
       await api.post(`/api/lists/${listId}/invite`, {
         username
       });
-      showToast(`${username} ditambahkan ke list ✅`);
+      showToast(`${username} ditambahkan ke workspace ✅`);
       setInviteUsername("");
       setInvitingListId(null);
-      setMembers(m => {
-        const n = {
-          ...m
-        };
-        delete n[listId];
-        return n;
-      });
       loadMembers(listId);
       onRefresh();
     } catch (err) {
@@ -2254,25 +2252,22 @@ function SharedListsManager({
     }
   };
   const handleRemoveMember = async (listId, memberId, memberName) => {
-    if (!confirm(`Hapus ${memberName} dari list ini?`)) return;
+    const choice = await askDrawingScope({
+      title: `Keluarkan ${memberName} dari workspace ini?`,
+      note: `Task belum selesai yang ditugaskan ke ${memberName} akan dilepas penanggung jawabnya.`,
+      actions: [{ value: "cancel", label: "Batal" }, { value: "ok", label: "Keluarkan", primary: true, danger: true }]
+    });
+    if (choice !== "ok") return;
     try {
       await api.del(`/api/lists/${listId}/members/${memberId}`);
-      showToast("Member dihapus");
-      setMembers(m => {
-        const n = {
-          ...m
-        };
-        delete n[listId];
-        return n;
-      });
+      showToast("Anggota dikeluarkan");
       loadMembers(listId);
       onRefresh();
     } catch (err) {
       showToast(err.message, "error");
     }
   };
-  const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
-  // PR 3 Task 5: leave-impact → dialog salin drawing ke pribadi; gagal/offline → konfirmasi biasa.
+  // PR 3 Task 5: leave-impact → dialog salin drawing ke pribadi; gagal/offline → konfirmasi (dialog Alurik).
   const handleLeave = async (listId, listName) => {
     const left = await leaveWorkspaceWithDrawings({
       listId,
@@ -2281,27 +2276,27 @@ function SharedListsManager({
       TF: window.TF,
       ask: askDrawingScope,
       showToast,
-      confirmFn: msg => confirm(msg)
+      confirmFn: msg => askDrawingScope({ title: msg, actions: [{ value: "cancel", label: "Batal" }, { value: "ok", label: "Keluar", primary: true }] }).then(v => v === "ok")
     });
     if (left) onRefresh();
   };
-  const handleDelete = async (listId, listName) => {
-    if (!confirm(`Hapus shared list "${listName}"? Semua task di list ini akan ikut terhapus.`)) return;
-    try {
-      await api.del(`/api/lists/${listId}`);
-      showToast("List dihapus 🗑️");
-      onRefresh();
-    } catch (err) {
-      showToast(err.message, "error");
-    }
-  };
+  // Hapus → dialog dengan ringkasan dampak + ketik nama (WorkspaceDeleteDialog).
+  const handleDelete = list => setDeleteTarget(list);
   return /*#__PURE__*/React.createElement("div", {
     style: {
       maxWidth: 600,
       margin: "0 auto",
       padding: "0 0 40px"
     }
-  }, drawingScopeDialogEl, /*#__PURE__*/React.createElement("h2", {
+  }, drawingScopeDialogEl, deleteTarget && /*#__PURE__*/React.createElement(WorkspaceDeleteDialog, {
+    list: deleteTarget,
+    showToast,
+    onClose: () => setDeleteTarget(null),
+    onDeleted: () => {
+      setDeleteTarget(null);
+      onRefresh();
+    }
+  }), /*#__PURE__*/React.createElement("h2", {
     style: {
       fontSize: 20,
       fontWeight: 700,
@@ -2387,8 +2382,8 @@ function SharedListsManager({
     className: "btn btn-primary",
     onClick: handleCheckCode
   }, "Cek")), joinError && /*#__PURE__*/React.createElement("div", {
+    className: "ws-danger-text",
     style: {
-      color: "#ef4444",
       fontSize: 13
     }
   }, /*#__PURE__*/React.createElement("span", {
@@ -2443,8 +2438,8 @@ function SharedListsManager({
       setJoinCode("");
     }
   }, "Batal")), joinError && /*#__PURE__*/React.createElement("div", {
+    className: "ws-danger-text",
     style: {
-      color: "#ef4444",
       fontSize: 13,
       marginTop: 6
     }
@@ -2496,7 +2491,7 @@ function SharedListsManager({
       padding: "40px 0",
       fontSize: 15
     }
-  }, "Belum ada shared list. Buat yang pertama di atas!") : sharedLists.map(l => /*#__PURE__*/React.createElement("div", {
+  }, "Belum ada workspace. Buat yang pertama di atas!") : sharedLists.map(l => /*#__PURE__*/React.createElement("div", {
     key: l.id,
     style: {
       background: "var(--bg-primary)",
@@ -2549,32 +2544,19 @@ function SharedListsManager({
     }
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
+    "aria-expanded": expandedList === l.id,
+    "aria-controls": "ws-panel-" + l.id,
     onClick: () => toggleExpand(l.id)
   }, expandedList === l.id ? "Tutup" : "Kelola"), l.role === "owner" ? /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-sm",
-    style: {
-      background: "#fee2e2",
-      color: "#dc2626",
-      border: "none",
-      borderRadius: 6,
-      padding: "4px 10px",
-      cursor: "pointer",
-      fontSize: 12
-    },
-    onClick: () => handleDelete(l.id, l.name)
+    type: "button",
+    className: "btn btn-sm btn-danger-soft",
+    onClick: () => handleDelete(l)
   }, "Hapus") : /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-sm",
-    style: {
-      background: "#fef3c7",
-      color: "#92400e",
-      border: "none",
-      borderRadius: 6,
-      padding: "4px 10px",
-      cursor: "pointer",
-      fontSize: 12
-    },
+    type: "button",
+    className: "btn btn-sm btn-warn-soft",
     onClick: () => handleLeave(l.id, l.name)
   }, "Keluar"))), expandedList === l.id && /*#__PURE__*/React.createElement("div", {
+    id: "ws-panel-" + l.id,
     style: {
       marginTop: 14,
       borderTop: "1px solid var(--border)",
@@ -2586,14 +2568,14 @@ function SharedListsManager({
       fontWeight: 600,
       marginBottom: 8
     }
-  }, "Anggota:"), (members[l.id] || []).length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, "Anggota:"), !details[l.id] ? /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: "var(--text-light)",
       marginBottom: 8
     }
-  }, "Belum ada anggota.") : (members[l.id] || []).map(m => /*#__PURE__*/React.createElement("div", {
-    key: m.id,
+  }, "Memuat\u2026") : /*#__PURE__*/React.createElement(React.Fragment, null, window.TF.wsmanage.memberRows(details[l.id]).map(m => /*#__PURE__*/React.createElement("div", {
+    key: m.role + ":" + m.id,
     style: {
       display: "flex",
       alignItems: "center",
@@ -2617,16 +2599,34 @@ function SharedListsManager({
     style: {
       color: "var(--text-light)"
     }
-  }, "@", m.username)), l.role === "owner" && /*#__PURE__*/React.createElement("button", {
+  }, "@", m.username)), m.role === "owner" ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      fontWeight: 600,
+      color: "var(--text-secondary)",
+      background: "var(--bg-subtle)",
+      border: "1px solid var(--border)",
+      borderRadius: 6,
+      padding: "1px 6px"
+    }
+  }, "Owner") : l.role === "owner" && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "ws-danger-text",
+    "aria-label": `Keluarkan ${m.display_name || m.username}`,
     onClick: () => handleRemoveMember(l.id, m.id, m.display_name || m.username),
     style: {
       background: "none",
       border: "none",
       cursor: "pointer",
-      color: "#ef4444",
       fontSize: 12
     }
-  }, "Hapus"))), l.role === "owner" && /*#__PURE__*/React.createElement("div", {
+  }, "Keluarkan"))), window.TF.wsmanage.memberRows(details[l.id]).every(m => m.role === "owner") && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-light)",
+      marginBottom: 8
+    }
+  }, "Belum ada anggota lain.")), l.role === "owner" && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 12
     }
@@ -2710,20 +2710,136 @@ function SharedListsManager({
   }, /*#__PURE__*/React.createElement("input", {
     readOnly: true,
     value: generatedLinks[l.id],
-    style: {
-      flex: 1,
-      fontSize: 11,
-      padding: "4px 8px",
-      border: "1px solid var(--border)",
-      borderRadius: 6,
-      background: "#f8f8f8",
-      color: "var(--text-secondary)"
-    },
+    className: "ws-invite-link",
+    "aria-label": "Link undangan",
     onClick: e => e.target.select()
   }), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: () => copyLink(generatedLinks[l.id])
   }, "Salin"))))))));
+}
+// Kelola Workspace Fase 0: dialog hapus workspace — ringkasan dampak (GET delete-impact, lewat jaringan) + ketik nama.
+// Esc / klik luar menutup; fokus ke input saat terbuka, kembali ke tombol asal saat ditutup.
+function WorkspaceDeleteDialog({
+  list,
+  onClose,
+  onDeleted,
+  showToast
+}) {
+  const WS = window.TF && window.TF.wsmanage;
+  const [impact, setImpact] = React.useState({ status: "loading", lines: [] }); // loading | ready | offline | error
+  const [typed, setTyped] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const inputRef = React.useRef(null);
+  const aliveRef = React.useRef(true);
+  const busyRef = React.useRef(false);
+  const titleId = "ws-del-title-" + list.id;
+  const inputId = "ws-del-input-" + list.id;
+  const loadImpact = React.useCallback(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setImpact({ status: "offline", lines: [] });
+      return;
+    }
+    setImpact({ status: "loading", lines: [] });
+    api.get(`/api/lists/${list.id}/delete-impact`, { network: true }).then(data => {
+      if (aliveRef.current) setImpact({ status: "ready", lines: window.TF.wsmanage.impactLines(data) });
+    }).catch(err => {
+      console.warn("[ws-delete] delete-impact gagal", err);
+      if (aliveRef.current) setImpact({ status: navigator.onLine === false ? "offline" : "error", lines: [] });
+    });
+  }, [list.id]);
+  // Layout effect: fokus dipindah/dikembalikan sinkron saat commit (bukan setelah paint).
+  React.useLayoutEffect(() => {
+    const origin = document.activeElement;
+    if (inputRef.current) inputRef.current.focus();
+    return () => {
+      if (origin && typeof origin.focus === "function" && document.contains(origin)) origin.focus();
+    };
+  }, []);
+  React.useEffect(() => {
+    aliveRef.current = true;
+    loadImpact();
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+  const close = React.useCallback(() => {
+    if (!busyRef.current) onClose();
+  }, [onClose]);
+  React.useEffect(() => {
+    const onKey = e => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [close]);
+  const matches = !!WS && window.TF.wsmanage.nameMatches(typed, list.name);
+  const canDelete = impact.status === "ready" && matches && !busy;
+  const submit = async e => {
+    if (e) e.preventDefault();
+    if (!canDelete) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await api.del(`/api/lists/${list.id}`);
+      busyRef.current = false;
+      if (typeof showToast === "function") showToast("Workspace dihapus");
+      onDeleted();
+    } catch (err) {
+      busyRef.current = false;
+      if (!aliveRef.current) return;
+      setBusy(false);
+      setError((err && err.message) || "Gagal menghapus workspace");
+    }
+  };
+  const muted = { fontSize: 13, color: "var(--text-secondary)" };
+  let body;
+  if (impact.status === "ready") {
+    body = /*#__PURE__*/React.createElement("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 13, display: "flex", flexDirection: "column", gap: 4 } },
+      impact.lines.map((t, i) => /*#__PURE__*/React.createElement("li", { key: i }, t)));
+  } else if (impact.status === "loading") {
+    body = /*#__PURE__*/React.createElement("div", { style: muted, role: "status" }, "Memuat ringkasan…");
+  } else {
+    body = /*#__PURE__*/React.createElement("div", { role: "alert", style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } },
+      /*#__PURE__*/React.createElement("span", { className: "ws-danger-text", style: { fontSize: 13, flex: 1 } },
+        impact.status === "offline" ? "Hapus workspace butuh koneksi internet" : "Gagal memuat ringkasan — coba lagi"),
+      /*#__PURE__*/React.createElement("button", { type: "button", className: "btn btn-secondary btn-sm", onClick: loadImpact }, "Coba lagi"));
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "modal-overlay",
+    style: { zIndex: 2000 },
+    onMouseDown: e => e.stopPropagation(),
+    onClick: close
+  }, /*#__PURE__*/React.createElement("form", {
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-labelledby": titleId,
+    onClick: e => e.stopPropagation(),
+    onSubmit: submit,
+    style: { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20, maxWidth: 440, width: "calc(100vw - 32px)", maxHeight: "80vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, color: "var(--text-primary)" }
+  }, /*#__PURE__*/React.createElement("div", { id: titleId, style: { fontSize: 15, fontWeight: 700, overflowWrap: "anywhere" } }, `Hapus workspace "${list.name}"?`),
+    body,
+    /*#__PURE__*/React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+      /*#__PURE__*/React.createElement("label", { htmlFor: inputId, style: { fontSize: 13, fontWeight: 600 } }, "Ketik nama workspace untuk konfirmasi"),
+      /*#__PURE__*/React.createElement("input", {
+        id: inputId,
+        ref: inputRef,
+        className: "input",
+        value: typed,
+        autoComplete: "off",
+        spellCheck: false,
+        placeholder: list.name,
+        onChange: e => setTyped(e.target.value)
+      })),
+    error && /*#__PURE__*/React.createElement("div", { role: "alert", className: "ws-danger-text", style: { fontSize: 13 } }, error),
+    /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" } },
+      /*#__PURE__*/React.createElement("button", { type: "button", className: "btn btn-secondary btn-sm", onClick: close, disabled: busy }, "Batal"),
+      /*#__PURE__*/React.createElement("button", { type: "submit", className: "btn btn-sm btn-danger-soft", disabled: !canDelete }, busy ? "…" : "Hapus permanen"))));
 }
 // Sidebar nav icons — cohesive monochrome line set (Lucide). Stroke = currentColor
 // so each icon inherits the link color: muted by default, lime when active. This
@@ -23785,7 +23901,7 @@ async function leaveWorkspaceWithDrawings({ listId, listName, api, TF, ask, show
   }
   let choice = null;
   if (items && items.length) choice = await ask(leaveImpactDialogSpec(items, listName));
-  else if (typeof confirmFn !== "function" || confirmFn(`Keluar dari list "${listName}"?`)) choice = "leave";
+  else if (typeof confirmFn !== "function" || await confirmFn(`Keluar dari workspace "${listName}"?`)) choice = "leave";
   if (choice !== "leave" && choice !== "copy") return false;
   try {
     if (choice === "copy") {
@@ -23821,11 +23937,11 @@ async function leaveWorkspaceWithDrawings({ listId, listName, api, TF, ask, show
       if (typeof window !== "undefined" && window.dispatchEvent) window.dispatchEvent(new CustomEvent("noteSaved"));
     }
     await api.del(`/api/lists/${listId}/leave`);
-    toast("Berhasil keluar dari list");
+    toast("Berhasil keluar dari workspace");
     return true;
   } catch (err) {
     console.warn('[leave] gagal', err);
-    toast((err && err.message) || "Gagal keluar dari list", "error");
+    toast((err && err.message) || "Gagal keluar dari workspace", "error");
     return false;
   }
 }

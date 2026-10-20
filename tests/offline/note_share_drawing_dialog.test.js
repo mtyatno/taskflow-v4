@@ -389,7 +389,10 @@ test("leave workspace fetches leave-impact and offers copy-then-leave", async ()
     const asked = [], toasts = [], confirms = [];
     const ok = await H.leaveWorkspaceWithDrawings({
       listId: 5, listName: "Tim A", api, TF, ask: async s => { asked.push(s); return choice; },
-      showToast: (m, t) => toasts.push([m, t]), confirmFn: msg => { confirms.push(msg); return over.confirm !== false; },
+      showToast: (m, t) => toasts.push([m, t]),
+      confirmFn: over.asyncConfirm
+        ? async msg => { confirms.push(msg); await new Promise(r => setTimeout(r, 1)); return over.confirm !== false; }
+        : msg => { confirms.push(msg); return over.confirm !== false; },
     });
     return { ok, calls, asked, toasts, confirms };
   };
@@ -438,12 +441,21 @@ test("leave workspace fetches leave-impact and offers copy-then-leave", async ()
   // leave-impact gagal → confirm biasa
   r = await run("copy", { impactFail: true });
   assert.equal(r.ok, true);
-  assert.deepEqual(r.confirms, ["Keluar dari list \"Tim A\"?"]);
+  assert.deepEqual(r.confirms, ["Keluar dari workspace \"Tim A\"?"]);
   assert.deepEqual(r.asked, []);
   assert.deepEqual(r.calls.map(c => c[0]), ["get", "del"]);
   r = await run("copy", { impactFail: true, confirm: false });
   assert.equal(r.ok, false);
   assert.deepEqual(r.calls.map(c => c[0]), ["get"]);
+
+  // confirmFn async (dialog Alurik) ditunggu: false → tidak keluar, true → keluar
+  r = await run("copy", { impactFail: true, asyncConfirm: true, confirm: false });
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.calls.map(c => c[0]), ["get"]);
+  r = await run("copy", { impactFail: true, asyncConfirm: true });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.calls.map(c => c[0]), ["get", "del"]);
+  assert.deepEqual(r.toasts, [["Berhasil keluar dari workspace", undefined]]);
 
   // items kosong → confirm biasa
   r = await run("copy", { empty: true });
