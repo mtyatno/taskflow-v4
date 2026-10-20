@@ -22,6 +22,8 @@
 
   function enqueue(taskCid, entry) {
     const e = entry || {};
+    // Dedupe baca-lalu-tulis (bukan satu transaksi): dua tab bisa sama-sama menambah op cid yang sama — tetap
+    // aman karena server idempoten per client_id dan pendingByTaskCid menghitung tiap cid sekali.
     return TFoutbox.outboxAll().then((ops) => {
       if (ops.some((o) => isPomoOp(o) && o.cid === e.client_id)) return false;
       return TFoutbox.outboxAdd({

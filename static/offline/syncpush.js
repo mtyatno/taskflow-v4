@@ -671,8 +671,8 @@
   }
 
   // PR B Target 🍅: log 🍅 idempoten per client_id (respons duplicate:true = sukses). Sukses → adopsi
-  // pomodoros_done server + hapus op dalam satu transaksi. 4xx (404/403/422) → op dibuang (task hilang/akses
-  // hilang/data tak valid: mengulang hanya gagal lagi); 401/429/5xx/jaringan dilempar oleh send → op tetap.
+  // pomodoros_done server + hapus op dalam satu transaksi. 404/403 (task/akses hilang, spec §5.2) → op dibuang
+  // tanpa dihitung gagal; 4xx lain (mis. 422) → dibuang + gagal; 401/429/5xx/jaringan dilempar send → op tetap.
   function opPomodoroCreate(op, transport, result, pending) {
     const p = op.payload || {};
     return TFidmap.serverIdOf(p.task_cid).then((sid) => {
@@ -687,6 +687,7 @@
           const done = res.data && typeof res.data.pomodoros_done === "number" ? res.data.pomodoros_done : null;
           return TFpomolog.ackPushed(op.qid, p.task_cid, done).then(() => { result.pushed++; });
         }
+        if (res.status === 404 || res.status === 403) return TFoutbox.outboxRemove(op.qid);
         return failPermanent(null, null, res, op, result);
       });
     });

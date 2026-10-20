@@ -434,3 +434,19 @@ test("every task-row route reports pending-inclusive pomodoros_done (workspace l
   assert.equal((await R.dispatch("POST", "/api/tasks/20/focus", undefined)).pomodoros_done, 2);
   assert.equal((await R.dispatch("POST", "/api/tasks/20/done", undefined)).pomodoros_done, 2);
 });
+
+test("POST /api/tasks/:id/pomodoros rejects a bad or missing client_id / payload with 422 and queues nothing", async () => {
+  await seedTasks([task({ cid: "a", server_id: 10, pomodoros_done: 2 })]);
+  const R = buildTaskRouter();
+  const base = { kind: "session", pomodoros: 1, focus_seconds: 1500, log_date: "2026-06-03", ended_at: "2026-06-03T09:25:00.000Z" };
+  const bad = [undefined, null, {}, Object.assign({}, base), Object.assign({ client_id: "" }, base),
+    Object.assign({ client_id: 42 }, base), Object.assign({ client_id: "x".repeat(65) }, base)];
+  for (const body of bad) {
+    await assert.rejects(() => R.dispatch("POST", "/api/tasks/10/pomodoros", body), (e) => e.status === 422);
+  }
+  const { outboxAll } = require("../../static/offline/outbox.js");
+  assert.equal((await outboxAll()).length, 0);
+  // 64 karakter tepat masih diterima
+  const ok = await R.dispatch("POST", "/api/tasks/10/pomodoros", Object.assign({ client_id: "y".repeat(64) }, base));
+  assert.equal(ok.pomodoros_done, 3);
+});

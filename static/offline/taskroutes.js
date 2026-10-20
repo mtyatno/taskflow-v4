@@ -90,6 +90,15 @@
     return withTaskRows([row]).then((rows) => rows[0]);
   }
 
+  // Input tidak valid → error lokal ala 422 (status + body.detail, seperti ownerOnlyError di drawingrepo).
+  function invalid(detail) {
+    const e = new Error(detail);
+    e.status = 422;
+    e.body = { detail: detail };
+    return Promise.reject(e);
+  }
+  function validClientId(v) { return typeof v === "string" && v.length > 0 && v.length <= 64; }
+
   function notFound() { return Promise.reject(new Error("Task not found")); }
 
   // GET /api/tags?entity_type=note must stay on the network (note tags not local yet).
@@ -153,7 +162,9 @@
 
     // PR B Target 🍅: log sesi selesai → antre (idempoten per client_id); jawab nilai server terakhir + pending.
     router.register("POST", "/api/tasks/:id/pomodoros", ({ params, body }) =>
-      resolveCid(params.id).then((cid) => (cid ? TFrepo.getRaw(cid) : null)).then((rec) => {
+      (!body || typeof body !== "object" || !validClientId(body.client_id))
+        ? invalid("client_id wajib (string 1–64 karakter)")
+        : resolveCid(params.id).then((cid) => (cid ? TFrepo.getRaw(cid) : null)).then((rec) => {
         if (!rec || rec.deleted) return notFound();
         return TFpomolog.enqueue(rec.cid, body || {})
           .then(() => TFpomolog.pendingByTaskCid())

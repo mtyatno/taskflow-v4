@@ -823,12 +823,13 @@ test("pomodoro_log: task without server id and no pending create → op dropped,
 });
 
 for (const st of [404, 403, 422]) {
-  test("pomodoro_log: " + st + " drops the op, counts failed, pending becomes 0", async () => {
+  test("pomodoro_log: " + st + " drops the op (" + (st === 422 ? "counted failed" : "not counted failed") + "), pending becomes 0", async () => {
     await seedSyncedTask(2);
     await pomolog.enqueue("a", pomoEntry("log-1"));
     const tr = fakeTransport(() => ({ status: st, data: { detail: "x" } }));
     const r = await pushOutbox(tr);
-    assert.equal(r.failed, 1);
+    assert.equal(r.failed, st === 422 ? 1 : 0);
+    assert.equal(r.pushed, 0);
     assert.equal((await outboxAll()).length, 0);
     assert.equal((await pomolog.pendingByTaskCid()).a || 0, 0);
     assert.equal((await rawTask("a")).pomodoros_done, 2);
@@ -836,8 +837,8 @@ for (const st of [404, 403, 422]) {
   });
 }
 
-for (const h of ["NETWORK", { status: 503, data: {} }]) {
-  test("pomodoro_log: " + (h === "NETWORK" ? "network error" : "503") + " keeps the op queued", async () => {
+for (const h of ["NETWORK", { status: 503, data: {} }, { status: 401, data: {} }, { status: 429, data: {} }]) {
+  test("pomodoro_log: " + (h === "NETWORK" ? "network error" : h.status) + " keeps the op queued", async () => {
     await seedSyncedTask(2);
     await pomolog.enqueue("a", pomoEntry("log-1"));
     const tr = fakeTransport(() => h);
