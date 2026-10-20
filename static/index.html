@@ -8671,6 +8671,72 @@ const formatFocusTime = secs => {
   return `${mins}m`;
 };
 
+// Parkir Distraksi: tangkap pikiran yang lewat ke Inbox tanpa keluar dari sesi fokus
+function PomoParkInput() {
+  const [text, setText] = React.useState("");
+  const [status, setStatus] = React.useState("idle"); // "idle" | "ok" | "error"
+  const busy = React.useRef(false);
+  const okTimer = React.useRef(null);
+  React.useEffect(() => () => {
+    if (okTimer.current) clearTimeout(okTimer.current);
+  }, []);
+  const park = async () => {
+    if (busy.current) return;
+    const body = window.TF.focuspage.parkPayload(text);
+    if (!body) return;
+    busy.current = true;
+    try {
+      await api.post("/api/tasks", body);
+      setText("");
+      setStatus("ok");
+      window.__refreshTasks?.();
+      if (okTimer.current) clearTimeout(okTimer.current);
+      okTimer.current = setTimeout(() => setStatus("idle"), 1500);
+    } catch (err) {
+      setStatus("error");
+      window.__showToast?.("Gagal menyimpan ke Inbox", "error");
+    } finally {
+      busy.current = false;
+    }
+  };
+  const onKeyDown = e => {
+    e.stopPropagation();
+    if (e.key === "Enter") {
+      if (e.nativeEvent && e.nativeEvent.isComposing || e.keyCode === 229) return;
+      e.preventDefault();
+      park();
+    } else if (e.key === "Escape") {
+      setText("");
+      e.target.blur();
+    }
+  };
+  return React.createElement("div", {
+    className: `pomo-park${status === "ok" ? " is-ok" : ""}${status === "error" ? " is-error" : ""}`
+  }, React.createElement("input", {
+    className: "pomo-park-input",
+    type: "text",
+    value: text,
+    placeholder: "Ada pikiran lewat? Ketik & tekan Enter untuk simpan ke Inbox...",
+    maxLength: 200,
+    "aria-label": "Parkir distraksi ke Inbox",
+    enterKeyHint: "done",
+    onChange: e => {
+      setText(e.target.value);
+      if (status === "error") setStatus("idle");
+    },
+    onKeyDown: onKeyDown
+  }), React.createElement("span", {
+    className: "pomo-park-ok",
+    "aria-hidden": "true"
+  }, React.createElement(Icon, {
+    name: "check",
+    size: 16
+  })), React.createElement("span", {
+    className: "sr-only",
+    "aria-live": "polite"
+  }, status === "ok" ? "Tersimpan ke Inbox" : ""));
+}
+
 // Kartu Pomodoro penuh (di atas halaman)
 function PomodoroTimer({
   timer,
@@ -8712,7 +8778,7 @@ function PomodoroTimer({
     timer: t
   })), React.createElement(PomoControls, {
     timer: t
-  }), focusTask ? React.createElement("div", {
+  }), React.createElement(PomoParkInput, null), focusTask ? React.createElement("div", {
     className: "focus-pomo-task"
   }, React.createElement("span", {
     className: "focus-pomo-task-icon"
