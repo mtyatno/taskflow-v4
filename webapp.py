@@ -1592,6 +1592,11 @@ async def startup():
         logger.warning("MEDIA_ROOT tidak bisa dibuat (%s): %s", MEDIA_ROOT, e)
     if not _MEDIA_URL_SECRET_CFG:
         logger.warning("MEDIA_URL_SECRET kosong; secret URL media diturunkan dari WEB_SECRET_KEY")
+    try:
+        with get_db() as _c:
+            _cleanup_stuck_media_uploads(_c, datetime.utcnow())
+    except Exception:
+        logger.warning("pembersihan unggahan macet saat start gagal", exc_info=True)
     media_worker.requeue_processing()
     media_worker.start()
     if TELEGRAM_BOT_TOKEN:
@@ -5256,9 +5261,11 @@ def _purge_expired_trashed_notes(conn) -> None:
             "SELECT note_id FROM trashed_notes WHERE deleted_at < ?", (cutoff,)).fetchall()]
         # Peta tertaut dihapus DULU, baru baris sampah: kegagalan tidak boleh meninggalkan peta yatim.
         _delete_linked_mindmaps(conn, expired)
+        _purge_trashed_media(conn, expired)
         conn.execute("DELETE FROM trashed_notes WHERE deleted_at < ?", (cutoff,))
     except Exception:
         pass
+    _cleanup_stuck_media_uploads(conn, datetime.utcnow())
 
 def _trash_preview(content: str, limit: int = 120) -> str:
     # Potong dulu: regex link di bawah bisa kuadratik pada content panjang (mis. 'a[' * 50000 ≈ 18 dtk,
@@ -5528,7 +5535,10 @@ async def purge_trashed_note(note_id: int, user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
         _ensure_trashed_notes_table(conn)
-        cur = conn.execute("DELETE FROM trashed_notes WHERE note_id = ? AND (user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '')", (note_id, uid, str(uid)))
+        allowed = "note_id = ? AND (user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '')"
+        if conn.execute(f"SELECT 1 FROM trashed_notes WHERE {allowed}", (note_id, uid, str(uid))).fetchone():
+            _purge_trashed_media(conn, [note_id])
+        cur = conn.execute(f"DELETE FROM trashed_notes WHERE {allowed}", (note_id, uid, str(uid)))
         if cur.rowcount:
             _delete_linked_mindmaps(conn, [note_id])
     return {"ok": True}
@@ -5538,6 +5548,10 @@ async def empty_trashed_notes(user=Depends(get_current_user)):
     uid = user["sub"]
     with get_db() as conn:
         _ensure_trashed_notes_table(conn)
+        mine = [r["note_id"] for r in conn.execute(
+            "SELECT note_id FROM trashed_notes WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = ''",
+            (uid, str(uid))).fetchall()]
+        _purge_trashed_media(conn, mine)
         # Atomik: RETURNING memberi id persis baris yang terhapus (tanpa celah SELECT→DELETE).
         gone = [r["note_id"] for r in conn.execute(
             "DELETE FROM trashed_notes WHERE user_id = ? OR user_id = ? OR user_id IS NULL OR user_id = '' RETURNING note_id",
@@ -5791,20 +5805,33 @@ async def list_note_attachments(note_id: int, user=Depends(get_current_user)):
         ).fetchall()
         return [dict(r) for r in rows]
 
+def _row_get(row, col):
+    """Baca kolom dari sqlite3.Row atau dict tanpa pernah melempar; kolom hilang -> None."""
+    try:
+        return row[col]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
 def _delete_media_files(row) -> None:
     """Hapus file media (storage_key, poster_key) dan semua sisa sementara `.tmp/<id>.*` milik baris itu.
-    Menerima sqlite3.Row atau dict. Tidak pernah melempar: kegagalan hanya dicatat di log."""
+    Menerima sqlite3.Row atau dict (kolom boleh hilang). Tidak pernah melempar: kegagalan hanya dicatat di log."""
     try:
-        att_id = int(row["id"])
-    except (TypeError, ValueError, KeyError, IndexError):
-        return
+        att_id = int(_row_get(row, "id"))
+    except (TypeError, ValueError):
+        att_id = None
     for col in ("storage_key", "poster_key"):
+        key = _row_get(row, col)
+        if not key:
+            continue
         try:
-            media_storage.delete(row[col])
-        except (ValueError, OSError):
+            media_storage.delete(key)
+        except Exception:
             logger.warning("hapus file media gagal: id=%s kolom=%s", att_id, col, exc_info=True)
+    if att_id is None:
+        return
     try:
-        tmp_dir = Path(MEDIA_ROOT) / ".tmp"
+        tmp_dir = media_storage.temp_path(att_id).parent
         for p in tmp_dir.glob(f"{att_id}.*"):
             try:
                 p.unlink()
@@ -5812,8 +5839,63 @@ def _delete_media_files(row) -> None:
                 pass
             except OSError:
                 logger.warning("hapus file sementara gagal: %s", p, exc_info=True)
-    except OSError:
+    except Exception:
         logger.warning("pindai .tmp gagal: id=%s", att_id, exc_info=True)
+
+
+def _purge_trashed_media(conn, note_ids) -> None:
+    """Hapus file media lampiran (storage='local') dari snapshot note di Sampah. Tidak pernah melempar."""
+    try:
+        ids = [int(i) for i in note_ids]
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            rows = conn.execute(
+                f"SELECT note_id, snapshot_json FROM trashed_notes WHERE note_id IN ({','.join('?' * len(chunk))})",
+                chunk).fetchall()
+            for r in rows:
+                try:
+                    snap = json.loads(r["snapshot_json"] or "{}")
+                    atts = snap.get("attachments") or []
+                except (ValueError, TypeError, AttributeError):
+                    logger.warning("snapshot_json rusak untuk note %s; file media dilewati", r["note_id"])
+                    continue
+                for a in atts:
+                    if isinstance(a, dict) and a.get("storage") == "local":
+                        _delete_media_files(a)
+    except Exception:
+        logger.warning("purge media Sampah gagal", exc_info=True)
+
+
+def _cleanup_stuck_media_uploads(conn, now) -> int:
+    """Hapus unggahan media 'uploading' yang macet > MEDIA_STUCK_HOURS (file + baris), lalu berkas
+    `.tmp/<id>.*` yatim yang juga lebih tua dari batas. `now` = naive UTC. Mengembalikan jumlah baris dihapus."""
+    removed = 0
+    try:
+        limit = timedelta(hours=MEDIA_STUCK_HOURS)
+        cutoff = (now - limit).isoformat()
+        rows = conn.execute(
+            "SELECT * FROM note_attachments WHERE kind='media' AND status='uploading' AND updated_at < ?",
+            (cutoff,)).fetchall()
+        for r in rows:
+            _delete_media_files(r)
+            conn.execute("DELETE FROM note_attachments WHERE id=?", (r["id"],))
+            removed += 1
+        tmp_dir = media_storage.temp_path(0).parent
+        live = {r["id"] for r in conn.execute(
+            "SELECT id FROM note_attachments WHERE status IN ('uploading','processing')").fetchall()}
+        mtime_cut = now.replace(tzinfo=timezone.utc).timestamp() - limit.total_seconds()
+        for p in tmp_dir.iterdir():
+            try:
+                head = p.name.split(".", 1)[0]
+                if not head.isdigit() or int(head) in live:
+                    continue
+                if p.is_file() and p.stat().st_mtime < mtime_cut:
+                    p.unlink()
+            except OSError:
+                logger.warning("hapus berkas .tmp yatim gagal: %s", p, exc_info=True)
+    except Exception:
+        logger.warning("pembersihan unggahan macet gagal", exc_info=True)
+    return removed
 
 
 @app.delete("/api/scratchpad/attachments/{att_id}")
