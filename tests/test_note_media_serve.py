@@ -214,3 +214,33 @@ def test_media_token_not_bound_to_user(client, monkeypatch):
     client.cookies.clear()
     r = client.get(f"/media/{_tok(att)}")
     assert r.status_code == 200 and r.content == MP4
+
+
+def test_media_token_head_accel(client, monkeypatch):
+    _, _, att, _ = _make_ready(client, monkeypatch)
+    monkeypatch.setattr(webapp, "MEDIA_ACCEL", True)
+    key = _row(att)["storage_key"]
+    r = client.head(f"/media/{_tok(att)}")
+    assert r.status_code == 200 and r.content == b""
+    assert r.headers["x-accel-redirect"] == "/_alurik_media/" + key
+    assert r.headers["content-security-policy"] == CSP
+    assert r.headers.get_list("x-content-type-options") == ["nosniff"]
+
+
+def test_media_token_head_python_range(client, monkeypatch):
+    _, _, att, _ = _make_ready(client, monkeypatch)
+    monkeypatch.setattr(webapp, "MEDIA_ACCEL", False)
+    n = len(MP4)
+    t = _tok(att)
+    r = client.head(f"/media/{t}", headers={"Range": "bytes=0-9"})
+    assert r.status_code == 206 and r.content == b""
+    assert r.headers["content-range"] == f"bytes 0-9/{n}" and r.headers["content-length"] == "10"
+    assert r.headers["content-type"].split(";")[0] == "video/mp4"
+    assert r.headers["content-disposition"].startswith("inline;")
+    r = client.head(f"/media/{t}")
+    assert r.status_code == 200 and r.content == b"" and r.headers["content-length"] == str(n)
+    assert client.head(f"/media/{t}", headers={"Range": f"bytes={n}-"}).status_code == 416
+    assert client.head("/media/garbage").status_code == 404
+    # GET tidak berubah
+    r = client.get(f"/media/{t}", headers={"Range": "bytes=0-9"})
+    assert r.status_code == 206 and r.content == MP4[:10]

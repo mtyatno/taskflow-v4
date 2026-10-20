@@ -6121,7 +6121,7 @@ def _media_iter(path: Path, start: int, length: int):
             yield chunk
 
 
-@app.get("/media/{token}")
+@app.api_route("/media/{token}", methods=["GET", "HEAD"])
 async def serve_media(token: str, request: Request):
     now = int(_time.time())
     parsed = media_serve.verify_token(token, MEDIA_URL_SECRET_BYTES, now)
@@ -6169,6 +6169,8 @@ async def serve_media(token: str, request: Request):
         headers["Content-Range"] = f"bytes {start}-{end}/{size}"
     length = end - start + 1
     headers["Content-Length"] = str(length)
+    if request.method == "HEAD":
+        return Response(status_code=code, content=b"", headers=headers, media_type=mime)
     return StreamingResponse(_media_iter(path, start, length), status_code=code,
                              headers=headers, media_type=mime)
 
