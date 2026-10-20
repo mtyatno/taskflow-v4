@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=339">
+  <link rel="stylesheet" href="/static/app.css?v=340">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -297,6 +297,7 @@
   <script src="/static/offline/chatroutes.js"></script>
   <script src="/static/offline/listsync.js"></script>
   <script src="/static/offline/workspacepins.js"></script>
+  <script src="/static/offline/introgate.js"></script>
   <script src="/static/offline/taskroutes.js"></script>
   <script src="/static/offline/hydrate.js"></script>
   <script src="/static/offline/syncpush.js"></script>
@@ -469,6 +470,13 @@ const OfflineDB = (() => {
 window.OfflineDB = OfflineDB;
 
 async function clearLocalUserData() {
+  // Epoch sesi naik PALING AWAL: sync() yang sedang berjalan tidak boleh menulis penanda sync awal ke _meta yang dibersihkan.
+  window.__userEpoch = (window.__userEpoch || 0) + 1;
+  // Status sync akun lama (mis. sync_error) tidak boleh terbawa ke akun berikutnya.
+  try {
+    window.__syncState = { running: false, lastFailed: false };
+    window.dispatchEvent(new CustomEvent("tf:sync-state", { detail: window.__syncState }));
+  } catch (_) {}
   // Unggahan media berjalan milik akun ini: hentikan tanpa DELETE/toast sebelum data & token dibuang.
   try { window.__mediaUploads?.abortAll?.(); } catch (_) {}
   try {
@@ -1126,7 +1134,41 @@ function sync() {
   // __syncTransport) dengan token yang dipakai; laporan kedua tanpa token akan menghapus token yang baru diadopsi.
   const stepFailed = () => null;
   const step = (fn) => Promise.resolve().then(fn).catch(stepFailed);
-  const pending = runSyncExclusive(() => { __syncPending = null; return window.TF.syncpull.pullAndReconcile(__syncRawFetch).then((res) => {
+  // Gerbang intro dashboard: status sync (window.__syncState + tf:sync-state) dan penanda sync awal.
+  // tasksOk/notesOk = pull task / pull note resolve di putaran ini; gagal salah satunya → lastFailed.
+  let tasksOk = false, notesOk = false;
+  // Penanda hanya untuk sesi yang memulai run ini: uid + epoch (clearLocalUserData menaikkan __userEpoch)
+  // ditangkap di awal run; berbeda saat finish (logout/ganti akun di tengah run) → tidak ditandai.
+  let runUid = null, runEpoch = 0;
+  const emitState = (running) => {
+    if (running) {
+      // Awal run eksklusif: tangkap sesi pemilik run.
+      runEpoch = window.__userEpoch || 0;
+      try { runUid = window.TF.introgate ? window.TF.introgate.currentUserId() : null; } catch (_) { runUid = null; }
+    }
+    const detail = { running: running, lastFailed: !(tasksOk && notesOk) && !running };
+    window.__syncState = detail;
+    window.dispatchEvent(new CustomEvent("tf:sync-state", { detail: detail }));
+  };
+  const finish = (r) => {
+    const ig = window.TF.introgate;
+    let marked = Promise.resolve();
+    if (tasksOk && notesOk && ig) {
+      // Tulis penanda + pancarkan tf:initial-sync hanya bila penanda BELUM ada (cegah loop refresh Dashboard).
+      marked = Promise.resolve().then(() => {
+        const uid = runUid;
+        const sameSession = () => uid != null && ig.currentUserId() === uid && (window.__userEpoch || 0) === runEpoch;
+        if (!sameSession()) return null;
+        return Promise.resolve(ig.readInitialSync(uid)).then((had) => {
+          if (had || !sameSession()) return null;
+          return Promise.resolve(ig.markInitialSync(uid)).then(() => window.dispatchEvent(new CustomEvent("tf:initial-sync", { detail: { user_id: uid } })));
+        });
+      }).catch(() => {});
+    }
+    return marked.then(() => { emitState(false); return r; });
+  };
+  const pending = runSyncExclusive(() => { __syncPending = null; tasksOk = false; notesOk = false; emitState(true); return window.TF.syncpull.pullAndReconcile(__syncRawFetch).then((res) => {
+      tasksOk = true;
       // PR 5: pull task sukses → cache project sudah disegarkan (syncpull) → dropdown & sidebar memuat ulang
       window.dispatchEvent(new CustomEvent("tf:projects-changed", { detail: { source: "sync" } }));
       // Kanban tahap: cache context juga disegarkan di pullAndReconcile → papan & dropdown memuat ulang
@@ -1138,8 +1180,10 @@ function sync() {
     .then(() => step(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null)))
     .then(() => step(() => (window.TF.syncpull.pullHabitsAndLogs ? window.TF.syncpull.pullHabitsAndLogs(__syncRawFetch) : null)))
     .then(() => step(() => {
+      // Tanpa pullNotesAndReconcile notesOk tetap false (→ lastFailed, tanpa penanda); build produksi selalu memuatnya.
       if (!window.TF.syncpull.pullNotesAndReconcile) return null;
       return window.TF.syncpull.pullNotesAndReconcile(__syncRawFetch).then((notesRes) => {
+        notesOk = true;
         // T5: detail.cids = record note yang ditulis pull ini (+ salinan konflik) → editor yang terbuka memuat ulang / banner
         const cids = (notesRes && Array.isArray(notesRes.changedCids)) ? notesRes.changedCids : [];
         if (notesRes && (cids.length > 0 || notesRes.created > 0 || notesRes.updated > 0 || notesRes.deleted > 0 || notesRes.relinked > 0 || notesRes.conflictCopies > 0 || notesRes.listAdopted > 0)) {
@@ -1175,7 +1219,8 @@ function sync() {
     }))
     .then(() => window.TF.syncpush.pushOutbox(__syncTransport)) // 401 di sini → drain berhenti, op tetap; transport melapor ke handleAuthExpired
     .then((r) => { if (r && (r.busy || r.requeued)) schedulePush(); renderConflicts(); return r; })
-    .catch(() => { renderConflicts(); return null; }); });
+    .catch(() => { renderConflicts(); return null; })
+    .then(finish); });
   __syncPending = pending;
   return pending;
 }
@@ -17685,6 +17730,113 @@ if (typeof window !== "undefined") {
   window.TF = window.TF || {};
   window.TF.parseQuickCapture = parseQuickCapture;
   window.TF.DashOnboardingCard = DashOnboardingCard;
+  window.TF.DashSyncCard = DashSyncCard;
+}
+function useIntroState(tasks) {
+  const tasksLen = tasks.length;
+  // localHas (null = belum tahu) dan syncDone selalu di-commit BERSAMA dari satu pembacaan gabungan,
+  // supaya syncDone=true tidak pernah berpasangan dengan localHas basi (cegah kilatan welcome).
+  const [read, setRead] = useState({ localHas: null, syncDone: false });
+  const { localHas, syncDone } = read;
+  const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine !== false);
+  const [syncState, setSyncState] = useState(() => (typeof window !== "undefined" && window.__syncState) || { running: false, lastFailed: false });
+  const seq = useRef(0);
+  const aliveRef = useRef(true);
+  const gate = typeof window !== "undefined" && window.TF && window.TF.introgate;
+  const tasksLenRef = useRef(tasksLen);
+  tasksLenRef.current = tasksLen;
+  const readAll = refresh => {
+    if (!gate) return;
+    const my = ++seq.current;
+    Promise.all([
+      gate.hasLocalData(),
+      Promise.resolve().then(() => gate.readInitialSync(gate.currentUserId()))
+    ]).then(([has, done]) => {
+      if (!aliveRef.current || my !== seq.current) return;
+      setRead({ localHas: has === true, syncDone: !!done });
+      // Segarkan state App hanya bila store `tasks` punya task hidup yang belum dimuat (tasks masih kosong);
+      // note tidak masuk state App. Selama fetchAll berjalan dilewati — fetchAll sendiri memuat task setelah sync().
+      if (!refresh || has !== true || tasksLenRef.current !== 0 || window.__fetchAllInFlight) return;
+      Promise.resolve(gate.hasLocalTasks()).then(hasTasks => {
+        if (hasTasks === true && aliveRef.current && tasksLenRef.current === 0 && !window.__fetchAllInFlight && window.__refreshTasks) window.__refreshTasks();
+      }).catch(() => {});
+    }).catch(() => {
+      if (aliveRef.current && my === seq.current) setRead({ localHas: false, syncDone: false });
+    });
+  };
+  const readAllRef = useRef(readAll);
+  readAllRef.current = readAll;
+  useEffect(() => {
+    if (!gate) return undefined;
+    aliveRef.current = true;
+    const onInitial = () => readAllRef.current(true);
+    const onSyncState = e => {
+      const d = (e && e.detail) || window.__syncState || {};
+      setSyncState({ running: !!d.running, lastFailed: !!d.lastFailed });
+    };
+    const onNote = () => {
+      if (tasksLenRef.current === 0) readAllRef.current(false);
+    };
+    const onOnline = () => setOnline(true);
+    const onOffline = () => setOnline(false);
+    readAllRef.current(true);
+    window.addEventListener("tf:initial-sync", onInitial);
+    window.addEventListener("tf:sync-state", onSyncState);
+    window.addEventListener("noteSaved", onNote);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      aliveRef.current = false;
+      window.removeEventListener("tf:initial-sync", onInitial);
+      window.removeEventListener("tf:sync-state", onSyncState);
+      window.removeEventListener("noteSaved", onNote);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+  // Run pertama dilewati: pembacaan mount (refresh=true) di efek [] tidak boleh tergantikan (seq) oleh baca tanpa refresh.
+  const tasksLenFirstRef = useRef(true);
+  useEffect(() => {
+    if (tasksLenFirstRef.current) {
+      tasksLenFirstRef.current = false;
+      return;
+    }
+    if (!gate || tasksLen !== 0) return;
+    readAllRef.current(false);
+  }, [tasksLen]);
+  if (!gate) return tasksLen > 0 ? "dashboard" : "welcome";
+  if (tasksLen === 0 && localHas === null) return "syncing";
+  return gate.decideIntro({
+    hasData: tasksLen > 0 || localHas === true,
+    initialSyncDone: syncDone,
+    online,
+    syncRunning: !!syncState.running,
+    lastSyncFailed: !!syncState.lastFailed
+  });
+}
+const DASH_SYNC_COPY = {
+  syncing: ["Menyinkronkan data kamu dari server…", "Datamu aman di server. Sebentar lagi muncul di sini."],
+  offline_empty: ["Belum terhubung ke server", "Datamu akan muncul setelah perangkat ini online."],
+  sync_error: ["Gagal mengambil data dari server", "Datamu aman di server. Coba lagi sebentar lagi."]
+};
+function DashSyncCard({ mode, onRetry }) {
+  const copy = DASH_SYNC_COPY[mode] || DASH_SYNC_COPY.syncing;
+  return /*#__PURE__*/React.createElement("div", {
+    className: `dash-sync-card dash-sync-${mode}`,
+    role: "status",
+    "aria-live": "polite"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-sync-card-title"
+  }, copy[0]), /*#__PURE__*/React.createElement("div", {
+    className: "dash-sync-card-sub"
+  }, copy[1]), mode === "syncing" && /*#__PURE__*/React.createElement("div", {
+    className: "dash-sync-skeleton",
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement("span", null), /*#__PURE__*/React.createElement("span", null), /*#__PURE__*/React.createElement("span", null)), mode === "sync_error" && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "dash-sync-card-btn",
+    onClick: onRetry
+  }, "Coba lagi"));
 }
 function Dashboard({
   summary,
@@ -17719,6 +17871,7 @@ function Dashboard({
       localStorage.setItem("tf_dismiss_onboarding", "true");
     } catch (_) {}
   };
+  const intro = useIntroState(tasks);
   const hasTasks = tasks.length > 0;
   const hasCompletedTasks = (summary.done_last_7_days ?? 0) > 0 || tasks.some(t => t.gtd_status === "done");
   const q1Tasks = tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done").sort(SORT_PRI);
@@ -18066,8 +18219,16 @@ function Dashboard({
   } catch (_) {
     dateLine = now.toDateString();
   }
-  const summaryLine = tasks.length === 0
+  const summaryLine = intro === "syncing"
+    ? "Menyinkronkan datamu…"
+    : intro === "offline_empty"
+    ? "Menunggu koneksi untuk memuat datamu."
+    : intro === "sync_error"
+    ? "Datamu belum termuat."
+    : tasks.length === 0
+    ? intro === "welcome"
     ? "Selamat datang di Alurik! Mari mulai dengan mencatat tugas atau ide pertamamu."
+    : "Tidak ada yang mendesak hari ini. Saat yang pas untuk merencanakan."
     : pendingToday.length > 0
     ? `Ada ${pendingToday.length} prioritas hari ini${overdueCount > 0 ? `, ${overdueCount} terlambat` : ""}.`
     : totalToday > 0
@@ -18465,7 +18626,10 @@ function Dashboard({
   /* ── Main row: Prioritas + Disematkan ── */
   /*#__PURE__*/React.createElement("div", {
     className: "dash-main"
-  }, !hasTasks && !dismissedOnboarding ? /*#__PURE__*/React.createElement(DashOnboardingCard, {
+  }, intro === "syncing" || intro === "offline_empty" || intro === "sync_error" ? /*#__PURE__*/React.createElement(DashSyncCard, {
+    mode: intro,
+    onRetry: () => window.__refreshTasks && window.__refreshTasks()
+  }) : intro === "welcome" && !dismissedOnboarding ? /*#__PURE__*/React.createElement(DashOnboardingCard, {
     tasks: tasks,
     notes: (notes && notes.length > 0 ? notes : recentNotes) || [],
     summary: summary,
@@ -36212,6 +36376,9 @@ function App() {
   const isSyncing = useRef(false);
   const fetchAll = useCallback(async () => {
     if (!user) return;
+    // useIntroState melewati __refreshTasks selama fetchAll berjalan (cegah sync penuh kedua saat login pertama).
+    window.__fetchAllInFlight = true;
+    try {
     const cacheEntries = [[setTasks, "tasks"], [setSummary, "summary"], [setProjects, "projects"], [setContexts, "contexts"], [setSharedLists, "lists"]];
     if (initialLoad.current) {
       // Tampilkan cache dulu agar tidak blank saat reload
@@ -36263,6 +36430,9 @@ function App() {
     if (initialLoad.current) {
       setLoading(false);
       initialLoad.current = false;
+    }
+    } finally {
+      window.__fetchAllInFlight = false;
     }
   }, [user]);
   useEffect(() => {

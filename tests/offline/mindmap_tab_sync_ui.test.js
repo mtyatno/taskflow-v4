@@ -44,7 +44,7 @@ test("sync(): mindmap pull with changed records dispatches mindmapSynced {cids, 
   // hasil pull versi lama (tanpa `changed`) tidak melempar
   await mk({ created: 0, updated: 0, deleted: 0 })();
   // PR 5: pull task sukses selalu memancarkan tf:projects-changed (bukan event mindmap); Kanban tahap: juga tf:contexts-changed
-  assert.equal(events.filter((e) => e.type !== "tf:projects-changed" && e.type !== "tf:contexts-changed").length, 0);
+  assert.equal(events.filter((e) => e.type !== "tf:projects-changed" && e.type !== "tf:contexts-changed" && e.type !== "tf:sync-state").length, 0);
 });
 
 test("noticeText renders conflict_copy notices (✂ … disimpan sebagai '(konflik) …') and keeps the old kinds", () => {

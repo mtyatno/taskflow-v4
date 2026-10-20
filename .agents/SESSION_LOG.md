@@ -3596,6 +3596,17 @@
 ## 2026-10-20 12:17 WIB — Claude — merge main (#56) ke claude/note-media-ui
 - Merge `origin/main` (#56 jeda tab workspace, SW v428) ke cabang media UI; konflik hanya string versi + log. SW final `taskflow-v429-note-media`, `app.css?v=337` (main 336). **Status:** Needs Review.
 
+## [2026-10-20 15:15] - Claude
+- **Task:** Brainstorming + spec welcome card dashboard yang muncul untuk akun lama selama sync pertama.
+- **Changes:** spec desain baru; CURRENT_STATE diperbarui. Belum ada kode.
+- **Files Touch:** docs/superpowers/specs/2026-10-20-dashboard-welcome-sync-gate-design.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (menunggu persetujuan spec)
+
+## [2026-10-20 15:35] - Claude
+- **Task:** Rencana implementasi gerbang welcome card dashboard.
+- **Changes:** rencana 4 task (introgate.js, sync() penanda + status, Dashboard kartu status, rilis SW v430 + E2E).
+- **Files Touch:** docs/superpowers/plans/2026-10-20-dashboard-welcome-sync-gate.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (menunggu persetujuan rencana)
 ## 2026-10-20 15:45 WIB — Claude — tombol Fokus 🎯 (Pomodoro) di tasklist GTD + workspace
 - **Task:** Bapak minta fokus Pomodoro bisa diaktifkan dari task di halaman GTD dan workspace, sama persis dengan kartu "Prioritas Hari Ini" (chip mini di top menu). Brainstorming bounded; pilihan Bapak: tombol hanya di tampilan Normal, task aktif selalu tampil di Fokus Hari Ini.
 - **Changes:** App → `TaskListView` (2 tempat) → `TaskRow` meneruskan `focusTask`/`onStartFocus`; tombol `.dash-focus-btn` di `TaskRow`; `todayTasks` + `todayCount` sidebar menyertakan task aktif; CSS mobile; SW v430, `app.css?v=338`.
@@ -3606,6 +3617,33 @@
 ## 2026-10-20 15:34 WIB — Claude — merge tombol Fokus 🎯 tasklist (#58)
 - Bapak: "merge". #58 di-merge (5841f5d); CI Tests (PR) sukses, Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek tombol 🎯 di halaman GTD/workspace dan chip Pomodoro di top menu (SW v430).
+
+## [2026-10-20 16:15] - Claude (implementer Task 4 dashboard intro gate)
+- **Task:** Rilis SW v431 + E2E Playwright + handover untuk gerbang welcome card dashboard (`claude/dashboard-intro-gate`).
+- **Changes:** SW `taskflow-v430-tasklist-focus` → `taskflow-v431-dashboard-intro`, `app.css?v=338` → `339` (sw.js, index.html ×3, webapp.py `sw_cache`, tests/test_version.py, 17 tes node yang menambatkan versi); E2E baru 10 skenario (a, a2, b, c, d, d2, e, f, g, h); `.gitignore` folder screenshot. Produk tidak diubah.
+- **Files Touch:** static/sw.js, static/index.html, webapp.py, tests/test_version.py, tests/offline/*.test.js (versi), temporary_files/e2e_dashboard_intro.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Verifikasi:** pytest 816; JS 2152/2153 (pra-ada `draw_local_reactive`); E2E 60/62 — 2 gagal = kilasan welcome ±2 ms untuk akun bertask tanpa note (bug urutan baca di `useIntroState.onInitial`, Task 3). Belum di-commit (gerbang verifikasi rilis belum terpenuhi).
+- **Status:** In Progress (menunggu perbaikan Task 3, lalu jalankan ulang E2E dan commit `chore(release): SW v431 dashboard intro + E2E`)
+
+## [2026-10-20 16:40] - Claude (implementer Task 4, lanjutan)
+- **Task:** Jalankan ulang verifikasi setelah perbaikan kilatan welcome (5158955, didorong temuan E2E) lalu commit rilis.
+- **Changes:** MutationObserver E2E juga mencari teks "Mulai Langkah Pertama"; CURRENT_STATE → DRAFT PR, TUNGGU 'MERGE DAN DEPLOY'.
+- **Files Touch:** temporary_files/e2e_dashboard_intro.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md (+ file rilis dari entri sebelumnya)
+- **Verifikasi:** E2E 62/62 (2 run), JS 2153/2154 (pra-ada `draw_local_reactive`), pytest 816. Context `service_workers="block"` kecuali skenario f.
+- **Status:** Needs Review (draft PR; restart `taskflow-web` setelah deploy)
+
+## [2026-10-20 16:32] - Claude (implementer perbaikan review akhir dashboard intro gate)
+- **Task:** Bereskan temuan review akhir `claude/dashboard-intro-gate` (Important 1–2, Minor 3–5, teks CURRENT_STATE) sesuai Ruling 5–6.
+- **Changes:** `sync()` menangkap uid + `window.__userEpoch` di awal run (di `emitState(true)`), penanda/`tf:initial-sync` hanya bila sesi sama saat finish; komentar `notesOk` bila `pullNotesAndReconcile` absen. `clearLocalUserData` menaikkan `__userEpoch` paling awal + reset `__syncState` (+ `tf:sync-state`). `fetchAll` menyetel `window.__fetchAllInFlight` (try/finally). `introgate.hasLocalTasks()`; `useIntroState` me-refresh hanya bila task lokal hidup, tidak saat fetchAll berjalan; efek `[tasksLen]` melewati run pertama. E2E: a10 (tepat 1 pull task sync saat login pertama), e6 (akun hanya note tanpa pull task tambahan).
+- **Files Touch:** static/index.html, static/offline/introgate.js, tests/offline/introgate.test.js, tests/offline/introgate_sync.test.js, tests/offline/dashboard_intro_ui.test.js, temporary_files/e2e_dashboard_intro.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Verifikasi:** RED 10 tes node + E2E a10/e6 gagal pada kode lama ({'tasks': 2}); GREEN: 4 file node 84/84, JS 2164/2165 (pra-ada `draw_local_reactive`), pytest 816, E2E 64/64 (2 run). SW tetap v431.
+- **Status:** Needs Review (draft PR; restart `taskflow-web` setelah deploy)
+
+## [2026-10-20 16:50] - Claude
+- **Task:** Buka draft PR #59 untuk gerbang welcome card dashboard.
+- **Changes:** PR https://github.com/mtyatno/taskflow-v4/pull/59 (draft); CURRENT_STATE mencatat nomor PR.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (tunggu "merge dan deploy")
 
 ## 2026-10-20 17:50 WIB — Claude — ikon gaya Alurik di Berkas Workspace
 - Bapak minta emoji di tampilan Files workspace (folder, cari, PDF, diagram, gambar, ...) mengikuti gaya ikon Alurik. Implementer subagent + review terpisah (siap merge). SW v432. **Status:** Needs Review (draft PR; restart `taskflow-web`).
