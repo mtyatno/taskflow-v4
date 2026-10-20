@@ -3541,3 +3541,9 @@
 - Bapak: "gunakan subagent driven". Branch `claude/workspace-pins-backend` (di-rebase ke `main` b1f08c1; ADR jadi 018 karena #51 memakai 017).
 - SDD Task 1 (skema, seed, helper repo) dan Task 2 (endpoint pin + ADR-018), review per task bersih. Review akhir opus → perbaikan seed saat DB terkunci (sebelumnya `GET /api/lists` bisa 500 di hari deploy), wording ADR; re-review bersih.
 - **Verifikasi:** pytest 814 passed. **Status:** Needs Review (draft PR; restart `taskflow-web` + `taskflow`).
+
+## 2026-10-20 11:00 WIB — Claude — Bagian B frontend workspace di-pin
+- Lanjutan SDD rencana `docs/superpowers/plans/2026-10-20-sidebar-workspace-pins.md` (Task 3–5) di branch `claude/workspace-pins-ui` yang ditumpuk di atas `claude/workspace-pins-backend` (#52).
+- Keputusan: `static/index.html` sudah JS biasa → verifikasi sintaks dengan parse skrip inline, bukan `compile.js`; SW v425; setelah 409 klien menyegarkan daftar ke kondisi server.
+- Review akhir opus → perbaikan: pull list lewat `runSyncExclusive` + `setLocalPin` (pin bisa terbalik oleh sync bersamaan), fokus keyboard menu rail, cache `lists`, Escape, aria-label, `key`.
+- **Verifikasi:** pytest 814, JS 1845 (pra-ada drawing reactivity), E2E 42/42. **Status:** Needs Review (draft PR; merge setelah #52; restart `taskflow-web`).
