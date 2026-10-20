@@ -3,6 +3,11 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+## 🔵 Workspace di-pin di sidebar mode ikon — spec — 2026-10-20 (Claude) — DRAFT PR, TUNGGU REVIEW SPEC, BELUM ADA KODE
+- **Status:** spec `docs/superpowers/specs/2026-10-20-sidebar-workspace-pins-design.md` (salinan Project claude.ai "alurik" `claude/spec-sidebar-workspace-pins-2026-10-20.md`) di branch `claude/sidebar-workspace-pins-spec`. Berikutnya: review Bapak → rencana di `docs/superpowers/plans/` → implementasi (SDD).
+- **Keputusan Bapak (brainstorming 2026-10-20):** workspace di rail hanya navigasi; avatar workspace yang di-pin + tombol "Semua workspace" (ke `manage_lists`); pin manual maks 5, disimpan per user di server (tabel `workspace_pins`); seed sekali 3 workspace teraktif. Sidebar expanded tidak berubah (sudah menampilkan semua workspace).
+- **Urutan:** PR backend (restart `taskflow-web` + `taskflow`) → PR frontend + offline (naik SW).
+
 ## 🟠 Kanban tahap kustom — PR backend `claude/kanban-stages-backend` — 2026-10-20 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
 - **Status:** backend saja (tanpa frontend/SW). Setelah deploy: **restart `taskflow-web` DAN `taskflow` (bot)** — `repository.py` dan `bot.py` berubah; bot lama yang masih jalan menulis teks context tanpa `context_id`. `migrate_db()` membuat tabel `contexts` + `tasks.context_id` dan backfill (idempoten).
 - **Isi:** tabel `contexts` (pribadi/W, `position`, `color`, `archived`, ADR-016); backfill dari `tasks.context` (urut alfabetis, ejaan task terbaru, tanpa task aktif → diarsip, sinkron ulang beda kapital); `resolve_task_context` di semua jalur tulis task (web + bot); `GET /api/contexts` tetap `string[]` (kini dari tabel, urut posisi, termasuk tahap kosong) + `?list_id`, `?format=full&scope=all&include_archived=1`; `POST`, `PATCH /{id}` (rename menyebar ke task + bump `updated_at`), `PUT /order`, `DELETE /{id}`; penolakan = 404; 409 `CONTEXT_NAME_TAKEN` / `CONTEXT_ORDER_STALE`; nama ≤ 50 char; filter context (`/list @x` bot dan `GET /api/tasks?context=`) kini NOCASE; picker bot melewati nama yang callback-nya > 64 byte.
