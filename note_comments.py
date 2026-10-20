@@ -158,3 +158,42 @@ def touch_for_note(conn, note_id: int, list_id: Optional[int], now: str) -> int:
     return conn.execute(
         "UPDATE note_comments SET updated_at = ? WHERE note_id = ? AND list_id = ?",
         (now, note_id, list_id)).rowcount
+
+
+def summaries(conn, uid: int, note_ids: list[int]) -> dict[int, dict]:
+    """Ringkasan per note untuk uid: {note_id: {"comment_open_count", "comment_unread"}}.
+    Satu query agregat per chunk 500 id; note tanpa komentar terlihat tidak ada di hasil."""
+    out: dict[int, dict] = {}
+    ids = list(note_ids)
+    where, vparams = visible_clause(uid)
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        marks = ",".join("?" * len(chunk))
+        rows = conn.execute(
+            "SELECT c.note_id AS note_id, "
+            "SUM(CASE WHEN c.parent_id IS NULL AND c.deleted_at IS NULL AND c.resolved_at IS NULL THEN 1 ELSE 0 END) AS open_count, "
+            "MAX(CASE WHEN c.deleted_at IS NULL AND c.user_id != ? AND c.created_at > COALESCE(r.last_read_at, '') "
+            "THEN 1 ELSE 0 END) AS unread "
+            "FROM note_comments c JOIN scratchpad_notes n ON n.id = c.note_id "
+            "LEFT JOIN note_comment_reads r ON r.note_id = c.note_id AND r.user_id = ? "
+            f"WHERE c.note_id IN ({marks}) AND {where} GROUP BY c.note_id",
+            [uid, uid] + chunk + vparams).fetchall()
+        for r in rows:
+            out[r["note_id"]] = {"comment_open_count": r["open_count"] or 0, "comment_unread": bool(r["unread"])}
+    return out
+
+
+def apply_summaries(conn, uid: int, rows: list[dict]) -> list[dict]:
+    """Isi comment_open_count/comment_unread (default 0/False) pada daftar dict note, in place."""
+    summ = summaries(conn, uid, [r["id"] for r in rows])
+    for r in rows:
+        r.update(summ.get(r["id"], {"comment_open_count": 0, "comment_unread": False}))
+    return rows
+
+
+def mark_read(conn, uid: int, note_id: int, now: str) -> None:
+    """Upsert penanda baca. Pemanggil yang commit."""
+    conn.execute(
+        "INSERT INTO note_comment_reads (user_id, note_id, last_read_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id, note_id) DO UPDATE SET last_read_at = excluded.last_read_at",
+        (uid, note_id, now))

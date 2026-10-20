@@ -5651,7 +5651,7 @@ async def list_scratchpad(q: str = "", tag: str = "", user=Depends(get_current_u
             """
             try:
                 rows = conn.execute(sql, fts_params).fetchall()
-                return [_scratchpad_row(r, conn, uid) for r in rows]
+                return note_comments.apply_summaries(conn, uid, [_scratchpad_row(r, conn, uid) for r in rows])
             except sqlite3.OperationalError:
                 pass  # Fallback to LIKE query if FTS expression fails
 
@@ -5668,7 +5668,7 @@ async def list_scratchpad(q: str = "", tag: str = "", user=Depends(get_current_u
             ORDER BY s.updated_at DESC
         """
         rows = conn.execute(sql, fallback_params).fetchall()
-        return [_scratchpad_row(r, conn, uid) for r in rows]
+        return note_comments.apply_summaries(conn, uid, [_scratchpad_row(r, conn, uid) for r in rows])
 
 # ── Note Trash (snapshot ke trashed_notes; lihat docs/superpowers/specs/2026-10-02-note-trash-design.md) ──
 
@@ -7026,7 +7026,7 @@ async def get_scratchpad_note(note_id: int, user=Depends(get_current_user)):
         """, [note_id] + access_params).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
-        return _scratchpad_row(row, conn, uid)
+        return note_comments.apply_summaries(conn, uid, [_scratchpad_row(row, conn, uid)])[0]
 
 
 _UUID_TOKEN_RE = re.compile(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
@@ -7801,6 +7801,19 @@ async def create_note_comment(note_id: int, req: CommentCreate, user=Depends(get
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (note_id, note["list_id"], uid, parent_id, req.body, quote, req.client_id, now, now))
         return _comment_out(conn, cur.lastrowid)
+
+
+@app.post("/api/scratchpad/{note_id}/comments/read")
+async def mark_note_comments_read(note_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        note = note_comments.visible_note(conn, uid, note_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        if note["list_id"] is not None:
+            note_comments.mark_read(conn, uid, note_id, now)
+        return {"ok": True}
 
 
 @app.patch("/api/note-comments/{cid}")
