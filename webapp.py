@@ -127,7 +127,7 @@ import io
 import zipfile
 import csv
 from sse_starlette.sse import EventSourceResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 import jwt
 import uvicorn
 
@@ -932,6 +932,7 @@ def migrate_db():
         repository.backfill_projects(conn)
         repository.ensure_contexts_schema(conn)
         repository.ensure_workspace_pins_schema(conn)
+        repository.ensure_pomodoro_schema(conn)
         repository.backfill_contexts(conn)
         # Drawing milik workspace: kolom list_id/last_edited_by + backfill sekali jalan dari note workspace.
         drawing_scope.ensure_drawing_scope_schema(conn)
@@ -1158,6 +1159,7 @@ class TaskCreate(BaseModel):
     parent_id: Optional[int] = None
     recurrence_type: Optional[str] = None   # daily|weekly|monthly|weekdays
     recurrence_days: Optional[list] = None  # [0,2,4] untuk weekly Sen/Rab/Jum
+    estimated_pomodoros: int = Field(default=1, ge=1, le=20)
     # Idempotensi retry sync (audit T11): (user_id, client_id) sudah ada → kembalikan baris itu, bukan insert
     client_id: Optional[str] = Field(default=None, max_length=64)
 
@@ -1185,6 +1187,7 @@ class TaskUpdate(BaseModel):
     recurrence_type: Optional[str] = None
     recurrence_days: Optional[list] = None
     recurrence_renew: Optional[bool] = None  # True = perpanjang 3 bulan
+    estimated_pomodoros: Optional[int] = Field(default=None, ge=1, le=20)
     is_focused: Optional[bool] = None  # audit K6: status fokus ikut dikirim push offline (disimpan 0/1)
     # base_rev: updated_at yang diketahui klien; bila dikirim dan ≠ server → 409 REV_MISMATCH (prinsip 7)
     base_rev: Optional[str] = None
@@ -2083,12 +2086,12 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
                    (title, description, gtd_status, priority, quadrant,
                     project, project_id, context, context_id, deadline, waiting_for, user_id, list_id, assigned_to, parent_id,
                     recurrence_type, recurrence_days, recurrence_end_date,
-                    created_at, updated_at, client_id)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    created_at, updated_at, client_id, estimated_pomodoros)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (req.title, req.description, req.gtd_status, req.priority.upper(), quadrant,
                  proj_name, proj_id, ctx_name, ctx_id, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, parent_id,
                  recurrence_type, recurrence_days_json, recurrence_end_date,
-                 now, now, req.client_id),
+                 now, now, req.client_id, req.estimated_pomodoros),
             )
         except sqlite3.IntegrityError:
             # Race: request kembar menyisipkan (user_id, client_id) yang sama lebih dulu → ambil barisnya.
@@ -2237,6 +2240,8 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
             updates["progress"] = max(0, min(100, req.progress))
         if req.is_focused is not None:
             updates["is_focused"] = 1 if req.is_focused else 0
+        if req.estimated_pomodoros is not None:
+            updates["estimated_pomodoros"] = req.estimated_pomodoros
 
         if req.recurrence_renew:
             updates["recurrence_end_date"] = (date.today() + timedelta(days=90)).isoformat()
@@ -2364,6 +2369,57 @@ async def delete_task(task_id: int, user=Depends(get_current_user)):
                 raise HTTPException(status_code=403, detail="Hanya task owner atau list owner yang bisa menghapus")
         conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
     return {"ok": True, "id": task_id}
+
+
+# ── Pomodoro log (ADR-021) ────────────────────────────────────────────────────
+
+class PomodoroLogIn(BaseModel):
+    client_id: str = Field(min_length=1, max_length=64)
+    kind: Literal["session", "overtime"]
+    pomodoros: int
+    focus_seconds: int
+    log_date: str
+    ended_at: str
+
+    @model_validator(mode="after")
+    def _check_rules(self):
+        if self.kind == "session":
+            if self.pomodoros != 1 or not 1 <= self.focus_seconds <= 1500:
+                raise ValueError("sesi: pomodoros=1, focus_seconds 1-1500")
+        else:
+            if (not 0 <= self.pomodoros <= 4 or not 60 <= self.focus_seconds <= 7200
+                    or self.pomodoros != self.focus_seconds // 1500):
+                raise ValueError("overtime: pomodoros 0-4, focus_seconds 60-7200, pomodoros = focus_seconds // 1500")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", self.log_date):
+            raise ValueError("log_date harus YYYY-MM-DD")
+        try:
+            date.fromisoformat(self.log_date)
+            datetime.fromisoformat(self.ended_at.replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError("log_date/ended_at tidak valid")
+        return self
+
+
+@app.post("/api/tasks/{task_id}/pomodoros")
+async def log_pomodoro(task_id: int, req: PomodoroLogIn, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        _can_access_task(conn, task_id, uid)
+        cur = conn.execute(
+            """INSERT OR IGNORE INTO pomodoro_log
+               (user_id, task_id, kind, pomodoros, focus_seconds, log_date, ended_at, client_id, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (uid, task_id, req.kind, req.pomodoros, req.focus_seconds, req.log_date,
+             req.ended_at, req.client_id, datetime.now().isoformat()))
+        inserted = cur.rowcount == 1
+        if inserted and req.pomodoros:
+            conn.execute("UPDATE tasks SET pomodoros_done = pomodoros_done + ? WHERE id = ?",
+                         (req.pomodoros, task_id))
+        log = conn.execute("SELECT id, task_id FROM pomodoro_log WHERE user_id = ? AND client_id = ?",
+                           (uid, req.client_id)).fetchone()
+        done = conn.execute("SELECT pomodoros_done FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    return {"id": log["id"], "task_id": task_id, "pomodoros_done": done["pomodoros_done"],
+            "duplicate": not inserted}
 
 
 # ── Recurring task endpoints ──────────────────────────────────────────────────
@@ -4272,7 +4328,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v435-kelola-workspace-fase0"
+    sw_cache = "taskflow-v437-kelola-workspace-fase0"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

@@ -100,9 +100,9 @@ test("TodayFocusView: membatalkan fokus atau menyelesaikan task menjeda Pomodoro
   assert.match(view, /Task selesai/, "harus memberi toast saat task selesai");
 });
 
-test("sw.js CACHE = taskflow-v435-kelola-workspace-fase0", () => {
+test("sw.js CACHE = taskflow-v437-kelola-workspace-fase0", () => {
   const swJs = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v435-kelola-workspace-fase0";/m);
+  assert.match(swJs, /^const CACHE = "taskflow-v437-kelola-workspace-fase0";/m);
 });
 
 test("App: mengelola timer Pomodoro dan focusTask di level App", () => {
@@ -171,7 +171,9 @@ test("usePomodoro: start(explicitTask) menerima explicit task dan memulai timer 
     false,
     null,
     0,
-    0
+    0,
+    null,
+    null
   ];
   let hookIdx = 0;
   const fakeUseState = (init) => {
@@ -185,6 +187,7 @@ test("usePomodoro: start(explicitTask) menerima explicit task dan memulai timer 
   const POMO_DURATIONS = { work: 1500, shortBreak: 300, longBreak: 900 };
   let toastCalls = [];
   const fakeWindow = {
+    TF: { tasklogic: { todayLocalISO: () => "2026-10-20" } },
     __showToast: (msg, type) => toastCalls.push({ msg, type })
   };
   const fakeLocalStorage = {
@@ -207,7 +210,7 @@ test("usePomodoro: start(explicitTask) menerima explicit task dan memulai timer 
   );
 
   // 1. Tanpa explicitTask dan focusTask null: ditolak
-  const timer = usePomodoroImpl({ focusTask: null, setTaskPomodoros: () => {} });
+  const timer = usePomodoroImpl({ focusTask: null });
   const startWithoutTask = timer.start();
   assert.strictEqual(startWithoutTask, false, "timer.start() tanpa task harus mengembalikan false");
   assert.strictEqual(states[2], false, "isRunning harus tetap false");
@@ -220,6 +223,8 @@ test("usePomodoro: start(explicitTask) menerima explicit task dan memulai timer 
   assert.strictEqual(startWithExplicitTask, true, "timer.start(explicitTask) harus mengembalikan true");
   assert.strictEqual(states[2], true, "isRunning harus menjadi true");
   assert.ok(typeof states[3] === "number" && states[3] > Date.now(), "targetEndTime harus di-set ke masa depan");
+  assert.ok(typeof states[6] === "number", "workStartedAt di-set saat Work mulai dari durasi penuh");
+  assert.strictEqual(states[7], 42, "sessionTaskId = task eksplisit");
 });
 
 test("App: handleDoneParentOnly dan handleDoneAll membersihkan focusTaskId saat task fokus diselesaikan", () => {

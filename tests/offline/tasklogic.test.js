@@ -80,3 +80,20 @@ test("deriveTaskFields: overdue but archived -> not overdue", () => {
   const r = deriveTaskFields({ deadline: "2026-06-02", gtd_status: "archived" }, TODAY);
   assert.equal(r.is_overdue, false);
 });
+
+// PR B Target 🍅: index.html memanggil window.TF.tasklogic.todayLocalISO() saat render (usePomodoro,
+// FocusPage, App). Tanpa ekspor ini seluruh aplikasi crash saat dimuat (ditemukan E2E Task 7).
+test("todayLocalISO diekspor (browser + Node) dan memakai tanggal lokal YYYY-MM-DD", () => {
+  const tl = require("../../static/offline/tasklogic.js");
+  assert.equal(typeof tl.todayLocalISO, "function");
+  const n = new Date();
+  const want = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+  assert.equal(tl.todayLocalISO(), want);
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const vm = require("node:vm");
+  const src = fs.readFileSync(path.join(__dirname, "../../static/offline/tasklogic.js"), "utf8");
+  const win = {};
+  vm.runInNewContext(src, { self: win, Date });
+  assert.equal(typeof win.TF.tasklogic.todayLocalISO, "function");
+});

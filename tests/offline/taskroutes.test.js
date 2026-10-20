@@ -387,3 +387,66 @@ test("K6: GET /api/tasks/:id/subtasks|notes|attachments go to the network for nu
   assert.deepEqual(isTaskChildListCall("GET", "/api/tasks/12/notes"), { id: "12", kind: "notes", numeric: true });
   assert.equal(isTaskChildListCall("GET", "/api/tasks/12/tags"), null);
 });
+
+// ── PR B Target 🍅: log pomodoro offline ──
+test("POST /api/tasks/:id/pomodoros queues the log and local reads report record + pending", async () => {
+  await seedTasks([task({ cid: "a", server_id: 10, pomodoros_done: 2, estimated_pomodoros: 4 })]);
+  const R = buildTaskRouter();
+  const res = await R.dispatch("POST", "/api/tasks/10/pomodoros", {
+    client_id: "log-1", kind: "session", pomodoros: 1, focus_seconds: 1500,
+    log_date: "2026-06-03", ended_at: "2026-06-03T09:25:00.000Z",
+  });
+  assert.equal(res.pomodoros_done, 3);
+  const rows = await R.dispatch("GET", "/api/tasks", undefined);
+  assert.equal(rows.find((r) => r.cid === "a").pomodoros_done, 3);
+  assert.equal((await R.dispatch("GET", "/api/tasks/10", undefined)).pomodoros_done, 3);
+  // record lokal tetap nilai server terakhir; pending hanya ditambahkan di jawaban rute
+  const db = await openDB();
+  const rec = await new Promise((res2) => { const r = db.transaction("tasks").objectStore("tasks").get("a"); r.onsuccess = () => res2(r.result); });
+  assert.equal(rec.pomodoros_done, 2);
+  // client_id sama dikirim ulang → tidak dihitung dua kali
+  const again = await R.dispatch("POST", "/api/tasks/10/pomodoros", {
+    client_id: "log-1", kind: "session", pomodoros: 1, focus_seconds: 1500,
+    log_date: "2026-06-03", ended_at: "2026-06-03T09:25:00.000Z",
+  });
+  assert.equal(again.pomodoros_done, 3);
+});
+
+test("POST /api/tasks/:id/pomodoros on an unknown id rejects (404)", async () => {
+  const R = buildTaskRouter();
+  await assert.rejects(() => R.dispatch("POST", "/api/tasks/999/pomodoros", { client_id: "x", kind: "session", pomodoros: 1 }), /not found/i);
+});
+
+test("every task-row route reports pending-inclusive pomodoros_done (workspace list, child-tasks, PUT, done, focus)", async () => {
+  await seedTasks([
+    task({ cid: "w", server_id: 20, list_id: 5, pomodoros_done: 1 }),
+    task({ cid: "kid", server_id: 21, parent_cid: "w", pomodoros_done: 0 }),
+  ]);
+  const R = buildTaskRouter();
+  const log = (id) => ({ client_id: id, kind: "session", pomodoros: 1, focus_seconds: 1500, log_date: "2026-06-03", ended_at: "2026-06-03T09:25:00.000Z" });
+  await R.dispatch("POST", "/api/tasks/20/pomodoros", log("l1"));
+  await R.dispatch("POST", "/api/tasks/21/pomodoros", log("l2"));
+  const ws = await R.dispatch("GET", "/api/lists/5/tasks", undefined);
+  assert.equal(ws.find((r) => r.cid === "w").pomodoros_done, 2);
+  const kids = await R.dispatch("GET", "/api/tasks/20/child-tasks", undefined);
+  assert.equal(kids.find((r) => r.cid === "kid").pomodoros_done, 1);
+  assert.equal((await R.dispatch("PUT", "/api/tasks/20", { title: "Baru" })).pomodoros_done, 2);
+  assert.equal((await R.dispatch("POST", "/api/tasks/20/focus", undefined)).pomodoros_done, 2);
+  assert.equal((await R.dispatch("POST", "/api/tasks/20/done", undefined)).pomodoros_done, 2);
+});
+
+test("POST /api/tasks/:id/pomodoros rejects a bad or missing client_id / payload with 422 and queues nothing", async () => {
+  await seedTasks([task({ cid: "a", server_id: 10, pomodoros_done: 2 })]);
+  const R = buildTaskRouter();
+  const base = { kind: "session", pomodoros: 1, focus_seconds: 1500, log_date: "2026-06-03", ended_at: "2026-06-03T09:25:00.000Z" };
+  const bad = [undefined, null, {}, Object.assign({}, base), Object.assign({ client_id: "" }, base),
+    Object.assign({ client_id: 42 }, base), Object.assign({ client_id: "x".repeat(65) }, base)];
+  for (const body of bad) {
+    await assert.rejects(() => R.dispatch("POST", "/api/tasks/10/pomodoros", body), (e) => e.status === 422);
+  }
+  const { outboxAll } = require("../../static/offline/outbox.js");
+  assert.equal((await outboxAll()).length, 0);
+  // 64 karakter tepat masih diterima
+  const ok = await R.dispatch("POST", "/api/tasks/10/pomodoros", Object.assign({ client_id: "y".repeat(64) }, base));
+  assert.equal(ok.pomodoros_done, 3);
+});

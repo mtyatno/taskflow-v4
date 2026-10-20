@@ -27,6 +27,8 @@
   // Kanban tahap: cache context (dimuat sebelum syncpush di index.html; dicek per fungsi karena modul lama dari
   // cache SW bisa belum memilikinya).
   const TFcontexts = req("./contextcache.js", root.TF && root.TF.contextcache);
+  // PR B Target 🍅: antrean log 🍅 (dimuat sebelum syncpush di index.html).
+  const TFpomolog = req("./pomolog.js", root.TF && root.TF.pomolog);
   // Sampah mindmap (A4) dibaca malas: modul lama dari cache SW bisa belum memuatnya.
   function mindmapTrash() {
     try { return isNode ? require("./mindmaptrash.js") : (root.TF && root.TF.mindmaptrash); } catch (_) { return null; }
@@ -89,8 +91,14 @@
     }).then((saved) => saved || kept);
   }
 
+  // estimated_pomodoros hanya bila record punya nilai (record lama tidak menimpa server); pomodoros_done milik server, tak pernah dikirim.
+  function withEstimate(payload, record) {
+    if (record.estimated_pomodoros != null) payload.estimated_pomodoros = record.estimated_pomodoros;
+    return payload;
+  }
+
   function taskToCreatePayload(record, tagNames, parentServerId, projects, contexts) {
-    return withContextId(withProjectId({
+    return withContextId(withProjectId(withEstimate({
       title: titleWithTags(record, tagNames),
       description: record.description != null ? record.description : "",
       priority: record.priority || "P3",
@@ -105,7 +113,7 @@
       recurrence_type: record.recurrence_type != null ? record.recurrence_type : null,
       recurrence_days: record.recurrence_days ? JSON.parse(record.recurrence_days) : null,
       client_id: clientIdOf(record),
-    }, record, projects), record, contexts);
+    }, record), record, projects), record, contexts);
   }
 
   function taskToUpdatePayload(record, tagNames, projects, contexts) {
@@ -128,7 +136,7 @@
     };
     // T12: "Perpanjang" hanya berlaku di server lewat flag; flag dibersihkan setelah PUT sukses (CAS)
     if (record.recurrence_renew_pending) p.recurrence_renew = true;
-    return withContextId(withProjectId(p, record, projects), record, contexts);
+    return withContextId(withProjectId(withEstimate(p, record), record, projects), record, contexts);
   }
 
   function markPayload(record) {
@@ -658,6 +666,29 @@
         // 4xx permanen (mis. 400 tanggal di luar masa recurring): record tetap dirty + sync_error → pull tidak
         // menghapusnya diam-diam (prinsip 1); ditandai ulang saat pengguna menandai lagi (markOccurrence)
         return failPermanent("recurring_exceptions", op.cid, res, op, result);
+      });
+    });
+  }
+
+  // PR B Target 🍅: log 🍅 idempoten per client_id (respons duplicate:true = sukses). Sukses → adopsi
+  // pomodoros_done server + hapus op dalam satu transaksi. 404/403 (task/akses hilang, spec §5.2) → op dibuang
+  // tanpa dihitung gagal; 4xx lain (mis. 422) → dibuang + gagal; 401/429/5xx/jaringan dilempar send → op tetap.
+  function opPomodoroCreate(op, transport, result, pending) {
+    const p = op.payload || {};
+    return TFidmap.serverIdOf(p.task_cid).then((sid) => {
+      if (sid == null) {
+        if (parentCreatePending(pending, p.task_cid)) return; // T10: tahan sampai create task terkirim
+        return TFoutbox.outboxRemove(op.qid);
+      }
+      const body = Object.assign({}, p);
+      delete body.task_cid;
+      return send(transport, "POST", "/api/tasks/" + sid + "/pomodoros", body).then((res) => {
+        if (ok(res)) {
+          const done = res.data && typeof res.data.pomodoros_done === "number" ? res.data.pomodoros_done : null;
+          return TFpomolog.ackPushed(op.qid, p.task_cid, done).then(() => { result.pushed++; });
+        }
+        if (res.status === 404 || res.status === 403) return TFoutbox.outboxRemove(op.qid);
+        return failPermanent(null, null, res, op, result);
       });
     });
   }
@@ -1856,6 +1887,7 @@
     if (op.entity_type === "mindmap" && op.op === "restore") return opMindmapRestore(op, transport, result);
     if (op.entity_type === "message" && op.op === "send") return opChatSend(op, transport, result, pending);
     if (op.entity_type === "context" && op.op === "create") return opContextCreate(op, transport, result);
+    if (op.entity_type === "pomodoro_log" && op.op === "create") return opPomodoroCreate(op, transport, result, pending);
     return TFoutbox.outboxRemove(op.qid);
   }
 

@@ -375,6 +375,32 @@ def ensure_workspace_pins_schema(conn) -> None:
         conn.execute("ALTER TABLE users ADD COLUMN workspace_pins_seeded INTEGER NOT NULL DEFAULT 0")
 
 
+def ensure_pomodoro_schema(conn) -> None:
+    """Kolom estimasi/realisasi di `tasks` + log Pomodoro append-only (idempoten, ADR-021)."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+    if "estimated_pomodoros" not in cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN estimated_pomodoros INTEGER NOT NULL DEFAULT 1")
+    if "pomodoros_done" not in cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN pomodoros_done INTEGER NOT NULL DEFAULT 0")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pomodoro_log (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            task_id        INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+            kind           TEXT    NOT NULL CHECK (kind IN ('session','overtime')),
+            pomodoros      INTEGER NOT NULL,
+            focus_seconds  INTEGER NOT NULL,
+            log_date       TEXT    NOT NULL,
+            ended_at       TEXT    NOT NULL,
+            client_id      TEXT    NOT NULL,
+            created_at     TEXT    NOT NULL,
+            UNIQUE (user_id, client_id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pomodoro_log_task ON pomodoro_log(task_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pomodoro_log_user_date ON pomodoro_log(user_id, log_date)")
+
+
 def seed_workspace_pins(conn, user_id: int) -> int:
     """Pin awal sekali per user: sampai 3 workspace paling aktif. Mengembalikan jumlah pin
     yang disisipkan. Tidak commit. Tidak berbuat apa pun bila sudah di-seed atau tanpa workspace."""
@@ -1029,6 +1055,7 @@ class TaskRepository:
             ensure_projects_schema(conn)
             ensure_contexts_schema(conn)
             ensure_workspace_pins_schema(conn)
+            ensure_pomodoro_schema(conn)
 
     def heal_orphan_workspace_items(self) -> int:
         """Task dan mindmap yang list_id-nya menunjuk workspace yang sudah dihapus kembali pribadi
