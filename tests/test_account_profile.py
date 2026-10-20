@@ -412,3 +412,129 @@ def test_magic_link_redirects_with_flag_and_cookie_exchanges_for_token():
 
 def test_refresh_without_cookie_or_header_is_401():
     assert _device().post("/api/auth/refresh").status_code == 401
+
+
+# ── Review: username basi, SSE, migrasi, register, auth_time, ext ────────────
+
+def test_validate_token_refreshes_username_from_db(client):
+    name, _ = _new_user(client)
+    tok_a = _login(name)
+    tok_b = _login(name)
+    new = _uniq("baru")
+    assert _patch_username(tok_a, new).status_code == 200
+    # token B tetap sah (password sama) tetapi klaim username diambil dari DB
+    assert webapp._validate_token(tok_b)["username"] == new
+    # token tanpa pwv juga disegarkan
+    legacy = webapp.create_token(webapp._validate_token(tok_b)["sub"], name)
+    assert webapp._validate_token(legacy)["username"] == new
+
+
+def test_validate_token_legacy_missing_user_keeps_behaviour():
+    tok = webapp.create_token(99999998, "hantu_lama")  # tanpa pwv
+    assert webapp._validate_token(tok)["username"] == "hantu_lama"
+
+
+def test_ext_token_username_refreshed(client):
+    name, data = _new_user(client)
+    ext = _ext_token(data["user_id"], name)
+    new = _uniq("ext")
+    assert _patch_username(data["token"], new).status_code == 200
+    assert webapp._validate_token(ext)["username"] == new
+
+
+def test_activity_uses_current_username_after_rename(client, monkeypatch):
+    sent = []
+
+    async def fake_notify(list_id, actor_user_id, message, task_id=None):
+        sent.append(message)
+    monkeypatch.setattr(webapp, "_notify_members_bg", fake_notify)
+
+    name, _ = _new_user(client)
+    tok_a = _login(name)
+    tok_b = _login(name)
+    lst = _device().post("/api/lists", json={"name": "ws"}, headers=_h(tok_a)).json()
+    new = _uniq("aktif")
+    assert _patch_username(tok_a, new).status_code == 200
+    r = _device().post("/api/tasks", json={"title": "t1", "list_id": lst["id"]}, headers=_h(tok_b))
+    assert r.status_code in (200, 201), r.text
+    assert sent and new in sent[-1] and name not in sent[-1]
+
+
+def test_session_still_valid_helper(client):
+    name, _ = _new_user(client)
+    tok = _login(name)
+    user = webapp._validate_token(tok)
+    assert webapp._session_still_valid(user) is True
+    assert webapp._session_still_valid({"sub": user["sub"]}) is True  # tanpa pwv: tetap
+    assert _device().patch("/api/auth/profile/password",
+                           json={"old_password": "pass1234", "new_password": "baru1234"},
+                           headers=_h(tok)).status_code == 200
+    assert webapp._session_still_valid(user) is False
+    assert webapp._session_still_valid({"sub": 99999997, "pwv": "x"}) is False
+
+
+def test_sse_streams_use_session_check():
+    import inspect
+    for fn in (webapp.chat_stream, webapp.dm_stream, webapp.mindmap_stream):
+        assert "_session_still_valid(" in inspect.getsource(fn), fn.__name__
+
+
+def test_migration_marks_tg_digits_without_telegram_id(tmp_path):
+    path = str(tmp_path / "old2.db")
+    repository.TaskRepository(path)
+    c = sqlite3.connect(path)
+    c.execute("ALTER TABLE users DROP COLUMN password_set")
+    rows = [("tg_111", None), ("tg_abc", None), ("tg_222", 999), ("tg_333", 333), ("tgx_1", None)]
+    for u, t in rows:
+        c.execute("INSERT INTO users (username, password_hash, telegram_id, created_at) VALUES (?,?,?,?)",
+                  (u, "x", t, "2026-01-01"))
+    c.commit()
+    c.close()
+    repository.TaskRepository(path)
+    c = sqlite3.connect(path)
+    got = dict(c.execute("SELECT username, password_set FROM users").fetchall())
+    c.close()
+    # tg_<digit> tanpa telegram_id (Telegram dilepas) → 0; tg_abc (nama web) & tg_222 (tertaut lain) → 1
+    assert got == {"tg_111": 0, "tg_abc": 1, "tg_222": 1, "tg_333": 0, "tgx_1": 1}
+
+
+@pytest.mark.parametrize("bad", ["tg_baru", "TG_baru", "Tg_123"])
+def test_register_rejects_tg_prefix(client, bad):
+    r = client.post("/api/auth/register", json={
+        "username": bad + uuid.uuid4().hex[:4], "password": "pass1234", "email": f"{_uniq('r')}@test.id"})
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Username tidak boleh diawali tg_"
+
+
+def test_register_keeps_old_charset_rules(client):
+    # register tidak memakai aturan charset baru (UX lama tetap)
+    r = client.post("/api/auth/register", json={
+        "username": "nama-" + uuid.uuid4().hex[:5], "password": "pass1234", "email": f"{_uniq('r')}@test.id"})
+    assert r.status_code == 200
+
+
+def test_reissue_derives_auth_time_when_missing(client):
+    import jwt as pyjwt
+    name, data = _new_user(client)
+    with db() as conn:
+        ph = conn.execute("SELECT password_hash FROM users WHERE id=?", (data["user_id"],)).fetchone()[0]
+    exp = int(datetime.now().timestamp()) + 3600
+    tok = pyjwt.encode({"sub": str(data["user_id"]), "username": name, "exp": exp,
+                        "pwv": webapp._pw_fingerprint(ph)},
+                       os.environ["WEB_SECRET_KEY"], algorithm=webapp.JWT_ALGORITHM)
+    r = _device().patch("/api/auth/profile/password",
+                        json={"old_password": "pass1234", "new_password": "baru1234"}, headers=_h(tok))
+    assert r.status_code == 200, r.text
+    assert webapp.decode_token(r.json()["token"])["auth_time"] == exp - webapp.JWT_EXPIRE_HOURS * 3600
+
+
+@pytest.mark.parametrize("method,path,body", [
+    ("patch", "/api/auth/profile/password", {"old_password": "pass1234", "new_password": "baru1234"}),
+    ("patch", "/api/auth/profile/username", {"new_username": "apaaja_x", "current_password": "pass1234"}),
+    ("post", "/api/auth/complete-account", {"email": "a@b.cd", "new_password": "baru1234"}),
+])
+def test_ext_token_forbidden_on_account_endpoints(client, method, path, body):
+    name, data = _new_user(client)
+    ext = _ext_token(data["user_id"], name)
+    r = getattr(_device(), method)(path, json=body, headers=_h(ext))
+    assert r.status_code == 403

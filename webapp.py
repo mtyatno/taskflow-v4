@@ -1052,23 +1052,38 @@ def decode_token(token: str) -> dict:
 def _validate_token(token: str) -> dict:
     data = decode_token(token)
     data["sub"] = int(data["sub"])
-    if data.get("scope") == "ext":
-        with get_db() as conn:
-            row = conn.execute(
+    with get_db() as conn:
+        if data.get("scope") == "ext":
+            ext = conn.execute(
                 "SELECT id FROM ext_tokens WHERE token = ?", (token,)
             ).fetchone()
-        if not row:
-            raise HTTPException(status_code=401, detail="Token sudah direvoke")
-    elif data.get("pwv"):
+            if not ext:
+                raise HTTPException(status_code=401, detail="Token sudah direvoke")
+        row = conn.execute(
+            "SELECT username, password_hash FROM users WHERE id = ?", (data["sub"],)
+        ).fetchone()
+    if data.get("scope") != "ext" and data.get("pwv"):
         # Token sesi dengan klaim pwv: tolak bila password sudah diganti (atau user hilang),
         # agar ganti/reset password langsung mengeluarkan semua perangkat lain.
-        with get_db() as conn:
-            row = conn.execute(
-                "SELECT password_hash FROM users WHERE id = ?", (data["sub"],)
-            ).fetchone()
         if not row or _pw_fingerprint(row["password_hash"]) != data["pwv"]:
             raise HTTPException(status_code=401, detail="Password sudah diganti — masuk lagi")
+    if row:
+        # Klaim username bisa basi setelah ganti username → selalu pakai nilai DB
+        data["username"] = row["username"]
     return data
+
+
+def _session_still_valid(user: dict) -> bool:
+    """Cek ulang sesi untuk stream SSE yang berumur panjang: False bila password sudah
+    diganti (pwv beda) atau user hilang. Token tanpa pwv dianggap tetap sah."""
+    pwv = user.get("pwv")
+    if not pwv or user.get("scope") == "ext":
+        return True
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT password_hash FROM users WHERE id = ?", (user["sub"],)
+        ).fetchone()
+    return bool(row) and _pw_fingerprint(row["password_hash"]) == pwv
 
 
 def _unverified_sub(token: str):
@@ -1656,6 +1671,9 @@ async def register(req: RegisterReq, response: Response):
     email = req.email.strip().lower()
     if not EMAIL_RE.match(email):
         raise HTTPException(status_code=400, detail="Format email tidak valid")
+    if req.username.lower().startswith("tg_"):
+        # prefix tg_ dicadangkan untuk akun Telegram otomatis
+        raise HTTPException(status_code=400, detail="Username tidak boleh diawali tg_")
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM users WHERE username = ?", (req.username,)).fetchone()
         if existing:
@@ -1784,7 +1802,11 @@ def _reissue_token(request: Request, response: Response, user: dict,
                    user_id: int, username: str, password_hash: str) -> str:
     """Token baru setelah profil berubah: auth_time pemanggil dipertahankan, pwv dari hash
     terbaru. Cookie hanya diperbarui bila request membawa cookie `token` (aturan refresh)."""
-    token = create_token(user_id, username, auth_time=user.get("auth_time"),
+    auth_time = user.get("auth_time")
+    if auth_time is None and user.get("exp") is not None:
+        # token lama tanpa auth_time: perkirakan dari exp (sama seperti refresh)
+        auth_time = int(user["exp"]) - JWT_EXPIRE_HOURS * 3600
+    token = create_token(user_id, username, auth_time=auth_time,
                          pwv=_pw_fingerprint(password_hash))
     if request.cookies.get("token"):
         response.set_cookie("token", token, httponly=True, samesite="lax", max_age=JWT_EXPIRE_HOURS * 3600)
@@ -3846,6 +3868,8 @@ async def chat_stream(list_id: int, request: Request, user=Depends(get_current_u
                     msg = await asyncio.wait_for(q.get(), timeout=20.0)
                     yield {"data": json.dumps(msg)}
                 except asyncio.TimeoutError:
+                    if not _session_still_valid(user):
+                        break  # password diganti → tutup stream
                     # Keepalive ping agar koneksi tidak timeout
                     yield {"data": json.dumps({"type": "ping"})}
         finally:
@@ -4416,6 +4440,8 @@ async def dm_stream(conv_id: int, request: Request, user=Depends(get_current_use
                     msg = await asyncio.wait_for(q.get(), timeout=20.0)
                     yield {"data": json.dumps(msg)}
                 except asyncio.TimeoutError:
+                    if not _session_still_valid(user):
+                        break  # password diganti → tutup stream
                     yield {"data": json.dumps({"type": "ping"})}
         finally:
             dm_subscribers[conv_id].discard(entry)
@@ -9493,6 +9519,8 @@ async def mindmap_stream(mid: int, request: Request, user=Depends(get_current_us
                     if msg.get("type") in ("mindmap_access_lost", "mindmap_deleted"):
                         break
                 except asyncio.TimeoutError:
+                    if not _session_still_valid(user):
+                        break  # password diganti → tutup stream
                     yield {"data": json.dumps({"type": "ping"})}
         finally:
             mindmap_subscribers[mid].discard(entry)

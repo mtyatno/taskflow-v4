@@ -1017,12 +1017,14 @@ class TaskRepository:
             if "email" not in user_cols:
                 conn.execute("ALTER TABLE users ADD COLUMN email TEXT DEFAULT NULL")
             # Migrate: password_set — 0 = akun Telegram otomatis yang password-nya belum
-            # pernah diatur pengguna. Penandaan awal hanya saat kolom baru ditambahkan.
+            # pernah diatur pengguna. Penandaan awal hanya saat kolom baru ditambahkan:
+            # tg_<telegram_id> miliknya sendiri, atau tg_<angka> yang Telegram-nya sudah dilepas.
             if "password_set" not in user_cols:
                 conn.execute("ALTER TABLE users ADD COLUMN password_set INTEGER NOT NULL DEFAULT 1")
                 conn.execute(
                     "UPDATE users SET password_set = 0 "
-                    "WHERE telegram_id IS NOT NULL AND username = 'tg_' || telegram_id"
+                    "WHERE username = 'tg_' || telegram_id "
+                    "OR (telegram_id IS NULL AND username GLOB 'tg_[0-9]*')"
                 )
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email "
