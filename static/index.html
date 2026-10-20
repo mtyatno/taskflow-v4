@@ -8155,7 +8155,9 @@ function FocusTaskItem({
   onStartFocus,
   isFocusing,
   hasFocusTask,
-  pomodoroCount
+  pomodoroCount,
+  zenHidden,
+  zenShown
 }) {
   const isOtherFocused = hasFocusTask && !isFocusing;
   const c = counts || {};
@@ -8163,7 +8165,8 @@ function FocusTaskItem({
   const showStatus = task.gtd_status && GTD_LABELS[task.gtd_status] && task.gtd_status !== "done";
   const countLabel = key => key === "subtasks" ? c.subTotal > 0 ? `${c.subDone || 0}/${c.subTotal}` : null : key === "notes" ? c.notes > 0 ? String(c.notes) : null : c.atts > 0 ? String(c.atts) : null;
   return React.createElement("div", {
-    className: `ftask fade-in${open ? " is-open" : ""}${isFocusing ? " is-focusing" : ""}`
+    className: `ftask fade-in${open ? " is-open" : ""}${isFocusing ? " is-focusing" : ""}${zenHidden ? " is-zen-hidden" : ""}${zenShown ? " is-zen-shown" : ""}`,
+    "aria-hidden": zenHidden ? true : undefined
   }, React.createElement("div", {
     className: "ftask-row",
     onClick: onToggle
@@ -8742,7 +8745,9 @@ function PomodoroTimer({
   timer,
   focusTask,
   taskPomodoros,
-  cardRef
+  cardRef,
+  zenEnabled,
+  onToggleZen
 }) {
   const t = timer;
   return React.createElement("section", {
@@ -8774,9 +8779,21 @@ function PomodoroTimer({
     size: 18
   }), "Pomodoro"), React.createElement("p", {
     className: "focus-pomo-sub"
-  }, t.isBreak ? "Istirahat sebentar..." : "Fokus pada satu task")), React.createElement(PomoModeSwitch, {
+  }, t.isBreak ? "Istirahat sebentar..." : "Fokus pada satu task")), React.createElement("div", {
+    className: "focus-pomo-head-tools"
+  }, onToggleZen && React.createElement("button", {
+    type: "button",
+    className: `focus-zen-btn${zenEnabled ? " is-on" : ""}`,
+    "aria-pressed": zenEnabled,
+    title: "Mode Zen: sembunyikan task lain saat Work berjalan",
+    "aria-label": "Mode Zen: sembunyikan task lain saat Work berjalan",
+    onClick: onToggleZen
+  }, React.createElement(ViewGlyph, {
+    name: "fEye",
+    size: 16
+  })), React.createElement(PomoModeSwitch, {
     timer: t
-  })), React.createElement(PomoControls, {
+  }))), React.createElement(PomoControls, {
     timer: t
   }), React.createElement(PomoParkInput, null), focusTask ? React.createElement("div", {
     className: "focus-pomo-task"
@@ -9291,6 +9308,12 @@ function TodayFocusView({
   const [miniVisible, setMiniVisible] = useState(false);
   const [miniTop, setMiniTop] = useState(0);
   const pomoRef = useRef(null);
+  const [zenEnabled, setZenEnabled] = useState(() => window.TF.focuspage.readZenPref(window.localStorage));
+  const toggleZen = () => setZenEnabled(prev => {
+    const next = !prev;
+    window.TF.focuspage.writeZenPref(window.localStorage, next);
+    return next;
+  });
   // Diangkat ke App level: const timer = usePomodoro({ focusTask, setTaskPomodoros });
   const timer = propsTimer || {
     mode: "work",
@@ -9339,6 +9362,13 @@ function TodayFocusView({
     };
     return priOrder[a.priority] - priOrder[b.priority];
   });
+  const zenOn = window.TF.focuspage.zenActive({
+    enabled: zenEnabled,
+    mode: timer.mode,
+    isRunning: timer.isRunning
+  });
+  const zenHiddenCount = sortedTasks.filter(t => t.id !== focusTask?.id).length + recurringToday.length;
+  const zenClass = zenOn ? " is-zen-hidden" : zenEnabled ? " is-zen-shown" : "";
   const [counts, reportCount] = useFocusTaskCounts(sortedTasks.map(t => t.id));
 
   // Bar ringkas tampil saat kartu Pomodoro penuh sudah tergulir di bawah top bar.
@@ -9426,9 +9456,12 @@ function TodayFocusView({
     timer: timer,
     focusTask: focusTask,
     taskPomodoros: taskPomodoros,
-    cardRef: pomoRef
+    cardRef: pomoRef,
+    zenEnabled: zenEnabled,
+    onToggleZen: toggleZen
   }), recurringToday.length > 0 && React.createElement("section", {
-    className: "focus-section"
+    className: `focus-section${zenClass}`,
+    "aria-hidden": zenOn ? true : undefined
   }, React.createElement(FocusSectionHead, {
     glyph: "repeat",
     title: "Berulang hari ini",
@@ -9480,7 +9513,9 @@ function TodayFocusView({
     glyph: "target",
     title: "Task hari ini",
     count: sortedTasks.length
-  }), loading ? React.createElement("div", {
+  }), zenOn && React.createElement("div", {
+    className: "focus-zen-note"
+  }, `Mode Zen · ${zenHiddenCount} task lain disembunyikan sampai istirahat`), loading ? React.createElement("div", {
     className: "focus-empty"
   }, "Loading...") : sortedTasks.length === 0 ? React.createElement("div", {
     className: "focus-empty"
@@ -9505,7 +9540,9 @@ function TodayFocusView({
   }, sortedTasks.map(task => React.createElement(FocusTaskItem, {
     key: task.id,
     task: task,
-    open: openId === task.id,
+    open: openId === task.id || zenOn && focusTask?.id === task.id,
+    zenHidden: zenOn && task.id !== focusTask?.id,
+    zenShown: zenEnabled && !zenOn,
     onToggle: () => toggleOpen(task.id),
     tab: openTab,
     onTab: setOpenTab,
@@ -9518,7 +9555,8 @@ function TodayFocusView({
     hasFocusTask: !!focusTask,
     pomodoroCount: taskPomodoros[task.id] || 0
   })))), React.createElement("p", {
-    className: "focus-tip"
+    className: `focus-tip${zenClass}`,
+    "aria-hidden": zenOn ? true : undefined
   }, "💡 25 menit fokus, istirahat 5 menit. Setelah 4 pomodoro, istirahat panjang 15 menit."));
 }
 

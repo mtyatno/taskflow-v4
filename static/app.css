@@ -4414,3 +4414,21 @@
 [data-theme="dark"] .wsf-title-ico { color: var(--accent); }
 .topbar-pomo-icon { display: inline-flex; color: var(--pomodoro); }
 .topbar-pomo-chip.is-break .topbar-pomo-icon { color: var(--break); }
+
+/* Mode Zen (halaman Fokus Hari Ini) */
+.focus-pomo-head-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.focus-zen-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: rgba(255, 255, 255, .08); color: inherit; cursor: pointer; transition: background .15s, color .15s; }
+.focus-zen-btn:hover { background: rgba(255, 255, 255, .16); }
+.focus-zen-btn.is-on { background: var(--pomo-ink-soft); color: var(--pomo-ink-text); }
+.focus-zen-note { margin: 0 0 10px; font-size: 12.5px; color: var(--text-secondary); }
+.is-zen-hidden { animation: zen-fade-out 250ms ease forwards; pointer-events: none; }
+.is-zen-shown { animation: zen-fade-in 250ms ease; }
+@keyframes zen-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; visibility: hidden; height: 0; margin: 0; padding: 0; border-width: 0; overflow: hidden; }
+}
+@keyframes zen-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .is-zen-hidden { animation: none; display: none; }
+  .is-zen-shown { animation: none; }
+}
