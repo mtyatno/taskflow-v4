@@ -59,9 +59,9 @@ test("TodayFocusView: todayStr lokal", () => {
 });
 
 // Harness: jalankan hook dengan useState/useEffect palsu, picu handleTimerComplete lewat efek timer.
-function runWorkComplete({ focusTask, tf, saved = {} }) {
+function runWorkComplete({ focusTask, tf, saved = {}, fires = 1 }) {
   const hookSrc = fnSource("usePomodoro");
-  const states = ["work", 0, true, null, 0, 0, saved.workStartedAt ?? null, saved.sessionTaskId ?? null];
+  const states = ["work", 0, true, saved.targetEndTime ?? null, 0, 0, saved.workStartedAt ?? null, saved.sessionTaskId ?? null];
   let idx = 0;
   const fakeUseState = (init) => {
     const i = idx++;
@@ -87,7 +87,9 @@ function runWorkComplete({ focusTask, tf, saved = {} }) {
     { warn: () => { calls.warn++; } }
   );
   impl({ focusTask });
-  effects[effects.length - 1](); // efek timer: isRunning && timeLeft === 0 -> handleTimerComplete
+  // efek timer: isRunning && timeLeft === 0 -> handleTimerComplete. fires > 1 = efek closure yang sama terpicu
+  // ulang (ReactDOM.render legacy) dengan state basi dari render yang sama.
+  for (let k = 0; k < fires; k++) effects[effects.length - 1]();
   return { states, posts, calls };
 }
 
@@ -135,4 +137,25 @@ test("handleTimerComplete: kegagalan pencatatan tidak memblokir timer", () => {
     assert.equal(calls.notif, 1);
     assert.equal(calls.warn, 1);
   }
+});
+
+test("handleTimerComplete: terpicu dua kali untuk sesi yang sama -> satu post, sessionCount +1, satu suara", () => {
+  const { posts, states, calls } = runWorkComplete({ focusTask: { id: 5 }, tf: goodTf, saved: { workStartedAt: 555 }, fires: 2 });
+  assert.equal(posts.length, 1);
+  assert.equal(states[4], 1, "sessionCount +1 saja");
+  assert.equal(calls.sound, 1);
+  assert.equal(calls.notif, 1);
+});
+
+test("handleTimerComplete: workStartedAt null + targetEndTime -> client_id dari targetEndTime - 1500000", () => {
+  const { posts } = runWorkComplete({ focusTask: { id: 5 }, tf: goodTf, saved: { targetEndTime: 2000000 }, fires: 2 });
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].body.client_id, "pomo-7-500000-s");
+});
+
+test("handleTimerComplete: tanpa workStartedAt maupun targetEndTime -> cadangan stabil, tetap satu post", () => {
+  const { posts, states } = runWorkComplete({ focusTask: { id: 5 }, tf: goodTf, fires: 2 });
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].body.client_id, /^pomo-7-\d+-s$/);
+  assert.equal(states[4], 1);
 });

@@ -8453,6 +8453,11 @@ function usePomodoro({
   const [workStartedAt, setWorkStartedAt] = useState(() => typeof savedState?.workStartedAt === "number" ? savedState.workStartedAt : null);
   const [sessionTaskId, setSessionTaskId] = useState(() => savedState?.sessionTaskId ?? null);
   const intervalRef = useRef(null);
+  // Kunci sesi Work yang sudah diselesaikan: handleTimerComplete bisa terpicu dua kali di 0 (ReactDOM.render
+  // legacy, closure basi) → sesi yang sama tidak boleh dicatat/dihitung/dibunyikan dua kali.
+  const completedSessionRef = useRef(null);
+  // Cadangan awal sesi bila workStartedAt dan targetEndTime sama-sama kosong; stabil selama sesi ini.
+  const fallbackStartRef = useRef(null);
 
   // Request notification permission on mount
   useEffect(() => {
@@ -8506,10 +8511,19 @@ function usePomodoro({
     return () => clearInterval(intervalRef.current);
   }, [isRunning, timeLeft, targetEndTime, mode]);
   const handleTimerComplete = () => {
+    // Ditangkap sebelum dikosongkan: dasar client_id deterministik bila workStartedAt hilang.
+    const endedTarget = targetEndTime;
     setIsRunning(false);
     setTargetEndTime(null);
     clearInterval(intervalRef.current);
     if (mode === "work") {
+      // Awal sesi deterministik: sama di setiap panggilan dan di setiap tab yang memuat state yang sama.
+      if (workStartedAt == null && !endedTarget && fallbackStartRef.current == null) {
+        fallbackStartRef.current = Date.now() - POMO_DURATIONS.work * 1000;
+      }
+      const startedAt = workStartedAt ?? (endedTarget ? endedTarget - POMO_DURATIONS.work * 1000 : fallbackStartRef.current);
+      if (completedSessionRef.current === startedAt) return;
+      completedSessionRef.current = startedAt;
       // Work session completed
       const newSessionCount = sessionCount + 1;
       setSessionCount(newSessionCount);
@@ -8523,7 +8537,6 @@ function usePomodoro({
           try {
             uid = localStorage.getItem("tf_user_id") || "0";
           } catch (e) {}
-          const startedAt = workStartedAt ?? Date.now() - 1500000;
           api.post("/api/tasks/" + loggedTaskId + "/pomodoros", {
             client_id: window.TF.pomologic.sessionClientId(uid, startedAt),
             kind: "session",
@@ -8564,6 +8577,7 @@ function usePomodoro({
     }
     if (mode === "work" && timeLeft === POMO_DURATIONS.work) {
       setWorkStartedAt(Date.now());
+      fallbackStartRef.current = null;
     }
     setSessionTaskId(activeTask.id);
     const end = Date.now() + timeLeft * 1000;
