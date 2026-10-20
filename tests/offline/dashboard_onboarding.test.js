@@ -11,9 +11,9 @@ test("Service Worker and stylesheet versions are synchronized for v396", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v434-focus-park-zen/);
-  assert.match(html, /taskflow-v434-focus-park-zen/);
-  assert.match(html, /app\.css\?v=342/);
+  assert.match(sw, /taskflow-v435-kelola-workspace-fase0/);
+  assert.match(html, /taskflow-v435-kelola-workspace-fase0/);
+  assert.match(html, /app\.css\?v=343/);
 });
 
 test("Dashboard contains conditional rendering logic for new users (hasTasks)", () => {
