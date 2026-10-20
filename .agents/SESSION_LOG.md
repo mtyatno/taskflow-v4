@@ -3701,3 +3701,7 @@
 ## 2026-10-20 23:27 WIB — Claude — merge Fokus Hari Ini PR B (#64)
 - Bapak: "merge". #64 di-merge (571ff1a); CI Tests hijau. SW v436 / `app.css?v=344`, ADR-021.
 - **Berikutnya (di server, oleh Bapak):** ada migrasi — `sudo systemctl restart taskflow-web`, lalu `sudo systemctl restart taskflow` (satu per satu). Draft #63 (Kelola Workspace, v435/ADR-020) kini akan konflik kecil di versi + `.agents` saat di-merge. Berikutnya: plan PR C (Overtime).
+
+## 2026-10-20 23:58 WIB — Claude — merge Kelola Workspace Fase 0 (#63)
+- Bapak: "merge". #63 di-merge (b3d100b) setelah merge main (#64) + SW v437; CI Tests dan Deploy Taskflow V4 sukses.
+- **Berikutnya (di server, oleh Bapak):** cek task/mindmap yatim (query di PR) → `sudo systemctl restart taskflow-web taskflow` → query lagi harus 0. Lalu brainstorming Fase 1 (halaman Kelola per workspace).
