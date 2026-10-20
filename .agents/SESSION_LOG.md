@@ -3527,3 +3527,8 @@
 - **Status:** Needs Review (draft PR; deploy: ffmpeg, MEDIA_ROOT, MEDIA_URL_SECRET, nginx, restart `taskflow-web`).
 - **Perbaikan review akhir (2026-10-20, 13 temuan):** restore mengantrekan media `processing`; cek format ffprobe per keluarga sniff; PATCH/complete saat note dibuang → 404 tanpa file yatim; `.part` hilang → 0 + 409; init (nama bersih, `.part` sebelum commit 507/503, client_id bersamaan); worker gagal aman saat exception; batas 10.000 atom; peringatan ffmpeg/ffprobe saat start; `_media_utcnow()`; tes e2e ffmpeg; langkah deploy + ADR-017 satu proses. pytest 735.
 - **Merge `main` (2026-10-20):** PR Kanban #50 memakai ADR-016 → ADR media dinomori ulang ADR-017; konflik `.agents/*` (entri berdiri sendiri) dipertahankan keduanya.
+## 2026-10-20 09:10 WIB — Claude — brainstorming & spec workspace di sidebar mode ikon
+- Bapak minta menu workspace di sidebar mode ikon. Dibaca: `Sidebar` (rail + seksi WORKSPACES), `GET /api/lists`/`get_lists_for_user`, `listsync.js`, halaman `slist_` (`workspace-nav-tabs`).
+- Temuan: sidebar expanded sudah memuat semua workspace + halaman "Kelola Workspace" → rail cukup avatar pin + tombol ke `manage_lists`, tanpa flyout. Belum ada penyimpanan preferensi UI per user (pola terdekat `mindmap_pins`); ikon `pin-off`/`more-horizontal` belum ada di registri.
+- Spec ditulis di branch `claude/sidebar-workspace-pins-spec`. Belum ada kode.
+- **Status:** Needs Review (spec).
