@@ -294,7 +294,8 @@ def backfill_contexts(conn) -> dict:
                 clear_ids.append(r[0])
                 continue
             c_scope = ("w", r[11]) if r[11] is not None else ("u", r[10])
-            if r[9] is not None and c_scope == scope and _nocase(r[9]) == _nocase(name):
+            if r[9] is not None and c_scope == scope and _nocase(r[9]) == _nocase(name) \
+                    and r[1] == r[9]:  # teks harus persis sama dgn nama context, bukan hanya NOCASE
                 continue
         if not name or scope[1] is None:  # nama kosong / yatim / pemilik sudah dihapus
             continue

@@ -197,3 +197,20 @@ def test_backfill_skips_orphans(conn):
     assert res["created"] == 0
     assert _row(conn, t)["context_id"] is None
     assert _row(conn, t2)["context_id"] is None
+
+
+def test_backfill_resyncs_case_only_drift(conn):
+    u = _user(conn)
+    cid = _ctx(conn, user_id=u, name="Work")
+    t1 = _task(conn, u, "work", updated="2026-01-02T00:00:00")
+    t2 = _task(conn, u, "  Work ", updated="2026-01-02T00:00:00")
+    conn.execute("UPDATE tasks SET context_id=?", (cid,))
+    conn.commit()
+    repository.backfill_contexts(conn)
+    for t in (t1, t2):
+        r = _row(conn, t)
+        assert r["context"] == "Work"
+        assert r["context_id"] == cid
+        assert r["updated_at"] == "2026-01-02T00:00:00"
+    assert len(_personal(conn, u)) == 1
+    assert repository.backfill_contexts(conn) == {"created": 0, "linked": 0, "cleared": 0, "skipped": 0}
