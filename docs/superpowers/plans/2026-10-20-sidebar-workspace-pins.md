@@ -93,7 +93,7 @@
 
 **Files:**
 - Modify: `webapp.py` — tambah endpoint setelah `remove_member` (~baris 3216), **sebelum** rute `/api/lists/{list_id}/...` lain yang bisa bentrok (tidak ada konflik karena path diakhiri `/pin`)
-- Modify: `.agents/DECISIONS.md` — **ADR-017** (nomor kosong berikutnya; terakhir ADR-016 saat rencana ditulis)
+- Modify: `.agents/DECISIONS.md` — **ADR-018** (nomor kosong berikutnya; terakhir ADR-017 setelah #51)
 - Test: `tests/test_workspace_pins_api.py` (kelas `U`, `_workspace`, `_add_member` seperti `tests/test_projects_api.py`)
 
 **Interfaces:**
@@ -118,7 +118,7 @@
 - [ ] **Step 3: Implement endpoint di `webapp.py`**
   `PUT`: `is_list_member_or_owner` False → 404 `"List not found"`; `PinLimitError` → `HTTPException(409, detail={"code": "PIN_LIMIT", "message": "Maksimal 5 workspace di-pin"})`.
 
-- [ ] **Step 4: Tulis ADR-017** di `.agents/DECISIONS.md` (format ADR yang ada): "Pin workspace per user untuk rail sidebar (`workspace_pins`)" — keputusan (tabel pin per user, maks 5, seed sekali bertanda `users.workspace_pins_seeded`, pin dibersihkan saat keluar workspace, field di `GET /api/lists`), alasan (navigasi cepat di mode ikon tanpa membebani rail), konsekuensi (hanya online di v1, urutan drag belum ada, bot ikut memicu seed lewat `get_lists_for_user`).
+- [ ] **Step 4: Tulis ADR-018** di `.agents/DECISIONS.md` (format ADR yang ada): "Pin workspace per user untuk rail sidebar (`workspace_pins`)" — keputusan (tabel pin per user, maks 5, seed sekali bertanda `users.workspace_pins_seeded`, pin dibersihkan saat keluar workspace, field di `GET /api/lists`), alasan (navigasi cepat di mode ikon tanpa membebani rail), konsekuensi (hanya online di v1, urutan drag belum ada, bot ikut memicu seed lewat `get_lists_for_user`).
 
 - [ ] **Step 5: Run full suite**
   Run: `python -m pytest tests/ -q`
@@ -127,7 +127,7 @@
 - [ ] **Step 6: Commit**
   ```bash
   git add webapp.py tests/test_workspace_pins_api.py .agents/DECISIONS.md
-  git commit -m "feat(workspace-pins): PUT/DELETE /api/lists/{id}/pin + ADR-017"
+  git commit -m "feat(workspace-pins): PUT/DELETE /api/lists/{id}/pin + ADR-018"
   ```
 
 **Setelah Bagian A:** review akhir branch, perbarui `.agents/CURRENT_STATE.md` + `SESSION_LOG.md`, buka draft PR dengan catatan deploy (restart `taskflow-web` + `taskflow`). Bagian B dimulai setelah PR ini di-merge.

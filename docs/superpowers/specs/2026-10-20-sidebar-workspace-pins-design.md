@@ -158,7 +158,7 @@ Collapse sidebar → avatar pin tampil sesuai urutan; klik membuka workspace dan
 1. **PR backend** — tabel, seed, field `pinned`/`pin_position`, endpoint pin, pembersihan saat keluar workspace, pytest. Deploy: restart `taskflow-web` **dan** `taskflow` (bot), karena `repository.py` berubah.
 2. **PR frontend + offline** — `workspacepins.js`, rail, tombol pin di halaman workspace, menu klik kanan, `listsync` membawa field pin, CSS. Naikkan versi SW (`static/sw.js` CACHE, fallback di `index.html`, `sw_cache` di `webapp.py`, `tests/test_version.py`) dan `app.css?v=` ke nomor kosong berikutnya di `main` saat itu (beberapa thread berjalan paralel).
 
-Keputusan dicatat sebagai ADR baru di `.agents/DECISIONS.md` bersama PR backend (nomor kosong berikutnya; saat spec ditulis, terakhir ADR-016).
+Keputusan dicatat sebagai ADR baru di `.agents/DECISIONS.md` bersama PR backend (nomor kosong berikutnya; saat spec ditulis, terakhir ADR-016; setelah #51 terakhir ADR-017).
 
 ## 12. Di luar cakupan v1
 
