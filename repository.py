@@ -1768,9 +1768,14 @@ class TaskRepository:
                     "INSERT INTO list_members (list_id, user_id, joined_at) VALUES (?,?,?)",
                     (list_id, user_id, now),
                 )
-                return True
             except sqlite3.IntegrityError:
                 return False  # already a member
+            try:  # komentar note jadi terlihat bagi anggota baru: bump agar delta pull mengirimnya
+                conn.execute("UPDATE note_comments SET updated_at = ? WHERE list_id = ?",
+                             (datetime.now(_TZ_JKT).isoformat(), list_id))
+            except sqlite3.OperationalError:
+                pass  # tabel belum dimigrasi
+            return True
 
     def remove_list_member(self, list_id: int, user_id: int) -> bool:
         with self._connect() as conn:

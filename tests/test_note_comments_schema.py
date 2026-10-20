@@ -94,6 +94,9 @@ def test_serialize_and_select_cols():
                          "client_id", "created_at", "updated_at"]
     assert out["username"] == "rina" and out["display_name"] == "Rina" and out["body"] == "halo"
     assert note_comments.serialize({**base, "deleted_at": "t"})["body"] == ""
+    tomb = note_comments.serialize({**base, "quote": "kutip", "deleted_at": "t"})
+    assert tomb["quote"] is None
+    assert note_comments.serialize({**base, "quote": "kutip"})["quote"] == "kutip"
     conn = db()
     try:
         note_comments.ensure_note_comments_schema(conn)

@@ -64,7 +64,7 @@ Waktu disimpan ISO dengan zona Jakarta (`datetime.now(_TZ_JKT).isoformat()`), sa
 
 ### 2.3 Visibilitas (satu helper, dipakai semua endpoint)
 
-`_comment_visible_clause(uid)` — komentar `c` terlihat bila ada note `n` dengan `n.id = c.note_id`, `n.list_id IS NOT NULL`, `n.list_id = c.list_id`, dan `n` lolos `_note_access_clause(uid, "n")`.
+`note_comments.visible_clause(uid)` (dan `note_comments.visible_note` untuk satu note) — komentar `c` terlihat bila ada note `n` dengan `n.id = c.note_id`, `n.list_id IS NOT NULL`, `n.list_id = c.list_id`, dan `n` lolos `_note_access_clause(uid, "n")`.
 
 ## 3. Hak akses
 
@@ -83,7 +83,7 @@ Semua memerlukan login. Ukuran dan format diperiksa di model Pydantic.
 
 | Metode & path | Fungsi |
 |---|---|
-| `GET /api/note-comments?since=&limit=` | Delta pull global. `since` = kursor `"<updated_at>|<id>"` (kosong = dari awal), `limit` default 500, maks 1000. Urut `(updated_at, id)`. Mengembalikan `{items, cursor, more}`; `items` termasuk tombstone (`deleted_at` terisi, `body` dikosongkan). Kursor > 30 hari → `{"reset": true}` |
+| `GET /api/note-comments?since=&limit=` | Delta pull global. `since` = kursor `"<updated_at>|<id>"` (kosong = dari awal), `limit` default 500, maks 1000. Urut `(updated_at, id)`. Mengembalikan `{items, cursor, more}`; `items` termasuk tombstone (`deleted_at` terisi, `body` dikosongkan). Kursor > 30 hari → `{"reset": true}`. Kursor bisa maju tanpa item (`max(updated_at terakhir, now − 5 menit)\|0`); `reset` hanya berarti klien tidak sinkron > 30 hari; komentar yang terlihat lagi (restore, share ulang, bergabung ke workspace) di-bump `updated_at`-nya. |
 | `GET /api/scratchpad/{id}/comments` | Semua komentar terlihat milik satu note, tanpa tombstone |
 | `POST /api/scratchpad/{id}/comments` | `{body, quote?, parent_id?, client_id?}` → baris baru. `client_id` yang sudah ada → kembalikan baris lama (200). `parent_id` yang menunjuk balasan → diratakan ke thread induknya. `quote` diabaikan pada balasan |
 | `PATCH /api/note-comments/{cid}` | `{body}` (edit, isi `edited_at`) **atau** `{resolved: bool}` (thread saja) |

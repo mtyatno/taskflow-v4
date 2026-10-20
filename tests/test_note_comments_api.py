@@ -160,13 +160,13 @@ def test_delete_rights_and_cascade(client):
     t = _post(b, nid, "thread b").json()["id"]
     rep = _post(c, nid, "balas c", parent_id=t).json()["id"]
     assert c.delete(f"/api/note-comments/{t}").status_code == 403
-    mine = _post(c, nid, "milik c").json()["id"]
+    mine = _post(c, nid, "milik c", quote="kutip c").json()["id"]
     assert c.delete(f"/api/note-comments/{mine}").status_code == 200
-    assert _row(mine)["deleted_at"] and _row(mine)["body"] == ""
+    assert _row(mine)["deleted_at"] and _row(mine)["body"] == "" and _row(mine)["quote"] is None
     assert a.delete(f"/api/note-comments/{t}").json() == {"ok": True}
     for cid in (t, rep):
         row = _row(cid)
-        assert row["deleted_at"] and row["body"] == ""
+        assert row["deleted_at"] and row["body"] == "" and row["quote"] is None
     assert a.delete(f"/api/note-comments/{t}").status_code == 200
 
 

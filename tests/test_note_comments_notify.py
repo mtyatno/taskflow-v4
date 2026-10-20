@@ -122,3 +122,20 @@ def test_telegram_sent(client, monkeypatch):
     assert len(calls) == 1
     assert calls[0]["chat_id"] == 987001 and calls[0]["parse_mode"] == "HTML"
     assert calls[0]["text"].startswith("ncn7b mengomentari catatanmu ")
+
+
+def test_resolve_twice_notifies_once(client):
+    a, b = U(client, "ncn8a"), U(client, "ncn8b")
+    nid, _ = shared_note(a, [b], "ncn8 note")
+    tb = _post(b, nid, "thread b")
+    before = len(_notifs(b.id))
+    for _ in range(2):
+        r = a.patch(f"/api/note-comments/{tb['id']}", json={"resolved": True})
+        assert r.status_code == 200 and r.json()["resolved_at"]
+    assert len(_notifs(b.id)) == before + 1
+    resolved_at = r.json()["resolved_at"]
+    r = a.patch(f"/api/note-comments/{tb['id']}", json={"resolved": True})
+    assert r.json()["resolved_at"] == resolved_at  # tidak ditimpa
+    assert b.patch(f"/api/note-comments/{tb['id']}", json={"resolved": False}).status_code == 200
+    r = b.patch(f"/api/note-comments/{tb['id']}", json={"resolved": False})  # sudah terbuka: no-op
+    assert r.status_code == 200 and r.json()["resolved_at"] is None

@@ -103,12 +103,12 @@ def mention_usernames(body: str) -> set[str]:
 
 
 def serialize(row) -> dict:
-    """Baris SELECT_COLS -> bentuk API. Tombstone (deleted_at terisi) dikosongkan body-nya."""
+    """Baris SELECT_COLS -> bentuk API. Tombstone (deleted_at terisi) dikosongkan body dan quote-nya."""
     r = dict(row)
     return {
         "id": r["id"], "note_id": r["note_id"], "list_id": r["list_id"], "parent_id": r["parent_id"],
         "user_id": r["user_id"], "username": r.get("author_username"), "display_name": r.get("author_display"),
-        "body": "" if r["deleted_at"] else r["body"], "quote": r["quote"],
+        "body": "" if r["deleted_at"] else r["body"], "quote": None if r["deleted_at"] else r["quote"],
         "resolved_at": r["resolved_at"], "resolved_by": r["resolved_by"],
         "resolved_by_name": r.get("resolver_name"), "edited_at": r["edited_at"], "deleted_at": r["deleted_at"],
         "client_id": r["client_id"], "created_at": r["created_at"], "updated_at": r["updated_at"],

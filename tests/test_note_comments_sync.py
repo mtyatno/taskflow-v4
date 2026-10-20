@@ -106,13 +106,13 @@ def test_delta_same_timestamp_boundary(client):
 def test_delta_includes_tombstone(client):
     a = U(client, "ncs4a")
     nid, _ = shared_note(a, [], "ncs4 note")
-    c = _post(a, nid, "akan dihapus")
+    c = _post(a, nid, "akan dihapus", quote="kutipan")
     cur = _pull(a)["cursor"]
     assert a.delete(f"/api/note-comments/{c['id']}").status_code == 200
     j = _pull(a, cur)
     assert len(j["items"]) == 1
     it = j["items"][0]
-    assert it["id"] == c["id"] and it["deleted_at"] and it["body"] == ""
+    assert it["id"] == c["id"] and it["deleted_at"] and it["body"] == "" and it["quote"] is None
 
 
 def test_delta_reset_old_cursor(client):
@@ -260,3 +260,43 @@ def test_delete_workspace_removes_comments(client):
     conn = db()
     assert conn.execute("SELECT COUNT(*) FROM note_comments WHERE list_id = ?", (lid,)).fetchone()[0] == 0
     conn.close()
+
+
+def test_quiet_cursor_advances_no_reset(client):
+    a = U(client, "ncs20a")
+    nid, _ = shared_note(a, [], "ncs20 note")
+    c = _post(a, nid, "lama")
+    old = (datetime.now(timezone(timedelta(hours=7))) - timedelta(days=31)).isoformat()
+    conn = db()
+    conn.execute("UPDATE note_comments SET updated_at = ? WHERE id = ?", (old, c["id"]))
+    conn.commit()
+    conn.close()
+    j1 = _pull(a)
+    assert [x["id"] for x in j1["items"]] == [c["id"]] and j1["more"] is False
+    j2 = _pull(a, j1["cursor"])
+    assert "reset" not in j2 and j2["items"] == []
+    c2 = _post(a, nid, "baru")
+    j3 = _pull(a, j2["cursor"])
+    assert [x["id"] for x in j3["items"]] == [c2["id"]]
+    j4 = _pull(a, j3["cursor"])
+    assert "reset" not in j4 and j4["items"] == []
+
+
+def test_malformed_since_returns_clean_cursor(client):
+    a = U(client, "ncs21a")
+    j = _pull(a, "sampah")
+    assert j["cursor"] != "sampah" and "|" in j["cursor"]
+    assert "reset" not in _pull(a, j["cursor"])
+
+
+def test_new_member_receives_existing_comments(client):
+    a, b = U(client, "ncs22a"), U(client, "ncs22b")
+    nid, lid = shared_note(a, [], "ncs22 note")
+    _post(a, nid, "sebelum bergabung")
+    nid_b, _ = shared_note(b, [], "ncs22 note b")
+    _post(b, nid_b, "aktivitas workspace lain")  # lebih baru dari komentar a
+    cur = _pull(b)["cursor"]  # kursor b sudah melewati komentar a
+    assert _pull(b, cur)["items"] == []
+    TaskRepository(os.environ["DB_PATH"]).add_list_member(lid, b.id)
+    j = _pull(b, cur)
+    assert [x["body"] for x in j["items"]] == ["sebelum bergabung"]

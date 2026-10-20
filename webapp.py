@@ -7797,8 +7797,14 @@ async def pull_note_comments(since: str = "", limit: int = 500, user=Depends(get
             "ORDER BY c.updated_at, c.id LIMIT ?", params + [limit + 1]).fetchall()
     more = len(rows) > limit
     items = [note_comments.serialize(r) for r in rows[:limit]]
-    cursor = note_comments.make_cursor(items[-1]["updated_at"], items[-1]["id"]) if items else (
-        note_comments.make_cursor(*cur) if cur else since)
+    if more:
+        cursor = note_comments.make_cursor(items[-1]["updated_at"], items[-1]["id"])
+    else:
+        # Kursor boleh maju tanpa item: max(updated_at terakhir, sekarang - 5 menit) agar tidak kedaluwarsa saat sepi.
+        margin = (datetime.now(_TZ_JKT) - timedelta(minutes=5)).isoformat()
+        last, last_id = (items[-1]["updated_at"], items[-1]["id"]) if items else cur or ("", 0)
+        # Item terakhir lebih baru dari margin: pakai (updated_at, id)-nya agar tak terkirim ulang.
+        cursor = note_comments.make_cursor(last, last_id) if last >= margin else note_comments.make_cursor(margin, 0)
     return {"items": items, "cursor": cursor, "more": more}
 
 
@@ -7867,7 +7873,9 @@ async def patch_note_comment(cid: int, req: CommentPatch, background_tasks: Back
                 raise HTTPException(status_code=422, detail="Hanya thread yang bisa diselesaikan")
             if uid not in (c["user_id"], c["note_owner_id"]):
                 raise HTTPException(status_code=403, detail="Tidak berhak menyelesaikan thread ini")
-            if req.resolved:
+            if bool(req.resolved) == bool(c["resolved_at"]):
+                pass  # sudah di keadaan yang diminta: no-op (tanpa UPDATE, notifikasi, atau sinyal)
+            elif req.resolved:
                 conn.execute("UPDATE note_comments SET resolved_at = ?, resolved_by = ?, updated_at = ? WHERE id = ?",
                              (now, uid, now, cid))
                 _schedule_comment_notify(
@@ -7878,7 +7886,8 @@ async def patch_note_comment(cid: int, req: CommentPatch, background_tasks: Back
                              (now, cid))
         out = _comment_out(conn, cid)
         note_id = c["note_id"]
-    await _note_comment_broadcast(note_id, {"type": "comments_changed", "note_id": note_id})
+    if req.body is not None or bool(req.resolved) != bool(c["resolved_at"]):
+        await _note_comment_broadcast(note_id, {"type": "comments_changed", "note_id": note_id})
     return out
 
 
@@ -7894,7 +7903,7 @@ async def delete_note_comment(cid: int, user=Depends(get_current_user)):
             raise HTTPException(status_code=403, detail="Tidak berhak menghapus komentar ini")
         # Hapus thread -> semua balasannya ikut; tombstone yang sudah ada tidak disentuh lagi.
         cur = conn.execute(
-            "UPDATE note_comments SET deleted_at = ?, body = '', updated_at = ? "
+            "UPDATE note_comments SET deleted_at = ?, body = '', quote = NULL, updated_at = ? "
             "WHERE (id = ? OR parent_id = ?) AND deleted_at IS NULL", (now, now, cid, cid))
         changed = cur.rowcount > 0
         note_id = c["note_id"]
