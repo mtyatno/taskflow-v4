@@ -83,3 +83,81 @@ describe('Media Directive Module', () => {
     assert.match(sw, /"\/static\/offline\/mediadirective\.js"/);
   });
 });
+
+// ── fix wave item 2: nama dengan karakter markdown (remark memecah teks sebelum plugin berjalan) ──
+describe('remarkMediaPlugin: atribut terpecah oleh konstruksi markdown', () => {
+  const pos = (s, e) => ({ start: { offset: s }, end: { offset: e } });
+  // Pohon meniru keluaran remark untuk sumber `src` (diverifikasi dengan bundle Milkdown asli).
+  function run(src, children) {
+    const tree = { type: 'root', children: [{ type: 'paragraph', children }] };
+    remarkMediaPlugin()(tree, { value: src, toString() { return src; } });
+    return tree.children[0].children;
+  }
+  const dirs = (ch) => ch.filter((n) => n.type === 'mediaDirective').map((n) => ({ cid: n.cid, name: n.name }));
+  const rest = (ch) => ch.filter((n) => n.type !== 'mediaDirective');
+
+  it('emphasis _x_ di dalam name', () => {
+    const src = '::media[c1]{name="rapat _final_.mp4"}';
+    const i = src.indexOf('_final_');
+    const ch = run(src, [
+      { type: 'text', value: '::media[c1]{name="rapat ', position: pos(0, i) },
+      { type: 'emphasis', children: [{ type: 'text', value: 'final' }], position: pos(i, i + 7) },
+      { type: 'text', value: '.mp4"}', position: pos(i + 7, src.length) },
+    ]);
+    assert.deepEqual(dirs(ch), [{ cid: 'c1', name: 'rapat _final_.mp4' }]);
+    assert.deepEqual(rest(ch), [], 'tidak ada sisa teks/junk');
+  });
+
+  it('emphasis *y*, delete ~b~, inlineCode, autolink www./http', () => {
+    let src = '::media[c2]{name="x*y*.mp4"}';
+    let i = src.indexOf('*y*');
+    let ch = run(src, [
+      { type: 'text', value: '::media[c2]{name="x', position: pos(0, i) },
+      { type: 'emphasis', children: [{ type: 'text', value: 'y' }], position: pos(i, i + 3) },
+      { type: 'text', value: '.mp4"}', position: pos(i + 3, src.length) },
+    ]);
+    assert.deepEqual(dirs(ch), [{ cid: 'c2', name: 'x*y*.mp4' }]);
+    assert.deepEqual(rest(ch), []);
+
+    src = '::media[c3]{name="a~b~.webm"}';
+    i = src.indexOf('~b~');
+    ch = run(src, [
+      { type: 'text', value: '::media[c3]{name="a', position: pos(0, i) },
+      { type: 'delete', children: [{ type: 'text', value: 'b' }], position: pos(i, i + 3) },
+      { type: 'text', value: '.webm"}', position: pos(i + 3, src.length) },
+    ]);
+    assert.deepEqual(dirs(ch), [{ cid: 'c3', name: 'a~b~.webm' }]);
+
+    ch = run('', [
+      { type: 'text', value: '::media[c4]{name="' },
+      { type: 'link', url: 'http://www.site.mp4', children: [{ type: 'text', value: 'www.site.mp4' }] },
+      { type: 'text', value: '"}' },
+    ]);
+    assert.deepEqual(dirs(ch), [{ cid: 'c4', name: 'www.site.mp4' }]);
+    assert.deepEqual(rest(ch), []);
+
+    ch = run('', [
+      { type: 'text', value: '::media[c5]{name="q' },
+      { type: 'inlineCode', value: 't' },
+      { type: 'text', value: '.mp3"}' },
+    ]);
+    assert.deepEqual(dirs(ch), [{ cid: 'c5', name: 'q`t`.mp3' }]);
+  });
+
+  it('teks sebelum/sesudah dipertahankan, direktif berikutnya di sisa teks tetap dikenali', () => {
+    const ch = run('', [
+      { type: 'text', value: 'awal ::media[c1]{name="a ' },
+      { type: 'emphasis', children: [{ type: 'text', value: 'b' }] },
+      { type: 'text', value: '.mp4"} tengah ::media[c2]{name="z.mp3"} akhir' },
+    ]);
+    assert.deepEqual(dirs(ch), [{ cid: 'c1', name: 'a _b_.mp4' }, { cid: 'c2', name: 'z.mp3' }]);
+    assert.deepEqual(ch.map((n) => n.type === 'text' ? n.value : '#' + n.cid), ['awal ', '#c1', ' tengah ', '#c2', ' akhir']);
+  });
+
+  it('tanpa penutup } → perilaku lama (tidak menelan node lain)', () => {
+    const em = { type: 'emphasis', children: [{ type: 'text', value: 'b' }] };
+    const ch = run('', [{ type: 'text', value: '::media[c1]{name="a ' }, em, { type: 'text', value: ' tanpa penutup' }]);
+    assert.deepEqual(dirs(ch), [{ cid: 'c1', name: '' }]);
+    assert.ok(ch.includes(em));
+  });
+});

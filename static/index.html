@@ -24041,8 +24041,9 @@ async function ensureServerNoteId(noteId) {
 }
 // Alur sisip: validasi → id server (null → toast, TANPA direktif) → direktif ke editor → mulai unggah.
 // insert(md) harus mengembalikan true bila direktif benar-benar masuk; selain itu unggahan tidak dimulai.
-// Hasil: cid yang diunggah, atau null.
-async function beginNoteMediaUpload({ file, noteId, MD, toast, ensureId, insert, manager, onServerId }) {
+// insertMedia({cid, name}) (bila ada) dipakai lebih dulu: node media disisipkan langsung lewat schema, karena
+// parse markdown merusak nama ber-karakter markdown (_x_, *x*, ~x~, `x`, www.). Hasil: cid yang diunggah, atau null.
+async function beginNoteMediaUpload({ file, noteId, MD, toast, ensureId, insert, insertMedia, manager, onServerId }) {
   if (!file || !MD) return null;
   const say = m => { try { if (typeof toast === 'function') toast(m); } catch (_) {} };
   if (!MD.isMediaFileName(file.name)) { say('Format tidak didukung'); return null; }
@@ -24052,7 +24053,10 @@ async function beginNoteMediaUpload({ file, noteId, MD, toast, ensureId, insert,
   if (typeof onServerId === 'function') onServerId(sid);
   if (!manager || typeof manager.start !== 'function') { say('Unggahan tidak bisa dimulai sekarang. Muat ulang halaman.'); return null; }
   const cid = MD.newClientId();
-  if (!insert('\n\n' + MD.formatMediaDirective({ cid, name: file.name }) + '\n\n')) return null;
+  const inserted = typeof insertMedia === 'function'
+    ? insertMedia({ cid, name: file.name })
+    : insert('\n\n' + MD.formatMediaDirective({ cid, name: file.name }) + '\n\n');
+  if (!inserted) return null;
   try {
     const p = manager.start({ file, noteId: sid, cid });
     if (p && typeof p.catch === 'function') p.catch(err => console.warn('[media] unggah gagal', err));
@@ -27558,6 +27562,32 @@ function NoteModal({
   const [mediaServerNoteId, setMediaServerNoteId] = React.useState(null);
   const mediaNoteIdForCards = savedNoteId != null && /^\d+$/.test(String(savedNoteId)) ? Number(savedNoteId) : mediaServerNoteId;
   const mediaNoteOwnerId = note?.user_id != null ? note.user_id : (currentUserId != null ? currentUserId : (Number(localStorage.getItem('tf_user_id')) || null));
+  // Node media langsung dari schema sebagai paragraf sendiri (setara hasil insertMarkdown('\n\n::media…\n\n')),
+  // tanpa parse markdown. Plugin media absen (modul tidak termuat) → teks direktif lewat insertMarkdown.
+  const insertMediaNode = a => {
+    const editor = milkdownEditorRef?.current;
+    if (!editor) return false;
+    const MB = window.MilkdownBundle;
+    let ok = false;
+    let noNode = false;
+    try {
+      editor.action(ctx => {
+        const view = ctx.get(MB.editorViewCtx);
+        const schema = view && view.state.schema;
+        if (!schema || !schema.nodes.media || !schema.nodes.paragraph) { noNode = true; return; }
+        const node = schema.nodes.media.create({ cid: a.cid, name: a.name });
+        const para = schema.nodes.paragraph.create(null, node);
+        view.dispatch(view.state.tr.replaceSelectionWith(para, false).scrollIntoView());
+        ok = true;
+        view.focus();
+      });
+    } catch (_) {}
+    if (noNode) {
+      const MD = window.TF && window.TF.mediadirective;
+      return MD ? insertMarkdown('\n\n' + MD.formatMediaDirective(a) + '\n\n') : false;
+    }
+    return ok;
+  };
   const handleInsertMedia = file => {
     beginNoteMediaUpload({
       file,
@@ -27566,6 +27596,7 @@ function NoteModal({
       toast: m => (showToast ? showToast(m, "error") : window.__showToast?.(m, "error")),
       ensureId: ensureServerNoteId,
       insert: insertMarkdown,
+      insertMedia: insertMediaNode,
       manager: ensureMediaUploadManager(),
       onServerId: setMediaServerNoteId
     }).catch(err => console.warn('[media] sisip gagal', err));

@@ -9,6 +9,8 @@ Alur (spec §9, brief Task 7):
   6  offline → kartu "Butuh koneksi untuk memutar"; tombol 🎬 nonaktif + tooltip; SW tidak melayani meta dari cache
   7  direktif dengan nama berbahaya dan cid note lain → teks ter-escape / pesan `missing`
   8  token kedaluwarsa (server kedua MEDIA_URL_TTL_SEC=5) → jeda, tunggu, geser+putar → posisi dipulihkan
+  9  nama ber-karakter markdown (_x_, *x*, ~x~, www.) dari editor → isi tersimpan terbaca ulang dengan cid/nama
+     sama tanpa sisa teks; buka ulang editor + mode baca → kartu ready; baris daftar lampiran punya Hapus
 
 Service worker AKTIF (service_workers="allow"); wajib env PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS=1
 (diset di skrip) agar context.route juga menangkap fetch dari SW. Chromium Playwright tanpa H.264 → pemutaran
@@ -178,6 +180,16 @@ def from_sw(req):
 
 def directive(cid, name):
     return '::media[%s]{name="%s"}' % (cid, name)
+
+
+def saved_directives(content):
+    """[(cid, name)] dari isi note tersimpan (unescape backslash seperti mediadirective.parseName)."""
+    out = []
+    for m in re.finditer(r'\\?::media\\?\[([0-9a-zA-Z_-]{1,64})\\?\](?:\s*\\?\{([^}]*)\\?\})?', content or ""):
+        nm = re.search(r'(?:^|[\s,])name\s*=\s*"((?:[^"\\]|\\.)*)"', m.group(2) or "")
+        name = re.sub(r'\\([!-/:-@\[-`{-~])', r'\1', nm.group(1)) if nm else ""
+        out.append((m.group(1), name))
+    return out
 
 
 def wait_until(fn, timeout=15, interval=0.25):
@@ -540,6 +552,65 @@ def main():
             shot(b, "05_anggota_putar.png")
             check("B: tanpa pageerror", not b.errors, b.errors[:3])
             ctxb.close()
+
+            # ── 9. nama ber-karakter markdown dari editor → round-trip cid/nama tanpa sisa teks ──────
+            import shutil as _sh
+            tricky = [("rapat _final_.mp4", "mp4"), ("x*y*.mp4", "mp4"), ("a~b~.webm", "webm"), ("www.site.mp4", "mp4")]
+            tdir = os.path.join(tmp, "tricky")
+            os.makedirs(tdir, exist_ok=True)
+            tpaths = []
+            for nm, src in tricky:
+                dst = os.path.join(tdir, nm)
+                _sh.copyfile(files[src], dst)
+                tpaths.append(dst)
+            n9 = make_note(base, A, "Note Nama E2E", "Nama aneh\n")
+            ctx, a = open_app(browser, base, A)
+            open_note(a, "Note Nama E2E", edit=True)
+            for path in tpaths:
+                upload_from_editor(a, path)
+            names = [nm for nm, _ in tricky]
+            states = []
+            for i in range(len(names)):
+                ok, seen = wait_state(a.locator(EDIT_CARD).nth(i), "ready", 60)
+                states.append((ok, seen[-1:] if seen else seen))
+            check("9a empat nama aneh dari editor → semua kartu ready", all(o for o, _ in states), states)
+            ed_attrs = a.evaluate("""() => Array.from(document.querySelectorAll('.ProseMirror .editor-media-card'))
+                .map(c => [c.getAttribute('data-media-cid'), c.getAttribute('data-media-name')])""")
+            check("9b node editor membawa nama persis", sorted(n for _, n in ed_attrs) == sorted(names), ed_attrs)
+            cont9 = wait_until(lambda: (lambda c: c if len(saved_directives(c)) >= 4 else "")(note_content(base, A, n9["id"])), 20) or ""
+            dirs9 = saved_directives(cont9)
+            check("9c isi tersimpan: cid/nama sama dengan node editor", sorted(dirs9) == sorted(map(tuple, ed_attrs)), (dirs9, cont9[:400]))
+            stripped = re.sub(r'\\?::media\\?\[[0-9a-zA-Z_-]+\\?\](?:\s*\\?\{[^}]*\\?\})?', '', cont9)
+            check("9d tanpa sisa teks direktif ({name=, _final_, www.)", not re.search(r'name=|final|www|\{|\}', stripped), repr(stripped))
+            # buka ulang: editor (parse markdown tersimpan) + mode baca
+            open_note(a, "Note Nama E2E", edit=True)
+            a.locator(EDIT_CARD).nth(3).wait_for(timeout=15000)
+            ed2 = a.evaluate("""() => Array.from(document.querySelectorAll('.ProseMirror .editor-media-card'))
+                .map(c => [c.getAttribute('data-media-cid'), c.getAttribute('data-media-name')])""")
+            junk = a.evaluate("() => document.querySelector('.ProseMirror').innerText")
+            check("9e editor dibuka ulang: 4 node dengan cid/nama sama, tanpa teks {name=",
+                  sorted(map(tuple, ed2)) == sorted(map(tuple, ed_attrs)) and "name=" not in junk, (ed2, junk[:200]))
+            # daftar lampiran note (dimuat saat editor dibuka; item 1, baris mentah user_id): baris media milik pengunggah punya tombol hapus
+            # Dua panel: NoteModal (editor, hak hapus) dan NotePanel di belakangnya (selalu tanpa hapus, by design).
+            panels_js = """() => Array.from(document.querySelectorAll('.note-attachments-panel')).map(p => {
+                const rows = Array.from(p.querySelectorAll('[data-media-attachment]'));
+                return [rows.length, rows.filter(r => r.querySelector('button')).length]; })"""
+            wait_until(lambda: any(n >= 4 for n, _ in a.evaluate(panels_js)), 15)
+            panels = a.evaluate(panels_js)
+            check("9g daftar lampiran editor: 4 baris media milik sendiri semuanya punya tombol hapus",
+                  any(n == 4 and d == 4 for n, d in panels), panels)
+            open_note(a, "Note Nama E2E")
+            rc9 = a.locator(READ_CARD)
+            wait_until(lambda: rc9.count() >= 4, 15)
+            rs = [wait_state(rc9.nth(i), "ready", 30)[0] for i in range(rc9.count())]
+            rd = a.evaluate("""() => Array.from(document.querySelectorAll('[data-media-card]:not(.editor-media-card) .note-media-name'))
+                .map(e => e.textContent)""")
+            check("9f mode baca: 4 kartu ready dengan nama persis", len(rs) == 4 and all(rs) and sorted(rd) == sorted(names), (rs, rd))
+            cont9b = note_content(base, A, n9["id"])
+            check("9h isi setelah dibuka ulang tetap terbaca sama", sorted(saved_directives(cont9b)) == sorted(dirs9), cont9b[:300])
+            shot(a, "09_nama_markdown.png")
+            check("A (alur 9): tanpa pageerror", not a.errors, a.errors[:3])
+            ctx.close()
             browser.close()
 
         # ── 8. token kedaluwarsa: server kedua dengan MEDIA_URL_TTL_SEC=5 ───────────────────

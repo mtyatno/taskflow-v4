@@ -56,39 +56,110 @@
     return MEDIA_EXTS.indexOf(name.slice(i + 1).toLowerCase()) !== -1;
   }
 
-  function remarkMediaPlugin() {
-    return function transformer(tree) {
-      function walk(node, parent, index) {
-        if (node.type === 'text' && typeof node.value === 'string' && parent) {
-          const regex = new RegExp(MEDIA_REGEX.source, 'gi');
-          const parts = [];
-          let lastIndex = 0;
-          let match;
-          while ((match = regex.exec(node.value)) !== null) {
-            if (match.index > lastIndex) {
-              parts.push({ type: 'text', value: node.value.slice(lastIndex, match.index) });
-            }
-            const p = fromMatch(match);
-            parts.push({ type: 'mediaDirective', cid: p.cid, name: p.name });
-            lastIndex = regex.lastIndex;
-          }
-          if (parts.length > 0) {
-            if (lastIndex < node.value.length) {
-              parts.push({ type: 'text', value: node.value.slice(lastIndex) });
-            }
-            parent.children.splice(index, 1, ...parts);
-            return index + parts.length;
-          }
-        }
-        if (node.children && Array.isArray(node.children)) {
-          let i = 0;
-          while (i < node.children.length) {
-            const next = walk(node.children[i], node, i);
-            i = next !== undefined ? next : i + 1;
-          }
-        }
+  // Sumber asli konstruksi (penanda emphasis/strong/delete, pagar inlineCode) bila posisi + sumber tersedia.
+  function runAt(src, node, chars, max, def) {
+    const o = node && node.position && node.position.start && node.position.start.offset;
+    if (src && typeof o === 'number') {
+      const ch = src.charAt(o);
+      if (chars.indexOf(ch) !== -1) {
+        let n = 0;
+        while (n < max && src.charAt(o + n) === ch) n++;
+        return ch.repeat(n);
       }
-      walk(tree, null, 0);
+    }
+    return def;
+  }
+  // Teks sumber (perkiraan) dari node inline yang dibuat remark di dalam name="…" (mis. _x_, *x*, ~x~, `x`,
+  // autolink www./http): dipakai merakit ulang atribut direktif yang terpecah.
+  function reconstruct(node, src) {
+    if (!node) return '';
+    if (node.type === 'text' || node.type === 'html') return node.value || '';
+    if (node.type === 'inlineCode') { const f = runAt(src, node, '`', 16, '`'); return f + (node.value || '') + f; }
+    if (node.type === 'break') return ' ';
+    const inner = (node.children || []).map((c) => reconstruct(c, src)).join('');
+    if (node.type === 'emphasis') { const m = runAt(src, node, '_*', 1, '_'); return m + inner + m; }
+    if (node.type === 'strong') { const m = runAt(src, node, '_*', 2, '__'); return m + inner + m; }
+    if (node.type === 'delete') { const m = runAt(src, node, '~', 2, '~'); return m + inner + m; }
+    return inner; // link/autolink dan lainnya: teks yang terlihat
+  }
+  const INLINE_SWALLOW = { emphasis: 1, strong: 1, delete: 1, inlineCode: 1, link: 1, html: 1, break: 1 };
+
+  // Memecah node teks menjadi node mediaDirective. Bila remark sudah memecah isi {name="…"} (konstruksi
+  // markdown di dalam nama), node inline berikutnya sampai teks yang memuat '}' ikut ditelan dan nama dirakit
+  // ulang — kartu tetap dikenali lewat cid tanpa sisa teks. Tanpa '}' → perilaku lama.
+  function splitChildren(parent, src) {
+    const ch = parent.children;
+    const out = [];
+    let changed = false;
+    let i = 0;
+    while (i < ch.length) {
+      const node = ch[i];
+      if (node.type !== 'text' || typeof node.value !== 'string') { out.push(node); i++; continue; }
+      let value = node.value;
+      let next = i + 1;
+      const regex = new RegExp(MEDIA_REGEX.source, 'gi');
+      let lastIndex = 0;
+      let any = false;
+      let match;
+      while ((match = regex.exec(value)) !== null) {
+        any = true;
+        if (match.index > lastIndex) out.push({ type: 'text', value: value.slice(lastIndex, match.index) });
+        let name = match[2] !== undefined ? parseName(match[2]) : '';
+        lastIndex = regex.lastIndex;
+        if (match[2] === undefined) {
+          const open = /^\s*\\?\{/.exec(value.slice(lastIndex));
+          if (open) {
+            let attr = value.slice(lastIndex + open[0].length);
+            let found = -1;
+            let j = next;
+            for (; j < ch.length; j++) {
+              const sib = ch[j];
+              if (sib.type === 'text' && typeof sib.value === 'string') {
+                const k = sib.value.indexOf('}');
+                if (k >= 0) { attr += sib.value.slice(0, k).replace(/\\$/, ''); found = j; break; }
+                attr += sib.value;
+              } else if (INLINE_SWALLOW[sib.type]) {
+                attr += reconstruct(sib, src);
+              } else break;
+            }
+            if (found >= 0) {
+              name = parseName(attr);
+              out.push({ type: 'mediaDirective', cid: match[1], name });
+              // Lanjutkan memindai sisa teks setelah '}' (bisa memuat direktif lain).
+              const sv = ch[found].value;
+              value = sv.slice(sv.indexOf('}') + 1);
+              next = found + 1;
+              regex.lastIndex = 0;
+              lastIndex = 0;
+              continue;
+            }
+          }
+        }
+        out.push({ type: 'mediaDirective', cid: match[1], name });
+      }
+      if (any) {
+        changed = true;
+        if (lastIndex < value.length) out.push({ type: 'text', value: value.slice(lastIndex) });
+      } else {
+        out.push(node);
+      }
+      i = next;
+    }
+    if (changed) parent.children = out;
+  }
+
+  function remarkMediaPlugin() {
+    return function transformer(tree, file) {
+      let src = '';
+      try { src = file != null ? String(file) : ''; } catch (e) { src = ''; }
+      if (src === '[object Object]') src = '';
+      function walk(node) {
+        if (!node || !Array.isArray(node.children)) return;
+        // Teks di dalam inlineCode/code tidak pernah berupa node text → tetap literal.
+        splitChildren(node, src);
+        node.children.forEach((c) => { if (c.type !== 'mediaDirective') walk(c); });
+      }
+      walk(tree);
     };
   }
 

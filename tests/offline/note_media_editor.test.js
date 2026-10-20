@@ -354,3 +354,25 @@ test("logout manual: abortAll dipanggil sebelum POST /api/auth/logout dan sebelu
   assert.ok(iAbort < blk.indexOf('api.post("/api/auth/logout"'));
   assert.ok(iAbort < blk.indexOf("tokenStore.clear()"));
 });
+
+// ── fix wave item 2: sisip node media langsung (bukan parse markdown) ──
+test("beginNoteMediaUpload: insertMedia({cid,name}) dipakai bila ada, insert(md) tidak dipanggil", async () => {
+  const ctx = uploadCtx({});
+  const { deps, log } = flowDeps({ insertMedia: (a) => { log.push(["insertMedia", a.cid, a.name]); return true; } });
+  const cid = await ctx.beginNoteMediaUpload(Object.assign({ file: fakeFile("rapat _final_.mp4", 10), noteId: 3 }, deps));
+  assert.ok(cid);
+  assert.deepEqual(log.map((x) => x[0]), ["ensure", "sid", "insertMedia", "start"]);
+  assert.deepEqual(log[2], ["insertMedia", cid, "rapat _final_.mp4"]);
+  const { deps: d2, log: l2 } = flowDeps({ insertMedia: () => false });
+  assert.equal(await ctx.beginNoteMediaUpload(Object.assign({ file: fakeFile("v.mp4", 10), noteId: 3 }, d2)), null);
+  assert.ok(!l2.some((x) => x[0] === "start"));
+});
+
+test("NoteModal: 🎬 menyisipkan node media lewat schema (bukan insertMarkdown)", () => {
+  const blk = slice("const handleInsertMedia = file => {", "const insertImageMd = md => {");
+  assert.match(blk, /insertMedia: insertMediaNode/);
+  const fn = slice("const insertMediaNode = ", "const handleInsertMedia = file => {");
+  assert.match(fn, /schema\.nodes\.media/);
+  assert.match(fn, /\.create\(\{ cid: (a|attrs)\.cid, name: (a|attrs)\.name \}\)/);
+  assert.match(fn, /replaceSelectionWith\(/);
+});
