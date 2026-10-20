@@ -23553,16 +23553,31 @@ window.hydrateDrawingPreviews = function(root, force) {
 const MEDIA_META_REUSE_MARGIN_S = 60;   // meta 'ready' di cache dipakai ulang sampai 60 dtk sebelum expires_at
 const MEDIA_URL_REFRESH_MARGIN_S = 30;  // error player saat >= expires_at - 30 → minta URL baru
 const MEDIA_RECHECK_MS = 5000;          // 'processing' (dan unggahan orang lain) dicek ulang tiap 5 dtk
+const MEDIA_URL_REFRESH_MIN_MS = 30000; // refresh URL player paling sering sekali per 30 dtk (anti-loop)
+// expires_at (jam server, detik) → jam lokal memakai header Date respons: lokal = expires_at - (server - lokal).
+// Header tidak ada/tidak valid (mis. tidak diekspos lintas-origin) → expires_at apa adanya.
+function mediaLocalExpiry(expiresAt, dateHeader, localNowMs) {
+  const exp = Number(expiresAt);
+  if (expiresAt == null || !isFinite(exp) || exp <= 0) return null;
+  const serverMs = dateHeader ? Date.parse(dateHeader) : NaN;
+  if (!isFinite(serverMs) || !isFinite(Number(localNowMs))) return exp;
+  return exp - (serverMs - Number(localNowMs)) / 1000;
+}
+function mediaExpirySec(meta) {
+  if (!meta) return NaN;
+  if (meta.expires_local != null && isFinite(Number(meta.expires_local))) return Number(meta.expires_local);
+  return meta.expires_at == null ? NaN : Number(meta.expires_at);
+}
 function mediaMetaCacheFresh(entry, nowSec) {
   const meta = entry && entry.meta;
   if (!meta || meta.status !== 'ready') return false;
-  const exp = Number(meta.expires_at);
+  const exp = mediaExpirySec(meta);
   if (meta.expires_at == null || !isFinite(exp) || exp <= 0) return false;
   return nowSec < exp - MEDIA_META_REUSE_MARGIN_S;
 }
 function mediaUrlExpired(meta, nowSec) {
   if (!meta || meta.expires_at == null) return false;
-  const exp = Number(meta.expires_at);
+  const exp = mediaExpirySec(meta);
   return isFinite(exp) && exp > 0 && nowSec >= exp - MEDIA_URL_REFRESH_MARGIN_S;
 }
 // Id note server (bilangan bulat positif). Id lokal (note dibuat offline) → null: kartu tidak meminta meta.
@@ -23626,6 +23641,12 @@ function mediaNumericNoteId(id) {
     let meta = null;
     try { meta = await res.json(); } catch (_) { return { offline: true }; }
     if (!meta || typeof meta !== 'object') return { offline: true };
+    // Kedaluwarsa menurut jam lokal (jam perangkat bisa beda dengan server).
+    try {
+      const dh = res.headers && typeof res.headers.get === 'function' ? res.headers.get('Date') : null;
+      const le = mediaLocalExpiry(meta.expires_at, dh, Date.now());
+      if (le != null) meta.expires_local = le;
+    } catch (_) {}
     if (meta.status === 'ready') cache.set(key, { meta, at: Date.now() });
     else cache.delete(key);
     return { meta, status: 200 };
@@ -23667,15 +23688,18 @@ function mediaNumericNoteId(id) {
     el.addEventListener('pause', () => { if (!st.refreshing) st.wantPlay = false; });
     el.addEventListener('timeupdate', () => { if (!st.refreshing && el.currentTime > 0) st.lastTime = el.currentTime; });
     el.addEventListener('error', () => { refreshUrl(card, st, el); });
+    el.addEventListener('stalled', () => { refreshUrl(card, st, el); });
     el.src = apiUrl(a.src);
     return el;
   }
 
-  // Token URL kedaluwarsa (mis. video dijeda > 6 jam): minta meta baru (tanpa cache), ganti src, pulihkan
+  // Token URL kedaluwarsa (mis. video dijeda > 6 jam) dan player error/stalled: minta meta baru (tanpa cache), ganti src, pulihkan
   // posisi + status putar saat loadedmetadata. Elemen player tetap sama.
   async function refreshUrl(card, st, el) {
     if (st.refreshing || st.player !== el) return;
     if (!st.meta || !mediaUrlExpired(st.meta, nowSec())) return;
+    if (st.lastRefreshAt && Date.now() - st.lastRefreshAt < MEDIA_URL_REFRESH_MIN_MS) return;
+    st.lastRefreshAt = Date.now();
     st.refreshing = true;
     const t = Math.max(Number(el.currentTime) || 0, Number(st.lastTime) || 0);
     const wasPlaying = !!st.wantPlay;

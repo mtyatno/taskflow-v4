@@ -203,7 +203,9 @@ function hydCtx({ modules = true } = {}) {
     sb.fetchCalls.push({ url, init });
     const r = sb.responses.shift();
     if (!r || r === "throw") throw new TypeError("net");
-    return { ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => r.body };
+    const hd = r.headers || {};
+    return { ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => r.body,
+      headers: { get: (k) => (hd[String(k).toLowerCase()] != null ? hd[String(k).toLowerCase()] : null) } };
   };
   vm.createContext(sb);
   vm.runInContext(shSrc, sb);
@@ -441,4 +443,57 @@ test("hydrateMediaCards: klik Unduh di native → opener native (preventDefault)
       assert.deepEqual(opened, []);
     }
   }
+});
+
+// ── fix wave item 6: jam lokal, stalled, batas refresh 30 dtk ──
+test("helper: mediaLocalExpiry memakai header Date (selisih jam server), tanpa header → expires_at", () => {
+  const sb = { Date, Number, isFinite };
+  vm.createContext(sb);
+  vm.runInContext(slice("// ── Kartu media note", "// ── Akhir kartu media note").split("// ── Hidrasi kartu media")[0] +
+    "\nthis.H = { mediaLocalExpiry, mediaMetaCacheFresh, mediaUrlExpired };", sb);
+  const H = sb.H;
+  const serverDate = new Date(900 * 1000).toUTCString();
+  assert.equal(H.mediaLocalExpiry(1000, serverDate, 500 * 1000), 600);
+  assert.equal(H.mediaLocalExpiry(1000, null, 500 * 1000), 1000);
+  assert.equal(H.mediaLocalExpiry(1000, "bukan tanggal", 500 * 1000), 1000);
+  assert.equal(H.mediaLocalExpiry(null, serverDate, 500 * 1000), null);
+  // helper kedaluwarsa memakai expires_local bila ada
+  assert.equal(H.mediaUrlExpired({ expires_at: 1000, expires_local: 600 }, 575), true);
+  assert.equal(H.mediaUrlExpired({ expires_at: 1000, expires_local: 600 }, 500), false);
+  assert.equal(H.mediaMetaCacheFresh({ meta: { status: "ready", expires_at: 1000, expires_local: 600 } }, 545), false);
+  assert.equal(H.mediaMetaCacheFresh({ meta: { status: "ready", expires_at: 1000, expires_local: 600 } }, 500), true);
+});
+
+test("hydrateMediaCards: jam server tertinggal 2 jam → URL tidak dianggap kedaluwarsa; stalled setelah kedaluwarsa → refresh; maks sekali per 30 dtk", async () => {
+  const sb = hydCtx();
+  const nowS = Date.now() / 1000;
+  const serverNow = nowS - 7200;
+  const hdr = { date: new Date(serverNow * 1000).toUTCString() };
+  // expires_at menurut jam server: 1 jam lagi (secara lokal tampak sudah lewat)
+  sb.responses.push({ status: 200, body: READY({ expires_at: serverNow + 3600 }), headers: hdr });
+  const { root, cards } = mkRoot(["c1"]);
+  sb.hydrateMediaCards(root, { noteId: 7, noteOwnerId: 5 });
+  await flush();
+  const p = cards[0].slot.children[0];
+  p.fire("error");
+  await flush();
+  assert.equal(sb.fetchCalls.length, 1, "token masih berlaku menurut jam lokal terkoreksi");
+
+  // kartu kedua: token tinggal 10 dtk → stalled memicu refresh
+  const sb2 = hydCtx();
+  sb2.responses.push({ status: 200, body: READY({ expires_at: Date.now() / 1000 + 10 }) });
+  const r2 = mkRoot(["c1"]);
+  sb2.hydrateMediaCards(r2.root, { noteId: 7, noteOwnerId: 5 });
+  await flush();
+  const p2 = r2.cards[0].slot.children[0];
+  sb2.responses.push({ status: 200, body: READY({ play_url: "/media/p2", expires_at: Date.now() / 1000 + 10 }) });
+  p2.fire("stalled");
+  await flush();
+  assert.equal(sb2.fetchCalls.length, 2, "stalled setelah kedaluwarsa → meta baru");
+  assert.equal(p2.src, "https://api.x/media/p2");
+  // token baru juga hampir kedaluwarsa → error/stalled lagi dalam 30 dtk tidak memicu refresh (anti-loop)
+  sb2.responses.push({ status: 200, body: READY({ play_url: "/media/p3" }) });
+  p2.fire("error"); p2.fire("stalled");
+  await flush();
+  assert.equal(sb2.fetchCalls.length, 2, "refresh dibatasi sekali per 30 dtk per player");
 });
