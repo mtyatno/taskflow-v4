@@ -15,7 +15,7 @@
   const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
 
   const COPY = [
-    "title", "description", "gtd_status", "priority", "quadrant", "project", "project_id", "context",
+    "title", "description", "gtd_status", "priority", "quadrant", "project", "project_id", "context", "context_id",
     "deadline", "waiting_for", "completed_at", "progress", "is_focused", "assigned_to",
     "recurrence_type", "recurrence_days", "recurrence_end_date", "recurrence_notif_level",
     "created_at", "updated_at",
@@ -31,6 +31,8 @@
     rec.list_id = dict.list_id != null ? dict.list_id : null;
     // F1: nama yang mengikat project_id (lihat projectcache.payloadProjectId)
     rec.project_ref_name = rec.project_id != null ? (rec.project != null ? rec.project : "") : null;
+    // Kanban tahap: nama yang mengikat context_id (lihat contextcache.payloadContextId)
+    rec.context_ref_name = rec.context_id != null ? (rec.context != null ? rec.context : "") : null;
     rec.deleted = false;
     rec.dirty = 0;
     rec.base_rev = dict.updated_at != null ? dict.updated_at : null;

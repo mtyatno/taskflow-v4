@@ -28,6 +28,10 @@
   }
   const TFmm = req("./mindmaprepo.js", root.TF && root.TF.mindmaprepo);
   const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
+  // Kanban tahap: dibaca malas (contextcache dimuat setelah modul lain; lihat taskrepo)
+  function TFcontexts() {
+    try { return isNode ? require("./contextcache.js") : (root.TF && root.TF.contextcache); } catch (_) { return null; }
+  }
   function dispatchMindmapEvent(name, detail) {
     try {
       const w = (typeof window !== "undefined") ? window : root;
@@ -150,19 +154,41 @@
   // Field turunan server (kuadran dari cron Eisenhower, tanggal akhir/level notif recurring, completed_at) tidak
   // lagi mem-bump updated_at (K2) → diadopsi terpisah pada record bersih yang "tidak berubah" menurut base_rev.
   // PR 5: project/project_id ikut — backfill server menautkan project_id (dan mengkanonkan nama) tanpa
-  // menaikkan updated_at.
-  const TASK_DERIVED = ["quadrant", "recurrence_end_date", "recurrence_notif_level", "completed_at", "project", "project_id"];
+  // menaikkan updated_at. Kanban tahap: context/context_id ikut (server melepas/mengganti tahap tanpa bump).
+  const TASK_DERIVED = ["quadrant", "recurrence_end_date", "recurrence_notif_level", "completed_at", "project", "project_id",
+    "context", "context_id"];
+  const ONLY_IF_SENT = ["project", "project_id", "context", "context_id"];
+  // context: null dan "" setara (record lama/lokal memakai "", server bisa null) → tanpa tulis ulang massal.
+  function derivedVal(k, v) { return v != null ? v : (k === "context" ? "" : null); }
+  function derivedDiffers(k, s, local) {
+    if (k === "context") return nocaseKey(derivedVal(k, s[k])) !== nocaseKey(derivedVal(k, local[k])) || derivedVal(k, s[k]) !== derivedVal(k, local[k]);
+    return (s[k] != null ? s[k] : null) !== (local[k] != null ? local[k] : null);
+  }
+  function nocaseKey(x) { return String(x == null ? "" : x).replace(/[A-Z]/g, (c) => c.toLowerCase()); }
   function adoptTaskDerived(s, local) {
-    // project/project_id hanya bila server mengirimnya (dict lama/parsial tidak mengosongkan nilai lokal)
-    const keys = TASK_DERIVED.filter((k) => (k !== "project" && k !== "project_id") || k in s);
-    const diff = keys.some((k) => (s[k] != null ? s[k] : null) !== (local[k] != null ? local[k] : null));
+    // project/context(+id) hanya bila server mengirimnya (dict lama/parsial tidak mengosongkan nilai lokal)
+    let keys = TASK_DERIVED.filter((k) => ONLY_IF_SENT.indexOf(k) < 0 || k in s);
+    // Tahap pending (context_id lokal = cid non-angka, belum di-push/dipetakan): server belum mengenalnya, jadi
+    // context_id null dengan teks sama (NOCASE) bukan bukti tautan dilepas → pertahankan tautan lokal.
+    if (local.context_id != null && !/^\d+$/.test(String(local.context_id)) && keys.indexOf("context_id") >= 0
+        && s.context_id == null
+        && nocaseKey(derivedVal("context", s.context)) === nocaseKey(derivedVal("context", local.context))) {
+      keys = keys.filter((k) => k !== "context_id" && k !== "context");
+    }
+    const diff = keys.some((k) => derivedDiffers(k, s, local));
     if (!diff) return Promise.resolve(false);
     return TFdb.mutate("tasks", local.cid, (cur) => {
       if (!sameRecState(cur, local)) return undefined;
       const next = Object.assign({}, cur);
-      for (const k of keys) next[k] = s[k] != null ? s[k] : null;
+      for (const k of keys) {
+        if (k === "context" && !derivedDiffers(k, s, local)) continue; // ""/null setara → biarkan nilai lokal
+        next[k] = s[k] != null ? s[k] : null;
+      }
       if (keys.indexOf("project_id") >= 0 || keys.indexOf("project") >= 0) {
         next.project_ref_name = next.project_id != null ? (next.project != null ? next.project : "") : null;
+      }
+      if (keys.indexOf("context_id") >= 0 || keys.indexOf("context") >= 0) {
+        next.context_ref_name = next.context_id != null ? (next.context != null ? next.context : "") : null;
       }
       return next;
     }).then((saved) => !!saved);
@@ -308,7 +334,14 @@
       // PR 5: segarkan cache project setelah pull task berhasil; gagal (offline/5xx) tidak menggagalkan pull
       .then((result) => (TFprojects && TFprojects.refresh
         ? Promise.resolve().then(() => TFprojects.refresh(rawFetch)).then(() => result, () => result)
-        : result));
+        : result))
+      // Kanban tahap: segarkan cache context sesudahnya; gagal tidak menggagalkan pull
+      .then((result) => {
+        const cc = TFcontexts();
+        return (cc && cc.refresh
+          ? Promise.resolve().then(() => cc.refresh(rawFetch)).then(() => result, () => result)
+          : result);
+      });
   }
 
   const DEFAULT_FREQ = JSON.stringify(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);

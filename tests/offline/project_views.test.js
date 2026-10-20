@@ -180,15 +180,23 @@ test("App: reload projects tidak mengganti state bila daftar sama", () => {
 });
 
 test("kanban drop (onMoveTask) lewat onUpdateTask App agar array tasks berganti identitas (hitungan sidebar segar)", () => {
-  const start = indexHtml.indexOf("const onMoveTask = async (taskId, targetGroupKey) => {");
+  const start = indexHtml.indexOf("const onMoveTask = async (taskId, targetGroupKey, fromKey) => {");
   assert.ok(start > 0);
   const body = indexHtml.slice(start, indexHtml.indexOf("const buildGroups = tasks =>", start));
-  const viaApp = body.indexOf("if (onUpdateTask) {");
-  assert.ok(viaApp > 0, "onMoveTask harus memakai onUpdateTask bila tersedia");
-  const appBranch = body.slice(viaApp, body.indexOf("return;", viaApp));
-  assert.match(appBranch, /await onUpdateTask\(taskId, \{\s*\[field\]: newValue\s*\}\);/);
-  assert.doesNotMatch(appBranch, /task\[field\] = newValue/, "jalur App tidak memutasi task di tempat");
-  assert.ok(body.indexOf("task[field] = newValue") > viaApp, "mutasi di tempat hanya fallback tanpa onUpdateTask");
+  // Kanban tahap (Task 5): aksi drop diputuskan dropAction dan dijalankan runKanbanAction, yang memanggil
+  // deps.onUpdateTask = onUpdateTask App bila tersedia; tidak ada mutasi task di tempat.
+  assert.match(body, /kanbanMoveAction\(/);
+  assert.match(body, /await runKanbanAction\(action, task, kanbanDeps\);/);
+  const view = sliceFn("function TaskListView(", "\nfunction ");
+  const deps = view.slice(view.indexOf("const kanbanDeps = {"), view.indexOf("const onMoveTask = async"));
+  assert.match(deps, /onUpdateTask: onUpdateTask \|\|/, "onMoveTask harus memakai onUpdateTask bila tersedia");
+  // onMoveTask dan onKanbanCheck tidak memutasi field task di tempat
+  const check = body.slice(body.indexOf("const onKanbanCheck = "));
+  assert.ok(check.length > 0 && body.indexOf("const onKanbanCheck = ") > 0, "onKanbanCheck ada setelah onMoveTask");
+  for (const b of [body.slice(0, body.indexOf("const onKanbanCheck = ")), check]) {
+    assert.doesNotMatch(b, /\btask\.\w+\s*=[^=]/, "tidak ada assignment ke task.<field>");
+    assert.doesNotMatch(b, /\btask\[[^\]]+\]\s*=[^=]/, "tidak ada assignment ke task[<field>]");
+  }
   // App: handleUpdateTaskFields mengganti array (setTasks map) dan memanggil fetchAll
   const h = indexHtml.slice(indexHtml.indexOf("const handleUpdateTaskFields = async (taskId, patch) => {"));
   assert.match(h.slice(0, 1200), /setTasks\(prev => prev\.map\(/);
