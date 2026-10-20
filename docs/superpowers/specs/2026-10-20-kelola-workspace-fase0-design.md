@@ -44,7 +44,7 @@ Semua aturan data ada di `repository.py` dalam satu transaksi, sehingga bot dan 
 
 **1. Hapus workspace — `delete_shared_list(list_id, owner_id)`** (satu transaksi, hanya bila pemanggil owner):
 - Task dengan `list_id = W`: `list_id = NULL`, `assigned_to = NULL`, `project_id = NULL`, `project = ''`, `context_id = NULL`, `context = ''` (nilai bawaan kolom teks), `updated_at = sekarang` (format sama dengan penulisan `updated_at` task yang lain). Task tetap milik `user_id` pembuatnya. Status, deadline, subtask, catatan task, lampiran task tidak diubah.
-- Kumpulkan path file fisik `workspace_files` milik W **sebelum** DELETE; hapus file dari disk **setelah** commit sukses. Kegagalan unlink dicatat (`logging.warning`), tidak membatalkan.
+- Kumpulkan nama file fisik `workspace_files` milik W (`is_deleted = 0`) **sebelum** DELETE, **kecuali** yang masih dirujuk `task_attachments.filename` — lampiran task workspace dicerminkan ke `workspace_files` (`source = 'task'`) dengan file fisik yang sama, dan task kembali pribadi beserta lampirannya. Hapus file `UPLOAD_DIR/<filename>` dari disk **setelah** commit sukses (di `repository.py`, sehingga jalur bot juga membersihkan). Kegagalan unlink dicatat (`logging.warning`), tidak membatalkan.
 - Perilaku yang sudah ada tetap: mindmap tertaut note dan drawing kembali pribadi, note lewat FK `SET NULL`, sisanya cascade.
 
 **2. `GET /api/lists/{id}/delete-impact`** (owner saja; anggota 403; workspace tidak ada 404). Respons:
@@ -58,7 +58,7 @@ Semua aturan data ada di `repository.py` dalam satu transaksi, sehingga bot dan 
 }
 ```
 
-`tasks_active` = `gtd_status NOT IN ('done','archived')`. Rute didefinisikan dengan pola yang sama seperti `/leave-impact`.
+`tasks_active` = `gtd_status NOT IN ('done','archived')`. `files` = baris `workspace_files` W dengan `is_deleted = 0` yang filename-nya tidak dirujuk `task_attachments` (yang benar-benar dihapus); `messages` = baris `messages` W; `projects` / `stages` = baris `projects` / `contexts` W (termasuk arsip); `notes_to_personal` = `scratchpad_notes` W; `drawings_to_personal` = `drawings` W. Rute didefinisikan dengan pola yang sama seperti `/leave-impact`.
 
 **3. Keluarkan / keluar — `remove_list_member(list_id, user_id)`** (satu transaksi): selain menghapus keanggotaan dan pin, `UPDATE tasks SET assigned_to = NULL, updated_at = sekarang WHERE list_id = ? AND assigned_to = ? AND gtd_status NOT IN ('done','archived')`. Hanya dilakukan bila baris keanggotaan memang terhapus.
 
@@ -66,7 +66,7 @@ Semua aturan data ada di `repository.py` dalam satu transaksi, sehingga bot dan 
 
 **5. `member_count`** di `get_lists_for_user` = jumlah `list_members` + 1 (owner). Pemakai lain `member_count` dicek di rencana agar tidak terhitung ganda.
 
-**Belum pasti, dicek di tahap rencana:** apakah perangkat offline anggota lain, saat workspace hilang dari `GET /api/lists`, membuang task workspace itu dari store lokal atau menyimpannya sebagai task yatim. Bila disimpan, tambah pembersihan di `static/offline/listsync.js` (task dengan `list_id` yang tidak ada lagi dan bukan milik user dihapus dari store lokal; milik user ditarik ulang dari server).
+**Perangkat offline (dicek saat menyusun rencana):** tidak perlu perubahan sinkronisasi. `pullTasks` di `static/offline/syncpull.js` mengonfirmasi task yang hilang dari daftar server lewat `GET /api/tasks/{id}`; anggota lain mendapat 403 (task kini pribadi orang lain) → task dihapus dari store lokal; task dengan edit tertunda ditandai `conflict: "remote_deleted"` seperti task terhapus lainnya. Perangkat pembuat menerima task dengan `updated_at` baru dan `list_id` kosong. Dibuktikan di E2E.
 
 **Deploy:** restart `taskflow-web` **dan** `taskflow` (bot), karena `repository.py` berubah.
 
