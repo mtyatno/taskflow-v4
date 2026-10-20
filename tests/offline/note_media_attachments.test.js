@@ -62,3 +62,14 @@ test("mediaAttachmentCanDelete", () => {
   assert.equal(C({ uploaded_by: 3 }, "4", 9), false);
   assert.equal(C({ uploaded_by: 3 }, null, 9), false);
 });
+
+test("mediaAttachmentCanDelete: baris daftar asli (uploader di user_id, tanpa uploaded_by)", () => {
+  const { C } = load();
+  // Bentuk baris GET /api/scratchpad/{id}/attachments: user_id = pengunggah.
+  const row = { id: 5, kind: "media", user_id: 3, client_id: "c1", status: "ready" };
+  assert.equal(C(row, "3", 9), true, "pengunggah (user_id) boleh hapus");
+  assert.equal(C(row, "4", 9), false);
+  assert.equal(C(row, "9", 9), true, "pemilik note boleh hapus");
+  // uploaded_by tetap diutamakan bila ada
+  assert.equal(C({ uploaded_by: 3, user_id: 4 }, "4", 9), false);
+});

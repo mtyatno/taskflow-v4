@@ -36,6 +36,18 @@
     return m + ":" + ss;
   }
 
+  // Ukuran file untuk caption: basis 1024, satu desimal dengan koma (id-ID), '' bila tak diketahui/0.
+  function formatSize(bytes) {
+    var n = Number(bytes);
+    if (!isFinite(n) || n <= 0) return "";
+    var units = ["B", "KB", "MB", "GB"];
+    var i = 0;
+    while (n >= 1024 && i < units.length - 1) { n = n / 1024; i++; }
+    if (i === 0) return Math.round(n) + " B";
+    var r = Math.round(n * 10) / 10;
+    return String(r).replace(".", ",") + " " + units[i];
+  }
+
   function percent(upload, meta) {
     var size = Number(upload && upload.size) || Number(meta && meta.file_size) || 0;
     var sent = Number(upload && upload.sent) || 0;
@@ -55,6 +67,7 @@
       name: (meta && meta.original_name) || o.nameAttr || "Media",
       kind: (meta && (meta.media_type === "audio" || meta.media_type === "video")) ? meta.media_type : null,
       durationText: meta ? formatDuration(meta.duration_ms) : "",
+      sizeText: formatSize((meta && meta.file_size) || (upload && upload.size)),
       progress: 0,
       uploaderName: (meta && meta.uploaded_by_name) || "",
       error: "",
@@ -108,7 +121,8 @@
   function safeHref(u) {
     u = String(u || "");
     if (!u) return "";
-    return /^(\/|https?:\/\/)/i.test(u) && !/^\/\//.test(u) ? u : "";
+    // "//host" dan "/\\host" ditafsirkan browser sebagai URL protokol-relatif → ditolak.
+    return /^(\/|https?:\/\/)/i.test(u) && !/^\/[\\\/]/.test(u) ? u : "";
   }
 
   function cardHtml(view) {
@@ -116,7 +130,8 @@
     var icon = view.kind === "video" ? "🎬" : view.kind === "audio" ? "🎵" : "📎";
     var cap = '<div class="note-media-caption"><span class="note-media-icon">' + icon + '</span> <span class="note-media-name">' +
       esc(view.name || "Media") + "</span>" +
-      (view.durationText ? ' <span class="note-media-duration">' + esc(view.durationText) + "</span>" : "") + "</div>";
+      (view.durationText ? ' <span class="note-media-duration">' + esc(view.durationText) + "</span>" : "") +
+      (view.sizeText ? ' <span class="note-media-size">' + esc(view.sizeText) + "</span>" : "") + "</div>";
     var status = function (t) { return '<div class="note-media-status">' + t + "</div>"; };
     var actions = function (list) { return list.length ? '<div class="note-media-actions">' + list.join("") + "</div>" : ""; };
     var del = view.canDelete ? btn("delete", "Hapus") : "";
@@ -145,7 +160,7 @@
         out += status("Media tidak tersedia untukmu: sudah dihapus atau bukan bagian dari catatan ini.");
         break;
       case "failed":
-        out += status(esc(view.error)) + actions([del]);
+        out += status(esc(view.error || "Gagal")) + actions([del]);
         break;
       case "ready": {
         out += '<div class="note-media-player" data-media-player></div>';
@@ -171,5 +186,5 @@
     return { tag: tag, src: view.src || "", poster: tag === "video" ? (view.poster || "") : "", mime: view.mime || "" };
   }
 
-  return { formatDuration: formatDuration, viewFor: viewFor, cardHtml: cardHtml, playerAttrs: playerAttrs };
+  return { formatDuration: formatDuration, formatSize: formatSize, viewFor: viewFor, cardHtml: cardHtml, playerAttrs: playerAttrs };
 });

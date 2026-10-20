@@ -2111,7 +2111,8 @@
   white-space: nowrap;
   min-width: 0;
 }
-.note-media-duration {
+.note-media-duration,
+.note-media-size {
   font-weight: 400;
   color: var(--text-light);
   font-variant-numeric: tabular-nums;

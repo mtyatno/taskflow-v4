@@ -580,7 +580,9 @@ function mediaAttachmentLabel(att) {
 function mediaAttachmentCanDelete(att, uid, noteOwnerId) {
   const u = Number(uid);
   if (!isFinite(u) || u <= 0) return false;
-  return Number(att && att.uploaded_by) === u || (noteOwnerId != null && Number(noteOwnerId) === u);
+  // GET /api/scratchpad/{id}/attachments mengembalikan baris mentah: pengunggah ada di user_id.
+  const by = att ? (att.uploaded_by != null ? att.uploaded_by : att.user_id) : null;
+  return (by != null && Number(by) === u) || (noteOwnerId != null && Number(noteOwnerId) === u);
 }
 async function openMediaAttachment(att) {
   try {

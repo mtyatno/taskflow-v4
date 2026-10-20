@@ -154,3 +154,35 @@ describe('playerAttrs', () => {
     assert.deepEqual(playerAttrs(a), { tag: 'audio', src: '/media/tok', poster: '', mime: 'audio/mp4' });
   });
 });
+
+describe('fix wave (item 7)', () => {
+  const { formatSize } = require('../../static/offline/mediacard.js');
+  it('failed tanpa error → "Gagal"', () => {
+    const v = V({ meta: meta({ status: 'failed', error: '' }) });
+    assert.equal(v.state, 'failed');
+    assert.match(cardHtml(v), /note-media-status">Gagal</);
+    const v2 = V({ meta: meta({ status: 'uploading' }), upload: { phase: 'failed', error: '' } });
+    assert.equal(v2.state, 'failed');
+    assert.match(cardHtml(v2), /note-media-status">Gagal</);
+    assert.match(cardHtml(V({ meta: meta({ status: 'failed', error: 'rusak' }) })), /note-media-status">rusak</);
+  });
+  it('safeHref menolak /\\ dan //', () => {
+    for (const bad of ['/\\evil.com/x', '//evil.com/x', '/\\/evil']) {
+      assert.ok(!/data-media-download/.test(cardHtml(Object.assign(V(), { downloadUrl: bad }))), bad);
+    }
+    assert.match(cardHtml(V()), /data-media-download href="\/media\/dl"/);
+  });
+  it('ukuran file di caption (format id-ID)', () => {
+    assert.equal(typeof formatSize, 'function');
+    assert.equal(formatSize(12.3 * 1024 * 1024), '12,3 MB');
+    assert.equal(formatSize(1000), '1000 B');
+    assert.equal(formatSize(2048), '2 KB');
+    assert.equal(formatSize(1.5 * 1024 * 1024 * 1024), '1,5 GB');
+    assert.equal(formatSize(0), '');
+    assert.equal(formatSize(null), '');
+    const v = V({ meta: meta({ file_size: 12.3 * 1024 * 1024 }) });
+    assert.equal(v.sizeText, '12,3 MB');
+    assert.match(cardHtml(v), /<span class="note-media-size">12,3 MB<\/span>/);
+    assert.ok(!/note-media-size/.test(cardHtml(V({ meta: meta({ file_size: null }) }))));
+  });
+});
