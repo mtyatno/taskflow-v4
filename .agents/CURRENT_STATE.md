@@ -4,7 +4,7 @@
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
 
-## 🟠 Ikon tampilan halaman Tasks + tab workspace — `claude/tasklist-view-icons` — 2026-10-20 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+## 🟠 Ikon tampilan halaman Tasks + tab workspace — `claude/tasklist-view-icons` — 2026-10-20 (Claude) — DI-MERGE (#55, 0c4ed23) 11:18 WIB, DEPLOY WORKFLOW SUKSES; TUNGGU RESTART `taskflow-web`
 - **Status:** frontend saja. SW **v427** `taskflow-v427-tasklist-view-icons` (v426 dipakai Kanban #54), `app.css?v=336`. Setelah deploy: restart `taskflow-web` (`sw_cache` berubah). Bila thread lain memakai v427 lebih dulu, naikkan ke nomor kosong berikutnya saat merge.
 - **Isi:** toggle Normal / Compact / Kanban di halaman Tasks: karakter Unicode (▦ ▤ ⊞) diganti ikon SVG duotone inline (`VIEW_GLYPHS` + `ViewGlyph` di `static/index.html`, pola `FOCUS_GLYPHS`, tidak bergantung `ui-components.js` yang bisa ter-cache) dan dijadikan grup segmented (`.tl-view-seg`/`.tl-view-btn` di `app.css`, `aria-pressed`, Kanban nonaktif = `aria-disabled` tetap fokus + tooltip). Tab Tasks / Files halaman workspace: emoji 📋/📁 diganti glyph duotone `wsTasks`/`wsFiles`. Perilaku tidak berubah. Pilihan Bapak: set "B · Duotone" + tombol tergabung.
 - **Verifikasi:** pytest 814, JS 1866/1867 (pra-ada `draw_local_reactive`), `tests/offline/tasklist_view_icons.test.js` 21/21, E2E `temporary_files/e2e_tasklist_view_icons.py` 52/52 terang + gelap (screenshot lokal di `temporary_files/e2e_tasklist_view_icons/`, di-.gitignore). SDD 2 task, review akhir opus: siap merge.
