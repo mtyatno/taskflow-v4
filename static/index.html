@@ -8281,6 +8281,8 @@ function FocusTaskItem({
     id: panelId,
     className: "ftask-panel"
   }, React.createElement("div", {
+    className: "ftask-tabbar"
+  }, React.createElement("div", {
     className: "ftask-tabs",
     role: "tablist",
     "aria-label": `Detail ${task.title}`
@@ -8301,7 +8303,7 @@ function FocusTaskItem({
     }), React.createElement("span", null, t.label), label && React.createElement("span", {
       className: "ftask-tab-count"
     }, label));
-  }), React.createElement("div", {
+  })), React.createElement("div", {
     className: "ftask-estimate",
     role: "radiogroup",
     "aria-label": "Estimasi pomodoro"

@@ -43,11 +43,15 @@ test("FocusTaskItem: chip, pemilih estimasi, urutan DOM", () => {
   assert.ok(src.includes('"5+"'));
   assert.ok(src.includes("ftask-est-btn"));
   assert.ok(src.includes("is-filled"));
-  const tabs = src.indexOf('className: "ftask-tabs"');
-  const map = src.indexOf("FOCUS_TABS.map", tabs);
-  const est = src.indexOf("ftask-estimate", map);
-  const link = src.indexOf("ftask-detail-link", tabs);
-  assert.ok(tabs >= 0 && map > tabs && est > map && link > est);
+  const bar = src.indexOf('className: "ftask-tabbar"');
+  const tabs = src.indexOf('className: "ftask-tabs"', bar);
+  const list = src.indexOf('role: "tablist"', tabs);
+  const map = src.indexOf("FOCUS_TABS.map", list);
+  const est = src.indexOf('className: "ftask-estimate"', map);
+  const link = src.indexOf("ftask-detail-link", est);
+  assert.ok(bar >= 0 && tabs > bar && list > tabs && map > list && est > map && link > est);
+  // picker tidak boleh di dalam tablist: setelah map tab, tablist ditutup sebelum picker
+  assert.ok(/\}\)\), React\.createElement\("div", \{\n    className: "ftask-estimate"/.test(src));
 });
 
 test("TodayFocusView: handleEstimate dan header ringkasan", () => {

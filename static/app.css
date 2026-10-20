@@ -3593,7 +3593,8 @@
 
 /* Panel detail per task */
 .ftask-panel { border-top: 1px solid var(--border); padding: 4px 14px 14px 48px; animation: dashPinIn 0.18s ease-out; }
-.ftask-tabs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 8px 0 10px; }
+.ftask-tabbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 8px 0 10px; }
+.ftask-tabs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .ftask-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 9px; border: 1px solid transparent; background: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--text-secondary); cursor: pointer; transition: background .15s, color .15s; }
 .ftask-tab:hover { background: var(--bg-primary); color: var(--text-primary); }
 .ftask-tab.is-active { background: rgba(168,197,0,0.14); border-color: rgba(168,197,0,0.35); color: #4d5c00; }
@@ -3672,7 +3673,6 @@
 @media (prefers-reduced-motion: reduce) {
   .focus-mini, .ftask-chevron, .pomo-ring-value { transition: none; }
   .ftask-panel { animation: none; }
-  .ftask-est-btn { transition: none; }
 }
 
 /* Top Bar Pomodoro Mini Chip */
