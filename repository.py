@@ -131,6 +131,74 @@ def project_text_changed(new: Optional[str], current: Optional[str]) -> bool:
     return _nocase((new or "").strip()) != _nocase((current or "").strip())
 
 
+class ContextScopeError(ValueError):
+    """context_id tidak ada atau berada di luar scope task."""
+
+
+def resolve_task_context(conn, *, owner_id: int, list_id: Optional[int],
+                         name: Optional[str], context_id: Optional[int],
+                         actor_id: int) -> tuple[Optional[int], str]:
+    """Tentukan (context_id, nama kanonis) untuk sebuah task pada scope-nya.
+
+    Semantik sama dengan resolve_task_project (scope, keanggotaan aktor,
+    NOCASE, arsip diaktifkan lagi, penanganan balapan), ditambah `position`:
+    context baru diletakkan di posisi terakhir scope (MAX(position)+1, atau 0).
+    Nama kosong & context_id None -> (None, ""). Pemanggil yang commit.
+    """
+    ws = None
+    if list_id is not None:
+        ws = conn.execute("SELECT id FROM shared_lists WHERE id=?", (list_id,)).fetchone()
+    if ws is not None:
+        member = conn.execute(
+            "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ? "
+            "UNION SELECT 1 FROM list_members WHERE list_id = ? AND user_id = ?",
+            (ws[0], actor_id, ws[0], actor_id)).fetchone()
+        if member is None:  # pesan sama dgn "id di luar scope": tak jadi oracle
+            raise ContextScopeError("Context tidak berada di scope task")
+        scope_sql, scope_args, col, owner = "list_id = ?", (ws[0],), "list_id", ws[0]
+    else:
+        scope_sql, scope_args, col, owner = "user_id = ? AND list_id IS NULL", (owner_id,), "user_id", owner_id
+
+    clean = (name or "").strip()
+    row = None
+    if context_id is not None:
+        row = conn.execute(
+            f"SELECT id, name, archived FROM contexts WHERE id = ? AND {scope_sql}",
+            (context_id,) + scope_args).fetchone()
+        if row is None:
+            raise ContextScopeError("Context tidak berada di scope task")
+    elif clean:
+        row = conn.execute(
+            f"SELECT id, name, archived FROM contexts WHERE {scope_sql} AND name = ? COLLATE NOCASE",
+            scope_args + (clean,)).fetchone()
+        if row is None:
+            now = datetime.now().isoformat()
+            try:
+                cur = conn.execute(
+                    f"INSERT INTO contexts(name, {col}, position, archived, created_by, created_at, updated_at) "
+                    f"VALUES (?,?,(SELECT COALESCE(MAX(position)+1, 0) FROM contexts WHERE {scope_sql}),"
+                    "0,?,?,?)", (clean, owner) + scope_args + (actor_id, now, now))
+                return cur.lastrowid, clean
+            except sqlite3.IntegrityError:  # balapan: request lain membuatnya lebih dulu
+                row = conn.execute(
+                    f"SELECT id, name, archived FROM contexts WHERE {scope_sql} AND name = ? COLLATE NOCASE",
+                    scope_args + (clean,)).fetchone()
+                if row is None:
+                    raise
+    else:
+        return None, ""
+
+    if row[2]:
+        conn.execute("UPDATE contexts SET archived = 0, updated_at = ? WHERE id = ?",
+                     (datetime.now().isoformat(), row[0]))
+    return row[0], row[1]
+
+
+def context_text_changed(new: Optional[str], current: Optional[str]) -> bool:
+    """True bila nama context (ter-strip) beda dari teks task sekarang menurut NOCASE."""
+    return project_text_changed(new, current)
+
+
 def backfill_projects(conn) -> dict:
     """Buat/hubungkan project dari teks `tasks.project` + perbaiki link basi.
 
@@ -226,6 +294,143 @@ def backfill_projects(conn) -> dict:
             conn.execute("RELEASE bf_group")
             skipped += 1
             _log.warning("backfill_projects: grup %s/%r dilewati (%s)", scope, members[0][1], e)
+    return {"created": created, "linked": linked, "cleared": cleared, "skipped": skipped}
+
+
+def ensure_contexts_schema(conn) -> None:
+    """Tabel `contexts` + kolom `tasks.context_id` (idempoten)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contexts (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            user_id     INTEGER DEFAULT NULL REFERENCES users(id) ON DELETE CASCADE,
+            list_id     INTEGER DEFAULT NULL REFERENCES shared_lists(id) ON DELETE CASCADE,
+            position    INTEGER NOT NULL DEFAULT 0,
+            color       TEXT DEFAULT NULL,
+            archived    INTEGER NOT NULL DEFAULT 0,
+            created_by  INTEGER DEFAULT NULL REFERENCES users(id) ON DELETE SET NULL,
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL,
+            CHECK ((user_id IS NULL) <> (list_id IS NULL))
+        )
+    """)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_contexts_user "
+        "ON contexts(user_id, name COLLATE NOCASE) WHERE list_id IS NULL"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_contexts_list "
+        "ON contexts(list_id, name COLLATE NOCASE) WHERE list_id IS NOT NULL"
+    )
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+    if "context_id" not in cols:
+        conn.execute(
+            "ALTER TABLE tasks ADD COLUMN context_id INTEGER DEFAULT NULL "
+            "REFERENCES contexts(id) ON DELETE SET NULL"
+        )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_context_id ON tasks(context_id)")
+
+
+def backfill_contexts(conn) -> dict:
+    """Buat/hubungkan context dari teks `tasks.context` + perbaiki link basi.
+
+    Sama dengan backfill_projects (scope, grup (scope, nama NOCASE), SAVEPOINT
+    per grup, tak pernah menggagalkan migrate_db, tidak mengubah updated_at
+    task, pemanggil yang commit), ditambah `position`: grup baru di sebuah
+    scope diberi posisi berurutan mulai dari MAX(position)+1 scope itu (dibaca
+    sekali per scope), diurut alfabetis NOCASE.
+    """
+    rows = conn.execute("""
+        SELECT t.id, t.context, t.user_id, t.gtd_status, t.created_at, t.updated_at,
+               sl.id AS ws_id, u.id AS owner_ok, t.context_id,
+               c.name AS c_name, c.user_id AS c_user, c.list_id AS c_list
+        FROM tasks t
+        LEFT JOIN shared_lists sl ON sl.id = t.list_id
+        LEFT JOIN users u ON u.id = t.user_id
+        LEFT JOIN contexts c ON c.id = t.context_id
+        WHERE (t.context_id IS NULL AND COALESCE(t.context, '') <> '')
+           OR t.context_id IS NOT NULL
+    """).fetchall()
+
+    groups: dict = {}
+    clear_ids = []
+    for r in rows:
+        name = (r[1] or "").strip()
+        scope = ("w", r[6]) if r[6] is not None else ("u", r[2] if r[7] is not None else None)
+        if r[8] is not None:  # sudah terhubung: hanya proses bila basi
+            if not name:
+                clear_ids.append(r[0])
+                continue
+            c_scope = ("w", r[11]) if r[11] is not None else ("u", r[10])
+            if r[9] is not None and c_scope == scope and _nocase(r[9]) == _nocase(name) \
+                    and r[1] == r[9]:  # teks harus persis sama dgn nama context, bukan hanya NOCASE
+                continue
+        if not name or scope[1] is None:  # nama kosong / yatim / pemilik sudah dihapus
+            continue
+        groups.setdefault((scope, _nocase(name)), []).append((r, name))
+
+    now = datetime.now().isoformat()
+    created = linked = cleared = skipped = 0
+    for tid in clear_ids:
+        try:
+            conn.execute("SAVEPOINT bf_clear")
+            conn.execute("UPDATE tasks SET context_id=NULL WHERE id=?", (tid,))
+            conn.execute("RELEASE bf_clear")
+            cleared += 1
+        except sqlite3.IntegrityError as e:
+            conn.execute("ROLLBACK TO bf_clear")
+            conn.execute("RELEASE bf_clear")
+            skipped += 1
+            _log.warning("backfill_contexts: task %s dilewati (%s)", tid, e)
+
+    next_pos: dict = {}  # scope -> posisi berikutnya, dibaca sekali per scope
+    for (scope, _key), members in sorted(groups.items(), key=lambda kv: (kv[0][0][0], kv[0][0][1], kv[0][1])):
+        kind, owner = scope
+        conn.execute("SAVEPOINT bf_group")
+        try:
+            if kind == "w":
+                existing = conn.execute(
+                    "SELECT id, name FROM contexts WHERE list_id=? AND name=? COLLATE NOCASE",
+                    (owner, members[0][1])).fetchone()
+            else:
+                existing = conn.execute(
+                    "SELECT id, name FROM contexts WHERE user_id=? AND list_id IS NULL "
+                    "AND name=? COLLATE NOCASE", (owner, members[0][1])).fetchone()
+            g_created = 0
+            if existing:
+                cid, canon = existing[0], existing[1]
+            else:
+                newest = max(members, key=lambda m: (m[0][5] or "", m[0][0]))
+                oldest = min(members, key=lambda m: (m[0][4] or "", m[0][0]))
+                canon = newest[1]
+                if kind == "w":
+                    created_by = oldest[0][2] if oldest[0][7] is not None else None
+                else:
+                    created_by = owner
+                has_active = any(m[0][3] not in ("done", "archived") for m in members)
+                col = "list_id" if kind == "w" else "user_id"
+                if scope not in next_pos:
+                    next_pos[scope] = conn.execute(
+                        f"SELECT COALESCE(MAX(position) + 1, 0) FROM contexts WHERE {col}=?",
+                        (owner,)).fetchone()[0]
+                cur = conn.execute(
+                    f"INSERT INTO contexts(name, {col}, position, archived, created_by, created_at, updated_at) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (canon, owner, next_pos[scope], 0 if has_active else 1, created_by, now, now))
+                cid = cur.lastrowid
+                g_created = 1
+            for r, _n in members:
+                conn.execute("UPDATE tasks SET context_id=?, context=? WHERE id=?", (cid, canon, r[0]))
+            conn.execute("RELEASE bf_group")
+            if g_created:
+                next_pos[scope] += 1
+            created += g_created
+            linked += len(members)
+        except sqlite3.IntegrityError as e:
+            conn.execute("ROLLBACK TO bf_group")
+            conn.execute("RELEASE bf_group")
+            skipped += 1
+            _log.warning("backfill_contexts: grup %s/%r dilewati (%s)", scope, members[0][1], e)
     return {"created": created, "linked": linked, "cleared": cleared, "skipped": skipped}
 
 
@@ -747,6 +952,7 @@ class TaskRepository:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_published_user ON published_notes(user_id)")
 
             ensure_projects_schema(conn)
+            ensure_contexts_schema(conn)
 
     # ── Row to Task mapping ────────────────────────────────────────────────
 
@@ -833,6 +1039,7 @@ class TaskRepository:
                 conn.execute("UPDATE tasks SET user_id = ? WHERE user_id = ?", (user["id"], old_user["id"]))
 
             backfill_projects(conn)  # task pindah pemilik -> project pribadi pemilik baru
+            backfill_contexts(conn)
             return user["id"]
 
     def assign_orphan_tasks(self, user_id: int) -> int:
@@ -841,6 +1048,7 @@ class TaskRepository:
             cur = conn.execute("UPDATE tasks SET user_id = ? WHERE user_id IS NULL", (user_id,))
             n = cur.rowcount
             backfill_projects(conn)  # task kini punya pemilik -> hubungkan project-nya
+            backfill_contexts(conn)
             return n
 
     # ── User clause helper ─────────────────────────────────────────────────
@@ -864,15 +1072,25 @@ class TaskRepository:
                         project_id=None, actor_id=user_id)
                 except ProjectScopeError:  # bukan anggota: perilaku lama (teks saja)
                     pid, pname = None, (task.project or "").strip()
+            if user_id is None:
+                cid, cname = None, (task.context or "").strip()
+            else:
+                try:
+                    cid, cname = resolve_task_context(
+                        conn, owner_id=user_id, list_id=list_id, name=task.context,
+                        context_id=None, actor_id=user_id)
+                except ContextScopeError:  # bukan anggota: teks saja
+                    cid, cname = None, (task.context or "").strip()
             task.project = pname
+            task.context = cname
             cur = conn.execute(
                 """INSERT INTO tasks
                    (title, description, gtd_status, priority, quadrant,
-                    project, project_id, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    project, project_id, context, context_id, deadline, waiting_for, user_id, list_id, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     task.title, task.description, task.gtd_status.value, task.priority.value,
-                    task.quadrant.value, pname, pid, task.context,
+                    task.quadrant.value, pname, pid, cname, cid,
                     task.deadline.isoformat() if task.deadline else None,
                     task.waiting_for, user_id, list_id, now, now,
                 ),
@@ -894,7 +1112,7 @@ class TaskRepository:
         now = datetime.now().isoformat()
         task.updated_at = datetime.fromisoformat(now)
         with self._connect() as conn:
-            ex = conn.execute("SELECT user_id, list_id, project, project_id FROM tasks WHERE id=?",
+            ex = conn.execute("SELECT user_id, list_id, project, project_id, context, context_id FROM tasks WHERE id=?",
                               (task.id,)).fetchone()
             if ex is not None and not project_text_changed(task.project, ex["project"]):
                 # nama tak berubah: jangan resolusi ulang (arsip tetap, link tetap)
@@ -908,16 +1126,28 @@ class TaskRepository:
                     pid, pname = None, (task.project or "").strip()
             else:  # task yatim / tak ada: tanpa scope, simpan teks apa adanya
                 pid, pname = None, (task.project or "").strip()
+            if ex is not None and not context_text_changed(task.context, ex["context"]):
+                cid, cname = ex["context_id"], ex["context"] or ""
+            elif ex is not None and ex["user_id"] is not None:
+                try:
+                    cid, cname = resolve_task_context(
+                        conn, owner_id=ex["user_id"], list_id=ex["list_id"], name=task.context,
+                        context_id=None, actor_id=ex["user_id"])
+                except ContextScopeError:  # bukan anggota lagi: teks saja, context_id NULL
+                    cid, cname = None, (task.context or "").strip()
+            else:
+                cid, cname = None, (task.context or "").strip()
             task.project = pname
+            task.context = cname
             conn.execute(
                 """UPDATE tasks SET
                    title=?, description=?, gtd_status=?, priority=?, quadrant=?,
-                   project=?, project_id=?, context=?, deadline=?, waiting_for=?,
+                   project=?, project_id=?, context=?, context_id=?, deadline=?, waiting_for=?,
                    updated_at=?, completed_at=?
                    WHERE id=?""",
                 (
                     task.title, task.description, task.gtd_status.value, task.priority.value,
-                    task.quadrant.value, pname, pid, task.context,
+                    task.quadrant.value, pname, pid, cname, cid,
                     task.deadline.isoformat() if task.deadline else None,
                     task.waiting_for, now,
                     task.completed_at.isoformat() if task.completed_at else None,
@@ -1003,7 +1233,7 @@ class TaskRepository:
             clauses.append("project = ?")
             params.append(project)
         if context:
-            clauses.append("context = ?")
+            clauses.append("context = ? COLLATE NOCASE")
             params.append(context)
 
         where = " AND ".join(clauses)
@@ -1040,11 +1270,11 @@ class TaskRepository:
         uc, up = self._uc(user_id)
         with self._connect() as conn:
             rows = conn.execute(
-                f"""SELECT DISTINCT context FROM tasks
-                   WHERE context != '' AND gtd_status NOT IN ('done','archived') AND {uc}
-                   ORDER BY context""", up,
+                f"""SELECT name FROM contexts
+                   WHERE list_id IS NULL AND archived = 0 AND {uc}
+                   ORDER BY position, name COLLATE NOCASE, id""", up,
             ).fetchall()
-            return [r["context"] for r in rows]
+            return [r["name"] for r in rows]
 
     def count_by_status(self, user_id: Optional[int] = None) -> dict[str, int]:
         uc, up = self._uc(user_id)
@@ -1438,15 +1668,22 @@ class TaskRepository:
                     project_id=None, actor_id=user_id)
             except ProjectScopeError:  # bukan anggota: perilaku lama (teks saja)
                 pid, pname = None, (task.project or "").strip()
+            try:
+                cid, cname = resolve_task_context(
+                    conn, owner_id=user_id, list_id=list_id, name=task.context,
+                    context_id=None, actor_id=user_id)
+            except ContextScopeError:  # bukan anggota: teks saja
+                cid, cname = None, (task.context or "").strip()
             task.project = pname
+            task.context = cname
             cur = conn.execute(
                 """INSERT INTO tasks
                    (title, description, gtd_status, priority, quadrant,
-                    project, project_id, context, deadline, waiting_for, user_id, list_id, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    project, project_id, context, context_id, deadline, waiting_for, user_id, list_id, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     task.title, task.description, task.gtd_status.value, task.priority.value,
-                    task.quadrant.value, pname, pid, task.context,
+                    task.quadrant.value, pname, pid, cname, cid,
                     task.deadline.isoformat() if task.deadline else None,
                     task.waiting_for, user_id, list_id, now, now,
                 ),

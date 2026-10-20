@@ -532,6 +532,16 @@ async def add_project_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await _show_context_picker(query, context)
 
 
+def _ctx_callback_ok(name: str) -> bool:
+    """callback_data Telegram maks 64 byte (UTF-8); `addctx_{name}` harus muat."""
+    return len(f"addctx_{name}".encode("utf-8")) <= 64
+
+
+def _pickable_contexts(names) -> list:
+    """Context yang bisa jadi tombol picker (lewati yang callback_data-nya kepanjangan)."""
+    return [c for c in names if _ctx_callback_ok(c)]
+
+
 async def add_project_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     context.user_data["new_project"] = "" if text == "-" else text
@@ -540,7 +550,7 @@ async def add_project_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     contexts_list = repo.list_contexts(uid(context))
     keyboard = []
     row = []
-    for c in contexts_list:
+    for c in _pickable_contexts(contexts_list):
         row.append(InlineKeyboardButton(c, callback_data=f"addctx_{c}"))
         if len(row) == 2:
             keyboard.append(row)
@@ -563,7 +573,7 @@ async def _show_context_picker(query, context):
     contexts_list = repo.list_contexts(context.user_data.get("db_user_id"))
     keyboard = []
     row = []
-    for c in contexts_list:
+    for c in _pickable_contexts(contexts_list):
         row.append(InlineKeyboardButton(c, callback_data=f"addctx_{c}"))
         if len(row) == 2:
             keyboard.append(row)

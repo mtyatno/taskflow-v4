@@ -3514,3 +3514,8 @@
 ## 2026-10-20 08:10 WIB — Claude — merge spec Kanban (#48)
 - Bapak: "merge". Main sudah maju (#49 XSS) → konflik hanya di `.agents/SESSION_LOG.md` (dua entri berdiri sendiri, keduanya dipertahankan urut waktu). Merge `main` ke `claude/kanban-stages-spec`, CI, lalu merge #48. Hanya dokumen; tidak perlu deploy/restart.
 - **Berikutnya:** rencana implementasi PR backend Kanban (`docs/superpowers/plans/`).
+
+## 2026-10-20 09:30 WIB — Claude — PR backend Kanban tahap kustom
+- Bapak: "mulai" (rencana) lalu "jalankan dengan cara Subagent". Rencana `docs/superpowers/plans/2026-10-20-kanban-context-stages-backend.md` (salinan Project claude.ai `claude/plan-kanban-backend-2026-10-20.md`).
+- SDD 4 task: skema+backfill, resolver+repo/bot, jalur task web, API `/api/contexts` + ADR-016. Review per task; fix: sinkron ulang beda kapital di backfill, tes scope-400 palsu-lulus, `PUT /order` tidak mem-bump `updated_at` context yang tak berpindah. Review akhir opus (simulasi upgrade DB bersih) → perbaikan: filter context NOCASE (bot `/list @x` sempat kehilangan task), guard rename sama-nama, batas nama 50 + picker bot, ADR-016, isolasi tes backfill.
+- **Verifikasi:** pytest 615 passed. **Status:** Needs Review (draft PR; restart `taskflow-web` + `taskflow`).
