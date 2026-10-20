@@ -3087,7 +3087,7 @@ function Sidebar({
       const listTaskCount = (tasks || []).filter(t => t.list_id === l.id && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
       links.push({
         id: `slist_${l.id}`,
-        icon: l.role === "owner" ? "clipboard" : "users",
+        avatarList: l,
         label: l.name,
         count: listTaskCount || undefined,
         badge: l.role === "member" ? "shared" : null
@@ -3198,7 +3198,10 @@ function Sidebar({
           setPage(l.id);
           onClose?.();
         }
-      }, /*#__PURE__*/React.createElement(NavIcon, {
+      }, l.avatarList ? /*#__PURE__*/React.createElement(WorkspaceAvatar, {
+        list: l.avatarList,
+        size: 20
+      }) : /*#__PURE__*/React.createElement(NavIcon, {
         name: l.icon
       }), /*#__PURE__*/React.createElement("span", {
         style: {
@@ -3302,10 +3305,11 @@ function Sidebar({
           openCtx(e, r.right + 4, r.top);
         }
       }
-    }, /*#__PURE__*/React.createElement("span", {
-      className: `sidebar-rail-ws-avatar ws-c${WP ? WP.avatarColorIndex(w.id) : 0}`,
-      "aria-hidden": "true"
-    }, WP ? WP.avatarInitial(w.name) : "?"));
+    }, /*#__PURE__*/React.createElement(WorkspaceAvatar, {
+      list: w,
+      size: 28,
+      className: "sidebar-rail-ws-avatar"
+    }));
   }), /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: `sidebar-rail-btn ${page === "manage_lists" ? "active" : ""}`,
@@ -4280,6 +4284,16 @@ function useScopeLists(listId, sharedLists) {
     };
   }, [needFetch, listId]);
   return sharedLists || lists;
+}
+// ═══ Avatar workspace (rail, sidebar, judul halaman; teks selalu sebagai child React) ═══
+function WorkspaceAvatar({ list, size = 20, className = "" }) {
+  const WPa = window.TF && window.TF.workspacepins;
+  const a = WPa ? WPa.avatarFor(list) : { text: String((list && list.name) || "?").trim().charAt(0).toUpperCase() || "?", colorIdx: 0, isEmoji: false };
+  return React.createElement("span", {
+    className: `ws-avatar ws-c${a.colorIdx}${a.isEmoji ? " ws-avatar-emoji" : ""}${className ? " " + className : ""}`,
+    style: { "--sz": size + "px" },
+    "aria-hidden": "true"
+  }, a.text);
 }
 // ═══ Tombol Pin workspace (baris workspace-nav-tabs) ═══
 // Hover lokal di komponen kecil ini supaya App tidak re-render tiap mouseenter.
@@ -15414,7 +15428,9 @@ function TaskListView({
   sharedLists = [],
   currentUser = null,
   contextItems = [],
-  onManageStages = null
+  onManageStages = null,
+  titleAvatarList = null,
+  description = ""
 }) {
   const isInbox = page === "inbox" || title === "Inbox";
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -15713,7 +15729,10 @@ function TaskListView({
       alignItems: "center",
       gap: 9
     }
-  }, /*#__PURE__*/React.createElement(Icon, { name: icon, size: 22 }), title), isInbox && filtered.length > 0 && /*#__PURE__*/React.createElement("button", {
+  }, titleAvatarList ? /*#__PURE__*/React.createElement(WorkspaceAvatar, {
+    list: titleAvatarList,
+    size: 28
+  }) : /*#__PURE__*/React.createElement(Icon, { name: icon, size: 22 }), title), isInbox && filtered.length > 0 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "btn btn-primary btn-sm gtd-launch-wizard-btn",
     onClick: () => setWizardOpen(true),
@@ -15723,7 +15742,10 @@ function TaskListView({
       color: "var(--text-light)",
       fontSize: 14
     }
-  }, filtered.length, hasFilters ? `/${tasks.length}` : "", " task(s)")), /*#__PURE__*/React.createElement("div", {
+  }, filtered.length, hasFilters ? `/${tasks.length}` : "", " task(s)")), description ? /*#__PURE__*/React.createElement("div", {
+    className: "ws-page-desc",
+    title: description
+  }, description) : null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -38361,6 +38383,8 @@ function App() {
         allTasks: tasks,
         title: getPageTitle(),
         icon: getPageIcon(),
+        titleAvatarList: currentList,
+        description: currentList.description || "",
         onTaskClick: setSelectedTask,
         onDone: handleDone,
         onToggleFocus: handleToggleFocus,

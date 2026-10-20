@@ -138,6 +138,9 @@
     [data-theme="dark"] .sidebar-rail-btn.active { background: rgba(168,197,0,0.18); color: #A8C500; }
     [data-theme="dark"] .sidebar-rail-divider { background: rgba(255,255,255,0.08); }
     .sidebar-rail-ws-avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; line-height: 1; color: #fff; user-select: none; transition: box-shadow 0.15s; }
+    .ws-avatar { --sz: 20px; width: var(--sz); height: var(--sz); flex: 0 0 auto; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: calc(var(--sz) * 0.5); font-weight: 700; line-height: 1; color: white; user-select: none; overflow: hidden; }
+    .ws-avatar-emoji { font-size: calc(var(--sz) * 0.55); font-weight: 400; }
+    .ws-page-desc { color: var(--text-light); font-size: 13px; margin: 2px 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
     .sidebar-rail-btn.active .sidebar-rail-ws-avatar { box-shadow: 0 0 0 2px var(--accent); }
     .ws-c0 { background: #2563eb; } .ws-c1 { background: #7c3aed; } .ws-c2 { background: #be185d; } .ws-c3 { background: #c2410c; }
     .ws-c4 { background: #15803d; } .ws-c5 { background: #0f766e; } .ws-c6 { background: #a16207; } .ws-c7 { background: #475569; }
