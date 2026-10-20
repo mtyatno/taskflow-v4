@@ -315,3 +315,25 @@ def test_integration_real_ffmpeg(env, tmp_path):
     assert (r["width"], r["height"]) == (320, 240) and r["mime_type"] == "video/mp4"
     assert needs_faststart(p) is False
     assert r["poster_key"] and env.storage.path(r["poster_key"]).stat().st_size > 0
+
+
+def test_process_row_deleted_during_remux_leaves_no_orphan(env, monkeypatch):
+    calls = _patch(monkeypatch, faststart=True)
+    i = env.mk()
+
+    def remux_then_delete(src, dst, bin="ffmpeg", timeout=600):
+        open(dst, "wb").write(b"REMUXED")
+        conn = db()
+        conn.execute("DELETE FROM note_attachments WHERE id=?", (i,))
+        conn.commit()
+        conn.close()
+        env.storage.delete(KEY)  # hard delete menghapus file
+        return True
+
+    monkeypatch.setattr(media_worker, "remux_faststart", remux_then_delete)
+    _worker(env).process(i)
+    assert not env.storage.path(KEY).exists()
+    assert not env.storage.path(poster_key_for(KEY)).exists()
+    assert calls["poster"] == []
+    tmpdir = env.storage.root / ".tmp"
+    assert not any(tmpdir.glob(f"{i}.*"))

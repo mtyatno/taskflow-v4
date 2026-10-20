@@ -93,6 +93,11 @@ class MediaWorker:
         conn.commit()
         return cur.rowcount > 0
 
+    @staticmethod
+    def _still_processing(conn, att_id: int) -> bool:
+        return conn.execute("SELECT 1 FROM note_attachments WHERE id=? AND status='processing'",
+                            (att_id,)).fetchone() is not None
+
     def _fail(self, conn, att_id: int, key: str) -> None:
         if self._update(conn, att_id, {"status": "failed", "error": FAIL_TEXT}):
             self._storage.delete(key)
@@ -136,6 +141,9 @@ class MediaWorker:
                 tmp = self._storage.temp_path(att_id).with_suffix(".fs" + Path(key).suffix)
                 try:
                     if remux_faststart(path, tmp, bin=self._ffmpeg):
+                        # Baris/file bisa terhapus selama remux: jangan membangkitkan file yatim.
+                        if not self._still_processing(conn, att_id) or not path.exists():
+                            return
                         os.replace(tmp, path)
                     else:
                         log.warning("faststart gagal untuk %s; file asli dipertahankan", att_id)
