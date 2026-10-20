@@ -1079,6 +1079,7 @@ class TaskCreate(BaseModel):
     project: str = ""
     project_id: Optional[int] = None
     context: str = ""
+    context_id: Optional[int] = None
     deadline: Optional[str] = None
     gtd_status: str = "inbox"
     waiting_for: str = ""
@@ -1105,6 +1106,7 @@ class TaskUpdate(BaseModel):
     project: Optional[str] = None
     project_id: Optional[int] = None
     context: Optional[str] = None
+    context_id: Optional[int] = None
     deadline: Optional[str] = None
     gtd_status: Optional[str] = None
     waiting_for: Optional[str] = None
@@ -1977,15 +1979,25 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
         except repository.ProjectScopeError:
             raise HTTPException(status_code=400, detail="Project tidak berada di scope task")
         try:
+            req_cid = req.context_id
+            if req_cid is not None and conn.execute(
+                    "SELECT 1 FROM contexts WHERE id = ?", (req_cid,)).fetchone() is None:
+                req_cid = None  # context_id tak dikenal (sudah dihapus): resolusi pakai teks
+            ctx_id, ctx_name = repository.resolve_task_context(
+                conn, owner_id=uid, list_id=req.list_id, name=req.context,
+                context_id=req_cid, actor_id=uid)
+        except repository.ContextScopeError:
+            raise HTTPException(status_code=400, detail="Tahap tidak berada di scope task")
+        try:
             cur = conn.execute(
                 """INSERT INTO tasks
                    (title, description, gtd_status, priority, quadrant,
-                    project, project_id, context, deadline, waiting_for, user_id, list_id, assigned_to, parent_id,
+                    project, project_id, context, context_id, deadline, waiting_for, user_id, list_id, assigned_to, parent_id,
                     recurrence_type, recurrence_days, recurrence_end_date,
                     created_at, updated_at, client_id)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (req.title, req.description, req.gtd_status, req.priority.upper(), quadrant,
-                 proj_name, proj_id, req.context, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, parent_id,
+                 proj_name, proj_id, ctx_name, ctx_id, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, parent_id,
                  recurrence_type, recurrence_days_json, recurrence_end_date,
                  now, now, req.client_id),
             )
@@ -2098,8 +2110,26 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
                 raise HTTPException(status_code=400, detail="Project tidak berada di scope task")
             updates["project"] = proj_name
             updates["project_id"] = proj_id
-        if req.context is not None:
-            updates["context"] = req.context
+        stale_cid = (req.context_id is not None and req.context_id != existing["context_id"]
+                     and conn.execute("SELECT 1 FROM contexts WHERE id = ?",
+                                      (req.context_id,)).fetchone() is None)
+        if stale_cid:  # context_id basi (tahap sudah dihapus): seluruh perubahan context diabaikan
+            context_changed = False
+        elif req.context_id is not None:
+            context_changed = req.context_id != existing["context_id"]
+        else:
+            context_changed = req.context is not None and repository.context_text_changed(
+                req.context, existing["context"])
+        if context_changed:
+            try:
+                ctx_id, ctx_name = repository.resolve_task_context(
+                    conn, owner_id=existing["user_id"], list_id=existing["list_id"],
+                    name=req.context if req.context_id is None else None,
+                    context_id=req.context_id, actor_id=uid)
+            except repository.ContextScopeError:
+                raise HTTPException(status_code=400, detail="Tahap tidak berada di scope task")
+            updates["context"] = ctx_name
+            updates["context_id"] = ctx_id
         if req.waiting_for is not None:
             updates["waiting_for"] = req.waiting_for
         if req.gtd_status is not None:
