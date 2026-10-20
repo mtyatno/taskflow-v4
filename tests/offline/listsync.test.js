@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { deleteDB } = require("./setup.js");
 const { DB_NAME, _reset, openDB } = require("../../static/offline/db.js");
 const { cidOf } = require("../../static/offline/idmap.js");
-const { pullLists, getLocalLists } = require("../../static/offline/listsync.js");
+const { pullLists, getLocalLists, setLocalPin } = require("../../static/offline/listsync.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
 
@@ -54,5 +54,51 @@ test("pullLists deletes a local list whose server_id vanished", async () => {
 test("getLocalLists returns the server-shaped array (id = server_id)", async () => {
   await pullLists([srv({ id: 5, name: "Team", role: "owner", member_count: 4 })]);
   const out = await getLocalLists();
-  assert.deepEqual(out, [{ id: 5, name: "Team", owner_id: 1, role: "owner", member_count: 4 }]);
+  assert.deepEqual(out, [{ id: 5, name: "Team", owner_id: 1, role: "owner", member_count: 4, pinned: false, pin_position: null }]);
+});
+
+test("pullLists stores pinned and pin_position", async () => {
+  await pullLists([srv({ id: 5, pinned: true, pin_position: 2 })]);
+  const rows = await allLists();
+  assert.equal(rows[0].pinned, true);
+  assert.equal(rows[0].pin_position, 2);
+  const out = await getLocalLists();
+  assert.equal(out[0].pinned, true);
+  assert.equal(out[0].pin_position, 2);
+});
+
+test("getLocalLists defaults pin fields", async () => {
+  await pullLists([srv({ id: 6 })]);
+  const out = await getLocalLists();
+  assert.equal(out[0].pinned, false);
+  assert.equal(out[0].pin_position, null);
+});
+
+test("setLocalPin updates the matching record and leaves others", async () => {
+  await pullLists([srv({ id: 5, name: "A" }), srv({ id: 6, name: "B", pinned: true, pin_position: 0 })]);
+  const before = await allLists();
+  const cid5 = before.find((r) => r.server_id === 5).cid;
+  assert.equal(await setLocalPin(5, true, 3), true);
+  const rows = await allLists();
+  const r5 = rows.find((r) => r.server_id === 5);
+  const r6 = rows.find((r) => r.server_id === 6);
+  assert.equal(r5.cid, cid5);
+  assert.equal(r5.pinned, true);
+  assert.equal(r5.pin_position, 3);
+  assert.equal(r5.name, "A");
+  assert.equal(r6.pinned, true);
+  assert.equal(r6.pin_position, 0);
+  await setLocalPin(6, false, null);
+  const r6b = (await allLists()).find((r) => r.server_id === 6);
+  assert.equal(r6b.pinned, false);
+  assert.equal(r6b.pin_position, null);
+  const out = await getLocalLists();
+  assert.deepEqual(out.filter((l) => l.pinned).map((l) => [l.id, l.pin_position]), [[5, 3]]);
+});
+
+test("setLocalPin with an unknown server id is a no-op", async () => {
+  await pullLists([srv({ id: 5, name: "A" })]);
+  const before = await allLists();
+  assert.equal(await setLocalPin(99, true, 1), false);
+  assert.deepEqual(await allLists(), before);
 });
