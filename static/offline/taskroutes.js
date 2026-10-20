@@ -80,6 +80,16 @@
     });
   }
 
+  // PR B Target 🍅 (spec §5.2): setiap rute lokal yang mengembalikan baris task melaporkan pomodoros_done
+  // = nilai server terakhir + log 🍅 yang masih antre. withTaskRow(s) = withId + pending.
+  function withTaskRows(rows) {
+    return TFpomolog.pendingByTaskCid().then((pend) => (rows || []).map((r) => TFpomolog.withPending(withId(r), pend)));
+  }
+  function withTaskRow(row) {
+    if (!row) return Promise.resolve(row);
+    return withTaskRows([row]).then((rows) => rows[0]);
+  }
+
   function notFound() { return Promise.reject(new Error("Task not found")); }
 
   // GET /api/tags?entity_type=note must stay on the network (note tags not local yet).
@@ -135,12 +145,11 @@
     const opts = () => ({ today: todayISO() });
 
     router.register("GET", "/api/tasks", ({ query }) =>
-      Promise.all([TFquery.listTasks(query, opts()), TFpomolog.pendingByTaskCid()])
-        .then(([rows, pend]) => rows.map((r) => TFpomolog.withPending(withId(r), pend))));
+      TFquery.listTasks(query, opts()).then(withTaskRows));
 
     router.register("GET", "/api/tasks/:id", ({ params }) =>
       resolveCid(params.id).then((cid) => (cid ? TFrepo.getTask(cid, todayISO()) : null))
-        .then((row) => (row ? TFpomolog.pendingByTaskCid().then((pend) => TFpomolog.withPending(withId(row), pend)) : notFound())));
+        .then((row) => (row ? withTaskRow(row) : notFound())));
 
     // PR B Target 🍅: log sesi selesai → antre (idempoten per client_id); jawab nilai server terakhir + pending.
     router.register("POST", "/api/tasks/:id/pomodoros", ({ params, body }) =>
@@ -152,10 +161,10 @@
       }));
 
     router.register("POST", "/api/tasks", ({ body }) =>
-      TFrepo.createTask(body || {}, opts()).then(withId));
+      TFrepo.createTask(body || {}, opts()).then(withTaskRow));
 
     router.register("PUT", "/api/tasks/:id", ({ params, body }) =>
-      resolveCid(params.id).then((cid) => (cid ? TFrepo.updateTask(cid, body || {}, opts()) : notFound())).then(withId));
+      resolveCid(params.id).then((cid) => (cid ? TFrepo.updateTask(cid, body || {}, opts()) : notFound())).then(withTaskRow));
 
     router.register("DELETE", "/api/tasks/:id", ({ params }) =>
       resolveCid(params.id).then((cid) => (cid ? TFrepo.deleteTask(cid, opts()) : notFound())));
@@ -163,7 +172,7 @@
     router.register("POST", "/api/tasks/:id/done", ({ params }) =>
       resolveCid(params.id)
         .then((cid) => (cid ? TFrepo.updateTask(cid, { gtd_status: "done" }, opts()) : notFound()))
-        .then(withId));
+        .then(withTaskRow));
 
     router.register("POST", "/api/tasks/:id/focus", ({ params }) =>
       resolveCid(params.id)
@@ -175,13 +184,13 @@
             return TFrepo.updateTask(cid, { is_focused: nextVal }, opts());
           });
         })
-        .then(withId));
+        .then(withTaskRow));
 
     router.register("GET", "/api/tasks/:id/child-tasks", ({ params }) =>
       resolveCid(params.id).then((cid) => {
         if (!cid) return [];
         return getAllTasks().then((all) =>
-          all.filter((r) => !r.deleted && r.parent_cid === cid).map(withId)
+          withTaskRows(all.filter((r) => !r.deleted && r.parent_cid === cid))
         );
       }));
 
@@ -284,7 +293,7 @@
 
     router.register("GET", "/api/lists/:id/tasks", ({ params }) =>
       TFquery.listTasks({}, opts()).then((rows) =>
-        rows.filter((r) => String(r.list_id) === String(params.id)).map(withId)));
+        withTaskRows(rows.filter((r) => String(r.list_id) === String(params.id)))));
 
     TFhabitroutes.registerHabitRoutes(router);
     TFnoteroutes.registerNoteRoutes(router);

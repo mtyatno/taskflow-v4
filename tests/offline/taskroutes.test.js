@@ -416,3 +416,21 @@ test("POST /api/tasks/:id/pomodoros on an unknown id rejects (404)", async () =>
   const R = buildTaskRouter();
   await assert.rejects(() => R.dispatch("POST", "/api/tasks/999/pomodoros", { client_id: "x", kind: "session", pomodoros: 1 }), /not found/i);
 });
+
+test("every task-row route reports pending-inclusive pomodoros_done (workspace list, child-tasks, PUT, done, focus)", async () => {
+  await seedTasks([
+    task({ cid: "w", server_id: 20, list_id: 5, pomodoros_done: 1 }),
+    task({ cid: "kid", server_id: 21, parent_cid: "w", pomodoros_done: 0 }),
+  ]);
+  const R = buildTaskRouter();
+  const log = (id) => ({ client_id: id, kind: "session", pomodoros: 1, focus_seconds: 1500, log_date: "2026-06-03", ended_at: "2026-06-03T09:25:00.000Z" });
+  await R.dispatch("POST", "/api/tasks/20/pomodoros", log("l1"));
+  await R.dispatch("POST", "/api/tasks/21/pomodoros", log("l2"));
+  const ws = await R.dispatch("GET", "/api/lists/5/tasks", undefined);
+  assert.equal(ws.find((r) => r.cid === "w").pomodoros_done, 2);
+  const kids = await R.dispatch("GET", "/api/tasks/20/child-tasks", undefined);
+  assert.equal(kids.find((r) => r.cid === "kid").pomodoros_done, 1);
+  assert.equal((await R.dispatch("PUT", "/api/tasks/20", { title: "Baru" })).pomodoros_done, 2);
+  assert.equal((await R.dispatch("POST", "/api/tasks/20/focus", undefined)).pomodoros_done, 2);
+  assert.equal((await R.dispatch("POST", "/api/tasks/20/done", undefined)).pomodoros_done, 2);
+});
