@@ -1022,8 +1022,12 @@ class TaskRepository:
             ensure_projects_schema(conn)
             ensure_contexts_schema(conn)
             ensure_workspace_pins_schema(conn)
-            # Migrate: task yatim (list_id menunjuk workspace yang sudah dihapus) kembali pribadi.
-            _return_tasks_to_creator(
+
+    def heal_orphan_workspace_tasks(self) -> int:
+        """Task yang list_id-nya menunjuk workspace yang sudah dihapus kembali pribadi (idempoten).
+        Dipanggil sekali saat startup lewat webapp.migrate_db, bukan di _init_db (per request)."""
+        with self._connect() as conn:
+            return _return_tasks_to_creator(
                 conn, "list_id IS NOT NULL AND list_id NOT IN (SELECT id FROM shared_lists)")
 
     # ── Row to Task mapping ────────────────────────────────────────────────
