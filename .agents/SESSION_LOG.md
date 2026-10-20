@@ -3602,3 +3602,7 @@
 - **Files Touch:** `static/index.html`, `static/app.css`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/tasklist_focus_btn.test.js` (baru) + 14 tes yang menambatkan versi, `temporary_files/e2e_tasklist_focus.py`, `.gitignore`, `.agents/*`
 - **Verifikasi:** JS 2120/2121 (pra-ada `draw_local_reactive`), pytest 816, E2E 39/39. Implementer sonnet + review opus (siap merge; temuan badge sidebar & tinggi mobile sudah diperbaiki).
 - **Status:** Needs Review (draft PR; restart `taskflow-web` setelah deploy).
+
+## 2026-10-20 15:34 WIB — Claude — merge tombol Fokus 🎯 tasklist (#58)
+- Bapak: "merge". #58 di-merge (5841f5d); CI Tests (PR) sukses, Deploy Taskflow V4 sukses.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek tombol 🎯 di halaman GTD/workspace dan chip Pomodoro di top menu (SW v430).
