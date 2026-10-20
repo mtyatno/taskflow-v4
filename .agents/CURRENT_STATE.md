@@ -21,6 +21,8 @@
 - **Berikutnya:** PR frontend (pemutar + unggah di editor, naik SW); PR XSS (1b, #49) sudah di-merge, jadi tidak ada yang menahan.
 ## 🔵 Workspace di-pin di sidebar mode ikon — spec — 2026-10-20 (Claude) — DRAFT PR, TUNGGU REVIEW SPEC, BELUM ADA KODE
 - **Status:** spec `docs/superpowers/specs/2026-10-20-sidebar-workspace-pins-design.md` (salinan Project claude.ai "alurik" `claude/spec-sidebar-workspace-pins-2026-10-20.md`) di branch `claude/sidebar-workspace-pins-spec`. Berikutnya: review Bapak → rencana di `docs/superpowers/plans/` → implementasi (SDD).
+## 🔵 Workspace di-pin di sidebar mode ikon — spec — 2026-10-20 (Claude) — SPEC DISETUJUI, RENCANA DITULIS, BELUM ADA KODE
+- **Status:** spec `docs/superpowers/specs/2026-10-20-sidebar-workspace-pins-design.md` (salinan Project claude.ai "alurik" `claude/spec-sidebar-workspace-pins-2026-10-20.md`) di branch `claude/sidebar-workspace-pins-spec`. Spec disetujui Bapak ("lanjut", 2026-10-20 09:02 WIB). Rencana `docs/superpowers/plans/2026-10-20-sidebar-workspace-pins.md` (salinan Project `claude/plan-sidebar-workspace-pins-2026-10-20.md`): Bagian A backend (Task 1–2, ADR-017), Bagian B frontend (Task 3–5, setelah A di-merge). Berikutnya: review rencana + pilih cara eksekusi.
 - **Keputusan Bapak (brainstorming 2026-10-20):** workspace di rail hanya navigasi; avatar workspace yang di-pin + tombol "Semua workspace" (ke `manage_lists`); pin manual maks 5, disimpan per user di server (tabel `workspace_pins`); seed sekali 3 workspace teraktif. Sidebar expanded tidak berubah (sudah menampilkan semua workspace).
 - **Urutan:** PR backend (restart `taskflow-web` + `taskflow`) → PR frontend + offline (naik SW).
 
