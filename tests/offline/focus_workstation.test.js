@@ -100,9 +100,9 @@ test("TodayFocusView: membatalkan fokus atau menyelesaikan task menjeda Pomodoro
   assert.match(view, /Task selesai/, "harus memberi toast saat task selesai");
 });
 
-test("sw.js CACHE = taskflow-v426-kanban-stages", () => {
+test("sw.js CACHE = taskflow-v427-note-media", () => {
   const swJs = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v426-kanban-stages";/m);
+  assert.match(swJs, /^const CACHE = "taskflow-v427-note-media";/m);
 });
 
 test("App: mengelola timer Pomodoro dan focusTask di level App", () => {

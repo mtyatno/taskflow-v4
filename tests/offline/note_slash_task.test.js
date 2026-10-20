@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v426-kanban-stages in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v426-kanban-stages";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v426-kanban-stages"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v426-kanban-stages";/);
+  await t.test("Service Worker cache is taskflow-v427-note-media in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v427-note-media";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v427-note-media"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v427-note-media";/);
   });
 });

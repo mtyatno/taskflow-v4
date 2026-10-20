@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v426-kanban-stages";
+const CACHE = "taskflow-v427-note-media";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -162,6 +162,22 @@ self.addEventListener("fetch", e => {
 
   // AI endpoints are dynamic — never cache, always network.
   if (url.pathname.startsWith("/api/ai/")) return;
+
+  // File media bertoken (/media/<token>, audio/video note): TIDAK di-intercept sama sekali. Browser menangani
+  // Range/206 langsung dengan jaringan; SW tidak boleh menyimpan respons bertanda tangan atau memecah seek.
+  if (url.pathname.startsWith("/media/")) return;
+
+  // Meta & unggah media (/api/media/... dan /api/scratchpad/<id>/media...): NETWORK-ONLY, semua method.
+  // Meta memuat URL bertoken yang kedaluwarsa → tidak pernah di-cache/dilayani dari cache; offline → 503 OFFLINE.
+  if (url.pathname.startsWith("/api/media/") || /^\/api\/scratchpad\/[^/]+\/media(\/|$)/.test(url.pathname)) {
+    e.respondWith(
+      fetch(request).catch(() => new Response(
+        JSON.stringify({ detail: "OFFLINE" }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      ))
+    );
+    return;
+  }
 
   // /api/habit-templates — network-first + cache fallback for offline
   if (url.pathname === '/api/habit-templates' && request.method === 'GET') {
