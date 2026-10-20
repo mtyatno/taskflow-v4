@@ -3660,3 +3660,7 @@
 
 ## 2026-10-20 20:30 WIB — Claude — ikon Kelola Workspace + chip Pomodoro mini
 - Bapak minta ikon halaman Kelola Workspace dan chip Pomodoro mini senada dengan Alurik. Implementer subagent + review terpisah (siap merge). SW v433, `app.css?v=341`. **Status:** Needs Review (draft PR; restart `taskflow-web`).
+
+## 2026-10-20 20:30 WIB — Claude — merge ikon Kelola Workspace + chip Pomodoro (#61)
+- Bapak: "merge". #61 di-merge (5bd9b69); CI Tests dan Deploy Taskflow V4 sukses.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek Kelola Workspace dan chip Pomodoro (SW v433, `app.css?v=341`).
