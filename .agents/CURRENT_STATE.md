@@ -4,6 +4,11 @@
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
 
+## 🟠 Ikon gaya Alurik di tampilan Berkas Workspace — `claude/workspace-files-icons` — 2026-10-20 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+- **Status:** frontend saja. SW **v432** `taskflow-v432-workspace-files-icons` (v431 dipakai PR #59 yang masih terbuka; bila #59 di-merge lebih dulu tidak bentrok), `app.css?v=339`. Setelah deploy: restart `taskflow-web`.
+- **Isi:** semua emoji UI di `WorkspaceFilesView` (judul, cari, chip filter, kartu berkas, kosong/tanpa hasil, asal berkas, tombol aksi) diganti glyph inline `VIEW_GLYPHS` (`fFolder`, `fPdf`, `fSheet`, `fImage`, `fFile`, `fSearch`, `fUpload`, `fDownload`, `fEye`, `fChat`, `fPin`, `fTrash`, `fX`). Ikon kartu dalam ubin 40×40 berwarna per kategori. Teks toast dan isi pesan chat `📎` tidak diubah.
+- **Verifikasi:** pytest 816, JS 2128/2129 (pra-ada `draw_local_reactive`), E2E `temporary_files/e2e_tasklist_view_icons.py` 80/80 terang + gelap. Review: siap merge.
+
 ## 🟠 Tombol Fokus 🎯 (Pomodoro) di tasklist GTD + workspace — `claude/tasklist-focus-pomodoro` — 2026-10-20 (Claude) — DI-MERGE (#58, 5841f5d) 15:34 WIB, DEPLOY WORKFLOW SUKSES; TUNGGU RESTART `taskflow-web`
 - **Status:** frontend saja. SW **v430** `taskflow-v430-tasklist-focus`, `app.css?v=338` (main: v429 / 337 setelah #57). Setelah deploy: restart `taskflow-web` (`sw_cache`). Bila `main` memakai v430 lebih dulu, naikkan ke nomor kosong berikutnya.
 - **Isi:** App meneruskan `focusTask` + `handleStartFocus` (handler yang sama dengan kartu "Prioritas Hari Ini" dashboard) ke kedua `TaskListView` (GTD default + workspace `slist_*`) → `TaskRow` (tampilan Normal saja; Compact/Kanban tidak) menampilkan `.dash-focus-btn` 🎯 sebelum ⭐ untuk task belum selesai. Klik → task aktif, Pomodoro mulai, chip `TopBarPomodoroChip` di top bar; klik lagi → lepas + jeda; pindah task → timer tidak di-reset. `TodayFocusView` dan badge Hari Ini di sidebar (`todayCount`, prop `focusTaskId`) selalu menyertakan task fokus aktif (tampilan saja). Tooltip ⭐ diubah "… daftar Fokus Hari Ini". Mobile ≤768px: label disembunyikan, tinggi 22px. Pilihan Bapak: hanya tampilan Normal; task aktif selalu tampil di Fokus Hari Ini.
