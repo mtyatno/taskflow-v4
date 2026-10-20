@@ -163,7 +163,10 @@ MEDIA_URL_SECRET_BYTES = (
 JWT_ALGORITHM = "HS256"
 
 import shutil
-from media_storage import get_storage
+import errno
+from starlette.concurrency import run_in_threadpool
+from media_probe import sniff_media, final_mime, ALLOWED_INIT_EXTS
+from media_storage import get_storage, new_key
 from media_worker import MediaWorker
 from config import MEDIA_STORAGE
 
@@ -5827,6 +5830,243 @@ async def view_note_attachment(att_id: int, user=Depends(get_current_user_sse)):
         media_type=_served_file_mime(att["mime_type"]),
         headers=_inline_file_headers(att["mime_type"], safe_name),
     )
+
+# ── Media note (audio/video): unggah bertahap ─────────────────────────────────
+# Kontrak 409 pada PATCH: JSONResponse {"detail": "...", "received_bytes": N} (bukan HTTPException)
+# supaya klien bisa melanjutkan dari received_bytes tanpa GET tambahan.
+_MEDIA_CLIENT_ID_RE = re.compile(r"^[0-9a-zA-Z_-]{1,64}$")
+_media_upload_locks: dict[int, asyncio.Lock] = {}
+
+
+def _media_not_found() -> HTTPException:
+    return HTTPException(status_code=404, detail="Media tidak ditemukan")
+
+
+def _accessible_note(conn, uid: int, note_id: int):
+    clause, params = _note_access_clause(uid)
+    return conn.execute(
+        f"SELECT * FROM scratchpad_notes WHERE id = ? AND {clause}", [note_id, *params]
+    ).fetchone()
+
+
+def _accessible_attachment(conn, uid: int, att_id: int):
+    clause, params = _note_access_clause(uid, "n")
+    return conn.execute(
+        "SELECT a.*, n.user_id AS note_owner_id FROM note_attachments a "
+        "JOIN scratchpad_notes n ON n.id = a.note_id "
+        f"WHERE a.id = ? AND {clause}", [att_id, *params]
+    ).fetchone()
+
+
+def _media_quota_check(conn, uid: int, size: int) -> None:
+    """v1 no-op. Titik pasang sesi kuota per-user/workspace."""
+    return None
+
+
+def _media_payload(conn, row, now: int) -> dict:
+    u = conn.execute("SELECT display_name, username FROM users WHERE id = ?",
+                     (row["user_id"],)).fetchone()
+    name = (u["display_name"] or u["username"]) if u else None
+    return {
+        "id": row["id"], "client_id": row["client_id"], "note_id": row["note_id"],
+        "original_name": row["original_name"], "media_type": row["media_type"],
+        "mime_type": row["mime_type"], "file_size": row["file_size"],
+        "duration_ms": row["duration_ms"], "width": row["width"], "height": row["height"],
+        "status": row["status"], "error": row["error"],
+        "received_bytes": row["received_bytes"],
+        "uploaded_by": row["user_id"], "uploaded_by_name": name,
+        "play_url": None, "poster_url": None, "download_url": None, "expires_at": None,
+    }
+
+
+def _media_now_iso() -> str:
+    return datetime.utcnow().isoformat()
+
+
+def _media_write_chunk(path: Path, offset: int, data: bytes) -> None:
+    mode = "r+b" if path.exists() else "w+b"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, mode) as f:
+        f.seek(offset)
+        f.write(data)
+        f.truncate()
+
+
+def _media_read_head(path: Path) -> bytes:
+    with open(path, "rb") as f:
+        return f.read(64)
+
+
+@app.post("/api/scratchpad/{note_id}/media")
+async def init_note_media(note_id: int, body: dict = Body(...), user=Depends(get_current_user)):
+    uid = user["sub"]
+    client_id = body.get("client_id")
+    if not isinstance(client_id, str) or not _MEDIA_CLIENT_ID_RE.fullmatch(client_id):
+        raise HTTPException(status_code=400, detail="client_id tidak valid")
+    filename = body.get("filename") if isinstance(body.get("filename"), str) else ""
+    size = body.get("size")
+    mime = body.get("mime") if isinstance(body.get("mime"), str) else ""
+    with get_db() as conn:
+        if not _accessible_note(conn, uid, note_id):
+            raise _media_not_found()
+        if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+            raise HTTPException(status_code=400, detail="Ukuran file tidak valid")
+        if size > MEDIA_MAX_FILE_BYTES:
+            raise HTTPException(status_code=413, detail="File terlalu besar")
+        ext = filename.rsplit(".", 1)[1].lower() if "." in filename else ""
+        if ext not in ALLOWED_INIT_EXTS:
+            raise HTTPException(status_code=415, detail="Format file tidak didukung")
+        m = mime.strip().lower()
+        if m and m != "application/octet-stream" and not (m.startswith("audio/") or m.startswith("video/")):
+            raise HTTPException(status_code=415, detail="Format file tidak didukung")
+        existing = conn.execute(
+            "SELECT * FROM note_attachments WHERE user_id = ? AND client_id = ?",
+            (uid, client_id)).fetchone()
+        if existing:
+            if existing["note_id"] != note_id:
+                raise HTTPException(status_code=409, detail="client_id sudah dipakai")
+            return _media_payload(conn, existing, int(_time.time()))
+        _media_quota_check(conn, uid, size)
+        now_iso = _media_now_iso()
+        cur = conn.execute(
+            "INSERT INTO note_attachments (note_id, user_id, nextcloud_path, original_name, "
+            "file_size, mime_type, created_at, kind, client_id, storage, status, received_bytes, updated_at) "
+            "VALUES (?, ?, '', ?, ?, 'application/octet-stream', ?, 'media', ?, 'local', 'uploading', 0, ?)",
+            (note_id, uid, (filename[:255] or "media"), size, now_iso, client_id, now_iso))
+        att_id = cur.lastrowid
+        conn.commit()
+        part = media_storage.temp_path(att_id)
+        part.touch()
+        row = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
+        return _media_payload(conn, row, int(_time.time()))
+
+
+def _media_uploader_row(conn, uid: int, att_id: int):
+    row = _accessible_attachment(conn, uid, att_id)
+    if not row or row["kind"] != "media":
+        raise _media_not_found()
+    return row
+
+
+@app.get("/api/media/{att_id}/upload")
+async def get_media_upload(att_id: int, user=Depends(get_current_user)):
+    with get_db() as conn:
+        row = _accessible_attachment(conn, user["sub"], att_id)
+        if not row or row["kind"] != "media":
+            raise _media_not_found()
+        return _media_payload(conn, row, int(_time.time()))
+
+
+def _media_busy(received: int) -> JSONResponse:
+    return JSONResponse(status_code=409, content={
+        "detail": "Unggahan sedang diproses", "received_bytes": received})
+
+
+@app.patch("/api/media/{att_id}/upload")
+async def patch_media_upload(att_id: int, request: Request, user=Depends(get_current_user)):
+    uid = user["sub"]
+    raw = request.headers.get("upload-offset")
+    try:
+        offset = int(raw) if raw is not None and raw.strip().isdigit() else -1
+    except ValueError:
+        offset = -1
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="Header Upload-Offset wajib")
+    with get_db() as conn:
+        row = _media_uploader_row(conn, uid, att_id)
+        if row["user_id"] != uid:
+            raise _media_not_found()
+        if row["status"] != "uploading":
+            raise HTTPException(status_code=409, detail="Media tidak sedang diunggah")
+    lock = _media_upload_locks.setdefault(att_id, asyncio.Lock())
+    if lock.locked():
+        return _media_busy(row["received_bytes"])
+    await lock.acquire()
+    try:
+        with get_db() as conn:
+            row = _media_uploader_row(conn, uid, att_id)
+            if row["user_id"] != uid:
+                raise _media_not_found()
+            if row["status"] != "uploading":
+                raise HTTPException(status_code=409, detail="Media tidak sedang diunggah")
+            received = row["received_bytes"]
+            if offset != received:
+                return _media_busy(received)
+            max_body = MEDIA_CHUNK_BYTES + 1024 * 1024
+            chunks, total = [], 0
+            async for piece in request.stream():
+                total += len(piece)
+                if total > max_body or offset + total > row["file_size"]:
+                    raise HTTPException(status_code=413, detail="Potongan terlalu besar")
+                chunks.append(piece)
+            data = b"".join(chunks)
+            try:
+                await run_in_threadpool(_media_write_chunk, media_storage.temp_path(att_id), offset, data)
+            except OSError as e:
+                if e.errno == errno.ENOSPC:
+                    raise HTTPException(status_code=507, detail="Penyimpanan server penuh")
+                raise
+            conn.execute("UPDATE note_attachments SET received_bytes = ?, updated_at = ? WHERE id = ?",
+                         (offset + len(data), _media_now_iso(), att_id))
+            conn.commit()
+            row = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
+            return _media_payload(conn, row, int(_time.time()))
+    finally:
+        lock.release()
+        if _media_upload_locks.get(att_id) is lock:
+            _media_upload_locks.pop(att_id, None)
+
+
+@app.post("/api/media/{att_id}/complete")
+async def complete_media_upload(att_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    lock = _media_upload_locks.setdefault(att_id, asyncio.Lock())
+    if lock.locked():
+        with get_db() as conn:
+            row = _media_uploader_row(conn, uid, att_id)
+        return _media_busy(row["received_bytes"])
+    await lock.acquire()
+    try:
+        with get_db() as conn:
+            row = _media_uploader_row(conn, uid, att_id)
+            if row["user_id"] != uid:
+                raise _media_not_found()
+            if row["status"] != "uploading":
+                raise HTTPException(status_code=409, detail="Media tidak sedang diunggah")
+            if row["received_bytes"] != row["file_size"]:
+                raise HTTPException(status_code=400, detail="Unggahan belum lengkap")
+            part = media_storage.temp_path(att_id)
+            try:
+                head = await run_in_threadpool(_media_read_head, part)
+            except FileNotFoundError:
+                head = b""
+            sniff = sniff_media(head)
+            if sniff is None:
+                try:
+                    part.unlink()
+                except FileNotFoundError:
+                    pass
+                conn.execute("UPDATE note_attachments SET status='failed', error=?, updated_at=? WHERE id=?",
+                             ("Format file tidak didukung", _media_now_iso(), att_id))
+                conn.commit()  # get_db me-rollback bila exception, jadi commit dulu
+                raise HTTPException(status_code=415, detail="Format file tidak didukung")
+            now = datetime.utcnow()
+            key = new_key(sniff.ext, now)
+            media_storage.commit(key, part)
+            conn.execute(
+                "UPDATE note_attachments SET storage_key=?, mime_type=?, media_type=?, "
+                "status='processing', updated_at=? WHERE id=?",
+                (key, final_mime(sniff, sniff.default_media_type), sniff.default_media_type,
+                 now.isoformat(), att_id))
+            conn.commit()
+            media_worker.enqueue(att_id)
+            row = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
+            return _media_payload(conn, row, int(_time.time()))
+    finally:
+        lock.release()
+        if _media_upload_locks.get(att_id) is lock:
+            _media_upload_locks.pop(att_id, None)
+
 
 @app.get("/api/export/download")
 async def export_user_data(user=Depends(get_current_user)):
