@@ -425,7 +425,7 @@
       .task-row-header { flex-direction: column-reverse; gap: 4px; }
       .task-row-badges { align-self: flex-start; }
       .task-row-badges .dash-focus-label { display: none; }
-      .task-row-badges .dash-focus-btn { padding: 0 8px; }
+      .task-row-badges .dash-focus-btn { padding: 0 8px; height: 22px; }
       .task-row { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 6px; }
       .task-row:hover { background: var(--bg-primary); }
     }

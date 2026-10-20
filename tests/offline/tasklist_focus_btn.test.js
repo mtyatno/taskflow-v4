@@ -85,3 +85,15 @@ test("cache bust v430 + app.css?v=338", () => {
   assert.match(py, /sw_cache = "taskflow-v430-tasklist-focus"/);
   assert.match(indexHtml, /app\.css\?v=338/);
 });
+
+test("Sidebar: badge Today ikut menghitung task fokus aktif", () => {
+  const src = fnSource("Sidebar");
+  assert.match(src.slice(0, src.indexOf(") {\n")), /\bfocusTaskId\b/);
+  assert.match(src, /const todayCount = \(tasks \|\| \[\]\)\.filter\(t => \(t\.quadrant === "Q1" \|\| t\.is_overdue \|\| t\.is_focused \|\| \(focusTaskId != null && t\.id === focusTaskId\)\) && t\.gtd_status !== "done" && t\.gtd_status !== "archived"\)\.length;/);
+  const call = indexHtml.split("React.createElement(Sidebar, {")[1].slice(0, 400);
+  assert.match(call, /focusTaskId: focusTaskId,/);
+});
+
+test("CSS: tombol fokus di mobile setinggi 22px agar baris tidak membesar", () => {
+  assert.match(appCss, /@media \(max-width: 768px\) \{[\s\S]*?\.task-row-badges \.dash-focus-btn \{[^}]*height: 22px;/);
+});

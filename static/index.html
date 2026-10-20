@@ -2612,6 +2612,7 @@ function SharedListsManager({
   // BLOCK LENGTH: ~287 lines (3401-3687)
 
 function Sidebar({
+  focusTaskId,
   page,
   setPage,
   summary,
@@ -2671,7 +2672,7 @@ function Sidebar({
   const projCounts = React.useMemo(() => sidebarProjectCounts(projects, tasks), [projects, tasks]);
 
   // Count today's focus tasks
-  const todayCount = (tasks || []).filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused) && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
+  const todayCount = (tasks || []).filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused || (focusTaskId != null && t.id === focusTaskId)) && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
 
   // Pending offline tasks — merge ke sidebar counts
   const pendingByStatus = React.useMemo(() => (tasks || []).filter(t => t._pending).reduce((acc, t) => {
@@ -37252,6 +37253,7 @@ function App() {
     showToast: showToast,
     onClose: () => setStageManager(null)
   }), /*#__PURE__*/React.createElement(Sidebar, {
+    focusTaskId: focusTaskId,
     page: page,
     setPage: setPage,
     summary: summary,
