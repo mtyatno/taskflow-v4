@@ -387,3 +387,32 @@ test("K6: GET /api/tasks/:id/subtasks|notes|attachments go to the network for nu
   assert.deepEqual(isTaskChildListCall("GET", "/api/tasks/12/notes"), { id: "12", kind: "notes", numeric: true });
   assert.equal(isTaskChildListCall("GET", "/api/tasks/12/tags"), null);
 });
+
+// ── PR B Target 🍅: log pomodoro offline ──
+test("POST /api/tasks/:id/pomodoros queues the log and local reads report record + pending", async () => {
+  await seedTasks([task({ cid: "a", server_id: 10, pomodoros_done: 2, estimated_pomodoros: 4 })]);
+  const R = buildTaskRouter();
+  const res = await R.dispatch("POST", "/api/tasks/10/pomodoros", {
+    client_id: "log-1", kind: "session", pomodoros: 1, focus_seconds: 1500,
+    log_date: "2026-06-03", ended_at: "2026-06-03T09:25:00.000Z",
+  });
+  assert.equal(res.pomodoros_done, 3);
+  const rows = await R.dispatch("GET", "/api/tasks", undefined);
+  assert.equal(rows.find((r) => r.cid === "a").pomodoros_done, 3);
+  assert.equal((await R.dispatch("GET", "/api/tasks/10", undefined)).pomodoros_done, 3);
+  // record lokal tetap nilai server terakhir; pending hanya ditambahkan di jawaban rute
+  const db = await openDB();
+  const rec = await new Promise((res2) => { const r = db.transaction("tasks").objectStore("tasks").get("a"); r.onsuccess = () => res2(r.result); });
+  assert.equal(rec.pomodoros_done, 2);
+  // client_id sama dikirim ulang → tidak dihitung dua kali
+  const again = await R.dispatch("POST", "/api/tasks/10/pomodoros", {
+    client_id: "log-1", kind: "session", pomodoros: 1, focus_seconds: 1500,
+    log_date: "2026-06-03", ended_at: "2026-06-03T09:25:00.000Z",
+  });
+  assert.equal(again.pomodoros_done, 3);
+});
+
+test("POST /api/tasks/:id/pomodoros on an unknown id rejects (404)", async () => {
+  const R = buildTaskRouter();
+  await assert.rejects(() => R.dispatch("POST", "/api/tasks/999/pomodoros", { client_id: "x", kind: "session", pomodoros: 1 }), /not found/i);
+});

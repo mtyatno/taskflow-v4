@@ -745,3 +745,105 @@ test("task payloads carry estimated_pomodoros only when set, never pomodoros_don
     assert.equal("pomodoros_done" in p, false);
   }
 });
+
+// ── PR B Target 🍅: push pomodoro_log/create ──
+const pomolog = require("../../static/offline/pomolog.js");
+function pomoEntry(clientId) {
+  return { client_id: clientId, kind: "session", pomodoros: 1, focus_seconds: 1500, log_date: "2026-10-20", ended_at: "2026-10-20T09:25:00.000Z" };
+}
+async function rawTask(cid) {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const r = db.transaction("tasks", "readonly").objectStore("tasks").get(cid);
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function seedSyncedTask(done) {
+  await put("tasks", [task({ cid: "a", server_id: 10, pomodoros_done: done, dirty: 0, rev: 3 })]);
+  const { mapPut } = require("../../static/offline/idmap.js");
+  await mapPut("task", 10, "a");
+}
+
+test("pomodoro_log: 200 posts to /api/tasks/<sid>/pomodoros without task_cid, adopts server count, removes op", async () => {
+  await seedSyncedTask(4);
+  await pomolog.enqueue("a", pomoEntry("log-1"));
+  const tr = fakeTransport(() => ({ status: 200, data: { id: 1, task_id: 10, pomodoros_done: 5, duplicate: false } }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal(tr.calls.length, 1);
+  assert.equal(tr.calls[0].method, "POST");
+  assert.equal(tr.calls[0].path, "/api/tasks/10/pomodoros");
+  assert.deepEqual(tr.calls[0].body, pomoEntry("log-1"));
+  const rec = await rawTask("a");
+  assert.equal(rec.pomodoros_done, 5);
+  assert.equal(rec.dirty, 0);
+  assert.equal(rec.rev, 3);
+  assert.equal((await outboxAll()).length, 0);
+  const { buildTaskRouter } = require("../../static/offline/taskroutes.js");
+  assert.equal((await buildTaskRouter().dispatch("GET", "/api/tasks/10", undefined)).pomodoros_done, 5);
+});
+
+test("pomodoro_log: duplicate:true is treated as success", async () => {
+  await seedSyncedTask(5);
+  await pomolog.enqueue("a", pomoEntry("log-1"));
+  const tr = fakeTransport(() => ({ status: 200, data: { id: 1, task_id: 10, pomodoros_done: 5, duplicate: true } }));
+  const r = await pushOutbox(tr);
+  assert.equal(r.pushed, 1);
+  assert.equal((await rawTask("a")).pomodoros_done, 5);
+  assert.equal((await outboxAll()).length, 0);
+});
+
+test("pomodoro_log: held while the task create is queued, then sent to the new id once the create succeeds", async () => {
+  await put("tasks", [task({ cid: "a", title: "A", pomodoros_done: 0 })]);
+  await put("_outbox", [{ qid: 1, op: "create", entity_type: "task", cid: "a", payload: {} }]);
+  await pomolog.enqueue("a", pomoEntry("log-1"));
+  // create gagal sementara → log ditahan, tidak dikirim, tidak dibuang
+  const tr = fakeTransport(() => ({ status: 503, data: {} }));
+  await pushOutbox(tr);
+  assert.deepEqual(tr.calls.map((c) => c.path), ["/api/tasks"]);
+  assert.equal((await outboxAll()).length, 2);
+  // drain berikutnya: create sukses lalu log terkirim ke id baru dalam drain yang sama
+  const tr2 = fakeTransport((m, p) => (p === "/api/tasks"
+    ? { status: 201, data: { id: 77, updated_at: "u" } }
+    : { status: 200, data: { id: 1, task_id: 77, pomodoros_done: 1, duplicate: false } }));
+  const r2 = await pushOutbox(tr2);
+  assert.deepEqual(tr2.calls.map((c) => c.path), ["/api/tasks", "/api/tasks/77/pomodoros"]);
+  assert.equal(r2.pushed, 2);
+  assert.equal((await rawTask("a")).pomodoros_done, 1);
+  assert.equal((await outboxAll()).length, 0);
+});
+
+test("pomodoro_log: task without server id and no pending create → op dropped, no request", async () => {
+  await put("tasks", [task({ cid: "a", title: "A" })]);
+  await pomolog.enqueue("a", pomoEntry("log-1"));
+  const tr = fakeTransport(() => { throw new Error("should not call"); });
+  await pushOutbox(tr);
+  assert.equal(tr.calls.length, 0);
+  assert.equal((await outboxAll()).length, 0);
+});
+
+for (const st of [404, 403, 422]) {
+  test("pomodoro_log: " + st + " drops the op, counts failed, pending becomes 0", async () => {
+    await seedSyncedTask(2);
+    await pomolog.enqueue("a", pomoEntry("log-1"));
+    const tr = fakeTransport(() => ({ status: st, data: { detail: "x" } }));
+    const r = await pushOutbox(tr);
+    assert.equal(r.failed, 1);
+    assert.equal((await outboxAll()).length, 0);
+    assert.equal((await pomolog.pendingByTaskCid()).a || 0, 0);
+    assert.equal((await rawTask("a")).pomodoros_done, 2);
+    assert.equal((await rawTask("a")).sync_error, undefined);
+  });
+}
+
+for (const h of ["NETWORK", { status: 503, data: {} }]) {
+  test("pomodoro_log: " + (h === "NETWORK" ? "network error" : "503") + " keeps the op queued", async () => {
+    await seedSyncedTask(2);
+    await pomolog.enqueue("a", pomoEntry("log-1"));
+    const tr = fakeTransport(() => h);
+    await pushOutbox(tr);
+    assert.equal(tr.calls.length, 1);
+    assert.equal((await outboxAll()).length, 1);
+    assert.equal((await pomolog.pendingByTaskCid()).a, 1);
+  });
+}

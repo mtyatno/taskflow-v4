@@ -27,6 +27,7 @@ const STATIC = [
   "/static/offline/introgate.js",
   "/static/offline/focuspage.js",
   "/static/offline/pomologic.js",
+  "/static/offline/pomolog.js",
   "/static/review/digest.js",
   "/static/offline/voicedictate.js",
   "/static/offline/drawdirective.js",

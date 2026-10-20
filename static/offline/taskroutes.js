@@ -25,6 +25,7 @@
   const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
   const TFcontexts = req("./contextcache.js", root.TF && root.TF.contextcache);
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
+  const TFpomolog = req("./pomolog.js", root.TF && root.TF.pomolog);
 
   function todayISO() {
     const n = new Date();
@@ -134,11 +135,21 @@
     const opts = () => ({ today: todayISO() });
 
     router.register("GET", "/api/tasks", ({ query }) =>
-      TFquery.listTasks(query, opts()).then((rows) => rows.map(withId)));
+      Promise.all([TFquery.listTasks(query, opts()), TFpomolog.pendingByTaskCid()])
+        .then(([rows, pend]) => rows.map((r) => TFpomolog.withPending(withId(r), pend))));
 
     router.register("GET", "/api/tasks/:id", ({ params }) =>
       resolveCid(params.id).then((cid) => (cid ? TFrepo.getTask(cid, todayISO()) : null))
-        .then((row) => (row ? withId(row) : notFound())));
+        .then((row) => (row ? TFpomolog.pendingByTaskCid().then((pend) => TFpomolog.withPending(withId(row), pend)) : notFound())));
+
+    // PR B Target 🍅: log sesi selesai → antre (idempoten per client_id); jawab nilai server terakhir + pending.
+    router.register("POST", "/api/tasks/:id/pomodoros", ({ params, body }) =>
+      resolveCid(params.id).then((cid) => (cid ? TFrepo.getRaw(cid) : null)).then((rec) => {
+        if (!rec || rec.deleted) return notFound();
+        return TFpomolog.enqueue(rec.cid, body || {})
+          .then(() => TFpomolog.pendingByTaskCid())
+          .then((pend) => ({ pomodoros_done: TFpomolog.withPending({ cid: rec.cid, pomodoros_done: rec.pomodoros_done }, pend).pomodoros_done }));
+      }));
 
     router.register("POST", "/api/tasks", ({ body }) =>
       TFrepo.createTask(body || {}, opts()).then(withId));
