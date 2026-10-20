@@ -417,3 +417,28 @@ test("hydrateMediaCards (editor, Task 5): 404 sebelum init unggah lokal selesai 
   assert.equal(sb2.fetchCalls.length, 2);
   assert.equal(r2.cards[0].getAttribute("data-media-state"), "missing");
 });
+
+test("hydrateMediaCards: klik Unduh di native → opener native (preventDefault); di web dibiarkan", async () => {
+  for (const native of [true, false]) {
+    const sb = hydCtx();
+    const opened = [];
+    sb.mediaNativeShell = () => native;
+    sb.openMediaDownload = (u, n) => opened.push([u, n]);
+    sb.responses.push({ status: 200, body: READY() });
+    const { root, cards } = mkRoot(["c1"]);
+    sb.hydrateMediaCards(root, { noteId: 7, noteOwnerId: 5 });
+    await flush();
+    const link = { getAttribute: (k) => (k === "href" ? "https://api.x/media/d1" : null), closest: (s) => (s === "[data-media-card]" ? cards[0] : null) };
+    let prevented = 0;
+    root.listeners.click[0]({ target: { closest: (s) => (s === "[data-media-download]" ? link : null) }, currentTarget: root,
+      preventDefault() { prevented++; }, stopPropagation() {} });
+    await flush();
+    if (native) {
+      assert.equal(prevented, 1);
+      assert.deepEqual(opened, [["https://api.x/media/d1", "Rapat.mp4"]]);
+    } else {
+      assert.equal(prevented, 0, "web: tautan download biasa");
+      assert.deepEqual(opened, []);
+    }
+  }
+});

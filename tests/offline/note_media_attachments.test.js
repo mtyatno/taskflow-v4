@@ -73,3 +73,51 @@ test("mediaAttachmentCanDelete: baris daftar asli (uploader di user_id, tanpa up
   // uploaded_by tetap diutamakan bila ada
   assert.equal(C({ uploaded_by: 3, user_id: 4 }, "4", 9), false);
 });
+
+// ── fix wave item 5: shell native (Tauri) → unduhan media lewat jalur opener openAttachment ──
+function loadNative(native) {
+  const blk = slice("// ── Baris media di daftar lampiran note ──", "// ── Akhir baris media ──");
+  const events = []; const opened = [];
+  const win = { TF: {}, open: (...a) => opened.push(a), dispatchEvent: (ev) => events.push(ev) };
+  if (native) win.__TAURI__ = {};
+  const ctx = {
+    window: win, isFinite, Number, String, Array, Map, JSON,
+    API_BASE: native ? "https://api.x" : "",
+    apiUrl: (p) => (typeof p === "string" && p.charAt(0) === "/" ? (native ? "https://api.x" : "") + p : p),
+    CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } },
+    __token: "tok",
+    fetch: async () => ({ ok: true, json: async () => ({ download_url: "/media/dl9" }) }),
+    document: { querySelector: () => null },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(blk + "\nthis.D = openMediaDownload; this.O = openMediaAttachment; this.N = mediaNativeShell;", ctx);
+  return { ctx, events, opened };
+}
+
+test("openMediaDownload: native → event tf-open-attachment (URL bertanda tangan, tanpa token); web → window.open", () => {
+  const n = loadNative(true);
+  assert.equal(n.ctx.N(), true);
+  n.ctx.D("/media/abc", "rapat.mp4");
+  assert.equal(n.opened.length, 0, "native tidak memakai window.open");
+  assert.equal(n.events.length, 1);
+  assert.equal(n.events[0].type, "tf-open-attachment");
+  assert.deepEqual({ ...n.events[0].detail }, { url: "https://api.x/media/abc", filename: "rapat.mp4" });
+  n.ctx.D("https://api.x/media/x", "");
+  assert.equal(n.events[1].detail.url, "https://api.x/media/x");
+  const w = loadNative(false);
+  assert.equal(w.ctx.N(), false);
+  w.ctx.D("/media/abc", "rapat.mp4");
+  assert.equal(w.events.length, 0);
+  assert.deepEqual(w.opened.map((a) => [...a]), [["/media/abc", "_blank"]]);
+});
+
+test("openMediaAttachment (baris daftar) di native memakai opener native", async () => {
+  const n = loadNative(true);
+  await n.ctx.O({ id: 9, status: "ready", original_name: "v.mp4" });
+  assert.equal(n.opened.length, 0);
+  assert.equal(n.events.length, 1);
+  assert.deepEqual({ ...n.events[0].detail }, { url: "https://api.x/media/dl9", filename: "v.mp4" });
+  const w = loadNative(false);
+  await w.ctx.O({ id: 9, status: "ready", original_name: "v.mp4" });
+  assert.deepEqual(w.opened.map((a) => [...a]), [["/media/dl9", "_blank"]]);
+});

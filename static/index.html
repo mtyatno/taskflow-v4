@@ -587,6 +587,19 @@ function mediaAttachmentCanDelete(att, uid, noteOwnerId) {
   const by = att ? (att.uploaded_by != null ? att.uploaded_by : att.user_id) : null;
   return (by != null && Number(by) === u) || (noteOwnerId != null && Number(noteOwnerId) === u);
 }
+// Shell native (Tauri desktop/APK): API lintas-origin, jadi <a download>/window.open tidak bisa dipakai — sama
+// dengan openAttachment. URL media sudah bertanda tangan (token HMAC) → tidak perlu ?token=.
+function mediaNativeShell() {
+  return !!(typeof API_BASE !== 'undefined' && API_BASE && typeof window !== 'undefined' && window.__TAURI__);
+}
+function openMediaDownload(url, filename) {
+  const full = apiUrl(url);
+  if (mediaNativeShell()) {
+    window.dispatchEvent(new CustomEvent('tf-open-attachment', { detail: { url: full, filename: filename || '' } }));
+    return;
+  }
+  window.open(full, '_blank');
+}
 async function openMediaAttachment(att) {
   try {
     const cid = att && att.client_id;
@@ -606,7 +619,7 @@ async function openMediaAttachment(att) {
     const res = await fetch(apiUrl('/api/media/' + att.id), { headers });
     if (!res.ok) return;
     const meta = await res.json();
-    if (meta && meta.download_url) window.open(apiUrl(meta.download_url), '_blank');
+    if (meta && meta.download_url) openMediaDownload(meta.download_url, (att && att.original_name) || meta.original_name || '');
   } catch (_) {}
 }
 // Setelah baris media dihapus: buang meta tersimpan dan lepas ikatan kartu agar hidrasi berikutnya (efek editor /
@@ -23896,6 +23909,17 @@ function mediaNumericNoteId(id) {
 
   function onRootClick(e) {
     const t = e.target && e.target.nodeType === 3 ? e.target.parentElement : e.target;
+    // Unduh di shell native: arahkan ke opener native (web: tautan download biasa).
+    const dl = t && t.closest ? t.closest('[data-media-download]') : null;
+    if (dl) {
+      if (typeof mediaNativeShell === 'function' && mediaNativeShell() && typeof openMediaDownload === 'function') {
+        e.preventDefault();
+        const card = dl.closest ? dl.closest('[data-media-card]') : null;
+        const st = card ? cardState.get(card) : null;
+        openMediaDownload(dl.getAttribute('href'), (st && st.view && st.view.name) || '');
+      }
+      return;
+    }
     const btn = t && t.closest ? t.closest('[data-media-action]') : null;
     if (!btn) return;
     const card = btn.closest('[data-media-card]');
