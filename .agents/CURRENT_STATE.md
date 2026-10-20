@@ -3,8 +3,8 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
-## 🔵 Kanban: tahap kustom berbasis Context — spec — 2026-10-19 (Claude) — SPEC MENUNGGU REVIEW, BELUM ADA KODE
-- **Status:** spec `docs/superpowers/specs/2026-10-19-kanban-context-stages-design.md` (salinan di Project claude.ai "alurik" `claude/spec-kanban-context-stages-2026-10-19.md`), draft PR dari `claude/kanban-stages-spec`. Setelah Bapak menyetujui: rencana di `docs/superpowers/plans/` lalu implementasi (SDD).
+## 🔵 Kanban: tahap kustom berbasis Context — spec — 2026-10-19 (Claude) — SPEC DI-MERGE (#48) 2026-10-20, BELUM ADA KODE
+- **Status:** spec di-merge atas perintah Bapak ("merge", 2026-10-20 08:05 WIB). Spec `docs/superpowers/specs/2026-10-19-kanban-context-stages-design.md` (salinan di Project claude.ai "alurik" `claude/spec-kanban-context-stages-2026-10-19.md`). Berikutnya: rencana di `docs/superpowers/plans/` lalu implementasi (SDD).
 - **Keputusan Bapak (brainstorming 2026-10-19):** tahap kustom memakai Context; context jadi entitas pribadi + per workspace (tabel `contexts` + `tasks.context_id`, pola `projects`, hak kelola opsi C); kolom bawaan "Belum ada tahap" (kiri) dan "Selesai" (kanan, drop = done, isi 7 hari); semua kolom tampil walau kosong (juga P1–P4); urutan kartu otomatis; satu papan = satu scope (pemilih "Papan: Pribadi / W" di halaman campuran); buat tahap boleh offline, kelola lain online; pointer drag (mouse + sentuh), id cid bisa diseret, tanggal Jakarta.
 - **Urutan:** PR backend (restart `taskflow-web` + `taskflow`) → PR frontend + offline (naik SW).
 
@@ -23,7 +23,13 @@
 - **Sisa diketahui:** Outline: klik pertama badge 🔗 pada baris yang belum aktif hanya mengaktifkan baris (tombol aksi muncul, badge bergeser) — perilaku lama, bukan dari PR A. Kartu hidup ikut berubah pada event lokal dan setiap sinkron task (`tf:projects-changed`, review akhir).
 - **Berikutnya:** #44 dan #46 sudah di-merge; tinggal `git pull` + `sudo systemctl restart taskflow-web` di server, lalu cek kolaborasi langsung (badge 🟢 Langsung) dan Sampah mindmap.
 
-## 🟠 Drawing milik workspace — PR 3 frontend + offline — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+## 🟠 Pengamanan XSS (PR 1b) — 2026-10-19 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+- **Status:** branch `claude/xss-hardening` (draft PR). SW **v424** `taskflow-v424-xss-hardening`. Setelah deploy: **restart `taskflow-web` dan `taskflow`** (`bot.py`, `models.py`, `nlp.py` berubah). Cek setelah deploy: file vendor tldraw tersaji dengan Content-Type benar (header `nosniff`), PDF lampiran masih terbuka di browser.
+- **Isi:** `safehtml.py` + `static/offline/safehtml.js` (ADR-014); halaman publik (isi, kolom, password, SVG, KaTeX per text node, CSP/nosniff/sandbox); notifikasi + Telegram; mode baca/cetak/ekspor; pratinjau SVG `data:`; mindmap bersama; penampil lampiran; CI menjalankan tes paritas node.
+- **Verifikasi:** pytest 556, JS 1833/1834 (pra-ada `draw_local_reactive`), E2E XSS dua akun `temporary_files/e2e_xss.py` 41/41.
+- **Berikutnya:** PR CSP untuk seluruh aplikasi (juga pindahkan token dari query `?token=`).
+
+## 🟠 Drawing milik workspace — PR 3 frontend + offline — 2026-10-19 (Claude) — DI-MERGE (#45) & DEPLOY
 - **Status:** branch `claude/drawing-workspace-ui` (draft PR). SW **v421** `taskflow-v421-drawing-workspace`, `app.css?v=334`. Tidak ada perubahan backend selain string versi → setelah deploy cukup **restart `taskflow-web`**.
 - **Isi:** `static/offline/drawingshare.js` (baru, ADR-013); scope di `drawingrepo`/`drawingroutes`/`syncpull`/`syncpush`/`syncconflict`; halaman Draw (👥 Share, badge, filter Semua/Pribadi/W, aksi khusus pemilik, dialog "Drawing masih dipakai"); note (sisip per scope, buat baru di W, banner editor, badge + salin di embed, placeholder); dialog share/unshare note dan keluar workspace.
 - **Verifikasi:** pytest 358, JS 1633/1634 (pra-ada `draw_local_reactive`), E2E dua akun `temporary_files/e2e_drawing_workspace.py` 28/28 (screenshot `temporary_files/e2e_drawing_workspace/`). E2E menemukan bug urutan muat skrip (diperbaiki). Review akhir opus → perbaikan `base_rev` saat share (edit anggota bisa hilang), scope rekaman lama, gerbang push share note.

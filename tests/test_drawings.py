@@ -144,7 +144,11 @@ Selesai.
     assert "note-draw-card" in html_body
     assert "data-size=\"S\"" in html_body
     assert "Diagram Alur Proses" in html_body
-    assert '<circle cx="50" cy="50" r="40" fill="blue"' in html_body
+    # SVG tampil sebagai <img data:image/svg+xml;base64,…> (spec XSS §3), bukan markup
+    from test_pub_access import _shown
+    assert '<img src="data:image/svg+xml;base64,' in html_body
+    assert '<circle cx="50" cy="50" r="40" fill="blue"' not in html_body
+    assert '<circle cx="50" cy="50" r="40" fill="blue"' in _shown(html_body)
 
     # 7. Verify that markdown tables are rendered to <table>, not raw | markdown
     assert "<table>" in html_body

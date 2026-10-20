@@ -164,6 +164,8 @@ test("Task 1: Vendor Assets, Styling, and Markdown Parser for Rich Blocks", asyn
     assert.ok(markedBlockMatch, "Should find marked.use and renderMarkdown in static/index.html");
 
     vm.runInContext(markedBlockMatch[0].replace(/^window\.hydrateDrawingPreviews.*/m, ""), sandbox);
+    // renderMarkdown mengambil window.TF.safehtml saat dipanggil (static/offline/safehtml.js)
+    vm.runInContext(fs.readFileSync(path.join(rootDir, "static/offline/safehtml.js"), "utf8"), sandbox);
 
     assert.strictEqual(typeof sandbox.renderMarkdown, "function", "renderMarkdown should be a function");
 

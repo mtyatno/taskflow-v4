@@ -487,9 +487,11 @@ describe('Drawing Directive Module', () => {
     });
   });
 
-  describe('Inline Drawing Preview SVG Parsing and XML Header Acceptance', () => {
+  // Spec XSS §3: syarat isi = trim().startsWith('<svg') (sama dengan server & halaman publik); includes('<svg')
+  // tidak dipakai lagi. SVG ber-prolog XML ditolak (kartu "Gambar tidak tersedia").
+  describe('Inline Drawing Preview SVG Parsing (startsWith <svg)', () => {
     function isValidSvg(svg) {
-      return Boolean(svg && (svg.includes('<svg') || svg.trim().startsWith('<svg')));
+      return Boolean(svg && typeof svg === 'string' && svg.trim().startsWith('<svg'));
     }
 
     it('accepts standard <svg> string', () => {
@@ -497,10 +499,11 @@ describe('Drawing Directive Module', () => {
       assert.equal(isValidSvg(svg), true);
     });
 
-    it('accepts XML-prefixed <?xml version="1.0" encoding="utf-8"?> SVG output from tldraw', () => {
+    it('rejects XML-prefixed SVG and svg markup embedded after other content', () => {
       const xmlSvg = '<?xml version="1.0" encoding="utf-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 300"><path d="M10 10 L50 50" /></svg>';
-      assert.equal(isValidSvg(xmlSvg), true);
-      assert.equal(xmlSvg.trim().startsWith('<svg'), false, 'XML-prefixed SVG does not start with <svg');
+      assert.equal(isValidSvg(xmlSvg), false);
+      assert.equal(isValidSvg('<img src=x onerror=1><svg></svg>'), false);
+      assert.equal(isValidSvg('  <svg></svg>'), true);
     });
 
     it('rejects invalid or empty non-SVG string', () => {
@@ -515,8 +518,9 @@ describe('Drawing Directive Module', () => {
       const path = require('path');
       const indexHtml = fs.readFileSync(path.resolve(__dirname, '../../static/index.html'), 'utf8');
 
-      // 1. hydrateDrawingPreviews includes('<svg')
-      assert.match(indexHtml, /if\s*\(\s*svg\s*&&\s*\(svg\.includes\(['"]<svg['"]\)\s*\|\|\s*svg\.trim\(\)\.startsWith\(['"]<svg['"]\)\)/);
+      // 1. hydrateDrawingPreviews: pratinjau lewat <img> (TF.safehtml.mountSvgImg), tidak ada includes('<svg')
+      assert.match(indexHtml, /const img = SH\.mountSvgImg\(el, svg, /);
+      assert.doesNotMatch(indexHtml, /\.includes\(['"]<svg['"]\)/);
 
       // 2. _lastSavedDrawingSvg declaration and dual check
       assert.match(indexHtml, /const\s+_lastSavedDrawingSvg\s*=\s*\{\};/);
@@ -533,8 +537,8 @@ describe('Drawing Directive Module', () => {
       //    (hydrate langsung di awal tutup memicu lost update — lihat drawing_sync_ui.test.js)
       assert.match(indexHtml, /const closeAfterSave = async afterClose => \{[\s\S]*?await requestIframeSnapshot\([\s\S]*?await waitDrawingSaved\([\s\S]*?hydrateDrawingPreviews\(null,\s*true\)/);
 
-      // 6. handlePrint and handleExportDocx includes('<svg')
-      assert.match(indexHtml, /d\.svg_preview\.includes\(['"]<svg['"]\)/);
+      // 6. handlePrint and handleExportDocx: syarat startsWith('<svg')
+      assert.equal((indexHtml.match(/typeof d\.svg_preview === 'string' && d\.svg_preview\.trim\(\)\.startsWith\('<svg'\)/g) || []).length, 2);
     });
   });
 });
