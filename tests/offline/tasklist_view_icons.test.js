@@ -119,6 +119,11 @@ test("Tab workspace Tasks / Files memakai glyph duotone", async (t) => {
     assert.match(tabs, /React\.createElement\(ViewGlyph,\s*\{\s*name:\s*"wsFiles",\s*size:\s*15\s*\}\),\s*"Files"/);
   });
 
+  await t.test("baris tab punya marginTop 16 (jeda dari border bawah header sticky)", () => {
+    const style = tabs.slice(0, tabs.indexOf("WorkspacePinButton") > 0 ? tabs.length : 400);
+    assert.match(style.slice(0, style.indexOf("createElement")), /marginTop:\s*16\b/);
+  });
+
   await t.test("aria-pressed mengikuti tab aktif", () => {
     assert.match(tabs, /"aria-pressed":\s*workspaceTab\s*===\s*"tasks"/);
     assert.match(tabs, /"aria-pressed":\s*workspaceTab\s*===\s*"files"/);
@@ -142,12 +147,12 @@ test("CSS segmented toggle", async (t) => {
   });
 });
 
-test("cache bust v427 + app.css?v=336", async (t) => {
+test("cache bust v428 + app.css?v=336", async (t) => {
   await t.test("sw.js CACHE, dua fallback index.html, sw_cache webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v427-tasklist-view-icons";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v427-tasklist-view-icons";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v427-tasklist-view-icons"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v427-tasklist-view-icons"/);
+    assert.match(swJs, /^const CACHE = "taskflow-v428-workspace-tabs-gap";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v428-workspace-tabs-gap";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v428-workspace-tabs-gap"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v428-workspace-tabs-gap"/);
   });
 
   await t.test("index.html memuat app.css?v=336", () => {
