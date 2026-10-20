@@ -3617,3 +3617,17 @@
 ## 2026-10-20 15:34 WIB — Claude — merge tombol Fokus 🎯 tasklist (#58)
 - Bapak: "merge". #58 di-merge (5841f5d); CI Tests (PR) sukses, Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek tombol 🎯 di halaman GTD/workspace dan chip Pomodoro di top menu (SW v430).
+
+## [2026-10-20 16:15] - Claude (implementer Task 4 dashboard intro gate)
+- **Task:** Rilis SW v431 + E2E Playwright + handover untuk gerbang welcome card dashboard (`claude/dashboard-intro-gate`).
+- **Changes:** SW `taskflow-v430-tasklist-focus` → `taskflow-v431-dashboard-intro`, `app.css?v=338` → `339` (sw.js, index.html ×3, webapp.py `sw_cache`, tests/test_version.py, 17 tes node yang menambatkan versi); E2E baru 10 skenario (a, a2, b, c, d, d2, e, f, g, h); `.gitignore` folder screenshot. Produk tidak diubah.
+- **Files Touch:** static/sw.js, static/index.html, webapp.py, tests/test_version.py, tests/offline/*.test.js (versi), temporary_files/e2e_dashboard_intro.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Verifikasi:** pytest 816; JS 2152/2153 (pra-ada `draw_local_reactive`); E2E 60/62 — 2 gagal = kilasan welcome ±2 ms untuk akun bertask tanpa note (bug urutan baca di `useIntroState.onInitial`, Task 3). Belum di-commit (gerbang verifikasi rilis belum terpenuhi).
+- **Status:** In Progress (menunggu perbaikan Task 3, lalu jalankan ulang E2E dan commit `chore(release): SW v431 dashboard intro + E2E`)
+
+## [2026-10-20 16:40] - Claude (implementer Task 4, lanjutan)
+- **Task:** Jalankan ulang verifikasi setelah perbaikan kilatan welcome (5158955, didorong temuan E2E) lalu commit rilis.
+- **Changes:** MutationObserver E2E juga mencari teks "Mulai Langkah Pertama"; CURRENT_STATE → DRAFT PR, TUNGGU 'MERGE DAN DEPLOY'.
+- **Files Touch:** temporary_files/e2e_dashboard_intro.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md (+ file rilis dari entri sebelumnya)
+- **Verifikasi:** E2E 62/62 (2 run), JS 2153/2154 (pra-ada `draw_local_reactive`), pytest 816. Context `service_workers="block"` kecuali skenario f.
+- **Status:** Needs Review (draft PR; restart `taskflow-web` setelah deploy)
