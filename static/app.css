@@ -3543,7 +3543,7 @@
 .pomo-ambient[data-state="error"] .pomo-ambient-icon { color: #f87171; }
 .pomo-ambient[data-state="waiting-tap"] .pomo-ambient-icon { color: #facc15; }
 .pomo-ambient-select { background: rgba(255,255,255,.08); color: inherit; border: 1px solid rgba(255,255,255,.16); border-radius: 8px; padding: 4px 8px; font: inherit; font-size: 12px; }
-.pomo-ambient-select option { color: #111; }
+.pomo-ambient-select option { color: #111; background: #fff; }
 .pomo-ambient-volume { width: 88px; accent-color: #A8C500; }
 .pomo-ambient-volume:disabled { opacity: .4; }
 @keyframes pomo-ambient-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }

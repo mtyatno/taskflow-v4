@@ -190,17 +190,25 @@ self.addEventListener("fetch", e => {
 
   // Suara latar (/static/sounds/): cache-first dari AMBIENT_CACHE. Pemutar memakai fetch biasa (tanpa Range),
   // jadi hanya respons 200 penuh yang disimpan; 206/lainnya diteruskan tanpa disimpan.
+  // Cache Storage yang gagal (open/match) tidak boleh memblokir jaringan: lanjut ke fetch, 503 hanya bila
+  // jaringan juga gagal. put dijaga lewat waitUntil dan kegagalannya (mis. kuota) diabaikan.
   if (request.method === "GET" && url.pathname.startsWith("/static/sounds/")) {
+    const cacheP = caches.open(AMBIENT_CACHE).catch(() => null)
     e.respondWith(
-      caches.open(AMBIENT_CACHE).then(cache =>
-        cache.match(request).then(cached => {
+      cacheP
+        .then(cache => (cache ? cache.match(request) : undefined))
+        .catch(() => undefined)
+        .then(cached => {
           if (cached) return cached
           return fetch(request).then(res => {
-            if (res.ok && res.status === 200) cache.put(request, res.clone())
+            if (res.ok && res.status === 200) {
+              const copy = res.clone()
+              e.waitUntil(cacheP.then(cache => cache && cache.put(request, copy)).catch(() => {}))
+            }
             return res
           })
         })
-      ).catch(() => new Response("Offline", { status: 503 }))
+        .catch(() => new Response("Offline", { status: 503 }))
     )
     return
   }

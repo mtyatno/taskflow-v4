@@ -36,6 +36,14 @@ test("App: satu pemutar, prefs, efek update, hook debug", () => {
   assert.ok(m[1].includes("timer.timeLeft === 1500"));
 });
 
+test("App: logout / sesi berakhir (user null) memudarkan suara walau timer tetap berjalan", () => {
+  const src = fnSource("App");
+  const m = src.match(/\.update\(\{([\s\S]*?)\}\);?\s*\}, \[([^\]]*)\]\)/);
+  assert.ok(m, "efek update dengan deps harus ada");
+  assert.match(m[1], /isRunning: !!user && timer\.isRunning/);
+  assert.ok(m[2].includes("!!user"), "deps efek harus memuat !!user");
+});
+
 test("PomoAmbient: label, tooltip, data-state, SOUNDS", () => {
   const src = fnSource("PomoAmbient");
   assert.ok(src.includes('"Suara latar"'));
@@ -76,4 +84,6 @@ test("CSS: pomo-ambient, warna status, reduced-motion", () => {
   assert.ok(appCss.includes("#facc15"));
   assert.match(appCss, /prefers-reduced-motion: reduce\)\s*\{[^}]*\.pomo-ambient\[data-state="loading"\][^}]*animation: none/);
   assert.match(appCss, /max-width: 768px\)[\s\S]*?\.pomo-ambient\s*\{[^}]*flex-basis: 100%/);
+  // Popup native <option> bisa gelap (tema OS): teks gelap butuh latar terang eksplisit.
+  assert.match(appCss, /\.pomo-ambient-select option\s*\{[^}]*color: #111;[^}]*background: #fff/);
 });

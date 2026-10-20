@@ -3732,6 +3732,11 @@
 
 ## 2026-10-21 06:20 WIB — Claude — Fokus Hari Ini PR D (Suara latar): Task 5
 - **Task:** Task 5 PR D: merge `origin/main` (cbcd8c7, #66) ke `claude/focus-ambient`, naik versi SW v440 `taskflow-v440-focus-ambient` / `app.css?v=348`, E2E suara latar, handover.
-- **Changes:** merge main (konflik baris `CACHE` di `sw.js`, kedua sisi dipertahankan); versi di `sw.js`, `index.html` ×3, `webapp.py` + tes yang mengunci versi; `PomoAmbient` mendapat teks `sr-only aria-live="polite"` untuk tooltip waiting-tap / error (+ tes sumber); E2E baru `temporary_files/e2e_focus_ambient.py` 82/82 (termasuk tata letak 375 px + 320 px, tanpa perubahan CSS); E2E lama 35/35 · 41/41 · 98/98; pytest 911; JS 2387/2388 (pra-ada `draw_local_reactive`); inline OK.
+- **Changes:** merge main (konflik baris `CACHE` di `sw.js`, kedua sisi dipertahankan); versi di `sw.js`, `index.html` ×3, `webapp.py` + tes yang mengunci versi; `PomoAmbient` mendapat teks `sr-only aria-live="polite"` untuk tooltip waiting-tap / error (+ tes sumber); E2E baru `temporary_files/e2e_focus_ambient.py` 87/87 (termasuk tata letak 375 px + 320 px, tanpa perubahan CSS); E2E lama 35/35 · 41/41 · 98/98; pytest 911; JS 2387/2388 (pra-ada `draw_local_reactive`); inline OK.
 - **Files Touch:** static/sw.js, static/index.html, webapp.py, tests/, .gitignore, temporary_files/e2e_focus_ambient.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (belum di-push; deploy = file statis + `static/sounds/` + restart `taskflow-web` saja)
+
+## 2026-10-21 07:10 WIB — Claude — Fokus Hari Ini PR D: perbaikan review akhir
+- **Changes:** suara memudar saat logout / sesi berakhir (efek update App: `isRunning: !!user && timer.isRunning`, deps `!!user`) + tes sumber + E2E j; SW `/static/sounds/`: kegagalan Cache Storage lanjut ke jaringan, `cache.put` lewat `e.waitUntil(...).catch`, + 4 tes; `.pomo-ambient-select option` latar `#fff` + tes CSS; E2E h membuktikan respons `from_service_worker` + kontrol negatif (putaran review 1). E2E ambient 87/87; lihat entri CURRENT_STATE untuk verifikasi lengkap.
+- **Files Touch:** static/index.html, static/sw.js, static/app.css, tests/offline/focus_ambient_ui.test.js, tests/offline/sw_ambient_cache.test.js, temporary_files/e2e_focus_ambient.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push)

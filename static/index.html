@@ -36970,13 +36970,14 @@ function App() {
   }, []);
   React.useEffect(() => {
     const player = ambientPlayerRef.current;
+    // Tanpa user (logout / sesi berakhir) timer bisa tetap berjalan, tetapi suara harus diam di layar login.
     if (player) player.update({
       mode: timer.mode,
       phase: timer.phase,
-      isRunning: timer.isRunning,
+      isRunning: !!user && timer.isRunning,
       timeLeft: timer.timeLeft
     });
-  }, [timer.mode, timer.phase, timer.isRunning, timer.timeLeft === 1500]);
+  }, [timer.mode, timer.phase, timer.isRunning, timer.timeLeft === 1500, !!user]);
   const onAmbientSound = useCallback(key => {
     const player = ambientPlayerRef.current;
     if (player) player.setSound(key);

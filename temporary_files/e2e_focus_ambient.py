@@ -10,6 +10,7 @@ g reload saat Work berjalan di browser TANPA flag autoplay -> waiting-tap (+ tek
 h SW aktif: Brown Noise online -> reload offline -> Brown Noise lagi bukan error (alurik-ambient-v1);
   Detak Jam (belum pernah diunduh) offline -> error, tooltip "Suara belum tersedia offline"
 i reload tanpa memilih apa pun -> 0 request sebelum Work mulai; Mulai -> request diambil
+j logout saat berbunyi -> layar login, suara paused dalam 1,5 dtk
 Offline (h): context offline + server dimatikan, karena emulasi offline Playwright tidak mengenai fetch SW.
 Screenshot terang + gelap, desktop + 375 px (kontrol di kartu, status error) dan cek tata letak 320 px:
 temporary_files/e2e_focus_ambient/.
@@ -171,6 +172,7 @@ def main():
             finally:
                 strict.close()
             run_shots(browser, base, user)
+            run_logout(browser, base)
             run_sw_offline(browser, base, user, proc)
             browser.close()
     except Exception as e:
@@ -459,6 +461,29 @@ def run_sw_offline(browser, base, user, proc):
               and any("brown-noise-v1" in u for u in ctx.sound_reqs[r0:])
               and not any(code == 200 for _, code, _ in ctx.sound_resps[n0:]),
               "%r %r %r" % (st, ctx.sound_reqs[r0:], ctx.sound_resps[n0:]))
+    finally:
+        ctx.close()
+
+
+def run_logout(browser, base):
+    # j. logout saat berbunyi -> suara memudar di layar login (timer boleh tetap berjalan). User terpisah,
+    # karena logout mencabut token di server.
+    u2 = h.register(base, "ambout")
+    h.api(base, u2, "POST", "/api/tasks",
+          json={"title": T1, "priority": "P1", "gtd_status": "next", "deadline": h.today_iso()})
+    ctx, p = open_app(browser, base, u2, "light", extra_ls={"tf_ambient_sound": "hujan"})
+    try:
+        p.on("dialog", lambda d: d.accept())
+        tg.focus(p, T1)
+        tg.start(p)
+        st = wait_amb(p, lambda s: playing(s) and near(s["gain"], 0.5))
+        check("j0 Work berjalan -> berbunyi", playing(st), repr(st))
+        p.evaluate("() => { window.__logout(); }")
+        p.locator("input[type=password]").first.wait_for(state="visible", timeout=10000)
+        st = wait_amb(p, lambda s: s["paused"] is True, timeout=1.5)
+        ai = audio_info(p)
+        check("j1 logout -> layar login, suara paused dalam 1,5 dtk", st is not None and st["paused"] is True
+              and all(a["paused"] for a in ai), "%r %r" % (st, ai))
     finally:
         ctx.close()
 
