@@ -8157,7 +8157,6 @@ function FocusTaskItem({
   onStartFocus,
   isFocusing,
   hasFocusTask,
-  pomodoroCount,
   zenHidden,
   zenShown
 }) {
@@ -8247,10 +8246,7 @@ function FocusTaskItem({
       name: t.glyph,
       size: 12
     }), label);
-  }), pomodoroCount > 0 && React.createElement("span", {
-    className: "ftask-count is-pomo",
-    title: "Pomodoro hari ini"
-  }, "🍅 ", pomodoroCount))), React.createElement("button", {
+  }))), React.createElement("button", {
     type: "button",
     "data-tour": "today-focus-btn",
     className: `ftask-focus-btn ${isFocusing ? "is-active" : isOtherFocused ? "is-disabled" : ""}`,
@@ -8385,10 +8381,9 @@ const POMO_MODES = [
 
 // State timer dipegang satu hook agar kartu penuh & bar ringkas (sticky) selalu sinkron.
 function usePomodoro({
-  focusTask,
-  setTaskPomodoros
+  focusTask
 }) {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = window.TF.tasklogic.todayLocalISO();
   const savedState = (() => {
     try {
       const raw = localStorage.getItem("tf_pomo_state");
@@ -8423,6 +8418,9 @@ function usePomodoro({
   const [targetEndTime, setTargetEndTime] = useState(() => savedState?.targetEndTime || null);
   const [sessionCount, setSessionCount] = useState(() => savedState?.sessionCount || 0);
   const [totalFocusTime, setTotalFocusTime] = useState(() => savedState?.totalFocusTime || 0);
+  // Awal sesi Work (ms) + task sesi: dasar client_id idempoten untuk log Pomodoro.
+  const [workStartedAt, setWorkStartedAt] = useState(() => typeof savedState?.workStartedAt === "number" ? savedState.workStartedAt : null);
+  const [sessionTaskId, setSessionTaskId] = useState(() => savedState?.sessionTaskId ?? null);
   const intervalRef = useRef(null);
 
   // Request notification permission on mount
@@ -8443,11 +8441,13 @@ function usePomodoro({
         focusTaskId: focusTask ? focusTask.id : null,
         sessionCount,
         totalFocusTime,
+        workStartedAt,
+        sessionTaskId,
         date: todayStr
       };
       localStorage.setItem("tf_pomo_state", JSON.stringify(stateToSave));
     } catch (e) {}
-  }, [mode, timeLeft, isRunning, targetEndTime, focusTask?.id, sessionCount, totalFocusTime]);
+  }, [mode, timeLeft, isRunning, targetEndTime, focusTask?.id, sessionCount, totalFocusTime, workStartedAt, sessionTaskId]);
 
   // Timer logic with drift correction
   useEffect(() => {
@@ -8483,13 +8483,24 @@ function usePomodoro({
       const newSessionCount = sessionCount + 1;
       setSessionCount(newSessionCount);
 
-      // Update pomodoro count for the focused task
-      if (focusTask) {
-        setTaskPomodoros(prev => ({
-          ...prev,
-          [focusTask.id]: (prev[focusTask.id] || 0) + 1
-        }));
+      // Catat sesi ke log Pomodoro task (offline-first, idempoten lewat client_id)
+      const loggedTaskId = focusTask?.id ?? sessionTaskId;
+      if (loggedTaskId != null) {
+        let uid = "0";
+        try {
+          uid = localStorage.getItem("tf_user_id") || "0";
+        } catch (e) {}
+        const startedAt = workStartedAt ?? Date.now() - 1500000;
+        api.post("/api/tasks/" + loggedTaskId + "/pomodoros", {
+          client_id: window.TF.pomologic.sessionClientId(uid, startedAt),
+          kind: "session",
+          pomodoros: 1,
+          focus_seconds: 1500,
+          log_date: window.TF.tasklogic.todayLocalISO(),
+          ended_at: new Date().toISOString()
+        }).then(() => window.__refreshTasks?.()).catch(err => console.warn("Gagal mencatat Pomodoro:", err));
       }
+      setWorkStartedAt(null);
       playNotificationSound("work");
       sendBrowserNotification("🍅 Pomodoro Selesai!", "Saatnya istirahat sebentar.");
 
@@ -8515,6 +8526,10 @@ function usePomodoro({
       window.__showToast?.("Pilih satu task terlebih dahulu untuk memulai Pomodoro!", "warning");
       return false;
     }
+    if (mode === "work" && timeLeft === POMO_DURATIONS.work) {
+      setWorkStartedAt(Date.now());
+    }
+    setSessionTaskId(activeTask.id);
     const end = Date.now() + timeLeft * 1000;
     setTargetEndTime(end);
     setIsRunning(true);
@@ -8529,8 +8544,10 @@ function usePomodoro({
     setIsRunning(false);
     setTimeLeft(POMO_DURATIONS[mode]);
     setTargetEndTime(null);
+    if (mode === "work") setWorkStartedAt(null);
   };
   const skip = () => {
+    if (mode === "work") setWorkStartedAt(null);
     setIsRunning(false);
     setTargetEndTime(null);
     if (mode === "work") {
@@ -8549,6 +8566,7 @@ function usePomodoro({
     }
   };
   const switchMode = m => {
+    if (mode === "work") setWorkStartedAt(null);
     setMode(m);
     setTimeLeft(POMO_DURATIONS[m]);
     setIsRunning(false);
@@ -8746,7 +8764,6 @@ function PomoParkInput() {
 function PomodoroTimer({
   timer,
   focusTask,
-  taskPomodoros,
   cardRef,
   zenEnabled,
   onToggleZen
@@ -8813,7 +8830,7 @@ function PomodoroTimer({
   }, focusTask.title)), React.createElement("div", {
     className: "focus-pomo-task-count",
     title: "Pomodoro task ini"
-  }, "🍅 ", taskPomodoros[focusTask.id] || 0)) : React.createElement("div", {
+  }, "🍅 ", focusTask.pomodoros_done || 0)) : React.createElement("div", {
     className: "focus-pomo-hint"
   }, "Pilih task di bawah lalu klik ", React.createElement("strong", null, "Fokus"), " untuk menjadikannya task aktif."), React.createElement("div", {
     className: "focus-pomo-stats"
@@ -9294,16 +9311,11 @@ function TodayFocusView({
   loading,
   timer: propsTimer,
   focusTask: propsFocusTask,
-  setFocusTask: propsSetFocusTask,
-  taskPomodoros: propsTaskPomodoros,
-  setTaskPomodoros: propsSetTaskPomodoros
+  setFocusTask: propsSetFocusTask
 }) {
   const [localFocusTask, setLocalFocusTask] = useState(null);
-  const [localTaskPomodoros, setLocalTaskPomodoros] = useState({});
   const focusTask = propsFocusTask !== undefined ? propsFocusTask : localFocusTask;
   const setFocusTask = propsSetFocusTask || setLocalFocusTask;
-  const taskPomodoros = propsTaskPomodoros !== undefined ? propsTaskPomodoros : localTaskPomodoros;
-  const setTaskPomodoros = propsSetTaskPomodoros || setLocalTaskPomodoros;
   const [todayExceptions, setTodayExceptions] = useState({});
   const [openId, setOpenId] = useState(null);
   const [openTab, setOpenTab] = useState("subtasks");
@@ -9325,7 +9337,7 @@ function TodayFocusView({
     setZenEnabled(next);
     window.TF.focuspage.writeZenPref(zenStorage(), next);
   };
-  // Diangkat ke App level: const timer = usePomodoro({ focusTask, setTaskPomodoros });
+  // Diangkat ke App level: const timer = usePomodoro({ focusTask });
   const timer = propsTimer || {
     mode: "work",
     timeLeft: POMO_DURATIONS.work,
@@ -9343,7 +9355,7 @@ function TodayFocusView({
     labelText: "Fokus",
     canStop: false
   };
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = window.TF.tasklogic.todayLocalISO();
   React.useEffect(() => {
     const recurringTasks = tasks.filter(t => t.recurrence_type && t.recurrence_end_date);
     if (recurringTasks.length === 0) return;
@@ -9441,7 +9453,6 @@ function TodayFocusView({
     onDone?.(taskId);
   };
   const toggleOpen = id => setOpenId(prev => prev === id ? null : id);
-  const totalPomodoros = Object.values(taskPomodoros).reduce((a, b) => a + b, 0);
   return React.createElement("div", {
     className: `focus-page fade-in${zenOn ? " is-zen" : ""}`
   }, React.createElement(PomodoroMiniBar, {
@@ -9467,10 +9478,9 @@ function TodayFocusView({
     size: 22
   }), "Fokus Hari Ini"), React.createElement("span", {
     className: "focus-page-summary"
-  }, sortedTasks.length, " tugas • ", totalPomodoros, " 🍅 hari ini"))), React.createElement(PomodoroTimer, {
+  }, sortedTasks.length, " tugas • ", timer.sessionCount, " 🍅 hari ini"))), React.createElement(PomodoroTimer, {
     timer: timer,
     focusTask: focusTask,
-    taskPomodoros: taskPomodoros,
     cardRef: pomoRef,
     zenEnabled: zenEnabled,
     onToggleZen: toggleZen
@@ -9567,8 +9577,7 @@ function TodayFocusView({
     onDone: handleTaskDone,
     onStartFocus: handleStartFocus,
     isFocusing: focusTask?.id === task.id,
-    hasFocusTask: !!focusTask,
-    pomodoroCount: taskPomodoros[task.id] || 0
+    hasFocusTask: !!focusTask
   })))), React.createElement("p", {
     className: `focus-tip${zenClass}`,
     "aria-hidden": zenOn ? true : undefined
@@ -36166,18 +36175,16 @@ function App() {
       const saved = localStorage.getItem("tf_pomo_state");
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed?.focusTaskId && parsed?.date === new Date().toISOString().slice(0, 10)) {
+        if (parsed?.focusTaskId && parsed?.date === window.TF.tasklogic.todayLocalISO()) {
           return parsed.focusTaskId;
         }
       }
     } catch (e) {}
     return null;
   });
-  const [taskPomodoros, setTaskPomodoros] = useState({});
   const focusTask = tasks.find(t => t.id === focusTaskId) || null;
   const timer = usePomodoro({
-    focusTask,
-    setTaskPomodoros
+    focusTask
   });
   // Menu utama selalu mulai sebagai bilah ikon: saat login pertama, tiap muat halaman (state awal)
   // dan setelah tiap perpindahan halaman. › hanya membuka menu lengkap sementara.
@@ -36300,7 +36307,6 @@ function App() {
       setNotifications([]);
       setUnreadCount(0);
       setFocusTaskId(null);
-      setTaskPomodoros({});
       setSummary({
         by_status: {},
         by_quadrant: {},
@@ -37523,9 +37529,7 @@ function App() {
         loading: loading,
         timer: timer,
         focusTask: focusTask,
-        setFocusTask: t => setFocusTaskId(t ? t.id : null),
-        taskPomodoros: taskPomodoros,
-        setTaskPomodoros: setTaskPomodoros
+        setFocusTask: t => setFocusTaskId(t ? t.id : null)
       });
     }
     if (page === "chat") {

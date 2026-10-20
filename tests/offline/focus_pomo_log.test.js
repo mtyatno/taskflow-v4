@@ -1,0 +1,59 @@
+"use strict";
+
+// Timer Pomodoro mencatat sesi Work selesai ke log (route lokal) + tanggal lokal; tanpa taskPomodoros.
+
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const indexHtml = fs.readFileSync(path.resolve(__dirname, "../../static/index.html"), "utf8").replace(/\r\n/g, "\n");
+
+function fnSource(name) {
+  const start = indexHtml.indexOf(`\nfunction ${name}(`);
+  assert.ok(start >= 0, `${name} must exist`);
+  const end = indexHtml.indexOf("\n}\n", start + 1);
+  assert.ok(end > start, `${name} end must be found`);
+  return indexHtml.slice(start, end);
+}
+
+test("usePomodoro: tanggal lokal, bukan UTC", () => {
+  const src = fnSource("usePomodoro");
+  assert.ok(!src.includes("toISOString().slice(0, 10)"));
+  assert.ok(src.includes("todayLocalISO()"));
+});
+
+test("usePomodoro: mencatat sesi Work ke route pomodoros", () => {
+  const src = fnSource("usePomodoro");
+  for (const needle of [
+    "workStartedAt",
+    "sessionTaskId",
+    "sessionClientId(",
+    '"/pomodoros"',
+    'kind: "session"',
+    "focus_seconds: 1500",
+    "__refreshTasks",
+    "console.warn",
+  ]) {
+    assert.ok(src.includes(needle), `harus memuat ${needle}`);
+  }
+  assert.ok(!src.includes("setTaskPomodoros"));
+  assert.match(src, /function usePomodoro\(\{\s*focusTask\s*\}\)/);
+});
+
+test("taskPomodoros dihapus dari seluruh index.html", () => {
+  assert.ok(!indexHtml.includes("taskPomodoros"));
+  assert.ok(!indexHtml.includes("setTaskPomodoros"));
+});
+
+test("App: pemulihan focusTaskId memakai tanggal lokal", () => {
+  const i = indexHtml.indexOf('parsed?.focusTaskId && parsed?.date ===');
+  assert.ok(i >= 0);
+  assert.ok(indexHtml.slice(i, i + 120).includes("todayLocalISO()"));
+});
+
+test("TodayFocusView: todayStr lokal", () => {
+  const src = fnSource("TodayFocusView");
+  assert.ok(!src.includes("toISOString().slice(0, 10)"));
+  assert.ok(src.includes("todayLocalISO()"));
+});
