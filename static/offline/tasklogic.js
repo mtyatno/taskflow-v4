@@ -70,7 +70,7 @@
     return { days_until_deadline: daysLeft, is_overdue: isOverdue };
   }
 
-  const exported = { calculateQuadrant, deriveTaskFields };
+  const exported = { calculateQuadrant, deriveTaskFields, todayLocalISO };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.tasklogic = exported; }
   return exported;
 });
